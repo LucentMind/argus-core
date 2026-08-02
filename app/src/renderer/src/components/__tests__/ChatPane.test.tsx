@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useState } from 'react'
 import { render, screen, fireEvent, act, waitForElementToBeRemoved } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ChatPane } from '../ChatPane'
@@ -415,9 +416,22 @@ describe('ChatPane', () => {
       ({ ...base, caseSlug: slug, type, payload, turnId }) as AgentEvent
     agentStore.apply(at('turn.started', { userText: 'braking failed' }, 1))
     agentStore.apply(at('assistant.message', { text: 'unrelated reply' }, 1))
-    const { container } = render(
-      <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
-    )
+    // findOpen is now lifted to the caller (CaseWorkspace in the real app) — a small
+    // stateful harness stands in for it here, mirroring how the Ctrl+F keydown and a
+    // close both flow back through onFindOpenChange.
+    function Harness(): React.JSX.Element {
+      const [findOpen, setFindOpen] = useState(false)
+      return (
+        <ChatPane
+          slug={slug}
+          sessionId={1}
+          onCite={vi.fn()}
+          findOpen={findOpen}
+          onFindOpenChange={setFindOpen}
+        />
+      )
+    }
+    const { container } = render(<Harness />)
     expect(screen.queryByLabelText('Find in chat')).toBeNull()
 
     fireEvent.keyDown(window, { key: 'f', ctrlKey: true })

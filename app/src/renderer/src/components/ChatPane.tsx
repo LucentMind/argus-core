@@ -65,7 +65,9 @@ export function ChatPane({
   onCite,
   focusTarget = null,
   onFocusConsumed,
-  prefill
+  prefill,
+  findOpen = false,
+  onFindOpenChange = () => {}
 }: {
   slug: string
   sessionId: number
@@ -80,6 +82,10 @@ export function ChatPane({
   focusTarget?: ChatJumpTarget | null
   onFocusConsumed?: () => void
   prefill?: string
+  /** In-transcript find overlay's open state — owned by CaseWorkspace so both the Ctrl+F
+   *  keystroke here and the bar's find button (PanelTabStrip) drive the same state. */
+  findOpen?: boolean
+  onFindOpenChange?: (open: boolean) => void
 }): React.JSX.Element {
   const state = useSyncExternalStore(
     (cb) => agentStore.subscribe(cb),
@@ -191,9 +197,10 @@ export function ChatPane({
   }, [])
 
   // in-chat find (Ctrl/Cmd+F): the overlay is a pure component (ChatFind)
-  // that owns the query text; ChatPane owns opening/closing, the scroll to
-  // the current match, and the ring classes on matching items.
-  const [findOpen, setFindOpen] = useState(false)
+  // that owns the query text; ChatPane owns opening/closing (via the
+  // findOpen/onFindOpenChange props, lifted to CaseWorkspace so the bar's
+  // find button can drive the same state), the scroll to the current match,
+  // and the ring classes on matching items.
   const [findMatches, setFindMatches] = useState<number[]>([])
   const [currentFindIndex, setCurrentFindIndex] = useState<number | null>(null)
 
@@ -201,15 +208,15 @@ export function ChatPane({
     function onKeyDown(e: KeyboardEvent): void {
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault()
-        setFindOpen(true)
+        onFindOpenChange(true)
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [onFindOpenChange])
 
   function closeFind(): void {
-    setFindOpen(false)
+    onFindOpenChange(false)
     setFindMatches([])
     setCurrentFindIndex(null)
     paneRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus()

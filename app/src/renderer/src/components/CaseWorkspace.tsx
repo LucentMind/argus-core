@@ -89,6 +89,10 @@ export function CaseWorkspace({
   } | null>(null)
   const [prefill, setPrefill] = useState('')
   const [sessionId, setSessionId] = useState<number | null>(null)
+  // In-transcript find (ChatFind): lifted out of ChatPane so both the Ctrl+F keystroke
+  // (handled inside ChatPane) and the bar's find button (PanelTabStrip) drive the same
+  // open state.
+  const [findOpen, setFindOpen] = useState(false)
   // The summaries were previously fetched and thrown away. They are kept now because the
   // composer needs the current chat's pinned provider+model, and the approval card needs
   // that provider's capabilities — both are per-session once several providers are enabled.
@@ -635,6 +639,7 @@ export function CaseWorkspace({
               instanceId={sessions.find((s) => s.id === sessionId)?.instanceId ?? null}
               onSwitchSession={handleSwitchSession}
               onJumpToTurn={handleJumpToTurn}
+              onOpenFind={() => setFindOpen(true)}
               action={
                 activeMode === 'review' ? (
                   <ReviewRunButton slug={slug} sessionId={sessionId} onError={handleModeError} />
@@ -658,6 +663,8 @@ export function CaseWorkspace({
                     focusTarget={focusTurn?.target ?? null}
                     onFocusConsumed={() => setFocusTurn(null)}
                     prefill={prefill}
+                    findOpen={findOpen}
+                    onFindOpenChange={setFindOpen}
                   />
                 )}
               </div>

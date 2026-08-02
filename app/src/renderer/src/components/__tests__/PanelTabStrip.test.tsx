@@ -278,6 +278,54 @@ describe('PanelTabStrip', () => {
     expect(screen.getAllByTestId('session-chips')).toHaveLength(1)
   })
 
+  it('shows a Find in chat button on the chat tab and wires it to onOpenFind', async () => {
+    window.argus = {
+      ...sessionArgusMocks(),
+      sessions: {
+        list: vi
+          .fn()
+          .mockResolvedValue([
+            { id: 7, title: 'Ingest triage', turnCount: 3, updatedAt: new Date().toISOString() }
+          ])
+      },
+      panels: { open: vi.fn() }
+    } as never
+    const onOpenFind = vi.fn()
+
+    const { rerender } = render(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={7}
+        activeTab="chat"
+        onSelect={vi.fn()}
+        activeSessionId={7}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+        onOpenFind={onOpenFind}
+      />
+    )
+
+    fireEvent.click(await screen.findByLabelText('Find in chat'))
+    expect(onOpenFind).toHaveBeenCalledTimes(1)
+
+    // absent on a panel tab — the button is chat-only, same as the chips beside it
+    rerender(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={7}
+        activeTab="sample-pack:text-viewer"
+        onSelect={vi.fn()}
+        activeSessionId={7}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+        onOpenFind={onOpenFind}
+      />
+    )
+    expect(screen.queryByLabelText('Find in chat')).not.toBeInTheDocument()
+  })
+
   it('shows no chips and a fallback "Chat" label while no session is active yet', async () => {
     window.argus = {
       ...sessionArgusMocks(),
@@ -366,6 +414,8 @@ describe('PanelTabStrip', () => {
       />
     )
 
+    // Search now lives inside SessionSwitcher's popup — open it first.
+    fireEvent.click(await screen.findByLabelText('Ingest triage'))
     const search = await screen.findByLabelText('Search chats')
     expect(fireEvent.keyDown(search, { key: ' ' })).toBe(true)
   })
@@ -431,6 +481,8 @@ describe('PanelTabStrip', () => {
       />
     )
 
+    // Search now lives inside SessionSwitcher's popup — open it first.
+    fireEvent.click(await screen.findByLabelText('Ingest triage'))
     const search = (await screen.findByLabelText('Search chats')) as HTMLInputElement
     await userEvent.type(search, ' a')
     expect(search.value).toBe(' a')

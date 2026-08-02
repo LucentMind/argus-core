@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import '@testing-library/jest-dom/vitest'
 import { SessionSwitcher } from '../SessionSwitcher'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm } from '../../lib/confirmStore'
@@ -114,6 +115,13 @@ describe('SessionSwitcher', () => {
     await waitFor(() => expect(onSwitch).toHaveBeenCalledWith(3))
   })
 
+  it('keeps the chat search inside the popup', async () => {
+    render(<SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={vi.fn()} onJumpToTurn={vi.fn()} />)
+    expect(screen.queryByLabelText('Search chats')).not.toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
+    expect(await screen.findByLabelText('Search chats')).toHaveFocus()
+  })
+
   it('search stays inactive below 3 characters', async () => {
     render(<SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={vi.fn()} onJumpToTurn={vi.fn()} />)
     fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
@@ -195,25 +203,6 @@ describe('SessionSwitcher', () => {
     fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
     fireEvent.change(screen.getByLabelText('Search chats'), { target: { value: '"bad' } })
     expect(await screen.findByText(/syntax error/)).toBeTruthy()
-  })
-
-  // The click-away overlay (`fixed inset-0 z-10`) sits above the header's
-  // static Search input, swallowing clicks on it while the popup is open.
-  // jsdom doesn't do layout/paint, so fireEvent dispatches straight to the
-  // target node and can't reproduce that hit-testing bug — assert the
-  // structural fix instead: Search has a positioned ancestor with a z-index
-  // above the overlay's (z-10), and that ancestor does NOT also host the
-  // overlay (else the overlay would still out-rank it as a positioned
-  // descendant within the same stacking context).
-  it('keeps Search in a stacking context above the click-away overlay', async () => {
-    render(<SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={vi.fn()} onJumpToTurn={vi.fn()} />)
-    fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
-    const searchInput = screen.getByLabelText('Search chats')
-    const controlsContainer = searchInput.closest('.relative.z-20')
-    expect(controlsContainer).not.toBeNull()
-    // the overlay must live outside this container, or its own positioned
-    // descendant status would still out-rank the static input inside it
-    expect(controlsContainer?.querySelector('.fixed.inset-0')).toBeNull()
   })
 
   it('Delete confirms, calls sessions.delete, and switches when the active chat was deleted', async () => {

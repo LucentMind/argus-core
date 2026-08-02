@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
-import { X, ExternalLink, PinOff, PanelTop } from 'lucide-react'
+import { X, ExternalLink, PinOff, PanelTop, Search } from 'lucide-react'
 import { MenuButton } from './ui'
 import { panelsStore } from '../lib/panelsStore'
 import { CHAT_TAB } from '../lib/panelsStore'
@@ -25,7 +25,8 @@ export function PanelTabStrip({
   instanceId,
   onSwitchSession,
   onJumpToTurn,
-  action
+  action,
+  onOpenFind = () => {}
 }: {
   slug: string
   sessionId: number | null
@@ -44,6 +45,9 @@ export function PanelTabStrip({
    *  are deliberately untouched: review cannot *create* one, but entering it must not
    *  discard state the user built. */
   action?: ReactNode
+  /** Opens the in-transcript find overlay (ChatFind) — previously reachable only via
+   *  Ctrl+F, with no visible affordance; this button surfaces it. */
+  onOpenFind?: () => void
 }): React.JSX.Element {
   const st = useSyncExternalStore(
     (cb) => panelsStore.subscribe(cb),
@@ -204,16 +208,24 @@ export function PanelTabStrip({
         {activeTab === CHAT_TAB && activeSessionId !== null && (
           <SessionChips slug={slug} sessionId={activeSessionId} instanceId={instanceId} />
         )}
+        {activeTab === CHAT_TAB && (
+          <>
+            <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-hair2" />
+            <button
+              aria-label="Find in chat"
+              title="Find in chat (Ctrl+F)"
+              className="rounded-r1 px-1.5 py-0.5 text-mute transition-colors hover:bg-hair hover:text-ink"
+              onClick={onOpenFind}
+            >
+              <Search size={14} strokeWidth={1.5} />
+            </button>
+          </>
+        )}
       </div>
       {action ||
         (launcherItems.length > 0 && (
           <MenuButton
-            label={
-              <span className="flex items-center gap-1">
-                <PanelTop size={14} aria-hidden="true" />
-                <span>New panel</span>
-              </span>
-            }
+            label={<PanelTop size={14} aria-hidden="true" />}
             aria-label="New panel"
             align="left"
             items={launcherItems}

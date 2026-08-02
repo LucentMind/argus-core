@@ -234,6 +234,14 @@ export function SessionSwitcher({
               aria-label="Sessions"
               className="absolute left-0 top-full z-30 mt-1 w-72 rounded-r2 overlay-menu p-1"
             >
+              <input
+                autoFocus
+                aria-label="Search chats"
+                placeholder="Search chats"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="mb-1 w-full rounded-r1 border border-hair bg-panel px-2 py-1 text-xs text-ink placeholder:text-mute"
+              />
               {searchActive ? (
                 <>
                   {searchError && <p className="px-1.5 py-1 text-xs text-danger">{searchError}</p>}
@@ -346,24 +354,6 @@ export function SessionSwitcher({
             </div>
           </>
         )}
-      </div>
-      {/* relative z-20: own stacking context above the popup's click-away
-          overlay (fixed inset-0 z-10, see above). The overlay lives inside
-          the trigger's wrapper, not here, so this container's positioned
-          descendant status wins the comparison directly — without this, the
-          overlay (a positioned descendant) paints above this static input
-          regardless of DOM order, swallowing its first click.
-          ml-auto: pin the search to the right edge so it doesn't shift as
-          the active chat title's width changes. */}
-      <div className="relative z-20 ml-auto flex items-center">
-        <input
-          aria-label="Search chats"
-          placeholder="Search chats"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => setOpen(true)}
-          className="w-40 rounded-r2 border border-hair bg-panel px-2 py-1 text-xs text-ink placeholder:text-mute"
-        />
       </div>
     </div>
   )
