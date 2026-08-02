@@ -37,7 +37,16 @@ describe('legibility line', () => {
     // fail loudly instead so the scan set staying non-empty is part of the contract.
     expect(files.length).toBe(DENSE.length)
     for (const file of files) {
-      const src = readFileSync(file, 'utf8')
+      let src = readFileSync(file, 'utf8')
+      // CaseFiles.tsx (Task 2, case-chrome-symmetry, 2026-08-02) wraps its dense evidence rows
+      // in the same structural card idiom as the sibling rail sections (ReposSection etc.) —
+      // material on that outer <section>, never on the rows. Unlike the other three DENSE files,
+      // which are nothing but a single dense row/card, CaseFiles.tsx also contains that
+      // legitimate structural wrapper, so the check is scoped to the row-rendering function
+      // (`renderRow`) rather than the whole file.
+      if (file.endsWith('CaseFiles.tsx')) {
+        src = src.slice(src.indexOf('function renderRow'), src.indexOf('\n  return ('))
+      }
       expect(src, `${file} puts material on a dense row`).not.toContain('glass-panel')
       expect(src, `${file} puts material on a dense row`).not.toContain('glass-card')
     }

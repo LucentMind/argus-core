@@ -92,6 +92,14 @@ describe('CaseFiles', () => {
     expect(screen.getByRole('button', { name: 'Open in file explorer' })).toBeInTheDocument()
   })
 
+  it('renders as a section card, like the rail sections above it', async () => {
+    const { container } = render(
+      <CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />
+    )
+    await screen.findByText('Evidence')
+    expect(container.querySelector('section.surface-card, section.glass-panel')).not.toBeNull()
+  })
+
   it('drops the type filter', () => {
     render(<CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />)
     expect(screen.queryByLabelText('type-filter')).not.toBeInTheDocument()

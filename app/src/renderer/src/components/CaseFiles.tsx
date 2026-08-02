@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { FolderOpen, RefreshCw, Trash2 } from 'lucide-react'
 import { Chip, MenuButton, SectionLabel, Skeleton, SkeletonRows } from './ui'
 import { confirm } from '../lib/confirmStore'
 import { usePendingDisplay } from '../lib/usePendingDisplay'
 import { usePendingList } from '../lib/usePendingList'
+import { uiStore } from '../lib/uiStore'
 import { displayName, formatMb } from '../lib/evidenceDisplay'
 import { chipStamp } from '../lib/time'
 import {
@@ -103,6 +104,11 @@ export function CaseFiles({
   const [loaded, setLoaded] = useState(false)
   const pending = usePendingList()
   const showSkeleton = usePendingDisplay(!loaded)
+  const ui = useSyncExternalStore(
+    (cb) => uiStore.subscribe(cb),
+    () => uiStore.get()
+  )
+  const dynamic = ui.dynamicTheme
 
   useEffect(() => {
     void window.argus.packs.artifactMeta().then(setArtifactMeta, (err) => {
@@ -367,10 +373,12 @@ export function CaseFiles({
   }
 
   return (
-    <section className="flex min-h-32 flex-1 flex-col gap-2">
+    <section
+      className={`flex min-h-32 flex-1 flex-col gap-1.5 rounded-r3 p-2.5 ${dynamic ? 'glass-panel' : 'surface-card'}`}
+    >
       <div className="flex items-center gap-2">
         <SectionLabel>{label}</SectionLabel>
-        <span className="h-px flex-1 bg-hair" />
+        <span className="flex-1" />
         {scanNote && (
           <span className="max-w-36 shrink truncate text-[10.5px] text-mute" title={scanNote}>
             {scanNote}
