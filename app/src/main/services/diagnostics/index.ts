@@ -128,6 +128,7 @@ export class DiagnosticsService {
             starts: 0,
             exits: 0
           },
+          objects: [],
           tree: [],
           sidecar: health
         }
@@ -175,6 +176,7 @@ export class DiagnosticsService {
       cores: this.deps.cores,
       totalMemoryBytes: this.deps.totalMemoryBytes,
       footprint: result.footprint,
+      objects: result.objects,
       tree: result.tree,
       sidecar: this.deps.client.health()
     }

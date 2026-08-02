@@ -105,12 +105,54 @@ export type DiagnosticsAggregate = {
   exits: number
 }
 
+/**
+ * What kind of Argus thing a row represents. 'unattributed' is the single
+ * synthetic row that absorbs every process no label matched, so the rows always
+ * sum to the footprint.
+ */
+export type DiagnosticsObjectKind =
+  | 'electron-window'
+  | 'electron-panel'
+  | 'electron-internal'
+  | 'driver'
+  | 'mcp'
+  | 'pack-binary'
+  | 'unattributed'
+
+/**
+ * One row in the "Argus objects" section: a labeled process plus every
+ * unlabeled descendant that rolled up into it.
+ *
+ * Deliberately carries no command line — a user-configured connector may put a
+ * token in its args, and this page is screenshot-and-share territory.
+ */
+export type DiagnosticsObject = {
+  /** `${pid}:${startTimeMs}` of the subtree root, or the literal 'unattributed'. */
+  id: string
+  kind: DiagnosticsObjectKind
+  label: string
+  /** kind 'driver' — the provider id, e.g. 'claude-agent-sdk'. */
+  provider?: string
+  /** kind 'mcp' — the connector instance id. */
+  instanceId?: string
+  /** True when the label came from tier-C command-line inference rather than Electron. */
+  inferred: boolean
+  /** null for the unattributed row. */
+  rootPid: number | null
+  processCount: number
+  cpuPercent: number
+  rssBytes: number
+  /** The subtree root's uptime; 0 for the unattributed row. */
+  uptimeMs: number
+}
+
 export type DiagnosticsSnapshot = {
   readAt: number
   sampleIntervalMs: number
   cores: number
   totalMemoryBytes: number
   footprint: DiagnosticsAggregate
+  objects: DiagnosticsObject[]
   tree: DiagnosticsProcess[]
   sidecar: SidecarHealth
 }

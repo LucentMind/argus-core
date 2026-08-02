@@ -36,6 +36,7 @@ function snapshot(over: Partial<DiagnosticsSnapshot> = {}): DiagnosticsSnapshot 
         electronType: 'Browser'
       }
     ],
+    objects: [],
     sidecar: { status: 'healthy', version: '0.1.0', restartCount: 0, lastError: null },
     ...over
   }

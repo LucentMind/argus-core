@@ -1,5 +1,6 @@
 import type {
   DiagnosticsAggregate,
+  DiagnosticsObject,
   DiagnosticsProcess,
   ElectronProcessMetric,
   ProcessSample
@@ -37,6 +38,7 @@ export type BuildInput = {
 
 export type BuildResult = {
   tree: DiagnosticsProcess[]
+  objects: DiagnosticsObject[]
   footprint: DiagnosticsAggregate
   next: Map<string, ProcessState>
   counters: { starts: number; exits: number }
@@ -152,6 +154,7 @@ export function buildSnapshot(input: BuildInput): BuildResult {
 
   return {
     tree,
+    objects: [],
     footprint: {
       processCount: tree.length,
       cpuPercent: totalCpuPercent,

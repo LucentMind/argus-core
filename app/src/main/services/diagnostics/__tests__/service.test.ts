@@ -134,6 +134,12 @@ beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
 
 describe('DiagnosticsService', () => {
+  it('publishes an objects array before any sample has arrived', () => {
+    const { service } = makeService()
+    service.start()
+    expect(service.latest()?.objects).toEqual([])
+  })
+
   it('starts the sidecar at the slow interval', () => {
     const { service, client } = makeService()
     service.start()
