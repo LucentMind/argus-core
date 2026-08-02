@@ -34,22 +34,36 @@ describe('resolveSidecarBinary', () => {
   it('prefers the env override over everything else', () => {
     const override = touch(path.join(tmp, 'custom', 'monitor.exe'))
     touch(
-      path.join(tmp, 'resources', 'resource-monitor', 'win32-x64', 'argus-resource-monitor.exe')
+      path.join(
+        tmp,
+        'app',
+        'resources',
+        'resource-monitor',
+        'win32-x64',
+        'argus-resource-monitor.exe'
+      )
     )
     process.env.ARGUS_RESOURCE_MONITOR_PATH = override
     expect(resolveSidecarBinary({ repoRoot: tmp, platform: 'win32' })).toBe(override)
   })
 
   it('an invalid override disables the sidecar rather than falling back', () => {
-    // Create a valid packaged binary that would normally be found
+    // Create a valid repo-local staged binary that would normally be found
     touch(
-      path.join(tmp, 'resources', 'resource-monitor', 'win32-x64', 'argus-resource-monitor.exe')
+      path.join(
+        tmp,
+        'app',
+        'resources',
+        'resource-monitor',
+        'win32-x64',
+        'argus-resource-monitor.exe'
+      )
     )
 
     // Set an invalid override
     process.env.ARGUS_RESOURCE_MONITOR_PATH = path.join(tmp, 'nope.exe')
 
-    // Should return null (short-circuit), not fall back to the packaged binary
+    // Should return null (short-circuit), not fall back to the staged binary
     expect(resolveSidecarBinary({ repoRoot: tmp, platform: 'win32' })).toBeNull()
   })
 
