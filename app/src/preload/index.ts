@@ -26,6 +26,7 @@ import type { SettingsPayload, PermissionMode } from '../shared/settings'
 import type { RunOptionSelection, ModelOptionInfo } from '../shared/runOptions'
 import type { ConnectorsPayload } from '../shared/connectors'
 import type { HealthCheckResult } from '../shared/health'
+import type { DiagnosticsSnapshot } from '../shared/diagnostics'
 import type { SourceControlStatus } from '../shared/sourcecontrol'
 import type { AgentAccessPayload } from '../shared/agentAccess'
 import type {
@@ -765,6 +766,17 @@ const argus = {
       const listener = (_e: unknown, r: HealthCheckResult): void => cb(r)
       ipcRenderer.on(IPC.healthResult, listener)
       return () => ipcRenderer.removeListener(IPC.healthResult, listener)
+    }
+  },
+  diagnostics: {
+    latest: (): Promise<DiagnosticsSnapshot | null> => invoke(IPC.diagnosticsLatest),
+    subscribe: (): Promise<void> => invoke(IPC.diagnosticsSubscribe),
+    unsubscribe: (): Promise<void> => invoke(IPC.diagnosticsUnsubscribe),
+    retrySidecar: (): Promise<void> => invoke(IPC.diagnosticsRetrySidecar),
+    onSample: (cb: (s: DiagnosticsSnapshot) => void): (() => void) => {
+      const listener = (_e: unknown, s: DiagnosticsSnapshot): void => cb(s)
+      ipcRenderer.on(IPC.diagnosticsSample, listener)
+      return () => ipcRenderer.removeListener(IPC.diagnosticsSample, listener)
     }
   },
   sourceControl: {

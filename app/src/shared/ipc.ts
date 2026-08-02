@@ -92,6 +92,12 @@ export const IPC = {
   healthList: 'health:list',
   healthRun: 'health:run',
   healthResult: 'health:result',
+  diagnosticsLatest: 'diagnostics:latest',
+  diagnosticsSubscribe: 'diagnostics:subscribe',
+  diagnosticsUnsubscribe: 'diagnostics:unsubscribe',
+  diagnosticsRetrySidecar: 'diagnostics:retry-sidecar',
+  /** main → renderer: a new DiagnosticsSnapshot. */
+  diagnosticsSample: 'diagnostics:sample',
   sourceControlStatus: 'sourcecontrol:status',
   appOpenExternal: 'app:open-external',
   jiraPreview: 'jira:preview',

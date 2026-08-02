@@ -248,6 +248,11 @@ import {
   type FindReferencesRequest
 } from '../shared/editorIpc'
 import { EditorCorpusService } from './services/editorCorpus'
+import os from 'node:os'
+import { DiagnosticsService, SLOW_INTERVAL_MS } from './services/diagnostics'
+import { SidecarClient } from './services/diagnostics/sidecarClient'
+import { createElectronSidecarSpawner } from './services/diagnostics/spawner'
+import { resolveSidecarBinary } from './services/diagnostics/sidecarBinary'
 
 let agentService: AgentService | null = null
 let providerStatusService: ProviderStatusService | null = null
@@ -279,6 +284,10 @@ let draftStore: DraftStore | null = null
 let flushTabs: (() => void) | null = null
 let panelHost: PanelHost | null = null
 let externalAppHost: ExternalAppHost | null = null
+// Module-scope like mainWindow above: registerIpc() constructs this, but createWindow()'s
+// 'closed' handler is a separate function scope and needs it too, to unsubscribe a closing
+// window so it cannot pin the service to the 1s fast tier forever.
+let diagnostics: DiagnosticsService | null = null
 
 // D1 spike instrumentation (exit-check step 7): ARGUS_LOOP_METRICS=1 logs
 // main-process event-loop delay percentiles every 30s. Threshold: p99 < 50ms
@@ -335,6 +344,38 @@ function registerIpc(): void {
   const argusHome = resolveArgusHome(userDataDir)
   const db = openDb(dbPath(argusHome))
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
+
+  diagnostics = (() => {
+    const repoRoot = path.resolve(app.getAppPath(), '..')
+    const binaryPath = resolveSidecarBinary({ repoRoot, resourcesPath })
+    if (!binaryPath) {
+      console.log('[diagnostics] no sidecar binary for this platform; Electron metrics only')
+      return null
+    }
+    const client = new SidecarClient({
+      spawner: createElectronSidecarSpawner(),
+      binaryPath,
+      rootPid: process.pid,
+      initialIntervalMs: SLOW_INTERVAL_MS
+    })
+    return new DiagnosticsService({
+      client,
+      rootPid: process.pid,
+      cores: os.cpus().length,
+      totalMemoryBytes: os.totalmem(),
+      getElectronMetrics: () =>
+        app.getAppMetrics().map((m) => ({
+          pid: m.pid,
+          creationTimeMs: m.creationTime,
+          type: m.type,
+          ...(m.serviceName ? { serviceName: m.serviceName } : {})
+        }))
+    })
+  })()
+
+  diagnostics?.start()
+  diagnostics?.onSnapshot((s) => broadcast(IPC.diagnosticsSample, s))
+
   const seededDir = seededPacksDir(app.getAppPath(), resourcesPath)
   const installedDir = ensurePacksDir(argusHome)
   const packRegistry = PackRegistry.load([seededDir, installedDir])
@@ -2196,6 +2237,17 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.sourceControlStatus, () => ghStatus())
 
+  ipcMain.handle(IPC.diagnosticsLatest, () => diagnostics?.latest() ?? null)
+  ipcMain.handle(IPC.diagnosticsSubscribe, (e) => {
+    diagnostics?.subscribe(e.sender.id)
+  })
+  ipcMain.handle(IPC.diagnosticsUnsubscribe, (e) => {
+    diagnostics?.unsubscribe(e.sender.id)
+  })
+  ipcMain.handle(IPC.diagnosticsRetrySidecar, () => {
+    diagnostics?.retrySidecar()
+  })
+
   // — jira case lifecycle (Part 3) —
   const jiraCases = new JiraCases({
     db,
@@ -2346,6 +2398,10 @@ function createWindow(): void {
     autoHideMenuBar: true,
     ...mainWindowOptions(lastTheme, lastScale, icon, join(__dirname, '../preload/index.js'))
   })
+  // Captured now rather than read from mainWindow inside 'closed' below: by the time that
+  // handler runs, mainWindow has already been set to null (its first statement), and the
+  // module-level binding's static type is BrowserWindow | null either way.
+  const windowContentsId = mainWindow.webContents.id
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
@@ -2363,6 +2419,9 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+    // A closed window that stays subscribed pins the service to the 1s fast tier forever
+    // with nobody watching, since the subscriber set is keyed by webContents id.
+    diagnostics?.unsubscribe(windowContentsId)
     // Flush first: forceClose() destroys the editor renderer, and everything it typed since the
     // last debounce lives in draftStore's pending map, not in the window.
     draftStore?.flushAll()
