@@ -388,7 +388,16 @@ export async function importCase(
     } catch {
       // corrupt/missing case.json — fall back to manifest-only fields
     }
-    const legacy = LEGACY_STATUS[String(onDisk.status ?? '')] ?? { status: 'open', pin: null }
+    // LEGACY_STATUS is an object literal, so a plain `LEGACY_STATUS[key] ?? fallback` resolves
+    // an inherited key (toString, constructor, __proto__, …) to a truthy function/object
+    // instead of falling through to the default below — legacy.status then reads as
+    // undefined, which throws an opaque SQLite bind error on the INSERT rather than landing
+    // safely as 'open'. Object.hasOwn rejects the prototype chain outright.
+    const statusKey = String(onDisk.status ?? '')
+    const legacy = (Object.hasOwn(LEGACY_STATUS, statusKey) ? LEGACY_STATUS[statusKey] : null) ?? {
+      status: 'open',
+      pin: null
+    }
     const status = legacy.status
     // A bundled case.json with status "closed" but a missing/invalid resolution lands here
     // as closed + null — this is the same tolerated "legacy" state as pre-migration DB rows

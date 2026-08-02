@@ -460,6 +460,27 @@ describe('legacy status values', () => {
     expect(rec.phase).toBe('rca-drafted')
   })
 
+  // Finding I3: LEGACY_STATUS is an object literal, so `LEGACY_STATUS[key] ?? fallback`
+  // resolves an inherited key (toString, constructor, __proto__) to a truthy function/object
+  // instead of falling through to the `?? { status: 'open', pin: null }` default. legacy.status
+  // then reads as a function/undefined, which throws an opaque SQLite bind error on INSERT
+  // rather than landing safely as 'open'. The array whitelist this replaced never had this gap.
+  it('treats a case.json status of "toString" as an unrecognised legacy value, not a prototype hit', async () => {
+    const rec = await reimportWith({ status: 'toString' })
+    expect(rec.status).toBe('open')
+    const row = dbB.prepare(`SELECT status, phase_pin FROM cases WHERE slug = ?`).get('NAV-100') as {
+      status: string
+      phase_pin: string | null
+    }
+    expect(row.status).toBe('open')
+    expect(row.phase_pin).toBeNull()
+  })
+
+  it('treats a case.json status of "__proto__" as an unrecognised legacy value', async () => {
+    const rec = await reimportWith({ status: '__proto__' })
+    expect(rec.status).toBe('open')
+  })
+
   it('round-trips an explicit pin through export and import', async () => {
     pinCasePhase(dbA, homeA, 'NAV-100', 'rca-drafted')
     const out = path.join(
