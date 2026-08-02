@@ -50,6 +50,11 @@ beforeEach(() => {
     }
   ])
   panelsStore.setPanels([])
+  // A test that leaves a popup open would leak launcherOpen: true into the next test —
+  // occluded would then start (or stay) true regardless of what that next test does,
+  // making its assertions pass or fail for the wrong reason. Reset explicitly rather
+  // than relying on every test to have closed whatever it opened.
+  panelsStore.setLauncherOpen(false)
   settingsStore.reset()
 })
 
@@ -784,6 +789,133 @@ describe('PanelTabStrip', () => {
     const wrapper = container.querySelector('.border-b-2')
     expect(wrapper).toBeTruthy()
     expect(wrapper?.className).not.toContain('min-w-32')
+  })
+
+  describe('session popup occlusion (regression: opened behind a docked panel)', () => {
+    // A docked panel is a native WebContentsView, a sibling of the DOM that always paints on
+    // top — no z-index fixes it. panelsStore.occluded is what makes PanelDock hide the native
+    // view while a DOM overlay (like this popup) is up.
+    function renderStrip(activeTab: string): ReturnType<typeof render> {
+      window.argus = {
+        ...sessionArgusMocks(),
+        sessions: {
+          list: vi
+            .fn()
+            .mockResolvedValue([
+              { id: 7, title: 'Ingest triage', turnCount: 3, updatedAt: new Date().toISOString() }
+            ])
+        },
+        panels: { open: vi.fn() }
+      } as never
+      return render(
+        <PanelTabStrip
+          slug="CASE-A"
+          sessionId={7}
+          activeTab={activeTab}
+          onSelect={vi.fn()}
+          activeSessionId={7}
+          instanceId={null}
+          onSwitchSession={vi.fn()}
+          onJumpToTurn={vi.fn()}
+        />
+      )
+    }
+
+    it('opening the session popup calls setLauncherOpen(true); closing it calls false', async () => {
+      renderStrip('sample-pack:text-viewer')
+      expect(panelsStore.get().occluded).toBe(false)
+
+      fireEvent.click(await screen.findByLabelText('Switch chat'))
+      expect(panelsStore.get().occluded).toBe(true)
+
+      fireEvent.click(screen.getByLabelText('Switch chat'))
+      await waitFor(() => expect(panelsStore.get().occluded).toBe(false))
+    })
+
+    it('unmounting while the popup is open clears the occlusion flag', async () => {
+      const { unmount } = renderStrip('sample-pack:text-viewer')
+      fireEvent.click(await screen.findByLabelText('Switch chat'))
+      expect(panelsStore.get().occluded).toBe(true)
+
+      unmount()
+      expect(panelsStore.get().occluded).toBe(false)
+    })
+
+    it('with a panel tab active, clicking the title selects the chat tab and does not open the popup', async () => {
+      const onSelect = vi.fn()
+      window.argus = {
+        ...sessionArgusMocks(),
+        sessions: {
+          list: vi
+            .fn()
+            .mockResolvedValue([
+              { id: 7, title: 'Ingest triage', turnCount: 3, updatedAt: new Date().toISOString() }
+            ])
+        },
+        panels: { open: vi.fn() }
+      } as never
+      render(
+        <PanelTabStrip
+          slug="CASE-A"
+          sessionId={7}
+          activeTab="sample-pack:text-viewer"
+          onSelect={onSelect}
+          activeSessionId={7}
+          instanceId={null}
+          onSwitchSession={vi.fn()}
+          onJumpToTurn={vi.fn()}
+        />
+      )
+
+      fireEvent.click(await screen.findByLabelText('Ingest triage'))
+      expect(onSelect).toHaveBeenCalledWith('chat')
+      expect(screen.queryByRole('group', { name: 'Sessions' })).not.toBeInTheDocument()
+      expect(panelsStore.get().occluded).toBe(false)
+    })
+
+    it('with the chat tab active, clicking the title opens the popup instead of selecting it again', async () => {
+      const onSelect = vi.fn()
+      window.argus = {
+        ...sessionArgusMocks(),
+        sessions: {
+          list: vi
+            .fn()
+            .mockResolvedValue([
+              { id: 7, title: 'Ingest triage', turnCount: 3, updatedAt: new Date().toISOString() }
+            ])
+        },
+        panels: { open: vi.fn() }
+      } as never
+      render(
+        <PanelTabStrip
+          slug="CASE-A"
+          sessionId={7}
+          activeTab="chat"
+          onSelect={onSelect}
+          activeSessionId={7}
+          instanceId={null}
+          onSwitchSession={vi.fn()}
+          onJumpToTurn={vi.fn()}
+        />
+      )
+
+      fireEvent.click(await screen.findByLabelText('Ingest triage'))
+      expect(await screen.findByRole('group', { name: 'Sessions' })).toBeInTheDocument()
+      expect(onSelect).not.toHaveBeenCalled()
+      expect(panelsStore.get().occluded).toBe(true)
+    })
+
+    it('the caret opens the popup from the chat tab', async () => {
+      renderStrip('chat')
+      fireEvent.click(await screen.findByLabelText('Switch chat'))
+      expect(await screen.findByRole('group', { name: 'Sessions' })).toBeInTheDocument()
+    })
+
+    it('the caret opens the popup from a panel tab', async () => {
+      renderStrip('sample-pack:text-viewer')
+      fireEvent.click(await screen.findByLabelText('Switch chat'))
+      expect(await screen.findByRole('group', { name: 'Sessions' })).toBeInTheDocument()
+    })
   })
 })
 

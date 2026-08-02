@@ -102,10 +102,12 @@ export function PanelTabStrip({
           the synthesized activation click in a real browser, so it silently broke typing a
           space into search/rename and broke Enter/Space on every button in the popup.
           Keyboard reachability comes from the real buttons that are already here:
-          SessionSwitcher's title button calls onTitleClick directly (or, with no session
-          yet, the fallback button below has its own onClick) — neither relies on bubbling
-          to a wrapper onClick, because this wrapper no longer has one; it exists only to
-          host the shared active-tab underline (border-b-2) that spans the title and caret. */}
+          SessionSwitcher's title button calls onTitleClick directly, or — once the chat tab
+          is already active, or with no session yet — falls back to its own onClick (toggling
+          the popup, or the standalone fallback button's onSelect respectively) — none of these
+          rely on bubbling to a wrapper onClick, because this wrapper no longer has one; it
+          exists only to host the shared active-tab underline (border-b-2) that spans the
+          title and caret. */}
       <div
         className={`flex shrink items-center border-b-2 ${
           activeTab === CHAT_TAB ? 'border-signal' : 'border-transparent'
@@ -123,8 +125,19 @@ export function PanelTabStrip({
               onSwitchSession(id)
               onSelect(CHAT_TAB)
             }}
-            onTitleClick={() => onSelect(CHAT_TAB)}
+            // Progressive title click: with a *panel* tab active the title's job is to bring
+            // you back to chat, so pass onTitleClick and SessionSwitcher calls it instead of
+            // toggling its popup. With the chat tab already active there is nothing left for
+            // the title to select, so pass no onTitleClick at all — SessionSwitcher's own
+            // fallback (toggle the popup) takes over, making the title a one-click route to
+            // the session list once you're already on the chat tab. The caret is unaffected
+            // either way: its onClick always toggles the popup, from any tab.
+            onTitleClick={activeTab === CHAT_TAB ? undefined : () => onSelect(CHAT_TAB)}
             onJumpToTurn={onJumpToTurn}
+            // Hides the docked panel's native view (which paints over DOM) while this popup is
+            // open, mirroring the "New panel" launcher's onOpenChange below and ReviewRunButton's
+            // own launcher-open effect — the popup would otherwise open behind an active panel.
+            onOpenChange={(o) => panelsStore.setLauncherOpen(o)}
           />
         ) : (
           // Fallback for the brief (or, on a sessions.list failure, permanent) window before

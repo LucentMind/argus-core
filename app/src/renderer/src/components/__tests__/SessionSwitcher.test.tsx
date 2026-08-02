@@ -274,4 +274,44 @@ describe('SessionSwitcher', () => {
       ).toBeGreaterThan(listCallsBefore)
     )
   })
+
+  it('notifies onOpenChange(true) on open and onOpenChange(false) on close', async () => {
+    const onOpenChange = vi.fn()
+    render(
+      <SessionSwitcher
+        slug="NAV-1"
+        sessionId={1}
+        onSwitch={vi.fn()}
+        onJumpToTurn={vi.fn()}
+        onOpenChange={onOpenChange}
+      />
+    )
+    // Mounts closed — the caller shouldn't hear an open(false) it never asked about, only
+    // transitions matter here, so the initial-mount call isn't asserted either way.
+    const trigger = await screen.findByRole('button', { name: /chat 1/i })
+    fireEvent.click(trigger)
+    expect(onOpenChange).toHaveBeenLastCalledWith(true)
+    fireEvent.click(trigger)
+    expect(onOpenChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it('notifies onOpenChange(false) on unmount while the popup is still open', async () => {
+    // A caller uses this to occlude a docked native panel view (PanelTabStrip →
+    // panelsStore.setLauncherOpen). Losing this on unmount would leave the panel permanently
+    // hidden behind nothing — mirrors ReviewRunButton's own unmount-while-open coverage.
+    const onOpenChange = vi.fn()
+    const { unmount } = render(
+      <SessionSwitcher
+        slug="NAV-1"
+        sessionId={1}
+        onSwitch={vi.fn()}
+        onJumpToTurn={vi.fn()}
+        onOpenChange={onOpenChange}
+      />
+    )
+    fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
+    expect(onOpenChange).toHaveBeenLastCalledWith(true)
+    unmount()
+    expect(onOpenChange).toHaveBeenLastCalledWith(false)
+  })
 })

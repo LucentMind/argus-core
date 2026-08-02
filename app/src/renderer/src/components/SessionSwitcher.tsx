@@ -60,7 +60,8 @@ export function SessionSwitcher({
   sessionId,
   onSwitch,
   onJumpToTurn,
-  onTitleClick
+  onTitleClick,
+  onOpenChange
 }: {
   slug: string
   sessionId: number
@@ -71,6 +72,12 @@ export function SessionSwitcher({
    *  the title button falls back to today's behaviour (toggle the popup), so any other
    *  caller keeps working unchanged. */
   onTitleClick?: () => void
+  /** Notified whenever the popup opens/closes. `open` is set from several places (click-away,
+   *  jumpTo, createChat, deleteChat, both toggle buttons) — this is driven from an effect keyed
+   *  on `open` rather than duplicated at each call site. Also fired false on unmount, so a caller
+   *  that uses this to occlude a docked native panel view (mirrors MenuButton's own
+   *  onOpenChange in ui.tsx) can never get stuck occluded. */
+  onOpenChange?: (open: boolean) => void
 }): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [open, setOpen] = useState(false)
@@ -137,6 +144,17 @@ export function SessionSwitcher({
     }, 200)
     return () => clearTimeout(t)
   }, [query, slug])
+
+  // Mirrors MenuButton's own open-sync effect (ui.tsx:208-214): notify from an effect, not from
+  // inside setOpen callers, and let the cleanup fire false on unmount too so a caller using this
+  // to occlude a docked native panel view can never leave it stuck occluded.
+  useEffect(() => {
+    onOpenChange?.(open)
+    return () => {
+      if (open) onOpenChange?.(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const active = sessions.find((s) => s.id === sessionId)
   const activeTitle = active ? displayTitle(active) : `Chat ${sessionId}`
