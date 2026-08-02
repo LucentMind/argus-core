@@ -16,15 +16,12 @@ import { DEFAULT_MODE, type ModeId } from '../../../shared/modes'
  *  cited per line via [repo/path:line] citations. */
 export function ReposSection({
   slug,
-  mode = DEFAULT_MODE,
-  headerExtra
+  mode = DEFAULT_MODE
 }: {
   slug: string
   /** Review mode drops repo-management affordances (unlink, code graph): the repo under
    *  review is not the user's to manage from here. Defaults to investigation behavior. */
   mode?: ModeId
-  /** rendered at the right edge of the Repos header (e.g. the pane-collapse button) */
-  headerExtra?: React.ReactNode
 }): React.JSX.Element {
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([])
   const [refs, setRefs] = useState<BundleWorkspaceRef[]>([])
@@ -119,7 +116,6 @@ export function ReposSection({
           >
             <FolderGit2 size={13} />
           </IconBtn>
-          {headerExtra}
         </div>
       </div>
       {workspaces.map((w) => (

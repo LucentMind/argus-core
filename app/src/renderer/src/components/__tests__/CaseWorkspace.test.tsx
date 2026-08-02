@@ -980,14 +980,27 @@ describe('CaseWorkspace findings pane', () => {
   })
 })
 
-describe('CaseWorkspace evidence pane', () => {
+describe('CaseWorkspace workspace pane', () => {
   it('collapse hides the pane and the edge button expands it back', async () => {
     renderWorkspace()
-    fireEvent.click(await screen.findByRole('button', { name: 'Collapse evidence' }))
-    expect(screen.queryByRole('button', { name: 'Collapse evidence' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Expand evidence' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Collapse workspace' }))
+    expect(screen.queryByRole('button', { name: 'Collapse workspace' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Expand workspace' }))
     expect(uiStore.get().evidenceCollapsed).toBe(false)
-    expect(screen.getByRole('button', { name: 'Collapse evidence' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Collapse workspace' })).toBeTruthy()
+  })
+
+  // The whole point of moving the toggle out of ReposSection: its y was a fact about the
+  // rail's content, so a case with a Jira ticket pushed it down and scrolling took it away.
+  // Assert the structural property jsdom CAN see — the toggle is the rail's own first child,
+  // not a descendant of any section, and not inside the scrolling box.
+  it('puts the collapse toggle in the rail chrome row, outside the scroll container', async () => {
+    const { container } = renderWorkspace()
+    const toggle = await screen.findByRole('button', { name: 'Collapse workspace' })
+    const aside = container.querySelector('aside')!
+    expect(toggle.parentElement?.parentElement).toBe(aside)
+    expect(aside.firstElementChild).toBe(toggle.parentElement)
+    expect(toggle.closest('.overflow-y-auto')).toBeNull()
   })
 })
 

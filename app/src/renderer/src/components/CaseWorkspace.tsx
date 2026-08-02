@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { PanelLeft, PanelRight } from 'lucide-react'
+import { IconBtn, SectionLabel } from './ui'
 import { SearchBar } from './SearchBar'
 import { CaseFiles } from './CaseFiles'
 import { ChatPane } from './ChatPane'
@@ -456,20 +457,48 @@ export function CaseWorkspace({
       <div className="flex min-h-0 flex-1">
         {ui.evidenceCollapsed ? (
           <button
-            aria-label="Expand evidence"
-            title="Expand evidence"
-            className="flex w-6 shrink-0 flex-col items-center justify-center gap-2 border-r border-hair bg-void text-mute transition-colors hover:bg-hi hover:text-ink"
+            aria-label="Expand workspace"
+            title="Expand workspace"
+            /* Top-aligned, not centred: `pt-3` + the `h-6` icon box below reproduce the expanded
+               rail's `p-3` inset and chrome-row height exactly, so collapsing slides the icon
+               sideways instead of dropping it to mid-window — the pointer is still on it. */
+            className="flex w-6 shrink-0 flex-col items-center justify-start gap-2 border-r border-hair bg-void pt-3 text-mute transition-colors hover:bg-hi hover:text-ink"
             onClick={() => uiStore.setEvidenceCollapsed(false)}
           >
-            <PanelLeft size={14} strokeWidth={1.5} />
+            <span className="flex h-6 shrink-0 items-center">
+              <PanelLeft size={14} strokeWidth={1.5} />
+            </span>
             <span className="rotate-180 font-mono text-[10.5px] uppercase tracking-[0.1em] [writing-mode:vertical-rl]">
-              Evidence
+              Workspace
             </span>
           </button>
         ) : (
           <aside
             className={`flex w-80 shrink-0 flex-col gap-3 overflow-hidden border-r border-hair p-3 ${dynamic ? 'dyn-rail' : 'bg-void'}`}
           >
+            {/* Rail chrome, and deliberately NOT inside the scroll box below.
+                The toggle used to ride ReposSection's header (as `headerExtra`), which made its
+                y a fact about the rail's *content*: a case with a Jira ticket pushed it down by
+                the whole ticket card, and scrolling the rail took it off screen entirely — while
+                its opposite number in the findings rail never moved. Here it is the rail's own
+                first row, so it sits at a fixed y whatever the sections do, and FindingsPane's
+                header row is built to the same `h-6` at the same `p-3` inset so the two line up
+                exactly. Flush to the OUTER edge on both sides, i.e. mirrored: the icon then sits
+                on the edge it collapses into, and stops reading as a Repos affordance.
+                "Workspace", not "Evidence" (user-directed, 2026-08-02): the rail carries the
+                ticket, the repos and the PR as well, and CaseFiles below already owns the word
+                Evidence for the thing that actually is evidence. */}
+            <div className="flex h-6 shrink-0 items-center gap-1.5">
+              <IconBtn
+                size="sm"
+                aria-label="Collapse workspace"
+                title="Collapse workspace"
+                onClick={() => uiStore.setEvidenceCollapsed(true)}
+              >
+                <PanelLeft size={14} strokeWidth={1.5} />
+              </IconBtn>
+              <SectionLabel>Workspace</SectionLabel>
+            </div>
             {/* The rail itself no longer scrolls (CaseFiles below needs flex-1 to mean
                 something), so this wrapper keeps these naturally-growing sections — an
                 unbounded repo list, PR checks, similar-case hits — reachable on a short
@@ -506,21 +535,7 @@ export function CaseWorkspace({
                   modes (only the unlink/graph affordances differ), so keying on mode would
                   discard a good fetch — and the `git status --porcelain` spawns behind it — on
                   every mode toggle. */}
-              <ReposSection
-                key={slug}
-                slug={slug}
-                mode={activeMode}
-                headerExtra={
-                  <button
-                    aria-label="Collapse evidence"
-                    title="Collapse evidence"
-                    className="rounded-r1 px-1.5 py-0.5 text-mute transition-colors hover:bg-hair hover:text-ink"
-                    onClick={() => uiStore.setEvidenceCollapsed(true)}
-                  >
-                    <PanelLeft size={14} strokeWidth={1.5} />
-                  </button>
-                }
-              />
+              <ReposSection key={slug} slug={slug} mode={activeMode} />
               {/* key: remount on case switch. `linkingRef`/`linkingPr`/`prDraft`/`prError` are
                   component-instance state (Task 5's optimistic in-flight-link row), not derived
                   from props — without a key, a `pr:link` still running when the user switches to
@@ -612,10 +627,13 @@ export function CaseWorkspace({
           <button
             aria-label="Expand findings"
             title="Expand findings"
-            className="flex w-6 shrink-0 flex-col items-center justify-center gap-2 border-l border-hair bg-void text-mute transition-colors hover:bg-hi hover:text-ink"
+            /* Top-aligned for the same reason as the workspace strip opposite — see there. */
+            className="flex w-6 shrink-0 flex-col items-center justify-start gap-2 border-l border-hair bg-void pt-3 text-mute transition-colors hover:bg-hi hover:text-ink"
             onClick={() => uiStore.setFindingsCollapsed(false)}
           >
-            <PanelRight size={14} strokeWidth={1.5} />
+            <span className="flex h-6 shrink-0 items-center">
+              <PanelRight size={14} strokeWidth={1.5} />
+            </span>
             <span className="rotate-180 font-mono text-[10.5px] uppercase tracking-[0.1em] [writing-mode:vertical-rl]">
               Findings
             </span>

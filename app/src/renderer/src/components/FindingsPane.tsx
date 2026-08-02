@@ -11,7 +11,7 @@ import type { ReviewLayerId } from '../../../shared/reviewLayers'
 import type { ModeId } from '../../../shared/modes'
 import type { CiteTarget } from '../lib/citations'
 import { FindingCard } from './FindingCard'
-import { SectionLabel, SkeletonRows } from './ui'
+import { IconBtn, SectionLabel, SkeletonRows } from './ui'
 
 export function FindingsPane({
   slug,
@@ -198,7 +198,11 @@ export function FindingsPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <div className="flex items-center justify-between">
+      {/* `h-6 shrink-0`, and first in the rail: this row is the findings rail's chrome row, and
+          its twin is the workspace rail's (see CaseWorkspace). Both sit at their aside's `p-3`
+          inset and are the same height, which is what puts the two collapse toggles on one
+          line — they used to disagree by however tall the workspace rail's Jira card was. */}
+      <div className="flex h-6 shrink-0 items-center justify-between">
         <SectionLabel>
           {modeFindings.length > 0 ? `Findings · ${modeFindings.length}` : 'Findings'}
         </SectionLabel>
@@ -222,14 +226,17 @@ export function FindingsPane({
               />
             </>
           )}
-          <button
+          {/* Same `IconBtn size="sm"` as the workspace rail's toggle — identical box in an
+              identical row is what makes the two land on the same y, so this is not a free
+              swap for a raw button. */}
+          <IconBtn
+            size="sm"
             aria-label="Collapse findings"
             title="Collapse findings"
-            className="rounded-r1 px-1.5 py-0.5 text-mute transition-colors hover:bg-hair hover:text-ink"
             onClick={() => uiStore.setFindingsCollapsed(true)}
           >
             <PanelRight size={14} strokeWidth={1.5} />
-          </button>
+          </IconBtn>
         </div>
       </div>
       {clearError && <p className="text-xs text-danger">{clearError}</p>}
