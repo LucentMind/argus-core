@@ -288,6 +288,10 @@ let externalAppHost: ExternalAppHost | null = null
 // 'closed' handler is a separate function scope and needs it too, to unsubscribe a closing
 // window so it cannot pin the service to the 1s fast tier forever.
 let diagnostics: DiagnosticsService | null = null
+// webContents ids that already have a diagnostics 'destroyed' cleanup listener wired up.
+// Prevents piling up one listener per subscribe() call from the same sender (StrictMode
+// double-invoke, repeated navigation) — at most one listener is ever attached per id.
+const diagnosticsDestroyedWired = new Set<number>()
 
 // D1 spike instrumentation (exit-check step 7): ARGUS_LOOP_METRICS=1 logs
 // main-process event-loop delay percentiles every 30s. Threshold: p99 < 50ms
@@ -2239,7 +2243,20 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.diagnosticsLatest, () => diagnostics?.latest() ?? null)
   ipcMain.handle(IPC.diagnosticsSubscribe, (e) => {
-    diagnostics?.subscribe(e.sender.id)
+    const id = e.sender.id
+    diagnostics?.subscribe(id)
+    // Cleanup rides on the sender, not on any one window's close handler, so every
+    // current and future window that can subscribe (editor, not just main) is covered.
+    // Guard against wiring more than one 'destroyed' listener per webContents id: a
+    // renderer can call subscribe() again over its lifetime (StrictMode double-invoke,
+    // repeated navigation), and a naive once() per call would pile up listeners.
+    if (!diagnosticsDestroyedWired.has(id)) {
+      diagnosticsDestroyedWired.add(id)
+      e.sender.once('destroyed', () => {
+        diagnosticsDestroyedWired.delete(id)
+        diagnostics?.unsubscribe(id)
+      })
+    }
   })
   ipcMain.handle(IPC.diagnosticsUnsubscribe, (e) => {
     diagnostics?.unsubscribe(e.sender.id)
