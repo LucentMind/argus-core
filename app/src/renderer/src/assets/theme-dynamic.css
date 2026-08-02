@@ -23,8 +23,17 @@
   --bg-over: rgba(255, 255, 255, 0.03);
 
   --ink: #dfe2e6;
-  --dim: #8b9097;
-  --mute: #61666d;
+  /* Lifted off the mock's values (--dim #8b9097, --mute #61666d). Those were picked against a
+     pure-black page, and even there --mute only reached 3.6:1 — under AA for the 10.5px
+     SectionLabel it mostly carries. Inside .dyn it is worse: the dark branch of the ambient
+     shader paints an OPAQUE core around rgb(60,120,168) (L≈0.149), and the home masthead label
+     sits directly on it at 1.1:1. These values put --mute at 6.2:1 and --dim at 9.5:1 against
+     black while keeping the ink > dim > mute ladder legible.
+     NOTE: no grey fixes the masthead specifically — clearing 4.5:1 over that core needs L≥0.845,
+     i.e. near-white, which is not a "mute" any more. That one is a layout/light-placement call,
+     not a token call. See the note in CaseDashboard's masthead. */
+  --dim: #a9aeb6;
+  --mute: #868c94;
   --faint: rgba(223, 226, 230, 0.18);
   --hair: rgba(255, 255, 255, 0.075);
   --hair-2: rgba(255, 255, 255, 0.12);
@@ -51,7 +60,7 @@
 
 /* ── ambient canvas + fallback ─────────────────────────────────────────── */
 
-/* One rule for all three variants (spec 2026-08-01-header-window-controls-design.md §4.1).
+/* ONE rule for all three variants (spec 2026-08-01-header-window-controls-design.md §4.1).
 
    `fixed`, not `absolute`: the canvas has to start at the WINDOW's top edge so the flow reads
    through the header, and on home it also has to escape App's `overflow-y-auto` scroller, which
@@ -62,10 +71,10 @@
    `perspective`, `contain`, or `will-change` silently re-clips this to that ancestor's box —
    which reads as "the flow stopped covering the header" with nothing in this file to blame.
 
-   `z-index: 0` makes this a positioned element, which paints ABOVE every non-positioned sibling's
-   content. That is why TopBar and UpdateBanner carry `relative` z-index at all — TopBar is
-   `z-20` and UpdateBanner `z-10`, the header outranking the banner (not just the canvas) so a
-   header popover opening down into the banner's band still paints on top; see TopBar.tsx. */
+   `z-index: 0` makes this a positioned element, which paints above every non-positioned sibling.
+   That is why TopBar carries `z-20` and UpdateBanner `z-10` — the header outranking the banner
+   (not just the canvas) so a header popover opening down into the banner's band still paints on
+   top; see TopBar.tsx. */
 .dyn-ambient {
   position: fixed;
   top: 0;
@@ -75,7 +84,8 @@
   z-index: 0;
 }
 
-/* WebGL unavailable (old GPU, context lost, jsdom) → static CSS light */
+/* WebGL unavailable (old GPU, context lost, jsdom) → static CSS light. Fixed like the canvas it
+   stands in for, or it would land somewhere the canvas never was. */
 .dyn-home .dyn-ambient-fallback {
   position: fixed;
   top: 0;
@@ -161,23 +171,32 @@
    it to 0,3,0 and silently beat `.glass-card:hover`'s 0,2,0 in dark, killing the hover recipe. */
 :where(:root:not([data-theme='light'])) .glass-card {
   border: 1px solid var(--glass-border);
+  /* Directional wash, not the five-stop lens: brightest at the top-right corner, falling into a
+     dark bottom-left. `to bottom left` rather than a fixed angle so the fall runs corner-to-corner
+     whatever the card's aspect ratio is — the dashboard grid reflows from ~2:1 to near-square. */
   background:
-    linear-gradient(
-      146deg,
-      var(--glass-lens-1) 0%,
-      var(--glass-lens-2) 26%,
-      var(--glass-lens-3) 52%,
-      var(--glass-lens-4) 78%,
-      var(--glass-lens-5) 100%
+    radial-gradient(
+      125% 115% at 100% 0%,
+      var(--card-glow-1),
+      var(--card-glow-2) 38%,
+      transparent 74%
     ),
-    radial-gradient(120% 90% at 12% 0%, var(--glass-cap), transparent 58%), var(--glass-bg);
+    linear-gradient(
+      to bottom left,
+      var(--card-fall-1) 0%,
+      var(--card-fall-2) 46%,
+      var(--card-fall-3) 100%
+    ),
+    var(--card-base);
   backdrop-filter: var(--glass-filter);
   box-shadow:
     inset 0 1.5px 0 var(--glass-hi),
     inset 1px 0 0 var(--glass-edge),
     inset -1px 0 0 var(--glass-edge),
     inset 0 -1.5px 0 var(--glass-edge),
-    inset 0 -22px 40px -26px var(--glass-edge),
+    /* the bottom bloom is halved from the shared recipe: box-shadow insets paint OVER the
+       background, so a white haze along the bottom edge undoes the wash's dark bottom-left. */
+    inset 0 -22px 40px -26px var(--card-fall-2),
     var(--card-shadow);
 }
 
@@ -362,11 +381,15 @@
 
    No backdrop-filter any more. Its whole purpose was "the band reads THROUGH the header";
    the bar is above the canvas now and there is nothing behind it to blur, so the filter
-   would cost a compositor layer for no visible effect. */
+   would cost a compositor layer for no visible effect.
+
+   No outline either (user-directed, 2026-08-02): the group's own fill and top highlight are
+   enough to separate it from the bar, and a full ring around it read as a second window edge
+   drawn a few px inside the real one. The controls inside carry their own borders — that ring
+   was a box around boxes. */
 .dyn-case.dyn-case-bar {
   position: relative;
   background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
   border-radius: var(--radius-r2);
   box-shadow: inset 0 1px 0 var(--glass-hi);
 }
