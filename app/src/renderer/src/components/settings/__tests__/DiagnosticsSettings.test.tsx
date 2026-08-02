@@ -182,24 +182,12 @@ describe('DiagnosticsSettings', () => {
     expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
   })
 
-  it('renders one row per object, marks inferred ones, and pins Unattributed last', async () => {
+  it('renders rows in the order the model emits them, without re-sorting', async () => {
     render(<DiagnosticsSettings />)
     await act(async () =>
       onSampleCb(
         snapshot({
           objects: [
-            {
-              id: '2:1000',
-              kind: 'mcp',
-              label: 'MCP: github',
-              instanceId: 'github',
-              inferred: true,
-              rootPid: 2,
-              processCount: 2,
-              cpuPercent: 3.2,
-              rssBytes: 1024 * 1024 * 40,
-              uptimeMs: 65_000
-            },
             {
               id: '3:1000',
               kind: 'electron-window',
@@ -221,6 +209,18 @@ describe('DiagnosticsSettings', () => {
               cpuPercent: 0.5,
               rssBytes: 1024 * 1024 * 5,
               uptimeMs: 0
+            },
+            {
+              id: '2:1000',
+              kind: 'mcp',
+              label: 'MCP: github',
+              instanceId: 'github',
+              inferred: true,
+              rootPid: 2,
+              processCount: 2,
+              cpuPercent: 3.2,
+              rssBytes: 1024 * 1024 * 40,
+              uptimeMs: 65_000
             }
           ]
         })
@@ -230,14 +230,14 @@ describe('DiagnosticsSettings', () => {
     const rows = screen.getAllByTestId('diag-object-row')
     expect(rows).toHaveLength(3)
     expect(rows.map((r) => r.getAttribute('data-kind'))).toEqual([
-      'mcp',
       'electron-window',
-      'unattributed'
+      'unattributed',
+      'mcp'
     ])
-    expect(rows[0]).toHaveTextContent('MCP: github')
-    expect(within(rows[0]).getByTitle('Inferred from the command line')).toBeInTheDocument()
-    expect(within(rows[1]).queryByTitle('Inferred from the command line')).toBeNull()
-    expect(rows[2].getAttribute('data-procs')).toBe('4')
+    expect(rows[0]).toHaveTextContent('Main window')
+    expect(within(rows[0]).queryByTitle('Inferred from the command line')).toBeNull()
+    expect(within(rows[2]).getByTitle('Inferred from the command line')).toBeInTheDocument()
+    expect(rows[1].getAttribute('data-procs')).toBe('4')
   })
 
   it('omits the objects section entirely when there are no objects', async () => {
