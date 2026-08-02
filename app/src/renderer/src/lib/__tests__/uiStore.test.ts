@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { UiStore, FINDINGS_MIN_WIDTH, FINDINGS_MAX_WIDTH, uiStore } from '../uiStore'
+import {
+  UiStore,
+  FINDINGS_MIN_WIDTH,
+  FINDINGS_MAX_WIDTH,
+  EVIDENCE_MIN_WIDTH,
+  EVIDENCE_MAX_WIDTH,
+  uiStore
+} from '../uiStore'
 
 /** Captures the `ui:theme-changed` subscriber so a test can play main's broadcast. */
 let pushTheme: ((theme: 'dark' | 'light') => void) | null = null
@@ -124,6 +131,21 @@ describe('UiStore', () => {
     const fresh = new UiStore()
     expect(fresh.get().findingsWidth).toBe(300)
     expect(fresh.get().findingsCollapsed).toBe(true)
+  })
+
+  it('clamps and persists evidence width', () => {
+    const store = new UiStore()
+    store.setEvidenceWidth(50)
+    expect(store.get().evidenceWidth).toBe(EVIDENCE_MIN_WIDTH)
+    store.setEvidenceWidth(9999)
+    expect(store.get().evidenceWidth).toBe(EVIDENCE_MAX_WIDTH)
+    store.setEvidenceWidth(300)
+    expect(new UiStore().get().evidenceWidth).toBe(300)
+  })
+
+  it('ignores an out-of-range persisted evidence width', () => {
+    localStorage.setItem('argus.ui.evidenceWidth', '9999')
+    expect(new UiStore().get().evidenceWidth).toBe(320)
   })
 
   it('recentTabs dedupe, close, and no persistence across restarts', () => {

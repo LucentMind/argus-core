@@ -13,6 +13,7 @@ export interface UiState {
   findingsCollapsed: boolean
   evidenceCollapsed: boolean
   findingsWidth: number
+  evidenceWidth: number
   /** Recently opened cases shown as top-bar tabs. Intentionally not persisted — resets on app restart. */
   recentTabs: string[]
   /** Last-viewed chat session per case, keyed by slug. Intentionally not persisted — resets on app restart. */
@@ -26,7 +27,8 @@ const KEYS = {
   dynamicTheme: 'argus.ui.dynamicTheme',
   findingsCollapsed: 'argus.ui.findingsCollapsed',
   evidenceCollapsed: 'argus.ui.evidenceCollapsed',
-  findingsWidth: 'argus.ui.findingsWidth'
+  findingsWidth: 'argus.ui.findingsWidth',
+  evidenceWidth: 'argus.ui.evidenceWidth'
 } as const
 
 export const FINDINGS_MIN_WIDTH = 240
@@ -34,10 +36,15 @@ export const FINDINGS_MIN_WIDTH = 240
 export const CHAT_MIN_WIDTH = 360
 export const FINDINGS_MAX_WIDTH = 640
 const FINDINGS_DEFAULT_WIDTH = 384
+export const EVIDENCE_MIN_WIDTH = 240
+export const EVIDENCE_MAX_WIDTH = 640
+/** Today's `w-80`, so nothing moves for an existing user on first run. */
+const EVIDENCE_DEFAULT_WIDTH = 320
 
 function readPersisted(): Omit<UiState, 'recentTabs' | 'activeSessions'> {
   const theme = localStorage.getItem(KEYS.theme)
   const width = Number(localStorage.getItem(KEYS.findingsWidth))
+  const evidenceWidth = Number(localStorage.getItem(KEYS.evidenceWidth))
   const scale = Number(localStorage.getItem(KEYS.uiScale))
   return {
     theme: theme === 'light' ? 'light' : 'dark',
@@ -51,7 +58,13 @@ function readPersisted(): Omit<UiState, 'recentTabs' | 'activeSessions'> {
     findingsWidth:
       Number.isFinite(width) && width >= FINDINGS_MIN_WIDTH && width <= FINDINGS_MAX_WIDTH
         ? width
-        : FINDINGS_DEFAULT_WIDTH
+        : FINDINGS_DEFAULT_WIDTH,
+    evidenceWidth:
+      Number.isFinite(evidenceWidth) &&
+      evidenceWidth >= EVIDENCE_MIN_WIDTH &&
+      evidenceWidth <= EVIDENCE_MAX_WIDTH
+        ? evidenceWidth
+        : EVIDENCE_DEFAULT_WIDTH
   }
 }
 
@@ -189,6 +202,14 @@ export class UiStore {
     const clamped = Math.min(FINDINGS_MAX_WIDTH, Math.max(FINDINGS_MIN_WIDTH, Math.round(width)))
     this.set({ findingsWidth: clamped })
     localStorage.setItem(KEYS.findingsWidth, String(clamped))
+  }
+
+  /** Mirrors `setFindingsWidth`. Deliberately not broadcast to other windows — neither is
+   *  `findingsWidth`; each BrowserWindow runs its own UiStore and reads localStorage at load. */
+  setEvidenceWidth(width: number): void {
+    const clamped = Math.min(EVIDENCE_MAX_WIDTH, Math.max(EVIDENCE_MIN_WIDTH, Math.round(width)))
+    this.set({ evidenceWidth: clamped })
+    localStorage.setItem(KEYS.evidenceWidth, String(clamped))
   }
 
   openTab(slug: string): void {
