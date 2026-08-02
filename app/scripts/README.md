@@ -87,7 +87,7 @@ silently drifting whenever the broader seed's fixture data changes for unrelated
 The same pattern for the Settings → Library rows. The fixture seeds one worst-case row — a
 user-tier skill whose name is long and hyphenated and which also exists in the hivemind tier, so
 it carries six chips next to the widest control cluster (Adopt upstream / Edit / Share / toggle).
-The probe sweeps window widths down to the app's own `minWidth` (900px) and asserts the skill
+The probe sweeps window widths down to the app's own `minWidth` (1280px) and asserts the skill
 name never breaks mid-word and nothing overflows the row.
 
 ```bash

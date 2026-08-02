@@ -20,8 +20,8 @@
  * Env vars:
  *   CDP_PORT    default 9237
  *   SKILL_NAME  default "triage-a-flaky-test" (must match the fixture)
- *   WIDTHS      comma-separated window widths to sweep, default "1400,1100,900". 900 is not an
- *               arbitrary floor — it is the app's own `minWidth` (src/main/index.ts), so the
+ *   WIDTHS      comma-separated window widths to sweep, default "1600,1440,1280". 1280 is not
+ *               an arbitrary floor — it is the app's own `minWidth` (src/main/index.ts), so the
  *               sweep already ends at the narrowest window a user can actually produce.
  *
  * Exits 0 when every assertion passes, 1 otherwise.
@@ -29,7 +29,7 @@
  */
 const PORT = process.env.CDP_PORT || '9237'
 const SKILL_NAME = process.env.SKILL_NAME || 'triage-a-flaky-test'
-const WIDTHS = (process.env.WIDTHS || '1400,1100,900').split(',').map((w) => Number(w.trim()))
+const WIDTHS = (process.env.WIDTHS || '1600,1440,1280').split(',').map((w) => Number(w.trim()))
 
 const targets = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()
 const page = targets.find((t) => t.type === 'page' && !t.url.startsWith('devtools://'))

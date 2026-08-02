@@ -2435,11 +2435,12 @@ function registerIpc(): void {
 function createWindow(): void {
   // Create the browser window.
   mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
-    // keep the 3-pane case workspace usable: sidebar (320) + chat + findings rail
-    minWidth: 900,
-    minHeight: 600,
+    width: 1280,
+    height: 800,
+    // keep the 3-pane case workspace comfortable at its own default rail widths, not just
+    // legal at their clamps: evidence (320) + chat (560) + findings (384) + 2 separators (8)
+    minWidth: 1280,
+    minHeight: 800,
     show: false,
     autoHideMenuBar: true,
     ...mainWindowOptions(lastTheme, lastScale, icon, join(__dirname, '../preload/index.js'))
