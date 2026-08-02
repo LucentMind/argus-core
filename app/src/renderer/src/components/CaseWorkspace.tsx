@@ -123,6 +123,10 @@ export function CaseWorkspace({
     setSessionId(null)
     setSessions([])
     setSessionsError(null)
+    // CaseWorkspace is never remounted on a slug change, so a find left open on case A
+    // (findOpen lives here, lifted out of ChatPane — see the state declaration above)
+    // would otherwise reopen unbidden on case B, which never asked for it.
+    setFindOpen(false)
     // A picker opened over case A (or a `handlePrsFound` lookup still in flight for it) must
     // not survive into case B: CaseWorkspace is never remounted on a slug change (App.tsx
     // renders it with no `key`), so without this an already-open dialog would keep showing

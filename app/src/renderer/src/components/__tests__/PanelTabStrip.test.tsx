@@ -306,7 +306,7 @@ describe('PanelTabStrip', () => {
       />
     )
 
-    fireEvent.click(await screen.findByLabelText('Find in chat'))
+    fireEvent.click(await screen.findByLabelText('Find in transcript'))
     expect(onOpenFind).toHaveBeenCalledTimes(1)
 
     // absent on a panel tab — the button is chat-only, same as the chips beside it
@@ -323,7 +323,35 @@ describe('PanelTabStrip', () => {
         onOpenFind={onOpenFind}
       />
     )
-    expect(screen.queryByLabelText('Find in chat')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Find in transcript')).not.toBeInTheDocument()
+  })
+
+  it('hides the Find button on the chat tab while no session is active yet', async () => {
+    // Gated on activeSessionId !== null, matching SessionChips beside it: with no session
+    // resolved (or a sessions.list failure) clicking it would be a no-op, and it would set
+    // findOpen true so ChatFind pops open unbidden once a session finally resolves.
+    window.argus = {
+      ...sessionArgusMocks(),
+      sessions: { list: vi.fn().mockResolvedValue([]) },
+      panels: { open: vi.fn() }
+    } as never
+
+    render(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={null}
+        activeTab="chat"
+        onSelect={vi.fn()}
+        activeSessionId={null}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+        onOpenFind={vi.fn()}
+      />
+    )
+
+    await screen.findByText('Chat') // wait for the strip to settle before asserting absence
+    expect(screen.queryByLabelText('Find in transcript')).not.toBeInTheDocument()
   })
 
   it('shows no chips and a fallback "Chat" label while no session is active yet', async () => {

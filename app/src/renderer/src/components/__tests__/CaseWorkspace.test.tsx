@@ -1134,6 +1134,40 @@ describe('CaseWorkspace panel tab host', () => {
   })
 })
 
+// findOpen/onOpenFind/onFindOpenChange are the wiring that connects the bar's find button
+// (PanelTabStrip) to the in-transcript overlay (ChatFind, rendered by ChatPane) — all three
+// props are optional, so a regression that drops any one of them typecheck-checks and every
+// component-level suite (PanelTabStrip.test.tsx proves *a* callback fires; ChatPane.test.tsx
+// proves a harness's own state drives the overlay) stays green while the feature silently
+// dies in the real tree. This is the one test that renders the real composition end to end.
+describe('CaseWorkspace find wiring', () => {
+  it('wires the bar find button to open ChatFind over the transcript', async () => {
+    renderWorkspace()
+    await screen.findByLabelText('Chat 1')
+    expect(screen.queryByLabelText('Find in chat')).not.toBeInTheDocument()
+
+    fireEvent.click(await screen.findByLabelText('Find in transcript'))
+
+    expect(await screen.findByLabelText('Find in chat')).toBeInTheDocument()
+  })
+
+  // Minor 4: CaseWorkspace is never remounted on a slug change (the `slug !== lastSlug`
+  // block above patches state in place), so a find left open on case A would otherwise
+  // reopen unbidden on case B, which never asked for it — the old local ChatPane state
+  // used to die with the unmount; the lifted state does not.
+  it('closes an open find overlay when switching to a different case', async () => {
+    const view = renderWorkspace()
+    await screen.findByLabelText('Chat 1')
+    fireEvent.click(await screen.findByLabelText('Find in transcript'))
+    expect(await screen.findByLabelText('Find in chat')).toBeInTheDocument()
+
+    view.rerender(workspace('NAV-2'))
+
+    await screen.findByLabelText('Chat 1')
+    expect(screen.queryByLabelText('Find in chat')).not.toBeInTheDocument()
+  })
+})
+
 describe('evidence section per mode', () => {
   it('review mode: relabeled to Code review artifacts, no search, no similar cases', async () => {
     render(workspace('NAV-1', { activeMode: 'review' }))

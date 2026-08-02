@@ -24,6 +24,12 @@ import { ChatFind } from './ChatFind'
 /** px of slack below which the transcript still counts as scrolled to the end */
 const BOTTOM_SLACK = 24
 
+// Stable identity for the default `onFindOpenChange` — an inline `() => {}` default is a
+// fresh function every render, and the Ctrl+F effect below deps on it, so any call site
+// that omits the prop would tear down and re-add the `window` keydown listener on every
+// render.
+const NOOP = (): void => {}
+
 function snippetNeedle(snippet?: string): string | null {
   if (!snippet) return null
   const s = snippet.replace(/[«»]/g, '').replace(/^…/, '').replace(/…$/, '').trim()
@@ -67,7 +73,7 @@ export function ChatPane({
   onFocusConsumed,
   prefill,
   findOpen = false,
-  onFindOpenChange = () => {}
+  onFindOpenChange = NOOP
 }: {
   slug: string
   sessionId: number

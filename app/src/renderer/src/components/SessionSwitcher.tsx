@@ -210,151 +210,146 @@ export function SessionSwitcher({
   }
 
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      <div className="relative">
-        <button
-          type="button"
-          aria-label={activeTitle}
-          className="flex items-center gap-1 rounded-r2 px-2 py-1 text-xs text-ink transition-colors hover:bg-hair"
-          onClick={() => setOpen((v) => !v)}
-        >
-          <span className="max-w-48 truncate">{activeTitle}</span>
-          {driverBadgeLabel(active?.driverKind, activeDriverKind) && (
-            <Chip tone="neutral">{driverBadgeLabel(active?.driverKind, activeDriverKind)}</Chip>
-          )}
-          <ChevronDown size={12} strokeWidth={1.5} aria-hidden="true" />
-        </button>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            {/* role=group (not menu/listbox): each row holds two independent
-                buttons (switch + rename), which menuitem/option can't express */}
-            <div
-              role="group"
-              aria-label="Sessions"
-              className="absolute left-0 top-full z-30 mt-1 w-72 rounded-r2 overlay-menu p-1"
-            >
-              <input
-                autoFocus
-                aria-label="Search chats"
-                placeholder="Search chats"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                className="mb-1 w-full rounded-r1 border border-hair bg-panel px-2 py-1 text-xs text-ink placeholder:text-mute"
-              />
-              {searchActive ? (
-                <>
-                  {searchError && <p className="px-1.5 py-1 text-xs text-danger">{searchError}</p>}
-                  {!searchError && hits.length === 0 && (
-                    <p className="px-1.5 py-1 text-xs text-mute">No matches.</p>
-                  )}
-                  {!searchError && hits.length > 0 && (
-                    <div role="group" aria-label="Search results" className="flex flex-col gap-2">
-                      {groupHitsBySession(hits).map(([sid, groupHits]) => (
-                        <div key={sid} className="flex flex-col gap-1">
-                          <div className="px-1.5 text-[10.5px] uppercase tracking-wide text-mute">
-                            {titleForSession(sid)}
-                          </div>
-                          {groupHits.map((h, i) => (
-                            <button
-                              key={`${h.sessionId}-${h.turnId}-${i}`}
-                              type="button"
-                              className="block w-full rounded-r1 px-1.5 py-1 text-left text-xs text-ink hover:bg-hi [&_mark]:bg-signal/30 [&_mark]:text-ink"
-                              onClick={() => jumpTo(h)}
-                              dangerouslySetInnerHTML={{ __html: hitSnippetHtml(h.snippet) }}
-                            />
-                          ))}
+    <div className="relative">
+      <button
+        type="button"
+        aria-label={activeTitle}
+        className="flex items-center gap-1 rounded-r2 px-2 py-1 text-xs text-ink transition-colors hover:bg-hair"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="max-w-48 truncate">{activeTitle}</span>
+        {driverBadgeLabel(active?.driverKind, activeDriverKind) && (
+          <Chip tone="neutral">{driverBadgeLabel(active?.driverKind, activeDriverKind)}</Chip>
+        )}
+        <ChevronDown size={12} strokeWidth={1.5} aria-hidden="true" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          {/* role=group (not menu/listbox): each row holds two independent
+              buttons (switch + rename), which menuitem/option can't express */}
+          <div
+            role="group"
+            aria-label="Sessions"
+            className="absolute left-0 top-full z-30 mt-1 w-72 rounded-r2 overlay-menu p-1"
+          >
+            <input
+              autoFocus
+              aria-label="Search chats"
+              placeholder="Search chats"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="mb-1 w-full rounded-r1 border border-hair bg-panel px-2 py-1 text-xs text-ink placeholder:text-mute"
+            />
+            {searchActive ? (
+              <>
+                {searchError && <p className="px-1.5 py-1 text-xs text-danger">{searchError}</p>}
+                {!searchError && hits.length === 0 && (
+                  <p className="px-1.5 py-1 text-xs text-mute">No matches.</p>
+                )}
+                {!searchError && hits.length > 0 && (
+                  <div role="group" aria-label="Search results" className="flex flex-col gap-2">
+                    {groupHitsBySession(hits).map(([sid, groupHits]) => (
+                      <div key={sid} className="flex flex-col gap-1">
+                        <div className="px-1.5 text-[10.5px] uppercase tracking-wide text-mute">
+                          {titleForSession(sid)}
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    aria-label="New chat"
-                    className="flex w-full items-center gap-1.5 rounded-r1 px-2 py-1.5 text-left text-xs text-dim transition-colors hover:bg-hi hover:text-ink"
-                    onClick={() => void createChat()}
-                  >
-                    <MessageSquarePlus size={12} strokeWidth={1.5} aria-hidden="true" />
-                    <span>New chat</span>
-                  </button>
-                  {deleteError && <p className="px-1.5 py-1 text-xs text-danger">{deleteError}</p>}
-                  {sorted.map((s) => {
-                    const title = displayTitle(s)
-                    const isRenaming = renamingId === s.id
-                    return (
-                      <div
-                        key={s.id}
-                        className="flex items-center gap-1 rounded-r1 px-1 hover:bg-hi"
-                      >
-                        {isRenaming ? (
-                          <input
-                            autoFocus
-                            aria-label={`Rename ${title}`}
-                            className="flex-1 rounded-r1 bg-panel px-1.5 py-1 text-xs text-ink outline-none"
-                            value={renameValue}
-                            onChange={(e) => setRenameValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') void commitRename(s.id)
-                              if (e.key === 'Escape') setRenamingId(null)
-                            }}
+                        {groupHits.map((h, i) => (
+                          <button
+                            key={`${h.sessionId}-${h.turnId}-${i}`}
+                            type="button"
+                            className="block w-full rounded-r1 px-1.5 py-1 text-left text-xs text-ink hover:bg-hi [&_mark]:bg-signal/30 [&_mark]:text-ink"
+                            onClick={() => jumpTo(h)}
+                            dangerouslySetInnerHTML={{ __html: hitSnippetHtml(h.snippet) }}
                           />
-                        ) : (
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  aria-label="New chat"
+                  className="flex w-full items-center gap-1.5 rounded-r1 px-2 py-1.5 text-left text-xs text-dim transition-colors hover:bg-hi hover:text-ink"
+                  onClick={() => void createChat()}
+                >
+                  <MessageSquarePlus size={12} strokeWidth={1.5} aria-hidden="true" />
+                  <span>New chat</span>
+                </button>
+                {deleteError && <p className="px-1.5 py-1 text-xs text-danger">{deleteError}</p>}
+                {sorted.map((s) => {
+                  const title = displayTitle(s)
+                  const isRenaming = renamingId === s.id
+                  return (
+                    <div key={s.id} className="flex items-center gap-1 rounded-r1 px-1 hover:bg-hi">
+                      {isRenaming ? (
+                        <input
+                          autoFocus
+                          aria-label={`Rename ${title}`}
+                          className="flex-1 rounded-r1 bg-panel px-1.5 py-1 text-xs text-ink outline-none"
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void commitRename(s.id)
+                            if (e.key === 'Escape') setRenamingId(null)
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          aria-label={`Switch to ${title}`}
+                          className="min-w-0 flex-1 rounded-r1 px-1 py-1.5 text-left"
+                          onClick={() => {
+                            setOpen(false)
+                            onSwitch(s.id)
+                          }}
+                        >
+                          <span className="flex items-center gap-1.5">
+                            <span className="block truncate text-xs text-ink">{title}</span>
+                            {driverBadgeLabel(s.driverKind, activeDriverKind) && (
+                              <Chip tone="neutral">
+                                {driverBadgeLabel(s.driverKind, activeDriverKind)}
+                              </Chip>
+                            )}
+                          </span>
+                          <span className="block truncate text-[10.5px] text-mute">
+                            {relativeTime(s.updatedAt)} · {s.turnCount} turns
+                          </span>
+                        </button>
+                      )}
+                      {!isRenaming && (
+                        <>
                           <button
                             type="button"
-                            aria-label={`Switch to ${title}`}
-                            className="min-w-0 flex-1 rounded-r1 px-1 py-1.5 text-left"
-                            onClick={() => {
-                              setOpen(false)
-                              onSwitch(s.id)
-                            }}
+                            aria-label={`Rename ${title}`}
+                            title="Rename"
+                            className="shrink-0 rounded-r1 px-1.5 py-1 text-mute transition-colors hover:bg-hair hover:text-ink"
+                            onClick={() => startRename(s)}
                           >
-                            <span className="flex items-center gap-1.5">
-                              <span className="block truncate text-xs text-ink">{title}</span>
-                              {driverBadgeLabel(s.driverKind, activeDriverKind) && (
-                                <Chip tone="neutral">
-                                  {driverBadgeLabel(s.driverKind, activeDriverKind)}
-                                </Chip>
-                              )}
-                            </span>
-                            <span className="block truncate text-[10.5px] text-mute">
-                              {relativeTime(s.updatedAt)} · {s.turnCount} turns
-                            </span>
+                            <Pencil size={12} strokeWidth={1.5} aria-hidden="true" />
                           </button>
-                        )}
-                        {!isRenaming && (
-                          <>
-                            <button
-                              type="button"
-                              aria-label={`Rename ${title}`}
-                              title="Rename"
-                              className="shrink-0 rounded-r1 px-1.5 py-1 text-mute transition-colors hover:bg-hair hover:text-ink"
-                              onClick={() => startRename(s)}
-                            >
-                              <Pencil size={12} strokeWidth={1.5} aria-hidden="true" />
-                            </button>
-                            <button
-                              type="button"
-                              aria-label={`Delete ${title}`}
-                              title="Delete"
-                              className="shrink-0 rounded-r1 px-1.5 py-1 text-mute transition-colors hover:bg-hair hover:text-danger"
-                              onClick={() => void deleteChat(s)}
-                            >
-                              <Trash2 size={12} strokeWidth={1.5} aria-hidden="true" />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    )
-                  })}
-                </>
-              )}
-            </div>
-          </>
-        )}
-      </div>
+                          <button
+                            type="button"
+                            aria-label={`Delete ${title}`}
+                            title="Delete"
+                            className="shrink-0 rounded-r1 px-1.5 py-1 text-mute transition-colors hover:bg-hair hover:text-danger"
+                            onClick={() => void deleteChat(s)}
+                          >
+                            <Trash2 size={12} strokeWidth={1.5} aria-hidden="true" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+              </>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }

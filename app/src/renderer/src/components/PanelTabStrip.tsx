@@ -208,12 +208,13 @@ export function PanelTabStrip({
         {activeTab === CHAT_TAB && activeSessionId !== null && (
           <SessionChips slug={slug} sessionId={activeSessionId} instanceId={instanceId} />
         )}
-        {activeTab === CHAT_TAB && (
+        {activeTab === CHAT_TAB && activeSessionId !== null && (
           <>
             <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-hair2" />
             <button
-              aria-label="Find in chat"
-              title="Find in chat (Ctrl+F)"
+              type="button"
+              aria-label="Find in transcript"
+              title="Find in transcript (Ctrl+F)"
               className="rounded-r1 px-1.5 py-0.5 text-mute transition-colors hover:bg-hair hover:text-ink"
               onClick={onOpenFind}
             >
@@ -227,6 +228,7 @@ export function PanelTabStrip({
           <MenuButton
             label={<PanelTop size={14} aria-hidden="true" />}
             aria-label="New panel"
+            title="New panel"
             align="left"
             items={launcherItems}
             // Hide the docked panel's native view (which paints over DOM) while this

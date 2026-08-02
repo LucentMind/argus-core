@@ -170,6 +170,7 @@ export function MenuButton({
   onOpenChange,
   triggerClassName = '',
   'aria-label': ariaLabel,
+  title,
   nocaret = false
 }: {
   label: React.ReactNode
@@ -186,6 +187,10 @@ export function MenuButton({
    *  like its heading rather than a generic button. */
   triggerClassName?: string
   'aria-label'?: string
+  /** Native tooltip for the trigger. `aria-label` alone gives the button an accessible
+   *  name but browsers don't surface it as a hover tooltip — icon-only triggers (e.g.
+   *  the panel launcher's icon-only "New panel") need this for a sighted affordance. */
+  title?: string
   /** When true, suppress the trailing caret that indicates a menu. Used by action-menu
    *  triggers that provide their own visual indicator (e.g. an ellipsis). */
   nocaret?: boolean
@@ -238,6 +243,7 @@ export function MenuButton({
           setOpen((o) => !o)
         }}
         aria-label={ariaLabel}
+        title={title}
         aria-haspopup="menu"
         aria-expanded={open}
         className={triggerClassName}
