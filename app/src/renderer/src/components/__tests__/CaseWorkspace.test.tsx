@@ -978,6 +978,12 @@ describe('CaseWorkspace findings pane', () => {
     expect(uiStore.get().findingsCollapsed).toBe(false)
     expect(screen.getByRole('separator', { name: 'Resize findings pane' })).toBeTruthy()
   })
+
+  it('offers a resize separator for each rail', async () => {
+    renderWorkspace()
+    expect(await screen.findByLabelText('Resize evidence pane')).toBeInTheDocument()
+    expect(screen.getByLabelText('Resize findings pane')).toBeInTheDocument()
+  })
 })
 
 describe('CaseWorkspace workspace pane', () => {

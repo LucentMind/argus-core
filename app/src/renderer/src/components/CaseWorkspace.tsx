@@ -15,7 +15,7 @@ import { SimilarCasesCard } from './SimilarCasesCard'
 import { PanelTabStrip } from './PanelTabStrip'
 import { PanelDock } from './PanelDock'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
-import { uiStore, CHAT_MIN_WIDTH, FINDINGS_MIN_WIDTH } from '../lib/uiStore'
+import { uiStore, CHAT_MIN_WIDTH, FINDINGS_MIN_WIDTH, EVIDENCE_MIN_WIDTH } from '../lib/uiStore'
 import { panelsStore, wirePanelsStore, CHAT_TAB } from '../lib/panelsStore'
 import { wireExternalAppsStore } from '../lib/externalAppsStore'
 import { reposStore } from '../lib/reposStore'
@@ -81,7 +81,12 @@ export function CaseWorkspace({
   )
   const dockHost = useRef<HTMLDivElement | null>(null)
   const mainEl = useRef<HTMLElement | null>(null)
-  const drag = useRef<{ startX: number; startWidth: number; maxWidth: number } | null>(null)
+  const drag = useRef<{
+    side: 'evidence' | 'findings'
+    startX: number
+    startWidth: number
+    maxWidth: number
+  } | null>(null)
   const [prefill, setPrefill] = useState('')
   const [sessionId, setSessionId] = useState<number | null>(null)
   // The summaries were previously fetched and thrown away. They are kept now because the
@@ -473,10 +478,12 @@ export function CaseWorkspace({
             </span>
           </button>
         ) : (
-          <aside
-            className={`flex w-80 shrink-0 flex-col gap-3 overflow-hidden border-r border-hair p-3 ${dynamic ? 'dyn-rail' : 'bg-void'}`}
-          >
-            {/* Rail chrome, and deliberately NOT inside the scroll box below.
+          <>
+            <aside
+              className={`flex shrink-0 flex-col gap-3 overflow-hidden p-3 ${dynamic ? 'dyn-rail' : 'bg-void'}`}
+              style={{ width: ui.evidenceWidth, minWidth: EVIDENCE_MIN_WIDTH }}
+            >
+              {/* Rail chrome, and deliberately NOT inside the scroll box below.
                 The toggle used to ride ReposSection's header (as `headerExtra`), which made its
                 y a fact about the rail's *content*: a case with a Jira ticket pushed it down by
                 the whole ticket card, and scrolling the rail took it off screen entirely — while
@@ -488,18 +495,18 @@ export function CaseWorkspace({
                 "Workspace", not "Evidence" (user-directed, 2026-08-02): the rail carries the
                 ticket, the repos and the PR as well, and CaseFiles below already owns the word
                 Evidence for the thing that actually is evidence. */}
-            <div className="flex h-6 shrink-0 items-center gap-1.5">
-              <IconBtn
-                size="sm"
-                aria-label="Collapse workspace"
-                title="Collapse workspace"
-                onClick={() => uiStore.setEvidenceCollapsed(true)}
-              >
-                <PanelLeft size={14} strokeWidth={1.5} />
-              </IconBtn>
-              <SectionLabel>Workspace</SectionLabel>
-            </div>
-            {/* The rail itself no longer scrolls (CaseFiles below needs flex-1 to mean
+              <div className="flex h-6 shrink-0 items-center gap-1.5">
+                <IconBtn
+                  size="sm"
+                  aria-label="Collapse workspace"
+                  title="Collapse workspace"
+                  onClick={() => uiStore.setEvidenceCollapsed(true)}
+                >
+                  <PanelLeft size={14} strokeWidth={1.5} />
+                </IconBtn>
+                <SectionLabel>Workspace</SectionLabel>
+              </div>
+              {/* The rail itself no longer scrolls (CaseFiles below needs flex-1 to mean
                 something), so this wrapper keeps these naturally-growing sections — an
                 unbounded repo list, PR checks, similar-case hits — reachable on a short
                 window or a case with a lot of any of them, instead of silently clipping
@@ -515,18 +522,18 @@ export function CaseWorkspace({
                 distributes negative space by scaled shrink factor, and a flex-basis:0%
                 child would otherwise absorb none of it, i.e. get squeezed to 0), which
                 is what forces this box to give up space first instead. */}
-            <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
-              {/* The ticket, first: it is the case's origin, so it reads above the material the
+              <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+                {/* The ticket, first: it is the case's origin, so it reads above the material the
                   case accumulated. key: reset the refresh phase on a case switch, exactly as the
                   top bar's copy did. Renders nothing when the case has no ticket. */}
-              <JiraSection
-                key={slug}
-                slug={slug}
-                jiraKey={jiraKey}
-                title={caseTitle}
-                syncedAt={jiraSyncedAt}
-              />
-              {/* key: remount on case switch. Pending/error chips live in ReposSection's own
+                <JiraSection
+                  key={slug}
+                  slug={slug}
+                  jiraKey={jiraKey}
+                  title={caseTitle}
+                  syncedAt={jiraSyncedAt}
+                />
+                {/* key: remount on case switch. Pending/error chips live in ReposSection's own
                   usePendingList() state, which is component-instance state, not derived from
                   props — without a key, a failed unlink in case A (e.g. a locked worktree)
                   would leave an error chip that survives the switch to case B and renders
@@ -535,8 +542,8 @@ export function CaseWorkspace({
                   modes (only the unlink/graph affordances differ), so keying on mode would
                   discard a good fetch — and the `git status --porcelain` spawns behind it — on
                   every mode toggle. */}
-              <ReposSection key={slug} slug={slug} mode={activeMode} />
-              {/* key: remount on case switch. `linkingRef`/`linkingPr`/`prDraft`/`prError` are
+                <ReposSection key={slug} slug={slug} mode={activeMode} />
+                {/* key: remount on case switch. `linkingRef`/`linkingPr`/`prDraft`/`prError` are
                   component-instance state (Task 5's optimistic in-flight-link row), not derived
                   from props — without a key, a `pr:link` still running when the user switches to
                   another case (it does a real `git fetch` + `worktree add`, easily tens of
@@ -546,81 +553,117 @@ export function CaseWorkspace({
                   parent: React requires keys to be unique among siblings regardless of component
                   type, and a bare `key={slug}` on both here collided, silently defeating
                   ReposSection's own remount instead of adding this one. */}
-              <PrCompanionSection
-                key={`pr:${slug}`}
-                slug={slug}
-                mode={activeMode}
-                onAnalyze={(checkName) => void analyzeCheck(checkName)}
-                onPrsFound={handlePrsFound}
-              />
-              {activeMode !== 'review' && <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />}
-            </div>
-            {/* key: reset per-case state (scan result, collapsed dirs, parsing set) when
+                <PrCompanionSection
+                  key={`pr:${slug}`}
+                  slug={slug}
+                  mode={activeMode}
+                  onAnalyze={(checkName) => void analyzeCheck(checkName)}
+                  onPrsFound={handlePrsFound}
+                />
+                {activeMode !== 'review' && (
+                  <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />
+                )}
+              </div>
+              {/* key: reset per-case state (scan result, collapsed dirs, parsing set) when
                 switching cases or modes — investigation evidence and review artifacts are
                 disjoint lists */}
-            <CaseFiles
-              key={`${slug}:${activeMode}`}
-              caseSlug={slug}
-              label={activeMode === 'review' ? 'Code review artifacts' : 'Evidence'}
-              mode={activeMode}
-              onSuggest={setPrefill}
-              onOpenFile={onOpenFile}
-              panelDecls={panels.decls}
-              onOpenInPanel={(id, packId, windowId) => void openInPanel(id, packId, windowId)}
-              // Investigation only, as before — review mode's artifacts are not in the
-              // investigation search index and the section has no field.
-              search={
-                activeMode !== 'review' ? (
-                  <SearchBar caseSlug={slug} onOpen={onOpenHit} />
-                ) : undefined
-              }
+              <CaseFiles
+                key={`${slug}:${activeMode}`}
+                caseSlug={slug}
+                label={activeMode === 'review' ? 'Code review artifacts' : 'Evidence'}
+                mode={activeMode}
+                onSuggest={setPrefill}
+                onOpenFile={onOpenFile}
+                panelDecls={panels.decls}
+                onOpenInPanel={(id, packId, windowId) => void openInPanel(id, packId, windowId)}
+                // Investigation only, as before — review mode's artifacts are not in the
+                // investigation search index and the section has no field.
+                search={
+                  activeMode !== 'review' ? (
+                    <SearchBar caseSlug={slug} onOpen={onOpenHit} />
+                  ) : undefined
+                }
+              />
+            </aside>
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize evidence pane"
+              className="w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-signal/40"
+              onPointerDown={(e) => {
+                drag.current = {
+                  side: 'evidence',
+                  startX: e.clientX,
+                  startWidth: ui.evidenceWidth,
+                  maxWidth:
+                    ui.evidenceWidth +
+                    Math.max(0, (mainEl.current?.clientWidth ?? Infinity) - CHAT_MIN_WIDTH)
+                }
+                e.currentTarget.setPointerCapture?.(e.pointerId)
+              }}
+              onPointerMove={(e) => {
+                if (drag.current?.side !== 'evidence') return
+                uiStore.setEvidenceWidth(
+                  Math.min(
+                    drag.current.maxWidth,
+                    drag.current.startWidth + (e.clientX - drag.current.startX)
+                  )
+                )
+              }}
+              onPointerUp={() => {
+                drag.current = null
+              }}
             />
-          </aside>
+          </>
         )}
         <main
           ref={mainEl}
-          className="flex flex-1 flex-col overflow-hidden"
+          className="flex flex-1 flex-col p-3"
           style={{ minWidth: CHAT_MIN_WIDTH }}
         >
-          <PanelTabStrip
-            slug={slug}
-            sessionId={sessionId}
-            activeTab={panels.activeTab}
-            onSelect={(t) => panelsStore.setActiveTab(t)}
-            action={
-              activeMode === 'review' ? (
-                <ReviewRunButton slug={slug} sessionId={sessionId} onError={handleModeError} />
-              ) : undefined
-            }
-          />
-          <div className="relative min-h-0 flex-1">
-            <div
-              className={`flex h-full min-h-0 flex-col ${panels.activeTab === CHAT_TAB ? '' : 'hidden'}`}
-            >
-              {sessionsError && <p className="p-3 text-xs text-danger">{sessionsError}</p>}
-              {!sessionsError && sessionId !== null && (
-                <ChatPane
-                  slug={slug}
-                  sessionId={sessionId}
-                  session={sessions.find((s) => s.id === sessionId) ?? null}
-                  onModelChange={handleModelChange}
-                  onRunOptionsChange={handleRunOptionsChange}
-                  onPermissionModeChange={handlePermissionModeChange}
-                  onSwitchSession={handleSwitchSession}
-                  onCite={(c) => void handleCite(c)}
-                  onJumpToTurn={handleJumpToTurn}
-                  focusTarget={focusTurn?.target ?? null}
-                  onFocusConsumed={() => setFocusTurn(null)}
-                  prefill={prefill}
-                />
-              )}
-            </div>
-            {/* The active docked panel's native view is painted over this host by PanelDock. */}
-            <div
-              ref={dockHost}
-              className={`absolute inset-0 ${panels.activeTab === CHAT_TAB ? 'hidden' : ''}`}
+          <div
+            className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-r3 ${dynamic ? 'glass-panel' : 'surface-card'}`}
+          >
+            <PanelTabStrip
+              slug={slug}
+              sessionId={sessionId}
+              activeTab={panels.activeTab}
+              onSelect={(t) => panelsStore.setActiveTab(t)}
+              action={
+                activeMode === 'review' ? (
+                  <ReviewRunButton slug={slug} sessionId={sessionId} onError={handleModeError} />
+                ) : undefined
+              }
             />
-            <PanelDock hostRef={dockHost} />
+            <div className="relative min-h-0 flex-1">
+              <div
+                className={`flex h-full min-h-0 flex-col ${panels.activeTab === CHAT_TAB ? '' : 'hidden'}`}
+              >
+                {sessionsError && <p className="p-3 text-xs text-danger">{sessionsError}</p>}
+                {!sessionsError && sessionId !== null && (
+                  <ChatPane
+                    slug={slug}
+                    sessionId={sessionId}
+                    session={sessions.find((s) => s.id === sessionId) ?? null}
+                    onModelChange={handleModelChange}
+                    onRunOptionsChange={handleRunOptionsChange}
+                    onPermissionModeChange={handlePermissionModeChange}
+                    onSwitchSession={handleSwitchSession}
+                    onCite={(c) => void handleCite(c)}
+                    onJumpToTurn={handleJumpToTurn}
+                    focusTarget={focusTurn?.target ?? null}
+                    onFocusConsumed={() => setFocusTurn(null)}
+                    prefill={prefill}
+                  />
+                )}
+              </div>
+              {/* The active docked panel's native view is painted over this host by PanelDock. */}
+              <div
+                ref={dockHost}
+                className={`absolute inset-0 ${panels.activeTab === CHAT_TAB ? 'hidden' : ''}`}
+              />
+              <PanelDock hostRef={dockHost} />
+            </div>
           </div>
         </main>
         {ui.findingsCollapsed ? (
@@ -647,6 +690,7 @@ export function CaseWorkspace({
               className="w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-signal/40"
               onPointerDown={(e) => {
                 drag.current = {
+                  side: 'findings',
                   startX: e.clientX,
                   startWidth: ui.findingsWidth,
                   maxWidth:
@@ -658,7 +702,7 @@ export function CaseWorkspace({
                 e.currentTarget.setPointerCapture?.(e.pointerId)
               }}
               onPointerMove={(e) => {
-                if (!drag.current) return
+                if (drag.current?.side !== 'findings') return
                 uiStore.setFindingsWidth(
                   Math.min(
                     drag.current.maxWidth,
@@ -671,7 +715,7 @@ export function CaseWorkspace({
               }}
             />
             <aside
-              className={`flex flex-col border-l border-hair p-3 ${dynamic ? 'dyn-rail' : 'bg-void'}`}
+              className={`flex flex-col p-3 ${dynamic ? 'dyn-rail' : 'bg-void'}`}
               style={{ width: ui.findingsWidth, minWidth: FINDINGS_MIN_WIDTH }}
             >
               {/* key: remount on case switch. Findings are fetched once per case and filtered
