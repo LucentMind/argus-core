@@ -4,7 +4,7 @@ import type {
   SidecarHealth,
   SidecarSnapshot
 } from '../../../shared/diagnostics'
-import { buildSnapshot, type ProcessState } from './model'
+import { buildSnapshot, type BuildResult, type ProcessState } from './model'
 
 /** Page open: one sample a second. */
 export const FAST_INTERVAL_MS = 1_000
@@ -143,16 +143,27 @@ export class DiagnosticsService {
   }
 
   private ingest(raw: SidecarSnapshot): void {
-    const result = buildSnapshot({
-      samples: raw.processes,
-      previous: this.previous,
-      previousPeakRssBytes: this.peakRssBytes,
-      counters: this.counters,
-      sampledAtMs: raw.sampledAtUnixMs,
-      rootPid: this.deps.rootPid,
-      cores: this.deps.cores,
-      electronMetrics: this.deps.getElectronMetrics()
-    })
+    let result: BuildResult
+    try {
+      // getElectronMetrics() (app.getAppMetrics()) is the one realistic throw source
+      // in this path, and it runs on the sidecar's stdout 'data' handler — uncaught,
+      // it would surface as an unhandled main-process exception. A wedged sidecar
+      // must degrade the Diagnostics page, never the app, so keep whatever snapshot
+      // is already published and let the next sample get a fresh try.
+      result = buildSnapshot({
+        samples: raw.processes,
+        previous: this.previous,
+        previousPeakRssBytes: this.peakRssBytes,
+        counters: this.counters,
+        sampledAtMs: raw.sampledAtUnixMs,
+        rootPid: this.deps.rootPid,
+        cores: this.deps.cores,
+        electronMetrics: this.deps.getElectronMetrics()
+      })
+    } catch (err) {
+      console.error('[diagnostics] failed to build snapshot from sidecar sample', err)
+      return
+    }
 
     this.previous = result.next
     this.peakRssBytes = result.footprint.peakRssBytes

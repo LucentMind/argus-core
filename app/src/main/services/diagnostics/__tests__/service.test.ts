@@ -188,6 +188,39 @@ describe('DiagnosticsService', () => {
     expect(seen[0].sidecar.status).toBe('healthy')
   })
 
+  it('keeps the previous snapshot and does not throw when getElectronMetrics() throws', () => {
+    // app.getAppMetrics() is the one realistic throw source in ingest(), and it runs
+    // on the sidecar's stdout 'data' handler. Uncaught, this would surface as an
+    // unhandled main-process exception — a wedged sidecar must degrade the
+    // Diagnostics page, never the app.
+    let shouldThrow = false
+    const client = fakeClient()
+    const { service } = makeService(client, {
+      getElectronMetrics: () => {
+        if (shouldThrow) throw new Error('getAppMetrics boom')
+        return []
+      }
+    })
+    service.start()
+    const seen: DiagnosticsSnapshot[] = []
+    service.onSnapshot((s) => seen.push(s))
+
+    client.emit(snapshot())
+    expect(seen).toHaveLength(1)
+    const goodSnapshot = service.latest()
+
+    shouldThrow = true
+    expect(() => client.emit(snapshot({ sequence: 2, sampledAtUnixMs: 11_000 }))).not.toThrow()
+    // No new snapshot was published, and latest() still returns the last good one.
+    expect(seen).toHaveLength(1)
+    expect(service.latest()).toEqual(goodSnapshot)
+
+    // The next good sample recovers normally.
+    shouldThrow = false
+    client.emit(snapshot({ sequence: 3, sampledAtUnixMs: 12_000 }))
+    expect(seen).toHaveLength(2)
+  })
+
   it('carries delta state across two snapshots', () => {
     const { service, client } = makeService()
     service.start()
