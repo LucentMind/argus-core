@@ -97,7 +97,12 @@ describe('CaseFiles', () => {
       <CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />
     )
     await screen.findByText('Evidence')
-    expect(container.querySelector('section.surface-card, section.glass-panel')).not.toBeNull()
+    const section = container.querySelector('section.surface-card, section.glass-panel')
+    expect(section).not.toBeNull()
+    // Load-bearing (CaseWorkspace.tsx): min-h-32 gives the card a floor it can't be squeezed
+    // under, which is what forces the sibling rail's scroll box to yield space first instead
+    // of the card collapsing; flex-1 is what lets it claim that space in the first place.
+    expect(section).toHaveClass('min-h-32', 'flex-1')
   })
 
   it('drops the type filter', () => {

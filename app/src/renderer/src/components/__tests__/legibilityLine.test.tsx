@@ -40,12 +40,24 @@ describe('legibility line', () => {
       let src = readFileSync(file, 'utf8')
       // CaseFiles.tsx (Task 2, case-chrome-symmetry, 2026-08-02) wraps its dense evidence rows
       // in the same structural card idiom as the sibling rail sections (ReposSection etc.) —
-      // material on that outer <section>, never on the rows. Unlike the other three DENSE files,
-      // which are nothing but a single dense row/card, CaseFiles.tsx also contains that
-      // legitimate structural wrapper, so the check is scoped to the row-rendering function
-      // (`renderRow`) rather than the whole file.
+      // material on that outer <section>, never on the rows. The sanctioned exception is that
+      // one <section> opening tag; everything else in the file — including the pending-evidence
+      // rows and the "No evidence yet." row outside renderRow — stays guarded by the blunt
+      // whole-file scan below. (Narrowing to just the renderRow body previously left those other
+      // rows unguarded — review finding, case-chrome-symmetry Task 2.)
       if (file.endsWith('CaseFiles.tsx')) {
-        src = src.slice(src.indexOf('function renderRow'), src.indexOf('\n  return ('))
+        const open = src.indexOf('<section')
+        expect(open, 'CaseFiles.tsx: card <section> not found').toBeGreaterThan(-1)
+        const close = src.indexOf('>', open)
+        expect(close, 'CaseFiles.tsx: card <section> opening tag not closed').toBeGreaterThan(-1)
+        src = src.slice(0, open) + src.slice(close)
+        // Guard against silently degrading to an empty or near-whole-file scan (e.g. if
+        // `<section` disappeared or the excised span grew unbounded): the scanned source must
+        // still be substantial and still contain a known dense-row marker outside renderRow.
+        expect(src.length).toBeGreaterThan(1000)
+        expect(src, 'CaseFiles.tsx: expected row marker missing from scan').toContain(
+          'first:border-t-0'
+        )
       }
       expect(src, `${file} puts material on a dense row`).not.toContain('glass-panel')
       expect(src, `${file} puts material on a dense row`).not.toContain('glass-card')
