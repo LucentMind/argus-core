@@ -471,17 +471,18 @@ describe('PanelTabStrip', () => {
       />
     )
 
-    // Search now lives inside SessionSwitcher's popup — open it first.
-    fireEvent.click(await screen.findByLabelText('Ingest triage'))
+    // Search now lives inside SessionSwitcher's popup — open it via the caret (the title
+    // button now only selects the chat tab, it no longer toggles the popup).
+    fireEvent.click(await screen.findByLabelText('Switch chat'))
     const search = await screen.findByLabelText('Search chats')
     expect(fireEvent.keyDown(search, { key: ' ' })).toBe(true)
   })
 
   it('clicking the SessionSwitcher click-away overlay while a panel tab is active closes the popup without selecting the chat tab', async () => {
-    // SessionSwitcher's click-away overlay is a DOM descendant of the chat-tab wrapper, which
-    // carries onClick={() => onSelect(CHAT_TAB)}. Without stopPropagation on the overlay, a
-    // click meant only to dismiss the popup also bubbles up and selects the chat tab — even
-    // while a panel tab is the active one.
+    // SessionSwitcher's click-away overlay is a DOM descendant of the chat-tab wrapper. The
+    // wrapper itself no longer carries an onClick, but the overlay must still stopPropagation
+    // — otherwise a click meant only to dismiss the popup would bubble into whatever else is
+    // listening above it in a real app shell.
     window.argus = {
       ...sessionArgusMocks(),
       sessions: {
@@ -508,7 +509,7 @@ describe('PanelTabStrip', () => {
       />
     )
 
-    fireEvent.click(await screen.findByLabelText('Ingest triage'))
+    fireEvent.click(await screen.findByLabelText('Switch chat'))
     expect(await screen.findByRole('group', { name: 'Sessions' })).toBeInTheDocument()
     onSelect.mockClear()
 
@@ -581,8 +582,8 @@ describe('PanelTabStrip', () => {
       />
     )
 
-    // Search now lives inside SessionSwitcher's popup — open it first.
-    fireEvent.click(await screen.findByLabelText('Ingest triage'))
+    // Search now lives inside SessionSwitcher's popup — open it via the caret.
+    fireEvent.click(await screen.findByLabelText('Switch chat'))
     const search = (await screen.findByLabelText('Search chats')) as HTMLInputElement
     await userEvent.type(search, ' a')
     expect(search.value).toBe(' a')
@@ -614,7 +615,7 @@ describe('PanelTabStrip', () => {
       />
     )
 
-    fireEvent.click(await screen.findByLabelText('Ingest triage'))
+    fireEvent.click(await screen.findByLabelText('Switch chat'))
     fireEvent.click(await screen.findByRole('button', { name: 'Rename Ingest triage' }))
     const renameInput = screen.getByRole('textbox', {
       name: 'Rename Ingest triage'
@@ -624,6 +625,165 @@ describe('PanelTabStrip', () => {
     await userEvent.clear(renameInput)
     await userEvent.type(renameInput, 'x v2')
     expect(renameInput.value).toBe('x v2')
+  })
+
+  it('clicking the chat title selects the chat tab without opening the session popup', async () => {
+    window.argus = {
+      ...sessionArgusMocks(),
+      sessions: {
+        list: vi
+          .fn()
+          .mockResolvedValue([
+            { id: 7, title: 'Ingest triage', turnCount: 3, updatedAt: new Date().toISOString() }
+          ])
+      },
+      panels: { open: vi.fn() }
+    } as never
+    const onSelect = vi.fn()
+
+    render(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={7}
+        activeTab="sample-pack:text-viewer"
+        onSelect={onSelect}
+        activeSessionId={7}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+      />
+    )
+
+    fireEvent.click(await screen.findByLabelText('Ingest triage'))
+    expect(onSelect).toHaveBeenCalledWith('chat')
+    expect(screen.queryByRole('group', { name: 'Sessions' })).not.toBeInTheDocument()
+  })
+
+  it('clicking the caret opens the session popup without selecting the chat tab', async () => {
+    window.argus = {
+      ...sessionArgusMocks(),
+      sessions: {
+        list: vi
+          .fn()
+          .mockResolvedValue([
+            { id: 7, title: 'Ingest triage', turnCount: 3, updatedAt: new Date().toISOString() }
+          ])
+      },
+      panels: { open: vi.fn() }
+    } as never
+    const onSelect = vi.fn()
+
+    render(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={7}
+        activeTab="sample-pack:text-viewer"
+        onSelect={onSelect}
+        activeSessionId={7}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+      />
+    )
+
+    fireEvent.click(await screen.findByLabelText('Switch chat'))
+    expect(await screen.findByRole('group', { name: 'Sessions' })).toBeInTheDocument()
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('choosing a chat from the popup while a panel tab is active switches session and selects the chat tab', async () => {
+    window.argus = {
+      ...sessionArgusMocks(),
+      sessions: {
+        list: vi.fn().mockResolvedValue([
+          { id: 7, title: 'Ingest triage', turnCount: 3, updatedAt: new Date().toISOString() },
+          { id: 9, title: 'Other chat', turnCount: 1, updatedAt: new Date().toISOString() }
+        ])
+      },
+      panels: { open: vi.fn() }
+    } as never
+    const onSelect = vi.fn()
+    const onSwitchSession = vi.fn()
+
+    render(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={7}
+        activeTab="sample-pack:text-viewer"
+        onSelect={onSelect}
+        activeSessionId={7}
+        instanceId={null}
+        onSwitchSession={onSwitchSession}
+        onJumpToTurn={vi.fn()}
+      />
+    )
+
+    fireEvent.click(await screen.findByLabelText('Switch chat'))
+    fireEvent.click(await screen.findByText('Other chat'))
+    expect(onSwitchSession).toHaveBeenCalledWith(9)
+    expect(onSelect).toHaveBeenCalledWith('chat')
+  })
+
+  it('creating a new chat from the popup while a panel tab is active also selects the chat tab', async () => {
+    // Same onSwitch path as the "choose an existing chat" case above — `New chat` in
+    // SessionSwitcher calls the same onSwitch prop it was handed.
+    window.argus = {
+      ...sessionArgusMocks(),
+      sessions: {
+        list: vi
+          .fn()
+          .mockResolvedValue([
+            { id: 7, title: 'Ingest triage', turnCount: 3, updatedAt: new Date().toISOString() }
+          ]),
+        create: vi.fn().mockResolvedValue({
+          id: 11,
+          title: '',
+          turnCount: 0,
+          updatedAt: new Date().toISOString()
+        })
+      },
+      panels: { open: vi.fn() }
+    } as never
+    const onSelect = vi.fn()
+    const onSwitchSession = vi.fn()
+
+    render(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={7}
+        activeTab="sample-pack:text-viewer"
+        onSelect={onSelect}
+        activeSessionId={7}
+        instanceId={null}
+        onSwitchSession={onSwitchSession}
+        onJumpToTurn={vi.fn()}
+      />
+    )
+
+    fireEvent.click(await screen.findByLabelText('Switch chat'))
+    fireEvent.click(await screen.findByRole('button', { name: 'New chat' }))
+    await waitFor(() => expect(onSwitchSession).toHaveBeenCalledWith(11))
+    expect(onSelect).toHaveBeenCalledWith('chat')
+  })
+
+  it('the chat tab wrapper no longer carries a min-w-32 shrink floor', async () => {
+    window.argus = { ...sessionArgusMocks(), panels: { open: vi.fn() } } as never
+    const { container } = render(
+      <PanelTabStrip
+        slug="case-a"
+        sessionId={1}
+        activeTab="chat"
+        onSelect={() => {}}
+        activeSessionId={null}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+      />
+    )
+    await screen.findByText('Chat')
+    const wrapper = container.querySelector('.border-b-2')
+    expect(wrapper).toBeTruthy()
+    expect(wrapper?.className).not.toContain('min-w-32')
   })
 })
 

@@ -59,12 +59,18 @@ export function SessionSwitcher({
   slug,
   sessionId,
   onSwitch,
-  onJumpToTurn
+  onJumpToTurn,
+  onTitleClick
 }: {
   slug: string
   sessionId: number
   onSwitch: (id: number) => void
   onJumpToTurn: (sessionId: number, target: ChatJumpTarget) => void
+  /** Selects the chat tab. When supplied, the title button calls this instead of toggling
+   *  the popup — the caret button (below) is the only thing that opens it. When absent,
+   *  the title button falls back to today's behaviour (toggle the popup), so any other
+   *  caller keeps working unchanged. */
+  onTitleClick?: () => void
 }): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [open, setOpen] = useState(false)
@@ -210,17 +216,29 @@ export function SessionSwitcher({
   }
 
   return (
-    <div className="relative">
+    <div className="relative flex items-center gap-0.5">
+      {/* Title button: selects the chat tab via onTitleClick when the caller supplies one
+          (PanelTabStrip does); falls back to toggling the popup itself when it doesn't
+          (e.g. this component rendered standalone in tests), so no caller regresses. */}
       <button
         type="button"
         aria-label={activeTitle}
         className="flex items-center gap-1 rounded-r2 px-2 py-1 text-xs text-ink transition-colors hover:bg-hair"
-        onClick={() => setOpen((v) => !v)}
+        onClick={onTitleClick ?? (() => setOpen((v) => !v))}
       >
         <span className="max-w-48 truncate">{activeTitle}</span>
         {driverBadgeLabel(active?.driverKind, activeDriverKind) && (
           <Chip tone="neutral">{driverBadgeLabel(active?.driverKind, activeDriverKind)}</Chip>
         )}
+      </button>
+      {/* Caret button: the only thing that opens the session popup now. Its own aria-label
+          is required since it no longer inherits the title as an accessible name. */}
+      <button
+        type="button"
+        aria-label="Switch chat"
+        className="shrink-0 rounded-r2 p-1 text-ink transition-colors hover:bg-hair"
+        onClick={() => setOpen((v) => !v)}
+      >
         <ChevronDown size={12} strokeWidth={1.5} aria-hidden="true" />
       </button>
       {open && (

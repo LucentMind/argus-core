@@ -92,30 +92,38 @@ export function PanelTabStrip({
       {/* No role="tab" here: the strip container carries no role="tablist" and the sibling
           panel tabs below carry no role either, so a lone "tab" here would be an orphan —
           ARIA doesn't permit that, and "tab" is on the presentational-children list, meaning
-          a conforming assistive tech may prune the SessionSwitcher trigger button living
-          inside it (the one whose aria-label carries the chat title). Also no tabIndex/
-          onKeyDown on this wrapper: a previous round added those to make the div itself a
-          keyboard tab stop, but with no origin guard the keydown handler cancelled Enter/
-          Space for every descendant control too (SessionSwitcher's trigger, the popup's
-          buttons, the rename input, the "Search chats" input) — defaultPrevented on keydown
-          suppresses both character insertion and the synthesized activation click in a real
-          browser, so it silently broke typing a space into search/rename and broke Enter/
-          Space on every button in the popup. Keyboard reachability comes from the real
-          button that's already here: SessionSwitcher's trigger (or, with no session yet, the
-          fallback button below) is a focusable <button>; Enter/Space activates it and the
-          resulting click bubbles to this div's onClick, selecting the chat tab exactly as
-          clicking anywhere else in the tab does. */}
+          a conforming assistive tech may prune the SessionSwitcher buttons living inside it
+          (the title button whose aria-label carries the chat title, and the caret button
+          that opens the session popup). Also no tabIndex/onKeyDown on this wrapper: a
+          previous round added those to make the div itself a keyboard tab stop, but with no
+          origin guard the keydown handler cancelled Enter/Space for every descendant control
+          too (SessionSwitcher's buttons, the popup's buttons, the rename input, the "Search
+          chats" input) — defaultPrevented on keydown suppresses both character insertion and
+          the synthesized activation click in a real browser, so it silently broke typing a
+          space into search/rename and broke Enter/Space on every button in the popup.
+          Keyboard reachability comes from the real buttons that are already here:
+          SessionSwitcher's title button calls onTitleClick directly (or, with no session
+          yet, the fallback button below has its own onClick) — neither relies on bubbling
+          to a wrapper onClick, because this wrapper no longer has one; it exists only to
+          host the shared active-tab underline (border-b-2) that spans the title and caret. */}
       <div
-        className={`flex min-w-32 shrink items-center border-b-2 ${
+        className={`flex shrink items-center border-b-2 ${
           activeTab === CHAT_TAB ? 'border-signal' : 'border-transparent'
         }`}
-        onClick={() => onSelect(CHAT_TAB)}
       >
         {activeSessionId !== null ? (
           <SessionSwitcher
             slug={slug}
             sessionId={activeSessionId}
-            onSwitch={onSwitchSession}
+            onSwitch={(id) => {
+              // onSwitch also fires for CaseWorkspace's `New chat`/`Switch to <chat>` popup
+              // actions taken while a *panel* tab is active. handleSwitchSession only sets the
+              // active session — it never touches the active tab — so without this, choosing
+              // a chat from the popup would silently leave a panel tab selected.
+              onSwitchSession(id)
+              onSelect(CHAT_TAB)
+            }}
+            onTitleClick={() => onSelect(CHAT_TAB)}
             onJumpToTurn={onJumpToTurn}
           />
         ) : (
@@ -123,14 +131,12 @@ export function PanelTabStrip({
           // activeSessionId resolves — "Chat" is what this tab read before Task 4's merge.
           // A real <button> (not a <span>): SessionSwitcher isn't mounted in this branch, so
           // there's no nested-button hazard, and this is the only way this state has a
-          // keyboard-reachable tab stop at all.
-          // No onClick here: the click bubbles to the wrapper div's onClick above, same as
-          // SessionSwitcher's trigger button does in the other branch.
+          // keyboard-reachable tab stop at all. Its own onClick (the wrapper above carries
+          // none) is what selects the chat tab here.
           <button
             type="button"
-            className={`px-2 py-1.5 text-xs ${
-              activeTab === CHAT_TAB ? 'text-ink' : 'text-dim'
-            }`}
+            onClick={() => onSelect(CHAT_TAB)}
+            className={`px-2 py-1.5 text-xs ${activeTab === CHAT_TAB ? 'text-ink' : 'text-dim'}`}
           >
             Chat
           </button>
