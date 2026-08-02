@@ -33,7 +33,9 @@ describe('resolveSidecarBinary', () => {
 
   it('prefers the env override over everything else', () => {
     const override = touch(path.join(tmp, 'custom', 'monitor.exe'))
-    touch(path.join(tmp, 'resources', 'resource-monitor', 'win32-x64', 'argus-resource-monitor.exe'))
+    touch(
+      path.join(tmp, 'resources', 'resource-monitor', 'win32-x64', 'argus-resource-monitor.exe')
+    )
     process.env.ARGUS_RESOURCE_MONITOR_PATH = override
     expect(resolveSidecarBinary({ repoRoot: tmp, platform: 'win32' })).toBe(override)
   })
@@ -56,21 +58,41 @@ describe('resolveSidecarBinary', () => {
       path.join(tmp, 'res', 'resource-monitor', 'win32-x64', 'argus-resource-monitor.exe')
     )
     expect(
-      resolveSidecarBinary({ repoRoot: tmp, resourcesPath: path.join(tmp, 'res'), platform: 'win32' })
+      resolveSidecarBinary({
+        repoRoot: tmp,
+        resourcesPath: path.join(tmp, 'res'),
+        platform: 'win32'
+      })
     ).toBe(packaged)
   })
 
   it('falls back to a local cargo release build in a dev checkout', () => {
     const dev = touch(
-      path.join(tmp, 'native', 'resource-monitor', 'target', 'release', 'argus-resource-monitor.exe')
+      path.join(
+        tmp,
+        'native',
+        'resource-monitor',
+        'target',
+        'release',
+        'argus-resource-monitor.exe'
+      )
     )
     expect(resolveSidecarBinary({ repoRoot: tmp, platform: 'win32' })).toBe(dev)
   })
 
   it('prefers a release build over a debug build', () => {
-    touch(path.join(tmp, 'native', 'resource-monitor', 'target', 'debug', 'argus-resource-monitor.exe'))
+    touch(
+      path.join(tmp, 'native', 'resource-monitor', 'target', 'debug', 'argus-resource-monitor.exe')
+    )
     const release = touch(
-      path.join(tmp, 'native', 'resource-monitor', 'target', 'release', 'argus-resource-monitor.exe')
+      path.join(
+        tmp,
+        'native',
+        'resource-monitor',
+        'target',
+        'release',
+        'argus-resource-monitor.exe'
+      )
     )
     expect(resolveSidecarBinary({ repoRoot: tmp, platform: 'win32' })).toBe(release)
   })
@@ -80,7 +102,11 @@ describe('resolveSidecarBinary', () => {
       path.join(tmp, 'res', 'resource-monitor', 'darwin-universal', 'argus-resource-monitor')
     )
     expect(
-      resolveSidecarBinary({ repoRoot: tmp, resourcesPath: path.join(tmp, 'res'), platform: 'darwin' })
+      resolveSidecarBinary({
+        repoRoot: tmp,
+        resourcesPath: path.join(tmp, 'res'),
+        platform: 'darwin'
+      })
     ).toBe(packaged)
   })
 })
