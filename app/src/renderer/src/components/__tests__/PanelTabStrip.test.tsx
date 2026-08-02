@@ -300,7 +300,7 @@ describe('PanelTabStrip', () => {
       />
     )
 
-    expect(await screen.findByTestId('session-chips')).toBeInTheDocument()
+    expect(await screen.findByTestId('session-chips')).toBeVisible()
     // pins Task 4's deviation: SessionSwitcher used to embed its own SessionChips (removed
     // when the switcher moved into the tab strip's always-visible chat tab) — nothing else
     // stops that second copy coming back.

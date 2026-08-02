@@ -951,8 +951,9 @@ describe('CaseWorkspace findings pane', () => {
     fireEvent.pointerMove(sep, { pointerId: 1, clientX: 900, buttons: 1 })
     expect(uiStore.get().findingsWidth).toBe(484)
     fireEvent.pointerUp(sep, { pointerId: 1 })
-    // after release, further moves change nothing
-    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 500 })
+    // after release, further moves change nothing — buttons: 1 (a genuine held button) so this
+    // is caught only by onPointerUp's clearing of drag.current, not the buttons: 0 guard.
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 500, buttons: 1 })
     expect(uiStore.get().findingsWidth).toBe(484)
   })
 
@@ -980,7 +981,7 @@ describe('CaseWorkspace findings pane', () => {
     expect(screen.getByRole('separator', { name: 'Resize findings pane' })).toBeTruthy()
   })
 
-  it('a pointer-cancel clears the drag so a later hover does not resize the pane', () => {
+  it('a pointer-cancel clears the drag so a later re-press does not resize the pane', () => {
     const { container } = renderWorkspace()
     Object.defineProperty(container.querySelector('main')!, 'clientWidth', {
       configurable: true,
@@ -990,9 +991,43 @@ describe('CaseWorkspace findings pane', () => {
     fireEvent.pointerDown(sep, { pointerId: 1, clientX: 1000 })
     fireEvent.pointerCancel(sep, { pointerId: 1 })
     const before = uiStore.get().findingsWidth
-    // A cancelled drag leaves the button up but never fires pointerUp — a stray hover-driven
-    // pointerMove (buttons: 0, no button held) must not resize the pane afterwards.
+    // A cancelled drag leaves the button up but never fires pointerUp. buttons: 1 here is a
+    // genuine re-press — the `e.buttons === 0` guard would let this move through regardless of
+    // onPointerCancel, so only onPointerCancel's clearing of drag.current can stop it.
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 500, buttons: 1 })
+    expect(uiStore.get().findingsWidth).toBe(before)
+  })
+
+  it('a stray hover after pointerDown with no cancel/up does not resize the pane (buttons guard)', () => {
+    const { container } = renderWorkspace()
+    Object.defineProperty(container.querySelector('main')!, 'clientWidth', {
+      configurable: true,
+      value: 2000
+    })
+    const sep = screen.getByRole('separator', { name: 'Resize findings pane' })
+    fireEvent.pointerDown(sep, { pointerId: 1, clientX: 1000 })
+    const before = uiStore.get().findingsWidth
+    // No pointerCancel/pointerUp/lostPointerCapture fired — drag.current is still set. Only the
+    // `e.buttons === 0` guard in onPointerMove can stop this stray hover from resizing.
     fireEvent.pointerMove(sep, { pointerId: 1, clientX: 500, buttons: 0 })
+    expect(uiStore.get().findingsWidth).toBe(before)
+  })
+
+  it('losing pointer capture clears the drag so a later re-press does not resize the pane', () => {
+    const { container } = renderWorkspace()
+    Object.defineProperty(container.querySelector('main')!, 'clientWidth', {
+      configurable: true,
+      value: 2000
+    })
+    const sep = screen.getByRole('separator', { name: 'Resize findings pane' })
+    fireEvent.pointerDown(sep, { pointerId: 1, clientX: 1000 })
+    // Simulates the OS handing pointer capture elsewhere without pointerup/pointercancel ever
+    // firing. buttons: 1 on the follow-up move is a genuine re-press — the `e.buttons === 0`
+    // guard would let it through regardless of this handler, so only onLostPointerCapture's
+    // clearing of drag.current can stop it.
+    fireEvent.lostPointerCapture(sep, { pointerId: 1 })
+    const before = uiStore.get().findingsWidth
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 500, buttons: 1 })
     expect(uiStore.get().findingsWidth).toBe(before)
   })
 
@@ -1033,8 +1068,9 @@ describe('CaseWorkspace evidence pane drag', () => {
     // wrong setter would still typecheck (both are `(number) => void`) but would show up here
     expect(uiStore.get().findingsWidth).toBe(384)
     fireEvent.pointerUp(sep, { pointerId: 1 })
-    // after release, further moves change nothing
-    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 1300 })
+    // after release, further moves change nothing — buttons: 1 (a genuine held button) so this
+    // is caught only by onPointerUp's clearing of drag.current, not the buttons: 0 guard.
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 1300, buttons: 1 })
     expect(uiStore.get().evidenceWidth).toBe(420)
   })
 
@@ -1072,6 +1108,39 @@ describe('CaseWorkspace evidence pane drag', () => {
     fireEvent.pointerMove(findingsSep, { pointerId: 1, clientX: 900, buttons: 1 })
     expect(uiStore.get().findingsWidth).toBe(484)
     fireEvent.pointerUp(findingsSep, { pointerId: 1 })
+  })
+
+  it('a stray hover after pointerDown with no cancel/up does not resize the pane (buttons guard)', () => {
+    const { container } = renderWorkspace()
+    Object.defineProperty(container.querySelector('main')!, 'clientWidth', {
+      configurable: true,
+      value: 2000
+    })
+    const sep = screen.getByRole('separator', { name: 'Resize evidence pane' })
+    fireEvent.pointerDown(sep, { pointerId: 1, clientX: 1000 })
+    const before = uiStore.get().evidenceWidth
+    // No pointerCancel/pointerUp/lostPointerCapture fired — drag.current is still set. Only the
+    // `e.buttons === 0` guard in onPointerMove can stop this stray hover from resizing.
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 1300, buttons: 0 })
+    expect(uiStore.get().evidenceWidth).toBe(before)
+  })
+
+  it('losing pointer capture clears the drag so a later re-press does not resize the pane', () => {
+    const { container } = renderWorkspace()
+    Object.defineProperty(container.querySelector('main')!, 'clientWidth', {
+      configurable: true,
+      value: 2000
+    })
+    const sep = screen.getByRole('separator', { name: 'Resize evidence pane' })
+    fireEvent.pointerDown(sep, { pointerId: 1, clientX: 1000 })
+    // Simulates the OS handing pointer capture elsewhere without pointerup/pointercancel ever
+    // firing. buttons: 1 on the follow-up move is a genuine re-press — the `e.buttons === 0`
+    // guard would let it through regardless of this handler, so only onLostPointerCapture's
+    // clearing of drag.current can stop it.
+    fireEvent.lostPointerCapture(sep, { pointerId: 1 })
+    const before = uiStore.get().evidenceWidth
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 1300, buttons: 1 })
+    expect(uiStore.get().evidenceWidth).toBe(before)
   })
 })
 
