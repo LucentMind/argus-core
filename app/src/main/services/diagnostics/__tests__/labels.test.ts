@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { resolveLabel, type LabelSources, type WindowDescriptor } from '../labels'
+import {
+  argv0Basename,
+  resolveLabel,
+  type LabelSources,
+  type WindowDescriptor
+} from '../labels'
 import type { ElectronProcessMetric, ProcessSample } from '../../../../shared/diagnostics'
 
 function sample(over: Partial<ProcessSample> & { pid: number }): ProcessSample {
@@ -97,5 +102,70 @@ describe('resolveLabel — tier B (Electron)', () => {
 
   it('returns null when there is no Electron metric and nothing else matches', () => {
     expect(resolveLabel(sample({ pid: 30 }), undefined, sources())).toBeNull()
+  })
+})
+
+describe('argv0Basename', () => {
+  it('strips directory, extension, and case', () => {
+    expect(argv0Basename('C:\\Users\\x\\AppData\\bin\\Claude.EXE --flag')).toBe('claude')
+    expect(argv0Basename('/usr/local/bin/copilot serve')).toBe('copilot')
+  })
+
+  it('strips surrounding quotes', () => {
+    expect(argv0Basename('"C:\\Program Files\\argus\\codex.exe" app-server')).toBe('codex')
+  })
+
+  it('returns an empty string for an empty command', () => {
+    expect(argv0Basename('   ')).toBe('')
+  })
+})
+
+describe('resolveLabel — tier C (command-line inference)', () => {
+  it.each([
+    ['/usr/local/bin/claude --print', 'claude-agent-sdk', 'Claude driver'],
+    ['C:\\bin\\copilot.exe --stdio', 'github-copilot', 'Copilot driver'],
+    ['/opt/codex app-server', 'codex', 'Codex driver'],
+    ['/usr/bin/cursor-agent --acp', 'cursor', 'Cursor driver'],
+    ['/usr/bin/grok --acp', 'grok', 'Grok driver']
+  ])('labels %s as a driver', (command, provider, label) => {
+    const r = resolveLabel(sample({ pid: 40, command }), undefined, sources())
+    expect(r).toEqual({ kind: 'driver', label, provider, inferred: true })
+  })
+
+  it('labels the graphify pack binary', () => {
+    const r = resolveLabel(
+      sample({ pid: 41, command: '/packs/code-graph/bin/graphify --repo .' }),
+      undefined,
+      sources()
+    )
+    expect(r).toEqual({ kind: 'pack-binary', label: 'graphify', inferred: true })
+  })
+
+  it.each([
+    ['--type=renderer', 'Renderer process'],
+    ['--type=gpu-process', 'GPU process'],
+    ['--type=utility', 'Utility process']
+  ])('labels an Electron descendant carrying %s', (flag, label) => {
+    const r = resolveLabel(
+      sample({ pid: 42, command: `/opt/argus/argus ${flag} --lang=en` }),
+      undefined,
+      sources()
+    )
+    expect(r).toEqual({ kind: 'electron-internal', label, inferred: true })
+  })
+
+  it('prefers the Electron metric over the --type= fallback', () => {
+    const r = resolveLabel(
+      sample({ pid: 43, command: '/opt/argus/argus --type=renderer' }),
+      metric({ pid: 43, type: 'Tab' }),
+      sources({ windows: [{ osPid: 43, kind: 'main-window' }] })
+    )
+    expect(r).toEqual({ kind: 'electron-window', label: 'Main window', inferred: false })
+  })
+
+  it('returns null for an unrecognised command', () => {
+    expect(
+      resolveLabel(sample({ pid: 44, command: '/usr/bin/node server.js' }), undefined, sources())
+    ).toBeNull()
   })
 })
