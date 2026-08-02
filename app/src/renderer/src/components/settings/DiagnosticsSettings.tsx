@@ -209,7 +209,7 @@ export default function DiagnosticsSettings(): React.JSX.Element {
       {snap.objects.length > 0 && (
         <SettingsSection
           title="Argus objects"
-          subtitle="Every process attributed to the driver, connector, or window that owns it. These rows always sum to the footprint above."
+          subtitle="Every process attributed to the driver, connector, or window that owns it. These rows account for the footprint above (displayed values are independently rounded, so they may not add up exactly)."
         >
           <table className="w-full text-sm">
             <thead>

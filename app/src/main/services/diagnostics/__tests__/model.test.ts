@@ -439,7 +439,12 @@ describe('buildSnapshot — object rollup', () => {
         command: 'npx @x/server-github',
         residentBytes: 100
       })
-      const node = sample({ pid: 3, ppid: 2, command: '/usr/bin/node index.js', residentBytes: 400 })
+      const node = sample({
+        pid: 3,
+        ppid: 2,
+        command: '/usr/bin/node index.js',
+        residentBytes: 400
+      })
       const r = build([ROOT, npx, node], new Map(), 2_000, {
         electronMetrics: ELECTRON_MAIN,
         labelSources: { windows: [], connectors: CONNECTORS }

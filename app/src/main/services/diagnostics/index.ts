@@ -34,7 +34,7 @@ export type DiagnosticsServiceDeps = {
   cores: number
   totalMemoryBytes: number
   getElectronMetrics: () => ElectronProcessMetric[]
-  /** Live window/panel identities for tier-B naming. Must never throw — see ingest(). */
+  /** Live window/panel identities for tier-B naming. May throw; contained by ingest(). */
   getWindowDescriptors: () => WindowDescriptor[]
   /** Live configured stdio connectors, for tier-C MCP matching. */
   getConnectorCommands: () => ConnectorCommand[]
@@ -151,11 +151,13 @@ export class DiagnosticsService {
   private ingest(raw: SidecarSnapshot): void {
     let result: BuildResult
     try {
-      // getElectronMetrics() (app.getAppMetrics()) is the one realistic throw source
-      // in this path, and it runs on the sidecar's stdout 'data' handler — uncaught,
-      // it would surface as an unhandled main-process exception. A wedged sidecar
-      // must degrade the Diagnostics page, never the app, so keep whatever snapshot
-      // is already published and let the next sample get a fresh try.
+      // getElectronMetrics() (app.getAppMetrics()) is one realistic throw source in
+      // this path; getWindowDescriptors() and getConnectorCommands() below are two
+      // more (a torn-down webContents, a malformed connector config). All of it runs
+      // on the sidecar's stdout 'data' handler — uncaught, any of these would surface
+      // as an unhandled main-process exception. A wedged sidecar or label source must
+      // degrade the Diagnostics page, never the app, so keep whatever snapshot is
+      // already published and let the next sample get a fresh try.
       result = buildSnapshot({
         samples: raw.processes,
         previous: this.previous,

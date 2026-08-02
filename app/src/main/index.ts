@@ -354,10 +354,14 @@ let connectorCommandsRef: () => ConnectorCommand[] = () => []
  * or half-torn-down window degrades the labels, never the app. getOSProcessId()
  * throws on a destroyed webContents, which is the one call known to do so.
  *
- * Assumes the editor window is the only BrowserWindow besides the main one
- * (index.ts holds exactly `mainWindow` and `editorWindowService`); floated
- * panels are caught by the panel check first, since PanelView.webContentsId
- * survives popOut. A third window kind would need this revisited.
+ * There IS a third BrowserWindow besides main and the editor window:
+ * electronPlatform.ts's `floatWin`, the panel float-out host. It's safe to
+ * leave unhandled here because `floatWin` never calls `loadURL` — the floated
+ * content lives in the reparented PanelView, not floatWin's own webContents —
+ * so `floatWin.webContents.getOSProcessId()` returns 0 and the `osPid <= 0`
+ * guard below filters it out. That guard is load-bearing for this reason; a
+ * fourth window kind that DOES navigate its own webContents would need this
+ * revisited.
  */
 function collectWindowDescriptors(): WindowDescriptor[] {
   const out: WindowDescriptor[] = []
@@ -386,7 +390,11 @@ function collectWindowDescriptors(): WindowDescriptor[] {
     }
   } catch (err) {
     console.error('[diagnostics] failed to collect window descriptors', err)
-    return []
+    // Return what was already collected rather than discarding it: windows
+    // already resolved keep their names, and whatever wasn't reached yet
+    // degrades to a generic "Renderer process" via the label layer's
+    // empty-match path instead of vanishing from the page entirely.
+    return out
   }
   return out
 }

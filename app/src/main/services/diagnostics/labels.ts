@@ -14,10 +14,9 @@ import {
  *
  * Pure: every input is a parameter, so no electron import and no I/O. The
  * parent design defines four tiers in strict precedence; this implements B
- * (Electron, authoritative). Tier C (command-line inference) is `inferred: true`
- * and lands in Task 3. Tier A (the spawn-site registry) lands in a later
- * increment and will be consulted before B without changing this function's
- * contract.
+ * (Electron, authoritative) and C (command-line inference, `inferred: true`).
+ * Tier A (the spawn-site registry) lands in a later increment and will be
+ * consulted before B without changing this function's contract.
  */
 
 /** One Electron-owned window or panel, identified by its OS process id. */
@@ -51,7 +50,11 @@ function nameOfWindow(w: WindowDescriptor): string {
     case 'editor-window':
       return 'Editor window'
     case 'panel':
-      return `Panel: ${w.title ?? 'untitled'}`
+      // `??` does not cover the empty string, and an empty title IS reachable
+      // here: the collector's `panelTitle !== null` check deliberately admits
+      // '' (see index.ts's titleForWebContents usage), which would otherwise
+      // render as the empty "Panel: ".
+      return `Panel: ${w.title || 'untitled'}`
   }
 }
 
@@ -100,13 +103,16 @@ function tierB(
  * registry resolves Codex, Cursor, and Grok authoritatively, and Claude and
  * Copilot are heuristic-only by construction (their SDKs hide the pid).
  */
-const DRIVER_BASENAMES: Record<string, { provider: string; label: string }> = {
-  claude: { provider: 'claude-agent-sdk', label: 'Claude driver' },
-  copilot: { provider: 'github-copilot', label: 'Copilot driver' },
-  codex: { provider: 'codex', label: 'Codex driver' },
-  'cursor-agent': { provider: 'cursor', label: 'Cursor driver' },
-  grok: { provider: 'grok', label: 'Grok driver' }
-}
+// A Map, not an object literal: the lookup key is machine-derived (a process
+// basename), and a plain object literal is prototype-bearing — a key like
+// `constructor` would resolve through Object.prototype instead of missing.
+const DRIVER_BASENAMES: Map<string, { provider: string; label: string }> = new Map([
+  ['claude', { provider: 'claude-agent-sdk', label: 'Claude driver' }],
+  ['copilot', { provider: 'github-copilot', label: 'Copilot driver' }],
+  ['codex', { provider: 'codex', label: 'Codex driver' }],
+  ['cursor-agent', { provider: 'cursor', label: 'Cursor driver' }],
+  ['grok', { provider: 'grok', label: 'Grok driver' }]
+])
 
 const PACK_BINARY_BASENAMES = new Set(['graphify'])
 
@@ -120,10 +126,13 @@ const ELECTRON_TYPE_FLAGS: [string, string][] = [
 /**
  * Executable basename of a command line, lowercased and without `.exe`.
  *
- * Takes the first whitespace-delimited token. An UNQUOTED path containing
- * spaces therefore yields the wrong basename — such a process simply falls
- * through to unlabeled, which is visible in the Unattributed row rather than
- * silently mislabeled.
+ * Takes the leading quoted span when the command starts with a quote,
+ * otherwise the first whitespace-delimited token. sysinfo hands TypeScript
+ * already-parsed, unquoted argv, so an UNQUOTED path containing spaces still
+ * yields the wrong basename — the quoted-span branch above can't help,
+ * because the quoting it looks for is already gone by the time we see it.
+ * That case now falls through to tierC's `name`-based fallback (see
+ * driverOrPackBinaryLabel's callers) rather than silently mislabeling.
  */
 export function argv0Basename(command: string): string {
   const trimmed = command.trim()
@@ -173,7 +182,7 @@ function isDistinctive(token: string): boolean {
  * Ties resolve by distinctive-token count then by instanceId, so a process
  * never flickers between two labels on consecutive ticks.
  */
-export function matchConnector(
+function matchConnector(
   command: string,
   connectors: readonly ConnectorCommand[]
 ): ConnectorCommand | null {
@@ -200,6 +209,12 @@ export function matchConnector(
 /**
  * Flatten the live connector map into the shape the matcher wants. HTTP
  * connectors have no local process, so they are dropped.
+ *
+ * `ConnectorInstance.enabled` is deliberately NOT filtered here: disabling a
+ * connector in Settings does not kill an already-running child process, and
+ * naming that lingering process by its still-configured command is more
+ * useful than dumping it into Unattributed. The false-positive surface this
+ * opens is bounded by matchConnector's distinctiveness guard.
  */
 export function stdioConnectorCommands(map: ConnectorMap): ConnectorCommand[] {
   const out: ConnectorCommand[] = []
@@ -217,7 +232,7 @@ export function stdioConnectorCommands(map: ConnectorMap): ConnectorCommand[] {
  * neither table recognizes it.
  */
 function driverOrPackBinaryLabel(base: string): ResolvedLabel | null {
-  const driver = DRIVER_BASENAMES[base]
+  const driver = DRIVER_BASENAMES.get(base)
   if (driver)
     return {
       kind: 'driver',

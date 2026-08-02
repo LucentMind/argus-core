@@ -113,7 +113,13 @@ export function buildSnapshot(input: BuildInput): BuildResult {
   const tree: DiagnosticsProcess[] = []
 
   // Row accumulation. `rowIdOfPid` lets a child find the row its parent landed
-  // in; the depth-first order guarantees the parent was visited first.
+  // in. The depth-first order guarantees the parent was visited first for the
+  // root subtree, but NOT for the orphan sweep in orderDepthFirst (which walks
+  // the sample array in its given order, not parent-before-child) — an orphan
+  // visited before its parent simply has no entry in `rowIdOfPid` yet and
+  // degrades to Unattributed. That's acceptable: the row partition still
+  // holds exactly, it's just a less specific attribution for a case that
+  // shouldn't occur outside a scan race.
   const rows = new Map<string, DiagnosticsObject>()
   const rowIdOfPid = new Map<number, string>()
 
