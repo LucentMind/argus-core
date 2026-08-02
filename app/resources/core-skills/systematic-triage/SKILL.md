@@ -23,7 +23,9 @@ Before forming any theory:
    an unreproduced defect caps how confident any conclusion can be.
 3. **Check what changed.** Recent commits in linked workspaces, dependency bumps, config
    or environment differences between failing and working. Use `search_case_history` —
-   a closed case may already name this root cause.
+   a closed case may already name this root cause. If the symptom looks like a
+   regression (worked before, started at some point), note it now: once code paths are
+   implicated, use the suspect-commits skill to localize the introducing commit and PR.
 4. **Localize across component boundaries.** For multi-component failures (client →
    service → store; build → sign → publish), determine from the evidence which boundary
    the bad data or state first crosses. If the evidence cannot localize it, say which
@@ -55,7 +57,8 @@ Record the conclusion with `mcp__argus__append_finding`, containing:
 
 - **Causal chain**: symptom → proximate cause(s) → original trigger, one citation per hop
   (`[<rel-path>:<line>]` for evidence, `[<repo-name>/<path>:<line>]` for code). A chain
-  that stops at a proximate cause must say so and say why.
+  that stops at a proximate cause must say so and say why. When the original trigger is
+  a code change, name the introducing commit/PR (suspect-commits skill).
 - **Confidence label**: CONFIRMED (every hop cited) or HYPOTHESIS (plausible, with the
   specific evidence that would confirm it).
 - **Minimal reproduction recipe**, when derivable: the smallest input/steps that trigger

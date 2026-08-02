@@ -22,3 +22,13 @@ confidential tokens as a backstop.
 
 - **`code-graph`** — per-repo tree-sitter code graphs (blast-radius / impact / dependency
   queries) powered by the public [`graphifyy`](https://pypi.org/project/graphifyy/) tool.
+
+## Recognized reference overrides
+
+Core skills consult well-known files in the shared `references/` dir that domain
+packs may ship (via their `references/` asset dir; seeding precedence applies):
+
+- **`release-intel.md`** — read by the `suspect-commits` core skill in place of its
+  generic version/release fallbacks. Should describe, for your organization: how to
+  map a build/version string to a commit or tag, where release plans/dates live, and
+  any version-lookup commands the agent may run.
