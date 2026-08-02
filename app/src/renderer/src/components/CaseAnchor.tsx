@@ -6,16 +6,18 @@ import { CASE_RESOLUTIONS } from '../../../shared/types'
 import type { CaseResolution, CaseStatus } from '../../../shared/types'
 
 /**
- * The case identity and everything you can do to that case, inside one border, so they read
- * as one object rather than a label that mysteriously opens a menu.
+ * The case identity and everything you can do to that case, as one control: the case id IS the
+ * menu trigger (user-directed, 2026-08-02). It carried a `⋯` glyph beside the id before, which
+ * made the id itself look inert and put a 12px target next to a 60px one that did the same
+ * thing. No caret replaces it either — a caret beside a case id promises a list of cases, and
+ * this menu opens Close as… / Export / Re-distill / Close case.
  *
- * The trigger glyph is `⋯`, not `▾`. A caret beside a case id promises a list of cases; this
- * menu opens Close as… / Export / Re-distill / Close case. That mismatch is why the old bar
- * read as missing a case selector. `⋯` beside a case id is the pattern browsers and editors
- * already use for "actions on this tab".
+ * The box is drawn on hover only, for the same reason the mode switcher's is: a resting border
+ * around every control turned the bar into a row of nested rectangles. The border is declared
+ * transparent rather than absent so nothing shifts a pixel when it appears.
  *
  * The actions live here rather than in a parent for the same reason `Open in Jira` lives in
- * `JiraPill`: one component owns one subject end to end. `Close case` is what lets the anchor
+ * `JiraSection`: one component owns one subject end to end. `Close case` is what lets the anchor
  * have no `×` — the active case is not in the tab strip any more, so there is no `×` to press.
  */
 export function CaseAnchor({
@@ -62,20 +64,21 @@ export function CaseAnchor({
     status === 'closed' ? (resolution ? `Closed · ${resolution}` : 'Closed') : 'Close as…'
 
   return (
-    <div className="flex h-[30px] shrink-0 items-center gap-1 rounded-r2 border border-hair pl-2.5">
-      {/* `text-signal`, not `text-defect` (user-directed, 2026-08-01): a case id is an
-          identifier, and the dashboard has always drawn it in signal blue (`CaseCard`'s slug).
-          The header drawing the SAME id in amber made one thing look like two, and spent the
-          attention colour on a label that is never a problem. */}
-      <span className="font-mono text-sm text-signal">{slug}</span>
+    <div className="flex shrink-0 items-center">
       <MenuButton
-        label={<span aria-hidden="true">⋯</span>}
+        // `text-signal` below, not `text-defect` (user-directed, 2026-08-01): a case id is an
+        // identifier, and the dashboard has always drawn it in signal blue (`CaseCard`'s slug).
+        // The header drawing the SAME id in amber made one thing look like two, and spent the
+        // attention colour on a label that is never a problem.
+        label={slug}
         aria-label={`Case actions · ${slug}`}
         align="left"
         nocaret
-        // `!` markers, not plain classes: unlayered stylesheet order beats `@layer utilities`,
-        // so a bare `px-1.5` appended to a ui.tsx primitive's trigger is silently inert.
-        triggerClassName="px-1.5! text-mute! hover:text-ink!"
+        // `!` markers, not plain classes: an appended utility of equal specificity loses to
+        // Btn's own base string on source order alone (h-7/px-3/text-xs), so a bare `h-[30px]`
+        // here would be silently inert. The transparent resting border and the hover fill come
+        // from MenuButton's default `ghost` variant; only the hover hairline is added.
+        triggerClassName="h-[30px]! px-2.5! font-mono text-sm! text-signal! hover:border-hair!"
         items={[
           { label: closeAsLabel, children: statusItems },
           {

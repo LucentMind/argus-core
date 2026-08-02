@@ -210,25 +210,27 @@ describe('ReposSection material', () => {
     await waitFor(() => expect(container.querySelector('.glass-panel')).not.toBeNull())
   })
 
-  it('carries no material when the dynamic theme is off', async () => {
+  // Reversed on 2026-08-02 (user-directed): classic used to carry no material here at all,
+  // which on a pure-black rail left Jira, Repos and the PR section as three unbounded stacks
+  // of text. Classic now takes `surface-card` — the app's existing matte material — in the
+  // same box, with the same padding and radius as the dynamic theme's glass.
+  it('carries the matte material when the dynamic theme is off', async () => {
     uiStore.setDynamicTheme(false)
     const { container } = render(<ReposSection slug="C-1" mode="investigation" />)
     await screen.findByText('hivemindtest')
     expect(container.querySelector('.glass-panel')).toBeNull()
+    expect(container.querySelector('.surface-card')).not.toBeNull()
   })
 
-  // Regression pin: an earlier version of the material gate applied `rounded-r3 p-2.5`
-  // unconditionally on the outer container and only gated the `glass-panel` class itself,
-  // so the classic theme picked up 10px of unexplained inset it never had before. The
-  // container already sits inside a rail `<aside>` with its own padding — any padding or
-  // radius class here at all, on top of that, is a layout change the classic theme must
-  // never see.
-  it('applies no padding or radius class to the outer container when the dynamic theme is off', async () => {
-    uiStore.setDynamicTheme(false)
-    const { container } = render(<ReposSection slug="C-1" mode="investigation" />)
-    await screen.findByText('hivemindtest')
-    const root = container.firstElementChild
-    expect(root?.className).not.toMatch(/(^|\s)p-2\.5(\s|$)/)
-    expect(root?.className).not.toMatch(/(^|\s)rounded-r3(\s|$)/)
+  it('gives both themes the same pane box', async () => {
+    for (const dynamic of [true, false]) {
+      uiStore.setDynamicTheme(dynamic)
+      const { container, unmount } = render(<ReposSection slug="C-1" mode="investigation" />)
+      await screen.findByText('hivemindtest')
+      const root = container.firstElementChild
+      expect(root?.className, `dynamic=${dynamic}`).toMatch(/(^|\s)p-2\.5(\s|$)/)
+      expect(root?.className, `dynamic=${dynamic}`).toMatch(/(^|\s)rounded-r3(\s|$)/)
+      unmount()
+    }
   })
 })

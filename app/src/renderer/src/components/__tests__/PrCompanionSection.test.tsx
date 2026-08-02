@@ -120,10 +120,23 @@ describe('PrCompanionSection', () => {
     expect(window.argus.openExternal).toHaveBeenCalledWith('https://github.com/acme/widget/pull/42')
   })
 
-  it('offers unlink from the section header once a binding is loaded', async () => {
+  // Unlink lives on the PR's own row, not in the section header (user-directed, 2026-08-02) —
+  // it acts on one specific pull request, and the row is also where the redundant
+  // open-on-GitHub icon used to sit beside a title that already opens it.
+  it('offers unlink from the pull request row once a binding is loaded', async () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Unlink pull request' }))
+    const unlink = await screen.findByRole('button', { name: 'Unlink pull request' })
+    expect(unlink.closest('div')?.textContent).toContain('acme/widget#42')
+    await userEvent.click(unlink)
     expect(window.argus.pr.unlink).toHaveBeenCalledWith('c1', 3)
+  })
+
+  it('keeps one open-on-GitHub affordance: the title itself', async () => {
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    await screen.findByRole('button', { name: 'Unlink pull request' })
+    expect(screen.getAllByRole('button', { name: /open pull request .* on github/i })).toHaveLength(
+      1
+    )
   })
 
   // Whether the bound PR has a local checkout governs analyze and checkout flows in review
@@ -212,12 +225,12 @@ describe('PrCompanionSection', () => {
     expect(screen.getByText('ci/circleci').closest('div')?.parentElement).toBe(row?.parentElement)
   })
 
-  // Only failed checks carry the Analyze button, so anything that lets the button size its row
-  // makes failures visibly taller than the checks around them.
-  it('lays every visible check row out identically, button or not', () => {
+  // No check row carries a control any more, so this now guards the simpler property: every
+  // row, whatever its bucket, is the same h-7 line.
+  it('lays every visible check row out identically', () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
     const panel = screen.getByText('build').closest('div')?.parentElement
-    // fixture: build (fail+button), ci/circleci (fail) are the visible check rows; lint (pass)
+    // fixture: build (fail), ci/circleci (fail) are the visible check rows; lint (pass)
     // is folded behind the "passed" disclosure, itself a third sibling in the same container.
     expect(panel!.children).toHaveLength(3)
     const checkRows = [screen.getByText('build'), screen.getByText('ci/circleci')].map(
@@ -229,15 +242,20 @@ describe('PrCompanionSection', () => {
     expect(screen.getByRole('button', { name: /passed/i })).toHaveClass('h-7')
   })
 
-  it('offers Analyze only on a failed GitHub Actions check', () => {
+  // One Analyze control for the whole section, beside the failing count (user-directed,
+  // 2026-08-02) — not one per failing row. The fixture has exactly one analyzable failure
+  // (build, jobId 9); ci/circleci failed but is not an Actions job, so it has no log to pull.
+  it('puts a single Analyze control at the check statistic, not on the rows', () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
-    expect(screen.getByRole('button', { name: 'Analyze build failure' })).toBeEnabled()
-    // passed check: no button at all
+    const analyze = screen.getByRole('button', { name: 'Analyze build failure' })
+    expect(analyze).toBeEnabled()
+    // it sits with the counts, not inside the check list
+    expect(analyze.parentElement?.textContent).toContain('2 failing')
+    expect(screen.getByText('build').closest('div')?.querySelector('button')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Analyze lint failure' })).not.toBeInTheDocument()
-    // failed but not Actions: present and disabled, with a reason
-    const third = screen.getByRole('button', { name: 'Analyze ci/circleci failure' })
-    expect(third).toBeDisabled()
-    expect(third).toHaveAttribute('title', expect.stringMatching(/not a github actions/i))
+    expect(
+      screen.queryByRole('button', { name: 'Analyze ci/circleci failure' })
+    ).not.toBeInTheDocument()
   })
 
   it('hands the check name up when Analyze is clicked', async () => {
@@ -245,6 +263,61 @@ describe('PrCompanionSection', () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={onAnalyze} />)
     await userEvent.click(screen.getByRole('button', { name: 'Analyze build failure' }))
     expect(onAnalyze).toHaveBeenCalledWith('build')
+  })
+
+  it('names each analyzable failure in a menu when there is more than one', async () => {
+    prStatusStore.hydrate({
+      c1: status({
+        checks: [
+          { name: 'build', bucket: 'fail', required: false, url: null, jobId: 9 },
+          { name: 'e2e', bucket: 'fail', required: false, url: null, jobId: 11 }
+        ]
+      })
+    })
+    const onAnalyze = vi.fn()
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={onAnalyze} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Analyze a failure' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'e2e' }))
+    expect(onAnalyze).toHaveBeenCalledWith('e2e')
+  })
+
+  // A failure with no readable log still shows the control, disabled, saying why — dropping it
+  // entirely would read as "this failure is fine".
+  it('explains an unanalyzable failure instead of hiding the control', () => {
+    prStatusStore.hydrate({
+      c1: status({
+        checks: [{ name: 'ci/circleci', bucket: 'fail', required: false, url: null, jobId: null }]
+      })
+    })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    const btn = screen.getByRole('button', { name: 'Analyze failure' })
+    expect(btn).toBeDisabled()
+    expect(btn).toHaveAttribute('title', expect.stringMatching(/not a github actions/i))
+  })
+
+  it('shows no Analyze control when nothing is failing', () => {
+    prStatusStore.hydrate({
+      c1: status({
+        rollup: 'passing',
+        checks: [{ name: 'lint', bucket: 'pass', required: false, url: null, jobId: null }]
+      })
+    })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.queryByRole('button', { name: /^Analyze/ })).not.toBeInTheDocument()
+  })
+
+  it('tones the passed and skipped counts like the marks they summarise', () => {
+    prStatusStore.hydrate({
+      c1: status({
+        checks: [
+          { name: 'lint', bucket: 'pass', required: false, url: null, jobId: null },
+          { name: 'docs', bucket: 'skipped', required: false, url: null, jobId: null }
+        ]
+      })
+    })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.getByText('1 passed')).toHaveClass(BUCKET_TONE.pass)
+    expect(screen.getByText('1 skipped')).toHaveClass(BUCKET_TONE.skipped)
   })
 
   it('says so when the PR could not be read, instead of showing stale checks', () => {
@@ -785,20 +858,21 @@ describe('PrCompanionSection pull request linking', () => {
 })
 
 describe('PrCompanionSection material', () => {
-  // Regression pin: an earlier version of the material gate applied `rounded-r3 p-2.5`
-  // unconditionally on the outer container and only gated the `glass-panel` class itself,
-  // so the classic theme picked up 10px of unexplained inset it never had before. The
-  // container already sits inside a rail `<aside>` with its own padding — any padding or
-  // radius class here at all, on top of that, is a layout change the classic theme must
-  // never see. (Same defect and same fix as ReposSection; see ReposSection.test.tsx.)
-  it('applies no padding or radius class to the outer container when the dynamic theme is off', async () => {
-    uiStore.setDynamicTheme(false)
-    const { container } = render(
-      <PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />
-    )
-    await screen.findByText(/review required/i)
-    const root = container.firstElementChild
-    expect(root?.className).not.toMatch(/(^|\s)p-2\.5(\s|$)/)
-    expect(root?.className).not.toMatch(/(^|\s)rounded-r3(\s|$)/)
+  // Both themes carry a pane as of 2026-08-02 (user-directed) — glass in the dynamic theme,
+  // the matte `surface-card` in classic, in the same box. See ReposSection.test.tsx for why
+  // the classic side reversed.
+  it('carries a pane in both themes, the matte one in classic', async () => {
+    for (const dynamic of [true, false]) {
+      uiStore.setDynamicTheme(dynamic)
+      const { container, unmount } = render(
+        <PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />
+      )
+      await screen.findAllByText(/review required/i)
+      const root = container.firstElementChild
+      expect(root?.className, `dynamic=${dynamic}`).toMatch(/(^|\s)p-2\.5(\s|$)/)
+      expect(root?.className, `dynamic=${dynamic}`).toMatch(/(^|\s)rounded-r3(\s|$)/)
+      expect(root?.classList.contains(dynamic ? 'glass-panel' : 'surface-card')).toBe(true)
+      unmount()
+    }
   })
 })

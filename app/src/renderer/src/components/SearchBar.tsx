@@ -85,7 +85,6 @@ export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
   const [q, setQ] = useState('')
   const [hits, setHits] = useState<UnifiedHit[]>([])
   const [searched, setSearched] = useState(false)
-  const [scope, setScope] = useState<'case' | 'all'>('case')
 
   async function run(e: React.FormEvent): Promise<void> {
     e.preventDefault()
@@ -93,17 +92,20 @@ export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
     // activeMode !== 'review'. Stated explicitly rather than relying on the
     // searchEvidence default, so a future review search UI has one place to change.
     const base: SearchFilters = { evidenceScope: 'investigation' }
+    // No scope switch any more (user-directed, 2026-08-02). The field now sits under the
+    // Evidence header, inside the card whose contents it filters, so "this case" is what the
+    // control's own placement asserts — a pair of scope buttons under it both contradicted that
+    // placement and made a two-line control out of a one-line one. Cross-case search still
+    // exists: it is the dashboard's field (caseSlug === null), which searches chats too.
     const filters: SearchFilters = caseSlug
-      ? scope === 'case'
-        ? { ...base, caseSlug }
-        : base
+      ? { ...base, caseSlug }
       : { ...base, sources: ['evidence', 'chat', 'summaries'] }
     setHits(await window.argus.search.query(q, filters))
     setSearched(true)
   }
 
-  // grouped whenever results can span cases: in-case "all" scope, or the dashboard
-  const showGrouped = caseSlug ? scope === 'all' : true
+  // grouped only where results can span cases, i.e. the dashboard
+  const showGrouped = caseSlug === null
 
   return (
     <div className="flex flex-col gap-2">
@@ -115,22 +117,6 @@ export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
           onChange={(e) => setQ(e.target.value)}
         />
       </form>
-      {caseSlug && (
-        <div className="flex gap-1" role="group" aria-label="search scope">
-          {(['case', 'all'] as const).map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setScope(s)}
-              className={`rounded-r2 border px-2 py-1 text-xs transition-colors ${
-                scope === s ? 'border-hair2 bg-hi text-ink' : 'border-hair text-dim hover:text-ink'
-              }`}
-            >
-              {s === 'case' ? 'This case' : 'All cases'}
-            </button>
-          ))}
-        </div>
-      )}
       {hits.length > 0 &&
         (showGrouped ? (
           <div className="flex flex-col gap-2">
@@ -146,7 +132,10 @@ export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
             ))}
           </div>
         ) : (
-          <ul className="flex flex-col gap-1">
+          // Capped and scrollable: in the case view this list now renders between the Evidence
+          // header and the evidence card, so an uncapped result set would push the card it
+          // belongs to off the bottom of the rail.
+          <ul className="flex max-h-56 flex-col gap-1 overflow-y-auto">
             {hits.map((h, i) => (
               <HitItem key={hitKey(h, i)} h={h} onOpen={onOpen} />
             ))}

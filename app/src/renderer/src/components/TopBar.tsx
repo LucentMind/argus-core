@@ -7,8 +7,8 @@ import { CaseAnchor } from './CaseAnchor'
 import { DistillChip } from './DistillChip'
 import { HeaderChips } from './HeaderChips'
 import { HeaderNotice } from './HeaderNotice'
-import { JiraPill } from './JiraPill'
 import { ModeSwitcher } from './ModeSwitcher'
+import { RecentTabs } from './RecentTabs'
 import { railTier } from '../lib/priorityRail'
 import { DEFAULT_MODE } from '../../../shared/modes'
 import type { CaseRecord } from '../../../shared/types'
@@ -24,9 +24,10 @@ const ACTION_BTN =
  * id twice ~40px apart while putting the open-case tabs *between* the case id and the
  * controls that act on that case.
  *
- * The case group is not elastic and the strip is. That is the whole layout algorithm — no
- * ResizeObserver, no priority overflow list, no measurement pass. Two open cases or twenty,
- * the bar is identical.
+ * The case group is not elastic and the tab band is — and the band cannot start left of the
+ * bar's mid-point, so the case group's half is untouchable whatever the case list does. That
+ * is the whole layout algorithm — no ResizeObserver, no priority overflow list, no measurement
+ * pass. Two open cases or twenty, the left half of the bar is identical.
  */
 export function TopBar({
   ambient,
@@ -102,8 +103,9 @@ export function TopBar({
                 subtracts from the header's drag rect: `-webkit-app-region` is not inherited,
                 Chromium builds no-drag regions from each styled element's own border-box, so a
                 `h-8` no-drag rect vertically centred in a `h-12` drag header leaves a strip
-                above and below it still draggable — which CaseAnchor's menu and JiraPill's
-                popover (both `absolute`, opening a couple px below this box) would open into.
+                above and below it still draggable — which CaseAnchor's menu (`absolute`, opening
+                a couple px below this box, as the Jira popover that also lived here used to) would
+                open into.
                 The outer div above stands in for that instead, spanning the full header height. */}
             <div
               data-testid="case-group"
@@ -130,16 +132,10 @@ export function TopBar({
                 onStatusChanged={onStatusChanged}
                 onHome={onHome}
               />
-              {/* relative: the pill's popover is absolutely positioned and must anchor to the
-                  pill, not to the bar — key resets refresh state when switching cases */}
-              <div className="relative shrink-0">
-                <JiraPill
-                  key={activeSlug}
-                  slug={activeSlug}
-                  jiraKey={activeCase?.jiraKey ?? null}
-                  syncedAt={activeCase?.jiraSyncedAt ?? null}
-                />
-              </div>
+              {/* No Jira pill here any more (user-directed, 2026-08-02): the bar was crowded,
+                  and of everything in the group the pill was the one thing that is a *source*
+                  rather than a control over the case — so it went down to the evidence rail with
+                  the case's other sources (see CaseWorkspace). */}
               <ModeSwitcher
                 slug={activeSlug}
                 activeMode={activeCase?.activeMode ?? DEFAULT_MODE}
@@ -167,66 +163,48 @@ export function TopBar({
           <div className="mx-1 h-6 w-px bg-hair2" />
         </>
       )}
-      <nav
-        aria-label="Recent cases"
-        className="tabstrip-fade argus-nodrag flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
-      >
-        {/* The active case is excluded: it lives in the anchor, and showing it in both places
-            would restore the duplication this change exists to remove. Shift+wheel scrolls
-            this natively — an overflow-x container needs no handler, and the nav opts out of
-            the drag region that would otherwise swallow the event. */}
-        {ui.recentTabs
-          .filter((slug) => slug !== activeSlug)
-          .map((slug, i) => (
-            <span
-              key={slug}
-              className="group relative flex shrink-0 items-center rounded-r2 border border-transparent text-sm text-dim transition-colors hover:bg-hair hover:text-ink"
-            >
-              {i > 0 && (
-                <span
-                  data-tab-separator
-                  aria-hidden="true"
-                  className="pointer-events-none absolute -left-0.5 h-4 w-px bg-hair"
-                />
-              )}
-              <button className="argus-nodrag py-1.5 pl-3 font-mono" onClick={() => onSelect(slug)}>
-                {slug}
-              </button>
-              <button
-                aria-label={`Close ${slug}`}
-                className="argus-nodrag px-2 py-1.5 text-base leading-none text-mute opacity-0 transition-[color,opacity] hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
-                onClick={() => uiStore.closeTab(slug)}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-      </nav>
-      {onObservability && (
+      {/* The right group, and the whole of the bar's layout rule.
+
+          `max-w-[50%]` is the "from the centre" half: the group can never start left of the
+          bar's mid-point, so a long case list cannot reach across into the case group's
+          territory. `ml-auto` is what keeps it flush right once it stops growing (a capped
+          flex item leaves free space unclaimed; an auto margin absorbs it). `min-w-0` is the
+          "icons are always visible" half: the group may shrink below its content, and since
+          the three buttons inside it are `shrink-0` and the tab band is `min-w-0`, the band is
+          what gives — down to nothing — while the icons keep their width.
+
+          What NOT to do here, because it was tried: putting the 50% on the tab band itself as
+          `ml-[50%]`. A percentage margin is not flexible, so once the case group plus that
+          margin exceeded the bar the excess had nowhere to go and shoved the action icons off
+          the right edge of the window. */}
+      <div className="ml-auto flex min-w-0 max-w-[50%] flex-1 items-center gap-1.5">
+        <RecentTabs activeSlug={activeSlug} onSelect={onSelect} />
+        {onObservability && (
+          <button
+            className={ACTION_BTN}
+            aria-label="Observability"
+            title="Observability"
+            onClick={onObservability}
+          >
+            <Gauge size={19} strokeWidth={1.5} />
+          </button>
+        )}
+        <button className={ACTION_BTN} aria-label="Settings" title="Settings" onClick={onSettings}>
+          <Settings size={19} strokeWidth={1.5} />
+        </button>
         <button
           className={ACTION_BTN}
-          aria-label="Observability"
-          title="Observability"
-          onClick={onObservability}
+          aria-label={ui.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          title={ui.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          onClick={() => uiStore.toggleTheme()}
         >
-          <Gauge size={19} strokeWidth={1.5} />
+          {ui.theme === 'dark' ? (
+            <Sun size={19} strokeWidth={1.5} />
+          ) : (
+            <Moon size={19} strokeWidth={1.5} />
+          )}
         </button>
-      )}
-      <button className={ACTION_BTN} aria-label="Settings" title="Settings" onClick={onSettings}>
-        <Settings size={19} strokeWidth={1.5} />
-      </button>
-      <button
-        className={ACTION_BTN}
-        aria-label={ui.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-        title={ui.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-        onClick={() => uiStore.toggleTheme()}
-      >
-        {ui.theme === 'dark' ? (
-          <Sun size={19} strokeWidth={1.5} />
-        ) : (
-          <Moon size={19} strokeWidth={1.5} />
-        )}
-      </button>
+      </div>
     </header>
   )
 }

@@ -71,12 +71,19 @@ export function CaseFiles({
   onSuggest,
   onOpenFile,
   panelDecls = [],
-  onOpenInPanel
+  onOpenInPanel,
+  search
 }: {
   caseSlug: string
   /** The section title this card renders in its own header — the rail no longer renders one
    *  above it, so every section's controls sit in exactly one place. */
   label: string
+  /** Evidence search, rendered between this section's header and its card (user-directed,
+   *  2026-08-02). It is a slot rather than something this component owns because searching
+   *  spans chats and summaries too — CaseWorkspace passes `SearchBar`, which is also the
+   *  dashboard's, and only in investigation mode. Placing it here is the whole point: the
+   *  field sits with the list it filters instead of floating as a rail section of its own. */
+  search?: React.ReactNode
   /** Which mode's material this list shows. Investigation evidence and review artifacts
    *  live in separate directories and are never mixed. */
   mode: ModeId
@@ -398,6 +405,7 @@ export function CaseFiles({
           <FolderOpen size={14} strokeWidth={1.5} />
         </button>
       </div>
+      {search}
       {deleteError && <p className="text-xs text-danger">{deleteError}</p>}
       <div
         onDragOver={(e) => {

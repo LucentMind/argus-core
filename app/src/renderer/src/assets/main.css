@@ -440,15 +440,13 @@ body {
    that ever clips. The fade says "there is more" without spending width on a scrollbar —
    Electron paints an overlay scrollbar over the tabs otherwise. Unlayered, like the
    drag-region rules above, because `@layer utilities` would lose to nothing here but the
-   neighbouring rules are unlayered and splitting them is how one gets forgotten. */
+   neighbouring rules are unlayered and splitting them is how one gets forgotten.
+
+   Leading edge only (2026-08-02): the tabs are right-aligned now, so the right edge is where
+   the newest tab sits flush against the action icons — fading it would dim the one tab the
+   alignment exists to keep whole. Overflow can only ever happen off the left. */
 .tabstrip-fade {
-  mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    black 10px,
-    black calc(100% - 14px),
-    transparent 100%
-  );
+  mask-image: linear-gradient(to right, transparent 0, black 14px);
 }
 
 .argus-titlebar-inset {

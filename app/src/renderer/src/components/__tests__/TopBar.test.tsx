@@ -40,6 +40,8 @@ beforeEach(() => {
 })
 
 describe('TopBar', () => {
+  // The band itself is RecentTabs' (see its own suite); what the bar owes is mounting it with
+  // this bar's active case and select handler.
   it('renders recent-case tabs and selects on click', () => {
     uiStore.openTab('NAV-1')
     uiStore.openTab('NAV-2')
@@ -56,25 +58,6 @@ describe('TopBar', () => {
     )
     fireEvent.click(screen.getByText('NAV-2'))
     expect(onSelect).toHaveBeenCalledWith('NAV-2')
-  })
-
-  it('closes a non-active tab from the strip', () => {
-    uiStore.openTab('NAV-1')
-    uiStore.openTab('NAV-2')
-    const onHome = vi.fn()
-    render(
-      <TopBar
-        activeSlug="NAV-1"
-        activeCase={CASE}
-        onHome={onHome}
-        onSelect={vi.fn()}
-        onSettings={vi.fn()}
-        onStatusChanged={vi.fn()}
-      />
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Close NAV-2' }))
-    expect(onHome).not.toHaveBeenCalled()
-    expect(uiStore.get().recentTabs).toEqual(['NAV-1'])
   })
 
   it('toggles theme from the bar; tool-call visibility lives in the composer only', () => {
@@ -147,51 +130,8 @@ describe('TopBar', () => {
     expect(onSettings).toHaveBeenCalled()
   })
 
-  it('hides each close button until hover or keyboard focus', () => {
-    uiStore.openTab('alpha')
-    uiStore.openTab('beta')
-    // No active case: both tabs stay in the strip, so this can exercise a strip tab's own
-    // close button (the active case would be in the anchor instead, which has no ×).
-    render(
-      <TopBar
-        activeSlug={null}
-        activeCase={null}
-        onHome={vi.fn()}
-        onSelect={vi.fn()}
-        onSettings={vi.fn()}
-        onStatusChanged={vi.fn()}
-      />
-    )
-    const close = screen.getByRole('button', { name: 'Close alpha' })
-    expect(close.className).toContain('opacity-0')
-    expect(close.className).toContain('group-hover:opacity-100')
-    // without this the button is unreachable by keyboard
-    expect(close.className).toContain('focus-visible:opacity-100')
-  })
-
-  it('draws a separator between tabs but not before the first', () => {
-    uiStore.openTab('alpha')
-    uiStore.openTab('beta')
-    // No active case: both tabs stay in the strip so there is a separator to find between them.
-    render(
-      <TopBar
-        activeSlug={null}
-        activeCase={null}
-        onHome={vi.fn()}
-        onSelect={vi.fn()}
-        onSettings={vi.fn()}
-        onStatusChanged={vi.fn()}
-      />
-    )
-    const nav = screen.getByRole('navigation', { name: 'Recent cases' })
-    expect(nav.querySelectorAll('[data-tab-separator]')).toHaveLength(1)
-  })
-
   it('is a drag region, with every interactive element opted out', async () => {
     uiStore.openTab('NAV-1')
-    // A second, non-active tab so the strip actually renders tab buttons — the active case is
-    // filtered out of the strip (it lives in the anchor instead).
-    uiStore.openTab('NAV-2')
     render(
       <TopBar
         activeSlug="NAV-1"
@@ -215,7 +155,7 @@ describe('TopBar', () => {
 
     // A drag region swallows clicks AND scroll, so everything the user operates has to opt out.
     const interactive = header.querySelectorAll('button, a, input, select, textarea, [tabindex]')
-    expect(interactive.length).toBeGreaterThan(8)
+    expect(interactive.length).toBeGreaterThan(5)
     // Chromium computes draggable regions as a stack of rects: a `no-drag` rect subtracts
     // from the enclosing `drag` rect, and everything inside it is out of the drag region.
     // `closest`, not a per-element class check, so the case group can opt out with one
@@ -264,7 +204,13 @@ describe('TopBar', () => {
     expect(screen.queryByRole('button', { name: 'Close NAV-1' })).toBeNull()
   })
 
-  it('the strip is the only elastic element and scrolls', () => {
+  // The bar's whole layout rule, and a regression pin for the defect it replaced: the tab band
+  // used to place itself with `ml-[50%]`, and because a percentage margin cannot flex, a wide
+  // case group plus that margin pushed the action icons clean off the right edge of the window.
+  // The band is bounded by the right group instead — capped at half the bar (so it can never
+  // reach into the case group's half) and free to shrink to nothing (so the icons, `shrink-0`
+  // inside that same group, stay visible at every width).
+  it('bounds the tab band with the icon group, so the icons can never be pushed out', () => {
     uiStore.openTab('NAV-2')
     render(
       <TopBar
@@ -273,12 +219,27 @@ describe('TopBar', () => {
         onHome={vi.fn()}
         onSelect={vi.fn()}
         onSettings={vi.fn()}
+        onObservability={vi.fn()}
         onStatusChanged={vi.fn()}
       />
     )
     const nav = screen.getByRole('navigation', { name: 'Recent cases' })
     expect(nav.className).toContain('overflow-x-auto')
     expect(nav.className).toContain('flex-1')
+    // no percentage margin in the band itself — that is the defect
+    expect(nav.className).not.toMatch(/\bml-\[/)
+
+    const group = nav.parentElement!
+    expect(group.className).toContain('max-w-[50%]')
+    expect(group.className).toContain('min-w-0')
+    expect(group.className).toContain('ml-auto')
+
+    // the icons live in that same group, after the band, and never give up width
+    for (const name of ['Observability', 'Settings', 'Switch to light theme']) {
+      const btn = screen.getByRole('button', { name })
+      expect(btn.parentElement, `${name} must sit in the bounded right group`).toBe(group)
+      expect(btn.className, `${name} must not shrink`).toContain('shrink-0')
+    }
     expect(screen.getByTestId('case-group').className).toContain('shrink-0')
   })
 

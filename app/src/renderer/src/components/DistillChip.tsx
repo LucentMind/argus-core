@@ -13,7 +13,7 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
   const [override, setOverride] = useState<DistillJobRow | null>(null)
   const [retrying, setRetrying] = useState(false)
   // adjust-state-during-render: any broadcast (tracked) supersedes the optimistic retry
-  // result, restoring the pre-split single-state semantics (see JiraPill's prevSyncedAt /
+  // result, restoring the pre-split single-state semantics (see JiraSection's prevSyncedAt /
   // SessionSwitcher's lastOpen for the same idiom).
   const [prevTracked, setPrevTracked] = useState(tracked)
   if (tracked !== prevTracked) {

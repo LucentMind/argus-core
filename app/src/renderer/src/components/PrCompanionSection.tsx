@@ -1,13 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import {
-  ChevronRight,
-  ExternalLink,
-  GitPullRequest,
-  RefreshCw,
-  Search,
-  Stethoscope,
-  Unlink
-} from 'lucide-react'
+import { ChevronRight, GitPullRequest, RefreshCw, Search, Stethoscope, Unlink } from 'lucide-react'
 import type { CheckBucket, PrCheck, PrStatus } from '../../../shared/prStatus'
 import type { PrBinding, PrSearchResult } from '../../../shared/pr'
 import { parsePrRef } from '../../../shared/pr'
@@ -17,7 +9,7 @@ import { usePendingDisplay } from '../lib/usePendingDisplay'
 import { uiStore } from '../lib/uiStore'
 import { PrRollupDot } from './PrRollupDot'
 import { BUCKET_TONE } from './prCheckTone'
-import { Chip, IconBtn, SectionLabel, Skeleton } from './ui'
+import { Chip, IconBtn, MenuButton, SectionLabel, Skeleton } from './ui'
 
 /** Review mode refreshes fast because the user is watching this exact PR. */
 const REVIEW_POLL_MS = 20_000
@@ -77,22 +69,18 @@ function groupChecks(checks: PrCheck[]): { label: string | null; items: PrCheck[
  * A single check row, shared verbatim by the open list and the folded-passed list so both
  * render identically.
  *
- * Defined at module scope (not nested inside `PrCompanionSection`) and takes `onAnalyze`
- * explicitly rather than closing over it: a component declared inside another component's body
- * is a fresh function reference on every parent render, so React remounts it — including its
- * `useState` in `CheckGroup` below — the moment anything upstream re-renders (here, the
- * `pr.list` binding effect resolving after the checks are already on screen). A remount mid
- * click swaps out the DOM node under the user's cursor before the click event reaches it,
- * silently dropping the Analyze handler.
+ * Defined at module scope (not nested inside `PrCompanionSection`) for remount safety: a
+ * component declared inside another component's body is a fresh function reference on every
+ * parent render, so React remounts it — including its `useState` in `CheckGroup` below — the
+ * moment anything upstream re-renders (here, the `pr.list` binding effect resolving after the
+ * checks are already on screen).
+ *
+ * It carries no Analyze control any more (user-directed, 2026-08-02). One stethoscope per
+ * failing row put the same icon three or four times down a 300px rail, each one a per-row
+ * decoration on the thing it was diagnosing; the single one beside the failing count says the
+ * same thing once — see `AnalyzeControl`.
  */
-function CheckRow({
-  c,
-  onAnalyze
-}: {
-  c: PrCheck
-  onAnalyze: (checkName: string) => void
-}): React.JSX.Element {
-  const analyzable = c.bucket === 'fail' && c.jobId !== null
+function CheckRow({ c }: { c: PrCheck }): React.JSX.Element {
   return (
     <div
       className={`flex h-7 items-center gap-1.5 rounded-r1 px-1.5 text-[11px] transition-colors hover:bg-hair/60 ${
@@ -114,23 +102,65 @@ function CheckRow({
       ) : (
         <span className="truncate text-ink">{c.name}</span>
       )}
-      <span className="flex-1" />
-      {c.bucket === 'fail' && (
-        <IconBtn
-          aria-label={`Analyze ${c.name} failure`}
-          title={
-            analyzable
-              ? 'Pull this job log as evidence and analyze the failure'
-              : 'Not a GitHub Actions job — Argus cannot read this check’s log'
-          }
-          size="xs"
-          disabled={!analyzable}
-          onClick={() => onAnalyze(c.name)}
-        >
-          <Stethoscope size={12} />
-        </IconBtn>
-      )}
     </div>
+  )
+}
+
+/**
+ * The one Analyze control, beside the failing count.
+ *
+ * Only GitHub Actions jobs have a log Argus can pull (`jobId !== null`), so the shape depends on
+ * how many of the failures qualify: none renders a disabled button that still explains why, one
+ * analyzes directly, several open a menu naming each — the check name is a required argument of
+ * `review:compose-ci-prompt`, so "analyze the failures" is not a thing that can be asked as one
+ * call, and picking silently for the user would triage a job they did not choose.
+ */
+function AnalyzeControl({
+  checks,
+  onAnalyze
+}: {
+  checks: PrCheck[]
+  onAnalyze: (checkName: string) => void
+}): React.JSX.Element | null {
+  const failing = checks.filter((c) => c.bucket === 'fail')
+  if (failing.length === 0) return null
+  const analyzable = failing.filter((c) => c.jobId !== null)
+  if (analyzable.length === 0) {
+    return (
+      <IconBtn
+        aria-label="Analyze failure"
+        title="Not a GitHub Actions job — Argus cannot read this check’s log"
+        size="xs"
+        disabled
+      >
+        <Stethoscope size={12} />
+      </IconBtn>
+    )
+  }
+  if (analyzable.length === 1) {
+    return (
+      <IconBtn
+        aria-label={`Analyze ${analyzable[0].name} failure`}
+        title="Pull this job log as evidence and analyze the failure"
+        size="xs"
+        onClick={() => onAnalyze(analyzable[0].name)}
+      >
+        <Stethoscope size={12} />
+      </IconBtn>
+    )
+  }
+  return (
+    <MenuButton
+      aria-label="Analyze a failure"
+      nocaret
+      align="left"
+      // `!` on every override: Btn's base string already carries h-7/px-3/border, and an appended
+      // utility of equal specificity loses on stylesheet order alone (Tailwind emits h-5 before
+      // h-7), so a plain `h-5` here would be silently inert. Same idiom CaseAnchor's trigger uses.
+      triggerClassName="h-5! w-5! justify-center px-0! border-transparent! text-dim hover:bg-hair hover:text-ink"
+      label={<Stethoscope size={12} />}
+      items={analyzable.map((c) => ({ label: c.name, onSelect: () => onAnalyze(c.name) }))}
+    />
   )
 }
 
@@ -142,12 +172,10 @@ function CheckRow({
  */
 function CheckGroup({
   label,
-  items,
-  onAnalyze
+  items
 }: {
   label: string | null
   items: PrCheck[]
-  onAnalyze: (checkName: string) => void
 }): React.JSX.Element {
   const [showPassed, setShowPassed] = useState(false)
   // Failures, cancellations, pending and skipped stay visible; only the green rows fold.
@@ -165,7 +193,7 @@ function CheckGroup({
         </div>
       )}
       {rest.map((c, i) => (
-        <CheckRow key={`${c.name}#${i}`} c={c} onAnalyze={onAnalyze} />
+        <CheckRow key={`${c.name}#${i}`} c={c} />
       ))}
       {passed.length > 0 && (
         <>
@@ -190,8 +218,7 @@ function CheckGroup({
             <span className="text-hair2">·</span>
             <span className="font-mono">{passed.length}</span>
           </button>
-          {showPassed &&
-            passed.map((c, i) => <CheckRow key={`${c.name}#${i}`} c={c} onAnalyze={onAnalyze} />)}
+          {showPassed && passed.map((c, i) => <CheckRow key={`${c.name}#${i}`} c={c} />)}
         </>
       )}
     </div>
@@ -370,7 +397,8 @@ export function PrCompanionSection({
 
   return (
     <div
-      className={`flex flex-col gap-2 ${dynamic ? 'glass-panel rounded-r3 p-2.5' : ''}`}
+      // Both themes get a pane — see the note on ReposSection's own container.
+      className={`flex flex-col gap-2 rounded-r3 p-2.5 ${dynamic ? 'glass-panel' : 'surface-card'}`}
       data-tier={status?.rollup === 'failing' ? 'p1' : undefined}
     >
       <SectionLabel>
@@ -405,18 +433,9 @@ export function PrCompanionSection({
               <Search size={13} />
             </IconBtn>
           )}
-          {binding && status && (
-            <IconBtn
-              aria-label="Unlink pull request"
-              title="Unlink pull request"
-              size="xs"
-              className="hover:text-danger"
-              disabled={busy}
-              onClick={() => void unlink()}
-            >
-              <Unlink size={12} />
-            </IconBtn>
-          )}
+          {/* Unlink is not here any more (user-directed, 2026-08-02): it acts on one specific
+              pull request, so it belongs on that pull request's row — which is also where the
+              Open-on-GitHub button used to sit doing nothing the PR title does not already do. */}
           <IconBtn
             aria-label="Refresh pull request status"
             title="Refresh"
@@ -493,37 +512,57 @@ export function PrCompanionSection({
               <span className="shrink-0 text-[11px] text-mute">no local clone</span>
             )}
             <span className="flex-1" />
-            <IconBtn
-              aria-label="Open pull request on GitHub"
-              title="Open on GitHub"
-              size="xs"
-              onClick={() => void window.argus.openExternal(status.url)}
-            >
-              <ExternalLink size={12} />
-            </IconBtn>
+            {/* The title above is already the open-on-GitHub control, so this slot carries the
+                action that had nowhere else to be. */}
+            {binding && (
+              <IconBtn
+                aria-label="Unlink pull request"
+                title="Unlink pull request"
+                size="xs"
+                className="hover:text-danger"
+                disabled={busy}
+                onClick={() => void unlink()}
+              >
+                <Unlink size={12} />
+              </IconBtn>
+            )}
           </div>
 
           {status.checks.length > 0 && (
-            <p className="font-mono text-[10.5px] text-mute">
-              {(
-                [
-                  counts.fail > 0 ? (
-                    <span key="f" className="font-medium text-danger">
-                      {counts.fail} failing
-                    </span>
-                  ) : null,
-                  counts.cancelled > 0 ? <span key="c">{counts.cancelled} cancelled</span> : null,
-                  counts.pending > 0 ? <span key="r">{counts.pending} running</span> : null,
-                  counts.pass > 0 ? <span key="p">{counts.pass} passed</span> : null,
-                  counts.skipped > 0 ? <span key="s">{counts.skipped} skipped</span> : null
-                ].filter(Boolean) as React.JSX.Element[]
-              ).map((el, i) => (
-                <span key={el.key}>
-                  {i > 0 && <span className="px-1 text-hair2">·</span>}
-                  {el}
-                </span>
-              ))}
-            </p>
+            <div className="flex h-5 items-center gap-1.5">
+              <p className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-mute">
+                {(
+                  [
+                    counts.fail > 0 ? (
+                      <span key="f" className="font-medium text-danger">
+                        {counts.fail} failing
+                      </span>
+                    ) : null,
+                    counts.cancelled > 0 ? <span key="c">{counts.cancelled} cancelled</span> : null,
+                    counts.pending > 0 ? <span key="r">{counts.pending} running</span> : null,
+                    // Green and grey, matching the marks these counts summarise (BUCKET_TONE):
+                    // the failing count was the only one wearing its bucket's colour, so the
+                    // line read as one signal plus a tail of undifferentiated text.
+                    counts.pass > 0 ? (
+                      <span key="p" className={BUCKET_TONE.pass}>
+                        {counts.pass} passed
+                      </span>
+                    ) : null,
+                    counts.skipped > 0 ? (
+                      <span key="s" className={BUCKET_TONE.skipped}>
+                        {counts.skipped} skipped
+                      </span>
+                    ) : null
+                  ].filter(Boolean) as React.JSX.Element[]
+                ).map((el, i) => (
+                  <span key={el.key}>
+                    {i > 0 && <span className="px-1 text-hair2">·</span>}
+                    {el}
+                  </span>
+                ))}
+              </p>
+              <AnalyzeControl checks={status.checks} onAnalyze={onAnalyze} />
+            </div>
           )}
 
           {/* The state tag now rides beside the PR identity above; only the qualifiers that
@@ -555,12 +594,7 @@ export function PrCompanionSection({
           {status.rollup !== 'unavailable' && status.checks.length > 0 && (
             <div className="flex flex-col">
               {groupChecks(status.checks).map((g) => (
-                <CheckGroup
-                  key={g.label ?? 'all'}
-                  label={g.label}
-                  items={g.items}
-                  onAnalyze={onAnalyze}
-                />
+                <CheckGroup key={g.label ?? 'all'} label={g.label} items={g.items} />
               ))}
             </div>
           )}

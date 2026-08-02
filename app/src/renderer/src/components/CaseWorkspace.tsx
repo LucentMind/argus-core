@@ -5,6 +5,7 @@ import { CaseFiles } from './CaseFiles'
 import { ChatPane } from './ChatPane'
 import { ReviewRunButton } from './ReviewRunButton'
 import { FindingsPane } from './FindingsPane'
+import { JiraSection } from './JiraSection'
 import { ReposSection } from './ReposSection'
 import { PrCompanionSection } from './PrCompanionSection'
 import { PrPickerDialog } from './PrPickerDialog'
@@ -28,6 +29,9 @@ import { caseBarStore, type CaseBarEvent } from '../lib/caseBarStore'
 export function CaseWorkspace({
   slug,
   activeMode,
+  caseTitle,
+  jiraKey,
+  jiraSyncedAt,
   onModeSwitched,
   onOpenHit,
   onOpenCitation,
@@ -40,6 +44,17 @@ export function CaseWorkspace({
    *  of truth for which mode's chat is active, not the session row (Task 3/4: mode moved
    *  from session-scoped to case-scoped). */
   activeMode: ModeId
+  /** The case's title — the rail's Jira section shows it as the ticket's title (see
+   *  `JiraSection` for why `CaseRecord.title` is the Jira summary for a case made from a
+   *  ticket). Empty string while the `cases` list is still loading. */
+  caseTitle: string
+  /** The case's Jira ticket, for the rail's section (it moved out of the top bar, 2026-08-02).
+   *  Passed down from App.tsx's `cases` array — the same already-fetched record `activeMode`
+   *  comes from — rather than fetched here: the pill's own refresh writes through
+   *  `jira.refreshCase`, and App refetches on the events that change these. Null while the
+   *  list is still loading, or when the case has no ticket (the pill renders nothing). */
+  jiraKey: string | null
+  jiraSyncedAt: string | null
   /** A mode switch persisted `CaseRecord.activeMode` in the DB (ModeSwitcher already called
    *  `cases.setMode`); this tells the parent to refetch its `cases` array so the `activeMode`
    *  prop above stops being stale — same contract as `onStatusChanged`, just for the mode
@@ -446,6 +461,16 @@ export function CaseWorkspace({
                 child would otherwise absorb none of it, i.e. get squeezed to 0), which
                 is what forces this box to give up space first instead. */}
             <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+              {/* The ticket, first: it is the case's origin, so it reads above the material the
+                  case accumulated. key: reset the refresh phase on a case switch, exactly as the
+                  top bar's copy did. Renders nothing when the case has no ticket. */}
+              <JiraSection
+                key={slug}
+                slug={slug}
+                jiraKey={jiraKey}
+                title={caseTitle}
+                syncedAt={jiraSyncedAt}
+              />
               {/* key: remount on case switch. Pending/error chips live in ReposSection's own
                   usePendingList() state, which is component-instance state, not derived from
                   props — without a key, a failed unlink in case A (e.g. a locked worktree)
@@ -488,7 +513,6 @@ export function CaseWorkspace({
                 onPrsFound={handlePrsFound}
               />
               {activeMode !== 'review' && <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />}
-              {activeMode !== 'review' && <SearchBar caseSlug={slug} onOpen={onOpenHit} />}
             </div>
             {/* key: reset per-case state (scan result, collapsed dirs, parsing set) when
                 switching cases or modes — investigation evidence and review artifacts are
@@ -502,6 +526,13 @@ export function CaseWorkspace({
               onOpenFile={onOpenFile}
               panelDecls={panels.decls}
               onOpenInPanel={(id, packId, windowId) => void openInPanel(id, packId, windowId)}
+              // Investigation only, as before — review mode's artifacts are not in the
+              // investigation search index and the section has no field.
+              search={
+                activeMode !== 'review' ? (
+                  <SearchBar caseSlug={slug} onOpen={onOpenHit} />
+                ) : undefined
+              }
             />
           </aside>
         )}

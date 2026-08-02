@@ -157,6 +157,9 @@ function renderWorkspace(): ReturnType<typeof render> {
       <CaseWorkspace
         slug="NAV-1"
         activeMode={DEFAULT_MODE}
+        caseTitle="a case"
+        jiraKey={null}
+        jiraSyncedAt={null}
         onModeSwitched={vi.fn()}
         onOpenHit={vi.fn()}
         onOpenCitation={vi.fn()}
@@ -280,6 +283,9 @@ describe('DynamicScope — case variant', () => {
         <CaseWorkspace
           slug="NAV-1"
           activeMode={DEFAULT_MODE}
+          caseTitle="a case"
+          jiraKey={null}
+          jiraSyncedAt={null}
           onModeSwitched={vi.fn()}
           onOpenHit={vi.fn()}
           onOpenCitation={vi.fn()}

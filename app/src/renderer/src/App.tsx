@@ -235,6 +235,9 @@ function App(): React.JSX.Element {
             <CaseWorkspace
               slug={view.slug}
               activeMode={cases.find((c) => c.slug === view.slug)?.activeMode ?? DEFAULT_MODE}
+              caseTitle={cases.find((c) => c.slug === view.slug)?.title ?? ''}
+              jiraKey={cases.find((c) => c.slug === view.slug)?.jiraKey ?? null}
+              jiraSyncedAt={cases.find((c) => c.slug === view.slug)?.jiraSyncedAt ?? null}
               onModeSwitched={() => void reload()}
               onOpenHit={handleOpenHit}
               onOpenCitation={(id, start, end) =>

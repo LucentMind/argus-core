@@ -42,52 +42,35 @@ describe('SearchBar', () => {
     expect(onOpen).toHaveBeenCalledWith(hit)
   })
 
-  it('All cases scope sends empty filters and groups results by case', async () => {
-    window.argus.search.query = vi.fn(async () => [
-      {
-        kind: 'evidence',
-        evidenceId: 1,
-        caseSlug: 'NAV-2',
-        relPath: 'a.txt',
-        artifactType: 'applog',
-        snippet: 's',
-        startLine: 1,
-        endLine: 4,
-        matchLine: 2
-      },
-      {
-        kind: 'evidence',
-        evidenceId: 2,
-        caseSlug: 'NAVAPI-1',
-        relPath: 'b.txt',
-        artifactType: 'applog',
-        snippet: 's',
-        startLine: 1,
-        endLine: 4,
-        matchLine: 3
-      }
-    ]) as never
+  // The scope buttons are gone (user-directed, 2026-08-02): in the case view this field sits
+  // under the Evidence header, so its scope is what its placement says it is. Cross-case search
+  // is the dashboard's field, covered below.
+  it('offers no scope switch and never widens past the case', async () => {
     render(<SearchBar caseSlug="NAVAPI-1" onOpen={vi.fn()} />)
-    fireEvent.click(screen.getByRole('button', { name: 'All cases' }))
+    expect(screen.queryByRole('group', { name: 'search scope' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'All cases' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'This case' })).toBeNull()
     fireEvent.change(screen.getByPlaceholderText('Search evidence…'), {
       target: { value: 'TileStore' }
     })
     fireEvent.submit(screen.getByRole('search'))
     await waitFor(() =>
       expect(window.argus.search.query).toHaveBeenCalledWith('TileStore', {
+        caseSlug: 'NAVAPI-1',
         evidenceScope: 'investigation'
       })
     )
-    const headers = await screen.findAllByText(/NAV(API)?-\d/, { selector: 'span,div,h3' })
-    expect(headers.length).toBeGreaterThan(0)
-    // current case group renders before the other case
-    const text = document.body.textContent!
-    expect(text.indexOf('NAVAPI-1')).toBeLessThan(text.indexOf('NAV-2'))
   })
 
-  it('no toggle on the dashboard (caseSlug null)', () => {
-    render(<SearchBar caseSlug={null} onOpen={vi.fn()} />)
-    expect(screen.queryByRole('button', { name: 'All cases' })).toBeNull()
+  it('in-case results are ungrouped — every hit is this case', async () => {
+    render(<SearchBar caseSlug="NAVAPI-1" onOpen={vi.fn()} />)
+    fireEvent.change(screen.getByPlaceholderText('Search evidence…'), {
+      target: { value: 'TileStore' }
+    })
+    fireEvent.submit(screen.getByRole('search'))
+    await waitFor(() => expect(screen.getByText(/evidence\/log\.txt/)).toBeTruthy())
+    // no per-case section label above the list (the dashboard renders those; see below)
+    expect(document.querySelectorAll('ul').length).toBe(1)
   })
 
   it('dashboard search requests evidence + chat, groups by case, and opens chat hits', async () => {

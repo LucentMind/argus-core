@@ -101,7 +101,13 @@ export function ReposSection({
   }
 
   return (
-    <div className={`flex flex-col gap-1.5 ${dynamic ? 'glass-panel rounded-r3 p-2.5' : ''}`}>
+    // Both themes get a pane (user-directed, 2026-08-02): the classic rail is pure black, so
+    // three unbounded sections stacked on it read as one undifferentiated column. `surface-card`
+    // is the app's existing matte material (--bg-2 fill, hairline border) — the same one the
+    // dashboard cards and the editor shell use — so this introduces no new material.
+    <div
+      className={`flex flex-col gap-1.5 rounded-r3 p-2.5 ${dynamic ? 'glass-panel' : 'surface-card'}`}
+    >
       <div className="flex items-center justify-between">
         <SectionLabel>Repos</SectionLabel>
         <div className="flex items-center gap-1">
@@ -121,8 +127,12 @@ export function ReposSection({
           {/* Blue name, amber dot (user-directed, 2026-08-01) — the two were the wrong way
               round. The repo NAME is an identifier and never a problem, so it takes the same
               signal blue as every other identifier in the app; the dirty dot IS the thing
-              wanting attention, so it takes the attention colour the name was wearing. */}
-          <div className="min-w-0 flex-1 rounded-r2 border border-signal/30 bg-hair/50 px-2 py-1.5">
+              wanting attention, so it takes the attention colour the name was wearing.
+              The row itself carries no box (user-directed, 2026-08-02): a blue-bordered filled
+              card per repo made the rail's densest list its loudest object, and the blue was
+              already saying "identifier" through the name. Hover is the only fill now — the
+              border stays declared-but-transparent so the row does not shift 1px on hover. */}
+          <div className="min-w-0 flex-1 rounded-r2 border border-transparent px-2 py-1.5 transition-colors hover:border-hair hover:bg-hair/50">
             <div className="flex min-w-0 items-center gap-1.5">
               <span className="truncate font-mono text-xs font-medium text-signal">
                 {w.path.split(/[\\/]/).pop()}

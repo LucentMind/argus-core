@@ -82,12 +82,12 @@ export function ModeSwitcher({
 
   return (
     <div className="flex shrink-0 items-center">
-      <div
-        role="group"
-        aria-label="Case mode"
-        className="flex shrink-0 overflow-hidden rounded-r2 border border-hair"
-      >
-        {modes.map((id, i) => (
+      {/* No resting border (user-directed, 2026-08-02) — the active segment's own fill is what
+          says which mode is on, and `overflow-hidden` + the container's radius is what shapes
+          that fill into a pill. The segment divider goes with it: a lone hairline between two
+          labels, with no box around them, reads as debris rather than as structure. */}
+      <div role="group" aria-label="Case mode" className="flex shrink-0 overflow-hidden rounded-r2">
+        {modes.map((id) => (
           <button
             key={id}
             type="button"
@@ -98,10 +98,8 @@ export function ModeSwitcher({
             disabled={pending !== null}
             onClick={() => void pick(id)}
             className={`flex items-center gap-1 px-2.5 py-1 text-xs transition-colors ${
-              id === activeMode ? 'bg-signal/10 text-ink' : 'text-dim hover:text-ink'
-            } ${pending !== null && pending !== id ? 'opacity-50' : ''} ${
-              i !== modes.length - 1 ? 'border-r border-hair' : ''
-            }`}
+              id === activeMode ? 'bg-signal/10 text-ink' : 'text-dim hover:bg-hair hover:text-ink'
+            } ${pending !== null && pending !== id ? 'opacity-50' : ''}`}
           >
             {busy === id && <Loader2 size={11} className="animate-spin" aria-hidden="true" />}
             {MODES[id].label}

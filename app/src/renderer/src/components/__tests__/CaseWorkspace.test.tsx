@@ -189,6 +189,9 @@ function workspace(
     <CaseWorkspace
       slug={slug}
       activeMode={overrides?.activeMode ?? DEFAULT_MODE}
+      caseTitle="a case"
+      jiraKey={null}
+      jiraSyncedAt={null}
       onModeSwitched={overrides?.onModeSwitched ?? vi.fn()}
       onOpenHit={vi.fn()}
       onOpenCitation={vi.fn()}
