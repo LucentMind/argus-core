@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
-import type { DiagnosticsSnapshot } from '../../../../shared/diagnostics'
+import type {
+  DiagnosticsSnapshot,
+  SidecarHealth,
+  SidecarStatus
+} from '../../../../shared/diagnostics'
 import { SettingsSection } from './settingsLayout'
 
 // SettingsSection's real signature (settingsLayout.tsx:53) is
@@ -29,6 +33,34 @@ function formatUptime(ms: number): string {
   const m = Math.floor(s / 60)
   if (m < 60) return `${m}m`
   return `${Math.floor(m / 60)}h ${m % 60}m`
+}
+
+/** Status-specific reason, appended to the honest "unavailable" headline below. */
+function unavailableHint(status: SidecarStatus): string {
+  switch (status) {
+    case 'disabled':
+      return 'No sidecar binary is available for this platform.'
+    case 'unavailable':
+      return 'The sidecar crashed repeatedly and stopped retrying automatically.'
+    case 'degraded':
+      return 'The sidecar is restarting after a failure.'
+    case 'starting':
+      return 'The sidecar is starting.'
+    case 'healthy':
+      return ''
+  }
+}
+
+/**
+ * There are no Electron-only rows to fall back to — this feature does not
+ * synthesize process data from anything but the sidecar. When the sidecar
+ * isn't healthy, say so plainly and why, rather than implying a degraded
+ * mode that doesn't exist.
+ */
+function unavailableMessage(sidecar: SidecarHealth): string {
+  const hint = unavailableHint(sidecar.status)
+  const error = sidecar.lastError ? ` (${sidecar.lastError})` : ''
+  return `Process diagnostics are unavailable. ${hint}${error}`
 }
 
 function Tile(props: {
@@ -75,7 +107,31 @@ export default function DiagnosticsSettings(): React.JSX.Element {
     )
   }
 
-  const degraded = snap.sidecar.status === 'unavailable' || snap.sidecar.status === 'degraded'
+  const healthy = snap.sidecar.status === 'healthy'
+  const hasTree = snap.tree.length > 0
+
+  // No working sidecar and nothing to show from a past one: a full panel
+  // explaining why, instead of empty tiles and an empty table.
+  if (!healthy && !hasTree) {
+    return (
+      <SettingsSection title="Diagnostics">
+        <span data-testid="diag-readat" hidden>
+          {snap.readAt}
+        </span>
+        <div className="m-3 flex items-start gap-2 rounded-r3 border border-hair p-3 text-sm">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <span className="flex-1">{unavailableMessage(snap.sidecar)}</span>
+          <button
+            type="button"
+            className="rounded-r2 border border-hair px-2 py-1 text-xs"
+            onClick={() => void window.argus.diagnostics.retrySidecar()}
+          >
+            Retry
+          </button>
+        </div>
+      </SettingsSection>
+    )
+  }
 
   return (
     <>
@@ -87,13 +143,10 @@ export default function DiagnosticsSettings(): React.JSX.Element {
         {snap.readAt}
       </span>
       <SettingsSection title="Footprint" subtitle="Live totals across every process Argus runs.">
-        {degraded && (
+        {!healthy && (
           <div className="m-3 flex items-center gap-2 rounded-r3 border border-hair p-3 text-sm">
             <AlertTriangle size={16} className="shrink-0" />
-            <span className="flex-1">
-              Child-process attribution is unavailable — showing Electron processes only.
-              {snap.sidecar.lastError ? ` (${snap.sidecar.lastError})` : ''}
-            </span>
+            <span className="flex-1">{unavailableMessage(snap.sidecar)}</span>
             <button
               type="button"
               className="rounded-r2 border border-hair px-2 py-1 text-xs"

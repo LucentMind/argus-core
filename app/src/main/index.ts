@@ -249,8 +249,12 @@ import {
 } from '../shared/editorIpc'
 import { EditorCorpusService } from './services/editorCorpus'
 import os from 'node:os'
-import { DiagnosticsService, SLOW_INTERVAL_MS } from './services/diagnostics'
-import { SidecarClient } from './services/diagnostics/sidecarClient'
+import {
+  DiagnosticsService,
+  SLOW_INTERVAL_MS,
+  type SidecarClientLike
+} from './services/diagnostics'
+import { SidecarClient, createDisabledSidecarClient } from './services/diagnostics/sidecarClient'
 import { createElectronSidecarSpawner } from './services/diagnostics/spawner'
 import { resolveSidecarBinary } from './services/diagnostics/sidecarBinary'
 
@@ -352,16 +356,18 @@ function registerIpc(): void {
   diagnostics = (() => {
     const repoRoot = path.resolve(app.getAppPath(), '..')
     const binaryPath = resolveSidecarBinary({ repoRoot, resourcesPath })
-    if (!binaryPath) {
-      console.log('[diagnostics] no sidecar binary for this platform; Electron metrics only')
-      return null
+    let client: SidecarClientLike
+    if (binaryPath) {
+      client = new SidecarClient({
+        spawner: createElectronSidecarSpawner(),
+        binaryPath,
+        rootPid: process.pid,
+        initialIntervalMs: SLOW_INTERVAL_MS
+      })
+    } else {
+      console.log('[diagnostics] no sidecar binary for this platform; diagnostics unavailable')
+      client = createDisabledSidecarClient('no sidecar binary for this platform')
     }
-    const client = new SidecarClient({
-      spawner: createElectronSidecarSpawner(),
-      binaryPath,
-      rootPid: process.pid,
-      initialIntervalMs: SLOW_INTERVAL_MS
-    })
     return new DiagnosticsService({
       client,
       rootPid: process.pid,

@@ -7,6 +7,7 @@ import {
   type SidecarStatus
 } from '../../../shared/diagnostics'
 import type { SidecarProcess, SidecarSpawner } from './spawner'
+import type { SidecarClientLike } from './index'
 
 const HANDSHAKE_TIMEOUT_MS = 5_000
 const FAILURE_WINDOW_MS = 60_000
@@ -44,6 +45,7 @@ export class SidecarClient {
   private intervalMs: number
   private streaming = false
   private snapshotCbs: ((s: SidecarSnapshot) => void)[] = []
+  private healthCbs: ((h: SidecarHealth) => void)[] = []
 
   constructor(private readonly deps: SidecarClientDeps) {
     this.intervalMs = deps.initialIntervalMs
@@ -56,6 +58,13 @@ export class SidecarClient {
     }
   }
 
+  onHealthChange(cb: (h: SidecarHealth) => void): () => void {
+    this.healthCbs.push(cb)
+    return () => {
+      this.healthCbs = this.healthCbs.filter((c) => c !== cb)
+    }
+  }
+
   health(): SidecarHealth {
     return {
       status: this.status,
@@ -63,6 +72,13 @@ export class SidecarClient {
       restartCount: this.restartCount,
       lastError: this.lastError
     }
+  }
+
+  /** Call after any mutation of `status`, `lastError`, `restartCount`, or
+   *  `sidecarVersion` — the fields health() reports. */
+  private notifyHealth(): void {
+    const h = this.health()
+    for (const cb of this.healthCbs) cb(h)
   }
 
   start(): void {
@@ -97,6 +113,7 @@ export class SidecarClient {
     this.clearTimers()
     this.proc?.kill()
     this.proc = null
+    this.notifyHealth()
   }
 
   setSampleInterval(ms: number): void {
@@ -131,7 +148,10 @@ export class SidecarClient {
     if (this.stopped) return
     this.buffer = ''
     this.handshakeDone = false
-    if (this.status !== 'degraded') this.status = 'starting'
+    if (this.status !== 'degraded') {
+      this.status = 'starting'
+      this.notifyHealth()
+    }
 
     const proc = this.deps.spawner.spawn(this.deps.binaryPath)
     this.proc = proc
@@ -186,6 +206,7 @@ export class SidecarClient {
           streaming: this.streaming
         })
       )
+      this.notifyHealth()
       return
     }
 
@@ -218,12 +239,44 @@ export class SidecarClient {
 
     if (this.failures.length >= MAX_FAILURES_PER_WINDOW) {
       this.status = 'unavailable'
+      this.notifyHealth()
       return
     }
 
     this.status = 'degraded'
+    this.notifyHealth()
     const delay = Math.min(500 * 2 ** this.attempt, MAX_BACKOFF_MS)
     this.attempt += 1
     this.restartTimer = setTimeout(() => this.spawnOnce(), delay)
   }
+}
+
+/**
+ * A no-op stand-in for SidecarClient, used when resolveSidecarBinary() finds no
+ * binary for this platform. DiagnosticsService is constructed identically either
+ * way — main/index.ts never null-branches on whether a real sidecar exists — and
+ * health() honestly reports why there is no data, so the page can render that
+ * reason instead of waiting forever.
+ */
+export function createDisabledSidecarClient(reason: string): SidecarClientLike {
+  const health: SidecarHealth = {
+    status: 'disabled',
+    version: null,
+    restartCount: 0,
+    lastError: reason
+  }
+  /* eslint-disable @typescript-eslint/no-empty-function -- every method is
+   * genuinely a no-op: there is no real sidecar process behind this stand-in. */
+  return {
+    start() {},
+    stop() {},
+    retry() {},
+    setSampleInterval() {},
+    setStreaming() {},
+    sampleNow() {},
+    health: () => health,
+    onSnapshot: () => () => {},
+    onHealthChange: () => () => {}
+  }
+  /* eslint-enable @typescript-eslint/no-empty-function */
 }

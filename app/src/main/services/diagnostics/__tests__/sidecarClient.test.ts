@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-empty-function -- FakeProcess below stubs
  * SidecarProcess's onStderr intentionally with an empty body. */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { SidecarClient } from '../sidecarClient'
+import { SidecarClient, createDisabledSidecarClient } from '../sidecarClient'
 import type { SidecarProcess, SidecarSpawner } from '../spawner'
-import type { SidecarSnapshot } from '../../../../shared/diagnostics'
+import type { SidecarHealth, SidecarSnapshot } from '../../../../shared/diagnostics'
 
 /** A controllable fake child. Tests drive stdout and exit by hand. */
 class FakeProcess implements SidecarProcess {
@@ -264,5 +264,107 @@ describe('SidecarClient', () => {
     void client.start()
     procs[0].emit(snapshot(1))
     expect(seen).toHaveLength(0)
+  })
+
+  describe('onHealthChange', () => {
+    it('notifies when the handshake completes', async () => {
+      const { client, procs } = makeClient()
+      const seen: SidecarHealth[] = []
+      client.onHealthChange((h) => seen.push(h))
+      void client.start()
+      // spawnOnce() fires once for the 'starting' transition before hello arrives.
+      expect(seen.at(-1)?.status).toBe('starting')
+
+      procs[0].emit(hello())
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(seen.at(-1)?.status).toBe('healthy')
+      expect(seen.at(-1)?.version).toBe('0.1.0')
+    })
+
+    it('notifies when the handshake times out', async () => {
+      const { client } = makeClient()
+      const seen: SidecarHealth[] = []
+      client.onHealthChange((h) => seen.push(h))
+      void client.start()
+
+      await vi.advanceTimersByTimeAsync(5_000)
+
+      expect(seen.at(-1)?.status).toBe('degraded')
+      expect(seen.at(-1)?.lastError).toContain('handshake')
+    })
+
+    it('notifies when the circuit opens after repeated failures', async () => {
+      const { client, procs } = makeClient()
+      const seen: SidecarHealth[] = []
+      client.onHealthChange((h) => seen.push(h))
+      void client.start()
+      for (let i = 0; i < 5; i++) {
+        procs[procs.length - 1].emit(hello())
+        await vi.advanceTimersByTimeAsync(0)
+        procs[procs.length - 1].die(1)
+        await vi.advanceTimersByTimeAsync(10_000)
+      }
+
+      expect(seen.at(-1)?.status).toBe('unavailable')
+    })
+
+    it('notifies when stop() disables the client', async () => {
+      const { client, procs } = makeClient()
+      const seen: SidecarHealth[] = []
+      client.onHealthChange((h) => seen.push(h))
+      void client.start()
+      procs[0].emit(hello())
+      await vi.advanceTimersByTimeAsync(0)
+
+      client.stop()
+
+      expect(seen.at(-1)?.status).toBe('disabled')
+    })
+
+    it('stops notifying once unsubscribed', async () => {
+      const { client, procs } = makeClient()
+      const seen: SidecarHealth[] = []
+      const off = client.onHealthChange((h) => seen.push(h))
+      void client.start()
+      off()
+
+      procs[0].emit(hello())
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(seen.some((h) => h.status === 'healthy')).toBe(false)
+    })
+  })
+})
+
+describe('createDisabledSidecarClient', () => {
+  it('reports a disabled status with the given reason and never calls back', () => {
+    const client = createDisabledSidecarClient('no sidecar binary for this platform')
+    expect(client.health()).toEqual({
+      status: 'disabled',
+      version: null,
+      restartCount: 0,
+      lastError: 'no sidecar binary for this platform'
+    })
+
+    const snapshotCbs: unknown[] = []
+    const healthCbs: unknown[] = []
+    const offSnapshot = client.onSnapshot((s) => snapshotCbs.push(s))
+    const offHealth = client.onHealthChange((h) => healthCbs.push(h))
+
+    // All mutators are no-ops: none of them should throw, and none should
+    // ever invoke a subscriber (there is no sidecar producing events).
+    client.start()
+    client.stop()
+    client.retry()
+    client.setSampleInterval(1_000)
+    client.setStreaming(true)
+    client.sampleNow('req-1')
+    offSnapshot()
+    offHealth()
+
+    expect(snapshotCbs).toHaveLength(0)
+    expect(healthCbs).toHaveLength(0)
+    expect(client.health().status).toBe('disabled')
   })
 })

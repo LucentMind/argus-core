@@ -91,7 +91,7 @@ describe('DiagnosticsSettings', () => {
     expect(screen.getByText('100')).toBeInTheDocument()
   })
 
-  it('warns when the sidecar is unavailable', async () => {
+  it('warns but keeps showing stale data when the sidecar goes unavailable mid-session', async () => {
     render(<DiagnosticsSettings />)
     await act(async () =>
       onSampleCb(
@@ -100,8 +100,67 @@ describe('DiagnosticsSettings', () => {
         })
       )
     )
-    expect(screen.getByText(/child-process attribution is unavailable/i)).toBeInTheDocument()
+    expect(screen.getByText(/process diagnostics are unavailable/i)).toBeInTheDocument()
+    expect(screen.getByText(/\(boom\)/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
+    // A prior sample exists (from the fixture's tree), so the tiles and table
+    // still render alongside the banner — this is not the full unavailable panel.
+    expect(screen.getByTestId('diag-cpu')).toBeInTheDocument()
+    expect(screen.getByText('argus')).toBeInTheDocument()
+  })
+
+  it('shows the full unavailable panel — no tiles, no table — when disabled with no prior sample', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () =>
+      onSampleCb(
+        snapshot({
+          tree: [],
+          sidecar: {
+            status: 'disabled',
+            version: null,
+            restartCount: 0,
+            lastError: 'no sidecar binary for this platform'
+          }
+        })
+      )
+    )
+    expect(screen.getByText(/process diagnostics are unavailable/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/no sidecar binary is available for this platform/i)
+    ).toBeInTheDocument()
+    expect(screen.getByText(/\(no sidecar binary for this platform\)/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
+    expect(screen.queryByTestId('diag-cpu')).not.toBeInTheDocument()
+    expect(screen.queryByText('Process tree')).not.toBeInTheDocument()
+  })
+
+  it('shows the full unavailable panel when unavailable with no prior sample', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () =>
+      onSampleCb(
+        snapshot({
+          tree: [],
+          sidecar: {
+            status: 'unavailable',
+            version: null,
+            restartCount: 5,
+            lastError: 'sidecar exited with code 1'
+          }
+        })
+      )
+    )
+    expect(screen.getByText(/process diagnostics are unavailable/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/the sidecar crashed repeatedly and stopped retrying automatically/i)
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('diag-cpu')).not.toBeInTheDocument()
+  })
+
+  it('does not show the unavailable panel when healthy, even with an empty tree', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot({ tree: [] })))
+    expect(screen.queryByText(/process diagnostics are unavailable/i)).not.toBeInTheDocument()
+    expect(screen.getByTestId('diag-cpu')).toBeInTheDocument()
   })
 
   it('shows a waiting state before the first sample', () => {
@@ -115,11 +174,11 @@ describe('DiagnosticsSettings', () => {
     expect(screen.getByTestId('diag-readat')).toHaveTextContent('4242')
   })
 
-  it('hides the degraded banner when the sidecar is healthy', async () => {
+  it('hides the unavailable banner when the sidecar is healthy', async () => {
     render(<DiagnosticsSettings />)
     await act(async () => onSampleCb(snapshot()))
 
-    expect(screen.queryByText(/child-process attribution is unavailable/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/process diagnostics are unavailable/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
   })
 })

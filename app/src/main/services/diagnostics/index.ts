@@ -21,6 +21,10 @@ export interface SidecarClientLike {
   sampleNow(requestId: string): void
   health(): SidecarHealth
   onSnapshot(cb: (s: SidecarSnapshot) => void): () => void
+  /** Fires whenever the client's health() would return something new — status,
+   *  restart count, or last error. Lets the service publish a fresh snapshot
+   *  even when no sample has arrived, or when none ever will. */
+  onHealthChange(cb: (h: SidecarHealth) => void): () => void
 }
 
 export type DiagnosticsServiceDeps = {
@@ -48,6 +52,7 @@ export class DiagnosticsService {
   private current: DiagnosticsSnapshot | null = null
   private listeners: ((s: DiagnosticsSnapshot) => void)[] = []
   private unsubscribeClient: (() => void) | null = null
+  private unsubscribeHealth: (() => void) | null = null
 
   constructor(private readonly deps: DiagnosticsServiceDeps) {}
 
@@ -58,13 +63,19 @@ export class DiagnosticsService {
   start(): void {
     if (this.unsubscribeClient) return
     this.unsubscribeClient = this.deps.client.onSnapshot((s) => this.ingest(s))
+    this.unsubscribeHealth = this.deps.client.onHealthChange((h) => this.publishHealth(h))
     this.deps.client.start()
     this.applyCadence()
+    // Publish immediately so latest() is never null after startup — including
+    // when there is no working sidecar and no sample will ever arrive.
+    this.publishHealth(this.deps.client.health())
   }
 
   stop(): void {
     this.unsubscribeClient?.()
     this.unsubscribeClient = null
+    this.unsubscribeHealth?.()
+    this.unsubscribeHealth = null
     this.deps.client.stop()
   }
 
@@ -92,6 +103,36 @@ export class DiagnosticsService {
 
   retrySidecar(): void {
     this.deps.client.retry()
+  }
+
+  /**
+   * Republish on a health transition — a healthy sidecar going degraded or
+   * unavailable mid-session, a disabled/unavailable sidecar recovering, etc.
+   * With a real sample already in hand, keep it and just refresh sidecar
+   * health so the page doesn't silently go stale. With no sample yet (no
+   * working sidecar, or none has arrived so far), emit an honest empty
+   * snapshot instead of leaving latest() null forever.
+   */
+  private publishHealth(health: SidecarHealth): void {
+    this.current = this.current
+      ? { ...this.current, readAt: this.now(), sidecar: health }
+      : {
+          readAt: this.now(),
+          sampleIntervalMs: this.subscribers.size > 0 ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS,
+          cores: this.deps.cores,
+          totalMemoryBytes: this.deps.totalMemoryBytes,
+          footprint: {
+            processCount: 0,
+            cpuPercent: 0,
+            rssBytes: 0,
+            peakRssBytes: 0,
+            starts: 0,
+            exits: 0
+          },
+          tree: [],
+          sidecar: health
+        }
+    for (const l of this.listeners) l(this.current)
   }
 
   private applyCadence(): void {
