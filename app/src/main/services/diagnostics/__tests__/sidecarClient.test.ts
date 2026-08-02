@@ -170,6 +170,26 @@ describe('SidecarClient', () => {
     expect(client.health().status).toBe('healthy')
   })
 
+  it('a flapping sidecar still opens the circuit even if Retry is clicked while merely degraded', async () => {
+    const { client, procs } = makeClient()
+    void client.start()
+    // Each cycle: complete a handshake, kill the child, then (unless the
+    // circuit just tripped) click Retry while status is still 'degraded'.
+    // Before the fix, retry() unconditionally cleared this.failures, so the
+    // failure count reset every cycle and the circuit could never reach
+    // MAX_FAILURES_PER_WINDOW no matter how many times the sidecar died.
+    for (let i = 0; i < 5; i++) {
+      procs[procs.length - 1].emit(hello())
+      await vi.advanceTimersByTimeAsync(0)
+      procs[procs.length - 1].die(1)
+      if (client.health().status === 'degraded') {
+        void client.retry()
+        await vi.advanceTimersByTimeAsync(0)
+      }
+    }
+    expect(client.health().status).toBe('unavailable')
+  })
+
   it('retry() during a pending backoff does not orphan a second child', async () => {
     const { client, procs } = makeClient()
     void client.start()

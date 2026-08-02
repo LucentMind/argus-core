@@ -72,16 +72,21 @@ export class SidecarClient {
 
   /** Close an open circuit and try again immediately. */
   retry(): void {
-    this.failures = []
+    // Always cancel the backoff: Retry means "stop waiting, try now".
     this.attempt = 0
+    // Only wipe the failure window once the breaker has actually tripped.
+    // Clearing it while merely degraded lets repeated clicks hold the circuit
+    // open forever against a sidecar that is genuinely broken.
+    if (this.status === 'unavailable') this.failures = []
     this.stopped = false
-    // Return BEFORE touching timers: if an attempt is already in flight, its
-    // handshake watchdog must stay armed. Clearing it here and then returning
-    // would leave a live child permanently unwatched.
+    // Return BEFORE touching timers. If an attempt is already in flight its 5s
+    // handshake watchdog is armed, and clearing it here would leave a live child
+    // permanently unwatched — a wedged sidecar would then never degrade.
     if (this.proc) return
-    // Only reachable with no live child, so the only timer that can be pending
-    // is the backoff restartTimer. Cancel it, or it will spawn a second child
-    // after the one below and orphan it.
+    // Only reachable with no live child, so the only timer that can be pending is
+    // the backoff restartTimer. Cancel it: `fail()` nulls this.proc before arming
+    // it, so without this the timer spawns a second child after the one below and
+    // orphans it — unreachable, never killed.
     this.clearTimers()
     this.spawnOnce()
   }
