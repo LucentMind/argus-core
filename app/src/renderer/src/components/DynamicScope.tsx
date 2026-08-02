@@ -1,6 +1,5 @@
-import { useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useSyncExternalStore, type ReactNode } from 'react'
 import { uiStore } from '../lib/uiStore'
-import { AmbientAnchorContext, type AmbientAnchors } from '../lib/ambientAnchors'
 import { AmbientCanvas } from './AmbientCanvas'
 import { BANDS, type DynamicVariant } from '../lib/ambientBands'
 
@@ -20,21 +19,27 @@ export type { DynamicVariant }
  * The wrapper paints its own bg-void ground: App.tsx's bg-void sits OUTSIDE
  * this scope, so it resolves the classic tokens, not the scoped ones — without
  * a scoped bg-void here the canvas bottom edge would show a seam.
+ *
+ * The anchors are PROPS, not state owned here: in Settings the light source is the page title and
+ * the cutoff is the header's bottom edge, and both live in `TopBar` — a sibling of this scope, not
+ * a descendant (spec 2026-08-01-header-window-controls-design.md §4.3). `App` owns the state and
+ * renders `AmbientAnchorContext.Provider` around both.
  */
 export function DynamicScope({
   variant,
+  light,
+  cutoff,
   children
 }: {
   variant: DynamicVariant
+  light: HTMLElement | null
+  cutoff: HTMLElement | null
   children: ReactNode
 }): React.JSX.Element {
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
     () => uiStore.get()
   )
-  const [light, setLight] = useState<HTMLElement | null>(null)
-  const [cutoff, setCutoff] = useState<HTMLElement | null>(null)
-  const anchors = useMemo<AmbientAnchors>(() => ({ setLight, setCutoff }), [])
   const on = ui.dynamicTheme
   // Home keeps the fragment-when-off shape: it ships, it is verified, and the
   // classic home DOM must stay byte-identical.
@@ -51,22 +56,18 @@ export function DynamicScope({
       className={`${on ? `dyn dyn-${variant} bg-void ` : ''}${layout}`}
       data-testid={`dynamic-${variant}`}
     >
-      {/* The case variant deliberately paints no canvas of its own: since the header merge the
-          case's light belongs to the chrome, and App.tsx mounts it there (above this scope, at
-          the window's top edge). A second canvas here would be a second, lower aurora — which is
-          exactly the misplaced band this scope used to own. Home and Settings still light
-          themselves, because their light source is inside their own page. */}
-      {on && variant !== 'case' && (
-        <AmbientCanvas light={light} cutoff={cutoff} theme={ui.theme} band={BANDS[variant]} />
-      )}
+      {/* Every variant paints its own canvas, the case included. The canvas is `position: fixed`
+          at the WINDOW's top edge — not at this wrapper's — and `anchorRect` measures anchors
+          against the viewport, so one canvas per view lights the chrome and the view together.
+          That is what makes a second canvas mounted behind the bar unnecessary: there is no
+          lower aurora to avoid, because this one already starts above the header. */}
+      {on && <AmbientCanvas light={light} cutoff={cutoff} theme={ui.theme} band={BANDS[variant]} />}
       {on && variant === 'home' && <div className="dyn-grain" aria-hidden="true" />}
-      <AmbientAnchorContext.Provider value={anchors}>
-        {variant === 'home' ? (
-          <div className="relative z-[1]">{children}</div>
-        ) : (
-          <div className="relative z-[1] flex min-h-0 flex-1 flex-col">{children}</div>
-        )}
-      </AmbientAnchorContext.Provider>
+      {variant === 'home' ? (
+        <div className="relative z-[1]">{children}</div>
+      ) : (
+        <div className="relative z-[1] flex min-h-0 flex-1 flex-col">{children}</div>
+      )}
     </div>
   )
 }

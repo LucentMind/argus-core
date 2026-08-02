@@ -1,14 +1,36 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import App from '../App'
 import { settingsStore } from '../lib/settingsStore'
 import { accessStore } from '../lib/accessStore'
 import { updateStore } from '../lib/updateStore'
+import { uiStore } from '../lib/uiStore'
 import { __resetEscapeLayersForTest } from '../lib/escapeLayer'
 import { defaultSettings, type SettingsPayload } from '../../../shared/settings'
+
+/**
+ * A thin pass-through wrapper, not a behaviour change: every call delegates straight to the real
+ * `AmbientCanvas`, so every test in this file that doesn't read `lastAmbientCanvasProps` is
+ * exercising the genuine component. The capture is what lets the anchor-Provider test below prove
+ * `App` actually threads its own anchor STATE down to consumers — as opposed to the
+ * `AmbientAnchorContext` default no-ops, which look identical from the DOM (the ref callbacks
+ * still get called; they just don't move any pixels) and would leave the dynamic theme unanchored
+ * with every other assertion in this suite still green.
+ */
+let lastAmbientCanvasProps: { light: HTMLElement | null; cutoff: HTMLElement | null } | null = null
+vi.mock('../components/AmbientCanvas', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../components/AmbientCanvas')>()
+  return {
+    ...actual,
+    AmbientCanvas: (props: Parameters<typeof actual.AmbientCanvas>[0]) => {
+      lastAmbientCanvasProps = { light: props.light, cutoff: props.cutoff }
+      return <actual.AmbientCanvas {...props} />
+    }
+  }
+})
 
 function settingsPayload(): SettingsPayload {
   const settings = defaultSettings()
@@ -43,6 +65,8 @@ beforeEach(() => {
   settingsStore.reset()
   accessStore.reset()
   updateStore.clearForTests()
+  uiStore.setDynamicTheme(false)
+  lastAmbientCanvasProps = null
   window.argus = {
     cases: {
       list: vi.fn(async () => [])
@@ -112,7 +136,10 @@ beforeEach(() => {
   } as never
 })
 
-afterEach(() => __resetEscapeLayersForTest())
+afterEach(() => {
+  __resetEscapeLayersForTest()
+  uiStore.setDynamicTheme(false)
+})
 
 describe('App: toolbar icon toggles', () => {
   it('a second Observability click returns to the previous view', async () => {
@@ -184,5 +211,46 @@ describe('App: toolbar icon toggles', () => {
     expect(screen.getByLabelText('Settings sections')).toBeInTheDocument()
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByLabelText('Settings sections')).not.toBeInTheDocument()
+  })
+})
+
+describe('App: ambient anchor Provider', () => {
+  // `lib/__tests__/ambientAnchors.test.tsx` covers the claim/release SLOT contract in detail,
+  // against a hand-built harness that supplies its own Provider. What that file cannot catch is
+  // App itself failing to render `AmbientAnchorContext.Provider` at all — every consumer
+  // (`TopBar`, `CaseDashboard`, `CaseWorkspace`) would then silently read the context's no-op
+  // defaults instead of App's real `useAmbientAnchorState()`, the ref callbacks would still get
+  // called (so nothing throws and no DOM assertion about the refs existing would fail), and the
+  // dynamic theme would go unanchored on every view with a fully green suite otherwise. These
+  // tests render the real `App` end to end and check that a real anchor element comes out the
+  // other side of `AmbientCanvas`'s props — not just that some Provider-shaped thing exists.
+  it('threads the settings anchors from TopBar through to AmbientCanvas', async () => {
+    uiStore.setDynamicTheme(true)
+    render(<App />)
+    await userEvent.click(screen.getByLabelText('Settings'))
+    const title = await screen.findByTestId('settings-title')
+    await waitFor(() => {
+      expect(lastAmbientCanvasProps?.light).toBe(title)
+      expect(lastAmbientCanvasProps?.cutoff).toBe(screen.getByRole('banner'))
+    })
+  })
+
+  it('threads home’s own anchors through to AmbientCanvas', async () => {
+    uiStore.setDynamicTheme(true)
+    render(<App />)
+    // CaseDashboard's greeting `<h1>` is home's light anchor (see CaseDashboard.tsx) — the only
+    // level-1 heading on the home view; the wordmark in TopBar is a `<span>`, not a heading.
+    const light = screen.getByRole('heading', { level: 1 })
+    await waitFor(() => {
+      expect(lastAmbientCanvasProps?.light).toBe(light)
+    })
+  })
+
+  it('renders no main-window title bar strip — the header carries the window controls now', () => {
+    const { container } = render(<App />)
+    // `.argus-titlebar-inset` is TitleBarStrip's own class, unused by TopBar (`.argus-header-inset`
+    // instead); a non-empty match here would mean a bare strip is back above the header.
+    expect(container.querySelectorAll('.argus-titlebar-inset')).toHaveLength(0)
+    expect(screen.getByRole('banner')).toBeInTheDocument()
   })
 })

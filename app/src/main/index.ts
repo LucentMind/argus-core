@@ -28,6 +28,12 @@ import { buildCaptureDetail } from './services/prompts/captureDetail'
 import { exportEvalBundle } from './services/distill/evalExport'
 import { pushScaleIfChanged, pushThemeIfChanged, type TitleBarTheme } from './services/titleBar'
 import { mainWindowOptions } from './services/windowOptions'
+import {
+  closeWindow,
+  isWindowMaximized,
+  minimizeWindow,
+  toggleMaximizeWindow
+} from './services/windowControls'
 import type {
   PromptCatalogPayload,
   PromptPreview,
@@ -1089,9 +1095,12 @@ function registerIpc(): void {
     // Skip everything below when the value hasn't actually changed. Without this, main re-pushes
     // `setTitleBarOverlay` on every renderer load — including the very first, where the value is
     // identical to the construction-time default, and every HMR reload under `electron-vite
-    // dev` — which is the one in-diff suspect for a live defect where the main window's overlay
-    // came up zero-width.
-    if (!pushThemeIfChanged(mainWindow, editorWindowService, theme, prevTheme, lastScale)) return
+    // dev`. The redundant-push defect this guard exists for was first observed on the MAIN
+    // window's overlay — an HMR reload re-firing the identical theme was the in-diff suspect for
+    // it coming up zero-width — back before the main window stopped having a native overlay at
+    // all (its caption buttons are DOM now, see `pushThemeIfChanged`'s doc comment). The guard
+    // stays because the editor window's overlay is subject to the identical redundant re-push.
+    if (!pushThemeIfChanged(editorWindowService, theme, prevTheme)) return
     panelHost!.setTheme(theme)
     // Every BrowserWindow runs its own UiStore and reads the theme only at load, so a change
     // made in one window is invisible to the others until they reload. Fan it out here: this
@@ -1104,8 +1113,15 @@ function registerIpc(): void {
     // reload re-reporting the same persisted scale).
     const prevScale = lastScale
     lastScale = scale
-    pushScaleIfChanged(mainWindow, editorWindowService, scale, prevScale, lastTheme)
+    pushScaleIfChanged(editorWindowService, scale, prevScale)
   })
+  // The sender's own window, not a captured `mainWindow` — see the IPC channel comments.
+  const senderWindow = (e: Electron.IpcMainInvokeEvent): BrowserWindow | null =>
+    BrowserWindow.fromWebContents(e.sender)
+  ipcMain.handle(IPC.windowMinimize, (e) => minimizeWindow(senderWindow(e)))
+  ipcMain.handle(IPC.windowToggleMaximize, (e) => toggleMaximizeWindow(senderWindow(e)))
+  ipcMain.handle(IPC.windowClose, (e) => closeWindow(senderWindow(e)))
+  ipcMain.handle(IPC.windowIsMaximized, (e) => isWindowMaximized(senderWindow(e)))
   ipcMain.handle(IPC.panelsDecls, () =>
     packRegistry.windowDecls().map((w) => ({
       packId: w.packId,
@@ -2334,6 +2350,16 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
   })
+
+  // Both the OS and our own toggle can change this, so the renderer is told rather than
+  // inferring it from its own click (double-click on the drag region and Windows snap gestures
+  // never reach our handler).
+  const sendMaximized = (maximized: boolean) => (): void => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.webContents.send(IPC.windowMaximizedChanged, maximized)
+  }
+  mainWindow.on('maximize', sendMaximized(true))
+  mainWindow.on('unmaximize', sendMaximized(false))
 
   mainWindow.on('closed', () => {
     mainWindow = null

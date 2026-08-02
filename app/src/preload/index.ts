@@ -826,10 +826,32 @@ const argus = {
       }
     }
   },
+  /** The header's own caption buttons (spec 2026-08-01-header-window-controls-design.md §3).
+   *  The main window is built with no native `titleBarOverlay` on win32/linux, so these are the
+   *  only way to minimize/maximize/close it there. */
+  window: {
+    minimize: () => invoke(IPC.windowMinimize),
+    toggleMaximize: () => invoke(IPC.windowToggleMaximize),
+    close: () => invoke(IPC.windowClose),
+    isMaximized: (): Promise<boolean> => invoke(IPC.windowIsMaximized),
+    /** main → renderer. Returns an unsubscribe function, like every other listener here. */
+    onMaximizedChanged: (cb: (maximized: boolean) => void): (() => void) => {
+      const listener = (_e: unknown, maximized: boolean): void => cb(maximized)
+      ipcRenderer.on(IPC.windowMaximizedChanged, listener)
+      return () => {
+        ipcRenderer.removeListener(IPC.windowMaximizedChanged, listener)
+      }
+    }
+  },
   pathForFile: (file: File) => webUtils.getPathForFile(file),
   openExternal: (url: string) => invoke(IPC.appOpenExternal, url),
-  /** For CSS platform floors (`data-platform` in main.css) — main.css:264's
-   *  `.argus-titlebar-inset` cannot otherwise tell a Windows build from a macOS one. */
+  /** Three consumers: the CSS platform floors (`data-platform` in main.css) — the
+   *  `.argus-titlebar-inset` rules around lines 426/489/498, and `:root[data-platform='darwin']
+   *  .argus-header-inset` around line 454, the one `data-platform` rule this branch added and now
+   *  the only one of the three that applies to the main window — that cannot otherwise tell a
+   *  Windows build from a macOS one; `lib/platform.ts`'s `isDarwin()`, which decides whether TopBar
+   *  renders Argus's own caption buttons at all; and `WindowControls`, which bails out entirely on
+   *  darwin (the traffic lights are the OS's, not ours to draw). */
   platform: process.platform
 }
 

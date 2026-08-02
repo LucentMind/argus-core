@@ -24,11 +24,10 @@ export interface BandConfig {
  *  `argus-docs/superpowers/assets/2026-07-31-dynamic-theme-case-settings.html`. */
 export const BANDS: Record<DynamicVariant, BandConfig> = {
   home: { pad: [320, 145], feather: 110, mode: 0, extra: 50, fade: 24 },
-  // The chrome band (title strip + TopBar, ~80px). `extra`/`fade` are 0 on purpose, unlike
-  // Settings': this canvas is the only thing painting the chrome's ground, and everything below
-  // its cutoff is the page, which paints its own. A tail past the bar's bottom edge would be
-  // overdrawn by the view rather than fading — so the light is made to die AT that edge instead,
-  // which is what the wider feather buys.
-  case: { pad: [240, 62], feather: 46, mode: 1, extra: 0, fade: 0 },
-  settings: { pad: [300, 92], feather: 64, mode: 1, extra: 16, fade: 16 }
+  case: { pad: [240, 62], feather: 30, mode: 1, extra: 16, fade: 16 },
+  // `settings`'s cutoff is the HEADER's bottom edge now (48px), not a ~130px masthead: the page
+  // title moved into the bar (spec 2026-08-01-header-window-controls-design.md §4.4). The old
+  // `feather: 64` would start the fade 16px ABOVE the canvas and erase the band outright.
+  // Starting values, to be settled over CDP against the running app.
+  settings: { pad: [300, 92], feather: 20, mode: 1, extra: 20, fade: 20 }
 }

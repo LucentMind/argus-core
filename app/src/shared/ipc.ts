@@ -219,6 +219,18 @@ export const IPC = {
   /** renderer→main: report the renderer's UI zoom factor, so main can size the native
    *  `titleBarOverlay` button hit-box to match (`webFrame.setZoomFactor` only scales the DOM). */
   uiSetScale: 'ui:set-scale',
+  // — window controls (renderer-drawn caption buttons; spec 2026-08-01-header-window-controls) —
+  /** renderer→main: act on the sender's own window. Resolved via `BrowserWindow.fromWebContents`
+   *  rather than a captured `mainWindow`, so these stay correct if a second window ever adopts
+   *  the same buttons, and cannot go stale across a window recreation. */
+  windowMinimize: 'window:minimize',
+  windowToggleMaximize: 'window:toggle-maximize',
+  windowClose: 'window:close',
+  windowIsMaximized: 'window:is-maximized',
+  /** main→renderer: the window was maximized (true) or restored (false). The button's glyph is
+   *  driven by this, not by the click — the OS maximizes on a double-click of the drag region
+   *  and on a snap gesture too, neither of which goes through our handler. */
+  windowMaximizedChanged: 'window:maximized-changed',
   panelsChanged: 'panels:changed',
   // main→renderer: select this panel (agent-opened panels aren't selected client-side)
   panelsActivate: 'panels:activate',

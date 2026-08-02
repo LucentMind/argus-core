@@ -1,18 +1,42 @@
 // @vitest-environment jsdom
 import { render, screen, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { useEffect, useState } from 'react'
-import { DynamicScope } from '../DynamicScope'
+import { useState, type ReactNode } from 'react'
+import { DynamicScope, type DynamicVariant } from '../DynamicScope'
 import { CaseWorkspace } from '../CaseWorkspace'
 import { uiStore } from '../../lib/uiStore'
 import {
   AmbientAnchorContext,
-  useAmbientAnchors,
+  useAmbientAnchorState,
   type AmbientAnchors
 } from '../../lib/ambientAnchors'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import { DEFAULT_MODE } from '../../../../shared/modes'
+
+// DynamicScope no longer owns the anchor state or the Provider (Task 7: App does, since in
+// Settings the light source lives in TopBar, a sibling of the scope). Tests that render
+// DynamicScope directly now need to supply that ownership themselves, the same shape App.tsx
+// uses, so the anchor-wiring behaviour below still exercises the real thing.
+function Scoped({
+  variant,
+  children
+}: {
+  variant: DynamicVariant
+  children: ReactNode
+}): React.JSX.Element {
+  // The real hook, not a hand-rolled pair of setters: the claim/release semantics it adds are the
+  // whole point of the slot (see lib/ambientAnchors.ts), and a double without them would let this
+  // suite pass over a regression it is supposed to catch.
+  const { light, cutoff, anchors } = useAmbientAnchorState()
+  return (
+    <AmbientAnchorContext.Provider value={anchors}>
+      <DynamicScope variant={variant} light={light} cutoff={cutoff}>
+        {children}
+      </DynamicScope>
+    </AmbientAnchorContext.Provider>
+  )
+}
 
 // jsdom has no runtime ResizeObserver; DOM lib types already declare it globally.
 // PanelDock (mounted by CaseWorkspace) uses one to track its host's size.
@@ -153,11 +177,11 @@ beforeEach(() => {
 
 function renderWorkspace(): ReturnType<typeof render> {
   return render(
-    <DynamicScope variant="case">
+    <Scoped variant="case">
       <CaseWorkspace
         slug="NAV-1"
         activeMode={DEFAULT_MODE}
-        caseTitle="a case"
+        caseTitle=""
         jiraKey={null}
         jiraSyncedAt={null}
         onModeSwitched={vi.fn()}
@@ -166,7 +190,7 @@ function renderWorkspace(): ReturnType<typeof render> {
         onOpenFile={vi.fn()}
         onOpenRepoFile={vi.fn()}
       />
-    </DynamicScope>
+    </Scoped>
   )
 }
 
@@ -178,22 +202,12 @@ function MountCounter(): React.JSX.Element {
 }
 MountCounter.mounts = 0
 
-function Anchored(): React.JSX.Element {
-  const anchors = useAmbientAnchors()
-  const [seen, setSeen] = useState('')
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSeen(typeof anchors.setLight === 'function' ? 'wired' : 'missing')
-  }, [anchors])
-  return <span data-testid="anchors">{seen}</span>
-}
-
 describe('DynamicScope — case variant', () => {
   it('off: wrapper still renders, but with no scope class and no band', () => {
     render(
-      <DynamicScope variant="case">
+      <Scoped variant="case">
         <span>inner</span>
-      </DynamicScope>
+      </Scoped>
     )
     const root = screen.getByTestId('dynamic-case')
     expect(root.className).not.toContain('dyn-case')
@@ -201,28 +215,25 @@ describe('DynamicScope — case variant', () => {
     expect(screen.getByText('inner')).toBeTruthy()
   })
 
-  it('on: the scope class mounts, but the light does NOT — that lives in the chrome', () => {
+  it('on: scope class and band mount', () => {
     uiStore.setDynamicTheme(true)
     render(
-      <DynamicScope variant="case">
+      <Scoped variant="case">
         <span>inner</span>
-      </DynamicScope>
+      </Scoped>
     )
     const root = screen.getByTestId('dynamic-case')
     expect(root.className).toContain('dyn ')
     expect(root.className).toContain('dyn-case')
-    // Scoped tokens yes, aurora no. Since the case header merged into TopBar the case's light
-    // is mounted by App.tsx behind the chrome; a canvas here too would be a second, lower one.
-    expect(screen.queryByTestId('ambient-fallback')).toBeNull()
-    expect(screen.queryByTestId('ambient-canvas-host')).toBeNull()
+    expect(screen.getByTestId('ambient-fallback')).toBeTruthy()
   })
 
   it('carries the flex chain so the panes keep their height basis', () => {
     uiStore.setDynamicTheme(true)
     render(
-      <DynamicScope variant="case">
+      <Scoped variant="case">
         <span>inner</span>
-      </DynamicScope>
+      </Scoped>
     )
     const cls = screen.getByTestId('dynamic-case').className
     for (const c of ['flex', 'min-h-0', 'flex-1', 'flex-col']) expect(cls).toContain(c)
@@ -231,9 +242,9 @@ describe('DynamicScope — case variant', () => {
   it('toggling does NOT remount the children', () => {
     MountCounter.mounts = 0
     render(
-      <DynamicScope variant="case">
+      <Scoped variant="case">
         <MountCounter />
-      </DynamicScope>
+      </Scoped>
     )
     expect(screen.getByTestId('counter').textContent).toBe('1')
     act(() => uiStore.setDynamicTheme(true))
@@ -242,40 +253,49 @@ describe('DynamicScope — case variant', () => {
     expect(screen.getByTestId('counter').textContent).toBe('1')
   })
 
-  it('provides anchors to children', () => {
-    uiStore.setDynamicTheme(true)
-    render(
-      <DynamicScope variant="case">
-        <Anchored />
-      </DynamicScope>
-    )
-    expect(screen.getByTestId('anchors').textContent).toBe('wired')
-  })
-
   it('paints no grain at all — grain is home-only', () => {
     uiStore.setDynamicTheme(true)
     render(
-      <DynamicScope variant="case">
+      <Scoped variant="case">
         <span>inner</span>
-      </DynamicScope>
+      </Scoped>
     )
     expect(document.querySelector('.dyn-grain')).toBeNull()
   })
 
-  it('paints no ambient band of its own — nothing in the view claims the chrome anchors', async () => {
-    // The workspace used to carry a `data-testid="ambient-band"` div as the light's stand-in
-    // for the pre-merge case header. It is gone: the light is above the view now, and a band
-    // here would put a second glow one bar's height below the real one — the exact defect this
-    // change fixes. Asserted through a real anchor provider so the test also fails if the
-    // workspace merely stops rendering the div while still grabbing the refs.
+  it('anchors the ambient band to its own element, not to a component box', async () => {
+    renderWorkspace()
+    await screen.findByRole('main')
+    const band = document.querySelector('[data-testid="ambient-band"]')
+    expect(band).not.toBeNull()
+    // Inside the scope: AmbientCanvas measures anchors with `getBoundingClientRect`
+    // (viewport-relative, see `anchorRect`), so nothing requires the cutoff to live inside
+    // DynamicScope — this just documents where CaseWorkspace actually put it.
+    expect(band?.closest('[data-testid="dynamic-case"]')).not.toBeNull()
+    expect(band?.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('wires the anchor refs to the ambient band, not just to some element', async () => {
+    // The test above only checks that a `data-testid="ambient-band"` div exists somewhere in
+    // the scope — it would stay green even if `ref={anchors.setCutoff}`/`setLight` were
+    // deleted from CaseWorkspace and the aurora silently fell back to its hardcoded default.
+    // This renders CaseWorkspace under a real AmbientAnchorContext.Provider (the same
+    // `{ setLight, setCutoff }` shape `useAmbientAnchors` returns — see lib/ambientAnchors.ts)
+    // and captures exactly which elements the ref callbacks receive.
     let cutoffEl: HTMLElement | null = null
     let lightEl: HTMLElement | null = null
     const anchors: AmbientAnchors = {
       setCutoff: (el) => {
         cutoffEl = el
+        return () => {
+          cutoffEl = null
+        }
       },
       setLight: (el) => {
         lightEl = el
+        return () => {
+          lightEl = null
+        }
       }
     }
     render(
@@ -283,7 +303,7 @@ describe('DynamicScope — case variant', () => {
         <CaseWorkspace
           slug="NAV-1"
           activeMode={DEFAULT_MODE}
-          caseTitle="a case"
+          caseTitle=""
           jiraKey={null}
           jiraSyncedAt={null}
           onModeSwitched={vi.fn()}
@@ -295,16 +315,9 @@ describe('DynamicScope — case variant', () => {
       </AmbientAnchorContext.Provider>
     )
     await screen.findByRole('main')
-    expect(document.querySelector('[data-testid="ambient-band"]')).toBeNull()
-    expect(cutoffEl).toBeNull()
-    expect(lightEl).toBeNull()
-  })
-
-  it('renders no canvas under a lit scope either — one aurora, and it is the chrome’s', async () => {
-    uiStore.setDynamicTheme(true)
-    renderWorkspace()
-    await screen.findByRole('main')
-    expect(screen.queryByTestId('ambient-fallback')).toBeNull()
-    expect(screen.queryByTestId('ambient-canvas-host')).toBeNull()
+    const band = screen.getByTestId('ambient-band')
+    expect(cutoffEl).toBe(band)
+    expect(lightEl).not.toBeNull()
+    expect(band.contains(lightEl)).toBe(true)
   })
 })

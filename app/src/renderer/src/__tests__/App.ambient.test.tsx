@@ -82,37 +82,42 @@ beforeEach(() => {
   uiStore.setTheme('dark')
 })
 
-describe('App: the chrome ambient light', () => {
-  it('mounts behind the chrome on a case, at the window top edge', async () => {
+describe('App: where the ambient light mounts', () => {
+  it('lights every view from the window top edge, the case included', async () => {
     uiStore.setDynamicTheme(true)
     render(<App />)
-    expect(screen.queryByTestId('chrome-ambient')).toBeNull()
+    // Home first: one canvas, inside the home scope.
+    expect(
+      screen.getByTestId('dynamic-home').contains(screen.getByTestId('ambient-fallback'))
+    ).toBe(true)
     await userEvent.click(screen.getByText('open NAV-1'))
-    const layer = screen.getByTestId('chrome-ambient')
-    // `chrome-ambient` is what pins it to the window's top edge and pushes it behind the chrome
-    // (theme-dynamic.css) — the whole point, since the light used to start one bar-height lower.
-    // It is a plain CSS class rather than Tailwind utilities on purpose; see the rule's comment.
-    expect(layer.className).toContain('chrome-ambient')
-    // The canvas still needs the case variant's own geometry rules to size itself.
-    expect(layer.classList.contains('dyn-case')).toBe(true)
-    expect(layer.compareDocumentPosition(screen.getByRole('banner'))).toBe(
+    // The case view lights itself too. It briefly did not: while the case aurora was a separate
+    // layer mounted behind the bar, DynamicScope skipped the canvas for `case` so the two would
+    // not stack. One fixed canvas spanning the chrome AND the view replaced that pair, and this
+    // is the assertion that would have caught the guard surviving the merge.
+    const scope = screen.getByTestId('dynamic-case')
+    // jsdom has no WebGL, so AmbientCanvas renders its static fallback — enough to prove where
+    // the canvas mounted.
+    expect(scope.contains(screen.getByTestId('ambient-fallback'))).toBe(true)
+    // Exactly one, never a second lower aurora.
+    expect(screen.getAllByTestId('ambient-fallback')).toHaveLength(1)
+    // The bar paints above it, which is what `z-20` on the header buys.
+    expect(screen.getByRole('banner').compareDocumentPosition(scope)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     )
-    // jsdom has no WebGL, so AmbientCanvas renders its static fallback — enough to prove the
-    // canvas is mounted inside this layer and nowhere else.
-    expect(layer.contains(screen.getByTestId('ambient-fallback'))).toBe(true)
   })
 
-  it('stays off on Home and Settings, and off entirely in classic mode', async () => {
+  it('mounts nothing at all in classic mode, on any view', async () => {
     render(<App />)
     await userEvent.click(screen.getByText('open NAV-1'))
-    // Classic mode: no light anywhere, even on a case.
-    expect(screen.queryByTestId('chrome-ambient')).toBeNull()
+    expect(screen.queryByTestId('ambient-fallback')).toBeNull()
     act(() => uiStore.setDynamicTheme(true))
-    expect(screen.getByTestId('chrome-ambient')).toBeTruthy()
-    // Settings has its own light, anchored to its masthead inside the page. A second one in
-    // the chrome would double it.
+    expect(screen.getByTestId('ambient-fallback')).toBeTruthy()
+    // Settings keeps its own light — anchored to the page title in the bar now, not to a
+    // masthead inside the page.
     await userEvent.click(screen.getByLabelText('Settings'))
-    expect(screen.queryByTestId('chrome-ambient')).toBeNull()
+    expect(
+      screen.getByTestId('dynamic-settings').contains(screen.getByTestId('ambient-fallback'))
+    ).toBe(true)
   })
 })

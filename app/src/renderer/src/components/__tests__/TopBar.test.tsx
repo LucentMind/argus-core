@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TopBar } from '../TopBar'
 import { uiStore } from '../../lib/uiStore'
 import { caseBarStore } from '../../lib/caseBarStore'
+import { settingsBarStore } from '../../lib/settingsBarStore'
+import { AmbientAnchorContext } from '../../lib/ambientAnchors'
 import type { CaseRecord } from '../../../../shared/types'
 import type { DistillJobRow } from '../../../../shared/distill'
 
@@ -26,6 +29,7 @@ beforeEach(() => {
   if (uiStore.get().theme !== 'dark') uiStore.setTheme('dark')
   if (!uiStore.get().showToolCalls) uiStore.setShowToolCalls(true)
   caseBarStore.reset()
+  settingsBarStore.reset()
   uiStore.setDynamicTheme(false)
   window.argus = {
     modes: { available: vi.fn(async () => ['investigation', 'review']) },
@@ -35,7 +39,15 @@ beforeEach(() => {
       setMode: vi.fn(async () => ({ sessionId: 9 }))
     },
     bundle: { export: vi.fn(async () => ({ ok: true, fileCount: 1 })) },
-    jira: { refreshCase: vi.fn(), openIssue: vi.fn() }
+    jira: { refreshCase: vi.fn(), openIssue: vi.fn() },
+    platform: 'win32',
+    window: {
+      minimize: vi.fn(async () => undefined),
+      toggleMaximize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      isMaximized: vi.fn(async () => false),
+      onMaximizedChanged: vi.fn(() => () => {})
+    }
   } as never
 })
 
@@ -145,8 +157,9 @@ describe('TopBar', () => {
     )
     const header = screen.getByRole('banner')
     expect(header.classList.contains('argus-drag')).toBe(true)
-    // The window-buttons inset moved to TitleBarStrip — TopBar no longer sits beside the OS
-    // buttons, so it no longer needs to reserve room for them.
+    // Not `.argus-titlebar-inset`: that class reserves room beside a *native* OS button
+    // cluster, and this header draws its own buttons (WindowControls) — `.argus-header-inset`
+    // is the rule that exists for that instead.
     expect(header.classList.contains('argus-titlebar-inset')).toBe(false)
 
     // ModeSwitcher renders a plain <span> until window.argus.modes.available resolves; wait
@@ -414,63 +427,6 @@ describe('TopBar', () => {
     expect(screen.getByRole('banner').hasAttribute('data-tier')).toBe(false)
   })
 
-  it('hands the ambient light its two anchors: the case group and its own bottom edge', () => {
-    uiStore.setDynamicTheme(true)
-    let lightEl: HTMLElement | null = null
-    let cutoffEl: HTMLElement | null = null
-    render(
-      <TopBar
-        ambient={{
-          setLight: (el) => {
-            lightEl = el
-          },
-          setCutoff: (el) => {
-            cutoffEl = el
-          }
-        }}
-        activeSlug="NAV-1"
-        activeCase={CASE}
-        onHome={vi.fn()}
-        onSelect={vi.fn()}
-        onSettings={vi.fn()}
-        onStatusChanged={vi.fn()}
-      />
-    )
-    // The light source is the case group, not the bar: the ribbon brightens around it, which is
-    // what makes the aurora read as coming off the case id. The cutoff is the bar itself — the
-    // light dies at its bottom edge, where the page begins.
-    expect(lightEl).toBe(screen.getByTestId('case-group'))
-    expect(cutoffEl).toBe(screen.getByRole('banner'))
-  })
-
-  it('drops its own ground only while lit, so the aurora is not painted over', () => {
-    const { rerender } = render(
-      <TopBar
-        activeSlug="NAV-1"
-        activeCase={CASE}
-        onHome={vi.fn()}
-        onSelect={vi.fn()}
-        onSettings={vi.fn()}
-        onStatusChanged={vi.fn()}
-      />
-    )
-    // Classic mode: flat ground, as before. An always-transparent bar would show the page
-    // scrolling under it on every view.
-    expect(screen.getByRole('banner').className).toContain('bg-void')
-    rerender(
-      <TopBar
-        ambient={{ setLight: vi.fn(), setCutoff: vi.fn() }}
-        activeSlug="NAV-1"
-        activeCase={CASE}
-        onHome={vi.fn()}
-        onSelect={vi.fn()}
-        onSettings={vi.fn()}
-        onStatusChanged={vi.fn()}
-      />
-    )
-    expect(screen.getByRole('banner').className).not.toContain('bg-void')
-  })
-
   it('ignores busy state published for a different case', async () => {
     render(
       <TopBar
@@ -489,5 +445,163 @@ describe('TopBar', () => {
         screen.getByRole('button', { name: 'Case mode · Review' }).getAttribute('title')
       ).toBeNull()
     )
+  })
+
+  it('carries the caption buttons on win32, flush into the corner', () => {
+    render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    expect(screen.getByTestId('window-close')).toBeInTheDocument()
+    const header = screen.getByRole('banner')
+    expect(header.className).toContain('pr-0')
+    expect(header.className).toContain('argus-header-inset')
+    // NOT the strip's class: that one also reserves right-hand space for a native cluster.
+    expect(header.className).not.toContain('argus-titlebar-inset')
+  })
+
+  it('keeps its right padding on darwin, where it draws no buttons', () => {
+    window.argus = { ...window.argus, platform: 'darwin' } as never
+    render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    expect(screen.queryByTestId('window-close')).not.toBeInTheDocument()
+    expect(screen.getByRole('banner').className).toContain('pr-3')
+  })
+
+  it('renders the settings page identity when Settings publishes one', async () => {
+    render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    expect(screen.queryByTestId('settings-title')).not.toBeInTheDocument()
+    act(() => settingsBarStore.publish({ label: 'General', blurb: 'Appearance and shell.' }))
+    const title = screen.getByTestId('settings-title')
+    const blurb = screen.getByTestId('settings-blurb')
+    expect(title).toHaveTextContent('General')
+    expect(blurb).toHaveTextContent('Appearance and shell.')
+    // Single line, always, with the full text reachable on hover: a masthead that grows by a
+    // line on navigation would change the header's height as the user browses (former
+    // SettingsView masthead test, ported here since the identity now renders in TopBar).
+    expect(title.className).toContain('truncate')
+    expect(blurb.className).toContain('truncate')
+    expect(blurb.getAttribute('title')).toBe(blurb.textContent)
+    act(() => settingsBarStore.publish(null))
+    expect(screen.queryByTestId('settings-title')).not.toBeInTheDocument()
+  })
+
+  it('goes transparent and rises above the ambient layer when the dynamic theme is on', () => {
+    uiStore.setDynamicTheme(true)
+    render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    const header = screen.getByRole('banner')
+    // The canvas is `position: fixed; z-index: 0`, which paints above every non-positioned
+    // sibling — so the header has to be positioned and above it.
+    expect(header.className).toContain('relative')
+    expect(header.className).toContain('z-20')
+    // and it must not paint its own ground over the flow
+    expect(header.className).not.toContain('bg-void')
+    expect(header.className).not.toContain('border-b')
+  })
+
+  it('keeps its own ground and border with the dynamic theme off', () => {
+    uiStore.setDynamicTheme(false)
+    render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    const header = screen.getByRole('banner')
+    expect(header.className).toContain('bg-void')
+    expect(header.className).toContain('border-b')
+  })
+
+  it('is the ambient light source and cutoff while Settings is up', () => {
+    // Doubles return a cleanup, matching the claim/release contract (lib/ambientAnchors.ts) that
+    // 'releases the anchors on leaving Settings' below exercises directly — this test only
+    // asserts attach, but a bare `vi.fn()` here would type-check anyway (its inferred return is
+    // `any`), so keeping the shape honest is what makes a future contract-violating double fail.
+    const setLight = vi.fn(() => () => {})
+    const setCutoff = vi.fn(() => () => {})
+    render(
+      <AmbientAnchorContext.Provider value={{ setLight, setCutoff }}>
+        <TopBar
+          activeSlug={null}
+          activeCase={null}
+          onHome={vi.fn()}
+          onSelect={vi.fn()}
+          onSettings={vi.fn()}
+          onStatusChanged={vi.fn()}
+        />
+      </AmbientAnchorContext.Provider>
+    )
+    // Outside Settings the header owns neither anchor.
+    expect(setCutoff).not.toHaveBeenCalledWith(expect.any(HTMLElement))
+    act(() => settingsBarStore.publish({ label: 'General', blurb: 'Appearance.' }))
+    expect(setCutoff).toHaveBeenCalledWith(screen.getByRole('banner'))
+    expect(setLight).toHaveBeenCalledWith(screen.getByTestId('settings-title'))
+  })
+
+  it('releases the anchors on leaving Settings', () => {
+    // The anchor refs are React 19 cleanup refs (lib/ambientAnchors.ts): returning a function from
+    // a ref callback makes React call THAT on detach instead of re-calling the ref with `null`.
+    // So "released" is observed as the cleanup running, not as a `null` argument — and these
+    // doubles have to return one, or they would exercise the legacy path the app no longer uses.
+    const released: string[] = []
+    const setLight = vi.fn(() => () => released.push('light'))
+    const setCutoff = vi.fn(() => () => released.push('cutoff'))
+    render(
+      <AmbientAnchorContext.Provider value={{ setLight, setCutoff }}>
+        <TopBar
+          activeSlug={null}
+          activeCase={null}
+          onHome={vi.fn()}
+          onSelect={vi.fn()}
+          onSettings={vi.fn()}
+          onStatusChanged={vi.fn()}
+        />
+      </AmbientAnchorContext.Provider>
+    )
+    act(() => settingsBarStore.publish({ label: 'General', blurb: 'Appearance.' }))
+    setLight.mockClear()
+    setCutoff.mockClear()
+    act(() => settingsBarStore.publish(null))
+    expect(released).toEqual(expect.arrayContaining(['cutoff', 'light']))
+    // and never by re-calling the ref itself, which is what would silently clobber whichever view
+    // has since claimed the slot
+    expect(setCutoff).not.toHaveBeenCalled()
+    expect(setLight).not.toHaveBeenCalled()
   })
 })

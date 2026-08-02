@@ -656,7 +656,7 @@ export function EditorApp(): React.JSX.Element {
      */
     <PaneActionSlotContext.Provider value={actionSlot}>
       <div className="flex h-screen flex-col bg-void text-ink">
-        <TitleBarStrip kind="editor" flush>
+        <TitleBarStrip flush>
           <TabBar
             tabs={state.tabs}
             activeId={state.activeId}

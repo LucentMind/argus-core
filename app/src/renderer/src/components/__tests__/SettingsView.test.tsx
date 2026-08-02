@@ -10,6 +10,7 @@ import { proposalsStore } from '../../lib/proposalsStore'
 import { referenceSyncStore } from '../../lib/referenceSyncStore'
 import { connectorsStore } from '../../lib/connectorsStore'
 import { updateStore } from '../../lib/updateStore'
+import { settingsBarStore } from '../../lib/settingsBarStore'
 import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import { DEFAULT_PRESETS } from '../../../../shared/connectors'
@@ -79,6 +80,7 @@ beforeEach(() => {
   referenceSyncStore.reset()
   connectorsStore.reset()
   updateStore.clearForTests()
+  settingsBarStore.reset()
   window.argus = {
     settings: {
       get: vi.fn(async () => currentPayload),
@@ -470,11 +472,16 @@ describe('SettingsView', () => {
   })
 
   describe('masthead', () => {
-    it('shows the active page title and blurb on initial mount', async () => {
+    // The masthead itself moved into TopBar (a sibling, not rendered by this test — see
+    // TopBar.test.tsx). What SettingsView owns is publishing the active page's identity to
+    // settingsBarStore; these assertions read that back instead of a DOM node that no longer
+    // exists here.
+    it('publishes the active page title and blurb on initial mount', async () => {
       render(<SettingsView onClose={vi.fn()} />)
       await screen.findByRole('button', { name: /General/ })
-      expect(screen.getByTestId('settings-title')).toHaveTextContent('General')
-      expect(screen.getByTestId('settings-blurb').textContent).toBeTruthy()
+      await waitFor(() => expect(settingsBarStore.get()?.label).toBe('General'))
+      expect(settingsBarStore.get()?.blurb).toBeTruthy()
+      expect(screen.queryByTestId('settings-title')).not.toBeInTheDocument()
     })
 
     // The wordmark moved to the top bar's home button; a second copy here would put two brand
@@ -485,24 +492,19 @@ describe('SettingsView', () => {
       expect(screen.queryByText('ARGUS')).toBeNull()
     })
 
-    // Blurbs vary from 46 to 97 chars; a masthead that grows a line when you navigate shifts
-    // the whole content column, so the line count is pinned rather than left to the text.
-    it('keeps the title and blurb to one line each, with the full blurb on hover', async () => {
-      render(<SettingsView onClose={vi.fn()} initialPage={'proposals'} />)
-      const blurb = await screen.findByTestId('settings-blurb')
-      expect(blurb.className).toContain('truncate')
-      expect(blurb.getAttribute('title')).toBe(blurb.textContent)
-      expect(screen.getByTestId('settings-title').className).toContain('truncate')
+    it('clears the store on unmount', async () => {
+      const { unmount } = render(<SettingsView onClose={vi.fn()} />)
+      await waitFor(() => expect(settingsBarStore.get()?.label).toBe('General'))
+      unmount()
+      expect(settingsBarStore.get()).toBeNull()
     })
 
     it('follows the active page when switching via the nav', async () => {
       render(<SettingsView onClose={vi.fn()} />)
       await screen.findByRole('button', { name: /General/ })
       fireEvent.click(screen.getByRole('button', { name: /^Health$/ }))
-      await waitFor(() => expect(screen.getByTestId('settings-title')).toHaveTextContent('Health'))
-      expect(screen.getByTestId('settings-blurb').textContent).toContain(
-        'runs on open or on demand'
-      )
+      await waitFor(() => expect(settingsBarStore.get()?.label).toBe('Health'))
+      expect(settingsBarStore.get()?.blurb).toContain('runs on open or on demand')
     })
 
     it('follows a deep link that arrives while Settings is already open', async () => {
@@ -510,17 +512,17 @@ describe('SettingsView', () => {
       const { rerender } = render(<SettingsView onClose={onClose} />)
       await screen.findByRole('button', { name: /General/ })
       rerender(<SettingsView onClose={onClose} initialPage={'health'} />)
-      await waitFor(() => expect(screen.getByTestId('settings-title')).toHaveTextContent('Health'))
+      await waitFor(() => expect(settingsBarStore.get()?.label).toBe('Health'))
     })
 
     it('follows a legacy-alias deep link (hivemind -> Team)', async () => {
       render(<SettingsView onClose={vi.fn()} initialPage={'hivemind'} />)
-      await waitFor(() => expect(screen.getByTestId('settings-title')).toHaveTextContent('Team'))
+      await waitFor(() => expect(settingsBarStore.get()?.label).toBe('Team'))
     })
 
     it('falls back to General, not undefined, for an unrecognised initialPage', async () => {
       render(<SettingsView onClose={vi.fn()} initialPage={'tools' as never} />)
-      await waitFor(() => expect(screen.getByTestId('settings-title')).toHaveTextContent('General'))
+      await waitFor(() => expect(settingsBarStore.get()?.label).toBe('General'))
     })
 
     it('shows the Prompts title when the dev-tools gate is on and Prompts is active', async () => {
@@ -534,7 +536,7 @@ describe('SettingsView', () => {
       render(<SettingsView onClose={vi.fn()} />)
       await screen.findByRole('button', { name: /General/ })
       fireEvent.click(screen.getByRole('button', { name: /^Prompts$/ }))
-      await waitFor(() => expect(screen.getByTestId('settings-title')).toHaveTextContent('Prompts'))
+      await waitFor(() => expect(settingsBarStore.get()?.label).toBe('Prompts'))
     })
   })
 })

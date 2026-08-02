@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Theme } from '../lib/uiStore'
 import type { BandConfig } from '../lib/ambientBands'
+import { anchorRect } from '../lib/anchorRect'
 
 /**
  * The dynamic theme's ambient light — a raw-WebGL2 canvas shared by all three
@@ -14,16 +15,14 @@ import type { BandConfig } from '../lib/ambientBands'
  *
  * Deliberately dropped from the mock: the discrete glow-source loop (never
  * bound to anything but the home hero) and the uTop clip (this canvas starts
- * below the TopBar in normal flow, so its own top edge is the clip, in all
- * three variants).
+ * below the TopBar in normal flow. It is `position: fixed` at the window's top edge now (spec
+ * 2026-08-01-header-window-controls-design.md §4), so the flow reads through the header too;
+ * its own top edge is still the clip, that edge is just the window's now.
  *
- * Scrolling differs by variant, and this component does not handle it either
- * way — it just doesn't need to. On home the canvas scrolls WITH the content
- * it is anchored to (there is no separate scroll container above it). On
- * case/settings the canvas sits inside `DynamicScope`'s outer, non-scrolling
- * flex column — only the content *below* the header/band scrolls, in its own
- * `overflow-y-auto` region — so the band is fixed by construction and never
- * scrolls at all.
+ * Nothing here scrolls any more, in any variant. The canvas is fixed to the window, and
+ * `anchorRect` below adds ancestors' scrollTop back so a re-measure taken mid-scroll still
+ * describes where each anchor sits at rest. On home that is a deliberate behaviour change: the
+ * light is ambient lighting of the window now, not a decal that scrolls away with the cards.
  */
 
 const RES_SCALE = 0.55
@@ -321,12 +320,12 @@ export function AmbientCanvas({
      *  function — it runs on resize/props change, not per frame. */
     const refresh = (): void => {
       if (disposed || !gl) return
-      const wrapper = host.parentElement
-      if (!wrapper) return
       const { light: lightEl, cutoff: cutoffEl, theme: th, band } = latest.current
-      const wr = wrapper.getBoundingClientRect()
-      const cutoff = cutoffEl ? cutoffEl.getBoundingClientRect().bottom - wr.top : 460
-      const w = Math.max(1, Math.round(wr.width))
+      // The canvas is fixed at the window's top-left, so canvas space IS viewport space — no
+      // wrapper rect to subtract any more. That is exactly what lets the flow reach up over the
+      // header, which lives outside DynamicScope entirely.
+      const cutoff = cutoffEl ? anchorRect(cutoffEl).bottom : 460
+      const w = Math.max(1, Math.round(window.innerWidth))
       const h = Math.max(1, Math.round(cutoff + band.extra))
       canvas.style.height = `${h}px`
       const scale = Math.min(window.devicePixelRatio || 1, 2) * RES_SCALE
@@ -343,8 +342,8 @@ export function AmbientCanvas({
       gl.uniform2f(u.pad, band.pad[0], band.pad[1])
       gl.uniform1f(u.mode, band.mode)
       if (lightEl) {
-        const hr = lightEl.getBoundingClientRect()
-        gl.uniform4f(u.hero, hr.x - wr.x, hr.y - wr.y, hr.width, hr.height)
+        const hr = anchorRect(lightEl)
+        gl.uniform4f(u.hero, hr.x, hr.y, hr.width, hr.height)
         gl.uniform1f(u.heroOn, 1)
       } else {
         gl.uniform1f(u.heroOn, 0)
@@ -404,8 +403,11 @@ export function AmbientCanvas({
     canvas.addEventListener('webglcontextlost', onLost)
     const onResize = (): void => refresh()
     window.addEventListener('resize', onResize)
+    // The wrapper is no longer what sizes this canvas — the viewport is. Observing the document
+    // element catches a width change that fires no `resize` event (a docked panel opening beside
+    // the window, a zoom change), which the old `host.parentElement` observation used to catch.
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => refresh()) : null
-    if (ro && host.parentElement) ro.observe(host.parentElement)
+    ro?.observe(host.ownerDocument.documentElement)
     // A late-loading web font (e.g. home's Michroma wordmark) reflows whatever
     // element is the current `light` anchor, changing its measured rect.
     void document.fonts?.ready.then(() => refresh())

@@ -230,10 +230,13 @@ export function CaseDashboard({
             </Btn>
           </div>
         </div>
-        {/* anchors.setLight/setCutoff are useState setters used directly as ref
-            callbacks (the React-documented way to observe a DOM node) — not a
-            stale `.current` read, so the compiler's react-hooks/refs heuristic
-            here is a false positive. */}
+        {/* anchors.setLight/setCutoff are the claim/release ref callbacks from
+            lib/ambientAnchors.ts, not bare useState setters — each returns a
+            cleanup that clears the slot only if it still holds the node this
+            callback attached, so a late-detaching sibling view can't clobber
+            the anchor this one just claimed. Still a ref callback under the
+            hood, so the compiler's react-hooks/refs heuristic here is a false
+            positive. */}
         {/* eslint-disable-next-line react-hooks/refs */}
         <div ref={anchors.setCutoff} className="flex flex-wrap items-center gap-2">
           {/* The input is sized DOWN to the buttons rather than the buttons up to it: `Btn`'s

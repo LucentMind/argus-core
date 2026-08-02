@@ -14,12 +14,13 @@
  * resolved, which happens only when Electron's titleBarOverlay is actually live. If the overlay
  * silently fails to apply, the padding collapses to 12px and that assertion goes red.
  *
- * The main window's title bar is a bare drag strip (`TitleBarStrip.tsx`, `.argus-drag
- * .argus-titlebar-inset`) above `TopBar`'s `<header>` — as of this increment `<header>` itself no
- * longer carries `argus-titlebar-inset` (dropped along with the reserved padding; see
- * TopBar.tsx's comment), so the env(titlebar-area-*) / overlap assertions target the strip, not
- * the header. `<header>` keeps `argus-drag` and is still checked for its own concern: that its
- * interactive children opt out with `argus-nodrag`.
+ * SCOPE, as of spec 2026-08-01-header-window-controls: this gate is now about the EDITOR window.
+ * The main window's bare drag strip is gone — its `<header>` is the title bar and draws its own
+ * caption buttons — so the `env(titlebar-area-*)` and overlap assertions that used to target the
+ * main strip moved out with it. What remains for the main window is one inverted guard (no strip
+ * came back) plus its long-standing drag-region check: `<header>` keeps `argus-drag`, and every
+ * interactive child must opt out with `argus-nodrag`. The header's geometry, its caption cluster,
+ * and the ambient layer are covered by `cdp-header-window-controls.mjs`.
  *
  * Dragging the window and clicking the system buttons are OS-level and cannot be driven from
  * here — those stay in the human checklist in the plan.
@@ -85,56 +86,19 @@ check(
   regions
 )
 
-// --- 2. the main window renders its own drag strip above the header ---
-// Mirrors assertion "the editor window renders a drag strip" below — same component
-// (`TitleBarStrip`), same selector, different window.
-const strip = await main.evalJs(`(() => {
-  const el = document.querySelector(${JSON.stringify(STRIP)})
-  if (!el) return null
-  return {
-    drag: el.className.includes('argus-drag'),
-    inset: el.className.includes('argus-titlebar-inset')
-  }
-})()`)
-check('the main window renders its own drag strip', !!strip && strip.drag && strip.inset, strip)
+// --- 2. the main window has NO strip of its own any more ---
+// It used to render one, and assertions here used to measure its `env(titlebar-area-*)` padding
+// to prove the overlay was live. Both are gone with spec 2026-08-01-header-window-controls: the
+// main window is built with no `titleBarOverlay` at all on win32/linux (an overlay paints an
+// opaque OS-owned rect the ambient flow cannot read through), so there is no overlay to detect
+// and no cluster to reserve room for — the header draws its own buttons and IS the title bar.
+// Kept as an inverted regression guard so a reintroduced strip fails loudly here rather than
+// silently stacking two bars again. The header's own geometry, its caption cluster, and the
+// overlay's absence are asserted in `cdp-header-window-controls.mjs`.
+const strip = await main.evalJs(`!!document.querySelector(${JSON.stringify(STRIP)})`)
+check('the main window renders no strip of its own', strip === false, { strip })
 
-// --- 3. titleBarOverlay is live: env(titlebar-area-*) resolved on the strip ---
-// This is the assertion that fails if the overlay never applied. Guard the lookup: an unguarded
-// `getComputedStyle(null)` throws inside the page, which kills the whole script before the
-// remaining checks can report — fail cleanly through `check(...)` instead.
-const padding = await main.evalJs(`(() => {
-  const el = document.querySelector(${JSON.stringify(STRIP)})
-  if (!el) return null
-  const s = getComputedStyle(el)
-  return { right: parseFloat(s.paddingRight), left: parseFloat(s.paddingLeft) }
-})()`)
-check(
-  'the strip reserves room for the system buttons (env(titlebar-area-*) resolved)',
-  !!padding && padding.right > FALLBACK_PX,
-  padding ? { ...padding, fallback: FALLBACK_PX } : { strip: null, fallback: FALLBACK_PX }
-)
-
-// --- 4. nothing rendered in the strip sits under the button cluster ---
-// The strip is deliberately empty for the main window (no label), so this is a regression guard
-// against something later being added to it — not a check that can currently fail for the right
-// reason. Guarded the same way as assertion 3, for the same reason.
-const overlap = await main.evalJs(`(() => {
-  const el = document.querySelector(${JSON.stringify(STRIP)})
-  if (!el) return null
-  const limit = el.getBoundingClientRect().width - parseFloat(getComputedStyle(el).paddingRight)
-  const kids = [...el.children]
-  const bad = kids
-    .filter(k => k.getBoundingClientRect().right > limit + 1)
-    .map(k => k.outerHTML)
-  return { limit, bad, childCount: kids.length }
-})()`)
-check(
-  'nothing rendered in the strip extends under the system buttons',
-  !!overlap && overlap.bad.length === 0,
-  overlap
-)
-
-// --- 5. the editor window carries its own strip ---
+// --- 3. the editor window carries its own strip ---
 // The Library's Edit button is how a second window gets opened; see cdp-editor-window.mjs's
 // `gotoLibrary` for the navigation this mirrors. A single click block landed against the real
 // app before the nav existed and left the app sitting on Settings "General" — the settings

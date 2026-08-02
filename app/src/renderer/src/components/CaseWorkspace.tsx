@@ -18,6 +18,7 @@ import { uiStore, CHAT_MIN_WIDTH, FINDINGS_MIN_WIDTH } from '../lib/uiStore'
 import { panelsStore, wirePanelsStore, CHAT_TAB } from '../lib/panelsStore'
 import { wireExternalAppsStore } from '../lib/externalAppsStore'
 import { reposStore } from '../lib/reposStore'
+import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { panelKeyStr } from '../../../shared/panels'
 import type { ChatJumpTarget, FileNode, SessionSummary, UnifiedHit } from '../../../shared/types'
 import { classifyCitePath, toRepoNameSet, type CiteTarget } from '../lib/citations'
@@ -72,6 +73,7 @@ export function CaseWorkspace({
     () => uiStore.get()
   )
   const dynamic = ui.dynamicTheme
+  const anchors = useAmbientAnchors()
   const panels = useSyncExternalStore(
     (cb) => panelsStore.subscribe(cb),
     () => panelsStore.get()
@@ -423,10 +425,34 @@ export function CaseWorkspace({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      {/* No ambient band here any more. It was a stand-in for the pre-merge case header's box —
-          the top 44px of the case VIEW, i.e. the strip just below the chrome — and it read as a
-          glow floating under the bar rather than as the bar being lit. The case's light now
-          lives with the case: behind the merged header, mounted by App.tsx. */}
+      {/* The dynamic theme's light band. It used to borrow the case header's box; with that
+          header merged into the bar this is what it was always describing — the top 44px of the
+          case view, lit from the left, under where the case anchor now sits. Anchoring to a real
+          component instead would couple the band to that component's box and break the next time
+          one is restyled.
+
+          The canvas is a single `position: fixed` layer at the window's top edge, and
+          `anchorRect` measures every anchor with `getBoundingClientRect` — viewport-relative, not
+          relative to any wrapper — so the two anchors need no common ancestor: this one lives
+          here, and Settings' equivalents live in TopBar, a sibling of DynamicScope entirely.
+          That is what lets one canvas light the chrome AND the view below it, rather than needing
+          a second canvas behind the bar.
+
+          setCutoff/setLight are the claim/release ref callbacks from lib/ambientAnchors.ts, not
+          bare `useState` setters: each returns a cleanup scoped to the node it attached, so a
+          late detach from a departing sibling (Settings' TopBar, notably) cannot null out an
+          anchor this view has since claimed. Still ref callbacks underneath, so react-hooks/refs
+          is a false positive here. */}
+      <div
+        aria-hidden="true"
+        data-testid="ambient-band"
+        className="pointer-events-none absolute inset-x-0 top-0 h-11"
+        // eslint-disable-next-line react-hooks/refs
+        ref={anchors.setCutoff}
+      >
+        {/* eslint-disable-next-line react-hooks/refs */}
+        <div ref={anchors.setLight} className="h-full w-64" />
+      </div>
       <div className="flex min-h-0 flex-1">
         {ui.evidenceCollapsed ? (
           <button

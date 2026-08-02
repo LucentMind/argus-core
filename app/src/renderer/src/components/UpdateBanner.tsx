@@ -14,7 +14,7 @@ export function UpdateBanner(): React.JSX.Element | null {
   if (updateStore.isDismissed(status.phase, status.version)) return null
 
   return (
-    <div className="flex items-center gap-3 border-b border-hair bg-panel px-4 py-2 text-sm">
+    <div className="relative z-10 flex items-center gap-3 border-b border-hair bg-panel px-4 py-2 text-sm">
       <span className="flex-1">
         {status.phase === 'available'
           ? `Argus ${status.version} is available.`

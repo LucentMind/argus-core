@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { AmbientCanvas } from './components/AmbientCanvas'
+import { useCallback, useEffect, useState } from 'react'
 import { CaseDashboard } from './components/CaseDashboard'
 import { CaseWorkspace } from './components/CaseWorkspace'
 import { ConfirmHost } from './components/ConfirmHost'
@@ -12,11 +11,9 @@ import { ObservabilityView } from './components/observability/ObservabilityView'
 import { SearchBar } from './components/SearchBar'
 import { SettingsView, type SettingsDeepLink } from './components/settings/SettingsView'
 import { TextViewer } from './components/TextViewer'
-import { TitleBarStrip } from './components/TitleBarStrip'
 import { TopBar } from './components/TopBar'
 import { UpdateBanner } from './components/UpdateBanner'
-import { BANDS } from './lib/ambientBands'
-import type { AmbientAnchors } from './lib/ambientAnchors'
+import { AmbientAnchorContext, useAmbientAnchorState } from './lib/ambientAnchors'
 import { citationsTray } from './lib/citationsTray'
 import { viewerForFileNode } from './lib/fileRouting'
 import { composerDraft } from './lib/composerDraft'
@@ -46,22 +43,16 @@ function App(): React.JSX.Element {
   const [viewer, setViewer] = useState<Viewer>(null)
   const [newCaseOpen, setNewCaseOpen] = useState(false)
   const [importDialog, setImportDialog] = useState<ImportDialogState | null>(null)
-  const ui = useSyncExternalStore(
-    (cb) => uiStore.subscribe(cb),
-    () => uiStore.get()
-  )
-  // Anchors for the chrome's ambient light. They live here, not in DynamicScope's context,
-  // because both the light source (the case group) and the cutoff (the bar's bottom edge) are
-  // now in TopBar — which renders ABOVE the view, outside every scope.
-  const [barLight, setBarLight] = useState<HTMLElement | null>(null)
-  const [barBottom, setBarBottom] = useState<HTMLElement | null>(null)
-  const chromeAnchors = useMemo<AmbientAnchors>(
-    () => ({ setLight: setBarLight, setCutoff: setBarBottom }),
-    []
-  )
-  // The aurora belongs to the case, and since the header merge the case belongs to the chrome.
-  // On Home and Settings the chrome is just chrome and keeps its flat ground.
-  const chromeAmbient = ui.dynamicTheme && view.kind === 'case'
+
+  // The dynamic theme's light anchors. Owned here rather than in DynamicScope because in Settings
+  // the light source is the page title in TopBar — a sibling of the scope, not a descendant
+  // (spec 2026-08-01-header-window-controls-design.md §4.3). The slots are claim/release, not
+  // last-write-wins; see `useAmbientAnchorState` for why that distinction is load-bearing.
+  const {
+    light: ambientLight,
+    cutoff: ambientCutoff,
+    anchors: ambientAnchors
+  } = useAmbientAnchorState()
 
   // setState happens in the promise callback (external-system subscription
   // shape), not synchronously in effects — keeps react-hooks/set-state-in-effect happy
@@ -177,88 +168,70 @@ function App(): React.JSX.Element {
   }, [occluded])
 
   return (
-    // `chrome-ground` (theme-dynamic.css) makes this the stacking context the ambient layer
-    // below hangs its negative z-index off. Unconditional: isolation costs nothing when there is
-    // no layer, and making it conditional would mean the app root's stacking behaviour changes
-    // as you navigate.
-    <div className="chrome-ground relative flex h-screen flex-col overflow-hidden bg-void text-ink">
-      {/* The dynamic theme's ambient light, spanning the window's top edge down to the bottom of
-          the bar. It used to be a band inside the case view, i.e. the strip immediately BELOW the
-          chrome, which is where the pre-merge case header used to be; with the case header merged
-          into TopBar the light was left describing an object that no longer exists. It lights the
-          chrome the case now lives in, from the very top of the window.
-          The wrapper is the canvas's measurement origin (AmbientCanvas measures its anchors
-          relative to its host's parent), so it must sit at top: 0 and span the full width. */}
-      {chromeAmbient && (
-        <div
-          aria-hidden="true"
-          data-testid="chrome-ambient"
-          className="chrome-ambient dyn dyn-case"
-        >
-          <AmbientCanvas light={barLight} cutoff={barBottom} theme={ui.theme} band={BANDS.case} />
+    <div className="flex h-screen flex-col overflow-hidden bg-void text-ink">
+      <AmbientAnchorContext.Provider value={ambientAnchors}>
+        <TopBar
+          activeSlug={view.kind === 'case' ? view.slug : null}
+          activeCase={
+            view.kind === 'case' ? (cases.find((c) => c.slug === view.slug) ?? null) : null
+          }
+          onHome={goHome}
+          onSelect={openCase}
+          onSettings={() => openSettings()}
+          onStatusChanged={() => void reload()}
+          onObservability={openObservability}
+        />
+        <UpdateBanner />
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          {view.kind === 'home' ? (
+            <DynamicScope variant="home" light={ambientLight} cutoff={ambientCutoff}>
+              <CaseDashboard
+                cases={cases}
+                onOpen={openCase}
+                onNew={() => setNewCaseOpen(true)}
+                onImport={() => void pickBundle()}
+                onDeleted={() => void reload()}
+              />
+              <div className="mx-auto w-full max-w-[1400px] px-8 pb-8">
+                <SearchBar caseSlug={null} onOpen={handleOpenHit} />
+              </div>
+            </DynamicScope>
+          ) : view.kind === 'settings' ? (
+            <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>
+              <SettingsView onClose={closeSettings} initialPage={view.page} />
+            </DynamicScope>
+          ) : view.kind === 'observability' ? (
+            <ObservabilityView onOpenCase={openCase} onClose={() => setView(prevView)} />
+          ) : (
+            <DynamicScope variant="case" light={ambientLight} cutoff={ambientCutoff}>
+              <CaseWorkspace
+                slug={view.slug}
+                activeMode={cases.find((c) => c.slug === view.slug)?.activeMode ?? DEFAULT_MODE}
+                caseTitle={cases.find((c) => c.slug === view.slug)?.title ?? ''}
+                jiraKey={cases.find((c) => c.slug === view.slug)?.jiraKey ?? null}
+                jiraSyncedAt={cases.find((c) => c.slug === view.slug)?.jiraSyncedAt ?? null}
+                onModeSwitched={() => void reload()}
+                onOpenHit={handleOpenHit}
+                onOpenCitation={(id, start, end) =>
+                  setViewer({ kind: 'evidence', evidenceId: id, focusStart: start, focusEnd: end })
+                }
+                onOpenFile={(node) => setViewer(viewerForFileNode(view.slug, node))}
+                onOpenCase={openCase}
+                onOpenRepoFile={(repoName, relPath, start, end) =>
+                  setViewer({
+                    kind: 'repoFile',
+                    slug: view.slug,
+                    repoName,
+                    relPath,
+                    focusStart: start,
+                    focusEnd: end
+                  })
+                }
+              />
+            </DynamicScope>
+          )}
         </div>
-      )}
-      <TitleBarStrip kind="main" ambient={chromeAmbient} />
-      <TopBar
-        ambient={chromeAmbient ? chromeAnchors : null}
-        activeSlug={view.kind === 'case' ? view.slug : null}
-        activeCase={view.kind === 'case' ? (cases.find((c) => c.slug === view.slug) ?? null) : null}
-        onHome={goHome}
-        onSelect={openCase}
-        onSettings={() => openSettings()}
-        onStatusChanged={() => void reload()}
-        onObservability={openObservability}
-      />
-      <UpdateBanner />
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {view.kind === 'home' ? (
-          <DynamicScope variant="home">
-            <CaseDashboard
-              cases={cases}
-              onOpen={openCase}
-              onNew={() => setNewCaseOpen(true)}
-              onImport={() => void pickBundle()}
-              onDeleted={() => void reload()}
-            />
-            <div className="mx-auto w-full max-w-[1400px] px-8 pb-8">
-              <SearchBar caseSlug={null} onOpen={handleOpenHit} />
-            </div>
-          </DynamicScope>
-        ) : view.kind === 'settings' ? (
-          <DynamicScope variant="settings">
-            <SettingsView onClose={closeSettings} initialPage={view.page} />
-          </DynamicScope>
-        ) : view.kind === 'observability' ? (
-          <ObservabilityView onOpenCase={openCase} onClose={() => setView(prevView)} />
-        ) : (
-          <DynamicScope variant="case">
-            <CaseWorkspace
-              slug={view.slug}
-              activeMode={cases.find((c) => c.slug === view.slug)?.activeMode ?? DEFAULT_MODE}
-              caseTitle={cases.find((c) => c.slug === view.slug)?.title ?? ''}
-              jiraKey={cases.find((c) => c.slug === view.slug)?.jiraKey ?? null}
-              jiraSyncedAt={cases.find((c) => c.slug === view.slug)?.jiraSyncedAt ?? null}
-              onModeSwitched={() => void reload()}
-              onOpenHit={handleOpenHit}
-              onOpenCitation={(id, start, end) =>
-                setViewer({ kind: 'evidence', evidenceId: id, focusStart: start, focusEnd: end })
-              }
-              onOpenFile={(node) => setViewer(viewerForFileNode(view.slug, node))}
-              onOpenCase={openCase}
-              onOpenRepoFile={(repoName, relPath, start, end) =>
-                setViewer({
-                  kind: 'repoFile',
-                  slug: view.slug,
-                  repoName,
-                  relPath,
-                  focusStart: start,
-                  focusEnd: end
-                })
-              }
-            />
-          </DynamicScope>
-        )}
-      </div>
+      </AmbientAnchorContext.Provider>
       {viewer?.kind === 'evidence' && (
         <TextViewer
           source={{ kind: 'evidence', evidenceId: viewer.evidenceId }}

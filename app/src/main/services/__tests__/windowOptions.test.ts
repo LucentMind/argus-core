@@ -37,27 +37,17 @@ describe('mainWindowOptions', () => {
     expect(opts.titleBarStyle).toBe('hidden')
   })
 
-  it('carries the overlay for the given theme and scale, at the main strip height', () => {
-    const opts = mainWindowOptions('dark', 1.5, '/argus-icon.png', '/preload/index.js', 'win32')
-    expect(opts.titleBarOverlay).toEqual({
-      color: '#0a0a0b',
-      symbolColor: '#efede6',
-      height: Math.round(TITLEBAR_HEIGHTS.main * 1.5)
-    })
+  it('main window carries no overlay on win32', () => {
+    const opts = mainWindowOptions('dark', 1, '/icon.png', '/preload.js', 'win32')
+    expect(opts.titleBarStyle).toBe('hidden')
+    expect(opts.titleBarOverlay).toBeUndefined()
+    expect(opts.icon).toBe('/icon.png')
+    expect(opts.webPreferences).toEqual({ preload: '/preload.js', sandbox: false })
   })
 
-  it('carries the light-theme overlay colors', () => {
-    const opts = mainWindowOptions('light', 1, '/argus-icon.png', '/preload/index.js', 'win32')
-    expect(opts.titleBarOverlay).toEqual({
-      color: '#eef2f9',
-      symbolColor: '#101823',
-      height: TITLEBAR_HEIGHTS.main
-    })
-  })
-
-  it('sends only a height on macOS', () => {
-    const opts = mainWindowOptions('dark', 1, '/argus-icon.png', '/preload/index.js', 'darwin')
-    expect(opts.titleBarOverlay).toEqual({ height: TITLEBAR_HEIGHTS.main })
+  it('main window keeps a height-only overlay on darwin', () => {
+    const opts = mainWindowOptions('dark', 1, '/icon.png', '/preload.js', 'darwin')
+    expect(opts.titleBarOverlay).toEqual({ height: 48 })
   })
 
   it('passes the icon path and preload path straight through', () => {

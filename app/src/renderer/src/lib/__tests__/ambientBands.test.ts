@@ -23,12 +23,14 @@ describe('BANDS', () => {
     expect(BANDS.settings.feather).toBeLessThan(BANDS.home.feather)
   })
 
-  it('the chrome band ends exactly at its cutoff — nothing paints past the bar', () => {
-    // Everything below the bar is the page, and the page paints its own ground over anything
-    // this canvas puts there (it clears OPAQUE in dark). A tail would be a hard clipped edge
-    // rather than a fade, so the light has to be fully dead by the cutoff instead.
-    expect(BANDS.case.extra).toBe(0)
-    expect(BANDS.case.fade).toBe(0)
+  it('the case band fades past its cutoff rather than stopping dead at it', () => {
+    // The inverse of what this asserted while the case aurora was a separate layer mounted
+    // behind the bar. That layer had to die exactly at the bar's bottom edge, because the page
+    // below painted its own opaque ground over any tail and turned the fade into a hard clipped
+    // edge. There is one canvas now, spanning the chrome AND the view below it, so the tail
+    // lands on the same surface the rest of the band does and a fade is a fade.
+    expect(BANDS.case.extra).toBeGreaterThan(0)
+    expect(BANDS.case.fade).toBeGreaterThan(0)
   })
 
   it('every variant keeps fade within the canvas — fade must not exceed extra, or the low edge of the confine band runs off the bottom of the canvas and leaves a hard seam', () => {

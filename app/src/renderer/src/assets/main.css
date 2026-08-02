@@ -456,6 +456,31 @@ body {
   );
 }
 
+/* The HEADER's inset — narrower than `.argus-titlebar-inset` above, and not interchangeable with
+   it (spec 2026-08-01-header-window-controls-design.md §3.5).
+
+   That rule insets BOTH edges, because a bar sharing a window with a native caption cluster has
+   to stay clear of it on the right; the `:root[data-platform='win32']` floor below even reserves
+   ~140px there when the overlay vars never arrive. The main window has no native cluster any more
+   — the header draws its own buttons — so applying that rule here would reserve 140px of nothing
+   and shove our own buttons inward. Left only, therefore.
+
+   Declaring no `padding-right` is also what lets the header keep taking that side from a Tailwind
+   `pr-*` utility: unlayered CSS beats `@layer utilities`, so a `padding-right` here would silently
+   win over `pr-0`/`pr-3` at the call site. `padding-left` is the opposite case — it MUST come from
+   here, never from a `pl-*` utility, for exactly the same reason. */
+.argus-header-inset {
+  padding-left: calc(0.75rem + env(titlebar-area-x, 0px));
+}
+
+/* Same unverified 78px floor, and the same caveat, as the darwin rule for `.argus-titlebar-inset`
+   below: nobody has run this build on a Mac to measure the traffic-light cluster. darwin is the
+   one platform where the main window still gets a (height-only) overlay, so this is the one
+   platform where the header has anything to stay clear of. */
+:root[data-platform='darwin'] .argus-header-inset {
+  padding-left: max(78px, calc(0.75rem + env(titlebar-area-x, 0px)));
+}
+
 /* `--flush` drops the 12px design gutter from the LEFT edge only (spec
    2026-08-01-frameless-chrome-increment-2, increment 2). It's for a strip whose leading child is
    itself a visual edge — the editor window's tab strip, whose first tab should start exactly

@@ -1,8 +1,11 @@
 import { useSyncExternalStore } from 'react'
 import { Sun, Moon, Settings, Gauge, Home } from 'lucide-react'
-import type { AmbientAnchors } from '../lib/ambientAnchors'
+import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { uiStore } from '../lib/uiStore'
 import { caseBarStore, useCaseBar } from '../lib/caseBarStore'
+import { useSettingsBar } from '../lib/settingsBarStore'
+import { isDarwin } from '../lib/platform'
+import { WindowControls } from './WindowControls'
 import { CaseAnchor } from './CaseAnchor'
 import { DistillChip } from './DistillChip'
 import { HeaderChips } from './HeaderChips'
@@ -30,7 +33,6 @@ const ACTION_BTN =
  * pass. Two open cases or twenty, the left half of the bar is identical.
  */
 export function TopBar({
-  ambient,
   activeSlug,
   activeCase,
   onHome,
@@ -39,13 +41,6 @@ export function TopBar({
   onStatusChanged,
   onObservability
 }: {
-  /**
-   * Non-null while the window's ambient light is mounted behind the chrome (App.tsx). The bar
-   * then hands it its two anchors — the case group is the light source, the bar's own bottom
-   * edge is where the light dies — and drops its own opaque ground so the light is visible
-   * through it. Null in classic mode: the bar is flat `bg-void` and nothing measures it.
-   */
-  ambient?: AmbientAnchors | null
   activeSlug: string | null
   /** The active case's record, or null while `cases` is still loading. `activeSlug` comes
    *  from the view and is the thing that decides whether the group renders at all, so the
@@ -63,19 +58,43 @@ export function TopBar({
     () => uiStore.get()
   )
   const bar = useCaseBar()
+  const anchors = useAmbientAnchors()
+  // Non-null exactly while Settings is up — SettingsView publishes its active page here because
+  // this bar is its SIBLING, not its ancestor. Doubles as the "am I in Settings" flag the
+  // anchor below keys off, so there is one source of truth for it.
+  const settingsBar = useSettingsBar()
   // Busy state is only this case's if it was published for this case: CaseWorkspace publishes
   // on a case switch too, and the bar re-renders before that publish lands.
   const busyForThisCase = activeSlug !== null && bar.slug === activeSlug
+  const controls = !isDarwin()
 
   return (
-    // The OS window buttons live in their own strip above (TitleBarStrip), not beside this
-    // header, so no inset is needed here — argus-drag stays because dragging by the header is
-    // still good UX.
+    // This header IS the title bar now — there is no strip above it, and the window's caption
+    // buttons live at its right end.
     <header
-      className={`argus-drag flex h-12 items-center gap-1.5 border-b border-hair px-3 ${
-        ambient ? '' : 'bg-void'
-      }`}
-      ref={ambient?.setCutoff}
+      // In Settings the band dies at this header's own bottom edge; on every other view the view
+      // owns this anchor (home's filter row, the case view's band), which is why the ref is
+      // conditional: the header outlives each view, so an unconditional one would keep the band
+      // pinned here after Settings closes. `setLight`/`setCutoff` are the claim/release ref
+      // callbacks from lib/ambientAnchors.ts, not bare `useState` setters: each returns a cleanup
+      // that clears the slot only if it still holds the node THAT callback attached, so this
+      // header's detach on leaving Settings cannot null out an anchor the incoming view already
+      // claimed. Still a ref callback underneath, so react-hooks/refs is a false positive.
+      // eslint-disable-next-line react-hooks/refs
+      ref={settingsBar ? anchors.setCutoff : null}
+      className={`argus-drag argus-header-inset relative z-20 flex h-12 items-center gap-1.5 ${
+        // Transparent so the flow reads through it. With the dynamic theme off there is no
+        // canvas, and the bar keeps its own ground and hairline.
+        //
+        // z-20, not z-10: `relative` makes this a stacking context, which clamps every popover
+        // inside it (CaseAnchor's menu, `absolute z-30`) to this layer regardless of its own
+        // z-index. UpdateBanner sits right below the header in DOM order and is `relative z-10`
+        // for the same above-the-canvas reason, so at equal z-index the banner would win the
+        // paint-order tie and roof over any header popover opening down into its band. The header
+        // has to out-rank the BANNER, not just the canvas — z-10 satisfies the canvas alone and
+        // still loses here.
+        ui.dynamicTheme ? '' : 'border-b border-hair bg-void'
+      } ${controls ? 'pr-0' : 'pr-3'}`}
     >
       {/* Wordmark and home control are one button, not two adjacent things: the brand belongs
           top-left on every view, and the top bar is the only chrome that renders on all of them —
@@ -92,6 +111,31 @@ export function TopBar({
         <Home size={16} strokeWidth={1.5} />
       </button>
       <div className="mx-1 h-6 w-px bg-hair" />
+      {/* Settings' page identity, where the case group sits in a case. The two are mutually
+          exclusive by construction: Settings is not a case view, so `activeSlug` is null whenever
+          this is non-null. `min-w-0` with no grow factor — sized by its content, free to shrink
+          and truncate when the tab band needs the width. */}
+      {settingsBar && (
+        <div className="flex min-w-0 flex-col justify-center">
+          <span
+            // eslint-disable-next-line react-hooks/refs
+            ref={anchors.setLight}
+            data-testid="settings-title"
+            className="truncate text-sm leading-tight text-ink"
+          >
+            {settingsBar.label}
+          </span>
+          {/* Single line, always, with the full text on hover: a masthead that grows by a line on
+              navigation would change the header's height as you browse. */}
+          <span
+            data-testid="settings-blurb"
+            title={settingsBar.blurb}
+            className="truncate text-[11px] leading-tight text-dim"
+          >
+            {settingsBar.blurb}
+          </span>
+        </div>
+      )}
       {activeSlug !== null && (
         <>
           {/* One no-drag container for the whole group. Chromium subtracts a no-drag rect
@@ -109,9 +153,6 @@ export function TopBar({
                 The outer div above stands in for that instead, spanning the full header height. */}
             <div
               data-testid="case-group"
-              // The aurora's light source: it brightens around this box, so the light reads as
-              // coming off the case id itself rather than off an arbitrary point in the bar.
-              ref={ambient?.setLight}
               data-tier={
                 ui.dynamicTheme
                   ? (railTier(activeCase?.jiraPriority ?? null) ?? undefined)
@@ -205,6 +246,10 @@ export function TopBar({
           )}
         </button>
       </div>
+      {/* Outside the `max-w-[50%]` group on purpose: the window's caption buttons are not part of
+          the bar's width budget, and they must stay flush in the corner however the tab band and
+          the action icons negotiate the space to their left. */}
+      <WindowControls />
     </header>
   )
 }

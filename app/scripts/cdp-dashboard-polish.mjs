@@ -276,7 +276,12 @@ await sleep(1200)
 
 const masthead = await conn.evalJs(`(() => {
   const blurb = document.querySelector('[data-testid="settings-blurb"]')
-  const bar = blurb.closest('div').parentElement.parentElement
+  // The masthead moved into the header (spec 2026-08-01-header-window-controls-design.md §4.3):
+  // Settings' page identity is TopBar's own \`<header>\` now, not a wrapper this page renders.
+  // Walking up from the blurb via .parentElement chains landed on App's root h-screen div after
+  // that move — a fixed ancestor whose height never varies, which silently turned the
+  // same-height-on-every-page check below into a tautology. Select the header directly instead.
+  const bar = document.querySelector('header')
   const line = parseFloat(getComputedStyle(blurb).lineHeight)
   return {
     wordmarks: [...document.querySelectorAll('*')].filter(
@@ -310,8 +315,8 @@ const heightsByPage = await conn.evalJs(`(async () => {
   for (const b of [...nav.querySelectorAll('button')]) {
     b.click()
     await wait(220)
-    const blurb = document.querySelector('[data-testid="settings-blurb"]')
-    const bar = blurb.closest('div').parentElement.parentElement
+    // Same fix as above: the header, not a walk up from the blurb that no longer lands there.
+    const bar = document.querySelector('header')
     out[b.textContent.trim()] = Math.round(bar.getBoundingClientRect().height)
   }
   return out

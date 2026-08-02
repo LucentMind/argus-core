@@ -32,10 +32,14 @@ const PALETTE: Record<TitleBarTheme, { color: string; symbolColor: string }> = {
 
 /**
  * `scale` mirrors the renderer's `uiScale` (`webFrame.setZoomFactor`, 0.9-1.5): page zoom scales
- * the DOM but not browser-side window constructs like `titleBarOverlay`, so without this the OS
- * reserves the unscaled height while the strip renders at the zoomed one and the buttons bite
- * into the header below (see `PanelDock.tsx`'s comment for the same failure class). Defaults to
- * 1 so every existing caller is unaffected.
+ * the DOM but not browser-side window constructs like `titleBarOverlay`. `scale` is editor-only
+ * now — the main window no longer takes a native overlay to scale at all. The editor's strip is
+ * its ONE row of chrome: the tab bar and each pane's action buttons render directly inside it,
+ * there is no header below (`EditorApp.tsx`'s "ONE row of chrome" comment). So without this the OS
+ * reserves the unscaled height for its native caption-button cluster while the strip's own
+ * content renders at the zoomed one, and the buttons drift out of alignment with the strip they
+ * sit in (see `PanelDock.tsx`'s comment for the same failure class: native constructs don't track
+ * DOM zoom). Defaults to 1 so every existing caller is unaffected.
  */
 export function overlayFor(kind: TitleBarKind, theme: TitleBarTheme, scale = 1): TitleBarOverlay {
   return { ...PALETTE[theme], height: Math.round(TITLEBAR_HEIGHTS[kind] * scale) }
@@ -43,7 +47,10 @@ export function overlayFor(kind: TitleBarKind, theme: TitleBarTheme, scale = 1):
 
 export interface TitleBarWindowOptions {
   titleBarStyle: 'hidden'
-  titleBarOverlay: TitleBarOverlay | { height: number }
+  /** Absent for the MAIN window on win32/linux — it draws its own caption buttons, and an
+   *  overlay would paint an opaque OS-owned rectangle over the top-right of the header that the
+   *  ambient flow cannot read through (spec §3.1). Present everywhere else. */
+  titleBarOverlay?: TitleBarOverlay | { height: number }
   backgroundColor: string
 }
 
@@ -60,11 +67,16 @@ export function titleBarWindowOptions(
   platform: NodeJS.Platform = process.platform,
   scale = 1
 ): TitleBarWindowOptions {
+  const backgroundColor = PALETTE[theme].color
+  // `titleBarStyle: 'hidden'` with NO overlay is what removes the native caption buttons while
+  // keeping the native frame's resize borders, drop shadow, and snap behaviour — which is why
+  // this is not `frame: false`.
+  if (kind === 'main' && platform !== 'darwin') return { titleBarStyle: 'hidden', backgroundColor }
   const overlay = overlayFor(kind, theme, scale)
   return {
     titleBarStyle: 'hidden',
     titleBarOverlay: platform === 'darwin' ? { height: overlay.height } : overlay,
-    backgroundColor: PALETTE[theme].color
+    backgroundColor
   }
 }
 
@@ -97,42 +109,36 @@ export interface EditorChrome {
 }
 
 /**
- * Push a theme change to both windows' overlays, unless it is a no-op.
+ * Push a theme change to the editor window's overlay, unless it is a no-op.
  *
- * Extracted from the `panels:set-theme` IPC handler in `index.ts` — which cannot be imported
- * under vitest, since it boots Electron at module scope — so review issue 6's fix has a seam a
- * test can drive with fakes: main was re-pushing `setTitleBarOverlay` on every renderer load
- * (including the first, where the value is identical, and every HMR reload), which is the
- * one in-diff suspect for a live defect where the main window's overlay came up zero-width.
+ * The main window is deliberately absent: it is constructed without a `titleBarOverlay` on
+ * win32/linux (see `titleBarWindowOptions`), and `setTitleBarOverlay` THROWS on such a window;
+ * on darwin the method does not exist at all. Its caption buttons are DOM elements now, so they
+ * re-theme and re-scale with the renderer for free — which also retires the whole
+ * `webFrame.setZoomFactor`-vs-native-hit-box mismatch class the `scale` parameter existed for.
  *
- * The caller is responsible for updating its own `lastTheme` (before calling this, per review
- * issue 6 — a throw here must not leave that bookkeeping stale) and for deciding whether to
- * still run theme-adjacent work (`panelHost.setTheme`, the cross-window broadcast) that this
- * function does not know about.
+ * The caller is responsible for updating its own `lastTheme` BEFORE calling this (a throw here
+ * must not leave that bookkeeping stale) and for deciding whether to still run theme-adjacent
+ * work — `panelHost.setTheme`, the cross-window broadcast — that this function does not know
+ * about.
  */
 export function pushThemeIfChanged(
-  mainWin: OverlayWindow | null,
   editor: EditorChrome | null,
   theme: TitleBarTheme,
-  prevTheme: TitleBarTheme,
-  scale = 1
+  prevTheme: TitleBarTheme
 ): boolean {
   if (theme === prevTheme) return false
-  applyOverlay(mainWin, 'main', theme, scale)
   editor?.applyTheme(theme)
   return true
 }
 
 /** The scale-change counterpart to {@link pushThemeIfChanged}; see its doc comment. */
 export function pushScaleIfChanged(
-  mainWin: OverlayWindow | null,
   editor: EditorChrome | null,
   scale: number,
-  prevScale: number,
-  theme: TitleBarTheme
+  prevScale: number
 ): boolean {
   if (scale === prevScale) return false
-  applyOverlay(mainWin, 'main', theme, scale)
   editor?.applyScale(scale)
   return true
 }

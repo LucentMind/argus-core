@@ -251,16 +251,20 @@ describe('material scoping', () => {
     }
   })
 
-  it('the chrome ambient layer stays plain CSS, behind the chrome and above the ground', () => {
-    // These two rules are the layering of the case aurora, which now sits behind TopBar. They
-    // are hand-written CSS precisely so they cannot be lost to the new-Tailwind-class-under-HMR
-    // trap, and the pair only works together: negative z-index without the isolated ancestor
-    // puts the canvas under the app's own bg-void, and it disappears entirely.
-    expect(decl(block(dyn, '.chrome-ground {'), 'isolation')).toBe('isolate')
-    const layer = block(dyn, '.chrome-ambient {')
-    expect(decl(layer, 'z-index')).toBe('-1')
+  it('the ambient layer stays plain CSS, fixed to the window top, under the chrome', () => {
+    // One rule for all three variants. Hand-written CSS precisely so it cannot be lost to the
+    // new-Tailwind-class-under-HMR trap — which for this rule would not degrade but INVERT,
+    // leaving the canvas in normal flow below the bar instead of behind it.
+    //
+    // `fixed` is what lets one canvas light the chrome and the view together: it escapes App's
+    // `overflow-y-auto` scroller and starts at the window's edge rather than the wrapper's.
+    // `z-index: 0` makes it a positioned element, which is why TopBar has to carry `z-20` to
+    // stay above it. This replaced a `.chrome-ambient` layer at `z-index: -1` inside an
+    // `isolation: isolate` ancestor; that pair only worked together and needed a second canvas.
+    const layer = block(dyn, '.dyn-ambient {')
+    expect(decl(layer, 'position')).toBe('fixed')
     expect(decl(layer, 'top')).toBe('0')
-    expect(decl(layer, 'position')).toBe('absolute')
+    expect(decl(layer, 'z-index')).toBe('0')
     expect(decl(layer, 'pointer-events')).toBe('none')
   })
 

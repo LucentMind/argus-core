@@ -123,8 +123,10 @@ export const PAGES = [
   label: string
   group: 'App' | 'Knowledge' | 'System'
   enabled: boolean
-  /** One line under the page title in the masthead. Same rule as SettingsSection's subtitle:
-   *  state what the page's rows have in common. */
+  /** One line under the page title, published to `settingsBarStore` and rendered in the header's
+   *  Settings identity group (TopBar), not in the page body — Settings has no masthead of its
+   *  own any more. Same rule as SettingsSection's subtitle: state what the page's rows have in
+   *  common. */
   blurb: string
   /** Hidden entirely unless the dev-tools gate is on. Distinct from `enabled: false`, which
    *  renders a greyed-out "soon" button and would advertise the page in a shipped build. */
