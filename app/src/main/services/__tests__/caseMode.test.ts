@@ -82,6 +82,16 @@ describe('case-level mode', () => {
     expect(onDisk.activeMode).toBe('review')
   })
 
+  // Finding 7, same leak, for setCaseMode.
+  it('setCaseMode does not carry derived fields onto disk via the corrupt-file fallback', async () => {
+    const file = path.join(caseDir(home, 'c1'), 'case.json')
+    fs.writeFileSync(file, '{ not valid json')
+    await setCaseMode(db, home, 'c1', 'review', PROVIDER)
+    const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'))
+    expect(onDisk).not.toHaveProperty('phase')
+    expect(onDisk).not.toHaveProperty('actionItems')
+  })
+
   it('rejects an unknown mode', async () => {
     await expect(setCaseMode(db, home, 'c1', 'bogus' as never, PROVIDER)).rejects.toThrow(
       /unknown mode/i

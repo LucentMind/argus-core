@@ -158,6 +158,21 @@ describe('setCaseJira', () => {
       lastSyncedAt: '2026-07-10T10:00:00Z'
     })
   })
+
+  // Finding 7, same leak, for setCaseJira.
+  it('setCaseJira does not carry derived fields onto disk via the corrupt-file fallback', () => {
+    createCase(db, home, { slug: 'NAV-11', title: 'T' })
+    const file = path.join(caseDir(home, 'NAV-11'), 'case.json')
+    fs.writeFileSync(file, '{ not valid json')
+    setCaseJira(db, home, 'NAV-11', {
+      key: 'NAV-11',
+      site: 'https://acme.atlassian.net',
+      lastSyncedAt: '2026-07-10T10:00:00Z'
+    })
+    const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'))
+    expect(onDisk).not.toHaveProperty('phase')
+    expect(onDisk).not.toHaveProperty('actionItems')
+  })
 })
 
 describe('setCaseStatus', () => {
@@ -240,6 +255,17 @@ describe('setCaseJiraDeselected', () => {
     const cj = JSON.parse(fs.readFileSync(path.join(caseDir(home, 'NAV-3'), 'case.json'), 'utf8'))
     expect(cj.jira.deselectedAttachmentIds).toEqual(['1'])
     expect(cj.jira.key).toBe('NAV-3')
+  })
+
+  // Finding 7, same leak, for setCaseJiraDeselected.
+  it('setCaseJiraDeselected does not carry derived fields onto disk via the corrupt-file fallback', () => {
+    createCase(db, home, { slug: 'NAV-4', title: 'T' })
+    const file = path.join(caseDir(home, 'NAV-4'), 'case.json')
+    fs.writeFileSync(file, '{ not valid json')
+    setCaseJiraDeselected(db, home, 'NAV-4', ['10001'])
+    const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'))
+    expect(onDisk).not.toHaveProperty('phase')
+    expect(onDisk).not.toHaveProperty('actionItems')
   })
 })
 
