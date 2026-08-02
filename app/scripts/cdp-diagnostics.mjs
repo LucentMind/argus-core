@@ -262,6 +262,42 @@ const rows = await conn.evalJs(`(() => {
 })()`)
 check('tree has a row for every counted process', rows >= procs, { rows, procs })
 
+// Objects and the footprint are read in ONE evalJs. Reading them in two round
+// trips would let a 1s tick land between them and produce a spurious mismatch —
+// React renders a whole snapshot atomically, so a single synchronous read is
+// guaranteed to see one consistent sample.
+const recon = await waitFor('objects section to render with real data', async () => {
+  const r = await conn.evalJs(`(() => {
+    const tile = document.querySelector('[data-testid="diag-procs"]')
+    const rows = [...document.querySelectorAll('[data-testid="diag-object-row"]')].map((tr) => ({
+      kind: tr.getAttribute('data-kind'),
+      procs: Number(tr.getAttribute('data-procs'))
+    }))
+    if (!tile || rows.length === 0) return null
+    return { footprint: Number.parseInt(tile.textContent.trim(), 10), rows }
+  })()`)
+  return r && r.rows.length > 0 ? r : null
+})
+
+check('objects section has rows', recon.rows.length > 0, recon.rows.length)
+
+// The whole point of tier B and C. If this fails, every process fell through to
+// Unattributed and the labeling is not working against real data, however green
+// the unit tests are.
+check(
+  'at least one row is attributed to a real Argus object',
+  recon.rows.some((r) => r.kind !== 'unattributed'),
+  recon.rows.map((r) => r.kind)
+)
+
+// The partition invariant, against live data rather than fixtures.
+const rowProcs = recon.rows.reduce((t, r) => t + r.procs, 0)
+check('objects reconcile with the footprint process count', rowProcs === recon.footprint, {
+  rowProcs,
+  footprint: recon.footprint,
+  rows: recon.rows
+})
+
 // A page that renders once and then freezes passes every static assertion above.
 // readAt is monotonic per push, so a strict increase is the one check that tells
 // a live stream from a frozen first render.
