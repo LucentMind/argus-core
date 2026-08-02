@@ -122,7 +122,6 @@ fn main() {
         root_pid: 0,
     };
     let mut interval_ms = DEFAULT_INTERVAL_MS;
-    let mut streaming = false;
     let mut configured = false;
     let mut next_sample_at = Instant::now() + Duration::from_millis(interval_ms);
 
@@ -142,12 +141,10 @@ fn main() {
                     Command::Configure {
                         root_pid,
                         sample_interval_ms,
-                        streaming: s,
                         ..
                     } => {
                         monitor.root_pid = root_pid;
                         interval_ms = clamp_interval(sample_interval_ms);
-                        streaming = s;
                         configured = true;
                         next_sample_at = Instant::now();
                     }
@@ -157,7 +154,6 @@ fn main() {
                         interval_ms = clamp_interval(sample_interval_ms);
                         next_sample_at = Instant::now() + Duration::from_millis(interval_ms.max(1));
                     }
-                    Command::SetStreaming { streaming: s, .. } => streaming = s,
                     Command::SampleNow { request_id, .. } => {
                         if configured {
                             let snap = monitor.sample(Some(request_id));
@@ -174,12 +170,17 @@ fn main() {
             }
             Err(RecvTimeoutError::Timeout) => {
                 if configured && interval_ms > 0 {
+                    // Always deliver the tick's sample. The interval itself IS the
+                    // rate limit: at FAST_INTERVAL_MS (page open) that's one snapshot
+                    // a second; at SLOW_INTERVAL_MS (page closed) it's one every 15s,
+                    // a deliberately low-rate heartbeat so main always has a recent
+                    // sample and a delta baseline the moment the page opens, instead
+                    // of a blank first render. Discarding this sample when nothing
+                    // was listening used to be the point of `streaming`, but that
+                    // just paid the full scan cost every tick for nothing.
                     let snap = monitor.sample(None);
-                    if streaming {
-                        let _ =
-                            writeln!(out, "{}", serde_json::to_string(&snap).unwrap_or_default());
-                        let _ = out.flush();
-                    }
+                    let _ = writeln!(out, "{}", serde_json::to_string(&snap).unwrap_or_default());
+                    let _ = out.flush();
                     next_sample_at = Instant::now() + Duration::from_millis(interval_ms);
                 } else {
                     next_sample_at = Instant::now() + Duration::from_millis(1_000);

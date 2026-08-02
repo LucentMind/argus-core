@@ -8,9 +8,13 @@
  * DIAGNOSTICS_PROTOCOL_VERSION must equal PROTOCOL_VERSION in
  * native/resource-monitor/src/protocol.rs. A mismatch is a hard error on both
  * sides rather than a best-effort parse.
+ *
+ * v2: dropped `streaming` from the configure command and removed the
+ * setStreaming command — the sidecar's slow tick now always delivers its
+ * sample instead of discarding it, so `streaming` had nothing left to gate.
  */
 
-export const DIAGNOSTICS_PROTOCOL_VERSION = 1
+export const DIAGNOSTICS_PROTOCOL_VERSION = 2
 
 // ── sidecar → main ───────────────────────────────────────────────────────────
 
@@ -59,10 +63,8 @@ export type SidecarCommand =
       type: 'configure'
       rootPid: number
       sampleIntervalMs: number
-      streaming: boolean
     }
   | { version: number; type: 'setSampleInterval'; sampleIntervalMs: number }
-  | { version: number; type: 'setStreaming'; streaming: boolean }
   | { version: number; type: 'sampleNow'; requestId: string }
   | { version: number; type: 'shutdown' }
 

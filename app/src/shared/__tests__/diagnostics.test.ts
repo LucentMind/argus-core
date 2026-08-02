@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { parseSidecarEvent, DIAGNOSTICS_PROTOCOL_VERSION } from '../diagnostics'
 
 const snapshotLine = JSON.stringify({
-  version: 1,
+  version: 2,
   type: 'snapshot',
   sequence: 3,
   sampledAtUnixMs: 1_700_000_000_000,
@@ -21,9 +21,9 @@ describe('parseSidecarEvent', () => {
 
   it('parses a hello', () => {
     const ev = parseSidecarEvent(
-      JSON.stringify({ version: 1, type: 'hello', sidecarVersion: '0.1.0', pid: 4242 })
+      JSON.stringify({ version: 2, type: 'hello', sidecarVersion: '0.1.0', pid: 4242 })
     )
-    expect(ev).toEqual({ version: 1, type: 'hello', sidecarVersion: '0.1.0', pid: 4242 })
+    expect(ev).toEqual({ version: 2, type: 'hello', sidecarVersion: '0.1.0', pid: 4242 })
   })
 
   it('rejects a version mismatch rather than guessing', () => {
@@ -37,7 +37,7 @@ describe('parseSidecarEvent', () => {
   })
 
   it('rejects an unknown event type', () => {
-    expect(parseSidecarEvent(JSON.stringify({ version: 1, type: 'wat' }))).toBeNull()
+    expect(parseSidecarEvent(JSON.stringify({ version: 2, type: 'wat' }))).toBeNull()
   })
 
   it('rejects a blank line', () => {
@@ -45,6 +45,6 @@ describe('parseSidecarEvent', () => {
   })
 
   it('pins the protocol version', () => {
-    expect(DIAGNOSTICS_PROTOCOL_VERSION).toBe(1)
+    expect(DIAGNOSTICS_PROTOCOL_VERSION).toBe(2)
   })
 })

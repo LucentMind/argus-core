@@ -17,7 +17,6 @@ export interface SidecarClientLike {
   stop(): void
   retry(): void
   setSampleInterval(ms: number): void
-  setStreaming(streaming: boolean): void
   sampleNow(requestId: string): void
   health(): SidecarHealth
   onSnapshot(cb: (s: SidecarSnapshot) => void): () => void
@@ -137,8 +136,10 @@ export class DiagnosticsService {
 
   private applyCadence(): void {
     const fast = this.subscribers.size > 0
+    // The sidecar always delivers whatever it samples on its tick — the
+    // interval alone is the rate limit. There is no separate on/off flag to
+    // push here anymore (see native/resource-monitor's protocol v2 note).
     this.deps.client.setSampleInterval(fast ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS)
-    this.deps.client.setStreaming(fast)
   }
 
   private ingest(raw: SidecarSnapshot): void {

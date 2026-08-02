@@ -35,13 +35,13 @@ class FakeProcess implements SidecarProcess {
 }
 
 function hello(): string {
-  return JSON.stringify({ version: 1, type: 'hello', sidecarVersion: '0.1.0', pid: 999 }) + '\n'
+  return JSON.stringify({ version: 2, type: 'hello', sidecarVersion: '0.1.0', pid: 999 }) + '\n'
 }
 
 function snapshot(sequence: number): string {
   return (
     JSON.stringify({
-      version: 1,
+      version: 2,
       type: 'snapshot',
       sequence,
       sampledAtUnixMs: 1000,
@@ -82,7 +82,8 @@ describe('SidecarClient', () => {
     await vi.advanceTimersByTimeAsync(0)
 
     const configure = procs[0].lines.map((l) => JSON.parse(l)).find((c) => c.type === 'configure')
-    expect(configure).toMatchObject({ version: 1, rootPid: 42, sampleIntervalMs: 15_000 })
+    expect(configure).toMatchObject({ version: 2, rootPid: 42, sampleIntervalMs: 15_000 })
+    expect(configure).not.toHaveProperty('streaming')
     expect(client.health().status).toBe('healthy')
     expect(client.health().version).toBe('0.1.0')
   })
@@ -358,7 +359,6 @@ describe('createDisabledSidecarClient', () => {
     client.stop()
     client.retry()
     client.setSampleInterval(1_000)
-    client.setStreaming(true)
     client.sampleNow('req-1')
     offSnapshot()
     offHealth()

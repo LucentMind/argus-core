@@ -43,7 +43,6 @@ export class SidecarClient {
   private lastError: string | null = null
   private restartCount = 0
   private intervalMs: number
-  private streaming = false
   private snapshotCbs: ((s: SidecarSnapshot) => void)[] = []
   private healthCbs: ((h: SidecarHealth) => void)[] = []
 
@@ -119,11 +118,6 @@ export class SidecarClient {
   setSampleInterval(ms: number): void {
     this.intervalMs = ms
     this.send({ type: 'setSampleInterval', sampleIntervalMs: ms })
-  }
-
-  setStreaming(streaming: boolean): void {
-    this.streaming = streaming
-    this.send({ type: 'setStreaming', streaming })
   }
 
   sampleNow(requestId: string): void {
@@ -202,8 +196,7 @@ export class SidecarClient {
         encodeSidecarCommand({
           type: 'configure',
           rootPid: this.deps.rootPid,
-          sampleIntervalMs: this.intervalMs,
-          streaming: this.streaming
+          sampleIntervalMs: this.intervalMs
         })
       )
       this.notifyHealth()
@@ -272,7 +265,6 @@ export function createDisabledSidecarClient(reason: string): SidecarClientLike {
     stop() {},
     retry() {},
     setSampleInterval() {},
-    setStreaming() {},
     sampleNow() {},
     health: () => health,
     onSnapshot: () => () => {},

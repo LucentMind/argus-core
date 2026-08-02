@@ -10,7 +10,7 @@ import type {
 
 function snapshot(over: Partial<SidecarSnapshot> = {}): SidecarSnapshot {
   return {
-    version: 1,
+    version: 2,
     type: 'snapshot',
     sequence: 1,
     sampledAtUnixMs: 10_000,
@@ -36,7 +36,6 @@ function snapshot(over: Partial<SidecarSnapshot> = {}): SidecarSnapshot {
 
 type FakeClient = SidecarClientLike & {
   intervals: number[]
-  streaming: boolean[]
   started: boolean
   stopped: boolean
   retried: number
@@ -59,7 +58,6 @@ function fakeClient(): FakeClient {
   }
   return {
     intervals: [] as number[],
-    streaming: [] as boolean[],
     started: false,
     stopped: false,
     retried: 0,
@@ -77,9 +75,6 @@ function fakeClient(): FakeClient {
     },
     setSampleInterval(ms: number) {
       this.intervals.push(ms)
-    },
-    setStreaming(s: boolean) {
-      this.streaming.push(s)
     },
     // eslint-disable-next-line @typescript-eslint/no-empty-function -- unused by these tests
     sampleNow() {},
@@ -139,20 +134,18 @@ beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
 
 describe('DiagnosticsService', () => {
-  it('starts the sidecar at the slow interval with streaming off', () => {
+  it('starts the sidecar at the slow interval', () => {
     const { service, client } = makeService()
     service.start()
     expect(client.started).toBe(true)
     expect(client.intervals.at(-1)).toBe(SLOW_INTERVAL_MS)
-    expect(client.streaming.at(-1)).toBe(false)
   })
 
-  it('switches to the fast interval and turns streaming on for the first subscriber', () => {
+  it('switches to the fast interval for the first subscriber', () => {
     const { service, client } = makeService()
     service.start()
     service.subscribe(1)
     expect(client.intervals.at(-1)).toBe(FAST_INTERVAL_MS)
-    expect(client.streaming.at(-1)).toBe(true)
   })
 
   it('stays fast while a second window is still subscribed', () => {
@@ -162,7 +155,6 @@ describe('DiagnosticsService', () => {
     service.subscribe(2)
     service.unsubscribe(1)
     expect(client.intervals.at(-1)).toBe(FAST_INTERVAL_MS)
-    expect(client.streaming.at(-1)).toBe(true)
   })
 
   it('returns to the slow interval when the last subscriber leaves', () => {
@@ -171,7 +163,6 @@ describe('DiagnosticsService', () => {
     service.subscribe(1)
     service.unsubscribe(1)
     expect(client.intervals.at(-1)).toBe(SLOW_INTERVAL_MS)
-    expect(client.streaming.at(-1)).toBe(false)
   })
 
   it('is idempotent for a repeated subscribe from the same window', () => {
@@ -180,7 +171,7 @@ describe('DiagnosticsService', () => {
     service.subscribe(1)
     service.subscribe(1)
     service.unsubscribe(1)
-    expect(client.streaming.at(-1)).toBe(false)
+    expect(client.intervals.at(-1)).toBe(SLOW_INTERVAL_MS)
   })
 
   it('publishes a built snapshot to listeners', () => {
