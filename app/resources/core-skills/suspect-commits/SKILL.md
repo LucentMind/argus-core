@@ -20,9 +20,9 @@ State the commit the failure is observed on before walking anything:
   "Resolving versions and releases") and anchor there instead.
 
 Your working directory is the case dir, not the repo, so point git at the repo
-explicitly: `git -C <linked repo path> …`, or `cd <linked repo path> && …`. Only linked
-workspaces and case worktrees are reachable — `cd` anywhere else is denied outright
-(a tool error, not an approval prompt).
+explicitly: `git -C <linked repo path> …`, or `cd <linked repo path> && …`. Prefer `-C`:
+a `cd` whose target is outside the case dir, a linked workspace, or a case worktree is
+denied outright — a tool error, not an approval prompt you can clear.
 
 Always name the anchor SHA and branch in the output. The linked checkout may not be
 the build the user saw fail — a wrong anchor must be visible, never silent.
@@ -90,6 +90,10 @@ low-confidence mention.
 Author and date from `git log`. PR number: `gh pr list --search "<sha>" --state merged`
 when `gh` is available; otherwise parse merge-commit subjects (`Merge pull request #N`).
 
+Before reporting a PR as absent rather than unchecked, establish it: `git remote -v`
+(empty → nothing to look a PR up in) plus no `Merge pull request` subject in the window.
+Absent and unchecked are different answers — say which one you have.
+
 ## 6 — Verify before asserting
 
 Read each candidate's actual diff (`git show <sha> -- <paths>`) and state why it
@@ -102,10 +106,12 @@ window was bounded.
 Findings are immutable once recorded, so put this section _inside_ the RCA finding when
 you call `mcp__argus__append_finding`. If the RCA is already filed (you were asked "what
 changed?" after the fact), record a **separate** finding titled `Regression localized: …`
-carrying this section, and cross-reference the RCA — never re-file the whole RCA to
-attach it.
+carrying this section — never re-file the whole RCA to attach it. To point at the RCA,
+read `findings.md` in the case dir and quote its heading verbatim in your first line
+("Localizes the RCA recorded as: <heading>"); there is no finding-id you can reference,
+since `append_finding` does not return one. Read `findings.md`, never edit it.
 
-The shape below is a parse contract. Keep the three field lines verbatim, one candidate
+The shape below is a parse contract. Keep the two field lines verbatim, one candidate
 per bullet, and use no parentheses or semicolons inside the anchor and window values:
 
 ```
@@ -118,8 +124,10 @@ window: <how it was bounded>
 ```
 
 `PR: none` means you established there is no PR (linear history, no remote); `PR: unknown`
-means you could not check. Any caveat about the anchor — for instance that the repo tip is
-ahead of the failing build — goes in the prose above the section, not inside these fields.
+means you could not check. The rationale is the last field on the line, so keep it a single
+clause and use commas rather than em dashes inside it — an extra em dash reads as another
+field. Any caveat about the anchor — for instance that the repo tip is ahead of the failing
+build — goes in the prose above the section, not inside these fields.
 
 Cite code as usual (`[<repo-name>/<path>:<line>]`) where a candidate's change is
 discussed. For multi-repo cases, run the method per linked repo that has implicated
