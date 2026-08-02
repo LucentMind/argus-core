@@ -83,7 +83,7 @@ export function PanelTabStrip({
   }))
 
   return (
-    <div className="flex items-center gap-1 border-b border-hair bg-void px-2">
+    <div className="flex items-center gap-1 border-b border-hair px-2">
       {/* No role="tab" here: the strip container carries no role="tablist" and the sibling
           panel tabs below carry no role either, so a lone "tab" here would be an orphan —
           ARIA doesn't permit that, and "tab" is on the presentational-children list, meaning
@@ -205,8 +205,17 @@ export function PanelTabStrip({
         )
       })}
       <div className="ml-auto flex items-center gap-2">
-        {activeTab === CHAT_TAB && activeSessionId !== null && (
-          <SessionChips slug={slug} sessionId={activeSessionId} instanceId={instanceId} />
+        {activeSessionId !== null && (
+          // Stays mounted across chat<->panel toggles and is hidden (not unmounted) on a
+          // panel tab: SessionChips' mount effect calls agent.authStatus() and the uncached
+          // agent.preflight() (which spawns a doctor subprocess per pathDir pack decl), so
+          // remounting on every tab toggle re-ran both every time and visibly reverted the
+          // chip to "checking…". The HTML `hidden` attribute, not a Tailwind `hidden` class —
+          // jsdom applies no stylesheet, so a CSS-only hidden class would leave the element
+          // reporting as visible to toBeVisible() while a real browser painted it away.
+          <div hidden={activeTab !== CHAT_TAB}>
+            <SessionChips slug={slug} sessionId={activeSessionId} instanceId={instanceId} />
+          </div>
         )}
         {activeTab === CHAT_TAB && activeSessionId !== null && (
           <>
@@ -229,7 +238,7 @@ export function PanelTabStrip({
             label={<PanelTop size={14} aria-hidden="true" />}
             aria-label="New panel"
             title="New panel"
-            align="left"
+            align="right"
             items={launcherItems}
             // Hide the docked panel's native view (which paints over DOM) while this
             // dropdown is open, else its items are unclickable and no second panel can

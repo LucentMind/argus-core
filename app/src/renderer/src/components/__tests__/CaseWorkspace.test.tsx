@@ -948,7 +948,7 @@ describe('CaseWorkspace findings pane', () => {
     })
     const sep = screen.getByRole('separator', { name: 'Resize findings pane' })
     fireEvent.pointerDown(sep, { pointerId: 1, clientX: 1000 })
-    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 900 })
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 900, buttons: 1 })
     expect(uiStore.get().findingsWidth).toBe(484)
     fireEvent.pointerUp(sep, { pointerId: 1 })
     // after release, further moves change nothing
@@ -966,7 +966,7 @@ describe('CaseWorkspace findings pane', () => {
     })
     const sep = screen.getByRole('separator', { name: 'Resize findings pane' })
     fireEvent.pointerDown(sep, { pointerId: 1, clientX: 1000 })
-    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 700 })
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 700, buttons: 1 })
     expect(uiStore.get().findingsWidth).toBe(524)
     fireEvent.pointerUp(sep, { pointerId: 1 })
   })
@@ -978,6 +978,22 @@ describe('CaseWorkspace findings pane', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand findings' }))
     expect(uiStore.get().findingsCollapsed).toBe(false)
     expect(screen.getByRole('separator', { name: 'Resize findings pane' })).toBeTruthy()
+  })
+
+  it('a pointer-cancel clears the drag so a later hover does not resize the pane', () => {
+    const { container } = renderWorkspace()
+    Object.defineProperty(container.querySelector('main')!, 'clientWidth', {
+      configurable: true,
+      value: 2000
+    })
+    const sep = screen.getByRole('separator', { name: 'Resize findings pane' })
+    fireEvent.pointerDown(sep, { pointerId: 1, clientX: 1000 })
+    fireEvent.pointerCancel(sep, { pointerId: 1 })
+    const before = uiStore.get().findingsWidth
+    // A cancelled drag leaves the button up but never fires pointerUp — a stray hover-driven
+    // pointerMove (buttons: 0, no button held) must not resize the pane afterwards.
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 500, buttons: 0 })
+    expect(uiStore.get().findingsWidth).toBe(before)
   })
 
   it('offers a resize separator for each rail', async () => {
@@ -1011,7 +1027,7 @@ describe('CaseWorkspace evidence pane drag', () => {
     })
     const sep = screen.getByRole('separator', { name: 'Resize evidence pane' })
     fireEvent.pointerDown(sep, { pointerId: 1, clientX: 1000 })
-    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 1100 })
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 1100, buttons: 1 })
     expect(uiStore.get().evidenceWidth).toBe(420)
     // the evidence handler must write evidenceWidth, never findingsWidth — a copy-pasted
     // wrong setter would still typecheck (both are `(number) => void`) but would show up here
@@ -1032,7 +1048,7 @@ describe('CaseWorkspace evidence pane drag', () => {
     })
     const sep = screen.getByRole('separator', { name: 'Resize evidence pane' })
     fireEvent.pointerDown(sep, { pointerId: 1, clientX: 1000 })
-    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 1300 })
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 1300, buttons: 1 })
     expect(uiStore.get().evidenceWidth).toBe(460)
     fireEvent.pointerUp(sep, { pointerId: 1 })
   })
@@ -1048,12 +1064,12 @@ describe('CaseWorkspace evidence pane drag', () => {
     // start a findings drag, but move on the evidence separator — the shared `drag` ref's
     // `side` guard must keep the evidence handler dead for this move
     fireEvent.pointerDown(findingsSep, { pointerId: 1, clientX: 1000 })
-    fireEvent.pointerMove(evidenceSep, { pointerId: 1, clientX: 1100 })
+    fireEvent.pointerMove(evidenceSep, { pointerId: 1, clientX: 1100, buttons: 1 })
     expect(uiStore.get().evidenceWidth).toBe(320)
     fireEvent.pointerUp(findingsSep, { pointerId: 1 })
     // the findings drag itself still works after that stray move
     fireEvent.pointerDown(findingsSep, { pointerId: 1, clientX: 1000 })
-    fireEvent.pointerMove(findingsSep, { pointerId: 1, clientX: 900 })
+    fireEvent.pointerMove(findingsSep, { pointerId: 1, clientX: 900, buttons: 1 })
     expect(uiStore.get().findingsWidth).toBe(484)
     fireEvent.pointerUp(findingsSep, { pointerId: 1 })
   })

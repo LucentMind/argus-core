@@ -126,17 +126,22 @@ export function ReviewRunButton({
           role="group"
           aria-label="Review layers"
           /**
-           * `left-0`, not `right-0` (2026-08-01). This button lives at the LEFT of the panel tab
-           * strip, inside `CaseWorkspace`'s `<main className="… overflow-hidden">`. A
-           * right-anchored 16rem panel therefore extended past main's left edge and was *clipped*
-           * by that overflow — the visible symptom was a card with every line's first words
-           * sheared off at a hard vertical edge. Opening rightward keeps it inside the clip box.
-           * Same reasoning as `MenuButton`'s own `align="left"`, which documents this trap.
+           * `right-0`, not `left-0` (2026-08-02, case-chrome-symmetry final review — supersedes
+           * the 2026-08-01 note this replaces). This button is passed as PanelTabStrip's
+           * `action`, and Tasks 4/5 added `ml-auto` to the strip's trailing zone, which pushed
+           * `action` (this button) to the FAR RIGHT of the bar — the opposite edge from where it
+           * sat when the `left-0` reasoning below was written. A `left-0` panel now opens
+           * rightward from a trigger that already sits at the card's right edge, so it overflows
+           * past the card — and CaseWorkspace's centre card (Task 3) clips overflow instead of
+           * letting it spill, so the panel is cut off instead of merely spilling. `right-0`
+           * anchors the panel's right edge to the trigger instead, opening it leftward so it
+           * stays inside the card. Same reasoning as `MenuButton`'s own `align="right"` default,
+           * which exists for exactly this case: a trigger near the right edge.
            *
            * `overlay-menu` (main.css) replaces `border-hair bg-panel shadow-lg`: one popup
            * material for every popup, rather than each one naming its own surface.
            */
-          className="absolute left-0 top-full z-30 mt-1 flex w-64 flex-col gap-1 rounded-r2 overlay-menu p-2"
+          className="absolute right-0 top-full z-30 mt-1 flex w-64 flex-col gap-1 rounded-r2 overlay-menu p-2"
         >
           <p className="text-[10px] text-mute">
             Nothing pinned — the agent picks the layers this PR needs.
@@ -155,8 +160,8 @@ export function ReviewRunButton({
       {needsPr && (
         <div
           role="status"
-          // `left-0` + `overlay-menu` for the same two reasons as the layer picker above.
-          className="absolute left-0 top-full z-30 mt-1 flex w-72 items-start gap-2 rounded-r2 overlay-menu p-2"
+          // `right-0` + `overlay-menu` for the same two reasons as the layer picker above.
+          className="absolute right-0 top-full z-30 mt-1 flex w-72 items-start gap-2 rounded-r2 overlay-menu p-2"
         >
           <p className="flex-1 text-[11px] leading-relaxed text-mute">
             No pull request is linked to this case yet — use{' '}

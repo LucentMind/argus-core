@@ -225,7 +225,18 @@ export function SessionSwitcher({
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            className="fixed inset-0 z-10"
+            onClick={(e) => {
+              // This overlay is a DOM descendant of PanelTabStrip's chat-tab wrapper, which
+              // carries onClick={() => onSelect(CHAT_TAB)}. Without stopping propagation, a
+              // click meant only to dismiss the popup also bubbles up and selects the chat
+              // tab — including while a *panel* tab is active, silently yanking focus away
+              // from whatever the user actually clicked.
+              e.stopPropagation()
+              setOpen(false)
+            }}
+          />
           {/* role=group (not menu/listbox): each row holds two independent
               buttons (switch + rename), which menuitem/option can't express */}
           <div

@@ -168,6 +168,31 @@ describe('PanelTabStrip', () => {
     expect(await screen.findByLabelText('New panel')).toBeTruthy()
   })
 
+  it('opens the New panel menu right-aligned so it stays inside the clipped card', async () => {
+    // Tasks 4/5's `ml-auto` pushed this trigger to the far right of the bar, and
+    // CaseWorkspace's centre card (Task 3) clips overflow instead of letting it spill —
+    // a left-aligned (`left-0`) menu would open off the card's right edge and be cut off.
+    // `align="right"` resolves to `right-0`, anchoring the menu's right edge to the
+    // trigger so it opens leftward, staying inside the card.
+    window.argus = { ...sessionArgusMocks(), panels: { open: vi.fn() } } as never
+    render(
+      <PanelTabStrip
+        slug="case-a"
+        sessionId={1}
+        activeTab="chat"
+        onSelect={() => {}}
+        activeSessionId={null}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+      />
+    )
+    fireEvent.click(await screen.findByLabelText('New panel'))
+    const menu = await screen.findByRole('menu')
+    expect(menu.className).toContain('right-0')
+    expect(menu.className).not.toContain('left-0')
+  })
+
   it('replaces the launcher with the supplied action', async () => {
     window.argus = { ...sessionArgusMocks(), panels: { open: vi.fn() } } as never
     render(
@@ -242,7 +267,11 @@ describe('PanelTabStrip', () => {
       />
     )
 
-    await waitFor(() => expect(screen.queryByTestId('session-chips')).not.toBeInTheDocument())
+    // Stays mounted (hidden), not unmounted — remounting re-runs SessionChips' auth/preflight
+    // probes (the latter spawns a doctor subprocess) on every chat<->panel toggle. `hidden`,
+    // not `not.toBeInTheDocument()`, is the assertion that actually distinguishes the two.
+    const chips = await screen.findByTestId('session-chips')
+    await waitFor(() => expect(chips).not.toBeVisible())
   })
 
   it('shows chat state chips exactly once when the chat tab is active with a real session', async () => {
@@ -278,7 +307,7 @@ describe('PanelTabStrip', () => {
     expect(screen.getAllByTestId('session-chips')).toHaveLength(1)
   })
 
-  it('shows a Find in chat button on the chat tab and wires it to onOpenFind', async () => {
+  it('shows a Find in transcript button on the chat tab and wires it to onOpenFind', async () => {
     window.argus = {
       ...sessionArgusMocks(),
       sessions: {
@@ -446,6 +475,49 @@ describe('PanelTabStrip', () => {
     fireEvent.click(await screen.findByLabelText('Ingest triage'))
     const search = await screen.findByLabelText('Search chats')
     expect(fireEvent.keyDown(search, { key: ' ' })).toBe(true)
+  })
+
+  it('clicking the SessionSwitcher click-away overlay while a panel tab is active closes the popup without selecting the chat tab', async () => {
+    // SessionSwitcher's click-away overlay is a DOM descendant of the chat-tab wrapper, which
+    // carries onClick={() => onSelect(CHAT_TAB)}. Without stopPropagation on the overlay, a
+    // click meant only to dismiss the popup also bubbles up and selects the chat tab — even
+    // while a panel tab is the active one.
+    window.argus = {
+      ...sessionArgusMocks(),
+      sessions: {
+        list: vi
+          .fn()
+          .mockResolvedValue([
+            { id: 7, title: 'Ingest triage', turnCount: 3, updatedAt: new Date().toISOString() }
+          ])
+      },
+      panels: { open: vi.fn() }
+    } as never
+    const onSelect = vi.fn()
+
+    const { container } = render(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={7}
+        activeTab="sample-pack:text-viewer"
+        onSelect={onSelect}
+        activeSessionId={7}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+      />
+    )
+
+    fireEvent.click(await screen.findByLabelText('Ingest triage'))
+    expect(await screen.findByRole('group', { name: 'Sessions' })).toBeInTheDocument()
+    onSelect.mockClear()
+
+    const overlay = container.querySelector('.fixed.inset-0.z-10')
+    expect(overlay).toBeTruthy()
+    fireEvent.click(overlay as Element)
+
+    expect(screen.queryByRole('group', { name: 'Sessions' })).not.toBeInTheDocument()
+    expect(onSelect).not.toHaveBeenCalled()
   })
 
   it('an Enter keydown on the SessionSwitcher trigger is not cancelled by the tab wrapper', async () => {

@@ -612,7 +612,10 @@ export function CaseWorkspace({
                 e.currentTarget.setPointerCapture?.(e.pointerId)
               }}
               onPointerMove={(e) => {
-                if (drag.current?.side !== 'evidence') return
+                // `e.buttons === 0` catches a drag whose button-up happened somewhere pointerUp
+                // never fired for (e.g. a cancelled drag) — without it, `drag.current` stays
+                // stale and the next plain hover over this separator resizes the pane.
+                if (drag.current?.side !== 'evidence' || e.buttons === 0) return
                 uiStore.setEvidenceWidth(
                   Math.min(
                     drag.current.maxWidth,
@@ -621,6 +624,12 @@ export function CaseWorkspace({
                 )
               }}
               onPointerUp={() => {
+                drag.current = null
+              }}
+              onPointerCancel={() => {
+                drag.current = null
+              }}
+              onLostPointerCapture={() => {
                 drag.current = null
               }}
             />
@@ -717,7 +726,10 @@ export function CaseWorkspace({
                 e.currentTarget.setPointerCapture?.(e.pointerId)
               }}
               onPointerMove={(e) => {
-                if (drag.current?.side !== 'findings') return
+                // `e.buttons === 0` catches a drag whose button-up happened somewhere pointerUp
+                // never fired for (e.g. a cancelled drag) — without it, `drag.current` stays
+                // stale and the next plain hover over this separator resizes the pane.
+                if (drag.current?.side !== 'findings' || e.buttons === 0) return
                 uiStore.setFindingsWidth(
                   Math.min(
                     drag.current.maxWidth,
@@ -726,6 +738,12 @@ export function CaseWorkspace({
                 )
               }}
               onPointerUp={() => {
+                drag.current = null
+              }}
+              onPointerCancel={() => {
+                drag.current = null
+              }}
+              onLostPointerCapture={() => {
                 drag.current = null
               }}
             />

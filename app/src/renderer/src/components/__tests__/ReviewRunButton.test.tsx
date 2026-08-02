@@ -32,6 +32,26 @@ describe('ReviewRunButton', () => {
     await waitFor(() => expect(composeRunPrompt).toHaveBeenCalledWith('c1', 3, ['security']))
   })
 
+  it('opens the layer dropdown right-aligned so it stays inside the clipped card', async () => {
+    // This button renders as PanelTabStrip's `action`, which Tasks 4/5 pushed to the far
+    // right of the bar via `ml-auto`. A `left-0` popover would open away from the card's
+    // right edge and be clipped by CaseWorkspace's `overflow-hidden` card (Task 3).
+    render(<ReviewRunButton slug="c1" sessionId={3} onError={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: /choose review layers/i }))
+    const panel = screen.getByRole('group', { name: /review layers/i })
+    expect(panel.className).toContain('right-0')
+    expect(panel.className).not.toContain('left-0')
+  })
+
+  it('opens the no-PR notice right-aligned so it stays inside the clipped card', async () => {
+    composeRunPrompt.mockResolvedValue({ ok: false, reason: 'no-pr-bound' })
+    render(<ReviewRunButton slug="c1" sessionId={3} onError={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: /^run review$/i }))
+    const notice = await screen.findByRole('status')
+    expect(notice.className).toContain('right-0')
+    expect(notice.className).not.toContain('left-0')
+  })
+
   it('is disabled with no session', () => {
     render(<ReviewRunButton slug="c1" sessionId={null} onError={vi.fn()} />)
     expect(screen.getByRole('button', { name: /^run review$/i })).toBeDisabled()
