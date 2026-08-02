@@ -13,6 +13,10 @@ const HANDSHAKE_TIMEOUT_MS = 5_000
 const FAILURE_WINDOW_MS = 60_000
 const MAX_FAILURES_PER_WINDOW = 5
 const MAX_BACKOFF_MS = 10_000
+// The real sidecar never emits a line anywhere near this long — NDJSON lines are one
+// snapshot each. Only a binary substituted via ARGUS_RESOURCE_MONITOR_PATH could get
+// here, by writing bytes with no newline. Without a cap `buffer` grows without bound.
+const MAX_BUFFER_BYTES = 1_000_000
 
 export type SidecarClientDeps = {
   spawner: SidecarSpawner
@@ -87,6 +91,11 @@ export class SidecarClient {
 
   /** Close an open circuit and try again immediately. */
   retry(): void {
+    // A retrySidecar() IPC can arrive after stop() (quit is in flight, or a stale
+    // renderer still has the button wired). status only reaches 'disabled' via
+    // stop(), so this is the one honest signal that resurrection was not intended —
+    // ignore the request rather than spawning a child the service no longer owns.
+    if (this.status === 'disabled') return
     // Always cancel the backoff: Retry means "stop waiting, try now".
     this.attempt = 0
     // Only wipe the failure window once the breaker has actually tripped.
@@ -177,6 +186,15 @@ export class SidecarClient {
       this.buffer = this.buffer.slice(idx + 1)
       this.handleLine(line)
       idx = this.buffer.indexOf('\n')
+    }
+    // Guard against an unbounded buffer: every complete line above was already
+    // consumed, so whatever is left is a single fragment with no newline in it.
+    if (this.buffer.length > MAX_BUFFER_BYTES) {
+      const droppedBytes = this.buffer.length
+      this.buffer = ''
+      this.fail(
+        `sidecar sent ${droppedBytes} bytes with no newline (over the ${MAX_BUFFER_BYTES}-byte cap) — dropping buffer`
+      )
     }
   }
 

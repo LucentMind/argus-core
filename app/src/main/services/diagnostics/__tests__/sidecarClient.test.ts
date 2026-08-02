@@ -258,6 +258,46 @@ describe('SidecarClient', () => {
     expect(client.health().status).toBe('disabled')
   })
 
+  it('retry() after stop() does not resurrect the client', async () => {
+    const { client, procs } = makeClient()
+    void client.start()
+    procs[0].emit(hello())
+    await vi.advanceTimersByTimeAsync(0)
+
+    client.stop()
+    expect(client.health().status).toBe('disabled')
+
+    // A retrySidecar() IPC can arrive after stop() — quit in flight, or a stale
+    // renderer whose Retry button is still wired. Before the fix, retry() set
+    // this.stopped = false unconditionally and spawned a fresh child.
+    void client.retry()
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(procs).toHaveLength(1)
+    expect(client.health().status).toBe('disabled')
+  })
+
+  it('drops an unbounded buffer and routes it through the failure path', async () => {
+    const { client, procs } = makeClient()
+    const seen: SidecarHealth[] = []
+    client.onHealthChange((h) => seen.push(h))
+    void client.start()
+    procs[0].emit(hello())
+    await vi.advanceTimersByTimeAsync(0)
+
+    // A binary substituted via ARGUS_RESOURCE_MONITOR_PATH could emit a very long
+    // line with no newline. The real sidecar never does this — one NDJSON line per
+    // snapshot — so this only guards against a misbehaving substitute.
+    procs[0].emit('x'.repeat(1_000_001))
+
+    expect(seen.at(-1)?.status).toBe('degraded')
+    expect(seen.at(-1)?.lastError).toContain('1000001 bytes')
+    // The dying child is killed as part of the existing failure path, then a
+    // replacement is spawned on backoff, same as any other fail().
+    await vi.advanceTimersByTimeAsync(500)
+    expect(procs).toHaveLength(2)
+  })
+
   it('ignores a snapshot that arrives before the handshake', async () => {
     const { client, procs } = makeClient()
     const seen: SidecarSnapshot[] = []
