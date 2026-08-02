@@ -71,34 +71,44 @@ if (res.status !== 0) {
 // The sidecar ships via extraResources, so it lives beside the asar rather than inside
 // it. Spawn it — do not merely stat it. A binary that passes existsSync but cannot
 // actually launch is precisely how this project shipped two dead CLIs.
-const resourcesDir =
-  process.platform === 'darwin'
-    ? path.join(binary, '..', '..', 'Resources')
-    : path.join(path.dirname(binary), 'resources')
-const sidecar = path.join(
-  resourcesDir,
-  'resource-monitor',
-  process.platform === 'win32' ? 'win32-x64' : 'darwin-universal',
-  process.platform === 'win32' ? 'argus-resource-monitor.exe' : 'argus-resource-monitor'
-)
-
-if (!existsSync(sidecar)) {
-  console.error(`smoke: FAILED — resource-monitor sidecar missing at ${sidecar}`)
-  process.exit(1)
-}
-
-// Closing stdin makes the sidecar's reader thread see EOF and exit, so this terminates
-// on its own. The 5s timeout is the backstop for a binary that ignores it.
-const mon = spawnSync(sidecar, [], { timeout: 5_000, killSignal: 'SIGKILL', input: '' })
-const helloLine = String(mon.stdout ?? '')
-  .split('\n')
-  .find((l) => l.includes('"type":"hello"'))
-if (!helloLine) {
-  console.error(
-    `smoke: FAILED — sidecar produced no hello handshake. stderr: ${String(mon.stderr ?? '').slice(0, 400)}`
+//
+// Linux is the one platform where the binary is deliberately absent (see
+// sidecarBinary.ts) — DiagnosticsService degrades to 'disabled' there by design, so
+// asserting its presence would hard-fail exactly where the app is supposed to degrade.
+if (process.platform === 'win32' || process.platform === 'darwin') {
+  const resourcesDir =
+    process.platform === 'darwin'
+      ? path.join(binary, '..', '..', 'Resources')
+      : path.join(path.dirname(binary), 'resources')
+  const sidecar = path.join(
+    resourcesDir,
+    'resource-monitor',
+    process.platform === 'win32' ? 'win32-x64' : 'darwin-universal',
+    process.platform === 'win32' ? 'argus-resource-monitor.exe' : 'argus-resource-monitor'
   )
-  process.exit(1)
+
+  if (!existsSync(sidecar)) {
+    console.error(`smoke: FAILED — resource-monitor sidecar missing at ${sidecar}`)
+    process.exit(1)
+  }
+
+  // Closing stdin makes the sidecar's reader thread see EOF and exit, so this terminates
+  // on its own. The 5s timeout is the backstop for a binary that ignores it.
+  const mon = spawnSync(sidecar, [], { timeout: 5_000, killSignal: 'SIGKILL', input: '' })
+  const helloLine = String(mon.stdout ?? '')
+    .split('\n')
+    .find((l) => l.includes('"type":"hello"'))
+  if (!helloLine) {
+    console.error(
+      `smoke: FAILED — sidecar produced no hello handshake. stderr: ${String(mon.stderr ?? '').slice(0, 400)}`
+    )
+    process.exit(1)
+  }
+  console.log(`smoke: resource-monitor sidecar handshook — ${helloLine.trim()}`)
+} else {
+  console.log(
+    `smoke: skipping resource-monitor sidecar check on ${process.platform} — no binary ships for this platform by design`
+  )
 }
-console.log(`smoke: resource-monitor sidecar handshook — ${helloLine.trim()}`)
 
 console.log('smoke: every provider CLI launched')
