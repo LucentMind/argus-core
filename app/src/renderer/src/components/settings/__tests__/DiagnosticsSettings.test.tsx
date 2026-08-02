@@ -29,7 +29,6 @@ function snapshot(over: Partial<DiagnosticsSnapshot> = {}): DiagnosticsSnapshot 
         ppid: 0,
         depth: 0,
         name: 'argus',
-        command: 'argus',
         cpuPercent: 1.5,
         cpuTimeMs: 6_010,
         residentBytes: 546_000_000,

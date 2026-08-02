@@ -86,7 +86,6 @@ export type DiagnosticsProcess = {
   /** Depth below the root process; the root itself is 0. */
   depth: number
   name: string
-  command: string
   /** Percent of the whole machine, i.e. already divided by logical core count. */
   cpuPercent: number
   cpuTimeMs: number

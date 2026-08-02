@@ -68,6 +68,15 @@ describe('buildSnapshot', () => {
     expect(r.tree[0].cpuPercent).toBe(0)
   })
 
+  it('does not carry the raw command line into the renderable tree', () => {
+    // ProcessSample.command exists (argv is needed on the main side to identify
+    // provider CLIs / MCP servers), but DiagnosticsProcess must not expose it —
+    // Argus spawns provider CLIs and MCP servers, so argv can contain paths, case
+    // identifiers, or credentials that have no reason to sit in renderer memory.
+    const r = build([ROOT], new Map(), 10_000)
+    expect(r.tree[0]).not.toHaveProperty('command')
+  })
+
   it('normalises CPU to percent-of-machine using the core count', () => {
     const prev = new Map<string, ProcessState>([
       [identityKey(1, 1_000), { cpuTimeMs: 0, residentBytes: 0, sampledAtMs: 9_000 }]

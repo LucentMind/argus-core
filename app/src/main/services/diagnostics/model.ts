@@ -127,7 +127,6 @@ export function buildSnapshot(input: BuildInput): BuildResult {
       ppid: s.ppid,
       depth,
       name: s.name,
-      command: s.command,
       cpuPercent,
       cpuTimeMs: s.cpuTimeMs,
       residentBytes: s.residentBytes,
