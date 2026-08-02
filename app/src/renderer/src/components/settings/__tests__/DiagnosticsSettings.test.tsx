@@ -114,4 +114,12 @@ describe('DiagnosticsSettings', () => {
     await act(async () => onSampleCb(snapshot({ readAt: 4_242 })))
     expect(screen.getByTestId('diag-readat')).toHaveTextContent('4242')
   })
+
+  it('hides the degraded banner when the sidecar is healthy', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot()))
+
+    expect(screen.queryByText(/child-process attribution is unavailable/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
+  })
 })
