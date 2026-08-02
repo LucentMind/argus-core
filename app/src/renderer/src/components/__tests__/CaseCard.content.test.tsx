@@ -5,6 +5,23 @@ import { it, expect, afterEach } from 'vitest'
 import { CaseCard } from '../CaseCard'
 import type { CaseRecord } from '../../../../shared/types'
 import { DEFAULT_MODE } from '../../../../shared/modes'
+import type { PrStatus } from '../../../../shared/prStatus'
+
+const BASE_PR: PrStatus = {
+  owner: 'o',
+  repo: 'r',
+  number: 7,
+  url: 'https://example.test/pr/7',
+  state: 'OPEN',
+  isDraft: false,
+  mergeable: 'MERGEABLE',
+  mergeStateStatus: 'CLEAN',
+  reviewDecision: null,
+  rollup: 'passing',
+  checks: [],
+  fetchedAt: '2026-08-01T10:00:00.000Z',
+  error: null
+}
 
 const noop = {
   onOpen: () => {},
@@ -103,4 +120,20 @@ it('renders singular "comment" in the tooltip when the comment count is exactly 
   )
   const metric = screen.getByTestId('metric-comments')
   expect(metric.getAttribute('title')).toBe('1 comment')
+})
+
+it('renders the full PR face, not just the CI rollup', () => {
+  render(
+    <CaseCard
+      c={mkCase({})}
+      prStatus={{ ...BASE_PR, state: 'MERGED', rollup: 'failing' }}
+      {...noop}
+    />
+  )
+  expect(screen.getByRole('img', { name: /merged/i })).toBeInTheDocument()
+})
+
+it('renders no PR glyph when the case has no bound PR', () => {
+  render(<CaseCard c={mkCase({})} {...noop} />)
+  expect(screen.queryByRole('img', { name: /^PR #/ })).not.toBeInTheDocument()
 })

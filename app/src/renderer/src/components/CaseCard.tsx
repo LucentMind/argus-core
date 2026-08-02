@@ -1,9 +1,9 @@
 import type { LucideIcon } from 'lucide-react'
 import type { CaseRecord } from '../../../shared/types'
 import { formatSyncAge } from '../../../shared/triage'
-import type { PrRollup } from '../../../shared/prStatus'
+import type { PrStatus } from '../../../shared/prStatus'
 import { Card, Chip, IconBtn } from './ui'
-import { PrRollupIcon } from './PrRollupDot'
+import { PrFaceIcon } from './PrRollupDot'
 import { StatusDot } from './StatusDot'
 import { SyncBadge } from './SyncBadge'
 import { railTier } from '../lib/priorityRail'
@@ -34,7 +34,7 @@ export function CaseCard({
   onExport,
   onDelete,
   note,
-  prRollup,
+  prStatus,
   dynamic = false,
   index = 0
 }: {
@@ -43,9 +43,9 @@ export function CaseCard({
   onExport: (slug: string) => void
   onDelete: (slug: string) => void
   note: { text: string; danger: boolean } | null
-  /** Cached CI rollup for this case's bound PR. Absent when the case has no PR — the dashboard
-   *  reads the cache and passes only what it has, so the card never fetches anything itself. */
-  prRollup?: PrRollup
+  /** Cached PR + CI state for this case's bound PR. Absent when the case has no PR — the
+   *  dashboard reads the cache and passes only what it has, so the card never fetches. */
+  prStatus?: PrStatus
   /** Dynamic-theme skin: glass container, staggered entrance. */
   dynamic?: boolean
   /** Grid position — drives the entrance stagger delay in dynamic mode. */
@@ -176,7 +176,7 @@ export function CaseCard({
             </span>
           )
         })}
-        {prRollup && <PrRollupIcon rollup={prRollup} />}
+        {prStatus && <PrFaceIcon status={prStatus} />}
         <span className="ml-auto flex items-center gap-2">
           <SyncBadge c={c} />
           {/* Fixed width whether or not the icons are visible: revealing them on hover must not

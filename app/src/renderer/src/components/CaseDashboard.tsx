@@ -287,7 +287,7 @@ export function CaseDashboard({
             onOpen={onOpen}
             onExport={(slug) => void exportCase(slug)}
             onDelete={(slug) => void requestDelete(slug)}
-            prRollup={prStatuses[c.slug]?.rollup}
+            prStatus={prStatuses[c.slug]}
             note={
               deleteError?.slug === c.slug
                 ? { text: deleteError.text, danger: true }
