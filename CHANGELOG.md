@@ -1,5 +1,135 @@
 # Changelog
 
+## v2.0.0 — 2026-08-02
+
+197 commits since v1.0.10, 307 files changed (+25,309 / −3,589).
+
+### Added
+
+**Resource diagnostics**
+
+- A Rust `resource-monitor` sidecar (built on `sysinfo`, wired over NDJSON with
+  supervised retry/backoff and a handshake watchdog) walks the app's process
+  tree by PID and reports CPU/memory footprint per process.
+- Settings gets a new Diagnostics page: footprint tiles for the app's overall
+  resource use plus an expandable process tree, with a degraded banner when the
+  sidecar is unavailable.
+- The service samples on a cadence with a fast tier for the focused window and
+  a slower tier for background ones, capping its NDJSON buffer and stopping
+  cleanly on quit or when a subscriber window closes.
+
+**Unified header and case chrome**
+
+- The main window is now frameless top to bottom: the old 32px title-bar strip
+  is gone, window caption buttons are drawn in React over new `window:*` IPC,
+  and the header IS the title bar (chrome collapses from 80px to 48px).
+- The case view's top bar and case header merge into one `TopBar`, with a
+  `caseBarStore`/`CaseAnchor` seam carrying the session switcher, chat search,
+  find, and chip state; Settings gets a matching page masthead.
+- The case workspace now lays out three peer columns (evidence rail, chat/
+  panels, findings) on one ground plane, with docked native panels inset to the
+  case card's rounded corners; Jira integration moves out of the bar into an
+  always-open two-line panel on the evidence rail (title, sync stamp,
+  attachment count) that decays back to a resting state after a sync.
+- Recent-case tabs, PR/CI checks, and review controls are bounded to a fixed
+  share of the bar so the action icons stay reachable regardless of how many
+  cases or checks are open.
+
+**Light theme**
+
+- A full light theme ships alongside the existing dark theme: a cool wash
+  palette and viewport-anchored ambient ground, with the dark theme's tokens
+  pinned so neither skin bleeds into the other.
+- Every major surface — shell, home, case-view cards, Settings, the editor
+  window, dialogs and dropdowns — moves onto a shared `surface-card`/frosted-
+  overlay material so light and dark stay visually consistent through one set
+  of tokens instead of per-component overrides.
+- Dialogs, menus, and the command palette get theme-aware frosted glass in
+  light mode while staying flat/solid in dark, per the project's decision to
+  leave the dark theme untouched for now.
+
+**Case phase model**
+
+- A case's phase (analyzing, PR created, reviewing, RCA drafted, closed, ...)
+  is now derived from its own newest work event — evidence, turns, PR/review
+  activity — instead of being tracked as a separately-set status.
+- The one phase with no derivable signal, RCA-drafted, can still be pinned
+  explicitly; open/closed remain the only status values settable directly, and
+  `update_case_status` now routes each phase value to the right mechanism or
+  explains why it can't be set that way.
+- Dashboard and case cards render the derived phase and filter/count off it;
+  cards also gained a full pull-request glyph (merges, conflicts, drafts) fed
+  by the cached PR/CI status, plus a context line summarizing totals and items
+  needing attention.
+
+**Composer: model catalog and run options**
+
+- The composer now offers the CLI's real, currently-reported model catalog
+  (including newly available models like Opus 5) merged with the app's
+  built-in list, instead of a stale hardcoded set — so the picker no longer
+  drops models mid-session and still works offline.
+- The single fused option chip is replaced with one real chip per model
+  capability (Reasoning, Context Window, Fast Mode, permission mode, ...),
+  which varies by model and collapses into one popup menu on a narrow window
+  instead of overflowing.
+- "Ultrathink" is now a one-click prompt prefix, with read-back and a body
+  lock so it can't mangle a message that already contains the word, and a
+  prominent stop button replaces the previous barely-visible stop link.
+- Run options and permission mode now persist per session and rebuild the
+  session when changed.
+
+**Dynamic theme, continued**
+
+- The case view's header and case-id group now carry their own dynamic-theme
+  scope, and dashboard case cards get a directional top-right glow falling
+  into a darker bottom-left corner, shared between the classic and dynamic
+  skins from one set of tokens.
+- Several dynamic-theme correctness fixes: a dark-only ambient guard was
+  rendering black under light+dynamic, stale `--surface-*`/`--bg-deep` tokens
+  were retired in favor of the shared material, and glass overlays now
+  composite over the ambient wash instead of replacing it.
+
+### Fixed
+
+- Model picker: the runtime catalog was substituting for, rather than merging
+  with, the built-in model list, silently dropping Opus 4.8/4.7 and Sonnet 4.6
+  a few seconds after launch.
+- `listCases` had no total order and could return cases in a different
+  sequence between calls.
+- IPC no longer leaks Electron's raw `invoke` wrapper text into user-facing
+  error messages.
+- Popups and select menus unified onto one opaque overlay material (the
+  composer's model menu was nearly transparent before); Library action rows no
+  longer stay lit after a click; the Run-review and Jira case popovers no
+  longer clip their first line of text.
+- Settings reorganized: Confluence pairs with the HiveMind repo under a new
+  Team page, and Sources becomes packs-only under System.
+- A click on a hover-opened submenu no longer immediately closes it; docked
+  native-view panels are now occluded correctly behind component-level
+  modals, not just page-level ones.
+- Several inert-token fixes: the PR-draft input, case-view masthead weight,
+  and the dynamic theme's muted text color were all wired to tokens that
+  emitted no CSS.
+- The review-mode switch no longer greets you with a raw `gh` command dump.
+- PR/CI polling now suspends while the window is hidden.
+- Default window minimum size raised to 1280x800 so the case workspace's
+  three columns no longer get forced to their clamp widths.
+- New app icon artwork regenerated across every platform surface (Windows
+  `.ico`, macOS `.icns`, Linux/build PNGs).
+
+### Internal
+
+- Claude SDK floor raised to 0.3.220 to pick up Opus 5, with a captured real
+  model-catalog fixture for tests.
+- The two sample packs (`sample-bridge-playground`, `sample-external-app`) are
+  no longer seeded into dev/test installs; they moved to a separate
+  `demo_pack` repo as real installable/updatable packs so the pack-update
+  feature has a live target to check against.
+- Diagnostics sidecar build/staging, protocol, and CDP-gated acceptance
+  tests; several whole-branch review passes across the header, case-bar,
+  case-phase, dynamic-theme and light-theme branches fixed cross-task
+  regressions before merge.
+
 ## v1.0.10 — 2026-08-01
 
 142 commits since v1.0.8, 197 files changed (+20,459 / −1,108). v1.0.9 was tagged
