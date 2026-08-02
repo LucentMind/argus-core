@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, within } from '@testing-library/react'
 import DiagnosticsSettings from '../DiagnosticsSettings'
 import type { DiagnosticsSnapshot } from '../../../../../shared/diagnostics'
 
@@ -180,5 +180,69 @@ describe('DiagnosticsSettings', () => {
 
     expect(screen.queryByText(/process diagnostics are unavailable/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
+  })
+
+  it('renders one row per object, marks inferred ones, and pins Unattributed last', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () =>
+      onSampleCb(
+        snapshot({
+          objects: [
+            {
+              id: '2:1000',
+              kind: 'mcp',
+              label: 'MCP: github',
+              instanceId: 'github',
+              inferred: true,
+              rootPid: 2,
+              processCount: 2,
+              cpuPercent: 3.2,
+              rssBytes: 1024 * 1024 * 40,
+              uptimeMs: 65_000
+            },
+            {
+              id: '3:1000',
+              kind: 'electron-window',
+              label: 'Main window',
+              inferred: false,
+              rootPid: 3,
+              processCount: 1,
+              cpuPercent: 1,
+              rssBytes: 1024 * 1024 * 10,
+              uptimeMs: 120_000
+            },
+            {
+              id: 'unattributed',
+              kind: 'unattributed',
+              label: 'Unattributed',
+              inferred: false,
+              rootPid: null,
+              processCount: 4,
+              cpuPercent: 0.5,
+              rssBytes: 1024 * 1024 * 5,
+              uptimeMs: 0
+            }
+          ]
+        })
+      )
+    )
+
+    const rows = screen.getAllByTestId('diag-object-row')
+    expect(rows).toHaveLength(3)
+    expect(rows.map((r) => r.getAttribute('data-kind'))).toEqual([
+      'mcp',
+      'electron-window',
+      'unattributed'
+    ])
+    expect(rows[0]).toHaveTextContent('MCP: github')
+    expect(within(rows[0]).getByTitle('Inferred from the command line')).toBeInTheDocument()
+    expect(within(rows[1]).queryByTitle('Inferred from the command line')).toBeNull()
+    expect(rows[2].getAttribute('data-procs')).toBe('4')
+  })
+
+  it('omits the objects section entirely when there are no objects', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot({ objects: [] })))
+    expect(screen.queryByText('Argus objects')).toBeNull()
   })
 })

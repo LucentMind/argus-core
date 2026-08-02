@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import type {
+  DiagnosticsObject,
   DiagnosticsSnapshot,
   SidecarHealth,
   SidecarStatus
@@ -77,6 +78,33 @@ function Tile(props: {
       </div>
       <div className="mt-1 text-xs text-mute">{props.sub}</div>
     </div>
+  )
+}
+
+function ObjectRow({ o }: { o: DiagnosticsObject }): React.JSX.Element {
+  const unattributed = o.kind === 'unattributed'
+  return (
+    <tr
+      data-testid="diag-object-row"
+      data-kind={o.kind}
+      data-procs={o.processCount}
+      className={`border-t border-hair${unattributed ? ' text-mute' : ''}`}
+    >
+      <td className="px-3 py-1">
+        {o.label}
+        {o.inferred ? (
+          <span className="ml-2 text-xs text-mute" title="Inferred from the command line">
+            inferred
+          </span>
+        ) : null}
+      </td>
+      <td className="px-3 py-1 text-right font-mono">{formatPercent(o.cpuPercent)}%</td>
+      <td className="px-3 py-1 text-right font-mono">{formatBytes(o.rssBytes)}</td>
+      <td className="px-3 py-1 text-right font-mono text-mute">
+        {unattributed ? '—' : formatUptime(o.uptimeMs)}
+      </td>
+      <td className="px-3 py-1 text-right font-mono text-mute">{o.processCount}</td>
+    </tr>
   )
 }
 
@@ -177,6 +205,30 @@ export default function DiagnosticsSettings(): React.JSX.Element {
           />
         </div>
       </SettingsSection>
+
+      {snap.objects.length > 0 && (
+        <SettingsSection
+          title="Argus objects"
+          subtitle="Every process attributed to the driver, connector, or window that owns it. These rows always sum to the footprint above."
+        >
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-mute">
+                <th className="px-3 py-1">Object</th>
+                <th className="px-3 py-1 text-right">CPU</th>
+                <th className="px-3 py-1 text-right">Memory</th>
+                <th className="px-3 py-1 text-right">Uptime</th>
+                <th className="px-3 py-1 text-right">Procs</th>
+              </tr>
+            </thead>
+            <tbody>
+              {snap.objects.map((o) => (
+                <ObjectRow key={o.id} o={o} />
+              ))}
+            </tbody>
+          </table>
+        </SettingsSection>
+      )}
 
       <SettingsSection
         title="Process tree"
