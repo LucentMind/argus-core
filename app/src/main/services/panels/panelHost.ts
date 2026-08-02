@@ -201,6 +201,21 @@ export class PanelHost {
     return null
   }
 
+  /**
+   * The title of the panel owning `webContentsId`, or null if it is not a panel.
+   *
+   * Diagnostics uses this to tell a panel's renderer process apart from a
+   * window's. Deliberately a named method rather than reusing
+   * bridgeForWebContents as an is-this-a-panel probe — the intent should be
+   * legible at the call site.
+   */
+  titleForWebContents(webContentsId: number): string | null {
+    for (const p of this.panels.values()) {
+      if (p.view.webContentsId === webContentsId) return p.input.title
+    }
+    return null
+  }
+
   /** Send a command to an open panel and await its reply; closed panel ⇒ structured error. */
   dispatchToPanel(key: PanelKey, cmd: string, args: unknown[]): Promise<PanelDispatchResult> {
     const p = this.panels.get(panelKeyStr(key))

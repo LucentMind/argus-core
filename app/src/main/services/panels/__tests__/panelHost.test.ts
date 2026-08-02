@@ -181,6 +181,12 @@ describe('PanelHost lifecycle', () => {
     expect(host.bridgeForWebContents(999)).toBeNull()
   })
 
+  it('titleForWebContents names the owning panel (null for unknown ids)', () => {
+    host.open(input())
+    expect(host.titleForWebContents(factory.created[0].webContentsId)).toBe('Text Viewer')
+    expect(host.titleForWebContents(999)).toBeNull()
+  })
+
   it('setBounds/setVisible forward to the keyed view', () => {
     host.open(input())
     host.setBounds(key(), { x: 10, y: 20, width: 300, height: 400 })

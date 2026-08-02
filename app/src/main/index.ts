@@ -1,4 +1,13 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, safeStorage, protocol } from 'electron'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  safeStorage,
+  protocol,
+  webContents
+} from 'electron'
 import fs from 'node:fs'
 import path, { join } from 'node:path'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
@@ -293,6 +302,11 @@ import {
 import { SidecarClient, createDisabledSidecarClient } from './services/diagnostics/sidecarClient'
 import { createElectronSidecarSpawner } from './services/diagnostics/spawner'
 import { resolveSidecarBinary } from './services/diagnostics/sidecarBinary'
+import {
+  stdioConnectorCommands,
+  type ConnectorCommand,
+  type WindowDescriptor
+} from './services/diagnostics/labels'
 
 let agentService: AgentService | null = null
 let providerStatusService: ProviderStatusService | null = null
@@ -323,6 +337,59 @@ let draftStore: DraftStore | null = null
 // before the editor renderer is force-closed.
 let flushTabs: (() => void) | null = null
 let panelHost: PanelHost | null = null
+/**
+ * DiagnosticsService is constructed long before ConnectorRegistry exists, and its
+ * getter is called from the sidecar's stdout handler — which can fire before the
+ * `const connectorRegistry` initializer has run. Closing over the const directly
+ * would be a temporal-dead-zone ReferenceError on an unlucky first sample, so
+ * route through a mutable ref that starts out empty. Same forward-ref shape the
+ * panel write sink uses for AgentService.
+ */
+let connectorCommandsRef: () => ConnectorCommand[] = () => []
+
+/**
+ * Window and panel identities for tier-B diagnostics labels.
+ *
+ * Runs on the sidecar's stdout 'data' handler, so it must not throw: a wedged
+ * or half-torn-down window degrades the labels, never the app. getOSProcessId()
+ * throws on a destroyed webContents, which is the one call known to do so.
+ *
+ * Assumes the editor window is the only BrowserWindow besides the main one
+ * (index.ts holds exactly `mainWindow` and `editorWindowService`); floated
+ * panels are caught by the panel check first, since PanelView.webContentsId
+ * survives popOut. A third window kind would need this revisited.
+ */
+function collectWindowDescriptors(): WindowDescriptor[] {
+  const out: WindowDescriptor[] = []
+  try {
+    const mainId = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.id : null
+    for (const wc of webContents.getAllWebContents()) {
+      if (wc.isDestroyed()) continue
+      let osPid: number
+      try {
+        osPid = wc.getOSProcessId()
+      } catch {
+        continue
+      }
+      if (osPid <= 0) continue
+
+      const panelTitle = panelHost?.titleForWebContents(wc.id) ?? null
+      if (panelTitle !== null) {
+        out.push({ osPid, kind: 'panel', title: panelTitle })
+        continue
+      }
+      if (mainId !== null && wc.id === mainId) {
+        out.push({ osPid, kind: 'main-window' })
+        continue
+      }
+      if (BrowserWindow.fromWebContents(wc)) out.push({ osPid, kind: 'editor-window' })
+    }
+  } catch (err) {
+    console.error('[diagnostics] failed to collect window descriptors', err)
+    return []
+  }
+  return out
+}
 let externalAppHost: ExternalAppHost | null = null
 // Module-scope like mainWindow above: registerIpc() constructs this, but createWindow()'s
 // 'closed' handler is a separate function scope and needs it too, to unsubscribe a closing
@@ -419,9 +486,8 @@ function registerIpc(): void {
           type: m.type,
           ...(m.serviceName ? { serviceName: m.serviceName } : {})
         })),
-      // Placeholders — Task 6 replaces these with the real collectors.
-      getWindowDescriptors: () => [],
-      getConnectorCommands: () => []
+      getWindowDescriptors: collectWindowDescriptors,
+      getConnectorCommands: () => connectorCommandsRef()
     })
   })()
 
@@ -635,6 +701,8 @@ function registerIpc(): void {
   buildExporter()
 
   const connectorRegistry = new ConnectorRegistry(argusHome)
+  // Late-bound: diagnostics was constructed above, before this registry existed.
+  connectorCommandsRef = () => stdioConnectorCommands(connectorRegistry.get())
   const toolRiskStore = new ToolRiskStore(argusHome)
   const agentAccessStore = new AgentAccessStore(argusHome)
   const refSyncStore = new ReferenceSyncStore(argusHome)
