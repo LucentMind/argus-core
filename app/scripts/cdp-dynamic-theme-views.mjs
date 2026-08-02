@@ -196,8 +196,19 @@ const openSettings = async (conn) => {
 }
 
 const openCase = async (conn, slug) => {
+  // Matched by TEXT, not by colour class. This used to look for `.text-defect`, which was the
+  // case id's colour until it went back to signal-blue (`fix(header): restore case-id
+  // signal-blue color lost in the rebase`) — after which the selector silently matched nothing
+  // and this gate died at "timed out waiting for case view" for reasons that had nothing to do
+  // with the dynamic theme. A card's id is the only leaf whose text IS the slug; that is stable
+  // in a way its palette is not.
+  // `:not(header *)` is load-bearing, not tidiness: once a case has been opened it also appears
+  // in the bar's recent-tabs strip, whose tab is ALSO a `.group` wrapping a leaf with exactly
+  // this text. Unscoped, the second run of this gate clicks the tab instead of the card — and
+  // since the tab sits in the header it comes first in document order, so `find` prefers it.
   await conn.evalJs(`(() => {
-    const el = [...document.querySelectorAll('.text-defect')].find(e => e.textContent.trim() === ${JSON.stringify(slug)})
+    const el = [...document.querySelectorAll('*:not(header *)')]
+      .find(e => e.children.length === 0 && e.textContent.trim() === ${JSON.stringify(slug)})
     const card = el && el.closest('.group')
     if (!card) return false
     card.click()
@@ -297,9 +308,34 @@ async function main() {
         const voidHex = await computedVoid(conn, '[data-testid="dynamic-case"]')
         const voidRgb = hexToRgb255(voidHex)
 
+        // CONTINUITY across the canvas's bottom edge, not equality to `--void` at it.
+        //
+        // This used to sample one pixel below the canvas and require bare ground, which was
+        // right while the case band ended dead at its cutoff (`extra: 0`): the canvas stopped
+        // exactly where the page began. The band fades past its cutoff now (one canvas spans the
+        // chrome AND the view, so a tail lands on the same surface instead of being overdrawn),
+        // so the canvas's last 16px sit ON TOP of page content and that sample legitimately
+        // reads as content, not ground.
+        //
+        // What "no seam" means either way is that nothing STEPS at the boundary. Sampling just
+        // inside and just outside the edge and requiring the two to be close says exactly that,
+        // and it stays honest whether the band ends in a fade or a stop.
         const x = Math.round(canvasRect.left + canvasRect.width / 2)
-        const bandBottomPixel = await screenshotPixel(conn, x, Math.round(canvasRect.bottom + 1))
-        const bandBottomDist = dist(bandBottomPixel, voidRgb)
+        const far = await screenshotPixel(conn, x, Math.round(canvasRect.bottom - 5))
+        const near = await screenshotPixel(conn, x, Math.round(canvasRect.bottom - 1))
+        const past = await screenshotPixel(conn, x, Math.round(canvasRect.bottom + 1))
+        // A seam is a DISCONTINUITY, so measure one: compare the step ACROSS the edge against
+        // the gradient over the same distance just INSIDE it. A fade produces two similar
+        // numbers; a hard cut produces an edge step far larger than the local gradient.
+        //
+        // Equality-to-`--void` was the right check while the band ended dead at its cutoff, and
+        // a fixed tolerance was fine for it. Against a live 16px fade any fixed tolerance is
+        // arbitrary — the first version of this check failed at 9 against a tolerance of 8,
+        // which was a perfectly smooth gradient being read as a defect.
+        const localGradient = dist(far, near)
+        const edgeStep = dist(near, past)
+        const bandBottomPixel = past
+        const bandBottomDist = Math.max(0, edgeStep - localGradient)
 
         // "the scope's bottom edge": deep inside the left rail, well past the band, near the
         // very bottom of the view — must read as the same ground, no leftover glow/seam.
@@ -312,7 +348,7 @@ async function main() {
         if (bandBottomDist > TOL || scopeBottomDist > TOL) {
           fails.push({
             combo: label,
-            reason: 'seam: sampled colour does not match computed --void',
+            reason: 'seam: a hard step at the band edge, or leftover glow deep in the scope',
             voidHex,
             voidRgb,
             bandBottomPixel,
@@ -343,7 +379,11 @@ async function main() {
       () =>
         conn
           .evalJs(
-            `document.querySelector('[data-testid="dynamic-case"] header')?.getAttribute('data-tier') || null`
+            // The case's tier lives on the case GROUP in the bar. It used to be on a `<header>`
+            // inside the case scope; that header was merged into TopBar (`refactor(header):
+            // merge the case header into TopBar`) and this selector has matched nothing since,
+            // failing for a reason unrelated to the tier accent it is meant to check.
+            `document.querySelector('[data-testid="case-group"]')?.getAttribute('data-tier') || null`
           )
           .then((v) => (v === 'p1' ? v : null)),
       15000
