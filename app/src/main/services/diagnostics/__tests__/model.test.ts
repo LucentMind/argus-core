@@ -314,6 +314,50 @@ describe('buildSnapshot — object rollup', () => {
     expect(r.footprint.cpuPercent).toBeGreaterThan(0)
   })
 
+  it('derives footprint.cpuPercent from the rows even when summation order matters', () => {
+    // Every cpuTimeMs delta above (400, 200, 100) divides evenly into a dyadic
+    // cpuPercent, so summing rows-then-reduce and accumulating in the per-process
+    // loop are bit-identical there — that test would still pass if the
+    // derivation were replaced by a loop accumulator. Here the deltas (5, 5, 5,
+    // 39) over a 3000ms/4-core window land on repeating binary fractions
+    // (denominator 120 = 2^3*3*5, so any delta not a multiple of 15 is
+    // non-dyadic), so grouping by row before reducing lands on a DIFFERENT float
+    // than flattening all five processes into one running total in traversal
+    // order. Verified empirically: rows-then-reduce yields
+    // 0.45000000000000007..., a flat accumulator yields 0.45 exactly.
+    const claude = sample({
+      pid: 2,
+      ppid: 1,
+      command: '/usr/local/bin/claude',
+      cpuTimeMs: 5,
+      residentBytes: 100
+    })
+    const npx = sample({
+      pid: 3,
+      ppid: 2,
+      command: 'npx @x/server-github',
+      cpuTimeMs: 5,
+      residentBytes: 400
+    })
+    const strayA = sample({ pid: 4, ppid: 1, cpuTimeMs: 5, residentBytes: 250 })
+    const strayB = sample({ pid: 5, ppid: 1, cpuTimeMs: 39, residentBytes: 40 })
+    const samples = [ROOT, claude, npx, strayA, strayB]
+
+    const previous = new Map<string, ProcessState>(
+      samples.map((s) => [
+        identityKey(s.pid, s.startTimeMs),
+        { cpuTimeMs: 0, residentBytes: 0, sampledAtMs: 1_000 }
+      ])
+    )
+    const r = build(samples, previous, 4_000, {
+      labelSources: { windows: [], connectors: CONNECTORS }
+    })
+
+    const derivedFromRows = r.objects.reduce((t, o) => t + o.cpuPercent, 0)
+    expect(r.footprint.cpuPercent).toBe(derivedFromRows)
+    expect(r.footprint.cpuPercent).toBe(0.45000000000000007)
+  })
+
   it('sorts by memory descending and pins Unattributed last', () => {
     const small = sample({
       pid: 2,
@@ -337,9 +381,28 @@ describe('buildSnapshot — object rollup', () => {
     expect(second.objects.find((o) => o.kind === 'driver')?.id).toBe('2:1000')
   })
 
-  it('omits provider and instanceId when the label does not carry them', () => {
-    const r = build([ROOT, sample({ pid: 2, ppid: 1 })], new Map(), 2_000)
-    expect(r.objects[0].provider).toBeUndefined()
-    expect(r.objects[0].instanceId).toBeUndefined()
+  it('omits provider on an mcp row and instanceId on a driver row', () => {
+    // The mcp label carries instanceId but no provider; the driver label carries
+    // provider but no instanceId. Each is therefore the legitimate case where
+    // model.ts's conditional spread (model.ts:164-165) must OMIT the other key
+    // entirely rather than set it to `undefined` — `'k' in obj` distinguishes
+    // "key absent" from "key present with value undefined", which
+    // toBeUndefined() cannot: it passes identically for both.
+    const claude = sample({ pid: 2, ppid: 1, command: '/usr/local/bin/claude' })
+    const npx = sample({ pid: 3, ppid: 1, command: 'npx @x/server-github' })
+    const r = build([ROOT, claude, npx], new Map(), 2_000, {
+      labelSources: { windows: [], connectors: CONNECTORS }
+    })
+
+    const driver = r.objects.find((o) => o.kind === 'driver')
+    const mcp = r.objects.find((o) => o.kind === 'mcp')
+    expect(driver).toBeDefined()
+    expect(mcp).toBeDefined()
+
+    expect('instanceId' in driver!).toBe(false)
+    expect(driver).toHaveProperty('provider', 'claude-agent-sdk')
+
+    expect('provider' in mcp!).toBe(false)
+    expect(mcp).toHaveProperty('instanceId', 'github')
   })
 })
