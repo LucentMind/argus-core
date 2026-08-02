@@ -462,7 +462,7 @@ export function setCaseJira(
     // case.json is corrupt/unreadable — rebuild the rewrite base from the DB record
     // (same on-disk shape as createCase: the full record minus `id`) so title/status/
     // tags survive instead of being dropped by an empty-object fallback.
-    onDisk = { ...existing, id: undefined }
+    onDisk = { ...existing, id: undefined, phase: undefined, actionItems: undefined }
   }
   const jiraWithDeselected =
     existing.jiraDeselected.length > 0
@@ -504,7 +504,7 @@ export function setCaseJiraDeselected(
   try {
     onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
   } catch {
-    onDisk = { ...existing, id: undefined }
+    onDisk = { ...existing, id: undefined, phase: undefined, actionItems: undefined }
   }
   const jira = { ...((onDisk.jira as object) ?? {}), deselectedAttachmentIds: deselected }
   fs.writeFileSync(file, JSON.stringify({ ...onDisk, updatedAt: now, jira }, null, 2))
@@ -768,7 +768,7 @@ export async function setCaseMode(
   } catch {
     // corrupt/unreadable case.json — rebuild from the DB record (same shape as
     // createCase: full record minus id) so other fields survive.
-    onDisk = { ...existing, id: undefined }
+    onDisk = { ...existing, id: undefined, phase: undefined, actionItems: undefined }
   }
   fs.writeFileSync(file, JSON.stringify({ ...onDisk, activeMode: mode, updatedAt: now }, null, 2))
 
