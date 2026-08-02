@@ -9,14 +9,6 @@ const TITLES = {
   'SYN-5-edge': 'Synthetic edge-case pull request'
 }
 
-const STATUSES = {
-  'HMT-1-burst-token': 'analyzing',
-  'HMT-2-green': 'open',
-  'HMT-3-cancelled': 'analyzing',
-  'HMT-4-nochecks': 'open',
-  'SYN-5-edge': 'analyzing'
-}
-
 /** Every real case shares the fixture's one Jira ticket; SYN-5-edge is fabricated
  *  (no linked repo history, no real PR) and must not claim a real ticket. */
 function jiraKeyFor(slug) {
@@ -209,7 +201,7 @@ export function seedCases(ctx, { repos }) {
         `INSERT INTO cases (slug, title, jira_key, status, tags, workspaces, active_mode, created_at, updated_at)
          VALUES (?, ?, ?, ?, '[]', ?, 'review', ?, ?)`
       )
-      .run(slug, TITLES[slug], jiraKey, STATUSES[slug], JSON.stringify(workspaces), now, now)
+      .run(slug, TITLES[slug], jiraKey, 'open', JSON.stringify(workspaces), now, now)
     const caseId = ctx.db.prepare('SELECT id FROM cases WHERE slug = ?').get(slug).id
     caseIds[slug] = caseId
 
@@ -350,6 +342,30 @@ export function seedCases(ctx, { repos }) {
   return { caseIds, sessionIds }
 }
 
+/**
+ * Mirror of `pinCasePhase` in `app/src/main/services/caseService.ts` (same "seed can't
+ * import a .ts module" constraint as `CASE_WORKING_RULES` above). `rca-drafted` is the one
+ * derived phase with no artifact of its own — everything else in shared/casePhase.ts falls
+ * out of session/finding/PR-binding timestamps that seedCases/seedFindings/seedPrs already
+ * write, so without this call it is never exercised by the fixture at all.
+ *
+ * A pin competes on `phase_pinned_at` against every other signal (see casePhase.ts), so this
+ * must run after seedPrs — the pull-request binding it would otherwise lose to.
+ */
+export function pinCasePhase(ctx, { slug, pin }) {
+  const now = ctx.nowIso()
+  ctx.db
+    .prepare(`UPDATE cases SET phase_pin = ?, phase_pinned_at = ?, updated_at = ? WHERE slug = ?`)
+    .run(pin, now, now, slug)
+  const file = path.join(ctx.caseDir(slug), 'case.json')
+  const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'))
+  fs.writeFileSync(
+    file,
+    `${JSON.stringify({ ...onDisk, phasePin: pin, phasePinnedAt: now, updatedAt: now }, null, 2)}\n`,
+    'utf8'
+  )
+}
+
 /** Mirror of the DB record the app writes on every case update. */
 function writeCaseJson(ctx, slug, { jiraKey, workspaces, now }) {
   const doc = {
@@ -364,7 +380,7 @@ function writeCaseJson(ctx, slug, { jiraKey, workspaces, now }) {
     jiraAttachmentIds: [],
     reviewBaseline: null,
     lastSyncError: null,
-    status: STATUSES[slug],
+    status: 'open',
     resolution: null,
     activeMode: 'review',
     tags: [],

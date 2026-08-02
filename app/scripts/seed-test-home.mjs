@@ -38,7 +38,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { createCtx } from './seed/ctx.mjs'
 import { seedRepos } from './seed/repo.mjs'
-import { seedCases } from './seed/cases.mjs'
+import { seedCases, pinCasePhase } from './seed/cases.mjs'
 import { buildFlagshipFindings, buildThinFindings, seedFindings } from './seed/findings.mjs'
 import { seedPrs } from './seed/prs.mjs'
 import { seedFiles } from './seed/files.mjs'
@@ -249,6 +249,11 @@ const prs = seedPrs(ctx, { caseIds, repoDir: repos.hmtDir })
 const files = await seedFiles(ctx)
 const knowledge = seedKnowledge(ctx, { repos })
 const distill = seedDistill(ctx)
+
+// Must run after seedPrs: a phase pin only wins the derived-phase race (shared/casePhase.ts)
+// against signals timestamped before it. This is the only case that exercises 'rca-drafted' —
+// every other case's phase is whatever its session/finding/PR-binding timestamps derive to.
+pinCasePhase(ctx, { slug: 'HMT-3-cancelled', pin: 'rca-drafted' })
 
 verify()
 

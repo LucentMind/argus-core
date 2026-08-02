@@ -39,8 +39,11 @@ if (!fs.existsSync(dbPath)) {
   process.exit(1)
 }
 
+// Third column is CaseStatus ('open' | 'closed' — see src/shared/types.ts); everything except
+// the one 'closed' entry below is arbitrary filler, since this gate asserts priority glyphs,
+// the closed-toggle and title clamp, never the derived phase.
 const CASES = [
-  ['NAV-101-heading-drift', 'Heading drifts after tunnel exit', 'Highest', 'analyzing'],
+  ['NAV-101-heading-drift', 'Heading drifts after tunnel exit', 'Highest', 'open'],
   ['NAV-102-route-missing', 'Route disappears when rerouting mid-manoeuvre', 'High', 'open'],
   [
     'NAV-103-stopover-early',
@@ -48,7 +51,7 @@ const CASES = [
     'Medium',
     'open'
   ],
-  ['HMT-104-map-tiles', 'Map tiles load slowly on cold start', 'Low', 'rca-drafted'],
+  ['HMT-104-map-tiles', 'Map tiles load slowly on cold start', 'Low', 'open'],
   ['HMT-105-toast-copy', 'Toast copy is truncated in German', 'Lowest', 'open'],
   ['HMT-106-burst-token', 'Burst token refresh races the session restore', 'Escalated', 'open'],
   ['HMT-107-no-priority', 'Unlinked case with no Jira priority', null, 'open'],
