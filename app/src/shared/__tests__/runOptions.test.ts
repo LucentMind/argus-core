@@ -89,6 +89,50 @@ describe('descriptorsFor', () => {
     }
   })
 
+  // A model pinned AT the [1m] suffix has no 200k position: `apiModelId` cannot strip a suffix
+  // the slug already carries, so the choice was inert — it rendered as the default and the
+  // selected value while every send went out at 1M. The CLI's `opus[1m]` alias row is the case
+  // that made this reachable in the picker; a hand-added custom `claude-sonnet-5[1m]` is the
+  // other. Keyed off the MODEL, not the row: a session pinned to `claude-fable-5[1m]` resolves
+  // to the bare `fable` row, and would otherwise keep an inert 200k too.
+  describe('a model pinned at the 1M suffix', () => {
+    it('offers 1M alone, as the default', () => {
+      const d = descriptorsFor(FABLE, 'claude-fable-5[1m]').find((x) => x.id === 'contextWindow')
+      expect(d?.type).toBe('select')
+      if (d?.type === 'select') {
+        expect(d.options).toEqual([{ value: '1m', label: '1M', isDefault: true }])
+      }
+    })
+
+    it('applies to the CLI alias row whose own value carries the suffix', () => {
+      const opusAlias: ModelOptionInfo = {
+        value: 'opus[1m]',
+        resolvedModel: 'claude-opus-5[1m]',
+        displayName: 'Opus (1M context)',
+        supportsEffort: true,
+        supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max']
+      }
+      const d = descriptorsFor(opusAlias, 'opus[1m]').find((x) => x.id === 'contextWindow')
+      if (d?.type === 'select') expect(d.options.map((o) => o.value)).toEqual(['1m'])
+    })
+
+    it('resolves a stored 200k to 1M rather than reporting a window that is not in use', () => {
+      const d = descriptorsFor(FABLE, 'claude-fable-5[1m]').find((x) => x.id === 'contextWindow')!
+      expect(selectionValue(d, [{ id: 'contextWindow', value: '200k' }])).toBe('1m')
+      expect(selectionLabel(d, [{ id: 'contextWindow', value: '200k' }])).toBe('1M')
+      // and nothing is persisted, since the only value equals the default
+      expect(pruneSelections([d], [{ id: 'contextWindow', value: '1m' }])).toEqual([])
+    })
+
+    it('leaves the bare slug alone — that one really can choose', () => {
+      const d = descriptorsFor(FABLE, 'claude-fable-5').find((x) => x.id === 'contextWindow')
+      if (d?.type === 'select') expect(d.options.map((o) => o.value)).toEqual(['200k', '1m'])
+      // omitting the model entirely is the same as a bare one, so old call sites are unaffected
+      const noModel = descriptorsFor(FABLE).find((x) => x.id === 'contextWindow')
+      expect(noModel).toEqual(d)
+    })
+  })
+
   it('defaults effort to the first level when high is not available', () => {
     const noHigh = { ...FABLE, supportedEffortLevels: ['low', 'medium', 'xhigh', 'max'] }
     const effort = descriptorsFor(noHigh).find((d) => d.id === 'effort')

@@ -42,7 +42,10 @@ export function buildRunOptionQueryFields(
   runOptions: readonly RunOptionSelection[],
   permissionMode: PermissionMode
 ): RunOptionQueryFields {
-  const ds = info ? descriptorsFor(info) : []
+  // `model` is threaded into descriptorsFor for the same reason the Composer threads it: a slug
+  // already carrying `[1m]` offers no 200k position, and if the two sides disagreed about that
+  // the composer would show a choice this function then ignores.
+  const ds = info ? descriptorsFor(info, model) : []
   const effortDescriptor = ds.find((d) => d.id === 'effort')
   const ctxDescriptor = ds.find((d) => d.id === 'contextWindow')
 

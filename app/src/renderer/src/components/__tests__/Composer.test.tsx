@@ -162,9 +162,13 @@ describe('Composer', () => {
     const items = within(menu)
       .getAllByRole('menuitem')
       .map((el) => el.textContent)
-    // the full static catalog is offered, unchanged — no catalog-only row leaked in
+    // the full static catalog is offered, unchanged — no catalog-only row leaked in.
+    // Opus 5 is in it, second: the CLI's recommended default used to be unreachable until the
+    // catalog landed (and entirely unreachable offline), while row 0 stays Fable 5 so
+    // `defaultModelRef` keeps seeding new chats with the same model as before.
     expect(items).toEqual([
       'Claude Fable 5',
+      'Claude Opus 5',
       'Claude Opus 4.8',
       'Claude Opus 4.7',
       'Claude Sonnet 5',
@@ -173,7 +177,7 @@ describe('Composer', () => {
     ])
   })
 
-  it("the runtime catalog supersedes the static list for the session's instance, surfacing a model the static list lacks", async () => {
+  it("the runtime catalog leads the session's instance list, surfacing a model the static list lacks — without deleting the built-ins", async () => {
     window.argus.models.catalog = vi.fn(async (instanceId: string) => {
       expect(instanceId).toBe('claude-default')
       return [
@@ -211,8 +215,14 @@ describe('Composer', () => {
     const items = within(menu)
       .getAllByRole('menuitem')
       .map((el) => el.textContent)
-    // for this single enabled instance, the runtime catalog rows replace the static list
-    expect(items).toEqual(['Claude Opus 5 (1M)'])
+    // The catalog row leads — but the built-ins it does not name stay selectable. Measured
+    // against the real CLI: `supportedModels()` omits Opus 4.8/4.7 and Sonnet 4.6, yet each
+    // completes a real turn, so a catalog that replaced this list deleted three usable models
+    // from the picker a few seconds after launch. See `mergeBuiltinRows`.
+    expect(items[0]).toBe('Claude Opus 5 (1M)')
+    expect(items).toContain('Claude Opus 4.7')
+    expect(items).toContain('Claude Opus 4.8')
+    expect(items).toContain('Claude Sonnet 4.6')
     fireEvent.click(screen.getByRole('menuitem', { name: 'Claude Opus 5 (1M)' }))
     // and the catalog-only row still carries the SESSION's own instance identity
     expect(onModelChange).toHaveBeenCalledWith('claude-default', 'opus[1m]')
@@ -307,18 +317,31 @@ describe('Composer', () => {
     expect(screen.getByTitle('Traits')).toBeInTheDocument()
   })
 
-  it('names a pinned model the catalog no longer offers instead of showing models[0]', async () => {
+  it('names a pinned model nothing offers instead of showing models[0]', async () => {
+    window.argus.models.catalog = vi.fn(async () => CLI_CATALOG as ModelOptionInfo[])
+    render(
+      <Composer disabled={false} onSend={vi.fn()} session={pinnedToStaticSlug('claude-opus-4-1')} />
+    )
+    // Neither the runtime catalog nor the built-in table names this one — and `catalogFor` in
+    // the main process likewise resolves nothing, so no run option would reach the wire. The
+    // chip must say what the chat is actually pinned to rather than borrow another row's name,
+    // and the option chips must be absent, matching what a send would really do.
+    expect(await screen.findByText('claude-opus-4-1')).toBeInTheDocument()
+    expect(screen.queryByText('Default (recommended)')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Traits')).not.toBeInTheDocument()
+  })
+
+  // The other half of that rule, and the reason this fix has a renderer test at all: a built-in
+  // the CLI still runs but does not list must resolve to a real row WITH its options. Measured
+  // 2026-08-02 — claude-opus-4-8 completes a turn, takes --effort and the [1m] suffix, and is
+  // the one model of the three that also reports fast mode.
+  it('keeps options on a built-in the runtime catalog omits', async () => {
     window.argus.models.catalog = vi.fn(async () => CLI_CATALOG as ModelOptionInfo[])
     render(
       <Composer disabled={false} onSend={vi.fn()} session={pinnedToStaticSlug('claude-opus-4-8')} />
     )
-    // The CLI dropped this model, so there is no row for it — and `catalogFor` in the main
-    // process likewise resolves nothing, so no run option would reach the wire. The chip must
-    // say what the chat is actually pinned to rather than borrow another row's name, and the
-    // option chips must be absent, matching what a send would really do.
     expect(await screen.findByText('Claude Opus 4.8')).toBeInTheDocument()
-    expect(screen.queryByText('Default (recommended)')).not.toBeInTheDocument()
-    expect(screen.queryByTitle('Traits')).not.toBeInTheDocument()
+    expect(screen.getByTitle('Traits')).toBeInTheDocument()
   })
 
   // ── I2 regression: substituting catalog rows used to discard model preferences ──────────
@@ -438,6 +461,7 @@ describe('Composer', () => {
     expect(items).toEqual([
       'Claude Sonnet 5',
       'Claude Fable 5',
+      'Claude Opus 5',
       'Claude Opus 4.8',
       'Claude Opus 4.7',
       'Claude Sonnet 4.6'

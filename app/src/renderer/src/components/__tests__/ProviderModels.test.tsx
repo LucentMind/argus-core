@@ -32,7 +32,7 @@ beforeEach(() => {
 describe('ProviderModels', () => {
   it('renders the built-in catalog with a count header', () => {
     render(<ProviderModels settings={settings()} instanceId="claude-default" />)
-    expect(screen.getByText('Models · 6 available')).toBeTruthy()
+    expect(screen.getByText('Models · 7 available')).toBeTruthy()
     expect(screen.getByText('Claude Fable 5')).toBeTruthy()
     expect(screen.getByText('Claude Haiku 4.5')).toBeTruthy()
   })
@@ -108,8 +108,9 @@ describe('ProviderModels', () => {
             hiddenModels: [],
             favoriteModels: [],
             modelOrder: [
-              'claude-opus-4-8',
+              'claude-opus-5',
               'claude-fable-5',
+              'claude-opus-4-8',
               'claude-opus-4-7',
               'claude-sonnet-5',
               'claude-sonnet-4-6',
@@ -196,22 +197,29 @@ describe('ProviderModels', () => {
   })
 })
 
-// ── Change 3: the runtime catalog, not the static six-model list, for a Claude instance ────
+// ── Change 3: the runtime catalog, merged into the static list, for a Claude instance ──────
 //
 // Before this the panel always rendered `instanceModels`/`orderedModels` — the driver's
 // static `CLAUDE_MODELS` catalog — even once a live catalog had loaded elsewhere in the app,
 // so Settings and the composer's model chip could name entirely different sets of models
-// (Opus 4.8/4.7, which the CLI no longer offers, and no Opus 5 at all).
+// (no Opus 5 here at all). It then briefly went the other way, substituting the catalog and
+// dropping the built-ins it omits; measured 2026-08-02, those are still real models the CLI
+// runs, so the panel now shows the union — and must show the SAME set the picker does, or
+// there is a model the user can select but cannot hide, favourite or reorder.
 describe('ProviderModels runtime catalog (Claude instance)', () => {
   it('renders the same recognisable, deduped names the composer picker uses once the catalog loads', async () => {
     window.argus.models.catalog = vi.fn(async () => CLI_CATALOG as ModelOptionInfo[])
     render(<ProviderModels settings={settings()} instanceId="claude-default" />)
-    // 5 fixture rows, `default`/`opus[1m]` deduped to one -> 4
-    expect(await screen.findByText('Models · 4 available')).toBeTruthy()
+    // 5 fixture rows, `default`/`opus[1m]` deduped to one -> 4, plus the 3 built-ins the
+    // fixture's alias menu never names (fable/sonnet/haiku already cover their built-ins)
+    expect(await screen.findByText('Models · 7 available')).toBeTruthy()
     expect(screen.getByText('Claude Opus 5 (1M)')).toBeTruthy()
     expect(screen.getByText('Claude Fable 5')).toBeTruthy()
     expect(screen.getByText('Claude Sonnet 5')).toBeTruthy()
     expect(screen.getByText('Claude Haiku 4.5')).toBeTruthy()
+    expect(screen.getByText('Claude Opus 4.8')).toBeTruthy()
+    expect(screen.getByText('Claude Opus 4.7')).toBeTruthy()
+    expect(screen.getByText('Claude Sonnet 4.6')).toBeTruthy()
     // the terse CLI aliases must not leak into this panel either
     expect(screen.queryByText('Default (recommended)')).toBeNull()
     expect(screen.queryByText('Opus (1M context)')).toBeNull()

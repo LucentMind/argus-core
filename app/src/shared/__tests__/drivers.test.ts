@@ -16,10 +16,13 @@ import {
   catalogModelRows,
   defaultModelRef,
   capabilitiesFor,
+  mergeBuiltinRows,
+  resolveModelInfo,
+  type CatalogModel,
   type ClaudeDriverConfig
 } from '../drivers'
 import { settingsSchema, type AppSettings } from '../settings'
-import type { ModelOptionInfo } from '../runOptions'
+import { descriptorsFor, type ModelOptionInfo } from '../runOptions'
 // The real captured CLI catalog — same fixture modelIdentity.test.ts pins the resolver
 // against, so this test proves the fix end-to-end against real data, not a hand-written
 // approximation that could accidentally agree with a broken resolver.
@@ -27,6 +30,9 @@ import CLI_CATALOG from '../../main/services/agent/drivers/claude/__fixtures__/m
 
 const CATALOG_ORDER = [
   'claude-fable-5',
+  // Second, not first: row 0 seeds every new chat (`defaultModelRef`), so Opus 5 sits after
+  // Fable to leave that default alone.
+  'claude-opus-5',
   'claude-opus-4-8',
   'claude-opus-4-7',
   'claude-sonnet-5',
@@ -449,12 +455,19 @@ describe('allVisibleModels', () => {
 // the model picker is how the user switches provider, so one instance's catalog silently
 // hiding the rest was the regression this override shape fixes.
 describe('allVisibleModels rowOverrides', () => {
-  it('substitutes rows for the overridden instance only — other enabled instances are untouched', () => {
+  it('applies rows to the overridden instance only — other enabled instances are untouched', () => {
     const models = allVisibleModels(multi(), {
       'claude-default': [{ slug: 'claude-opus-5', name: 'Claude Opus 5' }]
     })
     const claude = models.filter((m) => m.instanceId === 'claude-default')
-    expect(claude.map((m) => m.slug)).toEqual(['claude-opus-5'])
+    // The override leads; the built-ins it does not name follow it rather than being replaced
+    // by it (see `mergeBuiltinRows` — this used to assert `['claude-opus-5']` alone, which is
+    // the substitution that deleted three usable models from the picker). The one built-in the
+    // override DOES name is deduped away rather than listed twice.
+    expect(claude.map((m) => m.slug)).toEqual([
+      'claude-opus-5',
+      ...CATALOG_ORDER.filter((s) => s !== 'claude-opus-5')
+    ])
     // requirement 2: identity fields come from the per-instance map entry, not borrowed
     expect(claude[0]).toMatchObject({
       instanceId: 'claude-default',
@@ -468,10 +481,10 @@ describe('allVisibleModels rowOverrides', () => {
 
   it('a catalog-only slug absent from the static list still gets correct per-instance identity', () => {
     const models = allVisibleModels(multi(), {
-      'claude-default': [{ slug: 'claude-opus-5', name: 'Claude Opus 5' }]
+      'claude-default': [{ slug: 'claude-fable-6', name: 'Claude Fable 6' }]
     })
-    expect(CATALOG_ORDER).not.toContain('claude-opus-5')
-    const opus5 = models.find((m) => m.slug === 'claude-opus-5')
+    expect(CATALOG_ORDER).not.toContain('claude-fable-6')
+    const opus5 = models.find((m) => m.slug === 'claude-fable-6')
     expect(opus5).toMatchObject({
       instanceId: 'claude-default',
       driverKind: 'claude-agent-sdk',
@@ -541,6 +554,124 @@ describe('allVisibleModels rowOverrides', () => {
     expect(liveRows.some((m) => m.slug === 'haiku')).toBe(true) // sanity: the row is really there
     const models = allVisibleModels(s, { 'claude-default': liveRows })
     expect(models.some((m) => m.slug === 'haiku')).toBe(false)
+  })
+})
+
+// ── the union: a loaded catalog must not DELETE built-ins the CLI still runs ─────
+//
+// Measured 2026-08-02 against the bundled CLI 2.1.220 (the same version this fixture was
+// captured from): `supportedModels()` lists five alias rows, but `claude-opus-4-8`,
+// `claude-opus-4-7` and `claude-sonnet-4-6` each complete a real turn with `modelUsage` keyed
+// by the exact slug requested, while a bogus slug fails with `model_not_found` / HTTP 404. The
+// catalog is the CLI's recommended-alias MENU, not the set of models it accepts — so it merges
+// with the built-ins rather than replacing them. Substitution used to drop those three from the
+// picker a few seconds after launch: six models, then four.
+describe('allVisibleModels rowOverrides — union with built-ins', () => {
+  const liveRows = (): CatalogModel[] => catalogModelRows(CLI_CATALOG as ModelOptionInfo[])
+  const claudeSlugs = (rows = liveRows()): string[] =>
+    allVisibleModels(multi(), { 'claude-default': rows })
+      .filter((m) => m.instanceId === 'claude-default')
+      .map((m) => m.slug)
+
+  it('keeps the built-ins the runtime catalog omits', () => {
+    const slugs = claudeSlugs()
+    expect(slugs).toContain('claude-opus-4-8')
+    expect(slugs).toContain('claude-opus-4-7')
+    expect(slugs).toContain('claude-sonnet-4-6')
+  })
+
+  it('does not list a built-in the catalog already names — by alias or by dated resolvedModel', () => {
+    const slugs = claudeSlugs()
+    // `fable` / `sonnet` cover these exactly; `haiku` covers claude-haiku-4-5 only via the
+    // -20251001 date-suffix rule, which is the case a naive equality check would miss.
+    expect(slugs).not.toContain('claude-fable-5')
+    expect(slugs).not.toContain('claude-sonnet-5')
+    expect(slugs).not.toContain('claude-haiku-4-5')
+    expect(slugs.filter((s) => s === 'haiku')).toHaveLength(1)
+  })
+
+  it('orders live catalog rows first, then the built-ins they did not name', () => {
+    const slugs = claudeSlugs()
+    const lastCatalog = Math.max(...liveRows().map((r) => slugs.indexOf(r.slug)))
+    const firstBuiltin = slugs.indexOf('claude-opus-4-8')
+    expect(firstBuiltin).toBeGreaterThan(lastCatalog)
+  })
+
+  it('a [1m] catalog row covers its bare built-in slug — one model, not two rows', () => {
+    // The context window is a run option ON the row, so `claude-opus-5[1m]` and a built-in
+    // `claude-opus-5` would be the same picker entry twice. Deliberately unlike the custom-model
+    // rule, where an explicit [1m] the user typed stays distinct.
+    const merged = mergeBuiltinRows(
+      [{ slug: 'opus[1m]', name: 'Claude Opus 5 (1M)', resolvedModel: 'claude-opus-5[1m]' }],
+      [{ slug: 'claude-opus-5', name: 'Claude Opus 5' }]
+    )
+    expect(merged.map((m) => m.slug)).toEqual(['opus[1m]'])
+  })
+
+  it('still applies that instance’s hide/favourite preferences to merged-in built-ins', () => {
+    const s = settingsSchema.parse({
+      agent: {
+        activeInstanceId: 'claude-default',
+        providerInstances: {
+          'claude-default': { driver: 'claude-agent-sdk', enabled: true, config: {} }
+        },
+        modelPreferences: {
+          'claude-default': {
+            hiddenModels: ['claude-opus-4-7'],
+            favoriteModels: ['claude-sonnet-4-6'],
+            modelOrder: []
+          }
+        }
+      }
+    })
+    const slugs = allVisibleModels(s, { 'claude-default': liveRows() }).map((m) => m.slug)
+    expect(slugs).not.toContain('claude-opus-4-7')
+    expect(slugs[0]).toBe('claude-sonnet-4-6')
+  })
+
+  it('leaves a non-Claude instance’s override alone — it unions with ITS driver’s built-ins', () => {
+    const models = allVisibleModels(multi(), { 'copilot-1': [{ slug: 'auto', name: 'Auto' }] })
+    expect(models.filter((m) => m.instanceId === 'copilot-1').map((m) => m.slug)).toEqual(['auto'])
+  })
+})
+
+// Descriptors for a merged-in built-in have to come from somewhere: the CLI's alias menu never
+// mentions Opus 4.8/4.7 or Sonnet 4.6, so without a static capability table they would arrive in
+// the picker with no run options at all. Flags below are measured, one probe turn each.
+describe('resolveModelInfo', () => {
+  const catalog = CLI_CATALOG as ModelOptionInfo[]
+
+  it('prefers the live catalog row when one names the model', () => {
+    expect(resolveModelInfo(catalog, 'claude-fable-5')?.value).toBe('fable')
+    expect(resolveModelInfo(catalog, 'opus[1m]')?.resolvedModel).toBe('claude-opus-5[1m]')
+  })
+
+  it('falls back to the built-in row for a model the catalog omits', () => {
+    const info = resolveModelInfo(catalog, 'claude-opus-4-7')
+    expect(info?.displayName).toBe('Claude Opus 4.7')
+    // measured: --effort xhigh ran, and the [1m] suffix came back as modelUsage
+    // "claude-opus-4-7[1m]" — descriptorsFor derives the context-window control from this flag
+    expect(descriptorsFor(info!).map((d) => d.id)).toEqual(
+      expect.arrayContaining(['effort', 'contextWindow'])
+    )
+  })
+
+  it('reports fast mode exactly where the API accepts it', () => {
+    // opus-4-8 → fast_mode_state "on"; opus-4-7 → API 400 "does not support the `speed`
+    // parameter"; sonnet-4-6 → accepted but stayed "off", i.e. silently ignored, which is not
+    // support and must not surface a toggle.
+    expect(resolveModelInfo(catalog, 'claude-opus-4-8')?.supportsFastMode).toBe(true)
+    expect(resolveModelInfo(catalog, 'claude-opus-4-7')?.supportsFastMode).toBeFalsy()
+    expect(resolveModelInfo(catalog, 'claude-sonnet-4-6')?.supportsFastMode).toBeFalsy()
+  })
+
+  it('gives Haiku no options — it reports no effort levels', () => {
+    expect(descriptorsFor(resolveModelInfo([], 'claude-haiku-4-5')!)).toEqual([])
+  })
+
+  it('is null for a model nothing names', () => {
+    expect(resolveModelInfo(catalog, 'gpt-5.4')).toBeNull()
+    expect(resolveModelInfo(catalog, undefined)).toBeNull()
   })
 })
 

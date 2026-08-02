@@ -119,15 +119,88 @@ export type AgentDriverConfig = z.infer<typeof agentConfigSchema>
 /** @deprecated use `AgentDriverConfig` — kept so pre-Task-8 call sites still compile. */
 export type ClaudeDriverConfig = AgentDriverConfig
 
-/** Static built-in catalog (t3code BUILT_IN_MODELS) — unconditional, not user-editable. */
-const CLAUDE_MODELS: readonly CatalogModel[] = [
-  { slug: 'claude-fable-5', name: 'Claude Fable 5' },
-  { slug: 'claude-opus-4-8', name: 'Claude Opus 4.8' },
-  { slug: 'claude-opus-4-7', name: 'Claude Opus 4.7' },
-  { slug: 'claude-sonnet-5', name: 'Claude Sonnet 5' },
-  { slug: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
+const ALL_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+
+/** A built-in model: its picker identity plus the option capabilities the CLI does not
+ *  report for it. Fields mirror `ModelOptionInfo`'s optional flags. */
+interface ClaudeModelSpec {
+  slug: string
+  name: string
+  /** Reports effort levels — and therefore accepts the `[1m]` slug suffix, which
+   *  `descriptorsFor` derives from this same flag (see its comment). */
+  effort?: boolean
+  adaptiveThinking?: boolean
+  fastMode?: boolean
+}
+
+/**
+ * Static built-in catalog (t3code BUILT_IN_MODELS) — unconditional, not user-editable.
+ *
+ * **This is NOT a mirror of `supportedModels()` and must not be pruned to match it.** Measured
+ * 2026-08-02 against the bundled CLI 2.1.220: the runtime catalog reports five alias rows
+ * (`default`/`opus[1m]`/`fable`/`sonnet`/`haiku`), yet `claude-opus-4-8`, `claude-opus-4-7` and
+ * `claude-sonnet-4-6` each complete a real turn with `modelUsage` keyed by the exact slug
+ * requested, while a bogus slug fails outright (`error: "model_not_found"`, HTTP 404). The
+ * difference is real: `supportedModels()` is the CLI's RECOMMENDED-ALIAS MENU, not the set of
+ * models it accepts. Treating it as exhaustive is what used to delete three usable models from
+ * the picker a few seconds after launch — see {@link mergeBuiltinRows}.
+ *
+ * Capability flags are measured the same way, one probe turn per (model, option):
+ * every model here except Haiku accepts `--effort` and the `[1m]` suffix (`modelUsage` came
+ * back keyed `claude-opus-4-7[1m]` etc.). Fast mode is the one that discriminates:
+ * `claude-opus-4-8` returns `fast_mode_state: "on"`, `claude-opus-4-7` is rejected outright
+ * (API 400, "does not support the `speed` parameter"), and `claude-sonnet-4-6` is accepted but
+ * stays `"off"` — silently ignored, so it is NOT support and the toggle must not be offered.
+ */
+const CLAUDE_MODEL_SPECS: readonly ClaudeModelSpec[] = [
+  { slug: 'claude-fable-5', name: 'Claude Fable 5', effort: true, adaptiveThinking: true },
+  // Deliberately NOT first: row 0 is what `defaultModelRef` seeds a new chat with, and moving
+  // Opus 5 there would silently change every new chat's model.
+  //
+  // Post-load this row is deduped away by the catalog's `opus[1m]` alias (one model — see
+  // `mergeBuiltinRows`), so what it buys is the offline and pre-catalog case, where Opus 5 was
+  // previously unreachable despite being the CLI's own recommended default. Measured
+  // 2026-08-02: the BARE slug runs (`modelUsage: {"claude-opus-5"}`), takes `--effort`, the
+  // `[1m]` suffix, and fast mode — so unlike the alias row, this one can be run at 200k.
+  {
+    slug: 'claude-opus-5',
+    name: 'Claude Opus 5',
+    effort: true,
+    adaptiveThinking: true,
+    fastMode: true
+  },
+  {
+    slug: 'claude-opus-4-8',
+    name: 'Claude Opus 4.8',
+    effort: true,
+    adaptiveThinking: true,
+    fastMode: true
+  },
+  { slug: 'claude-opus-4-7', name: 'Claude Opus 4.7', effort: true, adaptiveThinking: true },
+  { slug: 'claude-sonnet-5', name: 'Claude Sonnet 5', effort: true, adaptiveThinking: true },
+  { slug: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', effort: true, adaptiveThinking: true },
   { slug: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' }
 ]
+
+const CLAUDE_MODELS: readonly CatalogModel[] = CLAUDE_MODEL_SPECS.map(({ slug, name }) => ({
+  slug,
+  name
+}))
+
+/**
+ * The same built-ins as option-capability rows, keyed by wire slug.
+ *
+ * Two consumers, and they must agree or the composer offers options the wire then drops:
+ * {@link resolveModelInfo} (the renderer's descriptors and the Claude driver's `catalogFor`)
+ * and the driver's offline `STATIC_FALLBACK`.
+ */
+export const CLAUDE_MODEL_INFO: readonly ModelOptionInfo[] = CLAUDE_MODEL_SPECS.map((m) => ({
+  value: m.slug,
+  displayName: m.name,
+  ...(m.effort ? { supportsEffort: true, supportedEffortLevels: ALL_EFFORT_LEVELS } : {}),
+  ...(m.adaptiveThinking ? { supportsAdaptiveThinking: true } : {}),
+  ...(m.fastMode ? { supportsFastMode: true } : {})
+}))
 
 /**
  * Copilot Free tier exposes only the router (Task 7 evidence, `09-models.jsonl`):
@@ -420,10 +493,11 @@ export function allVisibleModels(
 ): AggregatedModel[] {
   return enabledInstances(s).flatMap(({ id, instance, driver }) => {
     const override = rowOverrides?.[id]
-    const rows =
-      override && override.length > 0
-        ? applyModelPreferences(s, id, [...override, ...customModelRows(s, id, override)])
-        : orderedVisibleModels(s, id)
+    const merged =
+      override && override.length > 0 ? mergeBuiltinRows(override, driver.models) : undefined
+    const rows = merged
+      ? applyModelPreferences(s, id, [...merged, ...customModelRows(s, id, merged)])
+      : orderedVisibleModels(s, id)
     return rows.map((m) => ({
       ...m,
       instanceId: id,
@@ -649,6 +723,54 @@ export function catalogModelRows(catalog: readonly ModelOptionInfo[]): CatalogMo
 }
 
 /**
+ * A runtime catalog UNIONED with the driver's built-in rows, catalog rows first.
+ *
+ * This replaced a straight substitution, which assumed `supportedModels()` was the exhaustive
+ * set of models the CLI accepts. It is not — see {@link CLAUDE_MODEL_SPECS} — so substituting
+ * deleted `claude-opus-4-8`, `claude-opus-4-7` and `claude-sonnet-4-6` from the picker a few
+ * seconds after launch, with no way back short of re-adding them by hand as custom models. The
+ * user-visible symptom was a picker that briefly showed six models and then collapsed to four.
+ *
+ * Catalog rows come FIRST because they are the live truth about names and capabilities; a
+ * built-in is appended only when no catalog row already names it.
+ *
+ * Dedupe is `modelMatches`, which strips a trailing `[1m]` on BOTH sides — deliberately unlike
+ * {@link duplicatesCatalogRow}, whose stricter rule this is not. Here both sides are rows we
+ * ship, and a catalog row resolving to `claude-opus-5[1m]` and a built-in `claude-opus-5` would
+ * be one model whose context window is already a run option, not two picker entries.
+ * `duplicatesCatalogRow` stays strict because there the other side is a slug the USER typed,
+ * where an explicit `[1m]` is a deliberate, distinct choice worth keeping.
+ */
+export function mergeBuiltinRows(
+  catalogRows: readonly CatalogModel[],
+  builtins: readonly CatalogModel[]
+): CatalogModel[] {
+  return [
+    ...catalogRows,
+    ...builtins.filter((b) => !catalogRows.some((c) => modelMatches(rowIdentity(c), b.slug)))
+  ]
+}
+
+/**
+ * The option-capability row for one model: the live catalog first, the static built-in table
+ * ({@link CLAUDE_MODEL_INFO}) as a fallback for models the catalog does not list.
+ *
+ * Both the renderer (Composer's descriptors) and the main process (the Claude driver's
+ * `catalogFor`) resolve through here, for the same reason `shared/modelIdentity.ts` exists: if
+ * they disagree, the composer offers effort/1M/fast-mode controls the wire then silently drops.
+ * Without the fallback that is exactly what a merged-in built-in would get — a picker row with
+ * no options at all, because the CLI's alias menu never mentions it.
+ */
+export function resolveModelInfo(
+  catalog: readonly ModelOptionInfo[],
+  model: string | null | undefined
+): ModelOptionInfo | null {
+  return (
+    findModelEntry(catalog, model, (m) => m) ?? findModelEntry(CLAUDE_MODEL_INFO, model, (m) => m)
+  )
+}
+
+/**
  * t3code `sortModelsForProviderInstance` ordering, ported as plain TS (no effect library):
  * favorites grouped first, then explicit modelOrder rank, then original catalog order — all stable.
  */
@@ -752,10 +874,12 @@ export function modelsForSettingsPanel(
   builtinRows?: readonly CatalogModel[]
 ): { models: CatalogModel[]; prefs: ModelPreferences; builtins: readonly CatalogModel[] } {
   const inst = s.agent.providerInstances[instanceId]
+  const staticRows = getDriver(inst?.driver ?? '')?.models ?? []
+  // Unioned, not substituted, for the same reason the Composer's picker is (see
+  // `mergeBuiltinRows`) — and it has to be the same rule in both places, or a model the picker
+  // offers would have no row in Settings to hide, favourite or reorder it by.
   const builtins =
-    builtinRows && builtinRows.length > 0
-      ? builtinRows
-      : (getDriver(inst?.driver ?? '')?.models ?? [])
+    builtinRows && builtinRows.length > 0 ? mergeBuiltinRows(builtinRows, staticRows) : staticRows
   const rows = inst?.enabled ? [...builtins, ...customModelRows(s, instanceId, builtins)] : builtins
   const prefs = translatePreferences(rows, s.agent.modelPreferences[instanceId] ?? EMPTY_PREFS)
   return { models: sortModels(rows, prefs), prefs, builtins }

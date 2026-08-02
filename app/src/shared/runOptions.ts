@@ -38,6 +38,17 @@ export type RunOptionDescriptor =
 
 export type RunOptionSelection = { id: string; value: string | boolean }
 
+/**
+ * True when this model string pins 1M context by itself, leaving nothing for the Context
+ * Window control to choose. That is any slug already carrying the `[1m]` suffix: the CLI's own
+ * `opus[1m]` alias row (the only Opus the runtime catalog offers), and any custom model the
+ * user hand-added at the suffix — `shared/drivers.ts`' custom-model dedupe keeps those distinct
+ * from their base slug precisely because the suffix is a deliberate choice.
+ */
+function forcesOneMillion(model: string | null | undefined): boolean {
+  return typeof model === 'string' && model.endsWith('[1m]')
+}
+
 const EFFORT_LABELS: Record<string, string> = {
   low: 'Low',
   medium: 'Medium',
@@ -53,8 +64,17 @@ const EFFORT_LABELS: Record<string, string> = {
  * `supportedEffortLevels` on any model, because neither is an effort level.
  * Ultracode is a Settings key that pairs with xhigh (hence the gate); Ultrathink
  * is prompt text.
+ *
+ * `model` is the string the session is actually pinned to, when the caller knows it. It is
+ * NOT the same as `info.value`: a session pinned to `claude-fable-5[1m]` resolves to the bare
+ * `fable` row, and the CLI's own `opus[1m]` alias row carries the suffix in its `value`. What
+ * matters for the context window is the string that goes on the wire, which is why this takes
+ * the model rather than reading the row — see {@link forcesOneMillion}.
  */
-export function descriptorsFor(info: ModelOptionInfo): RunOptionDescriptor[] {
+export function descriptorsFor(
+  info: ModelOptionInfo,
+  model?: string | null
+): RunOptionDescriptor[] {
   const out: RunOptionDescriptor[] = []
   const levels = info.supportsEffort ? (info.supportedEffortLevels ?? []) : []
 
@@ -79,14 +99,21 @@ export function descriptorsFor(info: ModelOptionInfo): RunOptionDescriptor[] {
     // effort-capable model and returns API 400 on Haiku, which reports no effort.
     // The catalog's alias rows are NOT the signal — only `opus` has a [1m] row,
     // yet fable and sonnet both accept the suffix.
+    //
+    // A model pinned AT the suffix has no 200k position to offer: `apiModelId` cannot remove a
+    // suffix the slug already carries, so a "200k" choice there was inert — it rendered as the
+    // default and selected value while every send went out at 1M. One option is not a
+    // pointless control: it is the honest report of a window the user cannot change here.
     out.push({
       type: 'select',
       id: 'contextWindow',
       label: 'Context Window',
-      options: [
-        { value: '200k', label: '200k', isDefault: true },
-        { value: '1m', label: '1M' }
-      ]
+      options: forcesOneMillion(model)
+        ? [{ value: '1m', label: '1M', isDefault: true }]
+        : [
+            { value: '200k', label: '200k', isDefault: true },
+            { value: '1m', label: '1M' }
+          ]
     })
   }
 

@@ -1,37 +1,27 @@
 import os from 'node:os'
 import type { ModelOptionInfo } from '../../../../../shared/runOptions'
-import { findModelEntry } from '../../../../../shared/modelIdentity'
+import { CLAUDE_MODEL_INFO, resolveModelInfo } from '../../../../../shared/drivers'
 import type { CreateQueryFn } from './index'
 import { claudeSpawnEnv, resolveClaudeCliPath } from './cliPath'
 
 /**
- * Offline fallback. Deliberately minimal: it exists so the menu degrades rather than
- * disappears when the CLI cannot be reached. The real catalog is version-dependent —
- * the same alias resolves to a different model across CLI versions — so this is a
- * floor, never a source of truth.
+ * Offline fallback: the shared built-in table (`CLAUDE_MODEL_SPECS` in shared/drivers.ts),
+ * so the menu degrades rather than disappears when the CLI cannot be reached. The real catalog
+ * is version-dependent — the same alias resolves to a different model across CLI versions — so
+ * this is a floor, never a source of truth.
+ *
+ * It used to be a third hand-maintained copy of the model list here, listing only Fable, Sonnet
+ * and Haiku; an offline user pinned to an Opus lost every run option with no explanation.
  *
  * Note the shape difference from a REAL catalog, which is deliberate and not the alias/slug
  * confusion `shared/modelIdentity.ts` exists to fix: these rows are not derived from any CLI,
  * so they are keyed by the wire slug a session is actually pinned to and report no separate
  * `resolvedModel`. `findModelEntry` handles both shapes.
+ *
+ * The local binding matters beyond brevity: `fetchCatalog` compares against it by IDENTITY to
+ * tell a fallback from a real fetch, so it must stay one stable array.
  */
-const STATIC_FALLBACK: ModelOptionInfo[] = [
-  {
-    value: 'claude-fable-5',
-    displayName: 'Claude Fable 5',
-    supportsEffort: true,
-    supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
-    supportsAdaptiveThinking: true
-  },
-  {
-    value: 'claude-sonnet-5',
-    displayName: 'Claude Sonnet 5',
-    supportsEffort: true,
-    supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
-    supportsAdaptiveThinking: true
-  },
-  { value: 'claude-haiku-4-5', displayName: 'Claude Haiku 4.5' }
-]
+const STATIC_FALLBACK: ModelOptionInfo[] = [...CLAUDE_MODEL_INFO]
 
 const cache = new Map<string, Promise<ModelOptionInfo[]>>()
 
@@ -153,10 +143,11 @@ export function fetchCatalog(
   return p
 }
 
-/** The catalog entry for one model, resolved through the SHARED matcher
- *  (`shared/modelIdentity.ts`) that `Composer.tsx` also uses — main and renderer must never
- *  disagree about which row a pinned model is, or the composer offers options the wire then
- *  silently drops. */
+/** The catalog entry for one model, resolved through the SHARED resolver
+ *  (`resolveModelInfo`, shared/drivers.ts) that `Composer.tsx` also uses — main and renderer
+ *  must never disagree about which row a pinned model is, or the composer offers options the
+ *  wire then silently drops. That includes the static built-in fallback, which is how a model
+ *  the CLI runs but does not list (Opus 4.8/4.7, Sonnet 4.6) keeps its options on the wire. */
 export async function catalogFor(
   createQuery: CreateQueryFn,
   cliPath: string | undefined,
@@ -164,5 +155,5 @@ export async function catalogFor(
 ): Promise<ModelOptionInfo | null> {
   if (!model) return null
   const models = await fetchCatalog(createQuery, cliPath ? { cliPath } : {})
-  return findModelEntry(models, model, (m) => m)
+  return resolveModelInfo(models, model)
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { fetchCatalog, catalogFor, clearCatalogCache } from '../catalog'
 import { descriptorsFor } from '../../../../../../shared/runOptions'
+import { buildRunOptionQueryFields } from '../queryOptions'
 import type { CreateQueryFn } from '../index'
 import fixture from '../__fixtures__/models-2-1-220.json'
 
@@ -88,10 +89,11 @@ describe('fetchCatalog', () => {
     expect(Date.now() - start).toBeLessThan(3000)
   })
 
-  // Finding 2: a failed/fallback fetch used to be cached for the process lifetime —
-  // `STATIC_FALLBACK` lists only fable/sonnet-5/haiku-4-5, so a user pinned to
-  // claude-opus-5 who starts offline would silently lose effort/1M/ultracode off the
-  // wire for every session, forever, with no way back short of an app restart.
+  // Finding 2: a failed/fallback fetch used to be cached for the process lifetime.
+  // `STATIC_FALLBACK` is the built-in table, which still cannot name every model the CLI
+  // offers — claude-opus-5 arrives only from the runtime catalog — so a user pinned to it who
+  // starts offline would silently lose effort/1M/ultracode off the wire for every session,
+  // forever, with no way back short of an app restart.
   it('retries after a short TTL rather than caching a failed fetch forever', async () => {
     vi.useFakeTimers()
     try {
@@ -208,8 +210,28 @@ describe('catalogFor', () => {
     expect(info?.supportsEffort).toBe(true)
   })
 
-  it('returns null for a model the catalog does not know', async () => {
+  it('returns null for a model neither the catalog nor the built-in table knows', async () => {
     expect(await catalogFor(fakeQuery(fixture), undefined, 'gpt-5.4')).toBeNull()
+  })
+
+  // The pairing that keeps the composer honest: `claude-opus-4-7` merges into the picker from
+  // the built-in table (the CLI's alias menu omits it, but it runs — measured), so main has to
+  // resolve it too. If only the renderer did, the composer would show Reasoning and Context
+  // Window controls whose values `buildRunOptionQueryFields` then dropped on the floor.
+  it('resolves a built-in the runtime catalog omits, so its options still reach the wire', async () => {
+    const info = await catalogFor(fakeQuery(fixture), undefined, 'claude-opus-4-7')
+    expect(info?.displayName).toBe('Claude Opus 4.7')
+    expect(descriptorsFor(info!).map((d) => d.id)).toEqual(
+      expect.arrayContaining(['effort', 'contextWindow'])
+    )
+    expect(
+      buildRunOptionQueryFields(
+        info,
+        'claude-opus-4-7',
+        [{ id: 'effort', value: 'max' }],
+        'default'
+      )
+    ).toMatchObject({ model: 'claude-opus-4-7', effort: 'max' })
   })
 
   // C1: sessions are pinned by STATIC wire slug (defaultModelRef seeds from CLAUDE_MODELS),

@@ -12,9 +12,9 @@ import {
   defaultModelRef,
   findModelRow,
   instanceModels,
+  resolveModelInfo,
   type AggregatedModel
 } from '../../../shared/drivers'
-import { findModelEntry } from '../../../shared/modelIdentity'
 import {
   PERMISSION_MODE_LABELS,
   MODE_BY_LABEL,
@@ -298,9 +298,16 @@ export function Composer({
 
   // Run-option descriptors come from what the CLI reports about the model THIS SESSION IS
   // PINNED TO — the same string `catalogFor` resolves in the main process, through the same
-  // shared matcher. Anything else and the composer offers options the wire then drops.
-  const info = findModelEntry(catalog, session?.model ?? current?.slug, (m) => m)
-  const descriptors: RunOptionDescriptor[] = info ? descriptorsFor(info) : []
+  // shared resolver. Anything else and the composer offers options the wire then drops.
+  // `resolveModelInfo` falls back to the static built-in capability table for the models the
+  // CLI's alias menu omits but still runs (Opus 4.8/4.7, Sonnet 4.6); without that they would
+  // merge into the picker with no options at all.
+  const pinnedModel = session?.model ?? current?.slug
+  const info = resolveModelInfo(catalog, pinnedModel)
+  // `pinnedModel` is passed, not just resolved: it is what actually goes on the wire, and the
+  // Context Window control keys off the suffix it carries (see `forcesOneMillion`). Main passes
+  // the same string to the same function in `buildRunOptionQueryFields`.
+  const descriptors: RunOptionDescriptor[] = info ? descriptorsFor(info, pinnedModel) : []
   const selections = session?.runOptions ?? []
 
   // Ultrathink is prompt text, not a stored selection, so its state is read back out
