@@ -5,6 +5,7 @@ import type {
   SidecarSnapshot
 } from '../../../shared/diagnostics'
 import { buildSnapshot, type BuildResult, type ProcessState } from './model'
+import type { ConnectorCommand, WindowDescriptor } from './labels'
 
 /** Page open: one sample a second. */
 export const FAST_INTERVAL_MS = 1_000
@@ -33,6 +34,10 @@ export type DiagnosticsServiceDeps = {
   cores: number
   totalMemoryBytes: number
   getElectronMetrics: () => ElectronProcessMetric[]
+  /** Live window/panel identities for tier-B naming. Must never throw — see ingest(). */
+  getWindowDescriptors: () => WindowDescriptor[]
+  /** Live configured stdio connectors, for tier-C MCP matching. */
+  getConnectorCommands: () => ConnectorCommand[]
   now?: () => number
 }
 
@@ -159,7 +164,11 @@ export class DiagnosticsService {
         sampledAtMs: raw.sampledAtUnixMs,
         rootPid: this.deps.rootPid,
         cores: this.deps.cores,
-        electronMetrics: this.deps.getElectronMetrics()
+        electronMetrics: this.deps.getElectronMetrics(),
+        labelSources: {
+          windows: this.deps.getWindowDescriptors(),
+          connectors: this.deps.getConnectorCommands()
+        }
       })
     } catch (err) {
       console.error('[diagnostics] failed to build snapshot from sidecar sample', err)

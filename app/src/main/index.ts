@@ -418,7 +418,10 @@ function registerIpc(): void {
           creationTimeMs: m.creationTime,
           type: m.type,
           ...(m.serviceName ? { serviceName: m.serviceName } : {})
-        }))
+        })),
+      // Placeholders — Task 6 replaces these with the real collectors.
+      getWindowDescriptors: () => [],
+      getConnectorCommands: () => []
     })
   })()
 

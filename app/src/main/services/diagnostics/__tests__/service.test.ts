@@ -124,6 +124,8 @@ function makeService(
     cores: 4,
     totalMemoryBytes: 16_000,
     getElectronMetrics: () => [],
+    getWindowDescriptors: () => [],
+    getConnectorCommands: () => [],
     now: () => 10_000,
     ...overrides
   })
@@ -265,6 +267,8 @@ describe('DiagnosticsService', () => {
       cores: 4,
       totalMemoryBytes: 16_000,
       getElectronMetrics: () => [],
+      getWindowDescriptors: () => [],
+      getConnectorCommands: () => [],
       now: () => 10_000
     })
     service.start()
@@ -413,5 +417,65 @@ describe('DiagnosticsService', () => {
     const child = tree.find((p) => p.pid === 7)
     expect(root?.depth).toBe(0)
     expect(child?.depth).toBe(1)
+  })
+
+  it('reads both label sources on every ingest and labels the resulting rows', () => {
+    let windowReads = 0
+    let connectorReads = 0
+    const { service, client } = makeService(fakeClient(), {
+      getWindowDescriptors: () => {
+        windowReads += 1
+        return []
+      },
+      getConnectorCommands: () => {
+        connectorReads += 1
+        return [{ instanceId: 'github', command: 'npx', args: ['@x/server-github'] }]
+      }
+    })
+    service.start()
+
+    client.emit(
+      snapshot({
+        processes: [
+          {
+            pid: 1,
+            ppid: 0,
+            startTimeMs: 1_000,
+            runTimeMs: 9_000,
+            name: 'npx',
+            command: 'npx @x/server-github',
+            status: 'Run',
+            cpuTimeMs: 0,
+            residentBytes: 500
+          }
+        ]
+      })
+    )
+
+    expect(windowReads).toBe(1)
+    expect(connectorReads).toBe(1)
+    expect(service.latest()?.objects).toHaveLength(1)
+    expect(service.latest()?.objects[0]).toMatchObject({
+      kind: 'mcp',
+      label: 'MCP: github',
+      inferred: true
+    })
+  })
+
+  it('keeps the previous snapshot when a label source throws', () => {
+    let explode = false
+    const { service, client } = makeService(fakeClient(), {
+      getWindowDescriptors: () => {
+        if (explode) throw new Error('webContents gone')
+        return []
+      }
+    })
+    service.start()
+    client.emit(snapshot())
+    const before = service.latest()
+
+    explode = true
+    client.emit(snapshot({ sequence: 2, sampledAtUnixMs: 11_000 }))
+    expect(service.latest()).toBe(before)
   })
 })

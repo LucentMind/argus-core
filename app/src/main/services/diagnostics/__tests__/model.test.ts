@@ -39,6 +39,7 @@ function build(
     rootPid: 1,
     cores: 4,
     electronMetrics: [],
+    labelSources: { windows: [], connectors: [] },
     ...extra
   })
 }
@@ -164,7 +165,8 @@ describe('buildSnapshot', () => {
       sampledAtMs: 11_000,
       rootPid: 1,
       cores: 4,
-      electronMetrics: []
+      electronMetrics: [],
+      labelSources: { windows: [], connectors: [] }
     })
     // Each process peaked at 100 at different moments, but the total never exceeded 100.
     expect(second.footprint.peakRssBytes).toBe(100)
@@ -194,7 +196,8 @@ describe('buildSnapshot', () => {
       sampledAtMs: 11_000,
       rootPid: 1,
       cores: 4,
-      electronMetrics: []
+      electronMetrics: [],
+      labelSources: { windows: [], connectors: [] }
     })
     expect(second.footprint.exits).toBe(1)
     expect(second.footprint.starts).toBe(2)
@@ -205,5 +208,138 @@ describe('buildSnapshot', () => {
     // pid scan and the detail read could orphan a row. It must still appear.
     const r = build([ROOT, sample({ pid: 5, ppid: 4242 })], new Map(), 10_000)
     expect(r.tree.map((p) => p.pid)).toContain(5)
+  })
+})
+
+describe('buildSnapshot — object rollup', () => {
+  const CONNECTORS = [{ instanceId: 'github', command: 'npx', args: ['@x/server-github'] }]
+
+  it('puts everything in one Unattributed row when nothing matches', () => {
+    const r = build([ROOT, sample({ pid: 2, ppid: 1, residentBytes: 300 })], new Map(), 2_000)
+    expect(r.objects).toHaveLength(1)
+    expect(r.objects[0]).toMatchObject({
+      id: 'unattributed',
+      kind: 'unattributed',
+      label: 'Unattributed',
+      rootPid: null,
+      processCount: 2,
+      uptimeMs: 0
+    })
+  })
+
+  it('rolls an unlabeled descendant up into its nearest labeled ancestor', () => {
+    // npx (labeled as the github connector) -> node (unlabeled) must be ONE row.
+    const npx = sample({
+      pid: 2,
+      ppid: 1,
+      command: 'npx @x/server-github',
+      residentBytes: 100,
+      runTimeMs: 7_000
+    })
+    const node = sample({ pid: 3, ppid: 2, command: '/usr/bin/node index.js', residentBytes: 400 })
+    const r = build([ROOT, npx, node], new Map(), 2_000, {
+      labelSources: { windows: [], connectors: CONNECTORS }
+    })
+
+    const mcp = r.objects.find((o) => o.kind === 'mcp')
+    expect(mcp).toMatchObject({
+      id: '2:1000',
+      label: 'MCP: github',
+      instanceId: 'github',
+      inferred: true,
+      rootPid: 2,
+      processCount: 2,
+      rssBytes: 500,
+      uptimeMs: 7_000
+    })
+  })
+
+  it('breaks a labeled descendant out of its ancestor row, excluding its cost', () => {
+    // claude (driver) -> npx (connector). The connector's memory must NOT count
+    // toward the driver row, or a wedged MCP server reads as a wedged driver.
+    const claude = sample({
+      pid: 2,
+      ppid: 1,
+      command: '/usr/local/bin/claude --print',
+      residentBytes: 100
+    })
+    const npx = sample({ pid: 3, ppid: 2, command: 'npx @x/server-github', residentBytes: 400 })
+    const r = build([ROOT, claude, npx], new Map(), 2_000, {
+      labelSources: { windows: [], connectors: CONNECTORS }
+    })
+
+    expect(r.objects.find((o) => o.kind === 'driver')).toMatchObject({
+      rssBytes: 100,
+      processCount: 1
+    })
+    expect(r.objects.find((o) => o.kind === 'mcp')).toMatchObject({
+      rssBytes: 400,
+      processCount: 1
+    })
+  })
+
+  it('reconciles exactly with the footprint', () => {
+    const claude = sample({
+      pid: 2,
+      ppid: 1,
+      command: '/usr/local/bin/claude',
+      cpuTimeMs: 400,
+      residentBytes: 100
+    })
+    const npx = sample({
+      pid: 3,
+      ppid: 2,
+      command: 'npx @x/server-github',
+      cpuTimeMs: 200,
+      residentBytes: 400
+    })
+    const stray = sample({ pid: 4, ppid: 1, cpuTimeMs: 100, residentBytes: 7 })
+    const samples = [ROOT, claude, npx, stray]
+
+    const previous = new Map<string, ProcessState>(
+      samples.map((s) => [
+        identityKey(s.pid, s.startTimeMs),
+        { cpuTimeMs: 0, residentBytes: 0, sampledAtMs: 1_000 }
+      ])
+    )
+    const r = build(samples, previous, 2_000, {
+      labelSources: { windows: [], connectors: CONNECTORS }
+    })
+
+    const sum = (f: (o: (typeof r.objects)[number]) => number): number =>
+      r.objects.reduce((t, o) => t + f(o), 0)
+    expect(sum((o) => o.processCount)).toBe(r.footprint.processCount)
+    expect(sum((o) => o.rssBytes)).toBe(r.footprint.rssBytes)
+    expect(sum((o) => o.cpuPercent)).toBe(r.footprint.cpuPercent)
+    expect(r.footprint.cpuPercent).toBeGreaterThan(0)
+  })
+
+  it('sorts by memory descending and pins Unattributed last', () => {
+    const small = sample({
+      pid: 2,
+      ppid: 1,
+      command: '/usr/local/bin/claude',
+      residentBytes: 100
+    })
+    const big = sample({ pid: 3, ppid: 1, command: 'npx @x/server-github', residentBytes: 900 })
+    const stray = sample({ pid: 4, ppid: 1, residentBytes: 5_000 })
+    const r = build([ROOT, small, big, stray], new Map(), 2_000, {
+      labelSources: { windows: [], connectors: CONNECTORS }
+    })
+    expect(r.objects.map((o) => o.kind)).toEqual(['mcp', 'driver', 'unattributed'])
+  })
+
+  it('keeps a row id stable across ticks while its root process lives', () => {
+    const claude = sample({ pid: 2, ppid: 1, command: '/usr/local/bin/claude' })
+    const first = build([ROOT, claude], new Map(), 2_000)
+    const second = build([ROOT, claude], first.next, 3_000)
+    expect(first.objects.find((o) => o.kind === 'driver')?.id).toBe('2:1000')
+    expect(second.objects.find((o) => o.kind === 'driver')?.id).toBe('2:1000')
+  })
+
+  it('omits provider and instanceId when the label does not carry them', () => {
+    const r = build([ROOT, sample({ pid: 2, ppid: 1 })], new Map(), 2_000)
+    expect(r.objects[0].provider).toBeUndefined()
+    expect(r.objects[0].instanceId).toBeUndefined()
   })
 })

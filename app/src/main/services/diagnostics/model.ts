@@ -5,6 +5,7 @@ import type {
   ElectronProcessMetric,
   ProcessSample
 } from '../../../shared/diagnostics'
+import { resolveLabel, type LabelSources } from './labels'
 
 /**
  * Pure transformation of raw sidecar samples into a renderable snapshot.
@@ -34,6 +35,7 @@ export type BuildInput = {
   rootPid: number
   cores: number
   electronMetrics: ElectronProcessMetric[]
+  labelSources: LabelSources
 }
 
 export type BuildResult = {
@@ -102,13 +104,18 @@ function orderDepthFirst(
   return ordered
 }
 
+/** The id of the single synthetic row absorbing every process no label matched. */
+const UNATTRIBUTED_ID = 'unattributed'
+
 export function buildSnapshot(input: BuildInput): BuildResult {
   const ordered = orderDepthFirst(input.samples, input.rootPid)
   const next = new Map<string, ProcessState>()
   const tree: DiagnosticsProcess[] = []
 
-  let totalCpuPercent = 0
-  let totalRss = 0
+  // Row accumulation. `rowIdOfPid` lets a child find the row its parent landed
+  // in; the depth-first order guarantees the parent was visited first.
+  const rows = new Map<string, DiagnosticsObject>()
+  const rowIdOfPid = new Map<number, string>()
 
   for (const { s, depth } of ordered) {
     const key = identityKey(s.pid, s.startTimeMs)
@@ -143,9 +150,65 @@ export function buildSnapshot(input: BuildInput): BuildResult {
       sampledAtMs: input.sampledAtMs
     })
 
-    totalCpuPercent += cpuPercent
-    totalRss += s.residentBytes
+    // A labeled process always starts its own row, so a labeled DESCENDANT
+    // breaks out of its ancestor's total. An MCP server under the Claude CLI
+    // must not read as the driver being hot.
+    const label = resolveLabel(s, electron, input.labelSources)
+    let rowId: string
+    if (label) {
+      rowId = key
+      rows.set(rowId, {
+        id: rowId,
+        kind: label.kind,
+        label: label.label,
+        ...(label.provider ? { provider: label.provider } : {}),
+        ...(label.instanceId ? { instanceId: label.instanceId } : {}),
+        inferred: label.inferred,
+        rootPid: s.pid,
+        processCount: 0,
+        cpuPercent: 0,
+        rssBytes: 0,
+        uptimeMs: s.runTimeMs
+      })
+    } else {
+      rowId = rowIdOfPid.get(s.ppid) ?? UNATTRIBUTED_ID
+      if (rowId === UNATTRIBUTED_ID && !rows.has(UNATTRIBUTED_ID))
+        rows.set(UNATTRIBUTED_ID, {
+          id: UNATTRIBUTED_ID,
+          kind: 'unattributed',
+          label: 'Unattributed',
+          inferred: false,
+          rootPid: null,
+          processCount: 0,
+          cpuPercent: 0,
+          rssBytes: 0,
+          uptimeMs: 0
+        })
+    }
+    rowIdOfPid.set(s.pid, rowId)
+
+    const row = rows.get(rowId)
+    if (row) {
+      row.processCount += 1
+      row.cpuPercent += cpuPercent
+      row.rssBytes += s.residentBytes
+    }
   }
+
+  // RSS is far less jittery than CPU at a 1s cadence; sorting by CPU would make
+  // rows swap places every tick and defeat reading the table.
+  const objects = [...rows.values()].sort((a, b) => {
+    if (a.kind === 'unattributed') return 1
+    if (b.kind === 'unattributed') return -1
+    return b.rssBytes - a.rssBytes
+  })
+
+  // Derived FROM the rows, not accumulated alongside them. Float addition is not
+  // associative, so two independent summations of the same values can differ in
+  // the last bits and an equality assertion would flake. Summing the same array
+  // in the same order cannot.
+  const totalCpuPercent = objects.reduce((t, o) => t + o.cpuPercent, 0)
+  const totalRss = objects.reduce((t, o) => t + o.rssBytes, 0)
 
   let starts = input.counters.starts
   let exits = input.counters.exits
@@ -154,7 +217,7 @@ export function buildSnapshot(input: BuildInput): BuildResult {
 
   return {
     tree,
-    objects: [],
+    objects,
     footprint: {
       processCount: tree.length,
       cpuPercent: totalCpuPercent,
