@@ -66,6 +66,44 @@ describe('resolveSidecarBinary', () => {
     ).toBe(packaged)
   })
 
+  it('finds a dev-checkout build staged under app/resources by build-resource-monitor.mjs', () => {
+    const staged = touch(
+      path.join(
+        tmp,
+        'app',
+        'resources',
+        'resource-monitor',
+        'win32-x64',
+        'argus-resource-monitor.exe'
+      )
+    )
+    expect(resolveSidecarBinary({ repoRoot: tmp, platform: 'win32' })).toBe(staged)
+  })
+
+  it('prefers the staged app/resources build over a raw cargo target/release build', () => {
+    touch(
+      path.join(
+        tmp,
+        'native',
+        'resource-monitor',
+        'target',
+        'release',
+        'argus-resource-monitor.exe'
+      )
+    )
+    const staged = touch(
+      path.join(
+        tmp,
+        'app',
+        'resources',
+        'resource-monitor',
+        'win32-x64',
+        'argus-resource-monitor.exe'
+      )
+    )
+    expect(resolveSidecarBinary({ repoRoot: tmp, platform: 'win32' })).toBe(staged)
+  })
+
   it('falls back to a local cargo release build in a dev checkout', () => {
     const dev = touch(
       path.join(

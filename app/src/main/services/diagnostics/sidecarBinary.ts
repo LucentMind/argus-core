@@ -30,7 +30,13 @@ export function resolveSidecarBinary(opts: {
     candidates.push(path.join(opts.resourcesPath, 'resource-monitor', archKey, exe))
   }
   candidates.push(
-    path.join(opts.repoRoot, 'resources', 'resource-monitor', archKey, exe),
+    // scripts/build-resource-monitor.mjs stages a dev-checkout build under
+    // app/resources/resource-monitor/<archKey>, not <repoRoot>/resources — repoRoot
+    // here is the monorepo root (one level above app/), so the app/ segment is
+    // required. Checked before the raw cargo target/ fallbacks below because it is
+    // the exact staged copy (on macOS, the lipo-merged universal binary; the raw
+    // target/release output is a single-arch build and only for the host arch).
+    path.join(opts.repoRoot, 'app', 'resources', 'resource-monitor', archKey, exe),
     path.join(opts.repoRoot, 'native', 'resource-monitor', 'target', 'release', exe),
     path.join(opts.repoRoot, 'native', 'resource-monitor', 'target', 'debug', exe)
   )
