@@ -89,10 +89,18 @@ it('shows totals muted, and promotes them when something new arrived', () => {
   )
   const hot = screen.getByTestId('metric-comments')
   expect(hot.className).toContain('text-defect')
-  expect(hot.getAttribute('title')).toContain('2 new')
+  expect(hot.getAttribute('title')).toBe('12 comments · 2 new')
 })
 
 it('shows no metrics at all for a case with no ticket', () => {
   render(<CaseCard c={mkCase({ jiraKey: null })} {...noop} />)
   expect(screen.queryByTestId('metric-comments')).not.toBeInTheDocument()
+})
+
+it('renders singular "comment" in the tooltip when the comment count is exactly 1', () => {
+  render(
+    <CaseCard c={mkCase({ jiraKey: 'NAV-1', jiraCommentCount: 1 })} {...noop} />
+  )
+  const metric = screen.getByTestId('metric-comments')
+  expect(metric.getAttribute('title')).toBe('1 comment')
 })

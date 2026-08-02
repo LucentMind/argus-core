@@ -98,7 +98,7 @@ describe('CaseDashboard triage', () => {
     )
     const metric = screen.getByTestId('metric-comments')
     expect(metric.textContent).toBe('12')
-    expect(metric.getAttribute('title')).toContain('2 new')
+    expect(metric.getAttribute('title')).toBe('12 comments · 2 new')
     expect(screen.queryByText('2 new comments')).toBeNull()
   })
 
