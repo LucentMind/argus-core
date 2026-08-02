@@ -124,11 +124,15 @@ export function TopBar({
         // right group's width budget exists to prevent.
         //
         // The offset itself is `.argus-settings-masthead` in main.css, NOT a `left-*`/`pl-*`
-        // utility: it has to cancel the header's own `.argus-header-inset` padding, which is an
-        // `env()` expression with a platform-scoped `max()` floor, and that is not something a
-        // Tailwind arbitrary value can mirror. See that rule for the coordinate-system argument.
+        // utility, purely so a fixed `14rem` has one named place to live rather than being an
+        // arbitrary Tailwind value repeated at the call site. It is a plain `left: 14rem` — the
+        // header's own `.argus-header-inset` padding does NOT need cancelling here, because an
+        // absolutely positioned box's `left` is measured from its containing block's padding-BOX
+        // EDGE, which sits at the header's own outer edge regardless of the header's padding-left
+        // (confirmed empirically; see that rule's comment for the measurement).
         //
-        // 14rem clears the wordmark button (~124px), so the two cannot collide. The one place the
+        // 14rem clears the wordmark button (~124px) even at the darwin inset's 78px floor
+        // (78 + 124 = 202 < 224), so the two cannot collide. The one place the
         // alignment loosens is a window wide enough for the content pane to exceed `max-w-6xl`
         // (~1350px+), where `mx-auto` starts centring the column away from the rail; the title
         // stays put. Tracking that exactly would mean measuring a sibling view's DOM from here.

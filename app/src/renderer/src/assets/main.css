@@ -681,28 +681,21 @@ body {
   padding-left: max(78px, calc(0.75rem + env(titlebar-area-x, 0px)));
 }
 
-/* The Settings page title's left offset — the exact inverse of `.argus-header-inset` above, plus
-   the distance to the settings content column.
+/* The Settings page title's left offset, lining it up with SettingsView's content column:
+   `w-48` of rail plus the page's `p-8` = 14rem measured from the window edge, because nothing
+   between the window and that rail adds padding.
 
-   Two coordinate systems have to be reconciled here. The title is absolutely positioned inside the
-   header, and an absolutely positioned box is placed against its containing block's PADDING box —
-   so `left: 0` inside the inset header already starts 12px right of the window edge. The thing it
-   must line up with, SettingsView's content column, is `w-48` of rail plus the page's `p-8` = 14rem
-   measured from the window edge, because nothing between the window and that rail adds padding.
-   Subtracting the header's own inset back out is what puts the two in the same space; a plain
-   `left: 14rem` (or the `pl-56` this replaced) lands 12px too far right on win32 and 66px too far
-   on darwin.
-
-   Which is also why this mirrors the darwin floor rather than reusing the base expression: the
-   floor makes the inset a `max()`, not a sum, so the inverse has to be the same `max()`. If
-   `.argus-header-inset` ever changes, this rule changes with it — they are one measurement written
-   twice, and the pairing is pinned by TopBar's alignment test. */
+   A plain `left: 14rem` is correct as-is, with no header-inset arithmetic folded in. `left` on an
+   absolutely positioned box is an offset from its containing block's padding-BOX EDGE, which sits
+   at the same point as the header's own border-box edge (the header has no left border) —
+   `.argus-header-inset`'s `padding-left` shifts where the header's own CONTENT starts, not where
+   that edge is, so it plays no part in this calculation regardless of platform (confirmed against
+   a live `getBoundingClientRect()`, not assumed from the box-model spec text — see
+   [[argus-css-cascade-probe-recipe]]). A previous version of this rule subtracted the inset back
+   out on the theory that it needed cancelling, which pulled the title left by the exact width of
+   the darwin floor and landed it under the wordmark button. */
 .argus-settings-masthead {
-  left: calc(14rem - 0.75rem - env(titlebar-area-x, 0px));
-}
-
-:root[data-platform='darwin'] .argus-settings-masthead {
-  left: calc(14rem - max(78px, calc(0.75rem + env(titlebar-area-x, 0px))));
+  left: 14rem;
 }
 
 /* `--flush` drops the 12px design gutter from the LEFT edge only (spec

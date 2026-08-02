@@ -31,9 +31,15 @@
      black while keeping the ink > dim > mute ladder legible.
      NOTE: no grey fixes the masthead specifically — clearing 4.5:1 over that core needs L≥0.845,
      i.e. near-white, which is not a "mute" any more. That one is a layout/light-placement call,
-     not a token call. See the note in CaseDashboard's masthead. */
-  --dim: #a9aeb6;
-  --mute: #868c94;
+     not a token call. See the note in CaseDashboard's masthead.
+     Brightened again 2026-08-02 (user-directed: "text inside the ambient theme is too muted") —
+     the section labels, tab strip, and metadata lines this ladder carries (WORKSPACE/FINDINGS
+     rail headers, case tabs, finding timestamps) read as washed-out even where the ratios above
+     already cleared AA, because they sit on the wash's lighter mid-tones rather than the black
+     the ratios were computed against. --dim now clears 12.0:1 and --mute 8.2:1 against black —
+     both still comfortably under --ink, so the ladder is unchanged, just lifted. */
+  --dim: #bfc4cc;
+  --mute: #9ca2aa;
   --faint: rgba(223, 226, 230, 0.18);
   --hair: rgba(255, 255, 255, 0.075);
   --hair-2: rgba(255, 255, 255, 0.12);

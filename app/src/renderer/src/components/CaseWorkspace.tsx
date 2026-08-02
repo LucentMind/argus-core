@@ -488,7 +488,13 @@ export function CaseWorkspace({
         ) : (
           <>
             <aside
-              className={`flex shrink-0 flex-col gap-3 overflow-hidden p-3 ${dynamic ? 'dyn-rail' : 'bg-void'}`}
+              // px-2, not the p-3 this used to be uniformly (user-directed, 2026-08-02): the
+              // resulting rail↔chat↔findings gaps (px + the w-1 separator + the neighbour's own
+              // px) read as dead space, and shrinking it hands the freed width straight to the
+              // chat card below — `main` is the row's only `flex-1`. Vertical padding stays p-3:
+              // the chrome row's `h-8` top inset is a measured invariant (see that row's comment)
+              // this change must not touch.
+              className={`flex shrink-0 flex-col gap-3 overflow-hidden px-2 py-3 ${dynamic ? 'dyn-rail' : 'bg-void'}`}
               style={{ width: ui.evidenceWidth, minWidth: EVIDENCE_MIN_WIDTH }}
             >
               {/* Rail chrome, and deliberately NOT inside the scroll box below.
@@ -645,7 +651,10 @@ export function CaseWorkspace({
         )}
         <main
           ref={mainEl}
-          className="flex flex-1 flex-col gap-3 p-3"
+          // px-2, matching both rails' own px-2 (see the workspace aside's comment) — the two
+          // together are what actually narrowed the rail↔chat gap; `flex-1` is what lets the
+          // freed width land here instead of nowhere.
+          className="flex flex-1 flex-col gap-3 px-2 py-3"
           style={{ minWidth: CHAT_MIN_WIDTH }}
         >
           {/* The merged bar is now the centre's own chrome row — a sibling above the card,
@@ -762,7 +771,8 @@ export function CaseWorkspace({
               }}
             />
             <aside
-              className={`flex flex-col p-3 ${dynamic ? 'dyn-rail' : 'bg-void'}`}
+              // px-2, mirroring the workspace rail on the opposite edge — see its comment.
+              className={`flex flex-col px-2 py-3 ${dynamic ? 'dyn-rail' : 'bg-void'}`}
               style={{ width: ui.findingsWidth, minWidth: FINDINGS_MIN_WIDTH }}
             >
               {/* key: remount on case switch. Findings are fetched once per case and filtered
