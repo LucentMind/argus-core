@@ -160,6 +160,25 @@ describe('JiraCases.createFromTicket', () => {
   // upstream — diffed real values against the empty baseline and reported the
   // just-imported ticket, comments, and attachments as brand-new. Reverting the
   // setCaseSyncState call added to createFromTicket must turn this test red.
+  // Phase-model review: createFromTicket ingests the ticket md/json/comments as evidence
+  // with origin 'jira' as a side effect of syncing. Because evidence used to be a phase
+  // signal regardless of origin, a case created from a ticket read "Analyzing" before any
+  // human touched it — background sync moving the phase is exactly what the design forbids.
+  it('leaves a freshly-created case open — Jira-origin evidence is not a phase signal', async () => {
+    const svc = service(fakeClient(() => issue()))
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'Route flickers', key: 'NAV-7' })
+    expect(getCase(db, 'NAV-7')!.phase).toBe('open')
+  })
+
+  it('moves to analyzing once real investigation work lands on a Jira-created case', async () => {
+    const svc = service(fakeClient(() => issue()))
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'Route flickers', key: 'NAV-7' })
+    // a human-uploaded (non-Jira-origin) evidence row is the work signal.
+    const { ingestBytes } = await import('../ingest')
+    ingestBytes(db, argusHome, detection, 'NAV-7', 'notes.txt', Buffer.from('seen in prod'), 'upload')
+    expect(getCase(db, 'NAV-7')!.phase).toBe('analyzing')
+  })
+
   it('reports no false action items on the first sync after creation (Finding I1)', async () => {
     const svc = service(
       fakeClient(() => issue(), new Set(), [comment('1', 'first'), comment('2', 'second')])

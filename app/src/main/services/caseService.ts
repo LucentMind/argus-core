@@ -270,16 +270,22 @@ function readCaseSignals(db: DatabaseSync, caseId?: number): Map<number, CaseSig
     at(r.caseId).evidenceCount = r.n
   }
 
-  // The phase SIGNAL, unlike the count above, is scoped by directory: review evidence
-  // (artifacts/…, see ARTIFACTS_LIKE — mirrors shared/evidenceScope.ts's scopeOfRelPath)
-  // feeds `lastReviewEvidenceAt` -> `reviewing` instead of falling into `lastEvidenceAt` ->
-  // `analyzing`. A CI log fetched mid-review (ciLogs.ts's fetch_check_logs) is the motivating
-  // case (Finding I1).
+  // The phase SIGNAL, unlike the count above, is scoped by directory and excludes
+  // Jira-origin rows:
+  //   - directory scope: review evidence (artifacts/…, see ARTIFACTS_LIKE — mirrors
+  //     shared/evidenceScope.ts's scopeOfRelPath) feeds a new lastReviewEvidenceAt signal
+  //     -> `reviewing` instead of falling into lastEvidenceAt -> `analyzing`. A CI log
+  //     fetched mid-review (ciLogs.ts's fetch_check_logs) is the motivating case (Finding I1).
+  //   - origin exclusion: Jira sync (createFromTicket/refresh in jiraCases.ts) ingests
+  //     evidence with origin 'jira' as a side effect of syncing, not of the user's work, and
+  //     the design's rule is that background sync must never move the phase (Finding I2) —
+  //     otherwise a case created from a ticket is born "Analyzing" before a human touches it.
   const evidenceScopeCol = `CASE WHEN e.rel_path LIKE ? THEN 'review' ELSE 'investigation' END`
   for (const r of db
     .prepare(
       `SELECT e.case_id AS caseId, ${evidenceScopeCol} AS evScope, MAX(e.created_at) AS lastAt
-         FROM evidence e${scope('e.case_id')}
+         FROM evidence e
+        WHERE e.origin != 'jira'${caseId === undefined ? '' : ' AND e.case_id = ?'}
         GROUP BY e.case_id, evScope`
     )
     .all(ARTIFACTS_LIKE, ...args) as unknown as Array<{

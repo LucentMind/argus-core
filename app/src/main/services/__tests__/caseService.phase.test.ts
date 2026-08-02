@@ -36,11 +36,15 @@ function addTurn(caseId: number, sessionId: number, at: string): void {
   ).run(caseId, sessionId, at)
 }
 
-function addEvidence(caseId: number, at: string): void {
+function addEvidence(
+  caseId: number,
+  at: string,
+  opts: { origin?: string; relPath?: string } = {}
+): void {
   db.prepare(
-    `INSERT INTO evidence (case_id, rel_path, sha256, artifact_type, size, created_at)
-     VALUES (?, ?, 'sha', 'text', 1, ?)`
-  ).run(caseId, `e-${at}.txt`, at)
+    `INSERT INTO evidence (case_id, rel_path, sha256, artifact_type, size, origin, created_at)
+     VALUES (?, ?, 'sha', 'text', 1, ?, ?)`
+  ).run(caseId, opts.relPath ?? `evidence/e-${at}.txt`, opts.origin ?? 'upload', at)
 }
 
 function linkPr(caseId: number, at: string): void {
@@ -105,6 +109,54 @@ describe('listCases phase derivation', () => {
     ).run(T(5), id)
     expect(getCase(db, 'GARBAGE-PIN-1')!.phase).toBe('open')
     expect(listCases(db)[0].phase).toBe('open')
+  })
+
+  // Finding I1: evidence written during review (a CI log fetched mid-review, no findings
+  // recorded) used to be mode-blind and always mapped to `analyzing`.
+  it('is reviewing when the only evidence is review-scoped (artifacts/…), not analyzing', () => {
+    const id = mkCase('REVEV-1')
+    addEvidence(id, T(1), { relPath: 'artifacts/ci-9-build.log' })
+    expect(listCases(db)[0].phase).toBe('reviewing')
+  })
+
+  // Finding I2: Jira sync (createFromTicket, refresh) ingests evidence rows as part of
+  // syncing, but the design's rule is that background sync must never move the phase — a
+  // case created from a ticket must stay `open` until a human actually touches it.
+  it('stays open when the only evidence is Jira-origin', () => {
+    const id = mkCase('JIRA-1')
+    addEvidence(id, T(1), { origin: 'jira' })
+    expect(listCases(db)[0].phase).toBe('open')
+  })
+
+  it('stays open when the only evidence is Jira-origin, even under artifacts/', () => {
+    const id = mkCase('JIRA-2')
+    addEvidence(id, T(1), { origin: 'jira', relPath: 'artifacts/NAV-1.ticket.md' })
+    expect(listCases(db)[0].phase).toBe('open')
+  })
+
+  it('moves to analyzing once a non-Jira evidence row lands alongside Jira evidence', () => {
+    const id = mkCase('JIRA-3')
+    addEvidence(id, T(1), { origin: 'jira' })
+    addEvidence(id, T(2), { origin: 'upload' })
+    expect(listCases(db)[0].phase).toBe('analyzing')
+  })
+
+  it('moves to analyzing once an investigation turn lands, Jira evidence notwithstanding', () => {
+    const id = mkCase('JIRA-4')
+    addEvidence(id, T(1), { origin: 'jira' })
+    addTurn(id, addSession(id, 'investigation'), T(2))
+    expect(listCases(db)[0].phase).toBe('analyzing')
+  })
+
+  it('Jira-origin evidence still counts toward evidenceCount (idle heuristic unaffected)', () => {
+    const id = mkCase('JIRA-IDLE-1')
+    addEvidence(id, T(1), { origin: 'jira' })
+    db.prepare(`UPDATE cases SET created_at = ? WHERE id = ?`).run(
+      new Date(Date.now() - 30 * 86_400_000).toISOString(),
+      id
+    )
+    const rec = listCases(db).find((c) => c.id === id)!
+    expect(rec.actionItems).not.toContainEqual(expect.objectContaining({ kind: 'idle' }))
   })
 
   it('derives per case, not globally', () => {
