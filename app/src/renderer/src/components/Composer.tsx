@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react'
-import { ChevronDown, Sparkles, Lock, SquareTerminal, ArrowUp } from 'lucide-react'
+import { ChevronDown, Sparkles, Lock, SquareTerminal, ArrowUp, Square } from 'lucide-react'
 import { uiStore } from '../lib/uiStore'
 import { useSettingsPayload } from '../lib/settingsStore'
 import { AttachmentTray } from './AttachmentTray'
@@ -185,7 +185,9 @@ export function Composer({
   session,
   onModelChange,
   onRunOptionsChange,
-  onPermissionModeChange
+  onPermissionModeChange,
+  running,
+  onStop
 }: {
   disabled: boolean
   onSend: (text: string) => void
@@ -211,6 +213,10 @@ export function Composer({
   onRunOptionsChange?: (sel: RunOptionSelection[]) => void
   /** Pin this chat's permission mode. */
   onPermissionModeChange?: (mode: PermissionMode) => void
+  /** The agent is currently generating — swaps the send button for a stop button. */
+  running?: boolean
+  /** Interrupt the running turn. */
+  onStop?: () => void
 }): React.JSX.Element {
   const [text, setText] = useState('')
   const [skills, setSkills] = useState<SkillListItem[]>([])
@@ -413,7 +419,17 @@ export function Composer({
     </button>
   )
 
-  const sendButton = (
+  const sendButton = running ? (
+    <button
+      type="button"
+      aria-label="Stop"
+      title="Stop generating"
+      className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-danger text-void transition-all hover:brightness-110"
+      onClick={onStop}
+    >
+      <Square size={12} strokeWidth={2} className="fill-current" />
+    </button>
+  ) : (
     <button
       type="button"
       aria-label="Send"

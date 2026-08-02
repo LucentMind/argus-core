@@ -371,16 +371,6 @@ export function ChatPane({
           <div ref={bottom} />
         </div>
       </div>
-      {state.running && (
-        <div className="px-4 pb-1">
-          <button
-            className="font-mono text-xs text-mute transition-colors hover:text-danger"
-            onClick={() => void window.argus.agent.interrupt(slug, sessionId)}
-          >
-            ■ stop
-          </button>
-        </div>
-      )}
       {/* key: the draft (typed or Analyze-prefilled) belongs to one session — reset it on switch */}
       <Composer
         key={`${slug}#${sessionId}`}
@@ -395,6 +385,8 @@ export function ChatPane({
         onModelChange={onModelChange}
         onRunOptionsChange={onRunOptionsChange}
         onPermissionModeChange={onPermissionModeChange}
+        running={state.running}
+        onStop={() => void window.argus.agent.interrupt(slug, sessionId)}
         citations={citations}
         onRemoveCitation={(i) => citationsTray.remove(slug, sessionId, i)}
         onCitationsConsumed={() => citationsTray.clear(slug, sessionId)}
