@@ -204,6 +204,26 @@ describe('SidecarClient', () => {
     expect(procs).toHaveLength(countBeforeRetry + 1)
   })
 
+  it('retry() during an in-flight spawn leaves the handshake watchdog armed', async () => {
+    const { client, procs } = makeClient()
+    void client.start()
+    // Do NOT emit hello: the spawn is in flight with its 5000ms handshake
+    // timer armed and this.proc set.
+
+    // A user clicks Retry again while that attempt is still pending. Before
+    // the fix, retry()'s clearTimers() ran before the `if (this.proc) return`
+    // guard, cancelling the live child's handshake watchdog and then
+    // returning without arming a replacement — leaving the child unwatched
+    // forever if it never sends hello.
+    void client.retry()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(procs).toHaveLength(1)
+
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(client.health().status).toBe('degraded')
+    expect(client.health().lastError).toContain('handshake')
+  })
+
   it('stop() kills the child and does not restart it', async () => {
     const { client, procs } = makeClient()
     void client.start()

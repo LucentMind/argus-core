@@ -72,11 +72,17 @@ export class SidecarClient {
 
   /** Close an open circuit and try again immediately. */
   retry(): void {
-    this.clearTimers()
     this.failures = []
     this.attempt = 0
     this.stopped = false
+    // Return BEFORE touching timers: if an attempt is already in flight, its
+    // handshake watchdog must stay armed. Clearing it here and then returning
+    // would leave a live child permanently unwatched.
     if (this.proc) return
+    // Only reachable with no live child, so the only timer that can be pending
+    // is the backoff restartTimer. Cancel it, or it will spawn a second child
+    // after the one below and orphan it.
+    this.clearTimers()
     this.spawnOnce()
   }
 
