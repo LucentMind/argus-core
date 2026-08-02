@@ -79,11 +79,15 @@ beforeEach(() => {
 })
 
 describe('CaseDashboard triage', () => {
-  it('renders comment volume as an icon and a number, not as prose', () => {
+  it('renders comment volume as an icon and a total, not as prose — the tooltip carries what is new', () => {
     render(
       <CaseDashboard
         cases={[
           mkCase({
+            // Total (12) and fresh (2) are deliberately different values: this pins down that
+            // the card shows the SIZE of the conversation, not the delta since the last look —
+            // Task 11 moved that delta into the tooltip.
+            jiraCommentCount: 12,
             actionItems: [
               { kind: 'comments', severity: 'action', label: '2 new comments', count: 2 }
             ]
@@ -93,8 +97,8 @@ describe('CaseDashboard triage', () => {
       />
     )
     const metric = screen.getByTestId('metric-comments')
-    expect(metric.textContent).toBe('2')
-    expect(metric.getAttribute('title')).toBe('2 new comments')
+    expect(metric.textContent).toBe('12')
+    expect(metric.getAttribute('title')).toContain('2 new')
     expect(screen.queryByText('2 new comments')).toBeNull()
   })
 
@@ -119,9 +123,17 @@ describe('CaseDashboard triage', () => {
     }
   })
 
-  it('omits a metric with nothing to report', () => {
+  it('shows a muted zero total for a ticketed case with nothing to report — it is a Jira fact, not a state', () => {
     render(<CaseDashboard cases={[mkCase({ actionItems: [] })]} {...noopHandlers} />)
+    const metric = screen.getByTestId('metric-comments')
+    expect(metric.textContent).toBe('0')
+    expect(metric.className).toContain('text-mute')
+  })
+
+  it('omits the metrics entirely for a case with no jira ticket — there is no Jira fact to show', () => {
+    render(<CaseDashboard cases={[mkCase({ jiraKey: null, actionItems: [] })]} {...noopHandlers} />)
     expect(screen.queryByTestId('metric-comments')).toBeNull()
+    expect(screen.queryByTestId('metric-attachments')).toBeNull()
   })
 
   it('keeps non-numeric action items as chips', () => {

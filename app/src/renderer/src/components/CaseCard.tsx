@@ -1,5 +1,6 @@
+import type { LucideIcon } from 'lucide-react'
 import type { CaseRecord } from '../../../shared/types'
-import type { ActionItem } from '../../../shared/triage'
+import { formatSyncAge } from '../../../shared/triage'
 import type { PrRollup } from '../../../shared/prStatus'
 import { Card, Chip, IconBtn } from './ui'
 import { PrRollupIcon } from './PrRollupDot'
@@ -15,12 +16,8 @@ function phaseLabel(c: CaseRecord): string {
   return c.phase === 'closed' && c.resolution ? `Closed · ${c.resolution}` : PHASE_WORD[c.phase]
 }
 
-/** Kinds that carry a magnitude — these leave the chip row for the footer's metric strip. */
-const METRIC_KIND = { comments: MessageSquare, attachments: Paperclip } as const
-
 /** Chip tone for the kinds that stay chips. Comments/attachments are gone from this map: they
- *  are metrics now, and always amber — a red count would say "broken" where the truth is
- *  "somebody replied". Red is reserved for sync failure. */
+ *  are metrics now, rendered as totals in the footer rather than as chips. */
 const ITEM_TONE: Record<
   'sync-error' | 'status' | 'stale' | 'idle',
   'danger' | 'signal' | 'neutral'
@@ -55,11 +52,18 @@ export function CaseCard({
   index?: number
 }): React.JSX.Element {
   const actions = c.actionItems.filter((i) => i.severity === 'action')
-  const metrics = actions.filter(
-    (i): i is ActionItem & { kind: keyof typeof METRIC_KIND; count: number } =>
-      i.kind in METRIC_KIND && typeof i.count === 'number' && i.count > 0
-  )
-  const chips = actions.filter((i) => !(metrics as ActionItem[]).includes(i))
+  // Comments and attachments leave the chip row entirely: they are quantities, not states.
+  const chips = actions.filter((i) => i.kind !== 'comments' && i.kind !== 'attachments')
+  const newOf = (kind: 'comments' | 'attachments'): number =>
+    actions.find((i) => i.kind === kind)?.count ?? 0
+  // Totals, not deltas — "12 comments" is the size of the conversation; amber is reserved for
+  // "some of them are new to you". Jira facts, so a case with no ticket shows neither.
+  const metrics = c.jiraKey
+    ? ([
+        { kind: 'comments' as const, Glyph: MessageSquare, total: c.jiraCommentCount ?? 0 },
+        { kind: 'attachments' as const, Glyph: Paperclip, total: c.jiraAttachmentIds.length }
+      ] satisfies Array<{ kind: 'comments' | 'attachments'; Glyph: LucideIcon; total: number }>)
+    : []
   // `stale` is deliberately dropped: the footer's sync badge states recency for EVERY linked
   // case, so the chip would render the identical fact twice past day 7. The item still exists
   // in the model — triageRank uses it to sort neglected cases up.
@@ -85,7 +89,7 @@ export function CaseCard({
       )}
       <div className="flex items-start justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate font-mono text-sm text-signal">{c.slug}</span>
+          <span className="truncate font-mono text-sm text-ink">{c.slug}</span>
           {/* Jira-style glyph where we recognise the scheme, the bare word where we don't —
               priority names are per-project, and an unmapped value must still be readable
               rather than silently vanishing. */}
@@ -113,10 +117,23 @@ export function CaseCard({
       <h2
         data-testid="case-title"
         title={c.title}
-        className="line-clamp-2 text-[17px] leading-snug font-normal text-ink"
+        className="line-clamp-2 text-[17px] leading-snug font-normal text-signal"
       >
         {c.title}
       </h2>
+      {/* The band the card used to leave empty. Jira's own status is otherwise invisible in
+          the steady state — it surfaces only as a `status → X` chip when it CHANGES (see
+          shared/triage.ts). That chip stays: it is the change signal, this line is the state.
+          `updated` is the case's own updatedAt, distinct from the footer's sync badge, which
+          says when we last talked to Jira. */}
+      <div data-testid="case-context" className="truncate text-xs text-dim">
+        {[
+          c.jiraKey && c.jiraStatus ? `Jira: ${c.jiraStatus}` : null,
+          `updated ${formatSyncAge(c.updatedAt)}`
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+      </div>
       {chips.length + infos.length > 0 && (
         <div data-testid="action-items" className="flex flex-wrap items-center gap-1.5">
           {chips.map((i) => (
@@ -140,17 +157,22 @@ export function CaseCard({
         </div>
       )}
       <div className="mt-auto flex items-center gap-3 pt-1 text-xs text-mute">
-        {metrics.map((i) => {
-          const Glyph = METRIC_KIND[i.kind]
+        {metrics.map(({ kind, Glyph, total }) => {
+          const fresh = newOf(kind)
+          const noun = kind === 'comments' ? 'comment' : 'attachment'
           return (
             <span
-              key={i.kind}
-              data-testid={`metric-${i.kind}`}
-              title={i.label}
-              className="flex items-center gap-1 text-defect"
+              key={kind}
+              data-testid={`metric-${kind}`}
+              title={
+                fresh > 0
+                  ? `${total} ${noun}${total === 1 ? '' : 's'} · ${fresh} new`
+                  : `${total} ${noun}${total === 1 ? '' : 's'}`
+              }
+              className={`flex items-center gap-1 ${fresh > 0 ? 'text-defect' : 'text-mute'}`}
             >
               <Glyph size={13} aria-hidden="true" />
-              {i.count}
+              {total}
             </span>
           )
         })}
