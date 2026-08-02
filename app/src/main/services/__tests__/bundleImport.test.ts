@@ -465,6 +465,19 @@ describe('legacy status values', () => {
   // instead of falling through to the `?? { status: 'open', pin: null }` default. legacy.status
   // then reads as a function/undefined, which throws an opaque SQLite bind error on INSERT
   // rather than landing safely as 'open'. The array whitelist this replaced never had this gap.
+  // Same leak as caseService.ts's Finding 7 (see caseService.phase.test.ts's "does not carry
+  // the derived phase/actionItems onto disk"), one site further out: a bundle produced by a
+  // pre-fix build still carries the derived phase/actionItems in its case.json, and the
+  // import path must not write them straight back out via the `...onDisk` spread.
+  it('does not carry a stale on-disk phase/actionItems into the imported case.json', async () => {
+    await reimportWith({ phase: 'reviewing', actionItems: [{ kind: 'idle', caseId: 'x' }] })
+    const onDisk = JSON.parse(
+      fs.readFileSync(path.join(caseDir(homeB, 'NAV-100'), 'case.json'), 'utf8')
+    )
+    expect(onDisk).not.toHaveProperty('phase')
+    expect(onDisk).not.toHaveProperty('actionItems')
+  })
+
   it('treats a case.json status of "toString" as an unrecognised legacy value, not a prototype hit', async () => {
     const rec = await reimportWith({ status: 'toString' })
     expect(rec.status).toBe('open')

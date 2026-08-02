@@ -12,7 +12,7 @@ import type {
 import { derivePhase, type PhaseSignals } from '../../shared/casePhase'
 import { CASE_PHASE_PINS, type CasePhase, type CasePhasePin } from '../../shared/types'
 import { deriveActionItems, triageRank } from '../../shared/triage'
-import { ARTIFACTS_PREFIX } from '../../shared/evidenceScope'
+import { ARTIFACTS_LIKE } from './evidenceScopeSql'
 import { DEFAULT_MODE, MODES, type ModeId } from '../../shared/modes'
 import { caseDir } from './paths'
 import { appendDeletionAudit } from './deletionAudit'
@@ -233,15 +233,11 @@ function emptySignals(): CaseSignals {
   }
 }
 
-/** `rel_path` pattern for review-scoped evidence — mirrors shared/evidenceScope.ts's
- *  scopeOfRelPath (artifacts/… is review, everything else is investigation). A SQL `CASE`
- *  can't call that function directly, so this LIKE pattern is the SQL-side copy; keep it in
- *  sync with ARTIFACTS_PREFIX if that ever changes. */
-const ARTIFACTS_LIKE = `${ARTIFACTS_PREFIX}%`
-
 /**
- * Four grouped reads covering every phase signal, plus the evidence count the `idle` triage
- * item needs (folded into the same query rather than adding a fifth).
+ * Five grouped reads that populate a CaseSignals per case: the evidence count (its own
+ * unfiltered query, feeding only the `idle` triage item) plus four signal reads — evidence
+ * timestamps split by review/investigation directory, turns split by session mode, findings
+ * split by session mode, and PR-binding timestamps.
  *
  * `caseId` scopes it to one case for getCase; omitted, it covers the whole table for
  * listCases. A turn's or finding's mode comes from `sessions.mode`, which is stamped at
@@ -274,21 +270,29 @@ function readCaseSignals(db: DatabaseSync, caseId?: number): Map<number, CaseSig
   }
 
   // The phase SIGNAL, unlike the count above, is scoped by directory and excludes
-  // Jira-origin rows:
+  // Jira ticket-mirror rows:
   //   - directory scope: review evidence (artifacts/…, see ARTIFACTS_LIKE — mirrors
   //     shared/evidenceScope.ts's scopeOfRelPath) feeds a new lastReviewEvidenceAt signal
   //     -> `reviewing` instead of falling into lastEvidenceAt -> `analyzing`. A CI log
   //     fetched mid-review (ciLogs.ts's fetch_check_logs) is the motivating case (Finding I1).
-  //   - origin exclusion: Jira sync (createFromTicket/refresh in jiraCases.ts) ingests
-  //     evidence with origin 'jira' as a side effect of syncing, not of the user's work, and
-  //     the design's rule is that background sync must never move the phase (Finding I2) —
-  //     otherwise a case created from a ticket is born "Analyzing" before a human touches it.
+  //   - ticket-mirror exclusion: createFromTicket/refresh (jiraCases.ts) auto-ingest three
+  //     ticket-mirror files (.ticket.md/.ticket.json/.comments.md) as a side effect of
+  //     syncing, not of the user's work, and the design's rule is that background sync must
+  //     never move the phase (Finding I2) — otherwise a case created from a ticket is born
+  //     "Analyzing" before a human touches it. Those rows are origin 'jira' AND carry
+  //     meta.jira.role ('ticket'/'ticket-raw'/'comments'); json_extract picks that out
+  //     without needing a JS-side origin check. Jira ATTACHMENTS (and files extracted from a
+  //     zip attachment) are origin 'jira' too, but they only land because a human ticked them
+  //     in JiraAttachmentsDialog/NewCaseDialog — choosing which matters is investigation work,
+  //     so they carry no `jira.role` (attachments have meta.jira.attachmentId instead; zip
+  //     inner files have meta.extractedFrom) and must NOT be excluded here (Finding, this pass).
   const evidenceScopeCol = `CASE WHEN e.rel_path LIKE ? THEN 'review' ELSE 'investigation' END`
+  const isTicketMirror = `e.origin = 'jira' AND json_extract(e.meta, '$.jira.role') IS NOT NULL`
   for (const r of db
     .prepare(
       `SELECT e.case_id AS caseId, ${evidenceScopeCol} AS evScope, MAX(e.created_at) AS lastAt
          FROM evidence e
-        WHERE e.origin != 'jira'${caseId === undefined ? '' : ' AND e.case_id = ?'}
+        WHERE NOT (${isTicketMirror})${caseId === undefined ? '' : ' AND e.case_id = ?'}
         GROUP BY e.case_id, evScope`
     )
     .all(ARTIFACTS_LIKE, ...args) as unknown as Array<{

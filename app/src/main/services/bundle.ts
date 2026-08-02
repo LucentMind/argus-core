@@ -451,7 +451,9 @@ export async function importCase(
       // new slug + imported workspaces become unlinked refs (spec §2.2); local paths never travel.
       // status/phasePin/phasePinnedAt are written explicitly (not left to the `...onDisk`
       // spread) so a legacy bundle's on-disk literal ("analyzing", "rca-drafted", ...) is
-      // normalized to match what actually landed in the DB row above.
+      // normalized to match what actually landed in the DB row above. phase/actionItems are
+      // DERIVED — never stored (Finding 7, same as createCase's fix) — so a pre-fix bundle's
+      // stored copies must not survive the `...onDisk` spread either.
       fs.writeFileSync(
         path.join(dir, 'case.json'),
         JSON.stringify(
@@ -461,6 +463,8 @@ export async function importCase(
             status,
             phasePin,
             phasePinnedAt,
+            phase: undefined,
+            actionItems: undefined,
             updatedAt: now,
             workspaces: [],
             workspaceRefs: manifest.workspaces

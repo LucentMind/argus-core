@@ -5,6 +5,12 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
 import { createCase, listCases, getCase } from '../caseService'
+import { ingestArtifact } from '../ingest'
+import { createDetection } from '../packs/detection'
+import { samplePackRegistry } from '../packs/__tests__/fixtures'
+
+const FIXTURE = path.resolve(__dirname, '../../../../../tests/fixtures/sample-applog.txt')
+const detection = createDetection(samplePackRegistry())
 
 let home: string
 let db: DatabaseSync
@@ -39,12 +45,18 @@ function addTurn(caseId: number, sessionId: number, at: string): void {
 function addEvidence(
   caseId: number,
   at: string,
-  opts: { origin?: string; relPath?: string } = {}
+  opts: { origin?: string; relPath?: string; meta?: Record<string, unknown> } = {}
 ): void {
   db.prepare(
-    `INSERT INTO evidence (case_id, rel_path, sha256, artifact_type, size, origin, created_at)
-     VALUES (?, ?, 'sha', 'text', 1, ?, ?)`
-  ).run(caseId, opts.relPath ?? `evidence/e-${at}.txt`, opts.origin ?? 'upload', at)
+    `INSERT INTO evidence (case_id, rel_path, sha256, artifact_type, size, origin, meta, created_at)
+     VALUES (?, ?, 'sha', 'text', 1, ?, ?, ?)`
+  ).run(
+    caseId,
+    opts.relPath ?? `evidence/e-${at}.txt`,
+    opts.origin ?? 'upload',
+    JSON.stringify(opts.meta ?? {}),
+    at
+  )
 }
 
 function linkPr(caseId: number, at: string): void {
@@ -119,32 +131,61 @@ describe('listCases phase derivation', () => {
     expect(listCases(db)[0].phase).toBe('reviewing')
   })
 
-  // Finding I2: Jira sync (createFromTicket, refresh) ingests evidence rows as part of
-  // syncing, but the design's rule is that background sync must never move the phase — a
-  // case created from a ticket must stay `open` until a human actually touches it.
-  it('stays open when the only evidence is Jira-origin', () => {
+  // Finding I2: Jira sync (createFromTicket, refresh) auto-ingests three ticket-mirror files
+  // (.ticket.md/.ticket.json/.comments.md, tagged meta.jira.role) as a side effect of syncing,
+  // but the design's rule is that background sync must never move the phase — a case created
+  // from a ticket must stay `open` until a human actually touches it.
+  it('stays open when the only evidence is a Jira ticket-mirror row', () => {
     const id = mkCase('JIRA-1')
-    addEvidence(id, T(1), { origin: 'jira' })
+    addEvidence(id, T(1), { origin: 'jira', meta: { jira: { role: 'ticket' } } })
     expect(listCases(db)[0].phase).toBe('open')
   })
 
-  it('stays open when the only evidence is Jira-origin, even under artifacts/', () => {
+  it('stays open when the only evidence is a Jira ticket-mirror row, even under artifacts/', () => {
     const id = mkCase('JIRA-2')
-    addEvidence(id, T(1), { origin: 'jira', relPath: 'artifacts/NAV-1.ticket.md' })
+    addEvidence(id, T(1), {
+      origin: 'jira',
+      relPath: 'artifacts/NAV-1.ticket.md',
+      meta: { jira: { role: 'ticket' } }
+    })
     expect(listCases(db)[0].phase).toBe('open')
   })
 
-  it('moves to analyzing once a non-Jira evidence row lands alongside Jira evidence', () => {
+  it('moves to analyzing once a non-Jira evidence row lands alongside a ticket-mirror row', () => {
     const id = mkCase('JIRA-3')
-    addEvidence(id, T(1), { origin: 'jira' })
+    addEvidence(id, T(1), { origin: 'jira', meta: { jira: { role: 'ticket' } } })
     addEvidence(id, T(2), { origin: 'upload' })
     expect(listCases(db)[0].phase).toBe('analyzing')
   })
 
-  it('moves to analyzing once an investigation turn lands, Jira evidence notwithstanding', () => {
+  it('moves to analyzing once an investigation turn lands, ticket-mirror evidence notwithstanding', () => {
     const id = mkCase('JIRA-4')
-    addEvidence(id, T(1), { origin: 'jira' })
+    addEvidence(id, T(1), { origin: 'jira', meta: { jira: { role: 'ticket' } } })
     addTurn(id, addSession(id, 'investigation'), T(2))
+    expect(listCases(db)[0].phase).toBe('analyzing')
+  })
+
+  // Reviewer correction (this pass): the origin-only exclusion reached too far — Jira
+  // ATTACHMENTS are origin 'jira' too, but they only land because a human ticked them in
+  // JiraAttachmentsDialog/NewCaseDialog, so choosing them is investigation work and must move
+  // the phase like any other evidence. Goes through the real ingestArtifact path (same call
+  // jiraCases.ts's ingestAttachments makes) rather than a hand-written row, so the test
+  // exercises the actual meta shape ('jira.attachmentId', no 'jira.role').
+  it('moves to analyzing once a Jira attachment is ingested', () => {
+    mkCase('JIRA-ATT-1')
+    ingestArtifact(db, home, detection, 'JIRA-ATT-1', FIXTURE, 'jira', {
+      jira: { key: 'NAV-1', attachmentId: 'a1', filename: 'sample-applog.txt' }
+    })
+    expect(listCases(db)[0].phase).toBe('analyzing')
+  })
+
+  // Same shape for a file exploded out of a zip attachment (jiraCases.ts's
+  // ingestArchiveContents): meta.extractedFrom, no `jira` key at all — must also count.
+  it('moves to analyzing once a file extracted from a zip attachment is ingested', () => {
+    mkCase('JIRA-ZIP-1')
+    ingestArtifact(db, home, detection, 'JIRA-ZIP-1', FIXTURE, 'jira', {
+      extractedFrom: { attachmentId: 'a1', archiveName: 'bundle.zip', innerPath: 'inner.txt' }
+    })
     expect(listCases(db)[0].phase).toBe('analyzing')
   })
 

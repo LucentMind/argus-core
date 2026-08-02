@@ -1,6 +1,10 @@
 import { ARTIFACTS_PREFIX, type EvidenceScope } from '../../shared/evidenceScope'
 
-const ARTIFACTS_LIKE = `${ARTIFACTS_PREFIX}%`
+/** `rel_path LIKE` pattern for review-scoped evidence — the single SQL-side copy of
+ *  shared/evidenceScope.ts's ARTIFACTS_PREFIX. Exported so every SQL consumer (this
+ *  module's scopeClause, and caseService.ts's phase-signal query) shares one definition
+ *  instead of each computing its own from ARTIFACTS_PREFIX. */
+export const ARTIFACTS_LIKE = `${ARTIFACTS_PREFIX}%`
 
 /**
  * The `rel_path` predicate for a listing or search scope: a fragment appended to a WHERE
