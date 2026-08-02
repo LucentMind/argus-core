@@ -16,7 +16,6 @@ import { ToolCallCard } from './ToolCallCard'
 import { Composer } from './Composer'
 import { ApprovalCard } from './ApprovalCard'
 import { QuestionCard } from './QuestionCard'
-import { SessionSwitcher } from './SessionSwitcher'
 import { ChatFind } from './ChatFind'
 
 // The FTS snippet is a contiguous region of the indexed text with matched
@@ -63,9 +62,7 @@ export function ChatPane({
   onModelChange,
   onRunOptionsChange,
   onPermissionModeChange,
-  onSwitchSession,
   onCite,
-  onJumpToTurn,
   focusTarget = null,
   onFocusConsumed,
   prefill
@@ -79,9 +76,7 @@ export function ChatPane({
   onRunOptionsChange?: (sel: RunOptionSelection[]) => void
   /** Pin this chat's permission mode. */
   onPermissionModeChange?: (mode: PermissionMode) => void
-  onSwitchSession: (id: number) => void
   onCite: (cite: CiteTarget) => void
-  onJumpToTurn?: (sessionId: number, target: ChatJumpTarget) => void
   focusTarget?: ChatJumpTarget | null
   onFocusConsumed?: () => void
   prefill?: string
@@ -263,17 +258,6 @@ export function ChatPane({
     return () => clearTimeout(t)
   }, [flashIndex])
 
-  // A default routing so ChatPane still works when no onJumpToTurn is wired
-  // (e.g. existing tests); CaseWorkspace overrides this with the real
-  // switch-then-focus handler.
-  function handleJumpToTurn(targetSessionId: number, target: ChatJumpTarget): void {
-    if (onJumpToTurn) {
-      onJumpToTurn(targetSessionId, target)
-      return
-    }
-    if (targetSessionId !== sessionId) onSwitchSession(targetSessionId)
-  }
-
   function findRingClass(i: number): string {
     if (i === currentFindIndex) return 'ring-2 ring-signal'
     if (findMatches.includes(i)) return 'ring-1 ring-signal/40'
@@ -282,14 +266,6 @@ export function ChatPane({
 
   return (
     <div ref={paneRef} className="relative flex min-h-0 flex-1 flex-col">
-      <div className="flex h-9 items-center border-b border-hair px-3">
-        <SessionSwitcher
-          slug={slug}
-          sessionId={sessionId}
-          onSwitch={onSwitchSession}
-          onJumpToTurn={handleJumpToTurn}
-        />
-      </div>
       {findOpen && (
         <ChatFind
           items={state.items}

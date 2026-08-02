@@ -93,7 +93,7 @@ export function SessionChips({
     .join('\n')
 
   return (
-    <div className="flex shrink-0 items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2" data-testid="session-chips">
       <span title={title}>
         <Chip tone={tone}>{label}</Chip>
       </span>

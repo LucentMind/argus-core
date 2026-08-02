@@ -6,6 +6,9 @@ import { panelsStore } from '../lib/panelsStore'
 import { CHAT_TAB } from '../lib/panelsStore'
 import { externalAppsStore } from '../lib/externalAppsStore'
 import { panelKeyStr, type PanelDecl, type PanelInfo, type PanelKey } from '../../../shared/panels'
+import type { ChatJumpTarget } from '../../../shared/types'
+import { SessionSwitcher } from './SessionSwitcher'
+import { SessionChips } from './SessionChips'
 
 const keyOf = (p: PanelInfo): PanelKey => ({
   caseSlug: p.caseSlug,
@@ -18,12 +21,24 @@ export function PanelTabStrip({
   sessionId,
   activeTab,
   onSelect,
+  activeSessionId,
+  instanceId,
+  onSwitchSession,
+  onJumpToTurn,
   action
 }: {
   slug: string
   sessionId: number | null
   activeTab: string
   onSelect: (tab: string) => void
+  /** The chat this bar's Chat tab is a trigger for — separate from `sessionId` above (which
+   *  is what a *newly opened panel* is scoped to). Null only in the brief window before the
+   *  case's session list has resolved. */
+  activeSessionId: number | null
+  /** Provider instance running the active chat — cost reporting is per-provider. */
+  instanceId: string | null
+  onSwitchSession: (id: number) => void
+  onJumpToTurn: (sessionId: number, target: ChatJumpTarget) => void
   /** Rendered in the launcher's place. Supplying this hides `New panel` — review mode
    *  passes `Run review` here because review does not offer panels. Panels already open
    *  are deliberately untouched: review cannot *create* one, but entering it must not
@@ -65,7 +80,21 @@ export function PanelTabStrip({
 
   return (
     <div className="flex items-center gap-1 border-b border-hair bg-void px-2">
-      <TabButton active={activeTab === CHAT_TAB} onClick={() => onSelect(CHAT_TAB)} label="Chat" />
+      <div
+        className={`flex min-w-32 shrink items-center border-b-2 ${
+          activeTab === CHAT_TAB ? 'border-signal' : 'border-transparent'
+        }`}
+        onClick={() => onSelect(CHAT_TAB)}
+      >
+        {activeSessionId !== null && (
+          <SessionSwitcher
+            slug={slug}
+            sessionId={activeSessionId}
+            onSwitch={onSwitchSession}
+            onJumpToTurn={onJumpToTurn}
+          />
+        )}
+      </div>
       {st.panels.map((p) => {
         const id = panelKeyStr(p)
         return (
@@ -139,11 +168,16 @@ export function PanelTabStrip({
           </div>
         )
       })}
+      <div className="ml-auto flex items-center gap-2">
+        {activeTab === CHAT_TAB && (
+          <SessionChips slug={slug} sessionId={activeSessionId} instanceId={instanceId} />
+        )}
+      </div>
       {action ? (
-        <div className="ml-1">{action}</div>
+        <div>{action}</div>
       ) : (
         launcherItems.length > 0 && (
-          <div className="ml-1">
+          <div>
             <MenuButton
               label={
                 <span className="flex items-center gap-1">
@@ -163,26 +197,5 @@ export function PanelTabStrip({
         )
       )}
     </div>
-  )
-}
-
-function TabButton({
-  active,
-  onClick,
-  label
-}: {
-  active: boolean
-  onClick: () => void
-  label: string
-}): React.JSX.Element {
-  return (
-    <button
-      className={`border-b-2 px-2 py-1.5 text-xs ${
-        active ? 'border-signal text-ink' : 'border-transparent text-dim hover:text-ink'
-      }`}
-      onClick={onClick}
-    >
-      {label}
-    </button>
   )
 }

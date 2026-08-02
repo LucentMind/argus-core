@@ -26,12 +26,7 @@ beforeEach(() => {
     agent: {
       send: vi.fn(),
       interrupt: vi.fn(),
-      onEvent: vi.fn(() => () => undefined),
-      // ChatPane renders SessionSwitcher, which now mounts SessionChips (Task 5) beside
-      // the trigger — it probes auth/preflight on mount, same as SessionSwitcher.test.tsx.
-      authStatus: vi.fn(async () => ({ ok: true, verified: true, detail: 'claude ready' })),
-      preflight: vi.fn(async () => ({ ok: true, checks: [] })),
-      onAuthChanged: vi.fn(() => () => {})
+      onEvent: vi.fn(() => () => undefined)
     },
     sessions: {
       list: vi.fn(async () => [
@@ -71,7 +66,7 @@ describe('ChatPane', () => {
       ev('tool.call.started', { toolCallId: 't1', name: 'mcp__argus__search_evidence' })
     )
     const onCite = vi.fn()
-    render(<ChatPane slug="NAV-1" sessionId={1} onSwitchSession={vi.fn()} onCite={onCite} />)
+    render(<ChatPane slug="NAV-1" sessionId={1} onCite={onCite} />)
     expect(screen.getByText('why crash?')).toBeTruthy()
     // collapsed citation chip — clicking it only toggles expansion (which would
     // fetch a snippet via window.argus.evidence, unstubbed here); the
@@ -90,7 +85,7 @@ describe('ChatPane', () => {
       ({ ...base, caseSlug: slug, type, payload }) as AgentEvent
     agentStore.apply(at('turn.started', { userText: '**Bold** turn', composed: true }))
     const { container } = render(
-      <ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />
+      <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
     )
     const strong = container.querySelector('strong')
     expect(strong).toBeTruthy()
@@ -104,7 +99,7 @@ describe('ChatPane', () => {
       ({ ...base, caseSlug: slug, type, payload }) as AgentEvent
     agentStore.apply(at('turn.started', { userText: '3*4=12' }))
     const { container } = render(
-      <ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />
+      <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
     )
     expect(container.querySelector('strong')).toBeNull()
     expect(screen.getByText('3*4=12')).toBeTruthy()
@@ -128,7 +123,7 @@ describe('ChatPane', () => {
     )
     uiStore.setShowToolCalls(false)
     try {
-      render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+      render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
       expect(screen.queryByText(/read_evidence/)).toBeNull()
       expect(screen.getByText('git push')).toBeTruthy()
     } finally {
@@ -137,7 +132,7 @@ describe('ChatPane', () => {
   })
 
   it('sends composer text', () => {
-    render(<ChatPane slug="NAV-1" sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+    render(<ChatPane slug="NAV-1" sessionId={1} onCite={vi.fn()} />)
     const box = screen.getByPlaceholderText(/message the analyst/i)
     fireEvent.change(box, { target: { value: 'run /analyze-applog' } })
     fireEvent.keyDown(box, { key: 'Enter' })
@@ -151,7 +146,7 @@ describe('ChatPane', () => {
     const slug = 'NAV-CLEAR'
     composerAttachments.add(slug, 1, { id: 'a', name: 'shot.png', status: 'ready' })
     const clearSpy = vi.spyOn(composerAttachments, 'clear')
-    render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+    render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
     const box = screen.getByPlaceholderText(/message the analyst/i)
     fireEvent.change(box, { target: { value: 'see attached' } })
     fireEvent.keyDown(box, { key: 'Enter' })
@@ -166,7 +161,7 @@ describe('ChatPane', () => {
       ({ ...base, caseSlug: slug, type, payload, turnId }) as AgentEvent
     agentStore.apply(at('turn.started', { userText: 'anchor me' }, 10))
     const { container } = render(
-      <ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />
+      <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
     )
     expect(container.querySelector('[data-turn-id="10"]')).toBeTruthy()
   })
@@ -195,7 +190,6 @@ describe('ChatPane', () => {
       <ChatPane
         slug={slug}
         sessionId={1}
-        onSwitchSession={vi.fn()}
         onCite={vi.fn()}
         focusTarget={{
           turnId: 7,
@@ -230,7 +224,6 @@ describe('ChatPane', () => {
       <ChatPane
         slug={slug}
         sessionId={1}
-        onSwitchSession={vi.fn()}
         onCite={vi.fn()}
         focusTarget={{ turnId: 2, role: 'user', snippet: '«braking» pressure follow-up' }}
         onFocusConsumed={vi.fn()}
@@ -255,7 +248,6 @@ describe('ChatPane', () => {
       <ChatPane
         slug={slug}
         sessionId={1}
-        onSwitchSession={vi.fn()}
         onCite={vi.fn()}
         focusTarget={{ turnId: 9, role: 'assistant', snippet: 'ends with «frobnitz»' }}
         onFocusConsumed={onFocusConsumed}
@@ -298,7 +290,7 @@ describe('ChatPane', () => {
       const slug = 'NAV-SCROLL-OPEN'
       const at = (type: string, payload: unknown): AgentEvent =>
         ({ ...base, caseSlug: slug, type, payload, turnId: 4 }) as AgentEvent
-      render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+      render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
       act(() => {
         agentStore.hydrate(slug, 1, [
           at('turn.started', { userText: 'why did the ingest stall?' }),
@@ -360,7 +352,7 @@ describe('ChatPane', () => {
           at('assistant.message', { text: '```mermaid\ngraph TD;A-->B;\n```' })
         ] as AgentEvent[])
         const { container } = render(
-          <ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />
+          <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
         )
         return container.querySelector<HTMLElement>('.overflow-y-auto')!
       }
@@ -408,10 +400,10 @@ describe('ChatPane', () => {
         at(2, 'assistant.message', { text: 'second answer' })
       ] as AgentEvent[])
       const { rerender } = render(
-        <ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />
+        <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
       )
       expect(last()).toBe('auto')
-      rerender(<ChatPane slug={slug} sessionId={2} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+      rerender(<ChatPane slug={slug} sessionId={2} onCite={vi.fn()} />)
       expect(scrollBehaviors).toHaveLength(2)
       expect(last()).toBe('auto')
     })
@@ -424,7 +416,7 @@ describe('ChatPane', () => {
     agentStore.apply(at('turn.started', { userText: 'braking failed' }, 1))
     agentStore.apply(at('assistant.message', { text: 'unrelated reply' }, 1))
     const { container } = render(
-      <ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />
+      <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
     )
     expect(screen.queryByLabelText('Find in chat')).toBeNull()
 
@@ -451,7 +443,7 @@ describe('ChatPane', () => {
     URL.createObjectURL = vi.fn(() => 'blob:preview')
     URL.revokeObjectURL = vi.fn()
 
-    render(<ChatPane slug="NAVAPI-1" sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+    render(<ChatPane slug="NAVAPI-1" sessionId={1} onCite={vi.fn()} />)
 
     // Chromium supplies a name like this for every clipboard image paste — real or not,
     // the composer must ignore it and mint a sortable screenshot-style name instead.
@@ -492,7 +484,7 @@ describe('ChatPane', () => {
           return vi.fn()
         })
       } as never
-      render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+      render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
       expect(screen.getByText('foo.txt')).toBeTruthy()
 
       act(() => {
@@ -524,7 +516,7 @@ describe('ChatPane', () => {
           return vi.fn()
         })
       } as never
-      render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+      render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
 
       act(() => {
         changedCb?.(slug)
@@ -552,7 +544,7 @@ describe('ChatPane', () => {
           return vi.fn()
         })
       } as never
-      render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+      render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
 
       // an unrelated evidence:changed fires while this attachment is still
       // pending (no relPath yet) — it must survive
@@ -606,7 +598,7 @@ describe('ChatPane', () => {
         })
       } as never
 
-      render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+      render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
 
       const file = new File([new Uint8Array(4)], 'race.txt', { type: 'text/plain' })
       fireEvent.paste(screen.getByPlaceholderText(/Message the analyst/i), {
@@ -646,7 +638,7 @@ describe('ChatPane', () => {
         onChanged: vi.fn(() => off)
       } as never
       const { unmount } = render(
-        <ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />
+        <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
       )
       expect(off).not.toHaveBeenCalled()
       unmount()

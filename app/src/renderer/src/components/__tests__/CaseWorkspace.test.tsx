@@ -1098,7 +1098,9 @@ describe('CaseWorkspace rail material', () => {
   it('goes to ground (dyn-rail, not bg-void) when the dynamic theme is on', async () => {
     uiStore.setDynamicTheme(true)
     const { container } = renderWorkspace()
-    await screen.findByText('Chat')
+    // 'Chat' was the static tab label pre-merge; the tab strip's Chat tab is now the
+    // active chat's own title (SessionSwitcher's trigger) — see task-4-report.md.
+    await screen.findByLabelText('Chat 1')
     const asides = container.querySelectorAll('aside')
     expect(asides.length).toBeGreaterThan(0)
     asides.forEach((a) => {
@@ -1113,7 +1115,7 @@ describe('CaseWorkspace rail material', () => {
   it('stays bg-void when the dynamic theme is off', async () => {
     uiStore.setDynamicTheme(false)
     const { container } = renderWorkspace()
-    await screen.findByText('Chat')
+    await screen.findByLabelText('Chat 1')
     const asides = container.querySelectorAll('aside')
     expect(asides.length).toBeGreaterThan(0)
     asides.forEach((a) => {
@@ -1126,7 +1128,7 @@ describe('CaseWorkspace rail material', () => {
 describe('CaseWorkspace panel tab host', () => {
   it('shows a Chat tab and lists available panels in the launcher', async () => {
     renderWorkspace()
-    expect(await screen.findByText('Chat')).toBeTruthy()
+    expect(await screen.findByLabelText('Chat 1')).toBeTruthy()
     fireEvent.click(screen.getByLabelText('New panel'))
     expect(await screen.findByText('Text Viewer')).toBeTruthy()
   })

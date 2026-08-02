@@ -631,6 +631,10 @@ export function CaseWorkspace({
               sessionId={sessionId}
               activeTab={panels.activeTab}
               onSelect={(t) => panelsStore.setActiveTab(t)}
+              activeSessionId={sessionId}
+              instanceId={sessions.find((s) => s.id === sessionId)?.instanceId ?? null}
+              onSwitchSession={handleSwitchSession}
+              onJumpToTurn={handleJumpToTurn}
               action={
                 activeMode === 'review' ? (
                   <ReviewRunButton slug={slug} sessionId={sessionId} onError={handleModeError} />
@@ -650,9 +654,7 @@ export function CaseWorkspace({
                     onModelChange={handleModelChange}
                     onRunOptionsChange={handleRunOptionsChange}
                     onPermissionModeChange={handlePermissionModeChange}
-                    onSwitchSession={handleSwitchSession}
                     onCite={(c) => void handleCite(c)}
-                    onJumpToTurn={handleJumpToTurn}
                     focusTarget={focusTurn?.target ?? null}
                     onFocusConsumed={() => setFocusTurn(null)}
                     prefill={prefill}
