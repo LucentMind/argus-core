@@ -38,8 +38,16 @@ describe('resolveSidecarBinary', () => {
     expect(resolveSidecarBinary({ repoRoot: tmp, platform: 'win32' })).toBe(override)
   })
 
-  it('ignores an env override that does not exist', () => {
+  it('an invalid override disables the sidecar rather than falling back', () => {
+    // Create a valid packaged binary that would normally be found
+    touch(
+      path.join(tmp, 'resources', 'resource-monitor', 'win32-x64', 'argus-resource-monitor.exe')
+    )
+
+    // Set an invalid override
     process.env.ARGUS_RESOURCE_MONITOR_PATH = path.join(tmp, 'nope.exe')
+
+    // Should return null (short-circuit), not fall back to the packaged binary
     expect(resolveSidecarBinary({ repoRoot: tmp, platform: 'win32' })).toBeNull()
   })
 
