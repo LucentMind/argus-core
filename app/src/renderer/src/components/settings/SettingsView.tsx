@@ -10,6 +10,7 @@ import { GeneralSettings } from './GeneralSettings'
 import { AgentSettings } from './AgentSettings'
 import { ConnectorsSettings } from './ConnectorsSettings'
 import { HealthSettings } from './HealthSettings'
+import DiagnosticsSettings from './DiagnosticsSettings'
 import { MemorySettings } from './MemorySettings'
 import { ProposalsPage } from './ProposalsPage'
 import { LibraryPage, type LibraryKind } from './LibraryPage'
@@ -204,6 +205,7 @@ export function SettingsView({
           {payload && page === 'general' && <GeneralSettings payload={payload} />}
           {payload && page === 'agent' && <AgentSettings payload={payload} />}
           {page === 'health' && <HealthSettings />}
+          {page === 'diagnostics' && <DiagnosticsSettings />}
           {page === 'connectors' && <ConnectorsSettings />}
           {page === 'proposals' && (
             <ProposalsPage

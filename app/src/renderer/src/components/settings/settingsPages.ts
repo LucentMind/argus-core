@@ -10,6 +10,7 @@ import {
   Package,
   Inbox,
   Braces,
+  Activity,
   type LucideIcon
 } from 'lucide-react'
 
@@ -99,6 +100,15 @@ export const PAGES = [
     Icon: HeartPulse,
     blurb:
       'Provider reachability, binary resolution, and the checks Argus runs on open or on demand.'
+  },
+  {
+    id: 'diagnostics',
+    label: 'Diagnostics',
+    group: 'System',
+    enabled: true,
+    Icon: Activity,
+    blurb:
+      'Live CPU and memory for every process Argus runs, attributed to the process tree that owns it.'
   },
   {
     id: 'observability',

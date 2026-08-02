@@ -203,13 +203,14 @@ beforeEach(() => {
 afterEach(() => __resetEscapeLayersForTest())
 
 describe('SettingsView', () => {
-  it('renders the rail: 8 active pages, 0 coming-soon entries', async () => {
+  it('renders the rail: 9 active pages, 0 coming-soon entries', async () => {
     render(<SettingsView onClose={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     for (const label of [
       'General',
       'Agent',
       'Health',
+      'Diagnostics',
       'Connectors',
       'Library',
       'Team',
@@ -235,6 +236,7 @@ describe('SettingsView', () => {
       'Team',
       'Sources',
       'Health',
+      'Diagnostics',
       'Observability'
     ])
     expect(screen.queryByText('Analysis Tools')).toBeNull()
