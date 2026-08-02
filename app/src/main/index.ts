@@ -292,9 +292,12 @@ let externalAppHost: ExternalAppHost | null = null
 // 'closed' handler is a separate function scope and needs it too, to unsubscribe a closing
 // window so it cannot pin the service to the 1s fast tier forever.
 let diagnostics: DiagnosticsService | null = null
-// webContents ids that already have a diagnostics 'destroyed' cleanup listener wired up.
-// Prevents piling up one listener per subscribe() call from the same sender (StrictMode
-// double-invoke, repeated navigation) — at most one listener is ever attached per id.
+// webContents ids that already have diagnostics cleanup listeners wired up (destroyed,
+// did-start-navigation, render-process-gone). Prevents piling up listeners per
+// subscribe() call from the same sender (StrictMode double-invoke, repeated
+// navigation) — at most one listener set is ever attached per id, and every entry
+// point removes all three listeners together, so the set and the listeners never
+// drift apart.
 const diagnosticsDestroyedWired = new Set<number>()
 
 // D1 spike instrumentation (exit-check step 7): ARGUS_LOOP_METRICS=1 logs
@@ -2253,15 +2256,35 @@ function registerIpc(): void {
     diagnostics?.subscribe(id)
     // Cleanup rides on the sender, not on any one window's close handler, so every
     // current and future window that can subscribe (editor, not just main) is covered.
-    // Guard against wiring more than one 'destroyed' listener per webContents id: a
-    // renderer can call subscribe() again over its lifetime (StrictMode double-invoke,
-    // repeated navigation), and a naive once() per call would pile up listeners.
+    // Guard against wiring more than one listener set per webContents id: a renderer
+    // can call subscribe() again over its lifetime (StrictMode double-invoke, repeated
+    // navigation), and a naive listener-per-call would pile them up.
     if (!diagnosticsDestroyedWired.has(id)) {
       diagnosticsDestroyedWired.add(id)
-      e.sender.once('destroyed', () => {
+      const sender = e.sender
+      // A reload or renderer crash keeps the same webContents id, so 'destroyed' never
+      // fires for either — React's unmount cleanup doesn't run, the id stays in the
+      // subscriber set, and the service keeps sampling at 1Hz for a page nobody is
+      // listening to. Cover all three ways a subscriber can go away, and remove every
+      // listener + the wired-set entry together so a later subscribe() (post-reload)
+      // re-arms cleanly instead of silently doing nothing.
+      const onNavigate = (details: { isMainFrame: boolean; isSameDocument: boolean }): void => {
+        // Same-document navigations (hash changes, pushState) are not a page reload —
+        // the React tree that called subscribe() is still mounted and listening.
+        if (details.isMainFrame && !details.isSameDocument) cleanup()
+      }
+      const onRenderGone = (): void => cleanup()
+      const onDestroyed = (): void => cleanup()
+      function cleanup(): void {
+        sender.off('destroyed', onDestroyed)
+        sender.off('did-start-navigation', onNavigate)
+        sender.off('render-process-gone', onRenderGone)
         diagnosticsDestroyedWired.delete(id)
         diagnostics?.unsubscribe(id)
-      })
+      }
+      sender.once('destroyed', onDestroyed)
+      sender.on('did-start-navigation', onNavigate)
+      sender.once('render-process-gone', onRenderGone)
     }
   })
   ipcMain.handle(IPC.diagnosticsUnsubscribe, (e) => {
@@ -2532,6 +2555,10 @@ app.on('before-quit', (event) => {
 
   panelHost?.closeAll()
   externalAppHost?.closeAll()
+  // Belt-and-suspenders: the sidecar also exits on stdin EOF once this process dies,
+  // but that leaves cleanup entirely implicit. Say so explicitly, and do it before
+  // retry() could possibly race it (see SidecarClient.retry()'s 'disabled' guard).
+  diagnostics?.stop()
   // Cmd+Q / app.quit() with the editor still open: the main-window path above never ran, so
   // this is the only flush that happens. Synchronous by design — nothing here can await.
   draftStore?.flushAll()
