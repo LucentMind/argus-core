@@ -396,3 +396,56 @@ export function Checkbox({
     </label>
   )
 }
+
+/**
+ * Labelled switch — the same track-and-knob material as settings' bare `Switch`, plus the text
+ * that names what it controls.
+ *
+ * Distinct from {@link Checkbox} by *meaning*, not by taste: a checkbox states a value that some
+ * later action will read, a switch takes effect the moment it moves. Anything that re-filters a
+ * list under the user's cursor is the second kind.
+ *
+ * Built on a `<button role="switch">` rather than Checkbox's hidden `<input>`. The knob has to
+ * move on state and the track has to fill, and both are React-state reads — driving them from
+ * `peer-checked:` would need the knob to be a SIBLING of the input, which it cannot be while the
+ * track wraps it. `aria-checked` carries the state, so `getByRole('switch', { checked })` sees it.
+ */
+export function Toggle({
+  checked,
+  onChange,
+  label,
+  'aria-label': ariaLabel
+}: {
+  checked: boolean
+  onChange: (next: boolean) => void
+  label: ReactNode
+  'aria-label'?: string
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      className="inline-flex cursor-pointer select-none items-center gap-2 text-xs text-dim transition-colors hover:text-ink"
+      onClick={() => onChange(!checked)}
+    >
+      <span
+        aria-hidden="true"
+        className={`relative block h-4 w-7 shrink-0 rounded-full border transition-colors ${
+          checked ? 'border-signal/50 bg-signal/30' : 'border-hair2 bg-overlay'
+        }`}
+      >
+        {/* Geometry, so the knob is actually centred rather than nearly: the track is h-4/w-7 with
+            a 1px border, i.e. a 14×26 inner box, and the knob is 10px. That leaves 2px above and
+            below (mt-[2px]) and travel from 2px to 26-10-2 = 14px. */}
+        <span
+          className={`mt-[2px] block h-2.5 w-2.5 rounded-full transition-[transform,background-color] ${
+            checked ? 'translate-x-[14px] bg-signal' : 'translate-x-[2px] bg-mute'
+          }`}
+        />
+      </span>
+      {label}
+    </button>
+  )
+}

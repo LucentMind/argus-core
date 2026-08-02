@@ -59,7 +59,19 @@ export function SettingsSection({
   onToggle,
   children
 }: {
-  title: string
+  /**
+   * Omit it and the section renders as a bare card with no heading row.
+   *
+   * That is for the page whose ONLY section is the page itself — General, Connectors — where the
+   * heading repeated the page label already showing in the header masthead (user-directed,
+   * 2026-08-02). Every other page's sections name a genuine subdivision and keep their titles.
+   *
+   * A collapsible section must still pass one: the toggle takes its accessible name from the
+   * title, so a titleless section has nothing to render the toggle *in*. Not expressible in this
+   * prop type without a union that would cost more than it buys — the header row simply does not
+   * render, which is loud rather than subtle if anyone tries it.
+   */
+  title?: string
   /** Supporting copy under the header — states what the section's rows have in common. */
   subtitle?: string
   /** Controls rendered on the section header line, right-aligned (e.g. a refresh button). */
@@ -76,7 +88,7 @@ export function SettingsSection({
     () => uiStore.get()
   )
   const dynamic = ui.dynamicTheme
-  const heading = (
+  const heading = title !== undefined && (
     <SectionLabel>
       {title}
       {count !== undefined && <span className="ml-1.5 normal-case text-faint">· {count}</span>}
@@ -84,28 +96,36 @@ export function SettingsSection({
   )
   return (
     <section className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        {onToggle ? (
-          <button
-            type="button"
-            aria-label={`Toggle section · ${title}`}
-            aria-expanded={!collapsed}
-            onClick={onToggle}
-            className="flex items-center gap-1.5 text-left"
-          >
-            <ChevronDown
-              size={12}
-              strokeWidth={1.5}
-              className={`text-mute transition-transform ${collapsed ? '-rotate-90' : ''}`}
-              aria-hidden="true"
-            />
-            {heading}
-          </button>
-        ) : (
-          heading
-        )}
-        {action}
-      </div>
+      {/* Row skipped entirely when there is nothing to put in it — rendering an empty one would
+          leave the section's `gap-2` above the card as a stray blank line. */}
+      {(heading || action) && (
+        <div className="flex items-center justify-between gap-2">
+          {/* `&& heading`, not `onToggle` alone: the toggle's accessible name is built from the
+            title, so without one this would render a button named "Toggle section · undefined".
+            Untitled sections are not collapsible — falling through to the (empty) heading is the
+            honest outcome. */}
+          {onToggle && heading ? (
+            <button
+              type="button"
+              aria-label={`Toggle section · ${title}`}
+              aria-expanded={!collapsed}
+              onClick={onToggle}
+              className="flex items-center gap-1.5 text-left"
+            >
+              <ChevronDown
+                size={12}
+                strokeWidth={1.5}
+                className={`text-mute transition-transform ${collapsed ? '-rotate-90' : ''}`}
+                aria-hidden="true"
+              />
+              {heading}
+            </button>
+          ) : (
+            heading
+          )}
+          {action}
+        </div>
+      )}
       {subtitle && <p className="text-xs text-mute">{subtitle}</p>}
       {!collapsed && (
         <Card className={`flex flex-col divide-y divide-hair ${dynamic ? 'glass-panel' : ''}`}>

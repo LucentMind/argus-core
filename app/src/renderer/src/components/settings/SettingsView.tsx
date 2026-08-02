@@ -132,8 +132,13 @@ export function SettingsView({
         {pages.map((p, i) => (
           <Fragment key={p.id}>
             {(i === 0 || pages[i - 1].group !== p.group) && (
+              // text-mute, not text-faint (user-directed, 2026-08-02): --faint is white @18% in
+              // dark and navy @30% in light, and at 9px these headings were unreadable in BOTH —
+              // washed out against the rail in light, nearly gone in dark. --mute (38%/50%) is the
+              // next rung and fixes both directions at once; it is still a rung below the
+              // --dim/--ink the nav items themselves use, so the heading↔item hierarchy holds.
               <div
-                className={`px-2.5 pb-1 font-mono text-[9px] uppercase tracking-wide text-faint ${
+                className={`px-2.5 pb-1 font-mono text-[9px] uppercase tracking-wide text-mute ${
                   i === 0 ? 'pt-1' : 'pt-3'
                 }`}
               >

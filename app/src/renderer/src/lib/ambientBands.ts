@@ -28,6 +28,12 @@ export const BANDS: Record<DynamicVariant, BandConfig> = {
   // `settings`'s cutoff is the HEADER's bottom edge now (48px), not a ~130px masthead: the page
   // title moved into the bar (spec 2026-08-01-header-window-controls-design.md §4.4). The old
   // `feather: 64` would start the fade 16px ABOVE the canvas and erase the band outright.
-  // Starting values, to be settled over CDP against the running app.
-  settings: { pad: [300, 92], feather: 20, mode: 1, extra: 20, fade: 20 }
+  //
+  // Thickened 2026-08-02 (user-directed): `extra`/`fade` 20 → 56 pushes the glow's tail well past
+  // the header instead of stopping at its edge, so the band reads as a masthead the title sits in
+  // rather than a hairline behind it. `fade` tracks `extra` exactly — it is the maximum the
+  // contract allows (fade > extra runs the ramp off the canvas bottom and leaves a hard seam), and
+  // anything less would finish the fade early and waste the height. `pad.y` grows with it so the
+  // halo's body fills the taller band; `feather` 20 → 24 keeps the ramp's start proportional.
+  settings: { pad: [300, 110], feather: 24, mode: 1, extra: 56, fade: 56 }
 }

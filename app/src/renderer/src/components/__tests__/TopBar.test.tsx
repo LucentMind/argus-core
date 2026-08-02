@@ -52,6 +52,40 @@ beforeEach(() => {
 })
 
 describe('TopBar', () => {
+  // Tabs are a case-view control (user-directed, 2026-08-02). On home the grid below already IS
+  // the case list, and in Settings there is no case in view to switch between — the band was a
+  // second, lesser copy of navigation each of those views owns. `activeSlug` is null on exactly
+  // those two, which is why the same flag gates the band and the case group.
+  it('hides the tab band outside a case, without forgetting the tabs', () => {
+    uiStore.openTab('NAV-1')
+    uiStore.openTab('NAV-2')
+    const { rerender } = render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    expect(screen.queryByRole('navigation', { name: 'Recent cases' })).toBeNull()
+    // Hidden, not dropped: the tabs live in uiStore, so opening a case brings the whole band
+    // back as it was rather than rebuilding it one visit at a time.
+    rerender(
+      <TopBar
+        activeSlug="NAV-1"
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    const nav = screen.getByRole('navigation', { name: 'Recent cases' })
+    expect(nav.textContent).toContain('NAV-2')
+  })
+
   // The band itself is RecentTabs' (see its own suite); what the bar owes is mounting it with
   // this bar's active case and select handler.
   it('renders recent-case tabs and selects on click', () => {
@@ -496,17 +530,116 @@ describe('TopBar', () => {
     expect(screen.queryByTestId('settings-title')).not.toBeInTheDocument()
     act(() => settingsBarStore.publish({ label: 'General', blurb: 'Appearance and shell.' }))
     const title = screen.getByTestId('settings-title')
-    const blurb = screen.getByTestId('settings-blurb')
     expect(title).toHaveTextContent('General')
-    expect(blurb).toHaveTextContent('Appearance and shell.')
-    // Single line, always, with the full text reachable on hover: a masthead that grows by a
-    // line on navigation would change the header's height as the user browses (former
-    // SettingsView masthead test, ported here since the identity now renders in TopBar).
+    // The blurb has no line of its own any more (user-directed, 2026-08-02) — it is the title's
+    // tooltip, which is now the only place the longer description is reachable. Asserted as an
+    // absence as well as a presence: a second line reappearing would grow the header on
+    // navigation, which is the thing the single-line rule has always been about.
+    expect(screen.queryByTestId('settings-blurb')).not.toBeInTheDocument()
+    expect(title.getAttribute('title')).toBe('Appearance and shell.')
     expect(title.className).toContain('truncate')
-    expect(blurb.className).toContain('truncate')
-    expect(blurb.getAttribute('title')).toBe(blurb.textContent)
     act(() => settingsBarStore.publish(null))
     expect(screen.queryByTestId('settings-title')).not.toBeInTheDocument()
+  })
+
+  // The title lines up with the settings CONTENT column, not with whatever is to its left in the
+  // bar — SettingsView's `w-48` rail plus the page's `p-8` put that column's edge at 14rem.
+  //
+  // The offset is a main.css class, not a utility, because it has to subtract the header's own
+  // `.argus-header-inset` padding back out: an absolutely positioned box sits against its
+  // containing block's PADDING box, so a plain 14rem lands 12px too far right. jsdom computes no
+  // `env()`, so this pins the coupling by class name — which is the part that silently rots if
+  // either the rail width or the header inset moves.
+  it('aligns the settings title with the content column and keeps it out of the flex row', () => {
+    render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    act(() => settingsBarStore.publish({ label: 'General', blurb: 'Appearance and shell.' }))
+    const box = screen.getByTestId('settings-title').parentElement!
+    expect(box.className).toContain('argus-settings-masthead')
+    // Absolute, so a long page label cannot push the tab band or the action icons rightward —
+    // in flow it would compete with them for the bar's width.
+    expect(box.className).toContain('absolute')
+    // No `left-*` utility: the offset is the CSS class's job, and a utility here would be the
+    // 12px-off version this replaced.
+    expect(box.className).not.toMatch(/\bleft-/)
+  })
+
+  // Regression pin for what shipped alongside the case-only tab band: the right group kept
+  // `flex-1 max-w-[50%]`, which are BOUNDING rules for a band that is no longer there. With
+  // nothing elastic inside it the group still stretched to half the bar, and the `shrink-0` icons
+  // sat at its leading edge — stranded in the middle of the window instead of in the corner.
+  it('keeps the action icons in the corner when there is no tab band to bound', () => {
+    uiStore.openTab('NAV-2')
+    const { rerender } = render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    const group = (): HTMLElement => screen.getByRole('button', { name: 'Settings' }).parentElement!
+    // Content-sized: ml-auto alone puts it flush right.
+    expect(group().className).toContain('ml-auto')
+    expect(group().className).not.toContain('flex-1')
+    expect(group().className).not.toContain('max-w-[50%]')
+
+    // ...and the bounding rules come back with the band, since that is what they bound.
+    rerender(
+      <TopBar
+        activeSlug="NAV-1"
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    expect(group().className).toContain('flex-1')
+    expect(group().className).toContain('max-w-[50%]')
+  })
+
+  // A divider needs content on both sides. It used to render on every view, which left a hairline
+  // beside the wordmark dividing it from nothing on home and in Settings — Settings' title being
+  // absolutely positioned and out of that flow entirely.
+  it('only draws the wordmark divider when the case group is there to divide from', () => {
+    const { container, rerender } = render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    const dividers = (): number => container.querySelectorAll('.w-px').length
+    expect(dividers()).toBe(0)
+    act(() => settingsBarStore.publish({ label: 'General', blurb: 'Appearance and shell.' }))
+    expect(dividers()).toBe(0)
+
+    act(() => settingsBarStore.publish(null))
+    rerender(
+      <TopBar
+        activeSlug="NAV-1"
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    expect(dividers()).toBeGreaterThan(0)
   })
 
   it('goes transparent and rises above the ambient layer when the dynamic theme is on', () => {

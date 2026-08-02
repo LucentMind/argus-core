@@ -130,6 +130,25 @@ describe('CaseDashboard', () => {
     expect(screen.getByText('Closed · wont-fix')).toBeTruthy()
   })
 
+  // Filter before action (user-directed, 2026-08-02). "Show closed" changes what the grid below
+  // shows, so it reads with the search box and the two filter menus; "Sync all" acts on the
+  // world and is the row's terminal control. Asserted by DOM order rather than by class, because
+  // the ordering IS the change — a swap back would leave every other assertion here green.
+  it('puts the show-closed filter before the sync action', () => {
+    render(
+      <CaseDashboard
+        cases={cases}
+        onOpen={vi.fn()}
+        onNew={vi.fn()}
+        onImport={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
+    const showClosed = screen.getByLabelText('Show closed cases')
+    const sync = screen.getByRole('button', { name: /Sync all/ })
+    expect(showClosed.compareDocumentPosition(sync)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+
   describe('greeting', () => {
     function renderHome(): void {
       render(

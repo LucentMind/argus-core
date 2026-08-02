@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { CaseRecord, CasePhase } from '../../../shared/types'
-import { Btn, Checkbox, MenuButton, SectionLabel, type MenuItem } from './ui'
+import { Btn, MenuButton, SectionLabel, Toggle, type MenuItem } from './ui'
 import { FolderInput, Plus, RefreshCw, Search } from 'lucide-react'
 import { CaseCard } from './CaseCard'
 import { DeleteCaseDialog } from './DeleteCaseDialog'
@@ -266,17 +266,20 @@ export function CaseDashboard({
           {/* Left of the ml-auto on purpose: the note appears only after a sync finishes, and
               inside the right-hand group it would shove Sync all and Show closed sideways. */}
           {syncNote && <span className="text-xs text-dim">{syncNote}</span>}
+          {/* Filter before action (user-directed, 2026-08-02): "Show closed" changes what the
+              grid below shows, so it belongs with the search box and the two filter menus to its
+              left; "Sync all" acts on the world and is the row's terminal control. */}
           <div className="ml-auto flex items-center gap-3">
-            <Btn onClick={() => void syncAll()} disabled={syncing !== null}>
-              <RefreshCw size={13} aria-hidden="true" />
-              {syncing ? `syncing ${syncing.done}/${syncing.total}…` : 'Sync all'}
-            </Btn>
-            <Checkbox
+            <Toggle
               checked={showClosed}
               onChange={setShowClosed}
               aria-label="Show closed cases"
               label="Show closed"
             />
+            <Btn onClick={() => void syncAll()} disabled={syncing !== null}>
+              <RefreshCw size={13} aria-hidden="true" />
+              {syncing ? `syncing ${syncing.done}/${syncing.total}…` : 'Sync all'}
+            </Btn>
           </div>
         </div>
       </div>

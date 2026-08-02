@@ -481,6 +481,30 @@ body {
   padding-left: max(78px, calc(0.75rem + env(titlebar-area-x, 0px)));
 }
 
+/* The Settings page title's left offset — the exact inverse of `.argus-header-inset` above, plus
+   the distance to the settings content column.
+
+   Two coordinate systems have to be reconciled here. The title is absolutely positioned inside the
+   header, and an absolutely positioned box is placed against its containing block's PADDING box —
+   so `left: 0` inside the inset header already starts 12px right of the window edge. The thing it
+   must line up with, SettingsView's content column, is `w-48` of rail plus the page's `p-8` = 14rem
+   measured from the window edge, because nothing between the window and that rail adds padding.
+   Subtracting the header's own inset back out is what puts the two in the same space; a plain
+   `left: 14rem` (or the `pl-56` this replaced) lands 12px too far right on win32 and 66px too far
+   on darwin.
+
+   Which is also why this mirrors the darwin floor rather than reusing the base expression: the
+   floor makes the inset a `max()`, not a sum, so the inverse has to be the same `max()`. If
+   `.argus-header-inset` ever changes, this rule changes with it — they are one measurement written
+   twice, and the pairing is pinned by TopBar's alignment test. */
+.argus-settings-masthead {
+  left: calc(14rem - 0.75rem - env(titlebar-area-x, 0px));
+}
+
+:root[data-platform='darwin'] .argus-settings-masthead {
+  left: calc(14rem - max(78px, calc(0.75rem + env(titlebar-area-x, 0px))));
+}
+
 /* `--flush` drops the 12px design gutter from the LEFT edge only (spec
    2026-08-01-frameless-chrome-increment-2, increment 2). It's for a strip whose leading child is
    itself a visual edge — the editor window's tab strip, whose first tab should start exactly

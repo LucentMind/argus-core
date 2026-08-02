@@ -22,7 +22,9 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
 
   return (
     <>
-      <SettingsSection title="General">
+      {/* Untitled: the page label in the header masthead already says "General", and this
+          section is the whole page (user-directed, 2026-08-02). */}
+      <SettingsSection>
         <SettingRow label="Theme" description="This window only (stored locally)">
           <SelectField
             aria-label="Theme"

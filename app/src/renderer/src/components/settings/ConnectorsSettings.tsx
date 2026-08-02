@@ -261,7 +261,8 @@ export function ConnectorsSettings(): React.JSX.Element {
           {payload.secretsLoadError})
         </div>
       )}
-      <SettingsSection title="Connectors">
+      {/* Untitled — same reason as GeneralSettings: the header masthead already names the page. */}
+      <SettingsSection>
         {Object.entries(payload.connectors).map(([id, inst]) => (
           <ConnectorCard
             key={id}
