@@ -232,11 +232,20 @@ const readTile = (id) =>
     `(() => { const e = document.querySelector('[data-testid=${JSON.stringify(id)}]'); return e ? e.textContent : null })()`
   )
 
-const procsText = await waitFor(
-  'the first sample to arrive',
-  async () => await readTile('diag-procs')
-)
-const procs = Number.parseInt(String(procsText).trim(), 10)
+// waitFor returns as soon as its predicate yields anything truthy, and `readTile`'s
+// return value is a *string*. The service now publishes a snapshot on start() with an
+// empty tree and a zeroed footprint, so `diag-procs` legitimately reads "0" in the
+// window before the first real sample lands — and the string "0" is truthy. A predicate
+// that just returned `readTile('diag-procs')` would accept that pre-sample zero and
+// return immediately, which is exactly what produced a spurious failure on a run that
+// happened to sample 12s after launch while the real service was healthy the whole
+// time. Wait for the condition that actually matters — a parsed count of at least
+// 2 — and return null/undefined until it holds, so waitFor keeps polling and its 20s
+// timeout (with a label that says what it was waiting for) is the failure mode.
+const procs = await waitFor('process count to reach at least 2', async () => {
+  const n = Number.parseInt(String(await readTile('diag-procs')).trim(), 10)
+  return Number.isFinite(n) && n >= 2 ? n : null
+})
 check('process count is at least 2', procs >= 2, procs)
 
 // `tbody tr` alone is document-wide (Finding 2, task 10 review, round 1): a table added
