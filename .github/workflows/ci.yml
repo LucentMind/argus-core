@@ -50,6 +50,25 @@ jobs:
           cache: npm
           cache-dependency-path: app/package-lock.json
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      # The job's `defaults.run.working-directory: app` above applies to every run:
+      # step, these two included — verified empirically, `cargo fmt --manifest-path
+      # native/resource-monitor/Cargo.toml` fails with "manifest path ... does not
+      # exist" from cwd=app. Overriding to the checkout root here, rather than
+      # rewriting the manifest path to `../native/...`, keeps `--manifest-path`
+      # correct as an absolute-from-root path regardless of where it runs.
+      - name: Check sidecar formatting
+        working-directory: ${{ github.workspace }}
+        run: cargo fmt --manifest-path native/resource-monitor/Cargo.toml --check
+
+      - name: Test sidecar
+        working-directory: ${{ github.workspace }}
+        run: cargo test --manifest-path native/resource-monitor/Cargo.toml
+
       - name: Install dependencies
         run: npm ci
 

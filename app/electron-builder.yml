@@ -53,6 +53,15 @@ extraResources:
     to: core-skills
     filter:
       - '**/*'
+  # The Rust resource-monitor sidecar. extraResources rather than asarUnpack on
+  # purpose: it sidesteps the archive entirely, so there is no app.asar ->
+  # app.asar.unpacked rewrite and no reliance on electron-builder's implicit
+  # unpacked-dir detection (which is the only reason koffi.node ships today).
+  # Absent on unsupported platforms; the app degrades to Electron metrics only.
+  - from: resources/resource-monitor
+    to: resource-monitor
+    filter:
+      - '**/*'
 win:
   executableName: argus
 nsis:
