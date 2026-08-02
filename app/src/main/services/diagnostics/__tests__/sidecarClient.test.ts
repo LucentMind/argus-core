@@ -165,6 +165,43 @@ describe('SidecarClient', () => {
     void client.retry()
     await vi.advanceTimersByTimeAsync(0)
     expect(procs.length).toBeGreaterThan(5)
+    procs[procs.length - 1].emit(hello())
+    await vi.advanceTimersByTimeAsync(0)
+    expect(client.health().status).toBe('healthy')
+  })
+
+  it('retry() during a pending backoff does not orphan a second child', async () => {
+    const { client, procs } = makeClient()
+    void client.start()
+    procs[0].emit(hello())
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Trigger a failure so fail() nulls this.proc and schedules a backoff
+    // restartTimer, without letting that timer fire yet.
+    procs[0].die(1)
+    expect(procs).toHaveLength(1)
+
+    // A user clicks Retry while the backoff window is still open. Before the
+    // fix, retry()'s `if (this.proc) return` guard didn't catch this (proc is
+    // null here), so it spawned proc B and left the original restartTimer
+    // pending, which later spawned proc C and orphaned proc B.
+    const countBeforeRetry = procs.length
+    void client.retry()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(procs).toHaveLength(countBeforeRetry + 1)
+
+    // Complete the handshake for the new child so it doesn't independently
+    // time out and start its own fresh failure/backoff cycle — we only want
+    // to observe whether the stale restartTimer from the ORIGINAL backoff
+    // window (the one retry() must cancel) fires and spawns again.
+    procs[procs.length - 1].emit(hello())
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Advance well past the original backoff delay (500ms). If the stale
+    // restartTimer was never cancelled, it fires here and spawns an extra,
+    // orphaned child.
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(procs).toHaveLength(countBeforeRetry + 1)
   })
 
   it('stop() kills the child and does not restart it', async () => {

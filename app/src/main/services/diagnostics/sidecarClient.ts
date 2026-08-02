@@ -72,6 +72,7 @@ export class SidecarClient {
 
   /** Close an open circuit and try again immediately. */
   retry(): void {
+    this.clearTimers()
     this.failures = []
     this.attempt = 0
     this.stopped = false
