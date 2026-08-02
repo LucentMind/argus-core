@@ -53,21 +53,22 @@ export function PanelDock({ hostRef }: { hostRef: React.RefObject<HTMLDivElement
           const r = hostRef.current.getBoundingClientRect()
           const z = ui.uiScale
           // hostRef (CaseWorkspace's dockHost) is `absolute inset-0` inside the sibling of
-          // PanelTabStrip, so it is flush with the case card's left/right/bottom edges — the
-          // two corners it actually reaches are the card's bottom-left and bottom-right. Its
-          // top edge sits below the tab strip, an interior seam, not a card corner, so it gets
-          // no inset. Insetting x/y moves the origin in by one edge; width/height shrink by
-          // twice that on the edges inset on BOTH sides (left+right), once on the edges inset
-          // on only one side (bottom only, top untouched).
+          // PanelTabStrip. PanelTabStrip used to be the card's own first child (a bar inside
+          // the card), which made the host's top edge an interior seam below it, not a card
+          // corner — only the bottom-left/bottom-right corners were reachable, hence the old
+          // one-inset-on-y/height asymmetry. Now that PanelTabStrip is a sibling ABOVE the card
+          // (case-chrome-symmetry Fix 1), the host is flush with the card's top edge too, so
+          // all four corners are reachable and all four edges get the same inset. x/y both move
+          // in by one inset; width/height both shrink by two (one inset on each side).
           void window.argus.panels.setBounds(k, {
             x: Math.round((r.left + DOCK_INSET_PX) * z),
-            y: Math.round(r.top * z),
+            y: Math.round((r.top + DOCK_INSET_PX) * z),
             // Math.max(0, …): a zero-size layout (minimized window on some platforms) makes
             // getBoundingClientRect() return all zeros, and subtracting the inset would then
             // hand setBounds a NEGATIVE width/height — electronPlatform forwards the rect
             // unvalidated. Before the inset existed this path bottomed out at 0; keep it there.
             width: Math.max(0, Math.round((r.width - DOCK_INSET_PX * 2) * z)),
-            height: Math.max(0, Math.round((r.height - DOCK_INSET_PX) * z))
+            height: Math.max(0, Math.round((r.height - DOCK_INSET_PX * 2) * z))
           })
         }
         void window.argus.panels.setVisible(k, visible)

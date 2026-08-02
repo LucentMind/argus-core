@@ -65,7 +65,12 @@ export function ChatFind({
   }
 
   return (
-    <div className="absolute right-3 top-11 z-30 flex items-center gap-2 rounded-r2 overlay-menu px-2 py-1">
+    // `top-3`, not the old `top-11`: that offset was tuned to clear ChatPane's own `h-9` header,
+    // which was deleted earlier on this branch. ChatPane already starts below PanelTabStrip (now
+    // a sibling above the card, not the card's own first child), so this overlay just needs the
+    // ordinary 12px inset from the card interior's top edge, same as any other corner-anchored
+    // overlay in this card.
+    <div className="absolute right-3 top-3 z-30 flex items-center gap-2 rounded-r2 overlay-menu px-2 py-1">
       <input
         ref={inputRef}
         aria-label="Find in chat"

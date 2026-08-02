@@ -36,6 +36,11 @@ export function FindingsPane({
   const [worktreeHead, setWorktreeHead] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
   const showSkeleton = usePendingDisplay(!loaded)
+  const ui = useSyncExternalStore(
+    (cb) => uiStore.subscribe(cb),
+    () => uiStore.get()
+  )
+  const dynamic = ui.dynamicTheme
   const bump = useSyncExternalStore(
     (cb) => agentStore.subscribe(cb),
     () =>
@@ -198,11 +203,15 @@ export function FindingsPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      {/* `h-6 shrink-0`, and first in the rail: this row is the findings rail's chrome row, and
+      {/* `h-8 shrink-0`, and first in the rail: this row is the findings rail's chrome row, and
           its twin is the workspace rail's (see CaseWorkspace). Both sit at their aside's `p-3`
           inset and are the same height, which is what puts the two collapse toggles on one
-          line — they used to disagree by however tall the workspace rail's Jira card was. */}
-      <div className="flex h-6 shrink-0 items-center justify-between">
+          line — they used to disagree by however tall the workspace rail's Jira card was.
+          `h-8`, not the original `h-6`: this row also has to land on the centre column's
+          PanelTabStrip chrome row once that moved above the card too. This row itself stays
+          bare (outside the card below) — that is what keeps the toggle aligned with its
+          opposite number, exactly as CaseWorkspace's chrome row stays outside its scroll box. */}
+      <div className="flex h-8 shrink-0 items-center justify-between">
         <SectionLabel>
           {modeFindings.length > 0 ? `Findings · ${modeFindings.length}` : 'Findings'}
         </SectionLabel>
@@ -239,105 +248,116 @@ export function FindingsPane({
           </IconBtn>
         </div>
       </div>
-      {clearError && <p className="text-xs text-danger">{clearError}</p>}
-      {actionError && <p className="text-xs text-danger">{actionError}</p>}
-      {/* A count suffix (the same "field · value" idiom as the " · sess N" stamp in
-          FindingCard.tsx) makes the chip read as a control with its own state, not a copy of
-          another element on the card — there is no finding badge any more. */}
-      {presentLayers.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1">
-          {presentLayers.map((id) => (
-            <button
-              key={id}
-              type="button"
-              aria-label={`Filter · ${REVIEW_LAYERS[id].label}`}
-              aria-pressed={effectiveFilter === id}
-              onClick={() => setLayerFilter(effectiveFilter === id ? null : id)}
-              className={`rounded-r1 border px-1.5 py-0.5 text-[10px] transition-colors ${
-                effectiveFilter === id
-                  ? 'border-signal bg-signal/15 text-ink'
-                  : 'border-hair2 text-mute hover:text-ink'
-              }`}
-            >
-              {REVIEW_LAYERS[id].label} · {layerCounts.get(id)}
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {/* `showSkeleton` alone is not enough to gate the skeleton: `loaded` resets to false on
-            every `bump`, and `bump` fires for EVERY finding an agent emits during a run, not just
-            a case/session switch. If that refetch is slow enough to cross usePendingDisplay's
-            150ms delay, a skeleton-only guard would win ahead of `shown.length > 0` and replace
-            findings the user is reading with grey blocks — a refetch must never blank content
-            already on screen. `shown.length === 0` keeps the skeleton exclusive with the list,
-            same as ReposSection's `workspaces.length === 0` guard. */}
-        {showSkeleton && shown.length === 0 ? (
-          <SkeletonRows count={3} />
-        ) : shown.length > 0 ? (
-          <ul className="flex flex-col gap-2">
-            {shown.map((f) => (
-              <FindingCard
-                key={f.id}
-                finding={f}
-                slug={slug}
-                open={expandedId === f.id}
-                selected={effectiveSelected.includes(f.id)}
-                selectable={selectable.has(f.id)}
-                sessionId={sessionId}
-                actingId={actingId}
-                worktreeHead={worktreeHead}
-                repoNames={repoNames}
-                onToggle={() => {
-                  if (f.body) setExpandedId(expandedId === f.id ? null : f.id)
-                }}
-                onSelect={() =>
-                  setSelected((prev) => {
-                    const next = new Set(prev)
-                    if (next.has(f.id)) next.delete(f.id)
-                    else next.add(f.id)
-                    return next
-                  })
-                }
-                onReview={(next) => void setReview(f.id, next)}
-                onAction={(action) => void runAction(f.id, action)}
-                onCite={onCite}
-              />
+      {/* Everything below the chrome row, carded: the workspace rail reads bare chrome row then
+          card sections (JiraSection, ReposSection, ...), so the findings rail mirrors that
+          instead of leaving the chrome row floating over loose text. Same idiom ReposSection
+          uses for its own card. `flex-1 min-h-0` so the card fills the rail's remaining height,
+          with the scrolling list living inside it (below) rather than the card itself scrolling.
+          FindingsPane is not in legibilityLine.test.tsx's DENSE list (only FindingCard is), so
+          material on this wrapper is fine — FindingCard itself stays bare. */}
+      <div
+        className={`flex min-h-0 flex-1 flex-col gap-2 rounded-r3 p-2.5 ${dynamic ? 'glass-panel' : 'surface-card'}`}
+      >
+        {clearError && <p className="text-xs text-danger">{clearError}</p>}
+        {actionError && <p className="text-xs text-danger">{actionError}</p>}
+        {/* A count suffix (the same "field · value" idiom as the " · sess N" stamp in
+            FindingCard.tsx) makes the chip read as a control with its own state, not a copy of
+            another element on the card — there is no finding badge any more. */}
+        {presentLayers.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1">
+            {presentLayers.map((id) => (
+              <button
+                key={id}
+                type="button"
+                aria-label={`Filter · ${REVIEW_LAYERS[id].label}`}
+                aria-pressed={effectiveFilter === id}
+                onClick={() => setLayerFilter(effectiveFilter === id ? null : id)}
+                className={`rounded-r1 border px-1.5 py-0.5 text-[10px] transition-colors ${
+                  effectiveFilter === id
+                    ? 'border-signal bg-signal/15 text-ink'
+                    : 'border-hair2 text-mute hover:text-ink'
+                }`}
+              >
+                {REVIEW_LAYERS[id].label} · {layerCounts.get(id)}
+              </button>
             ))}
-          </ul>
-        ) : loaded ? (
-          <p className="text-xs text-mute">
-            {modeFindings.length > 0 ? 'No findings match this filter.' : 'No findings yet.'}
-          </p>
-        ) : null}
-      </div>
-      {/* Selection is a batch action, not a filter — it gets its own row below the list, and it
-          only exists while something is selected. Footer, not header: it summarizes the list
-          above it. */}
-      {effectiveSelected.length > 0 && (
-        <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-hair pt-2">
-          <span className="whitespace-nowrap font-mono text-[11px] text-mute">
-            <span className="text-ink">{effectiveSelected.length}</span> selected
-          </span>
-          <button
-            type="button"
-            aria-label="Clear selection"
-            className="whitespace-nowrap rounded-r1 px-1 font-mono text-[10.5px] text-mute transition-colors hover:text-ink"
-            onClick={() => setSelected(new Set())}
-          >
-            clear
-          </button>
-          <button
-            type="button"
-            disabled={sessionId === null || actingId !== null}
-            title="One approval card and one push for all selected findings. The card offers approve or deny only — to change which findings go, deny and re-select here."
-            className="ml-auto whitespace-nowrap rounded-r1 border border-signal/50 bg-signal/10 px-2 py-0.5 text-[11px] text-ink transition-colors hover:bg-signal/20 disabled:opacity-40"
-            onClick={() => void applySelected()}
-          >
-            Apply selected ({effectiveSelected.length})
-          </button>
+          </div>
+        )}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {/* `showSkeleton` alone is not enough to gate the skeleton: `loaded` resets to false on
+              every `bump`, and `bump` fires for EVERY finding an agent emits during a run, not just
+              a case/session switch. If that refetch is slow enough to cross usePendingDisplay's
+              150ms delay, a skeleton-only guard would win ahead of `shown.length > 0` and replace
+              findings the user is reading with grey blocks — a refetch must never blank content
+              already on screen. `shown.length === 0` keeps the skeleton exclusive with the list,
+              same as ReposSection's `workspaces.length === 0` guard. */}
+          {showSkeleton && shown.length === 0 ? (
+            <SkeletonRows count={3} />
+          ) : shown.length > 0 ? (
+            <ul className="flex flex-col gap-2">
+              {shown.map((f) => (
+                <FindingCard
+                  key={f.id}
+                  finding={f}
+                  slug={slug}
+                  open={expandedId === f.id}
+                  selected={effectiveSelected.includes(f.id)}
+                  selectable={selectable.has(f.id)}
+                  sessionId={sessionId}
+                  actingId={actingId}
+                  worktreeHead={worktreeHead}
+                  repoNames={repoNames}
+                  onToggle={() => {
+                    if (f.body) setExpandedId(expandedId === f.id ? null : f.id)
+                  }}
+                  onSelect={() =>
+                    setSelected((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(f.id)) next.delete(f.id)
+                      else next.add(f.id)
+                      return next
+                    })
+                  }
+                  onReview={(next) => void setReview(f.id, next)}
+                  onAction={(action) => void runAction(f.id, action)}
+                  onCite={onCite}
+                />
+              ))}
+            </ul>
+          ) : loaded ? (
+            <p className="text-xs text-mute">
+              {modeFindings.length > 0 ? 'No findings match this filter.' : 'No findings yet.'}
+            </p>
+          ) : null}
         </div>
-      )}
+        {/* Selection is a batch action, not a filter — it gets its own row below the list, and it
+            only exists while something is selected. Footer, not header: it summarizes the list
+            above it. */}
+        {effectiveSelected.length > 0 && (
+          <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-hair pt-2">
+            <span className="whitespace-nowrap font-mono text-[11px] text-mute">
+              <span className="text-ink">{effectiveSelected.length}</span> selected
+            </span>
+            <button
+              type="button"
+              aria-label="Clear selection"
+              className="whitespace-nowrap rounded-r1 px-1 font-mono text-[10.5px] text-mute transition-colors hover:text-ink"
+              onClick={() => setSelected(new Set())}
+            >
+              clear
+            </button>
+            <button
+              type="button"
+              disabled={sessionId === null || actingId !== null}
+              title="One approval card and one push for all selected findings. The card offers approve or deny only — to change which findings go, deny and re-select here."
+              className="ml-auto whitespace-nowrap rounded-r1 border border-signal/50 bg-signal/10 px-2 py-0.5 text-[11px] text-ink transition-colors hover:bg-signal/20 disabled:opacity-40"
+              onClick={() => void applySelected()}
+            >
+              Apply selected ({effectiveSelected.length})
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

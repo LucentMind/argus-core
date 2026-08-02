@@ -472,13 +472,13 @@ export function CaseWorkspace({
           <button
             aria-label="Expand workspace"
             title="Expand workspace"
-            /* Top-aligned, not centred: `pt-3` + the `h-6` icon box below reproduce the expanded
+            /* Top-aligned, not centred: `pt-3` + the `h-8` icon box below reproduce the expanded
                rail's `p-3` inset and chrome-row height exactly, so collapsing slides the icon
                sideways instead of dropping it to mid-window — the pointer is still on it. */
-            className="flex w-6 shrink-0 flex-col items-center justify-start gap-2 bg-void pt-3 text-mute transition-colors hover:bg-hi hover:text-ink"
+            className={`flex w-6 shrink-0 flex-col items-center justify-start gap-2 pt-3 text-mute transition-colors hover:bg-hi hover:text-ink ${dynamic ? 'dyn-rail' : 'bg-void'}`}
             onClick={() => uiStore.setEvidenceCollapsed(false)}
           >
-            <span className="flex h-6 shrink-0 items-center">
+            <span className="flex h-8 shrink-0 items-center">
               <PanelLeft size={14} strokeWidth={1.5} />
             </span>
             <span className="rotate-180 font-mono text-[10.5px] uppercase tracking-[0.1em] [writing-mode:vertical-rl]">
@@ -497,13 +497,21 @@ export function CaseWorkspace({
                 the whole ticket card, and scrolling the rail took it off screen entirely — while
                 its opposite number in the findings rail never moved. Here it is the rail's own
                 first row, so it sits at a fixed y whatever the sections do, and FindingsPane's
-                header row is built to the same `h-6` at the same `p-3` inset so the two line up
-                exactly. Flush to the OUTER edge on both sides, i.e. mirrored: the icon then sits
-                on the edge it collapses into, and stops reading as a Repos affordance.
+                header row is built to the same `h-8` at the same `p-3` inset so the two line up
+                exactly — `h-8`, not the original `h-6`, because this row now also has to match
+                PanelTabStrip's own root height once the bar moved out of the centre card to
+                become its chrome row too (see the `<main>` render below). Flush to the OUTER
+                edge on both sides, i.e. mirrored: the icon then sits on the edge it collapses
+                into, and stops reading as a Repos affordance.
                 "Workspace", not "Evidence" (user-directed, 2026-08-02): the rail carries the
                 ticket, the repos and the PR as well, and CaseFiles below already owns the word
-                Evidence for the thing that actually is evidence. */}
-              <div className="flex h-6 shrink-0 items-center gap-1.5">
+                Evidence for the thing that actually is evidence.
+                Measured against the renderer's real Tailwind CSS (commit 7acf952b, before this
+                row was `h-8`): all four toggle positions (left/right x open/collapsed) landed at
+                24.00px from rail top, spread 0.00px. Raising the chrome row to `h-8` moves that
+                shared value to 28.00px — the invariant is that all four still agree, not the old
+                number. */}
+              <div className="flex h-8 shrink-0 items-center gap-1.5">
                 <IconBtn
                   size="sm"
                   aria-label="Collapse workspace"
@@ -637,28 +645,34 @@ export function CaseWorkspace({
         )}
         <main
           ref={mainEl}
-          className="flex flex-1 flex-col p-3"
+          className="flex flex-1 flex-col gap-3 p-3"
           style={{ minWidth: CHAT_MIN_WIDTH }}
         >
+          {/* The merged bar is now the centre's own chrome row — a sibling above the card,
+              exactly mirroring how each rail's chrome row sits above its cards (below). It used
+              to be the card's first child, which made the centre column's top a card edge while
+              both rails' tops were bare chrome; that asymmetry is why PanelDock had to special-
+              case its own top edge (see PanelDock's DOCK_INSET_PX comment) — with the strip out
+              here, the card's top edge is a real corner like every other edge. */}
+          <PanelTabStrip
+            slug={slug}
+            sessionId={sessionId}
+            activeTab={panels.activeTab}
+            onSelect={(t) => panelsStore.setActiveTab(t)}
+            activeSessionId={sessionId}
+            instanceId={sessions.find((s) => s.id === sessionId)?.instanceId ?? null}
+            onSwitchSession={handleSwitchSession}
+            onJumpToTurn={handleJumpToTurn}
+            onOpenFind={() => setFindOpen(true)}
+            action={
+              activeMode === 'review' ? (
+                <ReviewRunButton slug={slug} sessionId={sessionId} onError={handleModeError} />
+              ) : undefined
+            }
+          />
           <div
             className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-r3 ${dynamic ? 'glass-panel' : 'surface-card'}`}
           >
-            <PanelTabStrip
-              slug={slug}
-              sessionId={sessionId}
-              activeTab={panels.activeTab}
-              onSelect={(t) => panelsStore.setActiveTab(t)}
-              activeSessionId={sessionId}
-              instanceId={sessions.find((s) => s.id === sessionId)?.instanceId ?? null}
-              onSwitchSession={handleSwitchSession}
-              onJumpToTurn={handleJumpToTurn}
-              onOpenFind={() => setFindOpen(true)}
-              action={
-                activeMode === 'review' ? (
-                  <ReviewRunButton slug={slug} sessionId={sessionId} onError={handleModeError} />
-                ) : undefined
-              }
-            />
             <div className="relative min-h-0 flex-1">
               <div
                 className={`flex h-full min-h-0 flex-col ${panels.activeTab === CHAT_TAB ? '' : 'hidden'}`}
@@ -695,10 +709,10 @@ export function CaseWorkspace({
             aria-label="Expand findings"
             title="Expand findings"
             /* Top-aligned for the same reason as the workspace strip opposite — see there. */
-            className="flex w-6 shrink-0 flex-col items-center justify-start gap-2 bg-void pt-3 text-mute transition-colors hover:bg-hi hover:text-ink"
+            className={`flex w-6 shrink-0 flex-col items-center justify-start gap-2 pt-3 text-mute transition-colors hover:bg-hi hover:text-ink ${dynamic ? 'dyn-rail' : 'bg-void'}`}
             onClick={() => uiStore.setFindingsCollapsed(false)}
           >
-            <span className="flex h-6 shrink-0 items-center">
+            <span className="flex h-8 shrink-0 items-center">
               <PanelRight size={14} strokeWidth={1.5} />
             </span>
             <span className="rotate-180 font-mono text-[10.5px] uppercase tracking-[0.1em] [writing-mode:vertical-rl]">

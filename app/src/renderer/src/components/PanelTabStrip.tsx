@@ -83,7 +83,12 @@ export function PanelTabStrip({
   }))
 
   return (
-    <div className="flex items-center gap-1 border-b border-hair px-2">
+    // This is now CaseWorkspace's centre chrome row — a sibling above the card, not a rule
+    // inside one, so it carries no `border-b border-hair` (that would draw a stray line on the
+    // ground plane) and no horizontal `px-2` (its first tab lands flush with the card's left
+    // edge below, exactly as each rail's collapse toggle aligns with its cards' left edge).
+    // `h-8`, matching both rails' chrome rows, is what puts all three columns' chrome on one y.
+    <div className="flex h-8 shrink-0 items-center gap-1">
       {/* No role="tab" here: the strip container carries no role="tablist" and the sibling
           panel tabs below carry no role either, so a lone "tab" here would be an orphan —
           ARIA doesn't permit that, and "tab" is on the presentational-children list, meaning

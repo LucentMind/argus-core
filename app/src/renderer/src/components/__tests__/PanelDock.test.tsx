@@ -71,22 +71,23 @@ function mountDock(rect: Partial<DOMRect>): void {
 }
 
 describe('PanelDock bounds inset', () => {
-  it('insets left/right/bottom by DOCK_INSET_PX before applying uiScale', () => {
+  it('insets all four edges by DOCK_INSET_PX before applying uiScale', () => {
     uiStore.setUiScale(1.25)
     mountDock({ left: 100, top: 40, width: 800, height: 600 })
     expect(window.argus.panels.setBounds).toHaveBeenCalledWith(
       { caseSlug: 'CASE-A', packId: 'pack', windowId: 'win' },
-      { x: 130, y: 50, width: 990, height: 745 }
+      { x: 130, y: 55, width: 990, height: 740 }
     )
   })
 
-  // width shrinks by TWO insets (left+right); height by ONE (bottom only, top is an interior
-  // seam under the tab strip). That asymmetry is the whole point of this test — see PanelDock.
-  it('at 1x scale, shrinks width by two insets and height by one, moves x by one inset, leaves y untouched', () => {
+  // Both width and height shrink by TWO insets (one per side) and both x and y move in by one
+  // inset — PanelTabStrip moved out of the card (case-chrome-symmetry Fix 1), so the dock host
+  // is now flush with all four of the card's edges, not just three.
+  it('at 1x scale, shrinks width and height by two insets each and moves both x and y by one inset', () => {
     mountDock({ left: 0, top: 0, width: 500, height: 300 })
     expect(window.argus.panels.setBounds).toHaveBeenCalledWith(
       { caseSlug: 'CASE-A', packId: 'pack', windowId: 'win' },
-      { x: 4, y: 0, width: 492, height: 296 }
+      { x: 4, y: 4, width: 492, height: 292 }
     )
   })
 })
