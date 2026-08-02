@@ -243,6 +243,10 @@ function emptySignals(): CaseSignals {
  * listCases. A turn's or finding's mode comes from `sessions.mode`, which is stamped at
  * session creation and never changes; sessions predating that column COALESCE to
  * `investigation`, matching how findings.ts already derives finding mode.
+ *
+ * The evidence signal (unlike evidenceCount) excludes every Jira-origin row — ticket
+ * mirror, attachment, or zip-extracted file alike — because all of it is ingestion output,
+ * not something the user did; see the inline comment on that query for the full rule.
  */
 function readCaseSignals(db: DatabaseSync, caseId?: number): Map<number, CaseSignals> {
   const out = new Map<number, CaseSignals>()
@@ -269,30 +273,26 @@ function readCaseSignals(db: DatabaseSync, caseId?: number): Map<number, CaseSig
     at(r.caseId).evidenceCount = r.n
   }
 
-  // The phase SIGNAL, unlike the count above, is scoped by directory and excludes
-  // Jira ticket-mirror rows:
+  // The phase SIGNAL, unlike the count above, is scoped by directory and excludes ALL
+  // Jira-origin evidence:
   //   - directory scope: review evidence (artifacts/…, see ARTIFACTS_LIKE — mirrors
   //     shared/evidenceScope.ts's scopeOfRelPath) feeds a new lastReviewEvidenceAt signal
   //     -> `reviewing` instead of falling into lastEvidenceAt -> `analyzing`. A CI log
   //     fetched mid-review (ciLogs.ts's fetch_check_logs) is the motivating case (Finding I1).
-  //   - ticket-mirror exclusion: createFromTicket/refresh (jiraCases.ts) auto-ingest three
-  //     ticket-mirror files (.ticket.md/.ticket.json/.comments.md) as a side effect of
-  //     syncing, not of the user's work, and the design's rule is that background sync must
-  //     never move the phase (Finding I2) — otherwise a case created from a ticket is born
-  //     "Analyzing" before a human touches it. Those rows are origin 'jira' AND carry
-  //     meta.jira.role ('ticket'/'ticket-raw'/'comments'); json_extract picks that out
-  //     without needing a JS-side origin check. Jira ATTACHMENTS (and files extracted from a
-  //     zip attachment) are origin 'jira' too, but they only land because a human ticked them
-  //     in JiraAttachmentsDialog/NewCaseDialog — choosing which matters is investigation work,
-  //     so they carry no `jira.role` (attachments have meta.jira.attachmentId instead; zip
-  //     inner files have meta.extractedFrom) and must NOT be excluded here (Finding, this pass).
+  //   - Jira-origin exclusion: every Jira ingest path (jiraCases.ts — the ticket-mirror
+  //     files, an attachment, a file exploded out of a zip attachment) stamps origin 'jira',
+  //     and none of it is the user's own work — it is synchronisation/ingest output, so
+  //     background sync (or ticking an attachment into the case) must never move the phase
+  //     (product reversal, this pass; previously only ticket-mirror rows — identified by
+  //     meta.jira.role — were excluded, on the now-rejected theory that choosing an
+  //     attachment was investigation work). `origin` alone is the discriminator; no meta
+  //     shape needs inspecting.
   const evidenceScopeCol = `CASE WHEN e.rel_path LIKE ? THEN 'review' ELSE 'investigation' END`
-  const isTicketMirror = `e.origin = 'jira' AND json_extract(e.meta, '$.jira.role') IS NOT NULL`
   for (const r of db
     .prepare(
       `SELECT e.case_id AS caseId, ${evidenceScopeCol} AS evScope, MAX(e.created_at) AS lastAt
          FROM evidence e
-        WHERE NOT (${isTicketMirror})${caseId === undefined ? '' : ' AND e.case_id = ?'}
+        WHERE e.origin != 'jira'${caseId === undefined ? '' : ' AND e.case_id = ?'}
         GROUP BY e.case_id, evScope`
     )
     .all(ARTIFACTS_LIKE, ...args) as unknown as Array<{

@@ -10,11 +10,10 @@ export interface PhaseSignals {
   /** The declared lifecycle. `closed` short-circuits everything below. */
   status: CaseStatus
   /** MAX(evidence.created_at) over non-review-scoped evidence (see shared/evidenceScope.ts),
-   *  excluding Jira ticket-mirror rows (origin 'jira' with meta.jira.role set — the
-   *  .ticket.md/.ticket.json/.comments.md files createFromTicket/refresh auto-ingest as sync
-   *  output, not work). Jira attachments and files extracted from a zip attachment are also
-   *  origin 'jira' but carry no `jira.role`, so they count here like any other evidence — a
-   *  human chose to download them, which is investigation work. */
+   *  excluding every Jira-origin row (origin 'jira' — the ticket mirror, an attachment, or a
+   *  file extracted from a zip attachment: every path jiraCases.ts writes). All of it is
+   *  ingestion/sync output, not the user's own investigation, so none of it is a work signal,
+   *  regardless of the `artifacts/` split below. */
   lastEvidenceAt: string | null
   /** MAX(turns.created_at) over sessions whose mode is `investigation`. */
   lastInvestigationAt: string | null
@@ -29,9 +28,9 @@ export interface PhaseSignals {
   /** MAX(evidence.created_at) over review-scoped evidence (artifacts/…, see
    *  shared/evidenceScope.ts's scopeOfRelPath) — e.g. a CI log fetched mid-review. Without
    *  this, review-scoped evidence fell into `lastEvidenceAt` and read as `analyzing`. Same
-   *  Jira ticket-mirror exclusion as `lastEvidenceAt` describes applies here too — mirror
-   *  rows never actually land under artifacts/, but the underlying query excludes them from
-   *  both buckets alike. */
+   *  Jira-origin exclusion as `lastEvidenceAt` describes applies here too — Jira evidence
+   *  never actually lands under artifacts/ today, but the underlying query excludes it from
+   *  both buckets alike, so the filter does not depend on that staying true. */
   lastReviewEvidenceAt: string | null
   /** cases.phase_pin — null unless something declared a non-derivable phase. */
   phasePin: CasePhasePin | null
