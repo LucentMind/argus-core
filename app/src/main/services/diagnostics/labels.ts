@@ -143,7 +143,12 @@ export function argv0Basename(command: string): string {
   }
 
   const unquoted = first.replace(/^["']+|["']+$/g, '')
-  const base = unquoted.split(/[\\/]/).pop() ?? ''
+  return normalizeBasename(unquoted)
+}
+
+/** Lowercase, extension-stripped basename shared by both the argv0 and `name` keys. */
+function normalizeBasename(raw: string): string {
+  const base = raw.split(/[\\/]/).pop() ?? ''
   return base.toLowerCase().replace(/\.exe$/, '')
 }
 
@@ -207,12 +212,11 @@ export function stdioConnectorCommands(map: ConnectorMap): ConnectorCommand[] {
   return out
 }
 
-function tierC(
-  sample: ProcessSample,
-  connectors: readonly ConnectorCommand[]
-): ResolvedLabel | null {
-  const base = argv0Basename(sample.command)
-
+/**
+ * Driver or pack-binary label for a single candidate basename, or null if
+ * neither table recognizes it.
+ */
+function driverOrPackBinaryLabel(base: string): ResolvedLabel | null {
   const driver = DRIVER_BASENAMES[base]
   if (driver)
     return {
@@ -223,6 +227,33 @@ function tierC(
     }
 
   if (PACK_BINARY_BASENAMES.has(base)) return { kind: 'pack-binary', label: base, inferred: true }
+
+  return null
+}
+
+function tierC(
+  sample: ProcessSample,
+  connectors: readonly ConnectorCommand[]
+): ResolvedLabel | null {
+  const argv0Base = argv0Basename(sample.command)
+
+  // sysinfo hands TypeScript already-parsed, unquoted argv, so an UNQUOTED
+  // path containing a space (e.g. `C:\Users\John Smith\bin\claude.exe`) splits
+  // on the space and argv0Basename yields the wrong token — the quoting that
+  // would have protected it is already gone by the time we see it. `name` is
+  // the OS-reported process name and isn't split on whitespace, so it survives
+  // that case; try it only when the argv0-derived basename found nothing, so
+  // argv0 still wins whenever it successfully matches something. This stays a
+  // fallback rather than a replacement because on Linux `name` (`comm`) is
+  // truncated to 15 characters and is not universally sufficient on its own.
+  const byArgv0 = driverOrPackBinaryLabel(argv0Base)
+  if (byArgv0) return byArgv0
+
+  const nameBase = normalizeBasename(sample.name)
+  if (nameBase !== argv0Base) {
+    const byName = driverOrPackBinaryLabel(nameBase)
+    if (byName) return byName
+  }
 
   const connector = matchConnector(sample.command, connectors)
   if (connector)

@@ -171,6 +171,73 @@ describe('resolveLabel — tier C (command-line inference)', () => {
   })
 })
 
+describe('resolveLabel — tier C falls back to `name` when argv0 has an unquoted space', () => {
+  it('resolves a driver via name when an unquoted space in the path defeats argv0', () => {
+    // sysinfo hands us already-parsed, unquoted argv: the original quoting
+    // around "John Smith" is gone by the time this reaches TypeScript, so
+    // argv0Basename splits on the space and gets 'C:\Users\John' — no match.
+    const r = resolveLabel(
+      sample({
+        pid: 60,
+        command: 'C:\\Users\\John Smith\\bin\\claude.exe --print',
+        name: 'claude.exe'
+      }),
+      undefined,
+      sources()
+    )
+    expect(r).toEqual({
+      kind: 'driver',
+      label: 'Claude driver',
+      provider: 'claude-agent-sdk',
+      inferred: true
+    })
+  })
+
+  it('resolves the graphify pack binary via name when an unquoted space in the path defeats argv0', () => {
+    const r = resolveLabel(
+      sample({
+        pid: 61,
+        command: 'C:\\Users\\John Smith\\packs\\code-graph\\bin\\graphify --repo .',
+        name: 'graphify.exe'
+      }),
+      undefined,
+      sources()
+    )
+    expect(r).toEqual({ kind: 'pack-binary', label: 'graphify', inferred: true })
+  })
+
+  it('lets a successful argv0 match win over a differently-matching name', () => {
+    const r = resolveLabel(
+      sample({
+        pid: 62,
+        command: '/usr/local/bin/claude --print',
+        name: 'copilot.exe'
+      }),
+      undefined,
+      sources()
+    )
+    expect(r).toEqual({
+      kind: 'driver',
+      label: 'Claude driver',
+      provider: 'claude-agent-sdk',
+      inferred: true
+    })
+  })
+
+  it('returns null when neither argv0 nor name matches anything', () => {
+    const r = resolveLabel(
+      sample({
+        pid: 63,
+        command: '/usr/bin/node server.js',
+        name: 'node'
+      }),
+      undefined,
+      sources()
+    )
+    expect(r).toBeNull()
+  })
+})
+
 describe('resolveLabel — MCP connector matching', () => {
   const github = {
     instanceId: 'github',
