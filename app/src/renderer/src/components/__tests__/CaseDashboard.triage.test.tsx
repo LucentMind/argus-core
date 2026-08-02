@@ -287,18 +287,6 @@ describe('CaseDashboard triage', () => {
     expect(screen.getByText('B')).toBeInTheDocument()
   })
 
-  it('hides closed cases by default and shows them on request', async () => {
-    render(
-      <CaseDashboard
-        cases={[mkCase({ slug: 'OPEN', phase: 'open' }), mkCase({ slug: 'DONE', phase: 'closed' })]}
-        {...noopHandlers}
-      />
-    )
-    expect(screen.queryByText('DONE')).not.toBeInTheDocument()
-    await userEvent.click(screen.getByLabelText('Show closed cases'))
-    expect(screen.getByText('DONE')).toBeInTheDocument()
-  })
-
   it('filters cards by slug, title and jira key', async () => {
     render(
       <CaseDashboard

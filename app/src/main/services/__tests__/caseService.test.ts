@@ -53,6 +53,20 @@ describe('createCase', () => {
     expect(caseJson.status).toBe('open')
   })
 
+  // Finding 7: `phase` and `actionItems` are DERIVED (see shared/casePhase.ts and
+  // shared/triage.ts) — never stored. Mirroring `{ ...rec, id: undefined }` straight onto
+  // disk carries them onto case.json anyway, which is exactly the stored-vs-derived leak
+  // this design set out to prevent (a value read back off disk on the next boot would go
+  // stale the moment real signals change).
+  it('does not write derived fields (phase, actionItems) onto case.json', () => {
+    createCase(db, home, { slug: 'DERIVED-1', title: 'd' })
+    const caseJson = JSON.parse(
+      fs.readFileSync(path.join(home, 'cases', 'DERIVED-1', 'case.json'), 'utf8')
+    )
+    expect(caseJson).not.toHaveProperty('phase')
+    expect(caseJson).not.toHaveProperty('actionItems')
+  })
+
   it('rejects invalid slugs', () => {
     expect(() => createCase(db, home, { slug: '../evil', title: 'x' })).toThrow(/slug/i)
     expect(() => createCase(db, home, { slug: 'has space', title: 'x' })).toThrow(/slug/i)
@@ -181,6 +195,19 @@ describe('setCaseStatus', () => {
     const onDisk = JSON.parse(fs.readFileSync(path.join(caseDir(home, 'c4'), 'case.json'), 'utf8'))
     expect(onDisk.resolution).toBeNull()
   })
+
+  // Finding 7: the corrupt-file fallback rebuilds `onDisk` from `existing` (a CaseRecord),
+  // which always carries the DERIVED `phase` and `actionItems` — spreading it straight onto
+  // disk re-introduces the same stored-vs-derived leak createCase had.
+  it('does not carry the derived phase/actionItems onto disk via the corrupt-file fallback', () => {
+    createCase(db, home, { slug: 'c5', title: 'C5' })
+    const file = path.join(caseDir(home, 'c5'), 'case.json')
+    fs.writeFileSync(file, '{ not valid json')
+    setCaseStatus(db, home, 'c5', 'closed', 'solved')
+    const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'))
+    expect(onDisk).not.toHaveProperty('phase')
+    expect(onDisk).not.toHaveProperty('actionItems')
+  })
 })
 
 describe('setCaseJiraDeselected', () => {
@@ -294,6 +321,33 @@ describe('sync state persistence', () => {
     expect(getCase(db, 'C-1')!.reviewBaseline).toEqual(baseline)
     const onDisk = JSON.parse(fs.readFileSync(path.join(caseDir(home, 'C-1'), 'case.json'), 'utf8'))
     expect(onDisk.reviewBaseline).toEqual(baseline)
+  })
+
+  // Finding 7, same leak as setCaseStatus's corrupt-file fallback, for setCaseSyncState.
+  it('setCaseSyncState does not carry derived fields onto disk via the corrupt-file fallback', () => {
+    createCase(db, home, { slug: 'C-1', title: 'T' })
+    const file = path.join(caseDir(home, 'C-1'), 'case.json')
+    fs.writeFileSync(file, '{ not valid json')
+    setCaseSyncState(db, home, 'C-1', { jiraStatus: 'In Progress' })
+    const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'))
+    expect(onDisk).not.toHaveProperty('phase')
+    expect(onDisk).not.toHaveProperty('actionItems')
+  })
+
+  // Finding 7, same leak, for setReviewBaseline.
+  it('setReviewBaseline does not carry derived fields onto disk via the corrupt-file fallback', () => {
+    createCase(db, home, { slug: 'C-1', title: 'T' })
+    const file = path.join(caseDir(home, 'C-1'), 'case.json')
+    fs.writeFileSync(file, '{ not valid json')
+    setReviewBaseline(db, home, 'C-1', {
+      status: 'Open',
+      commentCount: 0,
+      attachmentIds: [],
+      capturedAt: '2026-07-20T10:00:00.000Z'
+    })
+    const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'))
+    expect(onDisk).not.toHaveProperty('phase')
+    expect(onDisk).not.toHaveProperty('actionItems')
   })
 })
 
@@ -421,17 +475,7 @@ describe('evidence-scope phase signal (Finding I1)', () => {
 
   it('review-scoped evidence (artifacts/…) reads as reviewing, not analyzing', () => {
     createCase(db, home, { slug: 'REV-1', title: 'r' })
-    ingestContent(
-      db,
-      home,
-      detection,
-      'REV-1',
-      'ci-9-build.log',
-      'boom\n',
-      'ci',
-      {},
-      'review'
-    )
+    ingestContent(db, home, detection, 'REV-1', 'ci-9-build.log', 'boom\n', 'ci', {}, 'review')
     expect(getCase(db, 'REV-1')!.phase).toBe('reviewing')
   })
 
@@ -446,17 +490,7 @@ describe('evidence-scope phase signal (Finding I1)', () => {
     db.prepare(`UPDATE cases SET created_at = ? WHERE slug = 'IDLE-SCOPE-1'`).run(
       new Date(Date.now() - 30 * 86_400_000).toISOString()
     )
-    ingestContent(
-      db,
-      home,
-      detection,
-      'IDLE-SCOPE-1',
-      'ci-1.log',
-      'boom\n',
-      'ci',
-      {},
-      'review'
-    )
+    ingestContent(db, home, detection, 'IDLE-SCOPE-1', 'ci-1.log', 'boom\n', 'ci', {}, 'review')
     // one evidence row exists (review-scoped), so idle must NOT fire — proving evidenceCount
     // still counts it, exactly like an investigation-scoped row would.
     const rec = listCases(db).find((c) => c.slug === 'IDLE-SCOPE-1')!

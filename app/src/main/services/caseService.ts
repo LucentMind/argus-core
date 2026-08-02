@@ -180,7 +180,10 @@ export function createCase(
     }
     fs.writeFileSync(
       path.join(dir, 'case.json'),
-      JSON.stringify({ ...rec, id: undefined }, null, 2)
+      // phase/actionItems are DERIVED (shared/casePhase.ts, shared/triage.ts) — never
+      // stored. Drop them the same way `id` already is: JSON.stringify omits an
+      // undefined-valued key (Finding 7).
+      JSON.stringify({ ...rec, id: undefined, phase: undefined, actionItems: undefined }, null, 2)
     )
     fs.writeFileSync(path.join(dir, 'CLAUDE.md'), claudeMdTemplate(input, now, resolvePrompt))
     scaffoldCaseLinks(argusHome, dir)
@@ -567,7 +570,8 @@ export function setCaseSyncState(
   try {
     onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
   } catch {
-    onDisk = { ...updated, id: undefined }
+    // phase/actionItems are DERIVED — never stored (Finding 7, same as createCase's fix).
+    onDisk = { ...updated, id: undefined, phase: undefined, actionItems: undefined }
   }
   fs.writeFileSync(
     file,
@@ -606,7 +610,8 @@ export function setReviewBaseline(
   try {
     onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
   } catch {
-    onDisk = { ...existing, id: undefined }
+    // phase/actionItems are DERIVED — never stored (Finding 7, same as createCase's fix).
+    onDisk = { ...existing, id: undefined, phase: undefined, actionItems: undefined }
   }
   fs.writeFileSync(file, JSON.stringify({ ...onDisk, reviewBaseline: baseline }, null, 2))
   return getCase(db, slug)!
@@ -654,8 +659,9 @@ export function setCaseStatus(
     onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
   } catch {
     // corrupt/unreadable case.json — rebuild from the DB record (same shape as
-    // createCase: full record minus id) so other fields survive.
-    onDisk = { ...existing, id: undefined }
+    // createCase: full record minus id) so other fields survive. phase/actionItems are
+    // DERIVED — never stored (Finding 7, same as createCase's fix).
+    onDisk = { ...existing, id: undefined, phase: undefined, actionItems: undefined }
   }
   fs.writeFileSync(
     file,
@@ -706,8 +712,9 @@ export function pinCasePhase(
   try {
     onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
   } catch {
-    // corrupt/unreadable case.json — rebuild from the DB record, same as setCaseStatus
-    onDisk = { ...existing, id: undefined }
+    // corrupt/unreadable case.json — rebuild from the DB record, same as setCaseStatus.
+    // phase/actionItems are DERIVED — never stored (Finding 7).
+    onDisk = { ...existing, id: undefined, phase: undefined, actionItems: undefined }
   }
   fs.writeFileSync(
     file,

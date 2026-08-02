@@ -207,7 +207,7 @@ describe('CaseDashboard', () => {
     }
   ]
 
-  it('filters by status', () => {
+  it('filters by phase', () => {
     render(
       <CaseDashboard
         cases={twoCases}

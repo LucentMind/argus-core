@@ -220,6 +220,19 @@ describe('pinCasePhase', () => {
     addTurn(id, addSession(id, 'investigation'), '2099-01-01T00:00:00.000Z')
     expect(getCase(db, 'PIN-5')!.phase).toBe('analyzing')
   })
+
+  // Finding 7: the corrupt-file fallback rebuilds onDisk from `existing` (a CaseRecord,
+  // always carrying the derived phase/actionItems) — spreading it straight onto disk
+  // re-introduces the stored-vs-derived leak createCase had.
+  it('does not carry the derived phase/actionItems onto disk via the corrupt-file fallback', () => {
+    mkCase('PIN-6')
+    const file = path.join(home, 'cases', 'PIN-6', 'case.json')
+    fs.writeFileSync(file, '{ not valid json')
+    pinCasePhase(db, home, 'PIN-6', 'rca-drafted')
+    const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'))
+    expect(onDisk).not.toHaveProperty('phase')
+    expect(onDisk).not.toHaveProperty('actionItems')
+  })
 })
 
 describe('setCaseStatus lifecycle', () => {

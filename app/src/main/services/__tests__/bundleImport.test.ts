@@ -468,7 +468,9 @@ describe('legacy status values', () => {
   it('treats a case.json status of "toString" as an unrecognised legacy value, not a prototype hit', async () => {
     const rec = await reimportWith({ status: 'toString' })
     expect(rec.status).toBe('open')
-    const row = dbB.prepare(`SELECT status, phase_pin FROM cases WHERE slug = ?`).get('NAV-100') as {
+    const row = dbB
+      .prepare(`SELECT status, phase_pin FROM cases WHERE slug = ?`)
+      .get('NAV-100') as {
       status: string
       phase_pin: string | null
     }

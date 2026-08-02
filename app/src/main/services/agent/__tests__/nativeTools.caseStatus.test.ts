@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
-import { createCase, getCase } from '../../caseService'
+import { createCase, getCase, setCaseStatus } from '../../caseService'
 import { createDetection } from '../../packs/detection'
 import { argusToolHandlers } from '../nativeTools'
 
@@ -59,5 +59,16 @@ describe('update_case_status', () => {
 
   it('rejects a value that is not a phase at all', async () => {
     await expect(handlers.update_case_status({ status: 'banana' })).rejects.toThrow()
+  })
+
+  // pinCasePhase writes the pin, but derivePhase short-circuits on status === 'closed', so a
+  // pin on a closed case never changes what the card shows. The tool's return string must
+  // report the case's actual resulting phase, not echo the requested pin as if it took effect.
+  it('reports the actual resulting phase — closed — when pinning a closed case, not the pin', async () => {
+    setCaseStatus(db, home, 'NAV-1', 'closed', 'solved')
+    const out = await handlers.update_case_status({ status: 'rca-drafted' })
+    expect(getCase(db, 'NAV-1')!.phase).toBe('closed')
+    expect(out).toContain('closed')
+    expect(out).not.toContain('rca-drafted')
   })
 })

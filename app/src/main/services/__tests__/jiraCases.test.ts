@@ -175,7 +175,15 @@ describe('JiraCases.createFromTicket', () => {
     await svc.createFromTicket({ slug: 'NAV-7', title: 'Route flickers', key: 'NAV-7' })
     // a human-uploaded (non-Jira-origin) evidence row is the work signal.
     const { ingestBytes } = await import('../ingest')
-    ingestBytes(db, argusHome, detection, 'NAV-7', 'notes.txt', Buffer.from('seen in prod'), 'upload')
+    ingestBytes(
+      db,
+      argusHome,
+      detection,
+      'NAV-7',
+      'notes.txt',
+      Buffer.from('seen in prod'),
+      'upload'
+    )
     expect(getCase(db, 'NAV-7')!.phase).toBe('analyzing')
   })
 

@@ -70,8 +70,8 @@ const NOT_PROMPTS: { text: string; why: string }[] = [
     why: 'update_case_status echoing the transition it just performed. Covers both arms of the ternary; the resolution arm only appends the value in parentheses.'
   },
   {
-    text: 'phase → ${status}',
-    why: 'update_case_status echoing a pin it just wrote (rca-drafted) — same data-echo class as the status arm above, just for the phase-pin branch instead of the lifecycle branch.'
+    text: 'phase → ${rec.phase}',
+    why: 'update_case_status reporting the ACTUAL resulting phase after a pin write (rca-drafted) — same data-echo class as the status arm above, just for the phase-pin branch instead of the lifecycle branch. Reports rec.phase rather than echoing the requested pin because pinCasePhase writes the pin but derivePhase short-circuits on a closed case, so the two can differ (Finding 6).'
   },
   {
     text: 'memory/${topic}.md updated',

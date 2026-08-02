@@ -55,9 +55,9 @@ describe('derivePhase', () => {
 
   it('a review-scoped evidence row reads as reviewing, even over a newer investigation-scoped one', () => {
     // e.g. fetch_check_logs ingesting a CI log mid-review — see caseService.ts's readCaseSignals.
-    expect(
-      derivePhase({ ...NONE, lastInvestigationAt: T(1), lastReviewEvidenceAt: T(2) })
-    ).toBe('reviewing')
+    expect(derivePhase({ ...NONE, lastInvestigationAt: T(1), lastReviewEvidenceAt: T(2) })).toBe(
+      'reviewing'
+    )
   })
 
   it('lets a pin win when it is newest and lose when it is not', () => {
@@ -93,7 +93,9 @@ describe('derivePhase', () => {
 
   it('breaks an exact timestamp tie deterministically, most specific first', () => {
     const same = T(5)
-    expect(derivePhase({ ...NONE, lastInvestigationAt: same, lastReviewAt: same })).toBe('reviewing')
+    expect(derivePhase({ ...NONE, lastInvestigationAt: same, lastReviewAt: same })).toBe(
+      'reviewing'
+    )
     expect(derivePhase({ ...NONE, lastInvestigationAt: same, prLinkedAt: same })).toBe('pr-created')
     expect(
       derivePhase({ ...NONE, lastReviewAt: same, phasePin: 'rca-drafted', phasePinnedAt: same })

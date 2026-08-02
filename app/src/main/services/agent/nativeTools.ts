@@ -561,8 +561,11 @@ export function argusToolHandlers(
         throw new Error(fb('update_case_status.derived-phase', { status }))
       }
       if (CASE_PHASE_PINS.includes(status as CasePhasePin)) {
-        pinCasePhase(db, argusHome, caseSlug, status as CasePhasePin)
-        return `phase → ${status}`
+        // Report the record's ACTUAL resulting phase, not the requested pin: pinCasePhase
+        // writes the pin, but derivePhase short-circuits on status === 'closed', so a pin on
+        // a closed case never moves what the card shows and the agent must not be told it did.
+        const rec = pinCasePhase(db, argusHome, caseSlug, status as CasePhasePin)
+        return `phase → ${rec.phase}`
       }
       let resolution: CaseResolution | null = null
       if (status === 'closed') {

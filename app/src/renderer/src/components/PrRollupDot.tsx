@@ -17,10 +17,10 @@ import { prFaceOf, type PrFace, type PrStatus } from '../../../shared/prStatus'
 
 /**
  * The one CI indicator. This dot form is shared by the companion header (HeaderChips.tsx) and
- * the case-header chip (PrCompanionSection.tsx); the dashboard cards use the icon form below
- * (`PrRollupIcon`) instead. Both forms read off the same `TONE` map, so they can never drift
- * into different colour vocabularies. Colour is never the only signal: each state carries a
- * distinct accessible name.
+ * the case-header chip (PrCompanionSection.tsx). The dashboard cards use `PrFaceIcon` below
+ * (off the separate `FACE` map, which covers the whole PR state, not just CI) — `PrRollupIcon`
+ * further down has no production caller today. Colour is never the only signal: each state
+ * carries a distinct accessible name.
  *
  * `bg-signal` (the app's positive accent) rather than a literal green: it is the only "good"
  * token with a light-theme override, and this palette has no green that survives on paper.
