@@ -32,7 +32,9 @@ const KEYS = {
 } as const
 
 export const FINDINGS_MIN_WIDTH = 240
-/** Center chat column never shrinks below this; the findings drag clamps against it. */
+/** Center chat column never shrinks below this; both rail drags clamp against it. `<main>`
+ *  carries `p-3` (12px each side), and `clientWidth` includes padding, so the real content
+ *  floor this leaves the chat column is 336px, not 360. */
 export const CHAT_MIN_WIDTH = 360
 export const FINDINGS_MAX_WIDTH = 640
 const FINDINGS_DEFAULT_WIDTH = 384

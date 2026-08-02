@@ -45,6 +45,7 @@ beforeEach(() => {
   uiStore.setFindingsCollapsed(false)
   uiStore.setFindingsWidth(384)
   uiStore.setEvidenceCollapsed(false)
+  uiStore.setEvidenceWidth(320)
   uiStore.setDynamicTheme(false)
   caseBarStore.reset()
   // CaseWorkspace renders Composer, which reads the shared settingsStore
@@ -981,8 +982,70 @@ describe('CaseWorkspace findings pane', () => {
 
   it('offers a resize separator for each rail', async () => {
     renderWorkspace()
-    expect(await screen.findByLabelText('Resize evidence pane')).toBeInTheDocument()
-    expect(screen.getByLabelText('Resize findings pane')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('separator', { name: 'Resize evidence pane' })
+    ).toBeInTheDocument()
+    expect(screen.getByRole('separator', { name: 'Resize findings pane' })).toBeInTheDocument()
+  })
+})
+
+describe('CaseWorkspace evidence pane drag', () => {
+  it('drag on the separator resizes the pane (rightwards widens) and leaves findings alone', () => {
+    const { container } = renderWorkspace()
+    // jsdom never lays out the page, so <main> reports clientWidth 0; the drag handle
+    // clamps against it (Task 5 pane-overlap guard). Stub a roomy viewport so this test
+    // still exercises plain resize math — the clamp itself is covered separately below.
+    Object.defineProperty(container.querySelector('main')!, 'clientWidth', {
+      configurable: true,
+      value: 2000
+    })
+    const sep = screen.getByRole('separator', { name: 'Resize evidence pane' })
+    fireEvent.pointerDown(sep, { pointerId: 1, clientX: 1000 })
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 1100 })
+    expect(uiStore.get().evidenceWidth).toBe(420)
+    // the evidence handler must write evidenceWidth, never findingsWidth — a copy-pasted
+    // wrong setter would still typecheck (both are `(number) => void`) but would show up here
+    expect(uiStore.get().findingsWidth).toBe(384)
+    fireEvent.pointerUp(sep, { pointerId: 1 })
+    // after release, further moves change nothing
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 1300 })
+    expect(uiStore.get().evidenceWidth).toBe(420)
+  })
+
+  it('drag cannot widen the evidence pane past what leaves chat its minimum width', () => {
+    const { container } = renderWorkspace()
+    // Narrow main column (500px): chat can give up at most 500 - CHAT_MIN_WIDTH (360) = 140px,
+    // so evidence should clamp at 320 + 140 = 460 even though the pointer travels further.
+    Object.defineProperty(container.querySelector('main')!, 'clientWidth', {
+      configurable: true,
+      value: 500
+    })
+    const sep = screen.getByRole('separator', { name: 'Resize evidence pane' })
+    fireEvent.pointerDown(sep, { pointerId: 1, clientX: 1000 })
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 1300 })
+    expect(uiStore.get().evidenceWidth).toBe(460)
+    fireEvent.pointerUp(sep, { pointerId: 1 })
+  })
+
+  it('ignores a move meant for the other rail’s drag, and still works afterwards', () => {
+    const { container } = renderWorkspace()
+    Object.defineProperty(container.querySelector('main')!, 'clientWidth', {
+      configurable: true,
+      value: 2000
+    })
+    const findingsSep = screen.getByRole('separator', { name: 'Resize findings pane' })
+    const evidenceSep = screen.getByRole('separator', { name: 'Resize evidence pane' })
+    // start a findings drag, but move on the evidence separator — the shared `drag` ref's
+    // `side` guard must keep the evidence handler dead for this move
+    fireEvent.pointerDown(findingsSep, { pointerId: 1, clientX: 1000 })
+    fireEvent.pointerMove(evidenceSep, { pointerId: 1, clientX: 1100 })
+    expect(uiStore.get().evidenceWidth).toBe(320)
+    fireEvent.pointerUp(findingsSep, { pointerId: 1 })
+    // the findings drag itself still works after that stray move
+    fireEvent.pointerDown(findingsSep, { pointerId: 1, clientX: 1000 })
+    fireEvent.pointerMove(findingsSep, { pointerId: 1, clientX: 900 })
+    expect(uiStore.get().findingsWidth).toBe(484)
+    fireEvent.pointerUp(findingsSep, { pointerId: 1 })
   })
 })
 

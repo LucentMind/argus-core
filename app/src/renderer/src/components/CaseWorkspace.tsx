@@ -597,6 +597,8 @@ export function CaseWorkspace({
                   startWidth: ui.evidenceWidth,
                   maxWidth:
                     ui.evidenceWidth +
+                    // `?? Infinity` is defensive only: <main> is unconditionally rendered
+                    // whenever this separator exists, so mainEl.current is never null here.
                     Math.max(0, (mainEl.current?.clientWidth ?? Infinity) - CHAT_MIN_WIDTH)
                 }
                 e.currentTarget.setPointerCapture?.(e.pointerId)
