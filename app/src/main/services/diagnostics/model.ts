@@ -171,7 +171,18 @@ export function buildSnapshot(input: BuildInput): BuildResult {
         uptimeMs: s.runTimeMs
       })
     } else {
-      rowId = rowIdOfPid.get(s.ppid) ?? UNATTRIBUTED_ID
+      // An `electron-internal` row (main process, GPU, a Utility service, …) must
+      // not silently adopt every unlabeled descendant — a driver CLI or MCP
+      // server whose command line didn't match would otherwise read as the
+      // app's own main process being hot. Route it to Unattributed instead,
+      // which is the honest signal that attribution is missing here. Every
+      // other kind still rolls up (an `npx` labeled `mcp` with a `node` child
+      // must stay one row), and an unattributed parent stays unattributed for
+      // its own descendants since its kind is 'unattributed', not
+      // 'electron-internal'.
+      const parentRowId = rowIdOfPid.get(s.ppid)
+      const parentRowKind = parentRowId ? rows.get(parentRowId)?.kind : undefined
+      rowId = parentRowId && parentRowKind !== 'electron-internal' ? parentRowId : UNATTRIBUTED_ID
       if (rowId === UNATTRIBUTED_ID && !rows.has(UNATTRIBUTED_ID))
         rows.set(UNATTRIBUTED_ID, {
           id: UNATTRIBUTED_ID,

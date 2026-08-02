@@ -405,4 +405,67 @@ describe('buildSnapshot — object rollup', () => {
     expect('provider' in mcp!).toBe(false)
     expect(mcp).toHaveProperty('instanceId', 'github')
   })
+
+  describe('electron-internal rows do not adopt unlabeled descendants', () => {
+    const ELECTRON_MAIN = [{ pid: 1, creationTimeMs: 1_000, type: 'Browser' as const }]
+
+    it('sends an unlabeled child of the Electron main root to unattributed, not the main-process row', () => {
+      const child = sample({ pid: 2, ppid: 1, residentBytes: 300 })
+      const r = build([ROOT, child], new Map(), 2_000, { electronMetrics: ELECTRON_MAIN })
+
+      const main = r.objects.find((o) => o.kind === 'electron-internal')
+      const unattributed = r.objects.find((o) => o.kind === 'unattributed')
+      expect(main).toMatchObject({ label: 'Argus main process', processCount: 1 })
+      expect(unattributed).toMatchObject({ id: 'unattributed', processCount: 1, rssBytes: 300 })
+    })
+
+    it('sends an unlabeled grandchild under the Electron main root to unattributed too', () => {
+      const child = sample({ pid: 2, ppid: 1, residentBytes: 100 })
+      const grandchild = sample({ pid: 3, ppid: 2, residentBytes: 50 })
+      const r = build([ROOT, child, grandchild], new Map(), 2_000, {
+        electronMetrics: ELECTRON_MAIN
+      })
+
+      const main = r.objects.find((o) => o.kind === 'electron-internal')
+      const unattributed = r.objects.find((o) => o.kind === 'unattributed')
+      expect(main).toMatchObject({ processCount: 1 })
+      expect(unattributed).toMatchObject({ processCount: 2, rssBytes: 150 })
+    })
+
+    it('still rolls an unlabeled child up into a non-electron-internal ancestor (mcp)', () => {
+      const npx = sample({
+        pid: 2,
+        ppid: 1,
+        command: 'npx @x/server-github',
+        residentBytes: 100
+      })
+      const node = sample({ pid: 3, ppid: 2, command: '/usr/bin/node index.js', residentBytes: 400 })
+      const r = build([ROOT, npx, node], new Map(), 2_000, {
+        electronMetrics: ELECTRON_MAIN,
+        labelSources: { windows: [], connectors: CONNECTORS }
+      })
+
+      const mcp = r.objects.find((o) => o.kind === 'mcp')
+      expect(mcp).toMatchObject({ processCount: 2, rssBytes: 500 })
+    })
+
+    it('still reconciles exactly with the footprint when unattributed absorbs an electron-internal child', () => {
+      const child = sample({ pid: 2, ppid: 1, cpuTimeMs: 100, residentBytes: 300 })
+      const grandchild = sample({ pid: 3, ppid: 2, cpuTimeMs: 50, residentBytes: 20 })
+      const samples = [ROOT, child, grandchild]
+      const previous = new Map<string, ProcessState>(
+        samples.map((s) => [
+          identityKey(s.pid, s.startTimeMs),
+          { cpuTimeMs: 0, residentBytes: 0, sampledAtMs: 1_000 }
+        ])
+      )
+      const r = build(samples, previous, 2_000, { electronMetrics: ELECTRON_MAIN })
+
+      const sum = (f: (o: (typeof r.objects)[number]) => number): number =>
+        r.objects.reduce((t, o) => t + f(o), 0)
+      expect(sum((o) => o.processCount)).toBe(r.footprint.processCount)
+      expect(sum((o) => o.rssBytes)).toBe(r.footprint.rssBytes)
+      expect(sum((o) => o.cpuPercent)).toBe(r.footprint.cpuPercent)
+    })
+  })
 })
