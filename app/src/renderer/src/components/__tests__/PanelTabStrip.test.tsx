@@ -9,10 +9,12 @@ import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings } from '../../../../shared/settings'
 
 // window.argus baseline needed whenever the strip can mount either session-scoped piece:
-// SessionSwitcher (activeSessionId !== null — reads settingsStore for the driver badge and
-// mounts its own SessionChips) or the state zone's own SessionChips (activeTab === 'chat',
-// regardless of activeSessionId — it probes auth/preflight even with sessionId: null). Same
-// mocks ChatPane.test.tsx and SessionSwitcher.test.tsx carry for the same reason.
+// SessionSwitcher (activeSessionId !== null — reads settingsStore for the driver badge) or
+// the state zone's own SessionChips (activeTab === 'chat' AND activeSessionId !== null — it
+// probes auth/preflight once a session exists). Tests that keep activeSessionId: null never
+// mount either piece and so don't strictly need these mocks, but the baseline is kept uniform
+// across this file for simplicity. Same mocks ChatPane.test.tsx and SessionSwitcher.test.tsx
+// carry for the same reason.
 function sessionArgusMocks(): Record<string, unknown> {
   return {
     agent: {
@@ -240,6 +242,92 @@ describe('PanelTabStrip', () => {
     )
 
     await waitFor(() => expect(screen.queryByTestId('session-chips')).not.toBeInTheDocument())
+  })
+
+  it('shows chat state chips exactly once when the chat tab is active with a real session', async () => {
+    window.argus = {
+      ...sessionArgusMocks(),
+      sessions: {
+        list: vi
+          .fn()
+          .mockResolvedValue([
+            { id: 7, title: 'Ingest triage', turnCount: 3, updatedAt: new Date().toISOString() }
+          ])
+      },
+      panels: { open: vi.fn() }
+    } as never
+
+    render(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={7}
+        activeTab="chat"
+        onSelect={vi.fn()}
+        activeSessionId={7}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+      />
+    )
+
+    expect(await screen.findByTestId('session-chips')).toBeInTheDocument()
+    // pins Task 4's deviation: SessionSwitcher used to embed its own SessionChips (removed
+    // when the switcher moved into the tab strip's always-visible chat tab) — nothing else
+    // stops that second copy coming back.
+    expect(screen.getAllByTestId('session-chips')).toHaveLength(1)
+  })
+
+  it('shows no chips and a fallback "Chat" label while no session is active yet', async () => {
+    window.argus = {
+      ...sessionArgusMocks(),
+      sessions: { list: vi.fn().mockResolvedValue([]) },
+      panels: { open: vi.fn() }
+    } as never
+
+    render(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={null}
+        activeTab="chat"
+        onSelect={vi.fn()}
+        activeSessionId={null}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+      />
+    )
+
+    // the tab must never be an empty, unlabelled box — "Chat" is the pre-Task-4 fallback
+    expect(await screen.findByText('Chat')).toBeInTheDocument()
+    expect(screen.queryByTestId('session-chips')).not.toBeInTheDocument()
+  })
+
+  it('the chat tab is keyboard-operable even with no active session', async () => {
+    const onSelect = vi.fn()
+    window.argus = {
+      ...sessionArgusMocks(),
+      sessions: { list: vi.fn().mockResolvedValue([]) },
+      panels: { open: vi.fn() }
+    } as never
+
+    render(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={null}
+        activeTab="sample-pack:text-viewer"
+        onSelect={onSelect}
+        activeSessionId={null}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+      />
+    )
+
+    const tab = await screen.findByRole('tab')
+    expect(tab).toHaveAttribute('aria-selected', 'false')
+    tab.focus()
+    fireEvent.keyDown(tab, { key: 'Enter' })
+    expect(onSelect).toHaveBeenCalledWith('chat')
   })
 })
 

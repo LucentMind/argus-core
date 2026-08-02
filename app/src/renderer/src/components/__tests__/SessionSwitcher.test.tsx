@@ -44,13 +44,6 @@ beforeEach(() => {
       delete: vi.fn(async () => undefined)
     },
     chat: { search: vi.fn(async () => ({ hits: [] })) },
-    // SessionSwitcher now mounts SessionChips (Task 5) beside the trigger, which probes
-    // auth/preflight on mount — same as CaseWorkspace.test.tsx and SessionChips.test.tsx.
-    agent: {
-      authStatus: vi.fn(async () => ({ ok: true, verified: true, detail: 'claude ready' })),
-      preflight: vi.fn(async () => ({ ok: true, checks: [] })),
-      onAuthChanged: vi.fn(() => () => {})
-    },
     settings: {
       get: vi.fn(async () => ({
         settings: defaultSettings(),

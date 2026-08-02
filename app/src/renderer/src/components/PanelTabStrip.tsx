@@ -80,19 +80,45 @@ export function PanelTabStrip({
 
   return (
     <div className="flex items-center gap-1 border-b border-hair bg-void px-2">
+      {/* role="tab" (not a native <button>): SessionSwitcher's own trigger is already a
+          <button>, and nesting a button inside a button is invalid HTML. tabIndex + the
+          keydown handler make this wrapper itself keyboard-operable, so activation does not
+          depend on a session existing (SessionSwitcher only mounts once activeSessionId is
+          known) — before this, a still-loading/failed session list left the tab with no
+          focusable content and no way to reach it from the keyboard at all. */}
       <div
+        role="tab"
+        aria-selected={activeTab === CHAT_TAB}
+        tabIndex={0}
         className={`flex min-w-32 shrink items-center border-b-2 ${
           activeTab === CHAT_TAB ? 'border-signal' : 'border-transparent'
         }`}
         onClick={() => onSelect(CHAT_TAB)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onSelect(CHAT_TAB)
+          }
+        }}
       >
-        {activeSessionId !== null && (
+        {activeSessionId !== null ? (
           <SessionSwitcher
             slug={slug}
             sessionId={activeSessionId}
             onSwitch={onSwitchSession}
             onJumpToTurn={onJumpToTurn}
           />
+        ) : (
+          // Fallback for the brief (or, on a sessions.list failure, permanent) window before
+          // activeSessionId resolves — "Chat" is what this tab read before Task 4's merge.
+          // Without this the tab renders as an empty, unlabelled box.
+          <span
+            className={`px-2 py-1.5 text-xs ${
+              activeTab === CHAT_TAB ? 'text-ink' : 'text-dim'
+            }`}
+          >
+            Chat
+          </span>
         )}
       </div>
       {st.panels.map((p) => {
@@ -169,33 +195,28 @@ export function PanelTabStrip({
         )
       })}
       <div className="ml-auto flex items-center gap-2">
-        {activeTab === CHAT_TAB && (
+        {activeTab === CHAT_TAB && activeSessionId !== null && (
           <SessionChips slug={slug} sessionId={activeSessionId} instanceId={instanceId} />
         )}
       </div>
-      {action ? (
-        <div>{action}</div>
-      ) : (
-        launcherItems.length > 0 && (
-          <div>
-            <MenuButton
-              label={
-                <span className="flex items-center gap-1">
-                  <PanelTop size={14} aria-hidden="true" />
-                  <span>New panel</span>
-                </span>
-              }
-              aria-label="New panel"
-              align="left"
-              items={launcherItems}
-              // Hide the docked panel's native view (which paints over DOM) while this
-              // dropdown is open, else its items are unclickable and no second panel can
-              // ever be opened.
-              onOpenChange={(o) => panelsStore.setLauncherOpen(o)}
-            />
-          </div>
-        )
-      )}
+      {action ||
+        (launcherItems.length > 0 && (
+          <MenuButton
+            label={
+              <span className="flex items-center gap-1">
+                <PanelTop size={14} aria-hidden="true" />
+                <span>New panel</span>
+              </span>
+            }
+            aria-label="New panel"
+            align="left"
+            items={launcherItems}
+            // Hide the docked panel's native view (which paints over DOM) while this
+            // dropdown is open, else its items are unclickable and no second panel can
+            // ever be opened.
+            onOpenChange={(o) => panelsStore.setLauncherOpen(o)}
+          />
+        ))}
     </div>
   )
 }
