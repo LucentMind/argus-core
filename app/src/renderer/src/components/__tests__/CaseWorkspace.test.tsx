@@ -998,6 +998,25 @@ describe('CaseWorkspace findings pane', () => {
     expect(uiStore.get().findingsWidth).toBe(before)
   })
 
+  // The evidence separator's own copy. Its twin above only pins the FINDINGS handler: the two
+  // separators clear `drag.current` through separate onPointerCancel props, so deleting the one
+  // on this side would otherwise go uncaught.
+  it('a pointer-cancel clears the drag on the evidence separator too', () => {
+    const { container } = renderWorkspace()
+    Object.defineProperty(container.querySelector('main')!, 'clientWidth', {
+      configurable: true,
+      value: 2000
+    })
+    const sep = screen.getByRole('separator', { name: 'Resize evidence pane' })
+    fireEvent.pointerDown(sep, { pointerId: 1, clientX: 1000 })
+    fireEvent.pointerCancel(sep, { pointerId: 1 })
+    const before = uiStore.get().evidenceWidth
+    // buttons: 1 is a genuine re-press, so the `e.buttons === 0` guard cannot be what stops
+    // this — only onPointerCancel having cleared drag.current can.
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 1400, buttons: 1 })
+    expect(uiStore.get().evidenceWidth).toBe(before)
+  })
+
   it('a stray hover after pointerDown with no cancel/up does not resize the pane (buttons guard)', () => {
     const { container } = renderWorkspace()
     Object.defineProperty(container.querySelector('main')!, 'clientWidth', {
