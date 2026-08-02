@@ -11,6 +11,9 @@
  *
  * Env: CDP_PORT (default 9223). Exits 0 when every check passes, 1 otherwise.
  */
+import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve as resolvePath } from 'node:path'
 import {
   listTargets as list,
   connect,
@@ -22,6 +25,139 @@ import {
 } from './lib/cdp.mjs'
 
 const PORT = process.env.CDP_PORT || '9223'
+
+// This file lives at <worktree>/app/scripts/cdp-diagnostics.mjs — two levels up from its
+// own location is the worktree root, derived rather than hardcoded so the check is correct
+// under any worktree's path.
+const WORKTREE_ROOT = resolvePath(dirname(fileURLToPath(import.meta.url)), '..', '..')
+
+/**
+ * Run a PowerShell one-liner and return trimmed stdout, or null if the shell itself
+ * could not be spawned (missing binary, etc). The script text uses a `NOMATCH` sentinel
+ * with an explicit try/catch so a "no such process/connection" result is a clean string
+ * on stdout with exit 0 — not a thrown error we'd otherwise have to disambiguate from a
+ * genuine failure to run PowerShell at all.
+ */
+function runPowershell(script) {
+  try {
+    return execFileSync('powershell', ['-NoProfile', '-Command', script], {
+      encoding: 'utf8',
+      timeout: 5000
+    }).trim()
+  } catch {
+    return null
+  }
+}
+
+/** PID of the process with a LISTENING socket on `port`, or null if none / undeterminable. */
+function resolveListeningPid(port) {
+  if (process.platform === 'win32') {
+    const out = runPowershell(
+      `try { $r = Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction Stop | ` +
+        `Select-Object -First 1 -ExpandProperty OwningProcess; if ($r) { Write-Output $r } ` +
+        `else { Write-Output 'NOMATCH' } } catch { Write-Output 'NOMATCH' }`
+    )
+    if (out === null || out === 'NOMATCH' || out === '') return null
+    const pid = Number.parseInt(out, 10)
+    return Number.isFinite(pid) ? pid : null
+  }
+  if (process.platform === 'darwin' || process.platform === 'linux') {
+    try {
+      const out = execFileSync('lsof', ['-ti', `tcp:${port}`, '-sTCP:LISTEN'], {
+        encoding: 'utf8',
+        timeout: 5000
+      }).trim()
+      const pid = Number.parseInt(out.split(/\s+/)[0], 10)
+      return Number.isFinite(pid) ? pid : null
+    } catch {
+      // lsof exits 1 with empty stdout both when nothing matches and on some other
+      // failures; either way we cannot positively resolve a PID, so fall through.
+      return null
+    }
+  }
+  return null
+}
+
+/** Full command line of `pid`, or null if it could not be resolved. */
+function resolveCommandLine(pid) {
+  if (process.platform === 'win32') {
+    const out = runPowershell(
+      `try { $r = Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}' -ErrorAction Stop | ` +
+        `Select-Object -ExpandProperty CommandLine; if ($r) { Write-Output $r } ` +
+        `else { Write-Output 'NOMATCH' } } catch { Write-Output 'NOMATCH' }`
+    )
+    return out === null || out === 'NOMATCH' || out === '' ? null : out
+  }
+  if (process.platform === 'darwin' || process.platform === 'linux') {
+    try {
+      const out = execFileSync('ps', ['-o', 'command=', '-p', String(pid)], {
+        encoding: 'utf8',
+        timeout: 5000
+      }).trim()
+      return out || null
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+/**
+ * Finding 1 (task 10 review, round 1): the gate used to verify only that *some* CDP
+ * endpoint answered with *some* page target, never that it was reached THIS worktree's
+ * app. Two worktrees both running `electron-vite dev --remoteDebuggingPort 9223`: the
+ * second one fails to bind the port — its app runs with no debugging — and the old
+ * version of this script then silently validated the FIRST worktree's app. Green gate,
+ * untested code.
+ *
+ * A substring match on the worktree root, not an exact executable match: the process
+ * actually holding the port is commonly an `electron.exe` nested under this worktree's
+ * `node_modules`, not the `electron-vite` main process, and matching the full absolute
+ * path is exactly the granularity that tells worktrees apart.
+ *
+ * Mismatch is the one outcome that must never pass silently, so it's the one case that
+ * hard-fails. Every other outcome (unsupported platform, missing tool, a PID we can't
+ * resolve a command line for) prints a loud warning and PROCEEDS — an inability to check
+ * ownership is not evidence of a wrong worktree, and hard-failing on it would make this
+ * gate unusable on a platform or in an environment we didn't anticipate.
+ */
+function verifyPortOwnership(port) {
+  const plat = process.platform
+  if (plat !== 'win32' && plat !== 'darwin' && plat !== 'linux') {
+    console.error(
+      `WARNING: cannot verify CDP port ${port} ownership on unsupported platform "${plat}" — proceeding unchecked.`
+    )
+    return
+  }
+  const pid = resolveListeningPid(port)
+  if (pid === null) {
+    // Also the "nothing is listening yet" case, which the endpoint check right below
+    // reports clearly on its own — no need to editorialize here.
+    return
+  }
+  const cmdLine = resolveCommandLine(pid)
+  if (!cmdLine) {
+    console.error(
+      `WARNING: found PID ${pid} listening on port ${port} but could not resolve its command line — proceeding without ownership verification.`
+    )
+    return
+  }
+  const matches =
+    plat === 'win32'
+      ? cmdLine.toLowerCase().includes(WORKTREE_ROOT.toLowerCase())
+      : cmdLine.includes(WORKTREE_ROOT)
+  if (!matches) {
+    console.error(`Port ${port} is answering, but not from this worktree.`)
+    console.error(`  Expected worktree: ${WORKTREE_ROOT}`)
+    console.error(`  Actual process (PID ${pid}): ${cmdLine}`)
+    console.error(
+      'Another worktree is almost certainly holding this port. Free it, or run the app under test with a different --remoteDebuggingPort.'
+    )
+    process.exit(1)
+  }
+}
+
+verifyPortOwnership(PORT)
 
 // Concurrent worktree sessions collide on 9223. The loser binds nothing and silently
 // drives ANOTHER branch's app, which presents as inexplicable assertion failures.
@@ -103,7 +239,18 @@ const procsText = await waitFor(
 const procs = Number.parseInt(String(procsText).trim(), 10)
 check('process count is at least 2', procs >= 2, procs)
 
-const rows = await conn.evalJs(`document.querySelectorAll('tbody tr').length`)
+// `tbody tr` alone is document-wide (Finding 2, task 10 review, round 1): a table added
+// anywhere else on the Settings page would silently inflate this count and could
+// false-pass. DiagnosticsSettings.tsx puts no data-testid on the table itself (it is an
+// already-reviewed file this script must not touch), so scope by walking up to the
+// ancestor <section> and matching on its heading text instead — "Process tree" is unique
+// to this section; the Footprint section's copy never uses that exact phrase.
+const rows = await conn.evalJs(`(() => {
+  const table = [...document.querySelectorAll('table')].find((t) =>
+    (t.closest('section')?.textContent || '').includes('Process tree')
+  )
+  return table ? table.querySelectorAll('tbody tr').length : -1
+})()`)
 check('tree has a row for every counted process', rows >= procs, { rows, procs })
 
 // A page that renders once and then freezes passes every static assertion above.
