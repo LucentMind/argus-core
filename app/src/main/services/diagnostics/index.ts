@@ -56,6 +56,7 @@ export class DiagnosticsService {
   }
 
   start(): void {
+    if (this.unsubscribeClient) return
     this.unsubscribeClient = this.deps.client.onSnapshot((s) => this.ingest(s))
     this.deps.client.start()
     this.applyCadence()
