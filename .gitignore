@@ -20,3 +20,7 @@ __pycache__/
 # runtime seeded/synced data when ARGUS_HOME == repo checkout (sources live in packs/)
 /skills/
 /references/
+
+# Rust sidecar build output and staged binaries
+native/resource-monitor/target/
+app/resources/resource-monitor/
