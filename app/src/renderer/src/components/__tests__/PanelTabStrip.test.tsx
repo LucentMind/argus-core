@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { PanelTabStrip } from '../PanelTabStrip'
 import { panelsStore } from '../../lib/panelsStore'
@@ -302,7 +303,12 @@ describe('PanelTabStrip', () => {
     expect(screen.queryByTestId('session-chips')).not.toBeInTheDocument()
   })
 
-  it('the chat tab is keyboard-operable even with no active session', async () => {
+  it('the null-session fallback is a real, focusable button that selects the chat tab', async () => {
+    // Task 4 added a fallback for the brief window before activeSessionId resolves.
+    // A previous round made that fallback a <span> — unfocusable, and a silent no-op
+    // under `.focus()`, so the earlier version of this test kept passing after the
+    // regressed and stayed green even with no tab stop at all. toHaveFocus() is the
+    // assertion that would actually fail if the fallback stopped being focusable.
     const onSelect = vi.fn()
     window.argus = {
       ...sessionArgusMocks(),
@@ -323,11 +329,149 @@ describe('PanelTabStrip', () => {
       />
     )
 
-    const tab = await screen.findByRole('tab')
-    expect(tab).toHaveAttribute('aria-selected', 'false')
-    tab.focus()
-    fireEvent.keyDown(tab, { key: 'Enter' })
+    const fallback = await screen.findByRole('button', { name: 'Chat' })
+    fallback.focus()
+    expect(fallback).toHaveFocus()
+    fireEvent.click(fallback)
     expect(onSelect).toHaveBeenCalledWith('chat')
+  })
+
+  it('a Space keydown originating in "Search chats" is not cancelled by the tab wrapper', async () => {
+    // The wrapper's old onKeyDown had no origin guard, so a Space bubbling up from ANY
+    // descendant control (this input included) was cancelled. fireEvent returns false
+    // when the event's default was prevented — in a real browser, a prevented keydown
+    // blocks both character insertion and the synthesized activation click.
+    window.argus = {
+      ...sessionArgusMocks(),
+      sessions: {
+        list: vi
+          .fn()
+          .mockResolvedValue([
+            { id: 7, title: 'Ingest triage', turnCount: 3, updatedAt: new Date().toISOString() }
+          ])
+      },
+      panels: { open: vi.fn() }
+    } as never
+
+    render(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={7}
+        activeTab="chat"
+        onSelect={vi.fn()}
+        activeSessionId={7}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+      />
+    )
+
+    const search = await screen.findByLabelText('Search chats')
+    expect(fireEvent.keyDown(search, { key: ' ' })).toBe(true)
+  })
+
+  it('an Enter keydown on the SessionSwitcher trigger is not cancelled by the tab wrapper', async () => {
+    window.argus = {
+      ...sessionArgusMocks(),
+      sessions: {
+        list: vi
+          .fn()
+          .mockResolvedValue([
+            { id: 7, title: 'Ingest triage', turnCount: 3, updatedAt: new Date().toISOString() }
+          ])
+      },
+      panels: { open: vi.fn() }
+    } as never
+
+    render(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={7}
+        activeTab="chat"
+        onSelect={vi.fn()}
+        activeSessionId={7}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+      />
+    )
+
+    const trigger = await screen.findByLabelText('Ingest triage')
+    expect(fireEvent.keyDown(trigger, { key: 'Enter' })).toBe(true)
+  })
+
+  it('typing a space into "Search chats" still inserts it', async () => {
+    // Unlike fireEvent.change, userEvent.type drives real keydown → (unless prevented)
+    // input events, so this reproduces the actual browser breakage: the old handler's
+    // preventDefault() suppressed the character insertion, not just the app-level
+    // onSelect side effect. Kept under the 3-char search threshold so no debounced
+    // window.argus.chat.search call is needed here.
+    window.argus = {
+      ...sessionArgusMocks(),
+      sessions: {
+        list: vi
+          .fn()
+          .mockResolvedValue([
+            { id: 7, title: 'Ingest triage', turnCount: 3, updatedAt: new Date().toISOString() }
+          ])
+      },
+      panels: { open: vi.fn() }
+    } as never
+
+    render(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={7}
+        activeTab="chat"
+        onSelect={vi.fn()}
+        activeSessionId={7}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+      />
+    )
+
+    const search = (await screen.findByLabelText('Search chats')) as HTMLInputElement
+    await userEvent.type(search, ' a')
+    expect(search.value).toBe(' a')
+  })
+
+  it('typing a space into the rename input still inserts it', async () => {
+    window.argus = {
+      ...sessionArgusMocks(),
+      sessions: {
+        list: vi
+          .fn()
+          .mockResolvedValue([
+            { id: 7, title: 'Ingest triage', turnCount: 3, updatedAt: new Date().toISOString() }
+          ])
+      },
+      panels: { open: vi.fn() }
+    } as never
+
+    render(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={7}
+        activeTab="chat"
+        onSelect={vi.fn()}
+        activeSessionId={7}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+      />
+    )
+
+    fireEvent.click(await screen.findByLabelText('Ingest triage'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename Ingest triage' }))
+    const renameInput = screen.getByRole('textbox', {
+      name: 'Rename Ingest triage'
+    }) as HTMLInputElement
+    // Clear first so the assertion isn't sensitive to where userEvent lands the cursor
+    // in a pre-filled, autoFocus-ed input — only the space-insertion behaviour matters.
+    await userEvent.clear(renameInput)
+    await userEvent.type(renameInput, 'x v2')
+    expect(renameInput.value).toBe('x v2')
   })
 })
 
