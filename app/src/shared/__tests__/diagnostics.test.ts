@@ -27,7 +27,9 @@ describe('parseSidecarEvent', () => {
   })
 
   it('rejects a version mismatch rather than guessing', () => {
-    expect(parseSidecarEvent(JSON.stringify({ version: 99, type: 'hello', sidecarVersion: 'x', pid: 1 }))).toBeNull()
+    expect(
+      parseSidecarEvent(JSON.stringify({ version: 99, type: 'hello', sidecarVersion: 'x', pid: 1 }))
+    ).toBeNull()
   })
 
   it('rejects malformed JSON without throwing', () => {
