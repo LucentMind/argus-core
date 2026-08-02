@@ -413,6 +413,196 @@ body {
   background: var(--mute);
 }
 
+/* Ultracode chip (user-directed, 2026-08-02).
+
+   The traits chip while Reasoning is set to Ultracode. Two treatments for one class: the
+   classic skin gets an OUTLINE only, the dynamic skin FILLS the pill — `.dyn` out-specifies
+   the base rules (0,2,0 over 0,1,0), so the scope alone decides which one is live and the
+   component never has to know which theme it is in.
+
+   Plain CSS, unlayered, for the reason .argus-shimmer above gives — a brand-new Tailwind
+   class is unstyled on its first HMR render — plus a second one that matters more here:
+   these rules must BEAT the chip's own `text-dim`/`hover:text-ink`/`hover:bg-hair` utilities,
+   and an unlayered rule outranks anything inside Tailwind's layers regardless of order. A
+   utility appended to the button would have been inert.
+
+   Neither treatment changes the chip's box: the fill's edge is an inset box-shadow rather
+   than a border, and the outline is painted by pseudo-elements, so toggling Ultracode never
+   reflows the options row by the 2px a real border would cost. */
+/* Two angles, not one: the outline's whole point is that its two arcs are independent, so
+   each needs its own registered property to animate. An unregistered custom property is not
+   interpolatable — a plain `--ang` would jump from 0deg to 360deg at the end of the keyframe
+   and the arcs would sit still. */
+@property --argus-ultracode-ang {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@property --argus-ultracode-ang2 {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes argus-ultracode-spin {
+  to {
+    --argus-ultracode-ang: 360deg;
+  }
+}
+
+/* counter-rotation — negative, so the second arc runs the other way round the pill */
+@keyframes argus-ultracode-counter {
+  to {
+    --argus-ultracode-ang2: -360deg;
+  }
+}
+
+@keyframes argus-ultracode-flicker {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes argus-ultracode-drift-a {
+  0%,
+  100% {
+    transform: translateX(-18%) scale(1);
+  }
+  50% {
+    transform: translateX(30%) scale(1.18);
+  }
+}
+
+@keyframes argus-ultracode-drift-b {
+  0%,
+  100% {
+    transform: translateX(20%) scale(1.12);
+  }
+  50% {
+    transform: translateX(-26%) scale(0.94);
+  }
+}
+
+.argus-ultracode {
+  position: relative;
+  color: var(--ink);
+}
+
+/* The 1px ring itself — the same mask-composite recipe as .gc-ring in theme-dynamic.css:
+   a padded box whose own content area is masked out, leaving only the border band painted.
+   Both pseudo-elements are rings here; the two arcs below ride on them. */
+.argus-ultracode::before,
+.argus-ultracode::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+/* The slow, wide arc, running backwards. */
+.argus-ultracode::before {
+  background: conic-gradient(
+    from var(--argus-ultracode-ang2),
+    transparent 0 40%,
+    color-mix(in srgb, var(--analytics) 65%, transparent) 58%,
+    transparent 70%
+  );
+  animation: argus-ultracode-counter 3.7s linear infinite;
+}
+
+/* The fast, narrow pair, running forwards, with a stepped flicker on top.
+   The three periods (1.9s / 3.7s / 0.7s) are deliberately co-prime-ish: nothing lines up
+   twice inside any watchable span, so the outline never resolves into a loop — which is the
+   whole reason this is two arcs rather than one travelling head. */
+.argus-ultracode::after {
+  background: conic-gradient(
+    from var(--argus-ultracode-ang),
+    transparent 0 62%,
+    var(--defect) 71%,
+    transparent 76%,
+    var(--signal) 86%,
+    transparent 90%
+  );
+  animation:
+    argus-ultracode-spin 1.9s linear infinite,
+    argus-ultracode-flicker 0.7s steps(3, end) infinite;
+}
+
+/* ── dynamic: the pill fills ──
+   Two blurred blobs drifting under the surface on unrelated periods, breathing outward — it
+   reads as thinking rather than as travel. Both pseudo-elements are re-purposed from rings
+   into blobs: the mask, padding and radius the base rules gave them are all reset here, so
+   nothing of the outline survives inside the fill.
+
+   The fill and its ink are literals, not tokens, in BOTH themes on purpose: this is an accent
+   chip that has to stay the same object when the user flips light/dark, and light's own pale
+   surfaces would dissolve a token-driven version of it.
+
+   This is the one treatment that keeps a compositor layer alive permanently (two blurred
+   layers, always animating) — acceptable for a single chip, but it is the reason not to reuse
+   this recipe on anything that repeats down a list. */
+.dyn .argus-ultracode {
+  overflow: hidden;
+  isolation: isolate;
+  color: #f4f9ff;
+  text-shadow: 0 1px 1px rgba(0, 6, 18, 0.45);
+  background: #0d1b34;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    0 0 18px -6px rgba(120, 150, 255, 0.75);
+}
+
+.dyn .argus-ultracode::before,
+.dyn .argus-ultracode::after {
+  inset: -60% -20%;
+  padding: 0;
+  border-radius: 0;
+  z-index: 1;
+  filter: blur(9px);
+  -webkit-mask: none;
+  mask: none;
+}
+
+.dyn .argus-ultracode::before {
+  background: radial-gradient(38% 120% at 24% 50%, rgba(86, 174, 247, 0.95), transparent 70%);
+  animation: argus-ultracode-drift-a 4.4s ease-in-out infinite;
+}
+
+.dyn .argus-ultracode::after {
+  background: radial-gradient(34% 120% at 72% 50%, rgba(169, 140, 240, 0.9), transparent 72%);
+  animation: argus-ultracode-drift-b 3.1s ease-in-out infinite;
+}
+
+/* label and chevron above the blobs */
+.dyn .argus-ultracode > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* Frozen, not removed: the chip still has to read as "Ultracode is on" without motion — the
+   arcs hold their positions on the outline, and the fill keeps its blobs where they stopped. */
+@media (prefers-reduced-motion: reduce) {
+  .argus-ultracode::before,
+  .argus-ultracode::after {
+    animation: none;
+  }
+}
+
 /* Frameless-window chrome (spec 2026-07-31-frameless-window-chrome).
 
    Plain CSS rather than Tailwind utilities, for the same reason as .argus-shimmer above: a

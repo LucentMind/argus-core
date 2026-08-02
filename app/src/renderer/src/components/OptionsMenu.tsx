@@ -88,7 +88,8 @@ export function TraitsChip({
   labelFor,
   isLocked,
   lockNote,
-  currentOverride
+  currentOverride,
+  ultracode
 }: {
   descriptors: readonly RunOptionDescriptor[]
   selections: readonly RunOptionSelection[]
@@ -103,6 +104,11 @@ export function TraitsChip({
   lockNote?: string
   /** Per-descriptor selection override — used for Ultrathink's highlighted entry. */
   currentOverride?: (d: RunOptionDescriptor) => string | boolean | undefined
+  /** Reasoning is on Ultracode: the trigger takes the animated treatment (main.css's
+   *  `.argus-ultracode` — an outline in classic, a filled pill under `.dyn`). Passed in
+   *  rather than derived here so ONE place decides what "on Ultracode" means, and the
+   *  Ultrathink override — which relabels this same chip — can veto it. */
+  ultracode?: boolean
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const label = descriptors
@@ -119,7 +125,9 @@ export function TraitsChip({
         type="button"
         title="Traits"
         aria-label={`Traits: ${label}`}
-        className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
+        className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink${
+          ultracode ? ' argus-ultracode' : ''
+        }`}
         onClick={() => setOpen(!open)}
       >
         <span>{label}</span>
@@ -164,7 +172,8 @@ export function CollapsedMenu({
   permission,
   onPermissionChange,
   showToolCalls,
-  onToggleToolCalls
+  onToggleToolCalls,
+  ultracode
 }: {
   descriptors: readonly RunOptionDescriptor[]
   selections: readonly RunOptionSelection[]
@@ -181,6 +190,10 @@ export function CollapsedMenu({
   onPermissionChange: (label: string) => void
   showToolCalls: boolean
   onToggleToolCalls: () => void
+  /** Reasoning is on Ultracode — same treatment `TraitsChip` gives its own trigger, on the
+   *  collapsed `…` button. Narrow density folds the traits chip away entirely, so without
+   *  this the one state the user asked to be able to SEE disappears below 650px. */
+  ultracode?: boolean
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   return (
@@ -189,7 +202,9 @@ export function CollapsedMenu({
         type="button"
         aria-label="More options"
         title="More options"
-        className="flex items-center rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
+        className={`flex items-center rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink${
+          ultracode ? ' argus-ultracode' : ''
+        }`}
         onClick={() => setOpen(!open)}
       >
         <MoreHorizontal size={14} strokeWidth={1.5} />

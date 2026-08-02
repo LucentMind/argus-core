@@ -895,4 +895,60 @@ describe('Composer option chips', () => {
       expect(box).toHaveValue('go')
     })
   })
+
+  // Nested for the same reason as the two describes above: it needs this describe's
+  // beforeEach, which mocks a catalog whose model reports a Reasoning descriptor — with no
+  // effort descriptor there is no Ultracode to be on.
+  //
+  // These assert the CLASS only. What that class paints — a marching outline in classic, a
+  // filled pill under `.dyn` — is plain CSS in main.css, and jsdom resolves no cascade, so a
+  // green run here says the chip is MARKED, never that it looks like anything. The two
+  // treatments have to be eyeballed in the running app.
+  describe('Composer ultracode chip', () => {
+    const ULTRACODE = { ...SESSION, runOptions: [{ id: 'effort', value: 'ultracode' }] }
+
+    it('marks the traits chip when Reasoning is on Ultracode', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={ULTRACODE} />)
+      const traits = await screen.findByTitle('Traits')
+      expect(traits).toHaveTextContent('Ultracode')
+      expect(traits).toHaveClass('argus-ultracode')
+    })
+
+    it('leaves the chip unmarked at an ordinary effort level', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      const traits = await screen.findByTitle('Traits')
+      expect(traits).toHaveTextContent('High')
+      expect(traits).not.toHaveClass('argus-ultracode')
+    })
+
+    // Ultrathink relabels this same chip, so a chip reading "Ultrathink" wearing the Ultracode
+    // treatment would be claiming a setting the send does not carry — `effectiveEffort` returns
+    // undefined while the marker is in the draft.
+    it('drops the treatment while Ultrathink owns the label', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={ULTRACODE} />)
+      await screen.findByTitle('Traits')
+      await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'Ultrathink:\ngo')
+      const traits = screen.getByTitle('Traits')
+      expect(traits).toHaveTextContent('Ultrathink')
+      expect(traits).not.toHaveClass('argus-ultracode')
+    })
+
+    // Narrow density folds the traits chip away entirely, so the collapsed `⋯` trigger has to
+    // carry the state instead — otherwise the one thing this feature exists to show is
+    // invisible on any pane under 650px.
+    it('moves the treatment onto the collapsed trigger below the threshold', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={ULTRACODE} />)
+      await screen.findByTitle('Traits')
+      act(() => setRowWidth(360))
+      expect(screen.queryByTitle('Traits')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('More options')).toHaveClass('argus-ultracode')
+    })
+
+    it('leaves the collapsed trigger unmarked at an ordinary effort level', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await screen.findByTitle('Traits')
+      act(() => setRowWidth(360))
+      expect(screen.getByLabelText('More options')).not.toHaveClass('argus-ultracode')
+    })
+  })
 })

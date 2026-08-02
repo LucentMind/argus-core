@@ -23,6 +23,7 @@ import {
 import {
   descriptorsFor,
   pruneSelections,
+  selectionValue,
   hasUltrathink,
   applyUltrathink,
   stripUltrathink,
@@ -313,6 +314,20 @@ export function Composer({
   // marker) but is easy to trip over by accident, hence this note.
   const ultrathinkInBody = ultrathinkOn && hasUltrathink(stripUltrathink(text))
 
+  // Drives the chip's Ultracode treatment (main.css `.argus-ultracode`). Deliberately the
+  // SAME expression `claudeSettingsFor` reads to decide whether to send `ultracode: true`, so
+  // the animation can only be showing while the wire actually carries the setting — a lit chip
+  // over a plain xhigh run would be a false signal about what the send costs.
+  //
+  // Ultrathink vetoes it: it overrides this chip's Reasoning label (see `labelFor` below), so a
+  // chip reading "Ultrathink" must not also be wearing the Ultracode treatment — and while the
+  // marker is in the draft, `effectiveEffort` never sees the stored value anyway.
+  const effortDescriptor = descriptors.find((d) => d.id === 'effort')
+  const ultracodeOn =
+    !ultrathinkOn &&
+    !!effortDescriptor &&
+    selectionValue(effortDescriptor, selections) === 'ultracode'
+
   // Drives both the trigger-label override (below) and the open menu's highlighted-entry
   // override (`currentOverride` on TraitsChip/CollapsedMenu). Reads the descriptor's
   // own `promptInjected` array — the same field `changeOption` below checks — instead of
@@ -567,6 +582,7 @@ export function Composer({
                     isLocked={(d) => d.id === 'effort' && ultrathinkInBody}
                     lockNote={ULTRATHINK_LOCK_NOTE}
                     currentOverride={(d) => (ultrathinkOn ? promptInjectedValue(d) : undefined)}
+                    ultracode={ultracodeOn}
                   />
                 </>
               )}
@@ -594,6 +610,7 @@ export function Composer({
               onPermissionChange={(label) => onPermissionModeChange?.(MODE_BY_LABEL[label])}
               showToolCalls={showToolCalls}
               onToggleToolCalls={() => uiStore.toggleToolCalls()}
+              ultracode={ultracodeOn}
             />
           )}
           {sendButton}
