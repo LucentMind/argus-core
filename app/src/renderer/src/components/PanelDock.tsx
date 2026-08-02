@@ -11,8 +11,13 @@ import { panelKeyStr } from '../../../shared/panels'
  * `--radius-r3: 10px` — see the per-edge reasoning at the call site below.
  *
  * For a rectangle to sit fully inside a rounded rect of corner radius r, each edge must be
- * inset by r * (1 - 1/sqrt(2)) ≈ 0.2929 * r. r = 10px -> ≈2.93px, rounded up to 3px, plus the
- * card's 1px border (`.surface-card` / `.glass-panel`) = 4px total.
+ * inset by r * (1 - 1/sqrt(2)) ≈ 0.2929 * r.
+ *
+ * The r that applies here is the border's INNER curve, not `--radius-r3` itself: `hostRef` sits
+ * inside the card's 1px border, and `getBoundingClientRect()` already excludes it. So
+ * r = 10 - 1 = 9px -> 9 * 0.2929 ≈ 2.64px -> 3px would suffice. 4px is deliberately one pixel
+ * conservative, which errs toward dead space rather than a clipped corner; do not "correct" it
+ * to 3 by re-deriving from 10px and adding the border again, which double-counts.
  */
 const DOCK_INSET_PX = 4
 
@@ -57,8 +62,12 @@ export function PanelDock({ hostRef }: { hostRef: React.RefObject<HTMLDivElement
           void window.argus.panels.setBounds(k, {
             x: Math.round((r.left + DOCK_INSET_PX) * z),
             y: Math.round(r.top * z),
-            width: Math.round((r.width - DOCK_INSET_PX * 2) * z),
-            height: Math.round((r.height - DOCK_INSET_PX) * z)
+            // Math.max(0, …): a zero-size layout (minimized window on some platforms) makes
+            // getBoundingClientRect() return all zeros, and subtracting the inset would then
+            // hand setBounds a NEGATIVE width/height — electronPlatform forwards the rect
+            // unvalidated. Before the inset existed this path bottomed out at 0; keep it there.
+            width: Math.max(0, Math.round((r.width - DOCK_INSET_PX * 2) * z)),
+            height: Math.max(0, Math.round((r.height - DOCK_INSET_PX) * z))
           })
         }
         void window.argus.panels.setVisible(k, visible)

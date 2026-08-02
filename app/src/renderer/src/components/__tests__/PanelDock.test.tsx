@@ -80,7 +80,9 @@ describe('PanelDock bounds inset', () => {
     )
   })
 
-  it('at 1x scale, shrinks width/height by twice the inset and moves x by one inset, leaving y untouched', () => {
+  // width shrinks by TWO insets (left+right); height by ONE (bottom only, top is an interior
+  // seam under the tab strip). That asymmetry is the whole point of this test — see PanelDock.
+  it('at 1x scale, shrinks width by two insets and height by one, moves x by one inset, leaves y untouched', () => {
     mountDock({ left: 0, top: 0, width: 500, height: 300 })
     expect(window.argus.panels.setBounds).toHaveBeenCalledWith(
       { caseSlug: 'CASE-A', packId: 'pack', windowId: 'win' },
