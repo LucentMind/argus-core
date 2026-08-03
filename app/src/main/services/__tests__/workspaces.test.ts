@@ -178,12 +178,42 @@ describe('autoLinkDefaultRepo', () => {
   it('keeps linking after a bad path fails', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const missing = path.join(tmp, 'does-not-exist')
+    expect(fs.existsSync(missing)).toBe(false)
 
     await autoLinkDefaultRepo(db, argusHome, 'NAV-1', [missing, repo])
 
     const linked = (await listWorkspaces(db, argusHome, 'NAV-1')).map((w) => w.path)
     expect(linked).toEqual([repo])
-    expect(warn).toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(missing))
+    warn.mockRestore()
+  })
+
+  // Distinct failure shape from the missing-dir case above: `tmp` exists (asserted below) but
+  // was never `git init`'d, so `git rev-parse --git-dir` fails with git's own "not a git
+  // repository" error rather than the ENOENT a nonexistent cwd produces.
+  it('skips an existing directory that is not a git repository', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    expect(fs.existsSync(tmp)).toBe(true)
+
+    await autoLinkDefaultRepo(db, argusHome, 'NAV-1', [tmp, repo])
+
+    const linked = (await listWorkspaces(db, argusHome, 'NAV-1')).map((w) => w.path)
+    expect(linked).toEqual([repo])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(tmp))
+    warn.mockRestore()
+  })
+
+  it('resolves cleanly and links nothing when every entry fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const missing = path.join(tmp, 'does-not-exist')
+
+    await expect(
+      autoLinkDefaultRepo(db, argusHome, 'NAV-1', [missing, tmp])
+    ).resolves.toBeUndefined()
+
+    expect(await listWorkspaces(db, argusHome, 'NAV-1')).toEqual([])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(missing))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(tmp))
     warn.mockRestore()
   })
 
