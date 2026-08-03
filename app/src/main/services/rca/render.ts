@@ -69,9 +69,10 @@ export function renderExecReport(draft: RcaDraft, meta: CaseMeta): string {
 }
 
 /**
- * Full technical drill-down: root cause with citations, contributing factors, symptoms &
- * timeline, ruled-out hypotheses (each with its why), remediation + follow-ups, then the
- * free-form technical narrative. Empty sections are skipped entirely.
+ * Full technical drill-down: root cause with citations, impact (`draft.impact`, distinct from
+ * `execSummary.impact` used by the exec report), contributing factors, symptoms & timeline,
+ * ruled-out hypotheses (each with its why), remediation + follow-ups, then the free-form
+ * technical narrative. Empty sections are skipped entirely.
  */
 export function renderTechReport(draft: RcaDraft, meta: CaseMeta): string {
   const metaLine = [meta.jiraKey ? `Jira: ${meta.jiraKey}` : '', `Case: ${meta.slug}`]
@@ -117,6 +118,7 @@ export function renderTechReport(draft: RcaDraft, meta: CaseMeta): string {
     `# RCA — ${meta.title}`,
     metaLine,
     section('Root cause', rootCauseBody),
+    section('Impact', draft.impact),
     section('Contributing factors', contributingBody),
     section('Symptoms & timeline', symptomsBody),
     section('Ruled out', ruledOutList),

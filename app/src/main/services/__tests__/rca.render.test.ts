@@ -138,6 +138,17 @@ describe('renderTechReport', () => {
     expect(md).toContain('> cache hit returned data for the wrong tenant')
   })
 
+  it('includes an Impact section sourced from the top-level impact field', () => {
+    const md = renderTechReport(draft(), meta())
+    expect(md).toContain('## Impact')
+    expect(md).toContain(draft().impact)
+  })
+
+  it('omits the Impact section when impact is empty', () => {
+    const md = renderTechReport({ ...draft(), impact: '' }, meta())
+    expect(md).not.toContain('## Impact')
+  })
+
   it('skips Contributing factors, Ruled out, and Narrative sections when empty, with no placeholder', () => {
     const md = renderTechReport(emptyDraft(), meta())
     expect(md).not.toContain('## Contributing factors')
