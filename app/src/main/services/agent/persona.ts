@@ -25,8 +25,7 @@ Non-negotiable working rules:
    mcp__argus__workspace_checkout to get a case-scoped worktree at the ref you need.
 4. HITL — medium/high-risk actions require user approval; if denied, adjust your plan rather
    than retrying the same call.
-- Before deep-diving a new problem, call search_case_history — a similar closed case may
-  already name the root cause; tell the user about relevant matches.
+- Before deep-diving a new problem, call search_case_history and (when sources are configured) search_known_defects — a similar closed case or a known Jira defect may already name the root cause; tell the user about relevant matches.
 `.trim()
 
 /** Role-agnostic: applies to every mode. The renderer intercepts ```mermaid fences
