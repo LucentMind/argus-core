@@ -19,7 +19,9 @@ import type {
   ArtifactTypeMeta,
   GraphStatusRow,
   GraphProgress,
-  ScanSummary
+  ScanSummary,
+  RecentRepo,
+  LinkWorkspaceResult
 } from '../shared/types'
 import type { AgentEvent } from '../shared/agent-events'
 import type { SettingsPayload, PermissionMode } from '../shared/settings'
@@ -454,7 +456,12 @@ const argus = {
   },
   workspaces: {
     pick: () => invoke(IPC.workspacesPick),
-    link: (caseSlug: string, repoPath: string) => invoke(IPC.workspacesLink, caseSlug, repoPath),
+    link: (caseSlug: string, repoPath: string): Promise<LinkWorkspaceResult> =>
+      invoke(IPC.workspacesLink, caseSlug, repoPath),
+    recent: (): Promise<RecentRepo[]> => invoke(IPC.workspacesRecent),
+    dismissPromote: (repoPath: string): Promise<void> =>
+      invoke(IPC.workspacesDismissPromote, repoPath),
+    setDefault: (repoPath: string): Promise<void> => invoke(IPC.workspacesSetDefault, repoPath),
     unlink: (caseSlug: string, repoPath: string) =>
       invoke(IPC.workspacesUnlink, caseSlug, repoPath),
     list: (caseSlug: string) => invoke(IPC.workspacesList, caseSlug),

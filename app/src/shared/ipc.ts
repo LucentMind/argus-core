@@ -51,6 +51,13 @@ export const IPC = {
   workspacesList: 'workspaces:list',
   workspacesReadSnippet: 'workspaces:read-snippet',
   workspacesReadText: 'workspaces:read-text',
+  /** Previously-linked repo paths, newest first — the Link-repo dropdown's source. */
+  workspacesRecent: 'workspaces:recent',
+  /** Permanently silence the promote-to-default prompt for one repo. */
+  workspacesDismissPromote: 'workspaces:dismiss-promote',
+  /** Append one repo to `general.defaultRepos`. Appends in MAIN rather than the renderer
+   *  so the read-modify-write of the list cannot race a concurrent settings write. */
+  workspacesSetDefault: 'workspaces:set-default',
   /** main → renderer broadcast: a case's workspace state changed (e.g. the agent
    *  materialized a worktree) — repo chips and repo snippets should refresh. */
   workspacesChanged: 'workspaces:changed',

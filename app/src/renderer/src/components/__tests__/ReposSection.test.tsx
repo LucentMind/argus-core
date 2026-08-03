@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { ReposSection } from '../ReposSection'
 import { uiStore } from '../../lib/uiStore'
+import type { LinkWorkspaceResult } from '../../../../shared/types'
 
 beforeEach(() => {
   uiStore.setDynamicTheme(false)
@@ -163,8 +164,20 @@ describe('ReposSection pending states', () => {
     let release: () => void = () => {}
     window.argus.workspaces.link = vi.fn(
       () =>
-        new Promise<undefined>((res) => {
-          release = () => res(undefined)
+        new Promise<LinkWorkspaceResult>((res) => {
+          release = () =>
+            res({
+              workspace: {
+                path: 'C:\\repos\\argus-core',
+                remote: null,
+                branch: 'main',
+                currentRef: 'main',
+                dirty: false,
+                worktreePath: null
+              },
+              suggestDefault: false,
+              caseCount: 1
+            })
         })
     )
     render(<ReposSection slug="C-1" />)

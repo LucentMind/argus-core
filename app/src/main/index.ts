@@ -153,6 +153,15 @@ import {
   listWorkspaces,
   autoLinkDefaultRepo
 } from './services/workspaces'
+import {
+  recordLink,
+  listRecent,
+  dismissPromote,
+  shouldSuggestDefault,
+  assertRepoPath,
+  caseCount,
+  repoKey
+} from './services/repoUsage'
 import { getBinding, listBindings, removeBinding } from './services/prBindings'
 import { refreshPrStatuses, readPrStatuses } from './services/prStatusService'
 import { linkPrForCase } from './services/prLink'
@@ -1725,9 +1734,35 @@ function registerIpc(): void {
   // offering a Review button the handler below then rejects. Same broadcast the repo chips
   // already consume.
   ipcMain.handle(IPC.workspacesLink, async (_e, caseSlug: string, repoPath: string) => {
-    const info = await linkWorkspace(db, argusHome, caseSlug, repoPath)
+    assertSlug(caseSlug)
+    assertRepoPath(repoPath)
+    const workspace = await linkWorkspace(db, argusHome, caseSlug, repoPath)
+    // Counting lives HERE, not in linkWorkspace: `autoLinkDefaultRepo` calls that function
+    // directly and must never count toward the promote threshold, or a repo that is already
+    // a default would trip a prompt asking it to become one.
+    recordLink(db, repoPath, caseSlug)
     broadcast(IPC.workspacesChanged, caseSlug)
-    return info
+    return {
+      workspace,
+      suggestDefault: shouldSuggestDefault(
+        db,
+        repoPath,
+        settingsService.get().general.defaultRepos
+      ),
+      caseCount: caseCount(db, repoPath)
+    }
+  })
+  ipcMain.handle(IPC.workspacesRecent, () => listRecent(db))
+  ipcMain.handle(IPC.workspacesDismissPromote, (_e, repoPath: string) => {
+    assertRepoPath(repoPath)
+    dismissPromote(db, repoPath)
+  })
+  ipcMain.handle(IPC.workspacesSetDefault, (_e, repoPath: string) => {
+    assertRepoPath(repoPath)
+    const current = settingsService.get().general.defaultRepos
+    const key = repoKey(repoPath)
+    if (current.some((d) => repoKey(d) === key)) return
+    settingsService.patch({ general: { defaultRepos: [...current, repoPath] } })
   })
   ipcMain.handle(IPC.workspacesUnlink, async (_e, caseSlug: string, repoPath: string) => {
     await unlinkWorkspace(db, argusHome, caseSlug, repoPath)
