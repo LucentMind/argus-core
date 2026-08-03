@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { PacksSettings } from '../PacksSettings'
 import { confirm } from '../../../lib/confirmStore'
-import type { InstalledPackRow, PacksListPayload } from '../../../../../shared/packs'
+import type { InstallResult, InstalledPackRow, PacksListPayload } from '../../../../../shared/packs'
 
 vi.mock('../../../lib/confirmStore', () => ({
   confirm: vi.fn(() => Promise.resolve(true)),
@@ -515,5 +515,60 @@ describe('PacksSettings', () => {
     await user.click(screen.getByRole('button', { name: 'Find packs' }))
 
     expect(await screen.findByText(/not authenticated/)).toBeInTheDocument()
+  })
+
+  it('drops a previous repo’s packs when the field is edited', async () => {
+    const user = userEvent.setup()
+    packs.list = vi.fn().mockResolvedValue({ error: null, packs: [] })
+    packs.inspectRepo = vi.fn().mockResolvedValue({
+      ok: true,
+      packs: [
+        { id: 'sample-bridge-playground', version: '0.1.0', tag: 'v0.1.0', installable: true }
+      ]
+    })
+
+    render(<PacksSettings settings={settingsPayload([])} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Install from GitHub' }))
+    await user.type(screen.getByLabelText('GitHub repository'), 'owner/repoA')
+    await user.click(screen.getByRole('button', { name: 'Find packs' }))
+
+    expect(await screen.findByText('sample-bridge-playground')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('GitHub repository'), 'b')
+
+    expect(screen.queryByText('sample-bridge-playground')).not.toBeInTheDocument()
+  })
+
+  it('installs against the repo the listed packs came from, not whatever is in the field', async () => {
+    const user = userEvent.setup()
+    packs.list = vi.fn().mockResolvedValue({ error: null, packs: [] })
+    packs.inspectRepo = vi.fn().mockResolvedValue({
+      ok: true,
+      packs: [
+        { id: 'sample-bridge-playground', version: '0.1.0', tag: 'v0.1.0', installable: true }
+      ]
+    })
+    const installFromRepo = vi.fn<(ref: string, packId: string) => Promise<InstallResult>>(
+      async () => ({
+        ok: true,
+        id: 'sample-bridge-playground',
+        version: '0.1.0',
+        previousVersion: null,
+        relaunchRequired: true
+      })
+    )
+    packs.installFromRepo = installFromRepo
+
+    render(<PacksSettings settings={settingsPayload([])} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Install from GitHub' }))
+    await user.type(screen.getByLabelText('GitHub repository'), 'owner/repoA')
+    await user.click(screen.getByRole('button', { name: 'Find packs' }))
+    expect(await screen.findByText('sample-bridge-playground')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Install sample-bridge-playground' }))
+
+    expect(installFromRepo.mock.calls[0][0]).toBe('owner/repoA')
   })
 })

@@ -119,7 +119,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
   const [needsRelaunch, setNeedsRelaunch] = useState(false)
   const [repoOpen, setRepoOpen] = useState(false)
   const [repoRef, setRepoRef] = useState('')
-  const [repoPacks, setRepoPacks] = useState<RepoPackRow[] | null>(null)
+  const [repoResult, setRepoResult] = useState<{ ref: string; packs: RepoPackRow[] } | null>(null)
 
   const refresh = useCallback(async () => {
     setPayload(await window.argus.packs.list())
@@ -246,10 +246,11 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
   async function findRepoPacks(): Promise<void> {
     if (busy) return
     setError(null)
-    setRepoPacks(null)
+    setRepoResult(null)
     setBusy(true)
     try {
-      const res = await window.argus.packs.inspectRepo(repoRef)
+      const ref = repoRef.trim()
+      const res = await window.argus.packs.inspectRepo(ref)
       if (!res.ok) {
         setError(res.error)
         return
@@ -258,7 +259,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
         setError('That repository publishes no Argus packs in its latest release.')
         return
       }
-      setRepoPacks(res.packs)
+      setRepoResult({ ref, packs: res.packs })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -267,18 +268,18 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
   }
 
   async function installFromRepo(packId: string): Promise<void> {
-    if (busy) return
+    if (busy || !repoResult) return
     setError(null)
     setBusy(true)
     try {
-      const res = await window.argus.packs.installFromRepo(repoRef, packId)
+      const res = await window.argus.packs.installFromRepo(repoResult.ref, packId)
       if (!res.ok) {
         setError(installErrorMessage(res.code, res.error))
         return
       }
       setNeedsRelaunch(true)
       setRepoOpen(false)
-      setRepoPacks(null)
+      setRepoResult(null)
       await refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -348,13 +349,17 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
               className="flex-1 rounded border border-line bg-transparent px-2 py-1 text-xs"
               placeholder="owner/repo"
               value={repoRef}
-              onChange={(e) => setRepoRef(e.target.value)}
+              disabled={busy}
+              onChange={(e) => {
+                setRepoRef(e.target.value)
+                setRepoResult(null)
+              }}
             />
             <Btn disabled={busy || repoRef.trim() === ''} onClick={() => void findRepoPacks()}>
               Find packs
             </Btn>
           </div>
-          {repoPacks?.map((p) => (
+          {repoResult?.packs.map((p) => (
             <div key={p.id} className="flex items-center gap-2 text-xs">
               <span className="flex-1">
                 {p.id} <Chip tone="neutral">{p.version}</Chip>
