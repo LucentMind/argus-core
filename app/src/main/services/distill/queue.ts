@@ -13,7 +13,7 @@ export interface DistillQueueDeps {
   db: DatabaseSync
   /** Throws → caller sees the throw; nothing is enqueued (guarded by callers). */
   assembleInput: (slug: string) => CaseDistillInput
-  distill: (input: CaseDistillInput) => Promise<CaseDistillRun>
+  distill: (input: CaseDistillInput, signal: AbortSignal) => Promise<CaseDistillRun>
   stage: (caseSlug: string, jobId: number, output: CaseDistillOutput) => StageResult
   broadcast: (payload: DistillStatusPayload) => void
   /** Version hash of the static distill prompt parts, stamped at enqueue. Absent in tests. */
@@ -48,22 +48,38 @@ function toRow(r: JobDbRow): DistillJobRow {
  * Single in-flight FIFO runner over the `distill_jobs` table.
  *
  * `kick()` fires a void async loop that processes queued jobs one at a time in id
- * order; every state transition (running/done/failed) is persisted then broadcast.
- * `idle()` is a test helper only — it must consult BOTH the `running` flag and
- * `nextQueued()` because `nextQueued()`'s `WHERE state='queued'` clause excludes a
- * job that is currently mid-flight (state='running'); checking the DB alone would
- * report "idle" while a job is actively running. Every `running`/DB-state read used
- * by `idle()` happens on the same synchronous call stack as the code that mutates
- * it (enqueue/retry set `running=true` synchronously inside `kick()`, before any
- * `await`; the loop's terminal `nextQueued()` check and the `finally` block's
- * `running=false` + waiter resolution run back-to-back with no intervening
- * `await`), so there is no window where external synchronous code could observe a
- * torn state — Node's single-threaded, run-to-completion execution combined with
- * the synchronous `node:sqlite` driver rules that out.
+ * order; every state transition (running/done/failed/cancelled) is persisted then
+ * broadcast. `idle()` is a test helper only — it must consult BOTH the `running`
+ * flag and `nextQueued()` because `nextQueued()`'s `WHERE state='queued'` clause
+ * excludes a job that is currently mid-flight (state='running'); checking the DB
+ * alone would report "idle" while a job is actively running. Every `running`/DB-state
+ * read used by `idle()` happens on the same synchronous call stack as the code that
+ * mutates it (enqueue/retry set `running=true` synchronously inside `kick()`, before
+ * any `await`; the loop's terminal `nextQueued()` check and the `finally` block's
+ * `running=false` + waiter resolution run back-to-back with no intervening `await`),
+ * so there is no window where external synchronous code could observe a torn state
+ * — Node's single-threaded, run-to-completion execution combined with the
+ * synchronous `node:sqlite` driver rules that out.
+ *
+ * `cancel()` is a third external synchronous mutator, called from an IPC handler
+ * rather than from `kick()`, but it preserves the same invariant rather than
+ * breaking it. On a queued job it does a synchronous DB write (state→'cancelled')
+ * and never touches the `running` flag — `nextQueued()`'s `WHERE state='queued'`
+ * simply stops matching that row, same as if `kick()` had consumed it. On a running
+ * job it does not touch the DB or `running` at all; it only calls `AbortController.abort()`
+ * synchronously and returns, leaving the actual `state='cancelled'` persistence to
+ * `runJob`'s existing `catch`/finish path on a later turn — the same synchronous
+ * machinery `idle()` already relies on for done/failed. Because `cancel()` never
+ * partially mutates state across an `await`, there is still no window where a
+ * concurrent synchronous read (from `idle()` or `kick()`'s loop) can observe torn
+ * state.
  */
 export class DistillQueue {
   private running = false
   private waiters: (() => void)[] = []
+  /** AbortController for the job currently in `runJob`, keyed by job id. At most one entry
+   *  exists (the runner is single in-flight); it is deleted in runJob's `finally`. */
+  private controllers = new Map<number, AbortController>()
 
   constructor(private deps: DistillQueueDeps) {}
 
@@ -109,6 +125,30 @@ export class DistillQueue {
     const fresh = this.get(jobId)!
     this.emit(fresh)
     this.kick()
+    return fresh
+  }
+
+  /**
+   * Stops a distillation the user no longer wants. A queued job is flipped straight to
+   * `cancelled` (the kick loop's `WHERE state='queued'` then skips it); a running job's
+   * AbortController is aborted, which rejects the driver's race and tears its CLI down.
+   *
+   * Deliberately idempotent on a resting job (done/failed/cancelled): "it finished while
+   * the menu was open" is an ordinary race, not an error. Only an unknown id throws.
+   */
+  cancel(jobId: number): DistillJobRow {
+    const job = this.get(jobId)
+    if (!job) throw new Error(`distill job ${jobId} not found`)
+    if (job.state === 'running') {
+      this.controllers.get(jobId)?.abort()
+      return job // runJob's catch persists + emits the terminal `cancelled` row
+    }
+    if (job.state !== 'queued') return job
+    this.deps.db
+      .prepare(`UPDATE distill_jobs SET state='cancelled', finished_at=? WHERE id=?`)
+      .run(new Date().toISOString(), jobId)
+    const fresh = this.get(jobId)!
+    this.emit(fresh)
     return fresh
   }
 
@@ -172,6 +212,8 @@ export class DistillQueue {
 
   private async runJob(r: JobDbRow): Promise<void> {
     const db = this.deps.db
+    const ac = new AbortController()
+    this.controllers.set(r.id, ac)
     db.prepare(`UPDATE distill_jobs SET state='running' WHERE id=?`).run(r.id)
     this.emit(this.get(r.id)!)
     const finish = (fields: string, ...vals: (string | number | null)[]): void => {
@@ -184,15 +226,27 @@ export class DistillQueue {
     }
     try {
       const input = JSON.parse(r.input_snapshot) as CaseDistillInput
-      const run = await this.deps.distill(input)
+      const run = await this.deps.distill(input, ac.signal)
+      // A cancel can land between the model returning and staging. Honour it: the user
+      // pressed cancel, so nothing from this run reaches the proposals tray.
+      if (ac.signal.aborted) {
+        finish(`state='cancelled'`)
+        return
+      }
       const res = this.deps.stage(r.case_slug, r.id, run.output)
       finish(`state='done', raw_output=?, item_count=?`, run.raw, res.staged)
     } catch (err) {
-      if (err instanceof DistillParseError) {
+      if (ac.signal.aborted) {
+        // However the run failed, the user's cancel is the reason it stopped — record that
+        // rather than a driver-shaped error the user would read as a fault.
+        finish(`state='cancelled'`)
+      } else if (err instanceof DistillParseError) {
         finish(`state='failed', error=?, raw_output=?`, err.message, err.raw)
       } else {
         finish(`state='failed', error=?`, err instanceof Error ? err.message : String(err))
       }
+    } finally {
+      this.controllers.delete(r.id)
     }
   }
 }

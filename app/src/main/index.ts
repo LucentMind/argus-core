@@ -731,7 +731,7 @@ function registerIpc(): void {
   const distillQueue = new DistillQueue({
     db,
     assembleInput: (slug) => assembleDistillInput(db, argusHome, slug, skillsIndexForDistill()),
-    distill: (input) => runCaseDistill(input, headlessRun, resolvePrompt),
+    distill: (input, signal) => runCaseDistill(input, headlessRun, resolvePrompt, signal),
     stage: (slug, jobId, output) => stageDistillOutput(db, argusHome, slug, jobId, output),
     broadcast: (p) => broadcast(IPC.distillChanged, p),
     promptHash: () => caseDistillPromptHash(resolvePrompt)

@@ -2,7 +2,7 @@ import type { CaseResolution } from './types'
 import type { ReviewState } from './observability'
 import type { RcaDraft } from './rca'
 
-export type DistillJobState = 'queued' | 'running' | 'done' | 'failed'
+export type DistillJobState = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
 
 export interface DistillJobRow {
   id: number

@@ -1,12 +1,12 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { DistillQueue } from '../queue'
 import { DistillParseError } from '../contract'
-import type { CaseDistillInput } from '../../../../shared/distill'
+import type { CaseDistillInput, DistillStatusPayload } from '../../../../shared/distill'
 
 const INPUT = { caseMeta: { slug: 'x' } } as unknown as CaseDistillInput
 
@@ -189,5 +189,87 @@ describe('DistillQueue', () => {
     }
     expect(row.prompt_hash).toBeNull()
     await q.idle()
+  })
+
+  it('cancels a queued job without ever running it', async () => {
+    let ran = 0
+    const { q } = makeQueue({
+      distill: async () => {
+        ran++
+        await new Promise((r) => setTimeout(r, 50))
+        return { raw: '```json\n{}\n```', output: {} }
+      }
+    })
+    const first = q.enqueue('case-a') // occupies the single in-flight slot
+    const second = q.enqueue('case-b') // still queued behind it
+    expect(q.statusFor('case-b')!.state).toBe('queued')
+    q.cancel(second.id)
+    expect(q.statusFor('case-b')!.state).toBe('cancelled')
+    await q.idle()
+    expect(ran).toBe(1) // only case-a ever ran
+    expect(q.statusFor('case-a')!.state).toBe('done')
+    expect(q.statusFor('case-b')!.finishedAt).not.toBeNull()
+    void first
+  })
+
+  it('cancels a running job: aborts the signal and lands cancelled, not failed', async () => {
+    let seen: AbortSignal | null = null
+    const { q, broadcasts } = makeQueue({
+      distill: (_input, signal) => {
+        seen = signal
+        return new Promise((_res, rej) => {
+          signal.addEventListener('abort', () => rej(new Error('headless run cancelled')), {
+            once: true
+          })
+        })
+      }
+    })
+    const job = q.enqueue('case-a')
+    await vi.waitFor(() => expect(q.statusFor('case-a')!.state).toBe('running'), { timeout: 5000 })
+    q.cancel(job.id)
+    expect(seen!.aborted).toBe(true)
+    await q.idle()
+    const done = q.statusFor('case-a')!
+    expect(done.state).toBe('cancelled')
+    expect(done.error).toBeNull()
+    expect(done.finishedAt).not.toBeNull()
+    expect(broadcasts.some((b) => (b as DistillStatusPayload).job?.state === 'cancelled')).toBe(true)
+  })
+
+  it('discards a result that lands after the cancel', async () => {
+    let staged = 0
+    let release: (() => void) | null = null
+    const { q } = makeQueue({
+      distill: () =>
+        new Promise((res) => {
+          release = () => res({ raw: '```json\n{}\n```', output: {} })
+        }),
+      stage: () => {
+        staged++
+        return { staged: 1, droppedDuplicates: 0, supersededRemoved: 0 }
+      }
+    })
+    const job = q.enqueue('case-a')
+    await vi.waitFor(() => expect(release).not.toBeNull(), { timeout: 5000 })
+    q.cancel(job.id)
+    release!() // the model "returns" after the user pressed cancel
+    await q.idle()
+    expect(staged).toBe(0)
+    expect(q.statusFor('case-a')!.state).toBe('cancelled')
+  })
+
+  it('cancel on a resting job is a no-op returning the row', async () => {
+    const { q } = makeQueue()
+    const job = q.enqueue('case-a')
+    await q.idle()
+    expect(q.statusFor('case-a')!.state).toBe('done')
+    const row = q.cancel(job.id)
+    expect(row.state).toBe('done')
+    expect(q.statusFor('case-a')!.state).toBe('done')
+  })
+
+  it('cancel on an unknown job id throws', () => {
+    const { q } = makeQueue()
+    expect(() => q.cancel(9999)).toThrow('9999')
   })
 })
