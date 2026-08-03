@@ -263,6 +263,126 @@ describe('installPack', () => {
   })
 })
 
+describe('pack dependencies', () => {
+  /** A dependency-declaring bundle: pack 'sample' needing 'common' ^0.1.0 (pack API 1.1). */
+  function dependentBundle(deps: Record<string, string> = { common: '^0.1.0' }): string {
+    return makeBundleDir({ argusApi: '^1.1', dependencies: deps })
+  }
+
+  async function installCommon(version: string): Promise<void> {
+    const r = await installPack(makeBundleDir({ id: 'common', displayName: 'Common', version }), {
+      argusHome: home,
+      state,
+      host: HOST
+    })
+    expect(r.ok).toBe(true)
+  }
+
+  it('refuses an install whose dependency is not installed, writing no pack dir', async () => {
+    const r = await installPack(dependentBundle(), { argusHome: home, state, host: HOST })
+    expect(r).toMatchObject({ ok: false, code: 'dependency' })
+    expect(r.ok ? '' : r.error).toMatch(/common/)
+    expect(r.ok ? '' : r.error).toContain('^0.1.0')
+    expect(fs.existsSync(path.join(packsDir(home), 'sample'))).toBe(false)
+    expect(state.get('sample')).toBeUndefined()
+  })
+
+  it('installs once the dependency is present and inside the declared range', async () => {
+    await installCommon('0.1.2')
+    const r = await installPack(dependentBundle(), { argusHome: home, state, host: HOST })
+    expect(r).toMatchObject({ ok: true, id: 'sample' })
+    expect(state.get('sample')).toBe('1.0.0')
+  })
+
+  it('refuses when the installed dependency is below the declared range, naming both versions', async () => {
+    await installCommon('0.0.9')
+    const r = await installPack(dependentBundle(), { argusHome: home, state, host: HOST })
+    expect(r).toMatchObject({ ok: false, code: 'dependency' })
+    expect(r.ok ? '' : r.error).toContain('0.0.9')
+    expect(r.ok ? '' : r.error).toContain('^0.1.0')
+    expect(fs.existsSync(path.join(packsDir(home), 'sample'))).toBe(false)
+  })
+
+  it('names every unsatisfied dependency in one message', async () => {
+    const r = await installPack(dependentBundle({ common: '^0.1.0', extras: '^2.0.0' }), {
+      argusHome: home,
+      state,
+      host: HOST
+    })
+    expect(r).toMatchObject({ ok: false, code: 'dependency' })
+    expect(r.ok ? '' : r.error).toContain('common')
+    expect(r.ok ? '' : r.error).toContain('extras')
+  })
+
+  it('refuses a bundle that declares a dependency on itself', async () => {
+    const r = await installPack(dependentBundle({ sample: '^1.0.0' }), {
+      argusHome: home,
+      state,
+      host: HOST
+    })
+    expect(r).toMatchObject({ ok: false, code: 'dependency' })
+    expect(r.ok ? '' : r.error).toMatch(/itself/)
+  })
+
+  it('treats a dependency with no recorded version as unsatisfied rather than crashing', async () => {
+    await installCommon('0.1.2')
+    state.remove('common') // dir on disk, nothing recorded in packs-state
+    const r = await installPack(dependentBundle(), { argusHome: home, state, host: HOST })
+    expect(r).toMatchObject({ ok: false, code: 'dependency' })
+    expect(r.ok ? '' : r.error).toMatch(/not installed/)
+  })
+
+  it('reports declared dependencies and their satisfaction before install', async () => {
+    const r = await inspectBundleSource(dependentBundle({ common: '^0.1.0', extras: '^2.0.0' }), {
+      installed: { common: '0.1.2' }
+    })
+    expect(r.dependencies).toEqual([
+      { id: 'common', range: '^0.1.0', installedVersion: '0.1.2', satisfied: true, detail: '' },
+      expect.objectContaining({ id: 'extras', installedVersion: null, satisfied: false })
+    ])
+  })
+
+  it('reports no dependencies for a bundle that declares none', async () => {
+    expect((await inspectBundleSource(makeBundleDir())).dependencies).toEqual([])
+  })
+
+  it('refuses to uninstall a pack an installed pack depends on, leaving it on disk', async () => {
+    await installCommon('0.1.2')
+    const nav = await installPack(
+      makeBundleDir({
+        id: 'navigation',
+        displayName: 'Navigation',
+        argusApi: '^1.1',
+        dependencies: { common: '^0.1.0' }
+      }),
+      { argusHome: home, state, host: HOST }
+    )
+    expect(nav.ok).toBe(true)
+
+    const r = uninstallPack('common', { argusHome: home, state })
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('navigation')
+    expect(fs.existsSync(path.join(packsDir(home), 'common', 'argus-pack.json'))).toBe(true)
+    expect(state.get('common')).toBe('0.1.2')
+  })
+
+  it('allows uninstalling the dependency once its dependent is gone', async () => {
+    await installCommon('0.1.2')
+    await installPack(
+      makeBundleDir({
+        id: 'navigation',
+        displayName: 'Navigation',
+        argusApi: '^1.1',
+        dependencies: { common: '^0.1.0' }
+      }),
+      { argusHome: home, state, host: HOST }
+    )
+    expect(uninstallPack('navigation', { argusHome: home, state }).ok).toBe(true)
+    expect(uninstallPack('common', { argusHome: home, state }).ok).toBe(true)
+    expect(fs.existsSync(path.join(packsDir(home), 'common'))).toBe(false)
+  })
+})
+
 describe('origin pin recording', () => {
   it('records the pin from an installed manifest that declares updateUrl', async () => {
     const src = makeBundleDir({ updateUrl: 'https://vendor.example/packs/feed.json' })

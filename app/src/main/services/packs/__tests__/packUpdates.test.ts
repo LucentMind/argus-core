@@ -112,7 +112,8 @@ beforeEach(() => {
     version: '1.1.0',
     platform: 'win-x64',
     apiCompatible: true,
-    platformCompatible: true
+    platformCompatible: true,
+    dependencies: []
   }))
 })
 
