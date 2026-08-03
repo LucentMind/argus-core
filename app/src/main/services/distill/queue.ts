@@ -107,7 +107,19 @@ export class DistillQueue {
     return Number(res.changes)
   }
 
-  /** Snapshots `assembleInput(slug)` NOW; throws only on snapshot failure (callers guard it). */
+  /**
+   * Snapshots `assembleInput(slug)` NOW; throws only on snapshot failure (callers guard it).
+   *
+   * Guards "at most one queued-or-running job per case" itself, for every caller, rather than
+   * leaving it to whichever call site remembers to wrap this in `reconcileAndEnqueue` — two IPC
+   * handlers (`distillRetry`, and until this fix `distillRedistill`) reached this method directly
+   * with no guard, and any future caller could do the same. The cancel happens AFTER the insert,
+   * not before: `assembleInput` above can throw, and if it does, nothing has been touched yet —
+   * an already-in-flight job for this slug survives untouched rather than being destroyed with no
+   * replacement queued (see the F5 regression test). `cancelOtherInFlight` also cancels EVERY
+   * other queued/running row for the slug, not just the newest one `statusFor` would see (see the
+   * F4 regression test).
+   */
   enqueue(slug: string): DistillJobRow {
     const snapshot = JSON.stringify(this.deps.assembleInput(slug))
     const res = this.deps.db
@@ -117,11 +129,21 @@ export class DistillQueue {
       .run(slug, snapshot, this.deps.promptHash?.() ?? null, new Date().toISOString())
     const job = this.get(Number(res.lastInsertRowid))!
     this.emit(job)
+    this.cancelOtherInFlight(slug, job.id)
     this.kick()
     return job
   }
 
-  /** failed → queued, reusing the original snapshot. Throws if the job isn't failed. */
+  /**
+   * failed → queued, reusing the original snapshot. Throws if the job isn't failed.
+   *
+   * Same in-flight guard as `enqueue` (see its doc comment), for the same reason: a stale
+   * renderer row, a swallowed broadcast, or two windows racing one IPC round-trip can reach
+   * `retry` for a case that already has a fresh job running or queued (e.g. the user distilled
+   * again from the menu before retrying an old failure), which would otherwise leave two
+   * in-flight jobs for the slug. The flip to `queued` happens first — if that UPDATE ever throws,
+   * nothing else has been touched — then any OTHER in-flight job for the same slug is cancelled.
+   */
   retry(jobId: number): DistillJobRow {
     const job = this.get(jobId)
     if (!job || job.state !== 'failed') throw new Error(`distill job ${jobId} is not failed`)
@@ -132,6 +154,7 @@ export class DistillQueue {
       .run(jobId)
     const fresh = this.get(jobId)!
     this.emit(fresh)
+    this.cancelOtherInFlight(fresh.caseSlug, fresh.id)
     this.kick()
     return fresh
   }
@@ -216,6 +239,23 @@ export class DistillQueue {
     return this.deps.db
       .prepare(`SELECT * FROM distill_jobs WHERE state='queued' ORDER BY id ASC LIMIT 1`)
       .get() as JobDbRow | undefined
+  }
+
+  /**
+   * Cancels every OTHER queued/running row for `slug` — everything but `excludeId`, which is
+   * always the row the caller (enqueue/retry) just created or just flipped to queued. Excluding
+   * it matters: right after `enqueue`'s INSERT, the new row itself is still `state='queued'`
+   * (kick() may not have picked it up yet), so an unfiltered query would immediately cancel the
+   * job the caller is trying to start. Uses `cancel()` per row rather than a bulk UPDATE so a
+   * running row still gets its `AbortController` aborted, not just its DB state flipped.
+   */
+  private cancelOtherInFlight(slug: string, excludeId: number): void {
+    const rows = this.deps.db
+      .prepare(
+        `SELECT id FROM distill_jobs WHERE case_slug=? AND state IN ('queued','running') AND id != ?`
+      )
+      .all(slug, excludeId) as { id: number }[]
+    for (const { id } of rows) this.cancel(id)
   }
 
   /**
@@ -317,17 +357,22 @@ export class DistillQueue {
 }
 
 /**
- * Reconciles the queue before a case-close enqueue. `enqueue()` has no in-flight guard, and
- * `statusFor()` always reads the newest job by id — so distilling an OPEN case (job A, running)
- * and then closing it (which enqueues job B for the close-time snapshot) would leave BOTH jobs
- * alive: every renderer surface reads B (the newest), so Cancel stops B while A keeps running
- * unaborted and, on completion, stages proposals built from the stale open-case snapshot into
- * the proposals tray — exactly what cancel exists to prevent. Cancelling any in-flight job for
- * the slug first (a no-op if there is none, or if the latest job is already resting) restores
- * "one job per case": the close-time snapshot, which carries the real resolution, wins.
+ * Named wrapper around `enqueue()`, kept as the call-site spelling for both the case-close path
+ * (`onCaseClosed`) and the redistill IPC path (`IPC.distillRedistill`): distilling an OPEN case
+ * (job A, running) and then either closing it or redistilling it again (job B, a fresh snapshot)
+ * must leave exactly one in-flight job for the slug — every renderer surface reads the newest job
+ * by id, so if both survived, Cancel would stop B while A kept running unaborted and, on
+ * completion, staged proposals built from a stale snapshot into the proposals tray — exactly what
+ * cancel exists to prevent.
+ *
+ * The actual guard now lives in `enqueue()` itself (see its doc comment) rather than here: this
+ * function used to do its own read-current/cancel-then-enqueue dance, which (a) only ever looked
+ * at the single newest job via `statusFor()`, missing a slug that held more than one in-flight row
+ * (F4), and (b) cancelled BEFORE enqueueing, so a snapshot failure in the new `enqueue()` call
+ * would destroy the running job with nothing queued to replace it (F5). Moving the guard inside
+ * `enqueue()` fixes both for every caller at once, including ones that call `enqueue()` directly
+ * — this wrapper is what it looks like once that's true.
  */
 export function reconcileAndEnqueue(queue: DistillQueue, slug: string): DistillJobRow {
-  const cur = queue.statusFor(slug)
-  if (cur && (cur.state === 'queued' || cur.state === 'running')) queue.cancel(cur.id)
   return queue.enqueue(slug)
 }

@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CaseAnchor } from '../CaseAnchor'
 import { uiStore } from '../../lib/uiStore'
 import { noticeStore } from '../../lib/noticeStore'
-import type { DistillJobRow } from '../../../../shared/distill'
+import type { DistillJobRow, DistillStatusPayload } from '../../../../shared/distill'
 
 let statusMock: ReturnType<typeof vi.fn>
 let redistillMock: ReturnType<typeof vi.fn>
@@ -250,5 +250,83 @@ describe('CaseAnchor', () => {
     await user.click(row.closest('button')!)
     expect(cancelMock).toHaveBeenCalledWith(7)
     expect(redistillMock).not.toHaveBeenCalled()
+  })
+
+  it('F1: a stale cancel() response arriving after a broadcast for a newer job must not flip the row to Re-distill (regression)', async () => {
+    // Mirrors DistillChip's "a later broadcast for a newer job supersedes a stale optimistic
+    // cancel result" test. Job 7 is running; the user clicks Cancel. Before cancel(7)'s response
+    // lands, a broadcast for job 8 arrives (e.g. the case was closed from another window, which
+    // cancels 7 and enqueues 8) — the row correctly flips to show job 8 is running. Job 7's stale
+    // 'cancelled' response must not then overwrite that with 'Re-distill', which would make a
+    // click on it call redistill(slug) and enqueue a second in-flight job for job 8's slug.
+    let onChangedCb: ((p: DistillStatusPayload) => void) | undefined
+    let resolveCancel: (value: DistillJobRow) => void
+    const cancelPromise = new Promise<DistillJobRow>((resolve) => {
+      resolveCancel = resolve
+    })
+    cancelMock.mockReturnValue(cancelPromise)
+    statusMock.mockResolvedValue({
+      id: 7,
+      caseSlug: 'NN-5187',
+      state: 'running',
+      error: null,
+      itemCount: null,
+      createdAt: 't',
+      finishedAt: null
+    })
+    window.argus = {
+      cases: { setStatus: vi.fn().mockResolvedValue(undefined) },
+      bundle: { export: vi.fn().mockResolvedValue({ ok: true, fileCount: 0 }) },
+      distill: {
+        status: statusMock,
+        onChanged: vi.fn((cb: (p: DistillStatusPayload) => void) => {
+          onChangedCb = cb
+          return () => undefined
+        }),
+        redistill: redistillMock,
+        cancel: cancelMock
+      }
+    } as never
+
+    const user = userEvent.setup()
+    renderAnchor({ status: 'open' })
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    const row = await screen.findByText('Cancel distillation')
+    await user.click(row.closest('button')!)
+    expect(cancelMock).toHaveBeenCalledWith(7)
+
+    // Job 8's broadcast lands before job 7's cancel() response does.
+    act(() => {
+      onChangedCb?.({
+        caseSlug: 'NN-5187',
+        job: {
+          id: 8,
+          caseSlug: 'NN-5187',
+          state: 'running',
+          error: null,
+          itemCount: null,
+          createdAt: 't',
+          finishedAt: null
+        }
+      })
+    })
+
+    // Job 7's stale cancel() response now resolves.
+    await act(async () => {
+      resolveCancel!({
+        id: 7,
+        caseSlug: 'NN-5187',
+        state: 'cancelled',
+        error: null,
+        itemCount: null,
+        createdAt: 't',
+        finishedAt: 't2'
+      })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    await screen.findByText('Cancel distillation')
+    expect(screen.queryByText('Re-distill')).toBeNull()
   })
 })

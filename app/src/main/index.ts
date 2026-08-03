@@ -1889,7 +1889,15 @@ function registerIpc(): void {
   // — case-close distillation (part 3a) —
   ipcMain.handle(IPC.distillStatus, (_e, slug: string) => distillQueue.statusFor(slug))
   ipcMain.handle(IPC.distillRetry, (_e, jobId: number) => distillQueue.retry(jobId))
-  ipcMain.handle(IPC.distillRedistill, (_e, slug: string) => distillQueue.enqueue(slug))
+  // Routed through reconcileAndEnqueue, not a bare enqueue() call: redistilling from the
+  // case-actions menu can race a stale renderer row (see CaseAnchor's epoch guard) or a
+  // swallowed broadcast, either of which could otherwise reach here for a slug that already has
+  // an in-flight job — see reconcileAndEnqueue's doc comment in queue.ts. (The guard now lives
+  // inside DistillQueue.enqueue() itself, so this call would be safe either way, but the named
+  // wrapper documents the intent at this call site the same way it does at onCaseClosed.)
+  ipcMain.handle(IPC.distillRedistill, (_e, slug: string) =>
+    reconcileAndEnqueue(distillQueue, slug)
+  )
   ipcMain.handle(IPC.distillCancel, (_e, jobId: number) => distillQueue.cancel(jobId))
   ipcMain.handle(IPC.distillSimilar, (_e, slug: string) => similarCases(db, slug))
 

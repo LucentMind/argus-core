@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { MenuButton } from './ui'
 import { uiStore } from '../lib/uiStore'
 import { notice } from '../lib/noticeStore'
@@ -44,13 +44,26 @@ export function CaseAnchor({
   // redistill result — same idiom as DistillChip, whose adoption-over-swallowed-broadcast
   // comment explains why: DistillQueue.emit() swallows broadcast failures, so the row a
   // cancel()/redistill() call resolves with is the only guaranteed-correct source for THIS
-  // click's own outcome, but a broadcast that lands afterward (a newer job on this slug) must
-  // still win — hence the reset here rather than never clearing `override`.
+  // click's own outcome. A broadcast for a newer job that lands before that response resolves
+  // wins here ONLY because `cancelEpochRef` below is captured before the call and checked
+  // before adopting it in the handler's `.then()` — the reset in this render-adjust block just
+  // makes the newer job visible immediately, on this render, rather than leaving the row on the
+  // outgoing job's state until the async response is guarded and discarded. Without the epoch
+  // check (this block alone), a stale response landing after this reset re-adopts unconditionally
+  // and clobbers the newer job's row with a `cancelled`/`queued` row for the OLD job id — see the
+  // F1 regression test, and the identical hazard/idiom explained at length in DistillChip.
   const [prevTracked, setPrevTracked] = useState(tracked)
   if (tracked !== prevTracked) {
     setPrevTracked(tracked)
     setOverride(null)
   }
+  // Bumped whenever `tracked` changes identity — see DistillChip's `cancelEpochRef` for the full
+  // rationale (shared idiom). `react-hooks/refs` forbids writing a ref in the render body above,
+  // hence the layout effect.
+  const cancelEpochRef = useRef(0)
+  useLayoutEffect(() => {
+    cancelEpochRef.current += 1
+  }, [tracked])
   const distillJob = override ?? tracked
 
   async function applyStatus(next: CaseStatus, res: CaseResolution | null): Promise<void> {
@@ -121,11 +134,14 @@ export function CaseAnchor({
               if (pending) return
               setPending(true)
               const inFlight = isDistillInFlight(distillJob)
+              const epoch = cancelEpochRef.current
               const p = inFlight
                 ? window.argus.distill.cancel(distillJob!.id)
                 : window.argus.distill.redistill(slug)
               void p
-                .then(setOverride)
+                .then((row) => {
+                  if (cancelEpochRef.current === epoch) setOverride(row)
+                })
                 .catch(() => undefined)
                 .finally(() => setPending(false))
             }

@@ -448,4 +448,85 @@ describe('DistillQueue', () => {
     ).toBe(true)
     await q.idle()
   })
+
+  it('F2: a bare enqueue() call for an already in-flight slug — exactly what the redistill IPC handler called before this fix — must not leave two jobs alive', async () => {
+    // Before this fix, `IPC.distillRedistill` called `distillQueue.enqueue(slug)` directly, with
+    // no in-flight guard at all (unlike the close path, which went through reconcileAndEnqueue).
+    // A stale renderer row (F1), a swallowed broadcast (DistillQueue.emit() deliberately swallows
+    // failures), or two windows racing one IPC round-trip could all reach it for a slug that
+    // already has an in-flight job. Post-fix the guard lives inside enqueue() itself (so it can't
+    // be bypassed by any caller, not just the ones wrapped in reconcileAndEnqueue) — this test
+    // calls enqueue() bare, the same way the old handler did, and pins that it is now safe on its
+    // own.
+    const { q } = makeQueue({ distill: () => new Promise(() => {}) /* never resolves */ })
+    const jobA = q.enqueue('case-a')
+    await vi.waitFor(() => expect(q.statusFor('case-a')!.state).toBe('running'), { timeout: 5000 })
+
+    const jobB = q.enqueue('case-a') // the exact call distillRedistill's handler makes
+    expect(jobB.id).not.toBe(jobA.id)
+
+    const rows = db
+      .prepare(
+        `SELECT id, state FROM distill_jobs WHERE case_slug=? AND state IN ('queued','running')`
+      )
+      .all('case-a') as { id: number; state: string }[]
+    expect(rows.map((r) => r.id)).toEqual([jobB.id])
+    const finalA = db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(jobA.id) as {
+      state: string
+    }
+    expect(finalA.state).toBe('cancelled')
+  })
+
+  it('F4: reconcile cancels EVERY in-flight job for the slug, not just the newest (regression: statusFor is MAX(id))', async () => {
+    // If a slug ever holds a running job (A) plus a separately-queued job (B) — e.g. a stale row
+    // that slipped past a not-yet-fixed caller, or data from before this fix — the old
+    // reconcileAndEnqueue only cancelled B (the newest, via statusFor's ORDER BY id DESC),
+    // leaving A running unaborted: the original "two jobs alive" bug, reintroduced through a
+    // different door. Inserted directly (not via two enqueue() calls) so this test exercises
+    // cancel-completeness independently of how such a row could arise.
+    const { q } = makeQueue({ distill: () => new Promise(() => {}) /* never resolves */ })
+    const jobA = q.enqueue('case-a')
+    await vi.waitFor(() => expect(q.statusFor('case-a')!.state).toBe('running'), { timeout: 5000 })
+
+    const stale = db
+      .prepare(
+        `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at) VALUES (?, 'queued', '{}', ?)`
+      )
+      .run('case-a', new Date().toISOString())
+    const staleId = Number(stale.lastInsertRowid)
+
+    const jobC = reconcileAndEnqueue(q, 'case-a')
+
+    const rows = db
+      .prepare(`SELECT id, state FROM distill_jobs WHERE case_slug=? ORDER BY id`)
+      .all('case-a') as { id: number; state: string }[]
+    const byId = new Map(rows.map((r) => [r.id, r.state]))
+    expect(byId.get(jobA.id)).toBe('cancelled')
+    expect(byId.get(staleId)).toBe('cancelled')
+
+    const inFlight = rows.filter((r) => r.state === 'queued' || r.state === 'running')
+    expect(inFlight.map((r) => r.id)).toEqual([jobC.id])
+  })
+
+  it('F5: if the replacement snapshot throws, the previously in-flight job must not already be cancelled (regression: cancel-then-enqueue destroys the run with nothing to replace it)', async () => {
+    let calls = 0
+    const { q } = makeQueue({
+      assembleInput: () => {
+        calls++
+        if (calls === 1) return INPUT
+        throw new Error('snapshot boom')
+      },
+      distill: () => new Promise(() => {}) /* never resolves on its own */
+    })
+    const jobA = q.enqueue('case-a')
+    await vi.waitFor(() => expect(q.statusFor('case-a')!.state).toBe('running'), { timeout: 5000 })
+
+    expect(() => reconcileAndEnqueue(q, 'case-a')).toThrow('snapshot boom')
+
+    // Job A must still be the one and only in-flight job for the slug — untouched — not
+    // cancelled just because the replacement enqueue's snapshot failed.
+    const cur = q.statusFor('case-a')!
+    expect(cur.id).toBe(jobA.id)
+    expect(cur.state).toBe('running')
+  })
 })

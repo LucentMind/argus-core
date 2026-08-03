@@ -190,6 +190,7 @@ export function TopBar({
               }`}
             >
               <CaseAnchor
+                key={activeSlug}
                 slug={activeSlug}
                 status={activeCase?.status ?? 'open'}
                 resolution={activeCase?.resolution ?? null}
