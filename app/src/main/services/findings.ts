@@ -4,6 +4,7 @@ import path from 'node:path'
 import { isFindingRole, type FindingRow, type ReviewState } from '../../shared/observability'
 import { isReviewLayerId, isReviewSeverity } from '../../shared/reviewLayers'
 import { DEFAULT_MODE, type ModeId } from '../../shared/modes'
+import type { RoleAssignment } from '../../shared/rca'
 import { caseDir } from './paths'
 import { getCase } from './caseService'
 import { appendDeletionAudit } from './deletionAudit'
@@ -97,7 +98,10 @@ export function listFindings(db: DatabaseSync, argusHome: string, caseSlug: stri
       .prepare(
         `SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE}
          JOIN cases c ON c.id = f.case_id
-         WHERE c.slug = ? ORDER BY f.id DESC`
+         WHERE c.slug = ?
+         ORDER BY CASE f.role
+           WHEN 'root-cause' THEN 0 WHEN 'contributing' THEN 1 WHEN 'symptom' THEN 2
+           WHEN 'duplicate' THEN 3 WHEN 'ruled-out' THEN 4 ELSE 5 END, f.id DESC`
       )
       .all(caseSlug) as unknown as Raw[]
   ).map(toRow)
@@ -229,4 +233,38 @@ export function recordFindingWrite(
   }
   if (sets.length === 0) return
   db.prepare(`UPDATE findings SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id)
+}
+
+/** Sole writer of findings.role (spec §2). One transaction; throws atomically: a rejected
+ *  call (invalid role, duplicate root-cause, a finding from another case) leaves every row's
+ *  role exactly as it was before the call. Findings on the case that are absent from
+ *  `assignments` are cleared to null — this is a full replace, not a merge. */
+export function applyReportRoles(
+  db: DatabaseSync,
+  caseId: number,
+  assignments: RoleAssignment[]
+): void {
+  const roots = assignments.filter((a) => a.role === 'root-cause')
+  if (roots.length > 1) throw new Error(`at most one root-cause, got ${roots.length}`)
+  for (const a of assignments)
+    if (a.role !== null && !isFindingRole(a.role))
+      throw new Error(`Invalid role: ${JSON.stringify(a.role)}`)
+  db.exec('BEGIN')
+  try {
+    const own = new Set(
+      (db.prepare(`SELECT id FROM findings WHERE case_id = ?`).all(caseId) as { id: number }[]).map(
+        (r) => r.id
+      )
+    )
+    for (const a of assignments)
+      if (!own.has(a.findingId))
+        throw new Error(`finding ${a.findingId} does not belong to case ${caseId}`)
+    db.prepare(`UPDATE findings SET role = NULL WHERE case_id = ?`).run(caseId)
+    for (const a of assignments)
+      db.prepare(`UPDATE findings SET role = ? WHERE id = ?`).run(a.role, a.findingId)
+    db.exec('COMMIT')
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw err
+  }
 }

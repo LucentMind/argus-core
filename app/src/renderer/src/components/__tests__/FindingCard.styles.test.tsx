@@ -155,6 +155,33 @@ describe('FindingCard severity palette', () => {
   })
 })
 
+describe('FindingCard role chip', () => {
+  it('renders no chip when role is null', async () => {
+    list.mockResolvedValue([row({ id: 1, summary: 'No role here', role: null })])
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+    const item = (await screen.findByText('No role here')).closest('li') as HTMLElement
+    expect(within(item).queryByText('ROOT CAUSE')).not.toBeInTheDocument()
+  })
+
+  it('root-cause renders a distinct accent chip', async () => {
+    list.mockResolvedValue([row({ id: 1, summary: 'The root of it', role: 'root-cause' })])
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+    const item = (await screen.findByText('The root of it')).closest('li') as HTMLElement
+    const chip = within(item).getByText('ROOT CAUSE')
+    expect(chip).toHaveClass('text-signal')
+    expect(chip).toHaveClass('border-signal/35')
+  })
+
+  it('other roles render a plain dim chip', async () => {
+    list.mockResolvedValue([row({ id: 1, summary: 'Just a symptom', role: 'symptom' })])
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+    const item = (await screen.findByText('Just a symptom')).closest('li') as HTMLElement
+    const chip = within(item).getByText('symptom')
+    expect(chip).toHaveClass('text-mute')
+    expect(chip).not.toHaveClass('text-signal')
+  })
+})
+
 describe('colour token guard', () => {
   const THEME_CSS = path.resolve(__dirname, '../../assets/theme.css')
   const CHECKED_FILES = [

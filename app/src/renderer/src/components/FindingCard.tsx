@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { REVIEW_LAYERS } from '../../../shared/reviewLayers'
 import type { ReviewSeverity } from '../../../shared/reviewLayers'
-import type { FindingRow } from '../../../shared/observability'
+import type { FindingRole, FindingRow } from '../../../shared/observability'
 import type { CiteTarget } from '../lib/citations'
 import { MessageView } from './MessageView'
 import { IconBtn } from './ui'
@@ -42,6 +42,18 @@ const SEVERITY_RAIL: Record<ReviewSeverity, string> = {
   critical: 'bg-danger',
   major: 'bg-defect',
   minor: 'bg-mute'
+}
+
+/** Report-written role (spec §2), passive display only — applyReportRoles is the sole writer.
+ *  root-cause is the one role worth calling out at a glance, so it alone gets the accent
+ *  treatment; everything else is a plain dim chip, same vocabulary as the `commented`/`pushed`
+ *  chips below. */
+const ROLE_LABEL: Record<FindingRole, string> = {
+  'root-cause': 'ROOT CAUSE',
+  contributing: 'contributing',
+  symptom: 'symptom',
+  duplicate: 'duplicate',
+  'ruled-out': 'ruled out'
 }
 
 /** One finding in the sidebar list. Presentational: every mutation goes back up through a
@@ -110,6 +122,15 @@ export function FindingCard({
         >
           {f.summary}
         </button>
+        {f.role && (
+          <span
+            className={`mt-0.5 shrink-0 rounded-r1 border px-1 text-[10px] whitespace-nowrap ${
+              f.role === 'root-cause' ? 'border-signal/35 text-signal' : 'border-hair2 text-mute'
+            }`}
+          >
+            {ROLE_LABEL[f.role]}
+          </span>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pr-2 pb-1.5 pl-3">
         {selectable && (
