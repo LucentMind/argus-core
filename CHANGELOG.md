@@ -1,5 +1,43 @@
 # Changelog
 
+## v2.0.3 — 2026-08-03
+
+19 commits since v2.0.2, 27 files changed (+2,871 / −73).
+
+### Added
+
+**Install and update packs from a GitHub repository**
+
+- Packs can now be discovered and installed straight from a GitHub repo, not
+  only from a vendor update feed: a union pack source merges both, and a new
+  `updateRepo` manifest field pins a pack to the repo it was installed from.
+- Updates are synthesized from GitHub release metadata and checked/applied the
+  same way as feed-based updates, through a dedicated `gh` subprocess seam that
+  classifies failures (auth, rate limit, not-found, ...) instead of surfacing
+  raw subprocess errors.
+- `docs/authoring-packs.md` documents `updateRepo` and how to publish a pack via
+  GitHub releases.
+
+### Fixed
+
+- A pack's GitHub pin is refused rather than silently dropped or substituted if
+  it changes mid-apply, and is kept through a normal update.
+- Installing never targets a different repo than the one shown on screen.
+- One unparseable manifest in a repo's release no longer hides that repo's
+  other, valid packs.
+- The pack row surfaces `gh` auth failures directly instead of failing silently
+  or falling back to a stale state; the check/apply path fails closed on a repo
+  it can't verify.
+
+### Internal
+
+- A CDP runtime gate exercises the GitHub pack source against a real private
+  repository (15/15 on the live check).
+- The release pipeline (`.github/workflows/build.yml`) now publishes a tagged
+  release immediately instead of creating a draft — pushing a `vX.Y.Z` tag
+  ships it, with no separate human "publish the draft" step. See
+  `docs/releasing.md`.
+
 ## v2.0.2 — 2026-08-03
 
 3 commits since v2.0.1, 14 files changed (+1,287 / −315).
