@@ -1,6 +1,20 @@
 import { z } from './zodConfig'
 
 /**
+ * Type-only re-exports so preload (and any other cross-process consumer) never reaches
+ * into `main/services/*` directly — same rule that put `DiagnosticsSnapshot` in
+ * `shared/diagnostics.ts` for the diagnostics IPC wiring (see git show cddc924f). The
+ * runtime code (zod schemas, DefectCorpusService) stays put in main/services/defectCorpus;
+ * this file only re-exports the shapes preload's `defects` namespace needs.
+ */
+export type {
+  CorpusInfo,
+  CorpusSearchInput,
+  CorpusSyncStatus
+} from '../main/services/defectCorpus/client'
+export type { SourceSearchResult } from '../main/services/defectCorpus/service'
+
+/**
  * One configured Defect Corpus HTTP source (`settings.defectCorpus.sources[id]`).
  * Consumed by the vendored client (`main/services/defectCorpus/client.ts`, Task 1)
  * and, in later tasks, the service manager / IPC / UI layers.

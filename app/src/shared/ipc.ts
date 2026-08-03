@@ -281,5 +281,10 @@ export const IPC = {
   distillStatus: 'distill:status',
   distillRetry: 'distill:retry',
   distillRedistill: 'distill:redistill',
-  distillSimilar: 'distill:similar'
+  distillSimilar: 'distill:similar',
+  // — defect corpus —
+  defectsSearch: 'defects:search',
+  defectsTest: 'defects:test',
+  defectsSyncNow: 'defects:sync-now',
+  defectsSyncStatus: 'defects:sync-status'
 } as const

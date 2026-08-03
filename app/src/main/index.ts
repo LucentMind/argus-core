@@ -27,6 +27,9 @@ import { buildPromptPreview } from './services/prompts/preview'
 import { fillPrompt } from './services/prompts/fill'
 import { buildCaptureDetail } from './services/prompts/captureDetail'
 import { exportEvalBundle } from './services/distill/evalExport'
+import { DefectCorpusService } from './services/defectCorpus/service'
+import type { CorpusSearchInput } from './services/defectCorpus/client'
+import { corpusTokenSecret } from '../shared/defectCorpus'
 import { pushScaleIfChanged, pushThemeIfChanged, type TitleBarTheme } from './services/titleBar'
 import { mainWindowOptions } from './services/windowOptions'
 import {
@@ -564,6 +567,11 @@ function registerIpc(): void {
   }
 
   const secretStore = new SecretStore(argusHome, safeStorage)
+
+  const defectCorpus = new DefectCorpusService({
+    sources: () => settingsService.get().defectCorpus.sources,
+    token: (id) => secretStore.resolve(corpusTokenSecret(id)) ?? undefined
+  })
 
   // — observability: Langfuse exporter (off by default; needs enabled+host+publicKey+secret) —
   const buildExporter = (): void => {
@@ -1839,6 +1847,12 @@ function registerIpc(): void {
   ipcMain.handle(IPC.distillRetry, (_e, jobId: number) => distillQueue.retry(jobId))
   ipcMain.handle(IPC.distillRedistill, (_e, slug: string) => distillQueue.enqueue(slug))
   ipcMain.handle(IPC.distillSimilar, (_e, slug: string) => similarCases(db, slug))
+
+  // — defect corpus —
+  ipcMain.handle(IPC.defectsSearch, (_e, req: CorpusSearchInput) => defectCorpus.searchAll(req))
+  ipcMain.handle(IPC.defectsTest, (_e, id: string) => defectCorpus.test(id))
+  ipcMain.handle(IPC.defectsSyncNow, (_e, id: string) => defectCorpus.syncNow(id))
+  ipcMain.handle(IPC.defectsSyncStatus, (_e, id: string) => defectCorpus.syncStatus(id))
 
   // — skills —
   const skillsPayload = (): SkillsPayload => ({

@@ -27,6 +27,12 @@ import type { RunOptionSelection, ModelOptionInfo } from '../shared/runOptions'
 import type { ConnectorsPayload } from '../shared/connectors'
 import type { HealthCheckResult } from '../shared/health'
 import type { DiagnosticsSnapshot } from '../shared/diagnostics'
+import type {
+  CorpusInfo,
+  CorpusSearchInput,
+  CorpusSyncStatus,
+  SourceSearchResult
+} from '../shared/defectCorpus'
 import type { SourceControlStatus } from '../shared/sourcecontrol'
 import type { AgentAccessPayload } from '../shared/agentAccess'
 import type {
@@ -784,6 +790,15 @@ const argus = {
       ipcRenderer.on(IPC.diagnosticsSample, listener)
       return () => ipcRenderer.removeListener(IPC.diagnosticsSample, listener)
     }
+  },
+  defects: {
+    search: (req: CorpusSearchInput): Promise<SourceSearchResult[]> =>
+      invoke(IPC.defectsSearch, req),
+    test: (id: string): Promise<{ ok: true; info: CorpusInfo } | { ok: false; error: string }> =>
+      invoke(IPC.defectsTest, id),
+    syncNow: (id: string): Promise<{ ok: boolean; error?: string }> =>
+      invoke(IPC.defectsSyncNow, id),
+    syncStatus: (id: string): Promise<CorpusSyncStatus | null> => invoke(IPC.defectsSyncStatus, id)
   },
   sourceControl: {
     status: (): Promise<SourceControlStatus> => invoke(IPC.sourceControlStatus)
