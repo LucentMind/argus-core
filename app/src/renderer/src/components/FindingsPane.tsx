@@ -150,6 +150,21 @@ export function FindingsPane({
     }
   }
 
+  /** Per-finding hard delete: findings.md splice, DB row, and audit all happen in the main
+   *  process (deleteFinding); this just confirms, calls it, and drops the row locally — no
+   *  refetch needed since the service has already committed the removal. */
+  async function onDelete(id: number): Promise<void> {
+    const f = findings.find((x) => x.id === id)
+    const ok = await confirm({
+      title: 'Delete finding?',
+      message: f?.summary ?? `Finding ${id}`,
+      danger: true
+    })
+    if (!ok) return
+    await window.argus.findings.delete(id)
+    setFindings((prev) => prev.filter((x) => x.id !== id))
+  }
+
   async function applySelected(): Promise<void> {
     if (sessionId === null || actingId !== null || effectiveSelected.length === 0) return
     setActingId(-1) // batch sentinel: disables the per-finding buttons exactly like a single act
@@ -321,6 +336,7 @@ export function FindingsPane({
                   onReview={(next) => void setReview(f.id, next)}
                   onAction={(action) => void runAction(f.id, action)}
                   onCite={onCite}
+                  onDelete={(id) => void onDelete(id)}
                 />
               ))}
             </ul>

@@ -232,7 +232,7 @@ import { LangfuseSink } from './services/observability/langfuseSink'
 import { createLangfuseTracing } from './services/observability/langfuseTracing'
 import { probeLangfuseCredentials } from './services/observability/langfuseProbe'
 import { usageStats, ensureTrackingStarted } from './services/observability/usage'
-import { listFindings, reviewFinding, clearFindings } from './services/findings'
+import { listFindings, reviewFinding, clearFindings, deleteFinding } from './services/findings'
 import type { MetricsQuery, ReviewState } from '../shared/observability'
 import { DistillQueue } from './services/distill/queue'
 import { assembleDistillInput } from './services/distill/input'
@@ -1667,6 +1667,7 @@ function registerIpc(): void {
       throw new Error(`Invalid mode: ${JSON.stringify(mode)}`)
     return clearFindings(db, argusHome, caseSlug, mode)
   })
+  ipcMain.handle(IPC.findingsDelete, (_e, id: number) => deleteFinding(db, argusHome, id))
 
   // — workspaces —
   ipcMain.handle(IPC.workspacesPick, async () => {

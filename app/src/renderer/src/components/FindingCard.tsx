@@ -4,13 +4,15 @@ import {
   GitCommitVertical,
   MessageSquarePlus,
   ThumbsDown,
-  ThumbsUp
+  ThumbsUp,
+  Trash2
 } from 'lucide-react'
 import { REVIEW_LAYERS } from '../../../shared/reviewLayers'
 import type { ReviewSeverity } from '../../../shared/reviewLayers'
 import type { FindingRow } from '../../../shared/observability'
 import type { CiteTarget } from '../lib/citations'
 import { MessageView } from './MessageView'
+import { IconBtn } from './ui'
 
 /** Module-private on purpose: `react-refresh/only-export-components` forbids a second export
  *  from a file that exports a component. */
@@ -58,7 +60,8 @@ export function FindingCard({
   onSelect,
   onReview,
   onAction,
-  onCite
+  onCite,
+  onDelete
 }: {
   finding: FindingRow
   slug: string
@@ -74,6 +77,7 @@ export function FindingCard({
   onReview: (next: 'accepted' | 'rejected') => void
   onAction: (action: 'comment' | 'apply') => void
   onCite: (cite: CiteTarget) => void
+  onDelete: (id: number) => void
 }): React.JSX.Element {
   const accepted = f.reviewState === 'accepted'
   const rejected = f.reviewState === 'rejected'
@@ -238,6 +242,20 @@ export function FindingCard({
                 </button>
               </>
             )}
+            {/* Hard delete, available in both modes — same hover-reveal cluster as the
+                review/write-action buttons above, so it never adds a second reveal affordance.
+                `!` markers on the hover color/border: IconBtn's own `hover:text-ink` is equal
+                specificity, so a bare appended `hover:text-danger` loses on stylesheet source
+                order alone (see CaseAnchor.tsx's triggerClassName for the same trap). */}
+            <IconBtn
+              size="sm"
+              aria-label="Delete finding"
+              title="Delete finding"
+              className="border border-hair2 hover:border-danger/50! hover:text-danger!"
+              onClick={() => onDelete(f.id)}
+            >
+              <Trash2 size={13} />
+            </IconBtn>
           </div>
         </div>
       </div>

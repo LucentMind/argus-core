@@ -202,6 +202,7 @@ export const IPC = {
   evidenceScan: 'evidence:scan',
   sessionsDelete: 'sessions:delete',
   findingsClear: 'findings:clear',
+  findingsDelete: 'findings:delete',
   reviewComposeRunPrompt: 'review:compose-run-prompt',
   reviewComposeActionPrompt: 'review:compose-action-prompt',
   reviewPostFindingComment: 'review:post-finding-comment',

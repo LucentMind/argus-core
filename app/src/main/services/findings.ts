@@ -189,11 +189,7 @@ export function clearFindings(
 
 /** Order: findings.md splice FIRST, then row delete, then audit. A crash between the
  *  steps leaves a body-less row (visible, re-deletable) — never an orphaned md block. */
-export function deleteFinding(
-  db: DatabaseSync,
-  argusHome: string,
-  id: number
-): { deleted: true } {
+export function deleteFinding(db: DatabaseSync, argusHome: string, id: number): { deleted: true } {
   const row = db
     .prepare(
       `SELECT f.*, c.slug AS slug FROM findings f JOIN cases c ON c.id = f.case_id WHERE f.id = ?`

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { FindingsPane } from '../FindingsPane'
@@ -69,7 +69,8 @@ beforeEach(() => {
     findings: {
       list,
       review: vi.fn(),
-      clear: vi.fn(async () => ({ cleared: 1 }))
+      clear: vi.fn(async () => ({ cleared: 1 })),
+      delete: vi.fn(async () => ({ deleted: true }))
     },
     workspaces: {
       list: vi.fn(async () => []),
@@ -227,6 +228,53 @@ describe('FindingsPane', () => {
     const good = await screen.findByRole('button', { name: /mark finding good/i })
     good.click()
     expect(review).toHaveBeenCalledWith(1, 'pending')
+  })
+
+  describe('per-finding delete', () => {
+    it('deletes a finding after confirm and removes just that card', async () => {
+      vi.mocked(confirm).mockResolvedValue(true)
+      list.mockResolvedValue([
+        row({ id: 1, summary: 'Finding one', mode: 'investigation' }),
+        row({ id: 2, summary: 'Finding two', mode: 'investigation' })
+      ])
+      const user = userEvent.setup()
+      render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+      const summary = await screen.findByText('Finding one')
+      const card = summary.closest('li') as HTMLElement
+      // Drive the hover-revealing parent with userEvent (real pointer semantics); the trash
+      // button itself is a plain sibling, not a hover-gated descendant, so its click stays on
+      // fireEvent per the project's hover-menu-fidelity convention.
+      await user.hover(card)
+      const trash = within(card).getByRole('button', { name: 'Delete finding' })
+      fireEvent.click(trash)
+
+      expect(confirm).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Delete finding?', message: 'Finding one', danger: true })
+      )
+      await waitFor(() =>
+        expect(
+          (window.argus.findings as unknown as { delete: ReturnType<typeof vi.fn> }).delete
+        ).toHaveBeenCalledWith(1)
+      )
+      await waitFor(() => expect(screen.queryByText('Finding one')).not.toBeInTheDocument())
+      expect(screen.getByText('Finding two')).toBeInTheDocument()
+    })
+
+    it('does nothing when the confirm dialog is dismissed', async () => {
+      vi.mocked(confirm).mockResolvedValue(false)
+      list.mockResolvedValue([row({ id: 1, summary: 'Finding one', mode: 'investigation' })])
+      render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+      const summary = await screen.findByText('Finding one')
+      const card = summary.closest('li') as HTMLElement
+      const trash = within(card).getByRole('button', { name: 'Delete finding' })
+      fireEvent.click(trash)
+
+      await waitFor(() => expect(confirm).toHaveBeenCalled())
+      expect(
+        (window.argus.findings as unknown as { delete: ReturnType<typeof vi.fn> }).delete
+      ).not.toHaveBeenCalled()
+      expect(screen.getByText('Finding one')).toBeInTheDocument()
+    })
   })
 
   it('Clear findings confirms, calls clear, and refetches', async () => {

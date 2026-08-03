@@ -816,7 +816,8 @@ const argus = {
     review: (id: number, state: ReviewState): Promise<FindingRow | null> =>
       invoke(IPC.findingsReview, id, state),
     clear: (caseSlug: string, mode?: ModeId): Promise<{ cleared: number }> =>
-      invoke(IPC.findingsClear, caseSlug, mode)
+      invoke(IPC.findingsClear, caseSlug, mode),
+    delete: (id: number): Promise<{ deleted: true }> => invoke(IPC.findingsDelete, id)
   },
   review: {
     /** Resolves to a blocker report (not a rejection) for states the user can fix themselves. */

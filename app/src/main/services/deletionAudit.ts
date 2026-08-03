@@ -3,11 +3,7 @@ import path from 'node:path'
 import { deletionAuditPath } from './paths'
 
 export type DeletionOp =
-  | 'case.delete'
-  | 'evidence.delete'
-  | 'session.delete'
-  | 'findings.clear'
-  | 'finding.delete'
+  'case.delete' | 'evidence.delete' | 'session.delete' | 'findings.clear' | 'finding.delete'
 
 export interface DeletionAuditEntry {
   ts: string
