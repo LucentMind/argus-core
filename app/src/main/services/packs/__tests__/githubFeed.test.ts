@@ -222,6 +222,42 @@ describe('findGithubUpdate', () => {
     ).rejects.toBeInstanceOf(RepoMovedError)
   })
 
+  // Fails CLOSED: a check that cannot confirm the repo must refuse, not shrug. Anything else
+  // makes "unverifiable" indistinguishable from "verified".
+  it('refuses a release whose html_url cannot be parsed at all', async () => {
+    const gh = fakeGh({
+      'repos/LucentMind/demo_pack/releases': [release({ html_url: 'not-a-url' })]
+    })
+    await expect(
+      findGithubUpdate({ gh, host: WIN }, PIN, 'sample', '1.0.0')
+    ).rejects.toBeInstanceOf(RepoMovedError)
+  })
+
+  it('names the pinned repo when identity cannot be confirmed', async () => {
+    const gh = fakeGh({
+      'repos/LucentMind/demo_pack/releases': [release({ html_url: 'https://github.com/' })]
+    })
+    await expect(findGithubUpdate({ gh, host: WIN }, PIN, 'sample', '1.0.0')).rejects.toThrow(
+      /could not confirm/
+    )
+  })
+
+  it('surfaces an auth failure instead of reporting no update', async () => {
+    const gh = fakeGh({ 'repos/LucentMind/demo_pack/releases': [release()] })
+    const original = gh.api
+    gh.api = async (ref, path) => {
+      if (path.includes('/contents/') || path.includes('git/trees')) {
+        throw new GhError('auth', 'the GitHub CLI is not authenticated')
+      }
+      return original(ref, path)
+    }
+    // Reporting `null` here would tell the user their pack is up to date when in fact nothing
+    // could be read at all.
+    await expect(
+      findGithubUpdate({ gh, host: WIN }, PIN, 'sample', '1.0.0')
+    ).rejects.toBeInstanceOf(GhError)
+  })
+
   it('tries the pinned manifest path before searching the tree', async () => {
     const gh = fakeGh({
       'repos/LucentMind/demo_pack/releases': [release()],

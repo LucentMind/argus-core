@@ -24,14 +24,22 @@ export interface GithubCandidate {
   size: number
 }
 
-/** Raised when the pinned repo answers under a different canonical name. */
+/**
+ * Raised when a release cannot be confirmed to belong to the pinned repository — either it
+ * reports a DIFFERENT canonical repo (renamed or transferred), or its `html_url` is missing or
+ * unparseable so nothing can be confirmed at all. Both are refusals: this check is the gh-path
+ * analogue of the feed path's redirect refusal, and a check that cannot verify must not pass.
+ */
 export class RepoMovedError extends Error {
   constructor(
-    public actual: string,
+    /** The canonical repo GitHub reported, or `null` when it could not be determined. */
+    public actual: string | null,
     public expected: string
   ) {
     super(
-      `this pack is pinned to '${expected}', but GitHub now answers for it as '${actual}' — the repository was renamed or transferred`
+      actual === null
+        ? `could not confirm from GitHub's response that this release belongs to '${expected}'`
+        : `this pack is pinned to '${expected}', but GitHub now answers for it as '${actual}' — the repository was renamed or transferred`
     )
     this.name = 'RepoMovedError'
   }
@@ -121,8 +129,8 @@ export async function listReleaseCandidates(
   const out: GithubCandidate[] = []
   for (const release of releases) {
     const actual = repoOfHtmlUrl(release.html_url)
-    if (actual && !sameGhRef(actual, pin)) {
-      throw new RepoMovedError(formatGhRef(actual), formatGhRef(pin))
+    if (!actual || !sameGhRef(actual, pin)) {
+      throw new RepoMovedError(actual && formatGhRef(actual), formatGhRef(pin))
     }
     if (release.draft || release.prerelease) continue
     for (const asset of release.assets) {
@@ -164,7 +172,12 @@ async function tryManifest(
     )
     const { content } = contentsSchema.parse(raw)
     return partialManifestSchema.parse(JSON.parse(Buffer.from(content, 'base64').toString('utf8')))
-  } catch {
+  } catch (err) {
+    // A 404 is the legitimate "no manifest at this path" case the tree search relies on while
+    // it tries candidates. Every other GhError — auth, rate limit, transport — is actionable:
+    // swallowing it here would turn it into "this release has no manifest", and then into a
+    // false "no update available", hiding a problem the user can actually fix.
+    if (err instanceof GhError && err.kind !== 'notfound') throw err
     return null
   }
 }
@@ -233,10 +246,13 @@ export async function findGithubUpdate(
   installedVersion: string
 ): Promise<{ candidate: GithubCandidate; manifestPath: string } | null> {
   const all = await listReleaseCandidates(deps, pin, packId)
+
+  // No defensible comparison exists against an installed version that is not valid semver.
+  if (semver.valid(installedVersion) == null) return null
+
   const newer = all
     .filter(
       (c) =>
-        semver.valid(installedVersion) != null &&
         semver.gt(c.entry.version, installedVersion) &&
         platformMatchesHost(c.entry.platform, deps.host)
     )
