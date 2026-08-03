@@ -115,6 +115,14 @@ export function draftToClaims(draft: RcaDraft): Claim[] {
   return claims
 }
 
+/** Placeholder `rootCause.statement` `applyClaims` emits when no claim holds the root-cause
+ *  role (the user demoted/unclassified it). `draftSchema` requires `rootCause.statement` to be
+ *  non-empty (`.min(1)`, same as every other claim statement) — an empty string here used to
+ *  make `validateRcaDraft` reject the draft at the confirm IPC boundary, which made the "no root
+ *  cause" warning dialog's Continue path always fail with a raw zod error (RCA_CONTRACT rule 2:
+ *  a missing/unsupported root cause should be SAID explicitly, not left blank). */
+export const NO_ROOT_CAUSE_STATEMENT = 'No confirmed root cause.'
+
 /** Rebuilds the four claim sections of `base` from the edited `claims` list — everything else
  *  on `base` (impact, timeline, remediation, execSummary, techNarrative, duplicates) passes
  *  through untouched, since this panel has no editor for them. This is what `buildAssignments`
@@ -130,7 +138,7 @@ export function applyClaims(base: RcaDraft, claims: Claim[]): RcaDraft {
           statement: rootClaim.statement,
           evidence: rootClaim.evidence
         }
-      : { findingId: null, statement: '', evidence: [] },
+      : { findingId: null, statement: NO_ROOT_CAUSE_STATEMENT, evidence: [] },
     contributing: claims
       .filter((c) => c.role === 'contributing')
       .map((c) => ({ findingId: c.findingId, statement: c.statement, evidence: c.evidence })),

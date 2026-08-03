@@ -237,7 +237,11 @@ export function RcaPanel({
 
   async function onConfirmFreeze(): Promise<void> {
     if (!job || !editedDraft) return
-    if (!editedDraft.rootCause.statement) {
+    // Checked against `claims` (not `editedDraft.rootCause.statement`): `applyClaims` always
+    // fills in a non-empty placeholder statement when no claim holds the root-cause role (see
+    // `NO_ROOT_CAUSE_STATEMENT`), precisely so the schema-required non-empty statement doesn't
+    // make this warning's Continue path fail validation.
+    if (!claims.some((c) => c.role === 'root-cause')) {
       const ok = await confirmDialog({
         title: 'No root cause selected',
         message:
@@ -416,6 +420,7 @@ export function RcaPanel({
                 {job.confirmedAt && <Chip tone="review">confirmed</Chip>}
               </div>
               {confirmError && <p className="text-xs text-danger">{confirmError}</p>}
+              {generateError && <p className="text-xs text-danger">{generateError}</p>}
               {postError && <p className="text-xs text-danger">{postError}</p>}
               {postResults && (
                 <div className="flex flex-col gap-1">

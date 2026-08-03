@@ -347,6 +347,35 @@ describe('RcaJobs', () => {
     expect(() => jobs.confirm('case-m', job.id, [], malformed)).toThrow()
   })
 
+  it('confirm succeeds end-to-end when the root cause is the explicit "no confirmed root cause" placeholder', async () => {
+    // Regression for the fix-7 x fix-4 seam: RcaPanel's "no root cause" warning dialog is dead
+    // if freezing that state always fails schema validation. The renderer now emits this exact
+    // placeholder (rcaDraft.ts's NO_ROOT_CAUSE_STATEMENT) instead of an empty statement — this
+    // proves the service side accepts it end to end (validate → applyReportRoles → artifacts).
+    createCase(db, home, { slug: 'case-n', title: 'Case N' })
+    const { jobs } = mkJobs({
+      run: async () => '```json\n' + JSON.stringify(validDraft()) + '\n```'
+    })
+    const job = jobs.generate('case-n')
+    await jobs.idle()
+
+    const placeholderDraft = validDraft()
+    placeholderDraft.rootCause = {
+      findingId: null,
+      statement: 'No confirmed root cause.',
+      evidence: []
+    }
+    expect(() => jobs.confirm('case-n', job.id, [], placeholderDraft)).not.toThrow()
+
+    const dir = artifactsDir(home, 'case-n')
+    expect(fs.existsSync(path.join(dir, 'rca-structure.json'))).toBe(true)
+    expect(fs.existsSync(path.join(dir, 'rca-exec.md'))).toBe(true)
+    expect(fs.existsSync(path.join(dir, 'rca-tech.md'))).toBe(true)
+    const st = jobs.statusFor('case-n')
+    expect(st.job!.confirmedAt).toBeTruthy()
+    expect(st.draft!.rootCause.statement).toBe('No confirmed root cause.')
+  })
+
   it('records RcaParseError as the failure reason', async () => {
     createCase(db, home, { slug: 'case-h', title: 'Case H' })
     const { jobs } = mkJobs({

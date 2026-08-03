@@ -4,11 +4,21 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { RcaPanel } from '../RcaPanel'
-import { buildAssignments } from '../../lib/rcaDraft'
+import {
+  applyClaims,
+  buildAssignments,
+  draftToClaims,
+  NO_ROOT_CAUSE_STATEMENT,
+  reassign
+} from '../../lib/rcaDraft'
 import { confirm } from '../../lib/confirmStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { RcaDraft, RcaJobRow, RcaStatusPayload } from '../../../../shared/rca'
+// The REAL validator (not a mock) — this is exactly the seam the fix-7/fix-4 interaction bug
+// hid in: RcaPanel's own confirm mock always resolved, so nothing here previously exercised
+// what the main-process IPC boundary would actually do with the draft the panel builds.
+import { validateRcaDraft } from '../../../../main/services/rca/parse'
 
 vi.mock('../../lib/confirmStore', () => ({
   confirm: vi.fn(() => Promise.resolve(true)),
@@ -140,6 +150,22 @@ describe('buildAssignments (pure)', () => {
     })
     const out = buildAssignments(d, new Set())
     expect(out.filter((a) => a.findingId === 1)).toEqual([{ findingId: 1, role: 'root-cause' }])
+  })
+})
+
+describe('applyClaims (pure)', () => {
+  it('demoting the root-cause claim to unclassified emits the explicit placeholder statement, not empty', () => {
+    const d = draft()
+    const claims = reassign(draftToClaims(d), 'root', 'unclassified')
+    const edited = applyClaims(d, claims)
+    expect(edited.rootCause).toEqual({
+      findingId: null,
+      statement: NO_ROOT_CAUSE_STATEMENT,
+      evidence: []
+    })
+    // the whole point of the placeholder: draftSchema's `.min(1)` on rootCause.statement must
+    // still accept the edited draft.
+    expect(() => validateRcaDraft(edited)).not.toThrow()
   })
 })
 
@@ -297,6 +323,22 @@ describe('RcaPanel', () => {
     expect(screen.queryByText(/confirmed/i)).not.toBeInTheDocument()
   })
 
+  it('shows the error inline when Regenerate fails from the done state', async () => {
+    // generateError used to only render in the `!job || failed` branch — a rejected
+    // rca.generate() while the panel is showing a `done` job (no state transition, since the
+    // rejection means no job was ever enqueued) left the failure invisible.
+    status.mockResolvedValue(payloadFor(job(), draft()))
+    generate.mockReset().mockRejectedValue(new Error('model quota exceeded'))
+    render(<RcaPanel slug="NAV-1" onClose={vi.fn()} />)
+    await screen.findByText('the cache key omitted the tenant id')
+
+    await userEvent.click(screen.getByRole('button', { name: /regenerate/i }))
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText('model quota exceeded')).toBeInTheDocument()
+    // still in the done branch, still interactive
+    expect(screen.getByRole('button', { name: /confirm & freeze/i })).toBeInTheDocument()
+  })
+
   it('Detach clears a claim finding link without dropping the claim; it is excluded from the confirm assignment set', async () => {
     status.mockResolvedValue(payloadFor(job(), draft()))
     render(<RcaPanel slug="NAV-1" onClose={vi.fn()} />)
@@ -356,5 +398,27 @@ describe('RcaPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: /confirm & freeze/i }))
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
     expect(confirmIpc).not.toHaveBeenCalled()
+  })
+
+  it('a demoted root cause builds a draft the REAL validateRcaDraft accepts before freezing', async () => {
+    // Regression for the fix-7 x fix-4 seam: applyClaims used to emit `rootCause.statement: ''`
+    // when no claim held the root-cause role, which draftSchema's `.min(1)` rejects — so the
+    // warning dialog's "Continue" always failed downstream with a raw zod error. This must run
+    // the real validator, not a mock, or it can't catch that regression again.
+    status.mockResolvedValue(payloadFor(job(), draft()))
+    render(<RcaPanel slug="NAV-1" onClose={vi.fn()} />)
+    await screen.findByText('the cache key omitted the tenant id')
+
+    const rootSelect = screen.getByRole('combobox', { name: /role for finding 1/i })
+    await userEvent.selectOptions(rootSelect, 'unclassified')
+
+    await userEvent.click(screen.getByRole('button', { name: /confirm & freeze/i }))
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1)) // the missing-root-cause warning
+    await waitFor(() => expect(confirmIpc).toHaveBeenCalledTimes(1))
+
+    const editedDraft = confirmIpc.mock.calls[0][3] as RcaDraft
+    expect(() => validateRcaDraft(editedDraft)).not.toThrow()
+    expect(editedDraft.rootCause.statement).toBe('No confirmed root cause.')
+    expect(editedDraft.rootCause.findingId).toBeNull()
   })
 })
