@@ -1,5 +1,71 @@
 # Changelog
 
+## v2.0.4 — 2026-08-03
+
+31 commits since v2.0.3, 78 files changed (+6,735 / −91).
+
+### Added
+
+**RCA (root cause analysis) reports**
+
+- A case now generates a draft RCA report through the same queued job runner
+  as case distillation: an assembly step gathers investigation findings,
+  ticket markdown, and transcript tails into a prompt, a job runs and
+  validates it, and the result renders into deterministic exec-summary and
+  tech-drill-down markdown.
+- A review panel (opened from the Findings pane header) shows the draft as
+  per-section claim cards with a role select (root cause, contributing,
+  symptom, duplicate, or unclassified) and duplicate-veto checkboxes, with
+  Exec/Tech markdown previews before you confirm and freeze it.
+- Confirming posts the report — the tech drill-down goes to Jira as an
+  attachment or a Confluence page, then an exec-summary Jira comment
+  references it; each target posts independently and a retry only redoes
+  the failed half. Reopening a case with a confirmed RCA resumes from that
+  draft instead of starting over.
+
+**Known-defects search (Hindsight)**
+
+- A defect-corpus client with per-source isolation lets the agent search
+  prior known defects through a new `search_known_defects` tool (nudged into
+  the persona for relevant investigations), surfaced in a new section on the
+  case's Similar Cases card.
+- Sources are configured under Settings → Team; corpus-controlled URLs are
+  guarded before the app follows them.
+
+**Findings**
+
+- Findings now carry a role (root cause, contributing, symptom, duplicate,
+  ruled-out), assigned when an RCA report is confirmed; the findings list
+  orders by role rank before newest-first, and each card shows a passive
+  role chip.
+- Individual findings can be deleted from a hover-revealed trash button on
+  the card, behind a confirm dialog.
+
+### Fixed
+
+- macOS: the `gh` child process's environment is now built fresh on every
+  spawn instead of snapshotted once at module load, so a PATH that only
+  becomes valid after the app finishes launching is picked up (previously
+  surfaced as "gh is not installed" in packaged builds).
+- RCA: a null site URL now throws instead of silently no-op'ing, a
+  same-target retry overwrites its prior result instead of duplicating it,
+  `readPriorDraft` distinguishes a missing file from a real read error, and
+  a report with no identifiable root cause renders an explicit placeholder
+  instead of an empty section.
+- A failed finding-delete IPC call is now handled in the Findings pane
+  instead of failing silently.
+
+### Internal
+
+- `docs/`: an exit-check and architecture note for the Hindsight
+  integration.
+- Case distillation now folds a finding's role and the confirmed RCA
+  structure into its prompt input for closed cases (the static prompt hash
+  advances accordingly).
+- A one-shot `callTool` was added to `McpService`, reusing the existing
+  probe connection lifecycle for single tool invocations (used by the RCA
+  posting flow's Jira/Confluence calls).
+
 ## v2.0.3 — 2026-08-03
 
 19 commits since v2.0.2, 27 files changed (+2,871 / −73).
