@@ -198,6 +198,9 @@ import { installPack, uninstallPack, inspectBundleSource } from './services/pack
 import { listInstalledPacks } from './services/packs/packsService'
 import { PackUpdatesService, nodeHttpClient } from './services/packs/packUpdates'
 import { nodeGhClient } from './services/packs/ghClient'
+import { listRepoPacks, installFromRepo } from './services/packs/githubInstall'
+import { parseGhRef } from './services/packs/githubRef'
+import type { InstallResult, RepoPackRow } from '../shared/packs'
 import { autoUpdater } from 'electron-updater'
 import { CoreUpdaterService, noopBackend } from './services/update/coreUpdater'
 import { createElectronUpdaterBackend } from './services/update/electronUpdaterBackend'
@@ -999,6 +1002,37 @@ function registerIpc(): void {
     return r.canceled ? null : r.filePaths[0]
   })
   ipcMain.handle(IPC.packsInspect, (_e, source: string) => inspectBundleSource(source))
+  ipcMain.handle(
+    IPC.packsInspectRepo,
+    async (
+      _e,
+      ref: string
+    ): Promise<{ ok: true; packs: RepoPackRow[] } | { ok: false; error: string }> => {
+      const parsed = parseGhRef(ref)
+      if (!parsed) return { ok: false, error: 'Enter a repository as owner/repo.' }
+      try {
+        return { ok: true, packs: await listRepoPacks({ gh: nodeGhClient }, parsed) }
+      } catch (err) {
+        // GhError already carries a user-facing sentence (missing gh, signed out, 404).
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+  )
+  ipcMain.handle(
+    IPC.packsInstallFromRepo,
+    async (_e, ref: string, packId: string): Promise<InstallResult> => {
+      const parsed = parseGhRef(ref)
+      if (!parsed)
+        return { ok: false, code: 'manifest', error: 'Enter a repository as owner/repo.' }
+      const res = await installFromRepo(
+        { gh: nodeGhClient, argusHome, state: packsState },
+        parsed,
+        packId
+      )
+      if (res.ok) broadcast(IPC.packsChanged, undefined)
+      return res
+    }
+  )
   ipcMain.handle(IPC.packsInstall, async (_e, source: string) => {
     const res = await installPack(source, { argusHome, state: packsState })
     if (res.ok) broadcast(IPC.packsChanged, undefined)

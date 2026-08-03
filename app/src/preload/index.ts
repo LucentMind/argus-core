@@ -86,7 +86,7 @@ import type {
   ReviewState,
   UsageStatsPayload
 } from '../shared/observability'
-import type { PacksListPayload, InspectResult, InstallResult } from '../shared/packs'
+import type { PacksListPayload, InspectResult, InstallResult, RepoPackRow } from '../shared/packs'
 import type { CoreUpdatePayload, UpdateStatus } from '../shared/updates'
 import type { SeedSampleResult } from '../shared/onboarding'
 import type { PrBinding, PrRef, PrSearchResult } from '../shared/pr'
@@ -252,6 +252,12 @@ const argus = {
     list: (): Promise<PacksListPayload> => invoke(IPC.packsList),
     pickBundle: (): Promise<string | null> => invoke(IPC.packsPickBundle),
     inspect: (source: string): Promise<InspectResult> => invoke(IPC.packsInspect, source),
+    inspectRepo: (
+      ref: string
+    ): Promise<{ ok: true; packs: RepoPackRow[] } | { ok: false; error: string }> =>
+      invoke(IPC.packsInspectRepo, ref),
+    installFromRepo: (ref: string, packId: string): Promise<InstallResult> =>
+      invoke(IPC.packsInstallFromRepo, ref, packId),
     install: (source: string): Promise<InstallResult> => invoke(IPC.packsInstall, source),
     uninstall: (id: string): Promise<{ ok: boolean; error?: string }> =>
       invoke(IPC.packsUninstall, id),

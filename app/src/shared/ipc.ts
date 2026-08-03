@@ -164,6 +164,8 @@ export const IPC = {
   packsList: 'packs:list',
   packsPickBundle: 'packs:pick-bundle',
   packsInspect: 'packs:inspect',
+  packsInspectRepo: 'packs:inspect-repo',
+  packsInstallFromRepo: 'packs:install-from-repo',
   packsInstall: 'packs:install',
   packsUninstall: 'packs:uninstall',
   packsRelaunch: 'packs:relaunch',
