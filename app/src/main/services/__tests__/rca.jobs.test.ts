@@ -147,10 +147,24 @@ describe('RcaJobs', () => {
 
   it('confirm throws for a job that is not done, or belongs to a different case', async () => {
     createCase(db, home, { slug: 'case-d', title: 'Case D' })
-    const { jobs } = mkJobs({ run: async () => 'not json' })
-    const job = jobs.generate('case-d')
-    await jobs.idle() // ends up failed, not done
-    expect(() => jobs.confirm('case-d', job.id, [], validDraft())).toThrow(/not a done job/)
+    createCase(db, home, { slug: 'case-d2', title: 'Case D2' })
+
+    const { jobs: notDoneJobs } = mkJobs({ run: async () => 'not json' })
+    const notDoneJob = notDoneJobs.generate('case-d')
+    await notDoneJobs.idle() // ends up failed, not done
+    expect(() => notDoneJobs.confirm('case-d', notDoneJob.id, [], validDraft())).toThrow(
+      /not a done job/
+    )
+
+    const { jobs: doneJobs } = mkJobs({
+      run: async () => '```json\n' + JSON.stringify(validDraft()) + '\n```'
+    })
+    const doneJob = doneJobs.generate('case-d')
+    await doneJobs.idle()
+    // done, but for case-d — confirming it under case-d2's slug must throw too.
+    expect(() => doneJobs.confirm('case-d2', doneJob.id, [], validDraft())).toThrow(
+      /not a done job/
+    )
   })
 
   it('generate after a confirmed job snapshots the prior draft into the input', async () => {
@@ -180,6 +194,25 @@ describe('RcaJobs', () => {
     await jobs.idle()
     expect(priorSeen[1]).not.toBeNull()
     expect(priorSeen[1]!.rootCause.statement).toBe('confirmed statement for prior snapshot')
+  })
+
+  it('generate() throws (naming the file) when the confirmed structure file is corrupted JSON', async () => {
+    createCase(db, home, { slug: 'case-j', title: 'Case J' })
+    const dir = artifactsDir(home, 'case-j')
+    fs.mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, 'rca-structure.json')
+    fs.writeFileSync(file, '{ not valid json')
+    const { jobs } = mkJobs()
+    expect(() => jobs.generate('case-j')).toThrow(file)
+  })
+
+  it('generate() throws (does not silently return null) on a non-ENOENT read error', async () => {
+    createCase(db, home, { slug: 'case-k', title: 'Case K' })
+    const dir = artifactsDir(home, 'case-k')
+    // A directory where the file is expected: readFileSync fails with EISDIR, not ENOENT.
+    fs.mkdirSync(path.join(dir, 'rca-structure.json'), { recursive: true })
+    const { jobs } = mkJobs()
+    expect(() => jobs.generate('case-k')).toThrow()
   })
 
   it('recoverOnBoot flips a stranded running job to failed', () => {

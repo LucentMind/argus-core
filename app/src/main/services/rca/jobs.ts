@@ -43,6 +43,19 @@ interface JobDbRow {
   finished_at: string | null
 }
 
+/** A malformed `post_results` cell (schema drift, hand-edited DB) degrades to `null`
+ *  rather than throwing — same posture as `toPayload`'s `raw_output` guard below; reads
+ *  must never fail on a row a later task (Jira/Confluence posting) hasn't finished
+ *  writing yet. */
+function parsePostResults(raw: string | null): PostResults | null {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as PostResults
+  } catch {
+    return null
+  }
+}
+
 function toRow(r: JobDbRow): RcaJobRow {
   return {
     id: r.id,
@@ -50,7 +63,7 @@ function toRow(r: JobDbRow): RcaJobRow {
     state: r.state as RcaJobState,
     error: r.error,
     confirmedAt: r.confirmed_at,
-    postResults: r.post_results ? (JSON.parse(r.post_results) as PostResults) : null,
+    postResults: parsePostResults(r.post_results),
     createdAt: r.created_at,
     finishedAt: r.finished_at
   }
@@ -72,18 +85,33 @@ function toPayload(r: JobDbRow): RcaStatusPayload {
   return { caseSlug: job.caseSlug, job, draft }
 }
 
-/** `artifacts/rca-structure.json` if present and parseable, else null. This is the prior
- *  confirmed draft a new `generate()` snapshots into the prompt so the model respects
- *  earlier human role/edit decisions (RCA_CONTRACT rule 7). */
+/**
+ * `artifacts/rca-structure.json` — the prior confirmed draft a new `generate()`
+ * snapshots into the prompt so the model respects earlier human role/edit decisions
+ * (RCA_CONTRACT rule 7). ENOENT (no case has been confirmed yet) is the only case that
+ * silently means "no prior draft" → null. Any other read error (permissions, EBUSY, a
+ * partially-written file) or a JSON.parse failure on a file that DOES exist is a real
+ * error and must NOT collapse to null — doing so would silently regenerate an RCA
+ * without the user's confirmed edits, breaking that guarantee. It throws instead,
+ * matching `RcaJobsDeps.assembleInput`'s documented "throws → caller sees the throw"
+ * posture; `generate()` does not catch it, so callers that guard `generate()` calls
+ * (mirroring how distill's `enqueue` snapshot failures are guarded) see the throw too.
+ */
 function readPriorDraft(argusHome: string, slug: string): RcaDraft | null {
+  const file = path.join(artifactsDir(argusHome, slug), 'rca-structure.json')
+  let raw: string
   try {
-    const raw = fs.readFileSync(
-      path.join(artifactsDir(argusHome, slug), 'rca-structure.json'),
-      'utf8'
-    )
+    raw = fs.readFileSync(file, 'utf8')
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw err
+  }
+  try {
     return JSON.parse(raw) as RcaDraft
-  } catch {
-    return null
+  } catch (err) {
+    throw new Error(
+      `prior RCA draft at ${file} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`
+    )
   }
 }
 
@@ -124,7 +152,8 @@ export class RcaJobs {
   }
 
   /** Snapshots `assembleInput(slug, prior)` NOW, with `prior` read from the newest
-   *  confirmed job's structure file; throws only on snapshot failure (callers guard it). */
+   *  confirmed job's structure file; throws on snapshot failure OR a non-ENOENT
+   *  `readPriorDraft` failure (callers guard it — see `readPriorDraft`'s doc). */
   generate(slug: string): RcaJobRow {
     const prior = readPriorDraft(this.deps.argusHome, slug)
     const snapshot = JSON.stringify(this.deps.assembleInput(slug, prior))
