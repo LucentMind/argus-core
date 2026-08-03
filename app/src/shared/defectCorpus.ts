@@ -8,11 +8,13 @@ import { z } from './zodConfig'
  * this file only re-exports the shapes preload's `defects` namespace needs.
  */
 export type {
+  CorpusAdminConfig,
   CorpusInfo,
+  CorpusJqlPreview,
   CorpusSearchInput,
   CorpusSyncStatus
 } from '../main/services/defectCorpus/client'
-export type { SourceSearchResult } from '../main/services/defectCorpus/service'
+export type { CorpusAdminResult, SourceSearchResult } from '../main/services/defectCorpus/service'
 
 /**
  * One configured Defect Corpus HTTP source (`settings.defectCorpus.sources[id]`).

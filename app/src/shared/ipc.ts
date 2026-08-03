@@ -288,6 +288,9 @@ export const IPC = {
   defectsTest: 'defects:test',
   defectsSyncNow: 'defects:sync-now',
   defectsSyncStatus: 'defects:sync-status',
+  defectsGetConfig: 'defects:get-config',
+  defectsPutConfig: 'defects:put-config',
+  defectsJqlPreview: 'defects:jql-preview',
   // — case RCA reports (part 3a-N) —
   rcaGenerate: 'rca:generate',
   rcaStatus: 'rca:status',

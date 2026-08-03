@@ -28,7 +28,10 @@ import type { ConnectorsPayload } from '../shared/connectors'
 import type { HealthCheckResult } from '../shared/health'
 import type { DiagnosticsSnapshot } from '../shared/diagnostics'
 import type {
+  CorpusAdminConfig,
+  CorpusAdminResult,
   CorpusInfo,
+  CorpusJqlPreview,
   CorpusSearchInput,
   CorpusSyncStatus,
   SourceSearchResult
@@ -823,7 +826,15 @@ const argus = {
       invoke(IPC.defectsTest, id),
     syncNow: (id: string): Promise<{ ok: boolean; error?: string }> =>
       invoke(IPC.defectsSyncNow, id),
-    syncStatus: (id: string): Promise<CorpusSyncStatus | null> => invoke(IPC.defectsSyncStatus, id)
+    syncStatus: (id: string): Promise<CorpusSyncStatus | null> => invoke(IPC.defectsSyncStatus, id),
+    getConfig: (id: string): Promise<CorpusAdminResult<CorpusAdminConfig>> =>
+      invoke(IPC.defectsGetConfig, id),
+    putConfig: (
+      id: string,
+      cfg: CorpusAdminConfig
+    ): Promise<CorpusAdminResult<CorpusAdminConfig>> => invoke(IPC.defectsPutConfig, id, cfg),
+    jqlPreview: (id: string, jql: string): Promise<CorpusAdminResult<CorpusJqlPreview>> =>
+      invoke(IPC.defectsJqlPreview, id, jql)
   },
   sourceControl: {
     status: (): Promise<SourceControlStatus> => invoke(IPC.sourceControlStatus)

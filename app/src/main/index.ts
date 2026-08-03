@@ -28,7 +28,7 @@ import { fillPrompt } from './services/prompts/fill'
 import { buildCaptureDetail } from './services/prompts/captureDetail'
 import { exportEvalBundle } from './services/distill/evalExport'
 import { DefectCorpusService } from './services/defectCorpus/service'
-import type { CorpusSearchInput } from './services/defectCorpus/client'
+import type { CorpusAdminConfig, CorpusSearchInput } from './services/defectCorpus/client'
 import { corpusTokenSecret } from '../shared/defectCorpus'
 import { pushScaleIfChanged, pushThemeIfChanged, type TitleBarTheme } from './services/titleBar'
 import { mainWindowOptions } from './services/windowOptions'
@@ -1874,6 +1874,13 @@ function registerIpc(): void {
   ipcMain.handle(IPC.defectsTest, (_e, id: string) => defectCorpus.test(id))
   ipcMain.handle(IPC.defectsSyncNow, (_e, id: string) => defectCorpus.syncNow(id))
   ipcMain.handle(IPC.defectsSyncStatus, (_e, id: string) => defectCorpus.syncStatus(id))
+  ipcMain.handle(IPC.defectsGetConfig, (_e, id: string) => defectCorpus.getConfig(id))
+  ipcMain.handle(IPC.defectsPutConfig, (_e, id: string, cfg: CorpusAdminConfig) =>
+    defectCorpus.putConfig(id, cfg)
+  )
+  ipcMain.handle(IPC.defectsJqlPreview, (_e, id: string, jql: string) =>
+    defectCorpus.jqlPreview(id, jql)
+  )
 
   // — case RCA reports (part 3a-N) —
   ipcMain.handle(IPC.rcaGenerate, (_e, slug: string) => {
