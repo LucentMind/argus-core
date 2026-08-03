@@ -85,9 +85,7 @@ describe('ChatPane', () => {
     const at = (type: string, payload: unknown): AgentEvent =>
       ({ ...base, caseSlug: slug, type, payload }) as AgentEvent
     agentStore.apply(at('turn.started', { userText: '**Bold** turn', composed: true }))
-    const { container } = render(
-      <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
-    )
+    const { container } = render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
     const strong = container.querySelector('strong')
     expect(strong).toBeTruthy()
     expect(strong?.textContent).toBe('Bold')
@@ -99,9 +97,7 @@ describe('ChatPane', () => {
     const at = (type: string, payload: unknown): AgentEvent =>
       ({ ...base, caseSlug: slug, type, payload }) as AgentEvent
     agentStore.apply(at('turn.started', { userText: '3*4=12' }))
-    const { container } = render(
-      <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
-    )
+    const { container } = render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
     expect(container.querySelector('strong')).toBeNull()
     expect(screen.getByText('3*4=12')).toBeTruthy()
   })
@@ -161,9 +157,7 @@ describe('ChatPane', () => {
     const at = (type: string, payload: unknown, turnId: number): AgentEvent =>
       ({ ...base, caseSlug: slug, type, payload, turnId }) as AgentEvent
     agentStore.apply(at('turn.started', { userText: 'anchor me' }, 10))
-    const { container } = render(
-      <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
-    )
+    const { container } = render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
     expect(container.querySelector('[data-turn-id="10"]')).toBeTruthy()
   })
 
@@ -352,9 +346,7 @@ describe('ChatPane', () => {
           at('turn.started', { userText: 'draw me the ingest path' }),
           at('assistant.message', { text: '```mermaid\ngraph TD;A-->B;\n```' })
         ] as AgentEvent[])
-        const { container } = render(
-          <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
-        )
+        const { container } = render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
         return container.querySelector<HTMLElement>('.overflow-y-auto')!
       }
 
@@ -400,13 +392,107 @@ describe('ChatPane', () => {
         at(2, 'turn.started', { userText: 'second chat' }),
         at(2, 'assistant.message', { text: 'second answer' })
       ] as AgentEvent[])
-      const { rerender } = render(
-        <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
-      )
+      const { rerender } = render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
       expect(last()).toBe('auto')
       rerender(<ChatPane slug={slug} sessionId={2} onCite={vi.fn()} />)
       expect(scrollBehaviors).toHaveLength(2)
       expect(last()).toBe('auto')
+    })
+  })
+
+  // The indicator fills the visibility gaps: after send before first output,
+  // and during tool-only stretches while tool cards are hidden. It must yield
+  // to anything that already signals activity (streaming text, a visible
+  // in-flight tool card) and to states where the agent is waiting on the USER.
+  describe('thinking indicator', () => {
+    const status = (): HTMLElement | null =>
+      screen.queryByRole('status', { name: 'Agent is working' })
+
+    it('shows while running with no output yet', () => {
+      const slug = 'NAV-THINK-WAIT'
+      const at = (type: string, payload: unknown): AgentEvent =>
+        ({ ...base, caseSlug: slug, type, payload }) as AgentEvent
+      agentStore.apply(at('turn.started', { userText: 'go' }))
+      render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
+      expect(status()).toBeTruthy()
+    })
+
+    it('hides while assistant text is streaming, shows again after the message finalizes mid-turn', () => {
+      const slug = 'NAV-THINK-STREAM'
+      const at = (type: string, payload: unknown): AgentEvent =>
+        ({ ...base, caseSlug: slug, type, payload }) as AgentEvent
+      agentStore.apply(at('turn.started', { userText: 'go' }))
+      agentStore.apply(at('content.delta', { text: 'partial' }))
+      render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
+      expect(status()).toBeNull()
+      // finalized message with the turn still running: back to silent work
+      act(() => {
+        agentStore.apply(at('assistant.message', { text: 'partial done' }))
+      })
+      expect(status()).toBeTruthy()
+    })
+
+    it('hides while the agent waits on an approval', () => {
+      const slug = 'NAV-THINK-APPROVAL'
+      const at = (type: string, payload: unknown): AgentEvent =>
+        ({ ...base, caseSlug: slug, type, payload }) as AgentEvent
+      agentStore.apply(at('turn.started', { userText: 'go' }))
+      agentStore.apply(
+        at('request.opened', {
+          requestId: 'r1',
+          tool: 'Bash',
+          risk: 'MEDIUM',
+          grantKey: null,
+          argsPreview: 'git push'
+        })
+      )
+      render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
+      expect(status()).toBeNull()
+    })
+
+    it('shows during an in-flight tool call only when tool cards are hidden', () => {
+      const slug = 'NAV-THINK-TOOL'
+      const at = (type: string, payload: unknown): AgentEvent =>
+        ({ ...base, caseSlug: slug, type, payload }) as AgentEvent
+      agentStore.apply(at('turn.started', { userText: 'go' }))
+      agentStore.apply(at('tool.call.started', { toolCallId: 't1', name: 'Read' }))
+      const { unmount } = render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
+      // visible in-flight tool card already pulses — no doubled signal
+      expect(status()).toBeNull()
+      unmount()
+      uiStore.setShowToolCalls(false)
+      try {
+        render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
+        expect(status()).toBeTruthy()
+      } finally {
+        uiStore.setShowToolCalls(true)
+      }
+    })
+
+    it('shows in the gap after a tool call completes', () => {
+      const slug = 'NAV-THINK-TOOLDONE'
+      const at = (type: string, payload: unknown): AgentEvent =>
+        ({ ...base, caseSlug: slug, type, payload }) as AgentEvent
+      agentStore.apply(at('turn.started', { userText: 'go' }))
+      agentStore.apply(at('tool.call.started', { toolCallId: 't1', name: 'Read' }))
+      agentStore.apply(
+        at('tool.call.completed', { toolCallId: 't1', outputPreview: 'ok', isError: false })
+      )
+      render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
+      expect(status()).toBeTruthy()
+    })
+
+    it('hides once the turn completes', () => {
+      const slug = 'NAV-THINK-DONE'
+      const at = (type: string, payload: unknown): AgentEvent =>
+        ({ ...base, caseSlug: slug, type, payload }) as AgentEvent
+      agentStore.apply(at('turn.started', { userText: 'go' }))
+      render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
+      expect(status()).toBeTruthy()
+      act(() => {
+        agentStore.apply(at('turn.completed', {}))
+      })
+      expect(status()).toBeNull()
     })
   })
 
@@ -651,9 +737,7 @@ describe('ChatPane', () => {
         list: vi.fn(async () => []),
         onChanged: vi.fn(() => off)
       } as never
-      const { unmount } = render(
-        <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
-      )
+      const { unmount } = render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
       expect(off).not.toHaveBeenCalled()
       unmount()
       expect(off).toHaveBeenCalledTimes(1)

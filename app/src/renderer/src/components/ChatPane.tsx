@@ -17,6 +17,7 @@ import { Composer } from './Composer'
 import { ApprovalCard } from './ApprovalCard'
 import { QuestionCard } from './QuestionCard'
 import { ChatFind } from './ChatFind'
+import { ThinkingIndicator } from './ThinkingIndicator'
 
 // The FTS snippet is a contiguous region of the indexed text with matched
 // terms wrapped in «» and boundary ellipses — stripping those yields a raw
@@ -277,6 +278,20 @@ export function ChatPane({
     return ''
   }
 
+  // The turn is running but nothing on screen says so: no assistant text is
+  // streaming, no visible in-flight tool card (hidden ones don't count — with
+  // tool cards off a long tool stretch is otherwise a blank transcript), and
+  // the agent isn't blocked waiting on the user (approval/question), where
+  // "thinking" would be a lie. Deliberately NOT part of `rendered` above:
+  // toggling the indicator must not fire the smooth-scroll anchor.
+  const lastItem = state.items[state.items.length - 1]
+  const showThinking =
+    state.running &&
+    state.pending.length === 0 &&
+    state.pendingDialogs.length === 0 &&
+    !(lastItem?.kind === 'assistant' && lastItem.streaming) &&
+    !(lastItem?.kind === 'tool' && !lastItem.done && showToolCalls)
+
   return (
     <div ref={paneRef} className="relative flex min-h-0 flex-1 flex-col">
       {findOpen && (
@@ -356,6 +371,7 @@ export function ChatPane({
           {state.pendingDialogs.map((d) => (
             <QuestionCard key={d.dialogId} slug={slug} sessionId={sessionId} dialog={d} />
           ))}
+          {showThinking && <ThinkingIndicator />}
           {state.sessionNote && <div className="text-xs text-danger">{state.sessionNote}</div>}
           <div ref={bottom} />
         </div>

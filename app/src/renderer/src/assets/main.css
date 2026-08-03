@@ -374,6 +374,25 @@ body {
   }
 }
 
+/* Terminal-cursor blink for the chat thinking indicator (ThinkingIndicator).
+   Plain CSS rather than a Tailwind utility, for the same HMR reason as .argus-shimmer above.
+   steps(1) so the cursor snaps between on/off like a real terminal instead of fading. */
+@keyframes argus-cursor-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.argus-term-cursor {
+  animation: argus-cursor-blink 1s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .argus-term-cursor {
+    animation: none;
+  }
+}
+
 /* Status-dot bloom.
    Plain CSS rather than a Tailwind utility, for the same reason as .argus-shimmer above: a
    brand-new utility class is generated only once the content scanner has seen it, so under HMR
