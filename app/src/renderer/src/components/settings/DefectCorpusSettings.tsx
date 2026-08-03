@@ -16,6 +16,7 @@ import { corpusTokenSecret } from '../../../../shared/defectCorpus'
 import type {
   CorpusAdminConfig,
   CorpusInfo,
+  CorpusJqlPreview,
   CorpusSyncStatus,
   DefectCorpusSourceCfg
 } from '../../../../shared/defectCorpus'
@@ -150,6 +151,101 @@ function Field({ label, children }: { label: string; children: ReactNode }): Rea
       <span className="text-[11px] text-mute">{label}</span>
       {children}
     </div>
+  )
+}
+
+type JqlPreviewState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'result'; value: CorpusJqlPreview }
+  | { status: 'error'; message: string }
+
+/**
+ * A JQL textarea plus its dry-run "Preview" affordance (corpus-admin-editor Task 6) — shared by
+ * the Jira source's `jql` field and the enrichment `rulesJql` field, since both are just a JQL
+ * string the corpus server can dry-run identically.
+ *
+ * Each instance owns its own `preview` state via its own `useState`, so mounting two of these
+ * side by side (Jira JQL + Rules JQL) never shares a result between them — the isolation is
+ * structural, not a flag this component has to manage. Preview always fires with the CURRENT
+ * `jql` prop (the live draft), not whatever was loaded, and firing never touches `draft` itself
+ * — Save and further edits stay live through a 'loading' preview exactly like every other async
+ * affordance in this editor (Test, Sync now).
+ *
+ * `code === 'invalid_jql'` and every other failure (including a rejected IPC call, caught here)
+ * render through the same `role="alert" text-danger` slot as the rest of this file's inline
+ * errors — the brief's "same slot, error styling" distinguishes invalid_jql from a silent crash,
+ * not from other failures, so one branch covers both.
+ */
+function JqlPreviewField({
+  id,
+  label,
+  ariaLabel,
+  previewAriaLabel,
+  jql,
+  onChange
+}: {
+  id: string
+  label: string
+  ariaLabel: string
+  previewAriaLabel: string
+  jql: string
+  onChange: (v: string) => void
+}): React.JSX.Element {
+  const [preview, setPreview] = useState<JqlPreviewState>({ status: 'idle' })
+
+  function runPreview(): void {
+    if (!jql.trim() || preview.status === 'loading') return
+    setPreview({ status: 'loading' })
+    void window.argus.defects
+      .jqlPreview(id, jql)
+      .then((res) => {
+        setPreview(
+          res.ok ? { status: 'result', value: res.value } : { status: 'error', message: res.error }
+        )
+      })
+      .catch((err: unknown) => {
+        setPreview({ status: 'error', message: err instanceof Error ? err.message : String(err) })
+      })
+  }
+
+  return (
+    <Field label={label}>
+      <div className="flex flex-col gap-2">
+        <textarea
+          aria-label={ariaLabel}
+          className={TEXTAREA_FIELD}
+          rows={2}
+          value={jql}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <div>
+          <Btn
+            variant="outline"
+            aria-label={previewAriaLabel}
+            disabled={!jql.trim() || preview.status === 'loading'}
+            onClick={runPreview}
+          >
+            {preview.status === 'loading' ? 'Previewing…' : 'Preview'}
+          </Btn>
+        </div>
+        {preview.status === 'result' && (
+          <div className="flex flex-col gap-0.5 text-xs text-dim">
+            <span>{preview.value.count} matching tickets</span>
+            {preview.value.sample.slice(0, 5).map((s) => (
+              <span key={s.key} className="truncate font-mono">
+                {s.key} — {s.summary}
+              </span>
+            ))}
+          </div>
+        )}
+        {preview.status === 'error' && (
+          <div role="alert" className="text-xs text-danger">
+            {preview.message}
+          </div>
+        )}
+      </div>
+    </Field>
   )
 }
 
@@ -309,15 +405,14 @@ function IngestionEditor({
                 onChange={(e) => set('jira', { apiToken: e.target.value })}
               />
             </Field>
-            <Field label="JQL">
-              <textarea
-                aria-label="Jira JQL"
-                className={TEXTAREA_FIELD}
-                rows={2}
-                value={draft.jira.jql}
-                onChange={(e) => set('jira', { jql: e.target.value })}
-              />
-            </Field>
+            <JqlPreviewField
+              id={id}
+              label="JQL"
+              ariaLabel="Jira JQL"
+              previewAriaLabel="Preview Jira JQL"
+              jql={draft.jira.jql}
+              onChange={(v) => set('jira', { jql: v })}
+            />
             <label className="flex items-center gap-2 text-xs text-mute">
               <Switch
                 aria-label="Include comments"
@@ -421,15 +516,14 @@ function IngestionEditor({
               />
             </Field>
             {draft.enrichment.mode === 'rules' && (
-              <Field label="Rules JQL">
-                <textarea
-                  aria-label="Enrichment rules JQL"
-                  className={TEXTAREA_FIELD}
-                  rows={2}
-                  value={draft.enrichment.rulesJql ?? ''}
-                  onChange={(e) => set('enrichment', { rulesJql: e.target.value })}
-                />
-              </Field>
+              <JqlPreviewField
+                id={id}
+                label="Rules JQL"
+                ariaLabel="Enrichment rules JQL"
+                previewAriaLabel="Preview enrichment rules JQL"
+                jql={draft.enrichment.rulesJql ?? ''}
+                onChange={(v) => set('enrichment', { rulesJql: v })}
+              />
             )}
           </div>
 

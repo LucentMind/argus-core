@@ -6,7 +6,12 @@ import { DefectCorpusSettings } from '../DefectCorpusSettings'
 import { defaultSettings } from '../../../../../shared/settings'
 import { corpusTokenSecret } from '../../../../../shared/defectCorpus'
 import type { SettingsPayload } from '../../../../../shared/settings'
-import type { DefectCorpusSourceCfg, CorpusAdminConfig } from '../../../../../shared/defectCorpus'
+import type {
+  DefectCorpusSourceCfg,
+  CorpusAdminConfig,
+  CorpusAdminResult,
+  CorpusJqlPreview
+} from '../../../../../shared/defectCorpus'
 
 // Remove goes through the Argus confirm dialog, never window.confirm — stub it so tests can
 // drive the confirm/cancel branches directly, same idiom as HivemindSettings.test.tsx.
@@ -66,7 +71,8 @@ function mockArgus(): void {
       getConfig: vi
         .fn()
         .mockResolvedValue({ ok: false, error: 'not configured', code: 'not_configured' }),
-      putConfig: vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
+      putConfig: vi.fn().mockResolvedValue({ ok: true, value: adminConfig }),
+      jqlPreview: vi.fn()
     }
   }
 }
@@ -568,5 +574,170 @@ describe('DefectCorpusSettings ingestion editor', () => {
     fireEvent.click(toggle)
     expect(within(card).getByLabelText('Sync interval (minutes)')).toHaveValue(60)
     expect(window.argus.defects.getConfig).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('DefectCorpusSettings ingestion editor JQL preview', () => {
+  /** Expands the card's ingestion editor (post-Test) and waits for the Jira JQL field, which
+   *  is present for every `adminConfig`-seeded test below since `getConfig` is stubbed there. */
+  async function expandIngestion(card: HTMLElement): Promise<void> {
+    await testAdmin(card)
+    fireEvent.click(within(card).getByRole('button', { name: /ingestion settings/i }))
+    await within(card).findByLabelText('Jira JQL')
+  }
+
+  it('calls jqlPreview with the current draft JQL text, not the loaded value', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
+    window.argus.defects.jqlPreview = vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: { count: 431, sample: [] } })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await expandIngestion(card)
+
+    const jql = within(card).getByLabelText('Jira JQL')
+    fireEvent.change(jql, { target: { value: 'project = FOO' } })
+    fireEvent.click(within(card).getByRole('button', { name: 'Preview Jira JQL' }))
+
+    expect(window.argus.defects.jqlPreview).toHaveBeenCalledWith('jira', 'project = FOO')
+  })
+
+  it('renders the count and up to 5 sample rows on a successful preview', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
+    window.argus.defects.jqlPreview = vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        count: 431,
+        sample: [
+          { key: 'KAN-1', summary: 'First ticket' },
+          { key: 'KAN-2', summary: 'Second ticket' }
+        ]
+      }
+    })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await expandIngestion(card)
+
+    fireEvent.click(within(card).getByRole('button', { name: 'Preview Jira JQL' }))
+
+    expect(await within(card).findByText('431 matching tickets')).toBeInTheDocument()
+    expect(within(card).getByText('KAN-1 — First ticket')).toBeInTheDocument()
+    expect(within(card).getByText('KAN-2 — Second ticket')).toBeInTheDocument()
+  })
+
+  it('caps sample rows at 5 when the server returns more, and a later preview on the same field replaces it', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
+    const sevenSample = Array.from({ length: 7 }, (_, i) => ({
+      key: `KAN-${i + 1}`,
+      summary: `Ticket ${i + 1}`
+    }))
+    window.argus.defects.jqlPreview = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, value: { count: 8, sample: sevenSample } })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { count: 2, sample: [{ key: 'KAN-9', summary: 'Replaced' }] }
+      })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await expandIngestion(card)
+
+    const previewBtn = within(card).getByRole('button', { name: 'Preview Jira JQL' })
+    fireEvent.click(previewBtn)
+    expect(await within(card).findByText('8 matching tickets')).toBeInTheDocument()
+    for (let i = 1; i <= 5; i++) {
+      expect(within(card).getByText(`KAN-${i} — Ticket ${i}`)).toBeInTheDocument()
+    }
+    expect(within(card).queryByText(/KAN-6/)).toBeNull()
+    expect(within(card).queryByText(/KAN-7/)).toBeNull()
+
+    // Re-running Preview on the SAME field replaces the prior result wholesale.
+    fireEvent.click(previewBtn)
+    expect(await within(card).findByText('2 matching tickets')).toBeInTheDocument()
+    expect(within(card).getByText('KAN-9 — Replaced')).toBeInTheDocument()
+    expect(within(card).queryByText('8 matching tickets')).toBeNull()
+    expect(within(card).queryByText(/KAN-1 —/)).toBeNull()
+  })
+
+  it('renders an invalid_jql failure under the right field, leaving the other field untouched', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
+    window.argus.defects.jqlPreview = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, error: 'field X does not exist', code: 'invalid_jql' })
+      .mockResolvedValueOnce({ ok: true, value: { count: 12, sample: [] } })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await expandIngestion(card)
+
+    // adminConfig loads with enrichment.mode: 'rules', so the rules-JQL field is present too.
+    fireEvent.click(within(card).getByRole('button', { name: 'Preview Jira JQL' }))
+    expect(await within(card).findByText('field X does not exist')).toBeInTheDocument()
+
+    fireEvent.click(within(card).getByRole('button', { name: 'Preview enrichment rules JQL' }))
+    expect(await within(card).findByText('12 matching tickets')).toBeInTheDocument()
+
+    // The Jira field's error is per-field state — untouched by the other field's preview.
+    expect(within(card).getByText('field X does not exist')).toBeInTheDocument()
+  })
+
+  it('shows an inline error, without crashing, when jqlPreview rejects instead of resolving {ok:false}', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
+    window.argus.defects.jqlPreview = vi.fn().mockRejectedValue(new Error('preview channel closed'))
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await expandIngestion(card)
+
+    fireEvent.click(within(card).getByRole('button', { name: 'Preview Jira JQL' }))
+    expect(await within(card).findByRole('alert')).toHaveTextContent('preview channel closed')
+  })
+
+  it('disables the Preview button while its field is empty, and enables it once text is typed', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({
+      ok: false,
+      error: 'no config',
+      code: 'not_configured'
+    })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await expandIngestion(card)
+
+    const previewBtn = within(card).getByRole('button', { name: 'Preview Jira JQL' })
+    expect(previewBtn).toBeDisabled()
+
+    fireEvent.change(within(card).getByLabelText('Jira JQL'), {
+      target: { value: 'project = KAN' }
+    })
+    expect(previewBtn).toBeEnabled()
+  })
+
+  it('disables the Preview button while a preview request is in flight', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
+    let resolvePreview: (v: CorpusAdminResult<CorpusJqlPreview>) => void = () => {}
+    window.argus.defects.jqlPreview = vi.fn(
+      () =>
+        new Promise<CorpusAdminResult<CorpusJqlPreview>>((resolve) => {
+          resolvePreview = resolve
+        })
+    )
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await expandIngestion(card)
+
+    const previewBtn = within(card).getByRole('button', { name: 'Preview Jira JQL' })
+    fireEvent.click(previewBtn)
+    expect(previewBtn).toBeDisabled()
+
+    await act(async () => {
+      resolvePreview({ ok: true, value: { count: 1, sample: [] } })
+      await Promise.resolve()
+    })
+    expect(previewBtn).toBeEnabled()
   })
 })
