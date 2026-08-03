@@ -33,7 +33,14 @@ export type ProviderInstance = z.infer<typeof providerInstanceSchema>
 const generalSchema = z.looseObject({
   timestampFormat: z.enum(TIMESTAMP_FORMATS).default('locale'),
   confirmCaseDelete: z.boolean().default(true),
-  defaultRepo: z.string().nullable().default(null)
+  /** @deprecated Superseded by `defaultRepos`. Retained only so the one-time
+   *  `migrateDefaultRepoToList` can read it; that migration nulls it, after which
+   *  `stripDefaults` drops the key from disk entirely (null IS its default). Do not
+   *  read this anywhere else — `defaultRepos` is the only live source of defaults. */
+  defaultRepo: z.string().nullable().default(null),
+  /** Repos auto-linked to every new case. Empty equals its default, so an emptied list is
+   *  stripped from disk and reseeds as `[]` on reload — which is the correct end state. */
+  defaultRepos: z.array(z.string()).default([])
 })
 
 /** Per-instance model list customization (favorite/hide/reorder). All three lists default empty. */
@@ -118,7 +125,9 @@ const migrationsSchema = z.looseObject({
   /** When the stored `agent.defaultPermissionMode` of `bypassPermissions` was reset, after
    *  that mode stopped being inert. Presence — not the mode's value — is what makes the
    *  reset run exactly once, so a Bypass chosen deliberately afterwards survives. */
-  bypassDefaultReset: z.string().default('')
+  bypassDefaultReset: z.string().default(''),
+  /** When `general.defaultRepo` (single) was folded into `general.defaultRepos` (list). */
+  defaultRepoToList: z.string().default('')
 })
 
 const uiSchema = z.looseObject({

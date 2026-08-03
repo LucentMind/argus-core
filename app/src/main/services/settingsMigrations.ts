@@ -56,3 +56,29 @@ export function migrateBypassDefault(
     )
   }
 }
+
+/**
+ * One-time upgrade: fold the single `general.defaultRepo` into the `general.defaultRepos` list.
+ *
+ * The legacy key is nulled unconditionally, not just when it was adopted. A patch value of
+ * `null` DELETES the key (see `deepMerge`), and null is also the schema default, so the key
+ * vanishes from disk on the next write instead of lingering as a second, stale source of
+ * truth. Leaving it would resurrect the old default for any user who later empties the list.
+ *
+ * Idempotent via the `migrations.defaultRepoToList` stamp — the same "sentinel key, written
+ * once" shape as `migrateBypassDefault`. The stamp is written even when there was nothing to
+ * move, so a user who deliberately clears the list later never has it refilled.
+ */
+export function migrateDefaultRepoToList(
+  settings: MigratableSettings,
+  now: () => Date = () => new Date()
+): void {
+  const current = settings.get()
+  if (current.migrations.defaultRepoToList) return
+  const legacy = current.general.defaultRepo
+  const adopt = legacy !== null && current.general.defaultRepos.length === 0
+  settings.patch({
+    migrations: { defaultRepoToList: now().toISOString() },
+    general: { defaultRepo: null, ...(adopt ? { defaultRepos: [legacy] } : {}) }
+  })
+}

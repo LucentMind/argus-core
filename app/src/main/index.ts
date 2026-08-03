@@ -17,7 +17,7 @@ import {
 import { topicEnabled } from '../shared/agentAccess'
 import { openDb } from './services/db'
 import { SettingsService } from './services/settings'
-import { migrateBypassDefault } from './services/settingsMigrations'
+import { migrateBypassDefault, migrateDefaultRepoToList } from './services/settingsMigrations'
 import { devToolsEnabled } from './services/prompts/gate'
 import { PromptCaptureStore } from './services/prompts/capture'
 import { PromptStore } from './services/prompts/store'
@@ -544,6 +544,10 @@ function registerIpc(): void {
   // One-time upgrade: a `bypassPermissions` default set back when it was inert must not
   // silently go live now that it is paired with allowDangerouslySkipPermissions.
   migrateBypassDefault(settingsService)
+
+  // One-time upgrade: fold the legacy single `general.defaultRepo` into the new
+  // `general.defaultRepos` list.
+  migrateDefaultRepoToList(settingsService)
 
   // Capture declared user env BEFORE anything mutates process.env, then let the
   // service export resolved values / prepend pathDirs for spawned children.

@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
-import { migrateBypassDefault, type MigratableSettings } from '../settingsMigrations'
+import {
+  migrateBypassDefault,
+  migrateDefaultRepoToList,
+  type MigratableSettings
+} from '../settingsMigrations'
 import {
   defaultSettings,
   deepMerge,
@@ -106,5 +110,47 @@ describe('migrateBypassDefault', () => {
     } finally {
       warn.mockRestore()
     }
+  })
+})
+
+describe('migrateDefaultRepoToList', () => {
+  it('moves a legacy single defaultRepo into defaultRepos and stamps that it ran', () => {
+    const s = fakeSettings((st) => {
+      st.general.defaultRepo = 'C:\\repos\\argus-core'
+    })
+    migrateDefaultRepoToList(s, NOW)
+    expect(s.get().general.defaultRepos).toEqual(['C:\\repos\\argus-core'])
+    expect(s.get().general.defaultRepo).toBeNull()
+    expect(s.get().migrations.defaultRepoToList).toBe('2026-08-01T00:00:00.000Z')
+  })
+
+  it('stamps and clears even when there was no legacy value', () => {
+    const s = fakeSettings()
+    migrateDefaultRepoToList(s, NOW)
+    expect(s.get().general.defaultRepos).toEqual([])
+    expect(s.get().migrations.defaultRepoToList).toBe('2026-08-01T00:00:00.000Z')
+  })
+
+  it('is a no-op on a second run', () => {
+    const s = fakeSettings((st) => {
+      st.general.defaultRepo = 'C:\\repos\\argus-core'
+    })
+    migrateDefaultRepoToList(s, NOW)
+    const writesAfterFirst = s.writes
+    // a list the user has since emptied on purpose must stay empty
+    s.patch({ general: { defaultRepos: [] } })
+    migrateDefaultRepoToList(s, NOW)
+    expect(s.writes).toBe(writesAfterFirst + 1) // only the explicit patch above
+    expect(s.get().general.defaultRepos).toEqual([])
+  })
+
+  it('does not clobber a defaultRepos list that is already populated', () => {
+    const s = fakeSettings((st) => {
+      st.general.defaultRepo = 'C:\\repos\\legacy'
+      st.general.defaultRepos = ['C:\\repos\\a', 'C:\\repos\\b']
+    })
+    migrateDefaultRepoToList(s, NOW)
+    expect(s.get().general.defaultRepos).toEqual(['C:\\repos\\a', 'C:\\repos\\b'])
+    expect(s.get().general.defaultRepo).toBeNull()
   })
 })
