@@ -41,6 +41,16 @@ function nowIso(): string {
   return new Date().toISOString()
 }
 
+function attachmentNote(filename: string): string {
+  return `\n\n_Full technical RCA attached as **${filename}**._`
+}
+
+function confluenceNote(url: string | undefined, title: string): string {
+  return url
+    ? `\n\n_Full technical RCA: ${url}_`
+    : `\n\n_Full technical RCA published to Confluence ("${title}")._`
+}
+
 /**
  * Posts a confirmed RCA report to Jira/Confluence via the Rovo MCP connector: the technical
  * drill-down first (attachment or Confluence page per `settings.rca.techDestination`), then an
@@ -48,6 +58,14 @@ function nowIso(): string {
  * failure on one never blocks the other — and results are merged onto (never replacing) any
  * `post_results` already on the newest confirmed `rca_jobs` row, so retrying one target keeps
  * the other's prior record intact.
+ *
+ * A target already recorded `ok: true` is NOT re-attempted — retrying a partial failure must
+ * not re-post a comment or duplicate a page/attachment that already succeeded. When the tech
+ * target is skipped this way, the exec comment's `techNote` (if the comment itself still needs
+ * posting) is derived from that PRIOR record — its `url` for a Confluence page, or the
+ * deterministic `rca-<slug>.md` filename for an attachment — never from a fresh call. A mode
+ * switch between calls (`techDestination` changed) always posts the newly-selected target,
+ * since its record won't be `ok: true` yet.
  */
 export async function postRcaReport(deps: PostRcaDeps, slug: string): Promise<PostResults> {
   const kase = getCase(deps.db, slug)
@@ -82,46 +100,60 @@ export async function postRcaReport(deps: PostRcaDeps, slug: string): Promise<Po
 
   let techNote = ''
   if (cfg.techDestination === 'attachment') {
-    try {
-      const a = await deps.uploadAttachment(kase.jiraKey, `rca-${slug}.md`, techMd)
-      results.attachment = { ok: true, id: a.id, at: nowIso() }
-      techNote = `\n\n_Full technical RCA attached as **${a.filename}**._`
-    } catch (err) {
-      results.attachment = { ok: false, error: (err as Error).message, at: nowIso() }
+    if (results.attachment?.ok) {
+      // Already posted — do not re-upload (would duplicate the Jira attachment). The exec
+      // comment (if it still needs posting) references the deterministic filename, which is
+      // stable across calls regardless of whether this run or a prior one produced it.
+      techNote = attachmentNote(`rca-${slug}.md`)
+    } else {
+      try {
+        const a = await deps.uploadAttachment(kase.jiraKey, `rca-${slug}.md`, techMd)
+        results.attachment = { ok: true, id: a.id, at: nowIso() }
+        techNote = attachmentNote(a.filename)
+      } catch (err) {
+        results.attachment = { ok: false, error: (err as Error).message, at: nowIso() }
+      }
     }
   } else {
-    try {
-      const title = `RCA — ${kase.title} (${kase.jiraKey})`
-      const raw = await deps.callTool(rovo, 'createConfluencePage', {
-        cloudId,
-        // settings.rca.confluenceSpaceKey holds a space *key* (e.g. "ENG"), not a numeric id —
-        // the tool's `spaceId` argument accepts and auto-resolves a key, so no lookup is needed.
-        spaceId: cfg.confluenceSpaceKey,
-        title,
-        body: techMd,
-        contentFormat: 'markdown'
-      })
-      const url = extractFirstUrl(raw)
-      results.confluencePage = { ok: true, url: url ?? undefined, at: nowIso() }
-      techNote = url
-        ? `\n\n_Full technical RCA: ${url}_`
-        : `\n\n_Full technical RCA published to Confluence ("${title}")._`
-    } catch (err) {
-      results.confluencePage = { ok: false, error: (err as Error).message, at: nowIso() }
+    const title = `RCA — ${kase.title} (${kase.jiraKey})`
+    if (results.confluencePage?.ok) {
+      // Already posted — do not create a duplicate page. Reuse the prior record's url.
+      techNote = confluenceNote(results.confluencePage.url, title)
+    } else {
+      try {
+        const raw = await deps.callTool(rovo, 'createConfluencePage', {
+          cloudId,
+          // settings.rca.confluenceSpaceKey holds a space *key* (e.g. "ENG"), not a numeric
+          // id — the tool's `spaceId` argument accepts and auto-resolves a key, so no lookup
+          // is needed.
+          spaceId: cfg.confluenceSpaceKey,
+          title,
+          body: techMd,
+          contentFormat: 'markdown'
+        })
+        const url = extractFirstUrl(raw)
+        results.confluencePage = { ok: true, url: url ?? undefined, at: nowIso() }
+        techNote = confluenceNote(url ?? undefined, title)
+      } catch (err) {
+        results.confluencePage = { ok: false, error: (err as Error).message, at: nowIso() }
+      }
     }
   }
 
-  try {
-    await deps.callTool(rovo, 'addCommentToJiraIssue', {
-      cloudId,
-      issueIdOrKey: kase.jiraKey,
-      commentBody: execMd + techNote,
-      contentFormat: 'markdown'
-    })
-    results.comment = { ok: true, at: nowIso() }
-  } catch (err) {
-    results.comment = { ok: false, error: (err as Error).message, at: nowIso() }
+  if (!results.comment?.ok) {
+    try {
+      await deps.callTool(rovo, 'addCommentToJiraIssue', {
+        cloudId,
+        issueIdOrKey: kase.jiraKey,
+        commentBody: execMd + techNote,
+        contentFormat: 'markdown'
+      })
+      results.comment = { ok: true, at: nowIso() }
+    } catch (err) {
+      results.comment = { ok: false, error: (err as Error).message, at: nowIso() }
+    }
   }
+  // else: comment already posted — do not duplicate it; keep the existing record.
 
   deps.db
     .prepare(`UPDATE rca_jobs SET post_results = ? WHERE id = ?`)

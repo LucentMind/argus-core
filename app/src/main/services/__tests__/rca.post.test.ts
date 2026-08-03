@@ -250,30 +250,109 @@ describe('postRcaReport', () => {
     expect(count.n).toBe(1)
   })
 
-  it('same-target retry: a fresh failure overwrites a prior success for that target', async () => {
+  it('same-target retry: a FAILED prior record IS retried (only ok:true skips)', async () => {
     createCase(db, home, { slug: 'case-h', title: 'Case H', jiraKey: 'PROJ-8' })
     writeArtifacts('case-h')
     const jobId = insertJob('case-h')
 
-    const first = await postRcaReport(fakeDeps({ techDestination: 'attachment' }), 'case-h')
-    expect(first.attachment!.ok).toBe(true)
+    let uploadCalls = 0
+    const first = await postRcaReport(
+      fakeDeps({
+        techDestination: 'attachment',
+        uploadAttachment: async () => {
+          uploadCalls++
+          throw new Error('upload failed: 500')
+        }
+      }),
+      'case-h'
+    )
+    expect(first.attachment!.ok).toBe(false)
+    expect(uploadCalls).toBe(1)
 
-    const second = await postRcaReport(
+    // Retry: the prior attachment record is ok:false, so — unlike an ok:true record — it MUST
+    // be re-attempted. This time the upload succeeds, overwriting the failed record. (A skipped
+    // attempt could never flip ok:false → ok:true, so this alone proves the retry happened.)
+    const second = await postRcaReport(fakeDeps({ techDestination: 'attachment' }), 'case-h')
+
+    expect(second.attachment!.ok).toBe(true)
+    expect(second.comment!.ok).toBe(true)
+
+    const persisted = JSON.parse(jobRow(jobId).post_results!)
+    expect(persisted.attachment.ok).toBe(true)
+    expect(persisted.comment.ok).toBe(true)
+  })
+
+  it('retry after partial failure: the already-succeeded comment is NOT re-posted; the failed attachment IS retried', async () => {
+    createCase(db, home, { slug: 'case-i', title: 'Case I', jiraKey: 'PROJ-9' })
+    writeArtifacts('case-i')
+    const jobId = insertJob('case-i')
+
+    const first = await postRcaReport(
       fakeDeps({
         techDestination: 'attachment',
         uploadAttachment: async () => {
           throw new Error('upload failed: 500')
         }
       }),
-      'case-h'
+      'case-i'
+    )
+    expect(first.attachment!.ok).toBe(false)
+    expect(first.comment!.ok).toBe(true)
+
+    const calls: { tool: string; instanceId: string; args: Record<string, unknown> }[] = []
+    let uploadCalled = false
+    const second = await postRcaReport(
+      fakeDeps({
+        techDestination: 'attachment',
+        calls,
+        uploadAttachment: async (_key, filename) => {
+          uploadCalled = true
+          return { id: 'att-2', filename }
+        }
+      }),
+      'case-i'
     )
 
-    expect(second.attachment!.ok).toBe(false)
-    expect(second.attachment!.error).toContain('upload failed')
-    expect(second.comment!.ok).toBe(true) // second call's own comment record is present
+    expect(uploadCalled).toBe(true) // the failed attachment WAS retried
+    expect(second.attachment!.ok).toBe(true)
+    // addCommentToJiraIssue is the only callTool use in attachment mode — zero calls here means
+    // the already-succeeded comment was not re-posted.
+    expect(calls).toHaveLength(0)
+    expect(second.comment).toEqual(first.comment) // kept as-is, unchanged from the first call
 
     const persisted = JSON.parse(jobRow(jobId).post_results!)
-    expect(persisted.attachment.ok).toBe(false)
-    expect(persisted.comment.ok).toBe(true)
+    expect(persisted.attachment.ok).toBe(true)
+    expect(persisted.comment).toEqual(first.comment)
+  })
+
+  it('retry after full success: nothing is re-attempted and results are unchanged', async () => {
+    createCase(db, home, { slug: 'case-j', title: 'Case J', jiraKey: 'PROJ-10' })
+    writeArtifacts('case-j')
+    const jobId = insertJob('case-j')
+
+    const first = await postRcaReport(fakeDeps({ techDestination: 'attachment' }), 'case-j')
+    expect(first.attachment!.ok).toBe(true)
+    expect(first.comment!.ok).toBe(true)
+
+    const calls: { tool: string; instanceId: string; args: Record<string, unknown> }[] = []
+    let uploadCalled = false
+    const second = await postRcaReport(
+      fakeDeps({
+        techDestination: 'attachment',
+        calls,
+        uploadAttachment: async () => {
+          uploadCalled = true
+          return { id: 'should-not-happen', filename: 'x' }
+        }
+      }),
+      'case-j'
+    )
+
+    expect(uploadCalled).toBe(false) // attachment already ok:true — not re-attempted
+    expect(calls).toHaveLength(0) // comment already ok:true — not re-attempted
+    expect(second).toEqual(first)
+
+    const persisted = JSON.parse(jobRow(jobId).post_results!)
+    expect(persisted).toEqual(first)
   })
 })
