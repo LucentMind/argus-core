@@ -16,12 +16,13 @@ function sameRepo(a: string, b: string): boolean {
  * native folder dialog. Shared by the case rail's Link-repo button and Settings' Add… button,
  * which differ only in their trigger and their exclusion list.
  *
- * When the fetched history itself is empty the trigger opens the native dialog DIRECTLY and
- * renders no menu at all — a first-run user gets exactly the pre-feature behavior instead of a
- * menu holding one useless item. That check is on the raw fetch, not on the post-exclusion list:
- * a history that exists but is entirely excluded (e.g. every recent repo is already linked to
- * this case) still renders the menu, just with nothing above the Browse… row — the user can see
- * why (everything they'd add is already here) rather than getting bounced straight to a dialog.
+ * When there is nothing to offer, the trigger opens the native dialog DIRECTLY and renders no
+ * menu at all — a menu whose only row is Browse… is exactly the one-useless-item menu this
+ * component exists to avoid, and skipping it is one fewer click. This covers two cases the same
+ * way, for the same reason: a first-run user with no history at all, and a history that exists
+ * but is entirely excluded (e.g. every recent repo is already linked to this case, or already in
+ * the defaults). Both leave nothing worth offering above the Browse… row, so both go straight to
+ * the dialog. The check is on the post-exclusion list, not the raw fetch.
  */
 export function RepoPickerMenu({
   onPick,
@@ -69,7 +70,9 @@ export function RepoPickerMenu({
     return <></>
   }
 
-  if (recent.length === 0) {
+  const offered = recent.filter((r) => !exclude.some((e) => sameRepo(e, r.path)))
+
+  if (offered.length === 0) {
     return 'text' in trigger ? (
       <Btn onClick={() => void browse()}>{trigger.text}</Btn>
     ) : (
@@ -84,7 +87,6 @@ export function RepoPickerMenu({
     )
   }
 
-  const offered = recent.filter((r) => !exclude.some((e) => sameRepo(e, r.path)))
   const items: MenuItem[] = [
     ...offered.map((r) => ({ label: r.name, onSelect: () => onPick(r.path) })),
     { label: 'Browse…', onSelect: () => void browse() }
