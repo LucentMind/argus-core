@@ -10,8 +10,14 @@ export async function listInstalledPacks(deps: {
   binaries: BinariesService
   /** Last known per-pack update statuses. Absent ⇒ every row reports null. */
   updates?: Record<string, UpdateStatus>
+  /**
+   * Pack ids written to disk since this process loaded `registry` — install, uninstall, or an
+   * applied update. The caller owns the set and clears it by restarting, which is the only thing
+   * that makes it false again.
+   */
+  touched?: ReadonlySet<string>
 }): Promise<PacksListPayload> {
-  const { state, registry, binaries, updates } = deps
+  const { state, registry, binaries, updates, touched } = deps
   const installed = state.list() // id -> version
   const loaded = new Map(registry.packs().map((p) => [p.id, p]))
   const probes = new Map((await binaries.probe()).map((r) => [r.id, r]))
@@ -28,7 +34,13 @@ export async function listInstalledPacks(deps: {
       installedVersion,
       loadedVersion,
       platform: lp?.manifest.platform ?? null,
-      pendingRelaunch: installedVersion != null && installedVersion !== loadedVersion,
+      // `touched` is the authoritative half: it catches a same-version reinstall and an
+      // uninstall, both of which the version comparison reports as settled. The comparison is
+      // kept for what `touched` cannot see — a pack whose recorded version does not match what
+      // the registry managed to load.
+      pendingRelaunch:
+        (touched?.has(id) ?? false) ||
+        (installedVersion != null && installedVersion !== loadedVersion),
       update: updates?.[id] ?? null,
       binaries: binDecls.map(({ decl }) => {
         const pr = probes.get(decl.id)
@@ -41,5 +53,11 @@ export async function listInstalledPacks(deps: {
       })
     }
   })
-  return { packs, error: null }
+  return {
+    packs,
+    error: null,
+    // `touched.size` is not redundant with the row scan: an uninstalled pack that never loaded
+    // (so it has no registry entry either) leaves no row to carry the flag.
+    relaunchRequired: (touched?.size ?? 0) > 0 || packs.some((p) => p.pendingRelaunch)
+  }
 }

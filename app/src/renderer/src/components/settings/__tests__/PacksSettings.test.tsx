@@ -19,6 +19,7 @@ import {
 
 const listed: PacksListPayload = {
   error: null,
+  relaunchRequired: false,
   packs: [
     {
       id: 'navigation',
@@ -538,6 +539,65 @@ describe('PacksSettings', () => {
     await user.type(screen.getByLabelText('GitHub repository'), 'b')
 
     expect(screen.queryByText('sample-bridge-playground')).not.toBeInTheDocument()
+  })
+
+  it('shows the relaunch prompt from main alone, with no install run on this mount', async () => {
+    // The durable half. Installing, navigating away and coming back remounts this component with
+    // no memory of the install — before, the prompt vanished while the app still ran stale packs.
+    packs.list = vi.fn().mockResolvedValue({ ...listed, relaunchRequired: true })
+    render(<PacksSettings settings={settingsPayload()} />)
+    expect(await screen.findByText(/Relaunch Argus/)).toBeInTheDocument()
+    expect(packs.install).not.toHaveBeenCalled()
+    expect(packs.uninstall).not.toHaveBeenCalled()
+  })
+
+  it('survives a remount after an install, because main still reports it', async () => {
+    const { unmount } = render(<PacksSettings settings={settingsPayload()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+    expect(await screen.findByText(/Relaunch Argus/)).toBeInTheDocument()
+
+    // main recorded the write; the fresh mount has only that to go on.
+    packs.list = vi.fn().mockResolvedValue({ ...listed, relaunchRequired: true })
+    unmount()
+    render(<PacksSettings settings={settingsPayload()} />)
+    expect(await screen.findByText(/Relaunch Argus/)).toBeInTheDocument()
+  })
+
+  it('keeps Relaunch clickable while a pack operation is still in flight', async () => {
+    // `busy` gating this button meant an install that never settled left the one control that
+    // fixes a stale-pack state permanently disabled.
+    let release!: (r: InstallResult) => void
+    packs.list = vi.fn().mockResolvedValue({ ...listed, relaunchRequired: true })
+    packs.installFromRepo = vi.fn(
+      () =>
+        new Promise<InstallResult>((resolve) => {
+          release = resolve
+        })
+    )
+    packs.inspectRepo = vi.fn().mockResolvedValue({
+      ok: true,
+      packs: [{ id: 'sample', version: '1.0.0', tag: 'v1.0.0', installable: true }]
+    })
+    const user = userEvent.setup()
+    render(<PacksSettings settings={settingsPayload()} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Install from GitHub' }))
+    await user.type(screen.getByLabelText('GitHub repository'), 'owner/repo')
+    await user.click(screen.getByRole('button', { name: 'Find packs' }))
+    await user.click(await screen.findByRole('button', { name: 'Install sample' }))
+    await waitFor(() => expect(packs.installFromRepo).toHaveBeenCalled())
+
+    const relaunch = screen.getByRole('button', { name: 'Relaunch now' })
+    expect(relaunch).toBeEnabled()
+    fireEvent.click(relaunch)
+    expect(packs.relaunch).toHaveBeenCalled()
+    release({
+      ok: true,
+      id: 'sample',
+      version: '1.0.0',
+      previousVersion: null,
+      relaunchRequired: true
+    })
   })
 
   it('installs against the repo the listed packs came from, not whatever is in the field', async () => {

@@ -86,6 +86,92 @@ describe('listInstalledPacks', () => {
   })
 })
 
+describe('relaunchRequired / touched', () => {
+  const binariesFor = (registry: PackRegistry): BinariesService =>
+    new BinariesService({ registry, settingsTools: () => ({}), capturedEnv: {} })
+
+  it('is false on a settled boot', async () => {
+    const registry = new PackRegistry([lp('sample', '1.0.0', path.join(home, 'x'))])
+    state.set('sample', '1.0.0')
+    const payload = await listInstalledPacks({ state, registry, binaries: binariesFor(registry) })
+    expect(payload.relaunchRequired).toBe(false)
+  })
+
+  it('flags a same-version reinstall, which the version comparison cannot see', async () => {
+    // The reported bug: reinstalling 1.1 over 1.1 leaves installedVersion === loadedVersion, so
+    // the old comparison reported "settled" while the bytes on disk had in fact been replaced.
+    const registry = new PackRegistry([lp('sample', '1.1.0', path.join(home, 'x'))])
+    state.set('sample', '1.1.0')
+    const payload = await listInstalledPacks({
+      state,
+      registry,
+      binaries: binariesFor(registry),
+      touched: new Set(['sample'])
+    })
+    expect(payload.packs.find((p) => p.id === 'sample')).toMatchObject({
+      installedVersion: '1.1.0',
+      loadedVersion: '1.1.0',
+      pendingRelaunch: true
+    })
+    expect(payload.relaunchRequired).toBe(true)
+  })
+
+  it('flags an uninstall, whose row drops installedVersion to null', async () => {
+    // uninstallPack removes the state entry but the pack stays loaded until relaunch, so the
+    // comparison's `installedVersion != null` guard short-circuits to "settled".
+    const registry = new PackRegistry([lp('sample', '1.0.0', path.join(home, 'x'))])
+    const payload = await listInstalledPacks({
+      state,
+      registry,
+      binaries: binariesFor(registry),
+      touched: new Set(['sample'])
+    })
+    expect(payload.packs.find((p) => p.id === 'sample')).toMatchObject({
+      installedVersion: null,
+      loadedVersion: '1.0.0',
+      pendingRelaunch: true
+    })
+    expect(payload.relaunchRequired).toBe(true)
+  })
+
+  it('flags a touched pack that has no row at all', async () => {
+    // Uninstalling a pack that never loaded leaves nothing in state and nothing in the registry,
+    // so no row survives to carry pendingRelaunch.
+    const registry = new PackRegistry([])
+    const payload = await listInstalledPacks({
+      state,
+      registry,
+      binaries: binariesFor(registry),
+      touched: new Set(['ghost'])
+    })
+    expect(payload.packs).toHaveLength(0)
+    expect(payload.relaunchRequired).toBe(true)
+  })
+
+  it('leaves untouched packs settled while a touched sibling flags', async () => {
+    const registry = new PackRegistry([lp('alpha', '1.0.0', '/a'), lp('beta', '1.0.0', '/b')])
+    state.set('alpha', '1.0.0')
+    state.set('beta', '1.0.0')
+    const payload = await listInstalledPacks({
+      state,
+      registry,
+      binaries: binariesFor(registry),
+      touched: new Set(['alpha'])
+    })
+    const byId = Object.fromEntries(payload.packs.map((p) => [p.id, p]))
+    expect(byId.alpha.pendingRelaunch).toBe(true)
+    expect(byId.beta.pendingRelaunch).toBe(false)
+    expect(payload.relaunchRequired).toBe(true)
+  })
+
+  it('still flags a version mismatch with no touched set (the pre-existing signal)', async () => {
+    const registry = new PackRegistry([lp('sample', '1.0.0', path.join(home, 'x'))])
+    state.set('sample', '2.0.0')
+    const payload = await listInstalledPacks({ state, registry, binaries: binariesFor(registry) })
+    expect(payload.relaunchRequired).toBe(true)
+  })
+})
+
 describe('update status on rows', () => {
   it('attaches a status to the matching pack and null to the rest', async () => {
     const registry = new PackRegistry([lp('alpha', '1.0.0', '/a'), lp('beta', '1.0.0', '/b')])

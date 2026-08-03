@@ -294,6 +294,12 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
 
   if (!payload) return <div className="text-dim">loading…</div>
 
+  // Two sources, and neither is sufficient alone. `payload.relaunchRequired` is the durable one —
+  // it survives leaving this page, a second window, and a renderer reload, and it is the half that
+  // was missing. `needsRelaunch` is the local echo of an install result we already hold, and it
+  // keeps the prompt immediate instead of making it wait on the `list()` round trip that follows.
+  const relaunchNeeded = needsRelaunch || payload.relaunchRequired
+
   return (
     <div className="flex flex-col gap-6">
       {error && (
@@ -312,16 +318,19 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
           {payload.error}
         </div>
       )}
-      {needsRelaunch && (
+      {relaunchNeeded && (
         <div
           role="status"
           className="flex items-center gap-3 rounded-r2 border border-hair bg-overlay px-3 py-2 text-xs text-ink"
         >
           <span>Relaunch Argus to apply pack changes.</span>
+          {/* Never gated on `busy`. That flag is this component's own in-flight marker for pack
+              operations, so any operation that fails to settle strands the one control that fixes
+              a stale-pack state — and it says nothing about work started from another window
+              anyway. Relaunching is always a legal thing to ask for. */}
           <Btn
             variant="primary"
             aria-label="Relaunch now"
-            disabled={busy}
             onClick={() => void window.argus.packs.relaunch()}
           >
             Relaunch now

@@ -42,6 +42,7 @@ function payload(overrides: Partial<SettingsPayload> = {}): SettingsPayload {
 
 const packsListed: PacksListPayload = {
   error: null,
+  relaunchRequired: false,
   packs: [
     {
       id: 'navigation',

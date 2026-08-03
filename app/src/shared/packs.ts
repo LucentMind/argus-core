@@ -40,7 +40,16 @@ export interface InstalledPackRow {
   /** Version currently loaded in the running registry. null until a relaunch loads a fresh install. */
   loadedVersion: string | null
   platform: string | null
-  /** installedVersion != loadedVersion — a relaunch is needed to apply. */
+  /**
+   * This pack's files on disk are not what the running registry loaded, so a relaunch is needed
+   * to apply it.
+   *
+   * Deliberately NOT just `installedVersion != loadedVersion`: that comparison is blind to the
+   * two cases the user hits most — reinstalling the SAME version (both sides equal, yet the
+   * bytes on disk changed) and uninstalling (installedVersion goes null, yet the pack stays
+   * loaded until relaunch). Main records the ids it has actually written since boot and reports
+   * them here; the version comparison is kept as a secondary signal.
+   */
   pendingRelaunch: boolean
   binaries: PackBinaryHealth[]
   /** Upstream update state for this pack, or null when it has no update source (a seed pack,
@@ -51,6 +60,14 @@ export interface InstalledPackRow {
 export interface PacksListPayload {
   packs: InstalledPackRow[]
   error: string | null
+  /**
+   * Any pack changed on disk since this process loaded the registry. The Packs page's relaunch
+   * banner reads this rather than remembering that it just ran an install: page-local memory dies
+   * with the component (navigate away and back, or open a second window, and the prompt is gone
+   * while the app is still running stale packs). Reset for free by the relaunch itself, since
+   * main is what restarts.
+   */
+  relaunchRequired: boolean
 }
 
 /** One pack a GitHub repository publishes, as offered by the install-from-repo picker. */

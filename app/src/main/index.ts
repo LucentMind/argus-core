@@ -479,6 +479,13 @@ function registerIpc(): void {
   })
 
   const packsState = new PacksStateStore(argusHome)
+  /**
+   * Pack ids written to disk since `packRegistry` was loaded, a few lines above. Every write path
+   * (install, install-from-repo, uninstall, applied update) records here, and `listInstalledPacks`
+   * turns it into the relaunch prompt. Process-scoped on purpose: a relaunch is exactly what makes
+   * it empty again, so there is nothing to persist and nothing to clear.
+   */
+  const packsTouched = new Set<string>()
   const coreSkillsDir = resolveCoreSkillsDir(app.getAppPath(), resourcesPath)
   const skillSources = [
     ...packRegistry.skillsSources(),
@@ -1019,7 +1026,8 @@ function registerIpc(): void {
       state: packsState,
       registry: packRegistry,
       binaries: binariesService,
-      updates: packUpdateStatuses
+      updates: packUpdateStatuses,
+      touched: packsTouched
     })
   )
   ipcMain.handle(IPC.packsPickBundle, async () => {
@@ -1063,18 +1071,27 @@ function registerIpc(): void {
         parsed,
         packId
       )
-      if (res.ok) broadcast(IPC.packsChanged, undefined)
+      if (res.ok) {
+        packsTouched.add(res.id)
+        broadcast(IPC.packsChanged, undefined)
+      }
       return res
     }
   )
   ipcMain.handle(IPC.packsInstall, async (_e, source: string) => {
     const res = await installPack(source, { argusHome, state: packsState })
-    if (res.ok) broadcast(IPC.packsChanged, undefined)
+    if (res.ok) {
+      packsTouched.add(res.id)
+      broadcast(IPC.packsChanged, undefined)
+    }
     return res
   })
   ipcMain.handle(IPC.packsUninstall, (_e, id: string) => {
     const res = uninstallPack(id, { argusHome, state: packsState, coreSkillsDir })
-    if (res.ok) broadcast(IPC.packsChanged, undefined)
+    if (res.ok) {
+      packsTouched.add(id)
+      broadcast(IPC.packsChanged, undefined)
+    }
     return res
   })
   ipcMain.handle(IPC.packsRelaunch, () => {
@@ -1088,6 +1105,8 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.packsApplyUpdate, async (_e, id: string) => {
     const status = await packUpdates.apply(id)
+    // 'ready' is the only phase that got as far as installPack — see packUpdates.apply.
+    if (status.phase === 'ready') packsTouched.add(id)
     packUpdateStatuses = { ...packUpdateStatuses, [id]: status }
     broadcast(IPC.packsChanged, undefined)
     return status
