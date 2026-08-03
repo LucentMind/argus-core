@@ -154,7 +154,11 @@ async function main() {
   const listed = await ipc(`window.argus.packs.inspectRepo(${JSON.stringify(REPO)})`)
   check('a private repo can be listed at all', listed?.ok === true, JSON.stringify(listed))
   const row = listed?.packs?.find((p) => p.id === PACK)
-  check('the private pack is offered as installable', row?.installable === true, JSON.stringify(row))
+  check(
+    'the private pack is offered as installable',
+    row?.installable === true,
+    JSON.stringify(row)
+  )
 
   // ── install ─────────────────────────────────────────────────────────────────
   const installed = await ipc(
@@ -208,18 +212,46 @@ async function main() {
   for (const plat of ['win-x64', 'mac-arm64']) {
     execFileSync(
       process.execPath,
-      [cli, 'build', '--pack', path.join(staging, PACK), '--bin', path.join(staging, 'bin'),
-       '--platform', plat, '--out', path.join(staging, 'dist')],
+      [
+        cli,
+        'build',
+        '--pack',
+        path.join(staging, PACK),
+        '--bin',
+        path.join(staging, 'bin'),
+        '--platform',
+        plat,
+        '--out',
+        path.join(staging, 'dist')
+      ],
       { encoding: 'utf8' }
     )
   }
   // The tag must carry the bumped manifest: argusApi is read from the TAGGED tree, and the
   // asset filenames are matched against it.
-  gh(['api', `repos/${REPO}/git/refs`, '-f', 'ref=refs/tags/v0.3.0', '-f',
-      `sha=${gh(['api', `repos/${REPO}/commits/main`, '--jq', '.sha'])}`])
-  gh(['release', 'create', 'v0.3.0', '-R', REPO, '--title', 'v0.3.0', '--notes', 'gate',
-      ...fs.readdirSync(path.join(staging, 'dist')).filter((f) => f.includes('0.3.0'))
-        .map((f) => path.join(staging, 'dist', f))])
+  gh([
+    'api',
+    `repos/${REPO}/git/refs`,
+    '-f',
+    'ref=refs/tags/v0.3.0',
+    '-f',
+    `sha=${gh(['api', `repos/${REPO}/commits/main`, '--jq', '.sha'])}`
+  ])
+  gh([
+    'release',
+    'create',
+    'v0.3.0',
+    '-R',
+    REPO,
+    '--title',
+    'v0.3.0',
+    '--notes',
+    'gate',
+    ...fs
+      .readdirSync(path.join(staging, 'dist'))
+      .filter((f) => f.includes('0.3.0'))
+      .map((f) => path.join(staging, 'dist', f))
+  ])
 
   const avail = await waitForUpdate((s) => s?.phase === 'available', 'publish→offered')
   check(
@@ -246,9 +278,22 @@ async function main() {
   )
 
   // ── a draft is not an update ────────────────────────────────────────────────
-  gh(['release', 'create', 'v0.4.0', '-R', REPO, '--draft', '--title', 'v0.4.0', '--notes', 'draft',
-      ...fs.readdirSync(path.join(staging, 'dist')).filter((f) => f.includes('0.3.0'))
-        .map((f) => path.join(staging, 'dist', f))])
+  gh([
+    'release',
+    'create',
+    'v0.4.0',
+    '-R',
+    REPO,
+    '--draft',
+    '--title',
+    'v0.4.0',
+    '--notes',
+    'draft',
+    ...fs
+      .readdirSync(path.join(staging, 'dist'))
+      .filter((f) => f.includes('0.3.0'))
+      .map((f) => path.join(staging, 'dist', f))
+  ])
   // Poll for the inverse too: a draft that is genuinely never offered is indistinguishable from
   // one that has not propagated yet, so give it the same window the positive case got before
   // concluding. Anything other than a sustained `idle` fails.
@@ -295,8 +340,12 @@ async function main() {
         await sleep(10000)
         restored =
           ghTry([
-            'api', '-X', 'PATCH', `repos/${REPO.split('/')[0]}/${renamed}`,
-            '-f', `name=${REPO.split('/')[1]}`
+            'api',
+            '-X',
+            'PATCH',
+            `repos/${REPO.split('/')[0]}/${renamed}`,
+            '-f',
+            `name=${REPO.split('/')[1]}`
           ]) !== null
       }
       check(`the test repository was renamed back to ${REPO}`, restored, `restored=${restored}`)
