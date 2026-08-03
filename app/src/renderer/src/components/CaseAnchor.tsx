@@ -1,7 +1,7 @@
 import { MenuButton } from './ui'
 import { uiStore } from '../lib/uiStore'
 import { notice } from '../lib/noticeStore'
-import { useDistillJob, distillMenuLabel } from '../lib/distillJob'
+import { useDistillJob, distillMenuLabel, isDistillInFlight } from '../lib/distillJob'
 import { CASE_RESOLUTIONS } from '../../../shared/types'
 import type { CaseResolution, CaseStatus } from '../../../shared/types'
 
@@ -89,9 +89,18 @@ export function CaseAnchor({
             ]
           },
           {
+            // No status guard: distilling an open case is allowed on purpose (user-directed,
+            // 2026-08-03). Output stages as inert proposals a human accepts, so an early run
+            // cannot reach the knowledge corpus on its own. While a job is in flight this same
+            // row is the way to stop it — one row, one subject.
             label: distillMenuLabel(distillJob),
-            disabled: status !== 'closed',
-            onSelect: () => void window.argus.distill.redistill(slug).catch(() => undefined)
+            onSelect: () => {
+              const inFlight = isDistillInFlight(distillJob)
+              const p = inFlight
+                ? window.argus.distill.cancel(distillJob!.id)
+                : window.argus.distill.redistill(slug)
+              void p.catch(() => undefined)
+            }
           },
           {
             label: 'Close case',

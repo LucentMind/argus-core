@@ -6,6 +6,10 @@ import { CaseAnchor } from '../CaseAnchor'
 import { uiStore } from '../../lib/uiStore'
 import { noticeStore } from '../../lib/noticeStore'
 
+let statusMock: ReturnType<typeof vi.fn>
+let redistillMock: ReturnType<typeof vi.fn>
+let cancelMock: ReturnType<typeof vi.fn>
+
 beforeEach(() => {
   noticeStore.reset()
   for (const t of [...uiStore.get().recentTabs]) uiStore.closeTab(t)
@@ -13,19 +17,22 @@ beforeEach(() => {
   setStatusMock.mockResolvedValue(undefined)
   const exportMock = vi.fn()
   exportMock.mockResolvedValue({ ok: true, fileCount: 12 })
-  const statusMock = vi.fn()
+  statusMock = vi.fn()
   statusMock.mockResolvedValue(null)
   const onChangedMock = vi.fn()
   onChangedMock.mockReturnValue(() => {})
-  const redistillMock = vi.fn()
+  redistillMock = vi.fn()
   redistillMock.mockResolvedValue(undefined)
+  cancelMock = vi.fn()
+  cancelMock.mockResolvedValue(undefined)
   window.argus = {
     cases: { setStatus: setStatusMock },
     bundle: { export: exportMock },
     distill: {
       status: statusMock,
       onChanged: onChangedMock,
-      redistill: redistillMock
+      redistill: redistillMock,
+      cancel: cancelMock
     }
   } as never
 })
@@ -62,7 +69,7 @@ describe('CaseAnchor', () => {
     await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
     expect(screen.getByText('Close as…')).toBeTruthy()
     expect(screen.getByText('Export')).toBeTruthy()
-    expect(screen.getByText('Re-distill')).toBeTruthy()
+    expect(screen.getByText('Distill')).toBeTruthy()
     expect(screen.getByText('Close case')).toBeTruthy()
   })
 
@@ -150,11 +157,33 @@ describe('CaseAnchor', () => {
     expect(noticeStore.get().notices).toHaveLength(0)
   })
 
-  it('disables Re-distill until the case is closed', async () => {
+  it('offers Distill on an open, never-distilled case', async () => {
     const user = userEvent.setup()
     renderAnchor({ status: 'open' })
     await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
-    const row = screen.getByText('Re-distill').closest('button')
-    expect(row?.hasAttribute('disabled')).toBe(true)
+    const row = screen.getByText('Distill').closest('button')
+    expect(row?.hasAttribute('disabled')).toBe(false)
+    await user.click(row!)
+    expect(redistillMock).toHaveBeenCalledWith('NN-5187')
+    expect(cancelMock).not.toHaveBeenCalled()
+  })
+
+  it('flips the row to Cancel distillation while a job is running', async () => {
+    statusMock.mockResolvedValue({
+      id: 7,
+      caseSlug: 'NN-5187',
+      state: 'running',
+      error: null,
+      itemCount: null,
+      createdAt: 't',
+      finishedAt: null
+    })
+    const user = userEvent.setup()
+    renderAnchor({ status: 'open' })
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    const row = await screen.findByText('Cancel distillation')
+    await user.click(row.closest('button')!)
+    expect(cancelMock).toHaveBeenCalledWith(7)
+    expect(redistillMock).not.toHaveBeenCalled()
   })
 })

@@ -31,13 +31,22 @@ export function useDistillJob(slug: string): DistillJobRow | null {
   return job
 }
 
+/** True while the job still has work to stop — the states the Cancel affordance exists for. */
+export function isDistillInFlight(job: DistillJobRow | null): boolean {
+  return job?.state === 'queued' || job?.state === 'running'
+}
+
 /**
- * The Re-distill menu row's label. Only *resting* states appear here — `done` persists
- * indefinitely, so as a bar chip it was permanent furniture. Running and failed stay on
- * the bar (see DistillChip): one is genuinely transient, the other needs to be loud.
+ * The distill menu row's label. It carries three jobs at once: the verb (first run vs re-run),
+ * the in-flight escape hatch, and the resting readout of the last run. Only `done` states show a
+ * count — `done` persists for the life of the case, so as a bar chip it was permanent furniture.
+ * Running and failed stay on the bar (see DistillChip): one is genuinely transient, the other
+ * needs to be loud.
  */
 export function distillMenuLabel(job: DistillJobRow | null): string {
-  if (!job || job.state !== 'done') return 'Re-distill'
+  if (isDistillInFlight(job)) return 'Cancel distillation'
+  if (!job) return 'Distill'
+  if (job.state !== 'done') return 'Re-distill'
   return job.itemCount && job.itemCount > 0
     ? `Re-distill · ${job.itemCount} items`
     : 'Re-distill · nothing to distill'
