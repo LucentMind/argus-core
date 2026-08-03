@@ -111,6 +111,9 @@ beforeEach(() => {
     review: {
       worktreeHead: vi.fn(async () => null)
     },
+    rca: {
+      onRcaChanged: vi.fn(() => () => {})
+    },
     evidence: {
       list: vi.fn(async () => []),
       ingest: vi.fn(async () => []),

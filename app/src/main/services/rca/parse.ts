@@ -52,7 +52,11 @@ const draftSchema = z.object({
   }),
   techNarrative: z
     .array(
-      z.object({ heading: z.string(), body: z.string(), citations: z.array(citation).default([]) })
+      z.object({
+        heading: z.string().min(1),
+        body: z.string(),
+        citations: z.array(citation).default([])
+      })
     )
     .default([])
 })
@@ -69,5 +73,18 @@ export function parseRcaOutput(text: string): RcaDraft {
   }
   const res = draftSchema.safeParse(obj)
   if (!res.success) throw new RcaParseError(res.error.issues[0]?.message ?? 'invalid draft', text)
+  return res.data as RcaDraft
+}
+
+/**
+ * Re-validates an already-parsed `RcaDraft` against the same schema `parseRcaOutput` uses —
+ * for the IPC boundary (`rca:confirm`, `rca:render-preview`), where the payload is a
+ * structured object from the renderer, not raw model text with a json fence to extract.
+ * Called BEFORE either handler touches any state (role writes, artifact files) so a
+ * malformed/stale `edited` draft is rejected up front rather than partially applied.
+ */
+export function validateRcaDraft(v: unknown): RcaDraft {
+  const res = draftSchema.safeParse(v)
+  if (!res.success) throw new Error(res.error.issues[0]?.message ?? 'invalid RCA draft')
   return res.data as RcaDraft
 }

@@ -97,6 +97,7 @@ beforeEach(() => {
     },
     findings: { list: vi.fn(async () => []), review: vi.fn() },
     review: { worktreeHead: vi.fn(async () => null) },
+    rca: { onRcaChanged: vi.fn(() => () => {}) },
     evidence: {
       list: vi.fn(async () => []),
       ingest: vi.fn(async () => []),

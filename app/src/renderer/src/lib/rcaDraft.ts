@@ -12,8 +12,12 @@ import type { Citation, PostResults, RcaDraft, RoleAssignment } from '../../../s
 
 /**
  * Pure assignment builder (task-11 brief, verbatim): every claim with a non-null `findingId`
- * contributes its section's role; the FIRST role a finding id is seen under wins (a finding
- * cannot hold two roles), and a vetoed duplicate is excluded entirely rather than downgraded.
+ * contributes its section's role; among rootCause/contributing/symptoms/ruledOut, the FIRST
+ * role a finding id is seen under wins (a finding cannot hold two roles). Duplicates are
+ * walked last and deliberately OVERRIDE whatever role (if any) that finding id already
+ * claimed — an un-vetoed duplicate always ends up assigned 'duplicate', even if the model
+ * also double-listed it as e.g. contributing. A vetoed duplicate is excluded entirely rather
+ * than downgraded back to its earlier role.
  */
 export function buildAssignments(draft: RcaDraft, vetoed: Set<number>): RoleAssignment[] {
   const out = new Map<number, FindingRole>()
@@ -155,6 +159,16 @@ export function reassign(claims: Claim[], key: string, role: ClaimRole): Claim[]
     })
   }
   return claims.map((c) => (c.key === key ? { ...c, role } : c))
+}
+
+/** Detaches one claim from its finding: sets `findingId` to `null`, keeping the claim's
+ *  statement/evidence/role exactly as they were. The claim stays visible and editable in its
+ *  section, but `buildAssignments` skips it (its `put`/duplicate walks only act on non-null
+ *  ids), so confirming writes no role for that finding. Recovery path for a claim whose
+ *  finding id `applyReportRoles` rejects (finding deleted/moved to another case since the
+ *  draft was generated) — see `RcaPanel`'s confirm-error handling. */
+export function detachClaim(claims: Claim[], key: string): Claim[] {
+  return claims.map((c) => (c.key === key ? { ...c, findingId: null } : c))
 }
 
 export function targetsMessage(

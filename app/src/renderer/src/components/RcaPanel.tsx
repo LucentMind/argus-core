@@ -12,6 +12,7 @@ import {
   applyClaims,
   buildAssignments,
   CLAIM_ROLES,
+  detachClaim,
   draftToClaims,
   reassign,
   ROLE_LABEL,
@@ -25,10 +26,12 @@ import type { PostResults, PostTargetResult, RcaStatusPayload } from '../../../s
 
 function ClaimCard({
   claim,
-  onRoleChange
+  onRoleChange,
+  onDetach
 }: {
   claim: Claim
   onRoleChange: (role: ClaimRole) => void
+  onDetach: () => void
 }): React.JSX.Element {
   return (
     <div className="flex flex-col gap-1 rounded-r2 border border-hair p-2 text-xs">
@@ -50,7 +53,18 @@ function ClaimCard({
         </select>
       </div>
       {claim.findingId !== null && (
-        <span className="font-mono text-[10.5px] text-mute">finding {claim.findingId}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-[10.5px] text-mute">finding {claim.findingId}</span>
+          <button
+            type="button"
+            aria-label={`Detach finding ${claim.findingId}`}
+            title="Keep this claim's text, but stop linking it to that finding"
+            onClick={onDetach}
+            className="text-[10.5px] text-mute underline underline-offset-2 hover:text-ink"
+          >
+            Detach
+          </button>
+        </div>
       )}
       {claim.why && <p className="text-mute">{claim.why}</p>}
       {claim.evidence.length > 0 && (
@@ -177,6 +191,10 @@ export function RcaPanel({
     setClaims((prev) => reassign(prev, key, role))
   }
 
+  function onDetach(key: string): void {
+    setClaims((prev) => detachClaim(prev, key))
+  }
+
   function toggleVeto(findingId: number): void {
     setVetoed((prev) => {
       const next = new Set(prev)
@@ -195,8 +213,38 @@ export function RcaPanel({
     }
   }
 
+  async function onRegenerateClick(): Promise<void> {
+    const ok = await confirmDialog({
+      title: 'Regenerate the RCA report?',
+      message:
+        "Discards your in-panel edits for this draft and starts a fresh generation. A confirmed report's roles and artifacts stay as they are until you confirm the new draft."
+    })
+    if (!ok) return
+    await onGenerate()
+  }
+
+  // Re-fetches status on a confirm failure (in addition to showing the error) so the panel
+  // recovers on its own: the most likely failure is `applyReportRoles`'s "does not belong"
+  // error for a finding deleted/moved since the draft was generated — the user needs live
+  // state (e.g. to Detach that claim) rather than a frozen view stuck on the failed attempt.
+  async function refetchStatus(): Promise<void> {
+    try {
+      setPayload(await window.argus.rca.status(slug))
+    } catch {
+      // best-effort: the confirm error above stays visible either way
+    }
+  }
+
   async function onConfirmFreeze(): Promise<void> {
     if (!job || !editedDraft) return
+    if (!editedDraft.rootCause.statement) {
+      const ok = await confirmDialog({
+        title: 'No root cause selected',
+        message:
+          'This report has no root cause claim right now — Confirm & freeze will save it without a root cause. Continue?'
+      })
+      if (!ok) return
+    }
     setConfirmBusy(true)
     setConfirmError(null)
     try {
@@ -204,6 +252,7 @@ export function RcaPanel({
       await window.argus.rca.confirm(slug, job.id, assignments, editedDraft)
     } catch (err) {
       setConfirmError((err as Error).message)
+      await refetchStatus()
     } finally {
       setConfirmBusy(false)
     }
@@ -287,7 +336,12 @@ export function RcaPanel({
                     </h3>
                     <div className="flex flex-col gap-1.5">
                       {rows.map((c) => (
-                        <ClaimCard key={c.key} claim={c} onRoleChange={(r) => setRole(c.key, r)} />
+                        <ClaimCard
+                          key={c.key}
+                          claim={c}
+                          onRoleChange={(r) => setRole(c.key, r)}
+                          onDetach={() => onDetach(c.key)}
+                        />
                       ))}
                     </div>
                   </section>
@@ -350,6 +404,9 @@ export function RcaPanel({
                   onClick={() => void onConfirmFreeze()}
                 >
                   {confirmBusy ? 'Confirming…' : 'Confirm & freeze'}
+                </Btn>
+                <Btn disabled={confirmBusy} onClick={() => void onRegenerateClick()}>
+                  Regenerate
                 </Btn>
                 {job.confirmedAt && (
                   <Btn disabled={postBusy} onClick={() => void onPostClick()}>

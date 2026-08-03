@@ -14,7 +14,7 @@ import { getCase } from '../caseService'
 import { applyReportRoles } from '../findings'
 import { artifactsDir } from '../paths'
 import { buildCaseRcaPrompt } from './contract'
-import { parseRcaOutput, RcaParseError } from './parse'
+import { parseRcaOutput, validateRcaDraft, RcaParseError } from './parse'
 import { renderExecReport, renderTechReport } from './render'
 
 export interface RcaJobsDeps {
@@ -69,17 +69,38 @@ function toRow(r: JobDbRow): RcaJobRow {
   }
 }
 
-/** Parses `raw_output` into a draft only for a `done` row; a `done` row whose raw_output
- *  no longer parses (schema drift, hand-edited DB) reports `draft: null` rather than
- *  throwing — status reads must never fail. */
-function toPayload(r: JobDbRow): RcaStatusPayload {
+function parseRawOutput(raw: string | null): RcaDraft | null {
+  if (!raw) return null
+  try {
+    return parseRcaOutput(raw)
+  } catch {
+    return null
+  }
+}
+
+/** Parses `raw_output` into a draft for a `done` row, EXCEPT when the newest job is
+ *  confirmed: a confirmed job's `draft` must reflect the human's edited/frozen structure
+ *  (`artifacts/rca-structure.json`), not the model's original raw output — otherwise
+ *  reopening the panel after Confirm & freeze would silently show stale, unedited claims
+ *  (the confirmed roles/artifacts are already frozen; the review UI must match them). Falls
+ *  back to the raw-output parse when the structure file is missing (ENOENT — matches
+ *  `readPriorDraft`'s "no prior draft" case) OR unreadable/corrupt; a `done` row whose
+ *  raw_output also no longer parses reports `draft: null` rather than throwing — status
+ *  reads must never fail. */
+function toPayload(r: JobDbRow, argusHome: string): RcaStatusPayload {
   const job = toRow(r)
   let draft: RcaDraft | null = null
-  if (job.state === 'done' && r.raw_output) {
-    try {
-      draft = parseRcaOutput(r.raw_output)
-    } catch {
-      draft = null
+  if (job.state === 'done') {
+    if (job.confirmedAt) {
+      try {
+        draft = readPriorDraft(argusHome, job.caseSlug)
+      } catch (err) {
+        console.error('[rca] failed to read confirmed structure for', job.caseSlug, err)
+        draft = null
+      }
+      if (draft === null) draft = parseRawOutput(r.raw_output)
+    } else {
+      draft = parseRawOutput(r.raw_output)
     }
   }
   return { caseSlug: job.caseSlug, job, draft }
@@ -152,9 +173,12 @@ export class RcaJobs {
   }
 
   /** Snapshots `assembleInput(slug, prior)` NOW, with `prior` read from the newest
-   *  confirmed job's structure file; throws on snapshot failure OR a non-ENOENT
-   *  `readPriorDraft` failure (callers guard it — see `readPriorDraft`'s doc). */
+   *  confirmed job's structure file; throws on an unknown slug (checked FIRST, before any
+   *  file read — mirrors the `assertSlug`-then-act shape sibling IPC handlers use), on
+   *  snapshot failure, OR a non-ENOENT `readPriorDraft` failure (callers guard it — see
+   *  `readPriorDraft`'s doc). */
   generate(slug: string): RcaJobRow {
+    if (!getCase(this.deps.db, slug)) throw new Error(`Unknown case: ${slug}`)
     const prior = readPriorDraft(this.deps.argusHome, slug)
     const snapshot = JSON.stringify(this.deps.assembleInput(slug, prior))
     const res = this.deps.db
@@ -174,16 +198,20 @@ export class RcaJobs {
       .prepare(`SELECT * FROM rca_jobs WHERE case_slug = ? ORDER BY id DESC LIMIT 1`)
       .get(slug) as JobDbRow | undefined
     if (!r) return { caseSlug: slug, job: null, draft: null }
-    return toPayload(r)
+    return toPayload(r, this.deps.argusHome)
   }
 
   /**
-   * Freezes a done job's (edited) draft: role assignments first (its own transaction via
-   * `applyReportRoles`), then the three artifact files, then `confirmed_at` LAST (spec
-   * §5). If the process dies between the files and the flag, the files exist without the
-   * flag; re-confirming rewrites them, which is idempotent.
+   * Freezes a done job's (edited) draft: `edited` is re-validated against `draftSchema`
+   * FIRST — `RcaPanel` already sends a well-formed `RcaDraft`, but the IPC boundary is not
+   * trusted (a stale/hand-edited renderer payload must not reach `applyReportRoles` or the
+   * filesystem) — then role assignments (its own transaction via `applyReportRoles`), then
+   * the three artifact files, then `confirmed_at` LAST (spec §5). If the process dies
+   * between the files and the flag, the files exist without the flag; re-confirming
+   * rewrites them, which is idempotent.
    */
   confirm(slug: string, jobId: number, assignments: RoleAssignment[], edited: RcaDraft): void {
+    validateRcaDraft(edited)
     const job = this.get(jobId)
     if (!job || job.caseSlug !== slug || job.state !== 'done')
       throw new Error(`rca job ${jobId} is not a done job for ${slug}`)

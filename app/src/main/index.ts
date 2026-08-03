@@ -245,6 +245,7 @@ import { postRcaReport } from './services/rca/post'
 import { assembleRcaInput } from './services/rca/input'
 import { caseRcaPromptHash } from './services/rca/promptHash'
 import { renderExecReport, renderTechReport } from './services/rca/render'
+import { validateRcaDraft } from './services/rca/parse'
 import type { RoleAssignment, RcaDraft, CaseRcaInput } from '../shared/rca'
 import { draftAsset, improveAsset } from './services/authoring/service'
 import type { AuthoringRequest, AuthoringResult } from '../shared/authoringIpc'
@@ -1875,12 +1876,19 @@ function registerIpc(): void {
   ipcMain.handle(IPC.defectsSyncStatus, (_e, id: string) => defectCorpus.syncStatus(id))
 
   // — case RCA reports (part 3a-N) —
-  ipcMain.handle(IPC.rcaGenerate, (_e, slug: string) => rcaJobs.generate(slug))
+  ipcMain.handle(IPC.rcaGenerate, (_e, slug: string) => {
+    assertSlug(slug)
+    return rcaJobs.generate(slug)
+  })
   ipcMain.handle(IPC.rcaStatus, (_e, slug: string) => rcaJobs.statusFor(slug))
   ipcMain.handle(
     IPC.rcaConfirm,
-    (_e, slug: string, jobId: number, assignments: RoleAssignment[], edited: RcaDraft) =>
-      rcaJobs.confirm(slug, jobId, assignments, edited)
+    (_e, slug: string, jobId: number, assignments: RoleAssignment[], edited: RcaDraft) => {
+      // Validate BEFORE rcaJobs.confirm touches any state (role writes, artifact files) —
+      // a malformed/stale renderer payload must never reach applyReportRoles.
+      const validated = validateRcaDraft(edited)
+      return rcaJobs.confirm(slug, jobId, assignments, validated)
+    }
   )
   ipcMain.handle(IPC.rcaPost, (_e, slug: string) =>
     postRcaReport(
@@ -1913,6 +1921,7 @@ function registerIpc(): void {
   // `RcaJobs.confirm` builds from `getCase` (see jobs.ts) — kept in sync by hand since this
   // is the one other call site that needs it.
   ipcMain.handle(IPC.rcaRenderPreview, (_e, slug: string, edited: RcaDraft) => {
+    const validated = validateRcaDraft(edited)
     const kase = getCase(db, slug)
     if (!kase) throw new Error(`Unknown case: ${slug}`)
     const meta: CaseRcaInput['caseMeta'] = {
@@ -1923,7 +1932,7 @@ function registerIpc(): void {
       tags: kase.tags,
       createdAt: kase.createdAt
     }
-    return { exec: renderExecReport(edited, meta), tech: renderTechReport(edited, meta) }
+    return { exec: renderExecReport(validated, meta), tech: renderTechReport(validated, meta) }
   })
 
   // — skills —

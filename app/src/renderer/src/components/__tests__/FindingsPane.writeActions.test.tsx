@@ -61,7 +61,8 @@ beforeEach(() => {
     findings: { list, review: vi.fn(), clear: vi.fn() },
     cases: { readFindings: vi.fn().mockResolvedValue('') },
     review: { composeActionPrompt, postFindingComment, worktreeHead },
-    agent: { send }
+    agent: { send },
+    rca: { onRcaChanged: vi.fn(() => () => {}) }
   } as never // test double for the preload bridge
 })
 

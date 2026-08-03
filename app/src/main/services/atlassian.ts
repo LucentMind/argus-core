@@ -229,9 +229,12 @@ export class AtlassianClient {
         method: opts?.method,
         body: opts?.body,
         headers: {
+          // Caller headers spread FIRST: Authorization/Accept are set after, so a caller
+          // (or a stray header the caller forwards) can never override this request's
+          // real auth or content negotiation.
+          ...opts?.headers,
           Authorization: authorization,
-          Accept: opts?.accept ?? 'application/json',
-          ...opts?.headers
+          Accept: opts?.accept ?? 'application/json'
         },
         redirect: 'follow', // undici drops Authorization on cross-origin redirects (attachment CDN)
         signal: opts?.signal ?? AbortSignal.timeout(this.timeoutMs)

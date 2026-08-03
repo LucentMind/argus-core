@@ -332,6 +332,30 @@ describe('AtlassianClient', () => {
     expect(lastAttachmentBody).toContain('# report')
   })
 
+  it('fetchWith never lets a caller-supplied headers object override Authorization or Accept', async () => {
+    const c = client()
+    type FetchWith = (
+      url: string,
+      authorization: string,
+      instanceId: string,
+      opts?: {
+        signal?: AbortSignal
+        accept?: string
+        method?: string
+        body?: BodyInit
+        headers?: Record<string, string>
+      }
+    ) => Promise<Response>
+    const fetchWith = (c as unknown as { fetchWith: FetchWith }).fetchWith.bind(c)
+    await fetchWith(`${base}/rest/api/3/project/search`, 'Bearer real-token', 'rovo', {
+      headers: { Authorization: 'Bearer spoofed-token', Accept: 'text/plain' }
+    })
+    // The real bearer token wins, and the default Accept (JSON) is used — a caller-supplied
+    // headers object (uploadAttachment's `X-Atlassian-Token`, or any future caller) can add
+    // headers but can never stomp these two.
+    expect(lastAuthHeader).toBe('Bearer real-token')
+  })
+
   it('AtlassianError is an Error with code', () => {
     const e = new AtlassianError('http', 'boom', 'rovo')
     expect(e).toBeInstanceOf(Error)

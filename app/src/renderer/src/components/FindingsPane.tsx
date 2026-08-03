@@ -41,6 +41,7 @@ export function FindingsPane({
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [worktreeHead, setWorktreeHead] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
+  const [rcaBump, setRcaBump] = useState(0)
   const showSkeleton = usePendingDisplay(!loaded)
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -79,7 +80,19 @@ export function FindingsPane({
     // recorded head_sha against this one shared value. Deliberately NOT part of `loaded`:
     // it drives a staleness badge and must not hold the whole pane.
     void window.argus.review.worktreeHead(slug).then(setWorktreeHead)
-  }, [slug, sessionId, bump])
+  }, [slug, sessionId, bump, rcaBump])
+
+  // `RcaJobs.confirm` writes role assignments straight to the DB (findings.ts's
+  // applyReportRoles), which no `bump` (agentStore's findingsBump, fired only for
+  // agent-emitted findings) ever observes — without this, role chips/pinning only appear
+  // after a manual refetch (switching mode, remounting the pane). Same subscribe/bump
+  // pattern as `agentStore` above, scoped to this pane's own slug.
+  useEffect(() => {
+    const unsub = window.argus.rca.onRcaChanged((p) => {
+      if (p.caseSlug === slug) setRcaBump((n) => n + 1)
+    })
+    return unsub
+  }, [slug])
 
   // Toggle semantics: clicking the active thumb returns the finding to pending.
   async function setReview(id: number, next: 'accepted' | 'rejected'): Promise<void> {

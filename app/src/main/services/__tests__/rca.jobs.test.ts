@@ -237,6 +237,116 @@ describe('RcaJobs', () => {
     expect(jobs.statusFor('case-g').job!.state).toBe('done')
   })
 
+  it('generate throws for an unknown case slug, before reading any prior draft', () => {
+    let readAttempted = false
+    const { jobs } = mkJobs({
+      assembleInput: (slug, prior) => {
+        readAttempted = true
+        return {
+          ...MINIMAL_INPUT,
+          caseMeta: { ...MINIMAL_INPUT.caseMeta, slug },
+          priorDraft: prior
+        }
+      }
+    })
+    expect(() => jobs.generate('does-not-exist')).toThrow(/Unknown case/)
+    // assembleInput is only reached after readPriorDraft — proves the existence check runs
+    // first, before any file (or prior-draft snapshot) read.
+    expect(readAttempted).toBe(false)
+  })
+
+  it('statusFor returns the CONFIRMED (edited) structure, not the raw model draft, once confirmed', async () => {
+    createCase(db, home, { slug: 'case-i', title: 'Case I' })
+    const caseId = getCase(db, 'case-i')!.id
+    const findingId = insertFinding(caseId, 'root cause finding')
+
+    const rawDraft = validDraft(findingId)
+    rawDraft.rootCause.statement = 'raw model statement'
+    const { jobs } = mkJobs({ run: async () => '```json\n' + JSON.stringify(rawDraft) + '\n```' })
+    const job = jobs.generate('case-i')
+    await jobs.idle()
+
+    const edited = validDraft(findingId)
+    edited.rootCause.statement = 'human-edited statement'
+    jobs.confirm('case-i', job.id, [{ findingId, role: 'root-cause' }], edited)
+
+    const st = jobs.statusFor('case-i')
+    expect(st.draft!.rootCause.statement).toBe('human-edited statement')
+  })
+
+  it('statusFor falls back to the raw-output parse when a confirmed job has no structure file', async () => {
+    createCase(db, home, { slug: 'case-i2', title: 'Case I2' })
+    const rawDraft = validDraft()
+    rawDraft.rootCause.statement = 'raw model statement, structure file missing'
+    const { jobs } = mkJobs({ run: async () => '```json\n' + JSON.stringify(rawDraft) + '\n```' })
+    const job = jobs.generate('case-i2')
+    await jobs.idle()
+    // Confirm the row directly (bypassing jobs.confirm's own file writes) to simulate a
+    // confirmed_at flag with no rca-structure.json on disk.
+    db.prepare(`UPDATE rca_jobs SET confirmed_at = ? WHERE id = ?`).run(
+      new Date().toISOString(),
+      job.id
+    )
+    const st = jobs.statusFor('case-i2')
+    expect(st.draft!.rootCause.statement).toBe('raw model statement, structure file missing')
+  })
+
+  it('statusFor never throws even when the confirmed structure file is corrupted JSON', async () => {
+    createCase(db, home, { slug: 'case-i3', title: 'Case I3' })
+    const { jobs } = mkJobs({
+      run: async () => '```json\n' + JSON.stringify(validDraft()) + '\n```'
+    })
+    const job = jobs.generate('case-i3')
+    await jobs.idle()
+    db.prepare(`UPDATE rca_jobs SET confirmed_at = ? WHERE id = ?`).run(
+      new Date().toISOString(),
+      job.id
+    )
+    const dir = artifactsDir(home, 'case-i3')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'rca-structure.json'), '{ not valid json')
+    expect(() => jobs.statusFor('case-i3')).not.toThrow()
+    // Corrupt structure file + intact raw_output → falls back to the raw parse rather than null.
+    expect(jobs.statusFor('case-i3').draft).not.toBeNull()
+  })
+
+  it('confirm rejects a malformed edited draft before applying roles or writing artifacts', async () => {
+    createCase(db, home, { slug: 'case-l', title: 'Case L' })
+    const caseId = getCase(db, 'case-l')!.id
+    const findingId = insertFinding(caseId, 'root cause finding')
+    const { jobs } = mkJobs({
+      run: async () => '```json\n' + JSON.stringify(validDraft(findingId)) + '\n```'
+    })
+    const job = jobs.generate('case-l')
+    await jobs.idle()
+
+    const malformed = validDraft(findingId)
+    malformed.rootCause.statement = '' // draftSchema requires .min(1)
+    expect(() =>
+      jobs.confirm('case-l', job.id, [{ findingId, role: 'root-cause' }], malformed)
+    ).toThrow()
+
+    const dir = artifactsDir(home, 'case-l')
+    expect(fs.existsSync(path.join(dir, 'rca-structure.json'))).toBe(false)
+    const finding = db.prepare(`SELECT role FROM findings WHERE id = ?`).get(findingId) as {
+      role: string | null
+    }
+    expect(finding.role).toBeNull()
+  })
+
+  it('confirm rejects an empty techNarrative heading', async () => {
+    createCase(db, home, { slug: 'case-m', title: 'Case M' })
+    const { jobs } = mkJobs({
+      run: async () => '```json\n' + JSON.stringify(validDraft()) + '\n```'
+    })
+    const job = jobs.generate('case-m')
+    await jobs.idle()
+
+    const malformed = validDraft()
+    malformed.techNarrative = [{ heading: '', body: 'body text', citations: [] }]
+    expect(() => jobs.confirm('case-m', job.id, [], malformed)).toThrow()
+  })
+
   it('records RcaParseError as the failure reason', async () => {
     createCase(db, home, { slug: 'case-h', title: 'Case H' })
     const { jobs } = mkJobs({
