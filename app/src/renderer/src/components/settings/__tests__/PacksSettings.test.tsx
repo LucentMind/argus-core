@@ -95,7 +95,8 @@ function mockPacks(
       version: '2.0.0',
       platform: 'win-x64',
       apiCompatible: true,
-      platformCompatible: true
+      platformCompatible: true,
+      dependencies: []
     }),
     install: vi.fn().mockResolvedValue({
       ok: true,
@@ -167,7 +168,8 @@ describe('PacksSettings', () => {
       version: '2.0.0',
       platform: 'mac-arm64',
       apiCompatible: true,
-      platformCompatible: false
+      platformCompatible: false,
+      dependencies: []
     })
     render(<PacksSettings settings={settingsPayload()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
@@ -181,7 +183,8 @@ describe('PacksSettings', () => {
       version: '0.9.0',
       platform: 'win-x64',
       apiCompatible: true,
-      platformCompatible: true
+      platformCompatible: true,
+      dependencies: []
     })
     vi.mocked(confirm).mockResolvedValue(false)
     render(<PacksSettings settings={settingsPayload()} />)
@@ -196,7 +199,8 @@ describe('PacksSettings', () => {
       version: '1.0.0',
       platform: 'win-x64',
       apiCompatible: true,
-      platformCompatible: true
+      platformCompatible: true,
+      dependencies: []
     })
     vi.mocked(confirm).mockResolvedValue(false)
     render(<PacksSettings settings={settingsPayload()} />)
@@ -228,7 +232,8 @@ describe('PacksSettings', () => {
       version: '2024.2',
       platform: 'win-x64',
       apiCompatible: true,
-      platformCompatible: true
+      platformCompatible: true,
+      dependencies: []
     })
     vi.mocked(confirm).mockResolvedValue(true)
     render(<PacksSettings settings={settingsPayload()} />)
@@ -237,6 +242,72 @@ describe('PacksSettings', () => {
     await waitFor(() =>
       expect(packs.install).toHaveBeenCalledWith('C:/dl/navigation-2.0.0-win-x64.zip')
     )
+  })
+
+  describe('bundle dependencies', () => {
+    /** An inspect fake for a bundle needing `common` ^0.1.0 (present) and `extras` ^2.0.0 (not). */
+    function inspectWithDeps(): ReturnType<typeof vi.fn> {
+      return vi.fn().mockResolvedValue({
+        id: 'navigation',
+        version: '2.0.0',
+        platform: 'win-x64',
+        apiCompatible: true,
+        platformCompatible: true,
+        dependencies: [
+          {
+            id: 'common',
+            range: '^0.1.0',
+            installedVersion: '0.1.2',
+            satisfied: true,
+            detail: ''
+          },
+          {
+            id: 'extras',
+            range: '^2.0.0',
+            installedVersion: null,
+            satisfied: false,
+            detail: "requires 'extras' ^2.0.0, which is not installed"
+          }
+        ]
+      })
+    }
+
+    it('lists each declared dependency with its satisfaction status before installing', async () => {
+      packs.inspect = inspectWithDeps()
+      render(<PacksSettings settings={settingsPayload()} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+
+      expect(await screen.findByText('Requirements · navigation 2.0.0')).toBeInTheDocument()
+      expect(screen.getByText('common')).toBeInTheDocument()
+      expect(screen.getByText('requires ^0.1.0')).toBeInTheDocument()
+      expect(screen.getByText('satisfied · 0.1.2')).toBeInTheDocument()
+      expect(screen.getByText('extras')).toBeInTheDocument()
+      expect(screen.getByText('requires ^2.0.0')).toBeInTheDocument()
+      expect(screen.getByText('not installed')).toBeInTheDocument()
+    })
+
+    it('refuses to install while a dependency is unsatisfied, naming what to install first', async () => {
+      packs.inspect = inspectWithDeps()
+      render(<PacksSettings settings={settingsPayload()} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('extras ^2.0.0')
+      expect(packs.install).not.toHaveBeenCalled()
+    })
+
+    it("renders Core's dependency refusal verbatim rather than a generic install failure", async () => {
+      packs.install = vi.fn().mockResolvedValue({
+        ok: false,
+        code: 'dependency',
+        error: "pack 'navigation' requires 'common' ^0.1.0, which is not installed"
+      })
+      render(<PacksSettings settings={settingsPayload()} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent("requires 'common' ^0.1.0, which is not installed")
+      expect(alert).not.toHaveTextContent(/install failed/i)
+    })
   })
 
   it('uninstall confirms then calls uninstall and prompts relaunch', async () => {
