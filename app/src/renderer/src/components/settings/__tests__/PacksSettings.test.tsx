@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { PacksSettings } from '../PacksSettings'
@@ -107,6 +108,14 @@ function mockPacks(
     onChanged: vi.fn().mockReturnValue(() => {}),
     checkUpdates: vi.fn().mockResolvedValue({}),
     applyUpdate: vi.fn().mockResolvedValue({ phase: 'idle' }),
+    inspectRepo: vi.fn().mockResolvedValue({ ok: true, packs: [] }),
+    installFromRepo: vi.fn().mockResolvedValue({
+      ok: true,
+      id: 'sample',
+      version: '1.0.0',
+      previousVersion: null,
+      relaunchRequired: true
+    }),
     ...over
   }
 }
@@ -446,5 +455,65 @@ describe('PacksSettings', () => {
     await waitFor(() => {
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
+  })
+
+  it('finds the packs a repo publishes and installs the chosen one', async () => {
+    const user = userEvent.setup()
+    packs.list = vi.fn().mockResolvedValue({ error: null, packs: [] })
+    packs.inspectRepo = vi.fn().mockResolvedValue({
+      ok: true,
+      packs: [
+        { id: 'sample-bridge-playground', version: '0.1.0', tag: 'v0.1.0', installable: true },
+        {
+          id: 'sample-external-app',
+          version: '0.1.0',
+          tag: 'v0.1.0',
+          installable: false,
+          reason: "It isn't compatible with this version of Argus."
+        }
+      ]
+    })
+    packs.installFromRepo = vi.fn().mockResolvedValue({
+      ok: true,
+      id: 'sample-bridge-playground',
+      version: '0.1.0',
+      previousVersion: null,
+      relaunchRequired: true
+    })
+
+    render(<PacksSettings settings={settingsPayload([])} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Install from GitHub' }))
+    await user.type(screen.getByLabelText('GitHub repository'), 'LucentMind/demo_pack')
+    await user.click(screen.getByRole('button', { name: 'Find packs' }))
+
+    expect(await screen.findByText('sample-bridge-playground')).toBeInTheDocument()
+    // An incompatible pack is SHOWN with its reason, never silently omitted.
+    expect(screen.getByText(/isn't compatible/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Install sample-external-app' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Install sample-bridge-playground' }))
+    expect(packs.installFromRepo).toHaveBeenCalledWith(
+      'LucentMind/demo_pack',
+      'sample-bridge-playground'
+    )
+    expect(await screen.findByText(/Relaunch Argus/)).toBeInTheDocument()
+  })
+
+  it('shows the error a failed repo lookup returns', async () => {
+    const user = userEvent.setup()
+    packs.list = vi.fn().mockResolvedValue({ error: null, packs: [] })
+    packs.inspectRepo = vi.fn().mockResolvedValue({
+      ok: false,
+      error: 'the GitHub CLI is not authenticated'
+    })
+
+    render(<PacksSettings settings={settingsPayload([])} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Install from GitHub' }))
+    await user.type(screen.getByLabelText('GitHub repository'), 'acme/private-pack')
+    await user.click(screen.getByRole('button', { name: 'Find packs' }))
+
+    expect(await screen.findByText(/not authenticated/)).toBeInTheDocument()
   })
 })

@@ -4,7 +4,7 @@ import { SettingsSection, SettingRow, DisclosureBtn } from './settingsLayout'
 import { Btn, Chip } from '../ui'
 import { confirm } from '../../lib/confirmStore'
 import { ToolRow, useToolProbes } from './ToolRow'
-import type { PacksListPayload, InstalledPackRow } from '../../../../shared/packs'
+import type { PacksListPayload, InstalledPackRow, RepoPackRow } from '../../../../shared/packs'
 import type { SettingsPayload } from '../../../../shared/settings'
 import { describeUpdate } from '../../../../shared/updates'
 
@@ -117,6 +117,9 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [needsRelaunch, setNeedsRelaunch] = useState(false)
+  const [repoOpen, setRepoOpen] = useState(false)
+  const [repoRef, setRepoRef] = useState('')
+  const [repoPacks, setRepoPacks] = useState<RepoPackRow[] | null>(null)
 
   const refresh = useCallback(async () => {
     setPayload(await window.argus.packs.list())
@@ -240,6 +243,50 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
     }
   }
 
+  async function findRepoPacks(): Promise<void> {
+    if (busy) return
+    setError(null)
+    setRepoPacks(null)
+    setBusy(true)
+    try {
+      const res = await window.argus.packs.inspectRepo(repoRef)
+      if (!res.ok) {
+        setError(res.error)
+        return
+      }
+      if (res.packs.length === 0) {
+        setError('That repository publishes no Argus packs in its latest release.')
+        return
+      }
+      setRepoPacks(res.packs)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function installFromRepo(packId: string): Promise<void> {
+    if (busy) return
+    setError(null)
+    setBusy(true)
+    try {
+      const res = await window.argus.packs.installFromRepo(repoRef, packId)
+      if (!res.ok) {
+        setError(installErrorMessage(res.code, res.error))
+        return
+      }
+      setNeedsRelaunch(true)
+      setRepoOpen(false)
+      setRepoPacks(null)
+      await refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (!payload) return <div className="text-dim">loading…</div>
 
   return (
@@ -293,6 +340,37 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
           />
         ))}
       </SettingsSection>
+      {repoOpen && (
+        <div className="flex flex-col gap-2 rounded border border-line p-3">
+          <div className="flex items-center gap-2">
+            <input
+              aria-label="GitHub repository"
+              className="flex-1 rounded border border-line bg-transparent px-2 py-1 text-xs"
+              placeholder="owner/repo"
+              value={repoRef}
+              onChange={(e) => setRepoRef(e.target.value)}
+            />
+            <Btn disabled={busy || repoRef.trim() === ''} onClick={() => void findRepoPacks()}>
+              Find packs
+            </Btn>
+          </div>
+          {repoPacks?.map((p) => (
+            <div key={p.id} className="flex items-center gap-2 text-xs">
+              <span className="flex-1">
+                {p.id} <Chip tone="neutral">{p.version}</Chip>
+                {p.reason && <span className="text-dim"> — {p.reason}</span>}
+              </span>
+              <Btn
+                aria-label={`Install ${p.id}`}
+                disabled={busy || !p.installable}
+                onClick={() => void installFromRepo(p.id)}
+              >
+                Install
+              </Btn>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <Btn
           variant="primary"
@@ -301,6 +379,13 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
           onClick={() => void install()}
         >
           Install from file…
+        </Btn>
+        <Btn
+          aria-label="Install from GitHub"
+          disabled={busy}
+          onClick={() => setRepoOpen((v) => !v)}
+        >
+          Install from GitHub…
         </Btn>
         <Btn disabled={running} onClick={runChecks}>
           {running ? 'Checking…' : 'Re-run checks'}
