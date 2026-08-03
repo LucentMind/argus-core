@@ -11,6 +11,7 @@ import {
   Inbox,
   Braces,
   Activity,
+  DatabaseZap,
   type LucideIcon
 } from 'lucide-react'
 
@@ -78,8 +79,16 @@ export const PAGES = [
     group: 'Knowledge',
     enabled: true,
     Icon: CloudSync,
+    blurb: 'Skills and references your team shares — install, update, or connect them.'
+  },
+  {
+    id: 'defectCorpus',
+    label: 'Defect corpus',
+    group: 'Knowledge',
+    enabled: true,
+    Icon: DatabaseZap,
     blurb:
-      'Skills, references, and defect corpora your team shares — install, update, or connect them.'
+      'External defect corpora your team shares — connect them, and manage what each one ingests.'
   },
   {
     id: 'sources',

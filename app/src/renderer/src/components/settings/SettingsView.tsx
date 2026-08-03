@@ -224,12 +224,8 @@ export function SettingsView({
               onReviewProposals={openProposals}
             />
           )}
-          {payload && page === 'team' && (
-            <>
-              <HivemindSettings payload={payload} />
-              <DefectCorpusSettings payload={payload} />
-            </>
-          )}
+          {payload && page === 'team' && <HivemindSettings payload={payload} />}
+          {payload && page === 'defectCorpus' && <DefectCorpusSettings payload={payload} />}
           {payload && page === 'sources' && <SourcesPage settings={payload} />}
           {page === 'memory' && <MemorySettings onReviewProposals={openProposals} />}
           {payload && page === 'observability' && <ObservabilitySettings payload={payload} />}

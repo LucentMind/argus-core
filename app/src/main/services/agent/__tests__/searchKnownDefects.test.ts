@@ -168,7 +168,7 @@ describe('search_known_defects', () => {
     })
     const text = String(await handlers.search_known_defects({ query: 'q' }))
     expect(text).toBe(
-      'No defect-corpus sources are configured. The user can add one under Settings → Team.'
+      'No defect-corpus sources are configured. The user can add one under Settings → Defect corpus.'
     )
   })
 
@@ -186,7 +186,7 @@ describe('search_known_defects', () => {
     })
     const text = String(await handlers.search_known_defects({ query: 'q' }))
     expect(text).toBe(
-      'No defect-corpus sources are configured. The user can add one under Settings → Team.'
+      'No defect-corpus sources are configured. The user can add one under Settings → Defect corpus.'
     )
   })
 

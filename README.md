@@ -94,7 +94,7 @@ See [docs/authoring-packs.md](docs/authoring-packs.md) for the pack contract, an
 
 Argus can consume external **Defect Corpus** services — read-only HTTP APIs that serve a
 team's distilled history of past defects — as another input to triage, alongside evidence
-and memory. Sources are configured per team, on Settings → Team, each as a base URL plus a
+and memory. Sources are configured per team, on Settings → Defect corpus, each as a base URL plus a
 bearer token; the token lives in the OS secret store, never in the settings file and never
 crossing IPC as plaintext. A match surfaces in three places: the case-open workbench's
 "Known defects" card, the agent's own `search_known_defects` tool (a plain read, so it runs

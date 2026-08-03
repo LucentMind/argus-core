@@ -203,7 +203,7 @@ beforeEach(() => {
 afterEach(() => __resetEscapeLayersForTest())
 
 describe('SettingsView', () => {
-  it('renders the rail: 9 active pages, 0 coming-soon entries', async () => {
+  it('renders the rail: 10 active pages, 0 coming-soon entries', async () => {
     render(<SettingsView onClose={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     for (const label of [
@@ -214,6 +214,7 @@ describe('SettingsView', () => {
       'Connectors',
       'Library',
       'Team',
+      'Defect corpus',
       'Memory',
       'Observability'
     ])
@@ -234,6 +235,7 @@ describe('SettingsView', () => {
       'Library',
       'Memory',
       'Team',
+      'Defect corpus',
       'Sources',
       'Health',
       'Diagnostics',
@@ -246,6 +248,24 @@ describe('SettingsView', () => {
     render(<SettingsView onClose={() => {}} />)
     const nav = screen.getByRole('navigation', { name: 'Settings sections' })
     for (const g of ['App', 'Knowledge', 'System']) expect(nav).toHaveTextContent(g)
+  })
+
+  it('sidebar lists Defect corpus under the Knowledge group, beside Team', () => {
+    render(<SettingsView onClose={() => {}} />)
+    const nav = screen.getByRole('navigation', { name: 'Settings sections' })
+    // Walk the nav's direct children in order, tracking the most recent group heading seen —
+    // a heading only renders when the group changes (see SettingsView's Fragment map), so the
+    // last one seen before the Defect corpus button is the group it actually belongs to.
+    let currentGroup = ''
+    let defectCorpusGroup = ''
+    for (const el of Array.from(nav.children)) {
+      if (el.tagName === 'BUTTON') {
+        if (el.textContent?.trim() === 'Defect corpus') defectCorpusGroup = currentGroup
+      } else {
+        currentGroup = el.textContent?.trim() ?? currentGroup
+      }
+    }
+    expect(defectCorpusGroup).toBe('Knowledge')
   })
 
   it('falls back to General for an unrecognised initialPage', () => {
@@ -278,6 +298,22 @@ describe('SettingsView', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Sources$/ }))
     expect(await screen.findByText('Installed Packs')).toBeTruthy()
     expect(await screen.findByText('Navigation')).toBeTruthy()
+  })
+
+  it('Team renders HivemindSettings only — DefectCorpusSettings moved to its own page', async () => {
+    render(<SettingsView onClose={vi.fn()} />)
+    await screen.findByRole('button', { name: /General/ })
+    fireEvent.click(screen.getByRole('button', { name: /^Team$/ }))
+    expect(await screen.findByLabelText('HiveMind repo')).toBeInTheDocument()
+    expect(screen.queryByText('Defect corpus sources')).not.toBeInTheDocument()
+  })
+
+  it('clicking Defect corpus renders DefectCorpusSettings, not HivemindSettings', async () => {
+    render(<SettingsView onClose={vi.fn()} />)
+    await screen.findByRole('button', { name: /General/ })
+    fireEvent.click(screen.getByRole('button', { name: /^Defect corpus$/ }))
+    expect(await screen.findByText('Defect corpus sources')).toBeInTheDocument()
+    expect(screen.queryByLabelText('HiveMind repo')).not.toBeInTheDocument()
   })
 
   it('Escape calls onClose', async () => {

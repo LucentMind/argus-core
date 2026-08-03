@@ -121,7 +121,7 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
   },
   'search_known_defects.no-sources': {
     title: 'search_known_defects — no sources configured',
-    text: 'No defect-corpus sources are configured. The user can add one under Settings → Team.'
+    text: 'No defect-corpus sources are configured. The user can add one under Settings → Defect corpus.'
   },
   'search_known_defects.empty': {
     title: 'search_known_defects — no matches',

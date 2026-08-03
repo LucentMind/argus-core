@@ -276,11 +276,11 @@ function SourceCard({ id, cfg }: { id: string; cfg: DefectCorpusSourceCfg }): Re
 }
 
 /**
- * Team page section for the defect corpora this workspace searches against (Task 8) — the same
- * "shared upstream" idea as the HiveMind repo and Confluence spaces above it, but for ticket
- * history instead of skills/references. Sources live in `settings.defectCorpus.sources`
- * (Task 1); their API tokens never do — those go through `window.argus.secrets` only, exactly
- * like every other credential in Settings.
+ * Its own settings page (moved off Team, corpus-admin-editor Task 4) for the defect corpora this
+ * workspace searches against (Task 8) — the same "shared upstream" idea as the HiveMind repo and
+ * Confluence spaces on the Team page, but for ticket history instead of skills/references.
+ * Sources live in `settings.defectCorpus.sources` (Task 1); their API tokens never do — those go
+ * through `window.argus.secrets` only, exactly like every other credential in Settings.
  */
 export function DefectCorpusSettings({ payload }: { payload: SettingsPayload }): React.JSX.Element {
   const sources = payload.settings.defectCorpus.sources
