@@ -7,6 +7,7 @@ import { ZodError } from 'zod'
 import { packFeedSchema, selectUpdate, type FeedEntry } from './feed'
 import { findGithubUpdate, RepoMovedError, type GithubCandidate } from './githubFeed'
 import { GhError, type GhClient } from './ghClient'
+import { parseGhRef, sameGhRef } from './githubRef'
 import {
   isGithubSource,
   type PacksStateStore,
@@ -237,7 +238,12 @@ type Selection =
   | { entry: FeedEntry; download: { kind: 'url'; url: string } }
   | {
       entry: FeedEntry
-      download: { kind: 'gh'; pin: GithubPackSource; candidate: GithubCandidate }
+      download: {
+        kind: 'gh'
+        pin: GithubPackSource
+        candidate: GithubCandidate
+        manifestPath: string
+      }
     }
 
 export class PackUpdatesService {
@@ -385,10 +391,25 @@ export class PackUpdatesService {
         )
       }
 
+      // A github-pinned pack must stay pinned to the repo the bytes came from. Without this,
+      // installPack re-derives the pin from the new bundle's manifest: a manifest naming a feed
+      // would silently re-arm the feed path, and a manifest naming nothing at all would DELETE
+      // the pin, leaving the pack permanently unchecked with no UI signal.
+      // A manifest naming a DIFFERENT repo is still honoured — that is the documented way for a
+      // vendor to move a pack deliberately.
+      let pinOverride: PackSource | undefined
+      if (download.kind === 'gh') {
+        const declared = inspected.updateRepo ? parseGhRef(inspected.updateRepo) : null
+        pinOverride =
+          declared && !sameGhRef(declared, download.pin)
+            ? undefined
+            : { ...download.pin, manifestPath: download.manifestPath }
+      }
       const result = await this.install(zipPath, {
         argusHome: this.deps.argusHome,
         state: this.deps.state,
-        host: this.deps.host
+        host: this.deps.host,
+        pinOverride
       })
       if (!result.ok) throw new UpdateError('install', result.error)
       return { phase: 'ready', version: result.version }
@@ -503,7 +524,7 @@ export class PackUpdatesService {
     }
     return {
       entry: found.candidate.entry,
-      download: { kind: 'gh', pin, candidate: found.candidate }
+      download: { kind: 'gh', pin, candidate: found.candidate, manifestPath: found.manifestPath }
     }
   }
 

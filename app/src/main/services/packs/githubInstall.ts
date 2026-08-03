@@ -1,11 +1,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { z } from 'zod'
+import { z, ZodError } from 'zod'
 import { installPack, inspectBundleSource } from './install'
 import { isApiCompatible, platformMatchesHost } from './compat'
 import { listReleaseCandidates, findGithubUpdate, MAX_RELEASES } from './githubFeed'
+import { MAX_PACK_BUNDLE_BYTES } from './packUpdates'
 import { GhError, type GhClient } from './ghClient'
 import { parseGhRef, sameGhRef, type GhRef } from './githubRef'
+import { PACK_MANIFEST_FILE } from './manifest'
 import type { PacksStateStore } from './packsState'
 import type { InstallResult, RepoPackRow } from '../../../shared/packs'
 
@@ -50,8 +52,12 @@ export async function resolveCanonicalRef(gh: GhClient, ref: GhRef): Promise<GhR
  */
 export async function listRepoPacks(
   deps: { gh: GhClient; host?: { platform: string; arch: string } },
-  ref: GhRef
+  typedRef: GhRef
 ): Promise<RepoPackRow[]> {
+  // Resolve to the canonical name first, exactly as `installFromRepo` does — otherwise a renamed
+  // or transferred repo trips `listReleaseCandidates`'s identity check, which reports itself in
+  // terms of a PIN. Nothing is pinned yet here; the user is only discovering the repo.
+  const ref = await resolveCanonicalRef(deps.gh, typedRef)
   const raw = await deps.gh.api(
     ref,
     `repos/${ref.owner}/${ref.repo}/releases?per_page=${MAX_RELEASES}`
@@ -68,7 +74,11 @@ export async function listRepoPacks(
     .object({ tree: z.array(z.object({ path: z.string(), type: z.string() })) })
     .parse(treeRaw)
   const manifestPaths = tree.tree
-    .filter((n) => n.type === 'blob' && n.path.endsWith('argus-pack.json'))
+    .filter(
+      (n) =>
+        n.type === 'blob' &&
+        (n.path === PACK_MANIFEST_FILE || n.path.endsWith(`/${PACK_MANIFEST_FILE}`))
+    )
     .map((n) => n.path)
 
   const rows: RepoPackRow[] = []
@@ -139,13 +149,24 @@ export async function installFromRepo(
     // Pin what GitHub says the repo IS, not what the user typed — see `resolveCanonicalRef`.
     const ref = await resolveCanonicalRef(deps.gh, typedRef)
     const pin = { kind: 'github' as const, ...ref, installedAt: Date.now() }
-    const installed = deps.state.get(packId) ?? '0.0.0'
-    const found = await findGithubUpdate({ gh: deps.gh, host: deps.host }, pin, packId, installed)
+    // Always '0.0.0', never the actually-installed version: this is how a pack installed from a
+    // zip or a feed gets re-pointed at its repo — `listRepoPacks` has no notion of "installed" at
+    // all, so the newest platform-matching, API-compatible release must be selectable regardless
+    // of what (if anything) is already on disk.
+    const found = await findGithubUpdate({ gh: deps.gh, host: deps.host }, pin, packId, '0.0.0')
     if (!found) {
       return {
         ok: false,
-        code: 'manifest',
-        error: `'${packId}' has no release in ${ref.owner}/${ref.repo} that is newer than what is installed and runs on this machine`
+        code: 'io',
+        error: `'${packId}' has no release in ${ref.owner}/${ref.repo} that runs on this machine`
+      }
+    }
+
+    if (found.candidate.size > MAX_PACK_BUNDLE_BYTES) {
+      return {
+        ok: false,
+        code: 'io',
+        error: `the published asset is ${found.candidate.size} bytes, over the ${MAX_PACK_BUNDLE_BYTES} byte limit`
       }
     }
 
@@ -192,6 +213,16 @@ export async function installFromRepo(
     })
   } catch (err) {
     if (err instanceof GhError) return { ok: false, code: 'io', error: err.message }
+    // ZodError#message is a multi-line JSON blob — fine for a log, not a settings alert. The
+    // first issue's message is the useful, human-sized part of it (mirrors packUpdates.ts's
+    // findFeedUpdate).
+    if (err instanceof ZodError) {
+      return {
+        ok: false,
+        code: 'io',
+        error: err.issues[0]?.message ?? 'repository response did not match the expected shape'
+      }
+    }
     return { ok: false, code: 'io', error: (err as Error).message }
   } finally {
     if (tmp) {

@@ -2,6 +2,7 @@ import { app, shell, BrowserWindow, ipcMain, dialog, safeStorage, protocol } fro
 import fs from 'node:fs'
 import path, { join } from 'node:path'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
+import { ZodError } from 'zod'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/argus-icon.png?asset'
 import { IPC } from '../shared/ipc'
@@ -1013,8 +1014,14 @@ function registerIpc(): void {
       try {
         return { ok: true, packs: await listRepoPacks({ gh: nodeGhClient }, parsed) }
       } catch (err) {
-        // GhError already carries a user-facing sentence (missing gh, signed out, 404).
-        return { ok: false, error: (err as Error).message }
+        // GhError already carries a user-facing sentence (missing gh, signed out, 404). A
+        // ZodError's #message is a multi-line JSON blob — fine for a log, not a settings alert —
+        // so pull out the first issue's message the same way packUpdates.ts's findFeedUpdate does.
+        const message =
+          err instanceof ZodError
+            ? (err.issues[0]?.message ?? 'repository response did not match the expected shape')
+            : (err as Error).message
+        return { ok: false, error: message }
       }
     }
   )

@@ -96,7 +96,11 @@ function PackCard({
             <> — download it manually from your vendor and install it with Install from file.</>
           )}
           {pack.update?.phase === 'error' && pack.update.code === 'gh' && (
-            <> — check your GitHub CLI sign-in under Settings → Health, then try again.</>
+            <>
+              {' '}
+              — check your GitHub CLI sign-in under Settings → Health, and that the repository still
+              exists and is visible to your account.
+            </>
           )}
         </div>
       )}
@@ -342,11 +346,11 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
         ))}
       </SettingsSection>
       {repoOpen && (
-        <div className="flex flex-col gap-2 rounded border border-line p-3">
+        <div className="flex flex-col gap-2 rounded border border-hair p-3">
           <div className="flex items-center gap-2">
             <input
               aria-label="GitHub repository"
-              className="flex-1 rounded border border-line bg-transparent px-2 py-1 text-xs"
+              className="flex-1 rounded border border-hair bg-transparent px-2 py-1 text-xs"
               placeholder="owner/repo"
               value={repoRef}
               disabled={busy}

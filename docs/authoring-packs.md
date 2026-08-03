@@ -415,7 +415,10 @@ packs report it on their row; Settings → Health has the check.
 **What is pinned.** The first install records the repository, and every later check and download
 must come from it. If the repository is renamed or transferred, GitHub silently forwards the old
 name — Argus notices and refuses, exactly as it refuses a feed that moves to a new origin. Move
-deliberately by publishing a bundle whose manifest names the new repo.
+deliberately, *before* the rename, by publishing a bundle whose manifest names the new repo — once
+the rename has already happened, every check on the old pin refuses before any release is even
+read, so that bundle can never be delivered. If the rename has already happened, the recovery is
+to install again from the new repository via Settings → Packs → **Install from GitHub…**.
 
 **One difference from the feed path.** A feed download is capped mid-transfer; a release download
 is performed by `gh`, so Argus can only refuse an asset whose *published size* exceeds the limit

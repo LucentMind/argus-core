@@ -6,6 +6,7 @@ import crypto from 'node:crypto'
 import { Writable } from 'node:stream'
 import { createServer, type Server, type RequestListener } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { Zip } from 'zip-lib'
 import {
   PackUpdatesService,
   nodeHttpClient,
@@ -14,8 +15,9 @@ import {
   type HttpClient,
   type HttpResponse
 } from '../packUpdates'
-import { PacksStateStore } from '../packsState'
+import { PacksStateStore, type GithubPackSource } from '../packsState'
 import { GhError, type GhClient } from '../ghClient'
+import { describeHost } from '../compat'
 import type { InstallResult, InspectResult } from '../../../../shared/packs'
 
 const WIN = { platform: 'win32', arch: 'x64' }
@@ -687,6 +689,174 @@ describe('github-pinned packs', () => {
     await ghSvc(gh).checkAll()
     expect(state.getSource('sample')).toMatchObject({
       manifestPath: 'packs/sample/argus-pack.json'
+    })
+  })
+})
+
+/**
+ * Critical (whole-branch review): every test above injects a FAKE `install`, so the real
+ * `installPack` never runs and nothing here ever asserted the pin AFTER a github-pinned update.
+ * `installPack` re-derives the pin from the freshly installed bundle's OWN manifest unless told
+ * otherwise — for a github-pinned pack that means an update whose manifest names a feed would
+ * silently re-arm the feed path, and one that names nothing at all would DELETE the pin, leaving
+ * the pack permanently unchecked with no UI signal. These tests run the REAL `installPack` (no
+ * `install` override in the deps below) against a REAL bundle zip, built the way
+ * `install.test.ts`'s `makeBundleDir`/`zipOf` do, so the gap between `packUpdates.ts` and
+ * `install.ts` is actually closed rather than asserted only on the fake's call arguments.
+ */
+describe('github pin survives an update — real installPack (Critical)', () => {
+  const TAG = 'v1.1.0'
+  const ASSET = 'sample-1.1.0-win-x64.zip'
+  const REPO = { host: 'github.com', owner: 'LucentMind', repo: 'demo_pack' }
+  const GH_PIN: GithubPackSource = {
+    kind: 'github',
+    ...REPO,
+    manifestPath: 'packs/sample/argus-pack.json',
+    installedAt: 0
+  }
+
+  beforeEach(() => {
+    state.setSource('sample', GH_PIN)
+  })
+
+  /** A staged bundle DIR (manifest + valid CHECKSUMS) — mirrors install.test.ts's makeBundleDir,
+   *  minus the extras this test doesn't need. */
+  function makeBundleDir(over: Record<string, unknown> = {}): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-pu-bundle-'))
+    const manifest = {
+      id: 'sample',
+      displayName: 'Sample',
+      version: '1.1.0',
+      argusApi: '^1',
+      platform: describeHost(WIN),
+      ...over
+    }
+    fs.writeFileSync(path.join(dir, 'argus-pack.json'), JSON.stringify(manifest, null, 2) + '\n')
+    const sum = crypto
+      .createHash('sha256')
+      .update(fs.readFileSync(path.join(dir, 'argus-pack.json')))
+      .digest('hex')
+    fs.writeFileSync(path.join(dir, 'CHECKSUMS'), `${sum}  argus-pack.json\n`)
+    return dir
+  }
+
+  /** Mirrors install.test.ts's zipOf, minus the multi-file walk this test doesn't need. */
+  async function zipOf(dir: string): Promise<string> {
+    const zip = new Zip()
+    zip.addFile(path.join(dir, 'argus-pack.json'), 'argus-pack.json')
+    zip.addFile(path.join(dir, 'CHECKSUMS'), 'CHECKSUMS')
+    const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-pu-zip-')), 'sample.zip')
+    await zip.archive(out)
+    return out
+  }
+
+  /** A `GhClient` whose `downloadAsset` writes a REAL bundle zip (built above) to `destPath`,
+   *  rather than an opaque buffer — the point of this describe block is to run the real
+   *  `inspectBundleSource`/`installPack` against real bytes. */
+  function ghClientForBundle(zipPath: string, sha256: string): GhClient {
+    return {
+      api: async (_ref, p) => {
+        if (p.startsWith(`repos/${REPO.owner}/${REPO.repo}/releases`)) {
+          return [
+            {
+              tag_name: TAG,
+              draft: false,
+              prerelease: false,
+              html_url: `https://github.com/${REPO.owner}/${REPO.repo}/releases/tag/${TAG}`,
+              assets: [
+                {
+                  name: ASSET,
+                  size: fs.statSync(zipPath).size,
+                  digest: `sha256:${sha256}`,
+                  browser_download_url: `https://github.com/${REPO.owner}/${REPO.repo}/releases/download/${TAG}/${ASSET}`
+                }
+              ]
+            }
+          ]
+        }
+        if (p.startsWith(`repos/${REPO.owner}/${REPO.repo}/git/trees`)) {
+          return { tree: [{ path: 'packs/sample/argus-pack.json', type: 'blob' }] }
+        }
+        if (p.startsWith(`repos/${REPO.owner}/${REPO.repo}/contents`)) {
+          // Only `id`/`argusApi` are read from this endpoint (readPackManifest's
+          // partialManifestSchema) — the bundle's OWN manifest (read after download, from inside
+          // the zip) is what actually carries updateRepo/updateUrl for this test.
+          return {
+            content: Buffer.from(
+              JSON.stringify({ id: 'sample', version: '1.1.0', argusApi: '^1' })
+            ).toString('base64')
+          }
+        }
+        throw new GhError('notfound', p)
+      },
+      downloadAsset: async (_ref, _tag, _name, dest) => {
+        fs.copyFileSync(zipPath, dest)
+        return { sha256, bytesWritten: fs.statSync(zipPath).size }
+      }
+    }
+  }
+
+  function neverHttp(): HttpClient {
+    return {
+      get: async (url) => {
+        throw new Error(`unexpected feed fetch: ${url}`)
+      },
+      getToFile: async (url) => {
+        throw new Error(`unexpected download: ${url}`)
+      }
+    }
+  }
+
+  /** Builds a real bundle whose manifest carries `over`, applies the update with the REAL
+   *  `installPack`/`inspectBundleSource` (neither is overridden below), and returns the
+   *  resulting `UpdateStatus`. */
+  async function applyRealUpdate(over: Record<string, unknown>): Promise<unknown> {
+    const dir = makeBundleDir(over)
+    const zipPath = await zipOf(dir)
+    const sha256 = crypto.createHash('sha256').update(fs.readFileSync(zipPath)).digest('hex')
+    const gh = ghClientForBundle(zipPath, sha256)
+    const service = new PackUpdatesService({
+      argusHome: home,
+      state,
+      http: neverHttp(),
+      gh,
+      host: WIN,
+      now: () => 1000
+      // Deliberately no `install`/`inspectBundleSource` override — this is the whole point.
+    })
+    return service.apply('sample')
+  }
+
+  it('stays pinned to the same repo when the updated manifest names it via updateRepo, and keeps manifestPath', async () => {
+    const status = await applyRealUpdate({ updateRepo: 'LucentMind/demo_pack' })
+    expect(status).toEqual({ phase: 'ready', version: '1.1.0' })
+    expect(state.getSource('sample')).toMatchObject({
+      kind: 'github',
+      ...REPO,
+      manifestPath: 'packs/sample/argus-pack.json'
+    })
+  })
+
+  it('stays pinned to github — does NOT become a feed pin — when the updated manifest declares updateUrl', async () => {
+    const status = await applyRealUpdate({ updateUrl: 'https://vendor.example/feed.json' })
+    expect(status).toEqual({ phase: 'ready', version: '1.1.0' })
+    expect(state.getSource('sample')).toMatchObject({ kind: 'github', ...REPO })
+  })
+
+  it('stays pinned to github — is NOT deleted — when the updated manifest declares no update source at all', async () => {
+    const status = await applyRealUpdate({})
+    expect(status).toEqual({ phase: 'ready', version: '1.1.0' })
+    expect(state.getSource('sample')).toMatchObject({ kind: 'github', ...REPO })
+  })
+
+  it('the documented escape hatch: re-pins to a DIFFERENT repo the updated manifest deliberately names', async () => {
+    const status = await applyRealUpdate({ updateRepo: 'OtherOrg/other_repo' })
+    expect(status).toEqual({ phase: 'ready', version: '1.1.0' })
+    expect(state.getSource('sample')).toMatchObject({
+      kind: 'github',
+      host: 'github.com',
+      owner: 'OtherOrg',
+      repo: 'other_repo'
     })
   })
 })
