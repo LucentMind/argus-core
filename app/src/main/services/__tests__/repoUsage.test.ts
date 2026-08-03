@@ -16,7 +16,8 @@ import {
   shouldSuggestDefault,
   repoKey,
   assertRepoPath,
-  PROMOTE_THRESHOLD
+  PROMOTE_THRESHOLD,
+  RECENT_REACHABILITY_TIMEOUT_MS
 } from '../repoUsage'
 
 let tmp: string, db: DatabaseSync
@@ -66,32 +67,32 @@ describe('caseCount', () => {
 })
 
 describe('listRecent', () => {
-  it('orders by most recent link and reports the basename', () => {
+  it('orders by most recent link and reports the basename', async () => {
     recordLink(db, A, 'C-1', at(0))
     recordLink(db, B, 'C-1', at(1))
     recordLink(db, A, 'C-2', at(2))
-    expect(listRecent(db, 10, always)).toEqual([
+    expect(await listRecent(db, 10, always)).toEqual([
       { path: repoKey(A), name: 'alpha' },
       { path: repoKey(B), name: 'beta' }
     ])
   })
 
-  it('omits paths that no longer exist without deleting their rows', () => {
+  it('omits paths that no longer exist without deleting their rows', async () => {
     recordLink(db, A, 'C-1', at(0))
     recordLink(db, B, 'C-1', at(1))
     const onlyB = (p: string): boolean => p === repoKey(B)
-    expect(listRecent(db, 10, onlyB)).toEqual([{ path: repoKey(B), name: 'beta' }])
+    expect(await listRecent(db, 10, onlyB)).toEqual([{ path: repoKey(B), name: 'beta' }])
     // the row survives, so the repo returns when its drive does
-    expect(listRecent(db, 10, always).map((r) => r.name)).toContain('alpha')
+    expect((await listRecent(db, 10, always)).map((r) => r.name)).toContain('alpha')
   })
 
-  it('honours the limit', () => {
+  it('honours the limit', async () => {
     recordLink(db, A, 'C-1', at(0))
     recordLink(db, B, 'C-1', at(1))
-    expect(listRecent(db, 1, always)).toEqual([{ path: repoKey(B), name: 'beta' }])
+    expect(await listRecent(db, 1, always)).toEqual([{ path: repoKey(B), name: 'beta' }])
   })
 
-  it('backfills from older reachable repos when the most-recent ones are unreachable', () => {
+  it('backfills from older reachable repos when the most-recent ones are unreachable', async () => {
     // D and C are the two most-recently-linked repos, but both sit on a disconnected drive.
     // The SQL LIMIT must not discard A and B before the existence filter runs, or a repo on a
     // disconnected drive would shrink the list instead of just yielding its slot.
@@ -101,12 +102,52 @@ describe('listRecent', () => {
     recordLink(db, B, 'C-1', at(1))
     recordLink(db, C, 'C-1', at(2))
     recordLink(db, D, 'C-1', at(3))
-    const reachable = new Set([repoKey(A), repoKey(B)])
-    const onlyOlderTwo = (p: string): boolean => reachable.has(p)
-    expect(listRecent(db, 2, onlyOlderTwo)).toEqual([
+    const reachableSet = new Set([repoKey(A), repoKey(B)])
+    const onlyOlderTwo = (p: string): boolean => reachableSet.has(p)
+    expect(await listRecent(db, 2, onlyOlderTwo)).toEqual([
       { path: repoKey(B), name: 'beta' },
       { path: repoKey(A), name: 'alpha' }
     ])
+  })
+
+  it('checks candidates concurrently and asynchronously, not blocking on each in turn', async () => {
+    // A synchronous predicate that never returns would have hung the old implementation, and a
+    // sequential-await implementation would take num-candidates * per-call time. Both candidates
+    // here resolve via a real microtask/timer, and the call still finishes promptly — proof the
+    // checks run concurrently rather than being awaited one at a time.
+    recordLink(db, A, 'C-1', at(0))
+    recordLink(db, B, 'C-1', at(1))
+    const asyncAlways = (): Promise<boolean> =>
+      new Promise((resolve) => setTimeout(() => resolve(true), 5))
+    const start = Date.now()
+    expect(await listRecent(db, 10, asyncAlways)).toEqual([
+      { path: repoKey(B), name: 'beta' },
+      { path: repoKey(A), name: 'alpha' }
+    ])
+    // Sequential would be >=10ms (2 * 5ms); generous slack for CI jitter.
+    expect(Date.now() - start).toBeLessThan(200)
+  })
+
+  it(
+    'treats a predicate that never settles as unreachable once the timeout elapses, without deleting the row',
+    async () => {
+      recordLink(db, A, 'C-1', at(0))
+      const neverSettles = (): Promise<boolean> => new Promise(() => {})
+      expect(await listRecent(db, 10, neverSettles)).toEqual([])
+      // the row survives the timeout, exactly like a plain `false` from the predicate
+      expect(await listRecent(db, 10, always)).toEqual([{ path: repoKey(A), name: 'alpha' }])
+    },
+    RECENT_REACHABILITY_TIMEOUT_MS + 5000
+  )
+
+  it('treats a throwing predicate as unreachable rather than rejecting the whole call', async () => {
+    recordLink(db, A, 'C-1', at(0))
+    recordLink(db, B, 'C-1', at(1))
+    const explodesOnA = (p: string): boolean => {
+      if (p === repoKey(A)) throw new Error('stat failed')
+      return true
+    }
+    expect(await listRecent(db, 10, explodesOnA)).toEqual([{ path: repoKey(B), name: 'beta' }])
   })
 })
 

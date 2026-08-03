@@ -60,9 +60,22 @@ export function RepoPickerMenu({
   }, [])
 
   const browse = useCallback(async (): Promise<void> => {
-    const p = await window.argus.workspaces.pick()
-    if (p) onPick(p)
-  }, [onPick])
+    let p: string | null
+    try {
+      p = await window.argus.workspaces.pick()
+    } catch (err) {
+      // Symmetric with the recent() handling above: an IPC failure here must not leave an
+      // unhandled rejection with no feedback — log it and leave the button usable.
+      console.warn(`[repos] pick() failed: ${(err as Error).message}`)
+      return
+    }
+    if (!p) return
+    // Respect `exclude` here too, not just in the recents branch below, so its name is true for
+    // both routes to a path: Add… → Browse… on a repo already in `exclude` (e.g. already a
+    // default, or already linked to this case) must not report it and append a duplicate.
+    if (exclude.some((e) => sameRepo(e, p!))) return
+    onPick(p)
+  }, [onPick, exclude])
 
   if (recent === null) {
     // Still loading: render neither the menu nor the fallback button so a click can't land on
@@ -88,7 +101,7 @@ export function RepoPickerMenu({
   }
 
   const items: MenuItem[] = [
-    ...offered.map((r) => ({ label: r.name, onSelect: () => onPick(r.path) })),
+    ...offered.map((r) => ({ label: r.name, title: r.path, onSelect: () => onPick(r.path) })),
     { label: 'Browse…', onSelect: () => void browse() }
   ]
 
@@ -100,7 +113,12 @@ export function RepoPickerMenu({
       items={items}
       size="iconXs"
       variant="ghost"
-      align="left"
+      // The trigger sits at the right edge of a `justify-between` row inside the case rail's
+      // `<aside>`, which is `overflow-hidden` (and whose inner scroll container computes
+      // `overflow-x: auto` because it sets `overflow-y: auto`) — a clipping ancestor on both
+      // axes. `align="right"` opens the panel leftward, into the card's own width, instead of
+      // rightward off the edge of a rail that has no room to give it.
+      align="right"
       nocaret
       aria-label={trigger.label}
       title={trigger.label}

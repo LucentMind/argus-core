@@ -68,23 +68,65 @@ export function caseCount(db: DatabaseSync, repoPath: string): number {
 const OVERFETCH_MULTIPLIER = 4
 
 /**
- * Most-recently-linked repos, newest first. Paths that no longer exist are FILTERED rather
- * than deleted: a repo on a disconnected network drive reappears when the drive returns
- * instead of being silently forgotten. `exists` is injected so tests need no real files.
+ * How long a single path's reachability check may take before `listRecent` gives up on it for
+ * THIS call only. `ipcMain.handle`'s callback runs on the main process's single thread, so a
+ * synchronous stat against a dead mapped drive or an unreachable UNC path used to block that
+ * thread for however long the OS takes to time the request out — stalling every window and
+ * every agent stream, not just this dropdown. Short enough that a stall is imperceptible in the
+ * UI (the renderer re-fetches on every case switch); generous enough that a healthy local disk,
+ * even a slow spinning one, never trips it.
  */
-export function listRecent(
+export const RECENT_REACHABILITY_TIMEOUT_MS = 300
+
+/** Races a single reachability check against the timeout above. A timeout, a thrown error, or
+ *  the predicate itself resolving false all collapse to "not reachable right now" — none of
+ *  them delete anything, so a path that times out today can still come back tomorrow. */
+async function reachableWithin(
+  p: string,
+  exists: (p: string) => boolean | Promise<boolean>,
+  timeoutMs: number
+): Promise<boolean> {
+  const check = (async (): Promise<boolean> => {
+    try {
+      return await exists(p)
+    } catch {
+      return false
+    }
+  })()
+  const timeout = new Promise<boolean>((resolve) => {
+    setTimeout(() => resolve(false), timeoutMs)
+  })
+  return Promise.race([check, timeout])
+}
+
+/**
+ * Most-recently-linked repos, newest first. Paths that no longer exist (or that don't answer
+ * within {@link RECENT_REACHABILITY_TIMEOUT_MS}) are FILTERED rather than deleted: a repo on a
+ * disconnected network drive reappears when the drive returns instead of being silently
+ * forgotten. `exists` is injected so tests need no real files; it may be sync or async, and
+ * candidates are checked concurrently, each individually time-bounded, so one unreachable path
+ * cannot hold up the others or the caller.
+ */
+export async function listRecent(
   db: DatabaseSync,
   limit: number = RECENT_LIMIT,
-  exists: (p: string) => boolean = fs.existsSync
-): RecentRepo[] {
+  exists: (p: string) => boolean | Promise<boolean> = (p) =>
+    fs.promises.access(p).then(
+      () => true,
+      () => false
+    )
+): Promise<RecentRepo[]> {
   const rows = db
     .prepare(
       `SELECT path, MAX(linked_at) AS last FROM repo_usage
        GROUP BY path ORDER BY last DESC LIMIT ?`
     )
     .all(limit * OVERFETCH_MULTIPLIER) as { path: string; last: string }[]
+  const reachable = await Promise.all(
+    rows.map((r) => reachableWithin(r.path, exists, RECENT_REACHABILITY_TIMEOUT_MS))
+  )
   return rows
-    .filter((r) => exists(r.path))
+    .filter((_, i) => reachable[i])
     .slice(0, limit)
     .map((r) => ({ path: r.path, name: path.basename(r.path) }))
 }

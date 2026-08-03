@@ -218,6 +218,10 @@ describe('ReposSection pending states', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Link repo' }))
 
     expect(await screen.findByTitle('Not a git repository: C:\\not-a-repo')).toBeInTheDocument()
+    // A failed link must never raise the promote-to-default prompt — that follow-up is gated on
+    // the link itself having succeeded, and this pins the guarantee with an assertion rather
+    // than leaving it resting on control flow alone.
+    expect(confirmStore.get().current).toBeNull()
   })
 
   it('surfaces an unlink failure', async () => {

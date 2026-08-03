@@ -169,6 +169,9 @@ export function IconBtn({
 
 export interface MenuItem {
   label: string
+  /** Native tooltip for the row, e.g. a full path when `label` is only a basename that may
+   *  collide with another row's. */
+  title?: string
   /** Leaf action. Omitted on parent items that only carry a submenu. */
   onSelect?: () => void
   tone?: 'default' | 'danger'
@@ -297,6 +300,7 @@ export function MenuButton({
               >
                 <button
                   role="menuitem"
+                  title={it.title}
                   aria-haspopup="menu"
                   aria-expanded={openSub === i}
                   className={`flex items-center justify-between ${MENU_ITEM_BASE} text-ink`}
@@ -320,6 +324,7 @@ export function MenuButton({
                         <button
                           key={`${j}-${sub.label}`}
                           role="menuitem"
+                          title={sub.title}
                           disabled={sub.disabled}
                           className={`${MENU_ITEM_BASE} disabled:opacity-50 ${
                             sub.tone === 'danger' ? 'text-danger' : 'text-ink'
@@ -340,6 +345,7 @@ export function MenuButton({
               <button
                 key={`${i}-${it.label}`}
                 role="menuitem"
+                title={it.title}
                 disabled={it.disabled}
                 className={`${MENU_ITEM_BASE} disabled:opacity-50 ${
                   it.tone === 'danger' ? 'text-danger' : 'text-ink'

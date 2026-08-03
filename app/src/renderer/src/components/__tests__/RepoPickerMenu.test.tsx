@@ -6,6 +6,7 @@ import { RepoPickerMenu } from '../RepoPickerMenu'
 
 const ALPHA = 'C:\\repos\\alpha'
 const BETA = 'C:\\repos\\beta'
+const GAMMA = 'C:\\repos\\gamma'
 
 function stubArgus(recent: { path: string; name: string }[], picked: string | null): void {
   window.argus = {
@@ -96,19 +97,71 @@ describe('RepoPickerMenu', () => {
     // Two recent entries, both excluded. If the fallback still keyed on the raw `recent.length`
     // instead of the post-exclusion `offered.length`, this history is non-empty so the branch
     // would be skipped and a Browse…-only menu would render instead of going direct to dialog.
+    // The dialog itself returns GAMMA — a path NOT in `exclude` — so this stays a test of the
+    // direct-dialog fallback rather than of Browse…'s own exclude check (covered separately).
     stubArgus(
       [
         { path: ALPHA, name: 'alpha' },
         { path: BETA, name: 'beta' }
       ],
-      ALPHA
+      GAMMA
     )
     const onPick = vi.fn()
     render(<RepoPickerMenu onPick={onPick} exclude={[ALPHA, BETA]} trigger={{ text: 'Add…' }} />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Add…' }))
-    await waitFor(() => expect(onPick).toHaveBeenCalledWith(ALPHA))
+    await waitFor(() => expect(onPick).toHaveBeenCalledWith(GAMMA))
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('reports the full path as the row title, so same-named repos in different folders stay distinguishable', async () => {
+    stubArgus([{ path: ALPHA, name: 'alpha' }], null)
+    const onPick = vi.fn()
+    render(<RepoPickerMenu onPick={onPick} exclude={[]} trigger={{ text: 'Add…' }} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add…' }))
+    expect(await screen.findByRole('menuitem', { name: 'alpha' })).toHaveAttribute('title', ALPHA)
+  })
+
+  it('Browse… does not report a picked path that is already excluded, so Settings cannot append a duplicate default', async () => {
+    // BETA stays in the recents list (not excluded) so the menu renders instead of the
+    // direct-dialog fallback; the native dialog then returns ALPHA, which IS excluded.
+    stubArgus([{ path: BETA, name: 'beta' }], ALPHA)
+    const onPick = vi.fn()
+    render(<RepoPickerMenu onPick={onPick} exclude={[ALPHA]} trigger={{ text: 'Add…' }} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add…' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Browse…' }))
+    await waitFor(() => expect(window.argus.workspaces.pick).toHaveBeenCalled())
+    expect(onPick).not.toHaveBeenCalled()
+  })
+
+  it('Browse… still reports a picked path that is NOT excluded', async () => {
+    stubArgus([{ path: BETA, name: 'beta' }], ALPHA)
+    const onPick = vi.fn()
+    render(<RepoPickerMenu onPick={onPick} exclude={[]} trigger={{ text: 'Add…' }} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add…' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Browse…' }))
+    await waitFor(() => expect(onPick).toHaveBeenCalledWith(ALPHA))
+  })
+
+  it('a rejected pick() from Browse… is handled without an unhandled rejection, leaving the button usable', async () => {
+    stubArgus([{ path: ALPHA, name: 'alpha' }], null)
+    window.argus.workspaces.pick = vi.fn(async () => {
+      throw new Error('dialog failed')
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const onPick = vi.fn()
+    render(<RepoPickerMenu onPick={onPick} exclude={[]} trigger={{ text: 'Add…' }} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add…' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Browse…' }))
+    await waitFor(() => expect(window.argus.workspaces.pick).toHaveBeenCalled())
+    expect(onPick).not.toHaveBeenCalled()
+    // the button is still there and clickable — no dead trigger
+    expect(await screen.findByRole('button', { name: 'Add…' })).toBeInTheDocument()
+    warn.mockRestore()
   })
 
   it('survives a rejected recent() by falling back to the direct dialog', async () => {
