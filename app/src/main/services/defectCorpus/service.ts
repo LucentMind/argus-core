@@ -3,8 +3,11 @@
 // design doc) — every public method here resolves, never rejects, and a missing
 // token short-circuits before any network call.
 import {
+  CorpusError,
   DefectCorpusClient,
+  type CorpusAdminConfig,
   type CorpusInfo,
+  type CorpusJqlPreview,
   type CorpusSearchHit,
   type CorpusSearchInput,
   type CorpusSyncStatus
@@ -33,6 +36,17 @@ function errorMessage(err: unknown): string {
 }
 
 type ResolvedClient = { ok: true; client: DefectCorpusClient } | { ok: false; error: string }
+
+/**
+ * Failure arm carries `code` whenever the client threw a CorpusError (e.g.
+ * 'not_configured' | 'forbidden' | 'invalid_jql' | 'unreachable' |
+ * 'http_error' | 'invalid_response') so the renderer can branch on the code,
+ * never on message text. `code` is absent only for the resolveClient
+ * short-circuits (unknown source / missing token), which never reach the
+ * client.
+ */
+export type CorpusAdminResult<T> =
+  { ok: true; value: T } | { ok: false; error: string; code?: string }
 
 export class DefectCorpusService {
   constructor(private deps: DefectCorpusDeps) {}
@@ -105,6 +119,39 @@ export class DefectCorpusService {
       return await resolved.client.adminSyncStatus()
     } catch {
       return null
+    }
+  }
+
+  /** Fetch the (secret-masked) admin config for a source. */
+  getConfig(id: string): Promise<CorpusAdminResult<CorpusAdminConfig>> {
+    return this.adminCall(id, (client) => client.adminGetConfig())
+  }
+
+  /** Save the admin config for a source; forwards `cfg` unmodified (server owns masking/merge). */
+  putConfig(id: string, cfg: CorpusAdminConfig): Promise<CorpusAdminResult<CorpusAdminConfig>> {
+    return this.adminCall(id, (client) => client.adminPutConfig(cfg))
+  }
+
+  /** Preview how many/which tickets a JQL string would match, without running a sync. */
+  jqlPreview(id: string, jql: string): Promise<CorpusAdminResult<CorpusJqlPreview>> {
+    return this.adminCall(id, (client) => client.adminJqlPreview(jql))
+  }
+
+  /** Shared shape for the admin passthroughs above: resolve, call, and carry the CorpusError code. */
+  private async adminCall<T>(
+    id: string,
+    fn: (client: DefectCorpusClient) => Promise<T>
+  ): Promise<CorpusAdminResult<T>> {
+    const resolved = this.resolveClient(id)
+    if (!resolved.ok) return { ok: false, error: resolved.error }
+    try {
+      return { ok: true, value: await fn(resolved.client) }
+    } catch (err) {
+      return {
+        ok: false,
+        error: errorMessage(err),
+        code: err instanceof CorpusError ? err.code : undefined
+      }
     }
   }
 

@@ -1,6 +1,25 @@
 import { describe, it, expect, vi } from 'vitest'
 import { DefectCorpusService, type DefectCorpusDeps } from '../service'
 import type { DefectCorpusSourceCfg } from '../../../../shared/defectCorpus'
+import { SECRET_MASK, type CorpusAdminConfig } from '../client'
+
+const ADMIN_CONFIG: CorpusAdminConfig = {
+  jira: {
+    baseUrl: 'https://x.atlassian.net',
+    email: 'a@b.c',
+    apiToken: SECRET_MASK,
+    jql: 'project = KAN',
+    includeComments: true
+  },
+  sync: { intervalMinutes: 60 },
+  embedding: {
+    endpoint: 'https://api.openai.com/v1',
+    model: 'text-embedding-3-small',
+    apiKey: SECRET_MASK
+  },
+  llm: { provider: 'anthropic', model: 'claude-sonnet-5', apiKey: SECRET_MASK },
+  enrichment: { mode: 'rules', rulesJql: 'resolution = Fixed' }
+}
 
 const REAL_INFO = {
   name: 'hindsight-argus88',
@@ -260,6 +279,179 @@ describe('DefectCorpusService', () => {
         deps(sources, { fetchFn: fetchSpy as unknown as typeof fetch })
       )
       expect(await svc.syncStatus('s1')).toBeNull()
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('getConfig()', () => {
+    it('returns the parsed config on success', async () => {
+      const sources: Record<string, DefectCorpusSourceCfg> = {
+        s1: { name: 'S1', baseUrl: 'https://s1.example', enabled: true }
+      }
+      const fetchFn = routedFetch({
+        'https://s1.example': () => ({ status: 200, json: ADMIN_CONFIG })
+      })
+      const svc = new DefectCorpusService(deps(sources, { tokens: { s1: 'tok' }, fetchFn }))
+      expect(await svc.getConfig('s1')).toEqual({ ok: true, value: ADMIN_CONFIG })
+    })
+
+    it('maps a 404 not_configured envelope to {ok:false, code, error} with the envelope message', async () => {
+      const sources: Record<string, DefectCorpusSourceCfg> = {
+        s1: { name: 'S1', baseUrl: 'https://s1.example', enabled: true }
+      }
+      const fetchFn = routedFetch({
+        'https://s1.example': () => ({
+          status: 404,
+          json: { error: { code: 'not_configured', message: 'no admin config set' } }
+        })
+      })
+      const svc = new DefectCorpusService(deps(sources, { tokens: { s1: 'tok' }, fetchFn }))
+      expect(await svc.getConfig('s1')).toEqual({
+        ok: false,
+        error: 'no admin config set',
+        code: 'not_configured'
+      })
+    })
+
+    it('short-circuits a missing token with zero fetch calls', async () => {
+      const sources: Record<string, DefectCorpusSourceCfg> = {
+        s1: { name: 'S1', baseUrl: 'https://s1.example', enabled: true }
+      }
+      const fetchSpy = vi.fn()
+      const svc = new DefectCorpusService(
+        deps(sources, { fetchFn: fetchSpy as unknown as typeof fetch })
+      )
+      expect(await svc.getConfig('s1')).toEqual({ ok: false, error: 'no token configured' })
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('short-circuits an unknown source id with zero fetch calls', async () => {
+      const fetchSpy = vi.fn()
+      const svc = new DefectCorpusService(
+        deps({}, { fetchFn: fetchSpy as unknown as typeof fetch })
+      )
+      expect(await svc.getConfig('ghost')).toEqual({ ok: false, error: 'unknown source' })
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('putConfig()', () => {
+    it('forwards the exact body and returns the masked response', async () => {
+      const sources: Record<string, DefectCorpusSourceCfg> = {
+        s1: { name: 'S1', baseUrl: 'https://s1.example', enabled: true }
+      }
+      const body: CorpusAdminConfig = {
+        ...ADMIN_CONFIG,
+        jira: {
+          baseUrl: 'https://x.atlassian.net',
+          email: 'a@b.c',
+          jql: 'project = KAN',
+          includeComments: true
+        },
+        sync: { intervalMinutes: 30 }
+      }
+      let seenMethod = ''
+      let seenBody = ''
+      const fetchFn = routedFetch({
+        'https://s1.example': (_url, init) => {
+          seenMethod = init?.method ?? ''
+          seenBody = String(init?.body ?? '')
+          return { status: 200, json: { ...ADMIN_CONFIG, sync: { intervalMinutes: 30 } } }
+        }
+      })
+      const svc = new DefectCorpusService(deps(sources, { tokens: { s1: 'tok' }, fetchFn }))
+      const result = await svc.putConfig('s1', body)
+      expect(seenMethod).toBe('PUT')
+      expect(JSON.parse(seenBody)).toEqual(body)
+      expect(result).toEqual({
+        ok: true,
+        value: { ...ADMIN_CONFIG, sync: { intervalMinutes: 30 } }
+      })
+    })
+
+    it('short-circuits a missing token with zero fetch calls', async () => {
+      const sources: Record<string, DefectCorpusSourceCfg> = {
+        s1: { name: 'S1', baseUrl: 'https://s1.example', enabled: true }
+      }
+      const fetchSpy = vi.fn()
+      const svc = new DefectCorpusService(
+        deps(sources, { fetchFn: fetchSpy as unknown as typeof fetch })
+      )
+      expect(await svc.putConfig('s1', ADMIN_CONFIG)).toEqual({
+        ok: false,
+        error: 'no token configured'
+      })
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('short-circuits an unknown source id with zero fetch calls', async () => {
+      const fetchSpy = vi.fn()
+      const svc = new DefectCorpusService(
+        deps({}, { fetchFn: fetchSpy as unknown as typeof fetch })
+      )
+      expect(await svc.putConfig('ghost', ADMIN_CONFIG)).toEqual({
+        ok: false,
+        error: 'unknown source'
+      })
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('jqlPreview()', () => {
+    it('returns {ok:true, value:{count,sample}} on success', async () => {
+      const sources: Record<string, DefectCorpusSourceCfg> = {
+        s1: { name: 'S1', baseUrl: 'https://s1.example', enabled: true }
+      }
+      const preview = { count: 12, sample: [{ key: 'KAN-5', summary: 'SIGSEGV on shutdown' }] }
+      const fetchFn = routedFetch({
+        'https://s1.example': () => ({ status: 200, json: preview })
+      })
+      const svc = new DefectCorpusService(deps(sources, { tokens: { s1: 'tok' }, fetchFn }))
+      expect(await svc.jqlPreview('s1', 'project = KAN')).toEqual({ ok: true, value: preview })
+    })
+
+    it('maps a 400 invalid_jql envelope to {ok:false, code}', async () => {
+      const sources: Record<string, DefectCorpusSourceCfg> = {
+        s1: { name: 'S1', baseUrl: 'https://s1.example', enabled: true }
+      }
+      const fetchFn = routedFetch({
+        'https://s1.example': () => ({
+          status: 400,
+          json: { error: { code: 'invalid_jql', message: 'field X does not exist' } }
+        })
+      })
+      const svc = new DefectCorpusService(deps(sources, { tokens: { s1: 'tok' }, fetchFn }))
+      expect(await svc.jqlPreview('s1', 'field X = 1')).toEqual({
+        ok: false,
+        error: 'field X does not exist',
+        code: 'invalid_jql'
+      })
+    })
+
+    it('short-circuits a missing token with zero fetch calls', async () => {
+      const sources: Record<string, DefectCorpusSourceCfg> = {
+        s1: { name: 'S1', baseUrl: 'https://s1.example', enabled: true }
+      }
+      const fetchSpy = vi.fn()
+      const svc = new DefectCorpusService(
+        deps(sources, { fetchFn: fetchSpy as unknown as typeof fetch })
+      )
+      expect(await svc.jqlPreview('s1', 'project = KAN')).toEqual({
+        ok: false,
+        error: 'no token configured'
+      })
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('short-circuits an unknown source id with zero fetch calls', async () => {
+      const fetchSpy = vi.fn()
+      const svc = new DefectCorpusService(
+        deps({}, { fetchFn: fetchSpy as unknown as typeof fetch })
+      )
+      expect(await svc.jqlPreview('ghost', 'project = KAN')).toEqual({
+        ok: false,
+        error: 'unknown source'
+      })
       expect(fetchSpy).not.toHaveBeenCalled()
     })
   })
