@@ -23,6 +23,18 @@ const FABLE: ModelOptionInfo = {
   supportsAdaptiveThinking: true
 }
 const HAIKU: ModelOptionInfo = { value: 'haiku', displayName: 'Haiku' }
+// The model used wherever a Fast Mode descriptor is needed. It cannot be a doctored FABLE any
+// more: MODEL_OPTION_POLICY withholds Fast Mode from Fable, and the policy narrows whatever
+// the capability flags claim. Opus 5 is the row whose policy grants all three of
+// Reasoning/Context Window/Fast Mode, so it is also what the ordering test needs.
+const OPUS: ModelOptionInfo = {
+  value: 'claude-opus-5',
+  resolvedModel: 'claude-opus-5',
+  displayName: 'Claude Opus 5',
+  supportsEffort: true,
+  supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+  supportsFastMode: true
+}
 
 describe('descriptorsFor', () => {
   it('emits Reasoning from the reported levels, defaulting to high', () => {
@@ -62,10 +74,24 @@ describe('descriptorsFor', () => {
     expect(descriptorsFor(HAIKU).some((d) => d.id === 'contextWindow')).toBe(false)
   })
 
-  it('emits fastMode only when reported', () => {
-    const opus = { ...FABLE, supportsFastMode: true }
-    expect(descriptorsFor(opus).some((d) => d.id === 'fastMode')).toBe(true)
+  it('emits fastMode only when the model reports it AND its policy allows it', () => {
+    expect(descriptorsFor(OPUS).some((d) => d.id === 'fastMode')).toBe(true)
     expect(descriptorsFor(FABLE).some((d) => d.id === 'fastMode')).toBe(false)
+    // The narrowing rule, which is what makes porting t3code's table safe: t3code grants Opus
+    // 4.7 Fast Mode, but Argus measured API 400 ("does not support the `speed` parameter") on
+    // that model, so the capability gate still wins and no button is offered.
+    const opus47 = {
+      value: 'claude-opus-4-7',
+      resolvedModel: 'claude-opus-4-7',
+      displayName: 'Claude Opus 4.7',
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max']
+    }
+    expect(descriptorsFor(opus47).some((d) => d.id === 'fastMode')).toBe(false)
+    // ...and the reverse: a model that DOES report fast mode is still denied it by policy.
+    expect(
+      descriptorsFor({ ...FABLE, supportsFastMode: true }).some((d) => d.id === 'fastMode')
+    ).toBe(false)
   })
 
   // The curation, not a capability gap: Fable DOES report `supportsAdaptiveThinking`, and a
@@ -90,8 +116,95 @@ describe('descriptorsFor', () => {
   })
 
   it('orders selects before booleans so the menu reads Reasoning, Context, then toggles', () => {
-    const ids = descriptorsFor({ ...FABLE, supportsFastMode: true }).map((d) => d.id)
+    const ids = descriptorsFor(OPUS).map((d) => d.id)
     expect(ids).toEqual(['effort', 'contextWindow', 'fastMode'])
+  })
+
+  // MODEL_OPTION_POLICY — the t3code port. Provisional by design; these tests pin what it
+  // currently produces so a future revisit changes them deliberately rather than by accident.
+  describe('per-model option policy', () => {
+    const curated = (slug: string, extra: Partial<ModelOptionInfo> = {}): ModelOptionInfo => ({
+      value: slug,
+      resolvedModel: slug,
+      displayName: slug,
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+      ...extra
+    })
+    const effortValues = (info: ModelOptionInfo, model?: string): (string | undefined)[] => {
+      const d = descriptorsFor(info, model).find((x) => x.id === 'effort')
+      return d?.type === 'select' ? d.options.map((o) => o.value) : []
+    }
+
+    // The defect that prompted the port. Measured 2026-08-03 over an ANTHROPIC_BASE_URL
+    // capture: `effort:'xhigh'` leaves the CLI as `output_config.effort = "high"` on this model
+    // and this model only, so both the level and the Ultracode that rides on it were lying.
+    it('drops xhigh and Ultracode from Sonnet 4.6, which silently floors xhigh to high', () => {
+      const values = effortValues(curated('claude-sonnet-4-6'))
+      expect(values).toEqual(['low', 'medium', 'high', 'max', 'ultrathink'])
+      expect(values).not.toContain('xhigh')
+      expect(values).not.toContain('ultracode')
+    })
+
+    // t3code withholds Ultracode here even though xhigh itself is measured to pass through
+    // untouched. Followed for now, flagged as unverified on the policy table.
+    it('keeps xhigh but withholds Ultracode on Sonnet 5 and Opus 4.7', () => {
+      for (const slug of ['claude-sonnet-5', 'claude-opus-4-7']) {
+        const values = effortValues(curated(slug))
+        expect(values).toContain('xhigh')
+        expect(values).not.toContain('ultracode')
+      }
+    })
+
+    it('keeps Ultracode where t3code grants it', () => {
+      for (const slug of ['claude-fable-5', 'claude-opus-5', 'claude-opus-4-8']) {
+        expect(effortValues(curated(slug))).toContain('ultracode')
+      }
+    })
+
+    it('ports the t3code per-model default, which is xhigh for Opus 4.7 alone', () => {
+      const d = descriptorsFor(curated('claude-opus-4-7')).find((x) => x.id === 'effort')
+      const dflt = d?.type === 'select' ? d.options.find((o) => o.isDefault)?.value : null
+      expect(dflt).toBe('xhigh')
+      const fable = descriptorsFor(curated('claude-fable-5')).find((x) => x.id === 'effort')
+      expect(fable?.type === 'select' && fable.options.find((o) => o.isDefault)?.value).toBe('high')
+    })
+
+    it('withholds Context Window from Opus 4.8 and Opus 4.7', () => {
+      for (const slug of ['claude-opus-4-8', 'claude-opus-4-7']) {
+        expect(descriptorsFor(curated(slug)).some((d) => d.id === 'contextWindow')).toBe(false)
+      }
+    })
+
+    // The policy is keyed by Argus's undated wire slug, but the CLI reports dated ids and
+    // sessions can be pinned at the [1m] suffix. Both must still find the row.
+    it('matches through a [1m] suffix and a -YYYYMMDD date segment', () => {
+      expect(
+        descriptorsFor(curated('claude-sonnet-4-6'), 'claude-sonnet-4-6[1m]').some(
+          (d) => d.id === 'effort'
+        )
+      ).toBe(true)
+      expect(effortValues(curated('claude-sonnet-4-6'), 'claude-sonnet-4-6[1m]')).not.toContain(
+        'xhigh'
+      )
+      const dated = curated('claude-haiku-4-5-20251001', {
+        supportsEffort: false,
+        supportedEffortLevels: []
+      })
+      expect(descriptorsFor(dated).map((d) => d.id)).toEqual(['thinking'])
+    })
+
+    // An uncurated model must not be silently stripped — a newly released slug keeps whatever
+    // its capabilities say until someone decides what it should show.
+    it('falls back to pure capability derivation for a model with no policy row', () => {
+      const unknown = curated('claude-future-9', { supportsFastMode: true })
+      expect(descriptorsFor(unknown).map((d) => d.id)).toEqual([
+        'effort',
+        'contextWindow',
+        'fastMode'
+      ])
+      expect(effortValues(unknown)).toContain('ultracode')
+    })
   })
 
   it('emits Context Window with exactly two choices in the correct order and defaults', () => {
@@ -178,9 +291,7 @@ describe('selectionValue', () => {
   })
 
   it('treats a boolean descriptor as off unless explicitly stored true', () => {
-    const fast = descriptorsFor({ ...FABLE, supportsFastMode: true }).find(
-      (d) => d.id === 'fastMode'
-    )!
+    const fast = descriptorsFor(OPUS).find((d) => d.id === 'fastMode')!
     expect(selectionValue(fast, null)).toBe(false)
     expect(selectionValue(fast, [{ id: 'fastMode', value: true }])).toBe(true)
     // a string stored against a boolean descriptor is garbage, not truthy
@@ -239,9 +350,7 @@ describe('selectionLabel', () => {
   })
 
   it('renders booleans as On and Off', () => {
-    const fast = descriptorsFor({ ...FABLE, supportsFastMode: true }).find(
-      (d) => d.id === 'fastMode'
-    )!
+    const fast = descriptorsFor(OPUS).find((d) => d.id === 'fastMode')!
     expect(selectionLabel(fast, [{ id: 'fastMode', value: true }])).toBe('On')
     expect(selectionLabel(fast, null)).toBe('Off')
   })
@@ -329,7 +438,7 @@ describe('claudeSettingsFor', () => {
   })
 
   it('carries fastMode', () => {
-    const ds = descriptorsFor({ ...FABLE, supportsFastMode: true })
+    const ds = descriptorsFor(OPUS)
     expect(claudeSettingsFor(ds, [{ id: 'fastMode', value: true }])).toEqual({ fastMode: true })
   })
 

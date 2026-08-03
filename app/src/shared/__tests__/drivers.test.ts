@@ -649,11 +649,11 @@ describe('resolveModelInfo', () => {
   it('falls back to the built-in row for a model the catalog omits', () => {
     const info = resolveModelInfo(catalog, 'claude-opus-4-7')
     expect(info?.displayName).toBe('Claude Opus 4.7')
-    // measured: --effort xhigh ran, and the [1m] suffix came back as modelUsage
-    // "claude-opus-4-7[1m]" — descriptorsFor derives the context-window control from this flag
-    expect(descriptorsFor(info!).map((d) => d.id)).toEqual(
-      expect.arrayContaining(['effort', 'contextWindow'])
-    )
+    // The capability is still there and still measured true — the [1m] suffix came back as
+    // modelUsage "claude-opus-4-7[1m]" — but MODEL_OPTION_POLICY (ported from t3code) does not
+    // list contextWindow for this model, and the policy narrows. This is the port's most
+    // questionable consequence and is called out as such on the policy table itself.
+    expect(descriptorsFor(info!).map((d) => d.id)).toEqual(['effort'])
   })
 
   it('reports fast mode exactly where the API accepts it', () => {

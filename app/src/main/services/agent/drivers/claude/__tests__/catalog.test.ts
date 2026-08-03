@@ -221,9 +221,9 @@ describe('catalogFor', () => {
   it('resolves a built-in the runtime catalog omits, so its options still reach the wire', async () => {
     const info = await catalogFor(fakeQuery(fixture), undefined, 'claude-opus-4-7')
     expect(info?.displayName).toBe('Claude Opus 4.7')
-    expect(descriptorsFor(info!).map((d) => d.id)).toEqual(
-      expect.arrayContaining(['effort', 'contextWindow'])
-    )
+    // contextWindow is withheld by MODEL_OPTION_POLICY for this model even though the [1m]
+    // suffix is measured to work on it — see the policy table's divergence list.
+    expect(descriptorsFor(info!).map((d) => d.id)).toEqual(['effort'])
     expect(
       buildRunOptionQueryFields(
         info,

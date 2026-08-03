@@ -1,3 +1,5 @@
+import { resolvesToId } from './modelIdentity'
+
 /** The subset of the SDK's `ModelInfo` that option descriptors are derived from.
  *  Declared here rather than imported so `shared/` stays free of SDK types. */
 export interface ModelOptionInfo {
@@ -57,6 +59,103 @@ const EFFORT_LABELS: Record<string, string> = {
   max: 'Max'
 }
 
+const ALL_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+
+/** Which options a given model is curated to show. See {@link MODEL_OPTION_POLICY}. */
+export interface ModelOptionPolicy {
+  /** Effort levels this model may offer. NARROWS what the model reports — a level listed
+   *  here that the model does not report is still not shown. */
+  effortLevels?: readonly string[]
+  /** Which level reads as selected when nothing is stored. Defaults to `high`. */
+  defaultEffort?: string
+  ultracode?: boolean
+  /** Ultrathink is prompt text and costs nothing, so it defaults to ON wherever there is a
+   *  Reasoning control. Only an explicit `false` withholds it. */
+  ultrathink?: boolean
+  contextWindow?: boolean
+  fastMode?: boolean
+  thinking?: boolean
+}
+
+/**
+ * Per-model option curation, ported from t3code's `BUILT_IN_MODELS`
+ * (`apps/server/src/provider/Layers/ClaudeProvider.ts`) on 2026-08-03.
+ *
+ * ⚠️ **PROVISIONAL — EXPECTED TO CHANGE.** This is adopted deliberately as a starting point,
+ * not because it is known to be correct. t3code's table is hand-maintained and demonstrably
+ * disagrees with Argus's own live measurements in both directions (see the divergence list
+ * below). Revisit it whenever the CLI's model line-up moves, and prefer a fresh measurement
+ * over this table wherever the two conflict.
+ *
+ * **This table may only NARROW what the model reports, never widen it.** Every entry is
+ * intersected with real capability data (`supportsEffort`/`supportedEffortLevels`/
+ * `supportsFastMode`), so porting one of t3code's false positives cannot make Argus offer a
+ * control the wire then rejects. That rule is load-bearing — see the Opus 4.7 row.
+ *
+ * Where this table disagrees with what Argus measured, and what happens:
+ *
+ * - **Sonnet 4.6 loses `xhigh` (and with it Ultracode) — t3code is RIGHT.** Measured
+ *   2026-08-03 via an ANTHROPIC_BASE_URL capture: `effort:'xhigh'` leaves the CLI as
+ *   `output_config.effort = "high"` on this model alone; every other effort-capable model
+ *   passes `xhigh` through unchanged. Ultracode is `xhigh` + `settings.ultracode`, so it was
+ *   landing two levels below what the chip claimed. This is the defect that prompted the port.
+ * - **Opus 4.7 and Sonnet 5 lose Ultracode — t3code is UNVERIFIED here.** Both pass `xhigh`
+ *   through fine, so the effort half of Ultracode works on them. t3code withholds it anyway
+ *   and we follow, for now.
+ * - **Opus 4.8 and Opus 4.7 lose Context Window — t3code CONTRADICTS a measurement.**
+ *   `drivers.ts` records the `[1m]` suffix succeeding on both. This port removes a control
+ *   that demonstrably worked; it is the clearest candidate to revert on revisit.
+ * - **Opus 4.7 keeps NO Fast Mode despite t3code granting it — the narrowing rule saves us.**
+ *   Argus measured fast mode returning API 400 ("does not support the `speed` parameter") on
+ *   this model, and `supportsFastMode` is false for it, so the intersection drops it. Porting
+ *   t3code naively here would have shipped a button that errors.
+ * - **Opus 5 has no t3code entry at all** — its table predates that model. That row is
+ *   Argus-originated, shaped after Opus 4.8 (its nearest analogue) plus Context Window, which
+ *   is measured to work and which the CLI's own `opus[1m]` alias makes unavoidable anyway.
+ *
+ * Keyed by Argus's undated wire slug; matching tolerates a `[1m]` suffix and the CLI's
+ * `-YYYYMMDD` date segment (see {@link policyFor}). A model absent from this table falls back
+ * to pure capability derivation, so a newly-released model is never silently stripped of its
+ * options — it simply is not curated yet.
+ */
+export const MODEL_OPTION_POLICY: Readonly<Record<string, ModelOptionPolicy>> = {
+  'claude-fable-5': { effortLevels: ALL_LEVELS, ultracode: true, contextWindow: true },
+  // Argus-originated (see above): t3code has no Opus 5 row.
+  'claude-opus-5': {
+    effortLevels: ALL_LEVELS,
+    ultracode: true,
+    contextWindow: true,
+    fastMode: true
+  },
+  'claude-opus-4-8': { effortLevels: ALL_LEVELS, ultracode: true, fastMode: true },
+  // t3code defaults this model to xhigh rather than high — ported as-is.
+  'claude-opus-4-7': { effortLevels: ALL_LEVELS, defaultEffort: 'xhigh', fastMode: true },
+  'claude-sonnet-5': { effortLevels: ALL_LEVELS, contextWindow: true },
+  'claude-sonnet-4-6': {
+    effortLevels: ['low', 'medium', 'high', 'max'],
+    contextWindow: true
+  },
+  'claude-haiku-4-5': { thinking: true }
+}
+
+/**
+ * The policy row for this model, or undefined when it is not curated.
+ *
+ * Tries the pinned wire slug first, then the row's `resolvedModel`, then its `value` — the
+ * catalog keys rows by ALIAS (`sonnet`), so `value` alone usually cannot match a policy key.
+ * `[1m]` is stripped and a `-YYYYMMDD` segment tolerated, the same union
+ * `shared/modelIdentity.ts` applies everywhere else a model string is matched to a row.
+ */
+function policyFor(info: ModelOptionInfo, model?: string | null): ModelOptionPolicy | undefined {
+  const candidates = [model, info.resolvedModel, info.value]
+    .filter((s): s is string => typeof s === 'string' && s.length > 0)
+    .map((s) => s.replace(/\[1m\]$/, ''))
+  for (const [key, policy] of Object.entries(MODEL_OPTION_POLICY)) {
+    if (candidates.some((c) => resolvesToId(c, key))) return policy
+  }
+  return undefined
+}
+
 /**
  * Build a model's option descriptors from what the CLI reports about it.
  *
@@ -76,17 +175,29 @@ export function descriptorsFor(
   model?: string | null
 ): RunOptionDescriptor[] {
   const out: RunOptionDescriptor[] = []
-  const levels = info.supportsEffort ? (info.supportedEffortLevels ?? []) : []
+  const policy = policyFor(info, model)
+  const reported = info.supportsEffort ? (info.supportedEffortLevels ?? []) : []
+  // Intersection, in the model's own reported order: the policy narrows, capability data
+  // gates. Neither alone can put a level on screen.
+  const levels = policy?.effortLevels
+    ? reported.filter((l) => policy.effortLevels!.includes(l))
+    : reported
+  const wantDefault = policy?.defaultEffort ?? 'high'
 
   if (levels.length > 0) {
     const options: RunOptionChoice[] = levels.map((v) => ({
       value: v,
       label: EFFORT_LABELS[v] ?? v,
-      ...(v === 'high' ? { isDefault: true as const } : {})
+      ...(v === wantDefault ? { isDefault: true as const } : {})
     }))
     if (!options.some((o) => o.isDefault) && options.length > 0) options[0].isDefault = true
-    if (levels.includes('xhigh')) options.push({ value: 'ultracode', label: 'Ultracode' })
-    options.push({ value: 'ultrathink', label: 'Ultrathink' })
+    // Ultracode rides on xhigh, so it needs BOTH the level and the policy's blessing. On an
+    // uncurated model it falls back to the old rule (xhigh implies Ultracode).
+    const wantUltracode = policy ? policy.ultracode === true : levels.includes('xhigh')
+    if (wantUltracode && levels.includes('xhigh')) {
+      options.push({ value: 'ultracode', label: 'Ultracode' })
+    }
+    if (policy?.ultrathink !== false) options.push({ value: 'ultrathink', label: 'Ultrathink' })
     out.push({
       type: 'select',
       id: 'effort',
@@ -104,20 +215,30 @@ export function descriptorsFor(
     // suffix the slug already carries, so a "200k" choice there was inert — it rendered as the
     // default and selected value while every send went out at 1M. One option is not a
     // pointless control: it is the honest report of a window the user cannot change here.
-    out.push({
-      type: 'select',
-      id: 'contextWindow',
-      label: 'Context Window',
-      options: forcesOneMillion(model)
-        ? [{ value: '1m', label: '1M', isDefault: true }]
-        : [
-            { value: '200k', label: '200k', isDefault: true },
-            { value: '1m', label: '1M' }
-          ]
-    })
+    //
+    // A curated model shows this only when its policy row asks for it. That is how the port
+    // takes Context Window away from Opus 4.8/4.7 — a deliberate, and the most questionable,
+    // consequence of adopting t3code's table (see MODEL_OPTION_POLICY).
+    if (policy ? policy.contextWindow === true : true) {
+      out.push({
+        type: 'select',
+        id: 'contextWindow',
+        label: 'Context Window',
+        options: forcesOneMillion(model)
+          ? [{ value: '1m', label: '1M', isDefault: true }]
+          : [
+              { value: '200k', label: '200k', isDefault: true },
+              { value: '1m', label: '1M' }
+            ]
+      })
+    }
   }
 
-  if (info.supportsFastMode) out.push({ type: 'boolean', id: 'fastMode', label: 'Fast Mode' })
+  // Policy narrows, capability gates — so t3code granting Opus 4.7 fast mode cannot resurrect
+  // a control Argus measured returning API 400 on that model.
+  if (info.supportsFastMode && (policy ? policy.fastMode === true : true)) {
+    out.push({ type: 'boolean', id: 'fastMode', label: 'Fast Mode' })
+  }
 
   // Thinking is offered ONLY to a model with no Reasoning control — deliberately NOT gated on
   // `supportsAdaptiveThinking`, which is the wrong question in both directions.
@@ -144,7 +265,10 @@ export function descriptorsFor(
   // `defaultOn` is inverted deliberately: thinking is ON unless the SDK is told
   // `alwaysThinkingEnabled: false`, so only "Off" is a real, wire-visible choice — confirmed
   // above, where the unset run still sent `"type":"enabled"`.
-  if (levels.length === 0) {
+  //
+  // A curated model takes its policy row's answer instead; t3code grants Thinking to Haiku
+  // alone, which is the same set this rule produces on today's line-up.
+  if (policy ? policy.thinking === true : levels.length === 0) {
     out.push({ type: 'boolean', id: 'thinking', label: 'Thinking', defaultOn: true })
   }
   return out

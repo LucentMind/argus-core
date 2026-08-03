@@ -445,11 +445,7 @@ for (const width of [1600, 1550, 1500, 1450, 1400, 1350, 1300, 1250, 1200, 1150,
 
 // Settle at a width where everything is collapsed, for the menu checks below.
 await setViewport(460, 900)
-await waitFor(
-  'composer row to fully collapse',
-  () => readRow().then((r) => r.visible === 0),
-  45000
-)
+await waitFor('composer row to fully collapse', () => readRow().then((r) => r.visible === 0), 45000)
 
 {
   const narrow = await readRow()
