@@ -118,11 +118,33 @@ export function descriptorsFor(
   }
 
   if (info.supportsFastMode) out.push({ type: 'boolean', id: 'fastMode', label: 'Fast Mode' })
-  if (info.supportsAdaptiveThinking) {
-    // Inverted deliberately (see `defaultOn`): thinking is ON unless the SDK is told
-    // `alwaysThinkingEnabled: false`, so this control defaults to On and only "Off" is a
-    // real, wire-visible choice. Writing `true` — which is what it used to do — was a no-op
-    // in both positions, while an unset boolean rendered as "Off".
+
+  // Thinking is offered ONLY to a model with no Reasoning control — deliberately NOT gated on
+  // `supportsAdaptiveThinking`, which is the wrong question in both directions.
+  //
+  // Measured 2026-08-03 by pointing ANTHROPIC_BASE_URL at a local server and reading the
+  // outbound `/v1/messages` body (see [[argus-verify-empirically-over-types]] for the recipe):
+  //
+  //   haiku, nothing set            -> thinking {"type":"enabled","budget_tokens":31999}
+  //   haiku, alwaysThinkingEnabled:false -> thinking {"type":"disabled"}
+  //   fable, nothing set            -> thinking {"type":"adaptive"}
+  //   fable, alwaysThinkingEnabled:false -> thinking absent
+  //
+  // So the flag's absence never meant "no thinking control": Haiku reports NO capabilities at
+  // all in `supportedModels()` yet honours the toggle on the wire with a fixed 32k budget.
+  // `supportsAdaptiveThinking` reports whether thinking is *adaptive*, which is a different
+  // question from whether it can be turned off. Both halves of the run confirm the toggle is
+  // real, so the choice of who sees it is a CURATION call, not a capability one.
+  //
+  // The curation: Reasoning already spans the same axis, more expressively — a model offering
+  // both asks the user to reconcile "Extra High" against "Thinking On", and in practice nobody
+  // reaches for a top-tier model in order to turn its thinking off. So the toggle appears only
+  // where Reasoning cannot: Haiku today, and automatically any future effort-less model.
+  //
+  // `defaultOn` is inverted deliberately: thinking is ON unless the SDK is told
+  // `alwaysThinkingEnabled: false`, so only "Off" is a real, wire-visible choice — confirmed
+  // above, where the unset run still sent `"type":"enabled"`.
+  if (levels.length === 0) {
     out.push({ type: 'boolean', id: 'thinking', label: 'Thinking', defaultOn: true })
   }
   return out

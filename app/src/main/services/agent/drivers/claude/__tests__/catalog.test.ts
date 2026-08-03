@@ -241,7 +241,7 @@ describe('catalogFor', () => {
   it('resolves the static wire slug a session is actually pinned to', async () => {
     const fable = await catalogFor(fakeQuery(fixture), undefined, 'claude-fable-5')
     expect(fable?.value).toBe('fable')
-    expect(descriptorsFor(fable!).map((d) => d.id)).toEqual(['effort', 'contextWindow', 'thinking'])
+    expect(descriptorsFor(fable!).map((d) => d.id)).toEqual(['effort', 'contextWindow'])
   })
 
   it('resolves a session pinned at the 1M suffix to its base row', async () => {

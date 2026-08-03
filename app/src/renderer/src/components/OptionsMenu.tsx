@@ -159,9 +159,18 @@ export function TraitsChip({
   )
 }
 
-/** Every control except Model and Send, in one popup. Sections are the same
- *  `OptionSection` the wide chips use, so the two renderings cannot diverge. */
+/** Which controls this menu is currently standing in for. The row hands over only the
+ *  controls it could not fit, so the menu is never a duplicate of what is already on screen. */
+export type CollapsedSection = 'traits' | 'access' | 'toolResults'
+
+/** The controls the row could not fit, in one popup. Sections are the same `OptionSection`
+ *  the wide chips use, so the two renderings cannot diverge.
+ *
+ *  Renders ONLY the sections named in `sections`: collapse is now incremental, so this menu
+ *  routinely holds a strict subset. Listing a control here while its own chip is still visible
+ *  in the row would give one setting two live controls a few pixels apart. */
 export function CollapsedMenu({
+  sections,
   descriptors,
   selections,
   onChangeOption,
@@ -175,6 +184,7 @@ export function CollapsedMenu({
   onToggleToolCalls,
   ultracode
 }: {
+  sections: readonly CollapsedSection[]
   descriptors: readonly RunOptionDescriptor[]
   selections: readonly RunOptionSelection[]
   onChangeOption: (d: RunOptionDescriptor, value: string | boolean) => void
@@ -191,8 +201,12 @@ export function CollapsedMenu({
   showToolCalls: boolean
   onToggleToolCalls: () => void
   /** Reasoning is on Ultracode — same treatment `TraitsChip` gives its own trigger, on the
-   *  collapsed `…` button. Narrow density folds the traits chip away entirely, so without
-   *  this the one state the user asked to be able to SEE disappears below 650px. */
+   *  collapsed `…` button, so the one state the user asked to be able to SEE does not vanish
+   *  when the chip carrying it is folded away.
+   *
+   *  The caller must pass this ONLY when the Traits chip is itself collapsed. This button
+   *  stands in for that chip; if both are on screen at once — which incremental collapse makes
+   *  routine — the treatment would appear twice and read as two separate Ultracode states. */
   ultracode?: boolean
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
@@ -217,54 +231,63 @@ export function CollapsedMenu({
             aria-label="Session options"
             className="absolute bottom-full left-0 z-30 mb-1 min-w-44 rounded-r2 overlay-menu p-1"
           >
-            {descriptors.map((d) => (
-              <OptionSection
-                key={d.id}
-                descriptor={d}
-                selections={selections}
-                locked={isLocked?.(d)}
-                lockNote={lockNote}
-                currentOverride={currentOverride?.(d)}
-                onChange={(v) => onChangeOption(d, v)}
-              />
-            ))}
-            <div className="px-2 pb-1 pt-1.5 text-xs font-medium text-mute">Access</div>
-            {permissionOptions.map((label) => (
-              <button
-                key={label}
-                type="button"
-                role="menuitem"
-                className={`block w-full whitespace-nowrap rounded-r1 px-2 py-1 text-left text-xs transition-colors hover:bg-hi ${
-                  label === permission ? 'text-ink' : 'text-dim'
-                }`}
-                onClick={() => {
-                  onPermissionChange(label)
-                  setOpen(false)
-                }}
-              >
-                {label}
-              </button>
-            ))}
-            <div className="px-2 pb-1 pt-1.5 text-xs font-medium text-mute">Tool results</div>
-            {[
-              { label: 'On', on: true },
-              { label: 'Off', on: false }
-            ].map((o) => (
-              <button
-                key={o.label}
-                type="button"
-                role="menuitem"
-                className={`block w-full rounded-r1 px-2 py-1 text-left text-xs transition-colors hover:bg-hi ${
-                  o.on === showToolCalls ? 'text-ink' : 'text-dim'
-                }`}
-                onClick={() => {
-                  if (o.on !== showToolCalls) onToggleToolCalls()
-                  setOpen(false)
-                }}
-              >
-                {o.label}
-              </button>
-            ))}
+            {sections.includes('traits') &&
+              descriptors.map((d) => (
+                <OptionSection
+                  key={d.id}
+                  descriptor={d}
+                  selections={selections}
+                  locked={isLocked?.(d)}
+                  lockNote={lockNote}
+                  currentOverride={currentOverride?.(d)}
+                  onChange={(v) => onChangeOption(d, v)}
+                />
+              ))}
+            {sections.includes('access') && (
+              <>
+                <div className="px-2 pb-1 pt-1.5 text-xs font-medium text-mute">Access</div>
+                {permissionOptions.map((label) => (
+                  <button
+                    key={label}
+                    type="button"
+                    role="menuitem"
+                    className={`block w-full whitespace-nowrap rounded-r1 px-2 py-1 text-left text-xs transition-colors hover:bg-hi ${
+                      label === permission ? 'text-ink' : 'text-dim'
+                    }`}
+                    onClick={() => {
+                      onPermissionChange(label)
+                      setOpen(false)
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </>
+            )}
+            {sections.includes('toolResults') && (
+              <>
+                <div className="px-2 pb-1 pt-1.5 text-xs font-medium text-mute">Tool results</div>
+                {[
+                  { label: 'On', on: true },
+                  { label: 'Off', on: false }
+                ].map((o) => (
+                  <button
+                    key={o.label}
+                    type="button"
+                    role="menuitem"
+                    className={`block w-full rounded-r1 px-2 py-1 text-left text-xs transition-colors hover:bg-hi ${
+                      o.on === showToolCalls ? 'text-ink' : 'text-dim'
+                    }`}
+                    onClick={() => {
+                      if (o.on !== showToolCalls) onToggleToolCalls()
+                      setOpen(false)
+                    }}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </>
+            )}
           </div>
         </>
       )}

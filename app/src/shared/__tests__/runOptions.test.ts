@@ -62,20 +62,36 @@ describe('descriptorsFor', () => {
     expect(descriptorsFor(HAIKU).some((d) => d.id === 'contextWindow')).toBe(false)
   })
 
-  it('emits fastMode and thinking only when reported', () => {
+  it('emits fastMode only when reported', () => {
     const opus = { ...FABLE, supportsFastMode: true }
     expect(descriptorsFor(opus).some((d) => d.id === 'fastMode')).toBe(true)
     expect(descriptorsFor(FABLE).some((d) => d.id === 'fastMode')).toBe(false)
-    expect(descriptorsFor(FABLE).some((d) => d.id === 'thinking')).toBe(true)
   })
 
-  it('gives a model with no capabilities no descriptors at all', () => {
-    expect(descriptorsFor(HAIKU)).toEqual([])
+  // The curation, not a capability gap: Fable DOES report `supportsAdaptiveThinking`, and a
+  // wire capture confirms the toggle works on it. Reasoning already spans the same axis more
+  // expressively, so a model that has Reasoning does not also get Thinking.
+  it('withholds Thinking from a model that has a Reasoning control', () => {
+    expect(descriptorsFor(FABLE).some((d) => d.id === 'thinking')).toBe(false)
+    expect(descriptorsFor({ ...FABLE, supportsAdaptiveThinking: true }).map((d) => d.id)).toEqual([
+      'effort',
+      'contextWindow'
+    ])
+  })
+
+  // Haiku reports NO capability flags at all, yet a 2026-08-03 ANTHROPIC_BASE_URL capture shows
+  // it honouring the toggle on the wire: unset sends `{"type":"enabled","budget_tokens":31999}`
+  // and `alwaysThinkingEnabled:false` sends `{"type":"disabled"}`. So an effort-less model gets
+  // the one control it can actually use, rather than an empty menu.
+  it('gives a model with no Reasoning control a Thinking toggle', () => {
+    expect(descriptorsFor(HAIKU)).toEqual([
+      { type: 'boolean', id: 'thinking', label: 'Thinking', defaultOn: true }
+    ])
   })
 
   it('orders selects before booleans so the menu reads Reasoning, Context, then toggles', () => {
     const ids = descriptorsFor({ ...FABLE, supportsFastMode: true }).map((d) => d.id)
-    expect(ids).toEqual(['effort', 'contextWindow', 'fastMode', 'thinking'])
+    expect(ids).toEqual(['effort', 'contextWindow', 'fastMode'])
   })
 
   it('emits Context Window with exactly two choices in the correct order and defaults', () => {
@@ -174,7 +190,7 @@ describe('selectionValue', () => {
   // Inverted control: alwaysThinkingEnabled is ON when absent, so an unset Thinking toggle
   // that read `false` was reporting the opposite of what the wire does.
   it('treats a defaultOn boolean as ON until it is explicitly stored false', () => {
-    const thinking = descriptorsFor(FABLE).find((d) => d.id === 'thinking')!
+    const thinking = descriptorsFor(HAIKU).find((d) => d.id === 'thinking')!
     expect(selectionValue(thinking, null)).toBe(true)
     expect(selectionValue(thinking, [])).toBe(true)
     expect(selectionValue(thinking, [{ id: 'thinking', value: false }])).toBe(false)
@@ -207,7 +223,7 @@ describe('pruneSelections', () => {
   // Same "store only what differs from the default" rule, applied to the inverted toggle:
   // for Thinking it is `false` that is worth persisting and `true` that is the no-op.
   it('persists the off half of a defaultOn boolean and drops the on half', () => {
-    const ds = descriptorsFor(FABLE)
+    const ds = descriptorsFor(HAIKU)
     expect(pruneSelections(ds, [{ id: 'thinking', value: false }])).toEqual([
       { id: 'thinking', value: false }
     ])
@@ -231,7 +247,7 @@ describe('selectionLabel', () => {
   })
 
   it('labels an unset defaultOn boolean "On", not "Off"', () => {
-    const thinking = descriptorsFor(FABLE).find((d) => d.id === 'thinking')!
+    const thinking = descriptorsFor(HAIKU).find((d) => d.id === 'thinking')!
     expect(selectionLabel(thinking, null)).toBe('On')
     expect(selectionLabel(thinking, [{ id: 'thinking', value: false }])).toBe('Off')
   })
@@ -321,14 +337,14 @@ describe('claudeSettingsFor', () => {
   // the ONLY value worth sending is `false`, and the old `alwaysThinkingEnabled: true` write
   // made both chip positions no-ops on the wire.
   it('sends alwaysThinkingEnabled only to turn thinking OFF', () => {
-    const ds = descriptorsFor(FABLE)
+    const ds = descriptorsFor(HAIKU)
     expect(claudeSettingsFor(ds, [{ id: 'thinking', value: false }])).toEqual({
       alwaysThinkingEnabled: false
     })
   })
 
   it('sends nothing for thinking when it is on, whether stored or merely unset', () => {
-    const ds = descriptorsFor(FABLE)
+    const ds = descriptorsFor(HAIKU)
     expect(claudeSettingsFor(ds, null)).toEqual({})
     expect(claudeSettingsFor(ds, [{ id: 'thinking', value: true }])).toEqual({})
   })

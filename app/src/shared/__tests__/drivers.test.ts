@@ -665,8 +665,13 @@ describe('resolveModelInfo', () => {
     expect(resolveModelInfo(catalog, 'claude-sonnet-4-6')?.supportsFastMode).toBeFalsy()
   })
 
-  it('gives Haiku no options — it reports no effort levels', () => {
-    expect(descriptorsFor(resolveModelInfo([], 'claude-haiku-4-5')!)).toEqual([])
+  // Haiku reports no effort levels, so it gets no Reasoning/Context — but it does get the
+  // one control it can still use. Verified on the wire 2026-08-03: `alwaysThinkingEnabled:
+  // false` reaches Haiku as `thinking {"type":"disabled"}`.
+  it('gives Haiku only Thinking — it reports no effort levels', () => {
+    expect(descriptorsFor(resolveModelInfo([], 'claude-haiku-4-5')!).map((d) => d.id)).toEqual([
+      'thinking'
+    ])
   })
 
   it('is null for a model nothing names', () => {

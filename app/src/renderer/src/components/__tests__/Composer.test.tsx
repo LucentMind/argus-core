@@ -640,10 +640,14 @@ describe('Composer option chips', () => {
   // obsolete rather than merely stale. SESSION's model (`claude-fable-5`/`fable`) reports
   // effort, contextWindow and thinking (no fastMode — see the fixture), so the joined label
   // is every one of those three, in descriptor order, at their defaults.
-  it('fuses Reasoning, Context Window and Thinking into one Traits chip', async () => {
+  it('fuses every descriptor into one Traits chip', async () => {
     render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
     const traits = await screen.findByTitle('Traits')
-    expect(traits).toHaveTextContent('High · 200k · Thinking On')
+    // Thinking is deliberately absent: a model that HAS a Reasoning control does not also get
+    // a thinking toggle (see descriptorsFor). Fable reports `supportsAdaptiveThinking`, so
+    // this asserts the curation, not a capability gap.
+    expect(traits).toHaveTextContent('High · 200k')
+    expect(traits).not.toHaveTextContent('Thinking')
     // the old per-descriptor chips must be gone, not just relabelled
     expect(screen.queryByTitle('Reasoning')).not.toBeInTheDocument()
     expect(screen.queryByTitle('Context Window')).not.toBeInTheDocument()
@@ -659,7 +663,15 @@ describe('Composer option chips', () => {
   // a boolean's value with its own descriptor label for exactly this reason (see its own doc
   // comment), so this re-expresses the same guarantee against the joined label.
   it('names each boolean value inside the joined Traits label instead of showing a bare On/Off', async () => {
-    render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+    // Haiku, because it is the model whose only descriptor is a boolean — Fable's booleans
+    // are curated away now that it has a Reasoning control.
+    render(
+      <Composer
+        disabled={false}
+        onSend={() => {}}
+        session={{ ...SESSION, model: 'claude-haiku-4-5' }}
+      />
+    )
     const traits = await screen.findByTitle('Traits')
     expect(traits).toHaveTextContent('Thinking On')
   })
@@ -669,7 +681,15 @@ describe('Composer option chips', () => {
   // (Change 1) instead of a standalone Thinking chip; the Thinking SECTION inside it is the
   // same `OptionSection` the old chip rendered, so its own menuitems are unchanged.
   it('shows Thinking as On by default, matching what the SDK actually does', async () => {
-    render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+    // Measured 2026-08-03 over an ANTHROPIC_BASE_URL capture: Haiku with nothing set sends
+    // `thinking {"type":"enabled","budget_tokens":31999}`, so "On" is the honest default.
+    render(
+      <Composer
+        disabled={false}
+        onSend={() => {}}
+        session={{ ...SESSION, model: 'claude-haiku-4-5' }}
+      />
+    )
     await userEvent.click(await screen.findByTitle('Traits'))
     expect(screen.getByRole('menuitem', { name: 'On' })).toHaveClass('text-ink')
     expect(screen.getByRole('menuitem', { name: 'Off' })).toHaveClass('text-dim')
@@ -681,13 +701,30 @@ describe('Composer option chips', () => {
       <Composer
         disabled={false}
         onSend={() => {}}
-        session={SESSION}
+        session={{ ...SESSION, model: 'claude-haiku-4-5' }}
         onRunOptionsChange={onRunOptionsChange}
       />
     )
     await userEvent.click(await screen.findByTitle('Traits'))
     await userEvent.click(screen.getByRole('menuitem', { name: 'Off' }))
     expect(onRunOptionsChange).toHaveBeenCalledWith([{ id: 'thinking', value: false }])
+  })
+
+  it('gives a model with no Reasoning control a Thinking toggle, and nothing else', async () => {
+    render(
+      <Composer
+        disabled={false}
+        onSend={() => {}}
+        session={{ ...SESSION, model: 'claude-haiku-4-5' }}
+      />
+    )
+    const traits = await screen.findByTitle('Traits')
+    expect(traits).toHaveTextContent('Thinking On')
+    await userEvent.click(traits)
+    expect(screen.getByText('Thinking')).toBeInTheDocument()
+    expect(screen.queryByText('Reasoning')).not.toBeInTheDocument()
+    expect(screen.queryByText('Context Window')).not.toBeInTheDocument()
+    expect(screen.queryByText('Fast Mode')).not.toBeInTheDocument()
   })
 
   it('offers Ultracode and Ultrathink in the Reasoning section', async () => {
@@ -713,13 +750,11 @@ describe('Composer option chips', () => {
     expect(onRunOptionsChange).toHaveBeenCalledWith([{ id: 'effort', value: 'max' }])
   })
 
-  it('shows no Traits chip for a model with no descriptors', async () => {
+  it('shows no Traits chip for a model that resolves to no capabilities at all', async () => {
+    // A non-Claude slug resolves to no ModelOptionInfo, which is the only remaining way to
+    // get an empty descriptor list — every Claude model now has at least Thinking.
     render(
-      <Composer
-        disabled={false}
-        onSend={() => {}}
-        session={{ ...SESSION, model: 'claude-haiku-4-5' }}
-      />
+      <Composer disabled={false} onSend={() => {}} session={{ ...SESSION, model: 'gpt-5.4' }} />
     )
     await waitFor(() => expect(screen.queryByTitle('Traits')).not.toBeInTheDocument())
   })
@@ -739,12 +774,73 @@ describe('Composer option chips', () => {
     expect(onPermissionModeChange).toHaveBeenCalledWith('acceptEdits')
   })
 
+  /**
+   * Synthetic widths for the elements the fit computation measures, close to what the real
+   * chips occupy at `text-xs`. jsdom lays nothing out, so without these every element reports
+   * `offsetWidth: 0`, the row looks infinitely roomy and collapse can never happen at all.
+   *
+   * Item widths INCLUDE each item's leading divider, matching how the component measures them
+   * (one wrapper per divider+chip pair). With these numbers and the `gap-2` (8px) the fit math
+   * adds per slot, the ladder is: >=768 all three, >=684 two, >=536 one, else none.
+   */
+  const SYNTH_WIDTH: Record<string, number> = {
+    traits: 300,
+    access: 140,
+    toolResults: 114,
+    model: 150,
+    more: 30,
+    send: 32
+  }
+  let rowWidth = 900
+
+  // Patched on the prototype rather than on specific nodes: collapsing MOVES an item to the
+  // ghost row, which remounts it as a brand new element, so any per-node stub would be lost on
+  // the first re-render and the row would immediately measure it as 0 and re-expand.
+  beforeEach(() => {
+    rowWidth = 900
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+      configurable: true,
+      get(this: HTMLElement) {
+        const d = this.dataset
+        if (d.composerItem) return SYNTH_WIDTH[d.composerItem] ?? 0
+        if (d.composerModel !== undefined) return SYNTH_WIDTH.model
+        if (d.composerMore !== undefined) return SYNTH_WIDTH.more
+        const label = this.getAttribute('aria-label')
+        return label === 'Send' || label === 'Stop' ? SYNTH_WIDTH.send : 0
+      }
+    })
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.hasAttribute('data-composer-density') ? rowWidth : 0
+      }
+    })
+  })
+
   /** Drives the ResizeObserver the component registers, since jsdom never fires one. */
   function setRowWidth(px: number): void {
+    rowWidth = px
     const cb = (globalThis as unknown as { __roCallbacks: ResizeObserverCallback[] }).__roCallbacks
-    const row = document.querySelector('[data-composer-density]') as HTMLElement
-    Object.defineProperty(row, 'clientWidth', { value: px, configurable: true })
     cb.forEach((c) => c([], {} as ResizeObserver))
+  }
+
+  /** How many collapsible controls the row is currently showing. */
+  function visibleCount(): number {
+    const row = document.querySelector('[data-composer-density]') as HTMLElement
+    return Number(row.getAttribute('data-composer-visible'))
+  }
+
+  /**
+   * Queries scoped to the options row — i.e. to what the user can actually see and click.
+   *
+   * Needed because a collapsed chip is not unmounted: it keeps rendering inside the `inert`
+   * measurement ghost row so its width stays readable (that is what makes the fit computation
+   * stable). A global `screen.getByTitle` finds those ghosts, so an unscoped "is it gone?"
+   * assertion would silently never fail. The ghosts live OUTSIDE this element for exactly
+   * this reason.
+   */
+  function inRow(): ReturnType<typeof within> {
+    return within(document.querySelector('[data-composer-density]') as HTMLElement)
   }
 
   // Nested here (not a sibling describe) so it inherits this describe's beforeEach,
@@ -766,21 +862,21 @@ describe('Composer option chips', () => {
         'data-composer-density',
         'narrow'
       )
-      expect(screen.queryByTitle('Traits')).not.toBeInTheDocument()
-      expect(screen.getByTitle('Model')).toBeInTheDocument()
-      expect(screen.getByLabelText('Send')).toBeInTheDocument()
-      expect(screen.getByLabelText('More options')).toBeInTheDocument()
+      expect(inRow().queryByTitle('Traits')).not.toBeInTheDocument()
+      expect(inRow().getByTitle('Model')).toBeInTheDocument()
+      expect(inRow().getByLabelText('Send')).toBeInTheDocument()
+      expect(inRow().getByLabelText('More options')).toBeInTheDocument()
     })
 
     it('holds every collapsed control in the one menu', async () => {
       render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
       await screen.findByTitle('Traits')
       act(() => setRowWidth(360))
-      await userEvent.click(screen.getByLabelText('More options'))
-      expect(screen.getByText('Reasoning')).toBeInTheDocument()
-      expect(screen.getByText('Context Window')).toBeInTheDocument()
-      expect(screen.getByText('Access')).toBeInTheDocument()
-      expect(screen.getByText('Tool results')).toBeInTheDocument()
+      await userEvent.click(inRow().getByLabelText('More options'))
+      expect(inRow().getByText('Reasoning')).toBeInTheDocument()
+      expect(inRow().getByText('Context Window')).toBeInTheDocument()
+      expect(inRow().getByText('Access')).toBeInTheDocument()
+      expect(inRow().getByText('Tool results')).toBeInTheDocument()
     })
 
     it('expands again when the pane widens', async () => {
@@ -794,10 +890,10 @@ describe('Composer option chips', () => {
       )
       // The attribute flip alone doesn't prove the layout actually restored — confirm a
       // real chip is back in the DOM, not just the density label on the row.
-      expect(screen.getByTitle('Traits')).toBeInTheDocument()
+      expect(inRow().getByTitle('Traits')).toBeInTheDocument()
     })
 
-    it('collapsed menu still shows Access and Tool results — but no descriptor sections — for a model with none', async () => {
+    it('collapsed menu shows only Access and Tool results for a model whose sole option is Thinking', async () => {
       render(
         <Composer
           disabled={false}
@@ -805,20 +901,85 @@ describe('Composer option chips', () => {
           session={{ ...SESSION, model: 'claude-haiku-4-5' }}
         />
       )
-      // Haiku has no descriptors, so there's no Traits chip to await — flush the
-      // catalog-load effect via a negative assertion instead, as the sibling test above does.
-      await waitFor(() => expect(screen.queryByTitle('Traits')).not.toBeInTheDocument())
+      // Haiku's one option is Thinking (it has no Reasoning control), so the Traits chip is
+      // present but carries a single section.
+      await screen.findByTitle('Traits')
       act(() => setRowWidth(360))
       expect(screen.getByTestId('composer-options')).toHaveAttribute(
         'data-composer-density',
         'narrow'
       )
-      await userEvent.click(screen.getByLabelText('More options'))
-      expect(screen.getByText('Access')).toBeInTheDocument()
-      expect(screen.getByText('Tool results')).toBeInTheDocument()
-      expect(screen.queryByText('Reasoning')).not.toBeInTheDocument()
-      expect(screen.queryByText('Context Window')).not.toBeInTheDocument()
+      await userEvent.click(inRow().getByLabelText('More options'))
+      expect(inRow().getByText('Thinking')).toBeInTheDocument()
+      expect(inRow().getByText('Access')).toBeInTheDocument()
+      expect(inRow().getByText('Tool results')).toBeInTheDocument()
+      expect(inRow().queryByText('Reasoning')).not.toBeInTheDocument()
+      expect(inRow().queryByText('Context Window')).not.toBeInTheDocument()
     })
+
+    it('sheds one control at a time instead of collapsing all of them at once', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await screen.findByTitle('Traits')
+      expect(visibleCount()).toBe(3)
+
+      // Tool results goes first, and BOTH survivors stay on the row — this is the whole
+      // point: the old fixed threshold folded all three the moment it tripped.
+      act(() => setRowWidth(700))
+      expect(visibleCount()).toBe(2)
+      expect(inRow().getByTitle('Traits')).toBeInTheDocument()
+      expect(inRow().getByTitle('Permission mode')).toBeInTheDocument()
+      expect(inRow().queryByLabelText(/tool results/i)).not.toBeInTheDocument()
+
+      // Then Access, leaving the Traits chip — the control carrying the most state — last.
+      act(() => setRowWidth(600))
+      expect(visibleCount()).toBe(1)
+      expect(inRow().getByTitle('Traits')).toBeInTheDocument()
+      expect(inRow().queryByTitle('Permission mode')).not.toBeInTheDocument()
+
+      act(() => setRowWidth(360))
+      expect(visibleCount()).toBe(0)
+    })
+
+    it('hands the "…" menu only the controls that are actually hidden', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await screen.findByTitle('Traits')
+      act(() => setRowWidth(700))
+      await userEvent.click(inRow().getByLabelText('More options'))
+      // Tool results is the only thing collapsed, so it must be the only thing in the menu.
+      // Listing a still-visible control here would give one setting two live controls a few
+      // pixels apart.
+      expect(inRow().getByText('Tool results')).toBeInTheDocument()
+      expect(inRow().queryByText('Access')).not.toBeInTheDocument()
+      expect(inRow().queryByText('Reasoning')).not.toBeInTheDocument()
+    })
+
+    it('keeps Send on the row at every width', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await screen.findByTitle('Traits')
+      for (const px of [900, 800, 700, 620, 540, 480, 360, 240]) {
+        act(() => setRowWidth(px))
+        const used =
+          SYNTH_WIDTH.model +
+          8 +
+          SYNTH_WIDTH.send +
+          rowItemWidths(visibleCount()) +
+          (visibleCount() < 3 ? 8 + SYNTH_WIDTH.more : 0)
+        // The row physically fits what it chose to show — the failure this guards is Send
+        // being pushed out of frame, which no DOM query can see on its own.
+        expect({ px, used, fits: used <= px || visibleCount() === 0 }).toEqual({
+          px,
+          used,
+          fits: true
+        })
+      }
+    })
+
+    /** Width of the first `n` collapsible items plus the gap that precedes each. */
+    function rowItemWidths(n: number): number {
+      return ['traits', 'access', 'toolResults']
+        .slice(0, n)
+        .reduce((sum, id) => sum + 8 + SYNTH_WIDTH[id], 0)
+    }
   })
 
   // Nested here (not a sibling describe) for the same reason as 'Composer responsive
@@ -957,22 +1118,35 @@ describe('Composer option chips', () => {
       expect(traits).not.toHaveClass('argus-ultracode')
     })
 
-    // Narrow density folds the traits chip away entirely, so the collapsed `⋯` trigger has to
+    // A fully collapsed row folds the traits chip away entirely, so the `⋯` trigger has to
     // carry the state instead — otherwise the one thing this feature exists to show is
-    // invisible on any pane under 650px.
-    it('moves the treatment onto the collapsed trigger below the threshold', async () => {
+    // invisible on a narrow pane.
+    it('moves the treatment onto the collapsed trigger once the Traits chip is folded away', async () => {
       render(<Composer disabled={false} onSend={() => {}} session={ULTRACODE} />)
       await screen.findByTitle('Traits')
       act(() => setRowWidth(360))
-      expect(screen.queryByTitle('Traits')).not.toBeInTheDocument()
-      expect(screen.getByLabelText('More options')).toHaveClass('argus-ultracode')
+      expect(inRow().queryByTitle('Traits')).not.toBeInTheDocument()
+      expect(inRow().getByLabelText('More options')).toHaveClass('argus-ultracode')
+    })
+
+    // The `⋯` stands IN for the traits chip, so it may only wear the treatment when that chip
+    // is actually gone. Incremental collapse makes "Traits on the row, something else in the
+    // menu" the common case, and an unconditional flag put the animated pill on both at once —
+    // two Ultracode markers a few pixels apart, reading as two separate states.
+    it('leaves the collapsed trigger unmarked while the Traits chip is still on the row', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={ULTRACODE} />)
+      await screen.findByTitle('Traits')
+      act(() => setRowWidth(700))
+      expect(visibleCount()).toBe(2)
+      expect(inRow().getByTitle('Traits')).toHaveClass('argus-ultracode')
+      expect(inRow().getByLabelText('More options')).not.toHaveClass('argus-ultracode')
     })
 
     it('leaves the collapsed trigger unmarked at an ordinary effort level', async () => {
       render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
       await screen.findByTitle('Traits')
       act(() => setRowWidth(360))
-      expect(screen.getByLabelText('More options')).not.toHaveClass('argus-ultracode')
+      expect(inRow().getByLabelText('More options')).not.toHaveClass('argus-ultracode')
     })
   })
 })

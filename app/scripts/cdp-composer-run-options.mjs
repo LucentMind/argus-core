@@ -155,23 +155,51 @@ async function openCase() {
   )
 }
 
-/** The composer's option row: density + which chips are present. */
+/**
+ * The composer's option row: which controls are visible, and the geometry that proves the
+ * row physically fits them.
+ *
+ * Every selector here is scoped INSIDE the row element on purpose. A collapsed chip is not
+ * unmounted — it keeps rendering inside the `inert` measurement ghost row (a sibling of the
+ * options row, see Composer.tsx) so its width stays readable and the fit computation stays
+ * stable. A bare `document.querySelector('button[title="Traits"]')` therefore finds the ghost
+ * and reports a hidden chip as present, which would make every "did it collapse?" check below
+ * pass unconditionally.
+ *
+ * `overflow` is the measurement that matters most: it is how far the Send button's right edge
+ * sticks out past the row's own right edge. Anything above zero is the reported bug — Send
+ * pushed out of frame — and it is invisible to every other kind of test.
+ */
 const readRow = () =>
   conn.evalJs(`(() => {
     const row = document.querySelector('[data-testid="composer-options"]')
+    if (!row) return null
+    const q = (sel) => row.querySelector(sel)
+    const rowBox = row.getBoundingClientRect()
+    const send = q('[aria-label="Send"]') || q('[aria-label="Stop"]')
+    const sendBox = send ? send.getBoundingClientRect() : null
     return {
-      density: row ? row.getAttribute('data-composer-density') : null,
-      rowWidth: row ? Math.round(row.getBoundingClientRect().width) : null,
-      traitsChip: !!document.querySelector('button[title="Traits"]'),
-      moreOptions: !!document.querySelector('[aria-label="More options"]')
+      density: row.getAttribute('data-composer-density'),
+      visible: Number(row.getAttribute('data-composer-visible')),
+      items: [...row.querySelectorAll('[data-composer-item]')].map(
+        (el) => el.dataset.composerItem
+      ),
+      rowWidth: Math.round(rowBox.width),
+      scrollOverflow: Math.round(row.scrollWidth - row.clientWidth),
+      overflow: sendBox ? Math.round(sendBox.right - rowBox.right) : null,
+      sendVisible: !!sendBox && sendBox.width > 0,
+      traitsChip: !!q('button[title="Traits"]'),
+      moreOptions: !!q('[aria-label="More options"]')
     }
   })()`)
 
 /** The wide Traits chip's own displayed text (its joined trigger label), or null if it isn't
- *  mounted (i.e. the row is currently narrow). */
+ *  on the row (i.e. it is currently collapsed). Scoped to the row for the ghost-row reason
+ *  spelled out on `readRow`. */
 const traitsLabel = () =>
   conn.evalJs(`(() => {
-    const btn = document.querySelector('button[title="Traits"]')
+    const row = document.querySelector('[data-testid="composer-options"]')
+    const btn = row && row.querySelector('button[title="Traits"]')
     return btn ? btn.textContent.trim() : null
   })()`)
 
@@ -189,7 +217,8 @@ const sectionHeadings = (menuSelector) =>
  *  the two controls the collapse never folds away. */
 const modelLabel = () =>
   conn.evalJs(`(() => {
-    const btn = document.querySelector('button[title="Model"]')
+    const row = document.querySelector('[data-testid="composer-options"]')
+    const btn = row && row.querySelector('button[title="Model"]')
     return btn ? btn.textContent.trim() : null
   })()`)
 
@@ -299,37 +328,134 @@ await conn.evalJs(`(() => {
   return true
 })()`)
 
-// ── 3. narrow the chat pane (<650px row) and confirm the flip ─────────────────────────────
+// ── 3. sweep the viewport and confirm the row sheds controls ONE AT A TIME, always fitting ──
 //
-// The row's own width, not the window's, is what the component measures (`useDensity`
-// observes `rowRef`, COLLAPSE_AT_PX = 650 — lowered from the old 700 now that the row holds
-// one fused Traits chip instead of up to four separate descriptor chips, see Composer.tsx's
-// own docstring on the constant). Rather than compute the exact aside/findings-pane arithmetic
-// that would put the row at exactly 650px, this drives the viewport down to a width where
-// <main>'s own CSS floor (`CHAT_MIN_WIDTH` = 360px, see uiStore.ts/CaseWorkspace.tsx) is what
-// ends up binding — reliable regardless of the evidence/findings panes' current widths, and
-// still well under the threshold once the composer's own padding is subtracted.
+// This replaces a single-threshold check (`COLLAPSE_AT_PX = 650`, since removed) that asserted
+// the old two-state behaviour: above the threshold every chip, below it every chip at once
+// inside `…`. Both of that design's failure modes were real and are what this sweep now
+// guards. Between the threshold and the row's true worst-case width (~760-790px) the row
+// simply overflowed and pushed Send out of frame; below it, the row hid controls it still had
+// room for.
 //
-// The generous timeout (default waitFor's 20s is doubled here) is not slack for the app —
-// it's slack for THIS environment. See setViewport's doc comment: the DOM is already laid out
-// at the new size within milliseconds (confirmed via getBoundingClientRect polling by hand),
-// but `useDensity`'s ResizeObserver callback only actually fires once
-// `document.visibilityState` flips to `'visible'`, and on this desktop that flip is at the
-// mercy of real OS window focus — which this terminal itself competes for. A short timeout
-// here does not mean "the feature is broken", only "the window didn't get focus in time".
+// Two claims per width, and the geometric one is the point:
+//
+//   a. Send never leaves the frame. `overflow` is the Send button's right edge minus the row's
+//      own right edge, read from real `getBoundingClientRect()`s in a real engine. This is the
+//      reported bug, and NOTHING short of a real layout can see it — jsdom lays nothing out,
+//      so every rect there is zero and this check is vacuous outside a browser.
+//   b. The visible count only ever falls as the pane narrows, and never skips straight to
+//      zero while there is still room. Monotonicity is also the anti-oscillation evidence:
+//      the fit computation is meant to be a pure function of (container width, item widths),
+//      so re-narrowing must never bounce the count back up.
+//
+// The widths deliberately straddle the old 650 constant, including the 650-790 band that used
+// to overflow silently.
+//
+// The generous timeout is not slack for the app — it's slack for THIS environment. See
+// setViewport's doc comment: the DOM is laid out at the new size within milliseconds, but the
+// ResizeObserver callback only fires once `document.visibilityState` flips to `'visible'`, and
+// on this desktop that flip is at the mercy of real OS window focus — which this terminal
+// itself competes for. A timeout here does not mean "the feature is broken", only "the window
+// didn't get focus in time".
 
-await setViewport(650, 900)
-await waitFor('composer row to narrow', () => readRow().then((r) => r.density === 'narrow'), 45000)
+/** A viewport width found to leave the row partially collapsed — reused by check 4b. */
+let partialWidth = null
+
+/**
+ * Read the row once it has stopped changing — two identical consecutive samples.
+ *
+ * Not "wait for the width to differ from the last viewport": the chat pane has a CSS min-width
+ * floor (`CHAT_MIN_WIDTH`, see uiStore.ts/CaseWorkspace.tsx), so several viewport widths in a
+ * row legitimately produce the SAME row width, and a wait keyed on change would burn its full
+ * timeout on every one of them.
+ */
+async function settledRow(label) {
+  let last = null
+  for (let i = 0; i < 60; i++) {
+    const r = await readRow()
+    const key = r && `${r.rowWidth}:${r.visible}`
+    if (key !== null && key === last) return r
+    last = key
+    await sleep(200)
+  }
+  throw new Error(`row never settled at ${label}`)
+}
+
+/**
+ * Viewport widths to sample.
+ *
+ * Concentrated between 1100 and 1600 on purpose: the composer row is NOT the viewport. Two
+ * fixed side panes (evidence, findings) flank the chat, and `<main>` has its own min-width
+ * floor, so the row measures ~821px at a 1600px viewport, ~321px at 1100px, and is pinned at
+ * ~293px for every viewport below that. All of the interesting behaviour therefore lives in
+ * that 500px-wide band; sampling 900/700/500 (the obvious choice, and this sweep's first
+ * version) reads the same fully-collapsed row over and over and never exercises a partial
+ * state at all.
+ */
+const sweep = []
+for (const width of [1600, 1550, 1500, 1450, 1400, 1350, 1300, 1250, 1200, 1150, 1100, 800, 460]) {
+  await setViewport(width, 900)
+  sweep.push({ width, ...(await settledRow(`viewport ${width}`)) })
+}
+
+{
+  const overflowing = sweep.filter((s) => s.overflow > 0 || !s.sendVisible)
+  check(
+    '3a. Send stays inside the row at every width (the reported bug: it was pushed out of frame)',
+    overflowing.length === 0,
+    { overflowing, sweep: sweep.map((s) => ({ w: s.width, overflow: s.overflow })) }
+  )
+
+  const counts = sweep.map((s) => s.visible)
+  const monotonic = counts.every((c, i) => i === 0 || c <= counts[i - 1])
+  check(
+    '3b. the visible control count only ever decreases as the pane narrows (no oscillation)',
+    monotonic,
+    sweep.map((s) => ({ w: s.width, rowWidth: s.rowWidth, visible: s.visible, items: s.items }))
+  )
+
+  // The whole point of the change: at least one width must show a PARTIALLY collapsed row —
+  // some controls on the row, some in `…`. The old design could only ever produce 3 or 0.
+  const partial = sweep.filter((s) => s.visible > 0 && s.visible < 3)
+  partialWidth = partial[0]?.width ?? null
+  check(
+    '3c. at least one width sheds SOME controls while keeping others (iterative, not all-or-nothing)',
+    partial.length > 0,
+    partial.map((s) => ({ w: s.width, visible: s.visible, items: s.items }))
+  )
+
+  // Drop order: Tool results first, then Access, and Traits survives longest. Because the
+  // visible set is a prefix of the display order, whatever IS shown must be a prefix too.
+  const ORDER = ['traits', 'access', 'toolResults']
+  const prefixOk = sweep.every((s) => s.items.join(',') === ORDER.slice(0, s.visible).join(','))
+  check(
+    '3d. controls drop from the end (Tool results, then Access) and never reorder',
+    prefixOk,
+    sweep.map((s) => ({ w: s.width, visible: s.visible, items: s.items }))
+  )
+
+  // Nothing may overflow the row's own scroll box either — an over-wide measurement ghost
+  // that escaped its 0x0 clip would show up here as phantom horizontal scroll.
+  check(
+    '3e. the row never overflows its own scroll box (ghost row stays clipped)',
+    sweep.every((s) => s.scrollOverflow <= 0),
+    sweep.map((s) => ({ w: s.width, scrollOverflow: s.scrollOverflow }))
+  )
+}
+
+// Settle at a width where everything is collapsed, for the menu checks below.
+await setViewport(460, 900)
+await waitFor(
+  'composer row to fully collapse',
+  () => readRow().then((r) => r.visible === 0),
+  45000
+)
 
 {
   const narrow = await readRow()
   check(
-    '3. narrow composer (<650px row): density=narrow, Traits chip gone, "More options" exists',
-    narrow.density === 'narrow' &&
-      narrow.rowWidth !== null &&
-      narrow.rowWidth < 650 &&
-      !narrow.traitsChip &&
-      narrow.moreOptions,
+    '3f. fully collapsed: Traits chip off the row, "More options" present',
+    narrow.visible === 0 && !narrow.traitsChip && narrow.moreOptions,
     narrow
   )
 }
@@ -351,6 +477,64 @@ check(
   ['Reasoning', 'Context Window', 'Access', 'Tool results'].every((h) => headings.includes(h)),
   headings
 )
+
+// ── 4b. at a PARTIALLY collapsed width the menu holds only what is actually hidden ─────────
+//
+// Collapse is incremental now, so the `…` menu is routinely a strict subset. Listing a control
+// there while its own chip is still on the row would give one setting two live controls a few
+// pixels apart — and the two would disagree the moment either was used.
+
+if (partialWidth !== null) {
+  // close the currently-open menu first
+  await conn.evalJs(`(() => {
+    const scrim = document.querySelector('.fixed.inset-0')
+    if (scrim) scrim.click()
+    return true
+  })()`)
+  await setViewport(partialWidth, 900)
+  await waitFor(
+    `composer row to return to a partial state at ${partialWidth}`,
+    () => readRow().then((r) => r.visible > 0 && r.visible < 3),
+    45000
+  )
+  const row = await readRow()
+  await conn.evalJs(`(() => {
+    const btn = document.querySelector('[data-testid="composer-options"] [aria-label="More options"]')
+    if (btn) btn.click()
+    return true
+  })()`)
+  await waitFor('Session options menu to open', () =>
+    conn.evalJs(`!!document.querySelector('[role="menu"][aria-label="Session options"]')`)
+  )
+  const partialHeadings = await sectionHeadings('[role="menu"][aria-label="Session options"]')
+  // Traits is on the row here, so its descriptor sections must NOT also be in the menu.
+  const traitsShown = row.items.includes('traits')
+  const leaked = traitsShown
+    ? ['Reasoning', 'Context Window'].filter((h) => partialHeadings.includes(h))
+    : []
+  check(
+    '4b. a partially collapsed menu holds only the hidden controls, not the visible ones',
+    leaked.length === 0 && partialHeadings.includes('Tool results'),
+    { partialWidth, visible: row.visible, items: row.items, partialHeadings, leaked }
+  )
+  await conn.evalJs(`(() => {
+    const scrim = document.querySelector('.fixed.inset-0')
+    if (scrim) scrim.click()
+    return true
+  })()`)
+  await setViewport(460, 900)
+  await waitFor('composer row to fully collapse again', () =>
+    readRow().then((r) => r.visible === 0)
+  )
+  await conn.evalJs(`(() => {
+    const btn = document.querySelector('[data-testid="composer-options"] [aria-label="More options"]')
+    if (btn) btn.click()
+    return true
+  })()`)
+  await waitFor('Session options menu to reopen', () =>
+    conn.evalJs(`!!document.querySelector('[role="menu"][aria-label="Session options"]')`)
+  )
+}
 
 // ── 5. selecting Ultracode makes the (wide) Traits chip's joined label include "Ultracode" ─
 //
