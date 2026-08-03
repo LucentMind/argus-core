@@ -118,6 +118,48 @@ const CorpusErrorEnvelope = z.object({ error: z.object({ code: z.string(), messa
 
 const CorpusAdminSyncStarted = z.object({ started: z.boolean() }).passthrough()
 
+// Transcribed from argus-hindsight/packages/contract/src/index.ts:86-99 (`AdminConfig`).
+// Root gets `.passthrough()` per the additive-evolution rule (see CorpusDefectRecord
+// above); the nested groups (jira/sync/embedding/llm/enrichment) stay plain, matching
+// how the reference contract itself does not passthrough them.
+export const CorpusAdminConfig = z
+  .object({
+    jira: z.object({
+      baseUrl: z.string(),
+      email: z.string(),
+      apiToken: z.string().optional(),
+      jql: z.string(),
+      includeComments: z.boolean()
+    }),
+    sync: z.object({ intervalMinutes: z.number().int().min(0) }),
+    embedding: z.object({
+      endpoint: z.string(),
+      model: z.string(),
+      apiKey: z.string().optional()
+    }),
+    llm: z.object({
+      provider: z.enum(['openai-compatible', 'anthropic']),
+      endpoint: z.string().optional(),
+      model: z.string(),
+      apiKey: z.string().optional()
+    }),
+    enrichment: z.object({
+      mode: z.enum(['off', 'rules', 'on-first-hit']),
+      rulesJql: z.string().optional()
+    })
+  })
+  .passthrough()
+export type CorpusAdminConfig = z.infer<typeof CorpusAdminConfig>
+
+// Transcribed from argus-hindsight/packages/contract/src/index.ts:111-115 (`JqlPreviewResponse`).
+export const CorpusJqlPreview = z
+  .object({
+    count: z.number().int(),
+    sample: z.array(z.object({ key: z.string(), summary: z.string() }))
+  })
+  .passthrough()
+export type CorpusJqlPreview = z.infer<typeof CorpusJqlPreview>
+
 export type CorpusSearchInput = {
   query: string
   mode?: 'hybrid' | 'lexical' | 'semantic'
@@ -201,5 +243,17 @@ export class DefectCorpusClient {
 
   adminSyncStatus(): Promise<CorpusSyncStatus> {
     return this.request(CorpusSyncStatus, 'GET', '/v1/admin/sync/status')
+  }
+
+  adminGetConfig(): Promise<CorpusAdminConfig> {
+    return this.request(CorpusAdminConfig, 'GET', '/v1/admin/config')
+  }
+
+  adminPutConfig(cfg: CorpusAdminConfig): Promise<CorpusAdminConfig> {
+    return this.request(CorpusAdminConfig, 'PUT', '/v1/admin/config', cfg)
+  }
+
+  adminJqlPreview(jql: string): Promise<CorpusJqlPreview> {
+    return this.request(CorpusJqlPreview, 'POST', '/v1/admin/jql-preview', { jql })
   }
 }

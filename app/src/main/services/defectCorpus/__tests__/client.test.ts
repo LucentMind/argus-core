@@ -224,3 +224,139 @@ describe('DefectCorpusClient', () => {
     expect(seenSignal).toBeInstanceOf(AbortSignal)
   })
 })
+
+describe('admin config', () => {
+  it('adminGetConfig GETs /v1/admin/config with bearer auth and parses the masked config', async () => {
+    const cfg = {
+      jira: {
+        baseUrl: 'https://x.atlassian.net',
+        email: 'a@b.c',
+        apiToken: SECRET_MASK,
+        jql: 'project = KAN',
+        includeComments: true
+      },
+      sync: { intervalMinutes: 60 },
+      embedding: {
+        endpoint: 'https://api.openai.com/v1',
+        model: 'text-embedding-3-small',
+        apiKey: SECRET_MASK
+      },
+      llm: { provider: 'anthropic', model: 'claude-sonnet-5', apiKey: SECRET_MASK },
+      enrichment: { mode: 'rules', rulesJql: 'resolution = Fixed' }
+    }
+    let seenUrl = ''
+    let seenAuth: string | undefined
+    let seenMethod = ''
+    const fetchFn = fetchOf((url, init) => {
+      seenUrl = url
+      seenAuth = (init?.headers as Record<string, string>)?.authorization
+      seenMethod = init?.method ?? ''
+      return { status: 200, json: cfg }
+    })
+    const got = await client(fetchFn).adminGetConfig()
+    expect(seenUrl).toBe('https://corpus.example/v1/admin/config')
+    expect(seenMethod).toBe('GET')
+    expect(seenAuth).toBe('Bearer tok')
+    expect(got.jira.apiToken).toBe(SECRET_MASK)
+    expect(got.enrichment.mode).toBe('rules')
+  })
+
+  it('adminGetConfig maps the 404 envelope to CorpusError code not_configured', async () => {
+    const fetchFn = fetchOf(() => ({
+      status: 404,
+      json: { error: { code: 'not_configured', message: 'no admin config set' } }
+    }))
+    await expect(client(fetchFn).adminGetConfig()).rejects.toMatchObject({
+      name: 'CorpusError',
+      code: 'not_configured',
+      status: 404
+    })
+  })
+
+  it('adminPutConfig PUTs exactly the given body and parses the masked response', async () => {
+    // jira.apiToken is OMITTED entirely (keep the existing secret); llm.apiKey is a real
+    // value (replace). The client must pass the body through unmodified — no injected or
+    // stripped fields — since masking/merge semantics are the server's job (SPEC.md §4.5).
+    const body = {
+      jira: {
+        baseUrl: 'https://x.atlassian.net',
+        email: 'a@b.c',
+        jql: 'project = KAN',
+        includeComments: true
+      },
+      sync: { intervalMinutes: 30 },
+      embedding: {
+        endpoint: 'https://api.openai.com/v1',
+        model: 'text-embedding-3-small',
+        apiKey: SECRET_MASK
+      },
+      llm: {
+        provider: 'anthropic' as const,
+        model: 'claude-sonnet-5',
+        apiKey: 'sk-real-secret-value'
+      },
+      enrichment: { mode: 'on-first-hit' as const }
+    }
+    const response = {
+      jira: {
+        baseUrl: 'https://x.atlassian.net',
+        email: 'a@b.c',
+        apiToken: SECRET_MASK,
+        jql: 'project = KAN',
+        includeComments: true
+      },
+      sync: { intervalMinutes: 30 },
+      embedding: {
+        endpoint: 'https://api.openai.com/v1',
+        model: 'text-embedding-3-small',
+        apiKey: SECRET_MASK
+      },
+      llm: { provider: 'anthropic', model: 'claude-sonnet-5', apiKey: SECRET_MASK },
+      enrichment: { mode: 'on-first-hit' }
+    }
+    let seenUrl = ''
+    let seenMethod = ''
+    let seenBody = ''
+    const fetchFn = fetchOf((url, init) => {
+      seenUrl = url
+      seenMethod = init?.method ?? ''
+      seenBody = String(init?.body ?? '')
+      return { status: 200, json: response }
+    })
+    const got = await client(fetchFn).adminPutConfig(body)
+    expect(seenUrl).toBe('https://corpus.example/v1/admin/config')
+    expect(seenMethod).toBe('PUT')
+    expect(JSON.parse(seenBody)).toEqual(body)
+    expect(got.llm.apiKey).toBe(SECRET_MASK)
+  })
+
+  it('adminJqlPreview POSTs {jql} and parses count+sample; invalid_jql envelope maps to that code', async () => {
+    let seenUrl = ''
+    let seenMethod = ''
+    let seenBody = ''
+    const fetchFn = fetchOf((url, init) => {
+      seenUrl = url
+      seenMethod = init?.method ?? ''
+      seenBody = String(init?.body ?? '')
+      return {
+        status: 200,
+        json: { count: 12, sample: [{ key: 'KAN-5', summary: 'SIGSEGV on shutdown' }] }
+      }
+    })
+    const res = await client(fetchFn).adminJqlPreview('project = KAN')
+    expect(seenUrl).toBe('https://corpus.example/v1/admin/jql-preview')
+    expect(seenMethod).toBe('POST')
+    expect(JSON.parse(seenBody)).toEqual({ jql: 'project = KAN' })
+    expect(res).toEqual({ count: 12, sample: [{ key: 'KAN-5', summary: 'SIGSEGV on shutdown' }] })
+
+    const badFetchFn = fetchOf(() => ({
+      status: 400,
+      json: { error: { code: 'invalid_jql', message: 'field X does not exist' } }
+    }))
+    await expect(client(badFetchFn).adminJqlPreview('field X = 1')).rejects.toMatchObject({
+      name: 'CorpusError',
+      code: 'invalid_jql',
+      status: 400
+    })
+  })
+})
