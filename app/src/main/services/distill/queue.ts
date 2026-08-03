@@ -145,10 +145,20 @@ export class DistillQueue {
    * alone is enough: the kick loop's `WHERE state='queued'` then skips it, same as if `kick()`
    * had consumed it. For a running job, the write happens first and its `AbortController` is
    * aborted only after — aborting rejects the driver's race and tears its CLI down. `runJob`'s
-   * own aborted-path handling then rewrites the same terminal row on a later turn once the
-   * driver's promise actually settles; that rewrite is a no-op over what's already persisted
-   * here (see `finishCancelled` in `runJob`), kept for the case where `runJob` reaches that
-   * branch some other way.
+   * own aborted-path branches (its success-path guard and its `catch`) then run on a later turn
+   * once the driver's promise actually settles. Only the `finished_at` WRITE inside them is
+   * redundant over what's already persisted here (see `finishCancelled` in `runJob`) — the
+   * BRANCH itself is not vestigial: it is the only thing standing between this cancelled row
+   * and `runJob` silently overwriting it with `state='done'` (staging proposals from a
+   * cancelled run, if the driver resolved instead of rejecting) or `state='failed'` (the exact
+   * red "distill failed — retry" this feature exists to prevent).
+   *
+   * This is also where this class's usual invariant — DB says `running` ⟺ a controller is
+   * live in `controllers` — stops holding: from this write until `runJob`'s `finally` deletes
+   * the map entry, the row is terminal while its controller is still live. That's safe only
+   * because nothing outside `cancel()` ever reads `controllers`, and `cancel()`'s own
+   * resting-state early return (above) means a second `cancel()` on the same job never
+   * consults that orphaned controller again.
    *
    * Deliberately idempotent on a resting job (done/failed/cancelled): "it finished while
    * the menu was open" is an ordinary race, not an error. Re-cancelling an already-cancelled
@@ -164,7 +174,21 @@ export class DistillQueue {
       .run(new Date().toISOString(), jobId)
     const fresh = this.get(jobId)!
     this.emit(fresh)
-    if (wasRunning) this.controllers.get(jobId)?.abort()
+    if (wasRunning) {
+      // Under this design a running row always has a live controller — runJob sets it before
+      // flipping state to 'running', and cancel() is the only place that flips state away from
+      // 'running' without going through runJob's own finally. If that ever stops holding, abort
+      // silently no-ops: the row stays 'cancelled' (already persisted above) but the driver
+      // keeps running unaborted, and if it later resolves, runJob's success path would stage
+      // proposals from a cancelled run and overwrite this row with state='done'. Surface that
+      // instead of swallowing it.
+      const ac = this.controllers.get(jobId)
+      if (!ac)
+        console.error(
+          `[distill] job ${jobId} was running with no controller; cancel cannot abort it`
+        )
+      ac?.abort()
+    }
     return fresh
   }
 
@@ -229,9 +253,6 @@ export class DistillQueue {
   private async runJob(r: JobDbRow): Promise<void> {
     const db = this.deps.db
     const ac = new AbortController()
-    this.controllers.set(r.id, ac)
-    db.prepare(`UPDATE distill_jobs SET state='running' WHERE id=?`).run(r.id)
-    this.emit(this.get(r.id)!)
     const finish = (fields: string, ...vals: (string | number | null)[]): void => {
       db.prepare(`UPDATE distill_jobs SET ${fields}, finished_at=? WHERE id=?`).run(
         ...vals,
@@ -241,10 +262,15 @@ export class DistillQueue {
       this.emit(this.get(r.id)!)
     }
     // cancel() already persists state='cancelled' (with finished_at) synchronously, before it
-    // ever aborts this job's controller — see DistillQueue.cancel. So by the time either
-    // aborted-branch below runs, the row is already terminal. This keeps that terminal write
-    // idempotent: COALESCE preserves the finished_at cancel() already stamped instead of
-    // moving it forward just because the driver took longer to unwind.
+    // ever aborts this job's controller — see DistillQueue.cancel. Both aborted-branches below
+    // (the success-path guard and the catch) exist to detect that and stop this method from
+    // clobbering the already-terminal row: drop the success-path guard and a driver that
+    // resolves after cancel() still reaches stage()/finish(state='done'), staging proposals
+    // from a cancelled run; drop the catch's check and the abort rejection falls through to
+    // finish(state='failed'), overwriting 'cancelled' with the exact red "distill failed —
+    // retry" this feature exists to prevent. Only the finished_at WRITE below is redundant by
+    // the time either branch runs — COALESCE preserves the finished_at cancel() already
+    // stamped instead of moving it forward just because the driver took longer to unwind.
     const finishCancelled = (): void => {
       db.prepare(
         `UPDATE distill_jobs SET state='cancelled', finished_at=COALESCE(finished_at, ?) WHERE id=?`
@@ -252,6 +278,15 @@ export class DistillQueue {
       this.emit(this.get(r.id)!)
     }
     try {
+      // Prologue (controller registration + the running-state write) now lives inside this try:
+      // if the UPDATE throws (locked/corrupt DB), execution falls into the catch below instead
+      // of escaping past the `finally`, which would otherwise leak this job's controller in the
+      // map for the process lifetime. `ac.signal.aborted` is false here (nothing has aborted
+      // yet), so a prologue failure lands in the plain-error branch and is recorded as a normal
+      // `finish(state='failed', ...)`, same as any other mid-run failure.
+      this.controllers.set(r.id, ac)
+      db.prepare(`UPDATE distill_jobs SET state='running' WHERE id=?`).run(r.id)
+      this.emit(this.get(r.id)!)
       const input = JSON.parse(r.input_snapshot) as CaseDistillInput
       const run = await this.deps.distill(input, ac.signal)
       // A driver can resolve normally even though its signal was already aborted — it lost or

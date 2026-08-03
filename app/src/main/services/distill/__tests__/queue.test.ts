@@ -307,6 +307,27 @@ describe('DistillQueue', () => {
     expect(q.statusFor('z')!.state).toBe('cancelled')
   })
 
+  it('a cancel that beats the driver teardown survives an app quit as cancelled, not failed', async () => {
+    // recoverOnBoot's WHERE state='running' has never matched a directly-inserted 'cancelled'
+    // row, so that alone (the test above) pins nothing about this task's change. The scenario
+    // this feature was approved for is: cancel a job that is genuinely RUNNING, then the app
+    // quits while the driver's CLI subprocess is still unwinding, before runJob's aborted-branch
+    // rewrite ever gets a turn to run. This is RED against pre-fix code, where cancel() didn't
+    // persist state='cancelled' synchronously and the row would still read 'running' at boot.
+    const { q } = makeQueue({
+      distill: (_input, signal) =>
+        new Promise((_res, rej) => {
+          signal.addEventListener('abort', () => rej(new Error('x')), { once: true })
+        })
+    })
+    const job = q.enqueue('case-a')
+    await vi.waitFor(() => expect(q.statusFor('case-a')!.state).toBe('running'), { timeout: 5000 })
+    q.cancel(job.id)
+    expect(q.recoverOnBoot()).toBe(0) // simulates the next boot, mid-teardown
+    expect(q.statusFor('case-a')!.state).toBe('cancelled')
+    await q.idle()
+  })
+
   it('retry on a cancelled job throws', () => {
     db.prepare(
       `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at, finished_at) VALUES ('z','cancelled','{}','t','t2')`
@@ -344,11 +365,19 @@ describe('DistillQueue', () => {
     const job = q.enqueue('case-a')
     await vi.waitFor(() => expect(q.statusFor('case-a')!.state).toBe('running'), { timeout: 5000 })
     const first = q.cancel(job.id)
+    expect(first.finishedAt).not.toBeNull()
     const second = q.cancel(job.id)
     expect(second.state).toBe('cancelled')
     expect(second.finishedAt).toBe(first.finishedAt)
-    await q.idle()
-    expect(q.statusFor('case-a')!.finishedAt).toBe(first.finishedAt)
+
+    // The assertions above pass even without COALESCE in finishCancelled, because they never
+    // exercise it: this second cancel() hits cancel()'s own resting-state early return (the
+    // job is already 'cancelled') and never reaches runJob's aborted-branch rewrite at all.
+    // Force that rewrite to actually run, over a value no clock reading could ever produce by
+    // accident, to prove COALESCE — not clock-resolution luck — is what preserves finished_at.
+    db.prepare(`UPDATE distill_jobs SET finished_at='SENTINEL' WHERE id=?`).run(job.id)
+    await q.idle() // runJob's catch (still pending on the driver's abort rejection) runs finishCancelled
+    expect(q.statusFor('case-a')!.finishedAt).toBe('SENTINEL')
   })
 
   it('cancelling a queued job emits a broadcast carrying the cancelled row', async () => {
