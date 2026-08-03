@@ -11,12 +11,33 @@ import {
   type OAuthStatus
 } from '../../../../shared/connectors'
 import { connectorsStore, useConnectorsPayload } from '../../lib/connectorsStore'
+import { settingsStore, useSettingsPayload } from '../../lib/settingsStore'
 import { formValue, commitField, commitSecret } from '../../lib/connectorForm'
 import { confirm } from '../../lib/confirmStore'
 import { AnnotatedForm } from './AnnotatedForm'
-import { SettingsSection, SettingRow, Switch, DraftInput, FIELD } from './settingsLayout'
+import {
+  SettingsSection,
+  SettingRow,
+  Switch,
+  DraftInput,
+  SelectField,
+  FIELD
+} from './settingsLayout'
 import { SourceControl } from './SourceControl'
 import { Btn, Card, Chip, MenuButton } from '../ui'
+
+/** Labels for `settings.rca.techDestination` — kept here rather than in shared/settings.ts
+ *  since they're display strings for exactly this one SelectField, and `SelectField`'s
+ *  contract is label-in/label-out (see settingsLayout.tsx). */
+const TECH_DESTINATION_LABELS = {
+  attachment: 'Attach markdown to the Jira issue',
+  'confluence-page': 'Publish a Confluence page'
+} as const
+const TECH_DESTINATION_BY_LABEL: Record<string, keyof typeof TECH_DESTINATION_LABELS> =
+  Object.fromEntries(Object.entries(TECH_DESTINATION_LABELS).map(([k, v]) => [v, k])) as Record<
+    string,
+    keyof typeof TECH_DESTINATION_LABELS
+  >
 
 function statusChip(
   inst: ConnectorInstance,
@@ -211,8 +232,10 @@ function ConnectorCard({
 
 export function ConnectorsSettings(): React.JSX.Element {
   const payload = useConnectorsPayload()
+  const settingsPayload = useSettingsPayload()
   const [editing, setEditing] = useState<string | null>(null)
   if (!payload) return <div className="text-dim">loading…</div>
+  const rca = settingsPayload?.settings.rca
 
   function addPreset(pid: string): void {
     if (!payload!.connectors[pid]) {
@@ -298,6 +321,43 @@ export function ConnectorsSettings(): React.JSX.Element {
           ]}
         />
       </div>
+      {rca && (
+        <SettingsSection title="RCA report">
+          <SettingRow
+            label="Technical report destination"
+            description="Where a confirmed RCA's technical drill-down is posted — the exec summary always goes as a Jira comment."
+            isDefault={rca.techDestination === 'attachment'}
+            onReset={() => void settingsStore.patch({ rca: { techDestination: null } })}
+          >
+            <SelectField
+              aria-label="Technical report destination"
+              value={TECH_DESTINATION_LABELS[rca.techDestination]}
+              options={Object.values(TECH_DESTINATION_LABELS)}
+              onChange={(v) =>
+                void settingsStore.patch({ rca: { techDestination: TECH_DESTINATION_BY_LABEL[v] } })
+              }
+            />
+          </SettingRow>
+          {rca.techDestination === 'confluence-page' && (
+            <SettingRow
+              label="Confluence space key"
+              description='The space the technical report is published into, e.g. "ENG".'
+              isDefault={!rca.confluenceSpaceKey}
+              onReset={() => void settingsStore.patch({ rca: { confluenceSpaceKey: null } })}
+            >
+              <DraftInput
+                value={rca.confluenceSpaceKey}
+                onCommit={(v) =>
+                  void settingsStore.patch({ rca: { confluenceSpaceKey: v.trim() } })
+                }
+                aria-label="Confluence space key"
+                className={FIELD}
+                placeholder="ENG"
+              />
+            </SettingRow>
+          )}
+        </SettingsSection>
+      )}
       <SourceControl />
     </div>
   )

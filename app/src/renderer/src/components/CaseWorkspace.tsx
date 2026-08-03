@@ -6,6 +6,7 @@ import { CaseFiles } from './CaseFiles'
 import { ChatPane } from './ChatPane'
 import { ReviewRunButton } from './ReviewRunButton'
 import { FindingsPane } from './FindingsPane'
+import { RcaPanel } from './RcaPanel'
 import { JiraSection } from './JiraSection'
 import { ReposSection } from './ReposSection'
 import { PrCompanionSection } from './PrCompanionSection'
@@ -114,6 +115,7 @@ export function CaseWorkspace({
   // dialog.
   const [prPickerCurrent, setPrPickerCurrent] = useState<PrBinding | null>(null)
   const [prSearching, setPrSearching] = useState(false)
+  const [rcaOpen, setRcaOpen] = useState(false)
   const [focusTurn, setFocusTurn] = useState<{
     sessionId: number
     target: ChatJumpTarget
@@ -142,6 +144,9 @@ export function CaseWorkspace({
     // the still-in-flight case; this covers the already-resolved, dialog-already-open case.
     setPrPicker(null)
     setPrPickerCurrent(null)
+    // Same reasoning as the PR picker above: a case switch must not carry the RCA panel
+    // (and its slug-scoped job/draft state) from A into B unbidden.
+    setRcaOpen(false)
   }
   // The current slug, read by `handlePrsFound`'s async chain once it resolves — a ref kept
   // current via its own effect (refs may not be written during render) rather than the
@@ -312,9 +317,7 @@ export function CaseWorkspace({
     setSessionsError(null)
     handleSwitchSession(newSessionId)
     onModeSwitched()
-    void sessionsStore
-      .load(slug)
-      .catch(() => setSessionsError('Could not load chat sessions.'))
+    void sessionsStore.load(slug).catch(() => setSessionsError('Could not load chat sessions.'))
     // Entering review with nothing bound yet is the one moment discovery is worth ~5s of
     // gh: offer the picker. It runs AFTER the switch resolved, so the chat opens
     // immediately and a failed search degrades to manual linking in the Pull request rail.
@@ -799,6 +802,7 @@ export function CaseWorkspace({
                 sessionId={sessionId}
                 activeMode={activeMode}
                 onCite={(c) => void handleCite(c)}
+                onOpenRca={() => setRcaOpen(true)}
               />
             </aside>
           </>
@@ -815,6 +819,7 @@ export function CaseWorkspace({
           }}
         />
       )}
+      {rcaOpen && <RcaPanel slug={slug} onClose={() => setRcaOpen(false)} />}
     </div>
   )
 }

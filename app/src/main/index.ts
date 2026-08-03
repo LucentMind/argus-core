@@ -244,7 +244,8 @@ import { RcaJobs } from './services/rca/jobs'
 import { postRcaReport } from './services/rca/post'
 import { assembleRcaInput } from './services/rca/input'
 import { caseRcaPromptHash } from './services/rca/promptHash'
-import type { RoleAssignment, RcaDraft } from '../shared/rca'
+import { renderExecReport, renderTechReport } from './services/rca/render'
+import type { RoleAssignment, RcaDraft, CaseRcaInput } from '../shared/rca'
 import { draftAsset, improveAsset } from './services/authoring/service'
 import type { AuthoringRequest, AuthoringResult } from '../shared/authoringIpc'
 import { EditorWindowService } from './services/editorWindow'
@@ -1907,6 +1908,23 @@ function registerIpc(): void {
       slug
     )
   )
+  // Pure render, no persistence: the panel calls this on every draft edit to keep the
+  // Exec/Tech preview tabs live before the user confirms anything. Mirrors the meta shape
+  // `RcaJobs.confirm` builds from `getCase` (see jobs.ts) — kept in sync by hand since this
+  // is the one other call site that needs it.
+  ipcMain.handle(IPC.rcaRenderPreview, (_e, slug: string, edited: RcaDraft) => {
+    const kase = getCase(db, slug)
+    if (!kase) throw new Error(`Unknown case: ${slug}`)
+    const meta: CaseRcaInput['caseMeta'] = {
+      slug: kase.slug,
+      title: kase.title,
+      jiraKey: kase.jiraKey,
+      resolution: kase.resolution,
+      tags: kase.tags,
+      createdAt: kase.createdAt
+    }
+    return { exec: renderExecReport(edited, meta), tech: renderTechReport(edited, meta) }
+  })
 
   // — skills —
   const skillsPayload = (): SkillsPayload => ({

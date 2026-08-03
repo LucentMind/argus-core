@@ -92,6 +92,40 @@ beforeEach(() => {
 })
 
 describe('FindingsPane', () => {
+  // Task 11: the RCA report is investigation-only (review mode has no such concept) and its
+  // panel lives in CaseWorkspace, so the pane only needs to offer the callback a place to fire.
+  it('shows the RCA report toggle only in investigation mode, and only when a handler is given', async () => {
+    const onOpenRca = vi.fn()
+    const { rerender } = render(
+      <FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />
+    )
+    expect(screen.queryByRole('button', { name: /rca report/i })).toBeNull()
+
+    rerender(
+      <FindingsPane
+        slug="c1"
+        sessionId={1}
+        activeMode="investigation"
+        onCite={vi.fn()}
+        onOpenRca={onOpenRca}
+      />
+    )
+    const btn = await screen.findByRole('button', { name: /rca report/i })
+    btn.click()
+    expect(onOpenRca).toHaveBeenCalledTimes(1)
+
+    rerender(
+      <FindingsPane
+        slug="c1"
+        sessionId={1}
+        activeMode="review"
+        onCite={vi.fn()}
+        onOpenRca={onOpenRca}
+      />
+    )
+    expect(screen.queryByRole('button', { name: /rca report/i })).toBeNull()
+  })
+
   it('expands a finding to show its body with citation cards collapsed until clicked', async () => {
     ;(window.argus.findings as unknown as { list: unknown }).list = vi.fn(async () => [
       {

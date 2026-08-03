@@ -293,6 +293,9 @@ export const IPC = {
   rcaStatus: 'rca:status',
   rcaConfirm: 'rca:confirm',
   rcaPost: 'rca:post',
+  /** Pure preview render: main-process templates over an (unsaved) edited draft, no state
+   *  touched — the panel uses this to show live exec/tech previews before confirming. */
+  rcaRenderPreview: 'rca:render-preview',
   /** main → all renderer windows broadcast: a case's RCA job state changed. */
   rcaChanged: 'rca:changed'
 } as const

@@ -4,8 +4,10 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ConnectorsSettings } from '../settings/ConnectorsSettings'
 import { connectorsStore } from '../../lib/connectorsStore'
+import { settingsStore } from '../../lib/settingsStore'
 import { confirm } from '../../lib/confirmStore'
 import { DEFAULT_PRESETS, type ConnectorsPayload } from '../../../../shared/connectors'
+import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 
 vi.mock('../../lib/confirmStore', () => ({
   confirm: vi.fn(() => Promise.resolve(true)),
@@ -51,10 +53,25 @@ const basePayload = (over: Partial<ConnectorsPayload> = {}): ConnectorsPayload =
 })
 
 let currentPayload: ConnectorsPayload
+let currentSettings: SettingsPayload
+
+const settingsPayload = (
+  over: Partial<SettingsPayload['settings']['rca']> = {}
+): SettingsPayload => {
+  const s = defaultSettings()
+  return {
+    settings: { ...s, rca: { ...s.rca, ...over } },
+    resolvedTools: [],
+    dataRoot: { path: 'C:\\Users\\x\\Argus', fromEnv: false },
+    loadError: null
+  }
+}
 
 beforeEach(() => {
   connectorsStore.reset()
+  settingsStore.reset()
   currentPayload = basePayload()
+  currentSettings = settingsPayload()
   vi.mocked(confirm).mockResolvedValue(true)
   window.argus = {
     connectors: {
@@ -62,6 +79,20 @@ beforeEach(() => {
       patch: vi.fn(() => Promise.resolve(currentPayload)),
       test: vi.fn().mockResolvedValue({ ok: true, tools: [] }),
       oauth: vi.fn().mockResolvedValue({ ok: true }),
+      onChanged: vi.fn(() => () => {})
+    },
+    settings: {
+      get: vi.fn(() => Promise.resolve(currentSettings)),
+      patch: vi.fn((p: { rca?: Partial<SettingsPayload['settings']['rca']> }) => {
+        currentSettings = {
+          ...currentSettings,
+          settings: {
+            ...currentSettings.settings,
+            rca: { ...currentSettings.settings.rca, ...p.rca }
+          }
+        }
+        return Promise.resolve(currentSettings)
+      }),
       onChanged: vi.fn(() => () => {})
     },
     secrets: {
@@ -271,5 +302,40 @@ describe('ConnectorsSettings', () => {
     render(<ConnectorsSettings />)
     expect(await screen.findByRole('alert')).toBeTruthy()
     expect(screen.getByText(/secret store unavailable/)).toBeTruthy()
+  })
+
+  describe('RCA report settings (task 11)', () => {
+    it('defaults to "attach to Jira issue" and hides the space key field', async () => {
+      render(<ConnectorsSettings />)
+      const select = await screen.findByRole('combobox', { name: /technical report destination/i })
+      expect(select).toHaveTextContent('Attach markdown to the Jira issue')
+      expect(screen.queryByLabelText('Confluence space key')).toBeNull()
+    })
+
+    it('switching to Confluence patches the setting and reveals the space key field', async () => {
+      render(<ConnectorsSettings />)
+      const select = await screen.findByRole('combobox', { name: /technical report destination/i })
+      fireEvent.click(select)
+      fireEvent.click(screen.getByRole('option', { name: /publish a confluence page/i }))
+      await waitFor(() =>
+        expect(window.argus.settings.patch).toHaveBeenCalledWith({
+          rca: { techDestination: 'confluence-page' }
+        })
+      )
+      expect(await screen.findByLabelText('Confluence space key')).toBeTruthy()
+    })
+
+    it('commits the Confluence space key on blur', async () => {
+      currentSettings = settingsPayload({ techDestination: 'confluence-page' })
+      render(<ConnectorsSettings />)
+      const input = await screen.findByLabelText('Confluence space key')
+      fireEvent.change(input, { target: { value: 'ENG' } })
+      fireEvent.blur(input)
+      await waitFor(() =>
+        expect(window.argus.settings.patch).toHaveBeenCalledWith({
+          rca: { confluenceSpaceKey: 'ENG' }
+        })
+      )
+    })
   })
 })

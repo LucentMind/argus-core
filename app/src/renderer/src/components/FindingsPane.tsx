@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { PanelRight, Trash2 } from 'lucide-react'
+import { FileText, PanelRight, Trash2 } from 'lucide-react'
 import { usePendingDisplay } from '../lib/usePendingDisplay'
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
 import { confirm } from '../lib/confirmStore'
@@ -17,7 +17,8 @@ export function FindingsPane({
   slug,
   sessionId,
   activeMode,
-  onCite
+  onCite,
+  onOpenRca
 }: {
   slug: string
   sessionId: number | null
@@ -25,6 +26,10 @@ export function FindingsPane({
    *  not bleed into a review and vice versa (spec §6). */
   activeMode: ModeId
   onCite: (cite: CiteTarget) => void
+  /** Opens the RCA review panel (part 3a-N) — undefined in any caller that has no such panel
+   *  (e.g. a future non-case use of this pane). Rendered only in investigation mode: the
+   *  report is built from investigation findings, and review mode has no such concept. */
+  onOpenRca?: () => void
 }): React.JSX.Element {
   const [findings, setFindings] = useState<FindingRow[]>([])
   const [expandedId, setExpandedId] = useState<number | null>(null)
@@ -258,6 +263,13 @@ export function FindingsPane({
                 className="mx-0.5 h-3 w-px bg-hair2"
               />
             </>
+          )}
+          {/* Investigation-only: the RCA report is built from investigation findings and has
+              no review-mode analog (part 3a-N). */}
+          {activeMode === 'investigation' && onOpenRca && (
+            <IconBtn size="sm" aria-label="RCA report" title="RCA report" onClick={onOpenRca}>
+              <FileText size={14} strokeWidth={1.5} />
+            </IconBtn>
           )}
           {/* Same `IconBtn size="sm"` as the workspace rail's toggle — identical box in an
               identical row is what makes the two land on the same y, so this is not a free
