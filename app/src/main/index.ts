@@ -1886,6 +1886,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.distillStatus, (_e, slug: string) => distillQueue.statusFor(slug))
   ipcMain.handle(IPC.distillRetry, (_e, jobId: number) => distillQueue.retry(jobId))
   ipcMain.handle(IPC.distillRedistill, (_e, slug: string) => distillQueue.enqueue(slug))
+  ipcMain.handle(IPC.distillCancel, (_e, jobId: number) => distillQueue.cancel(jobId))
   ipcMain.handle(IPC.distillSimilar, (_e, slug: string) => similarCases(db, slug))
 
   // — defect corpus —

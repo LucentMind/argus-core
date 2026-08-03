@@ -356,6 +356,7 @@ const argus = {
     status: (slug: string): Promise<DistillJobRow | null> => invoke(IPC.distillStatus, slug),
     retry: (jobId: number): Promise<DistillJobRow> => invoke(IPC.distillRetry, jobId),
     redistill: (slug: string): Promise<DistillJobRow> => invoke(IPC.distillRedistill, slug),
+    cancel: (jobId: number): Promise<DistillJobRow> => invoke(IPC.distillCancel, jobId),
     similar: (slug: string): Promise<SummarySearchHit[]> => invoke(IPC.distillSimilar, slug),
     onChanged: (cb: (p: DistillStatusPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: DistillStatusPayload): void => cb(p)

@@ -282,6 +282,7 @@ export const IPC = {
   distillStatus: 'distill:status',
   distillRetry: 'distill:retry',
   distillRedistill: 'distill:redistill',
+  distillCancel: 'distill:cancel',
   distillSimilar: 'distill:similar',
   // — defect corpus —
   defectsSearch: 'defects:search',
