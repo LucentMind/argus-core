@@ -95,6 +95,9 @@ function PackCard({
           {pack.update.phase === 'error' && pack.update.code === 'origin-pin' && (
             <> — download it manually from your vendor and install it with Install from file.</>
           )}
+          {pack.update?.phase === 'error' && pack.update.code === 'gh' && (
+            <> — check your GitHub CLI sign-in under Settings → Health, then try again.</>
+          )}
         </div>
       )}
       {open && tools.length > 0 && (

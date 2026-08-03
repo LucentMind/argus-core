@@ -357,6 +357,26 @@ describe('PacksSettings', () => {
     expect(await screen.findByText(/download it manually/i)).toBeInTheDocument()
   })
 
+  it('tells the user to fix their GitHub CLI auth when a check fails with code gh', async () => {
+    packs.list = vi.fn().mockResolvedValue({
+      error: null,
+      packs: [
+        row({
+          id: 'sample',
+          update: {
+            phase: 'error',
+            code: 'gh',
+            message: 'the GitHub CLI is not authenticated',
+            at: 1
+          }
+        })
+      ]
+    })
+    render(<PacksSettings settings={settingsPayload([])} />)
+    expect(await screen.findByText(/GitHub CLI/)).toBeInTheDocument()
+    expect(screen.getByText(/Settings → Health/)).toBeInTheDocument()
+  })
+
   it('prompts for relaunch after a successful applyUpdate', async () => {
     packs.list = vi.fn().mockResolvedValue({
       error: null,

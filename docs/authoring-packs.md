@@ -385,6 +385,38 @@ an attacker serving from that origin can still publish a feed with a matching, s
 checksum. Protecting the origin itself — access control on the host, a locked-down deploy
 pipeline — is outside what this scheme defends.
 
+### Updating from GitHub Releases
+
+A pack whose repository is on GitHub can skip the feed entirely. Declare the repo instead of a
+feed URL — the two are mutually exclusive:
+
+    "updateRepo": "acme/argus-pack-triage"
+
+Enterprise hosts take the form `"ghe.acme.com/acme/argus-pack-triage"`.
+
+Publishing is then just a release:
+
+    argus-pack build --pack ./ --out ./dist
+    gh release create v1.1.0 ./dist/*.zip
+
+Argus reads the version and target platform from each asset's filename, the checksum from the
+`digest` GitHub computes for every asset, and `argusApi` from the `argus-pack.json` in the
+tagged commit. Nothing else has to be published, and nothing has to be hosted.
+
+**This path requires the GitHub CLI.** Argus shells out to `gh`, so it inherits your sign-in —
+which is what makes a private repository work at all. If `gh` is missing or signed out, affected
+packs report it on their row; Settings → Health has the check.
+
+**What is pinned.** The first install records the repository, and every later check and download
+must come from it. If the repository is renamed or transferred, GitHub silently forwards the old
+name — Argus notices and refuses, exactly as it refuses a feed that moves to a new origin. Move
+deliberately by publishing a bundle whose manifest names the new repo.
+
+**One difference from the feed path.** A feed download is capped mid-transfer; a release download
+is performed by `gh`, so Argus can only refuse an asset whose *published size* exceeds the limit
+before starting. Drafts and prereleases are never offered, and an asset with no checksum is
+skipped rather than installed unverified.
+
 ---
 
 ## 10. Checklist & common mistakes
