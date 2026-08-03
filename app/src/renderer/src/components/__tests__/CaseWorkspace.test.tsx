@@ -96,6 +96,14 @@ beforeEach(() => {
       similar: vi.fn(async () => []),
       onChanged: vi.fn(() => () => undefined)
     },
+    // SimilarCasesCard's known-defects section (Task 7): unmocked, this namespace is
+    // undefined and every render that reaches its effect throws.
+    defects: {
+      search: vi.fn(async () => []),
+      test: vi.fn(async () => ({ ok: false, error: 'not configured' })),
+      syncNow: vi.fn(async () => ({ ok: false })),
+      syncStatus: vi.fn(async () => null)
+    },
     findings: {
       list: vi.fn(async () => []),
       review: vi.fn()

@@ -587,7 +587,12 @@ export function CaseWorkspace({
                   onPrsFound={handlePrsFound}
                 />
                 {activeMode !== 'review' && (
-                  <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />
+                  <SimilarCasesCard
+                    slug={slug}
+                    title={caseTitle}
+                    jiraKey={jiraKey}
+                    onOpenCase={onOpenCase}
+                  />
                 )}
               </div>
               {/* key: reset per-case state (scan result, collapsed dirs, parsing set) when
