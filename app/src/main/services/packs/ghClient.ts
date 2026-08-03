@@ -122,18 +122,29 @@ export const nodeGhClient: GhClient = {
 /** Hashes what actually landed on disk. gh writes the file itself, so — unlike the feed path's
  *  `getToFile` — there is no stream to hash during transfer and no way to enforce a byte cap
  *  mid-flight. The caller refuses oversized assets BEFORE downloading, using the size the API
- *  already reported. */
-async function hashFile(p: string): Promise<{ sha256: string; bytesWritten: number }> {
-  const hash = crypto.createHash('sha256')
-  let bytesWritten = 0
-  await new Promise<void>((resolve, reject) => {
-    const stream = fs.createReadStream(p)
-    stream.on('data', (chunk) => {
-      bytesWritten += chunk.length
-      hash.update(chunk)
+ *  already reported. Every failure must be a GhError so callers narrowing on `.kind` see only
+ *  classified failures. */
+export async function hashFile(p: string): Promise<{ sha256: string; bytesWritten: number }> {
+  try {
+    const hash = crypto.createHash('sha256')
+    let bytesWritten = 0
+    await new Promise<void>((resolve, reject) => {
+      const stream = fs.createReadStream(p)
+      stream.on('data', (chunk) => {
+        bytesWritten += chunk.length
+        hash.update(chunk)
+      })
+      stream.on('error', reject)
+      stream.on('end', () => resolve())
     })
-    stream.on('error', reject)
-    stream.on('end', () => resolve())
-  })
-  return { sha256: hash.digest('hex'), bytesWritten }
+    return { sha256: hash.digest('hex'), bytesWritten }
+  } catch (err) {
+    // `gh` can exit 0 without leaving a readable file behind (on Windows, an AV scanner
+    // still holding the handle is the realistic case). Every failure out of this seam must
+    // be a GhError, or a caller narrowing on `.kind` sees an unclassified Error instead.
+    throw new GhError(
+      'failed',
+      `downloaded asset could not be read back: ${(err as Error).message}`
+    )
+  }
 }

@@ -1,5 +1,7 @@
+import path from 'node:path'
+import os from 'node:os'
 import { describe, it, expect } from 'vitest'
-import { classifyGhFailure, GhError } from '../ghClient'
+import { classifyGhFailure, GhError, hashFile } from '../ghClient'
 
 describe('classifyGhFailure', () => {
   it('reports a missing gh binary distinctly', () => {
@@ -34,5 +36,14 @@ describe('classifyGhFailure', () => {
 
   it('is a GhError, so callers can narrow on it', () => {
     expect(classifyGhFailure(new Error('x'))).toBeInstanceOf(GhError)
+  })
+})
+
+describe('hashFile failures', () => {
+  it('reports an unreadable downloaded asset as a GhError, not a raw Error', async () => {
+    // Exercises the hash-back step in isolation: `gh` exiting 0 without leaving a readable
+    // file is the real-world case (AV holding the handle on Windows).
+    const missing = path.join(os.tmpdir(), 'argus-gh-does-not-exist', 'asset.zip')
+    await expect(hashFile(missing)).rejects.toBeInstanceOf(GhError)
   })
 })
