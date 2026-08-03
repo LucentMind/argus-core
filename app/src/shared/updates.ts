@@ -20,6 +20,9 @@ export type UpdateErrorCode =
   | 'too-large'
   | 'checksum'
   | 'install'
+  /** The GitHub CLI is missing, unauthenticated, or the repo is not visible to it. Distinct
+   *  from 'feed' because the fix is the user's, and the Packs row must say so. */
+  | 'gh'
 
 export type UpdateStatus =
   | { phase: 'idle' }
