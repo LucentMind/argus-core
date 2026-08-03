@@ -3,7 +3,7 @@ import { PACK_API_VERSION } from './manifest'
 
 /** True when a pack's declared `argusApi` range includes the API this Core implements. */
 export function isApiCompatible(argusApi: string): boolean {
-  return semver.satisfies(`${PACK_API_VERSION}.0.0`, argusApi)
+  return semver.satisfies(PACK_API_VERSION, argusApi)
 }
 
 const OS_TO_NODE: Record<string, 'win32' | 'darwin' | 'linux'> = {

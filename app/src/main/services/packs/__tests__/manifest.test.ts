@@ -259,8 +259,39 @@ describe('platform field + PACK_API_VERSION', () => {
     expect(() => packManifestSchema.parse({ ...valid, platform: 'macOS' })).toThrow()
   })
 
-  it('exports PACK_API_VERSION = 1', () => {
-    expect(PACK_API_VERSION).toBe(1)
+  it('exports PACK_API_VERSION = 1.1.0', () => {
+    expect(PACK_API_VERSION).toBe('1.1.0')
+  })
+})
+
+describe('dependencies field', () => {
+  const valid = { id: 'sample', displayName: 'Sample', version: '1.0.0', argusApi: '^1.1' }
+
+  it('parses a valid dependencies record and exposes it on the typed manifest', () => {
+    const m = packManifestSchema.parse({ ...valid, dependencies: { common: '^0.1.0' } })
+    expect(m.dependencies).toEqual({ common: '^0.1.0' })
+  })
+
+  it('defaults dependencies to an empty record when absent (backward compatible)', () => {
+    const m = packManifestSchema.parse({
+      id: 'sample',
+      displayName: 'Sample',
+      version: '1.0.0',
+      argusApi: '^1'
+    })
+    expect(m.dependencies).toEqual({})
+  })
+
+  it('rejects a non-kebab dependency key, naming the offending key', () => {
+    expect(() =>
+      packManifestSchema.parse({ ...valid, dependencies: { 'Not Kebab': '^1' } })
+    ).toThrow(/Not Kebab/)
+  })
+
+  it('rejects an invalid semver range, naming the offending key', () => {
+    expect(() =>
+      packManifestSchema.parse({ ...valid, dependencies: { common: 'not-a-range' } })
+    ).toThrow(/common/)
   })
 })
 
