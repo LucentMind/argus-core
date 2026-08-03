@@ -125,6 +125,41 @@ describe('DistillQueue', () => {
     expect(() => q.retry(job.id)).toThrow(/not failed/i)
   })
 
+  it('N1: retry REFUSES an older failed job when a newer job is already queued/running for the slug, rather than cancelling the newer job (regression: retry re-queues an OLDER id but statusFor is MAX(id))', async () => {
+    // Job 1 fails, job 2 is enqueued afterwards for the same slug and is still running (never
+    // resolves). A stale retry click on job 1 must not cancel job 2 — every renderer read of
+    // this slug goes through statusFor() (MAX(id)), so cancelling job 2 would make the UI show
+    // "Re-distill"/no chip while job 2 keeps running unabortable. Refusing instead makes the
+    // stale click a harmless no-op: job 1 stays failed, job 2 stays running.
+    let calls = 0
+    const { q } = makeQueue({
+      distill: async () => {
+        calls++
+        if (calls === 1) throw new Error('boom')
+        return new Promise(() => {}) // job 2 never resolves on its own
+      }
+    })
+    const job1 = q.enqueue('case-a')
+    await q.idle()
+    expect(q.statusFor('case-a')!.id).toBe(job1.id)
+    expect(q.statusFor('case-a')!.state).toBe('failed')
+
+    const job2 = q.enqueue('case-a')
+    await vi.waitFor(() => expect(q.statusFor('case-a')!.state).toBe('running'), { timeout: 5000 })
+    expect(job2.id).not.toBe(job1.id)
+
+    expect(() => q.retry(job1.id)).toThrow(/in.?flight|already/i)
+
+    const rows = db
+      .prepare(`SELECT id, state FROM distill_jobs WHERE case_slug=? ORDER BY id`)
+      .all('case-a') as { id: number; state: string }[]
+    const byId = new Map(rows.map((r) => [r.id, r.state]))
+    expect(byId.get(job1.id)).toBe('failed') // untouched by the refused retry
+    expect(byId.get(job2.id)).toBe('running') // NOT cancelled by the refused retry
+    expect(q.statusFor('case-a')!.id).toBe(job2.id)
+    expect(q.statusFor('case-a')!.state).toBe('running')
+  })
+
   it('throwing broadcast does not overwrite a done job with failed', async () => {
     const { q } = makeQueue({
       broadcast: () => {

@@ -329,4 +329,53 @@ describe('CaseAnchor', () => {
     await screen.findByText('Cancel distillation')
     expect(screen.queryByText('Re-distill')).toBeNull()
   })
+
+  it('N5: a broadcast resets a pending menu action, so a redistill()/cancel() promise that never settles does not leave the row inert forever (DistillChip already does this for its `cancelling` flag)', async () => {
+    let onChangedCb: ((p: DistillStatusPayload) => void) | undefined
+    redistillMock.mockReturnValue(new Promise<DistillJobRow>(() => {})) // never settles
+    window.argus = {
+      cases: { setStatus: vi.fn().mockResolvedValue(undefined) },
+      bundle: { export: vi.fn().mockResolvedValue({ ok: true, fileCount: 0 }) },
+      distill: {
+        status: statusMock,
+        onChanged: vi.fn((cb: (p: DistillStatusPayload) => void) => {
+          onChangedCb = cb
+          return () => undefined
+        }),
+        redistill: redistillMock,
+        cancel: cancelMock
+      }
+    } as never
+
+    const user = userEvent.setup()
+    renderAnchor({ status: 'open' })
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    await user.click(screen.getByText('Distill').closest('button')!)
+    expect(redistillMock).toHaveBeenCalledTimes(1)
+
+    // A broadcast lands regardless — e.g. another window started a distill for this case. The
+    // menu row's own `redistill()` call never settles, so nothing in the click handler itself
+    // ever clears `pending`.
+    act(() => {
+      onChangedCb?.({
+        caseSlug: 'NN-5187',
+        job: {
+          id: 9,
+          caseSlug: 'NN-5187',
+          state: 'running',
+          error: null,
+          itemCount: null,
+          createdAt: 't',
+          finishedAt: null
+        }
+      })
+    })
+
+    // Without resetting `pending` alongside `override`, the row would still ignore clicks here —
+    // `distillMenuLabel` correctly reads "Cancel distillation" off the broadcast, but the guard
+    // (`if (pending) return`) would swallow the click before `cancel()` is ever called.
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    await user.click(screen.getByText('Cancel distillation').closest('button')!)
+    expect(cancelMock).toHaveBeenCalledWith(9)
+  })
 })

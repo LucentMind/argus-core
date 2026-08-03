@@ -135,18 +135,32 @@ export class DistillQueue {
   }
 
   /**
-   * failed → queued, reusing the original snapshot. Throws if the job isn't failed.
+   * failed → queued, reusing the original snapshot. Throws if the job isn't failed, OR if
+   * another queued/running job already exists for the same slug.
    *
-   * Same in-flight guard as `enqueue` (see its doc comment), for the same reason: a stale
-   * renderer row, a swallowed broadcast, or two windows racing one IPC round-trip can reach
-   * `retry` for a case that already has a fresh job running or queued (e.g. the user distilled
-   * again from the menu before retrying an old failure), which would otherwise leave two
-   * in-flight jobs for the slug. The flip to `queued` happens first — if that UPDATE ever throws,
-   * nothing else has been touched — then any OTHER in-flight job for the same slug is cancelled.
+   * NOT the same in-flight guard as `enqueue` — deliberately. `enqueue`/`retry` both hold "at
+   * most one queued-or-running job per case", but `retry` re-queues a job whose id can be
+   * arbitrarily OLDER than a job that started after it failed (the user retries a stale failure
+   * row while a fresh distill from the menu is already running). `statusFor` is `MAX(id)`, and
+   * every renderer read (the case menu, the bar chip, every mount/case-switch/new-window/restart)
+   * goes through it — so cancelling the newer job here, the way `enqueue` cancels other in-flight
+   * rows, would silently kill live work: the newer job vanishes from the UI mid-run with no
+   * broadcast the user would connect to their retry click, and no way left to cancel it. Refusing
+   * instead makes a stale retry a harmless no-op: the old failed row stays failed (the caller's
+   * `.catch` — DistillChip's failed-state retry button — resyncs from `status(slug)` on any
+   * rejection, so the UI recovers on its own) and the fresher job survives untouched. See the N1
+   * regression test.
    */
   retry(jobId: number): DistillJobRow {
     const job = this.get(jobId)
     if (!job || job.state !== 'failed') throw new Error(`distill job ${jobId} is not failed`)
+    const inFlight = this.deps.db
+      .prepare(`SELECT id FROM distill_jobs WHERE case_slug=? AND state IN ('queued','running')`)
+      .get(job.caseSlug) as { id: number } | undefined
+    if (inFlight)
+      throw new Error(
+        `distill job ${jobId} cannot be retried: case ${job.caseSlug} already has an in-flight job (${inFlight.id})`
+      )
     this.deps.db
       .prepare(
         `UPDATE distill_jobs SET state='queued', error=NULL, raw_output=NULL, item_count=NULL, finished_at=NULL WHERE id=?`
@@ -154,7 +168,6 @@ export class DistillQueue {
       .run(jobId)
     const fresh = this.get(jobId)!
     this.emit(fresh)
-    this.cancelOtherInFlight(fresh.caseSlug, fresh.id)
     this.kick()
     return fresh
   }

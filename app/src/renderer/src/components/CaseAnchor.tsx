@@ -56,6 +56,12 @@ export function CaseAnchor({
   if (tracked !== prevTracked) {
     setPrevTracked(tracked)
     setOverride(null)
+    // Same idiom as DistillChip's `cancelling` reset in its identical block: without this, a
+    // redistill()/cancel() promise that never settles (network hang, dropped IPC reply) leaves
+    // `pending` stuck true forever — every click on this row is swallowed by the `if (pending)
+    // return` guard above, even once a broadcast has moved `distillJob` on to a state that would
+    // otherwise make the click meaningful again. See the N5 regression test.
+    setPending(false)
   }
   // Bumped whenever `tracked` changes identity — see DistillChip's `cancelEpochRef` for the full
   // rationale (shared idiom). `react-hooks/refs` forbids writing a ref in the render body above,

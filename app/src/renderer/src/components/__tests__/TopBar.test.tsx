@@ -406,6 +406,77 @@ describe('TopBar', () => {
     expect(screen.queryByText(/^distilling/)).toBeNull()
   })
 
+  // CaseAnchor is keyed on `activeSlug` for the identical reason DistillChip is (see the test
+  // above): TopBar itself is not remounted on a case switch, only re-rendered with a new
+  // `activeSlug`. Unlike the DistillChip case, this shape is reachable even when NEITHER the old
+  // nor the new slug has ever had a distill job — `tracked` stays `null` across the switch, so
+  // there is no identity change for CaseAnchor's own epoch guard to key off. Without the `key`,
+  // case A's redistill() response resolving after the switch would be adopted into case B's row
+  // as "Cancel distillation" carrying case A's job id — and clicking it would call cancel() on
+  // case A's job from case B's menu. Delete the key and this is the test that must fail.
+  it('does not let a case redistill response survive a switch to another case (CaseAnchor key guard)', async () => {
+    const user = userEvent.setup()
+    const CASE2 = { ...CASE, slug: 'NAV-2', title: 'NAV-2' } as unknown as CaseRecord
+    window.argus.distill.status = vi.fn(async () => null) // neither case has ever had a job
+    let resolveRedistill!: (job: DistillJobRow) => void
+    window.argus.distill.redistill = vi.fn(
+      () =>
+        new Promise<DistillJobRow>((resolve) => {
+          resolveRedistill = resolve
+        })
+    )
+    window.argus.distill.cancel = vi.fn()
+
+    const view = render(
+      <TopBar
+        activeSlug="NAV-1"
+        activeCase={CASE}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'Case actions · NAV-1' }))
+    await user.click(screen.getByText('Distill').closest('button')!)
+    expect(window.argus.distill.redistill).toHaveBeenCalledWith('NAV-1')
+
+    // Switch cases while NAV-1's redistill() is still in flight.
+    view.rerender(
+      <TopBar
+        activeSlug="NAV-2"
+        activeCase={CASE2}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Case actions · NAV-1' })).toBeNull()
+    )
+
+    // NAV-1's redistill() resolves only now, after the switch. With the key, the CaseAnchor
+    // instance that requested it was already unmounted, so this result lands nowhere. Without
+    // the key, the still-alive instance would adopt it under NAV-2's identity.
+    await act(async () => {
+      resolveRedistill({
+        id: 1,
+        caseSlug: 'NAV-1',
+        state: 'running',
+        error: null,
+        itemCount: null,
+        createdAt: '',
+        finishedAt: null
+      })
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Case actions · NAV-2' }))
+    expect(screen.queryByText('Cancel distillation')).toBeNull()
+    expect(screen.getByText('Distill')).toBeTruthy()
+  })
+
   it('leaves the case group unscoped when the dynamic theme is off', () => {
     uiStore.setDynamicTheme(false)
     render(

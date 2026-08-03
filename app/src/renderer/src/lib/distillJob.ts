@@ -3,7 +3,18 @@ import type { DistillJobRow } from '../../../shared/distill'
 
 /** Subscribes to a case's distillation job. Extracted from DistillChip so the case-actions
  *  menu can label its Re-distill row with the same state the chip used to occupy bar width
- *  to show. */
+ *  to show.
+ *
+ *  Broadcasts for the same slug are not guaranteed to arrive in id order: `DistillQueue.enqueue`
+ *  emits the NEW job first, then cancels every other in-flight row for the slug (each cancel()
+ *  emits too) — probe-verified synchronous order for a running slug is `["2:queued",
+ *  "1:cancelled"]`. An unconditional last-write-wins reducer would adopt that trailing broadcast
+ *  for job 1 and end up tracking the OLD cancelled job instead of the fresh one that is actually
+ *  queued/running, hiding it from every reader of this hook (the case menu, the bar chip) until
+ *  job 2's own next state change happens to broadcast again. Guard by id instead: a broadcast
+ *  whose job id is lower than the currently tracked job's id is stale and ignored; anything is
+ *  adopted when nothing is tracked yet; a `null` payload always clears (it carries no id to
+ *  compare, and null itself can never be "stale" — there is nothing after it to protect). */
 export function useDistillJob(slug: string): DistillJobRow | null {
   const [job, setJob] = useState<DistillJobRow | null>(null)
 
@@ -20,7 +31,11 @@ export function useDistillJob(slug: string): DistillJobRow | null {
         if (mounted) setJob(null)
       })
     const off = window.argus.distill.onChanged((p) => {
-      if (p.caseSlug === slug) setJob(p.job)
+      if (p.caseSlug !== slug) return
+      setJob((current) => {
+        if (p.job === null || current === null || p.job.id >= current.id) return p.job
+        return current
+      })
     })
     return () => {
       mounted = false
