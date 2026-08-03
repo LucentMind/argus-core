@@ -47,4 +47,19 @@ describe('runCaseDistill', () => {
     expect(result.output.memoryAppends).toHaveLength(1)
     expect(result.raw).toContain('```json')
   })
+
+  it('forwards the abort signal to the runner', async () => {
+    const seen: (AbortSignal | undefined)[] = []
+    const ac = new AbortController()
+    await runCaseDistill(
+      INPUT,
+      async (_p, o) => {
+        seen.push(o?.signal)
+        return '```json\n{}\n```'
+      },
+      undefined,
+      ac.signal
+    )
+    expect(seen[0]).toBe(ac.signal)
+  })
 })

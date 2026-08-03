@@ -22,9 +22,9 @@ export interface HeadlessRunnerDeps {
  */
 export function createHeadlessRunner(
   deps: HeadlessRunnerDeps
-): (prompt: string) => Promise<string> {
+): (prompt: string, opts?: { signal?: AbortSignal }) => Promise<string> {
   const forKind = deps.driverForKind ?? getDriverByKind
-  return async (prompt: string) => {
+  return async (prompt: string, opts?: { signal?: AbortSignal }) => {
     const r = resolveDistillProvider(deps.settings())
     if (!r.ok) throw new Error(r.reason)
     const driver = forKind(r.driverKind)
@@ -36,7 +36,8 @@ export function createHeadlessRunner(
       model: r.model,
       cliPath: r.cliPath,
       argusHome: deps.argusHome,
-      timeoutMs: deps.timeoutMs
+      timeoutMs: deps.timeoutMs,
+      ...(opts?.signal ? { signal: opts.signal } : {})
     })
   }
 }

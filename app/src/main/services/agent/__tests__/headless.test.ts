@@ -104,4 +104,27 @@ describe('createHeadlessRunner', () => {
     await run('b')
     expect(rec.opts?.model).toBe('claude-haiku-4-5')
   })
+
+  it('forwards an abort signal to the driver', async () => {
+    const rec: { prompt?: string; opts?: HeadlessOpts } = {}
+    const run = createHeadlessRunner({
+      settings: copilotActive,
+      argusHome: '/tmp/argus',
+      driverForKind: () => stubDriver(rec)
+    })
+    const ac = new AbortController()
+    await run('prompt', { signal: ac.signal })
+    expect(rec.opts?.signal).toBe(ac.signal)
+  })
+
+  it('omits the signal when the caller passes none', async () => {
+    const rec: { prompt?: string; opts?: HeadlessOpts } = {}
+    const run = createHeadlessRunner({
+      settings: copilotActive,
+      argusHome: '/tmp/argus',
+      driverForKind: () => stubDriver(rec)
+    })
+    await run('prompt')
+    expect(rec.opts?.signal).toBeUndefined()
+  })
 })

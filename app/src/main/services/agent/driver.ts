@@ -161,6 +161,9 @@ export interface HeadlessOpts {
   cliPath?: string
   argusHome: string
   timeoutMs?: number
+  /** Aborts the run. The driver races it alongside its own timeout and tears the CLI down in
+   *  its existing `finally`; see DistillQueue.cancel. */
+  signal?: AbortSignal
 }
 
 export interface ProbeAuthResult {

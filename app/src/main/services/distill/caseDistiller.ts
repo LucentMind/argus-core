@@ -14,9 +14,10 @@ export interface CaseDistillRun {
  */
 export async function runCaseDistill(
   input: CaseDistillInput,
-  run: (prompt: string) => Promise<string>,
-  resolve?: (id: string) => string
+  run: (prompt: string, opts?: { signal?: AbortSignal }) => Promise<string>,
+  resolve?: (id: string) => string,
+  signal?: AbortSignal
 ): Promise<CaseDistillRun> {
-  const raw = await run(buildCaseDistillPrompt(input, resolve))
+  const raw = await run(buildCaseDistillPrompt(input, resolve), signal ? { signal } : undefined)
   return { raw, output: parseCaseDistillOutput(raw) }
 }
