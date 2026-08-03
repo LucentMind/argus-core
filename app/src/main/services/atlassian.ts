@@ -216,11 +216,23 @@ export class AtlassianClient {
     url: string,
     authorization: string,
     instanceId: string,
-    opts?: { signal?: AbortSignal; accept?: string }
+    opts?: {
+      signal?: AbortSignal
+      accept?: string
+      method?: string
+      body?: BodyInit
+      headers?: Record<string, string>
+    }
   ): Promise<Response> {
     try {
       return await this.fetchImpl(url, {
-        headers: { Authorization: authorization, Accept: opts?.accept ?? 'application/json' },
+        method: opts?.method,
+        body: opts?.body,
+        headers: {
+          Authorization: authorization,
+          Accept: opts?.accept ?? 'application/json',
+          ...opts?.headers
+        },
         redirect: 'follow', // undici drops Authorization on cross-origin redirects (attachment CDN)
         signal: opts?.signal ?? AbortSignal.timeout(this.timeoutMs)
       })
@@ -241,7 +253,13 @@ export class AtlassianClient {
    */
   private async request(
     pathAndQuery: string,
-    opts?: { signal?: AbortSignal; accept?: string }
+    opts?: {
+      signal?: AbortSignal
+      accept?: string
+      method?: string
+      body?: BodyInit
+      headers?: Record<string, string>
+    }
   ): Promise<Response> {
     const auth = this.creds()
     const product: AtlassianProduct = pathAndQuery.startsWith('/wiki/') ? 'confluence' : 'jira'
@@ -438,6 +456,35 @@ export class AtlassianClient {
     } finally {
       clear()
     }
+  }
+
+  /** Upload one file as an issue attachment (proven against the gateway 2026-08-03 —
+   *  write:jira-work covers it; X-Atlassian-Token: no-check is required or Jira 403s).
+   *  The FormData/Blob body is safely re-sent by request()'s 401/403 retry: Blob parts
+   *  are re-readable (verified empirically — two sequential fetch() calls against the
+   *  same FormData instance both transmit the full body), so no per-attempt rebuild is
+   *  needed. */
+  async uploadAttachment(
+    key: string,
+    filename: string,
+    content: string
+  ): Promise<{ id: string; filename: string }> {
+    const form = new FormData()
+    form.append('file', new Blob([content], { type: 'text/markdown' }), filename)
+    const res = await this.request(`/rest/api/3/issue/${encodeURIComponent(key)}/attachments`, {
+      method: 'POST',
+      body: form,
+      headers: { 'X-Atlassian-Token': 'no-check' }
+    })
+    const arr = await this.parseJson<Array<{ id?: unknown; filename?: unknown }>>(res)
+    const a = arr[0]
+    if (!a)
+      throw new AtlassianError(
+        'http',
+        'Attachment upload returned no records',
+        this.creds().instanceId
+      )
+    return { id: String(a.id ?? ''), filename: String(a.filename ?? filename) }
   }
 
   /** Cheap reachability probe for the Health page — covered by read:jira-work. */

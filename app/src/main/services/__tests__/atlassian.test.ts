@@ -54,6 +54,8 @@ let base: string
 let mediaBase: string
 let lastAuthHeader: string | undefined
 let mediaAuthHeader: string | null | undefined
+let lastAttachmentToken: string | string[] | undefined
+let lastAttachmentBody: string | undefined
 
 // cloudId this server's accessible-resources route advertises for the OAuth
 // gateway fixture below.
@@ -126,6 +128,15 @@ beforeAll(async () => {
     } else if (req.url?.includes('/rest/api/3/project/search')) {
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ values: [] }))
+    } else if (req.url?.includes('/rest/api/3/issue/KAN-1/attachments') && req.method === 'POST') {
+      const chunks: Buffer[] = []
+      req.on('data', (c: Buffer) => chunks.push(c))
+      req.on('end', () => {
+        lastAttachmentToken = req.headers['x-atlassian-token']
+        lastAttachmentBody = Buffer.concat(chunks).toString('utf8')
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify([{ id: '10067', filename: 'rca-tech.md', size: 61 }]))
+      })
     } else {
       res.writeHead(500)
       res.end()
@@ -310,6 +321,15 @@ describe('AtlassianClient', () => {
     }) as unknown as typeof fetch
     const dead = new AtlassianClient(oauthFixture, deadFetch, 2000)
     await expect(dead.getIssue('NAV-7')).rejects.toMatchObject({ code: 'network' })
+  })
+
+  it('uploadAttachment sends multipart with no-check token and returns id+filename', async () => {
+    const { id, filename } = await client().uploadAttachment('KAN-1', 'rca-tech.md', '# report')
+    expect(id).toBe('10067')
+    expect(filename).toBe('rca-tech.md')
+    expect(lastAttachmentToken).toBe('no-check')
+    expect(lastAttachmentBody).toContain('rca-tech.md')
+    expect(lastAttachmentBody).toContain('# report')
   })
 
   it('AtlassianError is an Error with code', () => {
