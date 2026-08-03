@@ -114,6 +114,20 @@ describe('buildEvalBundle', () => {
     expect(skipped).toEqual([]) // the older job is superseded, not "skipped"
   })
 
+  it('F5: a cancelled re-distill does not hide an earlier fully-reviewed done job', () => {
+    // A cancelled job never reaches stage() (see DistillQueue.cancel / runJob's aborted-path
+    // guards), so it never ran the supersede step that deletes an earlier job's un-archived
+    // proposals — the earlier `done` job's archived outcome set is still structurally complete.
+    // The MAX(id) subquery must not let the cancelled row shadow it as "latest".
+    const doneId = insertJob({ created_at: '2026-07-29T00:00:00.000Z' })
+    reviewedItem(doneId, 'accepted')
+    insertJob({ state: 'cancelled', raw_output: null, created_at: '2026-07-30T00:00:00.000Z' })
+    const { lines, skipped } = buildEvalBundle(db, home, '1.0.0')
+    expect(lines.map((l) => l.job.id)).toEqual([doneId])
+    expect(lines[0].items.map((i) => i.outcome)).toEqual(['accepted'])
+    expect(skipped).toEqual([])
+  })
+
   it('skips a queued job (latest for its case) as not finished', () => {
     const id = insertJob({ state: 'queued', raw_output: null, prompt_hash: null })
     const { lines, skipped } = buildEvalBundle(db, home, '1.0.0')

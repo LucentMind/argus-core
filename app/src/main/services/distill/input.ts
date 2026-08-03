@@ -46,9 +46,9 @@ export function buildReferencesIndex(
  * `artifacts/rca-structure.json` — the confirmed, human-reviewed RCA structure for this case, if
  * one was ever generated and confirmed. Unlike rca/jobs.ts's readPriorDraft (which throws on a
  * corrupt file so a bad read can never silently regenerate over confirmed edits), this read is
- * purely advisory input to a one-shot distillation of an already-CLOSED case: a missing file, an
- * unreadable one, or malformed JSON all just mean "no confirmed structure to fold in" — never
- * throw, always fall back to null.
+ * purely advisory input to a case distillation — which can run on a live (open) case as well as
+ * a closed one: a missing file, an unreadable one, or malformed JSON all just mean "no confirmed
+ * structure to fold in" — never throw, always fall back to null.
  */
 function readConfirmedRcaStructure(argusHome: string, slug: string): RcaDraft | null {
   const file = path.join(artifactsDir(argusHome, slug), 'rca-structure.json')

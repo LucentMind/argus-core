@@ -315,3 +315,19 @@ export class DistillQueue {
     }
   }
 }
+
+/**
+ * Reconciles the queue before a case-close enqueue. `enqueue()` has no in-flight guard, and
+ * `statusFor()` always reads the newest job by id — so distilling an OPEN case (job A, running)
+ * and then closing it (which enqueues job B for the close-time snapshot) would leave BOTH jobs
+ * alive: every renderer surface reads B (the newest), so Cancel stops B while A keeps running
+ * unaborted and, on completion, stages proposals built from the stale open-case snapshot into
+ * the proposals tray — exactly what cancel exists to prevent. Cancelling any in-flight job for
+ * the slug first (a no-op if there is none, or if the latest job is already resting) restores
+ * "one job per case": the close-time snapshot, which carries the real resolution, wins.
+ */
+export function reconcileAndEnqueue(queue: DistillQueue, slug: string): DistillJobRow {
+  const cur = queue.statusFor(slug)
+  if (cur && (cur.state === 'queued' || cur.state === 'running')) queue.cancel(cur.id)
+  return queue.enqueue(slug)
+}

@@ -4,7 +4,7 @@ import path from 'node:path'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
-import { DistillQueue } from '../queue'
+import { DistillQueue, reconcileAndEnqueue } from '../queue'
 import { DistillParseError } from '../contract'
 import type { CaseDistillInput, DistillStatusPayload } from '../../../../shared/distill'
 
@@ -378,6 +378,55 @@ describe('DistillQueue', () => {
     db.prepare(`UPDATE distill_jobs SET finished_at='SENTINEL' WHERE id=?`).run(job.id)
     await q.idle() // runJob's catch (still pending on the driver's abort rejection) runs finishCancelled
     expect(q.statusFor('case-a')!.finishedAt).toBe('SENTINEL')
+  })
+
+  it('F1: closing a case with a job in flight cancels it before enqueueing the close-time job', async () => {
+    // Reproduces: distill an OPEN case (job A, running) → close the case → onCaseClosed used to
+    // call enqueue() with no in-flight guard, leaving BOTH jobs alive. statusFor() (ORDER BY id
+    // DESC) then reads only the newest job, so Cancel would stop the wrong one while the older,
+    // still-running job kept going and staged proposals from the stale open-case snapshot.
+    // reconcileAndEnqueue must cancel any in-flight job for the slug first.
+    let calls = 0
+    let releaseFirst: (() => void) | null = null
+    const stageCalls: number[] = []
+    const { q } = makeQueue({
+      distill: () => {
+        calls++
+        if (calls === 1) {
+          return new Promise((res) => {
+            releaseFirst = () => res({ raw: '```json\n{}\n```', output: {} })
+          })
+        }
+        return Promise.resolve({ raw: '```json\n{}\n```', output: {} })
+      },
+      stage: (_slug, jobId) => {
+        stageCalls.push(jobId as number)
+        return { staged: 1, droppedDuplicates: 0, supersededRemoved: 0 }
+      }
+    })
+    const jobA = q.enqueue('case-a')
+    await vi.waitFor(() => expect(q.statusFor('case-a')!.state).toBe('running'), { timeout: 5000 })
+
+    const jobB = reconcileAndEnqueue(q, 'case-a')
+    expect(jobB.id).not.toBe(jobA.id)
+
+    // A is cancelled synchronously, before this call returns.
+    const midA = db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(jobA.id) as {
+      state: string
+    }
+    expect(midA.state).toBe('cancelled')
+
+    releaseFirst!() // let A's driver call "resolve" after the cancel — must not reach stage()
+    await q.idle()
+
+    expect(stageCalls).toEqual([jobB.id]) // A's stage() must NOT be called
+    const finalA = db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(jobA.id) as {
+      state: string
+    }
+    expect(finalA.state).toBe('cancelled')
+    const finalB = q.statusFor('case-a')!
+    expect(finalB.id).toBe(jobB.id)
+    expect(finalB.state).toBe('done')
   })
 
   it('cancelling a queued job emits a broadcast carrying the cancelled row', async () => {

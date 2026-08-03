@@ -234,7 +234,7 @@ import { probeLangfuseCredentials } from './services/observability/langfuseProbe
 import { usageStats, ensureTrackingStarted } from './services/observability/usage'
 import { listFindings, reviewFinding, clearFindings, deleteFinding } from './services/findings'
 import type { MetricsQuery, ReviewState } from '../shared/observability'
-import { DistillQueue } from './services/distill/queue'
+import { DistillQueue, reconcileAndEnqueue } from './services/distill/queue'
 import { assembleDistillInput } from './services/distill/input'
 import { runCaseDistill } from './services/distill/caseDistiller'
 import { stageDistillOutput } from './services/distill/staging'
@@ -739,7 +739,11 @@ function registerIpc(): void {
   distillQueue.recoverOnBoot()
   const onCaseClosed = (rec: CaseRecord): void => {
     try {
-      distillQueue.enqueue(rec.slug)
+      // Reconcile first: an in-flight job for this case (started while it was open) must be
+      // cancelled before the close-time snapshot is enqueued, or both jobs run and the newest
+      // one shadows the older, still-running one from every renderer read — see
+      // reconcileAndEnqueue's doc comment in queue.ts.
+      reconcileAndEnqueue(distillQueue, rec.slug)
     } catch (err) {
       console.error('[distill] enqueue failed', err)
     }

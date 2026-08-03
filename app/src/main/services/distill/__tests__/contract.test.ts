@@ -136,9 +136,41 @@ describe('prompt builder', () => {
     expect(p).not.toContain('closed: ')
   })
 
+  it('F2: a pre-upgrade snapshot with no status field renders status: closed, not undefined', () => {
+    // retry() replays the original input_snapshot verbatim, and a failed job's retry button
+    // persists for the life of the case — a snapshot captured before the open-case distill
+    // branch landed has no `status` key at all.
+    const legacyMeta: Partial<CaseDistillInput['caseMeta']> = { ...INPUT.caseMeta }
+    delete legacyMeta.status
+    const legacy: CaseDistillInput = {
+      ...INPUT,
+      caseMeta: legacyMeta as CaseDistillInput['caseMeta']
+    }
+    const p = buildCaseDistillPrompt(legacy)
+    expect(p).not.toContain('status: undefined')
+    expect(p).toContain('status: closed')
+    expect(p).toContain('closed: b')
+  })
+
   it('contract tells the distiller how to treat a case that is still open', () => {
     expect(CASE_DISTILL_CONTRACT).toContain('open:')
     expect(CASE_DISTILL_CONTRACT).not.toContain('a CLOSED root-cause-analysis case')
+  })
+
+  it('F3: the open: bullet leaves a compliant path for a summary with a confirmed root cause but no fix', () => {
+    // Rule 11 declares "fix" required inside "summary", and the parser hard-rejects a summary
+    // with a missing/empty fix — so for "confirmed root cause, no fix yet" the open: bullet
+    // must prescribe wording (like wont-fix already does), not leave "omit the summary" as the
+    // model's only compliant move.
+    const openBullet = CASE_DISTILL_CONTRACT.split('\n').find((l) =>
+      l.trim().startsWith('- open:')
+    )!
+    expect(openBullet.toLowerCase()).toMatch(/fix.*must state.*no fix (is )?confirmed/)
+  })
+
+  it("F3: rule 8 no longer contradicts the open: bullet's own return {} instruction", () => {
+    const rule8 = CASE_DISTILL_CONTRACT.split('\n').find((l) => /^8\./.test(l.trim()))!
+    expect(rule8.toLowerCase()).toContain('open')
   })
 })
 

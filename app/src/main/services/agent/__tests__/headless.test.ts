@@ -125,6 +125,11 @@ describe('createHeadlessRunner', () => {
       driverForKind: () => stubDriver(rec)
     })
     await run('prompt')
-    expect(rec.opts?.signal).toBeUndefined()
+    // `createHeadlessRunner` spreads `...(opts?.signal ? { signal } : {})`, so the intent is
+    // that the KEY is absent — not merely `undefined`-valued. `toBeUndefined()` cannot tell
+    // that apart from the pre-feature code, where `opts` had no `signal` property to begin
+    // with; `'signal' in rec.opts!` distinguishes "key absent" from "key present with value
+    // undefined".
+    expect('signal' in rec.opts!).toBe(false)
   })
 })

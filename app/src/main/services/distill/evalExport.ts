@@ -43,11 +43,17 @@ export function buildEvalBundle(
   now: () => Date = () => new Date()
 ): { lines: DistillEvalBundleLine[]; skipped: DistillEvalExportResult['skipped'] } {
   // Latest job per case only: re-distills supersede (delete un-archived) earlier jobs'
-  // pending proposals, so earlier jobs' outcome sets are structurally incomplete.
+  // pending proposals, so earlier jobs' outcome sets are structurally incomplete. A cancelled
+  // job is excluded from the MAX(id) pool: it never reaches stage() (see DistillQueue.cancel /
+  // runJob's aborted-path guards), so it never ran the supersede step above — the case's earlier
+  // `done` job's archived outcome set is still structurally complete and must not be shadowed by
+  // a cancelled re-distill becoming the "latest" row and getting skipped as 'not finished'.
   const rows = db
     .prepare(
       `SELECT * FROM distill_jobs
-       WHERE id IN (SELECT MAX(id) FROM distill_jobs GROUP BY case_slug)
+       WHERE id IN (
+         SELECT MAX(id) FROM distill_jobs WHERE state <> 'cancelled' GROUP BY case_slug
+       )
        ORDER BY id ASC`
     )
     .all() as unknown as JobRow[]

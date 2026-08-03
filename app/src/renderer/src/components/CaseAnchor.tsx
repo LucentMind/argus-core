@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import { MenuButton } from './ui'
 import { uiStore } from '../lib/uiStore'
 import { notice } from '../lib/noticeStore'
 import { useDistillJob, distillMenuLabel, isDistillInFlight } from '../lib/distillJob'
 import { CASE_RESOLUTIONS } from '../../../shared/types'
 import type { CaseResolution, CaseStatus } from '../../../shared/types'
+import type { DistillJobRow } from '../../../shared/distill'
 
 /**
  * The case identity and everything you can do to that case, as one control: the case id IS the
@@ -35,7 +37,21 @@ export function CaseAnchor({
   onStatusChanged: () => void
   onHome: () => void
 }): React.JSX.Element {
-  const distillJob = useDistillJob(slug)
+  const tracked = useDistillJob(slug)
+  const [override, setOverride] = useState<DistillJobRow | null>(null)
+  const [pending, setPending] = useState(false)
+  // adjust-state-during-render: any broadcast (tracked) supersedes the optimistic cancel/
+  // redistill result — same idiom as DistillChip, whose adoption-over-swallowed-broadcast
+  // comment explains why: DistillQueue.emit() swallows broadcast failures, so the row a
+  // cancel()/redistill() call resolves with is the only guaranteed-correct source for THIS
+  // click's own outcome, but a broadcast that lands afterward (a newer job on this slug) must
+  // still win — hence the reset here rather than never clearing `override`.
+  const [prevTracked, setPrevTracked] = useState(tracked)
+  if (tracked !== prevTracked) {
+    setPrevTracked(tracked)
+    setOverride(null)
+  }
+  const distillJob = override ?? tracked
 
   async function applyStatus(next: CaseStatus, res: CaseResolution | null): Promise<void> {
     await window.argus.cases.setStatus(slug, next, res)
@@ -95,11 +111,23 @@ export function CaseAnchor({
             // row is the way to stop it — one row, one subject.
             label: distillMenuLabel(distillJob),
             onSelect: () => {
+              // Guards the same double-click hazard DistillChip's `retrying`/`cancelling`
+              // guard against a stale response, but here the guard also must cover a plain
+              // double-click before the FIRST response ever lands: with no broadcast yet and
+              // no optimistic row adopted yet, a second click before `pending` existed would
+              // still read the old `distillJob` and issue a second `redistill()`, enqueuing
+              // two jobs — the same "two jobs for one case" hazard reconcileAndEnqueue exists
+              // to prevent on the close path.
+              if (pending) return
+              setPending(true)
               const inFlight = isDistillInFlight(distillJob)
               const p = inFlight
                 ? window.argus.distill.cancel(distillJob!.id)
                 : window.argus.distill.redistill(slug)
-              void p.catch(() => undefined)
+              void p
+                .then(setOverride)
+                .catch(() => undefined)
+                .finally(() => setPending(false))
             }
           },
           {

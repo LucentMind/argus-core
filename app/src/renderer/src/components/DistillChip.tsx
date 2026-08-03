@@ -22,18 +22,23 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
     setOverride(null)
     setCancelling(false)
   }
-  // Bumped whenever `tracked` changes identity, so an in-flight cancel response can tell
-  // whether a broadcast has superseded it since the click (see the cancel handler below).
-  // `react-hooks/refs` forbids touching a ref's `.current` directly in the render body (the
-  // block above), so this lives in an effect instead. The guard logic is unconditional, but
-  // winning the race relies on the broadcast IPC arriving as a separate task whose microtasks
-  // drain before the `cancel().then()` handler — an assumption about Electron's IPC scheduling,
-  // not a documented contract. If that breaks, the stale `cancelled` row is adopted, matches
-  // no render branch, and the chip vanishes until the next broadcast — transient cosmetic gap
-  // only. Not the mount/unmount `ref.current = false` cleanup that breaks under StrictMode —
-  // fires on every commit where `tracked` changed, mirroring the render-time reset, and repeated
-  // bumps are harmless since callers check `===` against a snapshot, never the count. (Tests in
-  // `act()` prove guard logic but not the timing assumption.)
+  // Bumped whenever `tracked` changes identity, so an in-flight cancel OR retry response can
+  // tell whether a broadcast has superseded it since the click (see the cancel handler below,
+  // and the retry handler further down — both adopt their response via `setOverride`). The two
+  // share this one guard rather than each getting its own: the cancel handler reads `job.id`
+  // from `override ?? tracked`, so an unguarded stale retry response adopted over a newer job's
+  // row would make the chip's ✕ cancel the wrong job id, and the resulting `cancelled` override
+  // would match no render branch, hiding a genuinely running chip. `react-hooks/refs` forbids
+  // touching a ref's `.current` directly in the render body (the block above), so this lives in
+  // an effect instead. The guard logic is unconditional, but winning the race relies on the
+  // broadcast IPC arriving as a separate task whose microtasks drain before the
+  // `cancel()`/`retry()` `.then()` handler — an assumption about Electron's IPC scheduling, not
+  // a documented contract. If that breaks, the stale row is adopted, matches no render branch,
+  // and the chip vanishes until the next broadcast — transient cosmetic gap only. Not the
+  // mount/unmount `ref.current = false` cleanup that breaks under StrictMode — fires on every
+  // commit where `tracked` changed, mirroring the render-time reset, and repeated bumps are
+  // harmless since callers check `===` against a snapshot, never the count. (Tests in `act()`
+  // prove guard logic but not the timing assumption.)
   const cancelEpochRef = useRef(0)
   useLayoutEffect(() => {
     cancelEpochRef.current += 1
@@ -88,13 +93,18 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
         disabled={retrying}
         onClick={() => {
           setRetrying(true)
+          const epoch = cancelEpochRef.current
           void window.argus.distill
             .retry(job.id)
-            .then(setOverride)
+            .then((row) => {
+              if (cancelEpochRef.current === epoch) setOverride(row)
+            })
             .catch(() =>
               window.argus.distill
                 .status(slug)
-                .then((j) => j && setOverride(j))
+                .then((j) => {
+                  if (j && cancelEpochRef.current === epoch) setOverride(j)
+                })
                 .catch(() => undefined)
             )
             .finally(() => setRetrying(false))

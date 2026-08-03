@@ -133,6 +133,54 @@ describe('DistillChip', () => {
     await waitFor(() => expect(screen.queryByText(/distill/i)).not.toBeInTheDocument())
   })
 
+  it('F6: a stale optimistic retry result must not make the ✕ cancel the wrong job (regression)', async () => {
+    // Both 'queued' and 'running' render the identical "distilling… ✕" chip, so a stale retry
+    // response landing over a newer job's row is invisible in the label — the only observable
+    // symptom is which job id the ✕ actually cancels. That is what this test pins.
+    let onChangedCb: ((p: DistillStatusPayload) => void) | undefined
+    let resolveRetry: (value: DistillJobRow) => void
+    const retryPromise = new Promise<DistillJobRow>((resolve) => {
+      resolveRetry = resolve
+    })
+    retry = vi.fn().mockReturnValue(retryPromise)
+    cancel = vi.fn().mockResolvedValue(job({ id: 2, state: 'cancelled' }))
+    ;(window as unknown as { argus: unknown }).argus = {
+      distill: {
+        status: vi
+          .fn()
+          .mockResolvedValue(job({ id: 1, state: 'failed', error: 'boom', itemCount: null })),
+        retry,
+        cancel,
+        onChanged: vi.fn((cb: (p: DistillStatusPayload) => void) => {
+          onChangedCb = cb
+          return () => undefined
+        })
+      }
+    }
+    render(<DistillChip slug="c1" />)
+    const button = await screen.findByRole('button', { name: /retry/i })
+
+    fireEvent.click(button)
+    expect(retry).toHaveBeenCalledWith(1)
+
+    // Before job A's retry response reaches the renderer, a broadcast for job B (a fresh
+    // re-distill on the same slug, e.g. from the case-actions menu) lands and starts running.
+    act(() => {
+      onChangedCb?.({ caseSlug: 'c1', job: job({ id: 2, state: 'running', itemCount: null }) })
+    })
+    const chip = await waitFor(() => screen.getByRole('button', { name: /^cancel distillation$/i }))
+
+    // Job A's stale retry response now resolves as 'queued'. Must not be adopted over job B's
+    // row.
+    await act(async () => {
+      resolveRetry!(job({ id: 1, state: 'queued', itemCount: null }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    fireEvent.click(chip)
+    expect(cancel).toHaveBeenCalledWith(2) // the genuinely running job, not the stale job 1
+  })
+
   it('cancels the run when the running chip is clicked', async () => {
     setup(job({ state: 'running', itemCount: null }))
     const chip = await screen.findByRole('button', { name: /^cancel distillation$/i })

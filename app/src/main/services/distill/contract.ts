@@ -65,7 +65,13 @@ export function buildCaseDistillPrompt(
     resolve ? resolve(`headless.case-distill.section.${key}`) : CASE_DISTILL_SECTIONS[key].text
   const parts = [
     resolve ? resolve('headless.case-distill.contract') : CASE_DISTILL_CONTRACT,
-    `${sec('case')}\nslug: ${m.slug}\ntitle: ${m.title}\njira: ${m.jiraKey ?? '—'}\nstatus: ${m.status}\nresolution: ${m.resolution ?? '—'}\ntags: ${m.tags.join(', ') || '—'}\nopened: ${m.createdAt}${m.status === 'closed' ? `\nclosed: ${m.closedAt}` : ''}`,
+    // `m.status` is absent on a pre-upgrade `input_snapshot` (retry replays the original
+    // snapshot verbatim, and a failed job's retry button persists for the life of the case) —
+    // every such snapshot predates the open-case distill path, so it was always a closed case.
+    // Falling back to 'closed' (and gating on `!== 'open'` rather than `=== 'closed'`) keeps a
+    // legacy snapshot rendering exactly as it did pre-branch instead of the literal string
+    // "status: undefined" with the `closed:` timestamp silently dropped.
+    `${sec('case')}\nslug: ${m.slug}\ntitle: ${m.title}\njira: ${m.jiraKey ?? '—'}\nstatus: ${m.status ?? 'closed'}\nresolution: ${m.resolution ?? '—'}\ntags: ${m.tags.join(', ') || '—'}\nopened: ${m.createdAt}${m.status !== 'open' ? `\nclosed: ${m.closedAt}` : ''}`,
     `${sec('findings')}\n\n${findings || '(none)'}`,
     `${sec('evidence')}\n${input.evidence.map((e) => `- ${e.relPath} (${e.artifactType}, ${e.size} bytes)`).join('\n') || '(none)'}`,
     `${sec('sessions')}\n${input.sessionTitles.map((t) => `- ${t}`).join('\n') || '(none)'}`,

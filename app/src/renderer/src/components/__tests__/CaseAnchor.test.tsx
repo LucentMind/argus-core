@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CaseAnchor } from '../CaseAnchor'
 import { uiStore } from '../../lib/uiStore'
 import { noticeStore } from '../../lib/noticeStore'
+import type { DistillJobRow } from '../../../../shared/distill'
 
 let statusMock: ReturnType<typeof vi.fn>
 let redistillMock: ReturnType<typeof vi.fn>
@@ -166,6 +167,70 @@ describe('CaseAnchor', () => {
     await user.click(row!)
     expect(redistillMock).toHaveBeenCalledWith('NN-5187')
     expect(cancelMock).not.toHaveBeenCalled()
+  })
+
+  it('F7: a second click while the first redistill response is in flight does not issue a second redistill', async () => {
+    let resolveRedistill: (value: DistillJobRow) => void
+    const pendingPromise = new Promise<DistillJobRow>((resolve) => {
+      resolveRedistill = resolve
+    })
+    redistillMock.mockReturnValue(pendingPromise)
+    const user = userEvent.setup()
+    renderAnchor({ status: 'open' })
+
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    await user.click(screen.getByText('Distill').closest('button')!)
+    expect(redistillMock).toHaveBeenCalledTimes(1)
+
+    // Reopen the menu and click again before the first redistill() response has landed.
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    await user.click(screen.getByText('Distill').closest('button')!)
+    expect(redistillMock).toHaveBeenCalledTimes(1) // still just once — the pending guard held
+
+    resolveRedistill!({
+      id: 9,
+      caseSlug: 'NN-5187',
+      state: 'queued',
+      error: null,
+      itemCount: null,
+      createdAt: 't',
+      finishedAt: null
+    })
+  })
+
+  it('F7: adopts cancel()/redistill() responses optimistically, like DistillChip, instead of depending solely on the broadcast', async () => {
+    // CaseAnchor used to discard cancel()'s response and rely entirely on the broadcast, which
+    // DistillQueue.emit() deliberately swallows failures from — on a swallowed broadcast the
+    // menu row would stay on "Cancel distillation" for an already-cancelled job.
+    cancelMock.mockResolvedValue({
+      id: 7,
+      caseSlug: 'NN-5187',
+      state: 'cancelled',
+      error: null,
+      itemCount: null,
+      createdAt: 't',
+      finishedAt: 't2'
+    })
+    statusMock.mockResolvedValue({
+      id: 7,
+      caseSlug: 'NN-5187',
+      state: 'running',
+      error: null,
+      itemCount: null,
+      createdAt: 't',
+      finishedAt: null
+    })
+    const user = userEvent.setup()
+    renderAnchor({ status: 'open' })
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    const row = await screen.findByText('Cancel distillation')
+    await user.click(row.closest('button')!)
+    expect(cancelMock).toHaveBeenCalledWith(7)
+
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    // The optimistic cancel() response (state: 'cancelled') must flip the row without a
+    // broadcast ever arriving — distillMenuLabel of a resting, non-'done' job is 'Re-distill'.
+    await screen.findByText('Re-distill')
   })
 
   it('flips the row to Cancel distillation while a job is running', async () => {
