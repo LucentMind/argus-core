@@ -1,5 +1,18 @@
 import type { UpdateStatus } from './updates'
 
+/** One declared pack dependency, resolved against what is currently installed. */
+export interface PackDependencyStatus {
+  /** The depended-on pack's id. */
+  id: string
+  /** The semver range the dependent declared. */
+  range: string
+  /** Version recorded in packs-state, or null when the dependency is not installed. */
+  installedVersion: string | null
+  satisfied: boolean
+  /** Human-readable reason, empty when satisfied. */
+  detail: string
+}
+
 /** Result of peeking at a bundle's manifest without installing (mirrors install.ts). */
 export interface InspectResult {
   id: string
@@ -11,6 +24,8 @@ export interface InspectResult {
    *  install-from-repo can refuse a bundle nominating a different update home than the repo it
    *  was just downloaded from. */
   updateRepo?: string
+  /** Declared dependencies with their satisfaction status against the installed set. */
+  dependencies: PackDependencyStatus[]
 }
 
 /** Outcome of an install attempt (mirrors install.ts). */
@@ -22,7 +37,11 @@ export type InstallResult =
       previousVersion: string | null
       relaunchRequired: true
     }
-  | { ok: false; code: 'manifest' | 'checksum' | 'platform' | 'api' | 'io'; error: string }
+  | {
+      ok: false
+      code: 'manifest' | 'checksum' | 'platform' | 'api' | 'dependency' | 'io'
+      error: string
+    }
 
 export interface PackBinaryHealth {
   id: string

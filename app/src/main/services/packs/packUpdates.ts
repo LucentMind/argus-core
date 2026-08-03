@@ -15,7 +15,7 @@ import {
   type FeedPackSource,
   type GithubPackSource
 } from './packsState'
-import { installPack, inspectBundleSource } from './install'
+import { installPack, inspectBundleSource, describeUnsatisfied } from './install'
 import type { UpdateStatus, UpdateErrorCode } from '../../../shared/updates'
 
 /** A feed is a small JSON document; anything larger is a misconfiguration or hostile. */
@@ -369,7 +369,9 @@ export class PackUpdatesService {
       // `install()` returns, the swap and the re-pin have already happened.
       let inspected: Awaited<ReturnType<typeof inspectBundleSource>>
       try {
-        inspected = await this.inspectBundleSource(zipPath)
+        inspected = await this.inspectBundleSource(zipPath, {
+          installed: this.deps.state.list()
+        })
       } catch (err) {
         // A bundle that fails inspection (not a zip, no argus-pack.json, an invalid manifest)
         // throws install.ts's own InstallError, which is not an UpdateError — left uncaught,
@@ -390,6 +392,12 @@ export class PackUpdatesService {
           `update bundle declares version '${inspected.version}', expected '${entry.version}' from the feed entry`
         )
       }
+
+      // A new version may declare a dependency the current one didn't. Refuse here, before the
+      // swap, so the installed version stays active and the user is told what to install first —
+      // Core never fetches a dependency on the user's behalf.
+      const unsatisfied = describeUnsatisfied(inspected.id, inspected.dependencies)
+      if (unsatisfied) throw new UpdateError('install', unsatisfied)
 
       // A github-pinned pack must stay pinned to the repo the bytes came from. Without this,
       // installPack re-derives the pin from the new bundle's manifest: a manifest naming a feed

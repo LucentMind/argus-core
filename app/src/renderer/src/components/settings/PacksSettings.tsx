@@ -4,7 +4,12 @@ import { SettingsSection, SettingRow, SettingsSkeleton, DisclosureBtn } from './
 import { Btn, Chip } from '../ui'
 import { confirm } from '../../lib/confirmStore'
 import { ToolRow, useToolProbes } from './ToolRow'
-import type { PacksListPayload, InstalledPackRow, RepoPackRow } from '../../../../shared/packs'
+import type {
+  PacksListPayload,
+  InstalledPackRow,
+  RepoPackRow,
+  InspectResult
+} from '../../../../shared/packs'
 import type { SettingsPayload } from '../../../../shared/settings'
 import { describeUpdate } from '../../../../shared/updates'
 
@@ -17,6 +22,8 @@ function installErrorMessage(code: string, error: string): string {
       return error
     case 'manifest':
       return `Not a valid pack bundle: ${error}`
+    case 'dependency':
+      return error
     default:
       return `Install failed: ${error}`
   }
@@ -115,6 +122,28 @@ function PackCard({
   )
 }
 
+/**
+ * What a picked bundle requires, shown before the install runs. Core refuses an unsatisfied
+ * dependency rather than fetching it, so the user needs to see which pack to install first.
+ */
+function BundleRequirements({ info }: { info: InspectResult }): React.JSX.Element {
+  return (
+    <SettingsSection title={`Requirements · ${info.id} ${info.version}`}>
+      {info.dependencies.map((d) => (
+        <SettingRow key={d.id} label={d.id} description={`requires ${d.range}`}>
+          <Chip tone={d.satisfied ? 'signal' : 'danger'}>
+            {d.satisfied
+              ? `satisfied · ${d.installedVersion}`
+              : d.installedVersion
+                ? `installed ${d.installedVersion}`
+                : 'not installed'}
+          </Chip>
+        </SettingRow>
+      ))}
+    </SettingsSection>
+  )
+}
+
 export function PacksSettings({ settings }: { settings: SettingsPayload }): React.JSX.Element {
   const { report, running, runChecks } = useToolProbes()
   const [payload, setPayload] = useState<PacksListPayload | null>(null)
@@ -128,6 +157,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
   // unconditionally, so `true` is the accurate initial value and the effect has no synchronous
   // setState in it.
   const [autoChecking, setAutoChecking] = useState(true)
+  const [inspected, setInspected] = useState<InspectResult | null>(null)
 
   const refresh = useCallback(async () => {
     setPayload(await window.argus.packs.list())
@@ -183,6 +213,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
     setBusy(true)
     try {
       const info = await window.argus.packs.inspect(source)
+      setInspected(info.dependencies.length > 0 ? info : null)
       if (!info.platformCompatible) {
         setError(
           `This bundle targets ${info.platform ?? 'an unknown platform'}, which does not match this machine.`
@@ -191,6 +222,13 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
       }
       if (!info.apiCompatible) {
         setError(`"${info.id}" ${info.version} isn't compatible with this version of Argus.`)
+        return
+      }
+      const unmet = info.dependencies.filter((d) => !d.satisfied)
+      if (unmet.length > 0) {
+        setError(
+          `"${info.id}" ${info.version} requires ${unmet.map((d) => `${d.id} ${d.range}`).join(', ')}. Install ${unmet.length > 1 ? 'those packs' : 'that pack'} first.`
+        )
         return
       }
       const current = payload?.packs.find((p) => p.id === info.id)?.installedVersion ?? null
@@ -212,6 +250,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
         setError(installErrorMessage(res.code, res.error))
         return
       }
+      setInspected(null)
       setNeedsRelaunch(true)
       await refresh()
     } catch (e) {
@@ -370,6 +409,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
           </Btn>
         </div>
       )}
+      {inspected && <BundleRequirements info={inspected} />}
       {/* The update check belongs to this section, not to the install-actions row at the bottom of
           the page: it acts on what is listed here, and it is the only control in that row that
           does. Its "update available" badges land on these rows. */}

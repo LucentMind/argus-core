@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import semver from 'semver'
 import { extract } from 'zip-lib'
 import { PACK_MANIFEST_FILE, packManifestSchema, type PackManifest } from './manifest'
 import { verifyBundleChecksums } from './verify'
@@ -10,16 +11,100 @@ import type { PacksStateStore, PackSource } from './packsState'
 import { parseGhRef } from './githubRef'
 import { packsDir } from './paths'
 import { sharedSkillsDir, sharedReferencesDir, isNonPackTiered } from '../skillsDir'
-import type { InspectResult, InstallResult } from '../../../shared/packs'
-export type { InspectResult, InstallResult }
+import type { InspectResult, InstallResult, PackDependencyStatus } from '../../../shared/packs'
+export type { InspectResult, InstallResult, PackDependencyStatus }
 
 class InstallError extends Error {
   constructor(
-    public code: 'manifest' | 'checksum' | 'platform' | 'api' | 'io',
+    public code: 'manifest' | 'checksum' | 'platform' | 'api' | 'dependency' | 'io',
     message: string
   ) {
     super(message)
   }
+}
+
+/**
+ * Resolve a manifest's declared dependencies against the installed set (`PacksStateStore.list()`).
+ * Pure: it decides satisfaction only, never installs anything — Core refuses and names what is
+ * missing rather than fetching a dependency on the user's behalf.
+ */
+export function resolveDependencies(
+  manifest: Pick<PackManifest, 'id' | 'dependencies'>,
+  installed: Record<string, string>
+): PackDependencyStatus[] {
+  return Object.entries(manifest.dependencies ?? {}).map(([id, range]) => {
+    const installedVersion = installed[id] ?? null
+    if (id === manifest.id) {
+      return {
+        id,
+        range,
+        installedVersion,
+        satisfied: false,
+        detail: `pack '${id}' declares a dependency on itself`
+      }
+    }
+    if (installedVersion == null) {
+      return {
+        id,
+        range,
+        installedVersion,
+        satisfied: false,
+        detail: `requires '${id}' ${range}, which is not installed`
+      }
+    }
+    if (!semver.valid(installedVersion)) {
+      return {
+        id,
+        range,
+        installedVersion,
+        satisfied: false,
+        detail: `requires '${id}' ${range}, but the installed version '${installedVersion}' is not valid semver`
+      }
+    }
+    if (!semver.satisfies(installedVersion, range)) {
+      return {
+        id,
+        range,
+        installedVersion,
+        satisfied: false,
+        detail: `requires '${id}' ${range}, but '${installedVersion}' is installed`
+      }
+    }
+    return { id, range, installedVersion, satisfied: true, detail: '' }
+  })
+}
+
+/** One message naming every unsatisfied dependency, or null when they all resolve. */
+export function describeUnsatisfied(packId: string, deps: PackDependencyStatus[]): string | null {
+  const unmet = deps.filter((d) => !d.satisfied)
+  if (unmet.length === 0) return null
+  return `pack '${packId}' ${unmet.map((d) => d.detail).join('; ')}`
+}
+
+/** Ids of installed packs that declare a dependency on `id`, read from their on-disk manifests. */
+export function dependentsOf(id: string, argusHome: string): string[] {
+  const dir = packsDir(argusHome)
+  if (!fs.existsSync(dir)) return []
+  const dependents: string[] = []
+  for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!ent.isDirectory() || ent.name === id) continue
+    const p = path.join(dir, ent.name, PACK_MANIFEST_FILE)
+    if (!fs.existsSync(p)) continue
+    // A pack whose manifest no longer parses can't be trusted to declare anything — it will
+    // fail at load with its own error; it must not block an unrelated uninstall.
+    const parsed = packManifestSchema.safeParse(
+      (() => {
+        try {
+          return JSON.parse(fs.readFileSync(p, 'utf8'))
+        } catch {
+          return null
+        }
+      })()
+    )
+    if (!parsed.success) continue
+    if (Object.hasOwn(parsed.data.dependencies ?? {}, id)) dependents.push(parsed.data.id)
+  }
+  return dependents.sort()
 }
 
 /** Materialize a .zip or directory source into a fresh staging dir on the packs volume. */
@@ -50,7 +135,10 @@ function readManifest(dir: string): PackManifest {
   }
 }
 
-export async function inspectBundleSource(source: string): Promise<InspectResult> {
+export async function inspectBundleSource(
+  source: string,
+  opts: { installed?: Record<string, string> } = {}
+): Promise<InspectResult> {
   // realpathSync: os.tmpdir() is a symlink on macOS (/var/folders → /private/var),
   // which trips zip-lib's safeSymlinksOnly guard during extract. Resolve it first.
   const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-inspect-')))
@@ -65,7 +153,8 @@ export async function inspectBundleSource(source: string): Promise<InspectResult
       platform: m.platform,
       apiCompatible: isApiCompatible(m.argusApi),
       platformCompatible: platformMatchesHost(m.platform),
-      updateRepo: m.updateRepo
+      updateRepo: m.updateRepo,
+      dependencies: resolveDependencies(m, opts.installed ?? {})
     }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true })
@@ -136,6 +225,12 @@ export async function installPack(
       )
     }
 
+    const unsatisfied = describeUnsatisfied(
+      manifest.id,
+      resolveDependencies(manifest, state.list())
+    )
+    if (unsatisfied) throw new InstallError('dependency', unsatisfied)
+
     stripQuarantine(staging)
 
     const target = path.join(dest, manifest.id)
@@ -186,6 +281,14 @@ export function uninstallPack(
   const { argusHome, state, coreSkillsDir } = opts
   const dir = path.join(packsDir(argusHome), id)
   if (!fs.existsSync(dir)) return { ok: false, error: `pack '${id}' is not installed` }
+
+  const dependents = dependentsOf(id, argusHome)
+  if (dependents.length > 0) {
+    return {
+      ok: false,
+      error: `pack '${id}' is required by ${dependents.map((d) => `'${d}'`).join(', ')} — uninstall ${dependents.length > 1 ? 'those packs' : 'that pack'} first`
+    }
+  }
 
   const coreSkillNames = new Set(
     coreSkillsDir && fs.existsSync(coreSkillsDir)
