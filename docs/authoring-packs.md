@@ -394,10 +394,15 @@ feed URL — the two are mutually exclusive:
 
 Enterprise hosts take the form `"ghe.acme.com/acme/argus-pack-triage"`.
 
-Publishing is then just a release:
+Publishing is then just a release. Build one bundle per target platform, exactly as in
+"Building a published bundle" above, and attach them all to a single release:
 
-    argus-pack build --pack ./ --out ./dist
+    argus-pack build --pack ./ --bin ./prebuilt/win-x64 --platform win-x64 --out ./dist
+    argus-pack build --pack ./ --bin ./prebuilt/mac-arm64 --platform mac-arm64 --out ./dist
     gh release create v1.1.0 ./dist/*.zip
+
+One release may carry bundles for several packs as well as several platforms — Argus matches
+assets by the pack id in their filenames, so the tag itself carries no pack identity.
 
 Argus reads the version and target platform from each asset's filename, the checksum from the
 `digest` GitHub computes for every asset, and `argusApi` from the `argus-pack.json` in the
