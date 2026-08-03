@@ -35,14 +35,14 @@ function scriptedQuery(texts: string[]): {
 }
 
 /** A query handle whose iterator never yields, so nothing but the timeout or an abort can
- *  settle the run's race. Counts interrupts, which is how the run reaps the CLI. */
+ *  settle the run's race. Counts interrupts, which is how the run reaps the CLI.
+ *  Written as a plain object with a hand-rolled `next()` rather than an `async *` generator:
+ *  a generator body with no `yield` in it trips eslint's `require-yield`. */
 function hangingQuery(): { fn: CreateQueryFn; interrupts: () => number } {
   let interrupts = 0
   const fn: CreateQueryFn = () =>
     ({
-      async *[Symbol.asyncIterator]() {
-        await new Promise(() => {})
-      },
+      [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }),
       interrupt: async () => {
         interrupts++
       }
