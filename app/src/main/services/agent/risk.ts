@@ -72,6 +72,7 @@ function denyReason(ctx: RiskContext, key: string, pathValue: string): string {
 export const NATIVE_RISK: Record<string, RiskVerdict> = {
   mcp__argus__search_evidence: { action: 'allow', risk: 'LOW' },
   mcp__argus__search_case_history: { action: 'allow', risk: 'LOW' },
+  mcp__argus__search_known_defects: { action: 'allow', risk: 'LOW' },
   mcp__argus__list_evidence: { action: 'allow', risk: 'LOW' },
   mcp__argus__get_artifact_meta: { action: 'allow', risk: 'LOW' },
   mcp__argus__read_lines: { action: 'allow', risk: 'LOW' },

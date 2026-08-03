@@ -214,7 +214,7 @@ const TOOL_ENTRIES: PromptEntry[] = NATIVE_TOOL_SPECS.map((s) => ({
   id: `tool.${s.name}.description`,
   category: 'tools' as const,
   title: `${s.name} — tool description`,
-  source: 'app/src/main/services/agent/nativeTools.ts:417',
+  source: 'app/src/main/services/agent/nativeTools.ts:725',
   reaches: NATIVE_TOOL_DRIVERS,
   editable: true,
   default: () => s.description

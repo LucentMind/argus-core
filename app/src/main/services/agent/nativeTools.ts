@@ -47,6 +47,7 @@ import { fetchCheckLogs, ciFeedback } from './ciLogs'
 import { defaultGhRunner, type Runner } from '../github'
 import { parseFindingBodies } from '../findings'
 import { sessionMode } from './sessionStore'
+import type { CorpusSearchInput, SourceSearchResult } from '../../../shared/defectCorpus'
 
 export interface NativeToolDeps {
   db: DatabaseSync
@@ -82,6 +83,13 @@ export interface NativeToolDeps {
   git?: GitRunner
   /** Fired after a write action mutates a finding row, so the findings pane refetches. */
   emitFindingUpdated?: (findingId: number) => void
+  /** Multi-source known-defects search (DefectCorpusService.searchAll). Structural, not the
+   *  class itself, so this module stays decoupled from main/services/defectCorpus. Absent
+   *  when the corpus feature is unwired (tests, or a session built without it) — the handler
+   *  degrades to the no-sources feedback rather than throwing. */
+  defectCorpus?: {
+    searchAll(req: CorpusSearchInput): Promise<SourceSearchResult[]>
+  }
 }
 
 // What the tool ACCEPTS, not what it stores: `closed`/`open` are written to the lifecycle,
@@ -110,6 +118,14 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
   'search_case_history.empty': {
     title: 'search_case_history — no matches',
     text: 'No similar past cases found.'
+  },
+  'search_known_defects.no-sources': {
+    title: 'search_known_defects — no sources configured',
+    text: 'No defect-corpus sources are configured. The user can add one under Settings → Team.'
+  },
+  'search_known_defects.empty': {
+    title: 'search_known_defects — no matches',
+    text: 'No similar known defects found.'
   },
   'read_lines.out-of-range': {
     title: 'read_lines — start past end of file',
@@ -346,6 +362,34 @@ export function argusToolHandlers(
       return hits
         .map((h) => `«${h.caseSlug}» [${h.resolution}] ${h.signature} — ${h.snippet}`)
         .join('\n')
+    },
+
+    async search_known_defects(args) {
+      if (!deps.defectCorpus) return fb('search_known_defects.no-sources')
+      const limit = args.limit == null ? undefined : Number(args.limit)
+      const results = await deps.defectCorpus.searchAll({
+        query: String(args.query ?? ''),
+        ...(limit === undefined ? {} : { limit })
+      })
+      if (results.length === 0) return fb('search_known_defects.no-sources')
+      const anyFailed = results.some((r) => !r.ok)
+      const totalHits = results.reduce((n, r) => n + r.hits.length, 0)
+      if (!anyFailed && totalHits === 0) return fb('search_known_defects.empty')
+      return results
+        .map((r) => {
+          if (!r.ok) return `## ${r.sourceName}: unavailable (${r.error})`
+          const lines = r.hits.map((h) => {
+            const rec = h.record
+            let line = `- ${rec.key} [${h.matchedOn}] ${rec.summary} (${rec.status}/${rec.resolution ?? 'open'}) — ${rec.url}`
+            if (rec.distilled) {
+              line += `\n  signature: ${rec.distilled.signature}`
+              line += `\n  fix: ${rec.distilled.fix ?? 'none recorded'}`
+            }
+            return line
+          })
+          return `## ${r.sourceName}\n${lines.join('\n')}`
+        })
+        .join('\n\n')
     },
 
     async get_artifact_meta(args) {
@@ -698,6 +742,12 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
     name: 'search_case_history',
     description: 'Search summaries of closed past cases by symptom/root-cause text. Read-only.',
     schema: { query: z.string(), limit: z.number().optional() }
+  },
+  {
+    name: 'search_known_defects',
+    description:
+      "Search the team's external known-defects corpus (past Jira tickets with resolutions and duplicate links) for defects similar to the query. Returns matches grouped by source with ticket keys, URLs, resolutions, and distilled root-cause info when available.",
+    schema: { query: z.string(), limit: z.number().int().min(1).max(20).optional() }
   },
   {
     name: 'get_artifact_meta',

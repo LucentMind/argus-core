@@ -141,6 +141,9 @@ export interface SessionDeps {
   ) => Promise<unknown>
   /** Prompt-registry resolver (`services/prompts/store.ts`). Absent = use the constants. */
   resolvePrompt?: (id: string) => string
+  /** Multi-source known-defects search, session-bound by AgentService. Absent when the
+   *  corpus feature is unwired (tests, or a session built without it). */
+  defectCorpus?: NativeToolDeps['defectCorpus']
 }
 
 /** Tool name for the panel-initiated finding approval card (MEDIUM, editable). Distinct from the
@@ -351,7 +354,8 @@ export class CaseSession {
         openPanel: deps.openPanel,
         capturePanel: deps.capturePanel,
         onCaseClosed: deps.onCaseClosed,
-        onWorktreeChanged: deps.onWorktreeChanged
+        onWorktreeChanged: deps.onWorktreeChanged,
+        defectCorpus: deps.defectCorpus
       },
       panelCommandDecls: deps.panelCommandDecls ?? [],
       dispatchPanelCommand: deps.dispatchPanelCommand,

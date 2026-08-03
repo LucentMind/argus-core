@@ -32,6 +32,7 @@ import type { Detection } from '../packs/detection'
 import type { SessionPromptCapture } from '../../../shared/promptsIpc'
 import { driverForSession } from './reviewFraming'
 import type { Runner } from '../github'
+import type { NativeToolDeps } from './nativeTools'
 
 /**
  * Cache key for everything that is frozen at `query()` construction besides the model:
@@ -122,6 +123,9 @@ export interface AgentServiceDeps {
   /** gh runner for the review write tools (nativeTools + postFindingComment). Injected in
    *  tests; production leaves it undefined so every call falls back to `defaultGhRunner`. */
   gh?: Runner
+  /** Multi-source known-defects search (DefectCorpusService.searchAll); threaded into every
+   *  session's nativeToolDeps unchanged — the tool needs no per-case/session binding. */
+  defectCorpus?: NativeToolDeps['defectCorpus']
 }
 
 export class AgentService {
@@ -303,6 +307,7 @@ export class AgentService {
         : undefined,
       onCaseClosed: this.deps.onCaseClosed,
       onWorktreeChanged: this.deps.onWorktreeChanged,
+      defectCorpus: this.deps.defectCorpus,
       panelCommandDecls: this.deps.panelCommandDecls?.(),
       dispatchPanelCommand: this.deps.dispatchPanelCommand
         ? (packId, windowId, cmd, args) =>

@@ -24,6 +24,7 @@ function bash(command: string): ReturnType<typeof classifyToolCall> {
 describe('classifyToolCall — native and FS tools', () => {
   it.each([
     ['mcp__argus__search_evidence', 'allow', 'LOW'],
+    ['mcp__argus__search_known_defects', 'allow', 'LOW'],
     ['mcp__argus__append_finding', 'allow', 'LOW'],
     ['mcp__argus__update_case_status', 'ask', 'MEDIUM'],
     ['mcp__argus__workspace_checkout', 'ask', 'MEDIUM']
