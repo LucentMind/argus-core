@@ -142,8 +142,30 @@ describe('DistillChip', () => {
   })
 
   it('renders nothing for a cancelled job — it is a resting state', async () => {
-    setup(job({ state: 'cancelled', itemCount: null }))
-    await waitFor(() => expect(window.argus.distill.status).toHaveBeenCalled())
+    // Starts from a genuinely visible `running` chip, then delivers `cancelled` through the
+    // broadcast (not the initial fetch): a pre-fetch render also satisfies "no /distill/i
+    // text", so asserting straight from a cancelled `status()` result can't tell "cancelled
+    // correctly fell through to `return null`" apart from "never advanced past the initial
+    // empty render". Routing the transition through `onChanged` rules that out.
+    let onChangedCb: ((p: DistillStatusPayload) => void) | undefined
+    ;(window as unknown as { argus: unknown }).argus = {
+      distill: {
+        status: vi.fn().mockResolvedValue(job({ state: 'running', itemCount: null })),
+        retry: vi.fn(),
+        cancel: vi.fn(),
+        onChanged: vi.fn((cb: (p: DistillStatusPayload) => void) => {
+          onChangedCb = cb
+          return () => undefined
+        })
+      }
+    }
+    render(<DistillChip slug="c1" />)
+    await screen.findByRole('button', { name: /^cancel distillation$/i })
+
+    act(() => {
+      onChangedCb?.({ caseSlug: 'c1', job: job({ state: 'cancelled', itemCount: null }) })
+    })
+
     await waitFor(() => expect(screen.queryByText(/distill/i)).not.toBeInTheDocument())
   })
 })

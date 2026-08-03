@@ -403,7 +403,7 @@ describe('TopBar', () => {
     await act(async () => {
       resolveRetry(runningJob)
     })
-    expect(screen.queryByText('distilling…')).toBeNull()
+    expect(screen.queryByText(/^distilling/)).toBeNull()
   })
 
   it('leaves the case group unscoped when the dynamic theme is off', () => {

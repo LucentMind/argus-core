@@ -28,16 +28,26 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
 
   if (job.state === 'queued' || job.state === 'running') {
     // The chip is the only place the run is visible from outside the menu, so it is also the
-    // fastest place to stop it. `cancelling…` is local and optimistic: it holds until the
-    // main-process broadcast replaces the row, which is what actually clears the chip.
+    // fastest place to stop it. `cancelling…` is local and optimistic, cleared as soon as
+    // `cancel()`'s own response comes back — same idiom as `retry` below — rather than
+    // depending on the main-process broadcast, which `DistillQueue.emit()` swallows failures
+    // from. `cancel()` persists the terminal `cancelled` state synchronously before returning,
+    // so the resolved row is already correct to adopt directly via `setOverride`.
+    //
+    // The handler stays present (a no-op) rather than becoming `undefined` while cancelling:
+    // `Chip` renders a plain `<span>` without a handler, which would swap out the `<button>`
+    // mid-interaction and drop both focus and its accessible button role.
     return (
       <Chip
         onClick={
           cancelling
-            ? undefined
+            ? () => undefined
             : () => {
                 setCancelling(true)
-                void window.argus.distill.cancel(job.id).catch(() => setCancelling(false))
+                void window.argus.distill
+                  .cancel(job.id)
+                  .then(setOverride)
+                  .catch(() => setCancelling(false))
               }
         }
         title={cancelling ? 'Cancelling…' : 'Cancel distillation'}
