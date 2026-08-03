@@ -100,6 +100,21 @@ describe('listRepoPacks', () => {
     expect(rows.every((r) => !r.installable)).toBe(true)
     expect(rows[0].reason).toMatch(/version of Argus/i)
   })
+
+  it('drops only the pack whose manifest is unparseable, not the whole listing', async () => {
+    const client = gh()
+    const original = client.api
+    client.api = async (ref, p) => {
+      if (p.includes('/contents/') && p.includes('sample-external-app')) {
+        return { content: Buffer.from('{ this is not json').toString('base64') }
+      }
+      return original(ref, p)
+    }
+    const rows = await listRepoPacks({ gh: client, host: WIN }, REF)
+    // The valid sibling must still be offered — a single broken commit in a multi-pack repo
+    // otherwise reads as "this repository publishes nothing".
+    expect(rows.map((r) => r.id)).toEqual(['sample-bridge-playground'])
+  })
 })
 
 describe('installFromRepo', () => {
@@ -220,5 +235,30 @@ describe('installFromRepo', () => {
       'sample-bridge-playground'
     )
     expect(res).toMatchObject({ ok: false, code: 'checksum' })
+  })
+
+  it('refuses to install when the canonical repo name cannot be resolved', async () => {
+    const argusHome = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-ghinstall-'))
+    const client = gh()
+    const original = client.api
+    client.api = async (ref, p) =>
+      p === 'repos/LucentMind/demo_pack'
+        ? { full_name: 'this is not a repo name' }
+        : original(ref, p)
+    const install = vi.fn()
+    const res = await installFromRepo(
+      {
+        gh: client,
+        host: WIN,
+        argusHome,
+        state: { get: () => undefined } as never,
+        install: install as never
+      },
+      REF,
+      'sample-bridge-playground'
+    )
+    expect(res.ok).toBe(false)
+    // Falling back to the typed ref here would pin a name GitHub never confirmed.
+    expect(install).not.toHaveBeenCalled()
   })
 })

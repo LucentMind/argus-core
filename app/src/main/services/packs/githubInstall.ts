@@ -79,28 +79,35 @@ export async function listRepoPacks(
     )
     const parsed = z.object({ content: z.string() }).safeParse(contents)
     if (!parsed.success) continue
-    const manifest = z
-      .object({ id: z.string(), version: z.string(), argusApi: z.string() })
-      .safeParse(JSON.parse(Buffer.from(parsed.data.content, 'base64').toString('utf8')))
-    if (!manifest.success) continue
+    let manifest: { id: string; version: string; argusApi: string }
+    try {
+      manifest = z
+        .object({ id: z.string(), version: z.string(), argusApi: z.string() })
+        .parse(JSON.parse(Buffer.from(parsed.data.content, 'base64').toString('utf8')))
+    } catch {
+      // A manifest that is present but unparseable drops THIS pack from the listing, exactly as
+      // a schema-invalid one does. One broken manifest must not hide every valid pack in the
+      // repo behind a generic error.
+      continue
+    }
 
-    const candidates = await listReleaseCandidates(deps, ref, manifest.data.id)
+    const candidates = await listReleaseCandidates(deps, ref, manifest.id)
     const forThisTag = candidates.filter(
       (c) => c.tag === newest.tag_name && platformMatchesHost(c.entry.platform, deps.host)
     )
     if (forThisTag.length === 0) {
       rows.push({
-        id: manifest.data.id,
-        version: manifest.data.version,
+        id: manifest.id,
+        version: manifest.version,
         tag: newest.tag_name,
         installable: false,
         reason: 'This release publishes no bundle for your platform.'
       })
       continue
     }
-    const compatible = isApiCompatible(manifest.data.argusApi)
+    const compatible = isApiCompatible(manifest.argusApi)
     rows.push({
-      id: manifest.data.id,
+      id: manifest.id,
       version: forThisTag[0].entry.version,
       tag: newest.tag_name,
       installable: compatible,
