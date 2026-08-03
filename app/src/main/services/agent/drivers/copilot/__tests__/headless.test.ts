@@ -180,4 +180,19 @@ describe('runCopilotHeadless', () => {
       vi.useRealTimers()
     }
   })
+
+  it('rejects, unsubscribes and stops the client when the signal aborts', async () => {
+    const h = hangFactory()
+    const ac = new AbortController()
+    const p = runCopilotHeadless(
+      'prompt',
+      { argusHome: path.join(os.tmpdir(), 'argus-headless-abort'), signal: ac.signal },
+      h.factory
+    )
+    await new Promise((r) => setTimeout(r, 10))
+    ac.abort()
+    await expect(p).rejects.toThrow('headless run cancelled')
+    expect(h.calls.stops).toBe(1)
+    expect(h.unsubscribed()).toBe(true)
+  })
 })

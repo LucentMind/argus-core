@@ -166,6 +166,18 @@ export interface HeadlessOpts {
   signal?: AbortSignal
 }
 
+/** A racer that rejects when `signal` aborts, and immediately if it already has. Returns a
+ *  never-settling promise when there is no signal, so `Promise.race` ignores it. Each headless
+ *  driver adds this alongside its timeout; teardown stays in the driver's own `finally`. */
+export function abortRacer(signal?: AbortSignal): Promise<never> {
+  if (!signal) return new Promise<never>(() => {})
+  return new Promise<never>((_, rej) => {
+    const fail = (): void => rej(new Error('headless run cancelled'))
+    if (signal.aborted) fail()
+    else signal.addEventListener('abort', fail, { once: true })
+  })
+}
+
 export interface ProbeAuthResult {
   ok: boolean
   detail: string

@@ -224,4 +224,16 @@ describe('codex runCodexHeadless', () => {
     const text = await runCodexHeadless('prompt', { argusHome: '/tmp/argus' }, c.factory)
     expect(text).toBe('final text')
   })
+
+  it('rejects and force-stops when the signal aborts', async () => {
+    const c = scriptedClient()
+    const ac = new AbortController()
+    const p = runCodexHeadless('prompt', { argusHome: '/tmp/argus', signal: ac.signal }, c.factory)
+    // abort after the run has had a tick to reach turn/start
+    await new Promise((r) => setTimeout(r, 10))
+    ac.abort()
+    await expect(p).rejects.toThrow('headless run cancelled')
+    expect(c.forceStop).toHaveBeenCalled()
+    expect(c.stop).not.toHaveBeenCalled()
+  })
 })

@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { HeadlessOpts } from '../../driver'
+import { abortRacer, type HeadlessOpts } from '../../driver'
 import { acquireAuthRejectionTrap } from './authTrap'
 import {
   copilotHome,
@@ -121,7 +121,8 @@ export async function runCopilotHeadless(
           () => rej(new Error(`headless run timed out after ${timeoutMs}ms`)),
           timeoutMs
         )
-      })
+      }),
+      abortRacer(opts.signal)
     ])
     if (!text.trim()) throw new Error('headless run returned no text')
     return text

@@ -34,6 +34,22 @@ function scriptedQuery(texts: string[]): {
   } as never
 }
 
+/** A query handle whose iterator never yields, so nothing but the timeout or an abort can
+ *  settle the run's race. Counts interrupts, which is how the run reaps the CLI. */
+function hangingQuery(): { fn: CreateQueryFn; interrupts: () => number } {
+  let interrupts = 0
+  const fn: CreateQueryFn = () =>
+    ({
+      async *[Symbol.asyncIterator]() {
+        await new Promise(() => {})
+      },
+      interrupt: async () => {
+        interrupts++
+      }
+    }) as never
+  return { fn, interrupts: () => interrupts }
+}
+
 describe('claude runHeadless', () => {
   it('declares the capability and exposes the method', () => {
     const d = createClaudeDriver()
@@ -124,5 +140,25 @@ describe('claude runHeadless', () => {
     await vi.advanceTimersByTimeAsync(1001)
     await assertion
     vi.useRealTimers()
+  })
+
+  it('rejects and interrupts when the signal aborts', async () => {
+    const q = hangingQuery()
+    const d = createClaudeDriver(q.fn)
+    const ac = new AbortController()
+    const p = d.runHeadless!('prompt', { argusHome: os.tmpdir(), signal: ac.signal })
+    ac.abort()
+    await expect(p).rejects.toThrow('headless run cancelled')
+    expect(q.interrupts()).toBe(1)
+  })
+
+  it('rejects immediately when the signal is already aborted', async () => {
+    const q = hangingQuery()
+    const d = createClaudeDriver(q.fn)
+    const ac = new AbortController()
+    ac.abort()
+    await expect(
+      d.runHeadless!('prompt', { argusHome: os.tmpdir(), signal: ac.signal })
+    ).rejects.toThrow('headless run cancelled')
   })
 })

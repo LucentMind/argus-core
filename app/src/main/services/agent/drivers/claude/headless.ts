@@ -1,5 +1,5 @@
 import os from 'node:os'
-import type { HeadlessOpts } from '../../driver'
+import { abortRacer, type HeadlessOpts } from '../../driver'
 import type { CreateQueryFn } from '.'
 import { claudeSpawnEnv, resolveClaudeCliPath } from './cliPath'
 
@@ -79,7 +79,8 @@ export async function runClaudeHeadless(
           () => rej(new Error(`headless run timed out after ${timeoutMs}ms`)),
           timeoutMs
         )
-      })
+      }),
+      abortRacer(opts.signal)
     ])
     if (!text.trim()) throw new Error('headless run returned no text')
     return text

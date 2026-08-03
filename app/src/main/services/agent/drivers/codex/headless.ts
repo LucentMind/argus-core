@@ -1,4 +1,4 @@
-import type { HeadlessOpts } from '../../driver'
+import { abortRacer, type HeadlessOpts } from '../../driver'
 import { codexHome } from './home'
 import type { CodexClientFactory, CodexClientLike } from './client'
 import { codexApprovalGen, mapCodexDecision } from './mapping'
@@ -97,7 +97,7 @@ export async function runCodexHeadless(
   const timeoutMs = opts.timeoutMs ?? 180_000
   let client: CodexClientLike | null = null
   let timer: NodeJS.Timeout | null = null
-  let timedOut = false
+  let hardStop = false
   try {
     // No per-instance override is threaded into HeadlessOpts, so CODEX_HOME is left unset
     // here — `codex` falls back to its own default (`~/.codex`), matching the session and
@@ -150,16 +150,20 @@ export async function runCodexHeadless(
       run,
       new Promise<never>((_, rej) => {
         timer = setTimeout(() => {
-          timedOut = true
+          hardStop = true
           rej(new Error(`headless run timed out after ${timeoutMs}ms`))
         }, timeoutMs)
+      }),
+      abortRacer(opts.signal).catch((e) => {
+        hardStop = true
+        throw e
       })
     ])
     if (!text.trim()) throw new Error('headless run returned no text')
     return text
   } finally {
     if (timer) clearTimeout(timer)
-    if (timedOut) {
+    if (hardStop) {
       await client?.forceStop().catch(() => undefined)
     } else {
       try {
