@@ -63,16 +63,24 @@ function toRow(r: JobDbRow): DistillJobRow {
  *
  * `cancel()` is a third external synchronous mutator, called from an IPC handler
  * rather than from `kick()`, but it preserves the same invariant rather than
- * breaking it. On a queued job it does a synchronous DB write (state→'cancelled')
- * and never touches the `running` flag — `nextQueued()`'s `WHERE state='queued'`
- * simply stops matching that row, same as if `kick()` had consumed it. On a running
- * job it does not touch the DB or `running` at all; it only calls `AbortController.abort()`
- * synchronously and returns, leaving the actual `state='cancelled'` persistence to
- * `runJob`'s existing `catch`/finish path on a later turn — the same synchronous
- * machinery `idle()` already relies on for done/failed. Because `cancel()` never
- * partially mutates state across an `await`, there is still no window where a
- * concurrent synchronous read (from `idle()` or `kick()`'s loop) can observe torn
- * state.
+ * breaking it. On both a queued and a running job it does a single synchronous DB
+ * write (state→'cancelled', finished_at→now) and emits, before returning; it never
+ * touches the `running` flag either way — for a queued job, `nextQueued()`'s
+ * `WHERE state='queued'` simply stops matching that row, same as if `kick()` had
+ * consumed it; for a running job, `running` stays true until the loop's own
+ * `finally` clears it once `runJob` actually returns. Only after that DB write and
+ * emit does the running branch call `AbortController.abort()` — which synchronously
+ * dispatches every listener registered on that signal, still on `cancel()`'s own
+ * stack. Today the only such listener (`abortRacer` in `agent/driver.ts`) just
+ * rejects a promise; it does not read or write `running` or the job row, so it
+ * introduces no further synchronous state change here — but that is a fact about
+ * today's listener, not a guarantee `abort()` itself makes. `runJob`'s own
+ * aborted-path rewrite of the same terminal row (in its success-path guard and its
+ * `catch`) runs later, on a separate turn once the driver's promise actually
+ * settles, and is written to be a no-op over what `cancel()` already persisted.
+ * Because `cancel()` never partially mutates state across an `await`, there is
+ * still no window where a concurrent synchronous read (from `idle()` or `kick()`'s
+ * loop) can observe torn state.
  */
 export class DistillQueue {
   private running = false
@@ -129,26 +137,34 @@ export class DistillQueue {
   }
 
   /**
-   * Stops a distillation the user no longer wants. A queued job is flipped straight to
-   * `cancelled` (the kick loop's `WHERE state='queued'` then skips it); a running job's
-   * AbortController is aborted, which rejects the driver's race and tears its CLI down.
+   * Stops a distillation the user no longer wants. Both a queued and a running job are
+   * flipped straight to `cancelled` with `finished_at` set, synchronously, before this method
+   * returns — so the row is already correct if the app quits moments later (`recoverOnBoot`
+   * only rewrites `state='running'` rows; a `cancelled` row is untouched, unlike the failed
+   * "app quit mid-distill" row a still-running job would produce). For a queued job that write
+   * alone is enough: the kick loop's `WHERE state='queued'` then skips it, same as if `kick()`
+   * had consumed it. For a running job, the write happens first and its `AbortController` is
+   * aborted only after — aborting rejects the driver's race and tears its CLI down. `runJob`'s
+   * own aborted-path handling then rewrites the same terminal row on a later turn once the
+   * driver's promise actually settles; that rewrite is a no-op over what's already persisted
+   * here (see `finishCancelled` in `runJob`), kept for the case where `runJob` reaches that
+   * branch some other way.
    *
    * Deliberately idempotent on a resting job (done/failed/cancelled): "it finished while
-   * the menu was open" is an ordinary race, not an error. Only an unknown id throws.
+   * the menu was open" is an ordinary race, not an error. Re-cancelling an already-cancelled
+   * job returns the row unchanged — state and `finished_at` both. Only an unknown id throws.
    */
   cancel(jobId: number): DistillJobRow {
     const job = this.get(jobId)
     if (!job) throw new Error(`distill job ${jobId} not found`)
-    if (job.state === 'running') {
-      this.controllers.get(jobId)?.abort()
-      return job // runJob's catch persists + emits the terminal `cancelled` row
-    }
-    if (job.state !== 'queued') return job
+    if (job.state !== 'running' && job.state !== 'queued') return job
+    const wasRunning = job.state === 'running'
     this.deps.db
       .prepare(`UPDATE distill_jobs SET state='cancelled', finished_at=? WHERE id=?`)
       .run(new Date().toISOString(), jobId)
     const fresh = this.get(jobId)!
     this.emit(fresh)
+    if (wasRunning) this.controllers.get(jobId)?.abort()
     return fresh
   }
 
@@ -224,13 +240,26 @@ export class DistillQueue {
       )
       this.emit(this.get(r.id)!)
     }
+    // cancel() already persists state='cancelled' (with finished_at) synchronously, before it
+    // ever aborts this job's controller — see DistillQueue.cancel. So by the time either
+    // aborted-branch below runs, the row is already terminal. This keeps that terminal write
+    // idempotent: COALESCE preserves the finished_at cancel() already stamped instead of
+    // moving it forward just because the driver took longer to unwind.
+    const finishCancelled = (): void => {
+      db.prepare(
+        `UPDATE distill_jobs SET state='cancelled', finished_at=COALESCE(finished_at, ?) WHERE id=?`
+      ).run(new Date().toISOString(), r.id)
+      this.emit(this.get(r.id)!)
+    }
     try {
       const input = JSON.parse(r.input_snapshot) as CaseDistillInput
       const run = await this.deps.distill(input, ac.signal)
-      // A cancel can land between the model returning and staging. Honour it: the user
-      // pressed cancel, so nothing from this run reaches the proposals tray.
+      // A driver can resolve normally even though its signal was already aborted — it lost or
+      // ignored the abort race (e.g. its CLI process happened to finish right as cancel() fired).
+      // Honour the cancellation anyway: the user pressed cancel, so nothing from this run reaches
+      // the proposals tray.
       if (ac.signal.aborted) {
-        finish(`state='cancelled'`)
+        finishCancelled()
         return
       }
       const res = this.deps.stage(r.case_slug, r.id, run.output)
@@ -238,8 +267,9 @@ export class DistillQueue {
     } catch (err) {
       if (ac.signal.aborted) {
         // However the run failed, the user's cancel is the reason it stopped — record that
-        // rather than a driver-shaped error the user would read as a fault.
-        finish(`state='cancelled'`)
+        // rather than a driver-shaped error the user would read as a fault. Already persisted
+        // by cancel() itself; finishCancelled() above documents why this rewrite is idempotent.
+        finishCancelled()
       } else if (err instanceof DistillParseError) {
         finish(`state='failed', error=?, raw_output=?`, err.message, err.raw)
       } else {

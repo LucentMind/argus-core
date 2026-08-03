@@ -233,7 +233,9 @@ describe('DistillQueue', () => {
     expect(done.state).toBe('cancelled')
     expect(done.error).toBeNull()
     expect(done.finishedAt).not.toBeNull()
-    expect(broadcasts.some((b) => (b as DistillStatusPayload).job?.state === 'cancelled')).toBe(true)
+    expect(broadcasts.some((b) => (b as DistillStatusPayload).job?.state === 'cancelled')).toBe(
+      true
+    )
   })
 
   it('discards a result that lands after the cancel', async () => {
@@ -271,5 +273,101 @@ describe('DistillQueue', () => {
   it('cancel on an unknown job id throws', () => {
     const { q } = makeQueue()
     expect(() => q.cancel(9999)).toThrow('9999')
+  })
+
+  it('cancelling a running job persists cancelled + finished_at synchronously, before the driver settles', async () => {
+    const { q } = makeQueue({
+      distill: (_input, signal) =>
+        new Promise((_res, rej) => {
+          signal.addEventListener('abort', () => rej(new Error('headless run cancelled')), {
+            once: true
+          })
+        })
+    })
+    const job = q.enqueue('case-a')
+    await vi.waitFor(() => expect(q.statusFor('case-a')!.state).toBe('running'), { timeout: 5000 })
+    q.cancel(job.id)
+    // Assert on the same synchronous call stack as cancel() — before any microtask from the
+    // driver's rejection (fired by abort() above) has had a chance to run runJob's catch.
+    const row = q.statusFor('case-a')!
+    expect(row.state).toBe('cancelled')
+    expect(row.finishedAt).not.toBeNull()
+    await q.idle()
+    expect(q.statusFor('case-a')!.state).toBe('cancelled')
+  })
+
+  it('recoverOnBoot does not touch a cancelled row: 0 changes, stays cancelled, not resumed', async () => {
+    db.prepare(
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at, finished_at) VALUES ('z','cancelled','{}','t','t2')`
+    ).run()
+    const { q } = makeQueue()
+    expect(q.recoverOnBoot()).toBe(0)
+    expect(q.statusFor('z')!.state).toBe('cancelled')
+    await q.idle()
+    expect(q.statusFor('z')!.state).toBe('cancelled')
+  })
+
+  it('retry on a cancelled job throws', () => {
+    db.prepare(
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at, finished_at) VALUES ('z','cancelled','{}','t','t2')`
+    ).run()
+    const row = db.prepare(`SELECT id FROM distill_jobs WHERE case_slug='z'`).get() as {
+      id: number
+    }
+    const { q } = makeQueue()
+    expect(() => q.retry(row.id)).toThrow(/not failed/i)
+  })
+
+  it('cancel on a failed job is a no-op returning the row', async () => {
+    const { q } = makeQueue({
+      distill: async () => {
+        throw new Error('boom')
+      }
+    })
+    const job = q.enqueue('case-a')
+    await q.idle()
+    expect(q.statusFor('case-a')!.state).toBe('failed')
+    const row = q.cancel(job.id)
+    expect(row.state).toBe('failed')
+    expect(q.statusFor('case-a')!.state).toBe('failed')
+  })
+
+  it('a second cancel on an already-cancelled job is idempotent: finished_at does not move', async () => {
+    const { q } = makeQueue({
+      distill: (_input, signal) =>
+        new Promise((_res, rej) => {
+          signal.addEventListener('abort', () => rej(new Error('headless run cancelled')), {
+            once: true
+          })
+        })
+    })
+    const job = q.enqueue('case-a')
+    await vi.waitFor(() => expect(q.statusFor('case-a')!.state).toBe('running'), { timeout: 5000 })
+    const first = q.cancel(job.id)
+    const second = q.cancel(job.id)
+    expect(second.state).toBe('cancelled')
+    expect(second.finishedAt).toBe(first.finishedAt)
+    await q.idle()
+    expect(q.statusFor('case-a')!.finishedAt).toBe(first.finishedAt)
+  })
+
+  it('cancelling a queued job emits a broadcast carrying the cancelled row', async () => {
+    const { q, broadcasts } = makeQueue({
+      distill: async () => {
+        await new Promise((r) => setTimeout(r, 50))
+        return { raw: '```json\n{}\n```', output: {} }
+      }
+    })
+    q.enqueue('case-a') // occupies the single in-flight slot
+    const second = q.enqueue('case-b') // still queued behind it
+    q.cancel(second.id)
+    expect(
+      broadcasts.some(
+        (b) =>
+          (b as DistillStatusPayload).caseSlug === 'case-b' &&
+          (b as DistillStatusPayload).job?.state === 'cancelled'
+      )
+    ).toBe(true)
+    await q.idle()
   })
 })
