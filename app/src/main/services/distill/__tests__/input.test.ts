@@ -9,6 +9,8 @@ import { applyMemoryWrite } from '../../memory'
 import { writeProposal, rejectProposal } from '../../proposals'
 import { assembleDistillInput, buildReferencesIndex } from '../input'
 import { sharedReferencesDir } from '../../skillsDir'
+import { artifactsDir } from '../../paths'
+import type { RcaDraft } from '../../../../shared/rca'
 
 let home: string
 let db: DatabaseSync
@@ -56,6 +58,7 @@ describe('assembleDistillInput', () => {
       {
         summary: 'Root cause found',
         reviewState: 'accepted',
+        role: null,
         body: expect.stringContaining('Clock resync.')
       }
     ])
@@ -77,6 +80,53 @@ describe('assembleDistillInput', () => {
 
   it('throws on unknown case', () => {
     expect(() => assembleDistillInput(db, home, 'nope')).toThrow(/Unknown case/)
+  })
+
+  it('carries a finding role and the confirmed RCA structure when present, null when absent', () => {
+    const caseId = (db.prepare(`SELECT id FROM cases WHERE slug='case-a'`).get() as { id: number })
+      .id
+    const r = db
+      .prepare(
+        `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at)
+       VALUES (?, NULL, NULL, 'Root cause found', 'accepted', '2026-07-16T00:00:00Z')`
+      )
+      .run(caseId)
+    const findingId = Number(r.lastInsertRowid)
+    db.prepare(`UPDATE findings SET role = 'root-cause' WHERE id = ?`).run(findingId)
+
+    // No artifacts/rca-structure.json yet → null.
+    let input = assembleDistillInput(db, home, 'case-a')
+    expect(input.findings).toEqual([expect.objectContaining({ role: 'root-cause' })])
+    expect(input.rcaStructure).toBeNull()
+
+    // A confirmed report writes artifacts/rca-structure.json — assembleDistillInput reads it.
+    const draft: RcaDraft = {
+      rootCause: { findingId, statement: 'clock resync missed', evidence: [] },
+      contributing: [],
+      symptoms: [],
+      ruledOut: [],
+      duplicates: [],
+      impact: '',
+      timeline: [],
+      remediation: { immediate: '', followUps: [] },
+      execSummary: { whatBroke: '', impact: '', why: '', nextSteps: '' },
+      techNarrative: []
+    }
+    const dir = artifactsDir(home, 'case-a')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'rca-structure.json'), JSON.stringify(draft))
+
+    input = assembleDistillInput(db, home, 'case-a')
+    expect(input.rcaStructure).toEqual(draft)
+  })
+
+  it('rcaStructure is null (not thrown) when the file exists but is not valid JSON', () => {
+    const dir = artifactsDir(home, 'case-a')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'rca-structure.json'), '{not valid json')
+
+    const input = assembleDistillInput(db, home, 'case-a')
+    expect(input.rcaStructure).toBeNull()
   })
 })
 

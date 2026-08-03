@@ -6,11 +6,15 @@ import { buildDistillPrompt, DISTILL_CONTRACT, REF_DISTILL_SECTIONS } from '../.
 import { AUTHORING_SECTIONS } from '../../authoring/prompts'
 import { RCA_SECTIONS } from '../../rca/contract'
 import type { CaseDistillInput } from '../../../../shared/distill'
+import type { RcaDraft } from '../../../../shared/rca'
 import { PROMPT_ENTRIES } from '../registry'
 
 const stub = (id: string): string => `<<${id}>>`
 
-function distillInput(): CaseDistillInput {
+/** `rcaStructure` defaults to null (no confirmed report) — the common case, and the one the
+ *  byte-identical-without-a-report tests below rely on. Pass a draft explicitly for tests that
+ *  need the conditional `rca` section to render. */
+function distillInput(rcaStructure: RcaDraft | null = null): CaseDistillInput {
   return {
     caseMeta: {
       slug: 'c-1',
@@ -27,8 +31,22 @@ function distillInput(): CaseDistillInput {
     memoryIndex: '',
     skillsIndex: [],
     referencesIndex: [],
+    rcaStructure,
     alreadyCaptured: { proposals: [], memoryWrites: [] }
   }
+}
+
+const SAMPLE_DRAFT: RcaDraft = {
+  rootCause: { findingId: null, statement: 's', evidence: [] },
+  contributing: [],
+  symptoms: [],
+  ruledOut: [],
+  duplicates: [],
+  impact: '',
+  timeline: [],
+  remediation: { immediate: '', followUps: [] },
+  execSummary: { whatBroke: '', impact: '', why: '', nextSteps: '' },
+  techNarrative: []
 }
 
 describe('tool descriptions honour an injected resolver', () => {
@@ -96,7 +114,9 @@ describe('distill scaffolding honours an injected resolver', () => {
   })
 
   it('every case-distill section header is resolved, not just the contract', () => {
-    const out = buildCaseDistillPrompt(distillInput(), stub)
+    // rcaStructure is populated so the conditional `rca` section renders too — otherwise this
+    // exhaustive loop over CASE_DISTILL_SECTIONS would fail on a section that never appears.
+    const out = buildCaseDistillPrompt(distillInput(SAMPLE_DRAFT), stub)
     for (const key of Object.keys(CASE_DISTILL_SECTIONS)) {
       expect(out, key).toContain(`<<headless.case-distill.section.${key}>>`)
     }
@@ -134,7 +154,10 @@ describe('distill scaffolding honours an injected resolver', () => {
     expect(out.startsWith(CASE_DISTILL_CONTRACT)).toBe(true)
 
     let cursor = 0
-    for (const key of Object.keys(CASE_DISTILL_SECTIONS)) {
+    // 'rca' is excluded: this fixed input has no confirmed RCA structure (rcaStructure: null),
+    // so the whole section — header included — is deliberately omitted, not rendered as "(none)".
+    // Covered separately by the RCA-present assertion above and the byte-identical test below.
+    for (const key of Object.keys(CASE_DISTILL_SECTIONS).filter((k) => k !== 'rca')) {
       const header = CASE_DISTILL_SECTIONS[key].text
       const idx = parts.findIndex((p, i) => i >= cursor && p.startsWith(header))
       expect(
@@ -143,6 +166,11 @@ describe('distill scaffolding honours an injected resolver', () => {
       ).toBeGreaterThanOrEqual(cursor)
       cursor = idx + 1
     }
+  })
+
+  it('with no confirmed RCA structure, no resolver, the case-distill prompt has no rca section', () => {
+    const out = buildCaseDistillPrompt(distillInput())
+    expect(out).not.toContain('Confirmed RCA structure')
   })
 
   it('refSync section headers resolve and keep the target filled in', () => {

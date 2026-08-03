@@ -6,6 +6,7 @@ import {
   CASE_DISTILL_CONTRACT
 } from '../contract'
 import type { CaseDistillInput } from '../../../../shared/distill'
+import type { RcaDraft } from '../../../../shared/rca'
 
 const INPUT: CaseDistillInput = {
   caseMeta: {
@@ -17,7 +18,7 @@ const INPUT: CaseDistillInput = {
     createdAt: 'a',
     closedAt: 'b'
   },
-  findings: [{ summary: 'F1', reviewState: 'accepted', body: 'body1' }],
+  findings: [{ summary: 'F1', reviewState: 'accepted', role: null, body: 'body1' }],
   evidence: [{ relPath: 'evidence/a.log', artifactType: 'text', size: 10 }],
   sessionTitles: ['First look'],
   memoryIndex: '- [dlt-timing](dlt-timing.md) — entry',
@@ -36,10 +37,24 @@ const INPUT: CaseDistillInput = {
       tier: 'confluence'
     }
   ],
+  rcaStructure: null,
   alreadyCaptured: {
     proposals: [{ type: 'recipe', target: 'dlt-cmds', title: 'Cmds', state: 'rejected' }],
     memoryWrites: [{ topic: 'dlt-timing', indexEntry: 'entry' }]
   }
+}
+
+const SAMPLE_DRAFT: RcaDraft = {
+  rootCause: { findingId: 1, statement: 'the cache key omitted the tenant id', evidence: [] },
+  contributing: [],
+  symptoms: [],
+  ruledOut: [],
+  duplicates: [],
+  impact: 'cross-tenant leak',
+  timeline: [],
+  remediation: { immediate: 'invalidate cache', followUps: [] },
+  execSummary: { whatBroke: '', impact: '', why: '', nextSteps: '' },
+  techNarrative: []
 }
 
 describe('prompt builder', () => {
@@ -82,6 +97,27 @@ describe('prompt builder', () => {
   it('surfaces each reference tier so the distiller can skip synced ones', () => {
     const p = buildCaseDistillPrompt(INPUT)
     expect(p).toContain('[tier: confluence]')
+  })
+
+  it('annotates a finding header with its role and inlines the confirmed RCA structure', () => {
+    const withRoleAndStructure: CaseDistillInput = {
+      ...INPUT,
+      findings: [{ summary: 'F1', reviewState: 'accepted', role: 'root-cause', body: 'body1' }],
+      rcaStructure: SAMPLE_DRAFT
+    }
+    const p = buildCaseDistillPrompt(withRoleAndStructure)
+    expect(p).toContain('[accepted · root-cause] F1')
+    expect(p).toContain('# Confirmed RCA structure (human-reviewed)')
+    expect(p).toContain(JSON.stringify(SAMPLE_DRAFT, null, 2))
+  })
+
+  it('without a role or a confirmed RCA structure, the prompt is byte-identical to before', () => {
+    const p = buildCaseDistillPrompt(INPUT)
+    // No role → no ' · ' annotation anywhere in the finding header.
+    expect(p).toContain('[accepted] F1')
+    expect(p).not.toContain(' · ')
+    // No confirmed structure → the section is omitted entirely, not rendered as "(none)".
+    expect(p).not.toContain('Confirmed RCA structure')
   })
 })
 

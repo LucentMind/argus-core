@@ -1,5 +1,6 @@
 import type { CaseResolution } from './types'
 import type { ReviewState } from './observability'
+import type { RcaDraft } from './rca'
 
 export type DistillJobState = 'queued' | 'running' | 'done' | 'failed'
 
@@ -24,7 +25,7 @@ export interface CaseDistillInput {
     createdAt: string
     closedAt: string
   }
-  findings: { summary: string; reviewState: ReviewState; body: string }[]
+  findings: { summary: string; reviewState: ReviewState; role: string | null; body: string }[]
   evidence: { relPath: string; artifactType: string; size: number }[]
   sessionTitles: string[]
   memoryIndex: string
@@ -44,6 +45,9 @@ export interface CaseDistillInput {
     }[]
     memoryWrites: { topic: string; indexEntry: string | null }[]
   }
+  /** `artifacts/rca-structure.json` — the confirmed, human-reviewed RCA structure for this case,
+   *  if a report was ever confirmed. null when no such file exists (most cases). */
+  rcaStructure: RcaDraft | null
 }
 
 export interface CaseDistillSummary {

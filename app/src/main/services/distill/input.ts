@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { CaseDistillInput } from '../../../shared/distill'
+import type { RcaDraft } from '../../../shared/rca'
 import { getCase } from '../caseService'
 import { listFindings } from '../findings'
 import { listEvidence } from '../ingest'
@@ -10,6 +11,7 @@ import { readIndex, readAudit } from '../memory'
 import { listProposals, listArchivedProposals } from '../proposals'
 import { refTitle, refBody, refTier } from '../refSync/refFrontmatter'
 import { sharedReferencesDir } from '../skillsDir'
+import { artifactsDir } from '../paths'
 
 /** Reference name/summary/content/tier records for the shared references/ dir — summary is the
  *  first trimmed, non-blank, non-heading line of the body (matching generateReferencesIndex in
@@ -41,13 +43,30 @@ export function buildReferencesIndex(
 }
 
 /**
+ * `artifacts/rca-structure.json` — the confirmed, human-reviewed RCA structure for this case, if
+ * one was ever generated and confirmed. Unlike rca/jobs.ts's readPriorDraft (which throws on a
+ * corrupt file so a bad read can never silently regenerate over confirmed edits), this read is
+ * purely advisory input to a one-shot distillation of an already-CLOSED case: a missing file, an
+ * unreadable one, or malformed JSON all just mean "no confirmed structure to fold in" — never
+ * throw, always fall back to null.
+ */
+function readConfirmedRcaStructure(argusHome: string, slug: string): RcaDraft | null {
+  const file = path.join(artifactsDir(argusHome, slug), 'rca-structure.json')
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8')) as RcaDraft
+  } catch {
+    return null
+  }
+}
+
+/**
  * Snapshot everything the background distiller needs to draft a case's memory
- * appends / proposals: case meta, findings with review states, evidence
+ * appends / proposals: case meta, findings with review states and roles, evidence
  * inventory, session titles, memory index, skills index (caller-supplied —
- * distiller resolves tier-aware access), references index, and the
- * already-captured section (pending + archived proposals for this case, and
- * memory audit entries filtered by caseSlug) so the distiller can skip
- * re-proposing what a human already reviewed.
+ * distiller resolves tier-aware access), references index, the confirmed RCA
+ * structure (if any), and the already-captured section (pending + archived
+ * proposals for this case, and memory audit entries filtered by caseSlug) so the
+ * distiller can skip re-proposing what a human already reviewed.
  */
 export function assembleDistillInput(
   db: DatabaseSync,
@@ -78,6 +97,7 @@ export function assembleDistillInput(
     findings: listFindings(db, argusHome, slug).map((f) => ({
       summary: f.summary,
       reviewState: f.reviewState,
+      role: f.role,
       body: f.body ?? ''
     })),
     evidence: listEvidence(db, slug).map((e) => ({
@@ -89,6 +109,7 @@ export function assembleDistillInput(
     memoryIndex: readIndex(argusHome),
     skillsIndex,
     referencesIndex: buildReferencesIndex(argusHome),
+    rcaStructure: readConfirmedRcaStructure(argusHome, slug),
     alreadyCaptured: {
       proposals: [...pending, ...archived],
       memoryWrites: readAudit(argusHome, 1000)

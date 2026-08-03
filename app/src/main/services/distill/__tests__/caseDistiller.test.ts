@@ -19,6 +19,7 @@ const INPUT: CaseDistillInput = {
   memoryIndex: '',
   skillsIndex: [],
   referencesIndex: [],
+  rcaStructure: null,
   alreadyCaptured: { proposals: [], memoryWrites: [] }
 }
 

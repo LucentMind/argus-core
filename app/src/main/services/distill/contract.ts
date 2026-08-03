@@ -30,6 +30,10 @@ export const CASE_DISTILL_SECTIONS: PromptTextSpecs = {
     title: 'Case-distill section — references',
     text: '# References (full current content — a reference-edit must return the whole file with its change merged in; NEVER edit a [tier: confluence] reference — see rule 7)'
   },
+  rca: {
+    title: 'Case-distill section — confirmed RCA structure',
+    text: '# Confirmed RCA structure (human-reviewed)'
+  },
   captured: {
     title: 'Case-distill section — already captured',
     text: '# Knowledge already captured from this case (do NOT repeat)'
@@ -46,7 +50,7 @@ export function buildCaseDistillPrompt(
 ): string {
   const m = input.caseMeta
   const findings = input.findings
-    .map((f) => `### [${f.reviewState}] ${f.summary}\n${f.body}`)
+    .map((f) => `### [${f.reviewState}${f.role ? ` · ${f.role}` : ''}] ${f.summary}\n${f.body}`)
     .join('\n\n')
   const captured =
     [
@@ -59,7 +63,7 @@ export function buildCaseDistillPrompt(
     ].join('\n') || '(none)'
   const sec = (key: string): string =>
     resolve ? resolve(`headless.case-distill.section.${key}`) : CASE_DISTILL_SECTIONS[key].text
-  return [
+  const parts = [
     resolve ? resolve('headless.case-distill.contract') : CASE_DISTILL_CONTRACT,
     `${sec('case')}\nslug: ${m.slug}\ntitle: ${m.title}\njira: ${m.jiraKey ?? '—'}\nresolution: ${m.resolution ?? '—'}\ntags: ${m.tags.join(', ') || '—'}\nopened: ${m.createdAt}\nclosed: ${m.closedAt}`,
     `${sec('findings')}\n\n${findings || '(none)'}`,
@@ -77,10 +81,17 @@ export function buildCaseDistillPrompt(
           (r) => `## ${r.name} [tier: ${r.tier ?? 'team-knowledge'}] — ${r.summary}\n\n${r.content}`
         )
         .join('\n\n---\n\n') || '(none)'
-    }`,
-    `${sec('captured')}\n${captured}`,
-    sec('output-nudge')
-  ].join('\n\n')
+    }`
+  ]
+  // Only when a report was confirmed for this case — omitting the section entirely (rather than
+  // rendering "(none)") keeps the prompt byte-identical to before this field existed for the
+  // common case of a case with no confirmed RCA.
+  if (input.rcaStructure) {
+    parts.push(`${sec('rca')}\n${JSON.stringify(input.rcaStructure, null, 2)}`)
+  }
+  parts.push(`${sec('captured')}\n${captured}`)
+  parts.push(sec('output-nudge'))
+  return parts.join('\n\n')
 }
 
 export class DistillParseError extends Error {
