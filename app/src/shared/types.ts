@@ -272,6 +272,21 @@ export interface WorkspaceInfo {
   worktreePath: string | null // non-null once workspace_checkout materialized one
 }
 
+/** A previously-linked repo offered in the Link-repo dropdown. `name` is the basename,
+ *  computed in main so the renderer never re-derives it from a platform-specific path. */
+export interface RecentRepo {
+  path: string
+  name: string
+}
+
+/** `workspaces:link` result. `suggestDefault` asks the renderer to raise the
+ *  promote-to-default prompt; `caseCount` is the number that prompt quotes. */
+export interface LinkWorkspaceResult {
+  workspace: WorkspaceInfo
+  suggestDefault: boolean
+  caseCount: number
+}
+
 export interface GraphStatusRow {
   scope: string | null
   scopeKey: string

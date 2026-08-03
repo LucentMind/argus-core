@@ -179,6 +179,21 @@ CREATE TABLE IF NOT EXISTS messages_fts_map (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_fts_map_case_id    ON messages_fts_map(case_id);
 CREATE INDEX IF NOT EXISTS idx_messages_fts_map_session_id ON messages_fts_map(session_id);
+-- Manual repo-link usage record (recent-repos feature). No FK to cases on purpose: these
+-- rows are a usage record, not a live relationship. A cascade on case delete would walk the
+-- count backwards and revoke a promote prompt the user had already earned. Nothing ever
+-- joins these tables against cases, so the missing FK costs nothing -- and it keeps them off
+-- the FK-index/delete-performance path the evidence tables needed.
+CREATE TABLE IF NOT EXISTS repo_usage (
+  path      TEXT NOT NULL,
+  case_slug TEXT NOT NULL,
+  linked_at TEXT NOT NULL,
+  PRIMARY KEY (path, case_slug)
+);
+CREATE TABLE IF NOT EXISTS repo_prefs (
+  path              TEXT PRIMARY KEY,
+  promote_dismissed INTEGER NOT NULL DEFAULT 0
+);
 `
 
 export function openDb(file: string): DatabaseSync {
