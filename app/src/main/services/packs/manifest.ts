@@ -1,10 +1,13 @@
 import { z } from 'zod'
 import { parseGhRef } from './githubRef'
+import semver from 'semver'
 
 export const PACK_MANIFEST_FILE = 'argus-pack.json'
 
-/** The pack-API contract version Core implements. Packs declare a compatible range via `argusApi`. */
-export const PACK_API_VERSION = 1
+/** The pack-API contract version Core implements, as a full semver string.
+ *  Packs declare a compatible range via `argusApi`; a pack that declares `dependencies`
+ *  must require `^1.1` or later so an older Core refuses it outright. */
+export const PACK_API_VERSION = '1.1.0'
 
 const KEBAB = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
@@ -163,6 +166,31 @@ export const packWindowSchema = z
 
 export type PackWindow = z.infer<typeof packWindowSchema>
 
+/** `{ "<packId>": "<semver-range>" }`. Keys must be kebab-case pack ids; values must be
+ *  valid semver ranges. Validated with `superRefine` (rather than a keyed record schema)
+ *  so a bad entry's error message names the offending key. */
+export const packDependenciesSchema = z
+  .record(z.string(), z.string())
+  .default({})
+  .superRefine((deps, ctx) => {
+    for (const [depId, range] of Object.entries(deps)) {
+      if (!KEBAB.test(depId)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `dependency key "${depId}" must be kebab-case`,
+          path: [depId]
+        })
+      }
+      if (!semver.validRange(range)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `dependency "${depId}" has an invalid semver range: "${range}"`,
+          path: [depId]
+        })
+      }
+    }
+  })
+
 export const packManifestSchema = z
   .object({
     id: z.string().regex(KEBAB, 'pack id must be kebab-case'),
@@ -198,6 +226,9 @@ export const packManifestSchema = z
       .refine((r) => parseGhRef(r) != null, 'updateRepo must be owner/repo or host/owner/repo')
       .optional(),
     persona: z.string().min(1).optional(),
+    /** Other packs this one requires, by id, with a semver range on their `version`.
+     *  Enforced at install/uninstall/update and load ordering by Core (pack API 1.1). */
+    dependencies: packDependenciesSchema,
     binaries: z.array(packBinarySchema).default([]),
     detectors: z.array(packDetectorSchema).default([]),
     windows: z.array(packWindowSchema).default([]),

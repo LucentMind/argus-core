@@ -14,6 +14,14 @@ describe('isApiCompatible', () => {
   it('rejects a malformed range', () => {
     expect(isApiCompatible('not-a-range')).toBe(false)
   })
+
+  it('accepts ^1.1 now that the API is 1.1.0 (dependency-declaring packs)', () => {
+    expect(isApiCompatible('^1.1')).toBe(true)
+  })
+
+  it('rejects ^1.2, a future API a dependency-declaring pack might assume', () => {
+    expect(isApiCompatible('^1.2')).toBe(false)
+  })
 })
 
 describe('osOf / archOf', () => {
