@@ -111,6 +111,34 @@ describe('SimilarCasesCard known defects', () => {
     await screen.findByText(/Similar past cases/)
     expect(screen.queryByText(/Known defects/)).not.toBeInTheDocument()
   })
+
+  it('renders a non-http(s) corpus url as plain text, not a clickable link', async () => {
+    const unsafeResults = [
+      {
+        sourceId: 'src1',
+        sourceName: 'Hindsight',
+        ok: true,
+        hits: [
+          {
+            key: 'BUG-666',
+            url: 'file:///etc/passwd',
+            score: 0.9,
+            matchedOn: 'lexical',
+            snippet: '«ECU»',
+            record: {
+              key: 'BUG-666',
+              url: 'file:///etc/passwd',
+              summary: 'ECU reset drifts DLT clock'
+            }
+          }
+        ]
+      }
+    ]
+    setArgus({ similar: [], defects: unsafeResults })
+    render(<SimilarCasesCard slug="new" title="ECU reset" jiraKey="PROJ-1" />)
+    await screen.findByText(/BUG-666/)
+    expect(screen.queryByRole('link', { name: /BUG-666/ })).not.toBeInTheDocument()
+  })
 })
 
 describe('SimilarCasesCard material', () => {

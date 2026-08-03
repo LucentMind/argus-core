@@ -5,9 +5,17 @@ import type { SourceSearchResult } from '../../../shared/defectCorpus'
 import { Card, Chip, IconBtn, SectionLabel } from './ui'
 import { uiStore } from '../lib/uiStore'
 
-/** One flattened row from a successful source's hits — carries the source name along since
- *  the row format (`key — summary (sourceName)`) needs it per-row, not per-result-batch. */
-type CorpusRow = { sourceName: string; hit: SourceSearchResult['hits'][number] }
+/** One flattened row from a successful source's hits — carries the source id (unique, for the
+ *  React key — sourceName is free-text and can collide across sources) and name (per-row display,
+ *  since the row format `key — summary (sourceName)` needs it per-row, not per-result-batch). */
+type CorpusRow = { sourceId: string; sourceName: string; hit: SourceSearchResult['hits'][number] }
+
+/** Guard mirroring main's isOpenableUrl (services/presets.ts): only http(s) URLs are
+ *  rendered as clickable — a corpus-controlled url is untrusted remote input and must
+ *  never reach an anchor that could carry file:// or an app-protocol scheme. */
+function isOpenableUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url)
+}
 
 function dismissKey(slug: string): string {
   return `argus:similar-dismissed:${slug}`
@@ -23,7 +31,7 @@ function flattenCorpusHits(results: SourceSearchResult[]): CorpusRow[] {
   const rows: CorpusRow[] = []
   for (const r of results) {
     if (!r.ok) continue
-    for (const hit of r.hits) rows.push({ sourceName: r.sourceName, hit })
+    for (const hit of r.hits) rows.push({ sourceId: r.sourceId, sourceName: r.sourceName, hit })
   }
   return rows
 }
@@ -134,17 +142,29 @@ export function SimilarCasesCard({
             </IconBtn>
           </div>
           <div className="flex flex-col gap-1.5">
-            {corpusHits.map(({ sourceName, hit }) => (
-              <a
-                key={`${sourceName}:${hit.record.key}`}
-                href={hit.record.url}
-                target="_blank"
-                rel="noreferrer"
-                className="min-w-0 truncate text-left text-xs text-ink hover:text-signal"
-              >
-                {hit.record.key} — {hit.record.summary} ({sourceName})
-              </a>
-            ))}
+            {corpusHits.map(({ sourceId, sourceName, hit }) => {
+              const label = (
+                <>
+                  {hit.record.key} — {hit.record.summary} ({sourceName})
+                </>
+              )
+              const key = `${sourceId}:${hit.record.key}`
+              return isOpenableUrl(hit.record.url) ? (
+                <a
+                  key={key}
+                  href={hit.record.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="min-w-0 truncate text-left text-xs text-ink hover:text-signal"
+                >
+                  {label}
+                </a>
+              ) : (
+                <span key={key} className="min-w-0 truncate text-left text-xs text-ink">
+                  {label}
+                </span>
+              )
+            })}
           </div>
         </>
       )}
