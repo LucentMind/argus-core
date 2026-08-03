@@ -359,4 +359,56 @@ describe('admin config', () => {
       status: 400
     })
   })
+
+  // Finding 4 (final review, corpus-admin-editor): a v1.1 server can add fields inside any of
+  // the five nested groups (additive-only per SPEC.md §8). Without `.passthrough()` on those
+  // group objects, zod's default strip behavior would silently drop them on GET — and since
+  // IngestionEditor does a whole-doc read-modify-write PUT, the next Save would then delete
+  // those fields server-side. This must survive both halves: parse keeps them, and a PUT of
+  // the parsed value round-trips them unchanged.
+  it('passes unknown keys inside nested groups through GET parse and back out unchanged on PUT (v1.1 additive fields)', async () => {
+    const cfgWithExtras = {
+      jira: {
+        baseUrl: 'https://x.atlassian.net',
+        email: 'a@b.c',
+        apiToken: SECRET_MASK,
+        jql: 'project = KAN',
+        includeComments: true,
+        newJiraField: 'from-v1.1'
+      },
+      sync: { intervalMinutes: 60, newSyncField: 42 },
+      embedding: {
+        endpoint: 'https://api.openai.com/v1',
+        model: 'text-embedding-3-small',
+        apiKey: SECRET_MASK,
+        newEmbeddingField: true
+      },
+      llm: {
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        apiKey: SECRET_MASK,
+        newLlmField: ['x', 'y']
+      },
+      enrichment: {
+        mode: 'rules',
+        rulesJql: 'resolution = Fixed',
+        newEnrichmentField: { nested: true }
+      }
+    }
+    const getFetch = fetchOf(() => ({ status: 200, json: cfgWithExtras }))
+    const got = await client(getFetch).adminGetConfig()
+    expect(got.jira).toMatchObject({ newJiraField: 'from-v1.1' })
+    expect(got.sync).toMatchObject({ newSyncField: 42 })
+    expect(got.embedding).toMatchObject({ newEmbeddingField: true })
+    expect(got.llm).toMatchObject({ newLlmField: ['x', 'y'] })
+    expect(got.enrichment).toMatchObject({ newEnrichmentField: { nested: true } })
+
+    let seenBody = ''
+    const putFetch = fetchOf((_url, init) => {
+      seenBody = String(init?.body ?? '')
+      return { status: 200, json: cfgWithExtras }
+    })
+    await client(putFetch).adminPutConfig(got)
+    expect(JSON.parse(seenBody)).toEqual(cfgWithExtras)
+  })
 })

@@ -371,6 +371,34 @@ describe('DefectCorpusSettings ingestion editor', () => {
     expect(await within(card).findByText('corpus unreachable')).toBeInTheDocument()
   })
 
+  // Finding 2 (final review, corpus-admin-editor): `toggle()` only fetched when
+  // `load.status === 'idle'`, so after a transient failure the error state was terminal —
+  // collapsing and re-expanding just redisplayed the stale error forever, with no way to
+  // retry short of reloading Settings entirely.
+  it('retries the fetch on re-expand after a failed load, instead of leaving the error terminal', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, error: 'corpus unreachable' })
+      .mockResolvedValueOnce({ ok: true, value: adminConfig })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    const toggle = within(card).getByRole('button', { name: /ingestion settings/i })
+
+    fireEvent.click(toggle)
+    expect(await within(card).findByText('corpus unreachable')).toBeInTheDocument()
+
+    // Collapse (an error state carries no unsaved draft, so this must not go through confirm).
+    fireEvent.click(toggle)
+    expect(confirm).not.toHaveBeenCalled()
+
+    // Re-expand: the second getConfig call succeeds and the form renders.
+    fireEvent.click(toggle)
+    expect(await within(card).findByLabelText('Jira JQL')).toHaveValue('project = KAN')
+    expect(window.argus.defects.getConfig).toHaveBeenCalledTimes(2)
+  })
+
   it('shows an inline error, without crashing, when getConfig rejects instead of resolving {ok:false}', async () => {
     window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
     window.argus.defects.getConfig = vi.fn().mockRejectedValue(new Error('IPC channel closed'))
@@ -468,6 +496,47 @@ describe('DefectCorpusSettings ingestion editor', () => {
     const body = vi.mocked(window.argus.defects.putConfig).mock.calls[0][1] as CorpusAdminConfig
     expect(body.llm.provider).toBe('openai-compatible')
     expect(body.enrichment.mode).toBe('off')
+  })
+
+  // Finding 1 (final review, corpus-admin-editor): the contract's `AdminConfig.llm` carries an
+  // optional `endpoint` (needed for `provider: 'openai-compatible'`), but the LLM group only
+  // rendered provider/model/apiKey — there was no way for an admin to set it.
+  it('renders the LLM endpoint field, seeded from the loaded draft, and sends edits in the PUT body', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { ...adminConfig, llm: { ...adminConfig.llm, endpoint: 'https://llm.example.com/v1' } }
+    })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    fireEvent.click(within(card).getByRole('button', { name: /ingestion settings/i }))
+    const endpoint = await within(card).findByLabelText('LLM endpoint')
+    expect(endpoint).toHaveValue('https://llm.example.com/v1')
+
+    fireEvent.change(endpoint, { target: { value: 'https://new-llm.example.com/v1' } })
+    fireEvent.click(within(card).getByRole('button', { name: 'Save' }))
+    const body = vi.mocked(window.argus.defects.putConfig).mock.calls[0][1] as CorpusAdminConfig
+    expect(body.llm.endpoint).toBe('https://new-llm.example.com/v1')
+  })
+
+  it('omits the LLM endpoint from the PUT body when left empty (it is optional, not a valid empty string)', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({
+      ok: false,
+      error: 'no config',
+      code: 'not_configured'
+    })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    fireEvent.click(within(card).getByRole('button', { name: /ingestion settings/i }))
+    const jql = await within(card).findByLabelText('Jira JQL')
+    fireEvent.change(jql, { target: { value: 'project = KAN' } })
+    expect(within(card).getByLabelText('LLM endpoint')).toHaveValue('')
+    fireEvent.click(within(card).getByRole('button', { name: 'Save' }))
+    const body = vi.mocked(window.argus.defects.putConfig).mock.calls[0][1] as CorpusAdminConfig
+    expect(body.llm).not.toHaveProperty('endpoint')
   })
 
   it('sends a typed secret value in the PUT body', async () => {

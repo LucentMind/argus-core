@@ -120,33 +120,47 @@ const CorpusAdminSyncStarted = z.object({ started: z.boolean() }).passthrough()
 
 // Transcribed from argus-hindsight/packages/contract/src/index.ts:86-99 (`AdminConfig`).
 // Root gets `.passthrough()` per the additive-evolution rule (see CorpusDefectRecord
-// above); the nested groups (jira/sync/embedding/llm/enrichment) stay plain, matching
-// how the reference contract itself does not passthrough them.
+// above). Unlike CorpusDefectRecord, the nested groups (jira/sync/embedding/llm/enrichment)
+// ALSO get `.passthrough()` here — deliberately deviating from the reference contract, which
+// leaves them plain. IngestionEditor does a whole-doc read-modify-write PUT (GET, edit a few
+// fields client-side, PUT the lot back), so a v1.1 field added inside any of these groups
+// must survive the GET parse or the very next Save silently deletes it server-side. Response
+// roots that are never read-modify-write round-tripped this way (CorpusSearchHit's embedded
+// record, CorpusIssueLink, CorpusComment, CorpusDistilled) correctly keep zod's default strip
+// behavior — passthrough is scoped to CorpusAdminConfig only.
 export const CorpusAdminConfig = z
   .object({
-    jira: z.object({
-      baseUrl: z.string(),
-      email: z.string(),
-      apiToken: z.string().optional(),
-      jql: z.string(),
-      includeComments: z.boolean()
-    }),
-    sync: z.object({ intervalMinutes: z.number().int().min(0) }),
-    embedding: z.object({
-      endpoint: z.string(),
-      model: z.string(),
-      apiKey: z.string().optional()
-    }),
-    llm: z.object({
-      provider: z.enum(['openai-compatible', 'anthropic']),
-      endpoint: z.string().optional(),
-      model: z.string(),
-      apiKey: z.string().optional()
-    }),
-    enrichment: z.object({
-      mode: z.enum(['off', 'rules', 'on-first-hit']),
-      rulesJql: z.string().optional()
-    })
+    jira: z
+      .object({
+        baseUrl: z.string(),
+        email: z.string(),
+        apiToken: z.string().optional(),
+        jql: z.string(),
+        includeComments: z.boolean()
+      })
+      .passthrough(),
+    sync: z.object({ intervalMinutes: z.number().int().min(0) }).passthrough(),
+    embedding: z
+      .object({
+        endpoint: z.string(),
+        model: z.string(),
+        apiKey: z.string().optional()
+      })
+      .passthrough(),
+    llm: z
+      .object({
+        provider: z.enum(['openai-compatible', 'anthropic']),
+        endpoint: z.string().optional(),
+        model: z.string(),
+        apiKey: z.string().optional()
+      })
+      .passthrough(),
+    enrichment: z
+      .object({
+        mode: z.enum(['off', 'rules', 'on-first-hit']),
+        rulesJql: z.string().optional()
+      })
+      .passthrough()
   })
   .passthrough()
 export type CorpusAdminConfig = z.infer<typeof CorpusAdminConfig>

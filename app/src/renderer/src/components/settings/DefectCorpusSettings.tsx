@@ -131,6 +131,10 @@ function stripEmptySecrets(draft: CorpusAdminConfig): CorpusAdminConfig {
   if (!body.jira.apiToken) delete body.jira.apiToken
   if (!body.embedding.apiKey) delete body.embedding.apiKey
   if (!body.llm.apiKey) delete body.llm.apiKey
+  // Not a secret, but the same "empty means omit" rule applies: `llm.endpoint` is optional on
+  // the wire, and an empty/whitespace-only string isn't a valid endpoint — omitting the key
+  // means "leave whatever the server already has" rather than sending a blank value.
+  if (!body.llm.endpoint?.trim()) delete body.llm.endpoint
   return body
 }
 
@@ -330,7 +334,10 @@ function IngestionEditor({
       })
       return
     }
-    if (!expanded && load.status === 'idle') void fetchConfig()
+    // Finding 2 (final review): also retry on re-expand after a failed load — otherwise a
+    // transient failure is terminal, since `load.status` never leaves 'error' on its own and a
+    // collapse/re-expand cycle just redisplays the same stale message forever.
+    if (!expanded && (load.status === 'idle' || load.status === 'error')) void fetchConfig()
     setExpanded((e) => !e)
   }
 
@@ -491,6 +498,15 @@ function IngestionEditor({
                 />
               </Field>
             </div>
+            <Field label="Endpoint">
+              <input
+                aria-label="LLM endpoint"
+                className={FIELD}
+                placeholder="required for openai-compatible"
+                value={draft.llm.endpoint ?? ''}
+                onChange={(e) => set('llm', { endpoint: e.target.value })}
+              />
+            </Field>
             <Field label="API key">
               <input
                 type="password"

@@ -31,6 +31,14 @@ export interface SourceSearchResult {
 
 const NO_TOKEN_ERROR = 'no token configured'
 
+// client.ts's DEFAULT_TIMEOUT_MS (5s) is sized for the case-open path (search/test/sync-status)
+// — too short for the admin-config passthroughs (Finding 3, final review): adminPutConfig can
+// take longer than a case-open budget, and adminJqlPreview runs a live tracker query
+// server-side. Precedence (see resolveClient below): an explicit `deps.timeoutMs` — the test
+// seam several suites already inject — always wins; ADMIN_TIMEOUT_MS only fills in when that's
+// unset; a plain client() call with neither falls back to client.ts's own DEFAULT_TIMEOUT_MS.
+const ADMIN_TIMEOUT_MS = 30_000
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
@@ -142,7 +150,7 @@ export class DefectCorpusService {
     id: string,
     fn: (client: DefectCorpusClient) => Promise<T>
   ): Promise<CorpusAdminResult<T>> {
-    const resolved = this.resolveClient(id)
+    const resolved = this.resolveClient(id, undefined, ADMIN_TIMEOUT_MS)
     if (!resolved.ok) return { ok: false, error: resolved.error }
     try {
       return { ok: true, value: await fn(resolved.client) }
@@ -155,8 +163,19 @@ export class DefectCorpusService {
     }
   }
 
-  /** Single chokepoint: source lookup + token resolution, shared by every method above. */
-  private resolveClient(id: string, cfg?: DefectCorpusSourceCfg): ResolvedClient {
+  /**
+   * Single chokepoint: source lookup + token resolution, shared by every method above.
+   *
+   * `timeoutMs` lets a caller (currently only `adminCall`) request a longer budget than the
+   * client's own default — but `deps.timeoutMs` (the test seam most of this file's suite
+   * already injects) always wins when set, so existing tests that pin a timeout keep getting
+   * exactly that value regardless of which call path they exercise.
+   */
+  private resolveClient(
+    id: string,
+    cfg?: DefectCorpusSourceCfg,
+    timeoutMs?: number
+  ): ResolvedClient {
     const source = cfg ?? this.deps.sources()[id]
     if (!source) return { ok: false, error: 'unknown source' }
     const token = this.deps.token(id)
@@ -166,7 +185,7 @@ export class DefectCorpusService {
       client: new DefectCorpusClient({
         baseUrl: source.baseUrl,
         token,
-        timeoutMs: this.deps.timeoutMs,
+        timeoutMs: this.deps.timeoutMs ?? timeoutMs,
         fetchFn: this.deps.fetchFn
       })
     }

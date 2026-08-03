@@ -1,7 +1,26 @@
 import { describe, it, expect, vi } from 'vitest'
 import { DefectCorpusService, type DefectCorpusDeps } from '../service'
 import type { DefectCorpusSourceCfg } from '../../../../shared/defectCorpus'
-import { SECRET_MASK, type CorpusAdminConfig } from '../client'
+import { SECRET_MASK, DefectCorpusClient, type CorpusAdminConfig } from '../client'
+
+// Instrumented wrapper (not a behavior fake) — Finding 3 (final review, corpus-admin-editor)
+// needs to assert what `timeoutMs` DefectCorpusService actually hands the client constructor
+// for the admin-config path vs. the ordinary search/test/sync path. Delegating to the real
+// class keeps every existing routedFetch-based test in this file working unmodified.
+vi.mock('../client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../client')>()
+  return {
+    ...actual,
+    // mockImplementation needs a real (non-arrow) constructor function so `new` inside
+    // resolveClient still works.
+    DefectCorpusClient: vi.fn().mockImplementation(function (
+      this: unknown,
+      opts: ConstructorParameters<typeof actual.DefectCorpusClient>[0]
+    ) {
+      return new actual.DefectCorpusClient(opts)
+    })
+  }
+})
 
 const ADMIN_CONFIG: CorpusAdminConfig = {
   jira: {
@@ -52,13 +71,15 @@ function deps(
   opts: {
     tokens?: Record<string, string>
     fetchFn?: typeof fetch
+    timeoutMs?: number
   } = {}
 ): DefectCorpusDeps {
   const tokens = opts.tokens ?? {}
   return {
     sources: () => sources,
     token: (id) => tokens[id],
-    fetchFn: opts.fetchFn
+    fetchFn: opts.fetchFn,
+    timeoutMs: opts.timeoutMs
   }
 }
 
@@ -453,6 +474,66 @@ describe('DefectCorpusService', () => {
         error: 'unknown source'
       })
       expect(fetchSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  // Finding 3 (final review, corpus-admin-editor): DEFAULT_TIMEOUT_MS in client.ts (5s) is a
+  // case-open budget — too short for adminPutConfig/adminJqlPreview, which the corpus server
+  // can take longer to answer (jql-preview runs a live tracker query). The admin-call path
+  // (getConfig/putConfig/jqlPreview) must construct its client with a longer timeout, WITHOUT
+  // breaking the existing test seam: a caller that already injects `deps.timeoutMs` (as every
+  // other test in this file may) must keep getting exactly that value.
+  describe('admin call timeout (Finding 3)', () => {
+    const sources: Record<string, DefectCorpusSourceCfg> = {
+      s1: { name: 'S1', baseUrl: 'https://s1.example', enabled: true }
+    }
+    const okFetch = routedFetch({
+      'https://s1.example': () => ({ status: 200, json: ADMIN_CONFIG })
+    })
+
+    it('passes the longer admin timeout (30s) to the client for getConfig when deps.timeoutMs is unset', async () => {
+      const svc = new DefectCorpusService(
+        deps(sources, { tokens: { s1: 'tok' }, fetchFn: okFetch })
+      )
+      await svc.getConfig('s1')
+      const ctorOpts = vi.mocked(DefectCorpusClient).mock.calls.at(-1)?.[0]
+      expect(ctorOpts?.timeoutMs).toBe(30_000)
+    })
+
+    it('passes the longer admin timeout (30s) to the client for putConfig and jqlPreview too', async () => {
+      const svc = new DefectCorpusService(
+        deps(sources, { tokens: { s1: 'tok' }, fetchFn: okFetch })
+      )
+      await svc.putConfig('s1', ADMIN_CONFIG)
+      expect(vi.mocked(DefectCorpusClient).mock.calls.at(-1)?.[0]?.timeoutMs).toBe(30_000)
+
+      const previewFetch = routedFetch({
+        'https://s1.example': () => ({ status: 200, json: { count: 1, sample: [] } })
+      })
+      const svc2 = new DefectCorpusService(
+        deps(sources, { tokens: { s1: 'tok' }, fetchFn: previewFetch })
+      )
+      await svc2.jqlPreview('s1', 'project = KAN')
+      expect(vi.mocked(DefectCorpusClient).mock.calls.at(-1)?.[0]?.timeoutMs).toBe(30_000)
+    })
+
+    it('leaves a non-admin call (search) without the admin timeout override', async () => {
+      const searchFetch = routedFetch({
+        'https://s1.example': () => ({ status: 200, json: { hits: [] } })
+      })
+      const svc = new DefectCorpusService(
+        deps(sources, { tokens: { s1: 'tok' }, fetchFn: searchFetch })
+      )
+      await svc.searchAll({ query: 'x' })
+      expect(vi.mocked(DefectCorpusClient).mock.calls.at(-1)?.[0]?.timeoutMs).toBeUndefined()
+    })
+
+    it('honors an explicit deps.timeoutMs (test seam) over the admin timeout — the precedence rule', async () => {
+      const svc = new DefectCorpusService(
+        deps(sources, { tokens: { s1: 'tok' }, fetchFn: okFetch, timeoutMs: 777 })
+      )
+      await svc.getConfig('s1')
+      expect(vi.mocked(DefectCorpusClient).mock.calls.at(-1)?.[0]?.timeoutMs).toBe(777)
     })
   })
 })
