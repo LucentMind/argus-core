@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { DistillJobRow } from '../../../shared/distill'
 import { Chip } from './ui'
 import { useDistillJob } from '../lib/distillJob'
@@ -22,6 +22,22 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
     setOverride(null)
     setCancelling(false)
   }
+  // Bumped whenever `tracked` changes identity, so an in-flight cancel response can tell
+  // whether a broadcast has superseded it since the click (see the cancel handler below).
+  // `react-hooks/refs` forbids touching a ref's `.current` directly in the render body (the
+  // block above), so this lives in an effect instead — specifically a *layout* effect, not a
+  // plain one: layout effects flush synchronously during commit, in the same synchronous turn
+  // as the `setJob` call that changed `tracked` (see useDistillJob's `onChanged` callback), so
+  // the bump is guaranteed to land before the JS engine ever gets to the microtask queue where
+  // a pending `cancel()` promise's `.then()` is waiting. A plain `useEffect` is scheduled later
+  // and could lose that race. This is not the mount/unmount `ref.current = false` cleanup shape
+  // that breaks under StrictMode — it fires on every commit where `tracked` changed, mirroring
+  // (not replacing) the render-time reset above, and repeated bumps are harmless since callers
+  // only ever check `===` against a snapshot, never the exact count.
+  const cancelEpochRef = useRef(0)
+  useLayoutEffect(() => {
+    cancelEpochRef.current += 1
+  }, [tracked])
   const job = override ?? tracked
 
   if (!job) return null
@@ -32,7 +48,11 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
     // `cancel()`'s own response comes back — same idiom as `retry` below — rather than
     // depending on the main-process broadcast, which `DistillQueue.emit()` swallows failures
     // from. `cancel()` persists the terminal `cancelled` state synchronously before returning,
-    // so the resolved row is already correct to adopt directly via `setOverride`.
+    // so the resolved row is correct to adopt directly via `setOverride` — but only if nothing
+    // has superseded it since the click: if a broadcast for a newer job on this slug lands
+    // first, the adjust-during-render block above already reset `override`/`cancelling` and
+    // bumped `cancelEpochRef`, and adopting this now-stale `cancelled` row for the old job would
+    // overwrite the newer job's row with one that matches no render branch, hiding its chip.
     //
     // The handler stays present (a no-op) rather than becoming `undefined` while cancelling:
     // `Chip` renders a plain `<span>` without a handler, which would swap out the `<button>`
@@ -44,9 +64,12 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
             ? () => undefined
             : () => {
                 setCancelling(true)
+                const epoch = cancelEpochRef.current
                 void window.argus.distill
                   .cancel(job.id)
-                  .then(setOverride)
+                  .then((row) => {
+                    if (cancelEpochRef.current === epoch) setOverride(row)
+                  })
                   .catch(() => setCancelling(false))
               }
         }

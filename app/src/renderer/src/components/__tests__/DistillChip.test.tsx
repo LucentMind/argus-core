@@ -168,4 +168,46 @@ describe('DistillChip', () => {
 
     await waitFor(() => expect(screen.queryByText(/distill/i)).not.toBeInTheDocument())
   })
+
+  it('a later broadcast for a newer job supersedes a stale optimistic cancel result (regression: stale cancel response hides the newer job)', async () => {
+    let onChangedCb: ((p: DistillStatusPayload) => void) | undefined
+    let resolveCancel: (value: DistillJobRow) => void
+    const cancelPromise = new Promise<DistillJobRow>((resolve) => {
+      resolveCancel = resolve
+    })
+    cancel = vi.fn().mockReturnValue(cancelPromise)
+    ;(window as unknown as { argus: unknown }).argus = {
+      distill: {
+        status: vi.fn().mockResolvedValue(job({ id: 1, state: 'running', itemCount: null })),
+        retry: vi.fn(),
+        cancel,
+        onChanged: vi.fn((cb: (p: DistillStatusPayload) => void) => {
+          onChangedCb = cb
+          return () => undefined
+        })
+      }
+    }
+    render(<DistillChip slug="c1" />)
+    const chip = await screen.findByRole('button', { name: /^cancel distillation$/i })
+
+    fireEvent.click(chip)
+    expect(cancel).toHaveBeenCalledWith(1)
+    await waitFor(() => expect(screen.getByText(/cancelling…/i)).toBeInTheDocument())
+
+    // Before job A's cancel response reaches the renderer, a re-distill starts job B on the
+    // same slug and B's `running` broadcast lands — the chip must switch to show B.
+    act(() => {
+      onChangedCb?.({ caseSlug: 'c1', job: job({ id: 2, state: 'running', itemCount: null }) })
+    })
+    await waitFor(() => expect(screen.getByText(/distilling/i)).toBeInTheDocument())
+
+    // Job A's stale cancel response now resolves. It must not overwrite job B's chip with a
+    // `cancelled` row that matches no render branch — which would make the chip vanish even
+    // though job B is genuinely still running.
+    await act(async () => {
+      resolveCancel!(job({ id: 1, state: 'cancelled', itemCount: null }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(screen.getByText(/distilling/i)).toBeInTheDocument()
+  })
 })
