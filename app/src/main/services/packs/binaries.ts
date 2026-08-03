@@ -133,8 +133,10 @@ export class BinariesService {
       ) {
         continue // declared for other platforms only
       }
+      // A duplicate id across packs is a load error (both packs are excluded), so this only
+      // guards a hand-built registry or a pack repeating an id within its own manifest.
       if (this.resolved.has(decl.id)) {
-        console.warn(`[packs] duplicate binary id '${decl.id}' — first declaration wins`)
+        console.warn(`[packs] duplicate binary id '${decl.id}' — skipping the later declaration`)
         continue
       }
       const raw = decl.settingsKey ? tools[decl.settingsKey] : undefined

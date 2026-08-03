@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { loadPacks, type LoadedPack, type PackLoadError } from './loader'
+import { loadPacks, orderPacksByDependencies, type LoadedPack, type PackLoadError } from './loader'
 import type { PackBinary, PackDetector, PackWindow } from './manifest'
 
 export class PackRegistry {
@@ -27,9 +27,11 @@ export class PackRegistry {
         merged.set(p.id, p) // later dir wins
       }
     }
-    const packs = [...merged.values()].sort((a, b) => a.id.localeCompare(b.id))
+    const idSorted = [...merged.values()].sort((a, b) => a.id.localeCompare(b.id))
+    const ordered = orderPacksByDependencies(idSorted)
+    errors.push(...ordered.errors)
     for (const e of errors) console.warn(`[packs] skipped ${e.dir}: ${e.message}`)
-    return new PackRegistry(packs, errors)
+    return new PackRegistry(ordered.packs, errors)
   }
 
   packs(): LoadedPack[] {
@@ -54,14 +56,14 @@ export class PackRegistry {
     return this._packs.map((p) => p.referencesDir).filter((d): d is string => d != null)
   }
 
-  /** All packs' binary declarations, flattened in pack (id-sorted) order. */
+  /** All packs' binary declarations, flattened in pack (dependency-then-id) order. */
   binaryDecls(): Array<{ packId: string; packDir: string; decl: PackBinary }> {
     return this._packs.flatMap((p) =>
       p.manifest.binaries.map((decl) => ({ packId: p.id, packDir: p.dir, decl }))
     )
   }
 
-  /** All packs' window declarations (webPanel + externalApp), flattened in pack (id-sorted) order.
+  /** All packs' window declarations (webPanel + externalApp), flattened in pack order.
    *  `uiDir` is null for packs that ship no ui/ (externalApp-only packs). */
   windowDecls(): Array<{
     packId: string
@@ -79,14 +81,15 @@ export class PackRegistry {
     )
   }
 
-  /** All packs' detector declarations, flattened in pack order; duplicate types → first wins. */
+  /** All packs' detector declarations, flattened in pack order. A duplicate type across packs is a
+   *  load error (both packs are excluded), so the dedupe below only guards hand-built registries. */
   detectorDecls(): PackDetector[] {
     const seen = new Set<string>()
     const out: PackDetector[] = []
     for (const p of this._packs) {
       for (const d of p.manifest.detectors) {
         if (seen.has(d.type)) {
-          console.warn(`[packs] duplicate detector type '${d.type}' — first declaration wins`)
+          console.warn(`[packs] duplicate detector type '${d.type}' — skipping the later one`)
           continue
         }
         seen.add(d.type)
