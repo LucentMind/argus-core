@@ -6,7 +6,7 @@ import { DefectCorpusSettings } from '../DefectCorpusSettings'
 import { defaultSettings } from '../../../../../shared/settings'
 import { corpusTokenSecret } from '../../../../../shared/defectCorpus'
 import type { SettingsPayload } from '../../../../../shared/settings'
-import type { DefectCorpusSourceCfg } from '../../../../../shared/defectCorpus'
+import type { DefectCorpusSourceCfg, CorpusAdminConfig } from '../../../../../shared/defectCorpus'
 
 // Remove goes through the Argus confirm dialog, never window.confirm — stub it so tests can
 // drive the confirm/cancel branches directly, same idiom as HivemindSettings.test.tsx.
@@ -37,6 +37,20 @@ const okInfo = {
   capabilities: { semantic: true, admin: true, enrichment: { distilled: 10, total: 20 } }
 }
 
+const adminConfig: CorpusAdminConfig = {
+  jira: {
+    baseUrl: 'https://jira.example.com',
+    email: 'bot@example.com',
+    apiToken: '••••••',
+    jql: 'project = KAN',
+    includeComments: true
+  },
+  sync: { intervalMinutes: 60 },
+  embedding: { endpoint: 'https://embed.example.com', model: 'text-embed', apiKey: '••••••' },
+  llm: { provider: 'anthropic', model: 'claude-3', apiKey: '••••••' },
+  enrichment: { mode: 'rules', rulesJql: 'priority = High' }
+}
+
 function mockArgus(): void {
   ;(globalThis as unknown as { window: { argus: unknown } }).window.argus = {
     settings: { patch: vi.fn().mockResolvedValue(undefined) },
@@ -48,9 +62,20 @@ function mockArgus(): void {
     defects: {
       test: vi.fn(),
       syncNow: vi.fn().mockResolvedValue({ ok: true }),
-      syncStatus: vi.fn().mockResolvedValue(null)
+      syncStatus: vi.fn().mockResolvedValue(null),
+      getConfig: vi
+        .fn()
+        .mockResolvedValue({ ok: false, error: 'not configured', code: 'not_configured' }),
+      putConfig: vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
     }
   }
+}
+
+/** Runs Test with admin capability and waits for the resulting chips — the shared setup every
+ *  ingestion-editor test needs before the expander even exists. */
+async function testAdmin(card: HTMLElement): Promise<void> {
+  fireEvent.click(within(card).getByRole('button', { name: 'Test' }))
+  await within(card).findByText(/tickets/)
 }
 
 beforeEach(() => {
@@ -262,5 +287,286 @@ describe('DefectCorpusSettings', () => {
     const card = screen.getByRole('group', { name: 'Jira' })
     fireEvent.click(within(card).getByRole('button', { name: 'Test' }))
     expect(await within(card).findByRole('alert')).toHaveTextContent('IPC channel closed')
+  })
+})
+
+describe('DefectCorpusSettings ingestion editor', () => {
+  it('does not render the ingestion expander when the last Test lacked admin capability', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({
+      ok: true,
+      info: { ...okInfo, capabilities: { ...okInfo.capabilities, admin: false } }
+    })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    expect(within(card).queryByText(/ingestion settings/i)).toBeNull()
+    await testAdmin(card)
+    expect(within(card).queryByText(/ingestion settings/i)).toBeNull()
+  })
+
+  it('renders the ingestion expander, collapsed, once a test reports admin capability', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    expect(within(card).getByText(/ingestion settings/i)).toBeInTheDocument()
+    expect(window.argus.defects.getConfig).not.toHaveBeenCalled()
+    expect(within(card).queryByLabelText('Jira JQL')).toBeNull()
+  })
+
+  it('loads and seeds the form on first expansion, and does not refetch on a later re-expand', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    const toggle = within(card).getByRole('button', { name: /ingestion settings/i })
+    fireEvent.click(toggle)
+    expect(await within(card).findByLabelText('Jira JQL')).toHaveValue('project = KAN')
+    expect(within(card).getByLabelText('Jira API token')).toHaveValue('••••••')
+    expect(window.argus.defects.getConfig).toHaveBeenCalledTimes(1)
+    expect(window.argus.defects.getConfig).toHaveBeenCalledWith('jira')
+
+    // Collapse (not dirty, no confirm) then re-expand: cached draft, no second fetch.
+    fireEvent.click(toggle)
+    fireEvent.click(toggle)
+    expect(within(card).getByLabelText('Jira JQL')).toHaveValue('project = KAN')
+    expect(window.argus.defects.getConfig).toHaveBeenCalledTimes(1)
+  })
+
+  it('seeds the EMPTY_CONFIG draft and shows a setup note when the corpus has no config yet', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({
+      ok: false,
+      error: 'no config',
+      code: 'not_configured'
+    })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    fireEvent.click(within(card).getByRole('button', { name: /ingestion settings/i }))
+    expect(
+      await within(card).findByText(/saving creates this corpus's ingestion config/i)
+    ).toBeInTheDocument()
+    expect(within(card).getByLabelText('Jira JQL')).toHaveValue('')
+    expect(within(card).getByLabelText('Sync interval (minutes)')).toHaveValue(60)
+    expect(within(card).getByLabelText('Jira API token')).toHaveValue('')
+  })
+
+  it('shows an inline error, without crashing, when getConfig fails', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({
+      ok: false,
+      error: 'corpus unreachable'
+    })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    fireEvent.click(within(card).getByRole('button', { name: /ingestion settings/i }))
+    expect(await within(card).findByText('corpus unreachable')).toBeInTheDocument()
+  })
+
+  it('shows an inline error, without crashing, when getConfig rejects instead of resolving {ok:false}', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockRejectedValue(new Error('IPC channel closed'))
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    fireEvent.click(within(card).getByRole('button', { name: /ingestion settings/i }))
+    expect(await within(card).findByRole('alert')).toHaveTextContent('IPC channel closed')
+  })
+
+  it('shows the re-test message when getConfig reports the forbidden code', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({
+      ok: false,
+      error: 'no admin scope',
+      code: 'forbidden'
+    })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    fireEvent.click(within(card).getByRole('button', { name: /ingestion settings/i }))
+    expect(
+      await within(card).findByText(/admin scope required — re-test the connection/i)
+    ).toBeInTheDocument()
+  })
+
+  it('enables Save when dirty, and sends the untouched mask as-is alongside the changed field', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    fireEvent.click(within(card).getByRole('button', { name: /ingestion settings/i }))
+    await within(card).findByLabelText('Jira JQL')
+
+    const saveBtn = within(card).getByRole('button', { name: 'Save' })
+    expect(saveBtn).toBeDisabled()
+    const interval = within(card).getByLabelText('Sync interval (minutes)')
+    fireEvent.change(interval, { target: { value: '90' } })
+    expect(saveBtn).toBeEnabled()
+    fireEvent.click(saveBtn)
+    expect(window.argus.defects.putConfig).toHaveBeenCalledWith(
+      'jira',
+      expect.objectContaining({
+        sync: { intervalMinutes: 90 },
+        jira: expect.objectContaining({ apiToken: '••••••' })
+      })
+    )
+  })
+
+  it('omits empty secret fields from the PUT body for a fresh (not_configured) draft', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({
+      ok: false,
+      error: 'no config',
+      code: 'not_configured'
+    })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    fireEvent.click(within(card).getByRole('button', { name: /ingestion settings/i }))
+    const jql = await within(card).findByLabelText('Jira JQL')
+    fireEvent.change(jql, { target: { value: 'project = KAN' } })
+    fireEvent.click(within(card).getByRole('button', { name: 'Save' }))
+    const body = vi.mocked(window.argus.defects.putConfig).mock.calls[0][1] as CorpusAdminConfig
+    expect(body.jira).not.toHaveProperty('apiToken')
+    expect(body.embedding).not.toHaveProperty('apiKey')
+    expect(body.llm).not.toHaveProperty('apiKey')
+  })
+
+  it('drives the LLM provider and enrichment mode SelectFields, updating the draft', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    fireEvent.click(within(card).getByRole('button', { name: /ingestion settings/i }))
+    await within(card).findByLabelText('Jira JQL')
+
+    // adminConfig loads with enrichment.mode: 'rules', so the rules-JQL textarea starts visible.
+    expect(within(card).getByLabelText('Enrichment rules JQL')).toBeInTheDocument()
+
+    fireEvent.click(within(card).getByRole('combobox', { name: 'LLM provider' }))
+    fireEvent.click(within(card).getByRole('option', { name: 'openai-compatible' }))
+
+    fireEvent.click(within(card).getByRole('combobox', { name: 'Enrichment mode' }))
+    fireEvent.click(within(card).getByRole('option', { name: 'off' }))
+
+    // Switching mode away from 'rules' hides the rules-JQL field.
+    expect(within(card).queryByLabelText('Enrichment rules JQL')).toBeNull()
+
+    const saveBtn = within(card).getByRole('button', { name: 'Save' })
+    expect(saveBtn).toBeEnabled()
+    fireEvent.click(saveBtn)
+    const body = vi.mocked(window.argus.defects.putConfig).mock.calls[0][1] as CorpusAdminConfig
+    expect(body.llm.provider).toBe('openai-compatible')
+    expect(body.enrichment.mode).toBe('off')
+  })
+
+  it('sends a typed secret value in the PUT body', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    fireEvent.click(within(card).getByRole('button', { name: /ingestion settings/i }))
+    const token = await within(card).findByLabelText('Jira API token')
+    fireEvent.change(token, { target: { value: 'new-secret-token' } })
+    fireEvent.click(within(card).getByRole('button', { name: 'Save' }))
+    const body = vi.mocked(window.argus.defects.putConfig).mock.calls[0][1] as CorpusAdminConfig
+    expect(body.jira.apiToken).toBe('new-secret-token')
+  })
+
+  it('re-seeds the draft from the masked response and disables Save after a successful save', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
+    window.argus.defects.putConfig = vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    fireEvent.click(within(card).getByRole('button', { name: /ingestion settings/i }))
+    const token = await within(card).findByLabelText('Jira API token')
+    fireEvent.change(token, { target: { value: 'new-secret-token' } })
+    const saveBtn = within(card).getByRole('button', { name: 'Save' })
+    await act(async () => {
+      fireEvent.click(saveBtn)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(within(card).getByLabelText('Jira API token')).toHaveValue('••••••')
+    expect(saveBtn).toBeDisabled()
+  })
+
+  it('shows an inline error, without crashing, when putConfig rejects instead of resolving {ok:false}', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
+    window.argus.defects.putConfig = vi.fn().mockRejectedValue(new Error('save channel closed'))
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    fireEvent.click(within(card).getByRole('button', { name: /ingestion settings/i }))
+    const interval = await within(card).findByLabelText('Sync interval (minutes)')
+    fireEvent.change(interval, { target: { value: '90' } })
+    const saveBtn = within(card).getByRole('button', { name: 'Save' })
+    fireEvent.click(saveBtn)
+    expect(await within(card).findByRole('alert')).toHaveTextContent('save channel closed')
+    // The draft is kept (still dirty) rather than discarded on a failed save.
+    expect(saveBtn).toBeEnabled()
+  })
+
+  it('confirms before discarding dirty ingestion edits on collapse, and keeps them on cancel', async () => {
+    vi.mocked(confirm).mockResolvedValueOnce(false)
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    const toggle = within(card).getByRole('button', { name: /ingestion settings/i })
+    fireEvent.click(toggle)
+    await within(card).findByLabelText('Jira JQL')
+    const interval = within(card).getByLabelText('Sync interval (minutes)')
+    fireEvent.change(interval, { target: { value: '5' } })
+
+    fireEvent.click(toggle)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Discard ingestion changes?' })
+    )
+    // Still expanded, edits kept — the field is still present and holds the typed value.
+    expect(within(card).getByLabelText('Jira JQL')).toBeInTheDocument()
+    expect(within(card).getByLabelText('Sync interval (minutes)')).toHaveValue(5)
+  })
+
+  it('discards dirty ingestion edits and collapses when the confirm dialog is confirmed', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    window.argus.defects.getConfig = vi.fn().mockResolvedValue({ ok: true, value: adminConfig })
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await testAdmin(card)
+    const toggle = within(card).getByRole('button', { name: /ingestion settings/i })
+    fireEvent.click(toggle)
+    await within(card).findByLabelText('Jira JQL')
+    fireEvent.change(within(card).getByLabelText('Sync interval (minutes)'), {
+      target: { value: '5' }
+    })
+
+    fireEvent.click(toggle) // confirm mock resolves true by default (see beforeEach/mockArgus)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Discard ingestion changes?' })
+    )
+    // Collapsed — the form is gone.
+    expect(within(card).queryByLabelText('Jira JQL')).toBeNull()
+
+    // Re-expanding shows the reverted (last-loaded) value, not the discarded edit — and does
+    // not re-fetch, since the draft was reverted in place rather than cleared.
+    fireEvent.click(toggle)
+    expect(within(card).getByLabelText('Sync interval (minutes)')).toHaveValue(60)
+    expect(window.argus.defects.getConfig).toHaveBeenCalledTimes(1)
   })
 })

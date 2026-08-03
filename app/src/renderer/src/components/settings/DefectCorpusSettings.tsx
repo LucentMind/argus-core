@@ -1,11 +1,20 @@
 import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import { RefreshCw, Trash2 } from 'lucide-react'
-import { SettingsSection, FIELD, DraftInput, Switch } from './settingsLayout'
+import {
+  SettingsSection,
+  FIELD,
+  TEXTAREA_FIELD,
+  DraftInput,
+  Switch,
+  SelectField
+} from './settingsLayout'
 import { Btn, Card, Chip, IconBtn } from '../ui'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm, alert } from '../../lib/confirmStore'
 import { corpusTokenSecret } from '../../../../shared/defectCorpus'
 import type {
+  CorpusAdminConfig,
   CorpusInfo,
   CorpusSyncStatus,
   DefectCorpusSourceCfg
@@ -80,6 +89,365 @@ function uniqueId(base: string, existing: Record<string, unknown>): string {
   let n = 2
   while (`${base}-${n}` in existing) n++
   return `${base}-${n}`
+}
+
+/** Fresh admin-config draft for a corpus that has never been configured (`getConfig` reports
+ *  `not_configured`). Deliberately carries NO secret fields — `apiToken`/`apiKey` are all
+ *  `.optional()` on the wire, and the mask-omit save rule below only works if a brand-new draft
+ *  never holds a mask to accidentally resend. */
+const EMPTY_CONFIG: CorpusAdminConfig = {
+  jira: { baseUrl: '', email: '', jql: '', includeComments: true },
+  sync: { intervalMinutes: 60 },
+  embedding: { endpoint: '', model: '' },
+  llm: { provider: 'anthropic', model: '' },
+  enrichment: { mode: 'off' }
+}
+
+const LLM_PROVIDERS = ['anthropic', 'openai-compatible'] as const
+const ENRICHMENT_MODES = ['off', 'rules', 'on-first-hit'] as const
+
+/** Cheap deep-equal for dirty tracking. `CorpusAdminConfig` is plain JSON (strings, numbers,
+ *  booleans, enum strings — no Dates or functions), so a stringify compare is exact, and it
+ *  treats an `undefined` secret field the same as an absent key, which is exactly the "not
+ *  dirty" reading a freshly loaded draft should have. */
+function sameConfig(a: CorpusAdminConfig, b: CorpusAdminConfig): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+/** `forbidden` reads as "the token that passed Test lost admin scope since" — friendlier than
+ *  the server's raw message, and worth special-casing because it names the fix (re-test).
+ *  Every other code/message is shown verbatim: the dead-corpus rule means this never throws. */
+function friendlyAdminError(res: { error: string; code?: string }): string {
+  return res.code === 'forbidden' ? 'admin scope required — re-test the connection' : res.error
+}
+
+/** Deep-clones `draft` and drops any secret field left empty/undefined — the Global-Constraints
+ *  mask rule. Omission means "keep what the server already has" (or, on a fresh draft, "none
+ *  configured"); anything else, including an untouched `••••••` mask carried over from the
+ *  load, is sent exactly as it sits in the draft. */
+function stripEmptySecrets(draft: CorpusAdminConfig): CorpusAdminConfig {
+  const body: CorpusAdminConfig = JSON.parse(JSON.stringify(draft)) as CorpusAdminConfig
+  if (!body.jira.apiToken) delete body.jira.apiToken
+  if (!body.embedding.apiKey) delete body.embedding.apiKey
+  if (!body.llm.apiKey) delete body.llm.apiKey
+  return body
+}
+
+/** Coerces a number-input string to a non-negative integer, per the spec's `intervalMinutes`
+ *  rule — invalid/negative input (an empty field mid-edit, a pasted decimal) collapses to 0
+ *  rather than propagating `NaN` into the draft. */
+function coerceInterval(raw: string): number {
+  const n = Math.floor(Number(raw))
+  return Number.isFinite(n) && n >= 0 ? n : 0
+}
+
+/** Compact labelled-field wrapper for the ingestion form — a visible caption plus whatever
+ *  control follows, mirroring the aria-label-driven fields elsewhere in this file rather than
+ *  an implicit `<label>` wrap (keeps every control's accessible name explicit and stable). */
+function Field({ label, children }: { label: string; children: ReactNode }): React.JSX.Element {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[11px] text-mute">{label}</span>
+      {children}
+    </div>
+  )
+}
+
+type LoadState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ready' }
+  | { status: 'error'; message: string }
+
+/**
+ * Per-source admin-config editor (corpus-admin-editor Task 5). Mounted by `SourceCard` only once
+ * its last Test reported `capabilities.admin` — gating stays on the in-session Test result, same
+ * as Sync now, per the design doc's non-goals (no persisted admin-capability flag).
+ *
+ * Owns its own expand/collapse and never unmounts on collapse: `load.status` (not `expanded`)
+ * gates the `getConfig` call, so re-expanding after a clean collapse reuses the already-loaded
+ * draft instead of re-fetching — the design doc's "first open" wording is doing real work here.
+ * Collapsing with unsaved edits routes through `confirm()` (never `window.confirm`); on cancel
+ * the draft and the expanded state are both left untouched.
+ *
+ * These corpus-side secrets (`jira.apiToken`, `embedding.apiKey`, `llm.apiKey`) live only in this
+ * component's state and the PUT payload — never in `settingsStore`, the OS SecretStore, or any
+ * log line, exactly like the connection-area `SecretInput` above.
+ */
+function IngestionEditor({
+  id,
+  onDirtyChange
+}: {
+  id: string
+  /** Reserved for a future cross-card guard (e.g. warn on navigating away mid-edit); this
+   *  component already handles its own collapse-confirm, so nothing here needs to react to it
+   *  today — SourceCard passes a no-op. */
+  onDirtyChange?: (dirty: boolean) => void
+}): React.JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+  const [load, setLoad] = useState<LoadState>({ status: 'idle' })
+  const [note, setNote] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState<CorpusAdminConfig | null>(null)
+  const [draft, setDraft] = useState<CorpusAdminConfig | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [justSaved, setJustSaved] = useState(false)
+
+  const dirty = draft !== null && loaded !== null && !sameConfig(draft, loaded)
+
+  useEffect(() => {
+    onDirtyChange?.(dirty)
+  }, [dirty, onDirtyChange])
+
+  async function fetchConfig(): Promise<void> {
+    setLoad({ status: 'loading' })
+    try {
+      const res = await window.argus.defects.getConfig(id)
+      if (res.ok) {
+        setLoaded(res.value)
+        setDraft(res.value)
+        setLoad({ status: 'ready' })
+      } else if (res.code === 'not_configured') {
+        setLoaded(EMPTY_CONFIG)
+        setDraft(EMPTY_CONFIG)
+        setNote("Not configured yet — saving creates this corpus's ingestion config.")
+        setLoad({ status: 'ready' })
+      } else {
+        setLoad({ status: 'error', message: friendlyAdminError(res) })
+      }
+    } catch (err) {
+      setLoad({ status: 'error', message: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  function toggle(): void {
+    if (expanded && dirty) {
+      void confirm({
+        title: 'Discard ingestion changes?',
+        message: 'Unsaved edits to the ingestion settings will be lost.',
+        confirmLabel: 'Discard',
+        danger: true
+      }).then((ok) => {
+        if (!ok) return
+        setDraft(loaded)
+        setExpanded(false)
+      })
+      return
+    }
+    if (!expanded && load.status === 'idle') void fetchConfig()
+    setExpanded((e) => !e)
+  }
+
+  function set<G extends keyof CorpusAdminConfig>(
+    group: G,
+    patch: Partial<CorpusAdminConfig[G]>
+  ): void {
+    setJustSaved(false)
+    setDraft((d) => (d ? { ...d, [group]: { ...(d[group] as object), ...patch } } : d))
+  }
+
+  function save(): void {
+    if (!draft || saving) return
+    setSaving(true)
+    setSaveError(null)
+    void window.argus.defects
+      .putConfig(id, stripEmptySecrets(draft))
+      .then((res) => {
+        if (res.ok) {
+          setLoaded(res.value)
+          setDraft(res.value)
+          setJustSaved(true)
+        } else {
+          setSaveError(friendlyAdminError(res))
+        }
+      })
+      .catch((err: unknown) => {
+        setSaveError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => setSaving(false))
+  }
+
+  return (
+    <SettingsSection title="Ingestion settings" collapsed={!expanded} onToggle={toggle}>
+      {load.status === 'loading' && <div className="px-3 py-2 text-xs text-mute">Loading…</div>}
+      {load.status === 'error' && (
+        <div role="alert" className="px-3 py-2 text-xs text-danger">
+          {load.message}
+        </div>
+      )}
+      {load.status === 'ready' && draft && (
+        <div className="flex flex-col gap-4 p-3">
+          {note && <div className="text-xs text-mute">{note}</div>}
+
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-semibold text-ink">Jira</span>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Base URL">
+                <input
+                  aria-label="Jira base URL"
+                  className={FIELD}
+                  value={draft.jira.baseUrl}
+                  onChange={(e) => set('jira', { baseUrl: e.target.value })}
+                />
+              </Field>
+              <Field label="Email">
+                <input
+                  aria-label="Jira email"
+                  className={FIELD}
+                  value={draft.jira.email}
+                  onChange={(e) => set('jira', { email: e.target.value })}
+                />
+              </Field>
+            </div>
+            <Field label="API token">
+              <input
+                type="password"
+                aria-label="Jira API token"
+                className={FIELD}
+                placeholder={draft.jira.apiToken ? undefined : 'not set'}
+                value={draft.jira.apiToken ?? ''}
+                onChange={(e) => set('jira', { apiToken: e.target.value })}
+              />
+            </Field>
+            <Field label="JQL">
+              <textarea
+                aria-label="Jira JQL"
+                className={TEXTAREA_FIELD}
+                rows={2}
+                value={draft.jira.jql}
+                onChange={(e) => set('jira', { jql: e.target.value })}
+              />
+            </Field>
+            <label className="flex items-center gap-2 text-xs text-mute">
+              <Switch
+                aria-label="Include comments"
+                checked={draft.jira.includeComments}
+                onChange={(v) => set('jira', { includeComments: v })}
+              />
+              Include comments
+            </label>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-semibold text-ink">Sync</span>
+            <Field label="Interval (minutes)">
+              <input
+                type="number"
+                min={0}
+                aria-label="Sync interval (minutes)"
+                className={FIELD}
+                value={draft.sync.intervalMinutes}
+                onChange={(e) => set('sync', { intervalMinutes: coerceInterval(e.target.value) })}
+              />
+            </Field>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-semibold text-ink">Embedding</span>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Endpoint">
+                <input
+                  aria-label="Embedding endpoint"
+                  className={FIELD}
+                  value={draft.embedding.endpoint}
+                  onChange={(e) => set('embedding', { endpoint: e.target.value })}
+                />
+              </Field>
+              <Field label="Model">
+                <input
+                  aria-label="Embedding model"
+                  className={FIELD}
+                  value={draft.embedding.model}
+                  onChange={(e) => set('embedding', { model: e.target.value })}
+                />
+              </Field>
+            </div>
+            <Field label="API key">
+              <input
+                type="password"
+                aria-label="Embedding API key"
+                className={FIELD}
+                placeholder={draft.embedding.apiKey ? undefined : 'not set'}
+                value={draft.embedding.apiKey ?? ''}
+                onChange={(e) => set('embedding', { apiKey: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-semibold text-ink">LLM</span>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Provider">
+                <SelectField
+                  aria-label="LLM provider"
+                  value={draft.llm.provider}
+                  options={LLM_PROVIDERS}
+                  onChange={(v) =>
+                    set('llm', { provider: v as CorpusAdminConfig['llm']['provider'] })
+                  }
+                />
+              </Field>
+              <Field label="Model">
+                <input
+                  aria-label="LLM model"
+                  className={FIELD}
+                  value={draft.llm.model}
+                  onChange={(e) => set('llm', { model: e.target.value })}
+                />
+              </Field>
+            </div>
+            <Field label="API key">
+              <input
+                type="password"
+                aria-label="LLM API key"
+                className={FIELD}
+                placeholder={draft.llm.apiKey ? undefined : 'not set'}
+                value={draft.llm.apiKey ?? ''}
+                onChange={(e) => set('llm', { apiKey: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-semibold text-ink">Enrichment</span>
+            <Field label="Mode">
+              <SelectField
+                aria-label="Enrichment mode"
+                value={draft.enrichment.mode}
+                options={ENRICHMENT_MODES}
+                onChange={(v) =>
+                  set('enrichment', { mode: v as CorpusAdminConfig['enrichment']['mode'] })
+                }
+              />
+            </Field>
+            {draft.enrichment.mode === 'rules' && (
+              <Field label="Rules JQL">
+                <textarea
+                  aria-label="Enrichment rules JQL"
+                  className={TEXTAREA_FIELD}
+                  rows={2}
+                  value={draft.enrichment.rulesJql ?? ''}
+                  onChange={(e) => set('enrichment', { rulesJql: e.target.value })}
+                />
+              </Field>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Btn variant="outline" disabled={!dirty || saving} onClick={save}>
+              {saving ? 'Saving…' : 'Save'}
+            </Btn>
+            {justSaved && !dirty && <span className="text-xs text-dim">saved</span>}
+            {saveError && (
+              <span role="alert" className="text-xs text-danger">
+                {saveError}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </SettingsSection>
+  )
 }
 
 /** One configured source: name/baseUrl/enabled editing, token entry, Test, and — once a test
@@ -271,6 +639,7 @@ function SourceCard({ id, cfg }: { id: string; cfg: DefectCorpusSourceCfg }): Re
           </div>
         )}
       </Card>
+      {canSync && <IngestionEditor id={id} onDirtyChange={() => {}} />}
     </div>
   )
 }
