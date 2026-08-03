@@ -56,3 +56,28 @@ export interface RoleAssignment {
   findingId: number
   role: FindingRole | null
 }
+
+export interface CaseRcaInput {
+  caseMeta: {
+    slug: string
+    title: string
+    jiraKey: string | null
+    resolution: string | null
+    tags: string[]
+    createdAt: string
+  }
+  /** Investigation-mode findings only; id included so the draft can link claims. */
+  findings: {
+    id: number
+    summary: string
+    body: string
+    reviewState: string
+    role: string | null
+  }[]
+  evidence: { relPath: string; artifactType: string; size: number }[]
+  jiraTicketMarkdown: string | null
+  jiraCommentsMarkdown: string | null
+  /** Per investigation session: title + tail of its chat text (user/assistant). */
+  transcripts: { title: string; text: string }[]
+  priorDraft: RcaDraft | null
+}
