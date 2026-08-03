@@ -202,6 +202,34 @@ describe('settings schema', () => {
     expect(s2.general.defaultRepo).toBe('C:/code/navigator')
   })
 
+  it('defectCorpus.sources defaults to {}', () => {
+    expect(defaultSettings().defectCorpus.sources).toEqual({})
+  })
+
+  it('round-trips a defectCorpus source entry through strip + parse', () => {
+    const patched = settingsSchema.parse(
+      deepMerge(defaultSettings(), {
+        defectCorpus: {
+          sources: {
+            src1: { name: 'Hindsight', baseUrl: 'https://corpus.example.com', enabled: true }
+          }
+        }
+      })
+    )
+    const sparse = stripDefaults(patched, defaultSettings(), {
+      atomicPaths: SETTINGS_ATOMIC_PATHS
+    }) as Record<string, unknown>
+    expect(settingsSchema.parse(sparse)).toEqual(patched)
+    // the kept entry is verbatim — all three required fields survive
+    const defectCorpus = sparse.defectCorpus as Record<string, unknown>
+    const sources = defectCorpus.sources as Record<string, Record<string, unknown>>
+    expect(sources.src1).toEqual({
+      name: 'Hindsight',
+      baseUrl: 'https://corpus.example.com',
+      enabled: true
+    })
+  })
+
   it('ui.knowledgeStripDismissed defaults false and survives strip + re-parse when set', () => {
     expect(defaultSettings().ui.knowledgeStripDismissed).toBe(false)
     const set = settingsSchema.parse({ ui: { knowledgeStripDismissed: true } })

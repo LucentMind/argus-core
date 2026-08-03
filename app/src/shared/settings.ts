@@ -1,4 +1,5 @@
 import { z } from './zodConfig'
+import { defectCorpusSchema } from './defectCorpus'
 
 export const PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'] as const
 export type PermissionMode = (typeof PERMISSION_MODES)[number]
@@ -138,6 +139,7 @@ export const settingsSchema = z.looseObject({
   agent: agentSchema.default(() => agentSchema.parse({})),
   tools: toolsSchema.default(() => toolsSchema.parse({})),
   hivemind: hivemindSchema.default(() => hivemindSchema.parse({})),
+  defectCorpus: defectCorpusSchema.default(() => defectCorpusSchema.parse({})),
   observability: observabilitySchema.default(() => observabilitySchema.parse({})),
   onboarding: onboardingSchema.default(() => onboardingSchema.parse({})),
   memoryHygiene: memoryHygieneSchema.default(() => memoryHygieneSchema.parse({})),
@@ -220,7 +222,10 @@ function deepEqual(a: unknown, b: unknown): boolean {
  * `config` surviving because `driver`/`enabled` equal the schema defaults)
  * would fail re-validation on reload (`driver` is required).
  */
-export const SETTINGS_ATOMIC_PATHS: readonly string[] = ['agent.providerInstances']
+export const SETTINGS_ATOMIC_PATHS: readonly string[] = [
+  'agent.providerInstances',
+  'defectCorpus.sources'
+]
 
 function stripDefaultsAt(
   value: unknown,
