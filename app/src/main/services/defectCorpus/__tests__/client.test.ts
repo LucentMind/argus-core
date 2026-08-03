@@ -1,0 +1,226 @@
+import { describe, it, expect } from 'vitest'
+import { CorpusError, DefectCorpusClient, SECRET_MASK } from '../client'
+
+// Schema-conformant synthetic /v1/info fixture built to the values quoted in the
+// plan's appendix note (`{"name":"hindsight-argus88","contract":"1.0",...}`) — NOT
+// a byte-for-byte live capture. Used to verify the CorpusInfo schema round-trips a
+// realistically-shaped response rather than a hand-rolled minimal shape.
+const REAL_INFO = {
+  name: 'hindsight-argus88',
+  contract: '1.0',
+  projects: ['NAV', 'PLAT'],
+  ticketCount: 4213,
+  lastSyncAt: '2026-08-01T12:00:00.000Z',
+  capabilities: {
+    semantic: true,
+    admin: false,
+    enrichment: { distilled: 812, total: 4213 }
+  }
+}
+
+/** Injected fetchFn returning a canned Response — house style (see atlassian.test.ts). */
+function fetchOf(
+  handler: (url: string, init?: RequestInit) => { status: number; json: unknown }
+): typeof fetch {
+  return (async (url: string, init?: RequestInit) => {
+    const { status, json } = handler(url, init)
+    return new Response(JSON.stringify(json), { status })
+  }) as unknown as typeof fetch
+}
+
+const client = (fetchFn: typeof fetch, opts?: Partial<{ timeoutMs: number }>): DefectCorpusClient =>
+  new DefectCorpusClient({ baseUrl: 'https://corpus.example', token: 'tok', fetchFn, ...opts })
+
+describe('DefectCorpusClient', () => {
+  it('exports SECRET_MASK', () => {
+    expect(SECRET_MASK).toBe('••••••')
+  })
+
+  it('sends the bearer token and round-trips /v1/info against a real fixture', async () => {
+    let seenAuth: string | undefined
+    let seenUrl = ''
+    const fetchFn = fetchOf((url, init) => {
+      seenUrl = url
+      seenAuth = (init?.headers as Record<string, string>)?.authorization
+      return { status: 200, json: REAL_INFO }
+    })
+    const info = await client(fetchFn).info()
+    expect(info).toEqual(REAL_INFO)
+    expect(seenAuth).toBe('Bearer tok')
+    expect(seenUrl).toBe('https://corpus.example/v1/info')
+  })
+
+  it('search() posts only the keys the caller provided (no mode/limit on a minimal request)', async () => {
+    let seenBody = ''
+    const fetchFn = fetchOf((_url, init) => {
+      seenBody = String(init?.body ?? '')
+      return { status: 200, json: { hits: [] } }
+    })
+    const res = await client(fetchFn).search({ query: 'crash on route recalc' })
+    expect(res).toEqual({ hits: [] })
+    const posted = JSON.parse(seenBody) as Record<string, unknown>
+    expect(posted).toEqual({ query: 'crash on route recalc' })
+    expect('mode' in posted).toBe(false)
+    expect('limit' in posted).toBe(false)
+  })
+
+  it('search() posts mode/filters/limit when provided', async () => {
+    let seenBody = ''
+    const fetchFn = fetchOf((_url, init) => {
+      seenBody = String(init?.body ?? '')
+      return { status: 200, json: { hits: [] } }
+    })
+    await client(fetchFn).search({
+      query: 'crash',
+      mode: 'lexical',
+      filters: { projects: ['NAV'], updatedAfter: '2025-01-01T00:00:00.000Z' },
+      limit: 5
+    })
+    expect(JSON.parse(seenBody)).toEqual({
+      query: 'crash',
+      mode: 'lexical',
+      filters: { projects: ['NAV'], updatedAfter: '2025-01-01T00:00:00.000Z' },
+      limit: 5
+    })
+  })
+
+  it('parses a search response with a full DefectRecord embedded in each hit', async () => {
+    const record = {
+      key: 'NAV-1',
+      url: 'https://x.atlassian.net/browse/NAV-1',
+      project: 'NAV',
+      summary: 'Crash on route recalc',
+      description: 'It crashes.',
+      status: 'Done',
+      resolution: 'Fixed',
+      components: ['routing'],
+      labels: [],
+      affectsVersions: [],
+      fixVersions: ['2.1'],
+      createdAt: '2025-01-01T00:00:00.000Z',
+      updatedAt: '2025-01-02T00:00:00.000Z',
+      resolvedAt: null,
+      links: [{ type: 'duplicates', key: 'NAV-9' }],
+      commentCount: 2,
+      distilled: null
+    }
+    const fetchFn = fetchOf(() => ({
+      status: 200,
+      json: {
+        hits: [
+          {
+            key: 'NAV-1',
+            url: record.url,
+            score: 0.87,
+            matchedOn: 'both',
+            snippet: '…crashes…',
+            record
+          }
+        ]
+      }
+    }))
+    const res = await client(fetchFn).search({ query: 'crash' })
+    expect(res.hits).toHaveLength(1)
+    expect(res.hits[0].record).toEqual(record)
+  })
+
+  it('throws CorpusError with code/status from the error envelope on non-OK', async () => {
+    const fetchFn = fetchOf(() => ({
+      status: 403,
+      json: { error: { code: 'forbidden', message: 'admin scope required' } }
+    }))
+    await expect(client(fetchFn).adminSyncStatus()).rejects.toMatchObject({
+      name: 'CorpusError',
+      code: 'forbidden',
+      status: 403
+    })
+  })
+
+  it('throws CorpusError code=http_error when non-OK and the body is not an error envelope', async () => {
+    const fetchFn = fetchOf(() => ({ status: 500, json: { oops: true } }))
+    await expect(client(fetchFn).info()).rejects.toMatchObject({ code: 'http_error', status: 500 })
+  })
+
+  it('throws CorpusError code=http_error when a non-OK body is not JSON at all (e.g. a gateway HTML error page)', async () => {
+    const fetchFn = (async () =>
+      new Response('<html>502 Bad Gateway</html>', {
+        status: 502,
+        headers: { 'content-type': 'text/html' }
+      })) as unknown as typeof fetch
+    await expect(client(fetchFn).info()).rejects.toMatchObject({ code: 'http_error', status: 502 })
+  })
+
+  it('throws CorpusError code=invalid_response when a 200 body fails schema validation', async () => {
+    const fetchFn = fetchOf(() => ({ status: 200, json: { nope: true } }))
+    await expect(client(fetchFn).info()).rejects.toMatchObject({
+      code: 'invalid_response',
+      status: 200
+    })
+  })
+
+  it('throws CorpusError code=unreachable status=0 when fetchFn throws (network/timeout)', async () => {
+    const fetchFn = (async () => {
+      throw new Error('ECONNREFUSED')
+    }) as unknown as typeof fetch
+    await expect(client(fetchFn).info()).rejects.toMatchObject({
+      name: 'CorpusError',
+      code: 'unreachable',
+      status: 0
+    })
+  })
+
+  it('is a real Error subclass', async () => {
+    const fetchFn = fetchOf(() => ({ status: 500, json: {} }))
+    try {
+      await client(fetchFn).info()
+      throw new Error('should have thrown')
+    } catch (e) {
+      expect(e).toBeInstanceOf(Error)
+      expect(e).toBeInstanceOf(CorpusError)
+    }
+  })
+
+  it('URL-encodes the defect key', async () => {
+    let seenUrl = ''
+    const fetchFn = fetchOf((url) => {
+      seenUrl = url
+      return { status: 404, json: { error: { code: 'not_found', message: 'x' } } }
+    })
+    await expect(client(fetchFn).getDefect('NAV 1/x')).rejects.toMatchObject({ code: 'not_found' })
+    expect(seenUrl).toBe('https://corpus.example/v1/defects/NAV%201%2Fx')
+  })
+
+  it('adminSync() posts to /v1/admin/sync and parses { started }', async () => {
+    let seenUrl = ''
+    let seenMethod = ''
+    const fetchFn = fetchOf((url, init) => {
+      seenUrl = url
+      seenMethod = init?.method ?? ''
+      return { status: 202, json: { started: true } }
+    })
+    expect(await client(fetchFn).adminSync()).toEqual({ started: true })
+    expect(seenUrl).toBe('https://corpus.example/v1/admin/sync')
+    expect(seenMethod).toBe('POST')
+  })
+
+  it('adminSyncStatus() parses a running sync with progress', async () => {
+    const status = {
+      state: 'running',
+      progress: { fetched: 1200, upserted: 1180, embedded: 900 },
+      lastSyncAt: '2026-08-01T12:00:00.000Z',
+      lastError: null
+    }
+    const fetchFn = fetchOf(() => ({ status: 200, json: status }))
+    expect(await client(fetchFn).adminSyncStatus()).toEqual(status)
+  })
+
+  it('applies the default 5s timeout via AbortSignal when none is supplied', async () => {
+    let seenSignal: AbortSignal | undefined
+    const fetchFn = (async (_url: string, init?: RequestInit) => {
+      seenSignal = init?.signal as AbortSignal
+      return new Response(JSON.stringify(REAL_INFO), { status: 200 })
+    }) as unknown as typeof fetch
+    await client(fetchFn).info()
+    expect(seenSignal).toBeInstanceOf(AbortSignal)
+  })
+})
