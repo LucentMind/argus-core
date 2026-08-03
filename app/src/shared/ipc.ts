@@ -292,6 +292,7 @@ export const IPC = {
   rcaGenerate: 'rca:generate',
   rcaStatus: 'rca:status',
   rcaConfirm: 'rca:confirm',
+  rcaPost: 'rca:post',
   /** main → all renderer windows broadcast: a case's RCA job state changed. */
   rcaChanged: 'rca:changed'
 } as const

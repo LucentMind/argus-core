@@ -241,6 +241,7 @@ import { stageDistillOutput } from './services/distill/staging'
 import { similarCases, searchCaseSummaries } from './services/distill/summaries'
 import { caseDistillPromptHash } from './services/distill/promptHash'
 import { RcaJobs } from './services/rca/jobs'
+import { postRcaReport } from './services/rca/post'
 import { assembleRcaInput } from './services/rca/input'
 import { caseRcaPromptHash } from './services/rca/promptHash'
 import type { RoleAssignment, RcaDraft } from '../shared/rca'
@@ -1879,6 +1880,32 @@ function registerIpc(): void {
     IPC.rcaConfirm,
     (_e, slug: string, jobId: number, assignments: RoleAssignment[], edited: RcaDraft) =>
       rcaJobs.confirm(slug, jobId, assignments, edited)
+  )
+  ipcMain.handle(IPC.rcaPost, (_e, slug: string) =>
+    postRcaReport(
+      {
+        db,
+        argusHome,
+        settings: () => settingsService.get(),
+        callTool: (instanceId, name, args) => mcpService.callTool(instanceId, name, args),
+        uploadAttachment: (key, filename, content) =>
+          atlassian.uploadAttachment(key, filename, content),
+        resolveRovoInstanceId: () => {
+          const id = rovoInstanceId(connectorRegistry.get())
+          if (!id)
+            throw new AtlassianError(
+              'not-configured',
+              'No Atlassian connector configured — add the Atlassian Rovo preset in Settings → Connectors.'
+            )
+          return id
+        },
+        siteUrl: () => {
+          const id = rovoInstanceId(connectorRegistry.get())
+          return id ? atlassian.resolveSiteUrl(id) : Promise.resolve(null)
+        }
+      },
+      slug
+    )
   )
 
   // — skills —

@@ -71,6 +71,15 @@ const toolsSchema = z.looseObject({
   parseBin: z.string().default('') // '' = auto-resolve
 })
 
+/** Where a confirmed RCA report's technical drill-down is posted (`main/services/rca/post.ts`).
+ *  The exec summary always goes as a Jira comment; this only controls the tech artifact's home. */
+const rcaSchema = z.looseObject({
+  techDestination: z.enum(['attachment', 'confluence-page']).default('attachment'),
+  /** A Confluence *space key* (e.g. "ENG"), despite feeding the `createConfluencePage` tool's
+   *  `spaceId` argument — that tool resolves a key to its numeric space id automatically. */
+  confluenceSpaceKey: z.string().default('')
+})
+
 const hivemindSchema = z.looseObject({
   /** GitHub 'org/name' of the shared HiveMind repo; '' keeps HiveMind features dormant. */
   repo: z.string().default('')
@@ -138,6 +147,7 @@ export const settingsSchema = z.looseObject({
   general: generalSchema.default(() => generalSchema.parse({})),
   agent: agentSchema.default(() => agentSchema.parse({})),
   tools: toolsSchema.default(() => toolsSchema.parse({})),
+  rca: rcaSchema.default(() => rcaSchema.parse({})),
   hivemind: hivemindSchema.default(() => hivemindSchema.parse({})),
   defectCorpus: defectCorpusSchema.default(() => defectCorpusSchema.parse({})),
   observability: observabilitySchema.default(() => observabilitySchema.parse({})),

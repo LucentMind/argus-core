@@ -107,7 +107,13 @@ import type {
   ExternalAppInfo
 } from '../shared/panels'
 import type { DistillJobRow, SummarySearchHit, DistillStatusPayload } from '../shared/distill'
-import type { RcaJobRow, RcaStatusPayload, RoleAssignment, RcaDraft } from '../shared/rca'
+import type {
+  RcaJobRow,
+  RcaStatusPayload,
+  RoleAssignment,
+  RcaDraft,
+  PostResults
+} from '../shared/rca'
 import type { SnippetResult, RepoSnippetResult, RepoTextResult } from '../shared/snippets'
 import type { ModeId } from '../shared/modes'
 import type { EvidenceScope } from '../shared/evidenceScope'
@@ -363,6 +369,7 @@ const argus = {
       assignments: RoleAssignment[],
       edited: RcaDraft
     ): Promise<void> => invoke(IPC.rcaConfirm, slug, jobId, assignments, edited),
+    post: (slug: string): Promise<PostResults> => invoke(IPC.rcaPost, slug),
     onRcaChanged: (cb: (p: RcaStatusPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: RcaStatusPayload): void => cb(p)
       ipcRenderer.on(IPC.rcaChanged, listener)
