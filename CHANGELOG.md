@@ -1,5 +1,33 @@
 # Changelog
 
+## v2.0.1 — 2026-08-03
+
+11 commits since v2.0.0, 25 files changed (+3,773 / −77).
+
+### Added
+
+**Chat**
+
+- A "matrix-decode" thinking indicator animates in the chat pane while the
+  agent works silently between visible turns, so a long silent stretch reads
+  as progress instead of a stall.
+
+### Fixed
+
+- macOS header: the masthead no longer overlaps the traffic-light inset, the
+  ready-pill's status popup positions correctly, and the ambient canvas keeps
+  enough contrast behind it.
+- Seed data no longer writes the collapsed legacy case status.
+
+### Internal
+
+- A new demo-data seed script (`seed-demo-home.mjs`) builds a realistic-looking
+  home view for taking product screenshots.
+- Marketing-site updates (landing page hero/carousel, a Web3Forms-backed
+  book-a-demo form, the new Argus icon mark, and a `CNAME` for the custom
+  domain) shipped alongside this release but aren't part of the desktop app,
+  so they aren't itemized here.
+
 ## v2.0.0 — 2026-08-02
 
 197 commits since v1.0.10, 307 files changed (+25,309 / −3,589).
