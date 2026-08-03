@@ -37,9 +37,11 @@ export function recordLink(
   caseSlug: string,
   now: () => Date = () => new Date()
 ): void {
-  db.prepare(
-    `INSERT OR REPLACE INTO repo_usage (path, case_slug, linked_at) VALUES (?, ?, ?)`
-  ).run(repoKey(repoPath), caseSlug, now().toISOString())
+  db.prepare(`INSERT OR REPLACE INTO repo_usage (path, case_slug, linked_at) VALUES (?, ?, ?)`).run(
+    repoKey(repoPath),
+    caseSlug,
+    now().toISOString()
+  )
 }
 
 /** Distinct cases this repo has been manually linked to. Never decremented on unlink —
