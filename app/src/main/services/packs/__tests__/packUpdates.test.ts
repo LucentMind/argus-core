@@ -208,6 +208,23 @@ describe('checkAll', () => {
     expect(res.sample).toEqual({ phase: 'available', version: '1.1.0' })
     expect(res.beta).toMatchObject({ phase: 'error', code: 'feed' })
   })
+
+  // INTERIM BEHAVIOUR — delete this test when the GitHub source lands and `pinOf` stops
+  // throwing for a github pin. Until then, a github-pinned pack must degrade to a per-pack
+  // error status rather than crashing the whole check.
+  it('reports a github-pinned pack as an error instead of crashing the batch', async () => {
+    state.setSource('sample', {
+      kind: 'github',
+      host: 'github.com',
+      owner: 'LucentMind',
+      repo: 'demo_pack',
+      installedAt: 1
+    })
+    const c = http({})
+    expect((await svc(c).checkAll()).sample).toMatchObject({ phase: 'error', code: 'feed' })
+    // pinOf throws before any fetch — the feed client must never be reached.
+    expect(c.urls).toEqual([])
+  })
 })
 
 describe('apply', () => {

@@ -253,6 +253,14 @@ describe('installPack', () => {
     // names a feed — otherwise installing from a repo would silently arm the feed path instead.
     expect(state.getSource('sample')).toMatchObject({ kind: 'github', repo: 'demo_pack' })
   })
+
+  it('pins nothing when the override is null, even though the manifest declares a feed', async () => {
+    const dir = makeBundleDir({ updateUrl: 'https://vendor.example/feed.json' })
+    const res = await installPack(dir, { argusHome: home, state, host: HOST, pinOverride: null })
+    expect(res.ok).toBe(true)
+    // `null` is not `undefined`: undefined derives the pin from the manifest, null suppresses it.
+    expect(state.getSource('sample')).toBeUndefined()
+  })
 })
 
 describe('origin pin recording', () => {
