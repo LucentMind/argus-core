@@ -12,6 +12,7 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
   const tracked = useDistillJob(slug)
   const [override, setOverride] = useState<DistillJobRow | null>(null)
   const [retrying, setRetrying] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   // adjust-state-during-render: any broadcast (tracked) supersedes the optimistic retry
   // result, restoring the pre-split single-state semantics (see JiraSection's prevSyncedAt /
   // SessionSwitcher's lastOpen for the same idiom).
@@ -19,13 +20,32 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
   if (tracked !== prevTracked) {
     setPrevTracked(tracked)
     setOverride(null)
+    setCancelling(false)
   }
   const job = override ?? tracked
 
   if (!job) return null
 
   if (job.state === 'queued' || job.state === 'running') {
-    return <Chip>distilling…</Chip>
+    // The chip is the only place the run is visible from outside the menu, so it is also the
+    // fastest place to stop it. `cancelling…` is local and optimistic: it holds until the
+    // main-process broadcast replaces the row, which is what actually clears the chip.
+    return (
+      <Chip
+        onClick={
+          cancelling
+            ? undefined
+            : () => {
+                setCancelling(true)
+                void window.argus.distill.cancel(job.id).catch(() => setCancelling(false))
+              }
+        }
+        title={cancelling ? 'Cancelling…' : 'Cancel distillation'}
+        aria-label={cancelling ? 'Cancelling distillation' : 'Cancel distillation'}
+      >
+        {cancelling ? 'cancelling…' : 'distilling… ✕'}
+      </Chip>
+    )
   }
 
   if (job.state === 'failed') {

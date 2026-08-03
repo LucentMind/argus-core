@@ -18,12 +18,15 @@ const job = (over: Partial<DistillJobRow>): DistillJobRow => ({
 })
 
 let retry: ReturnType<typeof vi.fn>
+let cancel: ReturnType<typeof vi.fn>
 function setup(j: DistillJobRow | null): ReturnType<typeof render> {
   retry = vi.fn().mockResolvedValue(job({ state: 'queued' }))
+  cancel = vi.fn().mockResolvedValue(job({ state: 'cancelled' }))
   ;(window as unknown as { argus: unknown }).argus = {
     distill: {
       status: vi.fn().mockResolvedValue(j),
       retry,
+      cancel,
       onChanged: vi.fn().mockReturnValue(() => undefined)
     }
   }
@@ -127,6 +130,20 @@ describe('DistillChip', () => {
       onChangedCb?.({ caseSlug: 'c1', job: job({ state: 'done', itemCount: 5 }) })
     })
 
+    await waitFor(() => expect(screen.queryByText(/distill/i)).not.toBeInTheDocument())
+  })
+
+  it('cancels the run when the running chip is clicked', async () => {
+    setup(job({ state: 'running', itemCount: null }))
+    const chip = await screen.findByRole('button', { name: /^cancel distillation$/i })
+    fireEvent.click(chip)
+    expect(cancel).toHaveBeenCalledWith(1)
+    await waitFor(() => expect(screen.getByText(/cancelling…/i)).toBeInTheDocument())
+  })
+
+  it('renders nothing for a cancelled job — it is a resting state', async () => {
+    setup(job({ state: 'cancelled', itemCount: null }))
+    await waitFor(() => expect(window.argus.distill.status).toHaveBeenCalled())
     await waitFor(() => expect(screen.queryByText(/distill/i)).not.toBeInTheDocument())
   })
 })
