@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { PacksStateStore } from '../packsState'
+import { PacksStateStore, isGithubSource } from '../packsState'
 import { packsStatePath } from '../../paths'
 
 let home: string
@@ -98,5 +98,36 @@ describe('pack sources (the origin pin)', () => {
     const reopened = new PacksStateStore(home)
     expect(reopened.get('alpha')).toBeUndefined()
     expect(reopened.getSource('alpha')).toBeUndefined()
+  })
+
+  it('round-trips a github source and reads a pre-union feed pin unchanged', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-state-'))
+    const store = new PacksStateStore(dir)
+    store.set('gh-pack', '1.0.0')
+    store.setSource('gh-pack', {
+      kind: 'github',
+      host: 'github.com',
+      owner: 'LucentMind',
+      repo: 'demo_pack',
+      manifestPath: 'packs/gh-pack/argus-pack.json',
+      installedAt: 1
+    })
+    store.set('feed-pack', '1.0.0')
+    store.setSource('feed-pack', {
+      origin: 'https://vendor.example',
+      updateUrl: 'https://vendor.example/feed.json',
+      installedAt: 2
+    })
+    store.close()
+
+    const reopened = new PacksStateStore(dir)
+    const gh = reopened.getSource('gh-pack')
+    const feed = reopened.getSource('feed-pack')
+    // A pin written before the union existed has NO `kind` — it must still read as a feed pin,
+    // which is the whole reason `kind` is optional on the feed arm rather than required.
+    expect(feed && isGithubSource(feed)).toBe(false)
+    expect(gh && isGithubSource(gh)).toBe(true)
+    expect(gh).toMatchObject({ owner: 'LucentMind', repo: 'demo_pack' })
+    reopened.close()
   })
 })

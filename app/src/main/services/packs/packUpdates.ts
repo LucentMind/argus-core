@@ -5,7 +5,7 @@ import { once } from 'node:events'
 import { finished } from 'node:stream/promises'
 import { ZodError } from 'zod'
 import { packFeedSchema, selectUpdate, type FeedEntry } from './feed'
-import type { PacksStateStore } from './packsState'
+import { isGithubSource, type PacksStateStore, type FeedPackSource } from './packsState'
 import { installPack, inspectBundleSource } from './install'
 import type { UpdateStatus, UpdateErrorCode } from '../../../shared/updates'
 
@@ -346,9 +346,13 @@ export class PackUpdatesService {
     }
   }
 
-  private pinOf(id: string): { origin: string; updateUrl: string } {
+  private pinOf(id: string): FeedPackSource {
     const pin = this.deps.state.getSource(id)
     if (!pin) throw new UpdateError('feed', `pack '${id}' has no recorded update source`)
+    // A GitHub pin has no feed to fetch — that path is a separate check, not yet wired up here.
+    if (isGithubSource(pin)) {
+      throw new UpdateError('feed', `pack '${id}' is pinned to a GitHub repo, not a feed`)
+    }
     return pin
   }
 

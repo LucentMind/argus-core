@@ -6,7 +6,8 @@ import { PACK_MANIFEST_FILE, packManifestSchema, type PackManifest } from './man
 import { verifyBundleChecksums } from './verify'
 import { isApiCompatible, platformMatchesHost, describeHost } from './compat'
 import { stripQuarantine } from './quarantine'
-import type { PacksStateStore } from './packsState'
+import type { PacksStateStore, PackSource } from './packsState'
+import { parseGhRef } from './githubRef'
 import { packsDir } from './paths'
 import { sharedSkillsDir, sharedReferencesDir, isNonPackTiered } from '../skillsDir'
 import type { InspectResult, InstallResult } from '../../../shared/packs'
@@ -63,16 +64,50 @@ export async function inspectBundleSource(source: string): Promise<InspectResult
       version: m.version,
       platform: m.platform,
       apiCompatible: isApiCompatible(m.argusApi),
-      platformCompatible: platformMatchesHost(m.platform)
+      platformCompatible: platformMatchesHost(m.platform),
+      updateRepo: m.updateRepo
     }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true })
   }
 }
 
+/**
+ * The pin a freshly installed manifest implies, or `null` when it declares no update source —
+ * a pack that stops publishing must stop being checked rather than keep a pin from a previous
+ * install. `updateRepo` wins if both are somehow present; the schema already refuses that pair,
+ * so this ordering is a belt, not a policy.
+ */
+function sourceFor(manifest: PackManifest, now: number): PackSource | null {
+  if (manifest.updateRepo) {
+    const ref = parseGhRef(manifest.updateRepo)
+    // Unreachable via the schema, which validates the shape — but `sourceFor` must not invent a
+    // pin from a ref it could not parse.
+    if (ref) return { kind: 'github', ...ref, installedAt: now }
+  }
+  if (manifest.updateUrl) {
+    return {
+      origin: new URL(manifest.updateUrl).origin,
+      updateUrl: manifest.updateUrl,
+      installedAt: now
+    }
+  }
+  return null
+}
+
 export async function installPack(
   source: string,
-  opts: { argusHome: string; state: PacksStateStore; host?: { platform: string; arch: string } }
+  opts: {
+    argusHome: string
+    state: PacksStateStore
+    host?: { platform: string; arch: string }
+    /**
+     * Forces the pin instead of deriving it from the manifest. Install-from-repo passes the repo
+     * the bytes actually came from: the user chose a repo, and that choice must outrank a
+     * manifest that names a feed. `null` pins nothing. Undefined (the default) derives.
+     */
+    pinOverride?: PackSource | null
+  }
 ): Promise<InstallResult> {
   const { argusHome, state } = opts
   const host = opts.host ?? { platform: process.platform, arch: process.arch }
@@ -122,17 +157,12 @@ export async function installPack(
 
     state.set(manifest.id, manifest.version)
     // The pin is derived from the manifest we just installed, and CLEARED when that manifest
-    // declares no updateUrl — a pack that stops publishing a feed must stop being checked
-    // rather than retaining a pin from a previous install.
+    // declares no update source — a pack that stops publishing must stop being checked rather
+    // than retaining a pin from a previous install. `pinOverride` forces it instead, for
+    // install-from-repo, where the repo the bytes came from must outrank the manifest.
     state.setSource(
       manifest.id,
-      manifest.updateUrl
-        ? {
-            origin: new URL(manifest.updateUrl).origin,
-            updateUrl: manifest.updateUrl,
-            installedAt: Date.now()
-          }
-        : null
+      opts.pinOverride !== undefined ? opts.pinOverride : sourceFor(manifest, Date.now())
     )
     return {
       ok: true,

@@ -231,6 +231,8 @@ describe('platform field + PACK_API_VERSION', () => {
 })
 
 describe('updateUrl field', () => {
+  const baseManifest = { id: 'x', displayName: 'X', version: '1.0.0', argusApi: '^1' }
+
   it('accepts an https updateUrl and rejects http', () => {
     expect(
       packManifestSchema.parse({
@@ -251,6 +253,30 @@ describe('updateUrl field', () => {
         updateUrl: 'http://vendor.example/feed.json'
       })
     ).toThrow(/https/)
+  })
+
+  it('accepts updateRepo', () => {
+    const m = packManifestSchema.parse({
+      ...baseManifest,
+      updateRepo: 'LucentMind/demo_pack'
+    })
+    expect(m.updateRepo).toBe('LucentMind/demo_pack')
+  })
+
+  it('rejects a malformed updateRepo', () => {
+    expect(() =>
+      packManifestSchema.parse({ ...baseManifest, updateRepo: 'https://github.com/o/r' })
+    ).toThrow(/owner\/repo/)
+  })
+
+  it('rejects a manifest declaring both updateUrl and updateRepo', () => {
+    expect(() =>
+      packManifestSchema.parse({
+        ...baseManifest,
+        updateUrl: 'https://vendor.example/feed.json',
+        updateRepo: 'LucentMind/demo_pack'
+      })
+    ).toThrow(/not both/)
   })
 })
 

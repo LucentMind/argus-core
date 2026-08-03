@@ -5,7 +5,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import { Zip } from 'zip-lib'
 import { inspectBundleSource, installPack, uninstallPack } from '../install'
-import { PacksStateStore } from '../packsState'
+import { PacksStateStore, type FeedPackSource } from '../packsState'
 import { describeHost } from '../compat'
 import { packsDir } from '../paths'
 import { sharedSkillsDir, sharedReferencesDir } from '../../skillsDir'
@@ -217,6 +217,42 @@ describe('installPack', () => {
     expect(r).toMatchObject({ ok: false, code: 'api' })
     expect(state.get('sample')).toBeUndefined()
   })
+
+  it('records a github pin from updateRepo, and reports it from an inspect', async () => {
+    const dir = makeBundleDir({ updateRepo: 'LucentMind/demo_pack' })
+    expect((await inspectBundleSource(dir)).updateRepo).toBe('LucentMind/demo_pack')
+
+    const res = await installPack(dir, { argusHome: home, state, host: HOST })
+    expect(res.ok).toBe(true)
+    expect(state.getSource('sample')).toMatchObject({
+      kind: 'github',
+      host: 'github.com',
+      owner: 'LucentMind',
+      repo: 'demo_pack'
+    })
+  })
+
+  it('lets a caller override the pin the manifest implies', async () => {
+    const dir = makeBundleDir({ updateUrl: 'https://vendor.example/feed.json' })
+    const override = {
+      kind: 'github' as const,
+      host: 'github.com',
+      owner: 'LucentMind',
+      repo: 'demo_pack',
+      manifestPath: 'packs/sample/argus-pack.json',
+      installedAt: 1
+    }
+    const res = await installPack(dir, {
+      argusHome: home,
+      state,
+      host: HOST,
+      pinOverride: override
+    })
+    expect(res.ok).toBe(true)
+    // Install-from-repo pins where the bytes actually came from, which must beat a manifest that
+    // names a feed — otherwise installing from a repo would silently arm the feed path instead.
+    expect(state.getSource('sample')).toMatchObject({ kind: 'github', repo: 'demo_pack' })
+  })
 })
 
 describe('origin pin recording', () => {
@@ -224,7 +260,7 @@ describe('origin pin recording', () => {
     const src = makeBundleDir({ updateUrl: 'https://vendor.example/packs/feed.json' })
     const res = await installPack(src, { argusHome: home, state, host: HOST })
     expect(res.ok).toBe(true)
-    const pin = state.getSource('sample')
+    const pin = state.getSource('sample') as FeedPackSource | undefined
     expect(pin?.origin).toBe('https://vendor.example')
     expect(pin?.updateUrl).toBe('https://vendor.example/packs/feed.json')
     expect(typeof pin?.installedAt).toBe('number')
@@ -261,7 +297,9 @@ describe('origin pin recording', () => {
       makeBundleDir({ version: '2.0.0', updateUrl: 'https://new.example/feed.json' }),
       { argusHome: home, state, host: HOST }
     )
-    expect(state.getSource('sample')?.origin).toBe('https://new.example')
+    expect((state.getSource('sample') as FeedPackSource | undefined)?.origin).toBe(
+      'https://new.example'
+    )
   })
 })
 

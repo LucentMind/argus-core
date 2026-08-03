@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { parseGhRef } from './githubRef'
 
 export const PACK_MANIFEST_FILE = 'argus-pack.json'
 
@@ -180,6 +181,14 @@ export const packManifestSchema = z
         }
       }, 'updateUrl must be https')
       .optional(),
+    /** `owner/repo`, or `host/owner/repo`, whose GitHub Releases publish this pack — the
+     *  alternative to `updateUrl` for a vendor already on GitHub, and the only ergonomic option
+     *  for a private repo, where a static feed is infrastructure whose sole purpose is to
+     *  restate the release. Mutually exclusive with `updateUrl` (see the refine below). */
+    updateRepo: z
+      .string()
+      .refine((r) => parseGhRef(r) != null, 'updateRepo must be owner/repo or host/owner/repo')
+      .optional(),
     persona: z.string().min(1).optional(),
     binaries: z.array(packBinarySchema).default([]),
     detectors: z.array(packDetectorSchema).default([]),
@@ -197,5 +206,11 @@ export const packManifestSchema = z
       .default([])
   })
   .passthrough()
+  // Two update sources would make the pin ambiguous, and the ambiguity would only surface much
+  // later, at the first check. Refused at parse time instead. Safe to wrap the object in a
+  // ZodEffects: every call site parses, none reaches for `.shape` or `.extend`.
+  .refine((m) => !(m.updateUrl != null && m.updateRepo != null), {
+    message: 'a manifest may declare updateUrl or updateRepo, not both'
+  })
 
 export type PackManifest = z.infer<typeof packManifestSchema>

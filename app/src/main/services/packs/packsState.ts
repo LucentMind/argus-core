@@ -2,11 +2,12 @@ import { JsonFileStore } from '../fileStore'
 import { packsStatePath } from '../paths'
 
 /**
- * Where an installed pack's updates may come from — the trust-on-first-use pin (spec §6).
- * Stored in a map parallel to `packs` rather than by widening `packs` itself, so a state file
- * written before this existed reads unchanged and there is no migration.
+ * A pack pinned to a vendor-hosted static feed. `kind` is OPTIONAL and absent on every pin
+ * written before the union existed, so a state file from PR #41 reads unchanged and there is
+ * still no migration.
  */
-export interface PackSource {
+export interface FeedPackSource {
+  kind?: 'feed'
   /** Scheme + host + port of the feed, e.g. 'https://vendor.example'. Downloads must match. */
   origin: string
   /** The full feed URL exactly as recorded at install time. Fetched verbatim; never rebuilt. */
@@ -14,9 +15,35 @@ export interface PackSource {
   installedAt: number
 }
 
+/**
+ * A pack pinned to a GitHub repository whose Releases publish it. The anchor is host + owner +
+ * repo; the hazard it must survive is a repo RENAME OR TRANSFER, which GitHub forwards silently
+ * (see `githubFeed.ts`).
+ */
+export interface GithubPackSource {
+  kind: 'github'
+  host: string
+  owner: string
+  repo: string
+  /**
+   * Repo-relative path of this pack's `argus-pack.json`, when it is known — a hint that saves a
+   * tree lookup, not a guarantee. Optional because a manifest-declared `updateRepo` cannot know
+   * where in its own repo it will sit, and stale because a pack may be moved within its repo.
+   * `githubFeed.ts` falls back to a tree search whenever the hint misses.
+   */
+  manifestPath?: string
+  installedAt: number
+}
+
+export type PackSource = FeedPackSource | GithubPackSource
+
+export function isGithubSource(source: PackSource): source is GithubPackSource {
+  return source.kind === 'github'
+}
+
 interface PacksStateFile {
   packs: Record<string, string> // id -> version
-  sources: Record<string, PackSource> // id -> pin (absent for packs with no updateUrl)
+  sources: Record<string, PackSource> // id -> pin (absent for packs with no update source)
 }
 
 export class PacksStateStore {

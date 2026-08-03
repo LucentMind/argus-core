@@ -7,6 +7,10 @@ export interface InspectResult {
   platform?: string
   apiCompatible: boolean
   platformCompatible: boolean
+  /** Present when the bundle declares a GitHub repo as its update source. Surfaced so an
+   *  install-from-repo can refuse a bundle nominating a different update home than the repo it
+   *  was just downloaded from. */
+  updateRepo?: string
 }
 
 /** Outcome of an install attempt (mirrors install.ts). */
