@@ -102,6 +102,19 @@ CREATE TABLE IF NOT EXISTS distill_jobs (
   created_at TEXT NOT NULL,
   finished_at TEXT
 );
+CREATE TABLE IF NOT EXISTS rca_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_slug TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'queued',
+  input_snapshot TEXT NOT NULL,
+  prompt_hash TEXT,
+  raw_output TEXT,
+  error TEXT,
+  confirmed_at TEXT,
+  post_results TEXT,
+  created_at TEXT NOT NULL,
+  finished_at TEXT
+);
 CREATE TABLE IF NOT EXISTS case_summaries (
   case_slug TEXT PRIMARY KEY,
   signature TEXT NOT NULL,
@@ -359,6 +372,11 @@ export function openDb(file: string): DatabaseSync {
   }
   if (!findingCols.some((c) => c.name === 'head_sha')) {
     db.exec(`ALTER TABLE findings ADD COLUMN head_sha TEXT`)
+  }
+  // RCA finding roles (root-cause/contributing/symptom/ruled-out/duplicate); null on findings
+  // that haven't been triaged into an RCA yet.
+  if (!findingCols.some((c) => c.name === 'role')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN role TEXT`)
   }
   const turnCols = db.prepare(`PRAGMA table_info(turns)`).all() as { name: string }[]
   if (!turnCols.some((c) => c.name === 'model')) {

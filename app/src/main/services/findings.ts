@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { FindingRow, ReviewState } from '../../shared/observability'
+import { isFindingRole, type FindingRow, type ReviewState } from '../../shared/observability'
 import { isReviewLayerId, isReviewSeverity } from '../../shared/reviewLayers'
 import { DEFAULT_MODE, type ModeId } from '../../shared/modes'
 import { caseDir } from './paths'
@@ -32,6 +32,7 @@ interface Raw {
   comment_body: string | null
   head_sha: string | null
   mode: string | null
+  role: string | null
 }
 
 function toRow(r: Raw): FindingRow {
@@ -56,7 +57,8 @@ function toRow(r: Raw): FindingRow {
     // A finding whose session was deleted, or one written before the mode axis, has no mode
     // to join — it is investigation by the same rule that made investigation the implicit
     // default for every pre-existing case (spec §3).
-    mode: (r.mode as ModeId | null) ?? DEFAULT_MODE
+    mode: (r.mode as ModeId | null) ?? DEFAULT_MODE,
+    role: isFindingRole(r.role) ? r.role : null
   }
 }
 

@@ -42,6 +42,18 @@ export interface LangfuseConfig {
 
 export type ReviewState = 'pending' | 'accepted' | 'rejected'
 
+export type FindingRole = 'root-cause' | 'contributing' | 'symptom' | 'ruled-out' | 'duplicate'
+export const FINDING_ROLES: FindingRole[] = [
+  'root-cause',
+  'contributing',
+  'symptom',
+  'ruled-out',
+  'duplicate'
+]
+export function isFindingRole(v: unknown): v is FindingRole {
+  return typeof v === 'string' && (FINDING_ROLES as string[]).includes(v)
+}
+
 export interface FindingRow {
   id: number
   caseId: number
@@ -73,6 +85,9 @@ export interface FindingRow {
   /** Derived from the finding's session (sessions.mode), never stored on the row.
    *  A finding with no session reads as the default mode. */
   mode: ModeId
+  /** RCA role assigned to this finding (root-cause / contributing / symptom / ruled-out /
+   *  duplicate); null on findings that haven't been triaged into an RCA yet. */
+  role: FindingRole | null
 }
 
 export interface SkillUsageRow {

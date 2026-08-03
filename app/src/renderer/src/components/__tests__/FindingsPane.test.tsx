@@ -37,6 +37,7 @@ function row(over: Partial<FindingRow>): FindingRow {
     commentBody: null,
     headSha: null,
     mode: 'investigation',
+    role: null,
     ...over
   }
 }
