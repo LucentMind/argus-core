@@ -68,6 +68,7 @@ rejected** — but Core ignores anything it doesn't recognize.
 | Key | Type | What it declares |
 |---|---|---|
 | `persona` | string (path) | A persona fragment file (§3) |
+| `dependencies` | `{ "<packId>": "<semver-range>" }` | Other packs this one requires (§9) |
 | `binaries` | `Binary[]` | Executables/analyzers Core resolves + exposes (§4) |
 | `detectors` | `Detector[]` | Evidence typing + derived-text extraction (§5) |
 | `windows` | `Window[]` | webPanel debug UIs + agent-callable commands (§7) |
@@ -163,10 +164,11 @@ text** so binary evidence becomes searchable/citable.
 ```
 
 **Matching:** rules within `match[]` are **OR'd**; within a single rule, every *present* field must
-match (**AND**). Detectors are evaluated in pack-id-sorted order; the **first** detector that matches
+match (**AND**). Detectors are evaluated in pack load order (§9); the **first** detector that matches
 wins. Only the first ~8 KB (the "head") is read for name/magic/regex checks; `json` parses the whole
 file (object required). Unmatched files fall back to Core's generics (`archive` / `screenshot` /
-`text` / `unknown`). **Duplicate `type` across packs → first declaration wins** (a warning is logged).
+`text` / `unknown`). **A `type` declared by two packs is a load error for both** (§9) — artifact
+types share one namespace across all installed packs.
 
 **Extraction — the placeholder tokens are `{input}` and `{output}`** (not `{file}`):
 
@@ -327,6 +329,33 @@ At startup Core loads from **two** directories and merges them (`PackRegistry.lo
 An installed pack of the same `id` **shadows** a seeded one. Load requires: the directory name equals
 `manifest.id`, `argusApi` is compatible, the persona file (if named) exists, and every window `entry`
 resolves under `ui/`. A pack that fails these is skipped with an error; other packs still load.
+
+### Dependencies & load order
+
+A pack may require other packs by id and version range:
+
+```jsonc
+{ "dependencies": { "common": "^1.2" } }
+```
+
+Declaring `dependencies` requires `"argusApi": "^1.1"` or later, so an older Core refuses the pack
+outright rather than loading it with its requirements ignored.
+
+Packs load in **dependency order**: every pack is loaded after the packs it depends on, with
+**pack-id sort as the tiebreaker** among packs that don't depend on each other. That order is what
+persona fragments, detector evaluation, and every `*Decls()` flattening follow — so a pack can rely
+on its dependency's declarations already being in place.
+
+Three conditions make a pack **fail to load** (it is excluded from the registry and reported as a
+load error, while unaffected packs still load):
+
+- **Missing dependency** — a declared dependency is not installed, or itself failed to load. The
+  failure cascades to anything depending on the failed pack.
+- **Dependency cycle** — every pack in (or blocked behind) the cycle errors.
+- **Duplicate id across packs** — two packs declaring the same `binaries[].id` or the same
+  `detectors[].type`. **Both** packs error: neither silently shadows the other. Binary ids and
+  artifact types are one global namespace, so shared ids belong in a shared dependency pack that
+  both packs depend on, not duplicated in each.
 
 **Dev workflow:** point `ARGUS_PACKS_SRC` (or drop your pack in the repo `packs/` dir) at your source
 pack — built binaries in place, no packaging — and it loads directly. Changes to the manifest require
