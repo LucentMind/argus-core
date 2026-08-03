@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { CaseWorkspace } from '../CaseWorkspace'
@@ -7,6 +7,8 @@ import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm } from '../../lib/confirmStore'
 import { caseBarStore } from '../../lib/caseBarStore'
+import { sessionsStore } from '../../lib/sessionsStore'
+import { clearCatalogStore } from '../../lib/catalogStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { SessionSummary } from '../../../../shared/types'
 import { DEFAULT_MODE, type ModeId } from '../../../../shared/modes'
@@ -48,6 +50,10 @@ beforeEach(() => {
   uiStore.setEvidenceWidth(320)
   uiStore.setDynamicTheme(false)
   caseBarStore.reset()
+  // module-level singleton — a case slug reused across tests would otherwise see the previous
+  // test's rows synchronously, before this test's sessions.list mock has resolved
+  sessionsStore.clearForTests()
+  clearCatalogStore()
   // CaseWorkspace renders Composer, which reads the shared settingsStore
   // singleton — reset it so state doesn't leak across tests.
   settingsStore.reset()
@@ -62,10 +68,21 @@ beforeEach(() => {
       onAuthChanged: vi.fn(() => () => {})
     },
     sessions: {
-      list: vi.fn(async () => [{ id: 1, title: '', turnCount: 0, updatedAt: '' }])
+      list: vi.fn(async () => [{ id: 1, title: '', turnCount: 0, updatedAt: '' }]),
+      create: vi.fn(async () => ({ id: 3, title: '', turnCount: 0, updatedAt: '' })),
+      rename: vi.fn(async () => undefined),
+      delete: vi.fn(async () => undefined),
+      setModel: vi.fn(async () => true),
+      setRunOptions: vi.fn(async () => true),
+      setPermissionMode: vi.fn(async () => true)
     },
     modes: {
       available: vi.fn(async () => ['investigation'])
+    },
+    // Composer fetches the pinned instance's catalog the moment a session names one — which
+    // only happens here once a test actually picks a model.
+    models: {
+      catalog: vi.fn(async () => [])
     },
     cases: {
       readFindings: vi.fn(async () => ''),
@@ -468,6 +485,68 @@ describe('CaseWorkspace session bootstrap', () => {
 // directly off `activeMode`) and adds `onModeSwitched`, a same-shaped callback to
 // `onStatusChanged` that App.tsx wires to the same `reload()` — that's what keeps the prop
 // from going stale in the first place.
+function sessionRow(over: Partial<SessionSummary>): SessionSummary {
+  return {
+    id: 1,
+    title: '',
+    turnCount: 0,
+    updatedAt: '',
+    driverKind: 'claude-agent-sdk',
+    instanceId: null,
+    model: null,
+    mode: 'investigation',
+    runOptions: [],
+    permissionMode: null,
+    ...over
+  }
+}
+
+// Regression: the composer's chips are DERIVED from the workspace's session row (see
+// handleModelChange's optimistic `.map`). SessionSwitcher used to keep its own copy of the
+// list and refresh only that copy after creating a chat, so the workspace never learned the
+// new row existed — `sessions.find(...)` returned undefined, `session` went null, and every
+// chip silently refused to move until the user left the case and came back (which re-ran the
+// `[slug]` load). Both now read one store, so a freshly created chat is pickable immediately.
+describe('CaseWorkspace new chat', () => {
+  it('lets the composer pin a model on a chat just created from the switcher', async () => {
+    // The switcher reuses an untouched chat instead of minting one, so the existing chat needs
+    // a turn for "New chat" to actually create — which is why this only bit intermittently.
+    const rows: SessionSummary[] = [sessionRow({ id: 1, turnCount: 3 })]
+    window.argus.sessions.list = vi.fn(async () => [...rows])
+    window.argus.sessions.create = vi.fn(async () => {
+      const created = sessionRow({ id: 3 })
+      rows.push(created)
+      return created
+    })
+
+    render(workspace('NAV-NEWCHAT'))
+    await screen.findByRole('main')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Switch chat' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'New chat' }))
+    await waitFor(() => expect(window.argus.agent.history).toHaveBeenCalledWith('NAV-NEWCHAT', 3))
+
+    const before = screen.getByTitle('Model').textContent
+    fireEvent.click(screen.getByTitle('Model'))
+    const items = within(await screen.findByRole('menu', { name: 'Model' })).getAllByRole(
+      'menuitem'
+    )
+    const other = items.find((i) => i.textContent !== before)
+    expect(other).toBeTruthy()
+    const picked = other!.textContent!
+    fireEvent.click(other!)
+
+    await waitFor(() =>
+      expect(window.argus.sessions.setModel).toHaveBeenCalledWith(
+        3,
+        expect.any(String),
+        expect.any(String)
+      )
+    )
+    await waitFor(() => expect(screen.getByTitle('Model')).toHaveTextContent(picked))
+  })
+})
+
 describe('CaseWorkspace mode switching', () => {
   // uiStore is a module-level singleton (not reset by beforeEach); these tests move
   // NAV-1's active session to 7, which would otherwise leak into later tests in this

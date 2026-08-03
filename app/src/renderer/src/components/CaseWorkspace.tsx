@@ -19,9 +19,10 @@ import { uiStore, CHAT_MIN_WIDTH, FINDINGS_MIN_WIDTH, EVIDENCE_MIN_WIDTH } from 
 import { panelsStore, wirePanelsStore, CHAT_TAB } from '../lib/panelsStore'
 import { wireExternalAppsStore } from '../lib/externalAppsStore'
 import { reposStore } from '../lib/reposStore'
+import { sessionsStore } from '../lib/sessionsStore'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { panelKeyStr } from '../../../shared/panels'
-import type { ChatJumpTarget, FileNode, SessionSummary, UnifiedHit } from '../../../shared/types'
+import type { ChatJumpTarget, FileNode, UnifiedHit } from '../../../shared/types'
 import { classifyCitePath, toRepoNameSet, type CiteTarget } from '../lib/citations'
 import type { ModeId } from '../../../shared/modes'
 import type { RunOptionSelection } from '../../../shared/runOptions'
@@ -96,7 +97,13 @@ export function CaseWorkspace({
   // The summaries were previously fetched and thrown away. They are kept now because the
   // composer needs the current chat's pinned provider+model, and the approval card needs
   // that provider's capabilities — both are per-session once several providers are enabled.
-  const [sessions, setSessions] = useState<SessionSummary[]>([])
+  // Held in a store, not local state: SessionSwitcher (two levels down, behind PanelTabStrip)
+  // creates/renames/deletes chats, and a second copy here could — and did — go stale the
+  // moment it did. See sessionsStore.ts.
+  const sessions = useSyncExternalStore(
+    (cb) => sessionsStore.subscribe(cb),
+    () => sessionsStore.get(slug)
+  )
   const [sessionsError, setSessionsError] = useState<string | null>(null)
   const [prPicker, setPrPicker] = useState<PrSearchResult | null>(null)
   // The binding the picker was opened over, so it can warn before silently replacing one —
@@ -121,7 +128,6 @@ export function CaseWorkspace({
     setLastSlug(slug)
     setPrefill('')
     setSessionId(null)
-    setSessions([])
     setSessionsError(null)
     // CaseWorkspace is never remounted on a slug change, so a find left open on case A
     // (findOpen lives here, lifted out of ChatPane — see the state declaration above)
@@ -151,11 +157,12 @@ export function CaseWorkspace({
     // guard against a fast A→B slug switch applying A's late-resolving result
     // after B's effect has already taken over
     let stale = false
-    void window.argus.sessions
-      .list(slug)
+    void sessionsStore
+      .load(slug)
       .then((list) => {
+        // The store write itself is unconditional and keyed by slug, so a late-resolving
+        // load can only ever refresh its OWN case. Only the selection below is stale-gated.
         if (stale) return
-        setSessions(list)
         // Reconcile the chat with the case's mode. `activeSessions` is deliberately not
         // persisted (uiStore.ts), so after a restart the remembered id is gone and
         // `list[0]` is the newest chat of ANY mode while `activeMode` comes from the DB.
@@ -222,7 +229,7 @@ export function CaseWorkspace({
    *  next send (AgentService compares the session's modelKey). */
   function handleModelChange(instanceId: string, model: string): void {
     if (sessionId === null) return
-    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, instanceId, model } : s)))
+    sessionsStore.patch(slug, sessionId, { instanceId, model })
     void window.argus.sessions.setModel(sessionId, instanceId, model).catch(() => {
       setSessionsError('Could not switch model for this chat.')
     })
@@ -234,7 +241,7 @@ export function CaseWorkspace({
    *  so this refresh is what makes a chip change visible at all. */
   function handleRunOptionsChange(sel: RunOptionSelection[]): void {
     if (sessionId === null) return
-    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, runOptions: sel } : s)))
+    sessionsStore.patch(slug, sessionId, { runOptions: sel })
     void window.argus.sessions.setRunOptions(sessionId, sel).catch(() => {
       setSessionsError('Could not update run options for this chat.')
     })
@@ -242,9 +249,7 @@ export function CaseWorkspace({
 
   function handlePermissionModeChange(mode: PermissionMode): void {
     if (sessionId === null) return
-    setSessions((prev) =>
-      prev.map((s) => (s.id === sessionId ? { ...s, permissionMode: mode } : s))
-    )
+    sessionsStore.patch(slug, sessionId, { permissionMode: mode })
     void window.argus.sessions.setPermissionMode(sessionId, mode).catch(() => {
       setSessionsError('Could not update permission mode for this chat.')
     })
@@ -307,9 +312,8 @@ export function CaseWorkspace({
     setSessionsError(null)
     handleSwitchSession(newSessionId)
     onModeSwitched()
-    void window.argus.sessions
-      .list(slug)
-      .then((list) => setSessions(list))
+    void sessionsStore
+      .load(slug)
       .catch(() => setSessionsError('Could not load chat sessions.'))
     // Entering review with nothing bound yet is the one moment discovery is worth ~5s of
     // gh: offer the picker. It runs AFTER the switch resolved, so the chat opens

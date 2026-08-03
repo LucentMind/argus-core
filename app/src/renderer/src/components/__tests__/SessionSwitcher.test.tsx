@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { SessionSwitcher } from '../SessionSwitcher'
 import { settingsStore } from '../../lib/settingsStore'
+import { sessionsStore } from '../../lib/sessionsStore'
 import { confirm } from '../../lib/confirmStore'
 import { defaultSettings } from '../../../../shared/settings'
 
@@ -31,6 +32,9 @@ const sessions = [
 
 beforeEach(() => {
   settingsStore.reset()
+  // module-level singleton shared with CaseWorkspace — clear it so one test's rows can't be
+  // read synchronously by the next, before its own sessions.list mock resolves
+  sessionsStore.clearForTests()
   window.argus = {
     sessions: {
       list: vi.fn(async () => sessions),

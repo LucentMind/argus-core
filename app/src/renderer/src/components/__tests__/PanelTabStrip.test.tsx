@@ -7,6 +7,7 @@ import { PanelTabStrip } from '../PanelTabStrip'
 import { panelsStore } from '../../lib/panelsStore'
 import { externalAppsStore } from '../../lib/externalAppsStore'
 import { settingsStore } from '../../lib/settingsStore'
+import { sessionsStore } from '../../lib/sessionsStore'
 import { defaultSettings } from '../../../../shared/settings'
 
 // window.argus baseline needed whenever the strip can mount either session-scoped piece:
@@ -37,6 +38,9 @@ function sessionArgusMocks(): Record<string, unknown> {
 }
 
 beforeEach(() => {
+  // SessionSwitcher now reads its list from this shared singleton — clear it so one test's
+  // rows can't be read synchronously by the next, before its own sessions.list mock resolves.
+  sessionsStore.clearForTests()
   // panelsStore is a module-level singleton shared with the real app; seed it
   // fresh for each test so a launcher item is always available to click.
   panelsStore.setCase('CASE-A')

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { ChevronDown, MessageSquarePlus, Pencil, Trash2 } from 'lucide-react'
 import type { ChatJumpTarget, ChatSearchHit, SessionSummary } from '../../../shared/types'
 import { confirm } from '../lib/confirmStore'
 import { useSettingsPayload } from '../lib/settingsStore'
+import { sessionsStore } from '../lib/sessionsStore'
 import { DRIVERS, activeDriver } from '../../../shared/drivers'
 import { Chip } from './ui'
 
@@ -79,7 +80,14 @@ export function SessionSwitcher({
    *  onOpenChange in ui.tsx) can never get stuck occluded. */
   onOpenChange?: (open: boolean) => void
 }): React.JSX.Element {
-  const [sessions, setSessions] = useState<SessionSummary[]>([])
+  // Shared with CaseWorkspace, whose composer derives its model/run-option/permission chips
+  // from the active row. This component used to hold its own copy and refresh only that one
+  // after createChat — leaving the workspace unaware of the new chat, and its chips inert.
+  // See sessionsStore.ts.
+  const sessions = useSyncExternalStore(
+    (cb) => sessionsStore.subscribe(cb),
+    () => sessionsStore.get(slug)
+  )
   const [open, setOpen] = useState(false)
   const [renamingId, setRenamingId] = useState<number | null>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -92,14 +100,17 @@ export function SessionSwitcher({
     ? activeDriver(settingsPayload.settings)?.kind
     : undefined
 
-  // the trigger needs the active title even before the popup is ever opened
+  // the trigger needs the active title even before the popup is ever opened. Kept even though
+  // CaseWorkspace loads the same list on mount (both write the same store key, so a duplicate
+  // in-flight fetch is harmless) — this component is also rendered standalone, and a chat
+  // switcher that only works under one particular parent is a trap for the next caller.
   useEffect(() => {
-    void window.argus.sessions.list(slug).then(setSessions)
+    void sessionsStore.load(slug)
   }, [slug])
 
   useEffect(() => {
     if (!open) return
-    void window.argus.sessions.list(slug).then(setSessions)
+    void sessionsStore.load(slug)
   }, [open, slug])
 
   // short fragments match too much and flood the panel — search only from 3 chars
@@ -181,8 +192,11 @@ export function SessionSwitcher({
       return
     }
     const created = await window.argus.sessions.create(slug)
-    // refresh so the list is never stale if the popup stays/reopens
-    void window.argus.sessions.list(slug).then(setSessions)
+    // Adopt the row BEFORE selecting it, and synchronously — `onSwitch` makes this the active
+    // chat, and everything derived from the active row (the composer's chips) is dead until
+    // the row is present. A fire-and-forget `sessions.list()` here is what used to leave that
+    // window open indefinitely for the workspace's copy of the list.
+    sessionsStore.upsert(slug, created)
     setOpen(false)
     onSwitch(created.id)
   }
@@ -199,7 +213,7 @@ export function SessionSwitcher({
     setRenamingId(null)
     if (!title) return
     await window.argus.sessions.rename(id, title)
-    void window.argus.sessions.list(slug).then(setSessions)
+    void sessionsStore.load(slug)
   }
 
   async function deleteChat(s: SessionSummary): Promise<void> {
@@ -221,8 +235,7 @@ export function SessionSwitcher({
       ok = false
       setDeleteError((err as Error).message)
     } finally {
-      const list = await window.argus.sessions.list(slug)
-      setSessions(list)
+      const list = await sessionsStore.load(slug)
       // deleted the active chat → land on the newest remaining one (listSessions
       // auto-creates when none are left, so list[0] always exists) — only on success,
       // else we'd close the popup and hide the error we just set
