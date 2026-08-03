@@ -21,6 +21,7 @@ const SCANNED = [
   'app/src/main/services/distill/contract.ts',
   'app/src/main/services/refSync/distill.ts',
   'app/src/main/services/authoring/prompts.ts',
+  'app/src/main/services/rca/contract.ts',
   'app/src/main/services/caseService.ts',
   'app/src/main/services/jiraPrompts.ts',
   'app/src/main/services/agent/reviewRun.ts',

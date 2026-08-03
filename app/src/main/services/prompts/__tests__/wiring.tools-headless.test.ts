@@ -4,6 +4,7 @@ import { buildCaseDistillPrompt, CASE_DISTILL_SECTIONS } from '../../distill/con
 import { CASE_DISTILL_CONTRACT } from '../../distill/caseDistillContract'
 import { buildDistillPrompt, DISTILL_CONTRACT, REF_DISTILL_SECTIONS } from '../../refSync/distill'
 import { AUTHORING_SECTIONS } from '../../authoring/prompts'
+import { RCA_SECTIONS } from '../../rca/contract'
 import type { CaseDistillInput } from '../../../../shared/distill'
 import { PROMPT_ENTRIES } from '../registry'
 
@@ -88,7 +89,8 @@ describe('distill scaffolding honours an injected resolver', () => {
       [
         ...Object.keys(CASE_DISTILL_SECTIONS).map((k) => `headless.case-distill.section.${k}`),
         ...Object.keys(REF_DISTILL_SECTIONS).map((k) => `headless.ref-distill.section.${k}`),
-        ...Object.keys(AUTHORING_SECTIONS).map((k) => `headless.authoring.section.${k}`)
+        ...Object.keys(AUTHORING_SECTIONS).map((k) => `headless.authoring.section.${k}`),
+        ...Object.keys(RCA_SECTIONS).map((k) => `headless.case-rca.section.${k}`)
       ].sort()
     )
   })

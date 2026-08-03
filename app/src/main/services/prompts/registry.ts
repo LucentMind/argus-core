@@ -14,6 +14,7 @@ import { RISK_DENY_REASONS } from '../agent/risk'
 import { CASE_WORKING_RULES } from '../caseService'
 import { CASE_DISTILL_CONTRACT } from '../distill/caseDistillContract'
 import { CASE_DISTILL_SECTIONS } from '../distill/contract'
+import { RCA_CONTRACT, RCA_SECTIONS } from '../rca/contract'
 import { DISTILL_CONTRACT, REF_DISTILL_SECTIONS } from '../refSync/distill'
 import {
   SKILL_AUTHORING_CONTRACT,
@@ -294,6 +295,16 @@ const HEADLESS_ENTRIES: PromptEntry[] = [
     reaches: 'all',
     editable: true,
     default: () => REFERENCE_AUTHORING_CONTRACT
+  },
+  {
+    id: 'headless.case-rca.contract',
+    category: 'headless',
+    title: 'Case RCA drafting contract',
+    source: 'app/src/main/services/rca/contract.ts',
+    // Headless runs resolve their own provider (settings.distillProvider) and are driver-blind.
+    reaches: 'all',
+    editable: true,
+    default: () => RCA_CONTRACT
   }
 ]
 
@@ -316,6 +327,14 @@ const AUTHORING_SECTION_ENTRIES: PromptEntry[] = specEntries(AUTHORING_SECTIONS,
   prefix: 'headless.authoring.section',
   category: 'headless',
   source: 'app/src/main/services/authoring/prompts.ts',
+  reaches: 'all'
+})
+
+const CASE_RCA_SECTION_ENTRIES: PromptEntry[] = specEntries(RCA_SECTIONS, {
+  prefix: 'headless.case-rca.section',
+  category: 'headless',
+  source: 'app/src/main/services/rca/contract.ts',
+  // Headless runs resolve their own provider (settings.distillProvider) and are driver-blind.
   reaches: 'all'
 })
 
@@ -403,6 +422,7 @@ export const PROMPT_ENTRIES: readonly PromptEntry[] = [
   ...CASE_DISTILL_SECTION_ENTRIES,
   ...REF_DISTILL_SECTION_ENTRIES,
   ...AUTHORING_SECTION_ENTRIES,
+  ...CASE_RCA_SECTION_ENTRIES,
   ...GENERATED_FILE_ENTRIES,
   ...JIRA_ENTRIES,
   ...SYNTHESIZED_ENTRIES,
