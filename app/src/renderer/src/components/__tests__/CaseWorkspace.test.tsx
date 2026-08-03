@@ -146,6 +146,7 @@ beforeEach(() => {
       list: vi.fn(async () => []),
       refs: vi.fn(async () => []),
       pick: vi.fn(async () => null),
+      recent: vi.fn(async () => []),
       link: vi.fn(async () => undefined),
       unlink: vi.fn(async () => undefined)
     },

@@ -4,6 +4,8 @@ import type { BundleWorkspaceRef } from '../../../shared/bundle'
 import { FolderGit2, Unlink } from 'lucide-react'
 import { Chip, IconBtn, SectionLabel, Skeleton, SkeletonRows } from './ui'
 import { RepoGraphControl } from './RepoGraphControl'
+import { RepoPickerMenu } from './RepoPickerMenu'
+import { confirm } from '../lib/confirmStore'
 import { reposStore } from '../lib/reposStore'
 import { invalidateRepoSnippets } from '../lib/snippetCache'
 import { usePendingDisplay } from '../lib/usePendingDisplay'
@@ -68,19 +70,39 @@ export function ReposSection({
     })
   }, [slug, reload])
 
-  async function link(): Promise<void> {
-    const p = await window.argus.workspaces.pick()
-    if (!p) return
-    // The basename is known the moment the dialog closes, so the chip is on screen before the
+  async function link(p: string): Promise<void> {
+    // The basename is known the moment the path arrives, so the chip is on screen before the
     // git spawns start — linkWorkspace runs three, then describeWorkspace runs `git status`
     // over the whole repo, then reload() re-describes every linked repo.
-    const id = pending.add(p.split(/[\\/]/).pop() ?? p)
+    const name = p.split(/[\\/]/).pop() ?? p
+    const id = pending.add(name)
+    let result: Awaited<ReturnType<typeof window.argus.workspaces.link>>
     try {
-      await window.argus.workspaces.link(slug, p)
+      result = await window.argus.workspaces.link(slug, p)
       await reload()
       pending.resolve([id])
     } catch (err) {
       pending.fail([id], (err as Error).message)
+      return
+    }
+    if (!result.suggestDefault) return
+    // Fires only after the link itself succeeded, so a failed link never asks about defaults.
+    // `confirm()` resolves BOOLEAN (it is `choose()` that returns a ConfirmChoice); false
+    // covers both "Not now" and a prompt superseded by a newer dialog, which the spec
+    // accepts as a permanent dismissal.
+    const makeDefault = await confirm({
+      title: `Make ${name} a default repository?`,
+      message: `Default repositories are linked automatically to every new case. You have linked ${name} to ${result.caseCount} cases.`,
+      confirmLabel: 'Make default',
+      cancelLabel: 'Not now'
+    })
+    // Neither branch may fail the link — the repo IS linked by now, and reporting a settings
+    // error as a link failure would be a lie.
+    try {
+      if (makeDefault) await window.argus.workspaces.setDefault(p)
+      else await window.argus.workspaces.dismissPromote(p)
+    } catch (err) {
+      console.warn(`[repos] default-repo follow-up failed: ${(err as Error).message}`)
     }
   }
 
@@ -108,14 +130,11 @@ export function ReposSection({
       <div className="flex items-center justify-between">
         <SectionLabel>Repos</SectionLabel>
         <div className="flex items-center gap-1">
-          <IconBtn
-            aria-label="Link repo"
-            title="Link a local repo"
-            size="xs"
-            onClick={() => void link()}
-          >
-            <FolderGit2 size={13} />
-          </IconBtn>
+          <RepoPickerMenu
+            onPick={(p) => void link(p)}
+            exclude={workspaces.map((w) => w.path)}
+            trigger={{ icon: <FolderGit2 size={13} />, label: 'Link repo' }}
+          />
         </div>
       </div>
       {workspaces.map((w) => (
