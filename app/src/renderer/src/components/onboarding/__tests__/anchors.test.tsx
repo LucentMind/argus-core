@@ -22,6 +22,12 @@ beforeEach(() => {
       list: vi.fn(async () => ({ proposals: [] })),
       onChanged: vi.fn(() => () => {})
     },
+    // GeneralSettings' default-repositories row (Task 8) mounts RepoPickerMenu
+    // unconditionally, which calls recent() on mount.
+    workspaces: {
+      pick: vi.fn(async () => null),
+      recent: vi.fn(async () => [])
+    },
     // OverrideBanner (Guard 3) subscribes on every Settings mount; the real preload exposes
     // this bridge unconditionally (main enforces the dev-tools gate), so the test stub must too.
     devPrompts: {

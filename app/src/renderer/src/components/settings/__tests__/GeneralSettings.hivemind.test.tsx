@@ -21,6 +21,12 @@ beforeEach(() => {
   // UpdateSettings (Task 4) now renders inside GeneralSettings and starts the
   // update store unconditionally on mount.
   window.argus = {
+    // GeneralSettings' default-repositories row (Task 8) mounts RepoPickerMenu
+    // unconditionally, which calls recent() on mount.
+    workspaces: {
+      pick: vi.fn(async () => null),
+      recent: vi.fn(async () => [])
+    },
     update: {
       status: vi.fn(async () => ({ currentVersion: '1.0.0', status: { phase: 'idle' } })),
       check: vi.fn(async () => ({ currentVersion: '1.0.0', status: { phase: 'idle' } })),

@@ -88,6 +88,12 @@ beforeEach(() => {
       global: vi.fn(async () => globalMetrics),
       case: vi.fn(async () => globalMetrics)
     },
+    // GeneralSettings' default-repositories row (Task 8) mounts RepoPickerMenu
+    // unconditionally, which calls recent() on mount.
+    workspaces: {
+      pick: vi.fn(async () => null),
+      recent: vi.fn(async () => [])
+    },
     access: {
       get: vi.fn(async () => ({ access: { skills: {}, memory: {} }, loadError: null })),
       onChanged: vi.fn(() => () => {})

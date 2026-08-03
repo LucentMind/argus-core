@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import '@testing-library/jest-dom/vitest'
 import { GeneralSettings } from '../settings/GeneralSettings'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
@@ -39,7 +40,8 @@ beforeEach(() => {
       onChanged: vi.fn(() => () => {})
     },
     workspaces: {
-      pick: vi.fn()
+      pick: vi.fn(async () => null),
+      recent: vi.fn(async () => [])
     },
     // UpdateSettings (Task 4) now renders inside GeneralSettings and starts the
     // update store unconditionally on mount.
@@ -118,23 +120,60 @@ describe('GeneralSettings', () => {
     await waitFor(() => expect(confirm).toHaveBeenCalled())
     expect(window.argus.settings.setDataRoot).not.toHaveBeenCalled()
   })
+})
 
-  it('shows "not set" and browses for a default repository', async () => {
-    window.argus.workspaces.pick = vi.fn(async () => 'C:\\code\\navigator')
-    render(<GeneralSettings payload={payload()} />)
-    expect(screen.getByText('not set')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Browse' }))
+const ALPHA = 'C:\\repos\\alpha'
+const BETA = 'C:\\repos\\beta'
+
+/** `payload()` over `defaultSettings()` with the default-repo list seeded. */
+function withDefaults(repos: string[]): SettingsPayload {
+  return payload((p) => {
+    p.settings.general.defaultRepos = repos
+  })
+}
+
+describe('GeneralSettings default repositories', () => {
+  it('lists every default repo', async () => {
+    render(<GeneralSettings payload={withDefaults([ALPHA, BETA])} />)
+    expect(await screen.findByText(ALPHA)).toBeInTheDocument()
+    expect(screen.getByText(BETA)).toBeInTheDocument()
+  })
+
+  it('shows "not set" when the list is empty', () => {
+    render(<GeneralSettings payload={withDefaults([])} />)
+    expect(screen.getByText('not set')).toBeInTheDocument()
+  })
+
+  it('removes one entry without disturbing the others', async () => {
+    render(<GeneralSettings payload={withDefaults([ALPHA, BETA])} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: `Remove ${ALPHA}` }))
     await waitFor(() =>
       expect(window.argus.settings.patch).toHaveBeenCalledWith({
-        general: { defaultRepo: 'C:\\code\\navigator' }
+        general: { defaultRepos: [BETA] }
       })
     )
   })
 
-  it('renders the configured default repo path', () => {
-    const p = payload()
-    p.settings.general.defaultRepo = 'C:\\code\\navigator'
-    render(<GeneralSettings payload={p} />)
-    expect(screen.getByText('C:\\code\\navigator')).toBeTruthy()
+  it('appends a repo chosen from the picker', async () => {
+    window.argus.workspaces.recent = vi.fn(async () => [{ path: BETA, name: 'beta' }])
+    render(<GeneralSettings payload={withDefaults([ALPHA])} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add…' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'beta' }))
+    await waitFor(() =>
+      expect(window.argus.settings.patch).toHaveBeenCalledWith({
+        general: { defaultRepos: [ALPHA, BETA] }
+      })
+    )
+  })
+
+  it('does not offer a repo that is already a default', async () => {
+    window.argus.workspaces.recent = vi.fn(async () => [{ path: ALPHA, name: 'alpha' }])
+    render(<GeneralSettings payload={withDefaults([ALPHA])} />)
+
+    // nothing left to offer, so the trigger goes straight to the native dialog
+    fireEvent.click(await screen.findByRole('button', { name: 'Add…' }))
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 })

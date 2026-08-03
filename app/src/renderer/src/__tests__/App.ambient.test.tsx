@@ -59,6 +59,9 @@ beforeEach(() => {
       onChanged: vi.fn(() => () => {})
     },
     metrics: { global: vi.fn(async () => null), case: vi.fn(async () => null) },
+    // GeneralSettings' default-repositories row (Task 8) mounts RepoPickerMenu
+    // unconditionally, which calls recent() on mount.
+    workspaces: { pick: vi.fn(async () => null), recent: vi.fn(async () => []) },
     memory: { topics: vi.fn(async () => ({ topics: [], indexLines: 0, capLines: 200 })) },
     devPrompts: { overrides: vi.fn(async () => []), onChanged: vi.fn(() => () => {}) },
     modes: { available: vi.fn(async () => ['investigation', 'review']) },

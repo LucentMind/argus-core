@@ -4,7 +4,8 @@ import { settingsStore } from '../../lib/settingsStore'
 import { confirm } from '../../lib/confirmStore'
 import { onboardingReplay } from '../../lib/onboardingStore'
 import { tourStore } from '../../lib/tourStore'
-import { Btn, Chip } from '../ui'
+import { Btn, Chip, IconBtn } from '../ui'
+import { RepoPickerMenu } from '../RepoPickerMenu'
 import { SettingsSection, SettingRow, Switch, SelectField } from './settingsLayout'
 import { UpdateSettings } from './UpdateSettings'
 import {
@@ -78,26 +79,42 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
           />
         </SettingRow>
         <SettingRow
-          label="Default repository"
+          label="Default repositories"
           description="Automatically linked to new cases"
-          isDefault={g.defaultRepo === null}
-          onReset={() => void settingsStore.patch({ general: { defaultRepo: null } })}
+          isDefault={g.defaultRepos.length === 0}
+          onReset={() => void settingsStore.patch({ general: { defaultRepos: null } })}
+          stacked
         >
-          <span
-            className="max-w-64 truncate font-mono text-xs text-dim"
-            title={g.defaultRepo ?? undefined}
-          >
-            {g.defaultRepo ?? 'not set'}
-          </span>
-          <Btn
-            onClick={() =>
-              void window.argus.workspaces.pick().then((p) => {
-                if (p) void settingsStore.patch({ general: { defaultRepo: p } })
-              })
+          <div className="flex min-w-0 flex-col gap-1">
+            {g.defaultRepos.length === 0 && <span className="text-xs text-dim">not set</span>}
+            {g.defaultRepos.map((p) => (
+              <div key={p} className="flex min-w-0 items-center gap-1">
+                <span className="max-w-64 truncate font-mono text-xs text-dim" title={p}>
+                  {p}
+                </span>
+                <IconBtn
+                  size="xs"
+                  aria-label={`Remove ${p}`}
+                  title="Remove from defaults"
+                  className="hover:text-danger"
+                  onClick={() =>
+                    void settingsStore.patch({
+                      general: { defaultRepos: g.defaultRepos.filter((d) => d !== p) }
+                    })
+                  }
+                >
+                  ×
+                </IconBtn>
+              </div>
+            ))}
+          </div>
+          <RepoPickerMenu
+            onPick={(p) =>
+              void settingsStore.patch({ general: { defaultRepos: [...g.defaultRepos, p] } })
             }
-          >
-            Browse
-          </Btn>
+            exclude={g.defaultRepos}
+            trigger={{ text: 'Add…' }}
+          />
         </SettingRow>
         <SettingRow
           label="Show tool calls"

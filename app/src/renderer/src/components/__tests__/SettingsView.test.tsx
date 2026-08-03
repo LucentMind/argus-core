@@ -189,6 +189,13 @@ beforeEach(() => {
       })),
       onChanged: vi.fn(() => () => {})
     },
+    // GeneralSettings' default-repositories row (Task 8) mounts RepoPickerMenu
+    // unconditionally, which calls recent() on mount — needed even though this file
+    // never exercises the picker itself.
+    workspaces: {
+      pick: vi.fn(async () => null),
+      recent: vi.fn(async () => [])
+    },
     // UpdateSettings (Task 4) renders inside GeneralSettings, the default page, and
     // starts the update store unconditionally on mount.
     update: {
