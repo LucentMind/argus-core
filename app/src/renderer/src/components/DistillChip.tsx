@@ -25,15 +25,15 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
   // Bumped whenever `tracked` changes identity, so an in-flight cancel response can tell
   // whether a broadcast has superseded it since the click (see the cancel handler below).
   // `react-hooks/refs` forbids touching a ref's `.current` directly in the render body (the
-  // block above), so this lives in an effect instead — specifically a *layout* effect, not a
-  // plain one: layout effects flush synchronously during commit, in the same synchronous turn
-  // as the `setJob` call that changed `tracked` (see useDistillJob's `onChanged` callback), so
-  // the bump is guaranteed to land before the JS engine ever gets to the microtask queue where
-  // a pending `cancel()` promise's `.then()` is waiting. A plain `useEffect` is scheduled later
-  // and could lose that race. This is not the mount/unmount `ref.current = false` cleanup shape
-  // that breaks under StrictMode — it fires on every commit where `tracked` changed, mirroring
-  // (not replacing) the render-time reset above, and repeated bumps are harmless since callers
-  // only ever check `===` against a snapshot, never the exact count.
+  // block above), so this lives in an effect instead. The guard logic is unconditional, but
+  // winning the race relies on the broadcast IPC arriving as a separate task whose microtasks
+  // drain before the `cancel().then()` handler — an assumption about Electron's IPC scheduling,
+  // not a documented contract. If that breaks, the stale `cancelled` row is adopted, matches
+  // no render branch, and the chip vanishes until the next broadcast — transient cosmetic gap
+  // only. Not the mount/unmount `ref.current = false` cleanup that breaks under StrictMode —
+  // fires on every commit where `tracked` changed, mirroring the render-time reset, and repeated
+  // bumps are harmless since callers check `===` against a snapshot, never the count. (Tests in
+  // `act()` prove guard logic but not the timing assumption.)
   const cancelEpochRef = useRef(0)
   useLayoutEffect(() => {
     cancelEpochRef.current += 1
