@@ -90,6 +90,24 @@ describe('listRecent', () => {
     recordLink(db, B, 'C-1', at(1))
     expect(listRecent(db, 1, always)).toEqual([{ path: repoKey(B), name: 'beta' }])
   })
+
+  it('backfills from older reachable repos when the most-recent ones are unreachable', () => {
+    // D and C are the two most-recently-linked repos, but both sit on a disconnected drive.
+    // The SQL LIMIT must not discard A and B before the existence filter runs, or a repo on a
+    // disconnected drive would shrink the list instead of just yielding its slot.
+    const C = 'C:\\repos\\gamma'
+    const D = 'C:\\repos\\delta'
+    recordLink(db, A, 'C-1', at(0))
+    recordLink(db, B, 'C-1', at(1))
+    recordLink(db, C, 'C-1', at(2))
+    recordLink(db, D, 'C-1', at(3))
+    const reachable = new Set([repoKey(A), repoKey(B)])
+    const onlyOlderTwo = (p: string): boolean => reachable.has(p)
+    expect(listRecent(db, 2, onlyOlderTwo)).toEqual([
+      { path: repoKey(B), name: 'beta' },
+      { path: repoKey(A), name: 'alpha' }
+    ])
+  })
 })
 
 describe('shouldSuggestDefault', () => {

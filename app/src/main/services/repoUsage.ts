@@ -53,6 +53,19 @@ export function caseCount(db: DatabaseSync, repoPath: string): number {
 }
 
 /**
+ * How many rows beyond `limit` to pull from SQL, as a multiple of `limit`, before applying
+ * the existence filter. The contract is "the `limit` most recent REACHABLE repos" — an
+ * unreachable repo must yield its slot to the next reachable one, not shrink the list — so
+ * filtering cannot happen after a `LIMIT limit` (that only ever removes rows). This bounds
+ * both directions: it caps `fs.existsSync` calls at `limit * OVERFETCH_MULTIPLIER` (each row
+ * costs one stat, so fetching every row ever recorded is not acceptable either), while
+ * tolerating up to `(OVERFETCH_MULTIPLIER - 1) * limit` unreachable rows among the most
+ * recent candidates before the result can still fall short of `limit` despite enough older
+ * reachable repos existing — far more slack than a single disconnected drive needs.
+ */
+const OVERFETCH_MULTIPLIER = 4
+
+/**
  * Most-recently-linked repos, newest first. Paths that no longer exist are FILTERED rather
  * than deleted: a repo on a disconnected network drive reappears when the drive returns
  * instead of being silently forgotten. `exists` is injected so tests need no real files.
@@ -67,9 +80,10 @@ export function listRecent(
       `SELECT path, MAX(linked_at) AS last FROM repo_usage
        GROUP BY path ORDER BY last DESC LIMIT ?`
     )
-    .all(limit) as { path: string; last: string }[]
+    .all(limit * OVERFETCH_MULTIPLIER) as { path: string; last: string }[]
   return rows
     .filter((r) => exists(r.path))
+    .slice(0, limit)
     .map((r) => ({ path: r.path, name: path.basename(r.path) }))
 }
 
