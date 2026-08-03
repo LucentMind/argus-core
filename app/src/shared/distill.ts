@@ -1,4 +1,4 @@
-import type { CaseResolution } from './types'
+import type { CaseResolution, CaseStatus } from './types'
 import type { ReviewState } from './observability'
 import type { RcaDraft } from './rca'
 
@@ -20,6 +20,9 @@ export interface CaseDistillInput {
     slug: string
     title: string
     jiraKey: string | null
+    /** Distillation can be started on a live case, so the distiller must be told which it is —
+     *  `resolution` alone cannot distinguish "open" from "closed with no resolution recorded". */
+    status: CaseStatus
     resolution: CaseResolution | null
     tags: string[]
     createdAt: string

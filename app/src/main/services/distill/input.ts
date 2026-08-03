@@ -89,6 +89,7 @@ export function assembleDistillInput(
       slug: c.slug,
       title: c.title,
       jiraKey: c.jiraKey,
+      status: c.status,
       resolution: c.resolution,
       tags: c.tags,
       createdAt: c.createdAt,

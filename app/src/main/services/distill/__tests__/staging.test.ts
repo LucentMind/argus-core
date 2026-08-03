@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
-import { createCase } from '../../caseService'
+import { createCase, setCaseStatus } from '../../caseService'
 import {
   writeProposal,
   listProposals,
@@ -178,5 +178,24 @@ describe('stageDistillOutput', () => {
     expect(res.staged).toBe(1)
     expect(res.droppedDuplicates).toBe(1)
     expect(listProposals(home).filter((p) => p.target === 'dup-topic').length).toBe(1)
+  })
+
+  it('stamps a summary staged from an open case as resolution: open', () => {
+    stageDistillOutput(db, home, 'case-a', 7, {
+      summary: { signature: 'sig', symptoms: 'sy', rootCause: 'rc', fix: 'fx', keywords: ['k'] }
+    })
+    const p = listProposals(home).find((x) => x.type === 'case-summary')!
+    const raw = fs.readFileSync(path.join(home, 'proposals', p.file), 'utf8')
+    expect(raw).toContain('resolution: open')
+  })
+
+  it('keeps the real resolution for a closed case', () => {
+    setCaseStatus(db, home, 'case-a', 'closed', 'wont-fix')
+    stageDistillOutput(db, home, 'case-a', 7, {
+      summary: { signature: 'sig', symptoms: 'sy', rootCause: 'rc', fix: 'fx', keywords: ['k'] }
+    })
+    const p = listProposals(home).find((x) => x.type === 'case-summary')!
+    const raw = fs.readFileSync(path.join(home, 'proposals', p.file), 'utf8')
+    expect(raw).toContain('resolution: wont-fix')
   })
 })

@@ -4,20 +4,22 @@
  * in contract.ts (which re-exports this constant).
  *
  * Two things the rules deliberately encode about upstream state:
- *  - RESOLUTION (rule 3): distillation runs only on CLOSED cases, and how a case was closed
- *    (solved | wont-fix | forwarded | duplicate | rejected | not-reproducible) changes what,
- *    if anything, is worth distilling.
+ *  - STATUS + RESOLUTION (rule 3): distillation can be started on a live case as well as at close
+ *    (the case menu's Distill row), so the prompt carries `status`. For a closed case, how it was
+ *    closed (solved | wont-fix | forwarded | duplicate | rejected | not-reproducible) changes what,
+ *    if anything, is worth distilling; for an open one, nothing is final.
  *  - REFERENCE TIER (rule 7): each reference is tagged [tier: …]. A `confluence` reference is
  *    regenerated from its upstream page on every sync, so an edit to it is futile — it is either
  *    overwritten or silently detaches the file from its source. Only `team-knowledge` (hand-owned)
  *    references are safe edit targets.
  */
-export const CASE_DISTILL_CONTRACT = `You are distilling a CLOSED root-cause-analysis case into durable knowledge for an RCA toolkit. You produce candidates only — a human reviews every item before anything is applied.
+export const CASE_DISTILL_CONTRACT = `You are distilling a root-cause-analysis case into durable knowledge for an RCA toolkit. You produce candidates only — a human reviews every item before anything is applied.
 
 Rules — follow every one:
 1. SUMMARY ONLY IF RECURRENCE-RELEVANT: emit "summary" only when this case could recur or attract near-duplicate defects in the future. Otherwise omit the key entirely.
 2. WEIGHT BY REVIEW STATE: findings marked [accepted] are confirmed; [rejected] means ruled out — usable only as "what turned out to be wrong"; [pending] is unreviewed.
-3. WEIGHT BY RESOLUTION: the case's "resolution" is how it was closed — distill accordingly:
+3. WEIGHT BY STATUS AND RESOLUTION: "status" is open or closed; "resolution" (closed cases only) is how it was closed — distill accordingly:
+   - open: the case is still open, so the investigation is still running and nothing here is final. Distill ONLY what is already firmly established — accepted findings and a confirmed root cause. Never present a working hypothesis as a fix, and never write a summary that implies the case was resolved. When nothing is settled yet, return {}.
    - solved: the root cause was found and fixed here — the richest source of durable knowledge.
    - wont-fix: the cause is understood but the fix was deliberately declined. Capture the cause, but any "fix" MUST state it was intentionally not fixed (and why, if known) — never present a hypothetical fix as if applied.
    - forwarded: root-causing moved to another team/system; little was concluded here. Distill only what was firmly established before the handoff — usually return {}.

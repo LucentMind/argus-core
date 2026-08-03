@@ -13,6 +13,7 @@ const INPUT: CaseDistillInput = {
     slug: 'c1',
     title: 'T',
     jiraKey: 'AB-1',
+    status: 'closed',
     resolution: 'solved',
     tags: [],
     createdAt: 'a',
@@ -118,6 +119,26 @@ describe('prompt builder', () => {
     expect(p).not.toContain(' · ')
     // No confirmed structure → the section is omitted entirely, not rendered as "(none)".
     expect(p).not.toContain('Confirmed RCA structure')
+  })
+
+  it('renders status: closed and the closed timestamp for a closed case', () => {
+    const p = buildCaseDistillPrompt(INPUT)
+    expect(p).toContain('status: closed')
+    expect(p).toContain('closed: b')
+  })
+
+  it('renders status: open and no closed timestamp for an open case', () => {
+    const p = buildCaseDistillPrompt({
+      ...INPUT,
+      caseMeta: { ...INPUT.caseMeta, status: 'open', resolution: null }
+    })
+    expect(p).toContain('status: open')
+    expect(p).not.toContain('closed: ')
+  })
+
+  it('contract tells the distiller how to treat a case that is still open', () => {
+    expect(CASE_DISTILL_CONTRACT).toContain('open:')
+    expect(CASE_DISTILL_CONTRACT).not.toContain('a CLOSED root-cause-analysis case')
   })
 })
 

@@ -82,6 +82,12 @@ describe('assembleDistillInput', () => {
     expect(() => assembleDistillInput(db, home, 'nope')).toThrow(/Unknown case/)
   })
 
+  it('carries the case status into caseMeta', () => {
+    expect(assembleDistillInput(db, home, 'case-a').caseMeta.status).toBe('open')
+    setCaseStatus(db, home, 'case-a', 'closed', 'solved')
+    expect(assembleDistillInput(db, home, 'case-a').caseMeta.status).toBe('closed')
+  })
+
   it('carries a finding role and the confirmed RCA structure when present, null when absent', () => {
     const caseId = (db.prepare(`SELECT id FROM cases WHERE slug='case-a'`).get() as { id: number })
       .id

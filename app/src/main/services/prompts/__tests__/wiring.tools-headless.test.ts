@@ -20,6 +20,7 @@ function distillInput(rcaStructure: RcaDraft | null = null): CaseDistillInput {
       slug: 'c-1',
       title: 'T',
       jiraKey: null,
+      status: 'closed',
       resolution: 'solved',
       tags: [],
       createdAt: '2026-01-01T00:00:00Z',

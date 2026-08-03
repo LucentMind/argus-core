@@ -8,6 +8,7 @@ const INPUT: CaseDistillInput = {
     slug: 'c1',
     title: 'T',
     jiraKey: null,
+    status: 'closed',
     resolution: 'solved',
     tags: [],
     createdAt: 'a',

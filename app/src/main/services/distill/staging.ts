@@ -141,7 +141,10 @@ export function stageDistillOutput(
 
     if (output.summary) {
       const c = getCase(db, caseSlug)
-      const resolution = c?.resolution ?? 'solved'
+      // An open case has no resolution, and defaulting it to 'solved' would file a live
+      // investigation in the summaries corpus as a solved one. upsertCaseSummary is keyed by
+      // case_slug (ON CONFLICT DO UPDATE), so a post-close accept overwrites this row.
+      const resolution = c?.resolution ?? (c?.status === 'open' ? 'open' : 'solved')
       stage(
         'case-summary',
         caseSlug,
