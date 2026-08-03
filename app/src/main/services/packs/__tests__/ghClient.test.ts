@@ -1,7 +1,27 @@
 import path from 'node:path'
 import os from 'node:os'
 import { describe, it, expect } from 'vitest'
-import { classifyGhFailure, GhError, hashFile } from '../ghClient'
+import { classifyGhFailure, GhError, ghEnv, hashFile } from '../ghClient'
+
+describe('ghEnv', () => {
+  // The regression: PATH was spread into a module-level const. `hydratePathFromLoginShell`
+  // repairs process.env.PATH inside app.whenReady(), i.e. AFTER every static import has been
+  // evaluated, so the snapshot kept the minimal launchd PATH a Finder-launched macOS app gets
+  // and every gh spawn came back ENOENT — reported as "gh is not installed".
+  it('reads PATH when the child is spawned, not when the module was loaded', () => {
+    const before = process.env.PATH
+    try {
+      process.env.PATH = `${before ?? ''}${path.delimiter}/argus-hydrated-late`
+      expect(ghEnv().PATH).toContain('/argus-hydrated-late')
+    } finally {
+      process.env.PATH = before
+    }
+  })
+
+  it('silences gh’s upgrade nag so it cannot pollute stderr-derived messages', () => {
+    expect(ghEnv().GH_NO_UPDATE_NOTIFIER).toBe('1')
+  })
+})
 
 describe('classifyGhFailure', () => {
   it('reports a missing gh binary distinctly', () => {

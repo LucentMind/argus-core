@@ -68,8 +68,17 @@ export interface GhClient {
 }
 
 /** `GH_NO_UPDATE_NOTIFIER` keeps gh's own upgrade nag out of stderr, where it would pollute
- *  every error message this module produces. */
-const GH_ENV = { ...process.env, GH_NO_UPDATE_NOTIFIER: '1' }
+ *  every error message this module produces.
+ *
+ *  Built per call, NEVER snapshotted at module load: `hydratePathFromLoginShell` repairs
+ *  `process.env.PATH` inside `app.whenReady()`, which runs long after this module is evaluated
+ *  (index.ts imports it statically, so the import graph settles first). A module-level
+ *  `{ ...process.env }` would freeze the minimal launchd PATH a Finder-launched macOS app
+ *  starts with, and every `gh` spawn would be ENOENT — surfaced to the user as the flatly
+ *  wrong "gh is not installed or not on PATH". */
+export function ghEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, GH_NO_UPDATE_NOTIFIER: '1' }
+}
 
 export const nodeGhClient: GhClient = {
   async api(ref, path) {
@@ -78,7 +87,7 @@ export const nodeGhClient: GhClient = {
       ;({ stdout } = await execFileAsync('gh', ['api', '--hostname', ref.host, path], {
         timeout: GH_TIMEOUT_MS,
         maxBuffer: GH_MAX_BUFFER,
-        env: GH_ENV
+        env: ghEnv()
       }))
     } catch (err) {
       throw classifyGhFailure(err)
@@ -110,7 +119,7 @@ export const nodeGhClient: GhClient = {
           destPath,
           '--clobber'
         ],
-        { timeout: GH_DOWNLOAD_TIMEOUT_MS, maxBuffer: GH_MAX_BUFFER, env: GH_ENV }
+        { timeout: GH_DOWNLOAD_TIMEOUT_MS, maxBuffer: GH_MAX_BUFFER, env: ghEnv() }
       )
     } catch (err) {
       throw classifyGhFailure(err)
