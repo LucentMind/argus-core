@@ -134,3 +134,101 @@ export function loadPacks(packsDir: string): { packs: LoadedPack[]; errors: Pack
   packs.sort((a, b) => a.id.localeCompare(b.id))
   return { packs, errors }
 }
+
+/** packId -> the ids it declares for one namespace, deduped (an intra-pack repeat is not a collision). */
+function declaredIds(packs: LoadedPack[], of: (p: LoadedPack) => string[]): Map<string, string[]> {
+  const owners = new Map<string, string[]>()
+  for (const p of packs) {
+    for (const id of new Set(of(p))) owners.set(id, [...(owners.get(id) ?? []), p.id])
+  }
+  return owners
+}
+
+/**
+ * Orders packs so every pack follows the packs it declares in `dependencies` (id sort as
+ * tiebreaker), and turns the three ways a pack set can be incoherent into per-pack load errors:
+ * a binary id / detector type declared by two packs, a declared dependency that is not installed
+ * (or itself failed), and a dependency cycle. A failing pack is excluded so nothing it declares
+ * silently shadows another pack's.
+ */
+export function orderPacksByDependencies(input: LoadedPack[]): {
+  packs: LoadedPack[]
+  errors: PackLoadError[]
+} {
+  const byId = new Map(input.map((p) => [p.id, p]))
+  const errors: PackLoadError[] = []
+  const failed = new Set<string>()
+
+  for (const [kind, owners] of [
+    ['binary id', declaredIds(input, (p) => p.manifest.binaries.map((b) => b.id))],
+    ['detector type', declaredIds(input, (p) => p.manifest.detectors.map((d) => d.type))]
+  ] as const) {
+    for (const [id, packIds] of owners) {
+      if (packIds.length < 2) continue
+      for (const packId of packIds) {
+        failed.add(packId)
+        errors.push({
+          dir: byId.get(packId)!.dir,
+          message: `duplicate ${kind} '${id}' declared by packs ${[...packIds].sort().join(', ')} - ids must be unique across installed packs`
+        })
+      }
+    }
+  }
+
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const p of input) {
+      if (failed.has(p.id)) continue
+      for (const [depId, range] of Object.entries(p.manifest.dependencies)) {
+        if (byId.has(depId) && !failed.has(depId)) continue
+        failed.add(p.id)
+        changed = true
+        errors.push({
+          dir: p.dir,
+          message: byId.has(depId)
+            ? `pack '${p.id}' requires pack '${depId}' ${range}, which failed to load`
+            : `pack '${p.id}' requires pack '${depId}' ${range}, which is not installed`
+        })
+        break
+      }
+    }
+  }
+
+  const remaining = input.filter((p) => !failed.has(p.id))
+  const indegree = new Map(
+    remaining.map((p) => [p.id, Object.keys(p.manifest.dependencies).length])
+  )
+  const dependents = new Map<string, string[]>()
+  for (const p of remaining) {
+    for (const depId of Object.keys(p.manifest.dependencies)) {
+      dependents.set(depId, [...(dependents.get(depId) ?? []), p.id])
+    }
+  }
+
+  const ready = remaining.filter((p) => indegree.get(p.id) === 0).map((p) => p.id)
+  const ordered: LoadedPack[] = []
+  while (ready.length > 0) {
+    ready.sort((a, b) => a.localeCompare(b))
+    const id = ready.shift() as string
+    ordered.push(byId.get(id) as LoadedPack)
+    for (const dependent of dependents.get(id) ?? []) {
+      const left = (indegree.get(dependent) as number) - 1
+      indegree.set(dependent, left)
+      if (left === 0) ready.push(dependent)
+    }
+  }
+
+  if (ordered.length < remaining.length) {
+    const placed = new Set(ordered.map((p) => p.id))
+    const stuck = remaining.filter((p) => !placed.has(p.id)).map((p) => p.id)
+    for (const id of stuck) {
+      errors.push({
+        dir: (byId.get(id) as LoadedPack).dir,
+        message: `pack '${id}' cannot be ordered: dependency cycle among ${[...stuck].sort().join(', ')}`
+      })
+    }
+  }
+
+  return { packs: ordered, errors }
+}
