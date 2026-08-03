@@ -16,6 +16,7 @@ import { ProposalsPage } from './ProposalsPage'
 import { LibraryPage, type LibraryKind } from './LibraryPage'
 import { SourcesPage } from './SourcesPage'
 import { HivemindSettings } from './HivemindSettings'
+import { DefectCorpusSettings } from './DefectCorpusSettings'
 import { ObservabilitySettings } from './ObservabilitySettings'
 import { KnowledgeFlowStrip } from './KnowledgeFlowStrip'
 import { PromptsDevPage } from './PromptsDevPage'
@@ -223,7 +224,12 @@ export function SettingsView({
               onReviewProposals={openProposals}
             />
           )}
-          {payload && page === 'team' && <HivemindSettings payload={payload} />}
+          {payload && page === 'team' && (
+            <>
+              <HivemindSettings payload={payload} />
+              <DefectCorpusSettings payload={payload} />
+            </>
+          )}
           {payload && page === 'sources' && <SourcesPage settings={payload} />}
           {page === 'memory' && <MemorySettings onReviewProposals={openProposals} />}
           {payload && page === 'observability' && <ObservabilitySettings payload={payload} />}

@@ -79,7 +79,7 @@ export const PAGES = [
     enabled: true,
     Icon: CloudSync,
     blurb:
-      'Browse skills and references your team shares, and install, update, or remove your copies.'
+      'Skills, references, and defect corpora your team shares — install, update, or connect them.'
   },
   {
     id: 'sources',
