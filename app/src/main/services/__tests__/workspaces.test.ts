@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -159,19 +159,36 @@ describe('workspace service', () => {
 })
 
 describe('autoLinkDefaultRepo', () => {
-  it('links the default repo to a new case', async () => {
-    await autoLinkDefaultRepo(db, argusHome, 'NAV-1', repo)
-    const list = await listWorkspaces(db, argusHome, 'NAV-1')
-    expect(list.map((w) => w.path)).toEqual([repo])
+  it('links every default repo', async () => {
+    const repo2 = path.join(tmp, 'repo2')
+    fs.mkdirSync(repo2, { recursive: true })
+    git(repo2, 'init', '-b', 'main')
+    git(repo2, 'config', 'user.email', 't@t')
+    git(repo2, 'config', 'user.name', 't')
+    fs.writeFileSync(path.join(repo2, 'b.txt'), 'two\n')
+    git(repo2, 'add', '.')
+    git(repo2, 'commit', '-m', 'c1')
+
+    await autoLinkDefaultRepo(db, argusHome, 'NAV-1', [repo, repo2])
+
+    const linked = (await listWorkspaces(db, argusHome, 'NAV-1')).map((w) => w.path)
+    expect(linked).toEqual([repo, repo2])
   })
 
-  it('is a no-op when defaultRepo is null', async () => {
-    await autoLinkDefaultRepo(db, argusHome, 'NAV-1', null)
-    expect(await listWorkspaces(db, argusHome, 'NAV-1')).toEqual([])
+  it('keeps linking after a bad path fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const missing = path.join(tmp, 'does-not-exist')
+
+    await autoLinkDefaultRepo(db, argusHome, 'NAV-1', [missing, repo])
+
+    const linked = (await listWorkspaces(db, argusHome, 'NAV-1')).map((w) => w.path)
+    expect(linked).toEqual([repo])
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
   })
 
-  it('never throws for an invalid repo path', async () => {
-    await expect(autoLinkDefaultRepo(db, argusHome, 'NAV-1', tmp)).resolves.toBeUndefined()
+  it('links nothing for an empty list', async () => {
+    await autoLinkDefaultRepo(db, argusHome, 'NAV-1', [])
     expect(await listWorkspaces(db, argusHome, 'NAV-1')).toEqual([])
   })
 })

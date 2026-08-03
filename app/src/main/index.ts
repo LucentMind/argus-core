@@ -848,7 +848,7 @@ function registerIpc(): void {
   // — wave 0 handlers unchanged —
   ipcMain.handle(IPC.casesCreate, async (_e, input: NewCaseInput) => {
     const rec = createCase(db, argusHome, input, resolvePrompt)
-    await autoLinkDefaultRepo(db, argusHome, rec.slug, settingsService.get().general.defaultRepo)
+    await autoLinkDefaultRepo(db, argusHome, rec.slug, settingsService.get().general.defaultRepos)
     return rec
   })
   const sampleAssetsDir = resolveSampleAssetsDir(app.getAppPath(), resourcesPath)
@@ -2529,7 +2529,7 @@ function registerIpc(): void {
           db,
           argusHome,
           input.slug,
-          settingsService.get().general.defaultRepo
+          settingsService.get().general.defaultRepos
         )
       return r
     }

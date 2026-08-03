@@ -210,18 +210,29 @@ export async function workspaceSandboxRoots(
   return [...listStoredWorkspaces(db, caseSlug).map((w) => w.path), worktreesRoot(argusHome)]
 }
 
-/** Auto-link the settings-default repo at case creation. Best-effort:
- *  failures (missing dir, not a git repo) warn-log and never block creation. */
+/** Auto-link the settings-default repos at case creation. Best-effort PER ENTRY:
+ *  one failure (missing dir, not a git repo) warn-logs and the rest still link.
+ *
+ *  Sequential on purpose — NOT `Promise.all`. `linkWorkspace` is a read-modify-write of the
+ *  single `cases.workspaces` JSON column (listStoredWorkspaces → writeStored), so concurrent
+ *  links against one case lose all but the last write.
+ *
+ *  Deliberately calls `linkWorkspace` directly rather than going through the `workspaces:link`
+ *  IPC handler: the handler is where `recordLink` lives, and an auto-link must never count
+ *  toward the promote-to-default threshold. */
 export async function autoLinkDefaultRepo(
   db: DatabaseSync,
   argusHome: string,
   caseSlug: string,
-  defaultRepo: string | null
+  defaultRepos: readonly string[]
 ): Promise<void> {
-  if (!defaultRepo) return
-  try {
-    await linkWorkspace(db, argusHome, caseSlug, defaultRepo)
-  } catch (err) {
-    console.warn(`[workspaces] default-repo auto-link failed: ${(err as Error).message}`)
+  for (const repoPath of defaultRepos) {
+    try {
+      await linkWorkspace(db, argusHome, caseSlug, repoPath)
+    } catch (err) {
+      console.warn(
+        `[workspaces] default-repo auto-link failed for ${repoPath}: ${(err as Error).message}`
+      )
+    }
   }
 }
