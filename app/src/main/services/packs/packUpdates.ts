@@ -234,7 +234,7 @@ export interface PackUpdatesDeps {
  * it, and is the ONLY part that differs between a vendor feed and a GitHub release.
  */
 type Selection =
-  | { entry: FeedEntry; download: { kind: 'url'; url: string; pin: FeedPackSource } }
+  | { entry: FeedEntry; download: { kind: 'url'; url: string } }
   | {
       entry: FeedEntry
       download: { kind: 'gh'; pin: GithubPackSource; candidate: GithubCandidate }
@@ -292,18 +292,22 @@ export class PackUpdatesService {
 
       let sha256: string
       if (download.kind === 'url') {
-        this.assertHttps(download.url)
-        // Defense in depth, preserved from before `findUpdate` existed: re-read the pin fresh
-        // here rather than trusting `download.pin` (captured before the feed fetch) — a racing
-        // uninstall/reinstall that rewrites the source WHILE that fetch is in flight must still
-        // be caught. Falls back to the selection-time pin only if the fresh read is itself a
-        // github pin (kind changed mid-flight), which is not a case the feed origin check owns.
-        const freshPin = this.deps.state.getSource(id)
-        const originPin = freshPin && !isGithubSource(freshPin) ? freshPin : download.pin
-        if (new URL(download.url).origin !== originPin.origin) {
+        // Re-read the pin rather than trusting the one selection was made against: an uninstall
+        // or reinstall racing this apply must still be caught. `pinOf` throws when the pin is
+        // gone, which is the refusal the original code made here and which a fallback to the
+        // stale pin would silently skip.
+        const pin = this.pinOf(id)
+        if (isGithubSource(pin)) {
           throw new UpdateError(
             'origin-pin',
-            `bundle origin '${new URL(download.url).origin}' does not match the origin this pack was installed from ('${originPin.origin}')`
+            `pack '${id}' was re-pinned to a GitHub repository while this update was being prepared`
+          )
+        }
+        this.assertHttps(download.url)
+        if (new URL(download.url).origin !== pin.origin) {
+          throw new UpdateError(
+            'origin-pin',
+            `bundle origin '${new URL(download.url).origin}' does not match the origin this pack was installed from ('${pin.origin}')`
           )
         }
         let dl: HttpToFileResult
@@ -468,9 +472,10 @@ export class PackUpdatesService {
     const pin = this.pinOf(id)
     if (!isGithubSource(pin)) {
       const entry = await this.findFeedUpdate(id, pin)
-      // The pin travels WITH the selection rather than being re-fetched and type-asserted in
-      // apply(): the narrowing that proves it is a feed pin happens here, exactly once.
-      return entry ? { entry, download: { kind: 'url', url: entry.url, pin } } : null
+      // The `gh` arm below carries its pin because the download needs the host/owner/repo it was
+      // resolved against; this arm carries none — `apply()` re-reads the pin itself for
+      // freshness, so a stale copy here would only invite a fallback that defeats that check.
+      return entry ? { entry, download: { kind: 'url', url: entry.url } } : null
     }
 
     const installedVersion = this.deps.state.get(id)

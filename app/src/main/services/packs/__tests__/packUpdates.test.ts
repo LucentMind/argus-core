@@ -326,6 +326,47 @@ describe('apply', () => {
     expect(install).not.toHaveBeenCalled()
   })
 
+  it('refuses (does not fall back) when the pin is removed entirely between selection and the check', async () => {
+    // Same race window as the test above, but the pin vanishes rather than moves — e.g. a
+    // racing uninstall. Before the fix, `apply()` fell back to the stale `download.pin` and
+    // compared the download URL against the very pin it was derived from, a check that cannot
+    // fail. `pinOf` must throw instead, exactly as it did before `findUpdate` existed.
+    const c = http({
+      'https://vendor.example/feed.json': () => {
+        state.setSource('sample', null)
+        return ok(feedBody())
+      },
+      ...bundleRoute
+    })
+    const s = await svc(c).apply('sample')
+    expect(s).toMatchObject({ phase: 'error', code: 'feed' })
+    expect(install).not.toHaveBeenCalled()
+    expect(c.urls).not.toContain('https://vendor.example/sample-1.1.0-win-x64.zip')
+  })
+
+  it('refuses (does not fall back) when the pin flips to a GitHub pin between selection and the check', async () => {
+    // Same race window again, but the pin changes KIND rather than moving or vanishing. Before
+    // the fix, a github pin failed the `!isGithubSource` guard and fell back to the stale feed
+    // pin, silently skipping the refusal the original code made here.
+    const c = http({
+      'https://vendor.example/feed.json': () => {
+        state.setSource('sample', {
+          kind: 'github',
+          host: 'github.com',
+          owner: 'vendor',
+          repo: 'sample',
+          installedAt: 2
+        })
+        return ok(feedBody())
+      },
+      ...bundleRoute
+    })
+    const s = await svc(c).apply('sample')
+    expect(s).toMatchObject({ phase: 'error', code: 'origin-pin' })
+    expect(install).not.toHaveBeenCalled()
+    expect(c.urls).not.toContain('https://vendor.example/sample-1.1.0-win-x64.zip')
+  })
+
   it('refuses a non-https download URL even behind a corrupted/legacy non-https pin', async () => {
     // pin.origin is normally always https (derived from a manifest.updateUrl that must be
     // https), so origin-based selection alone would already exclude a non-https entry. But
