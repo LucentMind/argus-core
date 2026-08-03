@@ -191,6 +191,31 @@ describe('postRcaReport', () => {
     await expect(postRcaReport(fakeDeps(), 'no-such-case')).rejects.toThrow(/unknown case/i)
   })
 
+  it('throws a clear error when the Atlassian site cannot be resolved, before posting anything', async () => {
+    createCase(db, home, { slug: 'case-g', title: 'Case G', jiraKey: 'PROJ-7' })
+    writeArtifacts('case-g')
+    insertJob('case-g')
+    const calls: { tool: string; instanceId: string; args: Record<string, unknown> }[] = []
+    let uploadCalled = false
+
+    await expect(
+      postRcaReport(
+        fakeDeps({
+          calls,
+          siteUrl: async () => null,
+          uploadAttachment: async (_key, filename) => {
+            uploadCalled = true
+            return { id: 'att-1', filename }
+          }
+        }),
+        'case-g'
+      )
+    ).rejects.toThrow(/atlassian site/i)
+
+    expect(calls).toHaveLength(0) // addCommentToJiraIssue never attempted
+    expect(uploadCalled).toBe(false) // neither does the tech-target upload
+  })
+
   it('persists post_results onto the confirmed rca_jobs row, merged across a retry', async () => {
     createCase(db, home, { slug: 'case-f', title: 'Case F', jiraKey: 'PROJ-6' })
     writeArtifacts('case-f')
@@ -223,5 +248,32 @@ describe('postRcaReport', () => {
       n: number
     }
     expect(count.n).toBe(1)
+  })
+
+  it('same-target retry: a fresh failure overwrites a prior success for that target', async () => {
+    createCase(db, home, { slug: 'case-h', title: 'Case H', jiraKey: 'PROJ-8' })
+    writeArtifacts('case-h')
+    const jobId = insertJob('case-h')
+
+    const first = await postRcaReport(fakeDeps({ techDestination: 'attachment' }), 'case-h')
+    expect(first.attachment!.ok).toBe(true)
+
+    const second = await postRcaReport(
+      fakeDeps({
+        techDestination: 'attachment',
+        uploadAttachment: async () => {
+          throw new Error('upload failed: 500')
+        }
+      }),
+      'case-h'
+    )
+
+    expect(second.attachment!.ok).toBe(false)
+    expect(second.attachment!.error).toContain('upload failed')
+    expect(second.comment!.ok).toBe(true) // second call's own comment record is present
+
+    const persisted = JSON.parse(jobRow(jobId).post_results!)
+    expect(persisted.attachment.ok).toBe(false)
+    expect(persisted.comment.ok).toBe(true)
   })
 })
