@@ -240,6 +240,10 @@ import { runCaseDistill } from './services/distill/caseDistiller'
 import { stageDistillOutput } from './services/distill/staging'
 import { similarCases, searchCaseSummaries } from './services/distill/summaries'
 import { caseDistillPromptHash } from './services/distill/promptHash'
+import { RcaJobs } from './services/rca/jobs'
+import { assembleRcaInput } from './services/rca/input'
+import { caseRcaPromptHash } from './services/rca/promptHash'
+import type { RoleAssignment, RcaDraft } from '../shared/rca'
 import { draftAsset, improveAsset } from './services/authoring/service'
 import type { AuthoringRequest, AuthoringResult } from '../shared/authoringIpc'
 import { EditorWindowService } from './services/editorWindow'
@@ -730,6 +734,18 @@ function registerIpc(): void {
       console.error('[distill] enqueue failed', err)
     }
   }
+
+  // — case RCA reports (part 3a-N): same headless runner as distillation, own job table —
+  const rcaJobs = new RcaJobs({
+    db,
+    argusHome,
+    assembleInput: (slug, prior) => assembleRcaInput(db, argusHome, slug, prior),
+    run: headlessRun,
+    resolvePrompt,
+    broadcast: (p) => broadcast(IPC.rcaChanged, p),
+    promptHash: () => caseRcaPromptHash(resolvePrompt)
+  })
+  rcaJobs.recoverOnBoot()
 
   const connectorsPayload = (): ConnectorsPayload => ({
     connectors: connectorRegistry.get(),
@@ -1855,6 +1871,15 @@ function registerIpc(): void {
   ipcMain.handle(IPC.defectsTest, (_e, id: string) => defectCorpus.test(id))
   ipcMain.handle(IPC.defectsSyncNow, (_e, id: string) => defectCorpus.syncNow(id))
   ipcMain.handle(IPC.defectsSyncStatus, (_e, id: string) => defectCorpus.syncStatus(id))
+
+  // — case RCA reports (part 3a-N) —
+  ipcMain.handle(IPC.rcaGenerate, (_e, slug: string) => rcaJobs.generate(slug))
+  ipcMain.handle(IPC.rcaStatus, (_e, slug: string) => rcaJobs.statusFor(slug))
+  ipcMain.handle(
+    IPC.rcaConfirm,
+    (_e, slug: string, jobId: number, assignments: RoleAssignment[], edited: RcaDraft) =>
+      rcaJobs.confirm(slug, jobId, assignments, edited)
+  )
 
   // — skills —
   const skillsPayload = (): SkillsPayload => ({

@@ -287,5 +287,11 @@ export const IPC = {
   defectsSearch: 'defects:search',
   defectsTest: 'defects:test',
   defectsSyncNow: 'defects:sync-now',
-  defectsSyncStatus: 'defects:sync-status'
+  defectsSyncStatus: 'defects:sync-status',
+  // — case RCA reports (part 3a-N) —
+  rcaGenerate: 'rca:generate',
+  rcaStatus: 'rca:status',
+  rcaConfirm: 'rca:confirm',
+  /** main → all renderer windows broadcast: a case's RCA job state changed. */
+  rcaChanged: 'rca:changed'
 } as const

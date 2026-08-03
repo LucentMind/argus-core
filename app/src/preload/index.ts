@@ -107,6 +107,7 @@ import type {
   ExternalAppInfo
 } from '../shared/panels'
 import type { DistillJobRow, SummarySearchHit, DistillStatusPayload } from '../shared/distill'
+import type { RcaJobRow, RcaStatusPayload, RoleAssignment, RcaDraft } from '../shared/rca'
 import type { SnippetResult, RepoSnippetResult, RepoTextResult } from '../shared/snippets'
 import type { ModeId } from '../shared/modes'
 import type { EvidenceScope } from '../shared/evidenceScope'
@@ -351,6 +352,21 @@ const argus = {
       const listener = (_e: unknown, p: DistillStatusPayload): void => cb(p)
       ipcRenderer.on(IPC.distillChanged, listener)
       return () => ipcRenderer.removeListener(IPC.distillChanged, listener)
+    }
+  },
+  rca: {
+    generate: (slug: string): Promise<RcaJobRow> => invoke(IPC.rcaGenerate, slug),
+    status: (slug: string): Promise<RcaStatusPayload> => invoke(IPC.rcaStatus, slug),
+    confirm: (
+      slug: string,
+      jobId: number,
+      assignments: RoleAssignment[],
+      edited: RcaDraft
+    ): Promise<void> => invoke(IPC.rcaConfirm, slug, jobId, assignments, edited),
+    onRcaChanged: (cb: (p: RcaStatusPayload) => void): (() => void) => {
+      const listener = (_e: unknown, p: RcaStatusPayload): void => cb(p)
+      ipcRenderer.on(IPC.rcaChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.rcaChanged, listener)
     }
   },
   search: {
