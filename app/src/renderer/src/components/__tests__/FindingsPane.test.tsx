@@ -275,6 +275,24 @@ describe('FindingsPane', () => {
       ).not.toHaveBeenCalled()
       expect(screen.getByText('Finding one')).toBeInTheDocument()
     })
+
+    it('shows an inline error and keeps the card when the delete call rejects', async () => {
+      vi.mocked(confirm).mockResolvedValue(true)
+      list.mockResolvedValue([row({ id: 1, summary: 'Finding one', mode: 'investigation' })])
+      ;(window.argus.findings as unknown as { delete: ReturnType<typeof vi.fn> }).delete = vi.fn(
+        async () => {
+          throw new Error('Unknown finding: 1')
+        }
+      )
+      render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+      const summary = await screen.findByText('Finding one')
+      const card = summary.closest('li') as HTMLElement
+      const trash = within(card).getByRole('button', { name: 'Delete finding' })
+      fireEvent.click(trash)
+
+      expect(await screen.findByText('Unknown finding: 1')).toBeInTheDocument()
+      expect(screen.getByText('Finding one')).toBeInTheDocument()
+    })
   })
 
   it('Clear findings confirms, calls clear, and refetches', async () => {

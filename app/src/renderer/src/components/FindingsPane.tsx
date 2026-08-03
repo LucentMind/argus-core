@@ -29,6 +29,7 @@ export function FindingsPane({
   const [findings, setFindings] = useState<FindingRow[]>([])
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [clearError, setClearError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [layerFilter, setLayerFilter] = useState<ReviewLayerId | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actingId, setActingId] = useState<number | null>(null)
@@ -151,8 +152,11 @@ export function FindingsPane({
   }
 
   /** Per-finding hard delete: findings.md splice, DB row, and audit all happen in the main
-   *  process (deleteFinding); this just confirms, calls it, and drops the row locally — no
-   *  refetch needed since the service has already committed the removal. */
+   *  process (deleteFinding); this confirms, calls it, and only drops the row locally on
+   *  success — no refetch needed since the service has already committed the removal. Mirrors
+   *  `clearAll`'s try/catch → error-state shape: an unknown id, a second window's concurrent
+   *  delete, or an fs error must surface here rather than becoming an unhandled rejection with
+   *  the card silently staying on screen with no explanation. */
   async function onDelete(id: number): Promise<void> {
     const f = findings.find((x) => x.id === id)
     const ok = await confirm({
@@ -161,8 +165,13 @@ export function FindingsPane({
       danger: true
     })
     if (!ok) return
-    await window.argus.findings.delete(id)
-    setFindings((prev) => prev.filter((x) => x.id !== id))
+    setDeleteError(null)
+    try {
+      await window.argus.findings.delete(id)
+      setFindings((prev) => prev.filter((x) => x.id !== id))
+    } catch (err) {
+      setDeleteError((err as Error).message)
+    }
   }
 
   async function applySelected(): Promise<void> {
@@ -274,6 +283,7 @@ export function FindingsPane({
         className={`flex min-h-0 flex-1 flex-col gap-2 rounded-r3 p-2.5 ${dynamic ? 'glass-panel' : 'surface-card'}`}
       >
         {clearError && <p className="text-xs text-danger">{clearError}</p>}
+        {deleteError && <p className="text-xs text-danger">{deleteError}</p>}
         {actionError && <p className="text-xs text-danger">{actionError}</p>}
         {/* A count suffix (the same "field · value" idiom as the " · sess N" stamp in
             FindingCard.tsx) makes the chip read as a control with its own state, not a copy of
