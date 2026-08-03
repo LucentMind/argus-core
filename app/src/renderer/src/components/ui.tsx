@@ -94,9 +94,22 @@ export function SectionLabel({ children }: { children: ReactNode }): React.JSX.E
   )
 }
 
-/* One size for every button so mixed rows stay aligned (OEH .btn). */
+/* Everything EXCEPT the box metrics, which `BTN_SIZE` supplies. */
 const BTN_BASE =
-  'inline-flex h-7 shrink-0 items-center leading-none gap-1.5 whitespace-nowrap rounded-r2 border px-3 text-xs font-medium transition-colors disabled:opacity-40'
+  'inline-flex shrink-0 items-center leading-none gap-1.5 whitespace-nowrap rounded-r2 border text-xs font-medium transition-colors disabled:opacity-40'
+
+/* Box metrics are interpolated into the class string rather than appended by the caller: a
+   caller-supplied `h-5 px-0` lands after the base `h-7 px-3` in the same `class`, but both are
+   single-class selectors of equal specificity, so stylesheet order decides — and Tailwind emits
+   `.h-5`/`.px-0` before `.h-7`/`.px-3`, so the base always won and the override was silently
+   inert. jsdom resolves no cascade, so no test can catch that regression. Same reasoning as
+   `ICON_BTN_SIZE` below. */
+const BTN_SIZE = {
+  /* One size for every button so mixed rows stay aligned (OEH .btn). */
+  md: 'h-7 px-3',
+  /* Square icon trigger matching IconBtn's `xs`, for dense rails. */
+  iconXs: 'h-5 w-5 justify-center px-0'
+} as const
 
 const BTN_VARIANTS = {
   primary: 'border-transparent bg-signal text-void transition-all hover:brightness-110',
@@ -109,12 +122,19 @@ const BTN_VARIANTS = {
 
 export function Btn({
   variant = 'outline',
+  size = 'md',
   className = '',
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: keyof typeof BTN_VARIANTS
+  size?: keyof typeof BTN_SIZE
 }): React.JSX.Element {
-  return <button {...props} className={`${BTN_BASE} ${BTN_VARIANTS[variant]} ${className}`} />
+  return (
+    <button
+      {...props}
+      className={`${BTN_BASE} ${BTN_SIZE[size]} ${BTN_VARIANTS[variant]} ${className}`}
+    />
+  )
 }
 
 /* Small square icon button. `md` is the top-bar control; `sm` fits tight footer slots; `xs` is
@@ -169,6 +189,7 @@ export function MenuButton({
   align = 'right',
   onOpenChange,
   triggerClassName = '',
+  size = 'md',
   'aria-label': ariaLabel,
   title,
   nocaret = false
@@ -186,6 +207,8 @@ export function MenuButton({
   /** Extra classes for the trigger button, e.g. to keep a case-id trigger looking
    *  like its heading rather than a generic button. */
   triggerClassName?: string
+  /** Box metrics for the trigger. `iconXs` matches IconBtn's `xs` for dense rails. */
+  size?: keyof typeof BTN_SIZE
   'aria-label'?: string
   /** Native tooltip for the trigger. `aria-label` alone gives the button an accessible
    *  name but browsers don't surface it as a hover tooltip — icon-only triggers (e.g.
@@ -231,6 +254,7 @@ export function MenuButton({
     <div className="relative" ref={ref}>
       <Btn
         variant={variant}
+        size={size}
         onClick={() => {
           // Flip upward when there isn't room below (e.g. trigger sits near the bottom of
           // the settings panel) so the menu never renders off-screen or under other chrome.
