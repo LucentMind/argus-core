@@ -1,5 +1,33 @@
 # Changelog
 
+## v2.0.2 — 2026-08-03
+
+3 commits since v2.0.1, 14 files changed (+1,287 / −315).
+
+### Fixed
+
+- A freshly created chat's composer chips (model, run options, permission)
+  were unresponsive until you left and re-entered the case — `SessionSwitcher`
+  and `CaseWorkspace` held separate copies of the session list, so the new
+  chat's row was invisible to the workspace that renders the chips. Both now
+  read one shared session store.
+- The composer's option row now collapses one control at a time (Tool
+  results, then Access, then Traits) as the pane narrows, instead of
+  overflowing between 650px and its own ~760-790px worst-case width, or
+  hiding every control at once below that threshold. The Model chip's width
+  is now capped so it can't feed back into the fit calculation it's an input
+  to.
+- Per-model run options are now curated against measured capabilities rather
+  than derived alone: Sonnet 4.6 loses Extra High/Ultracode (its effort was
+  silently capped at "high" even when the chip claimed `xhigh`); Sonnet 5 and
+  Opus 4.7 lose Ultracode (unverified, held back out of caution); Opus 4.8 and
+  4.7 lose Context Window (this one contradicts an earlier measurement and is
+  flagged in code for revisit); Opus 5, Haiku, Fable, and Opus 4.8's Ultracode
+  are unchanged. Marked provisional in code pending reconciliation.
+- Thinking is now offered only to models without a separate Reasoning control
+  (Haiku gains it; Fable/Sonnet/Opus lose it) — effort already covers that
+  axis more expressively on the models that have one.
+
 ## v2.0.1 — 2026-08-03
 
 11 commits since v2.0.0, 25 files changed (+3,773 / −77).
