@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { ConnectorRegistry } from '../connectors'
 import { SecretStore, type SecretCrypto } from '../secrets'
 import { McpService, fingerprintServers } from '../mcp'
@@ -129,6 +130,56 @@ describe('McpService discovery against the fixture stdio server', () => {
       expect(svc.runtimeStates().web).toMatchObject({ state: 'needs-auth' })
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  }, 30000)
+})
+
+describe('McpService.callTool', () => {
+  it('tool name and args reach the server; text content is returned', async () => {
+    registry.patch({
+      fix: { kind: 'stdio', config: { command: process.execPath, args: [FIXTURE] } }
+    })
+    const svc = new McpService({ registry, secrets, toolRisk: () => ({}) })
+    const result = await svc.callTool('fix', 'echo_args', { foo: 'bar', n: 1 })
+    expect(JSON.parse(result)).toEqual({ foo: 'bar', n: 1 })
+  }, 30000)
+
+  it('multiple text content blocks are joined with newline', async () => {
+    registry.patch({
+      fix: { kind: 'stdio', config: { command: process.execPath, args: [FIXTURE] } }
+    })
+    const svc = new McpService({ registry, secrets, toolRisk: () => ({}) })
+    const result = await svc.callTool('fix', 'multi_text', {})
+    expect(result).toBe('first\nsecond')
+  }, 30000)
+
+  it('isError: true throws, using the text content as the message', async () => {
+    registry.patch({
+      fix: { kind: 'stdio', config: { command: process.execPath, args: [FIXTURE] } }
+    })
+    const svc = new McpService({ registry, secrets, toolRisk: () => ({}) })
+    await expect(svc.callTool('fix', 'fail_tool', {})).rejects.toThrow('boom: bad input')
+  }, 30000)
+
+  it('unknown connector id throws', async () => {
+    const svc = new McpService({ registry, secrets, toolRisk: () => ({}) })
+    await expect(svc.callTool('ghost', 'anything', {})).rejects.toThrow(/unknown connector/)
+  })
+
+  it('the client is closed on both the success and the error (isError) path', async () => {
+    registry.patch({
+      fix: { kind: 'stdio', config: { command: process.execPath, args: [FIXTURE] } }
+    })
+    const svc = new McpService({ registry, secrets, toolRisk: () => ({}) })
+    const closeSpy = vi.spyOn(Client.prototype, 'close')
+    try {
+      await svc.callTool('fix', 'echo_args', {})
+      expect(closeSpy).toHaveBeenCalledTimes(1)
+      closeSpy.mockClear()
+      await expect(svc.callTool('fix', 'fail_tool', {})).rejects.toThrow()
+      expect(closeSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      closeSpy.mockRestore()
     }
   }, 30000)
 })

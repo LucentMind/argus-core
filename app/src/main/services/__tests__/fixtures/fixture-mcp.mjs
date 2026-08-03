@@ -20,7 +20,19 @@ const TOOLS = [
 
 const server = new Server({ name: 'fixture', version: '1.0.0' }, { capabilities: { tools: {} } })
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }))
-server.setRequestHandler(CallToolRequestSchema, async (req) => ({
-  content: [{ type: 'text', text: `ran ${req.params.name}` }]
-}))
+server.setRequestHandler(CallToolRequestSchema, async (req) => {
+  const { name, arguments: args } = req.params
+  // callTool test fixtures: exercise arg pass-through, multi-block text join, and isError.
+  if (name === 'echo_args') return { content: [{ type: 'text', text: JSON.stringify(args ?? {}) }] }
+  if (name === 'multi_text')
+    return {
+      content: [
+        { type: 'text', text: 'first' },
+        { type: 'text', text: 'second' }
+      ]
+    }
+  if (name === 'fail_tool')
+    return { content: [{ type: 'text', text: 'boom: bad input' }], isError: true }
+  return { content: [{ type: 'text', text: `ran ${name}` }] }
+})
 await server.connect(new StdioServerTransport())

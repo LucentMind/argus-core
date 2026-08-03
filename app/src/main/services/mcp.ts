@@ -204,6 +204,35 @@ export class McpService {
     }
   }
 
+  /**
+   * One-shot tool call: connect → callTool → teardown (same lifecycle as probe(), not
+   * the composed session transport). Returns the result's text content blocks joined
+   * with newline; throws on `isError` results using that text as the message.
+   */
+  async callTool(instanceId: string, name: string, args: Record<string, unknown>): Promise<string> {
+    const inst = this.deps.registry.get()[instanceId]
+    if (!inst) throw new Error(`unknown connector: ${instanceId}`)
+    // Constructed here (not inside connect()) so the finally can always tear it
+    // down — mirrors probe()'s reasoning.
+    const client = new Client({ name: 'argus-calltool', version: '1.0.0' })
+    try {
+      await this.withTimeout(this.connect(client, instanceId, inst), 'connect')
+      const res = await this.withTimeout(
+        client.callTool({ name, arguments: args }),
+        `callTool ${name}`
+      )
+      const text =
+        (res.content as Array<{ type: string; text?: string }> | undefined)
+          ?.filter((c) => c.type === 'text' && typeof c.text === 'string')
+          .map((c) => c.text)
+          .join('\n') ?? ''
+      if (res.isError) throw new Error(text || `tool ${name} failed`)
+      return text
+    } finally {
+      await client.close().catch(() => {})
+    }
+  }
+
   private withTimeout<T>(p: Promise<T>, what: string): Promise<T> {
     const timeoutMs = this.deps.probeTimeoutMs ?? PROBE_TIMEOUT_MS
     let timer: ReturnType<typeof setTimeout> | undefined
