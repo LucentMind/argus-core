@@ -2,24 +2,28 @@
 
 ## The one thing that trips everyone up
 
-`.github/workflows/build.yml` creates a **draft** release, and **electron-updater ignores
-drafts**. Until a human clicks Publish, no installed copy of Argus can see the new version.
-Publishing the draft *is* the act of making an update available.
+`.github/workflows/build.yml` creates a **published** release, not a draft — pushing a
+`vX.Y.Z` tag ships it. There is no human review checkpoint between a green build and
+electron-updater offering the new version to every installed copy at its next boot check.
+Nothing in this pipeline waits on the separate CI workflow's test suite either, so **make
+sure `main` is green before you tag**, not after.
 
 ## Steps
 
-1. Bump `version` in `app/package.json`. It must match the tag you are about to push.
-2. Commit the bump, then tag and push:
+1. Bump `version` in `app/package.json` (and the two matching entries in
+   `app/package-lock.json`). It must match the tag you are about to push.
+2. Add a `## vX.Y.Z — YYYY-MM-DD` section to the top of `CHANGELOG.md` — the release job reads
+   this section verbatim for the release notes and fails the job if it's missing.
+3. Commit the bump, then tag and push:
 
        git tag v1.1.0
        git push origin v1.1.0
 
-3. `build.yml` builds Windows and macOS-arm64, signs and notarizes the mac bundle, staples the
-   DMG, and creates a **draft** release carrying `.exe`, `.dmg`, `.zip`, `.blockmap` and
-   `latest*.yml`.
-4. Check the run is green, then **publish the draft release**.
+4. `build.yml` builds Windows and macOS-arm64, signs and notarizes the mac bundle, staples the
+   DMG, and creates a **published** release carrying `.exe`, `.dmg`, `.zip`, `.blockmap` and
+   `latest*.yml`, with notes pulled from the `CHANGELOG.md` section for that tag.
 5. Installed copies see the update at their next launch (a boot check) or when the user clicks
-   *Check for updates* in Settings → General.
+   *Check for updates* in Settings → General — no publish step needed, it's already live.
 
 ## Notes
 

@@ -200,9 +200,12 @@ jobs:
           fi
           cat /tmp/changelog-section.md
 
-      # Draft: assets land on the release page but nothing is public until
-      # someone clicks Publish.
-      - name: Create draft release
+      # Published immediately, not drafted: pushing a `vX.Y.Z` tag IS the act of shipping to
+      # users, with no human review checkpoint in between. electron-updater ignores drafts, so
+      # this is what makes the update visible to every installed copy at their next boot check.
+      # Nothing here gates on the separate CI workflow's test suite — make sure main is green
+      # before tagging, since this job won't check for you.
+      - name: Create and publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -220,6 +223,5 @@ jobs:
           gh release create "${{ github.ref_name }}" \
             --repo "${{ github.repository }}" \
             --title "${{ github.ref_name }}" \
-            --draft \
             --notes-file /tmp/release-notes.md \
             artifacts/*
