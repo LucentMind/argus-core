@@ -52,3 +52,13 @@ export interface PacksListPayload {
   packs: InstalledPackRow[]
   error: string | null
 }
+
+/** One pack a GitHub repository publishes, as offered by the install-from-repo picker. */
+export interface RepoPackRow {
+  id: string
+  version: string
+  tag: string
+  /** False when this Core cannot run it; `reason` says why. Rendered, never silently dropped. */
+  installable: boolean
+  reason?: string
+}
