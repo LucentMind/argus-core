@@ -1,5 +1,32 @@
 # Changelog
 
+## v2.0.5 — 2026-08-03
+
+8 commits since v2.0.4, 22 files changed (+1,932 / −37).
+
+### Added
+
+**Defect corpus admin config**
+
+- Defect corpus sources move out of the Team page into their own dedicated
+  Settings page, with a per-source ingestion config editor and admin config
+  passthroughs (typed failure codes) to each source's backend.
+- A JQL dry-run preview in the ingestion editor lets you check a source's
+  query against real results before saving it.
+
+### Fixed
+
+- Defect corpus: the LLM endpoint field, admin-config load retry, admin
+  timeout, and per-source group passthrough.
+- Packs: the relaunch prompt now survives leaving the Packs page or opening
+  a second window — main tracks the pack ids it has actually written since
+  the registry loaded and reports that as a durable `relaunchRequired`
+  signal, instead of relying on an installed/loaded version comparison that
+  reads as "settled" on both a same-version reinstall and an uninstall. The
+  Relaunch button also no longer disables itself on the page's own
+  in-flight `busy` flag, which could strand it after an operation that
+  failed to settle.
+
 ## v2.0.4 — 2026-08-03
 
 31 commits since v2.0.3, 78 files changed (+6,735 / −91).
