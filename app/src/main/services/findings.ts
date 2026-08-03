@@ -187,6 +187,30 @@ export function clearFindings(
   return { cleared: ids.length }
 }
 
+/** Order: findings.md splice FIRST, then row delete, then audit. A crash between the
+ *  steps leaves a body-less row (visible, re-deletable) — never an orphaned md block. */
+export function deleteFinding(
+  db: DatabaseSync,
+  argusHome: string,
+  id: number
+): { deleted: true } {
+  const row = db
+    .prepare(
+      `SELECT f.*, c.slug AS slug FROM findings f JOIN cases c ON c.id = f.case_id WHERE f.id = ?`
+    )
+    .get(id) as (Raw & { slug: string }) | undefined
+  if (!row) throw new Error(`Unknown finding: ${id}`)
+  const mdPath = path.join(caseDir(argusHome, row.slug), 'findings.md')
+  try {
+    fs.writeFileSync(mdPath, removeFindingBodies(fs.readFileSync(mdPath, 'utf8'), new Set([id])))
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+  }
+  db.prepare(`DELETE FROM findings WHERE id = ?`).run(id)
+  appendDeletionAudit(argusHome, 'finding.delete', row.slug, { id, summary: row.summary })
+  return { deleted: true }
+}
+
 /**
  * Record the outcome of a write action on a finding. Only the supplied keys are written, so
  * posting a comment never clears a previous push and vice versa. Silently no-ops on an empty
