@@ -197,6 +197,7 @@ import { PacksStateStore } from './services/packs/packsState'
 import { installPack, uninstallPack, inspectBundleSource } from './services/packs/install'
 import { listInstalledPacks } from './services/packs/packsService'
 import { PackUpdatesService, nodeHttpClient } from './services/packs/packUpdates'
+import { nodeGhClient } from './services/packs/ghClient'
 import { autoUpdater } from 'electron-updater'
 import { CoreUpdaterService, noopBackend } from './services/update/coreUpdater'
 import { createElectronUpdaterBackend } from './services/update/electronUpdaterBackend'
@@ -975,7 +976,12 @@ function registerIpc(): void {
   // — packs (install/uninstall/list; 2c) —
   // Checked only when the Packs page asks, never on boot: a fan-out to every vendor origin at
   // startup is exactly the traffic a locked-down environment notices.
-  const packUpdates = new PackUpdatesService({ argusHome, state: packsState, http: nodeHttpClient })
+  const packUpdates = new PackUpdatesService({
+    argusHome,
+    state: packsState,
+    http: nodeHttpClient,
+    gh: nodeGhClient
+  })
   let packUpdateStatuses: Record<string, UpdateStatus> = {}
   ipcMain.handle(IPC.packsList, () =>
     listInstalledPacks({

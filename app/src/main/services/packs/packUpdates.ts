@@ -5,7 +5,15 @@ import { once } from 'node:events'
 import { finished } from 'node:stream/promises'
 import { ZodError } from 'zod'
 import { packFeedSchema, selectUpdate, type FeedEntry } from './feed'
-import { isGithubSource, type PacksStateStore, type FeedPackSource } from './packsState'
+import { findGithubUpdate, RepoMovedError, type GithubCandidate } from './githubFeed'
+import { GhError, type GhClient } from './ghClient'
+import {
+  isGithubSource,
+  type PacksStateStore,
+  type PackSource,
+  type FeedPackSource,
+  type GithubPackSource
+} from './packsState'
 import { installPack, inspectBundleSource } from './install'
 import type { UpdateStatus, UpdateErrorCode } from '../../../shared/updates'
 
@@ -210,6 +218,8 @@ export interface PackUpdatesDeps {
   argusHome: string
   state: PacksStateStore
   http: HttpClient
+  /** Required for github-pinned packs. Absent only in tests that use feed pins exclusively. */
+  gh?: GhClient
   /** Injected so tests can observe delegation. Production passes `installPack` itself. */
   install?: typeof installPack
   /** Injected so tests can fake the post-checksum identity check. Production passes the real
@@ -218,6 +228,17 @@ export interface PackUpdatesDeps {
   host?: { platform: string; arch: string }
   now?: () => number
 }
+
+/**
+ * What `findUpdate` resolves to. `entry` is what the user is offered; `download` is how to fetch
+ * it, and is the ONLY part that differs between a vendor feed and a GitHub release.
+ */
+type Selection =
+  | { entry: FeedEntry; download: { kind: 'url'; url: string; pin: FeedPackSource } }
+  | {
+      entry: FeedEntry
+      download: { kind: 'gh'; pin: GithubPackSource; candidate: GithubCandidate }
+    }
 
 export class PackUpdatesService {
   private readonly now: () => number
@@ -237,8 +258,11 @@ export class PackUpdatesService {
     const results = await Promise.all(
       ids.map(async (id): Promise<[string, UpdateStatus]> => {
         try {
-          const entry = await this.findUpdate(id)
-          return [id, entry ? { phase: 'available', version: entry.version } : { phase: 'idle' }]
+          const found = await this.findUpdate(id)
+          return [
+            id,
+            found ? { phase: 'available', version: found.entry.version } : { phase: 'idle' }
+          ]
         } catch (err) {
           return [id, this.errorOf(err)]
         }
@@ -254,17 +278,9 @@ export class PackUpdatesService {
   async apply(id: string): Promise<UpdateStatus> {
     let tmp: string | null = null
     try {
-      const entry = await this.findUpdate(id)
-      if (!entry) return { phase: 'idle' }
-
-      const pin = this.pinOf(id)
-      this.assertHttps(entry.url)
-      if (new URL(entry.url).origin !== pin.origin) {
-        throw new UpdateError(
-          'origin-pin',
-          `bundle origin '${new URL(entry.url).origin}' does not match the origin this pack was installed from ('${pin.origin}')`
-        )
-      }
+      const found = await this.findUpdate(id)
+      if (!found) return { phase: 'idle' }
+      const { entry, download } = found
 
       // Created under argusHome (not os.tmpdir()) because it's known-writable and has room for a
       // large bundle — NOT because installPack's later rename needs to be same-filesystem: it
@@ -274,23 +290,65 @@ export class PackUpdatesService {
       tmp = dir
       const zipPath = path.join(dir, `${id}.zip`)
 
-      let dl: HttpToFileResult
-      try {
-        dl = await this.deps.http.getToFile(entry.url, zipPath, {
-          maxBytes: MAX_PACK_BUNDLE_BYTES,
-          timeoutMs: DOWNLOAD_TIMEOUT_MS
-        })
-      } catch (err) {
-        if (err instanceof HttpTooLargeError) throw new UpdateError('too-large', err.message)
-        throw new UpdateError('download', (err as Error).message)
-      }
-      this.assertNoRedirect(dl)
-      if (dl.status !== 200) {
-        throw new UpdateError('download', `download failed: HTTP ${dl.status}`)
+      let sha256: string
+      if (download.kind === 'url') {
+        this.assertHttps(download.url)
+        // Defense in depth, preserved from before `findUpdate` existed: re-read the pin fresh
+        // here rather than trusting `download.pin` (captured before the feed fetch) — a racing
+        // uninstall/reinstall that rewrites the source WHILE that fetch is in flight must still
+        // be caught. Falls back to the selection-time pin only if the fresh read is itself a
+        // github pin (kind changed mid-flight), which is not a case the feed origin check owns.
+        const freshPin = this.deps.state.getSource(id)
+        const originPin = freshPin && !isGithubSource(freshPin) ? freshPin : download.pin
+        if (new URL(download.url).origin !== originPin.origin) {
+          throw new UpdateError(
+            'origin-pin',
+            `bundle origin '${new URL(download.url).origin}' does not match the origin this pack was installed from ('${originPin.origin}')`
+          )
+        }
+        let dl: HttpToFileResult
+        try {
+          dl = await this.deps.http.getToFile(download.url, zipPath, {
+            maxBytes: MAX_PACK_BUNDLE_BYTES,
+            timeoutMs: DOWNLOAD_TIMEOUT_MS
+          })
+        } catch (err) {
+          if (err instanceof HttpTooLargeError) throw new UpdateError('too-large', err.message)
+          throw new UpdateError('download', (err as Error).message)
+        }
+        this.assertNoRedirect(dl)
+        if (dl.status !== 200) {
+          throw new UpdateError('download', `download failed: HTTP ${dl.status}`)
+        }
+        sha256 = dl.sha256
+      } else {
+        // gh writes the file itself, so the byte cap cannot be enforced mid-stream the way
+        // getToFile does. Refuse on the size the API already reported instead — a bound on the
+        // advertised size, which is the most this transport can offer. Documented in
+        // docs/authoring-packs.md rather than left as an unstated difference.
+        if (download.candidate.size > MAX_PACK_BUNDLE_BYTES) {
+          throw new UpdateError(
+            'too-large',
+            `the published asset is ${download.candidate.size} bytes, over the ${MAX_PACK_BUNDLE_BYTES} byte limit`
+          )
+        }
+        const gh = this.deps.gh
+        if (!gh) throw new UpdateError('gh', 'the GitHub CLI client is not available')
+        try {
+          ;({ sha256 } = await gh.downloadAsset(
+            download.pin,
+            download.candidate.tag,
+            download.candidate.assetName,
+            zipPath
+          ))
+        } catch (err) {
+          if (err instanceof GhError) throw new UpdateError('gh', err.message)
+          throw new UpdateError('download', (err as Error).message)
+        }
       }
 
-      if (dl.sha256 !== entry.sha256) {
-        throw new UpdateError('checksum', 'downloaded bundle does not match the feed checksum')
+      if (sha256 !== entry.sha256) {
+        throw new UpdateError('checksum', 'downloaded bundle does not match the published checksum')
       }
 
       // The feed and origin only ever vouch for *a* bundle at this URL — `installPack` reads the
@@ -346,19 +404,14 @@ export class PackUpdatesService {
     }
   }
 
-  private pinOf(id: string): FeedPackSource {
+  private pinOf(id: string): PackSource {
     const pin = this.deps.state.getSource(id)
     if (!pin) throw new UpdateError('feed', `pack '${id}' has no recorded update source`)
-    // A GitHub pin has no feed to fetch — that path is a separate check, not yet wired up here.
-    if (isGithubSource(pin)) {
-      throw new UpdateError('feed', `pack '${id}' is pinned to a GitHub repo, not a feed`)
-    }
     return pin
   }
 
   /** Fetches the pinned feed and selects, or throws an UpdateError. */
-  private async findUpdate(id: string): Promise<FeedEntry | null> {
-    const pin = this.pinOf(id)
+  private async findFeedUpdate(id: string, pin: FeedPackSource): Promise<FeedEntry | null> {
     this.assertHttps(pin.updateUrl)
 
     let res: HttpResponse
@@ -408,6 +461,45 @@ export class PackUpdatesService {
       )
     }
     return selected.entry
+  }
+
+  /** Dispatches on the pin kind. Everything downstream of this consumes a `Selection`. */
+  private async findUpdate(id: string): Promise<Selection | null> {
+    const pin = this.pinOf(id)
+    if (!isGithubSource(pin)) {
+      const entry = await this.findFeedUpdate(id, pin)
+      // The pin travels WITH the selection rather than being re-fetched and type-asserted in
+      // apply(): the narrowing that proves it is a feed pin happens here, exactly once.
+      return entry ? { entry, download: { kind: 'url', url: entry.url, pin } } : null
+    }
+
+    const installedVersion = this.deps.state.get(id)
+    if (!installedVersion) throw new UpdateError('feed', `pack '${id}' is not installed`)
+    const gh = this.deps.gh
+    if (!gh) throw new UpdateError('gh', 'the GitHub CLI client is not available')
+
+    let found: Awaited<ReturnType<typeof findGithubUpdate>>
+    try {
+      found = await findGithubUpdate({ gh, host: this.deps.host }, pin, id, installedVersion)
+    } catch (err) {
+      // A moved repo is the gh-path analogue of a cross-origin redirect, so it reports through
+      // the SAME code — the Packs row's "download it manually" branch is already written for it.
+      if (err instanceof RepoMovedError) throw new UpdateError('origin-pin', err.message)
+      if (err instanceof GhError) throw new UpdateError('gh', err.message)
+      throw new UpdateError('feed', (err as Error).message)
+    }
+    if (!found) return null
+
+    // Persist the resolved manifest path so the next check skips the tree search. Written on a
+    // CHECK rather than only on apply: the search cost is paid whenever an update exists, not
+    // only when the user takes it.
+    if (found.manifestPath !== pin.manifestPath) {
+      this.deps.state.setSource(id, { ...pin, manifestPath: found.manifestPath })
+    }
+    return {
+      entry: found.candidate.entry,
+      download: { kind: 'gh', pin, candidate: found.candidate }
+    }
   }
 
   private assertHttps(url: string): void {

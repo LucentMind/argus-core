@@ -10,10 +10,12 @@ import {
   PackUpdatesService,
   nodeHttpClient,
   HttpTooLargeError,
+  MAX_PACK_BUNDLE_BYTES,
   type HttpClient,
   type HttpResponse
 } from '../packUpdates'
 import { PacksStateStore } from '../packsState'
+import { GhError, type GhClient } from '../ghClient'
 import type { InstallResult, InspectResult } from '../../../../shared/packs'
 
 const WIN = { platform: 'win32', arch: 'x64' }
@@ -207,23 +209,6 @@ describe('checkAll', () => {
     const res = await svc(c).checkAll()
     expect(res.sample).toEqual({ phase: 'available', version: '1.1.0' })
     expect(res.beta).toMatchObject({ phase: 'error', code: 'feed' })
-  })
-
-  // INTERIM BEHAVIOUR — delete this test when the GitHub source lands and `pinOf` stops
-  // throwing for a github pin. Until then, a github-pinned pack must degrade to a per-pack
-  // error status rather than crashing the whole check.
-  it('reports a github-pinned pack as an error instead of crashing the batch', async () => {
-    state.setSource('sample', {
-      kind: 'github',
-      host: 'github.com',
-      owner: 'LucentMind',
-      repo: 'demo_pack',
-      installedAt: 1
-    })
-    const c = http({})
-    expect((await svc(c).checkAll()).sample).toMatchObject({ phase: 'error', code: 'feed' })
-    // pinOf throws before any fetch — the feed client must never be reached.
-    expect(c.urls).toEqual([])
   })
 })
 
@@ -500,6 +485,168 @@ describe('apply', () => {
     const s = await svc(c).apply('sample')
     expect(s).toMatchObject({ phase: 'error', code: 'feed' })
     expect((s as { message: string }).message).toMatch(/^invalid feed:/)
+  })
+})
+
+describe('github-pinned packs', () => {
+  const GH_PIN = {
+    kind: 'github' as const,
+    host: 'github.com',
+    owner: 'LucentMind',
+    repo: 'demo_pack',
+    installedAt: 0
+  }
+
+  function ghRoutes(sha: string): Record<string, unknown> {
+    return {
+      'repos/LucentMind/demo_pack/releases': [
+        {
+          tag_name: 'v1.1.0',
+          draft: false,
+          prerelease: false,
+          html_url: 'https://github.com/LucentMind/demo_pack/releases/tag/v1.1.0',
+          assets: [
+            {
+              name: 'sample-1.1.0-win-x64.zip',
+              size: 21,
+              digest: `sha256:${sha}`,
+              browser_download_url:
+                'https://github.com/LucentMind/demo_pack/releases/download/v1.1.0/sample-1.1.0-win-x64.zip'
+            }
+          ]
+        }
+      ],
+      'repos/LucentMind/demo_pack/git/trees': {
+        tree: [{ path: 'packs/sample/argus-pack.json', type: 'blob' }]
+      },
+      'repos/LucentMind/demo_pack/contents': {
+        content: Buffer.from(
+          JSON.stringify({ id: 'sample', version: '1.1.0', argusApi: '^1' })
+        ).toString('base64')
+      }
+    }
+  }
+
+  function ghClient(routes: Record<string, unknown>, onDownload?: () => void): GhClient {
+    return {
+      api: async (_ref, p) => {
+        const key = Object.keys(routes).find((k) => p.startsWith(k))
+        if (!key) throw new GhError('notfound', p)
+        return routes[key]
+      },
+      downloadAsset: async (_ref, _tag, _name, dest) => {
+        fs.writeFileSync(dest, ZIP)
+        onDownload?.()
+        return { sha256: ZIP_SHA, bytesWritten: ZIP.length }
+      }
+    }
+  }
+
+  /** The HTTP client must never be reached for a github pin — any call here is the branch
+   *  leaking, so this records rather than silently succeeding. */
+  function neverHttp(): HttpClient & { calls: string[] } {
+    const calls: string[] = []
+    return {
+      calls,
+      get: async (url) => {
+        calls.push(url)
+        throw new Error(`unexpected feed fetch: ${url}`)
+      },
+      getToFile: async (url) => {
+        calls.push(url)
+        throw new Error(`unexpected download: ${url}`)
+      }
+    }
+  }
+
+  /** Mirrors the file's `svc()`, but injects a gh client and a never-called HTTP client. */
+  function ghSvc(gh: GhClient, http: HttpClient = neverHttp()): PackUpdatesService {
+    return new PackUpdatesService({
+      argusHome: home,
+      state,
+      http,
+      gh,
+      install: install as never,
+      inspectBundleSource: inspect as never,
+      host: WIN,
+      now: () => 1000
+    })
+  }
+
+  beforeEach(() => {
+    state.setSource('sample', GH_PIN)
+  })
+
+  it('reports an available update from a release', async () => {
+    expect(await ghSvc(ghClient(ghRoutes(ZIP_SHA))).checkAll()).toEqual({
+      sample: { phase: 'available', version: '1.1.0' }
+    })
+  })
+
+  it('downloads through gh, verifies the digest, and installs', async () => {
+    expect(await ghSvc(ghClient(ghRoutes(ZIP_SHA))).apply('sample')).toEqual({
+      phase: 'ready',
+      version: '1.1.0'
+    })
+    expect(install).toHaveBeenCalledOnce()
+  })
+
+  it('refuses a bundle whose digest does not match', async () => {
+    const status = await ghSvc(ghClient(ghRoutes('b'.repeat(64)))).apply('sample')
+    expect(status).toMatchObject({ phase: 'error', code: 'checksum' })
+    expect(install).not.toHaveBeenCalled()
+  })
+
+  it('reports a renamed repo as origin-pin, reusing the manual-download branch', async () => {
+    const routes = ghRoutes(ZIP_SHA)
+    ;(routes['repos/LucentMind/demo_pack/releases'] as Array<Record<string, unknown>>)[0].html_url =
+      'https://github.com/OtherOrg/demo_pack/releases/tag/v1.1.0'
+    expect(await ghSvc(ghClient(routes)).checkAll()).toMatchObject({
+      sample: { phase: 'error', code: 'origin-pin' }
+    })
+  })
+
+  it('reports a gh failure with the gh code, not the feed code', async () => {
+    const failing: GhClient = {
+      api: async () => {
+        throw new GhError('auth', 'the GitHub CLI is not authenticated')
+      },
+      downloadAsset: async () => {
+        throw new Error('unused')
+      }
+    }
+    expect(await ghSvc(failing).checkAll()).toMatchObject({
+      sample: { phase: 'error', code: 'gh' }
+    })
+  })
+
+  it('refuses an asset larger than the bundle cap before downloading it', async () => {
+    const routes = ghRoutes(ZIP_SHA)
+    ;(
+      (routes['repos/LucentMind/demo_pack/releases'] as Array<Record<string, unknown>>)[0]
+        .assets as Array<Record<string, unknown>>
+    )[0].size = MAX_PACK_BUNDLE_BYTES + 1
+    const downloaded = vi.fn()
+    expect(await ghSvc(ghClient(routes, downloaded)).apply('sample')).toMatchObject({
+      phase: 'error',
+      code: 'too-large'
+    })
+    expect(downloaded).not.toHaveBeenCalled()
+  })
+
+  it('never touches the HTTP client for a github pin', async () => {
+    const http = neverHttp()
+    await ghSvc(ghClient(ghRoutes(ZIP_SHA)), http).checkAll()
+    // The two paths must not bleed: an https feed fetch here would mean the branch is wrong.
+    expect(http.calls).toEqual([])
+  })
+
+  it('records the resolved manifest path so the next check skips the tree search', async () => {
+    const gh = ghClient(ghRoutes(ZIP_SHA))
+    await ghSvc(gh).checkAll()
+    expect(state.getSource('sample')).toMatchObject({
+      manifestPath: 'packs/sample/argus-pack.json'
+    })
   })
 })
 
