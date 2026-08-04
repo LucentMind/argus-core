@@ -436,4 +436,56 @@ describe('isSoleAuthor', () => {
   it('is false when this machine has no git identity — sole authorship is unprovable', () => {
     expect(isSoleAuthor('# just a body\n', null)).toBe(false)
   })
+
+  it('is false for a forked asset even when author and every contributor are me — origin: fork always means it came from somewhere else', () => {
+    const raw = [
+      '---',
+      'author: Jiawei Han <jiawiehan@gmail.com>',
+      'origin: fork',
+      'contributors:',
+      '  - Jiawei Han <jiawiehan@gmail.com> 2026-08-01',
+      '---',
+      '# body\n'
+    ].join('\n')
+    expect(isSoleAuthor(raw, me)).toBe(false)
+  })
+
+  it('is false for a reference carrying source_repo — that stamp means it came from a hive, whoever now claims it', () => {
+    const raw = [
+      '---',
+      'trust_tier: user',
+      'source_repo: acme/hivemind',
+      'author: Jiawei Han <jiawiehan@gmail.com>',
+      'contributors:',
+      '  - Jiawei Han <jiawiehan@gmail.com> 2026-08-01',
+      '---',
+      '# body\n'
+    ].join('\n')
+    expect(isSoleAuthor(raw, me)).toBe(false)
+  })
+
+  it('is false for a reference carrying source_commit alone — same trail as source_repo', () => {
+    const raw = [
+      '---',
+      'trust_tier: user',
+      'source_commit: abc123',
+      'author: Jiawei Han <jiawiehan@gmail.com>',
+      '---',
+      '# body\n'
+    ].join('\n')
+    expect(isSoleAuthor(raw, me)).toBe(false)
+  })
+
+  it('is true for a genuinely self-authored asset with neither signal — guard against over-disqualifying', () => {
+    const raw = [
+      '---',
+      'author: Jiawei Han <jiawiehan@gmail.com>',
+      'origin: authored',
+      'contributors:',
+      '  - Jiawei Han <jiawiehan@gmail.com> 2026-08-01',
+      '---',
+      '# body\n'
+    ].join('\n')
+    expect(isSoleAuthor(raw, me)).toBe(true)
+  })
 })

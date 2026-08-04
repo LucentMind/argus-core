@@ -2155,6 +2155,42 @@ describe('pushStatus', () => {
     expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({ state: 'none' })
   })
 
+  it('a forked asset with no author is not sole-authored: it takes the gh pr list path, not the receipt shortcut', async () => {
+    // forkSkill stamps author = me (via stampAuthorship's origin:'fork' branch) when the
+    // upstream skill had none, and origin: fork. Pre-fix, isSoleAuthor read that as "only I
+    // ever touched this" and took the receipt-only path — unreachable for exactly the
+    // co-owned assets this feature exists to protect. No receipt is seeded here at all: the
+    // point is that pushStatus must reach the `gh pr list` search regardless of a receipt.
+    seedClone()
+    const trail = [
+      '---',
+      'name: my-skill',
+      'description: forked from the hive',
+      'author: Jiawei Han <me@example.test>',
+      'origin: fork',
+      'contributors:',
+      '  - Jiawei Han <me@example.test> 2026-08-01',
+      '---',
+      '# my-skill\n'
+    ].join('\n')
+    fs.mkdirSync(path.join(home, 'skills-user', 'my-skill'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), trail)
+    const ghCalls: string[][] = []
+    const gh: Runner = async (_c, args) => {
+      ghCalls.push(args)
+      if (args[0] === 'api') return 'jiawei-han'
+      return JSON.stringify([])
+    }
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: fakeGit().runner,
+      gh
+    })
+    expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({ state: 'none' })
+    expect(ghCalls.some((c) => c[0] === 'pr' && c[1] === 'list')).toBe(true)
+  })
+
   it('fails open with a warning when gh throws, so sharing is never blocked by a broken check', async () => {
     seedClone()
     seedAssets()

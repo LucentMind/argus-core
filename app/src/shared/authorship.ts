@@ -173,6 +173,21 @@ export function stampAuthorship(
  * `stampAuthorship` no-ops without an identity, so an empty trail plus a real identity means
  * "written before authorship stamping existed", not "written by someone unknown".
  *
+ * An absent `author` is NOT by itself proof of sole authorship — that was the original bug here.
+ * Hive assets routinely ship with no `author:` frontmatter at all (every core skill does), and two
+ * mainline flows turn "someone else's asset" into exactly the shape this function used to call
+ * sole: `forkSkill` stamps `author = me` when none exists (`stampAuthorship` with `origin: 'fork'`),
+ * and `claimReference` deliberately passes `origin: null` so the claimer joins the contributor list
+ * without asserting authorship — leaving `author` still absent, one contributor: me. Both are
+ * "I did not write this, I only just touched it," and the receipt-only fast path this function
+ * gates must not fire for either: it would skip the `gh` lookup entirely and let a second PR open
+ * while the original author's is still up. Two signals always survive a fork or a claim and always
+ * mean "this came from somewhere else," so they disqualify sole authorship independent of the
+ * author/contributors shape: `origin === 'fork'` (rewritten by `stampAuthorship` even when an
+ * author already exists — the sole case origin is ever rewritten), and, for references,
+ * `source_repo`/`source_commit` (stamped by `install()` on every hive copy and preserved by
+ * `claimReference`).
+ *
  * Emails compare case-insensitively for the same reason `stampAuthorship` dedupes that way —
  * addresses are case-insensitive, and `J.Han@corp` vs `j.han@corp` is one person.
  */
@@ -184,7 +199,11 @@ export function isSoleAuthor(raw: string, me: Identity | null): boolean {
     const m = /^(.*?)\s*<([^>]+)>$/.exec(entry.trim())
     return m !== null && m[2].trim().toLowerCase() === key
   }
-  const { author, contributors } = parseAuthorship(raw)
+  const { author, origin, contributors } = parseAuthorship(raw)
+  if (origin === 'fork') return false
+  const block = fmBlock(raw)
+  if (block && (fmField(block.fm, 'source_repo') || fmField(block.fm, 'source_commit')))
+    return false
   if (author !== null && !isMe(author)) return false
   if (contributors.length > 1) return false
   return contributors.length === 0 || contributors[0].email.trim().toLowerCase() === key
