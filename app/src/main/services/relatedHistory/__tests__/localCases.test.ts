@@ -115,13 +115,15 @@ describe('local provider — regression tests for the spec §1 defect', () => {
     if (r.ok) expect(r.hits.map((h) => (h as LocalCaseHit).caseSlug)).toEqual(['target'])
   })
 
-  it('3b. a strong term that is NOT rare still relaxes overlap on its own', async () => {
-    // Isolates the `isStrong` limb of Rule 3 from rarity entirely: test 3's
-    // 'E_TIMEOUT_42' happens to be rare too, so it can't tell whether strength
-    // or rarity is doing the relaxing. Here the shared term has df=3 in a
-    // 12-summary corpus (threshold 0.3*12=3.6, so it still survives Rule 2) —
-    // not rare by any measure — and its only source is a `signature` token.
-    // Relaxation must come from `isStrong` alone.
+  it('3b. a strong term that is NOT rare does NOT relax overlap on its own', async () => {
+    // Rule 3 requires strong-source AND rare (fix pass 2, per coordinator
+    // review): a strong term that is common in the corpus is shared
+    // vocabulary, not decisive evidence, and still needs a second overlapping
+    // term. Here the shared term has df=3 in a 12-summary corpus (threshold
+    // 0.3*12=3.6, so it still survives Rule 2) — not rare by any measure
+    // (df=3 > RARE_DF=2) — and its only source is a `signature` token, so it
+    // WOULD have relaxed under the old (pre-fix-pass-2) `isStrong(term)`-alone
+    // rule. It must not relax now.
     pad(9)
     add('alpha', 'solved', { signature: 'brakejitter observed on alpha rig' })
     add('beta', 'solved', { signature: 'brakejitter observed on beta rig' })
@@ -138,14 +140,30 @@ describe('local provider — regression tests for the spec §1 defect', () => {
     const q = buildRelatedQuery(db, 'current')
     expect(q.terms).toEqual([{ text: 'brakejitter', source: 'signature' }])
     const r = await provider('current').search(q, 5)
+    expect(r).toEqual({ ok: true, hits: [] })
+  })
+
+  it('3c. a rare jiraKey term relaxes overlap on its own (strong AND rare)', async () => {
+    // jiraKey was newly added to the strong set in fix pass 1 — nothing
+    // exercised it actually relaxing Rule 3 until now. `current`'s own ticket
+    // key is echoed as a `jiraKey`-source query term (buildRelatedQuery, since
+    // `current` has no accepted summary); `target`'s summary happens to cite
+    // that same key (e.g. a cross-linked ticket) in its keywords, so it is the
+    // ONLY summary the term matches — df=1: strong AND rare.
+    pad(6)
+    add('target', 'solved', {
+      signature: 'unrelated symptom text',
+      keywords: ['KAN-42']
+    })
+    createCase(db, home, { slug: 'current', title: 'irrelevant', jiraKey: 'KAN-42' })
+    const q = buildRelatedQuery(db, 'current')
+    expect(q.terms).toEqual([
+      { text: 'irrelevant', source: 'title' },
+      { text: 'KAN-42', source: 'jiraKey' }
+    ])
+    const r = await provider('current').search(q, 5)
     expect(r.ok).toBe(true)
-    if (r.ok) {
-      expect(r.hits.map((h) => (h as LocalCaseHit).caseSlug).sort()).toEqual([
-        'alpha',
-        'beta',
-        'gamma'
-      ])
-    }
+    if (r.ok) expect(r.hits.map((h) => (h as LocalCaseHit).caseSlug)).toEqual(['target'])
   })
 
   it('4. open-resolution summaries are excluded', async () => {

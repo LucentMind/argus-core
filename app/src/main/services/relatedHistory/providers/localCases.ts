@@ -23,7 +23,17 @@ export const DF_SUPPRESS_RATIO = 0.3
 /** Below this population the ratio would suppress nearly every term, so the rule
  *  is skipped entirely and the overlap rule carries the precision alone. */
 export const DF_MIN_POPULATION = 4
-/** Distinct surviving terms a case must match, unless it matched a strong one. */
+/**
+ * A strong-source term this rare is decisive evidence on its own — a verbatim
+ * error string or an exact ticket key that appears in only a couple of
+ * summaries is not shared vocabulary, it is the same incident. A strong term
+ * that is common in the corpus (e.g. a signature word repeated across a fifth
+ * of the cases) is NOT decisive by itself; it still needs a second overlapping
+ * term. Rarity is necessary but never sufficient here — see Rule 3 below,
+ * which ANDs this with `isStrong`, not ORs it.
+ */
+export const RARE_DF = 2
+/** Distinct surviving terms a case must match, unless it matched a strong AND rare one. */
 export const MIN_OVERLAP = 2
 
 function localStatus(resolution: string): { label: string; tone: RelatedStatusTone } {
@@ -105,17 +115,18 @@ export function createLocalCasesProvider(
         })
         if (survivors.length === 0) return { ok: true, hits: [], reason: 'query-too-generic' }
 
-        // Rule 3 — minimum overlap, relaxed only for a strong-source term
-        // (signature / errorStrings / jiraKey). Rarity alone is NOT a relaxation
-        // signal: a title/finding/free word that happens to appear in exactly one
-        // summary is exactly the incidental-word false positive spec §1 exists to
-        // stop, and df says nothing about whether the word is actually meaningful
-        // — only a strong source does.
+        // Rule 3 — minimum overlap, relaxed to 1 only for a term that is BOTH
+        // strong-source (signature / errorStrings / jiraKey) AND rare (df <=
+        // RARE_DF). Neither limb alone is enough: a non-strong term (title /
+        // finding / free) must never relax regardless of how rare it is — that
+        // is the spec §1 false positive this file exists to stop — and a strong
+        // term that is common in the corpus (shared vocabulary, not a single
+        // incident) still needs a second overlapping term too.
         const matchCount = new Map<string, number>()
         const strongMatched = new Set<string>()
         for (const term of survivors) {
           const slugs = sets.get(term.text)!
-          const relaxed = isStrong(term)
+          const relaxed = isStrong(term) && slugs.size <= RARE_DF
           for (const slug of slugs) {
             matchCount.set(slug, (matchCount.get(slug) ?? 0) + 1)
             if (relaxed) strongMatched.add(slug)
