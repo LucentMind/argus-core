@@ -87,9 +87,12 @@ describe('local provider — regression tests for the spec §1 defect', () => {
       symptoms:
         'A long body about battery state of charge, pack temperature and regenerative braking that happens to mention the rider exactly once.'
     })
+    // Pin the WHOLE result, not just `hits`: a suppression rejection carries
+    // `reason: 'query-too-generic'` and would fail this exact-equality check,
+    // so a fixture shrink that makes Rule 2 the rejector (instead of Rule 3)
+    // turns this test red rather than silently passing for the wrong reason.
     const r = await provider().search(freeFormQuery('rider bearing north'), 5)
-    expect(r.ok).toBe(true)
-    if (r.ok) expect(r.hits).toEqual([])
+    expect(r).toEqual({ ok: true, hits: [] })
   })
 
   it('3. a rare verbatim error string matches on its own', async () => {
@@ -113,12 +116,47 @@ describe('local provider — regression tests for the spec §1 defect', () => {
     if (r.ok) expect(r.hits.map((h) => (h as LocalCaseHit).caseSlug)).toEqual(['target'])
   })
 
+  it('3b. a strong term that is NOT rare still relaxes overlap on its own', async () => {
+    // Isolates the `isStrong` limb of Rule 3 from the RARE_DF limb: test 3's
+    // 'E_TIMEOUT_42' is both strong AND df<=RARE_DF, so it can't tell which
+    // limb is doing the relaxing. Here the shared term has df=3 (> RARE_DF=2)
+    // in a 12-summary corpus (threshold 0.3*12=3.6, so it still survives Rule
+    // 2), and its only source is a `signature` token — strong, not rare.
+    pad(9)
+    add('alpha', 'solved', { signature: 'brakejitter observed on alpha rig' })
+    add('beta', 'solved', { signature: 'brakejitter observed on beta rig' })
+    add('gamma', 'solved', { signature: 'brakejitter observed on gamma rig' })
+    createCase(db, home, { slug: 'current', title: 'irrelevant' })
+    upsertCaseSummary(
+      db,
+      home,
+      'current',
+      { signature: 'brakejitter', symptoms: '', rootCause: '', fix: '', keywords: [] },
+      'open',
+      'md'
+    )
+    const q = buildRelatedQuery(db, 'current')
+    expect(q.terms).toEqual([{ text: 'brakejitter', source: 'signature' }])
+    const r = await provider('current').search(q, 5)
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.hits.map((h) => (h as LocalCaseHit).caseSlug).sort()).toEqual([
+        'alpha',
+        'beta',
+        'gamma'
+      ])
+    }
+  })
+
   it('4. open-resolution summaries are excluded', async () => {
     pad(6)
     add('live', 'open', { signature: 'ecu reset drifts dlt timestamps badly' })
+    // Pin the full result: this fixture currently rejects via the df===0 path
+    // (an open-resolution row contributes to no term's df set at all, so every
+    // term is dropped before suppression/overlap even run) — asserting
+    // `reason` locks in that this is the guard actually firing here.
     const r = await provider().search(freeFormQuery('ecu reset drifts dlt'), 5)
-    expect(r.ok).toBe(true)
-    if (r.ok) expect(r.hits).toEqual([])
+    expect(r).toEqual({ ok: true, hits: [], reason: 'query-too-generic' })
   })
 })
 

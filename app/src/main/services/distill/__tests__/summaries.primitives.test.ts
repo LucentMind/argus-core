@@ -60,10 +60,25 @@ describe('termSlugSets', () => {
     expect(termSlugSets(db, ['reset'], { excludeSlug: 'one' }).get('reset')!.size).toBe(1)
   })
 
-  it('treats a term FTS5 cannot parse as contributing nothing, not as a failure', () => {
+  it('a quote-heavy term still round-trips to a valid (zero-match) FTS5 query', () => {
+    // prefixTerm quotes every character (doubling internal `"`), so there is no
+    // *term* string that becomes invalid FTS5 syntax — '"""' parses to a quoted
+    // phrase-prefix that simply matches nothing. termSlugSets has no per-term
+    // catch: a real throw here (a broken index) is meant to propagate.
     const sets = termSlugSets(db, ['"""', 'reset'])
     expect(sets.get('"""')!.size).toBe(0)
     expect(sets.get('reset')!.size).toBe(2)
+  })
+
+  it('surfaces a broken index as a throw rather than swallowing it to empty sets', () => {
+    // Dropping the whole virtual table would fail at db.prepare(), before any
+    // per-term catch could even run — not discriminating. Dropping only its
+    // fts5 shadow table leaves `db.prepare` succeeding (the virtual table
+    // declaration is still there) and pushes the failure into `stmt.all()`
+    // inside the per-term loop, which is the actual case the removed catch
+    // used to swallow.
+    db.exec('DROP TABLE case_summaries_fts_data')
+    expect(() => termSlugSets(db, ['reset'])).toThrow()
   })
 })
 

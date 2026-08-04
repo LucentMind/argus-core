@@ -175,8 +175,14 @@ export function summaryPopulation(db: DatabaseSync, excludeOpen: boolean): numbe
  * which is what lets the local provider apply suppression and overlap in a
  * single pass.
  *
- * A term FTS5 cannot parse contributes an empty set rather than failing the
- * search: that is a bad token, not a broken index.
+ * Deliberately does NOT catch per term. `prefixTerm` quotes every character
+ * (doubling internal `"`), so there is no input string that turns into invalid
+ * FTS5 syntax — a term FTS5 "cannot parse" is not a reachable case, only a term
+ * that parses to a phrase matching zero rows. A throw here therefore means a
+ * genuinely broken index (e.g. a missing/corrupt fts5 shadow table), and per
+ * spec §4.6 that must propagate to the caller's own try/catch and surface as
+ * `{ ok: false, error }`, not silently degrade every term to an empty set and
+ * report "no similar cases".
  */
 export function termSlugSets(
   db: DatabaseSync,
@@ -195,19 +201,10 @@ export function termSlugSets(
   const out = new Map<string, Set<string>>()
   for (const term of terms) {
     const set = new Set<string>()
-    try {
-      for (const r of stmt.all(
-        prefixTerm(term),
-        exclude,
-        exclude,
-        excludeOpen
-      ) as unknown as Array<{
-        slug: string
-      }>) {
-        set.add(r.slug)
-      }
-    } catch {
-      /* unparseable term — contributes nothing */
+    for (const r of stmt.all(prefixTerm(term), exclude, exclude, excludeOpen) as unknown as Array<{
+      slug: string
+    }>) {
+      set.add(r.slug)
     }
     out.set(term, set)
   }
