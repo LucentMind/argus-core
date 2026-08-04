@@ -2252,6 +2252,32 @@ describe('pushStatus', () => {
     expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({ state: 'none' })
   })
 
+  it('excludes locally-present files git would never commit from the content comparison', async () => {
+    // localContents walks the filesystem (every ent.isFile()); refContents sees only tracked
+    // files via `git ls-tree`. A file the hive repo's .gitignore excludes (e.g. a macOS
+    // .DS_Store) is present in one map and not the other, so pre-fix this always reports
+    // `changed: true` — the open-mine+unchanged block can never engage for that asset.
+    seedClone()
+    seedAssets()
+    writeState({ 'skill/my-skill': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } })
+    fs.writeFileSync(path.join(home, 'skills-user', 'my-skill', '.DS_Store'), 'junk')
+    const local = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
+    const git: Runner = async (_c, args) => {
+      if (args[0] === 'ls-tree') return 'skills/my-skill/SKILL.md'
+      if (args[0] === 'show') return local.trim()
+      if (args[0] === 'check-ignore') return 'skills/my-skill/.DS_Store'
+      return ''
+    }
+    const gh: Runner = async () =>
+      JSON.stringify({ state: 'OPEN', headRefName: 'argus/share-skill-my-skill-1' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({
+      state: 'open-mine',
+      prUrl: 'https://pr/7',
+      changed: false
+    })
+  })
+
   it('fails open with a warning when gh throws, so sharing is never blocked by a broken check', async () => {
     seedClone()
     seedAssets()

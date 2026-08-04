@@ -647,23 +647,66 @@ export class HivemindService {
     return this.viewerLoginCache
   }
 
+  /**
+   * Which of `rels` (repo-relative paths, e.g. `skills/x/.DS_Store`) the hive clone's own
+   * `.gitignore`/excludes would keep `git add -A` from ever staging.
+   *
+   * `localContents` walks every real file on disk; `refContents` only ever sees what
+   * `git ls-tree` tracks. A file present locally that git would refuse to commit (a macOS
+   * `.DS_Store`, an editor swap file, ...) otherwise shows up as a key in one map and not the
+   * other, so `sameContents` reports `changed: true` permanently — the open-mine+unchanged
+   * block can never engage for that asset, and each click stages nothing, trips the porcelain
+   * guard in `push`, and shows a false "PR opened"/"PR updated" for a push that touched
+   * nothing. Batched into one `check-ignore` invocation for every candidate path rather than
+   * one process per file. Run against the CLONE (which has the real `.gitignore`), using the
+   * same repo-relative path strings `localContents`/`refContents` key by — that mirrors where
+   * `push` actually lands the file in the worktree, so patterns like a bare `.DS_Store` (no
+   * path prefix, matches at any depth) apply correctly.
+   *
+   * `check-ignore` exits non-zero both when nothing is ignored and on a genuine failure; a
+   * thrown `Error` alone can't tell those apart. Matching this service's existing fail-open
+   * policy elsewhere (see `pushStatus`'s catch), any failure here is treated as "nothing
+   * ignored" rather than blocking the comparison — the cost is a false `changed: true` in the
+   * rare case this call itself breaks, never a false `changed: false`.
+   */
+  private async gitIgnoredOf(cwd: string, rels: string[]): Promise<Set<string>> {
+    if (rels.length === 0) return new Set()
+    try {
+      const out = await this.git(['check-ignore', ...rels], cwd)
+      return new Set(
+        out
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean)
+      )
+    } catch {
+      return new Set()
+    }
+  }
+
   /** repo-relative path → normalized content, read from the local user-tier copy. */
-  private localContents(kind: 'skill' | 'reference', name: string): Map<string, string> {
+  private async localContents(
+    kind: 'skill' | 'reference',
+    name: string
+  ): Promise<Map<string, string>> {
     const out = new Map<string, string>()
     const src = this.pushSource(kind, name)
     if (kind === 'reference') {
       out.set(`references/${name}`, norm(fs.readFileSync(src, 'utf8')))
-      return out
-    }
-    const walk = (dir: string, rel: string): void => {
-      for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-        const child = path.join(dir, ent.name)
-        const childRel = `${rel}/${ent.name}`
-        if (ent.isDirectory()) walk(child, childRel)
-        else if (ent.isFile()) out.set(childRel, norm(fs.readFileSync(child, 'utf8')))
+    } else {
+      const walk = (dir: string, rel: string): void => {
+        for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+          const child = path.join(dir, ent.name)
+          const childRel = `${rel}/${ent.name}`
+          if (ent.isDirectory()) walk(child, childRel)
+          else if (ent.isFile()) out.set(childRel, norm(fs.readFileSync(child, 'utf8')))
+        }
       }
+      walk(src, `skills/${name}`)
     }
-    walk(src, `skills/${name}`)
+    // Compare like with like — see gitIgnoredOf's doc comment.
+    const ignored = await this.gitIgnoredOf(this.clone(), [...out.keys()])
+    for (const key of ignored) out.delete(key)
     return out
   }
 
@@ -796,7 +839,7 @@ export class HivemindService {
       if (!pr.mine) return { state: 'open-teammate', prUrl: pr.prUrl, prAuthor: pr.author }
       await this.git(['fetch', 'origin'], this.clone())
       const changed = !sameContents(
-        this.localContents(kind, name),
+        await this.localContents(kind, name),
         await this.refContents(kind, name, `origin/${pr.branch}`)
       )
       return { state: 'open-mine', prUrl: pr.prUrl, changed }
