@@ -554,9 +554,17 @@ export function CaseWorkspace({
               <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
                 {/* The ticket, first: it is the case's origin, so it reads above the material the
                   case accumulated. key: reset the refresh phase on a case switch, exactly as the
-                  top bar's copy did. Renders nothing when the case has no ticket. */}
+                  top bar's copy did. Renders nothing when the case has no ticket. Prefixed
+                  (unlike a bare `slug`) for the same reason as PrCompanionSection's key below:
+                  React requires keys unique among siblings regardless of type, and a bare
+                  `key={slug}` here collided with ReposSection's own bare `key={slug}` — the
+                  collision made React lose track of which instance was which on every case
+                  switch, so a stale JiraSection from a previous case kept accumulating in the
+                  rail instead of being replaced (reproduced live: switching A -> B -> A stacked
+                  a duplicate "Ticket · <key>" box each time, console warning "Encountered two
+                  children with the same key"). */}
                 <JiraSection
-                  key={slug}
+                  key={`jira:${slug}`}
                   slug={slug}
                   jiraKey={jiraKey}
                   title={caseTitle}
