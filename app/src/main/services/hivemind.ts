@@ -842,6 +842,9 @@ export class HivemindService {
     const reusing = status.state === 'open-mine'
     let tree: string | null = null
     let branch = `argus/share-${kind}-${name.replace(/\.md$/, '')}-${Date.now()}`
+    // Set together with `branch`, from the same lookup, when reusing — see `reopenPrFor`'s
+    // doc comment for why. Never read `status.prUrl` below this point.
+    let reusedPrUrl = ''
     try {
       await this.git(['fetch', 'origin'], clone)
       // Heal a stale registration left by a previous failed removal, so a single bad cleanup
@@ -870,7 +873,9 @@ export class HivemindService {
         // `-B` resets the LOCAL branch in this app-managed clone to the remote tip and checks it
         // out. It is not a force-push: the subsequent `push origin <branch>` still fast-forwards,
         // so a teammate's commit landing between the fetch and the push is rejected, not stomped.
-        branch = await this.branchOfOpenPr(kind, name, me)
+        const pr = await this.reopenPrFor(kind, name, me)
+        branch = pr.branch
+        reusedPrUrl = pr.prUrl
         await this.git(['worktree', 'add', '-B', branch, tree, `origin/${branch}`], clone)
       } else {
         await this.git(['worktree', 'add', '-b', branch, tree, base], clone)
@@ -887,13 +892,13 @@ export class HivemindService {
       if (reusing && !(await this.git(['status', '--porcelain'], tree)).trim()) {
         // pushStatus said changed, the worktree says otherwise — trust the worktree and do not
         // attempt an empty commit, which git rejects.
-        return { ok: true, prUrl: status.prUrl, updated: false }
+        return { ok: true, prUrl: reusedPrUrl, updated: false }
       }
       await this.git(['commit', '-m', `share ${kind}: ${name} (via Argus)`], tree)
       let prUrl: string
       if (reusing) {
         await this.git(['push', 'origin', branch], tree)
-        prUrl = status.prUrl
+        prUrl = reusedPrUrl
       } else {
         await this.git(['push', '-u', 'origin', branch], tree)
         const out = await this.gh(
@@ -947,14 +952,31 @@ export class HivemindService {
     }
   }
 
-  /** The head branch of the open PR for this asset. Only called when pushStatus said open-mine. */
-  private async branchOfOpenPr(
+  /**
+   * Re-resolve the open PR to reuse, as one lookup that yields both `branch` and `prUrl`.
+   *
+   * `push` used to take `branch` from a lookup here and `prUrl` from `pushStatus`'s *earlier*
+   * lookup (made before `fetch`/`worktree prune`/`rev-parse`), trusting both had found the same
+   * PR. For a sole-authored asset they always do — both are anchored to the same immutable
+   * receipt. But for a non-sole-authored asset each lookup independently re-runs `gh pr list`,
+   * and if a duplicate share PR exists for the asset (e.g. from pushes made before this feature
+   * existed) the two calls can resolve to *different* PRs when GitHub's answer changes between
+   * them. `push` would then commit and push to one PR's branch while reporting — and writing
+   * into the receipt — the other PR's url, silently pointing the user at a PR that does not hold
+   * their commit. Returning the whole record here and using *only* this record's `prUrl` (never
+   * `status.prUrl`) makes that divergence structurally impossible: branch and prUrl always name
+   * the same PR because they come from the same `gh` answer.
+   *
+   * Only called when `pushStatus` said `open-mine`. Still throws if the PR has disappeared
+   * mid-push (closed/merged between the two fetches) — that failure is correct and safe.
+   */
+  private async reopenPrFor(
     kind: 'skill' | 'reference',
     name: string,
     me: Identity | null
-  ): Promise<string> {
+  ): Promise<{ prUrl: string; branch: string }> {
     const pr = await this.openPrFor(kind, name, me)
     if (!pr) throw new Error(`The open pull request for ${name} disappeared mid-push.`)
-    return pr.branch
+    return pr
   }
 }

@@ -802,6 +802,92 @@ describe('pushable + push', () => {
     expect(r).toMatchObject({ blockedByPrUrl: 'https://pr/42', blockedByAuthor: 'alex' })
     expect(calls.some((c) => c[0] === 'worktree' || c[0] === 'commit')).toBe(false)
   })
+
+  it('reuses the PR its own branch-lookup found, even when a duplicate PR resolved differently earlier in the same push', async () => {
+    // Regression for the two-lookup divergence bug: pushStatus's internal open-PR lookup and
+    // the later branch lookup used to run as two independent `gh pr list` calls. If a second,
+    // duplicate share PR existed (e.g. from repeated pushes before this feature existed) and
+    // GitHub's answer changed between the two calls, `push` could commit and push to the
+    // branch the SECOND call found while returning — and writing into the receipt — the
+    // FIRST call's PR url, silently pointing the user at a PR that doesn't hold their commit.
+    // A non-sole-authored asset is required: sole-authored assets resolve through the pinned
+    // receipt (one `gh` call total) and can never observe this split.
+    seedClone()
+    fs.mkdirSync(path.join(home, 'skills-user', 'my-skill'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'skills-user', 'my-skill', 'SKILL.md'),
+      '---\nname: my-skill\ndescription: shared\nauthor: Alex Chen <alex@example.test>\n---\n# x\n'
+    )
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'ls-tree') return '' // ref has no matching files => contents differ => changed
+      if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      if (args[0] === 'status') return ' M skills/my-skill/SKILL.md'
+      return ''
+    }
+    let listCalls = 0
+    const gh: Runner = async (_c, args) => {
+      calls.push(['gh', ...args])
+      if (args[0] === 'api') return 'jiawei-han'
+      if (args[0] === 'pr' && args[1] === 'list') {
+        listCalls++
+        // Two distinct open PRs, both authored by "me", on two distinct branches that both
+        // satisfy isShareBranchFor. The first call (inside pushStatus) sees PR A; by the time
+        // the second call runs (after fetch/prune/rev-parse), GitHub's answer has moved on to
+        // PR B — modeling PR A having closed and a second duplicate PR being the live one.
+        const hit =
+          listCalls === 1
+            ? { url: 'https://pr/100', headRefName: 'argus/share-skill-my-skill-100' }
+            : { url: 'https://pr/200', headRefName: 'argus/share-skill-my-skill-200' }
+        return JSON.stringify([{ ...hit, author: { login: 'jiawei-han' } }])
+      }
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.push('skill', 'my-skill', 'Add my-skill', me)
+    expect(r.ok).toBe(true)
+    expect(listCalls).toBe(2) // sanity: the divergence-inducing setup actually engaged both calls
+
+    const flat = calls.map((c) => c.join(' '))
+    const pushCall = flat.find((c) => c.startsWith('push origin argus/share-'))
+    expect(pushCall).toBeDefined()
+    const pushedBranch = pushCall!.split(' ')[2]
+    const prByBranch: Record<string, string> = {
+      'argus/share-skill-my-skill-100': 'https://pr/100',
+      'argus/share-skill-my-skill-200': 'https://pr/200'
+    }
+    if (!r.ok) throw new Error('expected ok result')
+    expect(r.prUrl).toBe(prByBranch[pushedBranch])
+
+    const state = JSON.parse(
+      fs.readFileSync(path.join(home, 'config', 'hivemind-state.json'), 'utf8')
+    )
+    expect(state.pushes['skill/my-skill'].prUrl).toBe(prByBranch[pushedBranch])
+  })
+
+  it('does not attempt an empty commit when pushStatus says changed but the worktree has nothing staged', async () => {
+    seedClone()
+    seedSoleAuthoredWithReceipt()
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'ls-tree') return 'skills/solo/SKILL.md'
+      // refContents' `show` differs from local, so pushStatus resolves `changed: true`...
+      if (args[0] === 'show') return '# an older body'
+      // ...but the worktree, after copying the same content back in, reports no diff.
+      if (args[0] === 'status') return ''
+      return ''
+    }
+    const gh: Runner = async (_c, args) => {
+      if (args[0] === 'api') return 'jiawei-han'
+      return JSON.stringify({ state: 'OPEN', headRefName: 'argus/share-skill-solo-1' })
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.push('skill', 'solo', 'Add solo', me)
+    expect(r).toEqual({ ok: true, prUrl: 'https://pr/7', updated: false })
+    expect(calls.some((c) => c[0] === 'commit')).toBe(false)
+  })
 })
 
 describe('reference keep-authorship', () => {
