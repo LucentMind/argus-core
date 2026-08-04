@@ -853,6 +853,25 @@ export class HivemindService {
       const defaultBranch = (
         await this.git(['rev-parse', '--abbrev-ref', 'origin/HEAD'], clone)
       ).replace(/^origin\//, '')
+      // Re-check ownership on a lookup fresher than pushStatus's, BEFORE any worktree exists.
+      // `fetch`/`worktree prune`/`rev-parse` above all take real wall-clock time, and in that
+      // window a teammate can open a competing share for the same asset (exactly the duplicate
+      // this feature exists to prevent) — see `reopenPrFor`'s doc comment. Resolving this here,
+      // ahead of `mkdtempSync`, means a refusal creates no worktree and leaves nothing for the
+      // `finally` block to clean up.
+      let reused: { prUrl: string; branch: string } | null = null
+      if (reusing) {
+        const pr = await this.reopenPrFor(kind, name, me)
+        if (!pr.mine) {
+          return {
+            ok: false,
+            error: `${pr.author} already has an open pull request for ${name}. Sharing again would duplicate it.`,
+            blockedByPrUrl: pr.prUrl,
+            blockedByAuthor: pr.author
+          }
+        }
+        reused = { prUrl: pr.prUrl, branch: pr.branch }
+      }
       // Branch from the PIN when this item came from HiveMind. Cutting from origin/HEAD would
       // make the whole-dir replace below undo every upstream change since the install — the PR
       // would silently revert pin→HEAD on top of the intended edit. From the pin, the diff is
@@ -873,9 +892,8 @@ export class HivemindService {
         // `-B` resets the LOCAL branch in this app-managed clone to the remote tip and checks it
         // out. It is not a force-push: the subsequent `push origin <branch>` still fast-forwards,
         // so a teammate's commit landing between the fetch and the push is rejected, not stomped.
-        const pr = await this.reopenPrFor(kind, name, me)
-        branch = pr.branch
-        reusedPrUrl = pr.prUrl
+        branch = reused!.branch
+        reusedPrUrl = reused!.prUrl
         await this.git(['worktree', 'add', '-B', branch, tree, `origin/${branch}`], clone)
       } else {
         await this.git(['worktree', 'add', '-b', branch, tree, base], clone)
@@ -953,7 +971,8 @@ export class HivemindService {
   }
 
   /**
-   * Re-resolve the open PR to reuse, as one lookup that yields both `branch` and `prUrl`.
+   * Re-resolve the open PR to reuse, as one lookup that yields `branch`, `prUrl`, and — the
+   * caller MUST check this — fresh ownership (`mine`/`author`).
    *
    * `push` used to take `branch` from a lookup here and `prUrl` from `pushStatus`'s *earlier*
    * lookup (made before `fetch`/`worktree prune`/`rev-parse`), trusting both had found the same
@@ -967,6 +986,16 @@ export class HivemindService {
    * `status.prUrl`) makes that divergence structurally impossible: branch and prUrl always name
    * the same PR because they come from the same `gh` answer.
    *
+   * The same elapsed time is also long enough for ownership itself to change: a teammate can
+   * open a competing share for this exact asset in that window — the duplicate this feature
+   * exists to prevent — and this fresher lookup then resolves to *their* PR instead of ours. An
+   * earlier version of this helper discarded `mine`/`author` from `openPrFor`'s result and
+   * returned a bare `{ prUrl, branch }`, so `push` had no way to notice and went on to
+   * `worktree add -B` their branch, commit, and push onto it — silently overriding the one rule
+   * this feature is built around: a PR someone else owns is never pushed to, no exceptions. The
+   * full record is returned here, and the caller checks `mine` before touching the worktree, so
+   * that check cannot be silently dropped again.
+   *
    * Only called when `pushStatus` said `open-mine`. Still throws if the PR has disappeared
    * mid-push (closed/merged between the two fetches) — that failure is correct and safe.
    */
@@ -974,7 +1003,7 @@ export class HivemindService {
     kind: 'skill' | 'reference',
     name: string,
     me: Identity | null
-  ): Promise<{ prUrl: string; branch: string }> {
+  ): Promise<{ prUrl: string; branch: string; mine: boolean; author: string }> {
     const pr = await this.openPrFor(kind, name, me)
     if (!pr) throw new Error(`The open pull request for ${name} disappeared mid-push.`)
     return pr

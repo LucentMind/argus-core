@@ -800,7 +800,69 @@ describe('pushable + push', () => {
     const r = await svc.push('skill', 'my-skill', 'Add my-skill', me)
     expect(r.ok).toBe(false)
     expect(r).toMatchObject({ blockedByPrUrl: 'https://pr/42', blockedByAuthor: 'alex' })
-    expect(calls.some((c) => c[0] === 'worktree' || c[0] === 'commit')).toBe(false)
+    expect(calls).toEqual([])
+  })
+
+  it('refuses to push when the fresher re-lookup finds a teammate now holds the PR, even though pushStatus resolved open-mine', async () => {
+    // Fix-pass-2 regression: `reopenPrFor` used to discard `mine`/`author` from its lookup and
+    // hand back a bare { prUrl, branch } regardless of who authored it. `push` only ever checked
+    // ownership on pushStatus's EARLIER lookup; real wall-clock time elapses between that lookup
+    // and reopenPrFor's own `gh pr list` (fetch/worktree prune/rev-parse all run in between), and
+    // in that window a teammate opening a competing share for the same asset (exactly what this
+    // feature exists to prevent) can make the fresher lookup resolve to THEIR PR. Unfixed, `push`
+    // would `worktree add -B <their-branch>`, commit, and `git push origin <their-branch>` —
+    // silently pushing onto a teammate's PR branch and writing their PR into our receipt.
+    seedClone()
+    fs.mkdirSync(path.join(home, 'skills-user', 'my-skill'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'skills-user', 'my-skill', 'SKILL.md'),
+      '---\nname: my-skill\ndescription: shared\nauthor: Alex Chen <alex@example.test>\n---\n# x\n'
+    )
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'ls-tree') return '' // ref has no matching files => contents differ => changed
+      if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      if (args[0] === 'status') return ' M skills/my-skill/SKILL.md'
+      return ''
+    }
+    let listCalls = 0
+    const gh: Runner = async (_c, args) => {
+      calls.push(['gh', ...args])
+      if (args[0] === 'api') return 'jiawei-han'
+      if (args[0] === 'pr' && args[1] === 'list') {
+        listCalls++
+        // First call (inside pushStatus): a PR authored by "me" => open-mine, changed.
+        // Second call (inside reopenPrFor, after fetch/prune/rev-parse): a teammate's PR now
+        // matches on a different branch — modeling a competing share opened in that window.
+        if (listCalls === 1) {
+          return JSON.stringify([
+            {
+              url: 'https://pr/100',
+              headRefName: 'argus/share-skill-my-skill-100',
+              author: { login: 'jiawei-han' }
+            }
+          ])
+        }
+        return JSON.stringify([
+          {
+            url: 'https://pr/200',
+            headRefName: 'argus/share-skill-my-skill-200',
+            author: { login: 'alex' }
+          }
+        ])
+      }
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.push('skill', 'my-skill', 'Add my-skill', me)
+    expect(listCalls).toBe(2) // sanity: the divergence-inducing setup actually engaged both calls
+    expect(r.ok).toBe(false)
+    expect(r).toMatchObject({ blockedByPrUrl: 'https://pr/200', blockedByAuthor: 'alex' })
+    // No worktree was created or mutated, nothing was committed, and nothing was pushed.
+    expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'add')).toBe(false)
+    expect(calls.some((c) => c[0] === 'commit')).toBe(false)
+    expect(calls.some((c) => c[0] === 'push')).toBe(false)
   })
 
   it('reuses the PR its own branch-lookup found, even when a duplicate PR resolved differently earlier in the same push', async () => {
