@@ -19,6 +19,11 @@ export type { HistoryProvider, ProviderRanking, ProviderResult } from './types'
 
 const DEFAULT_LIMIT = 5
 
+/** Identity for the synthetic `SourceHealth` entry used when the pre-fan-out
+ *  path itself throws (query resolution, provider discovery) — see `search`. */
+const SERVICE_SOURCE_ID = 'related-history'
+const SERVICE_SOURCE_NAME = 'Related history'
+
 export interface RelatedHistoryDeps {
   db: DatabaseSync
   defectCorpus: DefectCorpusService
@@ -32,74 +37,103 @@ export interface RelatedHistoryDeps {
  * "nothing similar" apart from "the corpus is down".
  *
  * Never rejects — mirroring DefectCorpusService's contract, because this sits on
- * the case-open path and a dead source must never degrade triage.
+ * the case-open path and a dead source must never degrade triage. That covers
+ * more than the provider fan-out: query resolution (`buildRelatedQuery` reads
+ * `cases`/`case_summaries`/`findings`) and provider discovery
+ * (`summaryPopulation`, settings reads) are raw, synchronous DB/settings calls
+ * that can throw (a corrupt FTS5 shadow table, `SQLITE_BUSY` in a multi-window
+ * app, a broken settings read) — so the WHOLE method body is guarded, not just
+ * the per-provider `search` calls. A failure there never collapses to a bare
+ * empty result (that would hide it, the exact bug this feature replaces): it
+ * surfaces as a single synthetic failed `SourceHealth` entry instead.
  */
 export class RelatedHistoryService {
   constructor(private deps: RelatedHistoryDeps) {}
 
   async search(input: RelatedSearchInput): Promise<RelatedSearchResult> {
-    const limit = input.limit ?? DEFAULT_LIMIT
-    const query = this.resolveQuery(input)
-    const providers = this.providers(input.caseSlug ?? null)
+    let queryText = ''
+    try {
+      const limit = input.limit ?? DEFAULT_LIMIT
+      const query = this.resolveQuery(input)
+      queryText = query.text
+      const providers = this.providers(input.caseSlug ?? null)
 
-    if (providers.length === 0) {
-      return { query: query.text, hits: [], sources: [], reason: 'no-providers' }
-    }
-
-    const sources: SourceHealth[] = []
-    const rankings: ProviderRanking[] = []
-    let candidateReason: RelatedReason | undefined
-
-    // Promise.all's resolved array always mirrors the input array's order, no
-    // matter which provider settles first — so the forEach index below is
-    // genuinely the provider's configuration index, not an artifact of timing.
-    const settled = await Promise.all(
-      providers.map(async (p) => {
-        try {
-          return { p, res: await p.search(query, limit) }
-        } catch (err) {
-          const error = err instanceof Error ? err.message : String(err)
-          return { p, res: { ok: false as const, error } }
-        }
-      })
-    )
-
-    settled.forEach(({ p, res }, order) => {
-      if (!res.ok) {
-        sources.push({
-          id: p.id,
-          name: p.name,
-          kind: p.kind,
-          ok: false,
-          error: res.error,
-          ...(res.code ? { code: res.code } : {})
-        })
-        return
+      if (providers.length === 0) {
+        return { query: query.text, hits: [], sources: [], reason: 'no-providers' }
       }
-      sources.push({ id: p.id, name: p.name, kind: p.kind, ok: true })
-      if (res.reason && !candidateReason) candidateReason = res.reason
-      // `order` is the forEach index over EVERY settled provider (failed ones
-      // included), so it still equals this provider's configuration index even
-      // when an earlier provider failed and was skipped above — never the
-      // count of successes seen so far.
-      rankings.push({
-        providerId: p.id,
-        providerName: p.name,
-        kind: p.kind,
-        order,
-        hits: res.hits
-      })
-    })
 
-    const hits: RelatedHit[] = fuse(rankings).slice(0, limit)
-    // A provider's own "nothing worth showing" reason (e.g. `query-too-generic`
-    // from the local guards) only describes THAT provider's contribution. Per
-    // the design spec the UI renders nothing at all when `reason` is set, so
-    // surfacing a benign per-provider reason while a DIFFERENT provider found
-    // real hits would hide those hits behind a reason that no longer matches
-    // the aggregate result. Only attach it when the fused list is empty.
-    const reason = hits.length === 0 ? candidateReason : undefined
-    return { query: query.text, hits, sources, ...(reason ? { reason } : {}) }
+      const sources: SourceHealth[] = []
+      const rankings: ProviderRanking[] = []
+      let candidateReason: RelatedReason | undefined
+
+      // Promise.all's resolved array always mirrors the input array's order, no
+      // matter which provider settles first — so the forEach index below is
+      // genuinely the provider's configuration index, not an artifact of timing.
+      const settled = await Promise.all(
+        providers.map(async (p) => {
+          try {
+            return { p, res: await p.search(query, limit) }
+          } catch (err) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { p, res: { ok: false as const, error } }
+          }
+        })
+      )
+
+      settled.forEach(({ p, res }, order) => {
+        if (!res.ok) {
+          sources.push({
+            id: p.id,
+            name: p.name,
+            kind: p.kind,
+            ok: false,
+            error: res.error,
+            ...(res.code ? { code: res.code } : {})
+          })
+          return
+        }
+        sources.push({ id: p.id, name: p.name, kind: p.kind, ok: true })
+        if (res.reason && !candidateReason) candidateReason = res.reason
+        // `order` is the forEach index over EVERY settled provider (failed ones
+        // included), so it still equals this provider's configuration index even
+        // when an earlier provider failed and was skipped above — never the
+        // count of successes seen so far.
+        rankings.push({
+          providerId: p.id,
+          providerName: p.name,
+          kind: p.kind,
+          order,
+          hits: res.hits
+        })
+      })
+
+      const hits: RelatedHit[] = fuse(rankings).slice(0, limit)
+      // A provider's own "nothing worth showing" reason (e.g. `query-too-generic`
+      // from the local guards) only describes THAT provider's contribution. Per
+      // the design spec the UI renders nothing at all when `reason` is set, so
+      // surfacing a benign per-provider reason while a DIFFERENT provider found
+      // real hits would hide those hits behind a reason that no longer matches
+      // the aggregate result — attach it only when the fused list is empty.
+      //
+      // Further: even when hits ARE empty, a reason must not paper over a
+      // failed source. If any provider is down, the caller needs to render
+      // that degraded state (its own health chrome), not the generic "nothing
+      // matched" reason — otherwise a dead corpus goes invisible again, which
+      // is the original bug this whole feature exists to fix, just relocated
+      // from `hits` to `reason`.
+      const allHealthy = sources.every((s) => s.ok)
+      const reason = hits.length === 0 && allHealthy ? candidateReason : undefined
+      return { query: query.text, hits, sources, ...(reason ? { reason } : {}) }
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err)
+      return {
+        query: queryText,
+        hits: [],
+        sources: [
+          { id: SERVICE_SOURCE_ID, name: SERVICE_SOURCE_NAME, kind: 'local', ok: false, error }
+        ]
+      }
+    }
   }
 
   /** An explicit `query` always wins: it means the user typed in the box. */

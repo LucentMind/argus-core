@@ -25,6 +25,22 @@ function fakeProvider(
   return { id, name: id, kind, search: vi.fn(async () => result) }
 }
 
+const mkLocalHits = (n: number): LocalCaseHit[] =>
+  Array.from({ length: n }, (_, i) => ({
+    kind: 'local' as const,
+    id: `local:${i}`,
+    caseSlug: String(i),
+    jiraKey: null,
+    provenance: [{ providerId: 'local', providerName: 'local', kind: 'local' as const }],
+    title: 't',
+    snippet: null,
+    matchedOn: 'lexical' as const,
+    rank: i + 1,
+    fusedScore: 0,
+    status: { label: 'solved', tone: 'resolved' as const },
+    distilled: null
+  }))
+
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-svc-'))
   db = openDb(path.join(home, 'argus.db'))
@@ -184,27 +200,28 @@ describe('RelatedHistoryService.search', () => {
   })
 
   it('caps the fused list at the requested limit', async () => {
-    const mk = (n: number): LocalCaseHit[] =>
-      Array.from({ length: n }, (_, i) => ({
-        kind: 'local' as const,
-        id: `local:${i}`,
-        caseSlug: String(i),
-        jiraKey: null,
-        provenance: [{ providerId: 'local', providerName: 'local', kind: 'local' as const }],
-        title: 't',
-        snippet: null,
-        matchedOn: 'lexical' as const,
-        rank: i + 1,
-        fusedScore: 0,
-        status: { label: 'solved', tone: 'resolved' as const },
-        distilled: null
-      }))
     const svc = new RelatedHistoryService({
       db,
       defectCorpus: noCorpus(),
-      providers: [fakeProvider('local', 'local', { ok: true, hits: mk(9) })]
+      providers: [fakeProvider('local', 'local', { ok: true, hits: mkLocalHits(9) })]
     })
     expect((await svc.search({ query: 'x', limit: 4 })).hits).toHaveLength(4)
+  })
+
+  it('defaults the limit to 5 when none is requested', async () => {
+    const svc = new RelatedHistoryService({
+      db,
+      defectCorpus: noCorpus(),
+      providers: [fakeProvider('local', 'local', { ok: true, hits: mkLocalHits(9) })]
+    })
+    expect((await svc.search({ query: 'x' })).hits).toHaveLength(5)
+  })
+
+  it('passes the resolved limit through to each provider', async () => {
+    const provider = fakeProvider('local', 'local', { ok: true, hits: [] })
+    const svc = new RelatedHistoryService({ db, defectCorpus: noCorpus(), providers: [provider] })
+    await svc.search({ query: 'x', limit: 4 })
+    expect(provider.search).toHaveBeenCalledWith(expect.objectContaining({ text: 'x' }), 4)
   })
 
   it('returns an empty result for an input with neither caseSlug nor query', async () => {
@@ -212,5 +229,47 @@ describe('RelatedHistoryService.search', () => {
     const r = await svc.search({})
     expect(r.query).toBe('')
     expect(r.hits).toEqual([])
+  })
+
+  // Important 1 (review pass 1): everything BEFORE the provider fan-out —
+  // resolveQuery -> buildRelatedQuery -> getCase/getCaseSummary/recentFindingSummaries,
+  // and providers() -> summaryPopulation — is a raw, synchronous db.prepare()
+  // call. A corrupt index or a closed handle throws synchronously inside this
+  // async method, which becomes a REJECTED promise unless the whole body is
+  // guarded. This must resolve, and the failure must stay visible (a synthetic
+  // failed source), not collapse into a silent empty result.
+  it('resolves with a visible failed source when the pre-fan-out path throws', async () => {
+    const svc = new RelatedHistoryService({ db, defectCorpus: noCorpus() })
+    db.close()
+    const r = await svc.search({ caseSlug: 'nope' })
+    expect(r.hits).toEqual([])
+    expect(r.sources).toHaveLength(1)
+    expect(r.sources[0]).toMatchObject({ ok: false })
+    expect(r.sources[0].error).toBeTruthy()
+  })
+
+  // Important 2 (review pass 1): reason must not paper over a failed source.
+  // If it did, a dead corpus would go invisible again whenever the local
+  // provider ALSO trips its own generic-query guard — the design has the UI
+  // render nothing at all when `reason` is set, which would hide the "corpus
+  // unavailable" chrome along with it.
+  it('does not surface a reason when a source failed, even with no hits', async () => {
+    const svc = new RelatedHistoryService({
+      db,
+      defectCorpus: noCorpus(),
+      providers: [
+        fakeProvider('local', 'local', { ok: true, hits: [], reason: 'query-too-generic' }),
+        fakeProvider('corpus:a', 'corpus', { ok: false, error: 'down' })
+      ]
+    })
+    const r = await svc.search({ query: 'x' })
+    expect(r.reason).toBeUndefined()
+    expect(r.sources).toContainEqual({
+      id: 'corpus:a',
+      name: 'corpus:a',
+      kind: 'corpus',
+      ok: false,
+      error: 'down'
+    })
   })
 })
