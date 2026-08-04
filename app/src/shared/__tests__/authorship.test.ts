@@ -426,6 +426,7 @@ describe('isSoleAuthor', () => {
     const raw = [
       '---',
       'author: Jiawei Han <jiawiehan@gmail.com>',
+      'origin: authored',
       'contributors:',
       '  - Jiawei Han <jiawiehan@gmail.com> 2026-08-01',
       '  - Alex Chen <alex@example.test> 2026-08-02',
@@ -436,7 +437,13 @@ describe('isSoleAuthor', () => {
   })
 
   it('is false when someone else is the author, even with no contributors', () => {
-    const raw = ['---', 'author: Alex Chen <alex@example.test>', '---', '# body\n'].join('\n')
+    const raw = [
+      '---',
+      'author: Alex Chen <alex@example.test>',
+      'origin: authored',
+      '---',
+      '# body\n'
+    ].join('\n')
     expect(isSoleAuthor(raw, me)).toBe(false)
   })
 
@@ -463,6 +470,7 @@ describe('isSoleAuthor', () => {
       'trust_tier: user',
       'source_repo: acme/hivemind',
       'author: Jiawei Han <jiawiehan@gmail.com>',
+      'origin: authored',
       'contributors:',
       '  - Jiawei Han <jiawiehan@gmail.com> 2026-08-01',
       '---',
@@ -477,6 +485,7 @@ describe('isSoleAuthor', () => {
       'trust_tier: user',
       'source_commit: abc123',
       'author: Jiawei Han <jiawiehan@gmail.com>',
+      'origin: authored',
       '---',
       '# body\n'
     ].join('\n')
