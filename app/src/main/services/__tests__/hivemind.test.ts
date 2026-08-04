@@ -2394,7 +2394,50 @@ describe('pushStatus', () => {
     const git: Runner = async (_c, args) => {
       if (args[0] === 'ls-tree') return 'skills/my-skill/SKILL.md'
       if (args[0] === 'show') return local.trim()
-      if (args[0] === 'check-ignore') return 'skills/my-skill/.DS_Store'
+      // matched by inclusion, not args[0]: gitIgnoredOf's invocation carries a leading
+      // `-c core.quotePath=false` (see the non-ASCII test below) ahead of the subcommand.
+      if (args.includes('check-ignore')) return 'skills/my-skill/.DS_Store'
+      return ''
+    }
+    const gh: Runner = async () =>
+      JSON.stringify({ state: 'OPEN', headRefName: 'argus/share-skill-my-skill-1' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({
+      state: 'open-mine',
+      prUrl: 'https://pr/7',
+      changed: false
+    })
+  })
+
+  it('excludes a gitignored non-ASCII filename despite core.quotePath — the check-ignore invocation disables it explicitly', async () => {
+    // core.quotePath defaults ON, and real git C-escapes non-ASCII bytes in check-ignore's
+    // output (e.g. `skills/x/résumé.md` prints as `"skills/x/r\303\251sum\303\251.md"`), which
+    // then never matches the plain, un-escaped map keys localContents/refContents build from
+    // the filesystem/`ls-tree` — leaving a gitignored non-ASCII file in the comparison and
+    // forcing a false `changed: true`. The DI fake can't reproduce git's actual C-escaping, so
+    // it instead reproduces the BUG conditionally on whether the invocation carries the fix's
+    // `-c core.quotePath=false` flag: escaped (unmatched, bug still present) without it, plain
+    // (matched, bug fixed) with it. Passing therefore proves the flag is on the invocation.
+    seedClone()
+    seedAssets()
+    writeState({
+      'skill/my-skill': {
+        prUrl: 'https://pr/7',
+        pushedAt: '2026-08-01T00:00:00Z',
+        repo: 'acme/hivemind'
+      }
+    })
+    fs.writeFileSync(path.join(home, 'skills-user', 'my-skill', 'résumé.md'), 'ignored')
+    const local = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
+    const git: Runner = async (_c, args) => {
+      if (args[0] === 'ls-tree') return 'skills/my-skill/SKILL.md'
+      if (args[0] === 'show') return local.trim()
+      if (args.includes('check-ignore')) {
+        const quotingDisabled = args[0] === '-c' && args[1] === 'core.quotePath=false'
+        return quotingDisabled
+          ? 'skills/my-skill/résumé.md'
+          : '"skills/my-skill/r\\303\\251sum\\303\\251.md"'
+      }
       return ''
     }
     const gh: Runner = async () =>

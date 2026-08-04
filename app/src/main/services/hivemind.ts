@@ -672,7 +672,12 @@ export class HivemindService {
   private async gitIgnoredOf(cwd: string, rels: string[]): Promise<Set<string>> {
     if (rels.length === 0) return new Set()
     try {
-      const out = await this.git(['check-ignore', ...rels], cwd)
+      // core.quotePath defaults on, which makes check-ignore print any non-ASCII path
+      // C-escaped (e.g. `skills/x/résumé.md` as `"skills/x/r\303\251sum\303\251.md"`) —
+      // that never matches the plain keys `rels`/the caller's maps use, so a gitignored
+      // non-ASCII file would otherwise never be excluded from the comparison. Disable it
+      // for just this invocation.
+      const out = await this.git(['-c', 'core.quotePath=false', 'check-ignore', ...rels], cwd)
       return new Set(
         out
           .split('\n')
