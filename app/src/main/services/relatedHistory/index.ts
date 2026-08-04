@@ -59,6 +59,18 @@ export class RelatedHistoryService {
       const limit = input.limit ?? DEFAULT_LIMIT
       const query = this.resolveQuery(input)
       queryText = query.text
+
+      // A query with zero terms (an empty `query`, or `caseSlug` resolving to
+      // nothing — an unknown slug, or a case with no title/summary/findings at
+      // all) must never reach a provider. The card the pre-merge refactor
+      // deleted guarded this explicitly ("skips the call entirely rather than
+      // sending ''"); this refactor lost that guard everywhere except the local
+      // provider, so `providers/corpus.ts` would still send `query: ''` over the
+      // network to every configured corpus source.
+      if (query.terms.length === 0) {
+        return { query: query.text, hits: [], sources: [], reason: 'query-too-generic' }
+      }
+
       const providers = this.providers(input.caseSlug ?? null)
 
       if (providers.length === 0) {

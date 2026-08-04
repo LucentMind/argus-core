@@ -231,6 +231,26 @@ describe('RelatedHistoryService.search', () => {
     expect(r.hits).toEqual([])
   })
 
+  // Important 2: the pre-merge card explicitly skipped the call entirely rather
+  // than sending an empty query — this refactor lost that guard everywhere
+  // except the local provider, so an empty query still reached every corpus
+  // provider over the network. Assert no provider is even consulted.
+  it('short-circuits an empty query before consulting any provider', async () => {
+    const provider = fakeProvider('local', 'local', { ok: true, hits: [] })
+    const svc = new RelatedHistoryService({ db, defectCorpus: noCorpus(), providers: [provider] })
+    const r = await svc.search({ query: '' })
+    expect(provider.search).not.toHaveBeenCalled()
+    expect(r).toEqual({ query: '', hits: [], sources: [], reason: 'query-too-generic' })
+  })
+
+  it('short-circuits when caseSlug resolves to zero terms (an unknown slug)', async () => {
+    const provider = fakeProvider('local', 'local', { ok: true, hits: [] })
+    const svc = new RelatedHistoryService({ db, defectCorpus: noCorpus(), providers: [provider] })
+    const r = await svc.search({ caseSlug: 'does-not-exist' })
+    expect(provider.search).not.toHaveBeenCalled()
+    expect(r).toEqual({ query: '', hits: [], sources: [], reason: 'query-too-generic' })
+  })
+
   // Important 1 (review pass 1): everything BEFORE the provider fan-out —
   // resolveQuery -> buildRelatedQuery -> getCase/getCaseSummary/recentFindingSummaries,
   // and providers() -> summaryPopulation — is a raw, synchronous db.prepare()
