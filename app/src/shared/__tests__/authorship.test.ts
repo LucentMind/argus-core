@@ -387,14 +387,20 @@ describe('mergeAuthorship', () => {
 describe('isSoleAuthor', () => {
   const me: Identity = { name: 'Jiawei Han', email: 'jiawiehan@gmail.com' }
 
-  it('is true for an asset with no authorship trail at all', () => {
-    expect(isSoleAuthor('# just a body\n', me)).toBe(true)
+  // isSoleAuthor now requires the positive `origin: authored` signal (see its doc comment for
+  // why), so every raw fixture below that asserts `true` carries it explicitly — a bare "no
+  // frontmatter at all" or "author present, origin absent" fixture is no longer sole-authored;
+  // that behavior change is covered by the two tests further down.
+
+  it('is true for an asset whose only authorship signal is an explicit authored origin', () => {
+    expect(isSoleAuthor('---\norigin: authored\n---\n# just a body\n', me)).toBe(true)
   })
 
   it('is true when the only author and contributor are me', () => {
     const raw = [
       '---',
       'author: Jiawei Han <jiawiehan@gmail.com>',
+      'origin: authored',
       'contributors:',
       '  - Jiawei Han <jiawiehan@gmail.com> 2026-08-01',
       '---',
@@ -407,6 +413,7 @@ describe('isSoleAuthor', () => {
     const raw = [
       '---',
       'author: Jiawei Han <JiaWieHan@Gmail.com>',
+      'origin: authored',
       'contributors:',
       '  - Jiawei Han <JIAWIEHAN@GMAIL.COM> 2026-08-01',
       '---',
@@ -487,5 +494,30 @@ describe('isSoleAuthor', () => {
       '# body\n'
     ].join('\n')
     expect(isSoleAuthor(raw, me)).toBe(true)
+  })
+
+  it('is false when origin is proposal, even though author and every contributor are me — regression for the acceptProposal leak: a hive skill ships with no author stamp at all, so an agent-proposed skill-edit the user accepts writes exactly author: me, origin: proposal, contributors: [me], which the old blacklist misread as sole', () => {
+    const raw = [
+      '---',
+      'author: Jiawei Han <jiawiehan@gmail.com>',
+      'origin: proposal',
+      'contributors:',
+      '  - Jiawei Han <jiawiehan@gmail.com> 2026-08-01',
+      '---',
+      '# body\n'
+    ].join('\n')
+    expect(isSoleAuthor(raw, me)).toBe(false)
+  })
+
+  it('is false when origin is absent (or unrecognized) even though author and every contributor are me — a legacy asset predating the authorship stamp now costs one extra `gh pr list` call instead of being presumed sole; that is the accepted trade-off, since a failed live query still fails open (see pushStatus) and can only ever cost a recoverable duplicate PR, never a wrong block', () => {
+    const raw = [
+      '---',
+      'author: Jiawei Han <jiawiehan@gmail.com>',
+      'contributors:',
+      '  - Jiawei Han <jiawiehan@gmail.com> 2026-08-01',
+      '---',
+      '# body\n'
+    ].join('\n')
+    expect(isSoleAuthor(raw, me)).toBe(false)
   })
 })

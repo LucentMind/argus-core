@@ -738,6 +738,9 @@ describe('pushable + push', () => {
         'name: solo',
         'description: mine alone',
         'author: Jiawei Han <me@example.test>',
+        // See seedAssets' comment above: isSoleAuthor now requires an explicit `origin:
+        // authored` alongside author/contributors.
+        'origin: authored',
         '---',
         '# solo\n'
       ].join('\n')
@@ -1993,6 +1996,10 @@ describe('pushStatus', () => {
       'name: my-skill',
       'description: mine',
       'author: Jiawei Han <me@example.test>',
+      // isSoleAuthor now requires the positive `origin: authored` signal (a bare
+      // author+contributor stamp with no origin no longer reads as sole — see its doc
+      // comment); this fixture models a genuinely from-scratch asset, so it carries one.
+      'origin: authored',
       'contributors:',
       '  - Jiawei Han <me@example.test> 2026-08-01',
       ...(extraContributor ? ['  - Alex Chen <alex@example.test> 2026-08-02'] : []),

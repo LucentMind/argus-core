@@ -167,26 +167,42 @@ export function stampAuthorship(
  * a sufficient record and no GitHub round-trip is needed. Anything else — a second contributor, or
  * a byline that is not mine — means a teammate may have one open, and only a live query can say.
  *
+ * The rule is a POSITIVE signal — `origin === 'authored'` — not a list of exclusions, because the
+ * exclusion list kept leaking. Three separate flows have produced "author: me, one contributor: me,
+ * nothing on an exclusion list" for an asset that unmistakably did NOT originate with `me`:
+ *   1. `forkSkill` stamps `origin: fork` when it claims an unauthored upstream skill. Closed by
+ *      adding `origin === 'fork'` to the blacklist.
+ *   2. `claimReference` passes `origin: null` deliberately (claiming is not authoring) but the
+ *      claimed file still carries `source_repo`/`source_commit` from `install()`. Closed by adding
+ *      that pair to the blacklist.
+ *   3. `acceptProposal` stamps `origin: proposal`. A hive skill routinely ships with no `author:`
+ *      at all (every core skill does — `install()`'s skill branch stamps nothing into SKILL.md),
+ *      so an agent's edit proposal against it finds no existing author, `mergeAuthorship` passes
+ *      the body through unchanged, and `stampAuthorship` sets `author: me, origin: proposal,
+ *      contributors: [me]` — a shape neither exclusion above catches. Worse for references:
+ *      `acceptProposal`'s reference branch merges only author/origin/contributors, so accepting a
+ *      proposal against an installed hive reference does not carry `source_repo`/`source_commit`
+ *      across at all — it *erases* the one signal exclusion #2 depends on.
+ * A fourth leak is only a matter of time under the exclusion-list shape: every new "I merely
+ * touched this, I did not write it" origin has to be discovered, reported, and hand-added, and the
+ * cost of missing one is silent — the `gh` lookup never runs and a second PR opens on top of a
+ * teammate's. Requiring the one origin that means "created from scratch, by me" instead makes an
+ * unrecognized or absent origin fail toward the safe query path BY CONSTRUCTION: no future write
+ * path can leak sole authorship just by using an origin nobody thought to blacklist yet.
+ *
+ * Consequence: `origin: null` — an asset predating authorship stamping, or one hand-edited to drop
+ * the key — now also routes to the live `gh` query instead of being presumed sole. That trades one
+ * extra `gh pr list` call (and a slightly slower share dialog) for closing the hole above; a failed
+ * live query still fails OPEN (`state: 'none'` + warning — see `pushStatus`), so this can only ever
+ * cost a recoverable duplicate PR, never a wrong block.
+ *
+ * `source_repo`/`source_commit` stays as a second, independent disqualifier (defence in depth): a
+ * file carrying the install stamp came from a hive regardless of what its `origin` field claims, so
+ * a stale or hand-edited `origin: authored` cannot resurrect the receipt-only fast path for it.
+ *
  * `me === null` (this machine has no usable git identity) returns false, not true: with no identity
  * there is nothing to compare against, so sole authorship is unprovable and the safer, more
- * thorough path is the correct default. Note this is also why an unauthored asset reads as sole:
- * `stampAuthorship` no-ops without an identity, so an empty trail plus a real identity means
- * "written before authorship stamping existed", not "written by someone unknown".
- *
- * An absent `author` is NOT by itself proof of sole authorship — that was the original bug here.
- * Hive assets routinely ship with no `author:` frontmatter at all (every core skill does), and two
- * mainline flows turn "someone else's asset" into exactly the shape this function used to call
- * sole: `forkSkill` stamps `author = me` when none exists (`stampAuthorship` with `origin: 'fork'`),
- * and `claimReference` deliberately passes `origin: null` so the claimer joins the contributor list
- * without asserting authorship — leaving `author` still absent, one contributor: me. Both are
- * "I did not write this, I only just touched it," and the receipt-only fast path this function
- * gates must not fire for either: it would skip the `gh` lookup entirely and let a second PR open
- * while the original author's is still up. Two signals always survive a fork or a claim and always
- * mean "this came from somewhere else," so they disqualify sole authorship independent of the
- * author/contributors shape: `origin === 'fork'` (rewritten by `stampAuthorship` even when an
- * author already exists — the sole case origin is ever rewritten), and, for references,
- * `source_repo`/`source_commit` (stamped by `install()` on every hive copy and preserved by
- * `claimReference`).
+ * thorough path is the correct default.
  *
  * Emails compare case-insensitively for the same reason `stampAuthorship` dedupes that way —
  * addresses are case-insensitive, and `J.Han@corp` vs `j.han@corp` is one person.
@@ -200,10 +216,10 @@ export function isSoleAuthor(raw: string, me: Identity | null): boolean {
     return m !== null && m[2].trim().toLowerCase() === key
   }
   const { author, origin, contributors } = parseAuthorship(raw)
-  if (origin === 'fork') return false
   const block = fmBlock(raw)
   if (block && (fmField(block.fm, 'source_repo') || fmField(block.fm, 'source_commit')))
     return false
+  if (origin !== 'authored') return false
   if (author !== null && !isMe(author)) return false
   if (contributors.length > 1) return false
   return contributors.length === 0 || contributors[0].email.trim().toLowerCase() === key
