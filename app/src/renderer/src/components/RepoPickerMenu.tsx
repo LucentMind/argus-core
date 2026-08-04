@@ -105,8 +105,11 @@ export function RepoPickerMenu({
     { label: 'Browse…', onSelect: () => void browse() }
   ]
 
+  // `portal` on both surfaces: each trigger sits inside a scroll container (the case rail's
+  // `overflow-y-auto` section box, and the Settings page's scrolling body), and an absolutely
+  // positioned panel is clipped at that container's edge no matter its z-index.
   return 'text' in trigger ? (
-    <MenuButton label={trigger.text} items={items} align="right" aria-label={trigger.text} />
+    <MenuButton label={trigger.text} items={items} align="right" portal aria-label={trigger.text} />
   ) : (
     <MenuButton
       label={trigger.icon}
@@ -119,6 +122,10 @@ export function RepoPickerMenu({
       // axes. `align="right"` opens the panel leftward, into the card's own width, instead of
       // rightward off the edge of a rail that has no room to give it.
       align="right"
+      // ...and `portal`, because `align` only fixes the horizontal axis. The inner
+      // `overflow-y-auto` box ends just below the Repos card, so the panel was cut off
+      // VERTICALLY mid-list (measured live: panel 141..214 against a clipper ending at 201).
+      portal
       nocaret
       aria-label={trigger.label}
       title={trigger.label}

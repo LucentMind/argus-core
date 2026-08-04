@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from 'react'
 import { Check } from 'lucide-react'
 
 const CHIP_TONES = {
@@ -183,6 +184,18 @@ export interface MenuItem {
 
 const MENU_ITEM_BASE = 'block w-full rounded-r2 px-3 py-1.5 text-left text-sm hover:bg-hair/50'
 
+/** Renders `children` into `document.body` when `portal`, otherwise in place. Local to this
+ *  module (not exported) so `react-refresh/only-export-components` stays satisfied. */
+function MaybePortal({
+  portal,
+  children
+}: {
+  portal: boolean
+  children: ReactNode
+}): React.JSX.Element {
+  return <>{portal ? createPortal(children, document.body) : children}</>
+}
+
 /** Button + anchored dropdown menu. Closes on select, Escape, or outside click.
  *  Items with `children` expand into a nested submenu on hover or click. */
 export function MenuButton({
@@ -195,7 +208,8 @@ export function MenuButton({
   size = 'md',
   'aria-label': ariaLabel,
   title,
-  nocaret = false
+  nocaret = false,
+  portal = false
 }: {
   label: React.ReactNode
   items: MenuItem[]
@@ -220,9 +234,28 @@ export function MenuButton({
   /** When true, suppress the trailing caret that indicates a menu. Used by action-menu
    *  triggers that provide their own visual indicator (e.g. an ellipsis). */
   nocaret?: boolean
+  /** Render the panel into `document.body` as a FIXED overlay instead of an absolutely
+   *  positioned child.
+   *
+   *  Needed whenever the trigger sits inside a scroll container. An absolutely positioned
+   *  panel is clipped by any ancestor whose `overflow` is not `visible`, and no `z-index`
+   *  can escape that — clipping is not paint order. The case rail is the live example:
+   *  its sections live in a `overflow-y-auto` box whose bottom edge falls just below the
+   *  Repos card, so the panel was cut mid-list (measured: panel 141..214, clipper ends at
+   *  201, and `elementFromPoint` at the panel's bottom returned the `<aside>`, not the menu).
+   *
+   *  A fixed panel cannot follow a scrolling anchor, so the menu closes on scroll/resize
+   *  rather than drifting away from its trigger. */
+  portal?: boolean
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [openUp, setOpenUp] = useState(false)
+  /** Trigger rect captured at open time — the fixed panel positions against it. */
+  const [anchor, setAnchor] = useState<DOMRect | null>(null)
+  /** The portalled panel is NOT inside `ref`, so the outside-click check must consult it
+   *  separately; otherwise a click on a menu item reads as "outside", closes the menu on
+   *  mousedown, and the item's own click never fires. */
+  const panelRef = useRef<HTMLDivElement>(null)
   // Index of the currently-expanded submenu parent, or null.
   const [openSub, setOpenSub] = useState<number | null>(null)
   // Whether the open submenu was opened by hover. Pointer input fires mouseenter
@@ -241,7 +274,10 @@ export function MenuButton({
   useEffect(() => {
     if (!open) return
     const onDoc = (e: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      const t = e.target as Node
+      if (ref.current?.contains(t)) return
+      if (panelRef.current?.contains(t)) return
+      setOpen(false)
     }
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') setOpen(false)
@@ -253,6 +289,19 @@ export function MenuButton({
       document.removeEventListener('keydown', onKey)
     }
   }, [open])
+  // A fixed panel is positioned against a rect captured at open time, so it cannot follow a
+  // scrolling or resizing anchor. Close instead of letting it drift away from its trigger.
+  // Capture phase: the scroll happens on an inner container, which does not bubble to window.
+  useEffect(() => {
+    if (!open || !portal) return
+    const close = (): void => setOpen(false)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [open, portal])
   return (
     <div className="relative" ref={ref}>
       <Btn
@@ -263,6 +312,7 @@ export function MenuButton({
           // the settings panel) so the menu never renders off-screen or under other chrome.
           const rect = ref.current?.getBoundingClientRect()
           setOpenUp(Boolean(rect && window.innerHeight - rect.bottom < 220 && rect.top > 220))
+          setAnchor(rect ?? null)
           // reset any expanded submenu so each open starts collapsed. The hover flag
           // resets too: a row unmounted while hovered never fires its mouseleave.
           hoverOpenedSub.current = false
@@ -278,88 +328,110 @@ export function MenuButton({
         {label} {!nocaret && <span aria-hidden="true">▾</span>}
       </Btn>
       {open && (
-        <div
-          role="menu"
-          className={`absolute z-30 min-w-44 rounded-r2 overlay-menu p-1 ${
-            openUp ? 'bottom-full mb-1' : 'mt-1'
-          } ${align === 'left' ? 'left-0' : 'right-0'}`}
-        >
-          {items.map((it, i) =>
-            it.children ? (
-              <div
-                key={`${i}-${it.label}`}
-                className="relative"
-                onMouseEnter={() => {
-                  hoverOpenedSub.current = true
-                  setOpenSub(i)
-                }}
-                onMouseLeave={() => {
-                  hoverOpenedSub.current = false
-                  setOpenSub(null)
-                }}
-              >
+        <MaybePortal portal={Boolean(portal && anchor)}>
+          <div
+            ref={panelRef}
+            role="menu"
+            style={
+              portal && anchor
+                ? ({
+                    position: 'fixed',
+                    ...(openUp
+                      ? { bottom: window.innerHeight - anchor.top + 4 }
+                      : { top: anchor.bottom + 4 }),
+                    ...(align === 'left'
+                      ? { left: anchor.left }
+                      : { right: window.innerWidth - anchor.right })
+                  } as CSSProperties)
+                : undefined
+            }
+            className={
+              portal && anchor
+                ? 'z-50 min-w-44 rounded-r2 overlay-menu p-1'
+                : `absolute z-30 min-w-44 rounded-r2 overlay-menu p-1 ${
+                    openUp ? 'bottom-full mb-1' : 'mt-1'
+                  } ${align === 'left' ? 'left-0' : 'right-0'}`
+            }
+          >
+            {items.map((it, i) =>
+              it.children ? (
+                <div
+                  key={`${i}-${it.label}`}
+                  className="relative"
+                  onMouseEnter={() => {
+                    hoverOpenedSub.current = true
+                    setOpenSub(i)
+                  }}
+                  onMouseLeave={() => {
+                    hoverOpenedSub.current = false
+                    setOpenSub(null)
+                  }}
+                >
+                  <button
+                    role="menuitem"
+                    title={it.title}
+                    aria-haspopup="menu"
+                    aria-expanded={openSub === i}
+                    className={`flex items-center justify-between ${MENU_ITEM_BASE} text-ink`}
+                    onClick={() =>
+                      setOpenSub((s) => (s === i && !hoverOpenedSub.current ? null : i))
+                    }
+                  >
+                    <span>{it.label}</span>
+                    <span aria-hidden="true" className="ml-3 text-mute">
+                      ▸
+                    </span>
+                  </button>
+                  {openSub === i && (
+                    // Outer wrapper abuts the parent button (left-full, no margin) and
+                    // carries the 4px offset as transparent left padding, so the gap
+                    // between row and panel is a *hoverable* strip that keeps the pointer
+                    // inside this DOM subtree. A bare `ml-1` margin leaves the pointer
+                    // over neither element mid-cross, firing the parent's onMouseLeave
+                    // and closing the submenu before it can be reached.
+                    <div className="absolute left-full top-0 z-40 pl-1">
+                      <div role="menu" className="min-w-44 rounded-r2 overlay-menu p-1">
+                        {it.children.map((sub, j) => (
+                          <button
+                            key={`${j}-${sub.label}`}
+                            role="menuitem"
+                            title={sub.title}
+                            disabled={sub.disabled}
+                            className={`${MENU_ITEM_BASE} disabled:opacity-50 ${
+                              sub.tone === 'danger' ? 'text-danger' : 'text-ink'
+                            }`}
+                            onClick={() => {
+                              setOpen(false)
+                              sub.onSelect?.()
+                            }}
+                          >
+                            {sub.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
                 <button
+                  key={`${i}-${it.label}`}
                   role="menuitem"
                   title={it.title}
-                  aria-haspopup="menu"
-                  aria-expanded={openSub === i}
-                  className={`flex items-center justify-between ${MENU_ITEM_BASE} text-ink`}
-                  onClick={() => setOpenSub((s) => (s === i && !hoverOpenedSub.current ? null : i))}
+                  disabled={it.disabled}
+                  className={`${MENU_ITEM_BASE} disabled:opacity-50 ${
+                    it.tone === 'danger' ? 'text-danger' : 'text-ink'
+                  }`}
+                  onClick={() => {
+                    setOpen(false)
+                    it.onSelect?.()
+                  }}
                 >
-                  <span>{it.label}</span>
-                  <span aria-hidden="true" className="ml-3 text-mute">
-                    ▸
-                  </span>
+                  {it.label}
                 </button>
-                {openSub === i && (
-                  // Outer wrapper abuts the parent button (left-full, no margin) and
-                  // carries the 4px offset as transparent left padding, so the gap
-                  // between row and panel is a *hoverable* strip that keeps the pointer
-                  // inside this DOM subtree. A bare `ml-1` margin leaves the pointer
-                  // over neither element mid-cross, firing the parent's onMouseLeave
-                  // and closing the submenu before it can be reached.
-                  <div className="absolute left-full top-0 z-40 pl-1">
-                    <div role="menu" className="min-w-44 rounded-r2 overlay-menu p-1">
-                      {it.children.map((sub, j) => (
-                        <button
-                          key={`${j}-${sub.label}`}
-                          role="menuitem"
-                          title={sub.title}
-                          disabled={sub.disabled}
-                          className={`${MENU_ITEM_BASE} disabled:opacity-50 ${
-                            sub.tone === 'danger' ? 'text-danger' : 'text-ink'
-                          }`}
-                          onClick={() => {
-                            setOpen(false)
-                            sub.onSelect?.()
-                          }}
-                        >
-                          {sub.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button
-                key={`${i}-${it.label}`}
-                role="menuitem"
-                title={it.title}
-                disabled={it.disabled}
-                className={`${MENU_ITEM_BASE} disabled:opacity-50 ${
-                  it.tone === 'danger' ? 'text-danger' : 'text-ink'
-                }`}
-                onClick={() => {
-                  setOpen(false)
-                  it.onSelect?.()
-                }}
-              >
-                {it.label}
-              </button>
-            )
-          )}
-        </div>
+              )
+            )}
+          </div>
+        </MaybePortal>
       )}
     </div>
   )
