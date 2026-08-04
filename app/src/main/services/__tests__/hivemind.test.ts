@@ -771,7 +771,7 @@ describe('pushable + push', () => {
     const calls: string[][] = []
     const git: Runner = async (_c, args) => {
       calls.push(args)
-      if (args[0] === 'ls-tree') return 'skills/solo/SKILL.md'
+      if (args.includes('ls-tree')) return 'skills/solo/SKILL.md'
       if (args[0] === 'show') return local.trim()
       return ''
     }
@@ -794,7 +794,7 @@ describe('pushable + push', () => {
     const calls: string[][] = []
     const git: Runner = async (_c, args) => {
       calls.push(args)
-      if (args[0] === 'ls-tree') return 'skills/solo/SKILL.md'
+      if (args.includes('ls-tree')) return 'skills/solo/SKILL.md'
       if (args[0] === 'show') return '# an older body'
       if (args[0] === 'status') return ' M skills/solo/SKILL.md'
       return ''
@@ -870,7 +870,7 @@ describe('pushable + push', () => {
     const calls: string[][] = []
     const git: Runner = async (_c, args) => {
       calls.push(args)
-      if (args[0] === 'ls-tree') return '' // ref has no matching files => contents differ => changed
+      if (args.includes('ls-tree')) return '' // ref has no matching files => contents differ => changed
       if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
       if (args[0] === 'status') return ' M skills/my-skill/SKILL.md'
       return ''
@@ -932,7 +932,7 @@ describe('pushable + push', () => {
     const calls: string[][] = []
     const git: Runner = async (_c, args) => {
       calls.push(args)
-      if (args[0] === 'ls-tree') return '' // ref has no matching files => contents differ => changed
+      if (args.includes('ls-tree')) return '' // ref has no matching files => contents differ => changed
       if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
       if (args[0] === 'status') return ' M skills/my-skill/SKILL.md'
       return ''
@@ -983,7 +983,7 @@ describe('pushable + push', () => {
     const calls: string[][] = []
     const git: Runner = async (_c, args) => {
       calls.push(args)
-      if (args[0] === 'ls-tree') return 'skills/solo/SKILL.md'
+      if (args.includes('ls-tree')) return 'skills/solo/SKILL.md'
       // refContents' `show` differs from local, so pushStatus resolves `changed: true`...
       if (args[0] === 'show') return '# an older body'
       // ...but the worktree, after copying the same content back in, reports no diff.
@@ -2080,7 +2080,7 @@ describe('pushStatus', () => {
     })
     const local = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
     const git: Runner = async (_c, args) => {
-      if (args[0] === 'ls-tree') return 'skills/my-skill/SKILL.md'
+      if (args.includes('ls-tree')) return 'skills/my-skill/SKILL.md'
       // `git show` through the real runner is trimmed; mimic that here so the test proves
       // pushStatus normalizes rather than accidentally comparing equal-with-newline strings.
       if (args[0] === 'show') return local.trim()
@@ -2109,7 +2109,7 @@ describe('pushStatus', () => {
     const local = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
     fs.writeFileSync(path.join(home, 'skills-user', 'my-skill', 'NOTES.md'), '# new file\n')
     const git: Runner = async (_c, args) => {
-      if (args[0] === 'ls-tree') return 'skills/my-skill/SKILL.md'
+      if (args.includes('ls-tree')) return 'skills/my-skill/SKILL.md'
       if (args[0] === 'show') return local.trim()
       return ''
     }
@@ -2167,7 +2167,7 @@ describe('pushStatus', () => {
       ])
     }
     const git: Runner = async (_c, args) => {
-      if (args[0] === 'ls-tree') return 'skills/my-skill/SKILL.md'
+      if (args.includes('ls-tree')) return 'skills/my-skill/SKILL.md'
       if (args[0] === 'show') return local.trim()
       return ''
     }
@@ -2361,7 +2361,7 @@ describe('pushStatus', () => {
     })
     const local = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
     const git: Runner = async (_c, args) => {
-      if (args[0] === 'ls-tree') return 'skills/my-skill/SKILL.md'
+      if (args.includes('ls-tree')) return 'skills/my-skill/SKILL.md'
       if (args[0] === 'show') return local.trim()
       return ''
     }
@@ -2392,7 +2392,7 @@ describe('pushStatus', () => {
     fs.writeFileSync(path.join(home, 'skills-user', 'my-skill', '.DS_Store'), 'junk')
     const local = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
     const git: Runner = async (_c, args) => {
-      if (args[0] === 'ls-tree') return 'skills/my-skill/SKILL.md'
+      if (args.includes('ls-tree')) return 'skills/my-skill/SKILL.md'
       if (args[0] === 'show') return local.trim()
       // matched by inclusion, not args[0]: gitIgnoredOf's invocation carries a leading
       // `-c core.quotePath=false` (see the non-ASCII test below) ahead of the subcommand.
@@ -2430,7 +2430,7 @@ describe('pushStatus', () => {
     fs.writeFileSync(path.join(home, 'skills-user', 'my-skill', 'résumé.md'), 'ignored')
     const local = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
     const git: Runner = async (_c, args) => {
-      if (args[0] === 'ls-tree') return 'skills/my-skill/SKILL.md'
+      if (args.includes('ls-tree')) return 'skills/my-skill/SKILL.md'
       if (args[0] === 'show') return local.trim()
       if (args.includes('check-ignore')) {
         const quotingDisabled = args[0] === '-c' && args[1] === 'core.quotePath=false'
@@ -2448,6 +2448,41 @@ describe('pushStatus', () => {
       prUrl: 'https://pr/7',
       changed: false
     })
+  })
+
+  it('the ls-tree invocation also disables core.quotePath — refContents must match the same unescaped keys check-ignore matches', async () => {
+    // The earlier fix disabled core.quotePath only for `check-ignore` (see the non-ASCII
+    // test above). `ls-tree` C-escapes non-ASCII paths under the same default, and
+    // `refContents` (backed by `ls-tree`) has to produce keys that match `localContents`'
+    // plain, unescaped ones or `sameContents` reports `changed: true` forever for any
+    // non-ASCII asset. A DI fake can't reproduce real git's C-escaping (see the non-ASCII
+    // check-ignore test for that shape), so this only asserts the flag is present on the
+    // `ls-tree` invocation, positioned as a global option ahead of the subcommand — not
+    // end-to-end coverage of the escaping itself.
+    seedClone()
+    seedAssets()
+    writeState({
+      'skill/my-skill': {
+        prUrl: 'https://pr/7',
+        pushedAt: '2026-08-01T00:00:00Z',
+        repo: 'acme/hivemind'
+      }
+    })
+    const calls: string[][] = []
+    const local = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args.includes('ls-tree')) return 'skills/my-skill/SKILL.md'
+      if (args[0] === 'show') return local.trim()
+      return ''
+    }
+    const gh: Runner = async () =>
+      JSON.stringify({ state: 'OPEN', headRefName: 'argus/share-skill-my-skill-1' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    await svc.pushStatus('skill', 'my-skill', me)
+    const lsTreeCall = calls.find((c) => c.includes('ls-tree'))
+    expect(lsTreeCall).toBeDefined()
+    expect(lsTreeCall!.slice(0, 3)).toEqual(['-c', 'core.quotePath=false', 'ls-tree'])
   })
 
   it('a confirmed own PR is not discarded when the later comparison fails — reports open-mine + changed, not none', async () => {

@@ -727,8 +727,17 @@ export class HivemindService {
     ref: string
   ): Promise<Map<string, string>> {
     const prefix = kind === 'skill' ? `skills/${name}` : `references/${name}`
+    // core.quotePath defaults on, so plain `ls-tree` C-escapes non-ASCII paths the same way
+    // `check-ignore` does (see gitIgnoredOf's comment for the concrete example) — but this
+    // side of the comparison is easy to miss because it's a *different* method fixed on a
+    // *different* day. `localContents`'/`gitIgnoredOf`'s keys are always the plain,
+    // unescaped path strings; if only one of the two `git` invocations that can produce a
+    // tracked-path key disables quoting, the maps built from each side stop matching for any
+    // non-ASCII filename and `sameContents` reports `changed: true` forever for that asset.
+    // BOTH sides must pass `-c core.quotePath=false` — a future third read path (another
+    // `ls-tree`/`ls-files`/`status` call feeding this same key space) needs it too.
     const listing = await this.git(
-      ['ls-tree', '-r', '--name-only', ref, '--', prefix],
+      ['-c', 'core.quotePath=false', 'ls-tree', '-r', '--name-only', ref, '--', prefix],
       this.clone()
     )
     const out = new Map<string, string>()
@@ -736,6 +745,9 @@ export class HivemindService {
       .split('\n')
       .map((l) => l.trim())
       .filter(Boolean)) {
+      // `show` takes `rel` as an argument rather than printing a path itself, so
+      // core.quotePath (an output-formatting option) doesn't apply here — as long as `rel`
+      // is already the clean, unescaped string the fixed `ls-tree` call above now produces.
       out.set(rel, norm(await this.git(['show', `${ref}:${rel}`], this.clone())))
     }
     return out
