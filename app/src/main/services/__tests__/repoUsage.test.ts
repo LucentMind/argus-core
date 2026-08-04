@@ -21,8 +21,12 @@ import {
 } from '../repoUsage'
 
 let tmp: string, db: DatabaseSync
-const A = 'C:\\repos\\alpha'
-const B = 'C:\\repos\\beta'
+// Platform-native absolute paths: `C:\repos\alpha` on Windows, `/repos/alpha` on POSIX.
+// Hardcoding the Windows spelling passes locally and fails on macOS CI, because `path.resolve`
+// treats `C:\repos\alpha` as RELATIVE there (prefixing cwd) and `path.basename` finds no
+// separator in it, so every `repoKey`/`listRecent` expectation drifts.
+const A = path.resolve('/repos/alpha')
+const B = path.resolve('/repos/beta')
 const always = (): boolean => true
 
 /** Fixed clock helper: distinct, ordered ISO stamps without touching the real clock. */
@@ -56,9 +60,9 @@ describe('caseCount', () => {
 
   it('treats a trailing separator as the same repo', () => {
     recordLink(db, A, 'C-1', at(0))
-    recordLink(db, `${A}\\`, 'C-2', at(1))
+    recordLink(db, `${A}${path.sep}`, 'C-2', at(1))
     expect(caseCount(db, A)).toBe(2)
-    expect(repoKey(`${A}\\`)).toBe(repoKey(A))
+    expect(repoKey(`${A}${path.sep}`)).toBe(repoKey(A))
   })
 
   it('is zero for a repo never linked', () => {
@@ -181,7 +185,7 @@ describe('shouldSuggestDefault', () => {
 
   it('is false for a repo that is already a default, including a differently-spelled path', () => {
     linkToCases(PROMOTE_THRESHOLD)
-    expect(shouldSuggestDefault(db, A, [`${A}\\`])).toBe(false)
+    expect(shouldSuggestDefault(db, A, [`${A}${path.sep}`])).toBe(false)
   })
 
   it('does not confuse one repo for another', () => {
