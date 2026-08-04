@@ -147,3 +147,115 @@ export function similarCases(db: DatabaseSync, caseSlug: string): SummarySearchH
   if (!query.trim()) return []
   return searchCaseSummaries(db, query, { limit: 3, excludeSlug: caseSlug })
 }
+
+/** One quoted phrase-prefix term. Same escaping rule as buildPrefixMatchQuery:
+ *  quoting stops ordinary punctuation (`reset():`) being read as FTS5 syntax and
+ *  stops a `word:` token being read as a column filter. */
+function prefixTerm(term: string): string {
+  return `"${term.replace(/"/g, '""')}"*`
+}
+
+/**
+ * Size of the searchable summary population — the denominator for the
+ * document-frequency suppression rule (spec §4.2). `excludeOpen` drops the
+ * `resolution = 'open'` rows staging.ts writes for still-live cases, so the
+ * denominator matches the population the search actually runs against.
+ */
+export function summaryPopulation(db: DatabaseSync, excludeOpen: boolean): number {
+  const sql = excludeOpen
+    ? `SELECT COUNT(*) AS n FROM case_summaries WHERE resolution <> 'open'`
+    : `SELECT COUNT(*) AS n FROM case_summaries`
+  return (db.prepare(sql).get() as unknown as { n: number }).n
+}
+
+/**
+ * For each term, the set of case slugs whose summary prefix-matches it — one
+ * FTS5 query per term (terms are few, titles are short). The result yields BOTH
+ * document frequency (set size) and per-slug matched-term counts (membership),
+ * which is what lets the local provider apply suppression and overlap in a
+ * single pass.
+ *
+ * A term FTS5 cannot parse contributes an empty set rather than failing the
+ * search: that is a bad token, not a broken index.
+ */
+export function termSlugSets(
+  db: DatabaseSync,
+  terms: string[],
+  opts: { excludeSlug?: string | null; excludeOpen?: boolean } = {}
+): Map<string, Set<string>> {
+  const exclude = opts.excludeSlug ?? null
+  const excludeOpen = opts.excludeOpen === false ? 0 : 1
+  const stmt = db.prepare(
+    `SELECT f.case_slug AS slug
+       FROM case_summaries_fts f JOIN case_summaries s ON s.case_slug = f.case_slug
+      WHERE case_summaries_fts MATCH ?
+        AND (? IS NULL OR f.case_slug <> ?)
+        AND (? = 0 OR s.resolution <> 'open')`
+  )
+  const out = new Map<string, Set<string>>()
+  for (const term of terms) {
+    const set = new Set<string>()
+    try {
+      for (const r of stmt.all(
+        prefixTerm(term),
+        exclude,
+        exclude,
+        excludeOpen
+      ) as unknown as Array<{
+        slug: string
+      }>) {
+        set.add(r.slug)
+      }
+    } catch {
+      /* unparseable term — contributes nothing */
+    }
+    out.set(term, set)
+  }
+  return out
+}
+
+/** A ranked summary row, carrying everything needed to build a RelatedHit
+ *  without an N+1 query per hit. `keywords` is still the stored JSON string. */
+export interface SummaryRankRow {
+  caseSlug: string
+  signature: string
+  symptoms: string
+  rootCause: string
+  fix: string
+  keywords: string
+  resolution: string
+  snippet: string
+  jiraKey: string | null
+}
+
+/**
+ * bm25-rank an EXPLICIT slug set. Callers have already decided which cases are
+ * eligible (suppression + overlap); this only orders them.
+ *
+ * Deliberately does NOT catch: a throw here is a real index failure and spec
+ * §4.6 requires it to surface rather than masquerade as "no similar cases".
+ */
+export function rankSlugs(
+  db: DatabaseSync,
+  terms: string[],
+  slugs: string[],
+  limit: number
+): SummaryRankRow[] {
+  if (terms.length === 0 || slugs.length === 0) return []
+  const ftsQuery = terms.map(prefixTerm).join(' OR ')
+  const placeholders = slugs.map(() => '?').join(', ')
+  const rows = db
+    .prepare(
+      `SELECT f.case_slug AS caseSlug, s.signature, s.symptoms,
+              s.root_cause AS rootCause, s.fix, s.keywords, s.resolution,
+              snippet(case_summaries_fts, -1, '«', '»', '…', 12) AS snippet,
+              c.jira_key AS jiraKey
+         FROM case_summaries_fts f
+         JOIN case_summaries s ON s.case_slug = f.case_slug
+         LEFT JOIN cases c ON c.slug = f.case_slug
+        WHERE case_summaries_fts MATCH ? AND f.case_slug IN (${placeholders})
+        ORDER BY bm25(case_summaries_fts) LIMIT ?`
+    )
+    .all(ftsQuery, ...slugs, limit)
+  return rows as unknown as SummaryRankRow[]
+}
