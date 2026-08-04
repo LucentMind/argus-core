@@ -663,6 +663,12 @@ describe('pushable + push', () => {
     let receipt = (await svc.payload()).pushes['skill/my-skill']
     expect(receipt.prUrl).toBe('https://github.com/acme/hivemind/pull/7')
     expect(Date.parse(receipt.pushedAt)).not.toBeNaN()
+    // `openPrFor`'s receipt path treats a missing `repo` as a non-match (see PushReceipt's
+    // doc comment) — a receipt with no repo is permanently unreusable, so `push` writing it
+    // is what makes reuse possible at all. Without this assertion `push` could stop writing
+    // the field and every other test here (which hand-writes `repo` into its own seeded
+    // state) would stay green.
+    expect(receipt.repo).toBe('acme/hivemind')
 
     // persisted on disk: a fresh service over the same argusHome sees it
     const svc2 = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
@@ -673,6 +679,61 @@ describe('pushable + push', () => {
     await svc.push('skill', 'my-skill', 'Update my-skill', null)
     receipt = (await svc.payload()).pushes['skill/my-skill']
     expect(receipt.prUrl).toBe('https://github.com/acme/hivemind/pull/8')
+    expect(receipt.repo).toBe('acme/hivemind')
+  })
+
+  it('a real push writes a receipt that a real pushStatus reuses — no hand-seeded state', async () => {
+    // Every other reuse test in this file hand-writes hivemind-state.json with `repo` already
+    // present, which proves pushStatus *reads* the field but not that push *writes* it. This
+    // closes the write/read seam directly: push a sole-authored asset for real, then call
+    // pushStatus and let it resolve the exact receipt push() itself persisted.
+    seedClone()
+    const me = { name: 'Jiawei Han', email: 'me@example.test' }
+    fs.mkdirSync(path.join(home, 'skills-user', 'my-skill'), { recursive: true })
+    const raw = [
+      '---',
+      'name: my-skill',
+      'description: mine',
+      'author: Jiawei Han <me@example.test>',
+      'origin: authored',
+      'contributors:',
+      '  - Jiawei Han <me@example.test> 2026-08-01',
+      '---',
+      '# my-skill\n'
+    ].join('\n')
+    fs.writeFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), raw)
+
+    const git: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      if (args.includes('ls-tree')) return 'skills/my-skill/SKILL.md'
+      if (args[0] === 'show') return raw.trim()
+      return ''
+    }
+    let branch = ''
+    const gh: Runner = async (_c, args) => {
+      if (args[0] === 'pr' && args[1] === 'create') {
+        branch = args[args.indexOf('--head') + 1]
+        return 'https://github.com/acme/hivemind/pull/42'
+      }
+      if (args[0] === 'pr' && args[1] === 'view') {
+        return JSON.stringify({ state: 'OPEN', headRefName: branch })
+      }
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+
+    const pushResult = await svc.push('skill', 'my-skill', 'Add my-skill', me)
+    expect(pushResult.ok).toBe(true)
+    if (pushResult.ok) expect(pushResult.prUrl).toBe('https://github.com/acme/hivemind/pull/42')
+
+    // isSoleAuthor(raw, me) is true here, so this takes the receipt-only path — the one gated
+    // by `receipt.repo !== this.deps.repo().trim()` — using ONLY the receipt push() wrote.
+    const status = await svc.pushStatus('skill', 'my-skill', me)
+    expect(status).toEqual({
+      state: 'open-mine',
+      prUrl: 'https://github.com/acme/hivemind/pull/42',
+      changed: false
+    })
   })
 
   it('reference receipts key as reference/<name>', async () => {
