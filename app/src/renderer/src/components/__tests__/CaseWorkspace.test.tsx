@@ -96,12 +96,17 @@ beforeEach(() => {
       onChanged: vi.fn(() => () => undefined)
     },
     // Left over from the pre-merge related-cases card (retired Task 7 of the
-    // related-history plan); the merged card's `related` namespace lands with Task 9.
+    // related-history plan); still reachable via search_known_defects and the settings page,
+    // so kept as forward-compatible ground truth for increment 2.
     defects: {
       search: vi.fn(async () => []),
       test: vi.fn(async () => ({ ok: false, error: 'not configured' })),
       syncNow: vi.fn(async () => ({ ok: false })),
       syncStatus: vi.fn(async () => null)
+    },
+    related: {
+      search: vi.fn(async () => ({ query: '', hits: [], sources: [] })),
+      defect: vi.fn()
     },
     findings: {
       list: vi.fn(async () => []),

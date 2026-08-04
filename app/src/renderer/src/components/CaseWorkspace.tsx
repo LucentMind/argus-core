@@ -12,6 +12,7 @@ import { ReposSection } from './ReposSection'
 import { PrCompanionSection } from './PrCompanionSection'
 import { PrPickerDialog } from './PrPickerDialog'
 import type { PrBinding, PrSearchResult } from '../../../shared/pr'
+import { RelatedHistoryCard } from './RelatedHistoryCard'
 import { PanelTabStrip } from './PanelTabStrip'
 import { PanelDock } from './PanelDock'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
@@ -39,6 +40,7 @@ export function CaseWorkspace({
   onOpenHit,
   onOpenCitation,
   onOpenFile,
+  onOpenCase,
   onOpenRepoFile
 }: {
   slug: string
@@ -66,10 +68,7 @@ export function CaseWorkspace({
   onOpenHit: (hit: UnifiedHit) => void
   onOpenCitation: (evidenceId: number, start: number, end: number) => void
   onOpenFile: (node: FileNode) => void
-  /** Not read in this component right now — the old local-only related-cases card that
-   *  consumed it is retired (related-history plan, Task 7); the merged related-history card
-   *  (Task 8/9) reintroduces the same callback. Kept in the prop type so callers (App.tsx /
-   *  CaseDashboard.tsx) don't need a one-increment round trip removing then re-adding it. */
+  /** Passed to `RelatedHistoryCard` so a local related-case hit navigates there. */
   onOpenCase?: (slug: string) => void
   onOpenRepoFile: (repoName: string, relPath: string, start: number, end: number) => void
 }): React.JSX.Element {
@@ -599,6 +598,9 @@ export function CaseWorkspace({
                   onAnalyze={(checkName) => void analyzeCheck(checkName)}
                   onPrsFound={handlePrsFound}
                 />
+                {activeMode !== 'review' && (
+                  <RelatedHistoryCard slug={slug} onOpenCase={onOpenCase} />
+                )}
               </div>
               {/* key: reset per-case state (scan result, collapsed dirs, parsing set) when
                 switching cases or modes — investigation evidence and review artifacts are

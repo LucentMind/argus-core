@@ -94,6 +94,10 @@ beforeEach(() => {
       redistill: vi.fn(),
       onChanged: vi.fn(() => () => undefined)
     },
+    related: {
+      search: vi.fn(async () => ({ query: '', hits: [], sources: [] })),
+      defect: vi.fn()
+    },
     findings: { list: vi.fn(async () => []), review: vi.fn() },
     review: { worktreeHead: vi.fn(async () => null) },
     rca: { onRcaChanged: vi.fn(() => () => {}) },
