@@ -26,17 +26,26 @@ export function isStrong(term: QueryTerm): boolean {
 }
 
 /**
- * jiraKey terms are exact ticket keys, not prose — the ONE source that must
- * bypass FTS5's default prefix matching. FTS5's own tokenizer splits a key
- * like "KAN-4" into `[kan, 4]`, so a trailing-token prefix match (`"KAN-4"*`)
- * also matches "KAN-42", "KAN-420", "KAN-4299" — sequential trackers mean any
- * short key collides with dozens of later ones, reintroducing the
- * single-incidental-token false positive spec §1 exists to stop. Every other
- * source stays prefix-matched deliberately (see the top-level follow-up on
- * weak-term prefix matching generally).
+ * Sources matched EXACTLY (no trailing FTS5 `*`) rather than by prefix — every
+ * source except `signature`/`errorStrings`.
+ *
+ * Prefix matching exists for morphological and partial-identifier recall on
+ * DISTILLED, already-curated text: `E_TIMEOUT` finding `E_TIMEOUT_42`, or one
+ * distilled signature's `reset` finding another's `resets`. A raw free-text
+ * title or finding summary earns no such latitude — that is exactly where the
+ * false-positive artefacts appear. `"Sample:"*` has no business matching
+ * `sampled`: FTS5 tokenizes "Sample:" to `sample`, and the trailing star turns
+ * that into a prefix that catches any longer word starting with it, purely by
+ * morphological coincidence, not because the words are related. `jiraKey` is
+ * exact for a different but compounding reason: FTS5 tokenizes "KAN-4" to
+ * `[kan, 4]`, so a prefix match on the trailing token also matches "KAN-42",
+ * "KAN-420", "KAN-4299" — sequential trackers mean any short key collides
+ * with dozens of later ones.
  */
+const EXACT_SOURCES: readonly QueryTermSource[] = ['title', 'finding', 'free', 'jiraKey']
+
 export function isExactMatch(term: QueryTerm): boolean {
-  return term.source === 'jiraKey'
+  return EXACT_SOURCES.includes(term.source)
 }
 
 function tokenize(text: string): string[] {

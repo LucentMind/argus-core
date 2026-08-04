@@ -6,7 +6,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase, getCase } from '../../caseService'
 import { upsertCaseSummary } from '../../distill/summaries'
-import { buildRelatedQuery, freeFormQuery, isStrong } from '../query'
+import { buildRelatedQuery, freeFormQuery, isExactMatch, isStrong } from '../query'
 import { SAMPLE_CASE_TITLE } from '../../../../shared/onboarding'
 
 let home: string
@@ -158,5 +158,24 @@ describe('isStrong', () => {
     expect(isStrong({ text: 'x', source: 'title' })).toBe(false)
     expect(isStrong({ text: 'x', source: 'finding' })).toBe(false)
     expect(isStrong({ text: 'x', source: 'free' })).toBe(false)
+  })
+})
+
+describe('isExactMatch', () => {
+  // Fix pass 4: prefix matching is reserved for DISTILLED, already-curated
+  // text (signature / errorStrings), where morphological recall (`reset`
+  // finding `resets`) and partial-identifier recall (`E_TIMEOUT` finding
+  // `E_TIMEOUT_42`) are the point. Every other source is raw or
+  // externally-supplied text where a prefix collision is an artefact, not a
+  // signal — title/finding/free (spec §1's "Sample:"->"sampled") and jiraKey
+  // (an exact ticket key, where FTS5's own tokenizer makes a prefix match
+  // collide with any longer sequentially-numbered key).
+  it('is true for every source except signature and errorStrings', () => {
+    expect(isExactMatch({ text: 'x', source: 'title' })).toBe(true)
+    expect(isExactMatch({ text: 'x', source: 'finding' })).toBe(true)
+    expect(isExactMatch({ text: 'x', source: 'free' })).toBe(true)
+    expect(isExactMatch({ text: 'x', source: 'jiraKey' })).toBe(true)
+    expect(isExactMatch({ text: 'x', source: 'signature' })).toBe(false)
+    expect(isExactMatch({ text: 'x', source: 'errorStrings' })).toBe(false)
   })
 })

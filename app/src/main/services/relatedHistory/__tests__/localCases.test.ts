@@ -263,31 +263,59 @@ describe('local provider — regression tests for the spec §1 defect', () => {
     if (r.ok) expect(r.hits.map((h) => (h as LocalCaseHit).caseSlug)).toEqual(['target'])
   })
 
-  it('9. below population 4, two legitimately-overlapping prefix-matched generic words still must not match', async () => {
-    // Measured regression (fix pass 3): the sample case's title terms include
-    // both 'case' and 'Sample:'->'sample'*. 'case' is a genuinely common word
-    // here (it appears in every one of the 3 real summaries — the kind of
-    // word Rule 2 exists to suppress), but 'sample' happens to prefix-match
-    // "sampled" in exactly ONE summary (battery). Both are weak (title)
-    // sources, so neither can relax Rule 3 alone — but they land on the SAME
-    // summary, so a genuine 2-term overlap satisfies MIN_OVERLAP regardless.
-    // The floor must still let Rule 2 suppress 'case' (df=3 > threshold=1 at
-    // population 3) even though the corpus is tiny — that is what stops this
-    // from becoming a hit through 'sample' alone (df=1, weak, insufficient
-    // overlap on its own).
+  // SUPERSEDES the fix-pass-3 version of this test, whose premise (a
+  // legitimate-looking 2-term overlap arising from 'sample' PREFIX-matching
+  // 'sampled') is now structurally impossible: weak (title/finding/free)
+  // terms are exact-matched (fix pass 4), so 'sample' can never match
+  // 'sampled' at all, at any population. The fix-pass-3 fixture (where
+  // 'case' appeared in all 3 summaries, df=3) also no longer isolates the
+  // right thing — 'case' there is suppressed by Rule 2 regardless, which
+  // proves Rule 2, not the prefix fix. This version keeps BOTH terms at
+  // df=1, per the coordinator's re-verified measurement, to isolate the
+  // actual fix: exact matching, not suppression, is what stops it.
+  it('9. below population 4, a weak title term must not prefix-match a longer word in an unrelated summary', async () => {
+    // Coordinator's re-verified measurement (fix pass 4): population 3, an
+    // unrelated summary whose symptoms read "In this case the SoC value is
+    // sampled once per second". 'case' is df=1 (battery only — alpha/beta
+    // deliberately do NOT contain it, unlike the fix-pass-3 fixture) and
+    // 'Sample:'->'sample' would have been df=1 too, PREFIX-matching
+    // "sampled" (also battery only) — both survive Rule 2's floor (both are
+    // rare enough), and both landing on the same summary would satisfy
+    // MIN_OVERLAP through genuine-looking overlap. Under exact matching,
+    // 'sample' cannot match "sampled" AT ALL (different token) — df=0,
+    // dropped by the `df === 0` filter before suppression even runs. 'case'
+    // alone survives Rule 2 (df=1, rare) and reaches Rule 3, but a single
+    // non-strong term can never relax overlap on its own — so it is Rule 3,
+    // not Rule 2, that rejects here (no `reason` attached, same shape as
+    // test 3b).
     createCase(db, home, { slug: SAMPLE_CASE_SLUG, title: SAMPLE_CASE_TITLE })
     add('battery', 'solved', {
-      signature: 'battery charge case regulation issue',
+      signature: 'battery charge regulation issue',
       symptoms: 'In this case the SoC value is sampled once per second'
     })
-    add('alpha', 'solved', { signature: 'unrelated alpha case symptom' })
-    add('beta', 'solved', { signature: 'unrelated beta case symptom' })
+    add('alpha', 'solved', { signature: 'unrelated alpha thermal symptom' })
+    add('beta', 'solved', { signature: 'unrelated beta thermal symptom' })
 
     const q = buildRelatedQuery(db, SAMPLE_CASE_SLUG)
     const r = await provider(SAMPLE_CASE_SLUG).search(q, 5)
-    // 'sample' survives Rule 2 (df=1), so this is Rule 3 rejecting on overlap,
-    // not Rule 2 on suppression — no `reason` is attached in that case.
     expect(r).toEqual({ ok: true, hits: [] })
+  })
+
+  it('10. a genuine multi-term weak match still returns its hit under exact-only weak matching (over-correction canary)', async () => {
+    // The other direction of test 9: switching weak sources from prefix to
+    // exact must not stop ordinary multi-word overlap on IDENTICAL words —
+    // only morphological-suffix collisions (case/sampled) are the target.
+    // 4 title words, each an exact token match in `target`'s signature —
+    // no suffix trickery on either side, so this must match exactly as it
+    // would have before the fix.
+    pad(6)
+    add('target', 'solved', { signature: 'wakelock never released on teardown path' })
+    createCase(db, home, { slug: 'current', title: 'wakelock never released teardown' })
+    const q = buildRelatedQuery(db, 'current')
+    expect(q.terms.every((t) => t.source === 'title')).toBe(true)
+    const r = await provider('current').search(q, 5)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.hits.map((h) => (h as LocalCaseHit).caseSlug)).toEqual(['target'])
   })
 })
 
