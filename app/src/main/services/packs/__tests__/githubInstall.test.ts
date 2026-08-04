@@ -143,7 +143,8 @@ describe('installFromRepo', () => {
             version: '0.1.0',
             apiCompatible: true,
             platformCompatible: true,
-            updateUrl: 'https://lucentmind.github.io/demo_pack/x/feed.json'
+            updateUrl: 'https://lucentmind.github.io/demo_pack/x/feed.json',
+            dependencies: []
           }) as InspectResult
       },
       REF,
