@@ -57,7 +57,16 @@ export interface HivemindPayload {
   /** Push receipts keyed 'skill/<name>' | 'reference/<name>'. */
   pushes: Record<string, PushReceipt>
 }
+/**
+ * `created` — a brand-new PR was opened. `updated` — a real commit landed on an existing PR's
+ * branch. `unchanged` — nothing was pushed at all: either `pushStatus` already found the open
+ * PR unchanged, or the worktree's own porcelain check found nothing staged after re-deriving.
+ * Both no-op paths in `push()` must resolve here, not to `created` — a boolean `updated: false`
+ * used to conflate "just created" with "nothing happened," so the renderer showed "PR opened"
+ * for a push that touched nothing.
+ */
+export type HivemindPushOutcome = 'created' | 'updated' | 'unchanged'
 export type HivemindPushResult =
-  | { ok: true; prUrl: string; updated: boolean }
+  | { ok: true; prUrl: string; outcome: HivemindPushOutcome }
   | { ok: false; error: string; blockedByPrUrl?: string; blockedByAuthor?: string }
 export type HivemindCheckResult = { ok: true } | { ok: false; error: string }

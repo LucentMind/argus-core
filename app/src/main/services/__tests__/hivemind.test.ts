@@ -504,7 +504,7 @@ describe('pushable + push', () => {
     expect(r).toEqual({
       ok: true,
       prUrl: 'https://github.com/acme/hivemind/pull/7',
-      updated: false
+      outcome: 'created'
     })
     expect(copyExistedAtCommit).toBe(true)
     // the copy never lands in the shared clone itself — only in the throwaway worktree,
@@ -608,7 +608,7 @@ describe('pushable + push', () => {
     expect(r).toEqual({
       ok: true,
       prUrl: 'https://github.com/acme/hivemind/pull/11',
-      updated: false
+      outcome: 'created'
     })
     const flat = calls.map((c) => c.join(' '))
     expect(
@@ -773,7 +773,7 @@ describe('pushable + push', () => {
     }
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
     const r = await svc.push('skill', 'solo', 'Add solo', me)
-    expect(r).toEqual({ ok: true, prUrl: 'https://pr/7', updated: false })
+    expect(r).toEqual({ ok: true, prUrl: 'https://pr/7', outcome: 'unchanged' })
     expect(calls.some((c) => c[0] === 'worktree')).toBe(false)
     expect(calls.some((c) => c[0] === 'commit')).toBe(false)
     expect(ghCalls.some((c) => c[0] === 'pr' && c[1] === 'create')).toBe(false)
@@ -797,7 +797,7 @@ describe('pushable + push', () => {
     }
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
     const r = await svc.push('skill', 'solo', 'Add solo', me)
-    expect(r).toEqual({ ok: true, prUrl: 'https://pr/7', updated: true })
+    expect(r).toEqual({ ok: true, prUrl: 'https://pr/7', outcome: 'updated' })
     const flat = calls.map((c) => c.join(' '))
     // reuses the branch (-B resets the local branch to origin's tip); never cuts a new one.
     // The worktree path is a random temp dir, so match around it rather than reconstructing it.
@@ -987,7 +987,7 @@ describe('pushable + push', () => {
     }
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
     const r = await svc.push('skill', 'solo', 'Add solo', me)
-    expect(r).toEqual({ ok: true, prUrl: 'https://pr/7', updated: false })
+    expect(r).toEqual({ ok: true, prUrl: 'https://pr/7', outcome: 'unchanged' })
     expect(calls.some((c) => c[0] === 'commit')).toBe(false)
   })
 })
@@ -1849,7 +1849,7 @@ describe('push keeps the shared clone checked out', () => {
     expect(r).toEqual({
       ok: true,
       prUrl: 'https://github.com/acme/hivemind/pull/9',
-      updated: false
+      outcome: 'created'
     })
     expect(calls.some((a) => a[0] === 'worktree' && a[1] === 'remove')).toBe(true)
   })

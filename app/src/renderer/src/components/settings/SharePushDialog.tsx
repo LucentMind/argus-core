@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink } from 'lucide-react'
 import { Btn, Chip } from '../ui'
-import type { PushReceipt, PushStatus } from '../../../../shared/hivemind'
+import type { HivemindPushOutcome, PushReceipt, PushStatus } from '../../../../shared/hivemind'
 
 /**
  * Preview → PR-title → push flow for sharing one user-tier asset to the
@@ -30,7 +30,7 @@ export function SharePushDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [prUrl, setPrUrl] = useState<string | null>(null)
-  const [updated, setUpdated] = useState(false)
+  const [outcome, setOutcome] = useState<HivemindPushOutcome | null>(null)
   const [status, setStatus] = useState<PushStatus | null>(null)
   const [previewAttempt, setPreviewAttempt] = useState(0)
 
@@ -70,7 +70,7 @@ export function SharePushDialog({
       const r = await window.argus.hivemind.push(kind, name, title)
       if (r.ok) {
         setPrUrl(r.prUrl)
-        setUpdated(r.updated)
+        setOutcome(r.outcome)
       } else setError(r.error)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -95,7 +95,15 @@ export function SharePushDialog({
     )
   }
 
-  if (prUrl) return prResult(updated ? 'PR updated' : 'PR opened', prUrl)
+  if (prUrl) {
+    // `outcome` distinguishes a real create/update from the no-op paths in `push()` (an
+    // already-open PR with nothing new, or the worktree finding nothing staged after
+    // re-deriving) — both of which used to render identically to a brand-new PR ("PR
+    // opened"), telling the user a pull request was created when none was.
+    const label =
+      outcome === 'updated' ? 'PR updated' : outcome === 'created' ? 'PR opened' : 'Already shared'
+    return prResult(label, prUrl)
+  }
   if (status?.state === 'open-mine' && !status.changed)
     return prResult('Already shared', status.prUrl)
 

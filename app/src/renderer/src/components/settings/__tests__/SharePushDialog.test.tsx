@@ -8,7 +8,7 @@ function stubArgus(
   push: ReturnType<typeof vi.fn> = vi.fn(async () => ({
     ok: true as const,
     prUrl: 'https://pr/1',
-    updated: false
+    outcome: 'created' as const
   })),
   pushPreview: ReturnType<typeof vi.fn> = vi.fn(async () => 'PREVIEW BODY'),
   pushStatus: ReturnType<typeof vi.fn> = vi.fn(async () => ({ state: 'none' as const }))
@@ -84,7 +84,11 @@ describe('SharePushDialog', () => {
 
   it('an already-open PR with local changes offers Update instead of Open', async () => {
     const { push } = stubArgus(
-      vi.fn(async () => ({ ok: true as const, prUrl: 'https://pr/7', updated: true })),
+      vi.fn(async () => ({
+        ok: true as const,
+        prUrl: 'https://pr/7',
+        outcome: 'updated' as const
+      })),
       undefined,
       vi.fn(async () => ({ state: 'open-mine' as const, prUrl: 'https://pr/7', changed: true }))
     )
@@ -125,11 +129,38 @@ describe('SharePushDialog', () => {
     expect(screen.getByText(/could not check for an existing pull request/i)).toBeInTheDocument()
   })
 
+  it('a push that resolves unchanged (nothing was actually pushed) reads "Already shared", not "PR opened"', async () => {
+    // The dialog opened seeing open-mine+changed (so it offers "Update pull request"), but by
+    // click time push() re-derives and finds the porcelain-empty guard fired — nothing was
+    // pushed. Both no-op returns in push() used to carry `updated: false`, which the dialog
+    // rendered identically to a brand-new PR ("PR opened") — telling the user a pull request
+    // was created when none was.
+    const { push } = stubArgus(
+      vi.fn(async () => ({
+        ok: true as const,
+        prUrl: 'https://pr/7',
+        outcome: 'unchanged' as const
+      })),
+      undefined,
+      vi.fn(async () => ({ state: 'open-mine' as const, prUrl: 'https://pr/7', changed: true }))
+    )
+    render(<SharePushDialog kind="skill" name="my-skill" onClose={vi.fn()} />)
+    await screen.findByText('PREVIEW BODY')
+    fireEvent.click(screen.getByRole('button', { name: 'Update pull request' }))
+    expect(await screen.findByText('Already shared')).toBeInTheDocument()
+    expect(screen.queryByText('PR opened')).not.toBeInTheDocument()
+    expect(push).toHaveBeenCalled()
+  })
+
   it('a preload with no pushStatus (older window) still shares normally', async () => {
     ;(window as never as { argus: unknown }).argus = {
       hivemind: {
         pushPreview: vi.fn(async () => 'PREVIEW BODY'),
-        push: vi.fn(async () => ({ ok: true as const, prUrl: 'https://pr/1', updated: false }))
+        push: vi.fn(async () => ({
+          ok: true as const,
+          prUrl: 'https://pr/1',
+          outcome: 'created' as const
+        }))
       },
       openExternal: vi.fn()
     }

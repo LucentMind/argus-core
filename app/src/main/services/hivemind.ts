@@ -917,7 +917,7 @@ export class HivemindService {
     }
     // Unchanged and already open: the block IS returning the existing PR without pushing.
     if (status.state === 'open-mine' && !status.changed)
-      return { ok: true, prUrl: status.prUrl, updated: false }
+      return { ok: true, prUrl: status.prUrl, outcome: 'unchanged' }
 
     const reusing = status.state === 'open-mine'
     let tree: string | null = null
@@ -989,8 +989,9 @@ export class HivemindService {
       await this.git(['add', '-A'], tree)
       if (reusing && !(await this.git(['status', '--porcelain'], tree)).trim()) {
         // pushStatus said changed, the worktree says otherwise — trust the worktree and do not
-        // attempt an empty commit, which git rejects.
-        return { ok: true, prUrl: reusedPrUrl, updated: false }
+        // attempt an empty commit, which git rejects. Nothing was pushed, so this is the same
+        // "already there" outcome as the early-return above, not a fresh update.
+        return { ok: true, prUrl: reusedPrUrl, outcome: 'unchanged' }
       }
       await this.git(['commit', '-m', `share ${kind}: ${name} (via Argus)`], tree)
       let prUrl: string
@@ -1017,7 +1018,7 @@ export class HivemindService {
       const state = this.state()
       state.pushes[`${kind}/${name}`] = { prUrl, pushedAt: new Date().toISOString() }
       this.store.write(state)
-      return { ok: true, prUrl, updated: reusing }
+      return { ok: true, prUrl, outcome: reusing ? 'updated' : 'created' }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     } finally {
