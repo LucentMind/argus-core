@@ -1956,10 +1956,31 @@ function registerIpc(): void {
 
   // — unified related history —
   const relatedHistory = new RelatedHistoryService({ db, defectCorpus })
-  ipcMain.handle(IPC.relatedSearch, (_e, input: RelatedSearchInput) => relatedHistory.search(input))
-  ipcMain.handle(IPC.relatedDefect, (_e, sourceId: string, key: string) =>
-    defectCorpus.getDefect(sourceId, key)
-  )
+  // A generous ceiling, not a UX default (DEFAULT_LIMIT in relatedHistory/index.ts
+  // already covers the normal case) — this only stops a renderer from asking for
+  // an unbounded result set.
+  const RELATED_SEARCH_MAX_LIMIT = 50
+  ipcMain.handle(IPC.relatedSearch, (_e, input: RelatedSearchInput) => {
+    // IPC args are untrusted: validate caseSlug the same way every neighbouring
+    // case handler does, and clamp limit rather than trust the renderer's number.
+    if (input.caseSlug !== undefined) assertSlug(input.caseSlug)
+    const rawLimit = input.limit
+    const limit =
+      typeof rawLimit === 'number' && Number.isFinite(rawLimit)
+        ? Math.max(1, Math.min(Math.trunc(rawLimit), RELATED_SEARCH_MAX_LIMIT))
+        : undefined
+    return relatedHistory.search({ ...input, limit })
+  })
+  ipcMain.handle(IPC.relatedDefect, (_e, sourceId: string, key: string) => {
+    // Same posture: an IPC arg is untrusted input, not a typed guarantee.
+    if (typeof sourceId !== 'string' || sourceId.length === 0) {
+      throw new Error(`Invalid source id: ${JSON.stringify(sourceId)}`)
+    }
+    if (typeof key !== 'string' || key.length === 0) {
+      throw new Error(`Invalid defect key: ${JSON.stringify(key)}`)
+    }
+    return defectCorpus.getDefect(sourceId, key)
+  })
 
   // — case RCA reports (part 3a-N) —
   ipcMain.handle(IPC.rcaGenerate, (_e, slug: string) => {
