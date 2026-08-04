@@ -776,6 +776,14 @@ export class HivemindService {
       // Nobody else can hold a PR for this, so the receipt is the whole record — one gh call.
       const receipt = this.state().pushes[`${kind}/${name}`]
       if (!receipt) return null
+      // A receipt is only trustworthy for the repo it was written under: `gh pr view <full
+      // url>` is repo-agnostic and the branch-name check below can't tell repos apart either
+      // (the branch derives from the asset, not the repo), so a receipt that survived a clone
+      // deletion + repo switch would otherwise resolve just fine against the WRONG repo. A
+      // receipt with no `repo` at all (written before this field existed) is the one case that
+      // can never be verified, so it is treated the same as a mismatch — not as a match — per
+      // PushReceipt's doc comment.
+      if (receipt.repo !== this.deps.repo().trim()) return null
       const pr = JSON.parse(
         await this.gh(['pr', 'view', receipt.prUrl, '--json', 'state,headRefName'])
       ) as { state: string; headRefName: string }
@@ -1016,7 +1024,7 @@ export class HivemindService {
         prUrl = out.split(/\s+/).find((t) => t.startsWith('https://')) ?? out
       }
       const state = this.state()
-      state.pushes[`${kind}/${name}`] = { prUrl, pushedAt: new Date().toISOString() }
+      state.pushes[`${kind}/${name}`] = { prUrl, pushedAt: new Date().toISOString(), repo }
       this.store.write(state)
       return { ok: true, prUrl, outcome: reusing ? 'updated' : 'created' }
     } catch (err) {

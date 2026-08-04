@@ -753,7 +753,13 @@ describe('pushable + push', () => {
         lastSynced: null,
         skills: {},
         references: {},
-        pushes: { 'skill/solo': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } }
+        pushes: {
+          'skill/solo': {
+            prUrl: 'https://pr/7',
+            pushedAt: '2026-08-01T00:00:00Z',
+            repo: 'acme/hivemind'
+          }
+        }
       })
     )
   }
@@ -2012,7 +2018,9 @@ describe('pushStatus', () => {
 
   /** The state file lives at `<home>/config/hivemind-state.json` (see `hivemindStatePath`), and
    *  nothing has called `store.write()` yet at this point, so write it directly. */
-  function writeState(pushes: Record<string, { prUrl: string; pushedAt: string }>): void {
+  function writeState(
+    pushes: Record<string, { prUrl: string; pushedAt: string; repo?: string }>
+  ): void {
     const statePath = path.join(home, 'config', 'hivemind-state.json')
     fs.mkdirSync(path.dirname(statePath), { recursive: true })
     fs.writeFileSync(
@@ -2042,7 +2050,13 @@ describe('pushStatus', () => {
   it('is none when the receipt PR has been merged or closed', async () => {
     seedClone()
     seedAssets()
-    writeState({ 'skill/my-skill': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } })
+    writeState({
+      'skill/my-skill': {
+        prUrl: 'https://pr/7',
+        pushedAt: '2026-08-01T00:00:00Z',
+        repo: 'acme/hivemind'
+      }
+    })
     const gh: Runner = async () =>
       JSON.stringify({ state: 'MERGED', headRefName: 'argus/share-skill-my-skill-1' })
     const svc = new HivemindService({
@@ -2057,7 +2071,13 @@ describe('pushStatus', () => {
   it('is open-mine + unchanged when the branch tip matches the local skill tree', async () => {
     seedClone()
     seedAssets()
-    writeState({ 'skill/my-skill': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } })
+    writeState({
+      'skill/my-skill': {
+        prUrl: 'https://pr/7',
+        pushedAt: '2026-08-01T00:00:00Z',
+        repo: 'acme/hivemind'
+      }
+    })
     const local = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
     const git: Runner = async (_c, args) => {
       if (args[0] === 'ls-tree') return 'skills/my-skill/SKILL.md'
@@ -2079,7 +2099,13 @@ describe('pushStatus', () => {
   it('is open-mine + changed when a file was added to the skill dir since the push', async () => {
     seedClone()
     seedAssets()
-    writeState({ 'skill/my-skill': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } })
+    writeState({
+      'skill/my-skill': {
+        prUrl: 'https://pr/7',
+        pushedAt: '2026-08-01T00:00:00Z',
+        repo: 'acme/hivemind'
+      }
+    })
     const local = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
     fs.writeFileSync(path.join(home, 'skills-user', 'my-skill', 'NOTES.md'), '# new file\n')
     const git: Runner = async (_c, args) => {
@@ -2247,7 +2273,13 @@ describe('pushStatus', () => {
     // the wrong PR — the safe direction per the accepted trade-off.
     seedClone()
     seedAssets()
-    writeState({ 'skill/my-skill': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } })
+    writeState({
+      'skill/my-skill': {
+        prUrl: 'https://pr/7',
+        pushedAt: '2026-08-01T00:00:00Z',
+        repo: 'acme/hivemind'
+      }
+    })
     const gh: Runner = async () =>
       JSON.stringify({ state: 'OPEN', headRefName: 'argus/share-skill-someone-elses-skill-1' })
     const svc = new HivemindService({
@@ -2259,6 +2291,90 @@ describe('pushStatus', () => {
     expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({ state: 'none' })
   })
 
+  it('a receipt written under a different repo is untrusted — repo switch must not resurrect a stale receipt', async () => {
+    // cloneIsStale (and therefore sync()'s pushes-clearing) only fires when a clone already
+    // exists; with no clone present when the repo setting changes, that clear never runs and a
+    // receipt from repo A survives into repo B. isShareBranchFor cannot catch this either — the
+    // branch name derives from the asset, not the repo, so it is identical either way. `gh pr
+    // view <full url>` is itself repo-agnostic, so an untagged receipt path would happily
+    // resolve repo A's PR while pushStatus is being asked about repo B. Requiring the receipt's
+    // own `repo` to match the currently configured one closes that hole independent of sync.
+    seedClone()
+    seedAssets()
+    writeState({
+      'skill/my-skill': {
+        prUrl: 'https://pr/7',
+        pushedAt: '2026-08-01T00:00:00Z',
+        repo: 'other-org/other-hive'
+      }
+    })
+    const ghCalls: string[][] = []
+    const gh: Runner = async (_c, args) => {
+      ghCalls.push(args)
+      // If the mismatched receipt were trusted, this is what it would resolve to.
+      return JSON.stringify({ state: 'OPEN', headRefName: 'argus/share-skill-my-skill-1' })
+    }
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: fakeGit().runner,
+      gh
+    })
+    expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({ state: 'none' })
+    // The mismatch is caught before any gh round-trip — nothing to look up once the receipt
+    // itself is known not to belong to this repo.
+    expect(ghCalls).toEqual([])
+  })
+
+  it('a receipt with no repo at all (written before this field existed) is untrusted, not assumed to match', async () => {
+    // Migration case: an old receipt predating this fix has no `repo` key. Treating that as
+    // "matches" would silently keep trusting exactly the receipts this fix exists to stop
+    // trusting blind — an absent repo is the one case that can never be verified, so it must
+    // fail the same way a mismatched repo does.
+    seedClone()
+    seedAssets()
+    writeState({ 'skill/my-skill': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } })
+    const ghCalls: string[][] = []
+    const gh: Runner = async (_c, args) => {
+      ghCalls.push(args)
+      return JSON.stringify({ state: 'OPEN', headRefName: 'argus/share-skill-my-skill-1' })
+    }
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: fakeGit().runner,
+      gh
+    })
+    expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({ state: 'none' })
+    expect(ghCalls).toEqual([])
+  })
+
+  it('a receipt whose repo matches the configured one is trusted, as before', async () => {
+    seedClone()
+    seedAssets()
+    writeState({
+      'skill/my-skill': {
+        prUrl: 'https://pr/7',
+        pushedAt: '2026-08-01T00:00:00Z',
+        repo: 'acme/hivemind'
+      }
+    })
+    const local = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
+    const git: Runner = async (_c, args) => {
+      if (args[0] === 'ls-tree') return 'skills/my-skill/SKILL.md'
+      if (args[0] === 'show') return local.trim()
+      return ''
+    }
+    const gh: Runner = async () =>
+      JSON.stringify({ state: 'OPEN', headRefName: 'argus/share-skill-my-skill-1' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({
+      state: 'open-mine',
+      prUrl: 'https://pr/7',
+      changed: false
+    })
+  })
+
   it('excludes locally-present files git would never commit from the content comparison', async () => {
     // localContents walks the filesystem (every ent.isFile()); refContents sees only tracked
     // files via `git ls-tree`. A file the hive repo's .gitignore excludes (e.g. a macOS
@@ -2266,7 +2382,13 @@ describe('pushStatus', () => {
     // `changed: true` — the open-mine+unchanged block can never engage for that asset.
     seedClone()
     seedAssets()
-    writeState({ 'skill/my-skill': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } })
+    writeState({
+      'skill/my-skill': {
+        prUrl: 'https://pr/7',
+        pushedAt: '2026-08-01T00:00:00Z',
+        repo: 'acme/hivemind'
+      }
+    })
     fs.writeFileSync(path.join(home, 'skills-user', 'my-skill', '.DS_Store'), 'junk')
     const local = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
     const git: Runner = async (_c, args) => {
@@ -2293,7 +2415,13 @@ describe('pushStatus', () => {
     // content must fail open toward reuse (changed: true), never toward "nothing exists".
     seedClone()
     seedAssets()
-    writeState({ 'skill/my-skill': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } })
+    writeState({
+      'skill/my-skill': {
+        prUrl: 'https://pr/7',
+        pushedAt: '2026-08-01T00:00:00Z',
+        repo: 'acme/hivemind'
+      }
+    })
     const git: Runner = async (_c, args) => {
       if (args[0] === 'fetch') throw new Error('network timeout')
       return ''
@@ -2308,7 +2436,13 @@ describe('pushStatus', () => {
   it('fails open with a warning when gh throws, so sharing is never blocked by a broken check', async () => {
     seedClone()
     seedAssets()
-    writeState({ 'skill/my-skill': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } })
+    writeState({
+      'skill/my-skill': {
+        prUrl: 'https://pr/7',
+        pushedAt: '2026-08-01T00:00:00Z',
+        repo: 'acme/hivemind'
+      }
+    })
     const gh: Runner = async () => {
       throw new Error('gh: not authenticated')
     }

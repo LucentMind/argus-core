@@ -34,6 +34,17 @@ export interface PushableItem {
 export interface PushReceipt {
   prUrl: string
   pushedAt: string
+  /**
+   * The repo this receipt was pushed to, so a receipt cannot outlive a repo switch. `cloneIsStale`
+   * (and therefore `sync()`'s pushes-clearing) only fires when a clone already exists, so deleting
+   * the clone dir and then switching repos leaves an old receipt on disk with nothing to clear it.
+   * `gh pr view <full url>` is repo-agnostic and `isShareBranchFor` matches on the asset, not the
+   * repo, so neither can catch a receipt that has drifted to the wrong repo — only comparing this
+   * field against the currently configured repo can. Optional because receipts written before this
+   * field existed have none; that absence must be treated as a non-match, not an implicit match
+   * (see `openPrFor`'s receipt path).
+   */
+  repo?: string
 }
 /**
  * Whether an open HiveMind share PR already exists for one asset, and whether it is ours.
