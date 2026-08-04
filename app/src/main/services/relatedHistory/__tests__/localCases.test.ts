@@ -221,6 +221,46 @@ describe('local provider — regression tests for the spec §1 defect', () => {
     const r = await provider(SAMPLE_CASE_SLUG).search(q, 5)
     expect(r).toEqual({ ok: true, hits: [] })
   })
+
+  it('7. a jiraKey term is exact-matched, not prefixed — a longer key sharing the same prefix must not match', async () => {
+    // Measured regression (fix pass 3): FTS5 tokenizes "KAN-4" to [kan, 4]. A
+    // PREFIX match ("KAN-4"*) also matches "KAN-42" (tokenized [kan, 42]) —
+    // trackers number sequentially, so any case with a short key collides
+    // with dozens of later ones. `collateral`'s summary merely CITES an
+    // unrelated ticket, KAN-42, in its keywords; `current`'s own key is the
+    // shorter KAN-4. Under a prefix match this relaxes (strong AND
+    // apparently-rare) and returns collateral as a confident hit. Exact
+    // match must find zero — 'irrelevant' is the only other term and it
+    // matches nothing.
+    pad(6)
+    add('collateral', 'solved', {
+      signature: 'completely unrelated symptom text',
+      keywords: ['KAN-42']
+    })
+    createCase(db, home, { slug: 'current', title: 'irrelevant', jiraKey: 'KAN-4' })
+    const q = buildRelatedQuery(db, 'current')
+    expect(q.terms).toEqual([
+      { text: 'irrelevant', source: 'title' },
+      { text: 'KAN-4', source: 'jiraKey' }
+    ])
+    const r = await provider('current').search(q, 5)
+    expect(r).toEqual({ ok: true, hits: [], reason: 'query-too-generic' })
+  })
+
+  it('8. a jiraKey term still matches exactly when the cited key is identical', async () => {
+    // The other direction of test 7: switching jiraKey from prefix to exact
+    // must not stop it matching a genuine, identical citation.
+    pad(6)
+    add('target', 'solved', {
+      signature: 'completely unrelated symptom text',
+      keywords: ['KAN-4']
+    })
+    createCase(db, home, { slug: 'current', title: 'irrelevant', jiraKey: 'KAN-4' })
+    const q = buildRelatedQuery(db, 'current')
+    const r = await provider('current').search(q, 5)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.hits.map((h) => (h as LocalCaseHit).caseSlug)).toEqual(['target'])
+  })
 })
 
 describe('local provider — shape and behaviour', () => {

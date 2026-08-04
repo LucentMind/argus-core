@@ -10,7 +10,7 @@ import {
   termSlugSets,
   type SummaryRankRow
 } from '../../distill/summaries'
-import { isStrong, type RelatedQuery } from '../query'
+import { isExactMatch, isStrong, type RelatedQuery } from '../query'
 import type { HistoryProvider, ProviderResult } from '../types'
 
 export const LOCAL_PROVIDER_ID = 'local'
@@ -101,7 +101,7 @@ export function createLocalCasesProvider(
         const population = summaryPopulation(db, true)
         const sets = termSlugSets(
           db,
-          q.terms.map((t) => t.text),
+          q.terms.map((t) => ({ text: t.text, exact: isExactMatch(t) })),
           { excludeSlug, excludeOpen: true }
         )
 
@@ -139,7 +139,7 @@ export function createLocalCasesProvider(
 
         const rows = rankSlugs(
           db,
-          survivors.map((t) => t.text),
+          survivors.map((t) => ({ text: t.text, exact: isExactMatch(t) })),
           eligible,
           limit
         )

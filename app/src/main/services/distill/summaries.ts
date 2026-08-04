@@ -139,11 +139,33 @@ export function searchCaseSummaries(
   }
 }
 
-/** One quoted phrase-prefix term. Same escaping rule as buildPrefixMatchQuery:
- *  quoting stops ordinary punctuation (`reset():`) being read as FTS5 syntax and
- *  stops a `word:` token being read as a column filter. */
-function prefixTerm(term: string): string {
-  return `"${term.replace(/"/g, '""')}"*`
+/**
+ * A term for `termSlugSets`/`rankSlugs`. Plain strings default to the usual
+ * prefix match; pass `{ text, exact: true }` for a term whose match mode must
+ * be threaded through instead of special-cased at the call site — currently
+ * only a `jiraKey` term (see `localCases.ts`), since FTS5's own tokenizer
+ * splits a key like "KAN-4" into `[kan, 4]` and a trailing-token PREFIX would
+ * then match "KAN-42", "KAN-420", "KAN-4299" — reintroducing exactly the
+ * single-incidental-token false positive this feature exists to stop. An
+ * EXACT quoted phrase (no trailing `*`) has no such collision.
+ */
+export interface TermMatch {
+  text: string
+  exact?: boolean
+}
+
+export type TermInput = string | TermMatch
+
+function normalizeTerm(t: TermInput): TermMatch {
+  return typeof t === 'string' ? { text: t } : t
+}
+
+/** One quoted phrase term, prefix by default. Quoting (doubling internal `"`)
+ *  stops ordinary punctuation (`reset():`) being read as FTS5 syntax and stops
+ *  a `word:` token being read as a column filter — for both match modes. */
+function ftsTerm(t: TermMatch): string {
+  const quoted = `"${t.text.replace(/"/g, '""')}"`
+  return t.exact ? quoted : `${quoted}*`
 }
 
 /**
@@ -160,13 +182,14 @@ export function summaryPopulation(db: DatabaseSync, excludeOpen: boolean): numbe
 }
 
 /**
- * For each term, the set of case slugs whose summary prefix-matches it — one
- * FTS5 query per term (terms are few, titles are short). The result yields BOTH
- * document frequency (set size) and per-slug matched-term counts (membership),
- * which is what lets the local provider apply suppression and overlap in a
- * single pass.
+ * For each term, the set of case slugs whose summary matches it — one FTS5
+ * query per term (terms are few, titles are short). Prefix by default; pass
+ * `{ text, exact: true }` for a term that must match verbatim (see
+ * `TermMatch`). The result yields BOTH document frequency (set size) and
+ * per-slug matched-term counts (membership), which is what lets the local
+ * provider apply suppression and overlap in a single pass.
  *
- * Deliberately does NOT catch per term. `prefixTerm` quotes every character
+ * Deliberately does NOT catch per term. `ftsTerm` quotes every character
  * (doubling internal `"`), so there is no input string that turns into invalid
  * FTS5 syntax — a term FTS5 "cannot parse" is not a reachable case, only a term
  * that parses to a phrase matching zero rows. A throw here therefore means a
@@ -177,7 +200,7 @@ export function summaryPopulation(db: DatabaseSync, excludeOpen: boolean): numbe
  */
 export function termSlugSets(
   db: DatabaseSync,
-  terms: string[],
+  terms: TermInput[],
   opts: { excludeSlug?: string | null; excludeOpen?: boolean } = {}
 ): Map<string, Set<string>> {
   const exclude = opts.excludeSlug ?? null
@@ -191,13 +214,14 @@ export function termSlugSets(
   )
   const out = new Map<string, Set<string>>()
   for (const term of terms) {
+    const norm = normalizeTerm(term)
     const set = new Set<string>()
-    for (const r of stmt.all(prefixTerm(term), exclude, exclude, excludeOpen) as unknown as Array<{
+    for (const r of stmt.all(ftsTerm(norm), exclude, exclude, excludeOpen) as unknown as Array<{
       slug: string
     }>) {
       set.add(r.slug)
     }
-    out.set(term, set)
+    out.set(norm.text, set)
   }
   return out
 }
@@ -225,12 +249,12 @@ export interface SummaryRankRow {
  */
 export function rankSlugs(
   db: DatabaseSync,
-  terms: string[],
+  terms: TermInput[],
   slugs: string[],
   limit: number
 ): SummaryRankRow[] {
   if (terms.length === 0 || slugs.length === 0) return []
-  const ftsQuery = terms.map(prefixTerm).join(' OR ')
+  const ftsQuery = terms.map(normalizeTerm).map(ftsTerm).join(' OR ')
   const placeholders = slugs.map(() => '?').join(', ')
   const rows = db
     .prepare(

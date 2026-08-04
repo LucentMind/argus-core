@@ -25,6 +25,20 @@ export function isStrong(term: QueryTerm): boolean {
   return STRONG_SOURCES.includes(term.source)
 }
 
+/**
+ * jiraKey terms are exact ticket keys, not prose — the ONE source that must
+ * bypass FTS5's default prefix matching. FTS5's own tokenizer splits a key
+ * like "KAN-4" into `[kan, 4]`, so a trailing-token prefix match (`"KAN-4"*`)
+ * also matches "KAN-42", "KAN-420", "KAN-4299" — sequential trackers mean any
+ * short key collides with dozens of later ones, reintroducing the
+ * single-incidental-token false positive spec §1 exists to stop. Every other
+ * source stays prefix-matched deliberately (see the top-level follow-up on
+ * weak-term prefix matching generally).
+ */
+export function isExactMatch(term: QueryTerm): boolean {
+  return term.source === 'jiraKey'
+}
+
 function tokenize(text: string): string[] {
   return text.trim().split(/\s+/).filter(Boolean)
 }
