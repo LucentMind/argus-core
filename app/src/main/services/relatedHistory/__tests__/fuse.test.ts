@@ -147,6 +147,26 @@ describe('fuse', () => {
     expect(hit.fusedScore).toBe(0)
   })
 
+  it('does not mutate its input hits on the merge path', () => {
+    const localHit = local('mycase', 2, 'KAN-5')
+    const corpusHit = corpus('KAN-5', 3)
+    const originalProvenance = localHit.provenance
+
+    fuse([localRanking([localHit]), corpusRanking([corpusHit])])
+
+    // The local hit's own fields must be untouched — the merge writes to a copy.
+    expect(localHit.fusedScore).toBe(0)
+    expect(localHit.matchedOn).toBe('lexical')
+    expect(localHit.corpusRef).toBeUndefined()
+    expect(localHit.provenance).toBe(originalProvenance)
+    expect(localHit.provenance).toHaveLength(1)
+
+    // The corpus hit contributed to the merge but must itself be untouched too.
+    expect(corpusHit.fusedScore).toBe(0)
+    expect(corpusHit.matchedOn).toBe('semantic')
+    expect(corpusHit.provenance).toHaveLength(1)
+  })
+
   it('returns [] for no rankings and for empty rankings', () => {
     expect(fuse([])).toEqual([])
     expect(fuse([localRanking([])])).toEqual([])

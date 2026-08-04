@@ -48,6 +48,14 @@ export function fuse(rankings: ProviderRanking[]): RelatedHit[] {
       const k = normKey(c.key)
       const target = k ? localByKey.get(k) : undefined
       if (target) {
+        // KNOWN LIMITATION: if two different corpus sources both key onto the same
+        // local hit's jiraKey, each merges in turn here. fusedScore correctly
+        // accumulates all RRF terms and provenance correctly grows to include every
+        // source — but corpusRef is a single slot, so it ends up holding whichever
+        // corpus source merged last, silently dropping the earlier one's link. The
+        // UI can therefore only ever deep-link to one of the two matching corpus
+        // records. Not handled — recorded as a minor, carried to the whole-branch
+        // review; no test covers this multi-merge case.
         target.hit.fusedScore += rrfScore(c.rank)
         target.hit.provenance = [...target.hit.provenance, ...c.provenance]
         target.hit.corpusRef = { sourceId: c.sourceId, key: c.key, url: c.url }
