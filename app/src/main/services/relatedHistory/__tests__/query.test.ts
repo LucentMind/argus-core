@@ -151,10 +151,15 @@ describe('freeFormQuery', () => {
 })
 
 describe('isStrong', () => {
-  it('is true only for signature, errorStrings and jiraKey terms', () => {
-    expect(isStrong({ text: 'x', source: 'signature' })).toBe(true)
+  // Fix pass 5: `signature` was removed from the strong set. A distilled
+  // signature is LLM-written prose (articles, prepositions included), not a
+  // token list — a bare word out of it is not decisive evidence the way a
+  // verbatim error string or an exact ticket key is. See query.ts's doc
+  // comment for the measured regression ("on" relaxing overlap on its own).
+  it('is true only for errorStrings and jiraKey terms', () => {
     expect(isStrong({ text: 'x', source: 'errorStrings' })).toBe(true)
     expect(isStrong({ text: 'x', source: 'jiraKey' })).toBe(true)
+    expect(isStrong({ text: 'x', source: 'signature' })).toBe(false)
     expect(isStrong({ text: 'x', source: 'title' })).toBe(false)
     expect(isStrong({ text: 'x', source: 'finding' })).toBe(false)
     expect(isStrong({ text: 'x', source: 'free' })).toBe(false)

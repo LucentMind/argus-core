@@ -115,30 +115,43 @@ describe('local provider — regression tests for the spec §1 defect', () => {
     if (r.ok) expect(r.hits.map((h) => (h as LocalCaseHit).caseSlug)).toEqual(['target'])
   })
 
-  it('3b. a strong term that is NOT rare does NOT relax overlap on its own', async () => {
-    // Rule 3 requires strong-source AND rare (fix pass 2, per coordinator
-    // review): a strong term that is common in the corpus is shared
-    // vocabulary, not decisive evidence, and still needs a second overlapping
-    // term. Here the shared term has df=3 in a 12-summary corpus (threshold
+  it('3b. a strong (errorStrings) term that is NOT rare does NOT relax overlap on its own', async () => {
+    // Rule 3 requires strong-source AND rare (fix pass 2). RE-POINTED at
+    // `errorStrings` in fix pass 5: `signature` was removed from the strong
+    // set entirely (a signature word is LLM-written prose, not decisive
+    // evidence — see query.ts's doc comment; a bare preposition like "on"
+    // relaxing Rule 3 was the fix-pass-5 regression). A `signature`-sourced
+    // fixture here would no longer isolate anything: `isStrong` is now
+    // unconditionally false for `signature`, so a "not rare" `signature` term
+    // would pass for the WRONG reason (never strong at all, not "strong but
+    // not rare"). `errorStrings` stays strong, so this still pins the real
+    // claim — the shared term has df=3 in a 12-summary corpus (threshold
     // 0.3*12=3.6, so it still survives Rule 2) — not rare by any measure
-    // (df=3 > RARE_DF=2) — and its only source is a `signature` token, so it
-    // WOULD have relaxed under the old (pre-fix-pass-2) `isStrong(term)`-alone
-    // rule. It must not relax now.
+    // (df=3 > RARE_DF=2).
     pad(9)
-    add('alpha', 'solved', { signature: 'brakejitter observed on alpha rig' })
-    add('beta', 'solved', { signature: 'brakejitter observed on beta rig' })
-    add('gamma', 'solved', { signature: 'brakejitter observed on gamma rig' })
+    add('alpha', 'solved', {
+      signature: 'issue observed on alpha rig',
+      keywords: ['E_BRAKEJITTER']
+    })
+    add('beta', 'solved', { signature: 'issue observed on beta rig', keywords: ['E_BRAKEJITTER'] })
+    add('gamma', 'solved', {
+      signature: 'issue observed on gamma rig',
+      keywords: ['E_BRAKEJITTER']
+    })
     createCase(db, home, { slug: 'current', title: 'irrelevant' })
     upsertCaseSummary(
       db,
       home,
       'current',
-      { signature: 'brakejitter', symptoms: '', rootCause: '', fix: '', keywords: [] },
+      { signature: 'zzz', symptoms: '', rootCause: '', fix: '', keywords: ['E_BRAKEJITTER'] },
       'open',
       'md'
     )
     const q = buildRelatedQuery(db, 'current')
-    expect(q.terms).toEqual([{ text: 'brakejitter', source: 'signature' }])
+    expect(q.terms).toEqual([
+      { text: 'zzz', source: 'signature' },
+      { text: 'E_BRAKEJITTER', source: 'errorStrings' }
+    ])
     const r = await provider('current').search(q, 5)
     expect(r).toEqual({ ok: true, hits: [] })
   })
@@ -316,6 +329,58 @@ describe('local provider — regression tests for the spec §1 defect', () => {
     const r = await provider('current').search(q, 5)
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.hits.map((h) => (h as LocalCaseHit).caseSlug)).toEqual(['target'])
+  })
+
+  it('11. signature is no longer strong — a single preposition must not relax overlap on its own', async () => {
+    // Measured on the running app via the live CDP exit-check (fix pass 5):
+    // query "bearing jumps north on cold boot" returned an unrelated routing
+    // case at rank 2 on the strength of the single shared word "on" —
+    // because the querying case has an accepted summary, its terms are
+    // `signature`-sourced, and `signature` was (wrongly) in the strong set.
+    // "on" has df=2 here (routing + pad-on), rare enough to relax Rule 3's
+    // two-term requirement on its own under the old rule. `signature` is
+    // LLM-written prose and contains ordinary articles/prepositions — not
+    // decisive evidence like a verbatim error string or an exact ticket key.
+    //
+    // Population 7 (4 generic pads + pad-on + match + routing), threshold =
+    // max(7*0.3, 1) = 2.1: "on" (df=2) survives suppression — this exercises
+    // the RELAXATION rule, not Rule 2, exactly as the coordinator specified.
+    // Named to avoid "one" et al — signature stays PREFIX-matched (fix pass
+    // 4), and "one" would prefix-collide with the "on"* query term, silently
+    // inflating its df and making Rule 2 (not Rule 3) the rejector.
+    add('pad-a', 'solved', { signature: 'unrelated padding alpha' })
+    add('pad-b', 'solved', { signature: 'unrelated padding beta' })
+    add('pad-c', 'solved', { signature: 'unrelated padding gamma' })
+    add('pad-d', 'solved', { signature: 'unrelated padding delta' })
+    add('pad-on', 'solved', { signature: 'some generic remark on something unrelated' })
+    // Genuinely overlaps on 4 terms (bearing, north, cold, boot) — must
+    // still be returned regardless of the strong-set change.
+    add('match', 'solved', {
+      signature: 'compass bearing drifts north during cold boot calibration'
+    })
+    // Overlaps on ONLY "on" — must NOT be returned now that signature isn't
+    // strong (this is the exact false positive measured live).
+    add('routing', 'forwarded', { signature: 'continuous alternative route flickers on rejoin' })
+    createCase(db, home, { slug: 'nav-bearing', title: 'irrelevant' })
+    upsertCaseSummary(
+      db,
+      home,
+      'nav-bearing',
+      {
+        signature: 'bearing jumps north on cold boot',
+        symptoms: '',
+        rootCause: '',
+        fix: '',
+        keywords: []
+      },
+      'open',
+      'md'
+    )
+    const q = buildRelatedQuery(db, 'nav-bearing')
+    expect(q.terms.every((t) => t.source === 'signature')).toBe(true)
+    const r = await provider('nav-bearing').search(q, 5)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.hits.map((h) => (h as LocalCaseHit).caseSlug)).toEqual(['match'])
   })
 })
 

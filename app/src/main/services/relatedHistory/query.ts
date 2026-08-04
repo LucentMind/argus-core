@@ -16,10 +16,24 @@ export interface RelatedQuery {
   terms: QueryTerm[]
 }
 
-/** Sources strong enough to justify a hit on their own (spec §4.3): a verbatim
- *  error string, a distilled signature token, or an exact ticket key is a real
- *  signal, unlike a word from a free-text title. */
-const STRONG_SOURCES: readonly QueryTermSource[] = ['signature', 'errorStrings', 'jiraKey']
+/**
+ * Sources strong enough to justify a hit on their own (spec §4.3): a verbatim
+ * error string or an exact ticket key is decisive evidence, unlike a word
+ * from a free-text title.
+ *
+ * `signature` deliberately does NOT get this: a distilled signature is
+ * LLM-written prose, not a token list, and it contains ordinary articles and
+ * prepositions ("bearing jumps north ON cold boot"). Measured regression (fix
+ * pass 5): a querying case whose only overlap with an unrelated case was the
+ * word "on" (df=2, rare enough) was returned as related history purely
+ * because the term's source was `signature` and therefore counted as strong.
+ * A single word out of prose is not the same kind of evidence as a verbatim
+ * error string or an exact ticket key — it does not meet the "decisive on
+ * its own" bar the single-term exception exists for. Signature-sourced terms
+ * now need genuine 2-term overlap, same as title/finding/free — which is
+ * nearly always available, since signatures are multi-word.
+ */
+const STRONG_SOURCES: readonly QueryTermSource[] = ['errorStrings', 'jiraKey']
 
 export function isStrong(term: QueryTerm): boolean {
   return STRONG_SOURCES.includes(term.source)
