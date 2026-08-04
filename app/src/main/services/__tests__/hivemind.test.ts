@@ -460,8 +460,12 @@ describe('pushable + push', () => {
       return 'https://github.com/acme/hivemind/pull/7'
     }
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
-    const r = await svc.push('skill', 'my-skill', 'Add my-skill')
-    expect(r).toEqual({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/7' })
+    const r = await svc.push('skill', 'my-skill', 'Add my-skill', null)
+    expect(r).toEqual({
+      ok: true,
+      prUrl: 'https://github.com/acme/hivemind/pull/7',
+      updated: false
+    })
     expect(copyExistedAtCommit).toBe(true)
     // the copy never lands in the shared clone itself — only in the throwaway worktree,
     // which is gone by the time push returns
@@ -507,7 +511,7 @@ describe('pushable + push', () => {
       return 'https://github.com/acme/hivemind/pull/9'
     }
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
-    const r = await svc.push('skill', 'my-skill', 'Improve my-skill')
+    const r = await svc.push('skill', 'my-skill', 'Improve my-skill', null)
     expect(r.ok).toBe(true)
     const flat = calls.map((c) => c.join(' '))
     // branch cut from the pin, NOT origin/main — otherwise the PR reverts X→HEAD
@@ -529,7 +533,7 @@ describe('pushable + push', () => {
       return ''
     }
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git })
-    await svc.push('skill', 'my-skill', 'Add my-skill')
+    await svc.push('skill', 'my-skill', 'Add my-skill', null)
     const flat = calls.map((c) => c.join(' '))
     expect(
       flat.some((c) => /^worktree add -b argus\/share-skill-my-skill-\d+ \S+ origin\/main$/.test(c))
@@ -560,8 +564,12 @@ describe('pushable + push', () => {
       return 'https://github.com/acme/hivemind/pull/11'
     }
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
-    const r = await svc.push('skill', 'my-skill', 'Add my-skill')
-    expect(r).toEqual({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/11' })
+    const r = await svc.push('skill', 'my-skill', 'Add my-skill', null)
+    expect(r).toEqual({
+      ok: true,
+      prUrl: 'https://github.com/acme/hivemind/pull/11',
+      updated: false
+    })
     const flat = calls.map((c) => c.join(' '))
     expect(
       flat.some((c) => /^worktree add -b argus\/share-skill-my-skill-\d+ \S+ origin\/main$/.test(c))
@@ -581,7 +589,7 @@ describe('pushable + push', () => {
       return ''
     }
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git })
-    const r = await svc.push('skill', 'my-skill', 'Add my-skill')
+    const r = await svc.push('skill', 'my-skill', 'Add my-skill', null)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toMatch(/remote rejected/)
     expect(calls[calls.length - 1].slice(0, 3)).toEqual(['worktree', 'remove', '--force'])
@@ -611,7 +619,7 @@ describe('pushable + push', () => {
     const gh: Runner = async () => pr
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
 
-    await svc.push('skill', 'my-skill', 'Add my-skill')
+    await svc.push('skill', 'my-skill', 'Add my-skill', null)
     let receipt = (await svc.payload()).pushes['skill/my-skill']
     expect(receipt.prUrl).toBe('https://github.com/acme/hivemind/pull/7')
     expect(Date.parse(receipt.pushedAt)).not.toBeNaN()
@@ -622,7 +630,7 @@ describe('pushable + push', () => {
 
     // last push wins
     pr = 'https://github.com/acme/hivemind/pull/8'
-    await svc.push('skill', 'my-skill', 'Update my-skill')
+    await svc.push('skill', 'my-skill', 'Update my-skill', null)
     receipt = (await svc.payload()).pushes['skill/my-skill']
     expect(receipt.prUrl).toBe('https://github.com/acme/hivemind/pull/8')
   })
@@ -637,7 +645,7 @@ describe('pushable + push', () => {
     }
     const gh: Runner = async () => 'https://github.com/acme/hivemind/pull/9'
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
-    await svc.push('reference', 'team-tips.md', 'Add team-tips')
+    await svc.push('reference', 'team-tips.md', 'Add team-tips', null)
     expect((await svc.payload()).pushes['reference/team-tips.md'].prUrl).toBe(
       'https://github.com/acme/hivemind/pull/9'
     )
@@ -659,7 +667,7 @@ describe('pushable + push', () => {
       git: successGit,
       gh: successGh
     })
-    await svc.push('skill', 'my-skill', 'Add my-skill')
+    await svc.push('skill', 'my-skill', 'Add my-skill', null)
     const receipt = (await svc.payload()).pushes['skill/my-skill']
     expect(receipt.prUrl).toBe('https://github.com/acme/hivemind/pull/7')
 
@@ -670,12 +678,129 @@ describe('pushable + push', () => {
       return ''
     }
     const svc2 = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: failGit })
-    const r = await svc2.push('skill', 'my-skill', 'Update my-skill')
+    const r = await svc2.push('skill', 'my-skill', 'Update my-skill', null)
     expect(r.ok).toBe(false)
     // Receipt from first push must still be there
     expect((await svc2.payload()).pushes['skill/my-skill'].prUrl).toBe(
       'https://github.com/acme/hivemind/pull/7'
     )
+  })
+
+  const me = { name: 'Jiawei Han', email: 'me@example.test' }
+
+  /** A sole-authored skill plus a receipt pointing at an open PR. */
+  function seedSoleAuthoredWithReceipt(): void {
+    fs.mkdirSync(path.join(home, 'skills-user', 'solo'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'skills-user', 'solo', 'SKILL.md'),
+      [
+        '---',
+        'name: solo',
+        'description: mine alone',
+        'author: Jiawei Han <me@example.test>',
+        '---',
+        '# solo\n'
+      ].join('\n')
+    )
+    const statePath = path.join(home, 'config', 'hivemind-state.json')
+    fs.mkdirSync(path.dirname(statePath), { recursive: true })
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({
+        lastSynced: null,
+        skills: {},
+        references: {},
+        pushes: { 'skill/solo': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } }
+      })
+    )
+  }
+
+  it('an unchanged re-share returns the open PR without touching git or gh pr create', async () => {
+    seedClone()
+    seedSoleAuthoredWithReceipt()
+    const local = fs.readFileSync(path.join(home, 'skills-user', 'solo', 'SKILL.md'), 'utf8')
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'ls-tree') return 'skills/solo/SKILL.md'
+      if (args[0] === 'show') return local.trim()
+      return ''
+    }
+    const ghCalls: string[][] = []
+    const gh: Runner = async (_c, args) => {
+      ghCalls.push(args)
+      return JSON.stringify({ state: 'OPEN', headRefName: 'argus/share-skill-solo-1' })
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.push('skill', 'solo', 'Add solo', me)
+    expect(r).toEqual({ ok: true, prUrl: 'https://pr/7', updated: false })
+    expect(calls.some((c) => c[0] === 'worktree')).toBe(false)
+    expect(calls.some((c) => c[0] === 'commit')).toBe(false)
+    expect(ghCalls.some((c) => c[0] === 'pr' && c[1] === 'create')).toBe(false)
+  })
+
+  it('a changed re-share commits onto the existing branch and opens no second PR', async () => {
+    seedClone()
+    seedSoleAuthoredWithReceipt()
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'ls-tree') return 'skills/solo/SKILL.md'
+      if (args[0] === 'show') return '# an older body'
+      if (args[0] === 'status') return ' M skills/solo/SKILL.md'
+      return ''
+    }
+    const ghCalls: string[][] = []
+    const gh: Runner = async (_c, args) => {
+      ghCalls.push(args)
+      return JSON.stringify({ state: 'OPEN', headRefName: 'argus/share-skill-solo-1' })
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.push('skill', 'solo', 'Add solo', me)
+    expect(r).toEqual({ ok: true, prUrl: 'https://pr/7', updated: true })
+    const flat = calls.map((c) => c.join(' '))
+    // reuses the branch (-B resets the local branch to origin's tip); never cuts a new one.
+    // The worktree path is a random temp dir, so match around it rather than reconstructing it.
+    expect(
+      flat.some((c) =>
+        /^worktree add -B argus\/share-skill-solo-1 \S+ origin\/argus\/share-skill-solo-1$/.test(c)
+      )
+    ).toBe(true)
+    expect(flat.some((c) => /^worktree add -b /.test(c))).toBe(false)
+    expect(flat).toContain('push origin argus/share-skill-solo-1')
+    expect(calls.every((a) => a[0] !== 'push' || !a.includes('--force'))).toBe(true)
+    expect(ghCalls.some((c) => c[0] === 'pr' && c[1] === 'create')).toBe(false)
+  })
+
+  it('refuses to push to a PR a teammate opened, and runs no git at all', async () => {
+    seedClone()
+    // NOT seedUserAssets(): that writes `my-skill` with no authorship trail, which reads as
+    // sole-authored and would take the receipt path instead of the GitHub-search path under test.
+    fs.mkdirSync(path.join(home, 'skills-user', 'my-skill'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'skills-user', 'my-skill', 'SKILL.md'),
+      '---\nname: my-skill\ndescription: shared\nauthor: Alex Chen <alex@example.test>\n---\n# x\n'
+    )
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      return ''
+    }
+    const gh: Runner = async (_c, args) => {
+      if (args[0] === 'api') return 'jiawei-han'
+      return JSON.stringify([
+        {
+          url: 'https://pr/42',
+          headRefName: 'argus/share-skill-my-skill-999',
+          author: { login: 'alex' }
+        }
+      ])
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.push('skill', 'my-skill', 'Add my-skill', me)
+    expect(r.ok).toBe(false)
+    expect(r).toMatchObject({ blockedByPrUrl: 'https://pr/42', blockedByAuthor: 'alex' })
+    expect(calls.some((c) => c[0] === 'worktree' || c[0] === 'commit')).toBe(false)
   })
 })
 
@@ -1448,7 +1573,7 @@ describe('push keeps the shared clone checked out', () => {
       git: runner,
       gh: async () => 'https://github.com/acme/hivemind/pull/9'
     })
-    await svc.push('skill', 'my-skill', 'Add my-skill')
+    await svc.push('skill', 'my-skill', 'Add my-skill', null)
     // The structural guarantee: HEAD-safety comes from never moving it, not from moving it back.
     expect(calls.filter((a) => a[0] === 'checkout')).toEqual([])
   })
@@ -1463,7 +1588,7 @@ describe('push keeps the shared clone checked out', () => {
       git: runner,
       gh: async () => 'https://github.com/acme/hivemind/pull/9'
     })
-    await svc.push('skill', 'my-skill', 'Add my-skill')
+    await svc.push('skill', 'my-skill', 'Add my-skill', null)
     const verbs = calls.filter((a) => a[0] === 'worktree').map((a) => a[1])
     expect(verbs).toEqual(['prune', 'add', 'remove'])
   })
@@ -1480,7 +1605,7 @@ describe('push keeps the shared clone checked out', () => {
         throw new Error('gh: not authenticated')
       }
     })
-    const r = await svc.push('skill', 'my-skill', 'Add my-skill')
+    const r = await svc.push('skill', 'my-skill', 'Add my-skill', null)
     expect(r.ok).toBe(false)
     expect(calls.filter((a) => a[0] === 'worktree' && a[1] === 'remove').length).toBe(1)
     expect(calls.filter((a) => a[0] === 'checkout')).toEqual([])
@@ -1496,7 +1621,7 @@ describe('push keeps the shared clone checked out', () => {
       git: runner,
       gh: async () => 'https://github.com/acme/hivemind/pull/9'
     })
-    await svc.push('skill', 'my-skill', 'Add my-skill')
+    await svc.push('skill', 'my-skill', 'Add my-skill', null)
     const clone = path.join(home, 'hivemind')
     const cwdOf = (verb: string): string | undefined => cwds[calls.findIndex((a) => a[0] === verb)]
     const addCwd = cwdOf('add')
@@ -1532,8 +1657,12 @@ describe('push keeps the shared clone checked out', () => {
       git: flakyRunner,
       gh: async () => 'https://github.com/acme/hivemind/pull/9'
     })
-    const r = await svc.push('skill', 'my-skill', 'Add my-skill')
-    expect(r).toEqual({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/9' })
+    const r = await svc.push('skill', 'my-skill', 'Add my-skill', null)
+    expect(r).toEqual({
+      ok: true,
+      prUrl: 'https://github.com/acme/hivemind/pull/9',
+      updated: false
+    })
     expect(calls.some((a) => a[0] === 'worktree' && a[1] === 'remove')).toBe(true)
   })
 })

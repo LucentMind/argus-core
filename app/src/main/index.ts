@@ -2159,8 +2159,10 @@ function registerIpc(): void {
   ipcMain.handle(IPC.hivemindPushPreview, (_e, kind: 'skill' | 'reference', name: string) =>
     hivemind.pushPreview(kind, name)
   )
-  ipcMain.handle(IPC.hivemindPush, (_e, kind: 'skill' | 'reference', name: string, title: string) =>
-    hivemind.push(kind, name, title)
+  ipcMain.handle(
+    IPC.hivemindPush,
+    async (_e, kind: 'skill' | 'reference', name: string, title: string) =>
+      hivemind.push(kind, name, title, await identity())
   )
 
   // — proposals (spec §2.4) —

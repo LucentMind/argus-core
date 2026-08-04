@@ -159,7 +159,7 @@ describe('HiveMind against a local bare repo (no network)', () => {
       path.join(homeB, 'skills-user', 'my-skill', 'SKILL.md'),
       '---\nname: my-skill\ndescription: mine\n---\n# my-skill\n'
     )
-    const r = await svc.push('skill', 'my-skill', 'Add my-skill')
+    const r = await svc.push('skill', 'my-skill', 'Add my-skill', null)
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.prUrl).toContain('/pull/7')
     expect(ghCalls[0][0]).toBe('pr')
@@ -192,7 +192,7 @@ describe('HiveMind against a local bare repo (no network)', () => {
       git(clone, 'reflog', 'show', 'HEAD', '--format=%H').split('\n').length
     const before = heads()
 
-    const ok = await svc.push('skill', 'my-skill', 'Add my-skill')
+    const ok = await svc.push('skill', 'my-skill', 'Add my-skill', null)
     expect(ok.ok).toBe(true)
     expect(heads()).toBe(before)
     expect(git(clone, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main')
@@ -205,7 +205,7 @@ describe('HiveMind against a local bare repo (no network)', () => {
     const failing = service(async () => {
       throw new Error('gh: not authenticated')
     })
-    const bad = await failing.push('skill', 'my-skill', 'Add my-skill 2')
+    const bad = await failing.push('skill', 'my-skill', 'Add my-skill 2', null)
     expect(bad.ok).toBe(false)
     expect(heads()).toBe(before)
     expect(git(clone, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main')
@@ -234,7 +234,7 @@ describe('HiveMind against a local bare repo (no network)', () => {
       fs.readFileSync(local, 'utf8').replace('# note v1', '# note v1\n\nMY UNPUSHED PARAGRAPH')
     )
 
-    const r = await svc.push('reference', 'hive-note.md', 'Add my paragraph')
+    const r = await svc.push('reference', 'hive-note.md', 'Add my paragraph', null)
     expect(r.ok).toBe(true)
 
     // Simulate a clone left parked on the pushed share branch, exactly what the old
@@ -274,7 +274,7 @@ describe('HiveMind against a local bare repo (no network)', () => {
       '---\ntrust_tier: user\n---\n# tips v1\n'
     )
     expect(svc.pushable()).toContainEqual({ kind: 'reference', name: 'my-tips.md' })
-    const r = await svc.push('reference', 'my-tips.md', 'Add my-tips')
+    const r = await svc.push('reference', 'my-tips.md', 'Add my-tips', null)
     expect(r.ok).toBe(true)
 
     // "maintainer merges the PR": fast-forward main to the share branch
@@ -339,7 +339,7 @@ describe('HiveMind against a local bare repo (no network)', () => {
       '---\nname: hive-probe\ndescription: probe skill from the hive, with my local fix\n---\n# hive-probe v1\n\nLocal fix applied.\n'
     writeUserSkill(homeB, 'hive-probe', edited, beforeEdit.hash, null)
 
-    const r = await svc.push('skill', 'hive-probe', 'Local fix to hive-probe')
+    const r = await svc.push('skill', 'hive-probe', 'Local fix to hive-probe', null)
     expect(r.ok).toBe(true)
 
     const branches = git(bare, 'branch', '--list', 'argus/*')

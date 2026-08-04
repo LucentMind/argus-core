@@ -801,11 +801,22 @@ export class HivemindService {
     return fs.readFileSync(file, 'utf8')
   }
 
-  /** Branch in a throwaway worktree → commit → push → gh pr create. Never force-pushes (spec §2.3). */
+  /**
+   * Share one user-tier asset to the hive.
+   *
+   * Three outcomes, decided by `pushStatus` (re-derived here, never taken from the caller):
+   * an open PR of ours with no local change is returned as-is (no git, no gh); an open PR of ours
+   * with local changes gets a new commit on its own branch; anything else cuts a fresh branch and
+   * opens a new PR. A PR someone else opened is refused outright — pushing onto a teammate's branch
+   * is not ours to do, and there is deliberately no override.
+   *
+   * Never force-pushes (spec §2.3).
+   */
   async push(
     kind: 'skill' | 'reference',
     name: string,
-    title: string
+    title: string,
+    me: Identity | null
   ): Promise<HivemindPushResult> {
     const repo = this.deps.repo().trim()
     if (!repo) return { ok: false, error: 'No HiveMind repo configured (Settings → Team).' }
@@ -814,8 +825,23 @@ export class HivemindService {
       return { ok: false, error: 'HiveMind clone missing — Sync first.' }
     const src = this.pushSource(kind, name)
     if (!fs.existsSync(src)) return { ok: false, error: `Not found in the user tier: ${name}` }
-    const branch = `argus/share-${kind}-${name.replace(/\.md$/, '')}-${Date.now()}`
+
+    const status = await this.pushStatus(kind, name, me)
+    if (status.state === 'open-teammate') {
+      return {
+        ok: false,
+        error: `${status.prAuthor} already has an open pull request for ${name}. Sharing again would duplicate it.`,
+        blockedByPrUrl: status.prUrl,
+        blockedByAuthor: status.prAuthor
+      }
+    }
+    // Unchanged and already open: the block IS returning the existing PR without pushing.
+    if (status.state === 'open-mine' && !status.changed)
+      return { ok: true, prUrl: status.prUrl, updated: false }
+
+    const reusing = status.state === 'open-mine'
     let tree: string | null = null
+    let branch = `argus/share-${kind}-${name.replace(/\.md$/, '')}-${Date.now()}`
     try {
       await this.git(['fetch', 'origin'], clone)
       // Heal a stale registration left by a previous failed removal, so a single bad cleanup
@@ -840,7 +866,15 @@ export class HivemindService {
       // so create a temp parent and hand git a child path inside it.
       const treeParent = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-share-'))
       tree = path.join(treeParent, 'wt')
-      await this.git(['worktree', 'add', '-b', branch, tree, base], clone)
+      if (reusing) {
+        // `-B` resets the LOCAL branch in this app-managed clone to the remote tip and checks it
+        // out. It is not a force-push: the subsequent `push origin <branch>` still fast-forwards,
+        // so a teammate's commit landing between the fetch and the push is rejected, not stomped.
+        branch = await this.branchOfOpenPr(kind, name, me)
+        await this.git(['worktree', 'add', '-B', branch, tree, `origin/${branch}`], clone)
+      } else {
+        await this.git(['worktree', 'add', '-b', branch, tree, base], clone)
+      }
       const dest = path.join(tree, kind === 'skill' ? 'skills' : 'references', name)
       if (kind === 'skill') {
         fs.rmSync(dest, { recursive: true, force: true })
@@ -850,26 +884,37 @@ export class HivemindService {
         fs.copyFileSync(src, dest)
       }
       await this.git(['add', '-A'], tree)
+      if (reusing && !(await this.git(['status', '--porcelain'], tree)).trim()) {
+        // pushStatus said changed, the worktree says otherwise — trust the worktree and do not
+        // attempt an empty commit, which git rejects.
+        return { ok: true, prUrl: status.prUrl, updated: false }
+      }
       await this.git(['commit', '-m', `share ${kind}: ${name} (via Argus)`], tree)
-      await this.git(['push', '-u', 'origin', branch], tree)
-      const out = await this.gh(
-        [
-          'pr',
-          'create',
-          '--title',
-          title,
-          '--body',
-          `Shared from Argus (${kind}: ${name}).`,
-          '--head',
-          branch
-        ],
-        clone
-      )
-      const prUrl = out.split(/\s+/).find((t) => t.startsWith('https://')) ?? out
+      let prUrl: string
+      if (reusing) {
+        await this.git(['push', 'origin', branch], tree)
+        prUrl = status.prUrl
+      } else {
+        await this.git(['push', '-u', 'origin', branch], tree)
+        const out = await this.gh(
+          [
+            'pr',
+            'create',
+            '--title',
+            title,
+            '--body',
+            `Shared from Argus (${kind}: ${name}).`,
+            '--head',
+            branch
+          ],
+          clone
+        )
+        prUrl = out.split(/\s+/).find((t) => t.startsWith('https://')) ?? out
+      }
       const state = this.state()
       state.pushes[`${kind}/${name}`] = { prUrl, pushedAt: new Date().toISOString() }
       this.store.write(state)
-      return { ok: true, prUrl }
+      return { ok: true, prUrl, updated: reusing }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     } finally {
@@ -900,5 +945,16 @@ export class HivemindService {
         }
       }
     }
+  }
+
+  /** The head branch of the open PR for this asset. Only called when pushStatus said open-mine. */
+  private async branchOfOpenPr(
+    kind: 'skill' | 'reference',
+    name: string,
+    me: Identity | null
+  ): Promise<string> {
+    const pr = await this.openPrFor(kind, name, me)
+    if (!pr) throw new Error(`The open pull request for ${name} disappeared mid-push.`)
+    return pr.branch
   }
 }
