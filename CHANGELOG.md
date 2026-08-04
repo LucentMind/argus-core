@@ -1,5 +1,44 @@
 # Changelog
 
+## v2.0.6 — 2026-08-04
+
+31 commits since v2.0.5, 60 files changed (+3,069 / −250).
+
+### Added
+
+**Cancel a distillation in progress**
+
+- A queued or running case distillation can now be cancelled from the case
+  menu on an open case or from its bar chip while in flight, over a new
+  `distill:cancel` IPC channel with an abort signal threaded through the
+  headless runner in all three drivers (Claude, Codex, Copilot).
+- Cancellation is epoch-guarded through reconciliation, retries, and case
+  close, so a stale broadcast or a superseded job can't resurrect a
+  cancelled run or clobber newer work with an old retry.
+- The distiller is now told when a case is still open rather than closed,
+  which advances the prompt hash.
+
+**Multiple default repositories**
+
+- `general.defaultRepos` replaces the single `defaultRepo` setting (with a
+  one-time migration), and every default repo now auto-links to a new case,
+  not just one.
+- Settings shows a Default repositories list — add via a recents-dropdown
+  picker that falls through to the native dialog, remove one at a time.
+- The case rail gets the same recents picker; per-case repo-link usage is
+  tracked to drive a promote-to-default prompt.
+
+### Fixed
+
+- The repo picker's dropdown panel was clipped mid-list inside the case
+  rail's scroll container — no `z-index` can escape an ancestor's
+  `overflow` clip, so `MenuButton` gained an opt-in `portal` mode that
+  renders the panel on `<body>` instead (closing on scroll/resize, since a
+  fixed panel can't follow a scrolling anchor).
+- A `Btn` size override was inert; box metrics now interpolate instead of
+  jumping between fixed presets.
+- `repoUsage` test fixtures made platform-native.
+
 ## v2.0.5 — 2026-08-03
 
 8 commits since v2.0.4, 22 files changed (+1,932 / −37).
