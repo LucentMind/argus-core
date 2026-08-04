@@ -1,7 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import type {
-  CorpusDefectHit,
   LocalCaseHit,
   RelatedHit,
   RelatedSearchResult,
@@ -52,10 +51,10 @@ function HitRow({
   onToggle: () => void
   onOpenCase?: (slug: string) => void
 }): React.JSX.Element {
-  const url = isLocal(hit) ? hit.corpusRef?.url : (hit as CorpusDefectHit).url
-
   // A local hit opens its case; a corpus-only hit links out, but only when the
-  // corpus-supplied url survives the guard.
+  // corpus-supplied url survives the guard. Deep-linking a MERGED row to its
+  // corpus record (`hit.corpusRef.url`) is not read here — that link is
+  // increment 2's detail view, not this row's primary action.
   const primary = isLocal(hit) ? (
     <button
       className="min-w-0 flex-1 truncate text-left text-xs text-ink hover:text-signal"
@@ -63,17 +62,19 @@ function HitRow({
     >
       {hit.title}
     </button>
-  ) : url && isOpenableUrl(url) ? (
+  ) : hit.url && isOpenableUrl(hit.url) ? (
     <a
-      href={url}
+      href={hit.url}
       target="_blank"
       rel="noreferrer"
       className="min-w-0 flex-1 truncate text-left text-xs text-ink hover:text-signal"
     >
-      {hit.title}
+      {hit.key} — {hit.title}
     </a>
   ) : (
-    <span className="min-w-0 flex-1 truncate text-xs text-ink">{hit.title}</span>
+    <span className="min-w-0 flex-1 truncate text-xs text-ink">
+      {hit.key} — {hit.title}
+    </span>
   )
 
   return (
@@ -101,6 +102,11 @@ function HitRow({
             {p.providerName}
           </Chip>
         ))}
+        {/* Spec §7: a semantic-hit affordance. Also the only place `fuse`'s
+            widening of a merged row's matchedOn to 'both' is observable. */}
+        {(hit.matchedOn === 'semantic' || hit.matchedOn === 'both') && (
+          <Chip tone="defect">semantic</Chip>
+        )}
         <Chip tone={statusTone(hit.status.tone)}>{hit.status.label}</Chip>
       </div>
       {expanded && hit.distilled && (

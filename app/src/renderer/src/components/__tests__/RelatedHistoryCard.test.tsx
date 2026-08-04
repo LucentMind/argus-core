@@ -60,7 +60,7 @@ describe('RelatedHistoryCard', () => {
     render(<RelatedHistoryCard slug="new" />)
     await screen.findByText(/Related history/i)
     expect(screen.getByText('ECU reset drifts DLT')).toBeInTheDocument()
-    expect(screen.getByText('charge plan dropped')).toBeInTheDocument()
+    expect(screen.getByText(/charge plan dropped/)).toBeInTheDocument()
     expect(screen.queryByText(/Similar past cases/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/Known defects/i)).not.toBeInTheDocument()
   })
@@ -128,7 +128,7 @@ describe('RelatedHistoryCard', () => {
       ]
     })
     render(<RelatedHistoryCard slug="new" />)
-    await screen.findByText('evil one')
+    await screen.findByText(/evil one/)
     expect(screen.queryByRole('link', { name: /evil one/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /evil two/ })).not.toBeInTheDocument()
   })
@@ -201,6 +201,37 @@ describe('RelatedHistoryCard', () => {
     setArgus(new Error('ipc exploded'))
     render(<RelatedHistoryCard slug="new" />)
     await waitFor(() => expect(screen.queryByText(/Related history/i)).not.toBeInTheDocument())
+  })
+
+  // Minor 4: the pre-merge card rendered `KEY — summary (source)`. The merged
+  // card dropped the key even though it is on the wire (`hit.key`), leaving no
+  // way to tell which ticket a corpus row refers to.
+  it('shows the defect key ahead of the summary for a corpus-sourced row', async () => {
+    setArgus({ hits: [corpusHit({ key: 'KAN-9', title: 'summary text' })] })
+    render(<RelatedHistoryCard slug="new" />)
+    expect(await screen.findByText('KAN-9 — summary text')).toBeInTheDocument()
+  })
+
+  it('does not prefix a local row with a key', async () => {
+    setArgus({ hits: [localHit()] })
+    render(<RelatedHistoryCard slug="new" />)
+    expect(await screen.findByText('ECU reset drifts DLT')).toBeInTheDocument()
+  })
+
+  // Important 3 (partial): spec §7 calls for a matchedOn affordance on semantic
+  // hits. This is also the only place `fuse`'s widening of a merged row's
+  // matchedOn to 'both' is observable.
+  it('shows a semantic marker chip only on rows matched semantically or both', async () => {
+    setArgus({
+      hits: [
+        corpusHit({ id: 'corpus:src1:KAN-1', key: 'KAN-1', title: 'a', matchedOn: 'semantic' }),
+        localHit({ id: 'local:b', title: 'b', matchedOn: 'both' }),
+        localHit({ id: 'local:c', title: 'c', matchedOn: 'lexical' })
+      ]
+    })
+    render(<RelatedHistoryCard slug="new" />)
+    await screen.findByText(/a$/)
+    expect(screen.getAllByText('semantic')).toHaveLength(2)
   })
 
   it('requests only the slug — the renderer never composes the query', async () => {
