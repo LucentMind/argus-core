@@ -35,6 +35,17 @@ export interface PushReceipt {
   prUrl: string
   pushedAt: string
 }
+/**
+ * Whether an open HiveMind share PR already exists for one asset, and whether it is ours.
+ *
+ * `none` also covers every "could not tell" case (no repo, no clone, gh unreachable): the share
+ * flow then behaves exactly as it did before this check existed. `warning` is set only when a
+ * check was attempted and failed, so the dialog can say the duplicate check did not run.
+ */
+export type PushStatus =
+  | { state: 'none'; warning?: string }
+  | { state: 'open-mine'; prUrl: string; changed: boolean }
+  | { state: 'open-teammate'; prUrl: string; prAuthor: string }
 export interface HivemindPayload {
   repo: string
   state: HivemindState
@@ -46,5 +57,7 @@ export interface HivemindPayload {
   /** Push receipts keyed 'skill/<name>' | 'reference/<name>'. */
   pushes: Record<string, PushReceipt>
 }
-export type HivemindPushResult = { ok: true; prUrl: string } | { ok: false; error: string }
+export type HivemindPushResult =
+  | { ok: true; prUrl: string; updated: boolean }
+  | { ok: false; error: string; blockedByPrUrl?: string; blockedByAuthor?: string }
 export type HivemindCheckResult = { ok: true } | { ok: false; error: string }

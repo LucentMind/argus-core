@@ -7,6 +7,7 @@ import {
   cloneUrl,
   normalizeForCompare,
   resolvedTier,
+  sameContents,
   type Runner
 } from '../hivemind'
 import { parseAuthorship } from '../../../shared/authorship'
@@ -1644,5 +1645,215 @@ describe('localDivergence tierChange', () => {
     const d = await svc.localDivergence('confluence/hive-note.md')
     expect(d.diverged).toBe(false)
     expect(d.tierChange).toEqual({ from: 'user', to: 'confluence' })
+  })
+})
+
+describe('sameContents', () => {
+  it('compares by key and value, and treats a size difference as different', () => {
+    expect(sameContents(new Map([['a', '1']]), new Map([['a', '1']]))).toBe(true)
+    expect(sameContents(new Map([['a', '1']]), new Map([['a', '2']]))).toBe(false)
+    expect(sameContents(new Map([['a', '1']]), new Map([['b', '1']]))).toBe(false)
+    expect(
+      sameContents(
+        new Map([['a', '1']]),
+        new Map([
+          ['a', '1'],
+          ['b', '2']
+        ])
+      )
+    ).toBe(false)
+  })
+})
+
+describe('pushStatus', () => {
+  const me = { name: 'Jiawei Han', email: 'me@example.test' }
+  const MINE = 'jiawei-han'
+
+  /** A user-tier skill + reference, both authored solely by `me` unless `extraContributor`. */
+  function seedAssets(extraContributor = false): void {
+    const trail = [
+      '---',
+      'name: my-skill',
+      'description: mine',
+      'author: Jiawei Han <me@example.test>',
+      'contributors:',
+      '  - Jiawei Han <me@example.test> 2026-08-01',
+      ...(extraContributor ? ['  - Alex Chen <alex@example.test> 2026-08-02'] : []),
+      '---',
+      '# my-skill\n'
+    ].join('\n')
+    fs.mkdirSync(path.join(home, 'skills-user', 'my-skill'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), trail)
+  }
+
+  /** The state file lives at `<home>/config/hivemind-state.json` (see `hivemindStatePath`), and
+   *  nothing has called `store.write()` yet at this point, so write it directly. */
+  function writeState(pushes: Record<string, { prUrl: string; pushedAt: string }>): void {
+    const statePath = path.join(home, 'config', 'hivemind-state.json')
+    fs.mkdirSync(path.dirname(statePath), { recursive: true })
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({ lastSynced: null, skills: {}, references: {}, pushes })
+    )
+  }
+
+  it('is none for a sole-authored asset that was never pushed, and calls no gh', async () => {
+    seedClone()
+    seedAssets()
+    const ghCalls: string[][] = []
+    const gh: Runner = async (_c, args) => {
+      ghCalls.push(args)
+      return ''
+    }
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: fakeGit().runner,
+      gh
+    })
+    expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({ state: 'none' })
+    expect(ghCalls).toEqual([])
+  })
+
+  it('is none when the receipt PR has been merged or closed', async () => {
+    seedClone()
+    seedAssets()
+    writeState({ 'skill/my-skill': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } })
+    const gh: Runner = async () => JSON.stringify({ state: 'MERGED', headRefName: 'argus/share-skill-my-skill-1' })
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: fakeGit().runner,
+      gh
+    })
+    expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({ state: 'none' })
+  })
+
+  it('is open-mine + unchanged when the branch tip matches the local skill tree', async () => {
+    seedClone()
+    seedAssets()
+    writeState({ 'skill/my-skill': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } })
+    const local = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
+    const git: Runner = async (_c, args) => {
+      if (args[0] === 'ls-tree') return 'skills/my-skill/SKILL.md'
+      // `git show` through the real runner is trimmed; mimic that here so the test proves
+      // pushStatus normalizes rather than accidentally comparing equal-with-newline strings.
+      if (args[0] === 'show') return local.trim()
+      return ''
+    }
+    const gh: Runner = async () =>
+      JSON.stringify({ state: 'OPEN', headRefName: 'argus/share-skill-my-skill-1' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({
+      state: 'open-mine',
+      prUrl: 'https://pr/7',
+      changed: false
+    })
+  })
+
+  it('is open-mine + changed when a file was added to the skill dir since the push', async () => {
+    seedClone()
+    seedAssets()
+    writeState({ 'skill/my-skill': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } })
+    const local = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
+    fs.writeFileSync(path.join(home, 'skills-user', 'my-skill', 'NOTES.md'), '# new file\n')
+    const git: Runner = async (_c, args) => {
+      if (args[0] === 'ls-tree') return 'skills/my-skill/SKILL.md'
+      if (args[0] === 'show') return local.trim()
+      return ''
+    }
+    const gh: Runner = async () =>
+      JSON.stringify({ state: 'OPEN', headRefName: 'argus/share-skill-my-skill-1' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({
+      state: 'open-mine',
+      prUrl: 'https://pr/7',
+      changed: true
+    })
+  })
+
+  it('searches GitHub when a teammate contributed, and blocks on their open PR', async () => {
+    seedClone()
+    seedAssets(true)
+    const ghCalls: string[][] = []
+    const gh: Runner = async (_c, args) => {
+      ghCalls.push(args)
+      if (args[0] === 'api') return 'jiawei-han'
+      return JSON.stringify([
+        { url: 'https://pr/42', headRefName: 'argus/share-skill-my-skill-999', author: { login: 'alex' } }
+      ])
+    }
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: fakeGit().runner,
+      gh
+    })
+    expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({
+      state: 'open-teammate',
+      prUrl: 'https://pr/42',
+      prAuthor: 'alex'
+    })
+    expect(ghCalls.some((c) => c[0] === 'pr' && c[1] === 'list')).toBe(true)
+  })
+
+  it('a shared-authorship asset whose open PR is mine resolves to open-mine, not blocked', async () => {
+    seedClone()
+    seedAssets(true)
+    const local = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
+    const gh: Runner = async (_c, args) => {
+      if (args[0] === 'api') return MINE
+      return JSON.stringify([
+        { url: 'https://pr/42', headRefName: 'argus/share-skill-my-skill-999', author: { login: MINE } }
+      ])
+    }
+    const git: Runner = async (_c, args) => {
+      if (args[0] === 'ls-tree') return 'skills/my-skill/SKILL.md'
+      if (args[0] === 'show') return local.trim()
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({
+      state: 'open-mine',
+      prUrl: 'https://pr/42',
+      changed: false
+    })
+  })
+
+  it('ignores open PRs whose branch is for a different asset', async () => {
+    seedClone()
+    seedAssets(true)
+    const gh: Runner = async (_c, args) => {
+      if (args[0] === 'api') return MINE
+      return JSON.stringify([
+        { url: 'https://pr/1', headRefName: 'argus/share-skill-other-skill-1', author: { login: 'alex' } },
+        { url: 'https://pr/2', headRefName: 'some/unrelated-branch', author: { login: 'alex' } }
+      ])
+    }
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: fakeGit().runner,
+      gh
+    })
+    expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({ state: 'none' })
+  })
+
+  it('fails open with a warning when gh throws, so sharing is never blocked by a broken check', async () => {
+    seedClone()
+    seedAssets()
+    writeState({ 'skill/my-skill': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } })
+    const gh: Runner = async () => {
+      throw new Error('gh: not authenticated')
+    }
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: fakeGit().runner,
+      gh
+    })
+    const s = await svc.pushStatus('skill', 'my-skill', me)
+    expect(s.state).toBe('none')
+    expect(s.state === 'none' && s.warning).toMatch(/not authenticated/)
   })
 })

@@ -7,7 +7,12 @@ import { hivemindCloneDir, hivemindSkillsDir, hivemindStatePath, userSkillsDir }
 import { sharedReferencesDir } from './skillsDir'
 import { frontmatterDescriptionAndAuthor } from './agent/skillsResolver'
 import { withFrontmatter, fmBlock, fmField, removeFrontmatterKeys } from '../../shared/frontmatter'
-import { stampAuthorship, parseAuthorship, type Identity } from '../../shared/authorship'
+import {
+  stampAuthorship,
+  parseAuthorship,
+  isSoleAuthor,
+  type Identity
+} from '../../shared/authorship'
 import { JsonFileStore } from './fileStore'
 import type {
   HivemindCheckResult,
@@ -16,7 +21,8 @@ import type {
   HivemindPushResult,
   LocalDivergence,
   PushableItem,
-  PushReceipt
+  PushReceipt,
+  PushStatus
 } from '../../shared/hivemind'
 import { PUSHABLE_TIERS } from '../../shared/trustTiers'
 
@@ -120,6 +126,25 @@ export function normalizeForCompare(raw: string): string {
   if (!rest) return stripped.trim()
   const fm = rest.fm.trim()
   return fm ? `---\n${fm}\n---\n${rest.body}`.trim() : rest.body.trim()
+}
+
+/**
+ * Canonical form for a single file in a content comparison.
+ *
+ * Both the trailing-newline trim and the CRLF collapse are load-bearing: the `Runner` seam returns
+ * `stdout.trim()`, so a blob read via `git show` has lost its trailing newline that the same file
+ * read from disk still has, and a checkout on Windows may hold CRLF where the blob holds LF.
+ * Without this, every comparison reports "changed" and every re-share pushes an empty commit.
+ */
+function norm(s: string): string {
+  return s.replace(/\r\n/g, '\n').trim()
+}
+
+/** Do two path→content maps describe the same tree? Key sets and values must match exactly. */
+export function sameContents(a: Map<string, string>, b: Map<string, string>): boolean {
+  if (a.size !== b.size) return false
+  for (const [k, v] of a) if (b.get(k) !== v) return false
+  return true
 }
 
 /** Bare 'x.md' or exactly 'confluence/x.md' — no traversal, no hidden files, no other subfolders. */
@@ -599,6 +624,147 @@ export class HivemindService {
     return kind === 'skill'
       ? path.join(userSkillsDir(this.deps.argusHome), name)
       : path.join(sharedReferencesDir(this.deps.argusHome), name)
+  }
+
+  /**
+   * The authenticated GitHub login, cached for the service's lifetime.
+   *
+   * Needed because a PR's author is a GitHub login while this machine's `Identity` is a git
+   * name/email — the two are not comparable, so "is this PR mine?" cannot be answered from the
+   * identity alone. A rejected lookup clears the cache rather than sticking, and is allowed to
+   * propagate: `pushStatus` catches it and fails open.
+   */
+  private viewerLoginCache: Promise<string> | undefined
+  private viewerLogin(): Promise<string> {
+    this.viewerLoginCache ??= this.gh(['api', 'user', '--jq', '.login']).catch((e: unknown) => {
+      this.viewerLoginCache = undefined
+      throw e
+    })
+    return this.viewerLoginCache
+  }
+
+  /** repo-relative path → normalized content, read from the local user-tier copy. */
+  private localContents(kind: 'skill' | 'reference', name: string): Map<string, string> {
+    const out = new Map<string, string>()
+    const src = this.pushSource(kind, name)
+    if (kind === 'reference') {
+      out.set(`references/${name}`, norm(fs.readFileSync(src, 'utf8')))
+      return out
+    }
+    const walk = (dir: string, rel: string): void => {
+      for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+        const child = path.join(dir, ent.name)
+        const childRel = `${rel}/${ent.name}`
+        if (ent.isDirectory()) walk(child, childRel)
+        else if (ent.isFile()) out.set(childRel, norm(fs.readFileSync(child, 'utf8')))
+      }
+    }
+    walk(src, `skills/${name}`)
+    return out
+  }
+
+  /**
+   * Same shape as `localContents`, read out of a git ref in the clone.
+   *
+   * `ls-tree -r` + per-entry `show` rather than a worktree checkout: reading through refs leaves
+   * the clone's HEAD untouched, which every other read in this service depends on.
+   */
+  private async refContents(
+    kind: 'skill' | 'reference',
+    name: string,
+    ref: string
+  ): Promise<Map<string, string>> {
+    const prefix = kind === 'skill' ? `skills/${name}` : `references/${name}`
+    const listing = await this.git(
+      ['ls-tree', '-r', '--name-only', ref, '--', prefix],
+      this.clone()
+    )
+    const out = new Map<string, string>()
+    for (const rel of listing.split('\n').map((l) => l.trim()).filter(Boolean)) {
+      out.set(rel, norm(await this.git(['show', `${ref}:${rel}`], this.clone())))
+    }
+    return out
+  }
+
+  /** The share-branch prefix `push` generates for one asset — the key to finding its PR. */
+  private shareBranchPrefix(kind: 'skill' | 'reference', name: string): string {
+    return `argus/share-${kind}-${name.replace(/\.md$/, '')}-`
+  }
+
+  /** The open share PR for this asset, or null. Throws if a `gh` lookup fails. */
+  private async openPrFor(
+    kind: 'skill' | 'reference',
+    name: string,
+    me: Identity | null
+  ): Promise<{ prUrl: string; branch: string; mine: boolean; author: string } | null> {
+    const src = this.pushSource(kind, name)
+    const raw = fs.readFileSync(kind === 'skill' ? path.join(src, 'SKILL.md') : src, 'utf8')
+    if (isSoleAuthor(raw, me)) {
+      // Nobody else can hold a PR for this, so the receipt is the whole record — one gh call.
+      const receipt = this.state().pushes[`${kind}/${name}`]
+      if (!receipt) return null
+      const pr = JSON.parse(
+        await this.gh(['pr', 'view', receipt.prUrl, '--json', 'state,headRefName'])
+      ) as { state: string; headRefName: string }
+      if (pr.state !== 'OPEN') return null
+      return { prUrl: receipt.prUrl, branch: pr.headRefName, mine: true, author: '' }
+    }
+    const prs = JSON.parse(
+      await this.gh([
+        'pr',
+        'list',
+        '--repo',
+        this.deps.repo().trim(),
+        '--state',
+        'open',
+        '--limit',
+        '100',
+        '--json',
+        'url,headRefName,author'
+      ])
+    ) as { url: string; headRefName: string; author: { login: string } }[]
+    const hit = prs.find((p) => p.headRefName.startsWith(this.shareBranchPrefix(kind, name)))
+    if (!hit) return null
+    const login = await this.viewerLogin()
+    return {
+      prUrl: hit.url,
+      branch: hit.headRefName,
+      mine: hit.author.login === login,
+      author: hit.author.login
+    }
+  }
+
+  /**
+   * Is there already an open share PR for this asset, and is it ours?
+   *
+   * Read-only: creates no worktree, moves no ref, writes no state. `push` re-derives this rather
+   * than trusting a value passed from the renderer, the same way `install` re-checks
+   * `localDivergence` — a stale renderer must not be able to smuggle a duplicate PR past the guard.
+   */
+  async pushStatus(
+    kind: 'skill' | 'reference',
+    name: string,
+    me: Identity | null
+  ): Promise<PushStatus> {
+    if (!this.deps.repo().trim()) return { state: 'none' }
+    if (!fs.existsSync(path.join(this.clone(), '.git'))) return { state: 'none' }
+    if (!fs.existsSync(this.pushSource(kind, name))) return { state: 'none' }
+    try {
+      const pr = await this.openPrFor(kind, name, me)
+      if (!pr) return { state: 'none' }
+      if (!pr.mine) return { state: 'open-teammate', prUrl: pr.prUrl, prAuthor: pr.author }
+      await this.git(['fetch', 'origin'], this.clone())
+      const changed = !sameContents(
+        this.localContents(kind, name),
+        await this.refContents(kind, name, `origin/${pr.branch}`)
+      )
+      return { state: 'open-mine', prUrl: pr.prUrl, changed }
+    } catch (err) {
+      // Fail OPEN, matching localDivergence's rule: a guard that could not run must not block an
+      // operation that worked before the guard existed. The cost is a recoverable duplicate PR;
+      // failing closed would break sharing entirely whenever GitHub is briefly unreachable.
+      return { state: 'none', warning: (err as Error).message }
+    }
   }
 
   /** The commit an installed item is pinned to, or null when it was authored locally.
