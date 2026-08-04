@@ -151,9 +151,10 @@ describe('freeFormQuery', () => {
 })
 
 describe('isStrong', () => {
-  it('is true only for signature and errorStrings terms', () => {
+  it('is true only for signature, errorStrings and jiraKey terms', () => {
     expect(isStrong({ text: 'x', source: 'signature' })).toBe(true)
     expect(isStrong({ text: 'x', source: 'errorStrings' })).toBe(true)
+    expect(isStrong({ text: 'x', source: 'jiraKey' })).toBe(true)
     expect(isStrong({ text: 'x', source: 'title' })).toBe(false)
     expect(isStrong({ text: 'x', source: 'finding' })).toBe(false)
     expect(isStrong({ text: 'x', source: 'free' })).toBe(false)

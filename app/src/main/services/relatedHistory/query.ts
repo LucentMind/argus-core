@@ -16,9 +16,9 @@ export interface RelatedQuery {
 }
 
 /** Sources strong enough to justify a hit on their own (spec §4.3): a verbatim
- *  error string or a distilled signature token is a real signal, unlike a word
- *  from a free-text title. */
-const STRONG_SOURCES: readonly QueryTermSource[] = ['signature', 'errorStrings']
+ *  error string, a distilled signature token, or an exact ticket key is a real
+ *  signal, unlike a word from a free-text title. */
+const STRONG_SOURCES: readonly QueryTermSource[] = ['signature', 'errorStrings', 'jiraKey']
 
 export function isStrong(term: QueryTerm): boolean {
   return STRONG_SOURCES.includes(term.source)

@@ -23,18 +23,7 @@ export const DF_SUPPRESS_RATIO = 0.3
 /** Below this population the ratio would suppress nearly every term, so the rule
  *  is skipped entirely and the overlap rule carries the precision alone. */
 export const DF_MIN_POPULATION = 4
-/**
- * A term this rare is discriminative enough to justify a hit on its own.
- *
- * Note the interaction with DF_SUPPRESS_RATIO: below ~10 summaries the
- * suppression threshold (0.3 × population) sits at or under this value, so every
- * term that survives suppression is also "rare" and relaxes the overlap rule to
- * 1. That is intended — on a corpus that small, recall matters more and a wrong
- * row is cheap to dismiss — but it means the overlap rule only becomes the
- * deciding guard once the corpus passes roughly 10 summaries.
- */
-export const RARE_DF = 2
-/** Distinct surviving terms a case must match, unless it matched a strong or rare one. */
+/** Distinct surviving terms a case must match, unless it matched a strong one. */
 export const MIN_OVERLAP = 2
 
 function localStatus(resolution: string): { label: string; tone: RelatedStatusTone } {
@@ -116,12 +105,17 @@ export function createLocalCasesProvider(
         })
         if (survivors.length === 0) return { ok: true, hits: [], reason: 'query-too-generic' }
 
-        // Rule 3 — minimum overlap, relaxed for strong or rare terms.
+        // Rule 3 — minimum overlap, relaxed only for a strong-source term
+        // (signature / errorStrings / jiraKey). Rarity alone is NOT a relaxation
+        // signal: a title/finding/free word that happens to appear in exactly one
+        // summary is exactly the incidental-word false positive spec §1 exists to
+        // stop, and df says nothing about whether the word is actually meaningful
+        // — only a strong source does.
         const matchCount = new Map<string, number>()
         const strongMatched = new Set<string>()
         for (const term of survivors) {
           const slugs = sets.get(term.text)!
-          const relaxed = isStrong(term) || slugs.size <= RARE_DF
+          const relaxed = isStrong(term)
           for (const slug of slugs) {
             matchCount.set(slug, (matchCount.get(slug) ?? 0) + 1)
             if (relaxed) strongMatched.add(slug)

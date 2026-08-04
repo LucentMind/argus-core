@@ -75,10 +75,9 @@ describe('local provider — regression tests for the spec §1 defect', () => {
 
   it('2. one incidental word is rejected by the overlap rule', async () => {
     // 14 summaries, so the suppression threshold is 0.3 * 14 = 4.2: a term in 3
-    // summaries survives suppression AND sits above RARE_DF. That is the only
-    // configuration in which the OVERLAP rule is the deciding guard — below ~10
-    // summaries the threshold falls to or under RARE_DF, so every surviving term
-    // relaxes overlap to 1. See the small-corpus note on RARE_DF.
+    // summaries survives suppression. All three of `rider`/`bearing`/`north` are
+    // non-strong (source 'free'), so none of them can relax overlap regardless
+    // of how rare they are — only the overlap count decides.
     pad(11)
     add('rider-a', 'solved', { signature: 'rider seat vibration' })
     add('rider-b', 'solved', { signature: 'rider display flicker' })
@@ -117,11 +116,12 @@ describe('local provider — regression tests for the spec §1 defect', () => {
   })
 
   it('3b. a strong term that is NOT rare still relaxes overlap on its own', async () => {
-    // Isolates the `isStrong` limb of Rule 3 from the RARE_DF limb: test 3's
-    // 'E_TIMEOUT_42' is both strong AND df<=RARE_DF, so it can't tell which
-    // limb is doing the relaxing. Here the shared term has df=3 (> RARE_DF=2)
-    // in a 12-summary corpus (threshold 0.3*12=3.6, so it still survives Rule
-    // 2), and its only source is a `signature` token — strong, not rare.
+    // Isolates the `isStrong` limb of Rule 3 from rarity entirely: test 3's
+    // 'E_TIMEOUT_42' happens to be rare too, so it can't tell whether strength
+    // or rarity is doing the relaxing. Here the shared term has df=3 in a
+    // 12-summary corpus (threshold 0.3*12=3.6, so it still survives Rule 2) —
+    // not rare by any measure — and its only source is a `signature` token.
+    // Relaxation must come from `isStrong` alone.
     pad(9)
     add('alpha', 'solved', { signature: 'brakejitter observed on alpha rig' })
     add('beta', 'solved', { signature: 'brakejitter observed on beta rig' })
@@ -157,6 +157,51 @@ describe('local provider — regression tests for the spec §1 defect', () => {
     // `reason` locks in that this is the guard actually firing here.
     const r = await provider().search(freeFormQuery('ecu reset drifts dlt'), 5)
     expect(r).toEqual({ ok: true, hits: [], reason: 'query-too-generic' })
+  })
+
+  it('5. rule 3 is source-blind for rarity — a rare title word must not relax overlap (population 2)', async () => {
+    // The spec §1 corpus, shrunk to just the two summaries whose incidental
+    // overlap with the sample title actually produced the two false-positive
+    // hits (snippets «tour» and «case»). Population 2 is below
+    // DF_MIN_POPULATION, so Rule 2 (df suppression) is skipped entirely —
+    // Rule 3 is the ONLY guard standing between this corpus and the bug.
+    //
+    // 'guided' deliberately does not appear in either summary here: if it did,
+    // 'routing' would pick up a second, independent overlapping term (guided +
+    // tour) and become eligible on legitimate overlap alone, which would no
+    // longer isolate the source-blind-rarity defect this test exists to catch.
+    createCase(db, home, { slug: SAMPLE_CASE_SLUG, title: SAMPLE_CASE_TITLE })
+    add('routing', 'forwarded', {
+      signature: 'continuous alternative route flickers on rejoin',
+      symptoms: 'seen on typical routes only',
+      rootCause: 'compares the alternative tour against a stale main tour'
+    })
+    add('charge', 'solved', {
+      signature: 'charge plan dropped when an alternative is accepted',
+      symptoms: 'In this case the SoC prediction resets to the pack maximum'
+    })
+
+    const q = buildRelatedQuery(db, SAMPLE_CASE_SLUG)
+    const r = await provider(SAMPLE_CASE_SLUG).search(q, 5)
+    expect(r).toEqual({ ok: true, hits: [] })
+  })
+
+  it('6. rule 3 is source-blind for rarity — a title word rare in a large population must not relax overlap', async () => {
+    // 'sample'/'guided'/'case' are common (df ~20, suppressed by Rule 2), but
+    // 'tour' appears in exactly ONE summary out of 21 — rare enough that the
+    // OLD code's source-blind rarity limb let it through Rule 3 on its own.
+    // Rule 2 can never catch this: 'tour' is genuinely rare in this corpus,
+    // not merely below the suppression threshold by coincidence of a small
+    // population (that configuration is test 5's job).
+    createCase(db, home, { slug: SAMPLE_CASE_SLUG, title: SAMPLE_CASE_TITLE })
+    for (let i = 0; i < 20; i++) {
+      add(`pad-${i}`, 'solved', { signature: `another guided sample case walkthrough ${i}` })
+    }
+    add('target', 'solved', { signature: 'route diverges after the scenic tour begins' })
+
+    const q = buildRelatedQuery(db, SAMPLE_CASE_SLUG)
+    const r = await provider(SAMPLE_CASE_SLUG).search(q, 5)
+    expect(r).toEqual({ ok: true, hits: [] })
   })
 })
 
