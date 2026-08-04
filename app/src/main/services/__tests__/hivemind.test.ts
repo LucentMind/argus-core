@@ -1839,6 +1839,32 @@ describe('pushStatus', () => {
     expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({ state: 'none' })
   })
 
+  it('ignores an open PR for a different asset whose slug is a hyphenated extension of this one', async () => {
+    // Regression: `argus/share-skill-my-skill-v2-...` is push()'s branch for skill
+    // `my-skill-v2`, not for `my-skill` — a bare prefix match would wrongly attribute
+    // it to `my-skill` (its whole slug `argus/share-skill-my-skill-` is itself a
+    // string-prefix of that branch name).
+    seedClone()
+    seedAssets(true)
+    const gh: Runner = async (_c, args) => {
+      if (args[0] === 'api') return MINE
+      return JSON.stringify([
+        {
+          url: 'https://pr/3',
+          headRefName: 'argus/share-skill-my-skill-v2-1754300000000',
+          author: { login: 'alex' }
+        }
+      ])
+    }
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: fakeGit().runner,
+      gh
+    })
+    expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({ state: 'none' })
+  })
+
   it('fails open with a warning when gh throws, so sharing is never blocked by a broken check', async () => {
     seedClone()
     seedAssets()

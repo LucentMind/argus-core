@@ -691,6 +691,25 @@ export class HivemindService {
     return `argus/share-${kind}-${name.replace(/\.md$/, '')}-`
   }
 
+  /**
+   * Is `headRefName` the branch `push` generated for this exact asset?
+   *
+   * A bare prefix match is not enough: `push` appends nothing but `Date.now()` after the
+   * prefix, but the prefix itself has no closing boundary, so an asset whose slug is a
+   * hyphenated prefix of another asset's slug collides — skill `my-skill`'s prefix
+   * (`argus/share-skill-my-skill-`) is also a string-prefix of `my-skill-v2`'s branch
+   * (`argus/share-skill-my-skill-v2-1699999999999`). Matched loosely, that PR gets
+   * attributed to the wrong asset — wrongly blocking a legitimate share, or wrongly
+   * reporting a teammate's unrelated PR as this asset's own. The trailing segment `push`
+   * appends is always digits-only, so requiring exactly `<prefix><digits>` closes the gap
+   * without needing to escape regex metacharacters that could appear in an asset name.
+   */
+  private isShareBranchFor(kind: 'skill' | 'reference', name: string, headRefName: string): boolean {
+    const prefix = this.shareBranchPrefix(kind, name)
+    if (!headRefName.startsWith(prefix)) return false
+    return /^\d+$/.test(headRefName.slice(prefix.length))
+  }
+
   /** The open share PR for this asset, or null. Throws if a `gh` lookup fails. */
   private async openPrFor(
     kind: 'skill' | 'reference',
@@ -723,7 +742,7 @@ export class HivemindService {
         'url,headRefName,author'
       ])
     ) as { url: string; headRefName: string; author: { login: string } }[]
-    const hit = prs.find((p) => p.headRefName.startsWith(this.shareBranchPrefix(kind, name)))
+    const hit = prs.find((p) => this.isShareBranchFor(kind, name, p.headRefName))
     if (!hit) return null
     const login = await this.viewerLogin()
     return {
