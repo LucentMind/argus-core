@@ -180,9 +180,10 @@ describe('local provider — regression tests for the spec §1 defect', () => {
   it('5. rule 3 is source-blind for rarity — a rare title word must not relax overlap (population 2)', async () => {
     // The spec §1 corpus, shrunk to just the two summaries whose incidental
     // overlap with the sample title actually produced the two false-positive
-    // hits (snippets «tour» and «case»). Population 2 is below
-    // DF_MIN_POPULATION, so Rule 2 (df suppression) is skipped entirely —
-    // Rule 3 is the ONLY guard standing between this corpus and the bug.
+    // hits (snippets «tour» and «case»). Population 2 is small enough that
+    // both terms are df=1 and survive Rule 2 regardless (see
+    // DF_SUPPRESS_FLOOR) — Rule 3 is the ONLY guard standing between this
+    // corpus and the bug.
     //
     // 'guided' deliberately does not appear in either summary here: if it did,
     // 'routing' would pick up a second, independent overlapping term (guided +
@@ -261,6 +262,33 @@ describe('local provider — regression tests for the spec §1 defect', () => {
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.hits.map((h) => (h as LocalCaseHit).caseSlug)).toEqual(['target'])
   })
+
+  it('9. below population 4, two legitimately-overlapping prefix-matched generic words still must not match', async () => {
+    // Measured regression (fix pass 3): the sample case's title terms include
+    // both 'case' and 'Sample:'->'sample'*. 'case' is a genuinely common word
+    // here (it appears in every one of the 3 real summaries — the kind of
+    // word Rule 2 exists to suppress), but 'sample' happens to prefix-match
+    // "sampled" in exactly ONE summary (battery). Both are weak (title)
+    // sources, so neither can relax Rule 3 alone — but they land on the SAME
+    // summary, so a genuine 2-term overlap satisfies MIN_OVERLAP regardless.
+    // The floor must still let Rule 2 suppress 'case' (df=3 > threshold=1 at
+    // population 3) even though the corpus is tiny — that is what stops this
+    // from becoming a hit through 'sample' alone (df=1, weak, insufficient
+    // overlap on its own).
+    createCase(db, home, { slug: SAMPLE_CASE_SLUG, title: SAMPLE_CASE_TITLE })
+    add('battery', 'solved', {
+      signature: 'battery charge case regulation issue',
+      symptoms: 'In this case the SoC value is sampled once per second'
+    })
+    add('alpha', 'solved', { signature: 'unrelated alpha case symptom' })
+    add('beta', 'solved', { signature: 'unrelated beta case symptom' })
+
+    const q = buildRelatedQuery(db, SAMPLE_CASE_SLUG)
+    const r = await provider(SAMPLE_CASE_SLUG).search(q, 5)
+    // 'sample' survives Rule 2 (df=1), so this is Rule 3 rejecting on overlap,
+    // not Rule 2 on suppression — no `reason` is attached in that case.
+    expect(r).toEqual({ ok: true, hits: [] })
+  })
 })
 
 describe('local provider — shape and behaviour', () => {
@@ -302,12 +330,31 @@ describe('local provider — shape and behaviour', () => {
     expect(h.title).toBe('ecu reset drifts dlt timestamps')
   })
 
-  it('skips the df rule below the minimum population so a tiny corpus still matches', async () => {
+  // Re-derived for fix pass 3: the old population bypass let ANY term survive
+  // Rule 2 below population 4, even one shared by every summary in the corpus
+  // — which is exactly how a tiny-corpus false positive (spec §1's "case"/
+  // "Sample:"->"sampled") got through. The DF_SUPPRESS_FLOOR replacement still
+  // suppresses a term at df=2 in a population of 2 (both summaries share it),
+  // but keeps a genuinely rare (df=1) term alive, which is what should still
+  // "just match" on a tiny corpus.
+  it('keeps a genuinely rare term alive below the minimum population, via the suppression floor', async () => {
+    add('a', 'solved', { signature: 'ecu reset drift' })
+    add('b', 'solved', { signature: 'unrelated symptom text' })
+    const r = await provider().search(freeFormQuery('ecu reset'), 5)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.hits.map((h) => (h as LocalCaseHit).caseSlug)).toEqual(['a'])
+  })
+
+  it('still suppresses a term shared by every summary in a tiny corpus (the floor is not a bypass)', async () => {
+    // Same population (2) as the pre-fix-pass-3 version of the test above, but
+    // now both 'ecu' and 'reset' are df=2 (shared by BOTH summaries) — the
+    // exact configuration the old bypass let through unsuppressed. The floor
+    // (Math.max(population * ratio, 1) = 1) suppresses anything at df >= 2
+    // here, same as it would at any larger population.
     add('a', 'solved', { signature: 'ecu reset drift' })
     add('b', 'solved', { signature: 'ecu reset loop' })
     const r = await provider().search(freeFormQuery('ecu reset'), 5)
-    expect(r.ok).toBe(true)
-    if (r.ok) expect(r.hits).toHaveLength(2)
+    expect(r).toEqual({ ok: true, hits: [], reason: 'query-too-generic' })
   })
 
   it('honours the limit and excludes the current case', async () => {

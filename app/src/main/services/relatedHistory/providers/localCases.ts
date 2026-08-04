@@ -20,9 +20,19 @@ export const LOCAL_PROVIDER_NAME = 'Your cases'
  *  Corpus-derived rather than a hand-written stopword list — an English wordlist
  *  would be the wrong instrument for a technical corpus, and this self-tunes. */
 export const DF_SUPPRESS_RATIO = 0.3
-/** Below this population the ratio would suppress nearly every term, so the rule
- *  is skipped entirely and the overlap rule carries the precision alone. */
-export const DF_MIN_POPULATION = 4
+/**
+ * A floor under the suppression threshold rather than a population bypass. At
+ * population < 4 a 0.3 ratio yields a threshold under 1 (e.g. 0.9 at
+ * population 3), which would suppress EVERY term including one that appears
+ * in exactly one summary — the previous code special-cased this away entirely
+ * below `population < 4`, but that let two prefix-matched generic words
+ * (e.g. "case" and "Sample:"->"sampled") each survive unsuppressed and
+ * satisfy MIN_OVERLAP via legitimate-looking overlap on a tiny, real
+ * first-week corpus. A floor of 1 keeps a genuinely rare (df=1) term alive
+ * while still suppressing anything appearing in 2+ summaries of a small
+ * corpus — which is what actually matters at this population size.
+ */
+export const DF_SUPPRESS_FLOOR = 1
 /**
  * A strong-source term this rare is decisive evidence on its own — a verbatim
  * error string or an exact ticket key that appears in only a couple of
@@ -105,12 +115,12 @@ export function createLocalCasesProvider(
           { excludeSlug, excludeOpen: true }
         )
 
-        // Rule 2 — document-frequency suppression.
-        const threshold = population * DF_SUPPRESS_RATIO
+        // Rule 2 — document-frequency suppression, floored rather than bypassed
+        // at small populations (see DF_SUPPRESS_FLOOR).
+        const threshold = Math.max(population * DF_SUPPRESS_RATIO, DF_SUPPRESS_FLOOR)
         const survivors = q.terms.filter((t) => {
           const df = sets.get(t.text)?.size ?? 0
           if (df === 0) return false
-          if (population < DF_MIN_POPULATION) return true
           return df <= threshold
         })
         if (survivors.length === 0) return { ok: true, hits: [], reason: 'query-too-generic' }
