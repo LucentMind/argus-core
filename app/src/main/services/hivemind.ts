@@ -680,7 +680,10 @@ export class HivemindService {
       this.clone()
     )
     const out = new Map<string, string>()
-    for (const rel of listing.split('\n').map((l) => l.trim()).filter(Boolean)) {
+    for (const rel of listing
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)) {
       out.set(rel, norm(await this.git(['show', `${ref}:${rel}`], this.clone())))
     }
     return out
@@ -704,7 +707,11 @@ export class HivemindService {
    * appends is always digits-only, so requiring exactly `<prefix><digits>` closes the gap
    * without needing to escape regex metacharacters that could appear in an asset name.
    */
-  private isShareBranchFor(kind: 'skill' | 'reference', name: string, headRefName: string): boolean {
+  private isShareBranchFor(
+    kind: 'skill' | 'reference',
+    name: string,
+    headRefName: string
+  ): boolean {
     const prefix = this.shareBranchPrefix(kind, name)
     if (!headRefName.startsWith(prefix)) return false
     return /^\d+$/.test(headRefName.slice(prefix.length))

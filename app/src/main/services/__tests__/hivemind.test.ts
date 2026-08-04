@@ -1996,7 +1996,8 @@ describe('pushStatus', () => {
     seedClone()
     seedAssets()
     writeState({ 'skill/my-skill': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } })
-    const gh: Runner = async () => JSON.stringify({ state: 'MERGED', headRefName: 'argus/share-skill-my-skill-1' })
+    const gh: Runner = async () =>
+      JSON.stringify({ state: 'MERGED', headRefName: 'argus/share-skill-my-skill-1' })
     const svc = new HivemindService({
       argusHome: home,
       repo: () => 'acme/hivemind',
@@ -2057,7 +2058,11 @@ describe('pushStatus', () => {
       ghCalls.push(args)
       if (args[0] === 'api') return 'jiawei-han'
       return JSON.stringify([
-        { url: 'https://pr/42', headRefName: 'argus/share-skill-my-skill-999', author: { login: 'alex' } }
+        {
+          url: 'https://pr/42',
+          headRefName: 'argus/share-skill-my-skill-999',
+          author: { login: 'alex' }
+        }
       ])
     }
     const svc = new HivemindService({
@@ -2081,7 +2086,11 @@ describe('pushStatus', () => {
     const gh: Runner = async (_c, args) => {
       if (args[0] === 'api') return MINE
       return JSON.stringify([
-        { url: 'https://pr/42', headRefName: 'argus/share-skill-my-skill-999', author: { login: MINE } }
+        {
+          url: 'https://pr/42',
+          headRefName: 'argus/share-skill-my-skill-999',
+          author: { login: MINE }
+        }
       ])
     }
     const git: Runner = async (_c, args) => {
@@ -2103,7 +2112,11 @@ describe('pushStatus', () => {
     const gh: Runner = async (_c, args) => {
       if (args[0] === 'api') return MINE
       return JSON.stringify([
-        { url: 'https://pr/1', headRefName: 'argus/share-skill-other-skill-1', author: { login: 'alex' } },
+        {
+          url: 'https://pr/1',
+          headRefName: 'argus/share-skill-other-skill-1',
+          author: { login: 'alex' }
+        },
         { url: 'https://pr/2', headRefName: 'some/unrelated-branch', author: { login: 'alex' } }
       ])
     }
