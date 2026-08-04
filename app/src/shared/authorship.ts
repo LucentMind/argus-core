@@ -158,3 +158,34 @@ export function stampAuthorship(
   const stamped = Object.keys(flat).length > 0 ? withFrontmatter(raw, flat) : raw
   return withFrontmatterList(stamped, 'contributors', next)
 }
+
+/**
+ * Is `me` demonstrably the only person who has ever touched this asset?
+ *
+ * Decides how hard the HiveMind share flow looks for an already-open PR. Sole authorship means
+ * nobody else's machine can plausibly hold a share PR for this asset, so the local push receipt is
+ * a sufficient record and no GitHub round-trip is needed. Anything else — a second contributor, or
+ * a byline that is not mine — means a teammate may have one open, and only a live query can say.
+ *
+ * `me === null` (this machine has no usable git identity) returns false, not true: with no identity
+ * there is nothing to compare against, so sole authorship is unprovable and the safer, more
+ * thorough path is the correct default. Note this is also why an unauthored asset reads as sole:
+ * `stampAuthorship` no-ops without an identity, so an empty trail plus a real identity means
+ * "written before authorship stamping existed", not "written by someone unknown".
+ *
+ * Emails compare case-insensitively for the same reason `stampAuthorship` dedupes that way —
+ * addresses are case-insensitive, and `J.Han@corp` vs `j.han@corp` is one person.
+ */
+export function isSoleAuthor(raw: string, me: Identity | null): boolean {
+  if (!me) return false
+  const key = me.email.trim().toLowerCase()
+  const isMe = (entry: string | null): boolean => {
+    if (!entry) return false
+    const m = /^(.*?)\s*<([^>]+)>$/.exec(entry.trim())
+    return m !== null && m[2].trim().toLowerCase() === key
+  }
+  const { author, contributors } = parseAuthorship(raw)
+  if (author !== null && !isMe(author)) return false
+  if (contributors.length > 1) return false
+  return contributors.length === 0 || contributors[0].email.trim().toLowerCase() === key
+}

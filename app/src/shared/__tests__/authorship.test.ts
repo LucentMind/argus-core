@@ -5,6 +5,7 @@ import {
   formatIdentity,
   stampAuthorship,
   mergeAuthorship,
+  isSoleAuthor,
   CONTRIBUTOR_CAP
 } from '../authorship'
 import type { Identity } from '../authorship'
@@ -380,5 +381,59 @@ describe('mergeAuthorship', () => {
       'alex@example.test',
       'sam@example.test'
     ])
+  })
+})
+
+describe('isSoleAuthor', () => {
+  const me: Identity = { name: 'Jiawei Han', email: 'jiawiehan@gmail.com' }
+
+  it('is true for an asset with no authorship trail at all', () => {
+    expect(isSoleAuthor('# just a body\n', me)).toBe(true)
+  })
+
+  it('is true when the only author and contributor are me', () => {
+    const raw = [
+      '---',
+      'author: Jiawei Han <jiawiehan@gmail.com>',
+      'contributors:',
+      '  - Jiawei Han <jiawiehan@gmail.com> 2026-08-01',
+      '---',
+      '# body\n'
+    ].join('\n')
+    expect(isSoleAuthor(raw, me)).toBe(true)
+  })
+
+  it('matches my address case-insensitively, like stampAuthorship dedupes', () => {
+    const raw = [
+      '---',
+      'author: Jiawei Han <JiaWieHan@Gmail.com>',
+      'contributors:',
+      '  - Jiawei Han <JIAWIEHAN@GMAIL.COM> 2026-08-01',
+      '---',
+      '# body\n'
+    ].join('\n')
+    expect(isSoleAuthor(raw, me)).toBe(true)
+  })
+
+  it('is false when a second person contributed', () => {
+    const raw = [
+      '---',
+      'author: Jiawei Han <jiawiehan@gmail.com>',
+      'contributors:',
+      '  - Jiawei Han <jiawiehan@gmail.com> 2026-08-01',
+      '  - Alex Chen <alex@example.test> 2026-08-02',
+      '---',
+      '# body\n'
+    ].join('\n')
+    expect(isSoleAuthor(raw, me)).toBe(false)
+  })
+
+  it('is false when someone else is the author, even with no contributors', () => {
+    const raw = ['---', 'author: Alex Chen <alex@example.test>', '---', '# body\n'].join('\n')
+    expect(isSoleAuthor(raw, me)).toBe(false)
+  })
+
+  it('is false when this machine has no git identity — sole authorship is unprovable', () => {
+    expect(isSoleAuthor('# just a body\n', null)).toBe(false)
   })
 })
