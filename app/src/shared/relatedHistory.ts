@@ -57,10 +57,14 @@ export type CorpusDefectHit = RelatedHitCommon & { kind: 'corpus' } & CorpusRef
 
 export type RelatedHit = LocalCaseHit | CorpusDefectHit
 
+/** `'service'` marks a failure of the retrieval service itself, before any
+ *  provider was consulted — it is not a provider kind. */
+export type SourceHealthKind = RelatedProviderKind | 'service'
+
 export interface SourceHealth {
   id: string
   name: string
-  kind: RelatedProviderKind
+  kind: SourceHealthKind
   ok: boolean
   error?: string
   code?: string

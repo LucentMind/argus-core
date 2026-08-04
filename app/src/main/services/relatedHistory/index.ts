@@ -51,7 +51,10 @@ export class RelatedHistoryService {
   constructor(private deps: RelatedHistoryDeps) {}
 
   async search(input: RelatedSearchInput): Promise<RelatedSearchResult> {
-    let queryText = ''
+    // `freeFormQuery` is pure and cannot throw, so whenever the caller supplied
+    // `query` the echo is knowable even if everything after this point fails —
+    // seed it up front rather than only after `resolveQuery` returns.
+    let queryText = input.query ?? ''
     try {
       const limit = input.limit ?? DEFAULT_LIMIT
       const query = this.resolveQuery(input)
@@ -130,7 +133,7 @@ export class RelatedHistoryService {
         query: queryText,
         hits: [],
         sources: [
-          { id: SERVICE_SOURCE_ID, name: SERVICE_SOURCE_NAME, kind: 'local', ok: false, error }
+          { id: SERVICE_SOURCE_ID, name: SERVICE_SOURCE_NAME, kind: 'service', ok: false, error }
         ]
       }
     }

@@ -244,7 +244,11 @@ describe('RelatedHistoryService.search', () => {
     const r = await svc.search({ caseSlug: 'nope' })
     expect(r.hits).toEqual([])
     expect(r.sources).toHaveLength(1)
-    expect(r.sources[0]).toMatchObject({ ok: false })
+    // `kind: 'service'` (review pass 2) — this failure precedes any provider
+    // being consulted, so it must never read as `'local'` or `'corpus'`: a
+    // caller grouping by kind would otherwise misattribute the outage (e.g.
+    // rendering "Your cases unavailable" when local was never even reached).
+    expect(r.sources[0]).toMatchObject({ ok: false, kind: 'service' })
     expect(r.sources[0].error).toBeTruthy()
   })
 
