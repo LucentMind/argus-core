@@ -26,6 +26,9 @@ export interface SourceSearchResult {
   sourceName: string
   ok: boolean
   error?: string
+  /** Present when the failure came from a CorpusError, so a caller can branch on
+   *  the code rather than on message text. */
+  code?: string
   hits: CorpusSearchHit[]
 }
 
@@ -67,32 +70,47 @@ export class DefectCorpusService {
   }
 
   /**
+   * Search ONE source. Extracted from searchAll so the related-history module can
+   * treat each source as its own ranked provider without re-fanning-out. Never
+   * rejects: an unknown source or missing token short-circuits before any network
+   * call, and a client throw becomes ok:false carrying the CorpusError code.
+   *
+   * `cfg` is optional purely to save a settings lookup when the caller already
+   * has it (searchAll does).
+   */
+  async searchOne(
+    id: string,
+    cfg: DefectCorpusSourceCfg | undefined,
+    req: CorpusSearchInput
+  ): Promise<SourceSearchResult> {
+    const name = cfg?.name ?? this.deps.sources()[id]?.name ?? id
+    const resolved = this.resolveClient(id, cfg)
+    if (!resolved.ok) {
+      return { sourceId: id, sourceName: name, ok: false, error: resolved.error, hits: [] }
+    }
+    try {
+      const res = await resolved.client.search(req)
+      return { sourceId: id, sourceName: name, ok: true, hits: res.hits }
+    } catch (err) {
+      return {
+        sourceId: id,
+        sourceName: name,
+        ok: false,
+        error: errorMessage(err),
+        code: err instanceof CorpusError ? err.code : undefined,
+        hits: []
+      }
+    }
+  }
+
+  /**
    * Parallel, per-source isolation: NEVER rejects. Disabled sources are skipped
    * entirely (not reported as a failed entry). Result order follows settings key
    * order (Object.entries preserves insertion order for string keys).
    */
   async searchAll(req: CorpusSearchInput): Promise<SourceSearchResult[]> {
     const entries = Object.entries(this.deps.sources()).filter(([, cfg]) => cfg.enabled)
-    return Promise.all(
-      entries.map(async ([id, cfg]): Promise<SourceSearchResult> => {
-        const resolved = this.resolveClient(id, cfg)
-        if (!resolved.ok) {
-          return { sourceId: id, sourceName: cfg.name, ok: false, error: resolved.error, hits: [] }
-        }
-        try {
-          const res = await resolved.client.search(req)
-          return { sourceId: id, sourceName: cfg.name, ok: true, hits: res.hits }
-        } catch (err) {
-          return {
-            sourceId: id,
-            sourceName: cfg.name,
-            ok: false,
-            error: errorMessage(err),
-            hits: []
-          }
-        }
-      })
-    )
+    return Promise.all(entries.map(([id, cfg]) => this.searchOne(id, cfg, req)))
   }
 
   /** Connectivity check for the Sources settings card. */
