@@ -2278,6 +2278,26 @@ describe('pushStatus', () => {
     })
   })
 
+  it('a confirmed own PR is not discarded when the later comparison fails — reports open-mine + changed, not none', async () => {
+    // `openPrFor` succeeds and establishes pr.mine === true (we KNOW an open PR exists) via
+    // the receipt path, but the later `git fetch` (part of the changed-comparison) throws. The
+    // old single catch answered `none`, silently discarding a PR it had already confirmed —
+    // letting the caller open a duplicate. Once ownership is confirmed, a failure to compare
+    // content must fail open toward reuse (changed: true), never toward "nothing exists".
+    seedClone()
+    seedAssets()
+    writeState({ 'skill/my-skill': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } })
+    const git: Runner = async (_c, args) => {
+      if (args[0] === 'fetch') throw new Error('network timeout')
+      return ''
+    }
+    const gh: Runner = async () =>
+      JSON.stringify({ state: 'OPEN', headRefName: 'argus/share-skill-my-skill-1' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const s = await svc.pushStatus('skill', 'my-skill', me)
+    expect(s).toEqual({ state: 'open-mine', prUrl: 'https://pr/7', changed: true })
+  })
+
   it('fails open with a warning when gh throws, so sharing is never blocked by a broken check', async () => {
     seedClone()
     seedAssets()

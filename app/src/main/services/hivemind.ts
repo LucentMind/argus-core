@@ -833,10 +833,21 @@ export class HivemindService {
     if (!this.deps.repo().trim()) return { state: 'none' }
     if (!fs.existsSync(path.join(this.clone(), '.git'))) return { state: 'none' }
     if (!fs.existsSync(this.pushSource(kind, name))) return { state: 'none' }
+    let pr: { prUrl: string; branch: string; mine: boolean; author: string } | null
     try {
-      const pr = await this.openPrFor(kind, name, me)
-      if (!pr) return { state: 'none' }
-      if (!pr.mine) return { state: 'open-teammate', prUrl: pr.prUrl, prAuthor: pr.author }
+      pr = await this.openPrFor(kind, name, me)
+    } catch (err) {
+      // Fail OPEN, matching localDivergence's rule: a guard that could not run must not block an
+      // operation that worked before the guard existed. The cost is a recoverable duplicate PR;
+      // failing closed would break sharing entirely whenever GitHub is briefly unreachable.
+      // This is genuinely "could not tell whether a PR exists" — logged so a real programming
+      // bug here is diagnosable from a log, not only as the UI's generic warning string.
+      console.warn('[hivemind] pushStatus: failed to resolve an existing PR', err)
+      return { state: 'none', warning: (err as Error).message }
+    }
+    if (!pr) return { state: 'none' }
+    if (!pr.mine) return { state: 'open-teammate', prUrl: pr.prUrl, prAuthor: pr.author }
+    try {
       await this.git(['fetch', 'origin'], this.clone())
       const changed = !sameContents(
         await this.localContents(kind, name),
@@ -844,10 +855,14 @@ export class HivemindService {
       )
       return { state: 'open-mine', prUrl: pr.prUrl, changed }
     } catch (err) {
-      // Fail OPEN, matching localDivergence's rule: a guard that could not run must not block an
-      // operation that worked before the guard existed. The cost is a recoverable duplicate PR;
-      // failing closed would break sharing entirely whenever GitHub is briefly unreachable.
-      return { state: 'none', warning: (err as Error).message }
+      // Unlike the catch above, we already KNOW an open PR of ours exists — `pr` is resolved
+      // and `pr.mine` is true. Only the changed-comparison failed (a flaky `git fetch`, an
+      // unreadable ref blob), so failing open here must not un-know that PR: report it as
+      // conservatively CHANGED so the reuse path in `push` runs — and fails loudly there if
+      // the same problem persists — rather than silently opening a duplicate PR for an asset
+      // that already has one.
+      console.warn('[hivemind] pushStatus: PR confirmed but the change comparison failed', err)
+      return { state: 'open-mine', prUrl: pr.prUrl, changed: true }
     }
   }
 
