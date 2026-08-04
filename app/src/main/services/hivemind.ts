@@ -263,8 +263,12 @@ export class HivemindService {
       if (await this.cloneIsStale(repo)) {
         // Repo setting changed: replace the clone and drop the old repo's pins.
         // Installed copies stay — they are pinned snapshots by design (spec §2.3).
+        // Push receipts go too: a receipt names a PR on the OLD repo, and `openPrFor`'s
+        // receipt path feeds `receipt.prUrl` straight into `gh pr view` — kept across a repo
+        // switch, it can resolve a real PR (or, worse, a same-named branch) on a completely
+        // different repo and hand it back as `mine: true`.
         fs.rmSync(this.clone(), { recursive: true, force: true })
-        this.store.write({ ...this.state(), skills: {}, references: {} })
+        this.store.write({ ...this.state(), skills: {}, references: {}, pushes: {} })
       }
       if (!fs.existsSync(path.join(this.clone(), '.git'))) {
         await this.git(['clone', cloneUrl(repo), this.clone()])
@@ -733,6 +737,17 @@ export class HivemindService {
         await this.gh(['pr', 'view', receipt.prUrl, '--json', 'state,headRefName'])
       ) as { state: string; headRefName: string }
       if (pr.state !== 'OPEN') return null
+      // The receipt is not itself proof: a stale/foreign receipt (e.g. one that outlived a
+      // repo switch, before that was fixed to clear pushes) could name a PR whose branch has
+      // nothing to do with this asset. Validating headRefName against the same predicate
+      // `push` uses to find PRs the other way makes the receipt path trustworthy — `mine:
+      // true` below is only ever returned for a branch this exact asset's `push` could have
+      // generated. Accepted trade-off: a manually renamed head branch now falls back to
+      // `none` (a possible duplicate PR) instead of being reused — the safe direction.
+      if (!this.isShareBranchFor(kind, name, pr.headRefName)) return null
+      // `author: ''` is now defensible: the branch check above guarantees this receipt names
+      // OUR OWN share branch for this exact asset, not merely some PR the receipt happened to
+      // point at.
       return { prUrl: receipt.prUrl, branch: pr.headRefName, mine: true, author: '' }
     }
     const prs = JSON.parse(

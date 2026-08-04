@@ -241,6 +241,46 @@ describe('repo switch', () => {
     expect(probe.updateAvailable).toBe(false)
   })
 
+  it('sync clears push receipts along with the pins when the clone origin mismatches', async () => {
+    // A push receipt is not repo-scoped and used to survive a clone replacement. Once a
+    // receipt feeds openPrFor's `gh pr view <old-repo-url>` path, an old repo's receipt
+    // resolving against the new repo returns a PR (and headRefName) that belongs to neither
+    // — the branch-validation fix (below) catches the immediate symptom, but the receipt
+    // itself must not outlive the repo it was pushed against.
+    seedClone()
+    const statePath = path.join(home, 'config', 'hivemind-state.json')
+    fs.mkdirSync(path.dirname(statePath), { recursive: true })
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({
+        lastSynced: null,
+        skills: { 'hive-probe': 'oldsha' },
+        references: {},
+        pushes: {
+          'skill/my-skill': {
+            prUrl: 'https://github.com/acme/old/pull/7',
+            pushedAt: '2026-08-01T00:00:00Z'
+          }
+        }
+      })
+    )
+    let origin = OLD_URL
+    const runner: Runner = async (_c, args) => {
+      if (args[0] === 'remote') return origin
+      if (args[0] === 'clone') {
+        origin = args[1]
+        fs.mkdirSync(path.join(args[2], '.git'), { recursive: true })
+        return ''
+      }
+      if (args[0] === 'rev-parse') return 'newhead'
+      if (args[0] === 'log') return 'newsha'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/new', git: runner })
+    const p = await svc.sync()
+    expect(p.pushes).toEqual({})
+  })
+
   it('sync pulls in place when the clone origin matches the configured repo', async () => {
     seedClone()
     const { runner, calls } = fakeGit({
@@ -2189,6 +2229,27 @@ describe('pushStatus', () => {
     })
     expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({ state: 'none' })
     expect(ghCalls.some((c) => c[0] === 'pr' && c[1] === 'list')).toBe(true)
+  })
+
+  it('a receipt whose PR head branch does not match this asset is untrusted, so status is none (not open-mine)', async () => {
+    // A manually renamed head branch, or a receipt that survived a repo switch, must not be
+    // trusted blind: openPrFor's receipt path used to hand back `mine: true` on any OPEN PR
+    // named by the receipt, with no check that headRefName is actually this asset's share
+    // branch. Validating it against isShareBranchFor before trusting it means a mismatch now
+    // falls back to `none` (a possible duplicate PR) rather than silently reusing/attributing
+    // the wrong PR — the safe direction per the accepted trade-off.
+    seedClone()
+    seedAssets()
+    writeState({ 'skill/my-skill': { prUrl: 'https://pr/7', pushedAt: '2026-08-01T00:00:00Z' } })
+    const gh: Runner = async () =>
+      JSON.stringify({ state: 'OPEN', headRefName: 'argus/share-skill-someone-elses-skill-1' })
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: fakeGit().runner,
+      gh
+    })
+    expect(await svc.pushStatus('skill', 'my-skill', me)).toEqual({ state: 'none' })
   })
 
   it('fails open with a warning when gh throws, so sharing is never blocked by a broken check', async () => {
