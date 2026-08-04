@@ -2,7 +2,8 @@ import type { DatabaseSync } from 'node:sqlite'
 import { getCase } from '../caseService'
 import { getCaseSummary } from '../distill/summaries'
 
-export type QueryTermSource = 'signature' | 'errorStrings' | 'title' | 'jiraKey' | 'finding' | 'free'
+export type QueryTermSource =
+  'signature' | 'errorStrings' | 'title' | 'jiraKey' | 'finding' | 'free'
 
 export interface QueryTerm {
   text: string
