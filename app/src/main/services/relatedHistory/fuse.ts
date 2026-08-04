@@ -60,7 +60,11 @@ export function fuse(rankings: ProviderRanking[]): RelatedHit[] {
         target.hit.provenance = [...target.hit.provenance, ...c.provenance]
         target.hit.corpusRef = { sourceId: c.sourceId, key: c.key, url: c.url }
         if (target.hit.matchedOn !== c.matchedOn) target.hit.matchedOn = 'both'
-        if (!target.hit.distilled && c.distilled) target.hit.distilled = c.distilled
+        // NOTE: no `target.hit.distilled ?? c.distilled` fallback here. A local
+        // merge target's `distilled` is never null — `localCases.ts`'s
+        // `distilledFrom` always returns an object — so that branch could never
+        // fire; the local case's own distilled always wins, which is correct
+        // (spec: a merged row keeps the local case as primary).
         continue
       }
       out.push({ hit: { ...c, fusedScore: rrfScore(c.rank) }, order: r.order })
