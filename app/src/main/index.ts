@@ -2164,6 +2164,11 @@ function registerIpc(): void {
     async (_e, kind: 'skill' | 'reference', name: string, title: string) =>
       hivemind.push(kind, name, title, await identity())
   )
+  ipcMain.handle(
+    IPC.hivemindPushStatus,
+    async (_e, kind: 'skill' | 'reference', name: string) =>
+      hivemind.pushStatus(kind, name, await identity())
+  )
 
   // — proposals (spec §2.4) —
   ipcMain.handle(IPC.proposalsList, () => ({ proposals: listProposals(argusHome) }))
