@@ -869,7 +869,7 @@ describe('PrCompanionSection material', () => {
       )
       await screen.findAllByText(/review required/i)
       const root = container.firstElementChild
-      expect(root?.className, `dynamic=${dynamic}`).toMatch(/(^|\s)p-2\.5(\s|$)/)
+      expect(root?.className, `dynamic=${dynamic}`).toMatch(/(^|\s)px-2\.5(\s|$)/)
       expect(root?.className, `dynamic=${dynamic}`).toMatch(/(^|\s)rounded-r3(\s|$)/)
       expect(root?.classList.contains(dynamic ? 'glass-panel' : 'surface-card')).toBe(true)
       unmount()

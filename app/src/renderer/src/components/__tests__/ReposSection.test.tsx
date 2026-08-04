@@ -260,7 +260,7 @@ describe('ReposSection material', () => {
       const { container, unmount } = render(<ReposSection slug="C-1" mode="investigation" />)
       await screen.findByText('hivemindtest')
       const root = container.firstElementChild
-      expect(root?.className, `dynamic=${dynamic}`).toMatch(/(^|\s)p-2\.5(\s|$)/)
+      expect(root?.className, `dynamic=${dynamic}`).toMatch(/(^|\s)px-2\.5(\s|$)/)
       expect(root?.className, `dynamic=${dynamic}`).toMatch(/(^|\s)rounded-r3(\s|$)/)
       unmount()
     }

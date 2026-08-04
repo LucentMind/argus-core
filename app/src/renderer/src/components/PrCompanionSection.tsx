@@ -398,7 +398,10 @@ export function PrCompanionSection({
   return (
     <div
       // Both themes get a pane — see the note on ReposSection's own container.
-      className={`flex flex-col gap-2 rounded-r3 p-2.5 ${dynamic ? 'glass-panel' : 'surface-card'}`}
+      // Tight py-2/gap-1.5 rather than p-2.5/gap-2 (user-directed, 2026-08-04, matching
+      // JiraSection/ReposSection/CaseFiles): the rail's section headers were eating more
+      // vertical space than their content needed, across every card, not just one.
+      className={`flex flex-col gap-1.5 rounded-r3 px-2.5 py-2 ${dynamic ? 'glass-panel' : 'surface-card'}`}
       data-tier={status?.rollup === 'failing' ? 'p1' : undefined}
     >
       <SectionLabel>

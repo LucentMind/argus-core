@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { JiraAttachmentsDialog } from './JiraAttachmentsDialog'
-import { IconBtn } from './ui'
+import { IconBtn, SectionLabel } from './ui'
 import { uiStore } from '../lib/uiStore'
 import { jiraSyncLine, resultDecayMs, type JiraSyncPhase } from '../lib/jiraSyncState'
 import type { JiraRefreshSummary } from '../../../shared/jira'
@@ -100,14 +100,16 @@ export function JiraSection({
 
   return (
     <div
-      className={`flex flex-col gap-1.5 rounded-r3 p-2.5 ${dynamic ? 'glass-panel' : 'surface-card'}`}
+      className={`flex flex-col gap-1 rounded-r3 px-2.5 py-2 ${dynamic ? 'glass-panel' : 'surface-card'}`}
     >
-      {/* No section label, and no ticket id anywhere (user-directed, 2026-08-02). This panel is
-          the one place in the rail whose content names itself: the ticket's title says what it
-          is, so a heading over it — "Issue", "Jira ticket", or the id — only ever restated that.
-          Repos and Pull request keep their labels because a list of repo names does not.
-          The id survives as the accessible name of the button below, so the control still
-          announces *which* ticket it opens. */}
+      {/* Section label + ticket id, unlike Repos/Pull request's label-only header: this panel
+          used to skip the label entirely on the theory that the title said what it was, but
+          without "Jira" or the key anywhere the box read as an unlabeled title card, not
+          obviously part of the same rail family (user-directed, 2026-08-04). Tight py-2/gap-1
+          rather than the p-2.5/gap-1.5 the other rail sections use: this box has one row of
+          content beneath the header, so the extra breathing room those multi-row sections carry
+          just reads as dead space here. */}
+      <SectionLabel>Ticket · {jiraKey}</SectionLabel>
       <div className="flex items-center gap-1">
         {/* The whole box is the trigger, not the text inside it: the box is what lights up on
             hover, so anything less than the box is a click target that does not match its own

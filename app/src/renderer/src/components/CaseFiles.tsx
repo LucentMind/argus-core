@@ -373,8 +373,11 @@ export function CaseFiles({
   }
 
   return (
+    // Tight py-2/gap-1 rather than p-2.5/gap-1.5 (user-directed, 2026-08-04, matching
+    // JiraSection/ReposSection): the rail's section headers were eating more vertical space
+    // than their content needed, across every card, not just one.
     <section
-      className={`flex min-h-32 flex-1 flex-col gap-1.5 rounded-r3 p-2.5 ${dynamic ? 'glass-panel' : 'surface-card'}`}
+      className={`flex min-h-32 flex-1 flex-col gap-1 rounded-r3 px-2.5 py-2 ${dynamic ? 'glass-panel' : 'surface-card'}`}
     >
       <div className="flex items-center gap-2">
         <SectionLabel>{label}</SectionLabel>

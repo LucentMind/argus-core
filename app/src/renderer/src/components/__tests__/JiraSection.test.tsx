@@ -56,17 +56,12 @@ describe('JiraSection', () => {
     expect(screen.queryByRole('button', { name: 'Open in Jira' })).toBeNull()
   })
 
-  // Neither an id nor a heading is printed in this panel (user-directed, 2026-08-02): both only
-  // restated what the ticket's own title already says. The id survives as the accessible name,
-  // so the control still announces which ticket it opens.
-  it('prints no id and no heading, but still names the ticket for a screen reader', () => {
-    const { container } = render(
-      <JiraSection slug="nn-5187" jiraKey="NAVPOR-10068" title={TITLE} syncedAt={SYNCED_AT} />
-    )
-    expect(screen.queryByText('NAVPOR-10068')).toBeNull()
-    expect(screen.queryByText(/^(issue|jira ticket)$/i)).toBeNull()
-    // the panel is exactly the box and its refresh button — nothing above them
-    expect(container.firstElementChild?.childElementCount).toBe(1)
+  // A "Ticket" header carrying the id now sits above the box (user-directed, 2026-08-04): without
+  // it the panel had nothing naming it "Jira" and read as an unlabeled title card among the
+  // rail's other, labeled sections.
+  it('prints a Ticket header with the id, and still names the ticket for a screen reader', () => {
+    render(<JiraSection slug="nn-5187" jiraKey="NAVPOR-10068" title={TITLE} syncedAt={SYNCED_AT} />)
+    expect(screen.getByText('Ticket · NAVPOR-10068')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Open NAVPOR-10068 in Jira' })).toBeTruthy()
   })
 

@@ -124,8 +124,11 @@ export function ReposSection({
     // three unbounded sections stacked on it read as one undifferentiated column. `surface-card`
     // is the app's existing matte material (--bg-2 fill, hairline border) — the same one the
     // dashboard cards and the editor shell use — so this introduces no new material.
+    // Tight py-2/gap-1 rather than p-2.5/gap-1.5 (user-directed, 2026-08-04, matching
+    // JiraSection): the rail's section headers were eating more vertical space than their
+    // content needed, across every card, not just this one.
     <div
-      className={`flex flex-col gap-1.5 rounded-r3 p-2.5 ${dynamic ? 'glass-panel' : 'surface-card'}`}
+      className={`flex flex-col gap-1 rounded-r3 px-2.5 py-2 ${dynamic ? 'glass-panel' : 'surface-card'}`}
     >
       <div className="flex items-center justify-between">
         <SectionLabel>Repos</SectionLabel>
