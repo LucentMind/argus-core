@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink } from 'lucide-react'
 import { Btn, Chip } from '../ui'
-import type { PushReceipt } from '../../../../shared/hivemind'
+import type { PushReceipt, PushStatus } from '../../../../shared/hivemind'
 
 /**
  * Preview → PR-title → push flow for sharing one user-tier asset to the
  * HiveMind. Used inline under a pushable row (HivemindSettings) and under a
  * just-accepted proposal (ProposalsPage) — same IPC as the original Share tab.
+ *
+ * A share PR may already be open for this asset. `pushStatus` decides which of four views this
+ * renders: the normal flow, a blocked "already shared" (ours, unchanged), an "Update pull request"
+ * variant (ours, changed), or a hard block on a teammate's PR. Main re-derives the same status
+ * inside `push`, so this is presentation only — a stale value here cannot produce a duplicate PR.
  */
 export function SharePushDialog({
   kind,
@@ -25,6 +30,8 @@ export function SharePushDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [prUrl, setPrUrl] = useState<string | null>(null)
+  const [updated, setUpdated] = useState(false)
+  const [status, setStatus] = useState<PushStatus | null>(null)
   const [previewAttempt, setPreviewAttempt] = useState(0)
 
   useEffect(() => {
@@ -38,6 +45,19 @@ export function SharePushDialog({
     }
   }, [kind, name, previewAttempt])
 
+  useEffect(() => {
+    let mounted = true
+    // Promise.resolve wrapper + catch: a preload without `pushStatus` (an older window still open
+    // across an update) must degrade to the pre-existing share flow, not crash the dialog.
+    void Promise.resolve()
+      .then(() => window.argus.hivemind.pushStatus(kind, name))
+      .catch(() => ({ state: 'none' }) as PushStatus)
+      .then((s) => mounted && setStatus(s))
+    return () => {
+      mounted = false
+    }
+  }, [kind, name])
+
   // If the host unmounts the dialog mid-push anyway (e.g. tab switch), don't leave it gated.
   useEffect(() => () => onBusyChange?.(false), [onBusyChange])
 
@@ -48,8 +68,10 @@ export function SharePushDialog({
     setError(null)
     try {
       const r = await window.argus.hivemind.push(kind, name, title)
-      if (r.ok) setPrUrl(r.prUrl)
-      else setError(r.error)
+      if (r.ok) {
+        setPrUrl(r.prUrl)
+        setUpdated(r.updated)
+      } else setError(r.error)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -58,12 +80,13 @@ export function SharePushDialog({
     }
   }
 
-  if (prUrl) {
+  /** Terminal view: a PR exists and there is nothing left to do here. */
+  function prResult(label: string, url: string): React.JSX.Element {
     return (
       <div className="flex items-center gap-2 px-4 py-3 text-sm">
-        <Chip tone="signal">PR opened</Chip>
-        <Btn variant="ghost" onClick={() => void window.argus.openExternal(prUrl)}>
-          {prUrl}
+        <Chip tone="signal">{label}</Chip>
+        <Btn variant="ghost" onClick={() => void window.argus.openExternal(url)}>
+          {url}
         </Btn>
         <Btn variant="outline" onClick={onClose}>
           Done
@@ -71,6 +94,32 @@ export function SharePushDialog({
       </div>
     )
   }
+
+  if (prUrl) return prResult(updated ? 'PR updated' : 'PR opened', prUrl)
+  if (status?.state === 'open-mine' && !status.changed)
+    return prResult('Already shared', status.prUrl)
+
+  if (status?.state === 'open-teammate') {
+    return (
+      <div className="flex flex-col gap-2 px-4 py-3 text-sm">
+        <div className="flex items-center gap-2">
+          <Chip tone="signal">Already open</Chip>
+          <Btn variant="ghost" onClick={() => void window.argus.openExternal(status.prUrl)}>
+            {status.prUrl}
+          </Btn>
+          <Btn variant="outline" onClick={onClose}>
+            Done
+          </Btn>
+        </div>
+        <p className="text-xs text-dim">
+          {status.prAuthor} already has this open. Pushing to someone else&apos;s branch is not
+          Argus&apos;s call — review or merge that pull request first.
+        </p>
+      </div>
+    )
+  }
+
+  const reusing = status?.state === 'open-mine' && status.changed
 
   return (
     <div className="flex flex-col gap-2 px-4 py-3">
@@ -81,6 +130,12 @@ export function SharePushDialog({
         >
           {error}
         </div>
+      )}
+      {status?.state === 'none' && status.warning && (
+        <p className="text-xs text-dim">
+          could not check for an existing pull request ({status.warning}) — sharing anyway may
+          create a duplicate.
+        </p>
       )}
       <div className="flex items-center gap-2">
         <span className="text-xs text-dim">PR title</span>
@@ -105,7 +160,13 @@ export function SharePushDialog({
           disabled={busy || preview === null || !title.trim()}
           onClick={() => void doPush()}
         >
-          {busy ? 'Pushing…' : 'Open pull request'}
+          {busy
+            ? reusing
+              ? 'Updating…'
+              : 'Pushing…'
+            : reusing
+              ? 'Update pull request'
+              : 'Open pull request'}
         </Btn>
         {preview === null && error !== null && (
           <Btn
