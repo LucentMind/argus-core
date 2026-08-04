@@ -133,7 +133,7 @@ export function SharePushDialog({
       )}
       {status?.state === 'none' && status.warning && (
         <p className="text-xs text-dim">
-          could not check for an existing pull request ({status.warning}) — sharing anyway may
+          Could not check for an existing pull request ({status.warning}) — sharing anyway may
           create a duplicate.
         </p>
       )}

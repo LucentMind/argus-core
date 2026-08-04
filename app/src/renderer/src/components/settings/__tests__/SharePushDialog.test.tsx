@@ -122,7 +122,7 @@ describe('SharePushDialog', () => {
     render(<SharePushDialog kind="skill" name="my-skill" onClose={vi.fn()} />)
     await screen.findByText('PREVIEW BODY')
     expect(screen.getByRole('button', { name: 'Open pull request' })).toBeEnabled()
-    expect(screen.getByText(/could not check for an existing pull request/)).toBeInTheDocument()
+    expect(screen.getByText(/could not check for an existing pull request/i)).toBeInTheDocument()
   })
 
   it('a preload with no pushStatus (older window) still shares normally', async () => {
