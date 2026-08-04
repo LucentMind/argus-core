@@ -9,6 +9,7 @@ import { z } from './zodConfig'
  */
 export type {
   CorpusAdminConfig,
+  CorpusDefectRecord,
   CorpusInfo,
   CorpusJqlPreview,
   CorpusSearchInput,

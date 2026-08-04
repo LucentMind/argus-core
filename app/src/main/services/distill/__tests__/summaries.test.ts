@@ -10,7 +10,6 @@ import {
   upsertCaseSummary,
   getCaseSummary,
   searchCaseSummaries,
-  similarCases,
   renderSummaryMarkdown
 } from '../summaries'
 
@@ -55,13 +54,6 @@ describe('case summaries', () => {
     expect(searchCaseSummaries(db, 'DLT drift')[0].caseSlug).toBe('old-case')
     expect(searchCaseSummaries(db, 'DLT drift', { excludeSlug: 'old-case' })).toEqual([])
     expect(searchCaseSummaries(db, '"""')).toEqual([]) // syntax garbage → []
-  })
-
-  it('similarCases queries by the new case title, excluding itself', () => {
-    upsertCaseSummary(db, home, 'old-case', SUM, 'solved', '# s')
-    const hits = similarCases(db, 'new-case')
-    expect(hits).toHaveLength(1)
-    expect(hits[0]).toMatchObject({ caseSlug: 'old-case', resolution: 'solved' })
   })
 
   it('tolerates punctuation that would otherwise be raw FTS5 syntax', () => {

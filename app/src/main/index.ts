@@ -30,6 +30,8 @@ import { exportEvalBundle } from './services/distill/evalExport'
 import { DefectCorpusService } from './services/defectCorpus/service'
 import type { CorpusAdminConfig, CorpusSearchInput } from './services/defectCorpus/client'
 import { corpusTokenSecret } from '../shared/defectCorpus'
+import { RelatedHistoryService } from './services/relatedHistory'
+import type { RelatedSearchInput } from '../shared/relatedHistory'
 import { pushScaleIfChanged, pushThemeIfChanged, type TitleBarTheme } from './services/titleBar'
 import { mainWindowOptions } from './services/windowOptions'
 import {
@@ -247,7 +249,7 @@ import { DistillQueue, reconcileAndEnqueue } from './services/distill/queue'
 import { assembleDistillInput } from './services/distill/input'
 import { runCaseDistill } from './services/distill/caseDistiller'
 import { stageDistillOutput } from './services/distill/staging'
-import { similarCases, searchCaseSummaries } from './services/distill/summaries'
+import { searchCaseSummaries } from './services/distill/summaries'
 import { caseDistillPromptHash } from './services/distill/promptHash'
 import { RcaJobs } from './services/rca/jobs'
 import { postRcaReport } from './services/rca/post'
@@ -1938,7 +1940,6 @@ function registerIpc(): void {
     reconcileAndEnqueue(distillQueue, slug)
   )
   ipcMain.handle(IPC.distillCancel, (_e, jobId: number) => distillQueue.cancel(jobId))
-  ipcMain.handle(IPC.distillSimilar, (_e, slug: string) => similarCases(db, slug))
 
   // — defect corpus —
   ipcMain.handle(IPC.defectsSearch, (_e, req: CorpusSearchInput) => defectCorpus.searchAll(req))
@@ -1951,6 +1952,13 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC.defectsJqlPreview, (_e, id: string, jql: string) =>
     defectCorpus.jqlPreview(id, jql)
+  )
+
+  // — unified related history —
+  const relatedHistory = new RelatedHistoryService({ db, defectCorpus })
+  ipcMain.handle(IPC.relatedSearch, (_e, input: RelatedSearchInput) => relatedHistory.search(input))
+  ipcMain.handle(IPC.relatedDefect, (_e, sourceId: string, key: string) =>
+    defectCorpus.getDefect(sourceId, key)
   )
 
   // — case RCA reports (part 3a-N) —

@@ -7,7 +7,6 @@ import type {
   SummarySearchHit
 } from '../../../shared/distill'
 import { caseDir } from '../paths'
-import { getCase } from '../caseService'
 
 export function renderSummaryMarkdown(
   s: CaseDistillSummary,
@@ -138,14 +137,6 @@ export function searchCaseSummaries(
   } catch {
     return []
   }
-}
-
-export function similarCases(db: DatabaseSync, caseSlug: string): SummarySearchHit[] {
-  const c = getCase(db, caseSlug)
-  if (!c) return []
-  const query = [c.title, c.jiraKey].filter(Boolean).join(' ')
-  if (!query.trim()) return []
-  return searchCaseSummaries(db, query, { limit: 3, excludeSlug: caseSlug })
 }
 
 /** One quoted phrase-prefix term. Same escaping rule as buildPrefixMatchQuery:

@@ -92,7 +92,6 @@ beforeEach(() => {
       status: vi.fn(async () => null),
       retry: vi.fn(),
       redistill: vi.fn(),
-      similar: vi.fn(async () => []),
       onChanged: vi.fn(() => () => undefined)
     },
     findings: { list: vi.fn(async () => []), review: vi.fn() },

@@ -6,6 +6,7 @@ import {
   CorpusError,
   DefectCorpusClient,
   type CorpusAdminConfig,
+  type CorpusDefectRecord,
   type CorpusInfo,
   type CorpusJqlPreview,
   type CorpusSearchHit,
@@ -161,6 +162,18 @@ export class DefectCorpusService {
   /** Preview how many/which tickets a JQL string would match, without running a sync. */
   jqlPreview(id: string, jql: string): Promise<CorpusAdminResult<CorpusJqlPreview>> {
     return this.adminCall(id, (client) => client.adminJqlPreview(jql))
+  }
+
+  /**
+   * Full record for one defect key. This is a query-tier endpoint (any user can open a defect
+   * detail view), NOT an admin-tier one — `adminCall` is reused here only for its
+   * resolve-and-carry-the-error-code envelope shape, not to assert an admin requirement. One
+   * consequence of that reuse: this inherits `adminCall`'s 30s timeout budget rather than the 5s
+   * case-open budget. That is intentional, not an oversight — `related.defect` is only ever
+   * reached from a user click in a later increment, never from the case-open path.
+   */
+  getDefect(id: string, key: string): Promise<CorpusAdminResult<CorpusDefectRecord>> {
+    return this.adminCall(id, (client) => client.getDefect(key))
   }
 
   /** Shared shape for the admin passthroughs above: resolve, call, and carry the CorpusError code. */
