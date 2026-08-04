@@ -103,6 +103,31 @@ describe('buildRelatedQuery', () => {
     expect(q.terms[0].source).toBe('title')
   })
 
+  it('keeps the higher-priority source when the same token arrives from two different sources', () => {
+    createCase(db, home, { slug: 'c6', title: 'Something else' })
+    const id = getCase(db, 'c6')!.id
+    upsertCaseSummary(
+      db,
+      home,
+      'c6',
+      {
+        signature: 'ECU reset drifts DLT',
+        symptoms: 's',
+        rootCause: 'r',
+        fix: 'f',
+        keywords: []
+      },
+      'solved',
+      'md'
+    )
+    addFinding(id, 'RESET happened again')
+    const q = buildRelatedQuery(db, 'c6')
+    const resetTerms = q.terms.filter((t) => t.text.toLowerCase() === 'reset')
+    expect(resetTerms).toHaveLength(1)
+    expect(resetTerms[0].source).toBe('signature')
+    expect(resetTerms[0].text).toBe('reset')
+  })
+
   it('returns an empty query for an unknown slug', () => {
     expect(buildRelatedQuery(db, 'nope')).toEqual({ text: '', terms: [] })
   })
