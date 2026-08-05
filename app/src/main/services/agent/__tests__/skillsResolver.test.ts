@@ -10,7 +10,8 @@ import {
   writeUserSkill,
   forkSkill,
   userSkillShadowDiverged,
-  frontmatterDescriptionAndAuthor
+  frontmatterDescriptionAndAuthor,
+  isBundledSkillName
 } from '../skillsResolver'
 import { contentHash } from '../../contentHash'
 import { caseDir } from '../../paths'
@@ -299,6 +300,27 @@ describe('writeUserSkill', () => {
   })
 })
 
+describe('isBundledSkillName', () => {
+  it('is false when a hivemind copy shadows the bundled name — hivemind wins precedence', () => {
+    // "analyze-applog" exists in both skills/ (bundled) and skills-hivemind/, no user copy.
+    addSkill(path.join(argusHome, 'skills-hivemind'), 'analyze-applog', 'hive applog')
+    expect(isBundledSkillName(argusHome, 'analyze-applog')).toBe(false)
+    // resolveSkills agrees: hivemind is the winning tier for this name.
+    const resolved = resolveSkills(argusHome, defaultAgentAccess()).find(
+      (s) => s.name === 'analyze-applog'
+    )
+    expect(resolved?.tier).toBe('hivemind')
+  })
+
+  it('is true for a bundled name with no user or hivemind copy', () => {
+    expect(isBundledSkillName(argusHome, 'analyze-applog')).toBe(true)
+  })
+
+  it('is false for a name that is not bundled at all', () => {
+    expect(isBundledSkillName(argusHome, 'no-such-skill')).toBe(false)
+  })
+})
+
 describe('forkSkill', () => {
   it('refuses to fork a bundled (pack/core) skill', () => {
     expect(() => forkSkill(argusHome, 'analyze-applog', undefined, null)).toThrow(
@@ -359,6 +381,23 @@ describe('forkSkill', () => {
   it('refuses when the target name already exists in the user tier', () => {
     addSkill(path.join(argusHome, 'skills-hivemind'), 'hive-widget', 'hive widget')
     expect(() => forkSkill(argusHome, 'hive-widget', 'rca', null)).toThrow(/already/i)
+  })
+
+  it('refuses a rename that would shadow a bundled skill name, even though the source is hivemind', () => {
+    addSkill(path.join(argusHome, 'skills-hivemind'), 'hive-widget', 'hive widget')
+    const bundledBefore = fs.readFileSync(
+      path.join(argusHome, 'skills', 'analyze-applog', 'SKILL.md'),
+      'utf8'
+    )
+    expect(() => forkSkill(argusHome, 'hive-widget', 'analyze-applog', null)).toThrow(
+      /ships with a pack/i
+    )
+    // the bundled skill itself must be untouched...
+    expect(
+      fs.readFileSync(path.join(argusHome, 'skills', 'analyze-applog', 'SKILL.md'), 'utf8')
+    ).toBe(bundledBefore)
+    // ...and nothing must land under that name in skills-user.
+    expect(fs.existsSync(path.join(argusHome, 'skills-user', 'analyze-applog'))).toBe(false)
   })
 
   it('refuses to fork a skill that already resolves at the user tier', () => {

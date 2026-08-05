@@ -634,7 +634,7 @@ describe('editing affordances', () => {
     await userEvent.click(await screen.findByText('analyze-applog'))
     await screen.findByRole('dialog', { name: /skill · analyze-applog/i })
     expect(screen.queryByRole('button', { name: /edit a copy/i })).toBeNull()
-    expect(screen.getByText(/read-only — ships with a pack/i)).toBeInTheDocument()
+    expect(screen.getByText(/read-only — ships with an installed pack/i)).toBeInTheDocument()
   })
 
   it('still offers Edit a copy inside the viewer for a hivemind skill', async () => {

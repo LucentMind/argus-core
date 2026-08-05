@@ -466,11 +466,26 @@ describe('locked proposals', () => {
     expect(listProposals(home)[0].locked).toBeFalsy()
   })
 
-  it('marks a reference-edit against a hivemind or confluence reference as locked too', () => {
+  it('marks a reference-edit against a hivemind reference as locked too', () => {
     fs.mkdirSync(path.join(home, 'references'), { recursive: true })
     fs.writeFileSync(
       path.join(home, 'references', 'topic.md'),
       '---\ntrust_tier: hivemind\n---\n\nbody\n'
+    )
+    writeProposal(home, 'NAV-100', {
+      type: 'reference-edit',
+      target: 'topic',
+      title: 't',
+      content: 'rewritten\n'
+    })
+    expect(listProposals(home)[0].locked).toBe(true)
+  })
+
+  it('marks a reference-edit against a confluence reference as locked too', () => {
+    fs.mkdirSync(path.join(home, 'references'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'references', 'topic.md'),
+      '---\ntrust_tier: confluence\n---\n\nbody\n'
     )
     writeProposal(home, 'NAV-100', {
       type: 'reference-edit',

@@ -15,10 +15,10 @@ export interface ReadOnlyNoticeProps {
 /**
  * Spec §6.2: a protected asset opens read-only, with a prominent way out **where one exists**.
  *
- * The way out is the point. Without it this is a dead end — and for skills it replaces a flatly
- * false error: `readSkill` returns the tier-winning copy while `writeUserSkill` always writes to
- * `skills-user`, so saving a bundled skill today fails with `"x" changed on disk since you
- * opened it` when nothing changed on disk at all.
+ * The way out is the point. Without it this is a dead end — and for a bundled skill, typing into
+ * a buffer that can never be saved: `writeUserSkill` and `forkSkill` (agent/skillsResolver.ts)
+ * both refuse a bundled name outright, throwing `bundledSkillError`'s clear "ships with a pack
+ * (or Argus core)" message rather than a misleading disk-conflict error.
  *
  * But *Edit a copy* is only offered when the button leads somewhere — see {@link canEditCopy}.
  * A `confluence` or `bundled` reference has no claim path (`hivemind.ts:568` refuses everything

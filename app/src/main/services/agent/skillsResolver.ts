@@ -94,7 +94,10 @@ export function frontmatterDescriptionAndAuthor(skillDir: string): {
  *  hivemind copy shadows it. Cheap existence check, not a full `resolveSkills` scan (the same
  *  discipline `proposalCounts` documents: this runs on every write attempt, not just once). */
 export function isBundledSkillName(argusHome: string, name: string): boolean {
-  return fs.existsSync(path.join(sharedSkillsDir(argusHome), name, 'SKILL.md'))
+  if (!fs.existsSync(path.join(sharedSkillsDir(argusHome), name, 'SKILL.md'))) return false
+  if (fs.existsSync(path.join(userSkillsDir(argusHome), name, 'SKILL.md'))) return false
+  if (fs.existsSync(path.join(hivemindSkillsDir(argusHome), name, 'SKILL.md'))) return false
+  return true
 }
 
 /** Message shared by every write path that refuses to newly shadow a bundled (pack/core)
@@ -292,6 +295,10 @@ export function writeUserSkill(
  *
  * Copies the whole directory, not just SKILL.md: hivemind push already round-trips multi-file
  * skill dirs, so dropping sibling files here would lose content on a fork.
+ *
+ * Refuses a bundled SOURCE (`name` resolves to the `bundled` tier) and refuses a bundled
+ * DESTINATION (`target`/`newName` names an existing bundled skill) — both throw
+ * `bundledSkillError`, so a rename can't silently shadow a pack/core skill either.
  */
 export function forkSkill(
   argusHome: string,
@@ -306,6 +313,7 @@ export function forkSkill(
   if (!winner) throw new Error(`No such skill: ${name}`)
   if (winner.tier === 'user') throw new Error(`"${name}" is already yours.`)
   if (winner.tier === 'bundled') throw bundledSkillError(name)
+  if (isBundledSkillName(argusHome, target)) throw bundledSkillError(target)
   const dest = path.join(userSkillsDir(argusHome), target)
   if (fs.existsSync(dest)) throw new Error(`"${target}" already exists in your skills.`)
   fs.cpSync(winner.dir, dest, { recursive: true })

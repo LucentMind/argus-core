@@ -266,12 +266,10 @@ export function EditorApp(): React.JSX.Element {
    */
   const [actionSlot, setActionSlot] = useState<HTMLElement | null>(null)
   const tierOf = useAssetTiers()
-  // Only a skill fork needs a name-entry dialog (a claim keeps its name) — `tier` here is the
-  // skill triple `ForkSkillDialog` expects, and a read-only skill is never `user` (assetEditable.ts).
+  // Only a skill fork needs a name-entry dialog (a claim keeps its name).
   const [forking, setForking] = useState<{
     id: string
     name: string
-    tier: 'bundled' | 'hivemind'
   } | null>(null)
 
   // Read across the async confirm in the close handler so the answer reflects the tab set now,
@@ -561,39 +559,35 @@ export function EditorApp(): React.JSX.Element {
    * as a bare unhandled rejection: this used to sit in a `catch`-less `void (async () => …)()`,
    * and a claim that main refused looked exactly like a button that did nothing.
    */
-  const editCopy = useCallback(
-    (id: string, kind: AuthoringKind, name: string): void => {
-      if (kind === 'skill') {
-        const tier = tierOf(kind, name)
-        setForking({ id, name, tier: tier === 'bundled' ? 'bundled' : 'hivemind' })
+  const editCopy = useCallback((id: string, kind: AuthoringKind, name: string): void => {
+    if (kind === 'skill') {
+      setForking({ id, name })
+      return
+    }
+    void (async () => {
+      const ok = await confirm({
+        title: `Make "${name}" yours?`,
+        message:
+          'It is restamped as your own reference and becomes shareable. Updates no longer track HiveMind.',
+        confirmLabel: 'Claim'
+      })
+      if (!ok) return
+      try {
+        await window.argus.hivemind.claimReference(name)
+      } catch (e) {
+        await alert({
+          title: `Could not make "${name}" yours.`,
+          message: e instanceof Error ? e.message : String(e)
+        })
         return
       }
-      void (async () => {
-        const ok = await confirm({
-          title: `Make "${name}" yours?`,
-          message:
-            'It is restamped as your own reference and becomes shareable. Updates no longer track HiveMind.',
-          confirmLabel: 'Claim'
-        })
-        if (!ok) return
-        try {
-          await window.argus.hivemind.claimReference(name)
-        } catch (e) {
-          await alert({
-            title: `Could not make "${name}" yours.`,
-            message: e instanceof Error ? e.message : String(e)
-          })
-          return
-        }
-        // Same name, new tier. Still a replaceTab: the fresh tab id re-resolves the asset, and
-        // the tier map it reads may still be the pre-claim one — `readOnly` is reconfigured
-        // through a Compartment when `refsync:changed` lands, so a stale read self-corrects
-        // instead of stranding the pane read-only (see CodeSurface's `readOnly` prop).
-        setState((s) => replaceTab(s, id, { kind: 'reference', name, mode: 'edit' }))
-      })()
-    },
-    [tierOf]
-  )
+      // Same name, new tier. Still a replaceTab: the fresh tab id re-resolves the asset, and
+      // the tier map it reads may still be the pre-claim one — `readOnly` is reconfigured
+      // through a Compartment when `refsync:changed` lands, so a stale read self-corrects
+      // instead of stranding the pane read-only (see CodeSurface's `readOnly` prop).
+      setState((s) => replaceTab(s, id, { kind: 'reference', name, mode: 'edit' }))
+    })()
+  }, [])
 
   useEffect(
     () =>
@@ -726,7 +720,6 @@ export function EditorApp(): React.JSX.Element {
         {forking && (
           <ForkSkillDialog
             sourceName={forking.name}
-            tier={forking.tier}
             onCancel={() => setForking(null)}
             onConfirm={async (newName) => {
               // This is the fork flow's error handling — deliberately a rejection rather than a

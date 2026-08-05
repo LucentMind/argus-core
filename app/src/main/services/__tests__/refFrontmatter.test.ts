@@ -5,6 +5,8 @@ import {
   parseRefSources,
   refBody,
   stampRefFile,
+  isHandOwnedReferenceTier,
+  assertHandOwnedReferenceTier,
   type RefSource
 } from '../refSync/refFrontmatter'
 
@@ -53,8 +55,6 @@ describe('reading foreign files', () => {
     expect(refBody('no frontmatter')).toBe('no frontmatter')
   })
 })
-
-import { isHandOwnedReferenceTier, assertHandOwnedReferenceTier } from '../refSync/refFrontmatter'
 
 describe('isHandOwnedReferenceTier', () => {
   it('is true for user, team-knowledge, and untagged (null)', () => {

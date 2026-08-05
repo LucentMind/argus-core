@@ -12,7 +12,12 @@ import { withByline } from './byline'
 import { accessStore } from '../../lib/accessStore'
 import { confirm } from '../../lib/confirmStore'
 import { useRefSyncPayload } from '../../lib/referenceSyncStore'
-import { PUSHABLE_TIERS, HIVE_MANAGED_TIERS, TIER_LABELS } from '../../../../shared/trustTiers'
+import {
+  PUSHABLE_TIERS,
+  HIVE_MANAGED_TIERS,
+  TIER_LABELS,
+  TIER_EXPLANATIONS
+} from '../../../../shared/trustTiers'
 import type { TrustTier } from '../../../../shared/trustTiers'
 import type { SkillListItem } from '../../../../shared/memoryIpc'
 import type { ReferenceStatus } from '../../../../shared/referenceSync'
@@ -678,10 +683,7 @@ export function LibraryPage({
                     Edit a copy
                   </Btn>
                 ) : s && s.tier === 'bundled' ? (
-                  <span className="text-xs text-dim">
-                    Read-only — ships with a pack. Update it by contributing to the pack or to Argus
-                    core.
-                  </span>
+                  <span className="text-xs text-dim">Read-only — {TIER_EXPLANATIONS.bundled}</span>
                 ) : undefined
               }
             />
@@ -690,7 +692,6 @@ export function LibraryPage({
       {forking && (
         <ForkSkillDialog
           sourceName={forking.name}
-          tier={forking.tier}
           onCancel={() => setForking(null)}
           onConfirm={(newName) => doFork(forking, newName)}
         />

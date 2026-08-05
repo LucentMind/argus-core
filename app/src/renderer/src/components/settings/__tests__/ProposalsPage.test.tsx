@@ -212,8 +212,7 @@ describe('ProposalsPage', () => {
 
   it('accepting a skill proposal offers Share to HiveMind', async () => {
     render(<ProposalsPage />)
-    const acceptButtons = await screen.findAllByRole('button', { name: /^Accept / })
-    fireEvent.click(acceptButtons[1])
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept Sharpen step 4' }))
     expect(await screen.findByText(/accepted into your library/i)).toBeInTheDocument()
     // label-in-name: the accessible name must contain the visible text "Share to HiveMind"
     expect(screen.getByRole('button', { name: /^Share to HiveMind: / })).toBeInTheDocument()
@@ -228,8 +227,7 @@ describe('ProposalsPage', () => {
     })
     const onOpenHivemind = vi.fn()
     render(<ProposalsPage onOpenHivemind={onOpenHivemind} />)
-    const acceptButtons = await screen.findAllByRole('button', { name: /^Accept / })
-    fireEvent.click(acceptButtons[1])
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept Sharpen step 4' }))
     const link = await screen.findByRole('button', { name: 'Set up HiveMind to share →' })
     fireEvent.click(link)
     expect(onOpenHivemind).toHaveBeenCalledTimes(1)

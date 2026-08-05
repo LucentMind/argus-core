@@ -13,15 +13,17 @@ import { ASSET_NAME_RE } from '../../../../shared/assetValidation'
  * change it before the copy is made. Validation and the fork call both happen here so a
  * rejected name (illegal, or a collision `forkSkill` refuses) surfaces inline and the dialog
  * stays open for another try, instead of dumping the user back on the page with a banner.
+ *
+ * No `tier` prop: `forkSkill` (agent/skillsResolver.ts) refuses a `bundled` source outright and
+ * a `user` source is already yours, so both callers (`LibraryPage`, `EditorApp`) only ever open
+ * this dialog for a hivemind-tier skill — there is nothing left to branch the copy text on.
  */
 export function ForkSkillDialog({
   sourceName,
-  tier,
   onCancel,
   onConfirm
 }: {
   sourceName: string
-  tier: 'bundled' | 'user' | 'hivemind'
   onCancel: () => void
   /** Forks the skill under `newName`. Rejects with the error to show inline. */
   onConfirm: (newName: string) => Promise<void>
@@ -52,9 +54,8 @@ export function ForkSkillDialog({
     <ModalShell title={title} ariaLabel={title} onClose={onCancel} className="w-96">
       <div className="flex flex-col gap-3 p-4">
         <p className="text-xs leading-relaxed text-dim">
-          {tier === 'hivemind'
-            ? 'A copy lands in your skills and overrides the HiveMind version. "Adopt upstream" undoes it.'
-            : 'A copy lands in your skills and overrides the bundled version. Deleting it restores the pack copy.'}
+          A copy lands in your skills and overrides the HiveMind version. &quot;Adopt upstream&quot;
+          undoes it.
         </p>
         <label className="flex flex-col gap-1 text-xs text-dim">
           Name
