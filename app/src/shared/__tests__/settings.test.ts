@@ -12,6 +12,7 @@ describe('settings schema', () => {
     const s = settingsSchema.parse({})
     expect(s.general.timestampFormat).toBe('locale')
     expect(s.general.confirmCaseDelete).toBe(true)
+    expect(s.general.similarPastCasesEnabled).toBe(false)
     expect(s.agent.activeInstanceId).toBe('claude-default')
     expect(s.agent.maxSessions).toBe(3)
     expect(s.agent.probeTimeoutMs).toBe(10000)

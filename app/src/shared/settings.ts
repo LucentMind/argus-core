@@ -40,7 +40,12 @@ const generalSchema = z.looseObject({
   defaultRepo: z.string().nullable().default(null),
   /** Repos auto-linked to every new case. Empty equals its default, so an emptied list is
    *  stripped from disk and reseeds as `[]` on reload — which is the correct end state. */
-  defaultRepos: z.array(z.string()).default([])
+  defaultRepos: z.array(z.string()).default([]),
+  /** Gates RelatedHistoryService's local case-history provider (this install's own past
+   *  cases). Off by default; a live global setting, not snapshotted per case — flipping it
+   *  takes effect on the very next search, for every case. Corpus providers and the
+   *  search_case_history agent tool are unaffected (design decision, 2026-08-05 spec). */
+  similarPastCasesEnabled: z.boolean().default(false)
 })
 
 /** Per-instance model list customization (favorite/hide/reorder). All three lists default empty. */
