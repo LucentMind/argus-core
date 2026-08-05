@@ -186,7 +186,7 @@ function normalizeQuestions(input: Record<string, unknown>): Array<{
  *  under ~/.claude/ with the Write tool, which Argus cannot see). Naming write_memory here is
  *  the positive instruction; disabling that competing feature is handled per-driver. */
 export const MEMORY_HEADER =
-  '## Agent memory\nLessons carried across cases, stored by Argus itself. Load a topic with the read_memory tool when its index line is relevant to this case, and record a durable new lesson with the write_memory tool. This is the only memory store Argus can see: memory files are not reachable through filesystem tools, and notes written anywhere else are lost.'
+  '## Agent memory\nFacts carried across cases, stored by Argus itself. Load a topic with the read_memory tool when its index line is relevant to this case. Memory is PERSONAL: this user\'s standing preferences, this machine\'s setup, and corrections of things you got wrong. Record one with the write_memory tool, which REQUIRES a scope of preference | environment | correction and REPLACES the whole topic body (read it first). Knowledge a teammate would also want is not memory — propose a reference with write_proposal(type:"reference-edit"); detail about this case is not memory — it belongs in the case. This is the only memory store Argus can see: memory files are not reachable through filesystem tools, and notes written anywhere else are lost.'
 
 /**
  * Which layer agents a session registers. Split out as a pure function so the mode/capability

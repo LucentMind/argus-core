@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../../db'
 import { createCase, getCase } from '../../caseService'
-import { CaseSession } from '../session'
+import { CaseSession, MEMORY_HEADER } from '../session'
 import { createClaudeDriver, isAuthFailure, type CreateQueryFn } from '../drivers/claude'
 import { createSession } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
@@ -868,6 +868,12 @@ describe('CaseSession', () => {
     expect(sys.append).toContain('## Agent memory')
     expect(sys.append).toContain('write_memory')
     await s.stop('stopped')
+  })
+
+  it('the memory header keeps its load-bearing claim and adds the personal-only rule', () => {
+    expect(MEMORY_HEADER).toMatch(/only memory store Argus can see/)
+    expect(MEMORY_HEADER).toMatch(/preference \| environment \| correction/)
+    expect(MEMORY_HEADER).toMatch(/reference-edit/)
   })
 
   it('appends a non-empty skill index to the system prompt', async () => {

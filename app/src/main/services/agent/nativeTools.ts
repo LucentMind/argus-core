@@ -842,7 +842,7 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'write_memory',
     description:
-      'Record a durable cross-case lesson in agent memory (memory/<topic>.md). Provide index_entry when creating a topic so future sessions can discover it via _index.md. index_entry is the description ONLY — do not repeat the topic name in it, the index line already links it.',
+      'Record a PERSONAL fact in agent memory (memory/<topic>.md): this user\'s standing preferences, this machine\'s setup, or a correction of something you got wrong. Memory is NOT for knowledge a teammate would also want — that is a reference: use write_proposal(type:"reference-edit"), which CREATES the reference if it does not exist. It is NOT for detail about this case — use append_finding. scope is REQUIRED, one of preference | environment | correction: preference is a standing taste in how work is done, environment is a fact about this machine or setup, correction is you got this wrong — do it this way next time. content REPLACES the whole topic body: call read_memory first and hand back the merged text, never just the new part. Keep a topic under ~500 words (4096 bytes) — a body that needs more is not personal. Provide index_entry when creating a topic so future sessions can discover it via _index.md. index_entry is the description ONLY — do not repeat the topic name in it, the index line already links it.',
     schema: {
       topic: z.string(),
       content: z.string(),
@@ -853,7 +853,7 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'write_proposal',
     description:
-      'Draft a contribute-back proposal (new/edited skill, reference edit, or recipe) as an inert file the user reviews on the Settings → Proposals page. Provide the FULL proposed file content, not a diff.',
+      'Draft a contribute-back proposal (new/edited skill, reference edit, or recipe) as an inert file the user reviews on the Settings → Proposals page. reference-edit CREATES the reference when the target does not exist — it is how durable knowledge a teammate would want gets written down; it is not edit-only. Provide the FULL proposed file content, not a diff.',
     schema: {
       type: z.enum(['skill-new', 'skill-edit', 'reference-edit', 'recipe']),
       target: z.string(),

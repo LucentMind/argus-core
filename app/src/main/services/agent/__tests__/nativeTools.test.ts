@@ -199,6 +199,17 @@ describe('argus native tools', () => {
     expect((spec.schema.scope as z.ZodEnum<never>).options).toEqual([...MEMORY_SCOPES])
   })
 
+  it('the memory-facing descriptions state the personal-only rule and both redirects', () => {
+    const wm = NATIVE_TOOL_SPECS.find((s) => s.name === 'write_memory')!.description
+    expect(wm).toMatch(/preference \| environment \| correction/)
+    expect(wm).toMatch(/read_memory/) // replace semantics: read first, hand back the whole body
+    expect(wm).toMatch(/reference-edit/)
+    expect(wm).toMatch(/append_finding/)
+
+    const wp = NATIVE_TOOL_SPECS.find((s) => s.name === 'write_proposal')!.description
+    expect(wp).toMatch(/CREATES/) // reference-edit creates a reference that does not exist yet
+  })
+
   it('list_evidence shows a review session only artifacts', async () => {
     const src2 = path.join(tmp, 'ci-5.log')
     fs.writeFileSync(src2, 'log body\n')

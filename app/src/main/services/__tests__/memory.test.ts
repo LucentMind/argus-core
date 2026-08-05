@@ -539,5 +539,12 @@ describe('the per-topic byte cap', () => {
         scope: 'preference'
       })
     ).toThrow(/reference-edit/)
+    expect(() =>
+      applyMemoryWrite(argusHome, 'NAV-1', {
+        topic: 'huge',
+        content: 'y'.repeat(MEMORY_TOPIC_MAX_BYTES + 100),
+        scope: 'preference'
+      })
+    ).toThrow(/append_finding/)
   })
 })
