@@ -17,6 +17,7 @@ export class SettingsService {
   private error: string | null = null
   private listeners = new Set<() => void>()
   private unwatch: () => void
+  private argusHomeFromEnv: boolean
 
   constructor(
     private argusHome: string,
@@ -24,10 +25,12 @@ export class SettingsService {
       argusHomeFromEnv?: boolean
       resolvedTools?: () => ResolvedToolRow[]
       devTools?: boolean
-    } = {
-      argusHomeFromEnv: process.env.ARGUS_HOME != null
-    }
+    } = {}
   ) {
+    // Defaulted per-key, not as a default for the whole `opts` object: the production call site
+    // passes an explicit object (without this key), so an object-level default never applied and
+    // the Settings UI reported fromEnv: false even under ARGUS_HOME.
+    this.argusHomeFromEnv = opts.argusHomeFromEnv ?? process.env.ARGUS_HOME != null
     this.store = new JsonFileStore(settingsPath(argusHome))
     this.settings = this.loadNow()
     this.unwatch = this.store.watch(() => {
@@ -76,7 +79,7 @@ export class SettingsService {
     return {
       settings: this.settings,
       resolvedTools: this.opts.resolvedTools?.() ?? [],
-      dataRoot: { path: this.argusHome, fromEnv: Boolean(this.opts.argusHomeFromEnv) },
+      dataRoot: { path: this.argusHome, fromEnv: this.argusHomeFromEnv },
       loadError: this.error,
       devTools: Boolean(this.opts.devTools)
     }

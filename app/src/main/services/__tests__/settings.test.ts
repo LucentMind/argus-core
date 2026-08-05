@@ -8,15 +8,20 @@ import { defaultSettings, settingsSchema } from '../../../shared/settings'
 import type { ResolvedToolRow } from '../../../shared/settings'
 import { FS_WATCH_TIMEOUT, armFsWatch } from './fsWatchBudget'
 
-let tmp: string, argusHome: string, svc: SettingsService
+let tmp: string, argusHome: string, svc: SettingsService, prevArgusHomeEnv: string | undefined
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-svc-'))
   argusHome = path.join(tmp, 'home')
+  // The dataRoot tests below set ARGUS_HOME; a developer machine may also have it set
+  // ambiently. Snapshot it here and restore in afterEach so neither leaks either way.
+  prevArgusHomeEnv = process.env.ARGUS_HOME
 })
 
 afterEach(() => {
   svc?.close()
+  if (prevArgusHomeEnv === undefined) delete process.env.ARGUS_HOME
+  else process.env.ARGUS_HOME = prevArgusHomeEnv
   fs.rmSync(tmp, { recursive: true, force: true })
 })
 
@@ -116,6 +121,28 @@ describe('SettingsService', () => {
     expect(p.dataRoot).toEqual({ path: argusHome, fromEnv: true })
     expect(p.settings).toEqual(defaultSettings())
     expect(p.loadError).toBeNull()
+  })
+
+  // Constructed the way main/index.ts does — an explicit opts object that omits
+  // argusHomeFromEnv. This used to be defaulted on the whole `opts` parameter, so the one
+  // production call site (which always passes an object) reported fromEnv: false under
+  // ARGUS_HOME; the test above passes the flag explicitly and could never see it.
+  it('dataRoot.fromEnv is true under ARGUS_HOME even when opts omits the flag', () => {
+    process.env.ARGUS_HOME = argusHome
+    svc = new SettingsService(argusHome, { resolvedTools: () => [], devTools: false })
+    expect(svc.payload().dataRoot).toEqual({ path: argusHome, fromEnv: true })
+  })
+
+  it('dataRoot.fromEnv is false with ARGUS_HOME unset and opts omitting the flag', () => {
+    delete process.env.ARGUS_HOME
+    svc = new SettingsService(argusHome, { resolvedTools: () => [], devTools: false })
+    expect(svc.payload().dataRoot).toEqual({ path: argusHome, fromEnv: false })
+  })
+
+  it('an explicit argusHomeFromEnv wins over the ambient environment', () => {
+    process.env.ARGUS_HOME = argusHome
+    svc = new SettingsService(argusHome, { argusHomeFromEnv: false })
+    expect(svc.payload().dataRoot.fromEnv).toBe(false)
   })
 
   it('payload.resolvedTools defaults to [] when no callback is injected', () => {
