@@ -144,7 +144,9 @@ export function Btn({
 const ICON_BTN_SIZE = {
   xs: 'h-5 w-5',
   sm: 'h-6 w-6',
-  md: 'h-7 w-7'
+  md: 'h-7 w-7',
+  /* Library row actions (user-directed, 2026-08-05): 1.5x `sm`, the row's old size. */
+  lg: 'h-9 w-9'
 } as const
 
 export function IconBtn({

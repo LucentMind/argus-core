@@ -82,14 +82,17 @@ function RowAction({
 }): React.JSX.Element {
   return (
     <IconBtn
-      size="sm"
+      size="lg"
       aria-label={label}
       title={title ?? label}
       disabled={disabled}
       onClick={onClick}
-      className={danger ? 'hover:bg-danger/10 hover:text-danger' : ''}
+      // `!` markers: IconBtn's own `text-dim`/`hover:text-ink` are equal specificity, so a bare
+      // appended `text-danger` loses on stylesheet source order alone (see FindingCard.tsx's
+      // delete button for the same trap).
+      className={danger ? 'text-danger! hover:bg-danger/10! hover:text-danger!' : ''}
     >
-      <Icon size={14} aria-hidden="true" />
+      <Icon size={21} aria-hidden="true" />
     </IconBtn>
   )
 }
@@ -392,10 +395,28 @@ export function LibraryPage({
           <RowActions>
             {s.tier === 'user' && (
               <>
+                <RowAction
+                  icon={Pencil}
+                  label={`Edit · ${s.name}`}
+                  title="Edit"
+                  onClick={() => openEditor({ kind: 'skill', name: s.name, mode: 'edit' })}
+                />
+                <RowAction
+                  icon={Share2}
+                  label={`Share ${s.name} to HiveMind`}
+                  title={shareTip}
+                  // sharePushing: opening another row's dialog would unmount an
+                  // in-flight push and its PR URL would never be shown
+                  disabled={!shareReady || sharePushing}
+                  onClick={() =>
+                    setSharing(sharing === `skill/${s.name}` ? null : `skill/${s.name}`)
+                  }
+                />
                 {/* "Adopt upstream" stays a worded button: it is not one of the three
                     recurring row verbs, and no icon carries "delete mine so the team's copy
                     wins" on its own. It also appears on a handful of rows, not on every one,
-                    so it costs the column nothing at rest. */}
+                    so it costs the column nothing at rest. Delete/Adopt is last: the
+                    destructive action anchors the end of the row (user-directed, 2026-08-05). */}
                 {adopt ? (
                   <Btn
                     variant="outline"
@@ -414,23 +435,6 @@ export function LibraryPage({
                     onClick={() => void removeUserSkill(s, false)}
                   />
                 )}
-                <RowAction
-                  icon={Pencil}
-                  label={`Edit · ${s.name}`}
-                  title="Edit"
-                  onClick={() => openEditor({ kind: 'skill', name: s.name, mode: 'edit' })}
-                />
-                <RowAction
-                  icon={Share2}
-                  label={`Share ${s.name} to HiveMind`}
-                  title={shareTip}
-                  // sharePushing: opening another row's dialog would unmount an
-                  // in-flight push and its PR URL would never be shown
-                  disabled={!shareReady || sharePushing}
-                  onClick={() =>
-                    setSharing(sharing === `skill/${s.name}` ? null : `skill/${s.name}`)
-                  }
-                />
               </>
             )}
             {s.tier === 'hivemind' && (
@@ -511,15 +515,6 @@ export function LibraryPage({
                 onClick={() => void claimReference(r)}
               />
             )}
-            {groupOf(r.tier) !== 'built-in' && (
-              <RowAction
-                icon={Trash2}
-                danger
-                label={`${removeVerb} · ${r.file}`}
-                title={removeVerb}
-                onClick={() => void removeReference(r)}
-              />
-            )}
             {r.tier !== 'bundled' &&
               !(HIVE_MANAGED_TIERS as readonly string[]).includes(r.tier ?? '') && (
                 <RowAction
@@ -540,6 +535,15 @@ export function LibraryPage({
                 onClick={() =>
                   setSharing(sharing === `reference/${r.file}` ? null : `reference/${r.file}`)
                 }
+              />
+            )}
+            {groupOf(r.tier) !== 'built-in' && (
+              <RowAction
+                icon={Trash2}
+                danger
+                label={`${removeVerb} · ${r.file}`}
+                title={removeVerb}
+                onClick={() => void removeReference(r)}
               />
             )}
           </RowActions>
