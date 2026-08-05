@@ -8,6 +8,7 @@ import type {
 } from '../../../shared/relatedHistory'
 import { Card, Chip, IconBtn, SectionLabel } from './ui'
 import { uiStore } from '../lib/uiStore'
+import { isOpenableUrl } from '../lib/openableUrl'
 
 const DISMISS_KEY = (slug: string): string => `argus:related-dismissed:${slug}`
 /** Pre-merge keys. A user who dismissed either half keeps it dismissed. */
@@ -15,13 +16,6 @@ const LEGACY_KEYS = (slug: string): string[] => [
   `argus:similar-dismissed:${slug}`,
   `argus:known-defects-dismissed:${slug}`
 ]
-
-/** Mirrors main's isOpenableUrl (services/presets.ts): a corpus-controlled url is
- *  untrusted remote input and must never reach an anchor that could carry file://
- *  or an app-protocol scheme. */
-function isOpenableUrl(url: string): boolean {
-  return /^https?:\/\//i.test(url)
-}
 
 function isLocal(hit: RelatedHit): hit is LocalCaseHit {
   return hit.kind === 'local'
