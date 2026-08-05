@@ -174,11 +174,18 @@ export function RelatedHistoryCard({
     }
   }, [slug])
 
-  const degraded = result ? degradedLabel(result.sources) : null
-  // Render when there is something to show OR something is broken. Returning null
-  // on zero hits alone would make an outage indistinguishable from "nothing
-  // similar" — the exact failure this feature exists to end (spec §11).
-  if (dismissed || !result || (result.hits.length === 0 && !degraded)) return null
+  if (dismissed || !result) return null
+  const degraded = degradedLabel(result.sources)
+  // Something to show when there are hits, something broken to report, or —
+  // Smaller fix 4 — a way to search further: zero hits with every source
+  // healthy is exactly when a user most wants "Search all history →", and
+  // hiding the whole card made that footer unreachable in that moment. That
+  // last case still needs BOTH a handler (nothing to click without one) and
+  // at least one known source (nothing configured means genuinely nothing to
+  // offer, not just nothing found).
+  const canSearchFurther = Boolean(onOpenExplorer) && result.sources.length > 0
+  const hasSomethingToOffer = result.hits.length > 0 || Boolean(degraded) || canSearchFurther
+  if (!hasSomethingToOffer) return null
 
   function dismiss(): void {
     localStorage.setItem(DISMISS_KEY(slug), '1')

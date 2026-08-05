@@ -183,6 +183,16 @@ describe('HitDetail', () => {
     expect(await screen.findByText(/HTTP 404/)).toBeInTheDocument()
   })
 
+  // Smaller fix 3: the wire contract guarantees `commentCount` even when
+  // `comments[]` is omitted (a service may legitimately not send bodies). The
+  // disclosure must still tell the user there ARE comments, just none in hand
+  // to show — not silently disappear because `comments` happens to be empty.
+  it('labels the disclosure from commentCount even when comment bodies are omitted', async () => {
+    setDefect({ ok: true, value: record({ commentCount: 12, comments: undefined }) })
+    render(<HitDetail hit={corpusHit()} />)
+    expect(await screen.findByText('12 comments')).toBeInTheDocument()
+  })
+
   it('offers both halves on a merged row', async () => {
     setDefect({ ok: true, value: record() })
     render(

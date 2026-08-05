@@ -3,7 +3,6 @@ import type { ComponentProps } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type {
-  CorpusRef,
   RelatedDefectRecord,
   RelatedDefectResult,
   RelatedDistilled,
@@ -12,11 +11,22 @@ import type {
 import { Btn, Chip, SectionLabel } from '../ui'
 import { isOpenableUrl } from '../../lib/openableUrl'
 
+/** Just enough to fetch the canonical record (`related.defect(sourceId, key)`)
+ *  and follow a link within this pane. Deliberately NOT the full `CorpusRef`:
+ *  the rendered url always comes from the fetched `RelatedDefectRecord`
+ *  (`record.url` below), never from this — carrying an unused `url` here
+ *  would be an untrusted string sitting in a return shape with no reader,
+ *  one careless edit away from an ungated `href`. */
+interface CorpusLookup {
+  sourceId: string
+  key: string
+}
+
 /** The corpus record this hit can show, if any: a corpus hit is its own ref, and
  *  a merged local row carries one (spec §3.3). */
-function corpusRefOf(hit: RelatedHit): CorpusRef | null {
-  if (hit.kind === 'corpus') return { sourceId: hit.sourceId, key: hit.key, url: hit.url }
-  return hit.corpusRef ?? null
+function corpusRefOf(hit: RelatedHit): CorpusLookup | null {
+  if (hit.kind === 'corpus') return { sourceId: hit.sourceId, key: hit.key }
+  return hit.corpusRef ? { sourceId: hit.corpusRef.sourceId, key: hit.corpusRef.key } : null
 }
 
 function Row({ label, values }: { label: string; values: string[] }): React.JSX.Element | null {
@@ -129,14 +139,19 @@ function CorpusRecord({ record }: { record: RelatedDefectRecord }): React.JSX.El
           {record.description}
         </Markdown>
       </div>
-      {comments.length > 0 && (
+      {record.commentCount > 0 && (
         <>
+          {/* Labeled from `commentCount`, not `comments.length`: the wire
+              contract guarantees the count even when a service legitimately
+              omits bodies, and `comments.length` would then be 0 and hide the
+              disclosure entirely even though there ARE comments — just none
+              in hand to render. */}
           <Btn
             variant="ghost"
             aria-expanded={showComments}
             onClick={() => setShowComments(!showComments)}
           >
-            {`${comments.length} comment${comments.length === 1 ? '' : 's'}`}
+            {`${record.commentCount} comment${record.commentCount === 1 ? '' : 's'}`}
           </Btn>
           {showComments &&
             comments.map((c, i) => (

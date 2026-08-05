@@ -256,4 +256,38 @@ describe('RelatedHistoryCard', () => {
       expect(screen.queryByRole('button', { name: 'Search all history' })).not.toBeInTheDocument()
     )
   })
+
+  // Smaller fix 4: the footer's whole job is offering a way to search further,
+  // which is exactly what a user wants when this case's own search came back
+  // with nothing. The pre-fix card returned null on zero hits with no outage,
+  // making that footer unreachable in precisely the moment it matters most.
+  it('offers the explorer footer on zero hits when a searchable source exists', async () => {
+    setArgus({
+      hits: [],
+      sources: [{ id: 'local', name: 'Your cases', kind: 'local', ok: true }]
+    })
+    const onOpenExplorer = vi.fn()
+    render(<RelatedHistoryCard slug="new" onOpenExplorer={onOpenExplorer} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Search all history' }))
+    expect(onOpenExplorer).toHaveBeenCalled()
+  })
+
+  it('still renders nothing on zero hits with no handler, even with a healthy source', async () => {
+    // No `onOpenExplorer` means the card would have nothing at all to show —
+    // no hits, no degraded line, no footer — so it must still render null.
+    setArgus({
+      hits: [],
+      sources: [{ id: 'local', name: 'Your cases', kind: 'local', ok: true }]
+    })
+    render(<RelatedHistoryCard slug="new" />)
+    await waitFor(() => expect(screen.queryByText(/Related history/i)).not.toBeInTheDocument())
+  })
+
+  it('still renders nothing on zero hits with no sources at all, even with a handler', async () => {
+    // Nothing is configured to search further into — genuinely nothing to
+    // offer, so the footer must not appear either.
+    setArgus({ hits: [], sources: [] })
+    render(<RelatedHistoryCard slug="new" onOpenExplorer={vi.fn()} />)
+    await waitFor(() => expect(screen.queryByText(/Related history/i)).not.toBeInTheDocument())
+  })
 })
