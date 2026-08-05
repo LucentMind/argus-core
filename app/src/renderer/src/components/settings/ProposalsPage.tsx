@@ -268,7 +268,14 @@ export function ProposalsPage({
                     <span className="text-xs text-mute">{new Date(p.date).toLocaleString()}</span>
                     {p.current === null && <Chip tone="review">new file</Chip>}
                     {p.previouslyReviewed && <Chip tone="review">previously reviewed</Chip>}
+                    {p.locked && <Chip tone="review">ships with a pack</Chip>}
                   </div>
+                  {p.locked && (
+                    <div className="px-4 pb-1 text-xs text-dim">
+                      Ships with a pack (or Argus core) — contribute to the pack, or to Argus
+                      itself, to change this.
+                    </div>
+                  )}
                   {isEditing ? (
                     <textarea
                       aria-label="Edit proposal content"
@@ -290,7 +297,8 @@ export function ProposalsPage({
                     <Btn
                       variant="primary"
                       aria-label={`Accept ${p.title}`}
-                      disabled={busy}
+                      disabled={busy || p.locked}
+                      title={p.locked ? 'Ships with a pack — contribute there instead' : undefined}
                       onClick={() =>
                         void act(async () => {
                           const r = await (isEditing

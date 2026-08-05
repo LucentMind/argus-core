@@ -38,6 +38,17 @@ const payload: ProposalsPayload = {
       title: 'Reference edit proposal',
       content: '# ref\nnew\n',
       current: '# ref\nold\n'
+    },
+    {
+      file: '2026-07-13-NAV-100-locked.md',
+      type: 'skill-edit',
+      target: 'locked-skill',
+      caseSlug: 'NAV-100',
+      date: '2026-07-13T12:00:00.000Z',
+      title: 'Locked proposal',
+      content: '# locked\nnew\n',
+      current: '# locked\nold\n',
+      locked: true
     }
   ]
 }
@@ -73,7 +84,7 @@ describe('ProposalsPage', () => {
     render(<ProposalsPage />)
     expect(await screen.findByText('NAV-100')).toBeInTheDocument()
     expect(screen.getByText('Case')).toBeInTheDocument()
-    expect(screen.getByText('3 proposals')).toBeInTheDocument()
+    expect(screen.getByText('4 proposals')).toBeInTheDocument()
   })
 
   it('accept invokes the IPC, refreshes and clears the proposal', async () => {
@@ -202,7 +213,7 @@ describe('ProposalsPage', () => {
   it('accepting a skill proposal offers Share to HiveMind', async () => {
     render(<ProposalsPage />)
     const acceptButtons = await screen.findAllByRole('button', { name: /^Accept / })
-    fireEvent.click(acceptButtons[0])
+    fireEvent.click(acceptButtons[1])
     expect(await screen.findByText(/accepted into your library/i)).toBeInTheDocument()
     // label-in-name: the accessible name must contain the visible text "Share to HiveMind"
     expect(screen.getByRole('button', { name: /^Share to HiveMind: / })).toBeInTheDocument()
@@ -218,9 +229,18 @@ describe('ProposalsPage', () => {
     const onOpenHivemind = vi.fn()
     render(<ProposalsPage onOpenHivemind={onOpenHivemind} />)
     const acceptButtons = await screen.findAllByRole('button', { name: /^Accept / })
-    fireEvent.click(acceptButtons[0])
+    fireEvent.click(acceptButtons[1])
     const link = await screen.findByRole('button', { name: 'Set up HiveMind to share →' })
     fireEvent.click(link)
     expect(onOpenHivemind).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables Accept and explains why for a locked proposal', async () => {
+    render(<ProposalsPage />)
+    const acceptBtn = await screen.findByRole('button', { name: 'Accept Locked proposal' })
+    expect(acceptBtn).toBeDisabled()
+    expect(screen.getByText(/Ships with a pack.*contribute/i)).toBeInTheDocument()
+    // Reject still works
+    expect(screen.getByRole('button', { name: 'Reject Locked proposal' })).toBeEnabled()
   })
 })
