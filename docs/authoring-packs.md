@@ -93,7 +93,9 @@ file named in `persona` is a load error.
 ## 4. Binaries (`binaries[]`)
 
 Declares executables Core resolves per platform and makes available to detectors (§5) and the agent.
-Core never compiles anything — a published bundle ships prebuilt binaries in `bin/`.
+Core never compiles anything — by default a published bundle ships prebuilt binaries in `bin/`, but a
+binary can also be declared without one (see `bundled: false` below) when the pack cannot or should
+not redistribute it — a licensed tool, something requiring user auth, or a large SDK.
 
 ```jsonc
 {
@@ -110,15 +112,18 @@ Core never compiles anything — a published bundle ships prebuilt binaries in `
   "versionArgs": ["--version"],    // exe: prints a version string (health/UI)
   "pathProbeArgs": ["--version"],  // exe: last-resort bare-name-on-PATH probe (must exit 0)
   "doctor": { "cmd": "my-tool", "args": ["doctor"], "json": false }, // pathDir: health/preflight
-  "fixHint": "Install my-tool …",  // shown when the binary is missing
+  "bundled": true,                 // optional, default true. false = this pack ships no file for it;
+                                   // the user supplies it via envVar/settingsKey/PATH. Requires fixHint.
+  "fixHint": "Install my-tool …",  // shown when the binary is missing; REQUIRED when bundled is false
   "platforms": ["win32", "darwin", "linux"] // optional: restrict to these process.platform values
 }
 ```
 
 **Resolution order** (first existing hit wins): user `envVar` → user `settingsKey` (`settings.tools`)
-→ the pack's `bin/` → `devPaths` → (exe only) a bare-name PATH probe via `pathProbeArgs` → (exe only)
-`~/.local/bin`. If nothing resolves, the binary is simply unavailable (extraction that needs it is
-skipped, non-fatally).
+→ the pack's `bin/` (skipped entirely when `bundled: false`) → `devPaths` → (exe only) a bare-name
+PATH probe via `pathProbeArgs` → (exe only) `~/.local/bin`. If nothing resolves, the binary is simply
+unavailable (extraction that needs it is skipped, non-fatally) and `fixHint` is what's shown to the
+user.
 
 - **`kind: "exe"`** resolves to a **file path**; if it has an `envVar` and the user didn't set it,
   Core exports the resolved path to that env var for child processes.
@@ -335,10 +340,19 @@ Use the build tool in `tools/pack-tools`:
 argus-pack build --pack <pack-dir> --bin <prebuilt-bin-dir> --platform <os-arch> --out <dist-dir>
 ```
 
-It stamps `platform` into the manifest, copies `persona.md` + `skills/`/`references/`/`ui/` + the
-`bin/` files, writes a `CHECKSUMS` file (sha256 of every file), and zips it to
+It stamps `platform` into the manifest, copies `persona.md` + `skills/`/`references/`/`ui/` (excluding
+common dev artifacts — `node_modules`, `.git`, `__pycache__`, `.DS_Store` — even if present in your
+checkout) + the `bin/` files, writes a `CHECKSUMS` file (sha256 of every file), and zips it to
 `<id>-<version>-<platform>.zip`. Produce one bundle per target platform (a CI matrix); binary source
-in `bin-src/` is never shipped.
+in `bin-src/` is never shipped. It prints the file count and total size zipped, so an unexpectedly
+large bundle is visible in the build log.
+
+Every declared binary must have a matching file in `--bin` unless it's `bundled: false`, in which case
+the build skips the check and prints a warning instead — that's the mechanism for shipping a pack that
+declares a binary the user must supply themselves. `--bin` must contain only files, not
+subdirectories or symlinked directories — the build fails loudly rather than silently dropping them
+(a binary needing sibling files, like a launcher plus its library directory, must ship those files
+flat in `--bin`).
 
 ### Install
 

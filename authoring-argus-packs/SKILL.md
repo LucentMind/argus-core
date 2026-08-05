@@ -42,7 +42,7 @@ All ids kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`). Unknown keys are ignored (passt
 | Slot | Purpose | Key fields |
 |---|---|---|
 | `persona` | Agent role + domain rules | path to a `.md` file |
-| `binaries[]` | Executables → agent Bash + detector extract | `id`, `kind` (`exe`\|`pathDir`), `names[]`, `envVar?`, `settingsKey?`, `devPaths[]`, `versionArgs?`/`doctor?`, `platforms?` |
+| `binaries[]` | Executables → agent Bash + detector extract | `id`, `kind` (`exe`\|`pathDir`), `names[]`, `envVar?`, `settingsKey?`, `devPaths[]`, `versionArgs?`/`doctor?`, `bundled?` (default `true`; `false` requires `fixHint` and skips `pack-tools build`'s file check), `platforms?` |
 | `detectors[]` | Classify evidence to a `type` + extract text | `type`, `match[]`, `extract?`, `isText`, `analyzeSkill?` |
 | `windows[]` | webPanel UI | `id`, `kind:"webPanel"`, `title`, `entry`, `handles[]`, `network[]`, `permissions[]`, `commands[]` |
 
