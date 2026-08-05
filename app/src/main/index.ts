@@ -1955,7 +1955,11 @@ function registerIpc(): void {
   )
 
   // — unified related history —
-  const relatedHistory = new RelatedHistoryService({ db, defectCorpus })
+  const relatedHistory = new RelatedHistoryService({
+    db,
+    defectCorpus,
+    localCasesEnabled: () => settingsService.get().general.similarPastCasesEnabled
+  })
   ipcMain.handle(IPC.relatedSearch, (_e, input: unknown) =>
     // IPC args are untrusted: one chokepoint validates and normalizes the whole
     // payload (slug, limit clamp, mode enum, filter shape) before it can reach a

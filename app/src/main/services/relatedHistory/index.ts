@@ -37,6 +37,12 @@ const SERVICE_SOURCE_NAME = 'Related history'
 export interface RelatedHistoryDeps {
   db: DatabaseSync
   defectCorpus: DefectCorpusService
+  /** Live read of the "Similar past cases" setting (app/src/shared/settings.ts). A getter,
+   *  not a snapshot, so a toggle flip takes effect on the very next search without
+   *  reconstructing the service. Omitted (e.g. in most existing tests) means "always
+   *  enabled" — this dependency only narrows behavior, it never changes a caller that
+   *  doesn't supply it. */
+  localCasesEnabled?: () => boolean
   /** Test seam — when set, replaces provider discovery entirely. */
   providers?: HistoryProvider[]
 }
@@ -203,7 +209,13 @@ export class RelatedHistoryService {
       // That is expected and does not need fixing here — the renderer is
       // responsible for not treating this list as the complete fan-out (see
       // `RelatedHistoryExplorer`'s union of `sources()` and search-health).
-      if (summaryPopulation(this.deps.db, true) > 0) {
+      //
+      // Also mirrors `providers()`'s localCasesEnabled gate: this standing list
+      // feeds the explorer's filter rail, and advertising a local source the
+      // user has turned off would let them filter to a source that can never
+      // return anything.
+      const localEnabled = this.deps.localCasesEnabled ? this.deps.localCasesEnabled() : true
+      if (localEnabled && summaryPopulation(this.deps.db, true) > 0) {
         out.push({
           id: LOCAL_PROVIDER_ID,
           name: LOCAL_PROVIDER_NAME,
@@ -263,11 +275,12 @@ export class RelatedHistoryService {
   private providers(caseSlug: string | null, includeOpen: boolean): HistoryProvider[] {
     if (this.deps.providers) return this.deps.providers
     const out: HistoryProvider[] = []
+    const localEnabled = this.deps.localCasesEnabled ? this.deps.localCasesEnabled() : true
     // Gate on the SAME population the provider will search: with includeOpen a
     // corpus of nothing but live cases is searchable, and gating on the
     // closed-only count would skip local and report `no-providers` for a
     // request that has rows to return.
-    if (summaryPopulation(this.deps.db, !includeOpen) > 0) {
+    if (localEnabled && summaryPopulation(this.deps.db, !includeOpen) > 0) {
       out.push(createLocalCasesProvider(this.deps.db, caseSlug))
     }
     out.push(...createCorpusProviders(this.deps.defectCorpus))

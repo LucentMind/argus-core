@@ -153,6 +153,61 @@ describe('RelatedHistoryService.search', () => {
     expect(r.reason).toBeUndefined()
   })
 
+  it('excludes the local provider when localCasesEnabled returns false, even with summaries', async () => {
+    createCase(db, home, { slug: 'a', title: 'a' })
+    upsertCaseSummary(
+      db,
+      home,
+      'a',
+      { signature: 'sig', symptoms: '', rootCause: '', fix: '', keywords: [] },
+      'solved',
+      'md'
+    )
+    const svc = new RelatedHistoryService({
+      db,
+      defectCorpus: noCorpus(),
+      localCasesEnabled: () => false
+    })
+    const r = await svc.search({ query: 'sig' })
+    expect(r.sources).toEqual([])
+    expect(r.reason).toBe('no-providers')
+  })
+
+  it('still runs corpus providers when localCasesEnabled returns false', async () => {
+    createCase(db, home, { slug: 'a', title: 'a' })
+    upsertCaseSummary(
+      db,
+      home,
+      'a',
+      { signature: 'sig', symptoms: '', rootCause: '', fix: '', keywords: [] },
+      'solved',
+      'md'
+    )
+    const corpusHit: CorpusDefectHit = {
+      kind: 'corpus',
+      id: 'corpus:a:DEF-1',
+      sourceId: 'a',
+      key: 'DEF-1',
+      url: 'https://example.test/DEF-1',
+      provenance: [{ providerId: 'corpus:a', providerName: 'corpus:a', kind: 'corpus' }],
+      title: 't',
+      snippet: null,
+      matchedOn: 'lexical',
+      rank: 1,
+      fusedScore: 0,
+      status: { label: 'open', tone: 'open' },
+      distilled: null
+    }
+    const svc = new RelatedHistoryService({
+      db,
+      defectCorpus: noCorpus(),
+      localCasesEnabled: () => false,
+      providers: [fakeProvider('corpus:a', 'corpus', { ok: true, hits: [corpusHit] })]
+    })
+    const r = await svc.search({ query: 'sig' })
+    expect(r.hits.map((h) => h.id)).toEqual(['corpus:a:DEF-1'])
+  })
+
   it('propagates query-too-generic from the local provider', async () => {
     const svc = new RelatedHistoryService({
       db,
