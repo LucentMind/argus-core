@@ -173,6 +173,13 @@ describe('RelatedHistoryService.search', () => {
     expect(r.reason).toBe('no-providers')
   })
 
+  // Drives the REAL providers() gate (no `providers:` seam override): a
+  // `providers:` override would short-circuit providers() on its very first
+  // line, before `localCasesEnabled` is ever read, making the toggle inert
+  // and the test unable to catch a regression that also drops corpus. A real,
+  // token-less corpus source still shows up in `sources` without a network
+  // call (DefectCorpusService.searchOne short-circuits on "no token
+  // configured"), which is enough to prove it ran through the actual gate.
   it('still runs corpus providers when localCasesEnabled returns false', async () => {
     createCase(db, home, { slug: 'a', title: 'a' })
     upsertCaseSummary(
@@ -183,29 +190,18 @@ describe('RelatedHistoryService.search', () => {
       'solved',
       'md'
     )
-    const corpusHit: CorpusDefectHit = {
-      kind: 'corpus',
-      id: 'corpus:a:DEF-1',
-      sourceId: 'a',
-      key: 'DEF-1',
-      url: 'https://example.test/DEF-1',
-      provenance: [{ providerId: 'corpus:a', providerName: 'corpus:a', kind: 'corpus' }],
-      title: 't',
-      snippet: null,
-      matchedOn: 'lexical',
-      rank: 1,
-      fusedScore: 0,
-      status: { label: 'open', tone: 'open' },
-      distilled: null
-    }
+    const corpus = new DefectCorpusService({
+      sources: () => ({ src1: { name: 'H', baseUrl: 'https://c1', enabled: true } }),
+      token: () => undefined
+    })
     const svc = new RelatedHistoryService({
       db,
-      defectCorpus: noCorpus(),
-      localCasesEnabled: () => false,
-      providers: [fakeProvider('corpus:a', 'corpus', { ok: true, hits: [corpusHit] })]
+      defectCorpus: corpus,
+      localCasesEnabled: () => false
     })
     const r = await svc.search({ query: 'sig' })
-    expect(r.hits.map((h) => h.id)).toEqual(['corpus:a:DEF-1'])
+    expect(r.sources.map((s) => s.id)).toEqual(['corpus:src1'])
+    expect(r.sources.map((s) => s.kind)).not.toContain('local')
   })
 
   it('propagates query-too-generic from the local provider', async () => {
