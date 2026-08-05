@@ -29,9 +29,10 @@ describe('ProposalsBanner', () => {
   })
 
   it('renders nothing when no matching proposals are pending', async () => {
-    stubArgus([{ type: 'recipe' }])
+    // Deliberately disjoint from the banner's watched type — see task-2-report.md for why.
+    stubArgus([{ type: 'skill-edit' }])
     const { container } = render(
-      <ProposalsBanner types={['memory-append']} noun="memory" onReview={vi.fn()} />
+      <ProposalsBanner types={['recipe']} noun="recipe" onReview={vi.fn()} />
     )
     // allow the store prime to settle, then assert absence
     await Promise.resolve()

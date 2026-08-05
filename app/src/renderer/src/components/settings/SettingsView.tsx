@@ -227,7 +227,7 @@ export function SettingsView({
           {payload && page === 'team' && <HivemindSettings payload={payload} />}
           {payload && page === 'defectCorpus' && <DefectCorpusSettings payload={payload} />}
           {payload && page === 'sources' && <SourcesPage settings={payload} />}
-          {page === 'memory' && <MemorySettings onReviewProposals={openProposals} />}
+          {page === 'memory' && <MemorySettings />}
           {payload && page === 'observability' && <ObservabilitySettings payload={payload} />}
           {page === 'prompts' && <PromptsDevPage />}
         </div>

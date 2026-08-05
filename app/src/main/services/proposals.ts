@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import { memoryDir, proposalsArchiveDir, proposalsDir, userSkillsDir } from './paths'
+import { proposalsArchiveDir, proposalsDir, userSkillsDir } from './paths'
 import { sharedReferencesDir } from './skillsDir'
 import { resolveSkills, isBundledSkillName, bundledSkillError } from './agent/skillsResolver'
 import {
@@ -23,7 +23,6 @@ import {
   type RejectReason
 } from '../../shared/proposals'
 import type { TrustTier } from '../../shared/trustTiers'
-import { applyMemoryWrite } from './memory'
 import { upsertCaseSummary } from './distill/summaries'
 import type { CaseDistillSummary } from '../../shared/distill'
 
@@ -150,11 +149,6 @@ function currentContent(argusHome: string, type: ProposalType, target: string): 
     } catch {
       return null
     }
-  }
-  if (type === 'memory-append') {
-    // diff against the existing topic file so the reviewer sees what the lesson appends to
-    const p = path.join(memoryDir(argusHome), `${target}.md`)
-    return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null
   }
   if (type === 'case-summary') return null
   try {
@@ -310,13 +304,7 @@ export function acceptProposal(
   const fm = fmBlock(raw)?.fm ?? ''
 
   let accepted: AcceptedTarget
-  if (p.type === 'memory-append') {
-    const indexEntry = fmField(fm, 'index_entry') || undefined
-    // Index-cap errors from applyMemoryWrite propagate to the caller — the renderer
-    // surfaces them in the accept banner instead of silently discarding the write.
-    applyMemoryWrite(argusHome, p.caseSlug, { topic: p.target, content: body, indexEntry })
-    accepted = { kind: 'memory', name: p.target }
-  } else if (p.type === 'case-summary') {
+  if (p.type === 'case-summary') {
     if (!opts.db) throw new Error('case-summary accept requires db')
     const sj = fmField(fm, 'summary_json')
     if (!sj) throw new Error('case-summary proposal missing summary_json frontmatter')

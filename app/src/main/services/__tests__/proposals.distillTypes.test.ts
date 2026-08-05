@@ -16,24 +16,42 @@ beforeEach(() => {
 })
 
 describe('distill proposal types', () => {
-  it('writes and lists a memory-append proposal with extra frontmatter', () => {
+  it('writes and lists a recipe proposal with extra frontmatter', () => {
     const file = writeProposal(
       home,
       'case-a',
       {
-        type: 'memory-append',
-        target: 'dlt-timing',
-        title: 'Lesson: drift',
+        type: 'recipe',
+        target: 'dlt-cmds',
+        title: 'Recipe: drift',
         content: 'ECU resets drift DLT timestamps.'
       },
-      { job: '7', index_entry: 'DLT drift after ECU reset' }
+      { job: '7' }
     )
     const p = listProposals(home).find((x) => x.file === file)!
-    expect(p.type).toBe('memory-append')
+    expect(p.type).toBe('recipe')
     expect(p.previouslyReviewed).toBeUndefined()
-    const raw = fs.readFileSync(path.join(home, 'proposals', file), 'utf8')
-    expect(raw).toContain('job: 7')
-    expect(raw).toContain('index_entry: DLT drift after ECU reset')
+    expect(fs.readFileSync(path.join(home, 'proposals', file), 'utf8')).toContain('job: 7')
+  })
+
+  it('refuses to write a memory-append proposal, and hides one already on disk', () => {
+    expect(() =>
+      writeProposal(home, 'case-a', {
+        type: 'memory-append',
+        target: 'dlt-timing',
+        title: 'Lesson',
+        content: 'body'
+      })
+    ).toThrow(/Invalid proposal type/)
+    // A file written before this feature stays on disk but drops out of the pending set —
+    // pendingProposalFiles skips any type not in PROPOSAL_TYPES (spec §7, accepted).
+    fs.mkdirSync(path.join(home, 'proposals'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'proposals', 'legacy.md'),
+      '---\ntype: memory-append\ntarget: dlt-timing\ncase: case-a\ndate: 2026-08-01\ntitle: Lesson\nstatus: pending\n---\nbody'
+    )
+    expect(listProposals(home).map((p) => p.file)).not.toContain('legacy.md')
+    expect(fs.existsSync(path.join(home, 'proposals', 'legacy.md'))).toBe(true)
   })
 
   it('previously_reviewed frontmatter surfaces as previouslyReviewed', () => {
@@ -67,17 +85,17 @@ describe('distill proposal types', () => {
 
   it('listArchivedProposals sees rejected items; removePendingProposal deletes without archiving', () => {
     const f1 = writeProposal(home, 'case-a', {
-      type: 'memory-append',
+      type: 'recipe',
       target: 't1',
       title: 'a',
       content: 'b'
     })
     rejectProposal(home, f1)
     expect(listArchivedProposals(home)).toEqual([
-      { type: 'memory-append', target: 't1', caseSlug: 'case-a', title: 'a', status: 'rejected' }
+      { type: 'recipe', target: 't1', caseSlug: 'case-a', title: 'a', status: 'rejected' }
     ])
     const f2 = writeProposal(home, 'case-a', {
-      type: 'memory-append',
+      type: 'recipe',
       target: 't2',
       title: 'a',
       content: 'b'

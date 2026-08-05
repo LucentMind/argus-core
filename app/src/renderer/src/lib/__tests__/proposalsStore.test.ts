@@ -21,16 +21,12 @@ function stubArgus(records: Array<{ type: string }>): {
 
 describe('ProposalsStore', () => {
   it('primes counts from list() and updates from the broadcast', async () => {
-    const { fire } = stubArgus([
-      { type: 'skill-new' },
-      { type: 'skill-new' },
-      { type: 'memory-append' }
-    ])
+    const { fire } = stubArgus([{ type: 'skill-new' }, { type: 'skill-new' }, { type: 'recipe' }])
     const store = new ProposalsStore()
     store.start()
     await vi.waitFor(() => expect(store.get()?.pendingCount).toBe(3))
     expect(store.get()?.byType['skill-new']).toBe(2)
-    expect(store.get()?.byType['memory-append']).toBe(1)
+    expect(store.get()?.byType['recipe']).toBe(1)
 
     fire({ pendingCount: 1, byType: { recipe: 1 } })
     expect(store.get()).toEqual({ pendingCount: 1, byType: { recipe: 1 } })

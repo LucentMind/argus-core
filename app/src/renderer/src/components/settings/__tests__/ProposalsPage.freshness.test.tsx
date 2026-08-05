@@ -23,7 +23,7 @@ const recA: ProposalRecord = {
 }
 const recB: ProposalRecord = {
   file: '2026-07-11-NAV-200-lesson.md',
-  type: 'memory-append',
+  type: 'recipe',
   target: 'dlt-timing',
   caseSlug: 'NAV-200',
   date: '2026-07-11T12:00:00.000Z',
@@ -76,7 +76,7 @@ describe('ProposalsPage freshness', () => {
 
     // distill staging lands a new proposal in the background
     setList({ proposals: [recA, recB] })
-    broadcast({ pendingCount: 2, byType: { 'skill-edit': 1, 'memory-append': 1 } })
+    broadcast({ pendingCount: 2, byType: { 'skill-edit': 1, recipe: 1 } })
 
     expect(await screen.findByText('Distilled lesson')).toBeInTheDocument()
     expect(screen.getByText('Sharpen step 4')).toBeInTheDocument()
@@ -91,7 +91,7 @@ describe('ProposalsPage freshness', () => {
     })
 
     setList({ proposals: [recA, recB] })
-    broadcast({ pendingCount: 2, byType: { 'skill-edit': 1, 'memory-append': 1 } })
+    broadcast({ pendingCount: 2, byType: { 'skill-edit': 1, recipe: 1 } })
 
     await screen.findByText('Distilled lesson')
     expect(screen.getByLabelText('Edit proposal content')).toHaveValue('my half-written draft')

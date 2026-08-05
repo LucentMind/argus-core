@@ -11,7 +11,7 @@ const payload: ProposalsPayload = {
   proposals: [
     {
       file: 'a.md',
-      type: 'memory-append',
+      type: 'reference-edit',
       target: 'dlt-timing',
       caseSlug: 'case-a',
       date: '2026-07-16',
@@ -49,7 +49,7 @@ beforeEach(() => {
   proposalsStore.reset()
   accept = vi
     .fn()
-    .mockResolvedValue({ proposals: [], accepted: { kind: 'memory', name: 'dlt-timing' } })
+    .mockResolvedValue({ proposals: [], accepted: { kind: 'reference', name: 'dlt-timing' } })
   ;(window as unknown as { argus: unknown }).argus = {
     proposals: {
       list: vi.fn().mockResolvedValue(payload),
@@ -65,9 +65,9 @@ beforeEach(() => {
 })
 
 describe('Knowledge inbox', () => {
-  it('shows Lesson / Case summary labels, previously-reviewed badge, and case groups', async () => {
+  it('shows Reference / Case summary labels, previously-reviewed badge, and case groups', async () => {
     render(<ProposalsPage />)
-    expect(await screen.findByText('Lesson', { selector: 'span' })).toBeInTheDocument()
+    expect(await screen.findByText('Reference', { selector: 'span' })).toBeInTheDocument()
     expect(screen.getByText('Case summary', { selector: 'span' })).toBeInTheDocument()
     expect(screen.getByText(/previously reviewed/i)).toBeInTheDocument()
     expect(screen.getByText(/case-a/)).toBeInTheDocument()
@@ -92,7 +92,7 @@ describe('Knowledge inbox', () => {
     await waitFor(() => expect(accept).toHaveBeenCalledWith('a.md', 'edited fact'))
   })
 
-  it('shows the memory-append target topic chip but not one for case-summary', async () => {
+  it('shows the reference target chip but not one for case-summary', async () => {
     render(<ProposalsPage />)
     await screen.findByText('DLT drift')
     expect(screen.getByText('→ dlt-timing')).toBeInTheDocument()
@@ -103,7 +103,7 @@ describe('Knowledge inbox', () => {
   it('filter chips show human-readable type labels', async () => {
     render(<ProposalsPage />)
     await screen.findByText('DLT drift')
-    expect(screen.getByRole('button', { name: 'Filter Lesson' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Filter Reference' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Filter Case summary' })).toBeInTheDocument()
   })
 })

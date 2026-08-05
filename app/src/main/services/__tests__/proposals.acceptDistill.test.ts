@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
-import { writeProposal, acceptProposal, listProposals } from '../proposals'
+import { writeProposal, acceptProposal } from '../proposals'
 import { getCaseSummary } from '../distill/summaries'
 
 let home: string
@@ -17,37 +17,21 @@ beforeEach(() => {
 })
 
 describe('accept routing for distill types', () => {
-  it('memory-append accept appends to the topic file and maintains the index', () => {
-    const file = writeProposal(
-      home,
-      'case-a',
-      {
-        type: 'memory-append',
-        target: 'dlt-timing',
-        title: 'Lesson',
-        content: 'ECU resets drift DLT clocks.'
-      },
-      { index_entry: 'DLT drift after ECU reset' }
-    )
-    acceptProposal(home, file, { db })
-    expect(fs.readFileSync(path.join(home, 'memory', 'dlt-timing.md'), 'utf8')).toContain(
-      'ECU resets drift DLT clocks.'
-    )
-    expect(fs.readFileSync(path.join(home, 'memory', '_index.md'), 'utf8')).toContain('dlt-timing')
-    expect(listProposals(home)).toEqual([]) // archived
-  })
-
   it('editedContent overrides the staged body', () => {
     const file = writeProposal(home, 'case-a', {
-      type: 'memory-append',
-      target: 'edited-topic',
-      title: 'Lesson',
+      type: 'recipe',
+      target: 'edited-recipe',
+      title: 'Recipe',
       content: 'original'
     })
-    acceptProposal(home, file, { db, editedContent: 'edited text' })
-    const topic = fs.readFileSync(path.join(home, 'memory', 'edited-topic.md'), 'utf8')
-    expect(topic).toContain('edited text')
-    expect(topic).not.toContain('original')
+    // recipe + reference-edit both land in <argusHome>/references (proposals.ts:333-350)
+    expect(acceptProposal(home, file, { db, editedContent: 'edited text' })).toEqual({
+      kind: 'reference',
+      name: 'edited-recipe.md'
+    })
+    const written = fs.readFileSync(path.join(home, 'references', 'edited-recipe.md'), 'utf8')
+    expect(written).toContain('edited text')
+    expect(written).not.toContain('original')
   })
 
   it('case-summary accept upserts the summary row and requires db', () => {

@@ -259,7 +259,7 @@ export function ProposalsPage({
             />
             {group.items.map((p) => {
               const isEditing = p.file in editing
-              const isMarkdown = p.type === 'memory-append' || p.type === 'case-summary'
+              const isMarkdown = p.type === 'case-summary'
               return (
                 <SettingsSection key={p.file} title={p.title}>
                   <div className="flex flex-wrap items-center gap-2 px-4 pt-3">

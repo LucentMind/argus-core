@@ -3,7 +3,6 @@ export const PROPOSAL_TYPES = [
   'skill-edit',
   'reference-edit',
   'recipe',
-  'memory-append',
   'case-summary'
 ] as const
 export type ProposalType = (typeof PROPOSAL_TYPES)[number]
@@ -13,7 +12,6 @@ export const PROPOSAL_TYPE_LABELS: Record<ProposalType, string> = {
   'skill-edit': 'Skill · edit',
   'reference-edit': 'Reference',
   recipe: 'Recipe',
-  'memory-append': 'Lesson',
   'case-summary': 'Case summary'
 }
 
@@ -46,7 +44,7 @@ export interface ProposalCounts {
 
 /** What acceptProposal wrote, so the UI can offer the next step (e.g. share). */
 export interface AcceptedTarget {
-  kind: 'skill' | 'reference' | 'memory' | 'case-summary'
+  kind: 'skill' | 'reference' | 'case-summary'
   name: string
 }
 
