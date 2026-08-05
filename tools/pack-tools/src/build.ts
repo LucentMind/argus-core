@@ -42,7 +42,11 @@ export function crossCheckBinaries(
   platform: string
 ): { warnings: string[] } {
   const entries = fs.existsSync(binDir) ? fs.readdirSync(binDir, { withFileTypes: true }) : []
-  const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name)
+  // Anything that isn't a regular file is unsafe to silently skip — this includes real
+  // subdirectories AND symlinks (to a dir or a file): readdirSync's Dirent uses lstat
+  // semantics, so a symlink reports isDirectory() === false AND isFile() === false and
+  // would otherwise sail through both this guard and the `present` set unnoticed.
+  const dirs = entries.filter((e) => !e.isFile()).map((e) => e.name)
   if (dirs.length > 0) {
     throw new Error(
       `--bin contains a subdirectory (${dirs.join(', ')}) — pack-tools does not copy directories; move its contents to individual files in --bin`
@@ -123,11 +127,16 @@ export function assembleBundle(
     }
   }
 
-  // Binaries → bin/.
+  // Binaries → bin/. binDir may not exist at all — a pack whose binaries are ALL
+  // `bundled: false` has nothing to point --bin at; crossCheckBinaries already
+  // tolerates that (see above), so this copy loop must too, leaving bin/ empty
+  // rather than crashing on a raw ENOENT.
   const binOut = path.join(stagingDir, 'bin')
   fs.mkdirSync(binOut, { recursive: true })
-  for (const ent of fs.readdirSync(binDir, { withFileTypes: true })) {
-    if (ent.isFile()) fs.cpSync(path.join(binDir, ent.name), path.join(binOut, ent.name))
+  if (fs.existsSync(binDir)) {
+    for (const ent of fs.readdirSync(binDir, { withFileTypes: true })) {
+      if (ent.isFile()) fs.cpSync(path.join(binDir, ent.name), path.join(binOut, ent.name))
+    }
   }
 }
 

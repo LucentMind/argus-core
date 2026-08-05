@@ -99,6 +99,22 @@ describe('crossCheckBinaries — --bin subdirectory', () => {
     fs.writeFileSync(path.join(dir, 'lib', 'helper.so'), 'x')
     expect(() => crossCheckBinaries(m, dir, 'mac-arm64')).toThrow(/lib/)
   })
+
+  it('fails loudly when --bin contains a symlinked directory (lstat sees neither file nor dir)', () => {
+    const m = readManifest(SAMPLE)
+    const dir = tmpDir()
+    fs.writeFileSync(path.join(dir, 'argus-demo'), 'x')
+    // The real directory lives OUTSIDE binDir — only a symlink to it sits inside
+    // binDir, so the existing plain-directory guard cannot accidentally catch this
+    // via the literal 'real-lib' entry (a stray substring match would make this
+    // test pass for the wrong reason).
+    const target = path.join(tmpDir(), 'external-target')
+    fs.mkdirSync(target)
+    fs.writeFileSync(path.join(target, 'helper.so'), 'x')
+    const link = path.join(dir, 'symlinked-dir')
+    fs.symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir')
+    expect(() => crossCheckBinaries(m, dir, 'mac-arm64')).toThrow(/symlinked-dir/)
+  })
 })
 
 describe('assembleBundle', () => {
@@ -134,6 +150,17 @@ describe('assembleBundle', () => {
 
     expect(fs.existsSync(path.join(staging, 'ui', 'node_modules'))).toBe(false)
     expect(fs.existsSync(path.join(staging, 'ui', 'real.txt'))).toBe(true)
+  })
+
+  it('creates an empty bin/ instead of throwing when --bin does not exist', () => {
+    const m = packManifestSchema.parse({ id: 'x', displayName: 'X', version: '1.0.0', argusApi: '^1' })
+    const packDir = tmpDir()
+    const staging = tmpDir()
+    const missingBin = path.join(tmpDir(), 'does-not-exist')
+
+    expect(() => assembleBundle(m, packDir, missingBin, 'mac-arm64', staging)).not.toThrow()
+    expect(fs.existsSync(path.join(staging, 'bin'))).toBe(true)
+    expect(fs.readdirSync(path.join(staging, 'bin'))).toEqual([])
   })
 })
 
@@ -218,5 +245,31 @@ describe('build (end-to-end)', () => {
     await expect(
       build({ packDir: SAMPLE, binDir: dir, platform: 'mac-arm64', outDir: out })
     ).rejects.toThrow(/launcher/)
+  })
+
+  it('builds successfully with an empty bin/ when a pack has no bundled binaries and --bin does not exist', async () => {
+    const packDir = tmpDir()
+    const manifest = packManifestSchema.parse({
+      id: 'nobin',
+      displayName: 'No Bin',
+      version: '1.0.0',
+      argusApi: '^1'
+    })
+    fs.writeFileSync(path.join(packDir, 'argus-pack.json'), JSON.stringify(manifest, null, 2))
+    const missingBin = path.join(tmpDir(), 'does-not-exist')
+    const out = tmpDir()
+
+    // Must not throw the raw ENOENT that a real user-provided-binaries pack (all
+    // binaries `bundled: false`, so nothing to point --bin at) would otherwise hit.
+    const res = await build({ packDir, binDir: missingBin, platform: 'mac-arm64', outDir: out })
+    expect(fs.existsSync(res.zipPath)).toBe(true)
+    // Nothing was copied into bin/ — no bin/* entry made it into the bundle.
+    // (zip-lib's walker only enumerates files, so an empty directory isn't stored
+    // as its own zip entry; asserting on res.files is the reliable round-trip check.)
+    expect(res.files.some((f) => f.startsWith('bin/'))).toBe(false)
+
+    const dest = tmpDir()
+    await extract(res.zipPath, dest)
+    expect(fs.existsSync(path.join(dest, 'argus-pack.json'))).toBe(true)
   })
 })
