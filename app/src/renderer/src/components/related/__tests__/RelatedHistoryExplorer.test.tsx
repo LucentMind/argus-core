@@ -145,6 +145,38 @@ describe('RelatedHistoryExplorer', () => {
     expect(screen.queryByText('fetch failed')).not.toBeInTheDocument()
   })
 
+  it("drops the previous search's hits and show-more control when a later search fails", async () => {
+    // First search succeeds with a full page (so "Show more" is offered).
+    // Second search — after an edit + resubmit, i.e. a new `req` — rejects.
+    // The stale hits and the show-more control (which would resubmit the
+    // *failing* req at a higher limit) must both disappear; only the error
+    // line should remain.
+    const search = vi.fn()
+    search.mockResolvedValueOnce({
+      query: 'q',
+      hits: Array.from({ length: 10 }, (_, i) => hit({ id: `local:${i}` })),
+      sources: []
+    })
+    search.mockRejectedValueOnce(new Error('fetch failed'))
+    ;(window as unknown as { argus: unknown }).argus = {
+      related: { search, sources: vi.fn().mockResolvedValue(SOURCES), defect: vi.fn() }
+    }
+    render(<RelatedHistoryExplorer caseSlug="current" />)
+    await waitFor(() => expect(search).toHaveBeenCalledTimes(1))
+    expect(await screen.findByRole('button', { name: 'Show more' })).toBeInTheDocument()
+    expect(screen.getAllByText('ECU reset drifts DLT').length).toBe(10)
+
+    fireEvent.change(screen.getByLabelText('Search related history'), {
+      target: { value: 'battery soc' }
+    })
+    fireEvent.submit(screen.getByRole('search'))
+    await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
+
+    expect(await screen.findByText('fetch failed')).toBeInTheDocument()
+    expect(screen.queryByText('ECU reset drifts DLT')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument()
+  })
+
   it('renders the degraded line and keeps healthy hits visible', async () => {
     setArgus({
       query: 'q',

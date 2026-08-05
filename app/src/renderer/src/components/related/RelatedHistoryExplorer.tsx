@@ -212,8 +212,15 @@ export function RelatedHistoryExplorer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [req, caseSlug, shouldSearch])
 
-  const shown = shouldSearch ? (completed?.result ?? null) : null
   const error = failed?.req === req ? failed.message : null
+  // A rejection for the *live* req must not keep pairing an older req's
+  // successful `completed.result` with it — that result belongs to whatever
+  // request produced it, not to the one that just failed. Gating on request
+  // identity only when `error` is set (never unconditionally) keeps the
+  // no-flicker behaviour for requests that are merely in flight: those still
+  // show the previous result until the new one lands.
+  const shown =
+    shouldSearch && (!error || completed?.req === req) ? (completed?.result ?? null) : null
   const loading = shouldSearch && completed?.req !== req && !error
   const hits = shown?.hits ?? []
   const degraded = shown ? degradedLabel(shown.sources) : null
