@@ -228,7 +228,7 @@ function mockArgus(): {
       write: vi.fn().mockResolvedValue({ skills: initial.skills, hash: 'hash-rca-2' }),
       // returns a DIFFERENT name than the source so tests can prove the editor opens on
       // the returned name, not the row's own name (finding 1)
-      fork: vi.fn().mockResolvedValue({ name: 'analyze-applog-copy', skills: initial.skills }),
+      fork: vi.fn().mockResolvedValue({ name: 'hive-probe-copy', skills: initial.skills }),
       onChanged: vi.fn(() => () => {})
     },
     editor: { open: vi.fn().mockResolvedValue(undefined) },
@@ -466,7 +466,11 @@ describe('LibraryPage merged list', () => {
     expect(
       screen.getByText('Owned upstream and kept current. Claim one to make it yours.')
     ).toBeInTheDocument()
-    expect(screen.getByText('Ships with an installed pack.')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Ships with an installed pack or Argus core. Read-only — contribute to the pack or Argus core to change these.'
+      )
+    ).toBeInTheDocument()
   })
 
   it('user skill shadowing lower tiers carries an overrides chip', async () => {
@@ -625,29 +629,37 @@ describe('editing affordances', () => {
     expect(screen.queryByRole('button', { name: /^Edit · analyze-applog$/i })).toBeNull()
   })
 
-  it('offers Edit a copy inside the viewer for a bundled skill', async () => {
+  it('offers no "Edit a copy" for a bundled skill — shows a read-only note instead', async () => {
     render(<LibraryPage />)
     await userEvent.click(await screen.findByText('analyze-applog'))
+    await screen.findByRole('dialog', { name: /skill · analyze-applog/i })
+    expect(screen.queryByRole('button', { name: /edit a copy/i })).toBeNull()
+    expect(screen.getByText(/read-only — ships with a pack/i)).toBeInTheDocument()
+  })
+
+  it('still offers Edit a copy inside the viewer for a hivemind skill', async () => {
+    render(<LibraryPage />)
+    await userEvent.click(await screen.findByText('hive-probe'))
     expect(await screen.findByRole('button', { name: /edit a copy/i })).toBeInTheDocument()
   })
 
   it("forks then opens the editor WINDOW on the RETURNED name — not the source row's name", async () => {
     render(<LibraryPage />)
-    await userEvent.click(await screen.findByText('analyze-applog'))
+    await userEvent.click(await screen.findByText('hive-probe'))
     await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
     // the rename dialog defaults the name field to the source name (fork-in-place)
     expect(await screen.findByRole('textbox', { name: /new skill name/i })).toHaveValue(
-      'analyze-applog'
+      'hive-probe'
     )
     await userEvent.click(screen.getByRole('button', { name: /^copy$/i }))
     await waitFor(() =>
-      expect(window.argus.skills.fork).toHaveBeenCalledWith('analyze-applog', 'analyze-applog')
+      expect(window.argus.skills.fork).toHaveBeenCalledWith('hive-probe', 'hive-probe')
     )
     // the fork's RETURNED name is what the window is asked to open
     await waitFor(() =>
       expect(argus.editor.open).toHaveBeenCalledWith({
         kind: 'skill',
-        name: 'analyze-applog-copy',
+        name: 'hive-probe-copy',
         mode: 'edit'
       })
     )
@@ -655,7 +667,7 @@ describe('editing affordances', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: /^copy$/i })).toBeNull())
     expect(screen.queryByRole('button', { name: /edit a copy/i })).toBeNull()
     // and nothing renders in-page: the editor lives in its own window now
-    expect(screen.queryByRole('textbox', { name: /^skill · analyze-applog-copy$/ })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: /^skill · hive-probe-copy$/ })).toBeNull()
     // no redundant skills.list() round trip after a successful fork (finding 6): the
     // fork response already carries the refreshed list, so list() only ran once, on mount
     expect(window.argus.skills.list).toHaveBeenCalledTimes(1)
@@ -663,20 +675,20 @@ describe('editing affordances', () => {
 
   it('forking with a changed name calls skills.fork(source, newName) and opens the window on it', async () => {
     render(<LibraryPage />)
-    await userEvent.click(await screen.findByText('analyze-applog'))
+    await userEvent.click(await screen.findByText('hive-probe'))
     await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
     const nameField = await screen.findByRole('textbox', { name: /new skill name/i })
     await userEvent.clear(nameField)
-    await userEvent.type(nameField, 'my-private-applog')
+    await userEvent.type(nameField, 'my-private-probe')
     await userEvent.click(screen.getByRole('button', { name: /^copy$/i }))
     await waitFor(() =>
-      expect(window.argus.skills.fork).toHaveBeenCalledWith('analyze-applog', 'my-private-applog')
+      expect(window.argus.skills.fork).toHaveBeenCalledWith('hive-probe', 'my-private-probe')
     )
-    // mock always returns analyze-applog-copy — proves the window opens on the RETURNED name
+    // mock always returns hive-probe-copy — proves the window opens on the RETURNED name
     await waitFor(() =>
       expect(argus.editor.open).toHaveBeenCalledWith({
         kind: 'skill',
-        name: 'analyze-applog-copy',
+        name: 'hive-probe-copy',
         mode: 'edit'
       })
     )
@@ -685,21 +697,21 @@ describe('editing affordances', () => {
   it('a rejected fork surfaces an error inline in the dialog and does NOT open the window', async () => {
     argus.skills.fork = vi.fn().mockRejectedValue(new Error('fork failed: EACCES'))
     render(<LibraryPage />)
-    await userEvent.click(await screen.findByText('analyze-applog'))
+    await userEvent.click(await screen.findByText('hive-probe'))
     await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
     await userEvent.click(await screen.findByRole('button', { name: /^copy$/i }))
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/fork failed: EACCES/)
     // the viewer that was covering the page body is closed (finding 2), and the editor
     // window was never asked to open — but the fork dialog stays up so the user can retry
-    expect(screen.queryByRole('dialog', { name: /skill · analyze-applog/i })).toBeNull()
+    expect(screen.queryByRole('dialog', { name: /skill · hive-probe/i })).toBeNull()
     expect(argus.editor.open).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: /^copy$/i })).toBeInTheDocument()
   })
 
   it('an illegal name is refused client-side, without calling fork, and keeps the dialog open', async () => {
     render(<LibraryPage />)
-    await userEvent.click(await screen.findByText('analyze-applog'))
+    await userEvent.click(await screen.findByText('hive-probe'))
     await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
     const nameField = await screen.findByRole('textbox', { name: /new skill name/i })
     await userEvent.clear(nameField)

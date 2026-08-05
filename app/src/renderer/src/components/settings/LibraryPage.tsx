@@ -43,7 +43,8 @@ const GROUP_TITLE: Record<GroupId, string> = {
 const GROUP_SUBTITLE: Record<GroupId, string> = {
   yours: 'You own these. Edit, delete, or share them with your team.',
   subscribed: 'Owned upstream and kept current. Claim one to make it yours.',
-  'built-in': 'Ships with an installed pack.'
+  'built-in':
+    'Ships with an installed pack or Argus core. Read-only — contribute to the pack or Argus core to change these.'
 }
 /** Teaching empty states. Groups without an entry are hidden when empty. */
 const GROUP_EMPTY: Partial<Record<GroupId, string>> = {
@@ -671,11 +672,16 @@ export function LibraryPage({
               onClose={() => setViewer(null)}
               showAuthorship
               extraActions={
-                s && s.tier !== 'user' ? (
+                s && s.tier === 'hivemind' ? (
                   <Btn variant="outline" onClick={() => setForking(s)}>
                     <Pencil size={13} aria-hidden="true" />
                     Edit a copy
                   </Btn>
+                ) : s && s.tier === 'bundled' ? (
+                  <span className="text-xs text-dim">
+                    Read-only — ships with a pack. Update it by contributing to the pack or to Argus
+                    core.
+                  </span>
                 ) : undefined
               }
             />
