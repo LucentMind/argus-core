@@ -110,9 +110,13 @@ describe('memory service', () => {
     })
     const idx = readIndex(argusHome)
     expect(idx.split('\n').filter((l) => l.includes('(t1.md)'))).toHaveLength(1)
-    // the second write REPLACES the topic body — see "replace semantics" below
-    expect(readTopic(argusHome, 't1')).toContain('b')
-    expect(readTopic(argusHome, 't1')).not.toContain('a')
+    // the second write REPLACES the topic body — see "replace semantics" below. Assert against
+    // the parsed body, not the raw file: raw now carries frontmatter (`scope: correction`), and
+    // a bare `.not.toContain('a')` against raw only survives because no stamped key today
+    // happens to contain the letter 'a' — a future key like `updated_at:` would break it.
+    const raw = readTopic(argusHome, 't1')
+    expect(fmBlock(raw)!.body).toContain('b')
+    expect(fmBlock(raw)!.body).not.toContain('a')
   })
 
   it('rejects invalid topic names', () => {
@@ -382,6 +386,23 @@ describe('replace semantics and the single-level backup', () => {
     expect(listTopics(argusHome).map((t) => t.name)).toEqual(['dlt'])
   })
 
+  // Without this, the backup outlives the topic it belongs to: invisible (no listing, no UI, no
+  // expiry), and if a topic of this name is recreated later, its one recoverable level is a body
+  // from the deleted topic's PREVIOUS lifetime rather than nothing.
+  it('deleteTopic removes the backup along with the topic', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'first fact', scope: 'preference' })
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'second fact', scope: 'preference' })
+    expect(fs.existsSync(bak('dlt'))).toBe(true)
+    deleteTopic(argusHome, 'dlt')
+    expect(fs.existsSync(bak('dlt'))).toBe(false)
+  })
+
+  it('deleteTopic on a topic that was never replaced (no backup) does not throw', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'only fact', scope: 'preference' })
+    expect(fs.existsSync(bak('dlt'))).toBe(false)
+    expect(() => deleteTopic(argusHome, 'dlt')).not.toThrow()
+  })
+
   it('stamps the scope into the topic frontmatter', () => {
     applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'a fact', scope: 'correction' })
     const raw = readTopic(argusHome, 'dlt')
@@ -395,5 +416,30 @@ describe('replace semantics and the single-level backup', () => {
     const raw = readTopic(argusHome, 'dlt')
     expect(fmField(fmBlock(raw)!.fm, 'scope')).toBe('preference')
     expect(raw.match(/scope:/g)).toHaveLength(1)
+  })
+
+  // The normal read-modify-write shape: read_memory hands back the raw file (stamp included),
+  // and the model is expected to pass that merged text straight back in as `content`. Pins that
+  // withFrontmatter overlays rather than duplicates the key when content already has one.
+  it('accepts content that already carries a stamped frontmatter block without doubling the scope line', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'first fact', scope: 'correction' })
+    const stamped = readTopic(argusHome, 'dlt') // "---\nscope: correction\n---\nfirst fact\n"
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: stamped, scope: 'preference' })
+    const raw = readTopic(argusHome, 'dlt')
+    expect(raw.match(/scope:/g)).toHaveLength(1)
+    expect(fmField(fmBlock(raw)!.fm, 'scope')).toBe('preference')
+    expect(fmBlock(raw)!.body).toContain('first fact')
+  })
+
+  // The NEXT task caps write_memory content at 4096 bytes measured off this same field — an
+  // accidental revert to Buffer.byteLength(content) (pre-stamp) would silently undercount and
+  // stay green everywhere else.
+  it('audit bytes reflect the final stamped body on disk, not the raw content argument', () => {
+    const content = 'a fact'
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content, scope: 'correction' })
+    const onDisk = fs.statSync(path.join(argusHome, 'memory', 'dlt.md')).size
+    const audit = readAudit(argusHome, 10)
+    expect(audit[0].bytes).toBe(onDisk)
+    expect(audit[0].bytes).toBeGreaterThan(Buffer.byteLength(content, 'utf8'))
   })
 })

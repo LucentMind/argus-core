@@ -1,6 +1,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { memoryArchiveDir, memoryAuditPath, memoryDir, memoryIndexPath } from './paths'
+import {
+  memoryArchiveDir,
+  memoryAuditPath,
+  memoryBackupDir,
+  memoryDir,
+  memoryIndexPath
+} from './paths'
 import {
   MEMORY_INDEX_MAX_LINES,
   indexLineFor,
@@ -77,6 +83,10 @@ export function archiveTopic(argusHome: string, topic: string): void {
     fs.renameSync(dest, live) // roll back — a failed archive must not half-apply
     throw err
   }
+  // Only after the rollback window above has closed: an archive that unwinds must not lose the
+  // topic's one recoverable backup level along the way. Same reasoning as deleteTopic — a live
+  // topic recreated under this name later must not inherit a stranger's leftover body.
+  fs.rmSync(path.join(memoryBackupDir(argusHome), `${topic}.md`), { force: true })
   appendAudit(argusHome, {
     ts: new Date().toISOString(),
     caseSlug: 'ui',

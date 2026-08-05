@@ -10,7 +10,7 @@ import {
   type HygieneConfig
 } from '../memoryHygiene'
 import { applyMemoryWrite, readAudit, readIndex, readTopic } from '../memory'
-import { memoryArchiveDir, memoryDir, memoryIndexPath } from '../paths'
+import { memoryArchiveDir, memoryBackupDir, memoryDir, memoryIndexPath } from '../paths'
 
 let home: string
 beforeEach(() => {
@@ -119,6 +119,36 @@ describe('archive / restore round-trip', () => {
     expect(() => archiveTopic(home, 'roll')).toThrow()
     expect(fs.existsSync(path.join(memoryDir(home), 'roll.md'))).toBe(true)
     expect(fs.existsSync(path.join(memoryArchiveDir(home), 'roll.md'))).toBe(false)
+    fs.rmdirSync(memoryIndexPath(home)) // let afterEach clean up
+  })
+
+  // Same reasoning as deleteTopic: an archived topic's leftover backup is invisible and, if the
+  // name is later reused, would hand the new topic a stranger's recoverable body.
+  it('archiveTopic removes the backup along with the live file', () => {
+    applyMemoryWrite(home, 'c', { topic: 'nav-drift', content: 'v1', scope: 'preference' })
+    applyMemoryWrite(home, 'c', { topic: 'nav-drift', content: 'v2', scope: 'preference' })
+    const bak = path.join(memoryBackupDir(home), 'nav-drift.md')
+    expect(fs.existsSync(bak)).toBe(true)
+    archiveTopic(home, 'nav-drift')
+    expect(fs.existsSync(bak)).toBe(false)
+  })
+
+  it('archiveTopic on a topic with no backup does not throw', () => {
+    applyMemoryWrite(home, 'c', { topic: 'nav-drift', content: 'v1', scope: 'preference' })
+    expect(fs.existsSync(path.join(memoryBackupDir(home), 'nav-drift.md'))).toBe(false)
+    expect(() => archiveTopic(home, 'nav-drift')).not.toThrow()
+  })
+
+  it('a rolled-back archive (index-edit failure) leaves the backup untouched', () => {
+    applyMemoryWrite(home, 'c', { topic: 'roll', content: 'v1', scope: 'preference', indexEntry: 'x' })
+    applyMemoryWrite(home, 'c', { topic: 'roll', content: 'v2', scope: 'preference' })
+    const bak = path.join(memoryBackupDir(home), 'roll.md')
+    expect(fs.existsSync(bak)).toBe(true)
+    fs.rmSync(memoryIndexPath(home))
+    fs.mkdirSync(memoryIndexPath(home))
+    expect(() => archiveTopic(home, 'roll')).toThrow()
+    // the archive never completed, so its one recoverable level must survive the rollback
+    expect(fs.existsSync(bak)).toBe(true)
     fs.rmdirSync(memoryIndexPath(home)) // let afterEach clean up
   })
 })

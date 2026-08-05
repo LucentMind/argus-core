@@ -106,6 +106,11 @@ export function deleteTopic(argusHome: string, name: string): void {
   const p = topicPath(argusHome, name)
   if (name === '_index') throw new Error('Cannot delete the memory index')
   if (fs.existsSync(p)) fs.rmSync(p)
+  // The backup is a recovery floor for THIS topic's previous body, not a retained artifact once
+  // the topic itself is gone. Leaving it behind is invisible (no listing, no UI, no expiry) and
+  // dangerous: a topic of the same name created later would inherit a stranger's leftover body
+  // as its one recoverable level. force:true — an absent backup (never-replaced topic) is fine.
+  fs.rmSync(path.join(memoryBackupDir(argusHome), `${name}.md`), { force: true })
   const idx = readIndex(argusHome)
   const lineRe = indexLineFor(name)
   if (idx.split('\n').some((l) => lineRe.test(l))) {
