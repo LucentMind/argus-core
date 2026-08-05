@@ -22,7 +22,6 @@ const INPUT: CaseDistillInput = {
   findings: [{ summary: 'F1', reviewState: 'accepted', role: null, body: 'body1' }],
   evidence: [{ relPath: 'evidence/a.log', artifactType: 'text', size: 10 }],
   sessionTitles: ['First look'],
-  memoryIndex: '- [dlt-timing](dlt-timing.md) — entry',
   skillsIndex: [
     {
       name: 'analyze-dlt',
@@ -40,8 +39,7 @@ const INPUT: CaseDistillInput = {
   ],
   rcaStructure: null,
   alreadyCaptured: {
-    proposals: [{ type: 'recipe', target: 'dlt-cmds', title: 'Cmds', state: 'rejected' }],
-    memoryWrites: [{ topic: 'dlt-timing', indexEntry: 'entry' }]
+    proposals: [{ type: 'recipe', target: 'dlt-cmds', title: 'Cmds', state: 'rejected' }]
   }
 }
 
@@ -65,7 +63,6 @@ describe('prompt builder', () => {
     expect(p).toContain('[accepted] F1')
     expect(p).toContain('Knowledge already captured')
     expect(p).toContain('dlt-cmds')
-    expect(p).toContain('dlt-timing')
   })
 
   it('embeds the full current skill and reference bodies so edits can be merged in', () => {
@@ -182,13 +179,12 @@ describe('parseCaseDistillOutput', () => {
       fence(
         JSON.stringify({
           summary: { signature: 's', symptoms: 'sy', rootCause: 'rc', fix: 'f', keywords: ['k'] },
-          memoryAppends: [{ topic: 'dlt-timing', content: 'c' }],
           proposals: [{ type: 'skill-edit', target: 'analyze-dlt', title: 't', content: 'c' }]
         })
       )
     )
     expect(out.summary?.signature).toBe('s')
-    expect(out.memoryAppends).toHaveLength(1)
+    expect(out.proposals).toHaveLength(1)
   })
 
   it('accepts an empty object (nothing to distill)', () => {
@@ -205,8 +201,10 @@ describe('parseCaseDistillOutput', () => {
       fence('{"proposals":[{"type":"memory-append","target":"t","title":"t","content":"c"}]}')
     ],
     ['summary missing field', fence('{"summary":{"signature":"s"}}')],
-    ['empty topic', fence('{"memoryAppends":[{"topic":"","content":"c"}]}')],
-    ['null memoryAppends entry', fence('{"memoryAppends":[null]}')],
+    [
+      'memoryAppends is no longer an output key',
+      fence('{"memoryAppends":[{"topic":"t","content":"c"}]}')
+    ],
     ['null proposal entry', fence('{"proposals":[null]}')]
   ])('rejects %s with DistillParseError carrying raw', (_name, text) => {
     expect(() => parseCaseDistillOutput(text)).toThrow(DistillParseError)
@@ -215,5 +213,13 @@ describe('parseCaseDistillOutput', () => {
     } catch (e) {
       expect((e as DistillParseError).raw).toBe(text)
     }
+  })
+
+  it('accepts an output with only summary and proposals', () => {
+    const out = parseCaseDistillOutput(
+      fence('{"proposals":[{"type":"recipe","target":"dlt-cmds","title":"Cmds","content":"body"}]}')
+    )
+    expect(out.proposals).toHaveLength(1)
+    expect('memoryAppends' in out).toBe(false)
   })
 })

@@ -17,11 +17,10 @@ const INPUT: CaseDistillInput = {
   findings: [],
   evidence: [],
   sessionTitles: [],
-  memoryIndex: '',
   skillsIndex: [],
   referencesIndex: [],
   rcaStructure: null,
-  alreadyCaptured: { proposals: [], memoryWrites: [] }
+  alreadyCaptured: { proposals: [] }
 }
 
 describe('runCaseDistill', () => {
@@ -41,11 +40,11 @@ describe('runCaseDistill', () => {
     let seen = ''
     const run = async (prompt: string): Promise<string> => {
       seen = prompt
-      return '```json\n{"memoryAppends":[{"topic":"a-topic","content":"c"}]}\n```'
+      return '```json\n{"proposals":[{"type":"recipe","target":"a-topic","title":"t","content":"c"}]}\n```'
     }
     const result = await runCaseDistill(INPUT, run)
     expect(seen).toContain('# Case')
-    expect(result.output.memoryAppends).toHaveLength(1)
+    expect(result.output.proposals).toHaveLength(1)
     expect(result.raw).toContain('```json')
   })
 

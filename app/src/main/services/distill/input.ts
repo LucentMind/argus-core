@@ -7,7 +7,6 @@ import { getCase } from '../caseService'
 import { listFindings } from '../findings'
 import { listEvidence } from '../ingest'
 import { listSessions } from '../agent/sessionStore'
-import { readIndex, readAudit } from '../memory'
 import { listProposals, listArchivedProposals } from '../proposals'
 import { refTitle, refBody, refTier } from '../refSync/refFrontmatter'
 import { sharedReferencesDir } from '../skillsDir'
@@ -60,13 +59,12 @@ function readConfirmedRcaStructure(argusHome: string, slug: string): RcaDraft | 
 }
 
 /**
- * Snapshot everything the background distiller needs to draft a case's memory
- * appends / proposals: case meta, findings with review states and roles, evidence
- * inventory, session titles, memory index, skills index (caller-supplied —
- * distiller resolves tier-aware access), references index, the confirmed RCA
- * structure (if any), and the already-captured section (pending + archived
- * proposals for this case, and memory audit entries filtered by caseSlug) so the
- * distiller can skip re-proposing what a human already reviewed.
+ * Snapshot everything the background distiller needs to draft a case's proposals:
+ * case meta, findings with review states and roles, evidence inventory, session
+ * titles, skills index (caller-supplied — distiller resolves tier-aware access),
+ * references index, the confirmed RCA structure (if any), and the already-captured
+ * section (pending + archived proposals for this case) so the distiller can skip
+ * re-proposing what a human already reviewed.
  */
 export function assembleDistillInput(
   db: DatabaseSync,
@@ -107,15 +105,11 @@ export function assembleDistillInput(
       size: e.size
     })),
     sessionTitles: listSessions(db, slug).map((s) => s.title),
-    memoryIndex: readIndex(argusHome),
     skillsIndex,
     referencesIndex: buildReferencesIndex(argusHome),
     rcaStructure: readConfirmedRcaStructure(argusHome, slug),
     alreadyCaptured: {
-      proposals: [...pending, ...archived],
-      memoryWrites: readAudit(argusHome, 1000)
-        .filter((e) => e.caseSlug === slug)
-        .map((e) => ({ topic: e.topic, indexEntry: e.indexEntry }))
+      proposals: [...pending, ...archived]
     }
   }
 }

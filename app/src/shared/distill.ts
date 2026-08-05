@@ -31,7 +31,6 @@ export interface CaseDistillInput {
   findings: { summary: string; reviewState: ReviewState; role: string | null; body: string }[]
   evidence: { relPath: string; artifactType: string; size: number }[]
   sessionTitles: string[]
-  memoryIndex: string
   /** `content` is the full current SKILL.md (frontmatter + body) — a skill-edit must
    *  return the whole file with its change merged in, so the distiller needs it verbatim. */
   skillsIndex: { name: string; description: string; content: string }[]
@@ -46,7 +45,6 @@ export interface CaseDistillInput {
       title: string
       state: 'pending' | 'accepted' | 'rejected'
     }[]
-    memoryWrites: { topic: string; indexEntry: string | null }[]
   }
   /** `artifacts/rca-structure.json` — the confirmed, human-reviewed RCA structure for this case,
    *  if a report was ever confirmed. null when no such file exists (most cases). */
@@ -63,7 +61,6 @@ export interface CaseDistillSummary {
 
 export interface CaseDistillOutput {
   summary?: CaseDistillSummary
-  memoryAppends?: { topic: string; content: string; indexEntry?: string }[]
   proposals?: {
     type: 'skill-new' | 'skill-edit' | 'reference-edit' | 'recipe'
     target: string

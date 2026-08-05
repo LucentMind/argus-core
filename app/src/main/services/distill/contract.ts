@@ -18,10 +18,6 @@ export const CASE_DISTILL_SECTIONS: PromptTextSpecs = {
   },
   evidence: { title: 'Case-distill section — evidence', text: '# Evidence inventory' },
   sessions: { title: 'Case-distill section — chat sessions', text: '# Chat sessions' },
-  'memory-index': {
-    title: 'Case-distill section — memory index',
-    text: '# Memory index (topics that already exist)'
-  },
   skills: {
     title: 'Case-distill section — installed skills',
     text: '# Installed skills (full current content — a skill-edit must return the whole file with its change merged in)'
@@ -53,14 +49,9 @@ export function buildCaseDistillPrompt(
     .map((f) => `### [${f.reviewState}${f.role ? ` · ${f.role}` : ''}] ${f.summary}\n${f.body}`)
     .join('\n\n')
   const captured =
-    [
-      ...input.alreadyCaptured.proposals.map(
-        (p) => `- proposal [${p.state}] ${p.type} → ${p.target} — ${p.title}`
-      ),
-      ...input.alreadyCaptured.memoryWrites.map(
-        (w) => `- memory write → ${w.topic}${w.indexEntry ? ` — ${w.indexEntry}` : ''}`
-      )
-    ].join('\n') || '(none)'
+    input.alreadyCaptured.proposals
+      .map((p) => `- proposal [${p.state}] ${p.type} → ${p.target} — ${p.title}`)
+      .join('\n') || '(none)'
   const sec = (key: string): string =>
     resolve ? resolve(`headless.case-distill.section.${key}`) : CASE_DISTILL_SECTIONS[key].text
   const parts = [
@@ -75,7 +66,6 @@ export function buildCaseDistillPrompt(
     `${sec('findings')}\n\n${findings || '(none)'}`,
     `${sec('evidence')}\n${input.evidence.map((e) => `- ${e.relPath} (${e.artifactType}, ${e.size} bytes)`).join('\n') || '(none)'}`,
     `${sec('sessions')}\n${input.sessionTitles.map((t) => `- ${t}`).join('\n') || '(none)'}`,
-    `${sec('memory-index')}\n${input.memoryIndex || '(empty)'}`,
     `${sec('skills')}\n${
       input.skillsIndex
         .map((s) => `## ${s.name} — ${s.description}\n\n${s.content}`)
@@ -126,7 +116,7 @@ export function parseCaseDistillOutput(text: string): CaseDistillOutput {
     throw new DistillParseError('output is not an object', text)
   const o = obj as Record<string, unknown>
   for (const k of Object.keys(o)) {
-    if (!['summary', 'memoryAppends', 'proposals'].includes(k))
+    if (!['summary', 'proposals'].includes(k))
       throw new DistillParseError(`unknown key "${k}"`, text)
   }
   const out: CaseDistillOutput = {}
@@ -145,19 +135,6 @@ export function parseCaseDistillOutput(text: string): CaseDistillOutput {
       throw new DistillParseError('summary fields invalid', text)
     }
     out.summary = s as unknown as CaseDistillSummary
-  }
-  if (o.memoryAppends !== undefined) {
-    if (!Array.isArray(o.memoryAppends))
-      throw new DistillParseError('memoryAppends must be an array', text)
-    for (const m of o.memoryAppends as Record<string, unknown>[]) {
-      if (typeof m !== 'object' || m === null)
-        throw new DistillParseError('memoryAppends entry must be an object', text)
-      if (!isStr(m.topic) || !isStr(m.content))
-        throw new DistillParseError('memoryAppends entry invalid', text)
-      if (m.indexEntry !== undefined && !isStr(m.indexEntry))
-        throw new DistillParseError('indexEntry invalid', text)
-    }
-    out.memoryAppends = o.memoryAppends as CaseDistillOutput['memoryAppends']
   }
   if (o.proposals !== undefined) {
     if (!Array.isArray(o.proposals)) throw new DistillParseError('proposals must be an array', text)

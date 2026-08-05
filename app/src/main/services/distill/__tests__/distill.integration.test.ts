@@ -21,10 +21,7 @@ const RESPONSE =
       rootCause: 'rc',
       fix: 'fx',
       keywords: ['dlt']
-    },
-    memoryAppends: [
-      { topic: 'dlt-timing', content: 'ECU resets drift DLT clocks.', indexEntry: 'DLT drift' }
-    ]
+    }
   }) +
   '\n```'
 
@@ -36,7 +33,7 @@ beforeEach(() => {
   createCase(db, home, { slug: 'case-a', title: 'DLT drift after reset' })
 })
 
-it('close → enqueue → distill → stage → accept lands memory + summary', async () => {
+it('close → enqueue → distill → stage → accept lands the summary', async () => {
   const queue = new DistillQueue({
     db,
     assembleInput: (slug) => assembleDistillInput(db, home, slug),
@@ -46,15 +43,12 @@ it('close → enqueue → distill → stage → accept lands memory + summary', 
   })
   setCaseStatus(db, home, 'case-a', 'closed', 'solved', (rec) => queue.enqueue(rec.slug))
   await queue.idle()
-  expect(queue.statusFor('case-a')).toMatchObject({ state: 'done', itemCount: 2 })
+  expect(queue.statusFor('case-a')).toMatchObject({ state: 'done', itemCount: 1 })
 
   const staged = listProposals(home)
-  expect(staged.map((p) => p.type).sort()).toEqual(['case-summary', 'memory-append'])
+  expect(staged.map((p) => p.type).sort()).toEqual(['case-summary'])
   for (const p of staged) acceptProposal(home, p.file, { db })
 
-  expect(fs.readFileSync(path.join(home, 'memory', 'dlt-timing.md'), 'utf8')).toContain(
-    'drift DLT clocks'
-  )
   expect(getCaseSummary(db, 'case-a')).toMatchObject({
     signature: 'ECU reset drifts DLT',
     resolution: 'solved'

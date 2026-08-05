@@ -29,11 +29,10 @@ function distillInput(rcaStructure: RcaDraft | null = null): CaseDistillInput {
     findings: [],
     evidence: [],
     sessionTitles: [],
-    memoryIndex: '',
     skillsIndex: [],
     referencesIndex: [],
     rcaStructure,
-    alreadyCaptured: { proposals: [], memoryWrites: [] }
+    alreadyCaptured: { proposals: [] }
   }
 }
 
@@ -149,9 +148,9 @@ describe('distill scaffolding honours an injected resolver', () => {
     const parts = out.split('\n\n')
 
     // Pins the separator count for this deterministic input: the contract text plus one
-    // hardcoded extra break in the (empty) findings section split it into 12 chunks. Any
+    // hardcoded extra break in the (empty) findings section split it into 11 chunks. Any
     // dropped or added '\n\n' anywhere in the assembly changes this number.
-    expect(parts.length).toBe(12)
+    expect(parts.length).toBe(11)
     expect(out.startsWith(CASE_DISTILL_CONTRACT)).toBe(true)
 
     let cursor = 0

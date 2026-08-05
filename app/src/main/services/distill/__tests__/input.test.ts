@@ -5,7 +5,6 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase, setCaseStatus } from '../../caseService'
-import { applyMemoryWrite } from '../../memory'
 import { writeProposal, rejectProposal } from '../../proposals'
 import { assembleDistillInput, buildReferencesIndex } from '../input'
 import { sharedReferencesDir } from '../../skillsDir'
@@ -35,8 +34,7 @@ describe('assembleDistillInput', () => {
       path.join(home, 'cases', 'case-a', 'findings.md'),
       `\n<!-- finding:${Number(r.lastInsertRowid)} -->\n## Root cause found\n\nClock resync.\n`
     )
-    // in-case knowledge: one memory write + one rejected proposal
-    applyMemoryWrite(home, 'case-a', { topic: 'dlt-timing', content: 'fact', indexEntry: 'entry' })
+    // in-case knowledge: one rejected proposal
     const pf = writeProposal(home, 'case-a', {
       type: 'recipe',
       target: 'dlt-cmds',
@@ -69,13 +67,9 @@ describe('assembleDistillInput', () => {
         content: '---\nname: analyze-dlt\n---\nbody'
       }
     ])
-    expect(input.alreadyCaptured.memoryWrites).toEqual([
-      { topic: 'dlt-timing', indexEntry: 'entry' }
-    ])
     expect(input.alreadyCaptured.proposals).toEqual([
       { type: 'recipe', target: 'dlt-cmds', title: 'Cmds', state: 'rejected' }
     ])
-    expect(input.memoryIndex).toContain('dlt-timing')
   })
 
   it('throws on unknown case', () => {
