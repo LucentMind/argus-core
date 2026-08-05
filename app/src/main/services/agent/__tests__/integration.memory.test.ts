@@ -53,6 +53,7 @@ describe('memory compounding mechanics (spec §1.6)', () => {
     applyMemoryWrite(argusHome, 'NAV-100', {
       topic: 'data-version-blocks',
       content: 'BLOCKED_VERSION → check the dataVersion allowlist before quota/network.',
+      scope: 'preference',
       indexEntry: 'BLOCKED_VERSION tile region rejections'
     })
     expect(readAudit(argusHome, 10)[0]).toMatchObject({

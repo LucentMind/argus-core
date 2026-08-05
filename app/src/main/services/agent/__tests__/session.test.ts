@@ -832,10 +832,16 @@ describe('CaseSession', () => {
   })
 
   it('injects the filtered memory index into the system prompt append', async () => {
-    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'keep', content: 'k', indexEntry: 'kept lesson' })
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'keep',
+      content: 'k',
+      scope: 'preference',
+      indexEntry: 'kept lesson'
+    })
     applyMemoryWrite(argusHome, 'NAV-1', {
       topic: 'drop',
       content: 'd',
+      scope: 'preference',
       indexEntry: 'dropped lesson'
     })
     const access = agentAccessSchema.parse({ memory: { drop: false } })
@@ -896,7 +902,12 @@ describe('CaseSession', () => {
   })
 
   it('memory files are not FS-readable — read_memory is the only read path', async () => {
-    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'keep', content: 'k', indexEntry: 'kept' })
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'keep',
+      content: 'k',
+      scope: 'preference',
+      indexEntry: 'kept'
+    })
     const sdk = fakeSdk()
     const s = makeSession(sdk, { agentAccess: () => agentAccessSchema.parse({}) })
     await flush()

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { z } from 'zod'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { ingestArtifact } from '../../ingest'
@@ -9,6 +10,7 @@ import { createDetection } from '../../packs/detection'
 import { createSession } from '../sessionStore'
 import { argusToolHandlers, NATIVE_TOOL_SPECS } from '../nativeTools'
 import { agentAccessSchema } from '../../../../shared/agentAccess'
+import { MEMORY_SCOPES } from '../../../../shared/memoryScope'
 import type { DatabaseSync } from 'node:sqlite'
 
 let tmp: string, argusHome: string, db: DatabaseSync, caseId: number
@@ -138,13 +140,21 @@ describe('argus native tools', () => {
   })
 
   it('read_memory returns an enabled topic body', async () => {
-    await handlers.write_memory({ topic: 'binder-crashes', content: 'check binder pool first' })
+    await handlers.write_memory({
+      topic: 'binder-crashes',
+      content: 'check binder pool first',
+      scope: 'correction'
+    })
     const out = await handlers.read_memory({ topic: 'binder-crashes' })
     expect(out).toContain('check binder pool first')
   })
 
   it('read_memory refuses a disabled topic', async () => {
-    await handlers.write_memory({ topic: 'binder-crashes', content: 'check binder pool first' })
+    await handlers.write_memory({
+      topic: 'binder-crashes',
+      content: 'check binder pool first',
+      scope: 'correction'
+    })
     const gated = argusToolHandlers({
       db,
       argusHome,
@@ -163,10 +173,11 @@ describe('argus native tools', () => {
     await expect(handlers.read_memory({ topic: 'nope' })).rejects.toThrow(/no such topic/i)
   })
 
-  it('write_memory appends topic content, index line, and audit entry', async () => {
+  it('write_memory writes topic content, index line, and audit entry', async () => {
     const out = await handlers.write_memory({
       topic: 'binder-crashes',
       content: 'VHAL binder crashes: check the binder thread pool first.',
+      scope: 'correction',
       index_entry: 'VHAL/binder crash triage order'
     })
     expect(out).toContain('binder-crashes')
@@ -174,6 +185,18 @@ describe('argus native tools', () => {
     expect(idx).toContain('- [binder-crashes](binder-crashes.md) — VHAL/binder crash triage order')
     const topic = fs.readFileSync(path.join(argusHome, 'memory', 'binder-crashes.md'), 'utf8')
     expect(topic).toContain('binder thread pool')
+  })
+
+  it('write_memory rejects a call with no scope', async () => {
+    await expect(handlers.write_memory({ topic: 'binder-crashes', content: 'x' })).rejects.toThrow(
+      /scope is required/
+    )
+  })
+
+  it('the write_memory spec exposes scope as an enum of the three values', () => {
+    const spec = NATIVE_TOOL_SPECS.find((s) => s.name === 'write_memory')!
+    expect(Object.keys(spec.schema).sort()).toEqual(['content', 'index_entry', 'scope', 'topic'])
+    expect((spec.schema.scope as z.ZodEnum<never>).options).toEqual([...MEMORY_SCOPES])
   })
 
   it('list_evidence shows a review session only artifacts', async () => {

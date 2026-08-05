@@ -18,6 +18,7 @@ import { ingestArtifact, listEvidence } from '../ingest'
 import { ensureWorktree } from '../workspaces'
 import { caseDir } from '../paths'
 import { applyMemoryWrite, readTopic } from '../memory'
+import { MEMORY_SCOPES } from '../../../shared/memoryScope'
 import { writeProposal } from '../proposals'
 import { pinCasePhase, setCaseStatus } from '../caseService'
 import { topicEnabled, defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
@@ -648,6 +649,7 @@ export function argusToolHandlers(
         {
           topic: String(args.topic ?? ''),
           content: String(args.content ?? ''),
+          scope: String(args.scope ?? ''),
           indexEntry: args.index_entry == null ? undefined : String(args.index_entry)
         },
         deps.resolve
@@ -841,7 +843,12 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
     name: 'write_memory',
     description:
       'Record a durable cross-case lesson in agent memory (memory/<topic>.md). Provide index_entry when creating a topic so future sessions can discover it via _index.md. index_entry is the description ONLY — do not repeat the topic name in it, the index line already links it.',
-    schema: { topic: z.string(), content: z.string(), index_entry: z.string().optional() }
+    schema: {
+      topic: z.string(),
+      content: z.string(),
+      scope: z.enum(MEMORY_SCOPES),
+      index_entry: z.string().optional()
+    }
   },
   {
     name: 'write_proposal',

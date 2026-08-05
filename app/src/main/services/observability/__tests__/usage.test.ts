@@ -93,8 +93,8 @@ describe('usageStats', () => {
   it('memory rows: recalls from tool_calls, lastWritten from the topic file, stale flag applied', () => {
     const db = openDb(':memory:')
     seedCase(db)
-    applyMemoryWrite(tmp, 'c', { topic: 'hot', content: 'x' })
-    applyMemoryWrite(tmp, 'c', { topic: 'cold', content: 'y' })
+    applyMemoryWrite(tmp, 'c', { topic: 'hot', content: 'x', scope: 'preference' })
+    applyMemoryWrite(tmp, 'c', { topic: 'cold', content: 'y', scope: 'preference' })
     logCall(db, 'mcp__argus__read_memory', 'hot', '2026-07-19T00:00:00.000Z')
     const s = usageStats({
       db,
@@ -147,7 +147,7 @@ describe('usageStats', () => {
   it('includes archived topics and the hygiene config', () => {
     const db = openDb(':memory:')
     seedCase(db)
-    applyMemoryWrite(tmp, 'c', { topic: 'bye', content: 'z' })
+    applyMemoryWrite(tmp, 'c', { topic: 'bye', content: 'z', scope: 'preference' })
     archiveTopic(tmp, 'bye')
     const s = usageStats({
       db,

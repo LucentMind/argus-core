@@ -71,6 +71,7 @@ describe('archive / restore round-trip', () => {
     applyMemoryWrite(home, 'case-1', {
       topic: 'nav-drift',
       content: 'bearing errors follow an IMU warning',
+      scope: 'preference',
       indexEntry: 'bearing errors follow an IMU warning'
     })
     const lineBefore = readIndex(home)
@@ -94,14 +95,24 @@ describe('archive / restore round-trip', () => {
 
   it('archive of a missing topic / restore onto a live namesake are rejected', () => {
     expect(() => archiveTopic(home, 'nope')).toThrow(/No such topic/)
-    applyMemoryWrite(home, 'c', { topic: 'dup', content: 'v1', indexEntry: 'v1' })
+    applyMemoryWrite(home, 'c', {
+      topic: 'dup',
+      content: 'v1',
+      scope: 'preference',
+      indexEntry: 'v1'
+    })
     archiveTopic(home, 'dup')
-    applyMemoryWrite(home, 'c', { topic: 'dup', content: 'v2' }) // fresh live namesake
+    applyMemoryWrite(home, 'c', { topic: 'dup', content: 'v2', scope: 'preference' }) // fresh live namesake
     expect(() => restoreTopic(home, 'dup')).toThrow(/already exists/)
   })
 
   it('index-edit failure rolls the file move back', () => {
-    applyMemoryWrite(home, 'c', { topic: 'roll', content: 'x', indexEntry: 'x' })
+    applyMemoryWrite(home, 'c', {
+      topic: 'roll',
+      content: 'x',
+      scope: 'preference',
+      indexEntry: 'x'
+    })
     // Make _index.md unwritable by replacing it with a directory of the same name.
     fs.rmSync(memoryIndexPath(home))
     fs.mkdirSync(memoryIndexPath(home))

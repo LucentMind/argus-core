@@ -21,8 +21,18 @@ afterEach(() => {
 })
 
 it('memory topics payload joins enablement from the access store', () => {
-  applyMemoryWrite(argusHome, 'NAV-1', { topic: 'a', content: 'x', indexEntry: 'a' })
-  applyMemoryWrite(argusHome, 'NAV-1', { topic: 'b', content: 'y', indexEntry: 'b' })
+  applyMemoryWrite(argusHome, 'NAV-1', {
+    topic: 'a',
+    content: 'x',
+    scope: 'preference',
+    indexEntry: 'a'
+  })
+  applyMemoryWrite(argusHome, 'NAV-1', {
+    topic: 'b',
+    content: 'y',
+    scope: 'preference',
+    indexEntry: 'b'
+  })
   store.patch({ memory: { b: false } })
   const access = store.get()
   const topics = listTopics(argusHome).map((t) => ({ ...t, enabled: topicEnabled(access, t.name) }))

@@ -71,14 +71,19 @@ describe('memory write errors honour an injected resolver', () => {
 
   it('throws the resolved text when a resolver is supplied', () => {
     expect(() =>
-      applyMemoryWrite(home(), 'c-1', { topic: 'anything', content: '   ' }, stub)
+      applyMemoryWrite(
+        home(),
+        'c-1',
+        { topic: 'anything', content: '   ', scope: 'preference' },
+        stub
+      )
     ).toThrow('<<tool-feedback.write_memory.empty-content>>')
   })
 
   it('throws the default text when no resolver is supplied', () => {
-    expect(() => applyMemoryWrite(home(), 'c-1', { topic: 'anything', content: '   ' })).toThrow(
-      'write_memory: content must not be empty'
-    )
+    expect(() =>
+      applyMemoryWrite(home(), 'c-1', { topic: 'anything', content: '   ', scope: 'preference' })
+    ).toThrow('write_memory: content must not be empty')
   })
 
   it('fills the index-entry length cap from the same constant the check uses', () => {
@@ -86,9 +91,21 @@ describe('memory write errors honour an injected resolver', () => {
       applyMemoryWrite(home(), 'c-1', {
         topic: 'anything',
         content: 'body',
+        scope: 'preference',
         indexEntry: 'x'.repeat(201)
       })
     ).toThrow('at most 200 characters')
+  })
+
+  it('registers the two new scope-rejection keys', () => {
+    expect(entryById('tool-feedback.write_memory.missing-scope')).toBeTruthy()
+    expect(entryById('tool-feedback.write_memory.invalid-scope')).toBeTruthy()
+  })
+
+  it('the invalid-scope message is filled with the offending value', () => {
+    expect(() =>
+      applyMemoryWrite(home(), 'c-1', { topic: 'anything', content: 'x', scope: 'workflow' })
+    ).toThrow('"workflow" is not a valid scope')
   })
 })
 

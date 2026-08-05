@@ -4,6 +4,7 @@ import { memoryAuditPath, memoryDir, memoryIndexPath } from './paths'
 import { topicEnabled, type AgentAccess } from '../../shared/agentAccess'
 import { fillPrompt } from './prompts/fill'
 import type { PromptTextSpecs } from '../../shared/promptSpec'
+import { MEMORY_SCOPES, type MemoryScope } from '../../shared/memoryScope'
 
 export const MEMORY_INDEX_MAX_LINES = 200
 
@@ -33,6 +34,9 @@ export interface MemoryAuditEntry {
   bytes: number
   /** Absent = agent write (the original shape). UI-driven hygiene actions tag themselves. */
   action?: 'archive' | 'restore'
+  /** Absent on entries written before the scope contract, and on archive/restore rows.
+   *  Optional on purpose: readAudit must keep parsing pre-feature lines. */
+  scope?: MemoryScope
 }
 
 function topicPath(argusHome: string, name: string): string {
@@ -119,6 +123,15 @@ export const MEMORY_INDEX_ENTRY_MAX = 200
  * write receipt, not instruction text.
  */
 export const MEMORY_FEEDBACK: PromptTextSpecs = {
+  'write_memory.missing-scope': {
+    title: 'write_memory — no scope given',
+    text: 'write_memory: scope is required and must be one of preference | environment | correction. Memory is for facts about THIS user and machine only. Knowledge a teammate would want belongs in a reference — use write_proposal(type:"reference-edit"). Detail about this case belongs in the case — use append_finding.'
+  },
+  'write_memory.invalid-scope': {
+    title: 'write_memory — unknown scope value',
+    text: 'write_memory: "{scope}" is not a valid scope — use preference | environment | correction.',
+    placeholders: ['scope']
+  },
   'write_memory.reserved-index': {
     title: 'write_memory — wrote to _index',
     text: 'write_memory: "_index" is a reserved topic name and cannot be written to'
@@ -147,14 +160,21 @@ export const MEMORY_FEEDBACK: PromptTextSpecs = {
 export function applyMemoryWrite(
   argusHome: string,
   caseSlug: string,
-  input: { topic: string; content: string; indexEntry?: string },
+  input: { topic: string; content: string; scope: string; indexEntry?: string },
   resolve?: (id: string) => string
 ): string {
   /** Resolve one `tool-feedback.*` entry and fill it. No resolver = the default. */
   const fb = (key: string, vars: Record<string, string> = {}): string =>
     fillPrompt(resolve ? resolve(`tool-feedback.${key}`) : MEMORY_FEEDBACK[key].text, vars)
 
-  const { topic, content } = input
+  const { topic, content, scope } = input
+  // Runtime, not just zod: tool args cross a stringly-typed driver boundary
+  // (nativeTools.ts coerces every field with String(...)), so the enum in the tool schema is
+  // a hint to the model and THIS is the gate.
+  if (!scope.trim()) throw new Error(fb('write_memory.missing-scope'))
+  if (!MEMORY_SCOPES.includes(scope as MemoryScope)) {
+    throw new Error(fb('write_memory.invalid-scope', { scope }))
+  }
   if (topic === '_index') {
     throw new Error(fb('write_memory.reserved-index'))
   }
@@ -200,7 +220,8 @@ export function applyMemoryWrite(
     caseSlug,
     topic,
     indexEntry,
-    bytes: Buffer.byteLength(content, 'utf8')
+    bytes: Buffer.byteLength(content, 'utf8'),
+    scope: scope as MemoryScope
   }
   fs.appendFileSync(memoryAuditPath(argusHome), JSON.stringify(entry) + '\n')
 
