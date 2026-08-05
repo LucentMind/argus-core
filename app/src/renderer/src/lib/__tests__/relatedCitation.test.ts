@@ -75,7 +75,7 @@ describe('formatRelatedCitation', () => {
   it('cites a merged row by its case and its corpus key', () => {
     const text = formatRelatedCitation(
       localHit({
-        jiraKey: 'KAN-5',
+        jiraKey: 'NAV-9',
         corpusRef: {
           sourceId: 'src1',
           key: 'KAN-5',
@@ -85,6 +85,7 @@ describe('formatRelatedCitation', () => {
     )
     expect(text).toContain('case `old-case`')
     expect(text).toContain('KAN-5')
+    expect(text).not.toContain('NAV-9')
     expect(text).toContain('https://corpus.example/browse/KAN-5')
   })
 
@@ -93,6 +94,28 @@ describe('formatRelatedCitation', () => {
     expect(text).toContain('charge plan dropped')
     expect(text).not.toContain('Signature:')
     expect(text).not.toContain('Fix:')
+  })
+
+  it('emits signature but omits fix when distilled.fix is null', () => {
+    const text = formatRelatedCitation(
+      corpusHit({
+        distilled: {
+          signature: 'charge plan dropped after reset',
+          symptoms: 'plan is null',
+          rootCause: 'cache cleared before reload',
+          fix: null,
+          terms: ['E_PLAN_NULL']
+        }
+      })
+    )
+    expect(text).toContain('Signature: charge plan dropped after reset')
+    expect(text).not.toContain('Fix:')
+  })
+
+  it('cites a local hit with no key by case slug alone', () => {
+    const text = formatRelatedCitation(localHit({ jiraKey: null }))
+    expect(text).toContain('Related history — case `old-case`')
+    expect(text).not.toContain('()')
   })
 
   it('ends with a newline so the user can type straight after it', () => {
