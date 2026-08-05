@@ -106,17 +106,19 @@ export function deleteTopic(argusHome: string, name: string): void {
   const p = topicPath(argusHome, name)
   if (name === '_index') throw new Error('Cannot delete the memory index')
   if (fs.existsSync(p)) fs.rmSync(p)
-  // The backup is a recovery floor for THIS topic's previous body, not a retained artifact once
-  // the topic itself is gone. Leaving it behind is invisible (no listing, no UI, no expiry) and
-  // dangerous: a topic of the same name created later would inherit a stranger's leftover body
-  // as its one recoverable level. force:true — an absent backup (never-replaced topic) is fine.
-  fs.rmSync(path.join(memoryBackupDir(argusHome), `${name}.md`), { force: true })
   const idx = readIndex(argusHome)
   const lineRe = indexLineFor(name)
   if (idx.split('\n').some((l) => lineRe.test(l))) {
     const kept = idx.split('\n').filter((l) => !lineRe.test(l))
     fs.writeFileSync(memoryIndexPath(argusHome), kept.join('\n'))
   }
+  // The backup is a recovery floor for THIS topic's previous body, not a retained artifact once
+  // the topic itself is gone. Leaving it behind is invisible (no listing, no UI, no expiry) and
+  // dangerous: a topic of the same name created later would inherit a stranger's leftover body
+  // as its one recoverable level. force:true — an absent backup (never-replaced topic) is fine.
+  // Last step on purpose: a non-ENOENT failure here (e.g. EPERM/EBUSY) must not abort the file
+  // removal or the index edit above it.
+  fs.rmSync(path.join(memoryBackupDir(argusHome), `${name}.md`), { force: true })
 }
 
 /** Length cap for one `_index.md` line. Referenced by both the check and its message so an

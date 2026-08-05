@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   isStaleCandidate,
   archiveTopic,
@@ -10,7 +10,7 @@ import {
   type HygieneConfig
 } from '../memoryHygiene'
 import { applyMemoryWrite, readAudit, readIndex, readTopic } from '../memory'
-import { memoryArchiveDir, memoryBackupDir, memoryDir, memoryIndexPath } from '../paths'
+import { memoryArchiveDir, memoryBackupDir, memoryDir } from '../paths'
 
 let home: string
 beforeEach(() => {
@@ -113,13 +113,20 @@ describe('archive / restore round-trip', () => {
       scope: 'preference',
       indexEntry: 'x'
     })
-    // Make _index.md unwritable by replacing it with a directory of the same name.
-    fs.rmSync(memoryIndexPath(home))
-    fs.mkdirSync(memoryIndexPath(home))
-    expect(() => archiveTopic(home, 'roll')).toThrow()
+    // readIndex must still succeed (archiveTopic calls it BEFORE the rename) — only the index
+    // *write* fails, so the rename actually happens and the rollback branch runs. Replacing
+    // _index.md with a directory fails readIndex's existsSync/readFileSync first and never
+    // reaches the rename at all, which would make this pass vacuously.
+    const spy = vi.spyOn(fs, 'writeFileSync').mockImplementationOnce(() => {
+      throw new Error('boom')
+    })
+    try {
+      expect(() => archiveTopic(home, 'roll')).toThrow()
+    } finally {
+      spy.mockRestore()
+    }
     expect(fs.existsSync(path.join(memoryDir(home), 'roll.md'))).toBe(true)
     expect(fs.existsSync(path.join(memoryArchiveDir(home), 'roll.md'))).toBe(false)
-    fs.rmdirSync(memoryIndexPath(home)) // let afterEach clean up
   })
 
   // Same reasoning as deleteTopic: an archived topic's leftover backup is invisible and, if the
@@ -144,11 +151,24 @@ describe('archive / restore round-trip', () => {
     applyMemoryWrite(home, 'c', { topic: 'roll', content: 'v2', scope: 'preference' })
     const bak = path.join(memoryBackupDir(home), 'roll.md')
     expect(fs.existsSync(bak)).toBe(true)
-    fs.rmSync(memoryIndexPath(home))
-    fs.mkdirSync(memoryIndexPath(home))
-    expect(() => archiveTopic(home, 'roll')).toThrow()
+    const live = path.join(memoryDir(home), 'roll.md')
+    const dest = path.join(memoryArchiveDir(home), 'roll.md')
+    // Fail the index *write*, not readIndex — this must actually rename the file and enter the
+    // rollback branch, or the backup-survives assertion below holds vacuously (see the sibling
+    // "index-edit failure rolls the file move back" test for why a directory-shadowed
+    // _index.md doesn't exercise the rollback at all).
+    const spy = vi.spyOn(fs, 'writeFileSync').mockImplementationOnce(() => {
+      throw new Error('boom')
+    })
+    try {
+      expect(() => archiveTopic(home, 'roll')).toThrow()
+    } finally {
+      spy.mockRestore()
+    }
+    // rollback actually ran: the live file is back, the archive destination is empty
+    expect(fs.existsSync(live)).toBe(true)
+    expect(fs.existsSync(dest)).toBe(false)
     // the archive never completed, so its one recoverable level must survive the rollback
     expect(fs.existsSync(bak)).toBe(true)
-    fs.rmdirSync(memoryIndexPath(home)) // let afterEach clean up
   })
 })

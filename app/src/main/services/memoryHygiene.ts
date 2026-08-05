@@ -83,10 +83,6 @@ export function archiveTopic(argusHome: string, topic: string): void {
     fs.renameSync(dest, live) // roll back — a failed archive must not half-apply
     throw err
   }
-  // Only after the rollback window above has closed: an archive that unwinds must not lose the
-  // topic's one recoverable backup level along the way. Same reasoning as deleteTopic — a live
-  // topic recreated under this name later must not inherit a stranger's leftover body.
-  fs.rmSync(path.join(memoryBackupDir(argusHome), `${topic}.md`), { force: true })
   appendAudit(argusHome, {
     ts: new Date().toISOString(),
     caseSlug: 'ui',
@@ -95,6 +91,12 @@ export function archiveTopic(argusHome: string, topic: string): void {
     bytes: 0,
     action: 'archive'
   })
+  // Last step on purpose, and only after the rollback window above has closed: an archive that
+  // unwinds must not lose the topic's one recoverable backup level along the way, and a
+  // non-ENOENT failure here (e.g. EPERM/EBUSY) must not abort the audit entry above it. Same
+  // reasoning as deleteTopic — a live topic recreated under this name later must not inherit a
+  // stranger's leftover body.
+  fs.rmSync(path.join(memoryBackupDir(argusHome), `${topic}.md`), { force: true })
 }
 
 /** Reverse of archiveTopic. Rejected when a live namesake exists (spec §3 collision rule). */
