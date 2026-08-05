@@ -69,6 +69,27 @@ describe('validateRelatedSearchInput', () => {
     expect(out.providerIds).toEqual(['local', 'corpus:src1'])
   })
 
+  // Important 1: `providerIds: []` means "search nothing" (the rail's "every
+  // source unchecked" case), which must survive validation as `[]` so it can
+  // reach `RelatedHistoryService`'s `no-providers` path. Dropping the key
+  // (the `filters` rule) instead makes it mean "unrestricted" — the opposite —
+  // which is the bug: unchecking every source in the rail searches every
+  // source anyway.
+  it('keeps an explicitly empty providerIds list rather than dropping it as unrestricted', () => {
+    const out = validateRelatedSearchInput({ query: 'x', providerIds: [] })
+    expect(out.providerIds).toEqual([])
+  })
+
+  it('leaves providerIds unset when the key is absent entirely', () => {
+    const out = validateRelatedSearchInput({ query: 'x' })
+    expect(out.providerIds).toBeUndefined()
+  })
+
+  it('still drops an empty filters list rather than sending [] (unlike providerIds)', () => {
+    const out = validateRelatedSearchInput({ query: 'x', filters: { projects: [] } })
+    expect(out.filters).toBeUndefined()
+  })
+
   it('requires at least one of caseSlug / query', () => {
     expect(() => validateRelatedSearchInput({ limit: 5 })).toThrow(/caseSlug or query/)
   })

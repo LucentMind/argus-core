@@ -195,9 +195,14 @@ export class RelatedHistoryService {
   async sources(): Promise<RelatedSourceInfo[]> {
     try {
       const out: RelatedSourceInfo[] = []
-      // Mirror the search fan-out's gate exactly (see `providers`): a corpus with
-      // nothing distilled has no local provider, and listing one here would offer
-      // a provenance filter for a source that never returns anything.
+      // Mirrors the search fan-out's DEFAULT gate only (see `providers`, which
+      // takes no `includeOpen` here — this method has no per-call options at
+      // all). The two disagree whenever a caller passes `includeOpenCases:
+      // true`: `providers()` then gates on the total population (closed +
+      // open) and can include local when this closed-only check would not.
+      // That is expected and does not need fixing here — the renderer is
+      // responsible for not treating this list as the complete fan-out (see
+      // `RelatedHistoryExplorer`'s union of `sources()` and search-health).
       if (summaryPopulation(this.deps.db, true) > 0) {
         out.push({
           id: LOCAL_PROVIDER_ID,

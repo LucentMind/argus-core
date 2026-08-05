@@ -7,6 +7,7 @@ import {
 import { assertSlug } from '../caseFiles'
 
 const MODES: readonly RelatedSearchMode[] = ['hybrid', 'lexical', 'semantic']
+// keep in sync with RelatedFilters (shared/relatedHistory.ts)
 const LIST_KEYS = ['projects', 'components', 'resolutions', 'statuses', 'fixVersions'] as const
 /** A filter list longer than this is a renderer bug or an attack, not a query. */
 const MAX_FILTER_VALUES = 50
@@ -91,8 +92,15 @@ export function validateRelatedSearchInput(raw: unknown): RelatedSearchInput {
 
   if (input.includeOpenCases === true) out.includeOpenCases = true
 
-  const providerIds = strings(input.providerIds, MAX_PROVIDER_IDS)
-  if (providerIds.length > 0) out.providerIds = providerIds
+  // Unlike `filters` above, an explicitly empty list here is NOT dropped: the
+  // renderer sends `providerIds: []` when the user unchecked every source in
+  // the rail, and that has to mean "search nothing" (RelatedHistoryService's
+  // `no-providers` path), not "key absent, so unrestricted". Distinguishing
+  // "absent" from "empty" on the array itself — not on the length of the
+  // strings that survive filtering — is what preserves that distinction.
+  if (Array.isArray(input.providerIds)) {
+    out.providerIds = strings(input.providerIds, MAX_PROVIDER_IDS)
+  }
 
   return out
 }
