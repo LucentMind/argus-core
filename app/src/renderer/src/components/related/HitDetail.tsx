@@ -10,6 +10,9 @@ import type {
 } from '../../../../shared/relatedHistory'
 import { Btn, Chip, SectionLabel } from '../ui'
 import { isOpenableUrl } from '../../lib/openableUrl'
+import { composerDraft } from '../../lib/composerDraft'
+import { formatRelatedCitation } from '../../lib/relatedCitation'
+import type { RelatedAttachResult } from '../../../../shared/relatedHistory'
 
 /** Just enough to fetch the canonical record (`related.defect(sourceId, key)`)
  *  and follow a link within this pane. Deliberately NOT the full `CorpusRef`:
@@ -173,6 +176,93 @@ function CorpusRecord({ record }: { record: RelatedDefectRecord }): React.JSX.El
 }
 
 /**
+ * The two pull-into-case actions (spec §10). Rendered only when the explorer is
+ * case-scoped — the standalone entry point passes no `caseSlug`, and the actions
+ * are then ABSENT rather than disabled (spec §8).
+ *
+ * Neither action is approval-gated. Spec §10 says so explicitly: these are
+ * user-initiated renderer actions, not panel or agent writes, so the part-3d-2
+ * HITL card does not apply. Do not add one by analogy.
+ */
+function HitActions({
+  hit,
+  caseSlug,
+  sessionId,
+  corpus,
+  onReferenced
+}: {
+  hit: RelatedHit
+  caseSlug: string
+  sessionId: number | null
+  corpus: CorpusLookup | null
+  onReferenced?: () => void
+}): React.JSX.Element {
+  const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState<{ text: string; bad: boolean } | null>(null)
+
+  function reference(): void {
+    if (sessionId === null) return
+    // Staged as a DRAFT, never sent — the same seam a panel's `sendToAgent`
+    // uses. This is the one path from corpus text to the model (spec §12.4)
+    // and the user reads it in the composer before it ever becomes a turn.
+    composerDraft.set(caseSlug, sessionId, formatRelatedCitation(hit))
+    onReferenced?.()
+  }
+
+  function attach(): void {
+    if (!corpus || busy) return
+    setBusy(true)
+    void window.argus.related
+      .attachEvidence(caseSlug, corpus.sourceId, corpus.key)
+      .then((res: RelatedAttachResult) => {
+        setStatus(
+          res.ok
+            ? {
+                text: res.deduped
+                  ? 'Already attached to this case.'
+                  : `Attached as ${res.record.relPath.split('/').pop()}`,
+                bad: false
+              }
+            : { text: res.error, bad: true }
+        )
+      })
+      .catch((e: unknown) => {
+        setStatus({ text: e instanceof Error ? e.message : String(e), bad: true })
+      })
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-hair pt-2">
+      <Btn
+        variant="outline"
+        onClick={reference}
+        disabled={sessionId === null}
+        title={
+          sessionId === null
+            ? 'No chat session in this case yet'
+            : 'Stage a citation in the composer to edit and send'
+        }
+      >
+        Reference in chat
+      </Btn>
+      {/* Corpus-only: a local hit IS your case, so there is nothing external to
+          freeze. Absent rather than disabled — the spec §8 precedent. */}
+      {corpus && (
+        <Btn variant="outline" onClick={attach} disabled={busy}>
+          Attach as evidence
+        </Btn>
+      )}
+      {status && (
+        <span className={`text-[11px] ${status.bad ? 'text-danger' : 'text-mute'}`}>
+          {status.text}
+        </span>
+      )}
+    </div>
+  )
+}
+
+/**
  * Detail for one hit (spec §9).
  *
  * A LOCAL hit renders from the search result it already has — no fetch, because
@@ -182,10 +272,17 @@ function CorpusRecord({ record }: { record: RelatedDefectRecord }): React.JSX.El
  */
 export function HitDetail({
   hit,
-  onOpenCase
+  onOpenCase,
+  caseSlug = null,
+  sessionId = null,
+  onReferenced
 }: {
   hit: RelatedHit
   onOpenCase?: (slug: string) => void
+  /** Case-scoped entry point only. Absent → no pull-into-case actions at all. */
+  caseSlug?: string | null
+  sessionId?: number | null
+  onReferenced?: () => void
 }): React.JSX.Element {
   const ref = corpusRefOf(hit)
   const [key, setKey] = useState<string | null>(ref?.key ?? null)
@@ -271,6 +368,15 @@ export function HitDetail({
             </div>
           )}
         </div>
+      )}
+      {caseSlug && (
+        <HitActions
+          hit={hit}
+          caseSlug={caseSlug}
+          sessionId={sessionId}
+          corpus={ref}
+          onReferenced={onReferenced}
+        />
       )}
     </div>
   )
