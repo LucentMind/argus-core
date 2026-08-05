@@ -208,7 +208,7 @@ export function ExplorerFilters({
   }
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col gap-4 overflow-y-auto pr-2">
+    <aside className="flex w-56 shrink-0 flex-col gap-4 overflow-y-auto overflow-x-hidden pr-2">
       <div className="flex flex-col gap-1.5">
         <SectionLabel>Sources</SectionLabel>
         {rows.length === 0 && probed && (

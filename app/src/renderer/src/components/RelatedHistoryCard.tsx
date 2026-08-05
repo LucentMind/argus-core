@@ -174,18 +174,18 @@ export function RelatedHistoryCard({
     }
   }, [slug])
 
-  if (dismissed || !result) return null
-  const degraded = degradedLabel(result.sources)
-  // Something to show when there are hits, something broken to report, or —
-  // Smaller fix 4 — a way to search further: zero hits with every source
-  // healthy is exactly when a user most wants "Search all history →", and
-  // hiding the whole card made that footer unreachable in that moment. That
-  // last case still needs BOTH a handler (nothing to click without one) and
-  // at least one known source (nothing configured means genuinely nothing to
-  // offer, not just nothing found).
-  const canSearchFurther = Boolean(onOpenExplorer) && result.sources.length > 0
-  const hasSomethingToOffer = result.hits.length > 0 || Boolean(degraded) || canSearchFurther
-  if (!hasSomethingToOffer) return null
+  const degraded = result ? degradedLabel(result.sources) : null
+  // Render when there is something to show OR something is broken. Returning
+  // null on zero hits alone would make an outage indistinguishable from
+  // "nothing similar" — the exact failure this feature exists to end (spec
+  // §11). A prior wave also rendered the shell on zero hits + every source
+  // healthy whenever a handler was supplied, to keep "Search all history →"
+  // reachable — but the spec's acceptance criterion (§1) is that the seeded
+  // sample case, which has no hits and no failed source, shows no card at
+  // all, and no special-casing of that slug is allowed. Those two rules
+  // cannot both hold, so this reverts to the spec's rule; the standalone
+  // explorer entry point in the top bar remains available in that state.
+  if (dismissed || !result || (result.hits.length === 0 && !degraded)) return null
 
   function dismiss(): void {
     localStorage.setItem(DISMISS_KEY(slug), '1')
@@ -201,14 +201,6 @@ export function RelatedHistoryCard({
         </IconBtn>
       </div>
       {degraded && <div className="text-[11px] text-mute">{degraded}</div>}
-      {/* Minor 2: zero hits + every source healthy + a `Search all history →`
-          footer used to render a heading and a footer with nothing between
-          them explaining why — a bare shell that looked broken rather than
-          "nothing found". `canSearchFurther` already proves there is
-          something to say here (a handler and at least one known source). */}
-      {result.hits.length === 0 && !degraded && (
-        <p className="text-[11px] text-dim">No related history found.</p>
-      )}
       <div className="flex flex-col gap-1.5">
         {result.hits.map((hit) => (
           <HitRow

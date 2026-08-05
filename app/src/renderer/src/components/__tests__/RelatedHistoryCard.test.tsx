@@ -65,13 +65,7 @@ describe('RelatedHistoryCard', () => {
     expect(screen.queryByText(/Known defects/i)).not.toBeInTheDocument()
   })
 
-  // Renamed from "renders nothing with no hits and every source healthy": that
-  // name described the fixture, not the reason — this renders nothing because
-  // no `onOpenExplorer` handler was given (there is genuinely nothing to
-  // offer without one), not because of source health. A healthy source alone
-  // is not sufficient for a bare shell to stay hidden once a handler is
-  // supplied — see "offers the explorer footer on zero hits..." below.
-  it('renders nothing with no hits and no explorer handler, even with a healthy source', async () => {
+  it('renders nothing with no hits and every source healthy', async () => {
     setArgus({ hits: [], sources: [{ id: 'local', name: 'Your cases', kind: 'local', ok: true }] })
     render(<RelatedHistoryCard slug="new" />)
     await waitFor(() => expect(screen.queryByText(/Related history/i)).not.toBeInTheDocument())
@@ -263,32 +257,28 @@ describe('RelatedHistoryCard', () => {
     )
   })
 
-  // Smaller fix 4: the footer's whole job is offering a way to search further,
-  // which is exactly what a user wants when this case's own search came back
-  // with nothing. The pre-fix card returned null on zero hits with no outage,
-  // making that footer unreachable in precisely the moment it matters most.
-  it('offers the explorer footer on zero hits when a searchable source exists', async () => {
-    setArgus({
-      hits: [],
-      sources: [{ id: 'local', name: 'Your cases', kind: 'local', ok: true }]
-    })
-    const onOpenExplorer = vi.fn()
-    render(<RelatedHistoryCard slug="new" onOpenExplorer={onOpenExplorer} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Search all history' }))
-    expect(onOpenExplorer).toHaveBeenCalled()
-  })
-
-  // Minor 2: zero hits, every source healthy, and a handler means the card
-  // renders a heading and the "Search all history →" footer — without a line
-  // in between saying nothing was found, that was a bare shell that read as
-  // broken rather than "nothing similar out there".
-  it('says nothing was found when the card renders on zero hits with a healthy source', async () => {
+  // Spec §1's acceptance criterion: opening the seeded sample case shows no
+  // related history card, and that must follow from a general rule, not a
+  // special case for its slug. This is the general rule, pinned directly:
+  // zero hits + every source healthy renders nothing at all even when an
+  // `onOpenExplorer` handler is supplied — a handler alone is not "something
+  // to offer" once the shell it would live in has nothing to show.
+  it('renders nothing on zero hits with every source healthy, even with an explorer handler', async () => {
     setArgus({
       hits: [],
       sources: [{ id: 'local', name: 'Your cases', kind: 'local', ok: true }]
     })
     render(<RelatedHistoryCard slug="new" onOpenExplorer={vi.fn()} />)
-    expect(await screen.findByText('No related history found.')).toBeInTheDocument()
+    const search = (
+      window as unknown as { argus: { related: { search: ReturnType<typeof vi.fn> } } }
+    ).argus.related.search
+    await waitFor(() => expect(search).toHaveBeenCalled())
+    // No positive signal to wait on when the card should render nothing (that
+    // is the point of the test) — flush the awaited `related.search()`
+    // microtask so the resulting `setResult` has actually applied before
+    // asserting the heading never appeared.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(screen.queryByText(/Related history/i)).not.toBeInTheDocument()
   })
 
   it('still renders nothing on zero hits with no sources at all, even with a handler', async () => {
