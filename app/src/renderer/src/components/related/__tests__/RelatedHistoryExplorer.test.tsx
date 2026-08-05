@@ -496,4 +496,154 @@ describe('RelatedHistoryExplorer', () => {
       expect(screen.getByLabelText('Search Your cases')).toBeInTheDocument()
     })
   })
+
+  // Important 1 (second wave): the previous wave's fix above made stickiness
+  // never shrink at all — correct for an EXCLUDED id (never in
+  // `providerIds`), wrong for an id the request genuinely had the chance to
+  // report and didn't. These pin the fixed rule: evict only when the
+  // request could have spoken to the id and the response stayed silent.
+  describe('a sticky id clears once a request that could have reported it does not', () => {
+    it('clears the synthetic "related-history" row after a healthy round', async () => {
+      const search = vi.fn()
+      search.mockResolvedValueOnce({
+        query: 'q',
+        hits: [],
+        sources: [
+          {
+            id: 'related-history',
+            name: 'Related history',
+            kind: 'service',
+            ok: false,
+            error: 'SQLITE_BUSY'
+          }
+        ]
+      })
+      search.mockResolvedValueOnce({
+        query: 'q',
+        hits: [],
+        sources: [{ id: 'local', name: 'Your cases', kind: 'local', ok: true }]
+      })
+      ;(window as unknown as { argus: unknown }).argus = {
+        related: { search, sources: vi.fn().mockResolvedValue(SOURCES), defect: vi.fn() }
+      }
+      render(<RelatedHistoryExplorer caseSlug="current" />)
+      // The synthetic service failure shows up as a normal rail row, error
+      // and all — this is the pre-fix baseline the next round must clear.
+      expect(await screen.findByText('SQLITE_BUSY')).toBeInTheDocument()
+      expect(screen.getByLabelText('Search Related history')).toBeInTheDocument()
+
+      fireEvent.change(screen.getByLabelText('Search related history'), {
+        target: { value: 'battery soc' }
+      })
+      fireEvent.submit(screen.getByRole('search'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
+
+      await waitFor(() => expect(screen.queryByText('SQLITE_BUSY')).not.toBeInTheDocument())
+      expect(screen.queryByLabelText('Search Related history')).not.toBeInTheDocument()
+    })
+
+    it('stops listing a provider once it genuinely leaves the fan-out (includeOpen on, then off)', async () => {
+      // Realistic shape: local only answers while `includeOpenCases` is set
+      // (e.g. nothing closed yet), so toggling it back off makes main's own
+      // provider list drop local — the response's `sources` genuinely omits
+      // it, exactly like a corpus removed from settings.
+      const search = vi.fn().mockImplementation((input: RelatedSearchInput) => {
+        const withLocal = input.includeOpenCases === true
+        return Promise.resolve({
+          query: 'q',
+          hits: [],
+          sources: withLocal ? [{ id: 'local', name: 'Your cases', kind: 'local', ok: true }] : [],
+          ...(withLocal ? {} : { reason: 'no-providers' as const })
+        })
+      })
+      ;(window as unknown as { argus: unknown }).argus = {
+        related: { search, sources: vi.fn().mockResolvedValue([]), defect: vi.fn() }
+      }
+      render(<RelatedHistoryExplorer caseSlug="current" />)
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(1))
+      expect(screen.queryByLabelText('Search Your cases')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByLabelText('Include open cases'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
+      expect(await screen.findByLabelText('Search Your cases')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByLabelText('Include open cases'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(3))
+      await waitFor(() =>
+        expect(screen.queryByLabelText('Search Your cases')).not.toBeInTheDocument()
+      )
+    })
+
+    // The property the fix must NOT regress — already exercised in depth by
+    // 'the rail survives a provider dropping out of a single round' above,
+    // which continues to pass unmodified after this fix (a user-excluded id
+    // is never in `providerIds`, so `evictStale` never touches it). This is
+    // a focused, standalone repeat of just that guarantee.
+    it('keeps a user-excluded row (and its ability to be re-checked) through a round that omits it from health', async () => {
+      const ALL_IDS = ['local', 'corpus:a']
+      const search = vi.fn().mockImplementation((input: RelatedSearchInput) => {
+        const ids = input.providerIds ?? ALL_IDS
+        const survivors = ALL_IDS.filter((id) => ids.includes(id))
+        return Promise.resolve({
+          query: 'q',
+          hits: [],
+          sources: survivors.map((id) => ({
+            id,
+            name: id === 'local' ? 'Your cases' : 'Corpus A',
+            kind: id === 'local' ? 'local' : 'corpus',
+            ok: true
+          }))
+        })
+      })
+      ;(window as unknown as { argus: unknown }).argus = {
+        related: {
+          search,
+          sources: vi.fn().mockResolvedValue([
+            {
+              id: 'corpus:a',
+              name: 'Corpus A',
+              kind: 'corpus',
+              ok: true,
+              semantic: false,
+              projects: []
+            }
+          ]),
+          defect: vi.fn()
+        }
+      }
+      render(<RelatedHistoryExplorer caseSlug="current" />)
+      expect(await screen.findByLabelText('Search Your cases')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByLabelText('Search Your cases'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
+      expect(search.mock.calls[1][0].providerIds).not.toEqual(expect.arrayContaining(['local']))
+
+      // Still there, and still checkable, even though this round's health
+      // said nothing about it at all.
+      expect(screen.getByLabelText('Search Your cases')).toBeInTheDocument()
+
+      // Also exclude the other source, so `excluded` stays non-empty after
+      // `local` is re-checked below — otherwise `providerIds` would go back
+      // to `undefined` (nothing excluded at all) and prove nothing about
+      // whether `local` specifically made it back in.
+      fireEvent.click(screen.getByLabelText('Search Corpus A'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(3))
+
+      fireEvent.click(screen.getByLabelText('Search Your cases'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(4))
+      const last = search.mock.calls[3][0] as RelatedSearchInput
+      expect(last.providerIds).toEqual(expect.arrayContaining(['local']))
+      expect(last.providerIds).not.toEqual(expect.arrayContaining(['corpus:a']))
+    })
+  })
+
+  // Minor 3: the fresh-install case (nothing configured at all) must not
+  // tell the user to "Check a source in the rail" when the rail itself,
+  // correctly, has nothing to check.
+  it('Minor 3: distinguishes nothing-configured from everything-unchecked in the no-providers copy', async () => {
+    setArgus({ query: 'q', hits: [], sources: [], reason: 'no-providers' }, [])
+    render(<RelatedHistoryExplorer caseSlug="current" />)
+    expect(await screen.findByText(/No sources are configured/)).toBeInTheDocument()
+    expect(screen.queryByText(/No sources are selected/)).not.toBeInTheDocument()
+  })
 })

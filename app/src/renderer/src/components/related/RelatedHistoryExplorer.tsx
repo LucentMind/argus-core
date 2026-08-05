@@ -100,15 +100,49 @@ function unionProviderIds(sources: RelatedSourceInfo[], health: SourceHealth[]):
   return [...new Set([...sources.map((s) => s.id), ...health.map((h) => h.id)])]
 }
 
+/** Important 1 (second wave): `mergeById` above is deliberately
+ *  never-shrinking — that is what keeps a provider's row alive across a
+ *  round that had no way to speak to it at all (excluded, or a probe that
+ *  under-reports). But "never shrinks" is only correct under that
+ *  condition. When a round DID have the chance to report an id — the
+ *  request's own `providerIds` was either absent (asked for everything) or
+ *  named it explicitly — and the response still omitted it, that omission
+ *  is real, not a gap: the id is pinned by a stale entry (the synthetic
+ *  `related-history` service failure, a provider that dropped out of the
+ *  fan-out, a corpus removed from settings) and must clear. An id the user
+ *  EXCLUDED is never in `providerIds`, so this never touches it — that is
+ *  what keeps an unchecked row re-checkable, which the previous wave's
+ *  stickiness fix depends on and which the tests below guard. */
+function evictStale<T extends { id: string }>(
+  known: T[],
+  requestedIds: string[] | undefined,
+  reportedIds: Set<string>
+): T[] {
+  const next = known.filter(
+    (k) => reportedIds.has(k.id) || !(requestedIds === undefined || requestedIds.includes(k.id))
+  )
+  return next.length === known.length ? known : next
+}
+
 /** Minor 1: `no-providers` and `query-too-generic` both used to render the
  *  same "nothing matched" line. That reads as "your search found nothing"
  *  when the truth for `no-providers` is "you have not asked anything" — a
  *  state a user can now genuinely reach just by unchecking every rail row
  *  (Important 1 made an empty `providerIds` mean "nothing", not
- *  "everything"), so conflating the two is actively misleading. */
-function emptyResultLabel(reason: RelatedReason | undefined): string {
+ *  "everything"), so conflating the two is actively misleading.
+ *
+ *  Minor 3 (second wave): `no-providers` alone still conflated two distinct
+ *  situations — nothing configured at all vs. every configured source
+ *  unchecked — and the fresh-install case actively contradicted the rail,
+ *  which (correctly) says "No searchable sources" in that state. Threading
+ *  through whether any provider id is known at all (the same union the rail
+ *  itself uses to decide that) lets the copy agree with the rail instead of
+ *  telling the user to do something the rail says is impossible. */
+function emptyResultLabel(reason: RelatedReason | undefined, hasKnownSources: boolean): string {
   if (reason === 'no-providers') {
-    return 'No sources are selected. Check a source in the rail to search it.'
+    return hasKnownSources
+      ? 'No sources are selected. Check a source in the rail to search it.'
+      : 'No sources are configured. Add a defect corpus in Settings → Defect corpus, or close and distill a case.'
   }
   if (reason === 'query-too-generic') {
     return 'That search is too generic to match anything meaningful. Try a more specific term.'
@@ -227,7 +261,20 @@ export function RelatedHistoryExplorer({
       .sources()
       .then((s) => {
         if (!alive) return
-        setSources((prev) => mergeById(prev, s))
+        setSources((prev) => {
+          // Important 1 (second wave): the synthetic `related-history`
+          // failure can land here too — `sources()` has its own pre-fan-out
+          // catch-all — the same sticky-forever problem one layer up. This
+          // probe has no per-call filter to reason about a REAL provider id
+          // going stale the way `evictStale` does for search health, but a
+          // fresh response that is not itself the catch-all firing again is
+          // proof the failure is over: drop any leftover `service`-kind row
+          // before folding the real list in.
+          const base = s.some((x) => x.kind === 'service')
+            ? prev
+            : prev.filter((x) => x.kind !== 'service')
+          return mergeById(base, s)
+        })
         setSourcesProbed(true)
       })
       .catch(() => {
@@ -254,12 +301,20 @@ export function RelatedHistoryExplorer({
     // under-reported provider like `local` silently stay excluded from every
     // future request the moment it stops appearing in one round.
     const ids = unionProviderIds(sources, health)
+    const input = toInput(req, caseSlug, ids)
     void window.argus.related
-      .search(toInput(req, caseSlug, ids))
+      .search(input)
       .then((r) => {
         if (!alive) return
         setCompleted({ req, result: r })
-        setHealth((prev) => mergeById(prev, r.sources))
+        // Important 1 (second wave): evict any sticky health entry this
+        // request had a real chance to report — see `evictStale` — before
+        // folding the fresh round in, so a stale id (the synthetic
+        // `related-history` failure, a provider that dropped out of the
+        // fan-out, a corpus removed from settings) can't outlive its own
+        // eviction check by being immediately re-added by the merge.
+        const reported = new Set(r.sources.map((s) => s.id))
+        setHealth((prev) => mergeById(evictStale(prev, input.providerIds, reported), r.sources))
         // Echoed query seeds the box exactly once, so a user edit is never
         // overwritten by a later response.
         if (!seeded.current && !req.edited) {
@@ -348,7 +403,9 @@ export function RelatedHistoryExplorer({
               />
             ))}
             {!loading && hits.length === 0 && shown && (
-              <p className="text-xs text-dim">{emptyResultLabel(shown.reason)}</p>
+              <p className="text-xs text-dim">
+                {emptyResultLabel(shown.reason, unionProviderIds(sources, health).length > 0)}
+              </p>
             )}
             {!shown && !caseSlug && !error && (
               <p className="text-xs text-dim">

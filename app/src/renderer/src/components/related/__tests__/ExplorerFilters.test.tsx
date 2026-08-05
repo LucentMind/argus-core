@@ -92,6 +92,35 @@ describe('ExplorerFilters', () => {
     expect(onChange).toHaveBeenLastCalledWith({ filters: {} })
   })
 
+  // Minor 2: the old guard only tested "is there a draft at all", not
+  // "does the draft differ from what's committed" — so retyping the exact
+  // committed value still fired a fresh `filters` object (a fresh `req`
+  // identity: a full fan-out to every corpus plus a paging reset) for an
+  // edit that changed nothing.
+  it('Minor 2: does not commit when the box is cleared and retyped back to the committed value', () => {
+    const { onChange } = setup({ req: { ...REQ, filters: { components: ['routing'] } } })
+    const input = screen.getByLabelText('Components')
+    // A single `fireEvent.change` straight to the already-rendered value
+    // (`'routing'` again) never reaches our handler at all — React's own
+    // value tracker sees no transition and suppresses the native `input`
+    // event, so that shape of test would pass even unfixed for the wrong
+    // reason. Routing through a genuinely different intermediate value (an
+    // empty box) forces the real change events our fix has to see.
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.change(input, { target: { value: 'routing' } })
+    fireEvent.blur(input)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('Minor 2: does not commit when typing then deleting back to the committed value', () => {
+    const { onChange } = setup({ req: { ...REQ, filters: { components: ['routing'] } } })
+    const input = screen.getByLabelText('Components')
+    fireEvent.change(input, { target: { value: 'routingX' } })
+    fireEvent.change(input, { target: { value: 'routing' } })
+    fireEvent.blur(input)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
   // Important 3: every keystroke used to fire a fresh `req` (and so a fresh
   // network fan-out); typing "routing" was 7 requests against a shared,
   // bearer-token-guarded corpus with no debounce and no abort.
@@ -137,13 +166,41 @@ describe('ExplorerFilters', () => {
   // field-level Escape discards the edit. This box commits on blur, and
   // `blurOnEscape` just calls `.blur()` — so without a specific guard,
   // Escape applied the abandoned draft instead of discarding it.
+  //
+  // Focusing the input first matters: jsdom's native `.blur()` (what the
+  // Escape handler calls) is a no-op on an element that isn't actually
+  // `document.activeElement` — it fires no event at all. Without the
+  // `input.focus()` below, `onBlur`/`commitToken` never run, so this test
+  // would pass even if the skip-ref suppression were deleted entirely (a
+  // "fix" that only cleared the draft would look identical). Focusing first
+  // makes the blur genuinely fire, so this actually exercises the guard.
   it('discards the draft on Escape, reverting the text and issuing no onChange', () => {
     const { onChange } = setup({ req: { ...REQ, filters: { components: ['original'] } } })
     const input = screen.getByLabelText('Components')
+    input.focus()
     fireEvent.change(input, { target: { value: 'typed junk' } })
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(input).toHaveValue('original')
     expect(onChange).not.toHaveBeenCalled()
+  })
+
+  // Minor 1: `skipCommitRef` is normally consumed by `commitToken`'s own
+  // `.delete()`, which only runs when a blur actually reaches it. On any
+  // path where `.blur()` dispatches nothing — reproduced here by NOT
+  // focusing the input before Escape, so the native `.blur()` the handler
+  // calls is a no-op — the flag is left in the Set forever, ready to eat
+  // the next genuine edit for that key.
+  it('Minor 1: a stale skip flag from an unconsumed Escape cannot eat a later genuine edit', () => {
+    const { onChange } = setup()
+    const input = screen.getByLabelText('Components')
+    fireEvent.change(input, { target: { value: 'typed junk' } })
+    fireEvent.keyDown(input, { key: 'Escape' }) // sets the flag; blur() no-ops, never consumes it
+    expect(onChange).not.toHaveBeenCalled()
+
+    // A genuine, later edit for the SAME key must still commit.
+    fireEvent.change(input, { target: { value: 'routing' } })
+    fireEvent.blur(input)
+    expect(onChange).toHaveBeenLastCalledWith({ filters: { components: ['routing'] } })
   })
 
   // The four token inputs used `defaultValue` (uncontrolled) while the date
@@ -263,5 +320,21 @@ describe('ExplorerFilters', () => {
       />
     )
     expect(screen.getByText(/No searchable sources/i)).toBeInTheDocument()
+  })
+
+  // Test gap: the probe returning `[]` (no capability info at all — e.g. a
+  // rejected or genuinely empty probe) must not be confused with "nothing
+  // searchable". `health` still knows about a real provider here, and
+  // unchecking every row must not manufacture the "no searchable sources"
+  // message — that message means "there is nothing to check", not "you
+  // checked nothing".
+  it('does not claim "No searchable sources" when the probe is empty but health has entries, even with everything unchecked', () => {
+    setup({
+      sources: [],
+      health: [{ id: 'local', name: 'Your cases', kind: 'local', ok: true }],
+      req: { ...REQ, excluded: ['local'] }
+    })
+    expect(screen.queryByText(/No searchable sources/i)).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Search Your cases')).toBeInTheDocument()
   })
 })

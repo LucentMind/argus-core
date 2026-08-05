@@ -185,7 +185,20 @@ export function ExplorerFilters({
   function commitToken(key: TokenFilterKey, raw: string): void {
     if (skipCommitRef.current.delete(key)) return
     if (!(key in drafts)) return
-    onChange({ filters: setList(req.filters, key, parseTokens(raw)) })
+    const tokens = parseTokens(raw)
+    const committed = req.filters[key] ?? []
+    // Minor 2: a draft existing is not the same as the draft having CHANGED
+    // anything. Retyping the exact committed text, or typing then deleting
+    // back to it, still leaves an entry in `drafts` — the guard above only
+    // tests draft existence. Without comparing against what is actually
+    // committed, either still manufactures a fresh `filters` object, and so
+    // a fresh `req` identity: a full IPC fan-out to every configured corpus
+    // plus a paging reset, for an edit that never happened.
+    const unchanged =
+      tokens.length === committed.length && tokens.every((t, i) => t === committed[i])
+    if (!unchanged) {
+      onChange({ filters: setList(req.filters, key, tokens) })
+    }
     setDrafts((d) => {
       if (!(key in d)) return d
       const next = { ...d }
@@ -291,6 +304,17 @@ export function ExplorerFilters({
               value={drafts[key] ?? (req.filters[key] ?? []).join(', ')}
               onChange={(e) => {
                 const raw = e.target.value
+                // Minor 1: `skipCommitRef` is normally consumed (and so
+                // cleared) by `commitToken`'s own `.delete()` the moment the
+                // Escape-triggered blur fires. But on any path where
+                // `.blur()` dispatches nothing — the element was not
+                // actually focused, among other cases — `commitToken` is
+                // never reached, so the key stays in the Set forever and
+                // silently eats the NEXT genuine commit for it. A fresh
+                // keystroke is unambiguous proof the user is editing again,
+                // not discarding, so clear the flag here too: it can never
+                // outlive the draft it was meant to suppress.
+                skipCommitRef.current.delete(key)
                 setDrafts((d) => ({ ...d, [key]: raw }))
               }}
               onBlur={(e) => commitToken(key, e.target.value)}
