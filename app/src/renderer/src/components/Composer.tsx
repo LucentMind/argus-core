@@ -419,12 +419,19 @@ export function Composer({
       ? PERMISSION_MODE_LABELS[settingsPayload.settings.agent.defaultPermissionMode]
       : 'Ask approvals'
 
-  // suggestion buttons (e.g. Analyze in the evidence library) overwrite the
-  // draft — adjust-state-during-render pattern instead of a setState effect
+  // Staged text (a suggestion button like Analyze in the evidence library, a
+  // panel's `sendToAgent`, a related-history citation) is APPENDED to whatever
+  // the user has already typed, never substituted for it. The staging surface
+  // is usually a modal covering this composer, so a replace silently destroys a
+  // half-written sentence with no undo — and the staged text is a draft to edit
+  // anyway, so having it land under the existing prose is what the user meant.
+  // Adjust-state-during-render pattern instead of a setState effect.
   const [lastPrefill, setLastPrefill] = useState(prefill)
   if (prefill !== lastPrefill) {
     setLastPrefill(prefill)
-    if (prefill) setText(prefill)
+    // Staged blocks already end with `\n`; one separator keeps a typed line and
+    // the block from running together without piling up blank lines.
+    if (prefill) setText(text ? `${text}\n${prefill}` : prefill)
   }
 
   const showSkills = text.startsWith('/') && !text.includes(' ')

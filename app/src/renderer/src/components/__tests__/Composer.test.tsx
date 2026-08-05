@@ -1150,3 +1150,27 @@ describe('Composer option chips', () => {
     })
   })
 })
+
+// A prefill is text some OTHER surface staged for this composer: an Analyze
+// suggestion, a panel's `sendToAgent`, a related-history citation. In every case
+// the staging surface is somewhere else on screen — often a modal covering this
+// composer — so the user's half-written sentence must survive the arrival.
+describe('Composer prefill', () => {
+  const box = (): HTMLTextAreaElement =>
+    screen.getByPlaceholderText<HTMLTextAreaElement>('Message the analyst — / for skills')
+
+  it('appends a newly staged draft to text the user already typed', () => {
+    const view = render(<Composer disabled={false} onSend={vi.fn()} />)
+    fireEvent.change(box(), { target: { value: 'I think this is the same regression —' } })
+    view.rerender(
+      <Composer disabled={false} onSend={vi.fn()} prefill={'Related history — KAN-5\n'} />
+    )
+    expect(box().value).toBe('I think this is the same regression —\nRelated history — KAN-5\n')
+  })
+
+  it('uses a staged draft as-is when the composer is empty', () => {
+    const view = render(<Composer disabled={false} onSend={vi.fn()} />)
+    view.rerender(<Composer disabled={false} onSend={vi.fn()} prefill="/analyze-binlog a.binlog" />)
+    expect(box().value).toBe('/analyze-binlog a.binlog')
+  })
+})
