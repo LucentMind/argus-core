@@ -207,8 +207,10 @@ mod tests {
         // process count far above anything realistic (the spec's §3 "generalisation"
         // table shows ~1900 average-sized processes reach the OLD uncapped bound),
         // must still serialise to well under the 1,000,000-character buffer cap on
-        // the TypeScript side. If either constant changes, this goes red instead of
-        // silently drifting apart.
+        // the TypeScript side. The `1_000_000` below is a literal, not a shared
+        // constant, so this only catches MAX_COMMAND_BYTES growing far enough to
+        // close the gap (~6x today) — it can't catch MAX_BUFFER_CHARS shrinking on
+        // the TS side. Keep the two numbers in sync by hand if either changes.
         let processes: Vec<ProcessSample> = (0..600)
             .map(|i| ProcessSample {
                 pid: i,

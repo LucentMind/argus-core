@@ -21,7 +21,11 @@ const MAX_BACKOFF_MS = 10_000
 // completed. A binary that never completes the handshake at all (not even `hello`,
 // itself a short newline-terminated line) is still a rogue substitute, and hits the
 // SAME cap through the ordinary fail() path in ingest() below, so the original
-// guard's purpose — catching that binary — survives unchanged.
+// guard's purpose — catching that binary — survives unchanged. This value is
+// mirrored (as a separate literal, not a shared constant) in a Rust-side test —
+// native/resource-monitor/src/protocol.rs's
+// a_snapshot_with_hundreds_of_max_length_commands_stays_comfortably_under_the_main_process_buffer_cap
+// — keep the two in sync by hand if either changes.
 const MAX_BUFFER_CHARS = 1_000_000
 
 export type SidecarClientDeps = {
