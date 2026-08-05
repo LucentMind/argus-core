@@ -1,7 +1,7 @@
 mod protocol;
 mod tree;
 
-use protocol::{Command, Hello, ProcessSample, Snapshot, PROTOCOL_VERSION};
+use protocol::{Command, Hello, ProcessSample, Snapshot, MAX_COMMAND_BYTES, PROTOCOL_VERSION};
 use std::io::{BufRead, Write};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -59,12 +59,14 @@ impl Monitor {
                 start_time_ms: p.start_time().saturating_mul(1000),
                 run_time_ms: p.run_time().saturating_mul(1000),
                 name: p.name().to_string_lossy().to_string(),
-                command: p
-                    .cmd()
-                    .iter()
-                    .map(|s| s.to_string_lossy().to_string())
-                    .collect::<Vec<_>>()
-                    .join(" "),
+                command: protocol::truncate_command(
+                    &p.cmd()
+                        .iter()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                    MAX_COMMAND_BYTES,
+                ),
                 status: format!("{:?}", p.status()),
                 cpu_time_ms: p.accumulated_cpu_time(),
                 resident_bytes: p.memory(),

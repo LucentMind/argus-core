@@ -3,6 +3,26 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Per-process `command` cap. 256 B is ample for any future prefix/substring
+/// labeling; see the spec's §8 "out of scope" note on the labeling feature
+/// this was originally retained for.
+pub const MAX_COMMAND_BYTES: usize = 256;
+
+/// Truncate `s` to at most `max_bytes` bytes, cutting on a UTF-8 character
+/// boundary so the result is always valid UTF-8. A single process's argv can
+/// legitimately approach `ARG_MAX` (up to ~1 MiB on macOS); this is what keeps
+/// one process from dominating a whole snapshot line.
+pub fn truncate_command(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
+}
+
 /// v2: dropped `streaming` from Configure and removed the SetStreaming command.
 /// The slow tick now always delivers its sample (main.rs no longer discards it),
 /// which made `streaming` write-only dead weight — nothing in the sidecar ever
@@ -142,5 +162,39 @@ mod tests {
         assert!(json.contains("\"retainedProcessCount\":3"));
         assert!(json.contains("\"sampledAtUnixMs\":5"));
         assert!(!json.contains("requestId"));
+    }
+
+    #[test]
+    fn truncate_command_leaves_a_short_string_untouched() {
+        assert_eq!(truncate_command("node server.js", 256), "node server.js");
+    }
+
+    #[test]
+    fn truncate_command_cuts_at_the_byte_cap() {
+        let s = "a".repeat(300);
+        let out = truncate_command(&s, 256);
+        assert_eq!(out.len(), 256);
+        assert_eq!(out, "a".repeat(256));
+    }
+
+    #[test]
+    fn truncate_command_never_splits_a_multibyte_char() {
+        // Each '€' is 3 bytes (0xE2 0x82 0xAC). A cap of 256 lands mid-character
+        // (256 is not a multiple of 3), so the naive `&s[..256]` would panic on a
+        // non-boundary byte index. The fixed cut point must be <= 256 and must
+        // land on a full character.
+        let s = "€".repeat(100); // 300 bytes total
+        let out = truncate_command(&s, 256);
+        assert!(out.len() <= 256);
+        assert!(out.is_char_boundary(out.len()));
+        assert!(std::str::from_utf8(out.as_bytes()).is_ok());
+        // 256 / 3 = 85.33, so the cut must land on the 85th full '€' (255 bytes).
+        assert_eq!(out, "€".repeat(85));
+    }
+
+    #[test]
+    fn truncate_command_at_exactly_the_cap_is_unchanged() {
+        let s = "a".repeat(256);
+        assert_eq!(truncate_command(&s, 256), s);
     }
 }
