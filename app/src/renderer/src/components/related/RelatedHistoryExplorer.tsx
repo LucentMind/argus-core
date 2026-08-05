@@ -66,6 +66,18 @@ function toInput(
   return input
 }
 
+/** Union of the standing probe and the last search's per-provider health, by
+ *  id — see Important 2. `sources()` mirrors only the DEFAULT fan-out gate (no
+ *  per-call options), so a provider that only becomes searchable under a
+ *  non-default option (e.g. local once `includeOpenCases` is set) can be
+ *  absent from the probe while still appearing in a completed search's
+ *  health. Using the probe alone here would let that provider be silently
+ *  excluded from `providerIds` filtering even though it is genuinely part of
+ *  the fan-out. */
+function unionProviderIds(sources: RelatedSourceInfo[], health: SourceHealth[]): string[] {
+  return [...new Set([...sources.map((s) => s.id), ...health.map((h) => h.id)])]
+}
+
 function degradedLabel(sources: SourceHealth[]): string | null {
   const failed = sources.filter((s) => !s.ok)
   if (failed.length === 0) return null
@@ -155,6 +167,12 @@ export function RelatedHistoryExplorer({
   // Search-button handler) naturally clears a stale error off the screen.
   const [failed, setFailed] = useState<{ req: ExplorerRequest; message: string } | null>(null)
   const [sources, setSources] = useState<RelatedSourceInfo[]>([])
+  // Latches true the first time the probe actually resolves. A rejected probe
+  // must NOT set this — a rejection is not evidence that no sources exist,
+  // unlike a successful resolution to an empty list — so the rail's "no
+  // searchable sources" copy stays honest instead of sticking around forever
+  // after one failed `related:sources` call.
+  const [sourcesProbed, setSourcesProbed] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
   const [probeNonce, setProbeNonce] = useState(0)
   const seeded = useRef(false)
@@ -164,7 +182,9 @@ export function RelatedHistoryExplorer({
     void window.argus.related
       .sources()
       .then((s) => {
-        if (alive) setSources(s)
+        if (!alive) return
+        setSources(s)
+        setSourcesProbed(true)
       })
       .catch(() => {
         /* the rail simply shows no capability info; search still works */
@@ -182,7 +202,13 @@ export function RelatedHistoryExplorer({
   useEffect(() => {
     if (!shouldSearch) return
     let alive = true
-    const ids = sources.map((s) => s.id)
+    // The full provider set for "which id did the user NOT uncheck" purposes
+    // is the union of the probe and the last completed search's health (see
+    // `unionProviderIds`) — the probe alone can under-report (Important 2:
+    // `sources()` mirrors only the default fan-out gate), and using it alone
+    // would let an under-reported provider like `local` silently stay
+    // excluded from every future request once the user unchecks anything.
+    const ids = unionProviderIds(sources, completed?.result.sources ?? [])
     void window.argus.related
       .search(toInput(req, caseSlug, ids))
       .then((r) => {
@@ -207,8 +233,9 @@ export function RelatedHistoryExplorer({
     return () => {
       alive = false
     }
-    // `sources` is read for provider ids only; a probe landing later must not
-    // re-fire the search.
+    // `sources` and `completed` are read for provider ids only (see
+    // `unionProviderIds` above); a probe landing, or a PRIOR request
+    // completing, must not re-fire this search on its own.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [req, caseSlug, shouldSearch])
 
@@ -233,6 +260,7 @@ export function RelatedHistoryExplorer({
         req={req}
         sources={sources}
         health={shown?.sources ?? []}
+        probed={sourcesProbed}
         onChange={(patch) => setReq((r) => ({ ...r, ...patch, limit: EXPLORER_PAGE }))}
         onRetry={() => {
           setProbeNonce((n) => n + 1)

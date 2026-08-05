@@ -4,7 +4,9 @@ import { describe, it, expect, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { RelatedHistoryExplorer } from '../RelatedHistoryExplorer'
 import type {
+  CorpusDefectHit,
   LocalCaseHit,
+  RelatedSearchInput,
   RelatedSearchResult,
   RelatedSourceInfo
 } from '../../../../../shared/relatedHistory'
@@ -21,6 +23,23 @@ const hit = (over: Partial<LocalCaseHit> = {}): LocalCaseHit => ({
   rank: 1,
   fusedScore: 0.016,
   status: { label: 'solved', tone: 'resolved' },
+  distilled: null,
+  ...over
+})
+
+const corpusHit = (over: Partial<CorpusDefectHit> = {}): CorpusDefectHit => ({
+  kind: 'corpus',
+  id: 'corpus:src1:KAN-5',
+  sourceId: 'src1',
+  key: 'KAN-5',
+  url: 'https://corpus.example/browse/KAN-5',
+  provenance: [{ providerId: 'corpus:src1', providerName: 'Hindsight', kind: 'corpus' }],
+  title: 'charge plan dropped',
+  snippet: null,
+  matchedOn: 'lexical',
+  rank: 1,
+  fusedScore: 0.016,
+  status: { label: 'Done / Fixed', tone: 'resolved' },
   distilled: null,
   ...over
 })
@@ -207,5 +226,117 @@ describe('RelatedHistoryExplorer', () => {
     await screen.findByText('ECU reset drifts DLT')
     expect(screen.queryByRole('button', { name: /Reference in chat/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Attach as evidence/ })).not.toBeInTheDocument()
+  })
+
+  // Important 1 & 2: no existing test exercises `toInput`'s `providerIds` /
+  // `includeOpenCases` branches against the actual outgoing request — the rail
+  // unit tests only assert the callback *patch*, which passes regardless of
+  // what `toInput` does with it.
+  describe('provider selection reaches the outgoing request', () => {
+    const TWO_SOURCES: RelatedSourceInfo[] = [
+      { id: 'local', name: 'Your cases', kind: 'local', ok: true, semantic: false, projects: [] },
+      {
+        id: 'corpus:src1',
+        name: 'Hindsight',
+        kind: 'corpus',
+        ok: true,
+        semantic: false,
+        projects: []
+      }
+    ]
+
+    function fakeSearch(): ReturnType<typeof vi.fn> {
+      return vi.fn().mockImplementation((input: RelatedSearchInput) => {
+        const ids = input.providerIds
+        const wantsLocal = ids === undefined || ids.includes('local')
+        const wantsCorpus = ids === undefined || ids.includes('corpus:src1')
+        const hits: Array<LocalCaseHit | CorpusDefectHit> = []
+        if (wantsLocal) hits.push(hit())
+        if (wantsCorpus) hits.push(corpusHit())
+        return Promise.resolve({
+          query: 'q',
+          hits,
+          sources: [
+            { id: 'local', name: 'Your cases', kind: 'local', ok: true },
+            { id: 'corpus:src1', name: 'Hindsight', kind: 'corpus', ok: true }
+          ]
+        })
+      })
+    }
+
+    it('unchecking every source sends providerIds: [] and drops every hit shown', async () => {
+      const search = fakeSearch()
+      ;(window as unknown as { argus: unknown }).argus = {
+        related: { search, sources: vi.fn().mockResolvedValue(TWO_SOURCES), defect: vi.fn() }
+      }
+      render(<RelatedHistoryExplorer caseSlug="current" />)
+      expect(await screen.findByText('ECU reset drifts DLT')).toBeInTheDocument()
+      expect(screen.getByText(/charge plan dropped/)).toBeInTheDocument()
+
+      fireEvent.click(screen.getByLabelText('Search Your cases'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
+      fireEvent.click(screen.getByLabelText('Search Hindsight'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(3))
+
+      const last = search.mock.calls[2][0] as RelatedSearchInput
+      expect(last.providerIds).toEqual([])
+
+      await waitFor(() =>
+        expect(screen.queryByText('ECU reset drifts DLT')).not.toBeInTheDocument()
+      )
+      expect(screen.queryByText(/charge plan dropped/)).not.toBeInTheDocument()
+    })
+
+    it('keeps local in providerIds when only a corpus is unchecked, with includeOpenCases on', async () => {
+      // `sources()` (the probe) never lists `local` here — gated closed-only,
+      // nothing closed yet — so the rail only learns local exists from a
+      // completed search's health once include-open makes it searchable.
+      const CORPORA_ONLY: RelatedSourceInfo[] = [
+        {
+          id: 'corpus:a',
+          name: 'Corpus A',
+          kind: 'corpus',
+          ok: true,
+          semantic: false,
+          projects: []
+        },
+        {
+          id: 'corpus:b',
+          name: 'Corpus B',
+          kind: 'corpus',
+          ok: true,
+          semantic: false,
+          projects: []
+        }
+      ]
+      const search = vi.fn().mockResolvedValue({
+        query: 'q',
+        hits: [],
+        sources: [
+          { id: 'local', name: 'Your cases', kind: 'local', ok: true },
+          { id: 'corpus:a', name: 'Corpus A', kind: 'corpus', ok: true },
+          { id: 'corpus:b', name: 'Corpus B', kind: 'corpus', ok: true }
+        ]
+      })
+      ;(window as unknown as { argus: unknown }).argus = {
+        related: { search, sources: vi.fn().mockResolvedValue(CORPORA_ONLY), defect: vi.fn() }
+      }
+      render(<RelatedHistoryExplorer caseSlug="current" />)
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(1))
+
+      fireEvent.click(screen.getByLabelText('Include open cases'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
+
+      // The rail only shows a "local" checkbox at all because of Important 2's
+      // union fix; this also implicitly covers that the row exists.
+      expect(screen.getByLabelText('Search Your cases')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByLabelText('Search Corpus B'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(3))
+
+      const last = search.mock.calls[2][0] as RelatedSearchInput
+      expect(last.providerIds).toEqual(expect.arrayContaining(['local']))
+      expect(last.providerIds).not.toEqual(expect.arrayContaining(['corpus:b']))
+    })
   })
 })

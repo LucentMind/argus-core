@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type {
   RelatedFilters,
   RelatedSearchMode,
@@ -25,6 +26,8 @@ const TOKEN_FILTERS = [
   { key: 'fixVersions', label: 'Fix versions' }
 ] as const
 
+type TokenFilterKey = (typeof TOKEN_FILTERS)[number]['key']
+
 function setList(
   filters: RelatedFilters,
   key: keyof RelatedFilters,
@@ -45,15 +48,47 @@ function parseTokens(raw: string): string[] {
     .filter(Boolean)
 }
 
+/** One row in the rail's union of the standing probe and the last search's
+ *  per-provider health, keyed by id — see `railRows`. A row with no `source`
+ *  came from health alone (a provider the probe doesn't list, e.g. local
+ *  before `includeOpenCases` was ever set) and shows only a name and status,
+ *  never capability info it was never given. */
+interface RailRow {
+  id: string
+  name: string
+  source: RelatedSourceInfo | undefined
+  health: SourceHealth | undefined
+}
+
+/** Union of `sources` (the standing probe) and `health` (the last search's
+ *  per-provider outcome), keyed by id. A provider missing from the probe but
+ *  present in `health` is exactly the case `sources()` cannot see (spec: it
+ *  takes no per-call options, so it mirrors only the DEFAULT fan-out gate) —
+ *  without this union that provider's row, and its checkbox, would simply
+ *  never exist, so unchecking "everything visible" would silently leave it
+ *  included in the fan-out. */
+function railRows(sources: RelatedSourceInfo[], health: SourceHealth[]): RailRow[] {
+  const rows = new Map<string, RailRow>()
+  for (const s of sources) rows.set(s.id, { id: s.id, name: s.name, source: s, health: undefined })
+  for (const h of health) {
+    const existing = rows.get(h.id)
+    if (existing) existing.health = h
+    else rows.set(h.id, { id: h.id, name: h.name, source: undefined, health: h })
+  }
+  return [...rows.values()]
+}
+
 /** One line per source: whether to search it, plus why it is not answering. */
 function SourceRow({
+  name,
   source,
   health,
   checked,
   onToggle,
   onRetry
 }: {
-  source: RelatedSourceInfo
+  name: string
+  source: RelatedSourceInfo | undefined
   health: SourceHealth | undefined
   checked: boolean
   onToggle: () => void
@@ -61,22 +96,18 @@ function SourceRow({
 }): React.JSX.Element {
   // Search health (this request's outcome) wins over the standing probe: a
   // source that answered a moment ago but failed THIS search is the state the
-  // user is looking at.
+  // user is looking at. A health-only row (no probe entry at all) has nothing
+  // to fall back to and is simply never in error from the probe's side.
   const error = health
     ? health.ok
       ? undefined
       : health.error
-    : !source.ok
+    : source && !source.ok
       ? source.error
       : undefined
   return (
     <div className="flex flex-col gap-0.5">
-      <Toggle
-        checked={checked}
-        onChange={onToggle}
-        aria-label={`Search ${source.name}`}
-        label={source.name}
-      />
+      <Toggle checked={checked} onChange={onToggle} aria-label={`Search ${name}`} label={name} />
       {error && (
         <div className="ml-5 flex items-center gap-2">
           <span className="min-w-0 flex-1 truncate text-[11px] text-danger" title={error}>
@@ -105,39 +136,65 @@ export function ExplorerFilters({
   req,
   sources,
   health,
+  probed,
   onChange,
   onRetry
 }: {
   req: ExplorerRequest
   sources: RelatedSourceInfo[]
   health: SourceHealth[]
+  /** Whether the standing probe (`related:sources`) has ever resolved. A
+   *  pending or permanently-rejected probe is not evidence that no sources
+   *  exist, so the empty-rail copy below must not show until this is true. */
+  probed: boolean
   onChange: (patch: Partial<ExplorerRequest>) => void
   onRetry: () => void
 }): React.JSX.Element {
   const semanticAvailable = sources.some((s) => s.semantic)
   const projects = [...new Set(sources.flatMap((s) => s.projects))].sort()
+  const rows = railRows(sources, health)
+
+  // Important 3: the four token boxes below fire `onChange` — a fresh `req`,
+  // and so a fresh network fan-out to every configured corpus — only on blur
+  // or Enter, never on every keystroke. `drafts` holds the in-progress text
+  // for a box the user is actively typing in; it is controlled (falls back to
+  // `req.filters[key]` once there is no draft), unlike the old `defaultValue`
+  // input, which stopped reflecting `req.filters` the moment the user touched
+  // it.
+  const [drafts, setDrafts] = useState<Partial<Record<TokenFilterKey, string>>>({})
+
+  function commitToken(key: TokenFilterKey, raw: string): void {
+    onChange({ filters: setList(req.filters, key, parseTokens(raw)) })
+    setDrafts((d) => {
+      if (!(key in d)) return d
+      const next = { ...d }
+      delete next[key]
+      return next
+    })
+  }
 
   return (
     <aside className="flex w-56 shrink-0 flex-col gap-4 overflow-y-auto pr-2">
       <div className="flex flex-col gap-1.5">
         <SectionLabel>Sources</SectionLabel>
-        {sources.length === 0 && (
+        {rows.length === 0 && probed && (
           <p className="text-[11px] text-dim">
             No searchable sources. Add a defect corpus in Settings → Defect corpus, or close and
             distill a case.
           </p>
         )}
-        {sources.map((s) => (
+        {rows.map((row) => (
           <SourceRow
-            key={s.id}
-            source={s}
-            health={health.find((h) => h.id === s.id)}
-            checked={!req.excluded.includes(s.id)}
+            key={row.id}
+            name={row.name}
+            source={row.source}
+            health={row.health}
+            checked={!req.excluded.includes(row.id)}
             onToggle={() =>
               onChange({
-                excluded: req.excluded.includes(s.id)
-                  ? req.excluded.filter((id) => id !== s.id)
-                  : [...req.excluded, s.id]
+                excluded: req.excluded.includes(row.id)
+                  ? req.excluded.filter((id) => id !== row.id)
+                  : [...req.excluded, row.id]
               })
             }
             onRetry={onRetry}
@@ -210,11 +267,19 @@ export function ExplorerFilters({
             {label}
             <input
               aria-label={label}
-              defaultValue={(req.filters[key] ?? []).join(', ')}
-              onChange={(e) =>
-                onChange({ filters: setList(req.filters, key, parseTokens(e.target.value)) })
-              }
-              onKeyDown={blurOnEscape}
+              value={drafts[key] ?? (req.filters[key] ?? []).join(', ')}
+              onChange={(e) => {
+                const raw = e.target.value
+                setDrafts((d) => ({ ...d, [key]: raw }))
+              }}
+              onBlur={(e) => commitToken(key, e.target.value)}
+              onKeyDown={(e) => {
+                blurOnEscape(e)
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  commitToken(key, e.currentTarget.value)
+                }
+              }}
               placeholder="comma separated"
               className="rounded-r2 border border-hair bg-overlay px-1.5 py-1 text-xs text-ink"
             />

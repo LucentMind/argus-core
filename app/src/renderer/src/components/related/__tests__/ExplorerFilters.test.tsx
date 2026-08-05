@@ -44,6 +44,7 @@ function setup(over: Partial<Parameters<typeof ExplorerFilters>[0]> = {}): {
       req={REQ}
       sources={[LOCAL, CORPUS]}
       health={[]}
+      probed
       onChange={onChange}
       onRetry={onRetry}
       {...over}
@@ -70,16 +71,69 @@ describe('ExplorerFilters', () => {
     expect(onChange).toHaveBeenCalledWith({ filters: { projects: ['KAN'] } })
   })
 
-  it('parses a comma-separated token filter into an array', () => {
+  it('parses a comma-separated token filter into an array on blur', () => {
     const { onChange } = setup()
     fireEvent.change(screen.getByLabelText('Components'), { target: { value: 'routing, hmi' } })
+    fireEvent.blur(screen.getByLabelText('Components'))
     expect(onChange).toHaveBeenLastCalledWith({ filters: { components: ['routing', 'hmi'] } })
+  })
+
+  it('commits a token filter on Enter without needing a separate blur', () => {
+    const { onChange } = setup()
+    fireEvent.change(screen.getByLabelText('Components'), { target: { value: 'routing' } })
+    fireEvent.keyDown(screen.getByLabelText('Components'), { key: 'Enter' })
+    expect(onChange).toHaveBeenLastCalledWith({ filters: { components: ['routing'] } })
   })
 
   it('drops a token filter entirely when its box is cleared', () => {
     const { onChange } = setup({ req: { ...REQ, filters: { components: ['routing'] } } })
     fireEvent.change(screen.getByLabelText('Components'), { target: { value: '  ' } })
+    fireEvent.blur(screen.getByLabelText('Components'))
     expect(onChange).toHaveBeenLastCalledWith({ filters: {} })
+  })
+
+  // Important 3: every keystroke used to fire a fresh `req` (and so a fresh
+  // network fan-out); typing "routing" was 7 requests against a shared,
+  // bearer-token-guarded corpus with no debounce and no abort.
+  it('does not call onChange while typing — only on blur or Enter', () => {
+    const { onChange } = setup()
+    for (const ch of 'routing') {
+      fireEvent.change(screen.getByLabelText('Components'), {
+        target: { value: (screen.getByLabelText('Components') as HTMLInputElement).value + ch }
+      })
+    }
+    expect(onChange).not.toHaveBeenCalled()
+    fireEvent.blur(screen.getByLabelText('Components'))
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+
+  // The four token inputs used `defaultValue` (uncontrolled) while the date
+  // filter beside them is controlled. `defaultValue` only seeds the DOM node
+  // once — after the user has ever touched the field, it stays whatever was
+  // last typed no matter what `req.filters` says. Controlled means the box
+  // reflects `req.filters[key]` again once there is no active draft, even
+  // after the user has interacted with it.
+  it('reverts to the prop value once committed, rather than sticking on stale typed text', () => {
+    const onChange = vi.fn() // a stub, deliberately: does not feed back into `req`
+    render(
+      <ExplorerFilters
+        req={{ ...REQ, filters: { components: ['original'] } }}
+        sources={[LOCAL, CORPUS]}
+        health={[]}
+        probed
+        onChange={onChange}
+        onRetry={vi.fn()}
+      />
+    )
+    const input = screen.getByLabelText('Components')
+    expect(input).toHaveValue('original')
+    fireEvent.change(input, { target: { value: 'typed junk' } })
+    fireEvent.blur(input)
+    expect(onChange).toHaveBeenCalledWith({ filters: { components: ['typed junk'] } })
+    // The parent (a bare stub here) never actually updated `req`, so the box
+    // must fall back to `req.filters` again — not stay stuck on whatever was
+    // last typed, the way an uncontrolled `defaultValue` input would.
+    expect(input).toHaveValue('original')
   })
 
   it('toggles include-open-cases, marked local-only', () => {
@@ -120,5 +174,55 @@ describe('ExplorerFilters', () => {
       ]
     })
     expect(screen.queryByText('no token configured')).not.toBeInTheDocument()
+  })
+
+  // Important 2: the rail's row set is the union of the probe (`sources`) and
+  // the last search's per-provider health, keyed by id — not `sources` alone.
+  // A provider that is actively part of the fan-out (e.g. local, once
+  // `includeOpenCases` makes it searchable) must have a row even when the
+  // probe itself never lists it, because the probe has no per-call options.
+  it('shows a row for a provider that only appears in search health, not in the probe', () => {
+    setup({
+      sources: [CORPUS],
+      health: [
+        { id: 'local', name: 'Your cases', kind: 'local', ok: true },
+        { id: 'corpus:src1', name: 'Hindsight', kind: 'corpus', ok: true }
+      ]
+    })
+    expect(screen.getByLabelText('Search Your cases')).toBeInTheDocument()
+  })
+
+  it('lets a health-only row be unchecked like any other source', () => {
+    const { onChange } = setup({
+      sources: [CORPUS],
+      health: [{ id: 'local', name: 'Your cases', kind: 'local', ok: true }]
+    })
+    fireEvent.click(screen.getByLabelText('Search Your cases'))
+    expect(onChange).toHaveBeenCalledWith({ excluded: ['local'] })
+  })
+
+  it('shows "no searchable sources" only once a probe has actually completed', () => {
+    const { rerender } = render(
+      <ExplorerFilters
+        req={REQ}
+        sources={[]}
+        health={[]}
+        probed={false}
+        onChange={vi.fn()}
+        onRetry={vi.fn()}
+      />
+    )
+    expect(screen.queryByText(/No searchable sources/i)).not.toBeInTheDocument()
+    rerender(
+      <ExplorerFilters
+        req={REQ}
+        sources={[]}
+        health={[]}
+        probed
+        onChange={vi.fn()}
+        onRetry={vi.fn()}
+      />
+    )
+    expect(screen.getByText(/No searchable sources/i)).toBeInTheDocument()
   })
 })
