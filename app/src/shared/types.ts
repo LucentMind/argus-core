@@ -75,6 +75,10 @@ export type EvidenceOrigin =
   | 'paste'
   /** A CI job log pulled in by `fetch_check_logs` (Plan 5). */
   | 'ci'
+  /** A frozen markdown snapshot of a defect-corpus record, attached from the
+   *  related-history explorer (related-history spec §10). The column has no
+   *  CHECK constraint, so this needs no migration. */
+  | 'corpus'
 
 export interface NewCaseInput {
   slug: string
