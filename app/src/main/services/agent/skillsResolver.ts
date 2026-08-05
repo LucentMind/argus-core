@@ -90,6 +90,22 @@ export function frontmatterDescriptionAndAuthor(skillDir: string): {
   return { description: parseDescription(fm), author: parseAuthor(fm) }
 }
 
+/** True when `name` currently resolves to the bundled (pack/core) tier — i.e. no user or
+ *  hivemind copy shadows it. Cheap existence check, not a full `resolveSkills` scan (the same
+ *  discipline `proposalCounts` documents: this runs on every write attempt, not just once). */
+export function isBundledSkillName(argusHome: string, name: string): boolean {
+  return fs.existsSync(path.join(sharedSkillsDir(argusHome), name, 'SKILL.md'))
+}
+
+/** Message shared by every write path that refuses to newly shadow a bundled (pack/core)
+ *  skill name — kept in one place so `forkSkill`, `writeUserSkill`, and `acceptProposal`
+ *  (Task 4) say exactly the same thing. */
+export function bundledSkillError(name: string): Error {
+  return new Error(
+    `"${name}" ships with a pack (or Argus core) and can't be edited here — contribute to the pack, or to Argus itself, instead.`
+  )
+}
+
 function scanTier(root: string): string[] {
   if (!fs.existsSync(root)) return []
   return fs
@@ -235,6 +251,9 @@ export function writeUserSkill(
   const file = path.join(dir, 'SKILL.md')
   const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
   const onDisk = existing === null ? null : contentHash(existing)
+  if (onDisk === null && isBundledSkillName(argusHome, name)) {
+    throw bundledSkillError(name)
+  }
   if (onDisk !== baseHash) {
     // baseHash null means the editor believes it is CREATING "name" — if a file is already
     // there, that's a name collision, not a concurrent edit of something the editor had open.
@@ -286,6 +305,7 @@ export function forkSkill(
   const winner = resolveSkills(argusHome, defaultAgentAccess()).find((s) => s.name === name)
   if (!winner) throw new Error(`No such skill: ${name}`)
   if (winner.tier === 'user') throw new Error(`"${name}" is already yours.`)
+  if (winner.tier === 'bundled') throw bundledSkillError(name)
   const dest = path.join(userSkillsDir(argusHome), target)
   if (fs.existsSync(dest)) throw new Error(`"${target}" already exists in your skills.`)
   fs.cpSync(winner.dir, dest, { recursive: true })

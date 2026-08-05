@@ -290,16 +290,21 @@ describe('writeUserSkill', () => {
       /already exists/i
     )
   })
+
+  it('refuses to create a new user skill whose name collides with a bundled one', () => {
+    expect(() =>
+      writeUserSkill(argusHome, 'analyze-applog', body('analyze-applog'), null, null)
+    ).toThrow(/ships with a pack/i)
+    expect(fs.existsSync(path.join(argusHome, 'skills-user', 'analyze-applog'))).toBe(false)
+  })
 })
 
 describe('forkSkill', () => {
-  it('copies a bundled skill into the user tier so it shadows the pack', () => {
-    expect(forkSkill(argusHome, 'analyze-applog', undefined, null)).toBe('analyze-applog')
-    const s = resolveSkills(argusHome, defaultAgentAccess()).find(
-      (x) => x.name === 'analyze-applog'
+  it('refuses to fork a bundled (pack/core) skill', () => {
+    expect(() => forkSkill(argusHome, 'analyze-applog', undefined, null)).toThrow(
+      /ships with a pack/i
     )
-    expect(s?.tier).toBe('user')
-    expect(s?.shadows).toEqual(['bundled'])
+    expect(fs.existsSync(path.join(argusHome, 'skills-user', 'analyze-applog'))).toBe(false)
   })
 
   it('copies a hivemind skill into the user tier so it shadows the pin', () => {
@@ -311,47 +316,49 @@ describe('forkSkill', () => {
   })
 
   it('copies non-SKILL.md files in the skill directory', () => {
-    const src = path.join(argusHome, 'skills', 'analyze-applog', 'references')
+    addSkill(path.join(argusHome, 'skills-hivemind'), 'hive-widget', 'hive widget')
+    const src = path.join(argusHome, 'skills-hivemind', 'hive-widget', 'references')
     fs.mkdirSync(src, { recursive: true })
     fs.writeFileSync(path.join(src, 'notes.md'), 'notes')
-    forkSkill(argusHome, 'analyze-applog', undefined, null)
+    forkSkill(argusHome, 'hive-widget', undefined, null)
     expect(
       fs.readFileSync(
-        path.join(argusHome, 'skills-user', 'analyze-applog', 'references', 'notes.md'),
+        path.join(argusHome, 'skills-user', 'hive-widget', 'references', 'notes.md'),
         'utf8'
       )
     ).toBe('notes')
   })
 
   it('renames on request and rewrites the frontmatter name to match', () => {
-    expect(forkSkill(argusHome, 'analyze-applog', 'my-applog', null)).toBe('my-applog')
+    addSkill(path.join(argusHome, 'skills-hivemind'), 'hive-widget', 'hive widget')
+    expect(forkSkill(argusHome, 'hive-widget', 'my-widget', null)).toBe('my-widget')
     const content = fs.readFileSync(
-      path.join(argusHome, 'skills-user', 'my-applog', 'SKILL.md'),
+      path.join(argusHome, 'skills-user', 'my-widget', 'SKILL.md'),
       'utf8'
     )
-    expect(content).toContain('name: my-applog')
-    expect(hasErrors(validateSkill({ name: 'my-applog', content }))).toBe(false)
+    expect(content).toContain('name: my-widget')
+    expect(hasErrors(validateSkill({ name: 'my-widget', content }))).toBe(false)
   })
 
   it('renames on request even when the source has no name: key at all', () => {
-    // The regex-replace this used to do (`raw.replace(/^name:\s*.+$/m, …)`) was a silent no-op
-    // when there was no name: line to match — the fork would land under the OLD name with the
-    // new folder, which is exactly the shape an accepted proposal can have pre-Fix-1-stamp.
+    const dir = path.join(argusHome, 'skills-hivemind', 'hive-widget')
+    fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(
-      path.join(argusHome, 'skills', 'analyze-applog', 'SKILL.md'),
-      '---\ndescription: bundled applog, no name key\n---\n\n# analyze-applog\n'
+      path.join(dir, 'SKILL.md'),
+      '---\ndescription: hivemind widget, no name key\n---\n\n# hive-widget\n'
     )
-    expect(forkSkill(argusHome, 'analyze-applog', 'my-applog', null)).toBe('my-applog')
+    expect(forkSkill(argusHome, 'hive-widget', 'my-widget', null)).toBe('my-widget')
     const content = fs.readFileSync(
-      path.join(argusHome, 'skills-user', 'my-applog', 'SKILL.md'),
+      path.join(argusHome, 'skills-user', 'my-widget', 'SKILL.md'),
       'utf8'
     )
-    expect(content).toContain('name: my-applog')
-    expect(hasErrors(validateSkill({ name: 'my-applog', content }))).toBe(false)
+    expect(content).toContain('name: my-widget')
+    expect(hasErrors(validateSkill({ name: 'my-widget', content }))).toBe(false)
   })
 
   it('refuses when the target name already exists in the user tier', () => {
-    expect(() => forkSkill(argusHome, 'analyze-applog', 'rca', null)).toThrow(/already/i)
+    addSkill(path.join(argusHome, 'skills-hivemind'), 'hive-widget', 'hive widget')
+    expect(() => forkSkill(argusHome, 'hive-widget', 'rca', null)).toThrow(/already/i)
   })
 
   it('refuses to fork a skill that already resolves at the user tier', () => {
