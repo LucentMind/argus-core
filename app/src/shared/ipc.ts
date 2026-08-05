@@ -303,6 +303,8 @@ export const IPC = {
   relatedSearch: 'related:search',
   relatedDefect: 'related:defect',
   relatedSources: 'related:sources',
+  /** renderer → main: freeze a corpus record into the case's evidence tree. */
+  relatedAttachEvidence: 'related:attach-evidence',
   // — case RCA reports (part 3a-N) —
   rcaGenerate: 'rca:generate',
   rcaStatus: 'rca:status',

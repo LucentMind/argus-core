@@ -32,6 +32,7 @@ import type { CorpusAdminConfig, CorpusSearchInput } from './services/defectCorp
 import { corpusTokenSecret } from '../shared/defectCorpus'
 import { RelatedHistoryService } from './services/relatedHistory'
 import { validateRelatedSearchInput } from './services/relatedHistory/input'
+import { attachCorpusEvidence } from './services/relatedHistory/attach'
 import { pushScaleIfChanged, pushThemeIfChanged, type TitleBarTheme } from './services/titleBar'
 import { mainWindowOptions } from './services/windowOptions'
 import {
@@ -1978,6 +1979,31 @@ function registerIpc(): void {
   })
   // No arguments to validate — a pure read of configured-source capabilities.
   ipcMain.handle(IPC.relatedSources, () => relatedHistory.sources())
+  ipcMain.handle(
+    IPC.relatedAttachEvidence,
+    async (_e, caseSlug: string, sourceId: string, key: string) => {
+      // Same posture as relatedDefect: an IPC arg is untrusted input. `key` gets a
+      // second, stricter check inside attachCorpusEvidence, because it reaches a
+      // filename there — this one only rejects the obviously malformed.
+      assertSlug(caseSlug)
+      if (typeof sourceId !== 'string' || sourceId.length === 0) {
+        throw new Error(`Invalid source id: ${JSON.stringify(sourceId)}`)
+      }
+      if (typeof key !== 'string' || key.length === 0) {
+        throw new Error(`Invalid defect key: ${JSON.stringify(key)}`)
+      }
+      caseWatch.suppress(caseSlug) // our own write must not light the staleness dot
+      const res = await attachCorpusEvidence(
+        { db, argusHome, detection, defectCorpus, now: () => new Date().toISOString() },
+        caseSlug,
+        sourceId,
+        key
+      )
+      // Refresh the case's evidence list only when something actually landed.
+      if (res.ok && !res.deduped) evidenceChangedB(caseSlug)
+      return res
+    }
+  )
 
   // — case RCA reports (part 3a-N) —
   ipcMain.handle(IPC.rcaGenerate, (_e, slug: string) => {

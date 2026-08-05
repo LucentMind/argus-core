@@ -1,6 +1,8 @@
 // Wire shapes for the unified related-history surface (spec §3.1). Types only —
 // this file is imported by the renderer, so it must never reach into main/*.
 
+import type { EvidenceRecord } from './types'
+
 export type RelatedProviderKind = 'local' | 'corpus'
 export type RelatedMatchedOn = 'lexical' | 'semantic' | 'both'
 export type RelatedStatusTone = 'open' | 'resolved' | 'forwarded'
@@ -182,3 +184,10 @@ export interface RelatedDefectRecord {
 
 export type RelatedDefectResult =
   { ok: true; value: RelatedDefectRecord } | { ok: false; error: string; code?: string }
+
+/** Outcome of `related:attach-evidence` (spec §10). `deduped` means the identical
+ *  snapshot was already attached — the existing record is returned rather than a
+ *  second copy written. */
+export type RelatedAttachResult =
+  | { ok: true; record: EvidenceRecord; deduped: boolean }
+  | { ok: false; error: string; code?: string }

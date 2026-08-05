@@ -39,6 +39,7 @@ import type {
   SourceSearchResult
 } from '../shared/defectCorpus'
 import type {
+  RelatedAttachResult,
   RelatedDefectResult,
   RelatedSearchInput,
   RelatedSearchResult,
@@ -857,7 +858,13 @@ const argus = {
       invoke(IPC.relatedSearch, input),
     defect: (sourceId: string, key: string): Promise<RelatedDefectResult> =>
       invoke(IPC.relatedDefect, sourceId, key),
-    sources: (): Promise<RelatedSourceInfo[]> => invoke(IPC.relatedSources)
+    sources: (): Promise<RelatedSourceInfo[]> => invoke(IPC.relatedSources),
+    /** Freeze a corpus record into the case's evidence tree (spec §10). */
+    attachEvidence: (
+      caseSlug: string,
+      sourceId: string,
+      key: string
+    ): Promise<RelatedAttachResult> => invoke(IPC.relatedAttachEvidence, caseSlug, sourceId, key)
   },
   sourceControl: {
     status: (): Promise<SourceControlStatus> => invoke(IPC.sourceControlStatus)
