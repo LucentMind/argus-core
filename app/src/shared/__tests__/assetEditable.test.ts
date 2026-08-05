@@ -83,9 +83,9 @@ describe('isAssetEditable', () => {
  * exactly one of them can be claimed.
  */
 describe('canEditCopy', () => {
-  describe('skills — forkSkill copies any non-user skill into skills-user', () => {
-    it('offers a copy of a bundled skill', () => {
-      expect(canEditCopy('skill', 'bundled')).toBe(true)
+  describe('skills — forkSkill copies ONLY a hivemind skill into skills-user', () => {
+    it('offers nothing for a bundled (pack/core) skill — forkSkill refuses it', () => {
+      expect(canEditCopy('skill', 'bundled')).toBe(false)
     })
 
     it('offers a copy of a hivemind skill', () => {

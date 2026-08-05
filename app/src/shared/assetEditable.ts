@@ -39,12 +39,13 @@ export function isAssetEditable(kind: AuthoringKind, tier: TierLookup): boolean 
 /**
  * Does this read-only asset have a real *Edit a copy* path, or only an explanation?
  *
- * {@link isAssetEditable} locks three reference tiers, but only ONE of them can be copied out of.
+ * {@link isAssetEditable} locks several tiers per kind, but only ONE tier can be copied out of.
  * The two questions are not the same, and answering the second with the first offers a button
  * whose IPC always rejects:
  *
- * - `skill` — `forkSkill`'s ownership guard (agent/skillsResolver.ts) lets any non-`user` skill be
- *   copied into `skills-user`, so every read-only skill has a way out.
+ * - `skill` — `forkSkill`'s ownership guard (agent/skillsResolver.ts) copies ONLY a `hivemind`
+ *   skill into `skills-user`; a `bundled` (pack/core) skill is refused, so it has no way out —
+ *   its `TIER_EXPLANATIONS` sentence is the whole answer for the user.
  * - `reference` — `HivemindService.claimReference` (services/hivemind.ts) refuses anything but an
  *   installed HiveMind reference: `if (referenceTier(file) !== 'hivemind') throw`. This mirrors
  *   the gate the Library already applies to its own Claim button (`LibraryPage`'s
@@ -53,11 +54,13 @@ export function isAssetEditable(kind: AuthoringKind, tier: TierLookup): boolean 
  *   `bundled` one ships with a pack — neither has anywhere to be claimed *from*, which is exactly
  *   what their `TIER_EXPLANATIONS` sentence already tells the user.
  *
+ * Both kinds now resolve to the same condition — `tier === 'hivemind'` — for different underlying
+ * reasons (fork vs. claim), so the check is written once rather than duplicated per kind.
+ *
  * Editable assets answer `false`: there is nothing to copy out of an asset you can just type into.
  */
 export function canEditCopy(kind: AuthoringKind, tier: TierLookup): boolean {
   if (isAssetEditable(kind, tier)) return false
-  if (kind === 'skill') return true
   return tier === 'hivemind'
 }
 

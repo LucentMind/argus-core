@@ -46,10 +46,11 @@ describe('ReadOnlyNotice', () => {
     expect(screen.queryByRole('button', { name: /edit a copy/i })).not.toBeInTheDocument()
   })
 
-  // A bundled SKILL is different from a bundled reference: `forkSkill` copies it into skills-user.
-  it('offers Edit a copy for a bundled skill', () => {
+  // A bundled skill is now locked the same way a bundled reference is: forkSkill refuses it.
+  it('offers no Edit a copy for a bundled skill', () => {
     render(<ReadOnlyNotice kind="skill" name="packed" tier="bundled" onEditCopy={vi.fn()} />)
-    expect(screen.getByRole('button', { name: /edit a copy/i })).toBeInTheDocument()
+    expect(screen.getByText(/ships with an installed pack/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /edit a copy/i })).not.toBeInTheDocument()
   })
 
   it('falls back to a plain sentence for an unknown tier', () => {
