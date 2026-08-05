@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import '@testing-library/jest-dom/vitest'
 import userEvent from '@testing-library/user-event'
 import { FileViewer } from '../FileViewer'
 import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
@@ -62,6 +63,25 @@ describe('FileViewer', () => {
     expect(await screen.findByText(/loading/i)).toBeTruthy()
     resolveRead({ content: '# Title\n\nbody text' })
     expect(await screen.findByRole('heading', { name: 'Title' })).toBeTruthy()
+  })
+
+  // Evidence markdown is third-party bytes, not app-authored prose: Jira ticket
+  // and comment dumps, and (increment 3) defect-corpus snapshots whose
+  // `description` is written verbatim. An ungated anchor here is a same-window
+  // top-level navigation of the real BrowserWindow, which no main-process
+  // handler intercepts — the same hazard `HitDetail` was hardened against, on
+  // the same bytes by a different route.
+  it('gates markdown links: a dangerous scheme is inert text, an https link opens externally', async () => {
+    window.argus.files.read = vi.fn(async () => ({
+      content: '[go](javascript:alert(1)) and [ext](https://corpus.example/x) and plain text'
+    })) as never
+    render(<FileViewer slug="NAV-1" relPath="evidence/KAN-5.md" onClose={vi.fn()} />)
+    expect(await screen.findByText(/and plain text/)).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'go' })).toBeNull()
+    const ext = screen.getByRole('link', { name: 'ext' })
+    expect(ext).toHaveAttribute('href', 'https://corpus.example/x')
+    expect(ext).toHaveAttribute('target', '_blank')
+    expect(ext).toHaveAttribute('rel', 'noreferrer')
   })
 
   it('closes on Escape', async () => {

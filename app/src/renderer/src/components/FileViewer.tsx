@@ -3,6 +3,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Btn } from './ui'
 import { ModalShell } from './ModalShell'
+import { MARKDOWN_COMPONENTS } from '../lib/markdownLinks'
 import type { FileReadResult } from '../../../shared/types'
 
 export function FileViewer({
@@ -58,7 +59,14 @@ export function FileViewer({
       ) : isMd && !raw ? (
         <div className="markdown-body flex-1 overflow-auto p-4 text-sm leading-relaxed text-ink">
           {doc && 'content' in doc ? (
-            <Markdown remarkPlugins={[remarkGfm]}>{doc.content}</Markdown>
+            // Evidence files are NOT app-authored: `<KEY>.ticket.md` and
+            // `<KEY>.comments.md` come from Jira and `evidence/<KEY>.md` from
+            // the defect corpus, both verbatim third-party markdown. Without
+            // the gate a bare `https://` link here is a same-window top-level
+            // navigation of the real BrowserWindow — see `markdownLinks.tsx`.
+            <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+              {doc.content}
+            </Markdown>
           ) : (
             'Loading…'
           )}

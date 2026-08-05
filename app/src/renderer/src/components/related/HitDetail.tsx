@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import type { ComponentProps } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type {
@@ -10,6 +9,7 @@ import type {
 } from '../../../../shared/relatedHistory'
 import { Btn, Chip, SectionLabel } from '../ui'
 import { isOpenableUrl } from '../../lib/openableUrl'
+import { MARKDOWN_COMPONENTS } from '../../lib/markdownLinks'
 import { composerDraft } from '../../lib/composerDraft'
 import { formatRelatedCitation } from '../../lib/relatedCitation'
 import type { RelatedAttachResult } from '../../../../shared/relatedHistory'
@@ -65,28 +65,6 @@ function DistilledBlock({ d }: { d: RelatedDistilled }): React.JSX.Element {
     </div>
   )
 }
-
-/** Spec §12.1: `description` and comment `body` are untrusted third-party
- *  markdown. react-markdown's default `urlTransform` only blanks dangerous
- *  *schemes* (`javascript:`, `file:`, app protocols) — an ordinary
- *  `https://` link still renders with no `target`/`rel`, which is a
- *  same-window top-level navigation that never reaches the main-process
- *  `setWindowOpenHandler` guard. Force every markdown link through the same
- *  `isOpenableUrl` gate as the record's own `url` above, and force it to
- *  open via `target="_blank"` so a click is routed through that guard
- *  instead of replacing this window. */
-function MarkdownAnchor({ href, children }: ComponentProps<'a'>): React.JSX.Element {
-  if (href && isOpenableUrl(href)) {
-    return (
-      <a href={href} target="_blank" rel="noreferrer">
-        {children}
-      </a>
-    )
-  }
-  return <>{children}</>
-}
-
-const MARKDOWN_COMPONENTS = { a: MarkdownAnchor }
 
 function CorpusRecord({ record }: { record: RelatedDefectRecord }): React.JSX.Element {
   const [showComments, setShowComments] = useState(false)
