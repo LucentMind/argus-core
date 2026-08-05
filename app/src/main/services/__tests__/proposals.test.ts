@@ -89,9 +89,28 @@ describe('listProposals', () => {
 })
 
 describe('accept / reject', () => {
-  it('accept applies a skill proposal to the USER tier (shadowing copy) and archives', () => {
+  it('accept refuses to shadow a skill that is currently bundled, and leaves the proposal pending', () => {
     fs.mkdirSync(path.join(home, 'skills', 'rca'), { recursive: true })
     fs.writeFileSync(path.join(home, 'skills', 'rca', 'SKILL.md'), '# rca v1\n')
+    const f = writeProposal(home, 'NAV-100', {
+      type: 'skill-edit',
+      target: 'rca',
+      title: 'Sharpen',
+      content: '---\ndescription: better\n---\n# rca v2\n'
+    })
+    expect(() => acceptProposal(home, f)).toThrow(/ships with a pack/i)
+    expect(fs.existsSync(path.join(home, 'skills-user', 'rca'))).toBe(false)
+    // bundled copy untouched
+    expect(fs.readFileSync(path.join(home, 'skills', 'rca', 'SKILL.md'), 'utf8')).toBe('# rca v1\n')
+    // not archived — still pending, so the reviewer can reject it with a labelled reason
+    expect(listProposals(home)).toHaveLength(1)
+  })
+
+  it('accept applies a skill proposal to an already-forked user copy (shadowing copy) and archives', () => {
+    fs.mkdirSync(path.join(home, 'skills', 'rca'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'skills', 'rca', 'SKILL.md'), '# rca v1\n')
+    fs.mkdirSync(path.join(home, 'skills-user', 'rca'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'skills-user', 'rca', 'SKILL.md'), '# my fork\n')
     const f = writeProposal(home, 'NAV-100', {
       type: 'skill-edit',
       target: 'rca',
@@ -107,6 +126,25 @@ describe('accept / reject', () => {
     expect(listProposals(home)).toEqual([])
     const archived = fs.readFileSync(path.join(home, 'proposals', 'archive', f), 'utf8')
     expect(archived).toContain('status: accepted')
+  })
+
+  it('accept refuses a reference-edit against a bundled reference, and leaves it pending', () => {
+    fs.mkdirSync(path.join(home, 'references'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'references', 'recipes.md'),
+      '---\ntrust_tier: bundled\n---\n\n## Recipe v1\n'
+    )
+    const f = writeProposal(home, 'NAV-100', {
+      type: 'recipe',
+      target: 'recipes.md',
+      title: 'binlog triage recipe',
+      content: '## Recipe v2\n'
+    })
+    expect(() => acceptProposal(home, f)).toThrow(/not a hand-owned reference/)
+    expect(fs.readFileSync(path.join(home, 'references', 'recipes.md'), 'utf8')).toContain(
+      '## Recipe v1'
+    )
+    expect(listProposals(home)).toHaveLength(1)
   })
 
   it('accept stamps reference proposals team-knowledge in the references dir', () => {
@@ -408,5 +446,63 @@ describe('accept stamps authorship', () => {
     const a = parseAuthorship(fs.readFileSync(path.join(dir, 'topic.md'), 'utf8'))
     expect(a.author).toBe('Alex Chen <alex@example.test>')
     expect(a.contributors.map((c) => c.email)).toEqual([me.email])
+  })
+})
+
+describe('locked proposals', () => {
+  it('marks a skill-edit against a bundled target as locked; unmarks once a user copy exists', () => {
+    fs.mkdirSync(path.join(home, 'skills', 'rca'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'skills', 'rca', 'SKILL.md'), '# rca v1\n')
+    writeProposal(home, 'NAV-100', {
+      type: 'skill-edit',
+      target: 'rca',
+      title: 'Sharpen',
+      content: '# rca v2\n'
+    })
+    expect(listProposals(home)[0].locked).toBe(true)
+
+    fs.mkdirSync(path.join(home, 'skills-user', 'rca'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'skills-user', 'rca', 'SKILL.md'), '# my fork\n')
+    expect(listProposals(home)[0].locked).toBeFalsy()
+  })
+
+  it('marks a reference-edit against a hivemind or confluence reference as locked too', () => {
+    fs.mkdirSync(path.join(home, 'references'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'references', 'topic.md'),
+      '---\ntrust_tier: hivemind\n---\n\nbody\n'
+    )
+    writeProposal(home, 'NAV-100', {
+      type: 'reference-edit',
+      target: 'topic',
+      title: 't',
+      content: 'rewritten\n'
+    })
+    expect(listProposals(home)[0].locked).toBe(true)
+  })
+
+  it('is not locked for a brand-new skill or reference target', () => {
+    writeProposal(home, 'NAV-100', {
+      type: 'skill-new',
+      target: 'brand-new',
+      title: 'New',
+      content: '# new\n'
+    })
+    expect(listProposals(home)[0].locked).toBeFalsy()
+  })
+
+  it('is not locked for a hand-owned (team-knowledge) reference target', () => {
+    fs.mkdirSync(path.join(home, 'references'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'references', 'topic.md'),
+      '---\ntrust_tier: team-knowledge\n---\n\nbody\n'
+    )
+    writeProposal(home, 'NAV-100', {
+      type: 'reference-edit',
+      target: 'topic',
+      title: 't',
+      content: 'rewritten\n'
+    })
+    expect(listProposals(home)[0].locked).toBeFalsy()
   })
 })

@@ -26,6 +26,9 @@ export interface ProposalRecord {
   title: string
   content: string // full proposed content (not a diff — the UI renders the diff)
   current: string | null // current content of the target; null when the target is new
+  /** True when the target currently resolves to a non-hand-owned tier with no user copy yet
+   *  — accept is refused; the UI disables Accept and shows why. */
+  locked?: boolean
   /** distiller re-produced an item the user already accepted/rejected for this case */
   previouslyReviewed?: boolean
   /** distill job id that produced this proposal; absent for user-authored proposals */

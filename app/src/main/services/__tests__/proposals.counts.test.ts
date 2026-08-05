@@ -6,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // proposalCounts runs on every proposals:changed broadcast — during distill staging
 // that is once per written file. It must stay frontmatter-cheap: resolving the skill
 // tier winner (resolveSkills) per skill proposal made counting O(N²) in file reads.
-vi.mock('../agent/skillsResolver', () => ({ resolveSkills: vi.fn(() => []) }))
+vi.mock('../agent/skillsResolver', () => ({
+  resolveSkills: vi.fn(() => []),
+  isBundledSkillName: vi.fn(() => false)
+}))
 
 import { resolveSkills } from '../agent/skillsResolver'
 import { listProposals, proposalCounts, writeProposal } from '../proposals'

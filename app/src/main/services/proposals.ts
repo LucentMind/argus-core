@@ -3,7 +3,12 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { memoryDir, proposalsArchiveDir, proposalsDir, userSkillsDir } from './paths'
 import { sharedReferencesDir } from './skillsDir'
-import { resolveSkills } from './agent/skillsResolver'
+import { resolveSkills, isBundledSkillName, bundledSkillError } from './agent/skillsResolver'
+import {
+  refTier,
+  isHandOwnedReferenceTier,
+  assertHandOwnedReferenceTier
+} from './refSync/refFrontmatter'
 import { defaultAgentAccess } from '../../shared/agentAccess'
 import { ASSET_NAME_RE, validateSkill, hasErrors } from '../../shared/assetValidation'
 import { fmBlock, fmField, withFrontmatter } from '../../shared/frontmatter'
@@ -159,6 +164,22 @@ function currentContent(argusHome: string, type: ProposalType, target: string): 
   }
 }
 
+/** Would accepting this proposal create a NEW shadow of, or overwrite, a non-hand-owned
+ *  asset? Mirrors the guards `acceptProposal` itself runs, so the UI can disable Accept
+ *  before the user even tries. */
+function targetLocked(argusHome: string, type: ProposalType, target: string): boolean {
+  if (type === 'skill-new' || type === 'skill-edit') {
+    const destFile = path.join(userSkillsDir(argusHome), target, 'SKILL.md')
+    return !fs.existsSync(destFile) && isBundledSkillName(argusHome, target)
+  }
+  if (type === 'reference-edit' || type === 'recipe') {
+    const destFile = path.join(sharedReferencesDir(argusHome), refFileName(target))
+    if (!fs.existsSync(destFile)) return false
+    return !isHandOwnedReferenceTier(refTier(fs.readFileSync(destFile, 'utf8')))
+  }
+  return false
+}
+
 /** Every well-formed pending file (valid frontmatter block + known type), frontmatter only. */
 function pendingProposalFiles(
   argusHome: string
@@ -192,6 +213,7 @@ export function listProposals(argusHome: string): ProposalRecord[] {
         title: fmField(fm, 'title'),
         content: body,
         current: currentContent(argusHome, type, target),
+        ...(targetLocked(argusHome, type, target) ? { locked: true } : {}),
         ...(previouslyReviewed ? { previouslyReviewed: true } : {}),
         ...(job ? { jobId: job } : {})
       }
@@ -317,6 +339,9 @@ export function acceptProposal(
     // else's skill makes the accepter a contributor, not the author. (Spec §7 reads the other
     // way; the human resolved that contradiction in favour of the disk on 2026-07-30.)
     const existing = fs.existsSync(destFile) ? fs.readFileSync(destFile, 'utf8') : null
+    if (existing === null && isBundledSkillName(argusHome, p.target)) {
+      throw bundledSkillError(p.target)
+    }
     const stamped = stamp(mergeAuthorship(named, existing))
     // An empty description makes the skill un-triggerable and nothing downstream complains,
     // so the accept path is the last place to catch it. Same gate the in-app editor uses —
@@ -337,6 +362,9 @@ export function acceptProposal(
     // as above: an edit to an existing reference keeps its author, and the accepter joins the
     // contributor trail rather than replacing it
     const existing = fs.existsSync(destFile) ? fs.readFileSync(destFile, 'utf8') : null
+    if (existing !== null) {
+      assertHandOwnedReferenceTier(refTier(existing), refFileName(p.target))
+    }
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(
       destFile,
