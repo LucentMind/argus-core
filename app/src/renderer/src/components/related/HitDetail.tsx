@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type {
+  RelatedAttachResult,
   RelatedDefectRecord,
   RelatedDefectResult,
   RelatedDistilled,
@@ -11,8 +12,8 @@ import { Btn, Chip, SectionLabel } from '../ui'
 import { isOpenableUrl } from '../../lib/openableUrl'
 import { MARKDOWN_COMPONENTS } from '../../lib/markdownLinks'
 import { composerDraft } from '../../lib/composerDraft'
-import { formatRelatedCitation } from '../../lib/relatedCitation'
-import type { RelatedAttachResult } from '../../../../shared/relatedHistory'
+import { notice } from '../../lib/noticeStore'
+import { formatDefectRecordCitation, formatRelatedCitation } from '../../lib/relatedCitation'
 
 /** Just enough to fetch the canonical record (`related.defect(sourceId, key)`)
  *  and follow a link within this pane. Deliberately NOT the full `CorpusRef`:
@@ -30,6 +31,15 @@ interface CorpusLookup {
 function corpusRefOf(hit: RelatedHit): CorpusLookup | null {
   if (hit.kind === 'corpus') return { sourceId: hit.sourceId, key: hit.key }
   return hit.corpusRef ? { sourceId: hit.corpusRef.sourceId, key: hit.corpusRef.key } : null
+}
+
+/** The display name of the CORPUS provider behind this hit, for a citation
+ *  header. `formatRelatedCitation` can read `provenance[0]` because a corpus
+ *  hit has exactly one entry; a merged row carries the local provider too
+ *  (spec §3.3) and its first entry is 'Your cases', so search by kind rather
+ *  than by position. Falls back to the raw source id, never to a local name. */
+function corpusSourceNameOf(hit: RelatedHit, sourceId: string): string {
+  return hit.provenance.find((p) => p.kind === 'corpus')?.providerName ?? sourceId
 }
 
 function Row({ label, values }: { label: string; values: string[] }): React.JSX.Element | null {
@@ -161,29 +171,57 @@ function CorpusRecord({ record }: { record: RelatedDefectRecord }): React.JSX.El
  * Neither action is approval-gated. Spec §10 says so explicitly: these are
  * user-initiated renderer actions, not panel or agent writes, so the part-3d-2
  * HITL card does not apply. Do not add one by analogy.
+ *
+ * Both actions follow WHAT THE PANE DISPLAYS, not the hit that was selected in
+ * the list. Following a `links[]` entry swaps the displayed record without
+ * changing the hit, and a user who reads KAN-9 and clicks attach means KAN-9 —
+ * `corpus.key` is therefore the live displayed key, and `hitKey` (the hit's own
+ * corpus key) is here only so the citation can tell "a link was followed" from
+ * "nothing was followed".
  */
 function HitActions({
   hit,
+  hitKey,
+  record,
   caseSlug,
   sessionId,
   corpus,
   onReferenced
 }: {
   hit: RelatedHit
+  /** The hit's OWN corpus key, or null when the hit has no corpus half. */
+  hitKey: string | null
+  /** The record currently on screen, or null while it loads / on a local-only hit. */
+  record: RelatedDefectRecord | null
   caseSlug: string
   sessionId: number | null
+  /** `sourceId` from the hit; `key` is whatever the pane currently shows. */
   corpus: CorpusLookup | null
   onReferenced?: () => void
 }): React.JSX.Element {
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<{ text: string; bad: boolean } | null>(null)
 
+  // Only when a link has actually been followed does the hit stop describing
+  // what the user is reading. Keyed off the displayed KEY rather than
+  // `record.key`, so a corpus that echoes a key in different casing cannot
+  // reroute an ordinary citation through the record formatter.
+  const followed = record && corpus && hitKey && corpus.key !== hitKey ? record : null
+
   function reference(): void {
     if (sessionId === null) return
     // Staged as a DRAFT, never sent — the same seam a panel's `sendToAgent`
     // uses. This is the one path from corpus text to the model (spec §12.4)
     // and the user reads it in the composer before it ever becomes a turn.
-    composerDraft.set(caseSlug, sessionId, formatRelatedCitation(hit))
+    const text =
+      followed && corpus
+        ? formatDefectRecordCitation(followed, corpusSourceNameOf(hit, corpus.sourceId))
+        : formatRelatedCitation(hit)
+    composerDraft.set(caseSlug, sessionId, text)
+    // Plan decision 6: the caller closes the modal on this callback, which takes
+    // the inline status line with it — so the only confirmation that can survive
+    // is a notice, which renders in the case header behind the modal.
+    notice('Citation staged in the composer — edit it before sending.')
     onReferenced?.()
   }
 
@@ -350,9 +388,15 @@ export function HitDetail({
       {caseSlug && (
         <HitActions
           hit={hit}
+          hitKey={ref?.key ?? null}
+          record={record}
           caseSlug={caseSlug}
           sessionId={sessionId}
-          corpus={ref}
+          // The DISPLAYED key, not `ref.key`: following a `links[]` entry
+          // refetches within this same pane, so `sourceId` is stable but the
+          // record on screen is a different ticket. Passing `ref` wholesale is
+          // what made attach freeze the ticket the user had navigated away from.
+          corpus={ref ? { sourceId: ref.sourceId, key: key ?? ref.key } : null}
           onReferenced={onReferenced}
         />
       )}

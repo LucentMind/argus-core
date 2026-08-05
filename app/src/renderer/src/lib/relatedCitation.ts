@@ -1,5 +1,35 @@
-import type { RelatedHit } from '../../../shared/relatedHistory'
+import type { RelatedDefectRecord, RelatedHit } from '../../../shared/relatedHistory'
 import { isOpenableUrl } from './openableUrl'
+
+/** Everything a citation says below its header line. Both formatters below
+ *  produce the SAME shape — the only thing that differs is where the fields come
+ *  from — so the url gate and the optional distilled lines exist once. A second
+ *  copy of this tail is exactly how one of the two would quietly stop dropping
+ *  an odd-scheme url. */
+interface CitationBody {
+  header: string
+  title: string
+  status: string
+  /** Untrusted, corpus-controlled: a non-http(s) url is dropped, never cited.
+   *  Dropping rather than rendering it inert, because unlike the detail pane
+   *  this text is headed for a model's context, where an odd-scheme string is
+   *  noise at best. */
+  url: string | null | undefined
+  distilled: { signature: string; fix: string | null } | null
+}
+
+function formatCitation(body: CitationBody): string {
+  const lines: string[] = [body.header, body.title, `Status: ${body.status}`]
+
+  if (body.url && isOpenableUrl(body.url)) lines.push(`URL: ${body.url}`)
+
+  if (body.distilled) {
+    lines.push(`Signature: ${body.distilled.signature}`)
+    if (body.distilled.fix) lines.push(`Fix: ${body.distilled.fix}`)
+  }
+
+  return `${lines.join('\n')}\n`
+}
 
 /**
  * A compact citation for one related-history hit, staged into the composer for
@@ -14,30 +44,48 @@ import { isOpenableUrl } from './openableUrl'
  * whole thing before sending it.
  */
 export function formatRelatedCitation(hit: RelatedHit): string {
-  const lines: string[] = []
-
+  let header: string
   if (hit.kind === 'corpus') {
     const source = hit.provenance[0]?.providerName ?? hit.sourceId
-    lines.push(`Related history — ${hit.key} (${source})`)
+    header = `Related history — ${hit.key} (${source})`
   } else {
     const ref = hit.corpusRef?.key ?? hit.jiraKey
-    lines.push(`Related history — case \`${hit.caseSlug}\`${ref ? ` (${ref})` : ''}`)
+    header = `Related history — case \`${hit.caseSlug}\`${ref ? ` (${ref})` : ''}`
   }
 
-  lines.push(hit.title)
-  lines.push(`Status: ${hit.status.label}`)
+  return formatCitation({
+    header,
+    title: hit.title,
+    status: hit.status.label,
+    url: hit.kind === 'corpus' ? hit.url : hit.corpusRef?.url,
+    distilled: hit.distilled
+  })
+}
 
-  // Untrusted, corpus-controlled: a non-http(s) url is dropped, never cited.
-  // Dropping rather than rendering it inert, because unlike the detail pane
-  // this text is headed for a model's context, where an odd-scheme string is
-  // noise at best.
-  const url = hit.kind === 'corpus' ? hit.url : hit.corpusRef?.url
-  if (url && isOpenableUrl(url)) lines.push(`URL: ${url}`)
-
-  if (hit.distilled) {
-    lines.push(`Signature: ${hit.distilled.signature}`)
-    if (hit.distilled.fix) lines.push(`Fix: ${hit.distilled.fix}`)
-  }
-
-  return `${lines.join('\n')}\n`
+/**
+ * The same citation for a record the user reached by FOLLOWING a link inside the
+ * detail pane (spec §9's Links row), where there is no `RelatedHit` to cite: a
+ * followed link is another `related.defect` call, and it returns only a
+ * `RelatedDefectRecord`.
+ *
+ * `sourceName` is the corpus provider's display name, which the record does not
+ * carry — the caller reads it off the originating hit's provenance.
+ *
+ * Deliberately identical in shape to {@link formatRelatedCitation}: the user
+ * cannot tell from the composer whether they followed a link to get here, and
+ * neither should the model.
+ */
+export function formatDefectRecordCitation(
+  record: RelatedDefectRecord,
+  sourceName: string
+): string {
+  return formatCitation({
+    header: `Related history — ${record.key} (${sourceName})`,
+    title: record.summary,
+    // Composed the way the detail pane's status chip composes it, so the
+    // citation reads the same as the pane the user was looking at.
+    status: record.resolution ? `${record.status} / ${record.resolution}` : record.status,
+    url: record.url,
+    distilled: record.distilled
+  })
 }

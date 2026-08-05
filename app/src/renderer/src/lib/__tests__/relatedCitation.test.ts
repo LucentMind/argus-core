@@ -1,6 +1,31 @@
 import { describe, it, expect } from 'vitest'
-import { formatRelatedCitation } from '../relatedCitation'
-import type { CorpusDefectHit, LocalCaseHit } from '../../../../shared/relatedHistory'
+import { formatDefectRecordCitation, formatRelatedCitation } from '../relatedCitation'
+import type {
+  CorpusDefectHit,
+  LocalCaseHit,
+  RelatedDefectRecord
+} from '../../../../shared/relatedHistory'
+
+const record = (over: Partial<RelatedDefectRecord> = {}): RelatedDefectRecord => ({
+  key: 'KAN-9',
+  url: 'https://corpus.example/browse/KAN-9',
+  project: 'KAN',
+  summary: 'plan cleared on resume',
+  description: 'It drops the plan.',
+  status: 'Done',
+  resolution: 'Fixed',
+  components: [],
+  labels: [],
+  affectsVersions: [],
+  fixVersions: [],
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-02T00:00:00.000Z',
+  resolvedAt: null,
+  links: [],
+  commentCount: 0,
+  distilled: null,
+  ...over
+})
 
 const corpusHit = (over: Partial<CorpusDefectHit> = {}): CorpusDefectHit => ({
   kind: 'corpus',
@@ -120,5 +145,64 @@ describe('formatRelatedCitation', () => {
 
   it('ends with a newline so the user can type straight after it', () => {
     expect(formatRelatedCitation(corpusHit()).endsWith('\n')).toBe(true)
+  })
+})
+
+// A record — not a hit — is all that exists once the user follows a `links[]`
+// entry in the detail pane, so the pull-into-case citation needs this sibling to
+// be able to cite what the pane is actually showing.
+describe('formatDefectRecordCitation', () => {
+  it('cites a record with key, source, summary, status, url and distilled lines', () => {
+    const text = formatDefectRecordCitation(
+      record({
+        distilled: {
+          signature: 'plan cleared on resume',
+          symptoms: 'plan is null',
+          rootCause: 'cache cleared before reload',
+          fix: 'reload before clearing',
+          errorStrings: ['E_PLAN_NULL'],
+          distilledAt: '2026-01-04T00:00:00.000Z'
+        }
+      }),
+      'Hindsight'
+    )
+    expect(text).toContain('Related history — KAN-9 (Hindsight)')
+    expect(text).toContain('plan cleared on resume')
+    expect(text).toContain('Status: Done / Fixed')
+    expect(text).toContain('URL: https://corpus.example/browse/KAN-9')
+    expect(text).toContain('Signature: plan cleared on resume')
+    expect(text).toContain('Fix: reload before clearing')
+  })
+
+  it('drops a non-http(s) url entirely rather than citing it', () => {
+    const text = formatDefectRecordCitation(record({ url: 'javascript:alert(1)' }), 'Hindsight')
+    expect(text).not.toContain('javascript:')
+    expect(text).not.toContain('URL:')
+  })
+
+  it('drops a file:// url too — the gate is a scheme allowlist, not a blocklist', () => {
+    const text = formatDefectRecordCitation(record({ url: 'file:///etc/passwd' }), 'Hindsight')
+    expect(text).not.toContain('URL:')
+  })
+
+  it('keeps an http url as well as https', () => {
+    const text = formatDefectRecordCitation(record({ url: 'http://corpus.example/x' }), 'Hindsight')
+    expect(text).toContain('URL: http://corpus.example/x')
+  })
+
+  it('states an unresolved status without a resolution half', () => {
+    const text = formatDefectRecordCitation(record({ resolution: null }), 'Hindsight')
+    expect(text).toContain('Status: Done')
+    expect(text).not.toContain('Status: Done /')
+  })
+
+  it('omits both distilled lines when the record has no distilled block', () => {
+    const text = formatDefectRecordCitation(record(), 'Hindsight')
+    expect(text).not.toContain('Signature:')
+    expect(text).not.toContain('Fix:')
+  })
+
+  it('ends with a newline, exactly like the hit citation', () => {
+    expect(formatDefectRecordCitation(record(), 'Hindsight').endsWith('\n')).toBe(true)
   })
 })

@@ -4,6 +4,8 @@ import { describe, it, expect, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { HitDetail } from '../HitDetail'
 import { composerDraft } from '../../../lib/composerDraft'
+import { noticeStore } from '../../../lib/noticeStore'
+import { formatRelatedCitation } from '../../../lib/relatedCitation'
 import type {
   CorpusDefectHit,
   LocalCaseHit,
@@ -317,5 +319,98 @@ describe('HitDetail — pull into the case (spec §10)', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: /attach as evidence/i }))
     await waitFor(() => expect(attachEvidence).toHaveBeenCalledWith('NAV-100', 'src1', 'KAN-5'))
+  })
+})
+
+/**
+ * Increment 2 lets the user follow a `links[]` entry, which swaps the record the
+ * pane fetches and renders WITHOUT changing the selected hit. Both pull-into-case
+ * actions must follow the screen: a user who reads KAN-9 and clicks attach means
+ * KAN-9, and the citation path is the silent one — the modal closes on the click,
+ * so a wrong ticket in the composer leaves no clue at all.
+ */
+describe('HitDetail — the actions follow the displayed record, not the selected hit', () => {
+  const followed = record({
+    key: 'KAN-9',
+    url: 'https://corpus.example/browse/KAN-9',
+    summary: 'plan cleared on resume',
+    status: 'Done',
+    resolution: 'Fixed',
+    links: [],
+    commentCount: 0,
+    comments: []
+  })
+
+  /** Unlike `setRelated`, this answers PER KEY — the whole point is that the
+   *  second fetch returns a different ticket. */
+  function setFollowable(
+    attachResult: unknown = {
+      ...okAttach,
+      record: { id: 2, relPath: 'evidence/KAN-9.md', origin: 'corpus' }
+    }
+  ): {
+    defect: ReturnType<typeof vi.fn>
+    attachEvidence: ReturnType<typeof vi.fn>
+  } {
+    const defect = vi.fn(async (_sourceId: string, key: string) => ({
+      ok: true,
+      value: key === 'KAN-9' ? followed : record()
+    }))
+    const attachEvidence = vi.fn().mockResolvedValue(attachResult)
+    ;(window as unknown as { argus: unknown }).argus = { related: { defect, attachEvidence } }
+    return { defect, attachEvidence }
+  }
+
+  async function followTheLink(): Promise<void> {
+    fireEvent.click(await screen.findByRole('button', { name: 'KAN-9' }))
+    await screen.findByText('plan cleared on resume')
+  }
+
+  it('attaches the followed key, not the key of the hit that was selected', async () => {
+    const { attachEvidence } = setFollowable()
+    render(<HitDetail hit={corpusHit()} caseSlug="NAV-100" sessionId={7} />)
+    await followTheLink()
+    fireEvent.click(screen.getByRole('button', { name: /attach as evidence/i }))
+    await waitFor(() => expect(attachEvidence).toHaveBeenCalledWith('NAV-100', 'src1', 'KAN-9'))
+    expect(await screen.findByText(/attached as KAN-9\.md/i)).toBeInTheDocument()
+  })
+
+  it('cites the followed record, naming it and not the original hit', async () => {
+    setFollowable()
+    const spy = vi.spyOn(composerDraft, 'set')
+    render(<HitDetail hit={corpusHit()} caseSlug="NAV-100" sessionId={7} />)
+    await followTheLink()
+    fireEvent.click(screen.getByRole('button', { name: /reference in chat/i }))
+    const text = spy.mock.calls[0][2]
+    expect(text).toContain('Related history — KAN-9 (Hindsight)')
+    expect(text).toContain('plan cleared on resume')
+    expect(text).toContain('https://corpus.example/browse/KAN-9')
+    expect(text).not.toContain('KAN-5')
+    spy.mockRestore()
+  })
+
+  it('leaves the citation exactly as it was when no link has been followed', async () => {
+    setFollowable()
+    const spy = vi.spyOn(composerDraft, 'set')
+    render(<HitDetail hit={corpusHit()} caseSlug="NAV-100" sessionId={7} />)
+    // Let the pane's own fetch land first, so this is "record loaded, nothing
+    // followed" rather than passing only because `record` was still null.
+    await screen.findByText('It drops the plan.')
+    fireEvent.click(screen.getByRole('button', { name: /reference in chat/i }))
+    expect(spy.mock.calls[0][2]).toBe(formatRelatedCitation(corpusHit()))
+    spy.mockRestore()
+  })
+
+  // Plan decision 6: the inline status line dies with the modal, so the citation
+  // needs a notice — which renders in the case header, behind the modal.
+  it('confirms the staged citation with a notice, since the modal closes', () => {
+    setFollowable()
+    noticeStore.reset()
+    render(<HitDetail hit={corpusHit()} caseSlug="NAV-100" sessionId={7} onReferenced={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /reference in chat/i }))
+    expect(noticeStore.get().notices.map((n) => n.message)).toEqual([
+      expect.stringMatching(/composer/i)
+    ])
+    noticeStore.reset()
   })
 })
