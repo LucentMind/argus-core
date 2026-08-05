@@ -41,11 +41,14 @@ export function crossCheckBinaries(
   binDir: string,
   platform: string
 ): { warnings: string[] } {
-  const present = new Set(
-    fs.existsSync(binDir)
-      ? fs.readdirSync(binDir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name)
-      : []
-  )
+  const entries = fs.existsSync(binDir) ? fs.readdirSync(binDir, { withFileTypes: true }) : []
+  const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name)
+  if (dirs.length > 0) {
+    throw new Error(
+      `--bin contains a subdirectory (${dirs.join(', ')}) — pack-tools does not copy directories; move its contents to individual files in --bin`
+    )
+  }
+  const present = new Set(entries.filter((e) => e.isFile()).map((e) => e.name))
   const claimed = new Set<string>()
   const targetOs = osOf(platform)
   const warnings: string[] = []

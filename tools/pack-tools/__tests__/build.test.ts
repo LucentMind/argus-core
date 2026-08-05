@@ -89,6 +89,17 @@ describe('crossCheckBinaries', () => {
   })
 })
 
+describe('crossCheckBinaries — --bin subdirectory', () => {
+  it('fails loudly when --bin contains a subdirectory instead of silently dropping it', () => {
+    const m = readManifest(SAMPLE)
+    const dir = tmpDir()
+    fs.writeFileSync(path.join(dir, 'argus-demo'), 'x')
+    fs.mkdirSync(path.join(dir, 'lib'))
+    fs.writeFileSync(path.join(dir, 'lib', 'helper.so'), 'x')
+    expect(() => crossCheckBinaries(m, dir, 'mac-arm64')).toThrow(/lib/)
+  })
+})
+
 describe('assembleBundle', () => {
   it('stages manifest (platform-stamped), persona, skills, references, and bin/', () => {
     const m = readManifest(SAMPLE)
@@ -168,5 +179,15 @@ describe('build (end-to-end)', () => {
       .update(fs.readFileSync(path.join(dest, 'bin', 'argus-demo')))
       .digest('hex')
     expect(hex).toBe(actual)
+  })
+
+  it('fails loudly on a --bin subdirectory rather than shipping an incomplete bundle', async () => {
+    const dir = tmpDir()
+    fs.writeFileSync(path.join(dir, 'argus-demo'), 'x')
+    fs.mkdirSync(path.join(dir, 'launcher'))
+    const out = tmpDir()
+    await expect(
+      build({ packDir: SAMPLE, binDir: dir, platform: 'mac-arm64', outDir: out })
+    ).rejects.toThrow(/launcher/)
   })
 })
