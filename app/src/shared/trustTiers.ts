@@ -21,6 +21,11 @@ export const NON_PACK_TIERS: readonly TrustTier[] = [
   'hivemind'
 ]
 
+/** Tiers a NEW write must never land on — reference writes (accept, manual editor) refuse
+ *  these; skills use a separate bundled-only check since they shadow into a different
+ *  directory instead of overwriting the tiered file in place. */
+export const NOT_HAND_OWNED_TIERS: readonly TrustTier[] = ['bundled', 'hivemind', 'confluence']
+
 /**
  * Badge copy. Each value names WHERE an asset came from; the Library group it sits in
  * already states what may be done with it, so these must not repeat the rights.

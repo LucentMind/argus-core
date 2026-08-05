@@ -22,6 +22,7 @@ import {
   refTitle,
   parseRefSources,
   stampRefFile,
+  assertHandOwnedReferenceTier,
   type RefSource
 } from './refFrontmatter'
 import {
@@ -143,9 +144,7 @@ export class RefSyncService {
     }
     const p = path.join(this.refsDir(), file)
     const tier = refTier(fs.readFileSync(p, 'utf8')) ?? 'team-knowledge'
-    if (tier === 'hivemind' || tier === 'confluence' || tier === 'bundled') {
-      throw new Error(`not a hand-owned reference: ${file} (${tier})`)
-    }
+    assertHandOwnedReferenceTier(tier, file)
     fs.rmSync(p, { force: true })
   }
 
@@ -177,9 +176,7 @@ export class RefSyncService {
     const p = path.join(this.refsDir(), file)
     const existing = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null
     const tier = existing === null ? null : refTier(existing)
-    if (tier === 'hivemind' || tier === 'confluence' || tier === 'bundled') {
-      throw new Error(`not a hand-owned reference: ${file} (${tier})`)
-    }
+    assertHandOwnedReferenceTier(tier, file)
     if ((existing === null ? null : contentHash(existing)) !== baseHash) {
       // baseHash null means the editor believes it is CREATING "file" — if a file is already
       // there, that's a name collision, not a concurrent edit of something the editor had open.

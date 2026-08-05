@@ -1,4 +1,5 @@
 import { fmBlock, fmField } from '../../../shared/frontmatter'
+import { NOT_HAND_OWNED_TIERS } from '../../../shared/trustTiers'
 
 /** One synced Confluence source of a reference file (confluence-pages.md convention + version). */
 export interface RefSource {
@@ -13,6 +14,20 @@ export function refTier(raw: string): string | null {
   const b = fmBlock(raw)
   if (!b) return null
   return fmField(b.fm, 'trust_tier') || null
+}
+
+/** True when `tier` is safe for a fresh write — user/team-knowledge/untagged. False for
+ *  bundled/hivemind/confluence, which are owned by a pack, core, or an upstream sync/pin. */
+export function isHandOwnedReferenceTier(tier: string | null): boolean {
+  return tier === null || !(NOT_HAND_OWNED_TIERS as readonly string[]).includes(tier)
+}
+
+/** Throws unless `tier` is hand-owned — the single guard every reference write/delete path
+ *  (manual editor, accept-proposal) must run before it touches the file. */
+export function assertHandOwnedReferenceTier(tier: string | null, file: string): void {
+  if (!isHandOwnedReferenceTier(tier)) {
+    throw new Error(`not a hand-owned reference: ${file} (${tier})`)
+  }
 }
 
 /** Frontmatter title; null when absent — index generation falls back to the filename. */

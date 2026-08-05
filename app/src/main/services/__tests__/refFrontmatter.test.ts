@@ -53,3 +53,32 @@ describe('reading foreign files', () => {
     expect(refBody('no frontmatter')).toBe('no frontmatter')
   })
 })
+
+import { isHandOwnedReferenceTier, assertHandOwnedReferenceTier } from '../refSync/refFrontmatter'
+
+describe('isHandOwnedReferenceTier', () => {
+  it('is true for user, team-knowledge, and untagged (null)', () => {
+    expect(isHandOwnedReferenceTier('user')).toBe(true)
+    expect(isHandOwnedReferenceTier('team-knowledge')).toBe(true)
+    expect(isHandOwnedReferenceTier(null)).toBe(true)
+  })
+
+  it('is false for bundled, hivemind, and confluence', () => {
+    expect(isHandOwnedReferenceTier('bundled')).toBe(false)
+    expect(isHandOwnedReferenceTier('hivemind')).toBe(false)
+    expect(isHandOwnedReferenceTier('confluence')).toBe(false)
+  })
+})
+
+describe('assertHandOwnedReferenceTier', () => {
+  it('throws "not a hand-owned reference" for a locked tier, naming the file and tier', () => {
+    expect(() => assertHandOwnedReferenceTier('bundled', 'recipes.md')).toThrow(
+      'not a hand-owned reference: recipes.md (bundled)'
+    )
+  })
+
+  it('is a no-op for a hand-owned tier', () => {
+    expect(() => assertHandOwnedReferenceTier('team-knowledge', 'recipes.md')).not.toThrow()
+    expect(() => assertHandOwnedReferenceTier(null, 'recipes.md')).not.toThrow()
+  })
+})
