@@ -220,6 +220,12 @@ export function HivemindSettings({
   const [updateConfirm, setUpdateConfirm] = useState<UpdateConfirm | null>(null)
   const [check, setCheck] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle')
   const [checkError, setCheckError] = useState<string | null>(null)
+  const [autoSyncing, setAutoSyncing] = useState(false)
+  const [downloadAllProgress, setDownloadAllProgress] = useState<{
+    kind: 'skill' | 'reference'
+    done: number
+    total: number
+  } | null>(null)
 
   const g = settingsPayload.settings.hivemind
 
@@ -253,6 +259,32 @@ export function HivemindSettings({
       mounted = false
     }
   }, [g.repo])
+
+  // Auto-sync on entering this tab: fires once the reachability probe above confirms the
+  // remote is reachable, so the Browse list is usually already fresh by the time the user
+  // looks at it instead of requiring a manual Sync click. Deliberately NOT routed through
+  // `run()` — staying off `busy` keeps Download/Remove/Update usable immediately, and a pull
+  // with nothing new to fetch is typically instant anyway. Failures (offline, auth) are
+  // swallowed: being unreachable when Settings happens to be opened is normal, not worth
+  // interrupting the user for. The manual Sync button still surfaces errors via `run()`.
+  useEffect(() => {
+    if (check !== 'ok') return
+    let mounted = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- check-keyed kickoff: set the spinner immediately before the async sync resolves
+    setAutoSyncing(true)
+    void window.argus.hivemind
+      .sync()
+      .then((p) => {
+        if (mounted) setPayload(p)
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (mounted) setAutoSyncing(false)
+      })
+    return () => {
+      mounted = false
+    }
+  }, [check])
 
   async function run(fn: () => Promise<HivemindPayload>): Promise<void> {
     if (busy) return
@@ -299,6 +331,31 @@ export function HivemindSettings({
         ? window.argus.hivemind.install(kind, name, { overwriteLocalEdits: true })
         : window.argus.hivemind.install(kind, name)
     )
+  }
+
+  /** Downloads every not-yet-installed item of one kind, one at a time — sequential rather
+   *  than parallel so installs don't race each other writing into the same local clone dir.
+   *  Best-effort: one failure doesn't stop the rest; failures are reported together at the end. */
+  async function downloadAll(kind: 'skill' | 'reference', items: HivemindItem[]): Promise<void> {
+    if (busy) return
+    const targets = items.filter((it) => !it.installed && !it.updateAvailable)
+    if (targets.length === 0) return
+    setBusy(true)
+    setError(null)
+    const failed: string[] = []
+    for (let i = 0; i < targets.length; i++) {
+      setDownloadAllProgress({ kind, done: i, total: targets.length })
+      try {
+        const p = await window.argus.hivemind.install(kind, targets[i].name)
+        setPayload(p)
+        if (p.error) setError(p.error)
+      } catch {
+        failed.push(targets[i].name)
+      }
+    }
+    setDownloadAllProgress(null)
+    setBusy(false)
+    if (failed.length > 0) setError(`Failed to download: ${failed.join(', ')}`)
   }
 
   const statusChip = ((): React.JSX.Element | null => {
@@ -375,10 +432,10 @@ export function HivemindSettings({
               aria-label="Sync"
               title="Sync HiveMind"
               className="ml-auto"
-              disabled={busy}
+              disabled={busy || autoSyncing}
               onClick={() => void run(() => window.argus.hivemind.sync())}
             >
-              <RefreshCw size={14} className={busy ? 'animate-spin' : ''} />
+              <RefreshCw size={14} className={busy || autoSyncing ? 'animate-spin' : ''} />
             </IconBtn>
           </div>
           {/* Status on its own line, and wrapping within it. Guarded so a repo with no commit,
@@ -445,6 +502,30 @@ export function HivemindSettings({
   const filtered = payload.items.filter((it) => matchesFilter(it, filter))
   const skills = filtered.filter((it) => it.kind === 'skill')
   const references = filtered.filter((it) => it.kind === 'reference')
+  const downloadableSkills = skills.filter((it) => !it.installed && !it.updateAvailable)
+  const downloadableReferences = references.filter((it) => !it.installed && !it.updateAvailable)
+
+  /** Section-header action for "Download All" — omitted entirely when nothing in that
+   *  section is downloadable, rather than rendering a dead button. */
+  function downloadAllAction(
+    kind: 'skill' | 'reference',
+    targets: HivemindItem[]
+  ): React.JSX.Element | undefined {
+    if (targets.length === 0) return undefined
+    return (
+      <Btn
+        variant="outline"
+        aria-label={`Download all ${kind === 'skill' ? 'skills' : 'references'}`}
+        disabled={busy}
+        onClick={() => void downloadAll(kind, targets)}
+      >
+        <Download size={13} aria-hidden="true" />
+        {downloadAllProgress && downloadAllProgress.kind === kind
+          ? `Downloading… (${downloadAllProgress.done}/${downloadAllProgress.total})`
+          : 'Download All'}
+      </Btn>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -485,7 +566,10 @@ export function HivemindSettings({
         ) : (
           <>
             {skills.length > 0 && (
-              <SettingsSection title="Skills">
+              <SettingsSection
+                title="Skills"
+                action={downloadAllAction('skill', downloadableSkills)}
+              >
                 {skills.map((it) => (
                   <BrowseRow
                     key={`${it.kind}/${it.name}`}
@@ -508,7 +592,10 @@ export function HivemindSettings({
             )}
 
             {references.length > 0 && (
-              <SettingsSection title="References">
+              <SettingsSection
+                title="References"
+                action={downloadAllAction('reference', downloadableReferences)}
+              >
                 {references.map((it) => (
                   <BrowseRow
                     key={`${it.kind}/${it.name}`}

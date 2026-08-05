@@ -918,3 +918,93 @@ describe('download hazards', () => {
     expect(screen.queryByText(/keep being used/i)).not.toBeInTheDocument()
   })
 })
+
+describe('auto-sync on entering the Team tab', () => {
+  it('syncs automatically once the reachability check succeeds, with no Sync click', async () => {
+    renderWith(ready)
+    await waitFor(() => expect(window.argus.hivemind.sync).toHaveBeenCalledTimes(1))
+  })
+
+  it('skips auto-sync when the repo is not reachable', async () => {
+    window.argus.hivemind.check = vi.fn().mockResolvedValue({ ok: false, error: 'no access' })
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    expect(await screen.findByText('not reachable')).toBeInTheDocument()
+    expect(window.argus.hivemind.sync).not.toHaveBeenCalled()
+  })
+
+  it('does not lock the panel while auto-syncing in the background', async () => {
+    const argus = mockArgus(ready)
+    let resolveSync: ((p: HivemindPayload) => void) | undefined
+    ;(argus.hivemind as { sync: ReturnType<typeof vi.fn> }).sync = vi.fn(
+      () =>
+        new Promise<HivemindPayload>((resolve) => {
+          resolveSync = resolve
+        })
+    )
+    ;(window as unknown as { argus: unknown }).argus = argus
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    const downloadBtn = await screen.findByLabelText('Download hive-note.md')
+    expect(downloadBtn).not.toBeDisabled()
+    resolveSync?.(ready)
+  })
+})
+
+describe('download all', () => {
+  const multiSkills: HivemindPayload = {
+    ...ready,
+    items: [
+      {
+        ...ready.items[0],
+        name: 'skill-a',
+        installed: false,
+        updateAvailable: false,
+        installedCommit: null
+      },
+      {
+        ...ready.items[0],
+        name: 'skill-b',
+        installed: false,
+        updateAvailable: false,
+        installedCommit: null
+      },
+      { ...ready.items[0], name: 'skill-c', installed: true, updateAvailable: false },
+      ready.items[1] // uninstalled reference, unaffected by the Skills button
+    ]
+  }
+
+  it('downloads every not-yet-installed skill and omits already-installed ones', async () => {
+    renderWith(multiSkills)
+    fireEvent.click(await screen.findByRole('button', { name: 'Download all skills' }))
+    await waitFor(() => expect(installMock).toHaveBeenCalledWith('skill', 'skill-a'))
+    await waitFor(() => expect(installMock).toHaveBeenCalledWith('skill', 'skill-b'))
+    expect(installMock).not.toHaveBeenCalledWith('skill', 'skill-c')
+  })
+
+  it('hides Download All when nothing in that section is downloadable', async () => {
+    const allInstalled: HivemindPayload = {
+      ...ready,
+      items: [{ ...ready.items[0], installed: true, updateAvailable: false }]
+    }
+    renderWith(allInstalled)
+    await screen.findByText('hive-probe')
+    expect(screen.queryByRole('button', { name: 'Download all skills' })).not.toBeInTheDocument()
+  })
+
+  it('continues past a failed item and reports the failures together', async () => {
+    const argus = mockArgus(multiSkills)
+    ;(argus.hivemind as { install: ReturnType<typeof vi.fn> }).install = vi
+      .fn()
+      .mockImplementation((_kind: string, name: string) =>
+        name === 'skill-a' ? Promise.reject(new Error('boom')) : Promise.resolve(multiSkills)
+      )
+    ;(window as unknown as { argus: unknown }).argus = argus
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Download all skills' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Failed to download: skill-a/)
+    expect((argus.hivemind as { install: ReturnType<typeof vi.fn> }).install).toHaveBeenCalledWith(
+      'skill',
+      'skill-b'
+    )
+  })
+})
