@@ -77,6 +77,16 @@ describe('crossCheckBinaries', () => {
     const empty = tmpDir()
     expect(() => crossCheckBinaries(m, empty, 'mac-arm64')).not.toThrow()
   })
+
+  it('skips the file check for a binary declared bundled: false and warns instead of throwing', () => {
+    const m = readManifest(SAMPLE)
+    m.binaries[0].bundled = false
+    m.binaries[0].fixHint = 'install argus-demo yourself'
+    const empty = tmpDir()
+    const { warnings } = crossCheckBinaries(m, empty, 'mac-arm64')
+    expect(warnings.join()).toMatch(/argus-demo/)
+    expect(warnings.join()).toMatch(/bundled: false/)
+  })
 })
 
 describe('assembleBundle', () => {

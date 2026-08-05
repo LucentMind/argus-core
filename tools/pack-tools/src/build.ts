@@ -48,9 +48,14 @@ export function crossCheckBinaries(
   )
   const claimed = new Set<string>()
   const targetOs = osOf(platform)
+  const warnings: string[] = []
 
   for (const b of manifest.binaries) {
     if (b.platforms && !b.platforms.includes(targetOs)) continue // not required here
+    if (b.bundled === false) {
+      warnings.push(`binary '${b.id}' declared bundled: false — skipping the --bin file check, resolved at runtime instead`)
+      continue
+    }
     const cands = candidateNames(b.names, platform)
     const hit = cands.find((n) => present.has(n))
     if (!hit) {
@@ -61,9 +66,11 @@ export function crossCheckBinaries(
     claimed.add(hit)
   }
 
-  const warnings = [...present]
-    .filter((n) => !claimed.has(n))
-    .map((n) => `extra file in --bin not claimed by any binary: ${n}`)
+  warnings.push(
+    ...[...present]
+      .filter((n) => !claimed.has(n))
+      .map((n) => `extra file in --bin not claimed by any binary: ${n}`)
+  )
   return { warnings }
 }
 
