@@ -197,4 +197,47 @@ mod tests {
         let s = "a".repeat(256);
         assert_eq!(truncate_command(&s, 256), s);
     }
+
+    #[test]
+    fn a_snapshot_with_hundreds_of_max_length_commands_stays_comfortably_under_the_main_process_buffer_cap(
+    ) {
+        // Cross-checks the one invariant that makes the two-sided fix (this cap +
+        // MAX_BUFFER_CHARS in app/src/main/services/diagnostics/sidecarClient.ts)
+        // actually hold: every process capped at MAX_COMMAND_BYTES, even at a
+        // process count far above anything realistic (the spec's §3 "generalisation"
+        // table shows ~1900 average-sized processes reach the OLD uncapped bound),
+        // must still serialise to well under the 1,000,000-character buffer cap on
+        // the TypeScript side. If either constant changes, this goes red instead of
+        // silently drifting apart.
+        let processes: Vec<ProcessSample> = (0..600)
+            .map(|i| ProcessSample {
+                pid: i,
+                ppid: 1,
+                start_time_ms: 0,
+                run_time_ms: 0,
+                name: "node".to_string(),
+                command: truncate_command(&"x".repeat(MAX_COMMAND_BYTES * 2), MAX_COMMAND_BYTES),
+                status: "Run".to_string(),
+                cpu_time_ms: 0,
+                resident_bytes: 0,
+            })
+            .collect();
+        let snap = Snapshot {
+            version: PROTOCOL_VERSION,
+            event_type: "snapshot",
+            sequence: 1,
+            sampled_at_unix_ms: 0,
+            collection_duration_micros: 0,
+            scanned_process_count: 600,
+            retained_process_count: 600,
+            request_id: None,
+            processes,
+        };
+        let json = serde_json::to_string(&snap).expect("serialises");
+        assert!(
+            json.len() < 1_000_000,
+            "snapshot of 600 max-length commands serialised to {} chars, not comfortably under the 1,000,000-char buffer cap",
+            json.len()
+        );
+    }
 }

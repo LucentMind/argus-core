@@ -307,22 +307,30 @@ describe('SidecarClient', () => {
     expect(snaps).toHaveLength(1)
   })
 
-  it('opens the circuit after five oversized lines inside the window, same as any other failure', async () => {
+  it('routes a pre-handshake oversized fragment through the ordinary failure path, opening the circuit after five attempts', async () => {
     const { client, procs } = makeClient()
     void client.start()
-    procs[0].emit(hello())
-    await vi.advanceTimersByTimeAsync(0)
 
-    // A substituted binary that never emits a newline hits the cap on every
-    // chunk. The original guard's purpose — catching this — must survive: a
-    // sustained run of oversized lines still trips the circuit breaker.
+    // A substituted binary that never sends any line at all — not even `hello`,
+    // itself a short newline-terminated line — only unterminated garbage. Every
+    // spawn attempt hits the cap before ever completing the handshake, so each
+    // one is an ordinary fail(): killed, and a replacement spawned on backoff
+    // (500ms, 1000ms, 2000ms, 4000ms — comfortably under each attempt's own
+    // 5000ms handshake watchdog, so that timer never independently fires and
+    // muddies the failure count). The original guard's purpose — catching
+    // this — must survive: five such attempts inside the failure window still
+    // trip the circuit breaker.
+    const backoffDelaysMs = [500, 1000, 2000, 4000]
     for (let i = 0; i < 5; i++) {
-      procs[0].emit('x'.repeat(1_000_001))
+      procs[procs.length - 1].emit('x'.repeat(1_000_001))
+      if (i < backoffDelaysMs.length) {
+        await vi.advanceTimersByTimeAsync(backoffDelaysMs[i])
+      }
     }
 
     expect(client.health().status).toBe('unavailable')
-    expect(client.health().restartCount).toBe(1)
-    expect(procs[0].killed).toBe(true)
+    expect(procs).toHaveLength(5)
+    expect(procs.every((p) => p.killed)).toBe(true)
   })
 
   it('ignores a snapshot that arrives before the handshake', async () => {

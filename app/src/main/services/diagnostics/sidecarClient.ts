@@ -15,9 +15,13 @@ const MAX_FAILURES_PER_WINDOW = 5
 const MAX_BACKOFF_MS = 10_000
 // The real sidecar never emits a line anywhere near this long — NDJSON lines are one
 // snapshot each, and the sidecar caps every process's command field (see
-// native/resource-monitor). A single oversized, newline-less fragment costs only
-// itself (see failOversizedLine); a *sustained* run of them still opens the circuit
-// via the same failure window as any other repeated failure.
+// native/resource-monitor). A post-handshake oversized, newline-less fragment costs
+// only itself (see failOversizedLine) and never kills the child, however often it
+// recurs — real sidecar output is always well-framed once the handshake has
+// completed. A binary that never completes the handshake at all (not even `hello`,
+// itself a short newline-terminated line) is still a rogue substitute, and hits the
+// SAME cap through the ordinary fail() path in ingest() below, so the original
+// guard's purpose — catching that binary — survives unchanged.
 const MAX_BUFFER_CHARS = 1_000_000
 
 export type SidecarClientDeps = {
@@ -194,7 +198,17 @@ export class SidecarClient {
     if (this.buffer.length > MAX_BUFFER_CHARS) {
       const droppedChars = this.buffer.length
       this.buffer = ''
-      this.failOversizedLine(droppedChars)
+      if (this.handshakeDone) {
+        this.failOversizedLine(droppedChars)
+      } else {
+        // No line has ever completed for this attempt — not even `hello` — so
+        // this cannot be the real sidecar failing to keep up; it's a substituted
+        // binary writing unterminated garbage. Route it through the ordinary
+        // failure path so a sustained run still opens the circuit.
+        this.fail(
+          `sidecar sent ${droppedChars} characters with no newline before completing the handshake (over the ${MAX_BUFFER_CHARS}-character cap)`
+        )
+      }
     }
   }
 
@@ -262,33 +276,19 @@ export class SidecarClient {
   }
 
   /**
-   * A single oversized, newline-less fragment costs that fragment, not the
-   * child: an isolated framing glitch (or, before the sidecar's command cap,
-   * an unusually large legitimate snapshot) should not kill a healthy sidecar.
-   * But a substituted binary that never emits a newline hits this on every
-   * chunk, so repeated occurrences inside the failure window still escalate
-   * through the same failures[]/circuit-breaker path fail() uses — the
-   * original guard's purpose survives, it just no longer fires on one event.
+   * A post-handshake oversized, newline-less fragment costs that fragment,
+   * not the child. Once the handshake has completed, real sidecar output is
+   * always well-framed — even an unusually large legitimate snapshot (or,
+   * before the sidecar's command cap, one dominated by a single process's
+   * argv) was still a single complete line — so this never counts as a
+   * failure and never kills the process, no matter how often it recurs. A
+   * binary that never completes the handshake goes through fail() in
+   * ingest() instead, which is where the original guard's rogue-binary
+   * protection now lives.
    */
   private failOversizedLine(droppedChars: number): void {
     if (this.stopped) return
     this.lastError = `sidecar sent ${droppedChars} characters with no newline (over the ${MAX_BUFFER_CHARS}-character cap) — dropping buffer`
-
-    const now = Date.now()
-    this.failures = this.failures.filter((t) => now - t < FAILURE_WINDOW_MS)
-    this.failures.push(now)
-
-    if (this.failures.length >= MAX_FAILURES_PER_WINDOW) {
-      this.clearTimers()
-      // Null this.proc BEFORE kill(): see the identical comment in fail() —
-      // a fake or fast-exiting child can invoke its exit callback synchronously.
-      const dying = this.proc
-      this.proc = null
-      dying?.kill()
-      this.restartCount += 1
-      this.status = 'unavailable'
-    }
-
     this.notifyHealth()
   }
 }
