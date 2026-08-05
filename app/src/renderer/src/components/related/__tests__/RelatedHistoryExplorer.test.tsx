@@ -78,12 +78,71 @@ describe('RelatedHistoryExplorer', () => {
   })
 
   it('raises the limit on show-more and stops at the contract ceiling', async () => {
-    const { search } = setArgus({ query: 'q', hits: Array.from({ length: 10 }, () => hit()) })
+    // A full page every step, so "Show more" keeps offering — otherwise the
+    // component would stop paging on its own before the ceiling is reached
+    // and the test would prove nothing about the stop condition either.
+    const search = vi.fn().mockImplementation((input: { limit: number }) =>
+      Promise.resolve({
+        query: 'q',
+        hits: Array.from({ length: input.limit }, () => hit()),
+        sources: []
+      })
+    )
+    ;(window as unknown as { argus: unknown }).argus = {
+      related: { search, sources: vi.fn().mockResolvedValue(SOURCES), defect: vi.fn() }
+    }
     render(<RelatedHistoryExplorer caseSlug="current" />)
     await waitFor(() => expect(search).toHaveBeenCalledTimes(1))
-    expect(search.mock.calls[0][0].limit).toBe(10)
-    fireEvent.click(screen.getByRole('button', { name: 'Show more' }))
-    await waitFor(() => expect(search.mock.calls[1][0].limit).toBe(20))
+
+    const expectedLimits = [10, 20, 30, 40, 50]
+    expect(search.mock.calls[0][0].limit).toBe(expectedLimits[0])
+    for (let i = 1; i < expectedLimits.length; i++) {
+      fireEvent.click(screen.getByRole('button', { name: 'Show more' }))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(i + 1))
+      expect(search.mock.calls[i][0].limit).toBe(expectedLimits[i])
+    }
+    // Every requested limit stayed within the server-enforced ceiling...
+    for (const call of search.mock.calls) {
+      expect(call[0].limit).toBeLessThanOrEqual(50)
+    }
+    // ...and once the ceiling is reached, the component stops offering more.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument()
+    )
+    expect(search).toHaveBeenCalledTimes(expectedLimits.length)
+  })
+
+  it('clears loading and shows a retry-ready failure line when search rejects', async () => {
+    const search = vi.fn().mockRejectedValue(new Error('fetch failed'))
+    ;(window as unknown as { argus: unknown }).argus = {
+      related: { search, sources: vi.fn().mockResolvedValue(SOURCES), defect: vi.fn() }
+    }
+    render(<RelatedHistoryExplorer caseSlug="current" />)
+    await waitFor(() => expect(search).toHaveBeenCalledTimes(1))
+
+    // The failure is visible, human-readable text in the results area — not a
+    // silently blank pane.
+    expect(await screen.findByText('fetch failed')).toBeInTheDocument()
+    // Neither the empty-result nor the standalone placeholder mislabels the
+    // failure as "nothing matched".
+    expect(screen.queryByText('No related history for this query.')).not.toBeInTheDocument()
+
+    // The pane isn't stuck "loading": the query box and Search button are
+    // still usable, and resubmitting is the retry path.
+    const input = screen.getByLabelText('Search related history')
+    const button = screen.getByRole('button', { name: 'Search' })
+    expect(input).toBeEnabled()
+    expect(button).toBeEnabled()
+
+    // Zero hits on the retry: this only renders once `loading` has actually
+    // returned to false again for the new request — if the rejected request
+    // had left `loading` wedged true forever, this message could never show.
+    search.mockResolvedValueOnce({ query: 'q', hits: [], sources: [] })
+    fireEvent.change(input, { target: { value: 'battery soc' } })
+    fireEvent.submit(screen.getByRole('search'))
+    await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('No related history for this query.')).toBeInTheDocument()
+    expect(screen.queryByText('fetch failed')).not.toBeInTheDocument()
   })
 
   it('renders the degraded line and keeps healthy hits visible', async () => {

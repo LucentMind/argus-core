@@ -149,6 +149,11 @@ export function RelatedHistoryExplorer({
     req: ExplorerRequest
     result: RelatedSearchResult
   } | null>(null)
+  // Same req-identity pairing as `completed`, so a failed request stops being
+  // "in flight" without a synchronous setState in the effect body, and a fresh
+  // submission (a new `req` reference, even with identical fields — see the
+  // Search-button handler) naturally clears a stale error off the screen.
+  const [failed, setFailed] = useState<{ req: ExplorerRequest; message: string } | null>(null)
   const [sources, setSources] = useState<RelatedSourceInfo[]>([])
   const [selected, setSelected] = useState<string | null>(null)
   const [probeNonce, setProbeNonce] = useState(0)
@@ -190,8 +195,14 @@ export function RelatedHistoryExplorer({
           setDraft(r.query)
         }
       })
-      .catch(() => {
-        /* the list simply keeps showing the last completed result */
+      .catch((e: unknown) => {
+        if (!alive) return
+        // The last completed result (if any) stays on screen — same "no
+        // flicker" reasoning as the success path — but a visible failure line
+        // is mandatory here: unlike RelatedHistoryCard's silent swallow (a
+        // rejection there must not break the case view), this surface is one
+        // the user navigated to on purpose, so a broken source must be seen.
+        setFailed({ req, message: e instanceof Error ? e.message : 'Search failed.' })
       })
     return () => {
       alive = false
@@ -202,7 +213,8 @@ export function RelatedHistoryExplorer({
   }, [req, caseSlug, shouldSearch])
 
   const shown = shouldSearch ? (completed?.result ?? null) : null
-  const loading = shouldSearch && completed?.req !== req
+  const error = failed?.req === req ? failed.message : null
+  const loading = shouldSearch && completed?.req !== req && !error
   const hits = shown?.hits ?? []
   const degraded = shown ? degradedLabel(shown.sources) : null
   const active = hits.find((h) => h.id === selected) ?? null
@@ -243,6 +255,7 @@ export function RelatedHistoryExplorer({
           </Btn>
         </form>
         {degraded && <div className="text-[11px] text-mute">{degraded}</div>}
+        {error && <div className="text-[11px] text-danger">{error}</div>}
         <div className="flex min-h-0 flex-1 gap-3">
           <div className="flex min-h-0 w-1/2 flex-col gap-1.5 overflow-y-auto">
             {hits.map((h) => (
@@ -256,7 +269,7 @@ export function RelatedHistoryExplorer({
             {!loading && hits.length === 0 && shown && (
               <p className="text-xs text-dim">No related history for this query.</p>
             )}
-            {!shown && !caseSlug && (
+            {!shown && !caseSlug && !error && (
               <p className="text-xs text-dim">
                 Search your cases and every configured corpus to find history for a symptom, an
                 error string or a ticket key.
