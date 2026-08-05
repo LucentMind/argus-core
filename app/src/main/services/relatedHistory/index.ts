@@ -12,10 +12,15 @@ import { fuse } from './fuse'
 import { buildRelatedQuery, freeFormQuery, type RelatedQuery } from './query'
 import { createCorpusProviders } from './providers/corpus'
 import { createLocalCasesProvider } from './providers/localCases'
-import type { HistoryProvider, ProviderRanking } from './types'
+import type { HistoryProvider, ProviderRanking, ProviderSearchOptions } from './types'
 
 export { fuse, RRF_K, rrfScore } from './fuse'
-export type { HistoryProvider, ProviderRanking, ProviderResult } from './types'
+export type {
+  HistoryProvider,
+  ProviderRanking,
+  ProviderResult,
+  ProviderSearchOptions
+} from './types'
 
 const DEFAULT_LIMIT = 5
 
@@ -71,11 +76,24 @@ export class RelatedHistoryService {
         return { query: query.text, hits: [], sources: [], reason: 'query-too-generic' }
       }
 
-      const providers = this.providers(input.caseSlug ?? null)
+      const providers = this.providers(input.caseSlug ?? null, input.includeOpenCases === true)
+        .filter((p) => input.providerIds === undefined || input.providerIds.includes(p.id))
 
       if (providers.length === 0) {
         return { query: query.text, hits: [], sources: [], reason: 'no-providers' }
       }
+
+      const opts: ProviderSearchOptions = {
+        ...(input.mode ? { mode: input.mode } : {}),
+        ...(input.filters ? { filters: input.filters } : {}),
+        ...(input.includeOpenCases === true ? { includeOpen: true } : {})
+      }
+      // Only pass a third argument when there is something to say: increment 1's
+      // suite asserts `search` is called with exactly (query, limit) on the
+      // default path via `toHaveBeenCalledWith`, which fails on a trailing `{}`
+      // (array length is part of that equality) even though `{}` is behaviourally
+      // inert to every provider.
+      const hasOpts = Object.keys(opts).length > 0
 
       const sources: SourceHealth[] = []
       const rankings: ProviderRanking[] = []
@@ -87,7 +105,7 @@ export class RelatedHistoryService {
       const settled = await Promise.all(
         providers.map(async (p) => {
           try {
-            return { p, res: await p.search(query, limit) }
+            return { p, res: await (hasOpts ? p.search(query, limit, opts) : p.search(query, limit)) }
           } catch (err) {
             const error = err instanceof Error ? err.message : String(err)
             return { p, res: { ok: false as const, error } }
@@ -166,10 +184,14 @@ export class RelatedHistoryService {
    * which is what gives `no-providers` a real trigger: a fresh install with
    * nothing distilled and no corpus configured.
    */
-  private providers(caseSlug: string | null): HistoryProvider[] {
+  private providers(caseSlug: string | null, includeOpen: boolean): HistoryProvider[] {
     if (this.deps.providers) return this.deps.providers
     const out: HistoryProvider[] = []
-    if (summaryPopulation(this.deps.db, true) > 0) {
+    // Gate on the SAME population the provider will search: with includeOpen a
+    // corpus of nothing but live cases is searchable, and gating on the
+    // closed-only count would skip local and report `no-providers` for a
+    // request that has rows to return.
+    if (summaryPopulation(this.deps.db, !includeOpen) > 0) {
       out.push(createLocalCasesProvider(this.deps.db, caseSlug))
     }
     out.push(...createCorpusProviders(this.deps.defectCorpus))

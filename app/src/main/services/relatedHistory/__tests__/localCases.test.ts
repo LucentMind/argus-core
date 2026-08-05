@@ -474,3 +474,32 @@ describe('local provider — shape and behaviour', () => {
     if (!r.ok) expect(r.error).toBeTruthy()
   })
 })
+
+describe('local provider — includeOpen', () => {
+  it('excludes open cases by default and includes them on request', async () => {
+    add('live', 'open', {
+      signature: 'ecu reset drifts dlt timestamps',
+      keywords: ['E_DLT_DRIFT']
+    })
+    pad(4)
+    const q = freeFormQuery('ecu reset drifts dlt')
+
+    const closed = await provider('current').search(q, 5)
+    expect(closed.ok && closed.hits.map((h) => (h as LocalCaseHit).caseSlug)).toEqual([])
+
+    const open = await provider('current').search(q, 5, { includeOpen: true })
+    expect(open.ok && open.hits.map((h) => (h as LocalCaseHit).caseSlug)).toEqual(['live'])
+    expect(open.ok && open.hits[0].status).toEqual({ label: 'open', tone: 'open' })
+  })
+
+  it('measures the df population over the same set it searches', async () => {
+    // Four OPEN summaries all sharing 'drift'. With includeOpen the population is
+    // 4, so the 30% threshold is 1.2 and a term in all four is suppressed —
+    // proving the population and the search set are the same rows, not that the
+    // closed-only population (0) leaked in and floored the threshold at 1.
+    for (let i = 0; i < 4; i++) add(`live-${i}`, 'open', { signature: `drift case ${i}` })
+    const r = await provider('current').search(freeFormQuery('drift'), 5, { includeOpen: true })
+    expect(r.ok && r.hits).toEqual([])
+    expect(r.ok && r.reason).toBe('query-too-generic')
+  })
+})

@@ -31,7 +31,7 @@ import { DefectCorpusService } from './services/defectCorpus/service'
 import type { CorpusAdminConfig, CorpusSearchInput } from './services/defectCorpus/client'
 import { corpusTokenSecret } from '../shared/defectCorpus'
 import { RelatedHistoryService } from './services/relatedHistory'
-import type { RelatedSearchInput } from '../shared/relatedHistory'
+import { validateRelatedSearchInput } from './services/relatedHistory/input'
 import { pushScaleIfChanged, pushThemeIfChanged, type TitleBarTheme } from './services/titleBar'
 import { mainWindowOptions } from './services/windowOptions'
 import {
@@ -1956,21 +1956,12 @@ function registerIpc(): void {
 
   // — unified related history —
   const relatedHistory = new RelatedHistoryService({ db, defectCorpus })
-  // A generous ceiling, not a UX default (DEFAULT_LIMIT in relatedHistory/index.ts
-  // already covers the normal case) — this only stops a renderer from asking for
-  // an unbounded result set.
-  const RELATED_SEARCH_MAX_LIMIT = 50
-  ipcMain.handle(IPC.relatedSearch, (_e, input: RelatedSearchInput) => {
-    // IPC args are untrusted: validate caseSlug the same way every neighbouring
-    // case handler does, and clamp limit rather than trust the renderer's number.
-    if (input.caseSlug !== undefined) assertSlug(input.caseSlug)
-    const rawLimit = input.limit
-    const limit =
-      typeof rawLimit === 'number' && Number.isFinite(rawLimit)
-        ? Math.max(1, Math.min(Math.trunc(rawLimit), RELATED_SEARCH_MAX_LIMIT))
-        : undefined
-    return relatedHistory.search({ ...input, limit })
-  })
+  ipcMain.handle(IPC.relatedSearch, (_e, input: unknown) =>
+    // IPC args are untrusted: one chokepoint validates and normalizes the whole
+    // payload (slug, limit clamp, mode enum, filter shape) before it can reach a
+    // SQL path or a corpus request body — see relatedHistory/input.ts.
+    relatedHistory.search(validateRelatedSearchInput(input))
+  )
   ipcMain.handle(IPC.relatedDefect, (_e, sourceId: string, key: string) => {
     // Same posture: an IPC arg is untrusted input, not a typed guarantee.
     if (typeof sourceId !== 'string' || sourceId.length === 0) {

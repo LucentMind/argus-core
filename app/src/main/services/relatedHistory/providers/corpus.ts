@@ -7,7 +7,7 @@ import type {
 import type { CorpusSearchHit } from '../../defectCorpus/client'
 import type { DefectCorpusService } from '../../defectCorpus/service'
 import type { RelatedQuery } from '../query'
-import type { HistoryProvider, ProviderResult } from '../types'
+import type { HistoryProvider, ProviderResult, ProviderSearchOptions } from '../types'
 
 export function corpusProviderId(sourceId: string): string {
   return `corpus:${sourceId}`
@@ -49,8 +49,20 @@ export function createCorpusProviders(svc: DefectCorpusService): HistoryProvider
     id: corpusProviderId(id),
     name,
     kind: 'corpus' as const,
-    async search(q: RelatedQuery, limit: number): Promise<ProviderResult> {
-      const res = await svc.searchOne(id, undefined, { query: q.text, limit })
+    async search(
+      q: RelatedQuery,
+      limit: number,
+      opts?: ProviderSearchOptions
+    ): Promise<ProviderResult> {
+      // Only the keys the caller actually set — SPEC §4.2 puts the mode/limit
+      // defaults server-side, so an injected `mode: 'hybrid'` here would silently
+      // override a corpus that defaults differently.
+      const res = await svc.searchOne(id, undefined, {
+        query: q.text,
+        limit,
+        ...(opts?.mode ? { mode: opts.mode } : {}),
+        ...(opts?.filters ? { filters: opts.filters } : {})
+      })
       if (!res.ok) return { ok: false, error: res.error ?? 'search failed', code: res.code }
       const hits: CorpusDefectHit[] = res.hits.map((hit, index) => ({
         kind: 'corpus',

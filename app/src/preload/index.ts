@@ -32,14 +32,17 @@ import type { DiagnosticsSnapshot } from '../shared/diagnostics'
 import type {
   CorpusAdminConfig,
   CorpusAdminResult,
-  CorpusDefectRecord,
   CorpusInfo,
   CorpusJqlPreview,
   CorpusSearchInput,
   CorpusSyncStatus,
   SourceSearchResult
 } from '../shared/defectCorpus'
-import type { RelatedSearchInput, RelatedSearchResult } from '../shared/relatedHistory'
+import type {
+  RelatedDefectResult,
+  RelatedSearchInput,
+  RelatedSearchResult
+} from '../shared/relatedHistory'
 import type { SourceControlStatus } from '../shared/sourcecontrol'
 import type { AgentAccessPayload } from '../shared/agentAccess'
 import type {
@@ -851,7 +854,7 @@ const argus = {
   related: {
     search: (input: RelatedSearchInput): Promise<RelatedSearchResult> =>
       invoke(IPC.relatedSearch, input),
-    defect: (sourceId: string, key: string): Promise<CorpusAdminResult<CorpusDefectRecord>> =>
+    defect: (sourceId: string, key: string): Promise<RelatedDefectResult> =>
       invoke(IPC.relatedDefect, sourceId, key)
   },
   sourceControl: {

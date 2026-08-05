@@ -297,3 +297,63 @@ describe('RelatedHistoryService.search', () => {
     })
   })
 })
+
+describe('RelatedHistoryService — explorer options', () => {
+  it('passes mode/filters/includeOpen through to every provider', async () => {
+    const seen: unknown[] = []
+    const p: HistoryProvider = {
+      id: 'local',
+      name: 'Your cases',
+      kind: 'local',
+      search: async (_q, _limit, opts) => {
+        seen.push(opts)
+        return { ok: true, hits: [] }
+      }
+    }
+    const svc = new RelatedHistoryService({
+      db: null as never,
+      defectCorpus: null as never,
+      providers: [p]
+    })
+    await svc.search({
+      query: 'ecu drift',
+      mode: 'lexical',
+      filters: { statuses: ['Done'] },
+      includeOpenCases: true
+    })
+    expect(seen[0]).toEqual({
+      mode: 'lexical',
+      filters: { statuses: ['Done'] },
+      includeOpen: true
+    })
+  })
+
+  it('restricts the fan-out to providerIds and reports only those sources', async () => {
+    const mk = (id: string): HistoryProvider => ({
+      id,
+      name: id,
+      kind: id === 'local' ? 'local' : 'corpus',
+      search: async () => ({ ok: true, hits: [] })
+    })
+    const svc = new RelatedHistoryService({
+      db: null as never,
+      defectCorpus: null as never,
+      providers: [mk('local'), mk('corpus:a'), mk('corpus:b')]
+    })
+    const r = await svc.search({ query: 'x', providerIds: ['corpus:b'] })
+    expect(r.sources.map((s) => s.id)).toEqual(['corpus:b'])
+  })
+
+  it('reports no-providers when providerIds excludes everything', async () => {
+    const svc = new RelatedHistoryService({
+      db: null as never,
+      defectCorpus: null as never,
+      providers: [
+        { id: 'local', name: 'Your cases', kind: 'local', search: async () => ({ ok: true, hits: [] }) }
+      ]
+    })
+    const r = await svc.search({ query: 'x', providerIds: ['corpus:gone'] })
+    expect(r.reason).toBe('no-providers')
+    expect(r.hits).toEqual([])
+  })
+})

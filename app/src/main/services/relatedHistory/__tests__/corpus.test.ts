@@ -162,3 +162,34 @@ describe('createCorpusProviders', () => {
     }
   })
 })
+
+describe('corpus provider — explorer options', () => {
+  it('forwards mode and filters, and sends neither when unset', async () => {
+    const fetchFn = okFetch([hit('KAN-5')])
+    const providers = createCorpusProviders(svc({ fetchFn }))
+
+    await providers[0].search(freeFormQuery('charge'), 5, {
+      mode: 'semantic',
+      filters: { projects: ['KAN'], updatedAfter: '2026-01-01T00:00:00.000Z' }
+    })
+    const withOpts = JSON.parse(
+      (fetchFn as unknown as { mock: { calls: Array<[string, { body: string }]> } }).mock.calls[0][1]
+        .body
+    )
+    expect(withOpts).toEqual({
+      query: 'charge',
+      limit: 5,
+      mode: 'semantic',
+      filters: { projects: ['KAN'], updatedAfter: '2026-01-01T00:00:00.000Z' }
+    })
+
+    await providers[0].search(freeFormQuery('charge'), 5)
+    const bare = JSON.parse(
+      (fetchFn as unknown as { mock: { calls: Array<[string, { body: string }]> } }).mock.calls[1][1]
+        .body
+    )
+    // SPEC §4.2: the body carries only what the caller supplied — no injected
+    // mode/filters defaults, which the server owns.
+    expect(bare).toEqual({ query: 'charge', limit: 5 })
+  })
+})

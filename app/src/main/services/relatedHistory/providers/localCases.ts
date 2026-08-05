@@ -11,7 +11,7 @@ import {
   type SummaryRankRow
 } from '../../distill/summaries'
 import { isExactMatch, isStrong, type RelatedQuery } from '../query'
-import type { HistoryProvider, ProviderResult } from '../types'
+import type { HistoryProvider, ProviderResult, ProviderSearchOptions } from '../types'
 
 export const LOCAL_PROVIDER_ID = 'local'
 export const LOCAL_PROVIDER_NAME = 'Your cases'
@@ -104,15 +104,23 @@ export function createLocalCasesProvider(
     id: LOCAL_PROVIDER_ID,
     name: LOCAL_PROVIDER_NAME,
     kind: 'local',
-    async search(q: RelatedQuery, limit: number): Promise<ProviderResult> {
+    async search(
+      q: RelatedQuery,
+      limit: number,
+      opts?: ProviderSearchOptions
+    ): Promise<ProviderResult> {
       try {
         if (q.terms.length === 0) return { ok: true, hits: [], reason: 'query-too-generic' }
 
-        const population = summaryPopulation(db, true)
+        // The df population MUST be measured over the same rows the search runs
+        // against, or rule 2's threshold is calibrated against a set that is not
+        // the one being filtered.
+        const excludeOpen = opts?.includeOpen !== true
+        const population = summaryPopulation(db, excludeOpen)
         const sets = termSlugSets(
           db,
           q.terms.map((t) => ({ text: t.text, exact: isExactMatch(t) })),
-          { excludeSlug, excludeOpen: true }
+          { excludeSlug, excludeOpen }
         )
 
         // Rule 2 — document-frequency suppression, floored rather than bypassed
