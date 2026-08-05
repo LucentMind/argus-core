@@ -38,7 +38,9 @@ async function runBuild(argv: string[]): Promise<number> {
       outDir: values.out!
     })
     for (const w of res.warnings) console.warn(`warning: ${w}`)
-    console.log(`built ${res.bundleName} (${res.files.length} files) → ${res.zipPath}`)
+    console.log(
+      `built ${res.bundleName} (${res.files.length} files, ${Math.round(res.totalBytes / 1024)} KB) → ${res.zipPath}`
+    )
     return 0
   } catch (err) {
     console.error(`build failed: ${(err as Error).message}`)

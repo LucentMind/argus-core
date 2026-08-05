@@ -13,6 +13,7 @@ import {
   zipBundle,
   build
 } from '../src/build'
+import { packManifestSchema } from '../../../app/src/main/services/packs/manifest'
 
 const FIX = path.join(__dirname, 'fixtures')
 const SAMPLE = path.join(FIX, 'sample-pack')
@@ -120,6 +121,20 @@ describe('assembleBundle', () => {
     assembleBundle(m, SAMPLE, BIN, 'mac-arm64', staging)
     expect(fs.existsSync(path.join(staging, 'bin-src'))).toBe(false)
   })
+
+  it('excludes node_modules (and other dev-artifact dirs) from BUNDLE_DIRS copies', () => {
+    const m = packManifestSchema.parse({ id: 'x', displayName: 'X', version: '1.0.0', argusApi: '^1' })
+    const packDir = tmpDir()
+    fs.mkdirSync(path.join(packDir, 'ui', 'node_modules'), { recursive: true })
+    fs.writeFileSync(path.join(packDir, 'ui', 'node_modules', 'junk.txt'), 'x')
+    fs.writeFileSync(path.join(packDir, 'ui', 'real.txt'), 'keep me')
+
+    const staging = tmpDir()
+    assembleBundle(m, packDir, BIN, 'mac-arm64', staging)
+
+    expect(fs.existsSync(path.join(staging, 'ui', 'node_modules'))).toBe(false)
+    expect(fs.existsSync(path.join(staging, 'ui', 'real.txt'))).toBe(true)
+  })
 })
 
 describe('writeChecksums', () => {
@@ -179,6 +194,20 @@ describe('build (end-to-end)', () => {
       .update(fs.readFileSync(path.join(dest, 'bin', 'argus-demo')))
       .digest('hex')
     expect(hex).toBe(actual)
+  })
+
+  it('reports the total file count and byte size of what it zipped', async () => {
+    const out = tmpDir()
+    const res = await build({ packDir: SAMPLE, binDir: BIN, platform: 'mac-arm64', outDir: out })
+
+    const dest = tmpDir()
+    await extract(res.zipPath, dest)
+    const expectedBytes = res.files.reduce(
+      (sum, rel) => sum + fs.statSync(path.join(dest, ...rel.split('/'))).size,
+      0
+    )
+    expect(res.totalBytes).toBe(expectedBytes)
+    expect(res.totalBytes).toBeGreaterThan(0)
   })
 
   it('fails loudly on a --bin subdirectory rather than shipping an incomplete bundle', async () => {

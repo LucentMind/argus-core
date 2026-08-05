@@ -80,6 +80,10 @@ export function crossCheckBinaries(
 /** Declarative directories copied verbatim into the bundle when present. */
 const BUNDLE_DIRS = ['skills', 'references', 'ui'] as const
 
+/** Dev artifacts that must never ship even though they're commonly present in a
+ *  working checkout — e.g. after running a panel's own test suite. */
+const BUNDLE_IGNORE = new Set(['node_modules', '.git', '__pycache__', '.DS_Store'])
+
 export function assembleBundle(
   manifest: PackManifest,
   packDir: string,
@@ -105,10 +109,18 @@ export function assembleBundle(
     fs.cpSync(src, path.join(stagingDir, manifest.persona))
   }
 
-  // Declarative dirs (allowlist — never bin-src/.git/etc).
+  // Declarative dirs (allowlist — never bin-src/.git/etc). Filtered to drop
+  // common dev artifacts a working checkout accumulates (node_modules from
+  // running a panel's tests, .git, __pycache__, .DS_Store) — otherwise these
+  // ship to every user, silently, and can 10x the bundle size.
   for (const d of BUNDLE_DIRS) {
     const src = path.join(packDir, d)
-    if (fs.existsSync(src)) fs.cpSync(src, path.join(stagingDir, d), { recursive: true })
+    if (fs.existsSync(src)) {
+      fs.cpSync(src, path.join(stagingDir, d), {
+        recursive: true,
+        filter: (from) => !BUNDLE_IGNORE.has(path.basename(from))
+      })
+    }
   }
 
   // Binaries → bin/.
@@ -156,6 +168,7 @@ export interface BuildResult {
   zipPath: string
   bundleName: string
   files: string[]
+  totalBytes: number
   warnings: string[]
 }
 
@@ -184,8 +197,12 @@ export async function build(opts: BuildOptions): Promise<BuildResult> {
     assembleBundle(manifest, opts.packDir, opts.binDir, opts.platform, staging)
     writeChecksums(staging)
     const files = walkFiles(staging).sort()
+    const totalBytes = files.reduce(
+      (sum, rel) => sum + fs.statSync(path.join(staging, ...rel.split('/'))).size,
+      0
+    )
     const zipPath = await zipBundle(staging, opts.outDir, bundleName)
-    return { zipPath, bundleName, files, warnings }
+    return { zipPath, bundleName, files, totalBytes, warnings }
   } finally {
     fs.rmSync(staging, { recursive: true, force: true })
   }
