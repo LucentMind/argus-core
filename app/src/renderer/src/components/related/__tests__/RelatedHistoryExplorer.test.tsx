@@ -276,14 +276,6 @@ describe('RelatedHistoryExplorer', () => {
     expect(screen.queryByText('No related history for this query.')).not.toBeInTheDocument()
   })
 
-  it('never offers a pull-into-case action (increment 3)', async () => {
-    setArgus({ query: 'q', hits: [hit()] })
-    render(<RelatedHistoryExplorer caseSlug="current" />)
-    await screen.findByText('ECU reset drifts DLT')
-    expect(screen.queryByRole('button', { name: /Reference in chat/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Attach as evidence/ })).not.toBeInTheDocument()
-  })
-
   // Important 1 & 2: no existing test exercises `toInput`'s `providerIds` /
   // `includeOpenCases` branches against the actual outgoing request — the rail
   // unit tests only assert the callback *patch*, which passes regardless of
