@@ -14,9 +14,11 @@ const FAILURE_WINDOW_MS = 60_000
 const MAX_FAILURES_PER_WINDOW = 5
 const MAX_BACKOFF_MS = 10_000
 // The real sidecar never emits a line anywhere near this long — NDJSON lines are one
-// snapshot each. Only a binary substituted via ARGUS_RESOURCE_MONITOR_PATH could get
-// here, by writing bytes with no newline. Without a cap `buffer` grows without bound.
-const MAX_BUFFER_BYTES = 1_000_000
+// snapshot each, and the sidecar caps every process's command field (see
+// native/resource-monitor). A single oversized, newline-less fragment costs only
+// itself (see failOversizedLine); a *sustained* run of them still opens the circuit
+// via the same failure window as any other repeated failure.
+const MAX_BUFFER_CHARS = 1_000_000
 
 export type SidecarClientDeps = {
   spawner: SidecarSpawner
@@ -189,12 +191,10 @@ export class SidecarClient {
     }
     // Guard against an unbounded buffer: every complete line above was already
     // consumed, so whatever is left is a single fragment with no newline in it.
-    if (this.buffer.length > MAX_BUFFER_BYTES) {
-      const droppedBytes = this.buffer.length
+    if (this.buffer.length > MAX_BUFFER_CHARS) {
+      const droppedChars = this.buffer.length
       this.buffer = ''
-      this.fail(
-        `sidecar sent ${droppedBytes} bytes with no newline (over the ${MAX_BUFFER_BYTES}-byte cap) — dropping buffer`
-      )
+      this.failOversizedLine(droppedChars)
     }
   }
 
@@ -259,6 +259,37 @@ export class SidecarClient {
     const delay = Math.min(500 * 2 ** this.attempt, MAX_BACKOFF_MS)
     this.attempt += 1
     this.restartTimer = setTimeout(() => this.spawnOnce(), delay)
+  }
+
+  /**
+   * A single oversized, newline-less fragment costs that fragment, not the
+   * child: an isolated framing glitch (or, before the sidecar's command cap,
+   * an unusually large legitimate snapshot) should not kill a healthy sidecar.
+   * But a substituted binary that never emits a newline hits this on every
+   * chunk, so repeated occurrences inside the failure window still escalate
+   * through the same failures[]/circuit-breaker path fail() uses — the
+   * original guard's purpose survives, it just no longer fires on one event.
+   */
+  private failOversizedLine(droppedChars: number): void {
+    if (this.stopped) return
+    this.lastError = `sidecar sent ${droppedChars} characters with no newline (over the ${MAX_BUFFER_CHARS}-character cap) — dropping buffer`
+
+    const now = Date.now()
+    this.failures = this.failures.filter((t) => now - t < FAILURE_WINDOW_MS)
+    this.failures.push(now)
+
+    if (this.failures.length >= MAX_FAILURES_PER_WINDOW) {
+      this.clearTimers()
+      // Null this.proc BEFORE kill(): see the identical comment in fail() —
+      // a fake or fast-exiting child can invoke its exit callback synchronously.
+      const dying = this.proc
+      this.proc = null
+      dying?.kill()
+      this.restartCount += 1
+      this.status = 'unavailable'
+    }
+
+    this.notifyHealth()
   }
 }
 

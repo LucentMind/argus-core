@@ -277,25 +277,52 @@ describe('SidecarClient', () => {
     expect(client.health().status).toBe('disabled')
   })
 
-  it('drops an unbounded buffer and routes it through the failure path', async () => {
+  it('drops a single oversized line without killing the child, then resyncs on the next well-formed line', async () => {
     const { client, procs } = makeClient()
     const seen: SidecarHealth[] = []
+    const snaps: SidecarSnapshot[] = []
     client.onHealthChange((h) => seen.push(h))
+    client.onSnapshot((s) => snaps.push(s))
     void client.start()
     procs[0].emit(hello())
     await vi.advanceTimersByTimeAsync(0)
 
-    // A binary substituted via ARGUS_RESOURCE_MONITOR_PATH could emit a very long
-    // line with no newline. The real sidecar never does this — one NDJSON line per
-    // snapshot — so this only guards against a misbehaving substitute.
+    // A single recoverable framing event: a long fragment with no newline in it.
+    // After the Rust-side command cap (see the sibling plan) this should be rare,
+    // but an isolated occurrence must not cost the child.
     procs[0].emit('x'.repeat(1_000_001))
 
-    expect(seen.at(-1)?.status).toBe('degraded')
-    expect(seen.at(-1)?.lastError).toContain('1000001 bytes')
-    // The dying child is killed as part of the existing failure path, then a
-    // replacement is spawned on backoff, same as any other fail().
-    await vi.advanceTimersByTimeAsync(500)
-    expect(procs).toHaveLength(2)
+    expect(seen.at(-1)?.lastError).toContain('1000001 characters')
+    expect(client.health().status).toBe('healthy')
+    expect(client.health().restartCount).toBe(0)
+
+    // No kill, no replacement spawn — advancing well past any backoff delay
+    // must not produce a second child.
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(procs).toHaveLength(1)
+    expect(procs[0].killed).toBe(false)
+
+    // Buffer was reset to '', so the next well-formed line parses normally.
+    procs[0].emit(snapshot(1))
+    expect(snaps).toHaveLength(1)
+  })
+
+  it('opens the circuit after five oversized lines inside the window, same as any other failure', async () => {
+    const { client, procs } = makeClient()
+    void client.start()
+    procs[0].emit(hello())
+    await vi.advanceTimersByTimeAsync(0)
+
+    // A substituted binary that never emits a newline hits the cap on every
+    // chunk. The original guard's purpose — catching this — must survive: a
+    // sustained run of oversized lines still trips the circuit breaker.
+    for (let i = 0; i < 5; i++) {
+      procs[0].emit('x'.repeat(1_000_001))
+    }
+
+    expect(client.health().status).toBe('unavailable')
+    expect(client.health().restartCount).toBe(1)
+    expect(procs[0].killed).toBe(true)
   })
 
   it('ignores a snapshot that arrives before the handshake', async () => {
