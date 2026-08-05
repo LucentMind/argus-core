@@ -1,10 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { memoryAuditPath, memoryDir, memoryIndexPath } from './paths'
+import { memoryAuditPath, memoryBackupDir, memoryDir, memoryIndexPath } from './paths'
 import { topicEnabled, type AgentAccess } from '../../shared/agentAccess'
 import { fillPrompt } from './prompts/fill'
 import type { PromptTextSpecs } from '../../shared/promptSpec'
 import { MEMORY_SCOPES, type MemoryScope } from '../../shared/memoryScope'
+import { withFrontmatter } from '../../shared/frontmatter'
 
 export const MEMORY_INDEX_MAX_LINES = 200
 
@@ -156,7 +157,8 @@ export const MEMORY_FEEDBACK: PromptTextSpecs = {
   }
 }
 
-/** Backend for the write_memory native tool. Appends content; maintains the index; audits. */
+/** Backend for the write_memory native tool. REPLACES the topic body (previous body → memory/.bak);
+ *  maintains the index; audits. There is no append path. */
 export function applyMemoryWrite(
   argusHome: string,
   caseSlug: string,
@@ -208,24 +210,30 @@ export function applyMemoryWrite(
     }
   }
 
+  // The whole body about to hit disk, stamp included.
+  const body = withFrontmatter(`${content.trim()}\n`, { scope })
+  const bytes = Buffer.byteLength(body, 'utf8')
+
   fs.mkdirSync(memoryDir(argusHome), { recursive: true })
-  const existing = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : ''
-  const block = existing
-    ? `${existing.replace(/\n+$/, '')}\n\n${content.trim()}\n`
-    : `${content.trim()}\n`
-  fs.writeFileSync(p, block)
+  // Replace is lossy if a model rewrites without reading first. One level, no rotation, no UI —
+  // a floor under that failure, not a version history.
+  if (fs.existsSync(p)) {
+    fs.mkdirSync(memoryBackupDir(argusHome), { recursive: true })
+    fs.copyFileSync(p, path.join(memoryBackupDir(argusHome), `${topic}.md`))
+  }
+  fs.writeFileSync(p, body)
 
   const entry: MemoryAuditEntry = {
     ts: new Date().toISOString(),
     caseSlug,
     topic,
     indexEntry,
-    bytes: Buffer.byteLength(content, 'utf8'),
+    bytes,
     scope: scope as MemoryScope
   }
   fs.appendFileSync(memoryAuditPath(argusHome), JSON.stringify(entry) + '\n')
 
-  return `memory/${topic}.md updated (${entry.bytes} bytes${indexEntry ? ', index entry added' : ''})`
+  return `memory/${topic}.md updated (${bytes} bytes${indexEntry ? ', index entry added' : ''})`
 }
 
 /** The injectable index: full _index.md minus lines that reference disabled topics. */

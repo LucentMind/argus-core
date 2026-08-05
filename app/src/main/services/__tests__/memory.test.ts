@@ -17,6 +17,7 @@ import {
 import { memoryIndexPath } from '../paths'
 import { agentAccessSchema } from '../../../shared/agentAccess'
 import { MEMORY_SCOPES } from '../../../shared/memoryScope'
+import { fmBlock, fmField } from '../../../shared/frontmatter'
 
 let tmp: string, argusHome: string
 
@@ -94,7 +95,7 @@ describe('memory service', () => {
     expect(audit[0].topic).toBe('tile-blocks')
   })
 
-  it('append to an existing topic does not duplicate the index line', () => {
+  it('writing again to an existing topic does not duplicate the index line', () => {
     applyMemoryWrite(argusHome, 'NAV-1', {
       topic: 't1',
       content: 'a',
@@ -109,7 +110,9 @@ describe('memory service', () => {
     })
     const idx = readIndex(argusHome)
     expect(idx.split('\n').filter((l) => l.includes('(t1.md)'))).toHaveLength(1)
-    expect(readTopic(argusHome, 't1')).toMatch(/a[\s\S]*b/)
+    // the second write REPLACES the topic body — see "replace semantics" below
+    expect(readTopic(argusHome, 't1')).toContain('b')
+    expect(readTopic(argusHome, 't1')).not.toContain('a')
   })
 
   it('rejects invalid topic names', () => {
@@ -326,5 +329,71 @@ describe('write_memory scope contract', () => {
     const entries = readAudit(argusHome, 10)
     expect(entries[0].topic).toBe('legacy')
     expect(entries[0].scope).toBeUndefined()
+  })
+})
+
+describe('replace semantics and the single-level backup', () => {
+  const bak = (topic: string): string => path.join(argusHome, 'memory', '.bak', `${topic}.md`)
+
+  it('replaces the topic body rather than appending to it', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'dlt',
+      content: 'first fact',
+      scope: 'environment'
+    })
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'dlt',
+      content: 'second fact',
+      scope: 'environment'
+    })
+    const body = readTopic(argusHome, 'dlt')
+    expect(body).toContain('second fact')
+    expect(body).not.toContain('first fact')
+  })
+
+  it('takes no backup on a first write and keeps the previous body on a replace', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'dlt',
+      content: 'first fact',
+      scope: 'preference'
+    })
+    expect(fs.existsSync(bak('dlt'))).toBe(false)
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'dlt',
+      content: 'second fact',
+      scope: 'preference'
+    })
+    expect(fs.readFileSync(bak('dlt'), 'utf8')).toContain('first fact')
+  })
+
+  it('overwrites the backup each time — one level, no rotation', () => {
+    for (const c of ['one', 'two', 'three']) {
+      applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: c, scope: 'preference' })
+    }
+    const saved = fs.readFileSync(bak('dlt'), 'utf8')
+    expect(saved).toContain('two')
+    expect(saved).not.toContain('one')
+    expect(fs.readdirSync(path.join(argusHome, 'memory', '.bak'))).toEqual(['dlt.md'])
+  })
+
+  it('never lists .bak as a topic', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'a', scope: 'preference' })
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'b', scope: 'preference' })
+    expect(listTopics(argusHome).map((t) => t.name)).toEqual(['dlt'])
+  })
+
+  it('stamps the scope into the topic frontmatter', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'a fact', scope: 'correction' })
+    const raw = readTopic(argusHome, 'dlt')
+    expect(fmField(fmBlock(raw)!.fm, 'scope')).toBe('correction')
+    expect(fmBlock(raw)!.body).toContain('a fact')
+  })
+
+  it('rewrites the scope stamp on a later write with a different scope', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'a', scope: 'correction' })
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'b', scope: 'preference' })
+    const raw = readTopic(argusHome, 'dlt')
+    expect(fmField(fmBlock(raw)!.fm, 'scope')).toBe('preference')
+    expect(raw.match(/scope:/g)).toHaveLength(1)
   })
 })

@@ -82,6 +82,12 @@ export function memoryArchiveDir(argusHome: string): string {
   return path.join(memoryDir(argusHome), 'archive')
 }
 
+/** Single-level backup of a replaced topic body. Dot-prefixed so listTopics (memory/*.md) and
+ *  listArchivedTopics (memory/archive) never walk it. */
+export function memoryBackupDir(argusHome: string): string {
+  return path.join(memoryDir(argusHome), '.bak')
+}
+
 export function userSkillsDir(argusHome: string): string {
   return path.join(argusHome, 'skills-user')
 }
