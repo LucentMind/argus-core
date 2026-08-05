@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { ComponentProps } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type {
@@ -52,6 +53,28 @@ function DistilledBlock({ d }: { d: RelatedDistilled }): React.JSX.Element {
   )
 }
 
+/** Spec §12.1: `description` and comment `body` are untrusted third-party
+ *  markdown. react-markdown's default `urlTransform` only blanks dangerous
+ *  *schemes* (`javascript:`, `file:`, app protocols) — an ordinary
+ *  `https://` link still renders with no `target`/`rel`, which is a
+ *  same-window top-level navigation that never reaches the main-process
+ *  `setWindowOpenHandler` guard. Force every markdown link through the same
+ *  `isOpenableUrl` gate as the record's own `url` above, and force it to
+ *  open via `target="_blank"` so a click is routed through that guard
+ *  instead of replacing this window. */
+function MarkdownAnchor({ href, children }: ComponentProps<'a'>): React.JSX.Element {
+  if (href && isOpenableUrl(href)) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer">
+        {children}
+      </a>
+    )
+  }
+  return <>{children}</>
+}
+
+const MARKDOWN_COMPONENTS = { a: MarkdownAnchor }
+
 function CorpusRecord({ record }: { record: RelatedDefectRecord }): React.JSX.Element {
   const [showComments, setShowComments] = useState(false)
   const comments = record.comments ?? []
@@ -102,11 +125,17 @@ function CorpusRecord({ record }: { record: RelatedDefectRecord }): React.JSX.El
           without rehype-raw renders no HTML, which is the sanitizing path spec
           §12.2 requires; do not add rehype-raw to this subtree. */}
       <div className="markdown-body text-xs leading-relaxed text-dim">
-        <Markdown remarkPlugins={[remarkGfm]}>{record.description}</Markdown>
+        <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+          {record.description}
+        </Markdown>
       </div>
       {comments.length > 0 && (
         <>
-          <Btn variant="ghost" onClick={() => setShowComments(!showComments)}>
+          <Btn
+            variant="ghost"
+            aria-expanded={showComments}
+            onClick={() => setShowComments(!showComments)}
+          >
             {`${comments.length} comment${comments.length === 1 ? '' : 's'}`}
           </Btn>
           {showComments &&
@@ -116,7 +145,9 @@ function CorpusRecord({ record }: { record: RelatedDefectRecord }): React.JSX.El
                   {c.author} · {c.createdAt.slice(0, 10)}
                 </span>
                 <div className="markdown-body text-xs text-dim">
-                  <Markdown remarkPlugins={[remarkGfm]}>{c.body}</Markdown>
+                  <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+                    {c.body}
+                  </Markdown>
                 </div>
               </div>
             ))}

@@ -125,8 +125,56 @@ describe('HitDetail', () => {
     setDefect({ ok: true, value: record() })
     render(<HitDetail hit={corpusHit()} />)
     await waitFor(() => expect(screen.getByText(/1 comment/)).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /1 comment/ }))
+    const button = screen.getByRole('button', { name: /1 comment/ })
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(button)
     expect(screen.getByText('seen on 2.0 too')).toBeInTheDocument()
+    expect(button).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('guards markdown links in the description: dangerous scheme is inert, legitimate link is gated', async () => {
+    setDefect({
+      ok: true,
+      value: record({
+        description: '[go](javascript:alert(1)) and [ext](https://evil.example) and plain text'
+      })
+    })
+    render(<HitDetail hit={corpusHit()} />)
+    await waitFor(() => expect(screen.getByText(/and plain text/)).toBeInTheDocument())
+    // The dangerous-scheme link never becomes an anchor.
+    expect(screen.queryByRole('link', { name: 'go' })).not.toBeInTheDocument()
+    // The legitimate external link is routed through the guarded window-open
+    // path: target=_blank + rel=noreferrer, same as the record's own url.
+    const extLink = screen.getByRole('link', { name: 'ext' })
+    expect(extLink).toHaveAttribute('href', 'https://evil.example')
+    expect(extLink).toHaveAttribute('target', '_blank')
+    expect(extLink).toHaveAttribute('rel', 'noreferrer')
+    // Surrounding prose still rendered, proving the guard filtered the link
+    // rather than the whole markdown block failing to render.
+    expect(screen.getByText(/and plain text/)).toBeInTheDocument()
+  })
+
+  it('guards markdown links in a comment body the same way', async () => {
+    setDefect({
+      ok: true,
+      value: record({
+        comments: [
+          {
+            author: 'ana',
+            createdAt: '2026-01-02T00:00:00.000Z',
+            body: 'see [ext](https://evil.example) for details'
+          }
+        ]
+      })
+    })
+    render(<HitDetail hit={corpusHit()} />)
+    await waitFor(() => expect(screen.getByText(/1 comment/)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /1 comment/ }))
+    const extLink = await screen.findByRole('link', { name: 'ext' })
+    expect(extLink).toHaveAttribute('href', 'https://evil.example')
+    expect(extLink).toHaveAttribute('target', '_blank')
+    expect(extLink).toHaveAttribute('rel', 'noreferrer')
+    expect(screen.getByText(/for details/)).toBeInTheDocument()
   })
 
   it('surfaces a failed fetch instead of rendering an empty pane', async () => {
