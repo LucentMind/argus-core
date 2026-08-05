@@ -49,3 +49,17 @@ describe('nextView', () => {
     })
   })
 })
+
+describe('related history view', () => {
+  it('opens from a base view and toggles back shut', () => {
+    const home: View = { kind: 'home' }
+    const opened = nextView(home, home, { kind: 'relatedHistory' })
+    expect(opened).toEqual({ kind: 'relatedHistory' })
+    expect(nextView(opened, home, { kind: 'relatedHistory' })).toEqual(home)
+  })
+
+  it('returns to the case it was opened from', () => {
+    const c: View = { kind: 'case', slug: 'ecu' }
+    expect(nextView({ kind: 'relatedHistory' }, c, { kind: 'relatedHistory' })).toEqual(c)
+  })
+})

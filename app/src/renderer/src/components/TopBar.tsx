@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { Sun, Moon, Settings, Gauge, Home } from 'lucide-react'
+import { Sun, Moon, Settings, Gauge, History, Home } from 'lucide-react'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { uiStore } from '../lib/uiStore'
 import { caseBarStore, useCaseBar } from '../lib/caseBarStore'
@@ -39,7 +39,8 @@ export function TopBar({
   onSelect,
   onSettings,
   onStatusChanged,
-  onObservability
+  onObservability,
+  onRelatedHistory
 }: {
   activeSlug: string | null
   /** The active case's record, or null while `cases` is still loading. `activeSlug` comes
@@ -52,6 +53,7 @@ export function TopBar({
   /** A case action changed status in the DB; the owner of the `cases` array must refetch. */
   onStatusChanged: () => void
   onObservability?: () => void
+  onRelatedHistory?: () => void
 }): React.JSX.Element {
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -261,6 +263,16 @@ export function TopBar({
             The tabs themselves are NOT forgotten while hidden: `uiStore.recentTabs` outlives
             this, so reopening any case brings the whole band back as it was. */}
         {activeSlug !== null && <RecentTabs activeSlug={activeSlug} onSelect={onSelect} />}
+        {onRelatedHistory && (
+          <button
+            className={ACTION_BTN}
+            aria-label="Related history"
+            title="Related history"
+            onClick={onRelatedHistory}
+          >
+            <History size={19} strokeWidth={1.5} />
+          </button>
+        )}
         {onObservability && (
           <button
             className={ACTION_BTN}

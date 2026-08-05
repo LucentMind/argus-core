@@ -242,4 +242,18 @@ describe('RelatedHistoryCard', () => {
     ).argus.related.search
     await waitFor(() => expect(search).toHaveBeenCalledWith({ caseSlug: 'new' }))
   })
+
+  it('offers the explorer footer only when a handler is given', async () => {
+    setArgus({ hits: [localHit()] })
+    const onOpenExplorer = vi.fn()
+    const { rerender } = render(<RelatedHistoryCard slug="new" onOpenExplorer={onOpenExplorer} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Search all history' }))
+    expect(onOpenExplorer).toHaveBeenCalled()
+
+    setArgus({ hits: [localHit()] })
+    rerender(<RelatedHistoryCard slug="other" />)
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Search all history' })).not.toBeInTheDocument()
+    )
+  })
 })

@@ -13,6 +13,7 @@ import { PrCompanionSection } from './PrCompanionSection'
 import { PrPickerDialog } from './PrPickerDialog'
 import type { PrBinding, PrSearchResult } from '../../../shared/pr'
 import { RelatedHistoryCard } from './RelatedHistoryCard'
+import { RelatedHistoryExplorerModal } from './related/RelatedHistoryExplorer'
 import { PanelTabStrip } from './PanelTabStrip'
 import { PanelDock } from './PanelDock'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
@@ -117,6 +118,7 @@ export function CaseWorkspace({
   const [prPickerCurrent, setPrPickerCurrent] = useState<PrBinding | null>(null)
   const [prSearching, setPrSearching] = useState(false)
   const [rcaOpen, setRcaOpen] = useState(false)
+  const [explorerOpen, setExplorerOpen] = useState(false)
   const [focusTurn, setFocusTurn] = useState<{
     sessionId: number
     target: ChatJumpTarget
@@ -148,6 +150,7 @@ export function CaseWorkspace({
     // Same reasoning as the PR picker above: a case switch must not carry the RCA panel
     // (and its slug-scoped job/draft state) from A into B unbidden.
     setRcaOpen(false)
+    setExplorerOpen(false)
   }
   // The current slug, read by `handlePrsFound`'s async chain once it resolves — a ref kept
   // current via its own effect (refs may not be written during render) rather than the
@@ -599,7 +602,11 @@ export function CaseWorkspace({
                   onPrsFound={handlePrsFound}
                 />
                 {activeMode !== 'review' && (
-                  <RelatedHistoryCard slug={slug} onOpenCase={onOpenCase} />
+                  <RelatedHistoryCard
+                    slug={slug}
+                    onOpenCase={onOpenCase}
+                    onOpenExplorer={() => setExplorerOpen(true)}
+                  />
                 )}
               </div>
               {/* key: reset per-case state (scan result, collapsed dirs, parsing set) when
@@ -824,6 +831,20 @@ export function CaseWorkspace({
         />
       )}
       {rcaOpen && <RcaPanel slug={slug} onClose={() => setRcaOpen(false)} />}
+      {explorerOpen && (
+        // key={slug}: the explorer holds a never-reset `seeded` ref plus
+        // `req.text`/`req.edited` state. Without a remount, switching cases
+        // while the modal happens to still be open (or any bookkeeping gap in
+        // the close-on-case-switch effect above) would leave the query box
+        // un-reseeded for the new case and leak the old case's typed query
+        // into it. The remount makes that structurally impossible.
+        <RelatedHistoryExplorerModal
+          key={slug}
+          caseSlug={slug}
+          onOpenCase={onOpenCase}
+          onClose={() => setExplorerOpen(false)}
+        />
+      )}
     </div>
   )
 }

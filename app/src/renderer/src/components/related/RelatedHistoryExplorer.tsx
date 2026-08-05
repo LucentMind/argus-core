@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { History, Search } from 'lucide-react'
+import { History, Search, X } from 'lucide-react'
 import type {
   RelatedFilters,
   RelatedHit,
@@ -10,9 +10,9 @@ import type {
   SourceHealth
 } from '../../../../shared/relatedHistory'
 import { RELATED_SEARCH_MAX_LIMIT } from '../../../../shared/relatedHistory'
-import { Btn, Chip } from '../ui'
+import { Btn, Chip, IconBtn } from '../ui'
 import { ModalShell } from '../ModalShell'
-import { blurOnEscape } from '../../lib/escapeLayer'
+import { blurOnEscape, useEscapeLayer } from '../../lib/escapeLayer'
 import { panelsStore } from '../../lib/panelsStore'
 import { ExplorerFilters } from './ExplorerFilters'
 import { HitDetail } from './HitDetail'
@@ -341,5 +341,31 @@ export function RelatedHistoryExplorerModal({
     >
       <RelatedHistoryExplorer caseSlug={caseSlug} onOpenCase={onOpenCase} />
     </ModalShell>
+  )
+}
+
+/** Standalone entry point: a top-level work surface, not a modal and not a
+ *  Settings page — this is work, not configuration (spec §8). */
+export function RelatedHistoryStandalone({
+  onOpenCase,
+  onClose
+}: {
+  onOpenCase: (slug: string) => void
+  onClose: () => void
+}): React.JSX.Element {
+  useEscapeLayer({ onEscape: onClose })
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center justify-between border-b border-hair px-3 py-2">
+        <span className="flex items-center gap-2 font-mono text-sm text-ink">
+          <History size={14} strokeWidth={1.5} />
+          Related history
+        </span>
+        <IconBtn aria-label="Close" title="Close" onClick={onClose}>
+          <X size={14} strokeWidth={1.5} />
+        </IconBtn>
+      </div>
+      <RelatedHistoryExplorer onOpenCase={onOpenCase} />
+    </div>
   )
 }

@@ -5,18 +5,25 @@ export type View =
   | { kind: 'case'; slug: string }
   | { kind: 'settings'; page?: SettingsDeepLink }
   | { kind: 'observability' }
+  | { kind: 'relatedHistory' }
 
-export type ViewAction = { kind: 'settings'; page?: SettingsDeepLink } | { kind: 'observability' }
+export type ViewAction =
+  | { kind: 'settings'; page?: SettingsDeepLink }
+  | { kind: 'observability' }
+  | { kind: 'relatedHistory' }
 
 /**
- * Pure view-transition logic shared by the Settings and Observability toolbar
- * icons (App.tsx's `openSettings`/`openObservability`). Extracted from App so
- * the toggle rules -- including the branch below with no DOM path -- have an
- * honest, directly-testable seam.
+ * Pure view-transition logic shared by the Settings, Observability and
+ * Related History toolbar icons (App.tsx's
+ * `openSettings`/`openObservability`/`openRelatedHistory`). Extracted from
+ * App so the toggle rules -- including the branch below with no DOM path --
+ * have an honest, directly-testable seam.
  *
  * Toggle rules:
  *  - Observability: a click while already on Observability returns to
  *    `prevView` (toggles shut). Otherwise switches to Observability.
+ *  - Related History: same toggle rule as Observability -- a click while
+ *    already on it returns to `prevView`; otherwise switches to it.
  *  - Settings: a click while already on Settings AND the action carries no
  *    `page` returns to `prevView` (toggles shut) -- this is what the toolbar
  *    gear does (it calls openSettings() with no page). But `openSettings` is
@@ -36,6 +43,11 @@ export function nextView(cur: View, prevView: View, action: ViewAction): View {
   if (action.kind === 'observability') {
     if (cur.kind === 'observability') return prevView
     return { kind: 'observability' }
+  }
+  if (action.kind === 'relatedHistory') {
+    // Same toggle rule as Observability: a second click returns to the base view.
+    if (cur.kind === 'relatedHistory') return prevView
+    return { kind: 'relatedHistory' }
   }
   if (cur.kind === 'settings' && action.page === undefined) return prevView
   return { kind: 'settings', page: action.page }

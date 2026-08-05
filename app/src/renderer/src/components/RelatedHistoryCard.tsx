@@ -133,10 +133,12 @@ function HitRow({
  */
 export function RelatedHistoryCard({
   slug,
-  onOpenCase
+  onOpenCase,
+  onOpenExplorer
 }: {
   slug: string
   onOpenCase?: (slug: string) => void
+  onOpenExplorer?: () => void
 }): React.JSX.Element | null {
   const [result, setResult] = useState<RelatedSearchResult | null>(null)
   const [dismissed, setDismissed] = useState(false)
@@ -203,6 +205,16 @@ export function RelatedHistoryCard({
           />
         ))}
       </div>
+      {onOpenExplorer && (
+        <button
+          type="button"
+          aria-label="Search all history"
+          onClick={onOpenExplorer}
+          className="self-start text-[11px] text-mute hover:text-signal"
+        >
+          Search all history →
+        </button>
+      )}
     </Card>
   )
 }
