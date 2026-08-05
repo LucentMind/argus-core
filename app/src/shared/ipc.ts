@@ -302,6 +302,7 @@ export const IPC = {
   // — unified related history (local cases + defect corpus) —
   relatedSearch: 'related:search',
   relatedDefect: 'related:defect',
+  relatedSources: 'related:sources',
   // — case RCA reports (part 3a-N) —
   rcaGenerate: 'rca:generate',
   rcaStatus: 'rca:status',

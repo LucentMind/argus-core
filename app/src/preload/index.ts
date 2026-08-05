@@ -41,7 +41,8 @@ import type {
 import type {
   RelatedDefectResult,
   RelatedSearchInput,
-  RelatedSearchResult
+  RelatedSearchResult,
+  RelatedSourceInfo
 } from '../shared/relatedHistory'
 import type { SourceControlStatus } from '../shared/sourcecontrol'
 import type { AgentAccessPayload } from '../shared/agentAccess'
@@ -855,7 +856,8 @@ const argus = {
     search: (input: RelatedSearchInput): Promise<RelatedSearchResult> =>
       invoke(IPC.relatedSearch, input),
     defect: (sourceId: string, key: string): Promise<RelatedDefectResult> =>
-      invoke(IPC.relatedDefect, sourceId, key)
+      invoke(IPC.relatedDefect, sourceId, key),
+    sources: (): Promise<RelatedSourceInfo[]> => invoke(IPC.relatedSources)
   },
   sourceControl: {
     status: (): Promise<SourceControlStatus> => invoke(IPC.sourceControlStatus)

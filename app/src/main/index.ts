@@ -1972,6 +1972,8 @@ function registerIpc(): void {
     }
     return defectCorpus.getDefect(sourceId, key)
   })
+  // No arguments to validate — a pure read of configured-source capabilities.
+  ipcMain.handle(IPC.relatedSources, () => relatedHistory.sources())
 
   // — case RCA reports (part 3a-N) —
   ipcMain.handle(IPC.rcaGenerate, (_e, slug: string) => {

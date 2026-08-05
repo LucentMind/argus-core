@@ -4,14 +4,19 @@ import type {
   RelatedReason,
   RelatedSearchInput,
   RelatedSearchResult,
+  RelatedSourceInfo,
   SourceHealth
 } from '../../../shared/relatedHistory'
 import type { DefectCorpusService } from '../defectCorpus/service'
 import { summaryPopulation } from '../distill/summaries'
 import { fuse } from './fuse'
 import { buildRelatedQuery, freeFormQuery, type RelatedQuery } from './query'
-import { createCorpusProviders } from './providers/corpus'
-import { createLocalCasesProvider } from './providers/localCases'
+import { corpusProviderId, createCorpusProviders } from './providers/corpus'
+import {
+  createLocalCasesProvider,
+  LOCAL_PROVIDER_ID,
+  LOCAL_PROVIDER_NAME
+} from './providers/localCases'
 import type { HistoryProvider, ProviderRanking, ProviderSearchOptions } from './types'
 
 export { fuse, RRF_K, rrfScore } from './fuse'
@@ -166,6 +171,67 @@ export class RelatedHistoryService {
           { id: SERVICE_SOURCE_ID, name: SERVICE_SOURCE_NAME, kind: 'service', ok: false, error }
         ]
       }
+    }
+  }
+
+  /**
+   * Standing capabilities per source, for the explorer's filter rail (spec §8):
+   * which sources exist, whether each is reachable, whether it can do semantic
+   * retrieval, and which projects it holds — the only facet the contract
+   * enumerates (`/v1/info` `projects`).
+   *
+   * Deliberately NOT folded into `search`'s `SourceHealth`: this costs one
+   * `/v1/info` round-trip per corpus source, and `search` sits on the case-open
+   * path with a 5s budget. This is user-initiated only — the explorer calls it
+   * when it opens and on an explicit retry.
+   *
+   * Never rejects, same contract as `search`.
+   */
+  async sources(): Promise<RelatedSourceInfo[]> {
+    try {
+      const out: RelatedSourceInfo[] = []
+      // Mirror the search fan-out's gate exactly (see `providers`): a corpus with
+      // nothing distilled has no local provider, and listing one here would offer
+      // a provenance filter for a source that never returns anything.
+      if (summaryPopulation(this.deps.db, true) > 0) {
+        out.push({
+          id: LOCAL_PROVIDER_ID,
+          name: LOCAL_PROVIDER_NAME,
+          kind: 'local',
+          ok: true,
+          semantic: false,
+          projects: []
+        })
+      }
+      const enabled = this.deps.defectCorpus.enabledSources()
+      const probed = await Promise.all(
+        enabled.map(async ({ id, name }): Promise<RelatedSourceInfo> => {
+          const res = await this.deps.defectCorpus.test(id)
+          const base = { id: corpusProviderId(id), name, kind: 'corpus' as const }
+          return res.ok
+            ? {
+                ...base,
+                ok: true,
+                semantic: res.info.capabilities.semantic,
+                projects: res.info.projects
+              }
+            : { ...base, ok: false, error: res.error, semantic: false, projects: [] }
+        })
+      )
+      return [...out, ...probed]
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err)
+      return [
+        {
+          id: SERVICE_SOURCE_ID,
+          name: SERVICE_SOURCE_NAME,
+          kind: 'service',
+          ok: false,
+          error,
+          semantic: false,
+          projects: []
+        }
+      ]
     }
   }
 
