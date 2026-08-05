@@ -208,8 +208,17 @@ function HitActions({
   // reroute an ordinary citation through the record formatter.
   const followed = record && corpus && hitKey && corpus.key !== hitKey ? record : null
 
+  // A link was followed (the displayed key no longer matches the hit's own
+  // key) but its record is not in hand yet — either the round-trip is still
+  // in flight, or it errored and never will be. `followed` is null in both
+  // cases, which would otherwise make `reference()` silently fall back to
+  // citing the hit the user navigated AWAY from. Attach does not need this
+  // guard: it sends `corpus.key` and main re-fetches, so it is correct
+  // throughout the same window.
+  const awaitingFollowed = corpus !== null && hitKey !== null && corpus.key !== hitKey && !record
+
   function reference(): void {
-    if (sessionId === null) return
+    if (sessionId === null || awaitingFollowed) return
     // Staged as a DRAFT, never sent — the same seam a panel's `sendToAgent`
     // uses. This is the one path from corpus text to the model (spec §12.4)
     // and the user reads it in the composer before it ever becomes a turn.
@@ -253,11 +262,13 @@ function HitActions({
       <Btn
         variant="outline"
         onClick={reference}
-        disabled={sessionId === null}
+        disabled={sessionId === null || awaitingFollowed}
         title={
           sessionId === null
             ? 'No chat session in this case yet'
-            : 'Stage a citation in the composer to edit and send'
+            : awaitingFollowed
+              ? 'The linked record has not loaded yet — wait for it before citing'
+              : 'Stage a citation in the composer to edit and send'
         }
       >
         Reference in chat

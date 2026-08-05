@@ -413,4 +413,83 @@ describe('HitDetail — the actions follow the displayed record, not the selecte
     ])
     noticeStore.reset()
   })
+
+  // N1: `record` is null both while a followed link's fetch is in flight AND
+  // permanently after it fails — the same shape. `reference()` must not fall
+  // back to citing the hit the user navigated away from in either case, and
+  // the modal closing on click means a silent wrong citation would otherwise
+  // have no clue at all pointing to it.
+  it('disables reference and stages nothing while a followed link is still loading', async () => {
+    let landFollowed: ((v: unknown) => void) | null = null
+    const defect = vi.fn((_sourceId: string, key: string) => {
+      if (key === 'KAN-9') return new Promise((resolve) => (landFollowed = resolve))
+      return Promise.resolve({ ok: true, value: record() })
+    })
+    ;(window as unknown as { argus: unknown }).argus = {
+      related: { defect, attachEvidence: vi.fn() }
+    }
+    const spy = vi.spyOn(composerDraft, 'set')
+    render(<HitDetail hit={corpusHit()} caseSlug="NAV-100" sessionId={7} />)
+    await screen.findByText('It drops the plan.')
+    fireEvent.click(screen.getByRole('button', { name: 'KAN-9' }))
+    const btn = await screen.findByRole('button', { name: /reference in chat/i })
+    expect(btn).toBeDisabled()
+    expect(btn).toHaveAttribute('title', expect.stringMatching(/not loaded/i))
+    fireEvent.click(btn)
+    expect(spy).not.toHaveBeenCalled()
+    // Landing the fetch re-enables it — this was never a permanently-stuck
+    // pane, just a guard over the in-flight window.
+    landFollowed!({ ok: true, value: followed })
+    await waitFor(() => expect(btn).not.toBeDisabled())
+    spy.mockRestore()
+  })
+
+  it('disables reference and stages nothing when a followed link fails to load', async () => {
+    const defect = vi.fn((_sourceId: string, key: string) => {
+      if (key === 'KAN-9') return Promise.resolve({ ok: false, error: 'HTTP 500' })
+      return Promise.resolve({ ok: true, value: record() })
+    })
+    ;(window as unknown as { argus: unknown }).argus = {
+      related: { defect, attachEvidence: vi.fn() }
+    }
+    const spy = vi.spyOn(composerDraft, 'set')
+    render(<HitDetail hit={corpusHit()} caseSlug="NAV-100" sessionId={7} />)
+    await screen.findByText('It drops the plan.')
+    fireEvent.click(screen.getByRole('button', { name: 'KAN-9' }))
+    await screen.findByText('HTTP 500')
+    const btn = screen.getByRole('button', { name: /reference in chat/i })
+    expect(btn).toBeDisabled()
+    fireEvent.click(btn)
+    expect(spy).not.toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
+  // N2: `corpusSourceNameOf` searches `hit.provenance` for the `kind: 'corpus'`
+  // entry specifically so a merged row's local half ("Your cases") can never
+  // head a corpus citation. This is the only test that reaches a merged row
+  // with BOTH provenance entries present — every other fixture in this file
+  // has a single-entry provenance, so `provenance[0]` would also pass them.
+  it('names the corpus provider in a followed citation on a merged row, never the local one', async () => {
+    setFollowable()
+    const spy = vi.spyOn(composerDraft, 'set')
+    render(
+      <HitDetail
+        hit={localHit({
+          corpusRef: { sourceId: 'src1', key: 'KAN-5', url: 'https://corpus.example/browse/KAN-5' },
+          provenance: [
+            { providerId: 'local', providerName: 'Your cases', kind: 'local' },
+            { providerId: 'corpus:src1', providerName: 'Hindsight', kind: 'corpus' }
+          ]
+        })}
+        caseSlug="NAV-100"
+        sessionId={7}
+      />
+    )
+    await followTheLink()
+    fireEvent.click(screen.getByRole('button', { name: /reference in chat/i }))
+    const text = spy.mock.calls[0][2]
+    expect(text).toContain('Related history — KAN-9 (Hindsight)')
+    expect(text).not.toContain('Your cases')
+    spy.mockRestore()
+  })
 })
