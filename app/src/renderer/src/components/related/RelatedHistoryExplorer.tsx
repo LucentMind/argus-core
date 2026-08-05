@@ -210,15 +210,23 @@ function HitLine({
  * case itself is excluded from local results even after the box is edited.
  * Standalone (`caseSlug` null): free-form, no case binding.
  *
- * Increment 3 adds the pull-into-case actions; this increment renders none in
- * either mode.
+ * Case-scoped renders the pull-into-case actions (spec §10); standalone renders
+ * none, because there is no case to pull into.
  */
 export function RelatedHistoryExplorer({
   caseSlug = null,
-  onOpenCase
+  sessionId = null,
+  onOpenCase,
+  onReferenced
 }: {
   caseSlug?: string | null
+  /** The case's active chat, for the "Reference in chat" action. Meaningless
+   *  without `caseSlug`, and ignored when it is null. */
+  sessionId?: number | null
   onOpenCase?: (slug: string) => void
+  /** Fired after a citation is staged — the modal entry point closes on it so
+   *  the composer it just filled is actually visible. */
+  onReferenced?: () => void
 }): React.JSX.Element {
   const [req, setReq] = useState<ExplorerRequest>(INITIAL)
   const [draft, setDraft] = useState('')
@@ -458,7 +466,14 @@ export function RelatedHistoryExplorer({
               // showing the previous row's linked ticket — and resetting it from
               // an effect trips `react-hooks/set-state-in-effect`, which is
               // enabled here and only fails after tests and typecheck are green.
-              <HitDetail key={active.id} hit={active} onOpenCase={onOpenCase} />
+              <HitDetail
+                key={active.id}
+                hit={active}
+                onOpenCase={onOpenCase}
+                caseSlug={caseSlug}
+                sessionId={sessionId}
+                onReferenced={onReferenced}
+              />
             ) : (
               <p className="text-xs text-dim">Select a result to see the full record.</p>
             )}
@@ -473,10 +488,12 @@ export function RelatedHistoryExplorer({
  *  the native-panel occlusion registration every in-case modal needs. */
 export function RelatedHistoryExplorerModal({
   caseSlug,
+  sessionId,
   onOpenCase,
   onClose
 }: {
   caseSlug: string
+  sessionId: number | null
   onOpenCase?: (slug: string) => void
   onClose: () => void
 }): React.JSX.Element {
@@ -494,7 +511,14 @@ export function RelatedHistoryExplorerModal({
       variant="reading"
       className="h-[80vh] w-[85vw] max-w-6xl"
     >
-      <RelatedHistoryExplorer caseSlug={caseSlug} onOpenCase={onOpenCase} />
+      <RelatedHistoryExplorer
+        caseSlug={caseSlug}
+        sessionId={sessionId}
+        onOpenCase={onOpenCase}
+        // The composer this citation just filled sits UNDERNEATH this modal.
+        // Staging text the user cannot see would be worse than not staging it.
+        onReferenced={onClose}
+      />
     </ModalShell>
   )
 }

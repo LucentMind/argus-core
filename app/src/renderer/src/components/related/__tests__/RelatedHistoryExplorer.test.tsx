@@ -2,7 +2,7 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { RelatedHistoryExplorer } from '../RelatedHistoryExplorer'
+import { RelatedHistoryExplorer, RelatedHistoryExplorerModal } from '../RelatedHistoryExplorer'
 import type {
   CorpusDefectHit,
   LocalCaseHit,
@@ -891,5 +891,71 @@ describe('RelatedHistoryExplorer', () => {
     render(<RelatedHistoryExplorer caseSlug="current" />)
     expect(await screen.findByText(/No sources are configured/)).toBeInTheDocument()
     expect(screen.queryByText(/No sources are selected/)).not.toBeInTheDocument()
+  })
+})
+
+/** Same `search`/`sources` shape as `setArgus` above, extended with a resolved
+ *  `defect` — these tests select a corpus hit, which mounts `HitDetail` and
+ *  fires its own `related.defect` fetch; an unmocked call there returns
+ *  `undefined`, and `.then`-ing that throws synchronously instead of failing
+ *  the assertions these tests actually care about — and `attachEvidence`,
+ *  which `setArgus` never needed because nothing before increment 3 rendered
+ *  the actions that call it.
+ */
+function setArgusWithActions(
+  result: Partial<RelatedSearchResult>,
+  sources: RelatedSourceInfo[] = SOURCES
+): { search: ReturnType<typeof vi.fn>; attachEvidence: ReturnType<typeof vi.fn> } {
+  const search = vi.fn().mockResolvedValue({ query: 'q', hits: [], sources: [], ...result })
+  const defect = vi.fn().mockResolvedValue({ ok: false, error: 'not fetched in this test' })
+  const attachEvidence = vi.fn().mockResolvedValue({
+    ok: true,
+    deduped: false,
+    record: { id: 1, relPath: 'evidence/KAN-5.md', origin: 'corpus' }
+  })
+  ;(window as unknown as { argus: unknown }).argus = {
+    related: { search, sources: vi.fn().mockResolvedValue(sources), defect, attachEvidence }
+  }
+  return { search, attachEvidence }
+}
+
+describe('RelatedHistoryExplorer — pull into the case', () => {
+  it('renders the actions in the case-scoped entry point', async () => {
+    setArgusWithActions({ hits: [corpusHit()] })
+    render(<RelatedHistoryExplorer caseSlug="NAV-100" sessionId={7} />)
+    fireEvent.click(await screen.findByText(/KAN-5/))
+    expect(await screen.findByRole('button', { name: /reference in chat/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /attach as evidence/i })).toBeInTheDocument()
+  })
+
+  it('renders none of them standalone', async () => {
+    setArgusWithActions({ hits: [corpusHit()] })
+    render(<RelatedHistoryExplorer />)
+    fireEvent.change(screen.getByLabelText('Search related history'), {
+      target: { value: 'charge plan' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    fireEvent.click(await screen.findByText(/KAN-5/))
+    expect(screen.queryByRole('button', { name: /reference in chat/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /attach as evidence/i })).not.toBeInTheDocument()
+  })
+
+  it('closes the modal once a citation is staged, so the composer it filled is visible', async () => {
+    setArgusWithActions({ hits: [corpusHit()] })
+    const onClose = vi.fn()
+    render(<RelatedHistoryExplorerModal caseSlug="NAV-100" sessionId={7} onClose={onClose} />)
+    fireEvent.click(await screen.findByText(/KAN-5/))
+    fireEvent.click(screen.getByRole('button', { name: /reference in chat/i }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves the modal open after an attach, which reports inline', async () => {
+    setArgusWithActions({ hits: [corpusHit()] })
+    const onClose = vi.fn()
+    render(<RelatedHistoryExplorerModal caseSlug="NAV-100" sessionId={7} onClose={onClose} />)
+    fireEvent.click(await screen.findByText(/KAN-5/))
+    fireEvent.click(screen.getByRole('button', { name: /attach as evidence/i }))
+    await waitFor(() => expect(screen.getByText(/attached as/i)).toBeInTheDocument())
+    expect(onClose).not.toHaveBeenCalled()
   })
 })

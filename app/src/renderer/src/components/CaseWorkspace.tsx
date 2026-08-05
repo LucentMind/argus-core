@@ -841,6 +841,10 @@ export function CaseWorkspace({
         <RelatedHistoryExplorerModal
           key={slug}
           caseSlug={slug}
+          // This component's own active-chat state — the same value ChatPane
+          // renders — rather than a second read of uiStore.activeSessions or a
+          // fresh sessions.list round-trip. One source of truth for one fact.
+          sessionId={sessionId}
           onOpenCase={onOpenCase}
           onClose={() => setExplorerOpen(false)}
         />
