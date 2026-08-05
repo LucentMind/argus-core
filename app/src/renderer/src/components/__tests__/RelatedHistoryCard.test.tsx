@@ -65,7 +65,13 @@ describe('RelatedHistoryCard', () => {
     expect(screen.queryByText(/Known defects/i)).not.toBeInTheDocument()
   })
 
-  it('renders nothing with no hits and every source healthy', async () => {
+  // Renamed from "renders nothing with no hits and every source healthy": that
+  // name described the fixture, not the reason — this renders nothing because
+  // no `onOpenExplorer` handler was given (there is genuinely nothing to
+  // offer without one), not because of source health. A healthy source alone
+  // is not sufficient for a bare shell to stay hidden once a handler is
+  // supplied — see "offers the explorer footer on zero hits..." below.
+  it('renders nothing with no hits and no explorer handler, even with a healthy source', async () => {
     setArgus({ hits: [], sources: [{ id: 'local', name: 'Your cases', kind: 'local', ok: true }] })
     render(<RelatedHistoryCard slug="new" />)
     await waitFor(() => expect(screen.queryByText(/Related history/i)).not.toBeInTheDocument())
@@ -272,15 +278,17 @@ describe('RelatedHistoryCard', () => {
     expect(onOpenExplorer).toHaveBeenCalled()
   })
 
-  it('still renders nothing on zero hits with no handler, even with a healthy source', async () => {
-    // No `onOpenExplorer` means the card would have nothing at all to show —
-    // no hits, no degraded line, no footer — so it must still render null.
+  // Minor 2: zero hits, every source healthy, and a handler means the card
+  // renders a heading and the "Search all history →" footer — without a line
+  // in between saying nothing was found, that was a bare shell that read as
+  // broken rather than "nothing similar out there".
+  it('says nothing was found when the card renders on zero hits with a healthy source', async () => {
     setArgus({
       hits: [],
       sources: [{ id: 'local', name: 'Your cases', kind: 'local', ok: true }]
     })
-    render(<RelatedHistoryCard slug="new" />)
-    await waitFor(() => expect(screen.queryByText(/Related history/i)).not.toBeInTheDocument())
+    render(<RelatedHistoryCard slug="new" onOpenExplorer={vi.fn()} />)
+    expect(await screen.findByText('No related history found.')).toBeInTheDocument()
   })
 
   it('still renders nothing on zero hits with no sources at all, even with a handler', async () => {

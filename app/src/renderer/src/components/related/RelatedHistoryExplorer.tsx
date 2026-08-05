@@ -3,6 +3,7 @@ import { History, Search, X } from 'lucide-react'
 import type {
   RelatedFilters,
   RelatedHit,
+  RelatedReason,
   RelatedSearchInput,
   RelatedSearchMode,
   RelatedSearchResult,
@@ -66,16 +67,53 @@ function toInput(
   return input
 }
 
+/** Sticky by-id merge: every id ever seen in `known` stays, updated in place
+ *  with the freshest record for ids that reappear in `fresh`; ids `fresh`
+ *  drops (e.g. a provider `search` no longer reports health for because the
+ *  user's own `providerIds` filter excluded it this round, or a probe that no
+ *  longer lists something a prior probe did) are left exactly as they were.
+ *  This is what makes the rail (and
+ *  `allProviderIds` below) survive a provider vanishing from a single round —
+ *  see the rail-row-disappears fix. Returns `known` unchanged (same
+ *  reference) when there is nothing new to fold in, so callers that only
+ *  merge non-empty results (both call sites below) don't force an extra
+ *  render. */
+function mergeById<T extends { id: string }>(known: T[], fresh: T[]): T[] {
+  if (fresh.length === 0) return known
+  const byId = new Map(known.map((k) => [k.id, k]))
+  for (const item of fresh) byId.set(item.id, item)
+  return [...byId.values()]
+}
+
 /** Union of the standing probe and the last search's per-provider health, by
- *  id — see Important 2. `sources()` mirrors only the DEFAULT fan-out gate (no
- *  per-call options), so a provider that only becomes searchable under a
- *  non-default option (e.g. local once `includeOpenCases` is set) can be
- *  absent from the probe while still appearing in a completed search's
- *  health. Using the probe alone here would let that provider be silently
- *  excluded from `providerIds` filtering even though it is genuinely part of
- *  the fan-out. */
+ *  id. Both arguments are expected to already be the STICKY, accumulated
+ *  views (`mergeById`-maintained state), not a single round's raw response —
+ *  `sources()` mirrors only the DEFAULT fan-out gate (no per-call options),
+ *  so a provider that only becomes searchable under a non-default option
+ *  (e.g. local once `includeOpenCases` is set) can be absent from the probe
+ *  while still appearing in a completed search's health, and a LATER search
+ *  can legitimately omit a provider's health entirely once it is excluded.
+ *  Using non-sticky snapshots here would let a provider be silently and
+ *  permanently dropped from `providerIds` filtering the moment it stops
+ *  appearing in either source for even one round. */
 function unionProviderIds(sources: RelatedSourceInfo[], health: SourceHealth[]): string[] {
   return [...new Set([...sources.map((s) => s.id), ...health.map((h) => h.id)])]
+}
+
+/** Minor 1: `no-providers` and `query-too-generic` both used to render the
+ *  same "nothing matched" line. That reads as "your search found nothing"
+ *  when the truth for `no-providers` is "you have not asked anything" — a
+ *  state a user can now genuinely reach just by unchecking every rail row
+ *  (Important 1 made an empty `providerIds` mean "nothing", not
+ *  "everything"), so conflating the two is actively misleading. */
+function emptyResultLabel(reason: RelatedReason | undefined): string {
+  if (reason === 'no-providers') {
+    return 'No sources are selected. Check a source in the rail to search it.'
+  }
+  if (reason === 'query-too-generic') {
+    return 'That search is too generic to match anything meaningful. Try a more specific term.'
+  }
+  return 'No related history for this query.'
 }
 
 function degradedLabel(sources: SourceHealth[]): string | null {
@@ -166,7 +204,13 @@ export function RelatedHistoryExplorer({
   // submission (a new `req` reference, even with identical fields — see the
   // Search-button handler) naturally clears a stale error off the screen.
   const [failed, setFailed] = useState<{ req: ExplorerRequest; message: string } | null>(null)
+  // Both `sources` (the standing probe) and `health` (per-provider search
+  // outcomes) are STICKY, `mergeById`-accumulated state — never a bare
+  // snapshot of the latest round. See Important 1: a provider that survived
+  // only a single round in either one must not vanish from the rail, nor
+  // from `allProviderIds`, the moment a later round omits it.
   const [sources, setSources] = useState<RelatedSourceInfo[]>([])
+  const [health, setHealth] = useState<SourceHealth[]>([])
   // Latches true the first time the probe actually resolves. A rejected probe
   // must NOT set this — a rejection is not evidence that no sources exist,
   // unlike a successful resolution to an empty list — so the rail's "no
@@ -183,7 +227,7 @@ export function RelatedHistoryExplorer({
       .sources()
       .then((s) => {
         if (!alive) return
-        setSources(s)
+        setSources((prev) => mergeById(prev, s))
         setSourcesProbed(true)
       })
       .catch(() => {
@@ -203,17 +247,19 @@ export function RelatedHistoryExplorer({
     if (!shouldSearch) return
     let alive = true
     // The full provider set for "which id did the user NOT uncheck" purposes
-    // is the union of the probe and the last completed search's health (see
-    // `unionProviderIds`) — the probe alone can under-report (Important 2:
-    // `sources()` mirrors only the default fan-out gate), and using it alone
-    // would let an under-reported provider like `local` silently stay
-    // excluded from every future request once the user unchecks anything.
-    const ids = unionProviderIds(sources, completed?.result.sources ?? [])
+    // is the union of the (sticky) probe and the (sticky) last-known
+    // per-provider health (see `unionProviderIds`) — the probe alone can
+    // under-report (Important 1: `sources()` mirrors only the default fan-out
+    // gate), and using either as a bare latest-round snapshot would let an
+    // under-reported provider like `local` silently stay excluded from every
+    // future request the moment it stops appearing in one round.
+    const ids = unionProviderIds(sources, health)
     void window.argus.related
       .search(toInput(req, caseSlug, ids))
       .then((r) => {
         if (!alive) return
         setCompleted({ req, result: r })
+        setHealth((prev) => mergeById(prev, r.sources))
         // Echoed query seeds the box exactly once, so a user edit is never
         // overwritten by a later response.
         if (!seeded.current && !req.edited) {
@@ -233,7 +279,7 @@ export function RelatedHistoryExplorer({
     return () => {
       alive = false
     }
-    // `sources` and `completed` are read for provider ids only (see
+    // `sources` and `health` are read for provider ids only (see
     // `unionProviderIds` above); a probe landing, or a PRIOR request
     // completing, must not re-fire this search on its own.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -259,7 +305,7 @@ export function RelatedHistoryExplorer({
       <ExplorerFilters
         req={req}
         sources={sources}
-        health={shown?.sources ?? []}
+        health={health}
         probed={sourcesProbed}
         onChange={(patch) => setReq((r) => ({ ...r, ...patch, limit: EXPLORER_PAGE }))}
         onRetry={() => {
@@ -302,7 +348,7 @@ export function RelatedHistoryExplorer({
               />
             ))}
             {!loading && hits.length === 0 && shown && (
-              <p className="text-xs text-dim">No related history for this query.</p>
+              <p className="text-xs text-dim">{emptyResultLabel(shown.reason)}</p>
             )}
             {!shown && !caseSlug && !error && (
               <p className="text-xs text-dim">

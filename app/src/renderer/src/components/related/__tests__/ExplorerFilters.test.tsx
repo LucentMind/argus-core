@@ -107,6 +107,45 @@ describe('ExplorerFilters', () => {
     expect(onChange).toHaveBeenCalledTimes(1)
   })
 
+  // Important 2: `commitToken` had no "did anything actually change?" guard,
+  // so a bare focus+blur — no keystroke at all — still re-sent `filters` as a
+  // fresh object: a fresh `req` identity, and so a full IPC fan-out to every
+  // configured corpus plus a paging reset, from nothing more than a user
+  // tabbing through the rail.
+  it('issues no onChange on a bare focus and blur, with no typing at all', () => {
+    const { onChange } = setup()
+    const input = screen.getByLabelText('Components')
+    fireEvent.focus(input)
+    fireEvent.blur(input)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  // Pressing Enter already committed, and blur (which always follows, once
+  // the user moves on) committed again — two identical fan-outs from one
+  // edit. `toHaveBeenLastCalledWith` can't see a duplicate call, only the
+  // call count can.
+  it('commits exactly once when Enter is followed by a blur', () => {
+    const { onChange } = setup()
+    const input = screen.getByLabelText('Components')
+    fireEvent.change(input, { target: { value: 'routing' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.blur(input)
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+
+  // The house convention (`blurOnEscape`, used everywhere else) is that a
+  // field-level Escape discards the edit. This box commits on blur, and
+  // `blurOnEscape` just calls `.blur()` — so without a specific guard,
+  // Escape applied the abandoned draft instead of discarding it.
+  it('discards the draft on Escape, reverting the text and issuing no onChange', () => {
+    const { onChange } = setup({ req: { ...REQ, filters: { components: ['original'] } } })
+    const input = screen.getByLabelText('Components')
+    fireEvent.change(input, { target: { value: 'typed junk' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(input).toHaveValue('original')
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
   // The four token inputs used `defaultValue` (uncontrolled) while the date
   // filter beside them is controlled. `defaultValue` only seeds the DOM node
   // once — after the user has ever touched the field, it stays whatever was

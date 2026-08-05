@@ -220,6 +220,30 @@ describe('RelatedHistoryExplorer', () => {
     expect(await screen.findByText('No related history for this query.')).toBeInTheDocument()
   })
 
+  // Minor 1: `no-providers` and `query-too-generic` used to render the same
+  // "nothing matched" copy, which misdescribes `no-providers` — reachable now
+  // just by unchecking every rail row (Important 1 made an empty
+  // `providerIds` mean "nothing", not "everything") — as a failed search
+  // rather than "you asked for nothing".
+  it('renders a distinct message for reason: no-providers', async () => {
+    setArgus({ query: 'q', hits: [], sources: [], reason: 'no-providers' })
+    render(<RelatedHistoryExplorer caseSlug="current" />)
+    expect(await screen.findByText(/No sources are selected/)).toBeInTheDocument()
+    expect(screen.queryByText('No related history for this query.')).not.toBeInTheDocument()
+  })
+
+  it('renders a distinct message for reason: query-too-generic', async () => {
+    setArgus({
+      query: 'q',
+      hits: [],
+      sources: [{ id: 'local', name: 'Your cases', kind: 'local', ok: true }],
+      reason: 'query-too-generic'
+    })
+    render(<RelatedHistoryExplorer caseSlug="current" />)
+    expect(await screen.findByText(/too generic/)).toBeInTheDocument()
+    expect(screen.queryByText('No related history for this query.')).not.toBeInTheDocument()
+  })
+
   it('never offers a pull-into-case action (increment 3)', async () => {
     setArgus({ query: 'q', hits: [hit()] })
     render(<RelatedHistoryExplorer caseSlug="current" />)
@@ -337,6 +361,139 @@ describe('RelatedHistoryExplorer', () => {
       const last = search.mock.calls[2][0] as RelatedSearchInput
       expect(last.providerIds).toEqual(expect.arrayContaining(['local']))
       expect(last.providerIds).not.toEqual(expect.arrayContaining(['corpus:b']))
+    })
+  })
+
+  // Important 1: the previous fix (above) only ever exercised a `search` mock
+  // that reports the SAME full health every round regardless of `providerIds`
+  // — it never reproduced the real service's actual behaviour, which is to
+  // report health only for providers that survived the filter. These tests
+  // use a `search` mock that narrows `sources` to `providerIds` (when set),
+  // which is what actually makes a health-only row disappear once excluded.
+  describe('the rail survives a provider dropping out of a single round', () => {
+    const ALL_IDS = ['local', 'corpus:a', 'corpus:b']
+    const NAMES: Record<string, string> = {
+      local: 'Your cases',
+      'corpus:a': 'Corpus A',
+      'corpus:b': 'Corpus B'
+    }
+    // `local` is deliberately absent from the probe — the realistic case
+    // (spec: `sources()` mirrors only the default fan-out gate) where the
+    // rail's only knowledge of a provider comes from search health.
+    const PROBE: RelatedSourceInfo[] = [
+      { id: 'corpus:a', name: 'Corpus A', kind: 'corpus', ok: true, semantic: false, projects: [] },
+      { id: 'corpus:b', name: 'Corpus B', kind: 'corpus', ok: true, semantic: false, projects: [] }
+    ]
+
+    function realisticSearch(): ReturnType<typeof vi.fn> {
+      return vi.fn().mockImplementation((input: RelatedSearchInput) => {
+        const ids = input.providerIds ?? ALL_IDS
+        const survivors = ALL_IDS.filter((id) => ids.includes(id))
+        return Promise.resolve({
+          query: 'q',
+          hits: [],
+          sources: survivors.map((id) => ({
+            id,
+            name: NAMES[id],
+            kind: id === 'local' ? 'local' : 'corpus',
+            ok: true
+          })),
+          ...(survivors.length === 0 ? { reason: 'no-providers' as const } : {})
+        })
+      })
+    }
+
+    it('keeps a health-only row present, and re-checkable, after it is excluded from the fan-out', async () => {
+      const search = realisticSearch()
+      ;(window as unknown as { argus: unknown }).argus = {
+        related: { search, sources: vi.fn().mockResolvedValue(PROBE), defect: vi.fn() }
+      }
+      render(<RelatedHistoryExplorer caseSlug="current" />)
+      // First round: nothing excluded yet, so local's health-only row exists.
+      expect(await screen.findByLabelText('Search Your cases')).toBeInTheDocument()
+
+      // Uncheck it — the NEXT response's health genuinely omits `local` now
+      // (the real service's own behaviour), which is exactly what used to
+      // erase the row.
+      fireEvent.click(screen.getByLabelText('Search Your cases'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
+      expect(search.mock.calls[1][0].providerIds).not.toEqual(expect.arrayContaining(['local']))
+
+      // The row must still be there...
+      expect(screen.getByLabelText('Search Your cases')).toBeInTheDocument()
+
+      // Also uncheck a probe-listed source, so `excluded` stays non-empty
+      // after `local` is re-checked below — otherwise `providerIds` would go
+      // back to `undefined` (nothing excluded at all) and prove nothing about
+      // whether `local` specifically survived.
+      fireEvent.click(screen.getByLabelText('Search Corpus A'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(3))
+
+      // ...and re-checking it must bring `local` back into the fan-out. Before
+      // the fix, the row was gone, so there was no control left to click, and
+      // `local` would have stayed silently excluded forever.
+      fireEvent.click(screen.getByLabelText('Search Your cases'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(4))
+      const last = search.mock.calls[3][0] as RelatedSearchInput
+      expect(last.providerIds).toEqual(expect.arrayContaining(['local']))
+      expect(last.providerIds).not.toEqual(expect.arrayContaining(['corpus:a']))
+    })
+
+    it('does not claim "No searchable sources" once every known source is unchecked', async () => {
+      const search = realisticSearch()
+      ;(window as unknown as { argus: unknown }).argus = {
+        related: { search, sources: vi.fn().mockResolvedValue(PROBE), defect: vi.fn() }
+      }
+      render(<RelatedHistoryExplorer caseSlug="current" />)
+      await screen.findByLabelText('Search Your cases')
+
+      fireEvent.click(screen.getByLabelText('Search Your cases'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
+      fireEvent.click(screen.getByLabelText('Search Corpus A'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(3))
+      fireEvent.click(screen.getByLabelText('Search Corpus B'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(4))
+
+      // A genuine no-providers response — every id really was dropped this
+      // round — is exactly the case that used to empty `railRows()`.
+      expect(search.mock.calls[3][0].providerIds).toEqual([])
+      expect(screen.queryByText(/No searchable sources/i)).not.toBeInTheDocument()
+      expect(screen.getByLabelText('Search Your cases')).toBeInTheDocument()
+      expect(screen.getByLabelText('Search Corpus A')).toBeInTheDocument()
+      expect(screen.getByLabelText('Search Corpus B')).toBeInTheDocument()
+    })
+
+    it('keeps a health-only row in the rail through a later failed request', async () => {
+      const search = vi.fn()
+      search.mockResolvedValueOnce({
+        query: 'q',
+        hits: [],
+        sources: [
+          { id: 'corpus:a', name: 'Corpus A', kind: 'corpus', ok: true },
+          { id: 'local', name: 'Your cases', kind: 'local', ok: true }
+        ]
+      })
+      search.mockRejectedValueOnce(new Error('fetch failed'))
+      ;(window as unknown as { argus: unknown }).argus = {
+        related: {
+          search,
+          sources: vi.fn().mockResolvedValue([PROBE[0]]),
+          defect: vi.fn()
+        }
+      }
+      render(<RelatedHistoryExplorer caseSlug="current" />)
+      expect(await screen.findByLabelText('Search Your cases')).toBeInTheDocument()
+
+      fireEvent.change(screen.getByLabelText('Search related history'), {
+        target: { value: 'battery soc' }
+      })
+      fireEvent.submit(screen.getByRole('search'))
+      await screen.findByText('fetch failed')
+
+      // Before the fix, `health` (read from `shown`, which is null on error)
+      // went blank, taking the health-only row with it even though nothing
+      // about `local` actually changed.
+      expect(screen.getByLabelText('Search Your cases')).toBeInTheDocument()
     })
   })
 })

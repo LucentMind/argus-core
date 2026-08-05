@@ -201,6 +201,14 @@ export function RelatedHistoryCard({
         </IconBtn>
       </div>
       {degraded && <div className="text-[11px] text-mute">{degraded}</div>}
+      {/* Minor 2: zero hits + every source healthy + a `Search all history →`
+          footer used to render a heading and a footer with nothing between
+          them explaining why — a bare shell that looked broken rather than
+          "nothing found". `canSearchFurther` already proves there is
+          something to say here (a handler and at least one known source). */}
+      {result.hits.length === 0 && !degraded && (
+        <p className="text-[11px] text-dim">No related history found.</p>
+      )}
       <div className="flex flex-col gap-1.5">
         {result.hits.map((hit) => (
           <HitRow

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type {
   RelatedFilters,
   RelatedSearchMode,
@@ -162,8 +162,29 @@ export function ExplorerFilters({
   // input, which stopped reflecting `req.filters` the moment the user touched
   // it.
   const [drafts, setDrafts] = useState<Partial<Record<TokenFilterKey, string>>>({})
+  // A box a user Escaped out of must not also commit: `blurOnEscape` (used by
+  // every other field) just calls `.blur()`, and this box commits on blur —
+  // so an Escape-triggered blur would fire `commitToken` with the abandoned
+  // draft text unless something stops it. `drafts` itself can't carry that
+  // signal: `.blur()` fires the `blur` event, and so `onBlur`, SYNCHRONOUSLY
+  // within the same keydown handler, before React has re-rendered with the
+  // draft cleared — so `onBlur`'s closure would still see the stale `drafts`
+  // that still contains the key. A ref sidesteps that: writes are visible
+  // immediately, with no render in between, to any closure holding the same
+  // ref object.
+  const skipCommitRef = useRef<Set<TokenFilterKey>>(new Set())
 
+  // Guards on "is there actually an uncommitted draft for this key" so that
+  // focusing a box and leaving it untouched — no keystroke, ever — cannot
+  // fire `onChange`: without this, EVERY blur (including a bare focus+blur)
+  // re-sent `filters` as a fresh object, which is a fresh `req` identity and
+  // so a full IPC fan-out to every configured corpus, plus a paging reset.
+  // It also caps Enter-then-blur at exactly one `onChange`: Enter's own
+  // `commitToken` call already clears the draft, so the blur that follows
+  // finds no draft left to commit.
   function commitToken(key: TokenFilterKey, raw: string): void {
+    if (skipCommitRef.current.delete(key)) return
+    if (!(key in drafts)) return
     onChange({ filters: setList(req.filters, key, parseTokens(raw)) })
     setDrafts((d) => {
       if (!(key in d)) return d
@@ -274,7 +295,22 @@ export function ExplorerFilters({
               }}
               onBlur={(e) => commitToken(key, e.target.value)}
               onKeyDown={(e) => {
-                blurOnEscape(e)
+                // The house `blurOnEscape` convention just blurs, which for
+                // every OTHER field is enough (there is no pending draft to
+                // lose). Here Escape must DISCARD the draft, not commit it —
+                // so the draft is cleared and `commitToken` is told to skip
+                // BEFORE `.blur()` synchronously fires `onBlur`.
+                if (e.key === 'Escape') {
+                  skipCommitRef.current.add(key)
+                  setDrafts((d) => {
+                    if (!(key in d)) return d
+                    const next = { ...d }
+                    delete next[key]
+                    return next
+                  })
+                  e.currentTarget.blur()
+                  return
+                }
                 if (e.key === 'Enter') {
                   e.preventDefault()
                   commitToken(key, e.currentTarget.value)
