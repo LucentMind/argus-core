@@ -141,12 +141,7 @@ export interface RelatedSourceInfo {
 }
 
 export type RelatedDefectLinkType =
-  | 'duplicates'
-  | 'is-duplicated-by'
-  | 'relates'
-  | 'blocks'
-  | 'is-blocked-by'
-  | 'other'
+  'duplicates' | 'is-duplicated-by' | 'relates' | 'blocks' | 'is-blocked-by' | 'other'
 
 /**
  * Renderer-safe mirror of the corpus `DefectRecord` (SPEC §6). Defined natively
@@ -186,5 +181,4 @@ export interface RelatedDefectRecord {
 }
 
 export type RelatedDefectResult =
-  | { ok: true; value: RelatedDefectRecord }
-  | { ok: false; error: string; code?: string }
+  { ok: true; value: RelatedDefectRecord } | { ok: false; error: string; code?: string }

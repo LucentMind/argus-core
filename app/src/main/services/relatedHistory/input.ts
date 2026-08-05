@@ -68,7 +68,11 @@ export function validateRelatedSearchInput(raw: unknown): RelatedSearchInput {
     out.mode = input.mode as RelatedSearchMode
   }
 
-  if (typeof input.filters === 'object' && input.filters !== null && !Array.isArray(input.filters)) {
+  if (
+    typeof input.filters === 'object' &&
+    input.filters !== null &&
+    !Array.isArray(input.filters)
+  ) {
     const src = input.filters as Record<string, unknown>
     const filters: RelatedFilters = {}
     for (const key of LIST_KEYS) {

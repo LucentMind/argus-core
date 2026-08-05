@@ -81,8 +81,10 @@ export class RelatedHistoryService {
         return { query: query.text, hits: [], sources: [], reason: 'query-too-generic' }
       }
 
-      const providers = this.providers(input.caseSlug ?? null, input.includeOpenCases === true)
-        .filter((p) => input.providerIds === undefined || input.providerIds.includes(p.id))
+      const providers = this.providers(
+        input.caseSlug ?? null,
+        input.includeOpenCases === true
+      ).filter((p) => input.providerIds === undefined || input.providerIds.includes(p.id))
 
       if (providers.length === 0) {
         return { query: query.text, hits: [], sources: [], reason: 'no-providers' }
@@ -110,7 +112,10 @@ export class RelatedHistoryService {
       const settled = await Promise.all(
         providers.map(async (p) => {
           try {
-            return { p, res: await (hasOpts ? p.search(query, limit, opts) : p.search(query, limit)) }
+            return {
+              p,
+              res: await (hasOpts ? p.search(query, limit, opts) : p.search(query, limit))
+            }
           } catch (err) {
             const error = err instanceof Error ? err.message : String(err)
             return { p, res: { ok: false as const, error } }

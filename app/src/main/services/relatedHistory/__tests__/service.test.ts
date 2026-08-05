@@ -349,7 +349,12 @@ describe('RelatedHistoryService — explorer options', () => {
       db: null as never,
       defectCorpus: null as never,
       providers: [
-        { id: 'local', name: 'Your cases', kind: 'local', search: async () => ({ ok: true, hits: [] }) }
+        {
+          id: 'local',
+          name: 'Your cases',
+          kind: 'local',
+          search: async () => ({ ok: true, hits: [] })
+        }
       ]
     })
     const r = await svc.search({ query: 'x', providerIds: ['corpus:gone'] })
