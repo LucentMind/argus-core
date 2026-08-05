@@ -225,9 +225,41 @@ describe('RelatedHistoryExplorer', () => {
   // just by unchecking every rail row (Important 1 made an empty
   // `providerIds` mean "nothing", not "everything") — as a failed search
   // rather than "you asked for nothing".
+  // The previous fixture here paired a probe listing `local` with a
+  // `no-providers` search result while nothing was excluded — a state main
+  // can never actually produce: with nothing excluded, `sources()` listing
+  // `local` and `providers()` including it both gate on the exact same
+  // `summaryPopulation(db, true)` call (see `RelatedHistoryService.sources`
+  // and `.providers`), so if the probe reports `local` the fan-out would
+  // too. A genuine `no-providers` with `hasKnownSources` true — the
+  // combination this message needs — is reachable instead by the user
+  // unchecking the only known source, which sends an explicit `providerIds:
+  // []` and makes `providers()` itself filter down to nothing.
   it('renders a distinct message for reason: no-providers', async () => {
-    setArgus({ query: 'q', hits: [], sources: [], reason: 'no-providers' })
+    const CORPUS_SOURCE: RelatedSourceInfo[] = [
+      { id: 'corpus:a', name: 'Corpus A', kind: 'corpus', ok: true, semantic: false, projects: [] }
+    ]
+    const search = vi.fn().mockImplementation((input: RelatedSearchInput) => {
+      const excludedEverything = input.providerIds !== undefined && input.providerIds.length === 0
+      return Promise.resolve(
+        excludedEverything
+          ? { query: 'q', hits: [], sources: [], reason: 'no-providers' as const }
+          : {
+              query: 'q',
+              hits: [],
+              sources: [{ id: 'corpus:a', name: 'Corpus A', kind: 'corpus', ok: true }]
+            }
+      )
+    })
+    ;(window as unknown as { argus: unknown }).argus = {
+      related: { search, sources: vi.fn().mockResolvedValue(CORPUS_SOURCE), defect: vi.fn() }
+    }
     render(<RelatedHistoryExplorer caseSlug="current" />)
+    await waitFor(() => expect(search).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByLabelText('Search Corpus A'))
+    await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
+
     expect(await screen.findByText(/No sources are selected/)).toBeInTheDocument()
     expect(screen.queryByText('No related history for this query.')).not.toBeInTheDocument()
   })
@@ -635,6 +667,220 @@ describe('RelatedHistoryExplorer', () => {
       expect(last.providerIds).toEqual(expect.arrayContaining(['local']))
       expect(last.providerIds).not.toEqual(expect.arrayContaining(['corpus:a']))
     })
+  })
+
+  // Critical: `evictStale` cannot tell a pre-fan-out early exit apart from a
+  // real "none of these providers exist" answer just by looking at an empty
+  // `sources` array — both `query-too-generic` (returned before
+  // `RelatedHistoryService.search` ever calls `this.providers(...)`) and the
+  // service catch-all's synthetic single `kind: 'service'` entry are NOT
+  // evidence about any real provider, unlike a genuine `no-providers` (which
+  // is only returned after the provider list is computed).
+  describe('a pre-fan-out response is not evidence about any provider', () => {
+    it('does not resurrect a stale probe error for a provider a prior search already reported healthy', async () => {
+      // The probe says corpus:a is down...
+      const PROBE: RelatedSourceInfo[] = [
+        {
+          id: 'corpus:a',
+          name: 'Corpus A',
+          kind: 'corpus',
+          ok: false,
+          error: 'down',
+          semantic: false,
+          projects: []
+        }
+      ]
+      const search = vi.fn()
+      // ...a later (case-composed) search reports it healthy...
+      search.mockResolvedValueOnce({
+        query: 'seeded',
+        hits: [],
+        sources: [{ id: 'corpus:a', name: 'Corpus A', kind: 'corpus', ok: true }]
+      })
+      // ...then the user clears the box and searches again: main's zero-term
+      // guard fires before it ever looks at corpus:a.
+      search.mockResolvedValueOnce({
+        query: '',
+        hits: [],
+        sources: [],
+        reason: 'query-too-generic'
+      })
+      ;(window as unknown as { argus: unknown }).argus = {
+        related: { search, sources: vi.fn().mockResolvedValue(PROBE), defect: vi.fn() }
+      }
+      render(<RelatedHistoryExplorer caseSlug="current" />)
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(1))
+
+      // The healthy search result overrides the probe's stale error.
+      expect(screen.getByLabelText('Search Corpus A')).toBeInTheDocument()
+      expect(screen.queryByText('down')).not.toBeInTheDocument()
+
+      fireEvent.change(screen.getByLabelText('Search related history'), {
+        target: { value: '' }
+      })
+      fireEvent.submit(screen.getByRole('search'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
+
+      // The query-too-generic round never evaluated corpus:a — its healthy
+      // status must survive, not fall back to the probe's stale error.
+      expect(screen.getByLabelText('Search Corpus A')).toBeInTheDocument()
+      expect(screen.queryByText('down')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
+    })
+
+    it('does not permanently drop a health-only provider out of the providerIds union (with a source excluded)', async () => {
+      // `local` is health-only (absent from the probe), same as the
+      // "survives a provider dropping out" fixtures above.
+      const PROBE: RelatedSourceInfo[] = [
+        {
+          id: 'corpus:a',
+          name: 'Corpus A',
+          kind: 'corpus',
+          ok: true,
+          semantic: false,
+          projects: []
+        },
+        {
+          id: 'corpus:b',
+          name: 'Corpus B',
+          kind: 'corpus',
+          ok: true,
+          semantic: false,
+          projects: []
+        }
+      ]
+      const search = vi.fn()
+      // Round 1: case-composed, nothing excluded — local's health-only row
+      // appears.
+      search.mockResolvedValueOnce({
+        query: 'seeded',
+        hits: [],
+        sources: [
+          { id: 'local', name: 'Your cases', kind: 'local', ok: true },
+          { id: 'corpus:a', name: 'Corpus A', kind: 'corpus', ok: true },
+          { id: 'corpus:b', name: 'Corpus B', kind: 'corpus', ok: true }
+        ]
+      })
+      // Round 2: user excludes corpus:b.
+      search.mockResolvedValueOnce({
+        query: 'seeded',
+        hits: [],
+        sources: [
+          { id: 'local', name: 'Your cases', kind: 'local', ok: true },
+          { id: 'corpus:a', name: 'Corpus A', kind: 'corpus', ok: true }
+        ]
+      })
+      // Round 3: user clears the box — query-too-generic, sources: [],
+      // computed before providers() ever ran.
+      search.mockResolvedValueOnce({
+        query: '',
+        hits: [],
+        sources: [],
+        reason: 'query-too-generic'
+      })
+      // Round 4+: capture the outgoing providerIds.
+      search.mockResolvedValue({ query: 'y', hits: [], sources: [] })
+      ;(window as unknown as { argus: unknown }).argus = {
+        related: { search, sources: vi.fn().mockResolvedValue(PROBE), defect: vi.fn() }
+      }
+      render(<RelatedHistoryExplorer caseSlug="current" />)
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(1))
+      expect(screen.getByLabelText('Search Your cases')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByLabelText('Search Corpus B'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
+
+      fireEvent.change(screen.getByLabelText('Search related history'), {
+        target: { value: '' }
+      })
+      fireEvent.submit(screen.getByRole('search'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(3))
+
+      // local's row must survive the pre-fan-out round...
+      expect(screen.getByLabelText('Search Your cases')).toBeInTheDocument()
+
+      // ...and the NEXT round's own request must still ask for it — this is
+      // the permanent failure mode: once evicted here, no rail row remains
+      // to re-check it, and main never searches it again.
+      fireEvent.change(screen.getByLabelText('Search related history'), {
+        target: { value: 'y' }
+      })
+      fireEvent.submit(screen.getByRole('search'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(4))
+      const last = search.mock.calls[3][0] as RelatedSearchInput
+      expect(last.providerIds).toEqual(expect.arrayContaining(['local']))
+      expect(last.providerIds).not.toEqual(expect.arrayContaining(['corpus:b']))
+    })
+
+    // Guardrail: the asymmetry the fix relies on — a REAL `no-providers` is
+    // returned only after the provider list is computed, so it must keep
+    // evicting exactly as before. This is the same mechanism already pinned
+    // by 'stops listing a provider once it genuinely leaves the fan-out'
+    // above; repeated here, focused, as a regression guard on the new
+    // `preFanOut` guard specifically (so a future broadening of that guard
+    // to also swallow `no-providers` gets caught here).
+    it('still evicts on a genuine no-providers round (computed after the provider list, not before)', async () => {
+      const search = vi.fn().mockImplementation((input: RelatedSearchInput) => {
+        const withLocal = input.includeOpenCases === true
+        return Promise.resolve({
+          query: 'q',
+          hits: [],
+          sources: withLocal ? [{ id: 'local', name: 'Your cases', kind: 'local', ok: true }] : [],
+          ...(withLocal ? {} : { reason: 'no-providers' as const })
+        })
+      })
+      ;(window as unknown as { argus: unknown }).argus = {
+        related: { search, sources: vi.fn().mockResolvedValue([]), defect: vi.fn() }
+      }
+      render(<RelatedHistoryExplorer caseSlug="current" />)
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(1))
+      expect(screen.queryByLabelText('Search Your cases')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByLabelText('Include open cases'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
+      expect(await screen.findByLabelText('Search Your cases')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByLabelText('Include open cases'))
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(3))
+      await waitFor(() =>
+        expect(screen.queryByLabelText('Search Your cases')).not.toBeInTheDocument()
+      )
+    })
+  })
+
+  // Test-quality item 1: the probe-side self-heal in the `related:sources`
+  // effect (the `base = s.some(...) ? prev : prev.filter(...)` branch) had no
+  // test asserting the CLEARING direction — only the no-op "no service row
+  // present" branch was ever exercised, implicitly, by every other test's
+  // first successful probe.
+  it('clears a stale synthetic service row from the probe once a later probe succeeds', async () => {
+    const sources = vi.fn()
+    sources.mockResolvedValueOnce([
+      {
+        id: 'related-history',
+        name: 'Related history',
+        kind: 'service',
+        ok: false,
+        error: 'boom',
+        semantic: false,
+        projects: []
+      }
+    ])
+    sources.mockResolvedValueOnce(SOURCES)
+    const search = vi.fn().mockResolvedValue({ query: 'q', hits: [], sources: [] })
+    ;(window as unknown as { argus: unknown }).argus = {
+      related: { search, sources, defect: vi.fn() }
+    }
+    render(<RelatedHistoryExplorer caseSlug="current" />)
+    expect(await screen.findByLabelText('Search Related history')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(sources).toHaveBeenCalledTimes(2))
+
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Search Related history')).not.toBeInTheDocument()
+    )
+    expect(await screen.findByLabelText('Search Your cases')).toBeInTheDocument()
   })
 
   // Minor 3: the fresh-install case (nothing configured at all) must not

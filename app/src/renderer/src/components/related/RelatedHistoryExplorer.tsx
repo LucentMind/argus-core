@@ -313,8 +313,32 @@ export function RelatedHistoryExplorer({
         // `related-history` failure, a provider that dropped out of the
         // fan-out, a corpus removed from settings) can't outlive its own
         // eviction check by being immediately re-added by the merge.
+        //
+        // Critical: `evictStale` reasons from `r.sources` as though it were
+        // produced by evaluating every requested provider — but two response
+        // shapes reach here WITHOUT that ever happening.
+        // `RelatedHistoryService.search` returns `query-too-generic` before
+        // it ever calls `this.providers(...)` (a zero-term query is rejected
+        // up front), and its catch-all replaces real per-provider health with
+        // a single synthetic `kind: 'service'` entry. Both look identical, at
+        // this layer, to "none of the requested providers exist any more" —
+        // an empty (or service-only) `sources` array — but say nothing at all
+        // about any real provider. Evicting on them would drop health this
+        // round never had a chance to speak to: a healthy provider's probe
+        // error would resurface the moment the user clears the search box
+        // (`query-too-generic`, `sources: []`), and a health-only provider
+        // would silently and permanently fall out of every later
+        // `providerIds` union with no rail row left to re-check it back in. A
+        // REAL `no-providers` is not this case — it is returned only AFTER
+        // the provider list is computed, so it remains genuine evidence and
+        // must stay evictable.
+        const preFanOut =
+          (r.sources.length === 0 && r.reason === 'query-too-generic') ||
+          (r.sources.length > 0 && r.sources.every((s) => s.kind === 'service'))
         const reported = new Set(r.sources.map((s) => s.id))
-        setHealth((prev) => mergeById(evictStale(prev, input.providerIds, reported), r.sources))
+        setHealth((prev) =>
+          mergeById(preFanOut ? prev : evictStale(prev, input.providerIds, reported), r.sources)
+        )
         // Echoed query seeds the box exactly once, so a user edit is never
         // overwritten by a later response.
         if (!seeded.current && !req.edited) {
