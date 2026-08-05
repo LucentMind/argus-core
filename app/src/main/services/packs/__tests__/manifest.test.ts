@@ -120,6 +120,40 @@ describe('packManifestSchema', () => {
     ).toThrow()
   })
 
+  it('defaults a binary to bundled: true', () => {
+    const m = packManifestSchema.parse({
+      ...valid,
+      binaries: [{ id: 'x', kind: 'exe', displayName: 'X', names: ['x'] }]
+    })
+    expect(m.binaries[0].bundled).toBe(true)
+  })
+
+  it('accepts bundled: false when fixHint is set', () => {
+    const m = packManifestSchema.parse({
+      ...valid,
+      binaries: [
+        {
+          id: 'x',
+          kind: 'exe',
+          displayName: 'X',
+          names: ['x'],
+          bundled: false,
+          fixHint: 'Install x and set its path in Settings → Tools.'
+        }
+      ]
+    })
+    expect(m.binaries[0].bundled).toBe(false)
+  })
+
+  it('rejects bundled: false with no fixHint', () => {
+    expect(() =>
+      packManifestSchema.parse({
+        ...valid,
+        binaries: [{ id: 'x', kind: 'exe', displayName: 'X', names: ['x'], bundled: false }]
+      })
+    ).toThrow(/fixHint/)
+  })
+
   it('parses detectors[] declarations', () => {
     const m = packManifestSchema.parse({
       ...valid,

@@ -50,9 +50,17 @@ export const packBinarySchema = z
     /** Shown when the binary is missing (health fix hint / preflight detail). */
     fixHint: z.string().default(''),
     /** When set, the binary only applies on these platforms (process.platform values). */
-    platforms: z.array(z.enum(['win32', 'darwin', 'linux'])).optional()
+    platforms: z.array(z.enum(['win32', 'darwin', 'linux'])).optional(),
+    /** False ⇒ this pack does not ship a file for this binary; the user supplies it via
+     *  envVar/settingsKey/PATH. `pack-tools build` skips the --bin file requirement for it.
+     *  Named for the artifact ("does the bundle contain a file"), not the user's intent —
+     *  see the design doc's note on why `userProvided` was rejected. */
+    bundled: z.boolean().default(true)
   })
   .passthrough()
+  .refine((b) => b.bundled !== false || b.fixHint.trim() !== '', {
+    message: 'fixHint is required when bundled is false — it is the only guidance a user gets for an unresolved binary'
+  })
 
 export type PackBinary = z.infer<typeof packBinarySchema>
 
