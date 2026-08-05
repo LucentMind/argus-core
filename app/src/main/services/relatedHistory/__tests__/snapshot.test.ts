@@ -27,8 +27,7 @@ const record = (over: Partial<CorpusDefectRecord> = {}): CorpusDefectRecord =>
 
 const meta = {
   sourceId: 'src1',
-  sourceName: 'Hindsight',
-  capturedAt: '2026-08-05T10:00:00.000Z'
+  sourceName: 'Hindsight'
 }
 
 describe('evidenceFileNameFor', () => {
@@ -56,7 +55,6 @@ describe('formatDefectSnapshot', () => {
     const md = formatDefectSnapshot(record(), meta)
     expect(md.startsWith('# KAN-42 — charge plan dropped after reset\n')).toBe(true)
     expect(md).toContain('captured from the "Hindsight" corpus')
-    expect(md).toContain('2026-08-05T10:00:00.000Z')
   })
 
   it('warns that the body is third-party content, not instructions (spec §12.4)', () => {

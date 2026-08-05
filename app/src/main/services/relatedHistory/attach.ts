@@ -4,17 +4,13 @@ import type { Detection } from '../packs/detection'
 import type { DefectCorpusService } from '../defectCorpus/service'
 import { getCase } from '../caseService'
 import { ingestBytes } from '../ingest'
-import { evidenceFileNameFor, formatDefectSnapshot } from './snapshot'
+import { evidenceFileNameFor, formatDefectSnapshot, isOpenableUrl } from './snapshot'
 
 export interface AttachDeps {
   db: DatabaseSync
   argusHome: string
   detection: Detection
   defectCorpus: DefectCorpusService
-  /** Injected clock, per the main-process DI convention — the snapshot's
-   *  `capturedAt` is part of its content, so a real clock would make every
-   *  attach hash-unique and defeat the dedupe assertion in the tests. */
-  now: () => string
 }
 
 /**
@@ -24,9 +20,12 @@ export interface AttachDeps {
  * supplies the bytes or the origin, so neither the file's content nor its
  * provenance label is under renderer control.
  *
- * Never throws — it mirrors `DefectCorpusService`'s result contract, because
- * every failure mode here (a dead corpus, a hostile key, an unknown case) is
- * something the explorer must render as a line of text rather than a dialog.
+ * Every *expected* failure here — a dead corpus, a hostile key, an unknown
+ * case — comes back as a `{ ok: false }` result rather than a throw, mirroring
+ * `DefectCorpusService`'s result contract so the explorer can render it as a
+ * line of text rather than a dialog. An unexpected failure out of `ingestBytes`
+ * (disk or sqlite trouble) still rejects the promise, same as the neighbouring
+ * `evidence:ingest-content` handler.
  */
 export async function attachCorpusEvidence(
   deps: AttachDeps,
@@ -51,16 +50,12 @@ export async function attachCorpusEvidence(
 
   const sourceName =
     deps.defectCorpus.enabledSources().find((s) => s.id === sourceId)?.name ?? sourceId
-  const markdown = formatDefectSnapshot(fetched.value, {
-    sourceId,
-    sourceName,
-    capturedAt: deps.now()
-  })
+  const markdown = formatDefectSnapshot(fetched.value, { sourceId, sourceName })
 
   const meta: Record<string, unknown> = { sourceId, defectKey: fetched.value.key }
   // Only an http(s) url is stored: `meta` is read back by UI that may render it,
   // and a stored `javascript:`/`file:` url is a guard waiting to be forgotten.
-  if (/^https?:\/\//i.test(fetched.value.url)) meta.sourceUrl = fetched.value.url
+  if (isOpenableUrl(fetched.value.url)) meta.sourceUrl = fetched.value.url
 
   const { record, deduped } = ingestBytes(
     deps.db,

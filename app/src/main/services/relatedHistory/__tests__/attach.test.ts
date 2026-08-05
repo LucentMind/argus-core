@@ -48,7 +48,6 @@ function deps(over: Partial<AttachDeps> = {}): AttachDeps {
     argusHome: home,
     detection,
     defectCorpus: corpus,
-    now: () => '2026-08-05T10:00:00.000Z',
     ...over
   }
 }

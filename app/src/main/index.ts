@@ -1994,7 +1994,7 @@ function registerIpc(): void {
       }
       caseWatch.suppress(caseSlug) // our own write must not light the staleness dot
       const res = await attachCorpusEvidence(
-        { db, argusHome, detection, defectCorpus, now: () => new Date().toISOString() },
+        { db, argusHome, detection, defectCorpus },
         caseSlug,
         sourceId,
         key
