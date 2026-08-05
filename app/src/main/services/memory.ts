@@ -126,6 +126,16 @@ export function deleteTopic(argusHome: string, name: string): void {
 export const MEMORY_INDEX_ENTRY_MAX = 200
 
 /**
+ * Byte cap on the whole topic body an AGENT write may produce (~500 words). The budget was set
+ * in words and expressed in bytes for enforcement: markdown syntax, absolute Windows paths and
+ * inline snippets inflate byte size without moving a word counter, so a word-based gate would
+ * be loosest exactly where topics get largest. Referenced by both the check and its message so
+ * an overridden message can never disagree with the rule it describes. The user's own edits on
+ * the Memory settings page are NOT capped.
+ */
+export const MEMORY_TOPIC_MAX_BYTES = 4096
+
+/**
  * Model-facing errors thrown by the write_memory backend. Registered as `tool-feedback.*`.
  * The success return (`memory/<topic>.md updated (N bytes)`) is deliberately absent — it is a
  * write receipt, not instruction text.
@@ -161,6 +171,11 @@ export const MEMORY_FEEDBACK: PromptTextSpecs = {
     title: 'write_memory — index line cap reached',
     text: 'write_memory: _index.md is at its {max}-line cap — consolidate existing topics instead of adding new index entries',
     placeholders: ['max']
+  },
+  'write_memory.over-cap': {
+    title: 'write_memory — topic body over the byte cap',
+    text: 'write_memory: memory/{topic}.md would be {bytes} bytes, over the {max}-byte (~500 word) cap. Trim it to the personal essentials. If the bulk is durable knowledge a teammate would want, use write_proposal(type:"reference-edit"); if it is about this case, use append_finding.',
+    placeholders: ['topic', 'bytes', 'max']
   }
 }
 
@@ -191,6 +206,8 @@ export function applyMemoryWrite(
   if (!content.trim()) throw new Error(fb('write_memory.empty-content'))
 
   const indexEntry = input.indexEntry?.trim() || null
+  /** Non-null once the index is known to need a new line — written only after the cap passes. */
+  let nextIndex: string | null = null
   if (indexEntry) {
     if (/[\r\n]/.test(indexEntry)) {
       throw new Error(fb('write_memory.index-entry-multiline'))
@@ -208,20 +225,31 @@ export function applyMemoryWrite(
       throw new Error(fb('write_memory.index-full', { max: String(MEMORY_INDEX_MAX_LINES) }))
     }
     if (!has) {
-      fs.mkdirSync(memoryDir(argusHome), { recursive: true })
-      fs.writeFileSync(
-        memoryIndexPath(argusHome),
+      nextIndex =
         [...lines, `- [${topic}](${topic}.md) — ${stripTopicEcho(topic, indexEntry)}`].join('\n') +
-          '\n'
-      )
+        '\n'
     }
   }
 
-  // The whole body about to hit disk, stamp included.
+  // The whole body about to hit disk, stamp included. The cap is measured on THIS — the same
+  // discipline writeUserSkill uses when it re-validates post-stamp — so no composition of
+  // stamp-plus-content can produce a file the gate would have rejected.
   const body = withFrontmatter(`${content.trim()}\n`, { scope })
   const bytes = Buffer.byteLength(body, 'utf8')
+  if (bytes > MEMORY_TOPIC_MAX_BYTES) {
+    throw new Error(
+      fb('write_memory.over-cap', {
+        topic,
+        bytes: String(bytes),
+        max: String(MEMORY_TOPIC_MAX_BYTES)
+      })
+    )
+  }
 
+  // Nothing above this line touches disk: every rejection leaves the topic file, the backup,
+  // the index and the audit exactly as they were.
   fs.mkdirSync(memoryDir(argusHome), { recursive: true })
+  if (nextIndex !== null) fs.writeFileSync(memoryIndexPath(argusHome), nextIndex)
   // Replace is lossy if a model rewrites without reading first. One level, no rotation, no UI —
   // a floor under that failure, not a version history.
   if (fs.existsSync(p)) {

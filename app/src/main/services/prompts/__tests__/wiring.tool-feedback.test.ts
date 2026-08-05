@@ -107,6 +107,16 @@ describe('memory write errors honour an injected resolver', () => {
       applyMemoryWrite(home(), 'c-1', { topic: 'anything', content: 'x', scope: 'workflow' })
     ).toThrow('"workflow" is not a valid scope')
   })
+
+  it('fills the topic, actual size and cap into the over-cap message', () => {
+    expect(() =>
+      applyMemoryWrite(home(), 'c-1', {
+        topic: 'huge',
+        content: 'y'.repeat(5000),
+        scope: 'preference'
+      })
+    ).toThrow(/memory\/huge\.md would be \d+ bytes, over the 4096-byte/)
+  })
 })
 
 describe('sandbox deny reasons honour an injected resolver', () => {

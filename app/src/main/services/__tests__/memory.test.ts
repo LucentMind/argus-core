@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   MEMORY_INDEX_MAX_LINES,
+  MEMORY_TOPIC_MAX_BYTES,
   applyMemoryWrite,
   deleteTopic,
   filteredIndex,
@@ -17,7 +18,7 @@ import {
 import { memoryIndexPath } from '../paths'
 import { agentAccessSchema } from '../../../shared/agentAccess'
 import { MEMORY_SCOPES } from '../../../shared/memoryScope'
-import { fmBlock, fmField } from '../../../shared/frontmatter'
+import { fmBlock, fmField, withFrontmatter } from '../../../shared/frontmatter'
 
 let tmp: string, argusHome: string
 
@@ -441,5 +442,102 @@ describe('replace semantics and the single-level backup', () => {
     const audit = readAudit(argusHome, 10)
     expect(audit[0].bytes).toBe(onDisk)
     expect(audit[0].bytes).toBeGreaterThan(Buffer.byteLength(content, 'utf8'))
+  })
+})
+
+describe('the per-topic byte cap', () => {
+  /** Content whose STAMPED body lands on exactly `target` bytes. The stamp is pure ASCII and
+   *  so is the filler, so byte length == character length here. */
+  const contentForBody = (target: number): string => {
+    const overhead = Buffer.byteLength(withFrontmatter('\n', { scope: 'preference' }), 'utf8') - 1
+    return 'x'.repeat(target - overhead - 1) // -1 for the trailing newline applyMemoryWrite adds
+  }
+
+  it('accepts a body of exactly the cap and rejects one byte more', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'at-cap',
+      content: contentForBody(MEMORY_TOPIC_MAX_BYTES),
+      scope: 'preference'
+    })
+    expect(Buffer.byteLength(readTopic(argusHome, 'at-cap'), 'utf8')).toBe(MEMORY_TOPIC_MAX_BYTES)
+
+    expect(() =>
+      applyMemoryWrite(argusHome, 'NAV-1', {
+        topic: 'over-cap',
+        content: contentForBody(MEMORY_TOPIC_MAX_BYTES + 1),
+        scope: 'preference'
+      })
+    ).toThrow(/over the 4096-byte/)
+  })
+
+  it('measures the cap AFTER the frontmatter stamp', () => {
+    // Just under the cap as raw content, over it once stamped.
+    const content = 'x'.repeat(MEMORY_TOPIC_MAX_BYTES - 2)
+    expect(Buffer.byteLength(content, 'utf8')).toBeLessThan(MEMORY_TOPIC_MAX_BYTES)
+    expect(() =>
+      applyMemoryWrite(argusHome, 'NAV-1', { topic: 'stamped', content, scope: 'preference' })
+    ).toThrow(/over the 4096-byte/)
+  })
+
+  it('counts bytes, not characters — multi-byte content is measured as UTF-8', () => {
+    // '—' is 3 bytes; 1400 of them are well under the cap by character count and over it by bytes.
+    expect(() =>
+      applyMemoryWrite(argusHome, 'NAV-1', {
+        topic: 'multibyte',
+        content: '—'.repeat(1400),
+        scope: 'preference'
+      })
+    ).toThrow(/over the 4096-byte/)
+  })
+
+  it('writes NOTHING when the cap rejects: no topic, no .bak, no index line, no audit', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'dlt',
+      content: 'small original',
+      scope: 'preference',
+      indexEntry: 'the original entry'
+    })
+    const auditBefore = readAudit(argusHome, 100).length
+    expect(() =>
+      applyMemoryWrite(argusHome, 'NAV-1', {
+        topic: 'dlt',
+        content: 'y'.repeat(MEMORY_TOPIC_MAX_BYTES + 100),
+        scope: 'preference',
+        indexEntry: 'a replacement entry'
+      })
+    ).toThrow(/over the 4096-byte/)
+    expect(readTopic(argusHome, 'dlt')).toContain('small original')
+    expect(fs.existsSync(path.join(argusHome, 'memory', '.bak', 'dlt.md'))).toBe(false)
+    expect(readAudit(argusHome, 100).length).toBe(auditBefore)
+  })
+
+  it('leaves _index.md untouched when a NEW topic is rejected over cap', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'kept',
+      content: 'k',
+      scope: 'preference',
+      indexEntry: 'kept lesson'
+    })
+    const before = readIndex(argusHome)
+    expect(() =>
+      applyMemoryWrite(argusHome, 'NAV-1', {
+        topic: 'huge',
+        content: 'y'.repeat(MEMORY_TOPIC_MAX_BYTES + 100),
+        scope: 'preference',
+        indexEntry: 'never lands'
+      })
+    ).toThrow(/over the 4096-byte/)
+    expect(readIndex(argusHome)).toBe(before)
+    expect(readIndex(argusHome)).not.toContain('huge')
+  })
+
+  it('names both alternative destinations in the rejection', () => {
+    expect(() =>
+      applyMemoryWrite(argusHome, 'NAV-1', {
+        topic: 'huge',
+        content: 'y'.repeat(MEMORY_TOPIC_MAX_BYTES + 100),
+        scope: 'preference'
+      })
+    ).toThrow(/reference-edit/)
   })
 })
