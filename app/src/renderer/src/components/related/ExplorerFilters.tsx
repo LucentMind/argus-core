@@ -62,7 +62,13 @@ function SourceRow({
   // Search health (this request's outcome) wins over the standing probe: a
   // source that answered a moment ago but failed THIS search is the state the
   // user is looking at.
-  const error = health && !health.ok ? health.error : !source.ok ? source.error : undefined
+  const error = health
+    ? health.ok
+      ? undefined
+      : health.error
+    : !source.ok
+      ? source.error
+      : undefined
   return (
     <div className="flex flex-col gap-0.5">
       <Toggle

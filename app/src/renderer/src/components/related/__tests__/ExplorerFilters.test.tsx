@@ -110,4 +110,15 @@ describe('ExplorerFilters', () => {
     setup({ sources: [LOCAL, { ...CORPUS, ok: false, error: 'no token configured' }], health: [] })
     expect(screen.getByText('no token configured')).toBeInTheDocument()
   })
+
+  it('does not show a stale probe error once the last search succeeded', () => {
+    setup({
+      sources: [LOCAL, { ...CORPUS, ok: false, error: 'no token configured' }],
+      health: [
+        { id: 'local', name: 'Your cases', kind: 'local', ok: true },
+        { id: 'corpus:src1', name: 'Hindsight', kind: 'corpus', ok: true }
+      ]
+    })
+    expect(screen.queryByText('no token configured')).not.toBeInTheDocument()
+  })
 })
