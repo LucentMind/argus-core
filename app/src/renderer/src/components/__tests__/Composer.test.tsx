@@ -1173,4 +1173,25 @@ describe('Composer prefill', () => {
     view.rerender(<Composer disabled={false} onSend={vi.fn()} prefill="/analyze-binlog a.binlog" />)
     expect(box().value).toBe('/analyze-binlog a.binlog')
   })
+
+  // N3: the seam's non-prose consumers stage slash commands (CaseFiles.tsx's
+  // `/${skill} ${relPath}`). Clicking Analyze on the wrong file, then the right
+  // one, is a correction — the second staged block must replace the first,
+  // untouched one, or the composer ends up with a dead command on line 2.
+  it('replaces a staged draft with a second one when the first was never touched', () => {
+    const view = render(<Composer disabled={false} onSend={vi.fn()} />)
+    view.rerender(<Composer disabled={false} onSend={vi.fn()} prefill="/analyze-binlog a.binlog" />)
+    expect(box().value).toBe('/analyze-binlog a.binlog')
+    view.rerender(<Composer disabled={false} onSend={vi.fn()} prefill="/analyze-binlog b.binlog" />)
+    expect(box().value).toBe('/analyze-binlog b.binlog')
+  })
+
+  it('appends a second staged draft when the user edited or typed alongside the first', () => {
+    const view = render(<Composer disabled={false} onSend={vi.fn()} />)
+    view.rerender(<Composer disabled={false} onSend={vi.fn()} prefill="/analyze-binlog a.binlog" />)
+    expect(box().value).toBe('/analyze-binlog a.binlog')
+    fireEvent.change(box(), { target: { value: '/analyze-binlog a.binlog extra note' } })
+    view.rerender(<Composer disabled={false} onSend={vi.fn()} prefill="/analyze-binlog b.binlog" />)
+    expect(box().value).toBe('/analyze-binlog a.binlog extra note\n/analyze-binlog b.binlog')
+  })
 })

@@ -420,18 +420,30 @@ export function Composer({
       : 'Ask approvals'
 
   // Staged text (a suggestion button like Analyze in the evidence library, a
-  // panel's `sendToAgent`, a related-history citation) is APPENDED to whatever
-  // the user has already typed, never substituted for it. The staging surface
-  // is usually a modal covering this composer, so a replace silently destroys a
-  // half-written sentence with no undo — and the staged text is a draft to edit
-  // anyway, so having it land under the existing prose is what the user meant.
+  // panel's `sendToAgent`, a related-history citation) adopts into the box
+  // under three cases, decided against what the box holds RIGHT NOW rather
+  // than always replacing or always appending:
+  //   1. Empty box -> adopt verbatim.
+  //   2. Box holds exactly the previously staged block, untouched -> REPLACE.
+  //      Two suggestion clicks in a row (Analyze the wrong file, notice it,
+  //      Analyze the right one) is a correction, not two things to send —
+  //      the seam's non-prose consumers stage slash commands
+  //      (`CaseFiles.tsx`'s `/${skill} ${relPath}`), and appending would leave
+  //      a second command on line 2, where it can never run as a command.
+  //   3. Box holds anything else (typed prose, an edited staged block) ->
+  //      APPEND. The staging surface is usually a modal covering this
+  //      composer, so replacing here would silently destroy a half-written
+  //      sentence with no undo.
   // Adjust-state-during-render pattern instead of a setState effect.
   const [lastPrefill, setLastPrefill] = useState(prefill)
   if (prefill !== lastPrefill) {
     setLastPrefill(prefill)
     // Staged blocks already end with `\n`; one separator keeps a typed line and
-    // the block from running together without piling up blank lines.
-    if (prefill) setText(text ? `${text}\n${prefill}` : prefill)
+    // the block from running together without piling up blank lines. This is a
+    // VALUE update, not a functional updater: a double-invoked StrictMode
+    // render recomputes the same string from the same `text`/`lastPrefill`
+    // closure and cannot double-append.
+    if (prefill) setText(text && text !== lastPrefill ? `${text}\n${prefill}` : prefill)
   }
 
   const showSkills = text.startsWith('/') && !text.includes(' ')
