@@ -80,6 +80,31 @@ describe('GeneralSettings', () => {
     expect(window.argus.settings.patch).not.toHaveBeenCalled()
   })
 
+  it('similar past cases switch is off by default and patches app-global settings', () => {
+    render(<GeneralSettings payload={payload()} />)
+    const sw = screen.getByRole('switch', { name: 'Similar past cases' })
+    expect(sw.getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(sw)
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      general: { similarPastCasesEnabled: true }
+    })
+  })
+
+  it('similar past cases reset appears only when non-default', () => {
+    const { rerender } = render(<GeneralSettings payload={payload()} />)
+    expect(screen.queryByRole('button', { name: 'Reset Similar past cases' })).toBeNull()
+    rerender(
+      <GeneralSettings
+        payload={payload((p) => (p.settings.general.similarPastCasesEnabled = true))}
+      />
+    )
+    expect(screen.getByRole('button', { name: 'Reset Similar past cases' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Similar past cases' }))
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      general: { similarPastCasesEnabled: null }
+    })
+  })
+
   it('timestamp format patches app-global settings; reset appears when non-default', () => {
     const { rerender } = render(<GeneralSettings payload={payload()} />)
     expect(screen.queryByRole('button', { name: 'Reset Timestamp format' })).toBeNull()

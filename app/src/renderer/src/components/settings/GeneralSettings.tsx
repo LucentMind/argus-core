@@ -79,6 +79,18 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
           />
         </SettingRow>
         <SettingRow
+          label="Similar past cases"
+          description="Search this install's own case history for matches when a case opens"
+          isDefault={!g.similarPastCasesEnabled}
+          onReset={() => void settingsStore.patch({ general: { similarPastCasesEnabled: null } })}
+        >
+          <Switch
+            checked={g.similarPastCasesEnabled}
+            onChange={(v) => void settingsStore.patch({ general: { similarPastCasesEnabled: v } })}
+            aria-label="Similar past cases"
+          />
+        </SettingRow>
+        <SettingRow
           label="Default repositories"
           description="Automatically linked to new cases"
           isDefault={g.defaultRepos.length === 0}
