@@ -1260,7 +1260,9 @@ function registerIpc(): void {
     })
     return r.canceled ? null : r.filePaths[0]
   })
-  ipcMain.handle(IPC.packsInspect, (_e, source: string) => inspectBundleSource(source))
+  ipcMain.handle(IPC.packsInspect, (_e, source: string) =>
+    inspectBundleSource(source, { installed: packsState.list() })
+  )
   ipcMain.handle(
     IPC.packsInspectRepo,
     async (
