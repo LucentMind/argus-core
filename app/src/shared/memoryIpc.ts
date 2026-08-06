@@ -86,3 +86,22 @@ export interface SkillImportCandidate {
   /** Present when status is 'conflict' or 'invalid'. */
   reason?: string
 }
+
+/** `skills:import-apply`'s input — the candidates the user checked. */
+export interface SkillImportItem {
+  name: string
+  sourceDir: string
+}
+
+export interface SkillImportItemResult {
+  name: string
+  ok: boolean
+  /** Present when ok is false. */
+  error?: string
+}
+
+/** `skills:import-apply`'s result: per-item outcomes plus the refreshed list payload. */
+export interface SkillImportApplyResult {
+  results: SkillImportItemResult[]
+  payload: SkillsPayload
+}

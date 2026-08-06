@@ -1,11 +1,18 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { resolveSkills } from './skillsResolver'
+import { isBundledSkillName, bundledSkillError, resolveSkills } from './skillsResolver'
 import { defaultAgentAccess } from '../../../shared/agentAccess'
 import { frontmatterOf, parseDescription } from '../../../shared/skillFrontmatter'
-import { validateSkill, hasErrors } from '../../../shared/assetValidation'
-import type { SkillImportSource, SkillImportCandidate } from '../../../shared/memoryIpc'
+import { validateSkill, hasErrors, ASSET_NAME_RE } from '../../../shared/assetValidation'
+import { stampAuthorship, type Identity } from '../../../shared/authorship'
+import { userSkillsDir } from '../paths'
+import type {
+  SkillImportSource,
+  SkillImportCandidate,
+  SkillImportItem,
+  SkillImportItemResult
+} from '../../../shared/memoryIpc'
 
 /** `<home>/.claude/skills` (global) or `<dir>/.claude/skills` (a project folder). */
 function claudeSkillsDir(source: SkillImportSource): string {
@@ -73,4 +80,44 @@ export function scanClaudeSkills(
     .filter((d) => d.isDirectory())
     .map((d) => classify(existingNames, path.join(root, d.name), d.name))
     .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/**
+ * Copy the selected candidates into skills-user. Re-validates and re-checks name collisions
+ * against live state (not the scan snapshot the renderer is holding, which may be stale by the
+ * time the user confirms) and against items already imported earlier in this same call — two
+ * selected items that resolve to the same name only the first may claim. Best-effort: one item's
+ * failure does not stop the rest from being imported.
+ */
+export function importSkills(
+  argusHome: string,
+  items: SkillImportItem[],
+  identity: Identity | null
+): SkillImportItemResult[] {
+  const results: SkillImportItemResult[] = []
+  const existing = new Set(resolveSkills(argusHome, defaultAgentAccess()).map((s) => s.name))
+  for (const { name, sourceDir } of items) {
+    try {
+      if (!ASSET_NAME_RE.test(name)) throw new Error(`"${name}" is not a legal skill name.`)
+      if (isBundledSkillName(argusHome, name)) throw bundledSkillError(name)
+      if (existing.has(name)) throw new Error(`"${name}" already exists in your Library.`)
+      const content = fs.readFileSync(path.join(sourceDir, 'SKILL.md'), 'utf8')
+      const issues = validateSkill({ name, content })
+      if (hasErrors(issues)) throw new Error(issues.find((i) => i.severity === 'error')!.message)
+      const dest = path.join(userSkillsDir(argusHome), name)
+      fs.cpSync(sourceDir, dest, { recursive: true })
+      const destFile = path.join(dest, 'SKILL.md')
+      const stamped = stampAuthorship(fs.readFileSync(destFile, 'utf8'), {
+        identity,
+        origin: 'import',
+        now: new Date()
+      })
+      fs.writeFileSync(destFile, stamped)
+      existing.add(name)
+      results.push({ name, ok: true })
+    } catch (err) {
+      results.push({ name, ok: false, error: (err as Error).message })
+    }
+  }
+  return results
 }

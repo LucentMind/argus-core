@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { scanClaudeSkills } from '../skillsImport'
+import { scanClaudeSkills, importSkills } from '../skillsImport'
+import { userSkillsDir } from '../../paths'
+import { parseAuthorship } from '../../../../shared/authorship'
 
 let tmp: string, argusHome: string, claudeHome: string
 
@@ -99,5 +101,114 @@ describe('scanClaudeSkills', () => {
       'alpha',
       'zebra'
     ])
+  })
+})
+
+describe('importSkills', () => {
+  it('copies the whole skill directory, including sibling files, into skills-user', () => {
+    const skillsDir = path.join(claudeHome, '.claude', 'skills')
+    addClaudeSkill(skillsDir, 'my-notes', 'Personal notes skill', {
+      'references/extra.md': 'extra content'
+    })
+    const results = importSkills(
+      argusHome,
+      [{ name: 'my-notes', sourceDir: path.join(skillsDir, 'my-notes') }],
+      null
+    )
+    expect(results).toEqual([{ name: 'my-notes', ok: true }])
+    expect(
+      fs.readFileSync(path.join(userSkillsDir(argusHome), 'my-notes', 'SKILL.md'), 'utf8')
+    ).toContain('Personal notes skill')
+    expect(
+      fs.readFileSync(
+        path.join(userSkillsDir(argusHome), 'my-notes', 'references', 'extra.md'),
+        'utf8'
+      )
+    ).toBe('extra content')
+  })
+
+  it('stamps imported skills with origin "import"', () => {
+    const skillsDir = path.join(claudeHome, '.claude', 'skills')
+    addClaudeSkill(skillsDir, 'my-notes', 'Personal notes skill')
+    const me = { name: 'Jiawei Han', email: 'jiawiehan@gmail.com' }
+    importSkills(argusHome, [{ name: 'my-notes', sourceDir: path.join(skillsDir, 'my-notes') }], me)
+    const raw = fs.readFileSync(path.join(userSkillsDir(argusHome), 'my-notes', 'SKILL.md'), 'utf8')
+    const a = parseAuthorship(raw)
+    expect(a.origin).toBe('import')
+    expect(a.author).toBe('Jiawei Han <jiawiehan@gmail.com>')
+  })
+
+  it('refuses a name that collides with a bundled skill, with the shared friendly message', () => {
+    fs.mkdirSync(path.join(argusHome, 'skills', 'analyze-applog'), { recursive: true })
+    fs.writeFileSync(
+      path.join(argusHome, 'skills', 'analyze-applog', 'SKILL.md'),
+      '---\nname: analyze-applog\ndescription: bundled\n---\nbody\n'
+    )
+    const skillsDir = path.join(claudeHome, '.claude', 'skills')
+    addClaudeSkill(skillsDir, 'analyze-applog', 'a claude-side skill of the same name')
+    const results = importSkills(
+      argusHome,
+      [{ name: 'analyze-applog', sourceDir: path.join(skillsDir, 'analyze-applog') }],
+      null
+    )
+    expect(results).toEqual([
+      { name: 'analyze-applog', ok: false, error: expect.stringContaining('ships with a pack') }
+    ])
+    expect(fs.existsSync(path.join(userSkillsDir(argusHome), 'analyze-applog'))).toBe(false)
+  })
+
+  it('re-validates against live state rather than trusting the scan snapshot', () => {
+    const skillsDir = path.join(claudeHome, '.claude', 'skills')
+    addClaudeSkill(skillsDir, 'my-notes', 'Personal notes skill')
+    // simulate a name that appeared in skills-user after the scan ran but before apply
+    fs.mkdirSync(path.join(argusHome, 'skills-user', 'my-notes'), { recursive: true })
+    fs.writeFileSync(
+      path.join(argusHome, 'skills-user', 'my-notes', 'SKILL.md'),
+      '---\nname: my-notes\ndescription: raced\n---\nbody\n'
+    )
+    const results = importSkills(
+      argusHome,
+      [{ name: 'my-notes', sourceDir: path.join(skillsDir, 'my-notes') }],
+      null
+    )
+    expect(results).toEqual([
+      { name: 'my-notes', ok: false, error: expect.stringContaining('already exists') }
+    ])
+  })
+
+  it('is best-effort: one failing item does not block the others', () => {
+    const skillsDir = path.join(claudeHome, '.claude', 'skills')
+    addClaudeSkill(skillsDir, 'good-one', 'A fine skill')
+    const results = importSkills(
+      argusHome,
+      [
+        { name: 'missing-one', sourceDir: path.join(skillsDir, 'missing-one') },
+        { name: 'good-one', sourceDir: path.join(skillsDir, 'good-one') }
+      ],
+      null
+    )
+    expect(results[0].ok).toBe(false)
+    expect(results[1]).toEqual({ name: 'good-one', ok: true })
+    expect(fs.existsSync(path.join(userSkillsDir(argusHome), 'good-one'))).toBe(true)
+  })
+
+  it('refuses two selected items that resolve to the same name — only the first is imported', () => {
+    const skillsDir = path.join(claudeHome, '.claude', 'skills')
+    addClaudeSkill(skillsDir, 'dup', 'from global')
+    const projectSkillsDir = path.join(tmp, 'my-repo', '.claude', 'skills')
+    addClaudeSkill(projectSkillsDir, 'dup', 'from project')
+    const results = importSkills(
+      argusHome,
+      [
+        { name: 'dup', sourceDir: path.join(skillsDir, 'dup') },
+        { name: 'dup', sourceDir: path.join(projectSkillsDir, 'dup') }
+      ],
+      null
+    )
+    expect(results[0]).toEqual({ name: 'dup', ok: true })
+    expect(results[1].ok).toBe(false)
+    expect(
+      fs.readFileSync(path.join(userSkillsDir(argusHome), 'dup', 'SKILL.md'), 'utf8')
+    ).toContain('from global')
   })
 })
