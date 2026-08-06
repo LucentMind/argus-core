@@ -93,6 +93,9 @@ export const IPC = {
   settingsPickPath: 'settings:pick-path',
   settingsReveal: 'settings:reveal',
   settingsSetDataRoot: 'settings:set-data-root',
+  /** renderer → main: the click-6-times-on-the-version gesture. Persists the dev-tools unlock
+   *  marker (spec §6 follow-up); takes effect after a restart. */
+  devToolsUnlock: 'dev-tools:unlock',
   connectorsGet: 'connectors:get',
   connectorsPatch: 'connectors:patch',
   connectorsChanged: 'connectors:changed',

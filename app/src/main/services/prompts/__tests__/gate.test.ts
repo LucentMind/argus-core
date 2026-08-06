@@ -19,4 +19,13 @@ describe('devToolsEnabled', () => {
     expect(devToolsEnabled({ isDev: false, env: { ARGUS_DEV_TOOLS: '0' } })).toBe(false)
     expect(devToolsEnabled({ isDev: false, env: { ARGUS_DEV_TOOLS: '' } })).toBe(false)
   })
+
+  it('is on in a packaged run when the click-6-times marker is unlocked', () => {
+    expect(devToolsEnabled({ isDev: false, env: {}, unlocked: true })).toBe(true)
+  })
+
+  it('is off in a packaged run when unlocked is false or omitted', () => {
+    expect(devToolsEnabled({ isDev: false, env: {}, unlocked: false })).toBe(false)
+    expect(devToolsEnabled({ isDev: false, env: {} })).toBe(false)
+  })
 })

@@ -19,6 +19,7 @@ import { openDb } from './services/db'
 import { SettingsService } from './services/settings'
 import { migrateBypassDefault, migrateDefaultRepoToList } from './services/settingsMigrations'
 import { devToolsEnabled } from './services/prompts/gate'
+import { readDevToolsUnlocked, writeDevToolsUnlocked } from './services/devToolsUnlock'
 import { PromptCaptureStore } from './services/prompts/capture'
 import { PromptStore } from './services/prompts/store'
 import { assertDevTools } from './services/prompts/ipcGate'
@@ -538,7 +539,7 @@ function registerIpc(): void {
   let binariesService: BinariesService
   // Single evaluation of the prompt-surface dev gate; `is` is already imported at the top of
   // this file. Everything downstream reads this boolean, never the env directly.
-  const devTools = devToolsEnabled({ isDev: is.dev })
+  const devTools = devToolsEnabled({ isDev: is.dev, unlocked: readDevToolsUnlocked(argusHome) })
   const promptStore = new PromptStore({ devTools, argusHome })
   const resolvePrompt = promptStore.resolveFn()
   const promptCaptures = new PromptCaptureStore({ devTools, argusHome })
@@ -2458,6 +2459,13 @@ function registerIpc(): void {
     app.relaunch()
     app.exit(0)
     return { changed: true }
+  })
+  // Click-6-times-on-the-version unlock. `devTools` (closed over above) already reflects
+  // whatever was true at boot, so this just reports it back — the marker this writes only
+  // takes effect on the NEXT launch, same as ARGUS_DEV_TOOLS=1 does today.
+  ipcMain.handle(IPC.devToolsUnlock, () => {
+    if (!devTools) writeDevToolsUnlocked(argusHome)
+    return { devTools }
   })
 
   // — connectors + secrets —

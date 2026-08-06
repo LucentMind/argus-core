@@ -9,7 +9,10 @@ import type { CoreUpdatePayload } from '../../../../../shared/updates'
 
 const idle: CoreUpdatePayload = { currentVersion: '1.0.8', status: { phase: 'idle' } }
 
-function stubApi(over: Partial<Record<string, unknown>> = {}): void {
+function stubApi(
+  over: Partial<Record<string, unknown>> = {},
+  devToolsUnlock: () => Promise<{ devTools: boolean }> = vi.fn(async () => ({ devTools: false }))
+): void {
   ;(window as unknown as { argus: unknown }).argus = {
     update: {
       status: vi.fn(async () => idle),
@@ -18,7 +21,8 @@ function stubApi(over: Partial<Record<string, unknown>> = {}): void {
       restart: vi.fn(async () => idle),
       onChanged: vi.fn(() => () => {}),
       ...over
-    }
+    },
+    devTools: { unlock: devToolsUnlock }
   }
 }
 
@@ -117,5 +121,33 @@ describe('UpdateSettings', () => {
     render(<UpdateSettings />)
     expect(await screen.findByText(/checking for updates/i)).toBeInTheDocument()
     expect(screen.queryByText(/up to date/i)).not.toBeInTheDocument()
+  })
+
+  it('clicking the version 6 times unlocks dev tools and asks for a restart', async () => {
+    const unlock = vi.fn(async () => ({ devTools: false }))
+    stubApi({}, unlock)
+    render(<UpdateSettings />)
+    const version = await screen.findByText('1.0.8')
+    for (let i = 0; i < 6; i++) await userEvent.click(version)
+    expect(unlock).toHaveBeenCalledOnce()
+    expect(await screen.findByText(/restart argus/i)).toBeInTheDocument()
+  })
+
+  it('does not unlock on fewer than 6 clicks', async () => {
+    const unlock = vi.fn(async () => ({ devTools: false }))
+    stubApi({}, unlock)
+    render(<UpdateSettings />)
+    const version = await screen.findByText('1.0.8')
+    for (let i = 0; i < 5; i++) await userEvent.click(version)
+    expect(unlock).not.toHaveBeenCalled()
+  })
+
+  it('reports already-enabled instead of asking for a restart when the gate is already on', async () => {
+    const unlock = vi.fn(async () => ({ devTools: true }))
+    stubApi({}, unlock)
+    render(<UpdateSettings />)
+    const version = await screen.findByText('1.0.8')
+    for (let i = 0; i < 6; i++) await userEvent.click(version)
+    expect(await screen.findByText(/already enabled/i)).toBeInTheDocument()
   })
 })

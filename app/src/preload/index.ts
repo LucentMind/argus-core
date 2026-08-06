@@ -763,6 +763,11 @@ const argus = {
       return () => ipcRenderer.removeListener(IPC.devPromptsChanged, listener)
     }
   },
+  /** The click-6-times-on-the-version unlock. Exposed unconditionally like `devPrompts` below —
+   *  main enforces the gate and this is the mechanism for reaching it in a packaged build. */
+  devTools: {
+    unlock: (): Promise<{ devTools: boolean }> => invoke(IPC.devToolsUnlock)
+  },
   settings: {
     get: () => invoke(IPC.settingsGet),
     patch: (p: unknown) => invoke(IPC.settingsPatch, p),
