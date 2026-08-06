@@ -1,5 +1,106 @@
 # Changelog
 
+## v2.0.7 — 2026-08-06
+
+120 commits since v2.0.6, 149 files changed (+12,270 / −1,071).
+
+### Added
+
+**Related History explorer**
+
+- A new relevance engine — reciprocal-rank fusion over per-source hits,
+  FTS5-backed document-frequency suppression and term-overlap scoring, and a
+  query builder that matches strong-signal terms (ticket key, signature,
+  error strings) by prefix but weak-signal terms (title, finding text, free
+  query words) only exactly — replaces the old `distill:similar` lookup with
+  a `RelatedHistoryService` fan-out that reports every configured source's
+  health, not just the ones that returned hits.
+- A full explorer surface, opened from the case card and the top bar, offers
+  a filter rail with per-source status, facets and retrieval mode,
+  seeded-query search with paging and a degraded-source banner, and an
+  in-app detail view for either a corpus record or a local case; a merged
+  related-history card summarizes results directly in the case workspace.
+- From the explorer or the merged card, a hit can be referenced in chat,
+  attached to the case as evidence, or pulled in as a full corpus record;
+  the local own-case-history provider stays off by default behind a new
+  `similarPastCasesEnabled` toggle in General settings.
+- A long tail of relevance fixes closed real false-positive cases surfaced
+  by review: a source-blind rarity-relaxation rule was reviving the exact
+  "incidental title word" bug the feature exists to prevent, ticket-key
+  matching was prefix- not exact-matching (so `KAN-4` also matched `KAN-42`
+  and every other later ticket sharing its prefix), and the small-corpus
+  document-frequency threshold was bypassed rather than floored below
+  population 4.
+
+**Reuse an open share PR**
+
+- Sharing a skill or reference to HiveMind now checks `pushStatus` first: a
+  teammate's open PR blocks the push, an unchanged PR of ours is returned
+  as-is, and a changed one gets a new commit on its existing branch — so
+  re-sharing after a small edit no longer opens a second PR for the same
+  asset. The share dialog renders these already-open states directly.
+- Authorship detection (`isSoleAuthor`) no longer misreads a forked or
+  claimed asset as solely-authored just because its `author` field is
+  absent, and push receipts are now scoped to the repo they were actually
+  pushed to and validated against the resolved PR's branch — both were
+  previously reachable ways to misattribute or cross-wire a push.
+- The Team page auto-syncs the HiveMind repo in the background as soon as
+  it's reachable, so the Browse list is usually already fresh without a
+  manual Sync click, and gains a "Download All" action per section.
+
+**Memory write discipline**
+
+- Every `write_memory` call now requires an explicit scope, and writing a
+  topic replaces its body outright (backing the previous version up to a
+  `.bak` file) instead of appending to it forever; an agent-written topic
+  body is capped at 4096 bytes.
+- The memory-append proposal type is gone, and the distiller no longer
+  proposes memory writes at all — team-facing knowledge is redirected to a
+  reference-edit proposal, case detail to `append_finding`. Tool
+  descriptions and the memory header now state the personal-only memory
+  rule explicitly.
+- The Memory settings page shows each topic's scope, size, and whether it's
+  over the byte cap.
+
+**Pack immutability, continued**
+
+- Pack binaries can now declare `bundled: false`, requiring a `fixHint`,
+  enforced at `pack-tools` build time.
+- Build-time robustness fixes: symlinked entries in a bundled directory are
+  caught instead of silently followed, dev artifacts are excluded from the
+  bundle, and a missing `--bin` directory is tolerated instead of failing
+  the build.
+
+### Fixed
+
+- **Security:** untrusted markdown — corpus descriptions and comments in the
+  new related-history detail pane, plus Jira ticket/comment evidence files
+  that reach the same viewer — now renders through a single trusted anchor
+  gate instead of a second, unhardened route. A plain `https` link in that
+  second route previously rendered as a bare same-window anchor, able to
+  navigate the app's own window directly without ever reaching the
+  external-link-open guard.
+- Diagnostics: the sidecar's per-process command field is capped at 256
+  bytes, a single oversized line no longer kills the sidecar connection,
+  and that guard is now gated on handshake completion so it can't misfire
+  before the real binary has spoken.
+- Composer: replying while a staged draft already sat in the box destroyed
+  the typed text instead of appending to it.
+- The Jira rail's "Ticket · <key>" box duplicated on every case switch — it
+  shared a bare React key with the repos section, so a stale instance from
+  the previous case never got torn down and each revisit stacked another
+  copy.
+- Library rows: Delete/Adopt-upstream moved to the end of the row (was
+  leading), styled persistently red (the danger color was losing to
+  `IconBtn`'s own hover style through stylesheet ordering), with larger row
+  action icons.
+- `dataRoot.fromEnv` now reports correctly when running under `ARGUS_HOME`.
+- Bundled and pack-owned skills, references, and proposals now consistently
+  refuse fork/shadow/accept operations that would overwrite a locked
+  asset — a cross-cutting gap across the Library, editor window, and
+  Proposals page that no single per-task review had caught, closed by an
+  8-finding whole-branch review pass.
+
 ## v2.0.6 — 2026-08-04
 
 31 commits since v2.0.5, 60 files changed (+3,069 / −250).
