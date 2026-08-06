@@ -609,7 +609,7 @@ describe('needsDistillRun', () => {
     expect(needsDistillRun(db, q, 'case-a')).toBe(false)
   })
 
-  it('true when evidence was added after the last done job\'s snapshot', async () => {
+  it("true when evidence was added after the last done job's snapshot", async () => {
     const { q } = makeQueue()
     const rec = createCase(db, home, { slug: 'case-a', title: 'T' })
     q.enqueue('case-a')

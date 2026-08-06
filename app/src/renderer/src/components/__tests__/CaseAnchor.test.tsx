@@ -114,6 +114,31 @@ describe('CaseAnchor', () => {
     await vi.waitFor(() => expect(onStatusChanged).toHaveBeenCalled())
   })
 
+  it('re-resolves an already-closed case directly, with no confirm dialog or distill checkbox', async () => {
+    const user = userEvent.setup()
+    const onStatusChanged = vi.fn()
+    renderAnchor({ status: 'closed', resolution: 'solved', onStatusChanged })
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    // "Closed · solved" is the parent row that opens the resolution submenu; drive it with
+    // userEvent per the hover-submenu convention.
+    await user.click(screen.getByText('Closed · solved'))
+    await vi.waitFor(() => expect(screen.getByText('duplicate')).toBeTruthy())
+    // "duplicate" is a leaf item inside the now-open submenu; drive it with fireEvent.
+    fireEvent.click(screen.getByText('duplicate'))
+    await vi.waitFor(() =>
+      expect(window.argus.cases.setStatus).toHaveBeenCalledWith(
+        'NN-5187',
+        'closed',
+        'duplicate',
+        true
+      )
+    )
+    await vi.waitFor(() => expect(onStatusChanged).toHaveBeenCalled())
+    expect(screen.queryByText(/Close case as/)).toBeNull()
+    expect(screen.queryByLabelText('Start distillation')).toBeNull()
+    expect(needsRunMock).not.toHaveBeenCalled()
+  })
+
   it('closes the tab and navigates home from Close case', async () => {
     const user = userEvent.setup()
     const onHome = vi.fn()

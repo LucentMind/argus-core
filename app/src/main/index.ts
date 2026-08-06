@@ -878,13 +878,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC.casesList, () => listCases(db))
   ipcMain.handle(
     IPC.casesSetStatus,
-    (
-      _e,
-      slug: string,
-      status: CaseStatus,
-      resolution: CaseResolution | null,
-      distill = true
-    ) => setCaseStatus(db, argusHome, slug, status, resolution, distill ? onCaseClosed : undefined)
+    (_e, slug: string, status: CaseStatus, resolution: CaseResolution | null, distill = true) =>
+      setCaseStatus(db, argusHome, slug, status, resolution, distill ? onCaseClosed : undefined)
   )
   ipcMain.handle(IPC.evidenceIngest, (_e, caseSlug: string, absPaths: string[]) => {
     caseWatch.suppress(caseSlug) // pre-write: our own copies must not light the staleness dot
@@ -1937,9 +1932,7 @@ function registerIpc(): void {
 
   // — case-close distillation (part 3a) —
   ipcMain.handle(IPC.distillStatus, (_e, slug: string) => distillQueue.statusFor(slug))
-  ipcMain.handle(IPC.distillNeedsRun, (_e, slug: string) =>
-    needsDistillRun(db, distillQueue, slug)
-  )
+  ipcMain.handle(IPC.distillNeedsRun, (_e, slug: string) => needsDistillRun(db, distillQueue, slug))
   ipcMain.handle(IPC.distillRetry, (_e, jobId: number) => distillQueue.retry(jobId))
   // Routed through reconcileAndEnqueue, not a bare enqueue() call: redistilling from the
   // case-actions menu can race a stale renderer row (see CaseAnchor's epoch guard) or a

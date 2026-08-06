@@ -111,7 +111,8 @@ export function CaseAnchor({
     let defaultDistill = true
     try {
       defaultDistill = await window.argus.distill.needsRun(slug)
-    } catch {
+    } catch (err) {
+      console.error('[distill] needsRun failed', err)
       defaultDistill = true
     }
     let distill = defaultDistill
@@ -133,7 +134,11 @@ export function CaseAnchor({
   const statusItems = [
     ...CASE_RESOLUTIONS.map((r) => ({
       label: r,
-      onSelect: () => void confirmClose(r)
+      // The dialog's checkbox only ever does anything on an actual open→closed transition —
+      // `setCaseStatus`'s `closingNow` guard (caseService.ts) never fires the distill hook on a
+      // closed→closed re-resolve, so showing the checkbox there would be a false affordance.
+      // Re-resolving an already-closed case keeps the pre-branch direct-apply behavior instead.
+      onSelect: () => void (status === 'closed' ? applyStatus('closed', r) : confirmClose(r))
     })),
     ...(status === 'closed'
       ? [{ label: 'Reopen', onSelect: () => void applyStatus('open', null) }]
