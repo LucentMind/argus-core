@@ -235,28 +235,100 @@ connect-src 'self' <network>; …`.
   origins you list in `network[]`. `network[]` only widens `img-src` and `connect-src` (e.g. tiles or
   an API the panel fetches). Empty `network[]` ⇒ the panel can reach only its own bundle.
 - Assets must stay **within the panel's own subtree** (`ui/<panel>/`).
+- There is **no `worker-src`** and `default-src` is `'none'`, so a `blob:` worker is blocked. A
+  library that spawns its own worker must be used in a build that loads the worker from a real file
+  in your bundle.
+- Granting the `readCaseFiles` permission is the only thing that changes the directive set: it adds
+  the `argus-case:` scheme to `img-src` and `connect-src`, and adds a `media-src 'self' argus-case:
+  <network>` directive that does not otherwise exist. Without it there is no `media-src` at all, so
+  `default-src 'none'` blocks `<video>`/`<audio>` outright.
 
 ### Upstream bridge — `window.argus` (opt-in via `permissions[]`)
 
-The panel's only access to Core is a narrow, case+session-bound `window.argus`. Each verb appears
-**only if listed in `permissions[]`**:
+The panel's only access to Core is a narrow, case+session-bound `window.argus`. There are **ten**
+grantable permissions; nine are `window.argus` verbs and each appears **only if listed in
+`permissions[]`**. The tenth, `readCaseFiles`, grants a URL scheme rather than a method.
 
-| Verb | Grants |
+| Permission | Grants |
 |---|---|
 | `getCaseContext()` | `{ caseSlug, caseId, sessionId, focus? }` for the bound case |
 | `requestEvidence(query)` | FTS search over the case's evidence → hits |
-| `readEvidence(id, line?)` | Full text of one evidence item (bound-case only) |
+| `readEvidence(id, line?)` | Text of one evidence item (bound-case only): the whole file up to 2 MB, otherwise a window around `line` with `truncated: true` and the window's `startLine` |
+| `listCaseEvidence()` | Metadata-only listing of the case's investigation evidence, newest first: `{ evidenceId, relPath, artifactType, size, origin, derivedFrom?, createdAt }[]`. Never returns bytes |
 | `cite(relPath, line)` | Drops a citation chip on the chat composer (user sends it) |
 | `emitFinding({title, markdown})` | Raises a **MEDIUM, editable approval card**; on approve, writes a finding |
 | `sendToAgent(text)` | Stages text into the chat composer for the user to review/send |
+| `sendImageToAgent({bytes, filename, caption?})` | Ingests image bytes as case evidence behind a **MEDIUM, editable approval card**, then stages a composer draft pointing the agent at the saved file. Max 25 MB, caption max 2000 chars |
+| `ingestEvidence({source, filename})` | Registers new case evidence from `{ url }` or `{ bytes }` behind a **MEDIUM, editable approval card**. A `url` origin must be in this window's `network[]`; `bytes` max 25 MB |
+| `readCaseFiles` | **Not a method.** Registers the `argus-case://` scheme on this panel's session so it can fetch the case's evidence files as bytes (see below) |
 
-Reads are unrestricted (no prompt). `emitFinding` is the only write behind HITL. A panel can never
+Reads are unrestricted (no prompt). The three verbs that write to the case (`emitFinding`,
+`ingestEvidence`, `sendImageToAgent`) each raise a MEDIUM, editable approval card; `cite` and
+`sendToAgent` only stage composer content the user still has to send. A panel can never
 reach another case/session — the bridge is bound at open time, not by anything the panel supplies.
+
+Those five verbs also need a bound agent session and throw when the panel was opened without one, so
+check `getCaseContext().sessionId` before offering them in your UI. The read verbs need no session.
 
 **How a panel learns which evidence to show:** when it's opened via an evidence "Open in" action (or
 the agent's `open_panel` with an evidence id), `getCaseContext()` returns `focus: { evidenceId, line? }`.
 The typical flow is `getCaseContext()` → `readEvidence(focus.evidenceId, focus.line)` → render. With
-no focus, the panel can offer a `requestEvidence(query)` search to pick an item.
+no focus, the panel can offer a `requestEvidence(query)` search to pick an item, or
+`listCaseEvidence()` to enumerate the case and filter by `artifactType` itself. `listCaseEvidence()`
+is also how a panel turns an `evidenceId` (all it gets from `focus` or from an agent command arg)
+into the `relPath` it needs to build an `argus-case://` URL.
+
+### Reading raw bytes - `readCaseFiles` and `argus-case://`
+
+`readEvidence` hands back a UTF-8 *text projection*: files over 2 MB come back as a window around the
+focus line with `truncated: true`, and binary content is meaningless once decoded as text. `argus-case://`
+exists for everything that projection cannot serve: images, video and audio, and text files you need
+in full and unwindowed (a large GeoJSON, a whole HAR).
+
+With `readCaseFiles` granted, Core registers an `argus-case` protocol handler **on this panel's
+session partition** and adds the scheme to the CSP. The URL shape is:
+
+```
+argus-case://<caseSlug>/<path under the case's evidence/ dir>
+```
+
+- **Case-bound, not URL-bound.** The authoritative case is the partition the panel was opened in;
+  a URL naming any other case slug is rejected, so a panel cannot read a sibling case.
+- **Rooted at `evidence/`.** A `relPath` from `listCaseEvidence()`/`readEvidence()` carries its
+  top-level directory, but the URL path is relative to `evidence/`, so strip that prefix:
+  `evidence/trace.geojson` → `argus-case://<slug>/trace.geojson`. Review-mode material (a `relPath`
+  under `artifacts/`) is **not** reachable over this scheme at all.
+- **Coarse by design.** Any file under `evidence/` is served, not only files with a registered
+  evidence row. `..` traversal (raw or percent-encoded), absolute paths, backslashes, and anything
+  else that would escape `evidence/` are rejected.
+- **Real HTTP Range support**, so `<video>`/`<audio>` seeking works and a panel can fetch a slice of
+  a large file: a satisfiable single range gets `206` + `Content-Range`, an unparseable or multi-range
+  header falls back to a full `200`, and a start past EOF gets `416`.
+- Usable from `fetch()` as well as from `src` attributes (the handler sends the CORS headers a
+  cross-origin read needs). Missing files and directories return `404`.
+- The handler is registered per `(pack, case)` session partition, the first time a window of that pack
+  and case opens with `readCaseFiles`. The per-window CSP is still what gates use, so a sibling window
+  of the same pack that does not declare `readCaseFiles` gets no `argus-case:` in its directives.
+
+### Adding to the case - `ingestEvidence` and `sendImageToAgent`
+
+Both verbs run the panel's bytes through the same ingest pipeline as the agent's `ingest_artifact`
+tool (`origin: 'panel'`, pack detectors run, so the new item gets a real `artifactType` and is
+FTS-indexed if that type is text), and both are gated on a MEDIUM approval card where the operator can
+edit the target filename before it lands. Both return `{ ok: true, evidenceId }` or
+`{ ok: false, reason }` and never throw for a rejected input.
+
+- `filename` must be a **bare name**: no `/` or `\`, and not `''`, `'.'` or `'..'`. Anything else is
+  rejected with `reason: 'invalid-filename'`.
+- `ingestEvidence` with a `{ url }` source is **origin-allowlisted against this window's `network[]`**.
+  The URL's origin must exactly match one of the declared origins or the call returns
+  `reason: 'origin-not-allowed'`; a panel with an empty `network[]` therefore cannot ingest from a URL
+  at all. Redirects are not followed, so a `3xx` fails as `fetch-failed:<status>`.
+- `ingestEvidence` with a `{ bytes }` source (an `ArrayBuffer`/`Uint8Array`) is capped at **25 MB**
+  (`reason: 'bytes-too-large'`); above that, host the file and use the `url` source.
+- `sendImageToAgent` is the same 25 MB byte ingest plus a composer draft that points the agent at the
+  saved file, which is how a panel hands the agent a screenshot to look at. `caption` is capped at
+  2000 characters (`reason: 'caption-too-long'`) and is prepended to that draft.
 
 ### Downstream commands — `commands[]` → agent tools
 
@@ -291,9 +363,11 @@ This repo carries neutral sample packs you can copy from:
 - **`packs/sample-text-viewer/`** — a minimal read-only webPanel (`getCaseContext`/`requestEvidence`/
   `readEvidence`) that renders text evidence with line numbers + find. The smallest complete panel.
   Ships seeded in every packaged build.
-- **`packs/sample-bridge-playground/`** — exercises the **full** bridge: every read + write verb
-  (`cite`/`emitFinding`/`sendToAgent`) with editable inputs, plus `commands[]` (`highlight`/`echo`)
+- **`packs/sample-bridge-playground/`** — exercises the **full** bridge: it grants all ten
+  permissions, with one editable input row per verb (including `listCaseEvidence`, `ingestEvidence`,
+  `sendImageToAgent`, and an `argus-case://` image render), plus `commands[]` (`highlight`/`echo`)
   and an `onCommand` dispatch log. The reference for write verbs and agent-driven commands.
+  Its `network[]` is empty, so its `ingestEvidence` row only demonstrates the `bytes` source.
 
 Both `ui/` bundles are plain self-contained HTML/JS/CSS (no build step) and pass the strict CSP.
 `sample-bridge-playground` and `sample-external-app` (a headless pack that spawns an OS process and
