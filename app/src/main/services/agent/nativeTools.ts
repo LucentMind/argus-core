@@ -643,6 +643,7 @@ export function argusToolHandlers(
     },
 
     async write_memory(args) {
+      const access = deps.agentAccess?.() ?? defaultAgentAccess()
       return applyMemoryWrite(
         argusHome,
         caseSlug,
@@ -652,7 +653,8 @@ export function argusToolHandlers(
           scope: String(args.scope ?? ''),
           indexEntry: args.index_entry == null ? undefined : String(args.index_entry)
         },
-        deps.resolve
+        deps.resolve,
+        access
       )
     },
 
@@ -842,7 +844,7 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'write_memory',
     description:
-      'Record a PERSONAL fact in agent memory (memory/<topic>.md): this user\'s standing preferences, this machine\'s setup, or a correction of something you got wrong. Memory is NOT for knowledge a teammate would also want — that is a reference: use write_proposal(type:"reference-edit"), which CREATES the reference if it does not exist. It is NOT for detail about this case — use append_finding. scope is REQUIRED, one of preference | environment | correction: preference is a standing taste in how work is done, environment is a fact about this machine or setup, correction is you got this wrong — do it this way next time. content REPLACES the whole topic body: call read_memory first and hand back the merged text, never just the new part. Keep a topic under ~500 words (4096 bytes) — a body that needs more is not personal. Provide index_entry when creating a topic so future sessions can discover it via _index.md. index_entry is the description ONLY — do not repeat the topic name in it, the index line already links it.',
+      'Record a PERSONAL fact in agent memory (memory/<topic>.md): this user\'s standing preferences, this machine\'s setup, or a correction of something you got wrong. Memory is NOT for knowledge a teammate would also want — that is a reference: use write_proposal(type:"reference-edit"), which CREATES the reference if it does not exist. It is NOT for detail about this case — use append_finding. topic is lowercase letters, digits and hyphens only (1-64 chars). scope is REQUIRED, one of preference | environment | correction: preference is a standing taste in how work is done, environment is a fact about this machine or setup, correction is you got this wrong — do it this way next time. content REPLACES the whole topic body: call read_memory first and hand back the merged text, never just the new part. Keep a topic under ~500 words (4096 bytes) — a body that needs more is not personal. Provide index_entry when creating a topic so future sessions can discover it via _index.md. index_entry is the description ONLY — do not repeat the topic name in it, the index line already links it.',
     schema: {
       topic: z.string(),
       content: z.string(),

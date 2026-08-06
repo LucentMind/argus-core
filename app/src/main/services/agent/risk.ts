@@ -104,7 +104,7 @@ export const NATIVE_RISK: Record<string, RiskVerdict> = {
     action: 'ask',
     risk: 'MEDIUM',
     grantKey: null,
-    reason: 'Write to agent memory (steers all future sessions)'
+    reason: "Replace an agent-memory topic's whole body (steers all future sessions)"
   },
   mcp__argus__post_review_comment: {
     action: 'ask',

@@ -168,6 +168,34 @@ describe('argus native tools', () => {
     await expect(gated.read_memory({ topic: 'binder-crashes' })).rejects.toThrow(/disabled/i)
   })
 
+  it('write_memory refuses a disabled topic, leaving its file on disk unchanged', async () => {
+    await handlers.write_memory({
+      topic: 'binder-crashes',
+      content: 'check binder pool first',
+      scope: 'correction'
+    })
+    const before = fs.readFileSync(path.join(argusHome, 'memory', 'binder-crashes.md'), 'utf8')
+    const gated = argusToolHandlers({
+      db,
+      argusHome,
+      detection,
+      caseId: 1,
+      caseSlug: 'NAV-1',
+      sessionId: 1,
+      emitFinding,
+      agentAccess: () => agentAccessSchema.parse({ memory: { 'binder-crashes': false } })
+    })
+    await expect(
+      gated.write_memory({
+        topic: 'binder-crashes',
+        content: 'the agent believes this topic is new and overwrites it',
+        scope: 'correction'
+      })
+    ).rejects.toThrow(/disabled/i)
+    const after = fs.readFileSync(path.join(argusHome, 'memory', 'binder-crashes.md'), 'utf8')
+    expect(after).toBe(before)
+  })
+
   it('read_memory rejects _index and unknown topics', async () => {
     await expect(handlers.read_memory({ topic: '_index' })).rejects.toThrow(/not a topic/i)
     await expect(handlers.read_memory({ topic: 'nope' })).rejects.toThrow(/no such topic/i)

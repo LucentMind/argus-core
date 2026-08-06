@@ -279,7 +279,8 @@ export function MemorySettings(): React.JSX.Element {
           <SettingsSection title="Topics">
             {payload.topics.length === 0 && (
               <div className="px-3 py-2 text-xs text-dim">
-                No topics yet — the agent records lessons here after an RCA (via write_memory).
+                No topics yet — the agent records a preference, a fact about this machine, or a
+                correction here (via write_memory).
               </div>
             )}
             {payload.topics.map((t) => {

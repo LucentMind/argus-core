@@ -36,6 +36,8 @@ export interface MemoryAuditEntry {
   bytes: number
   /** Absent = agent write (the original shape). UI-driven hygiene actions tag themselves. */
   action?: 'archive' | 'restore'
+  /** Absent on entries written before the scope contract, and on archive/restore rows. */
+  scope?: MemoryScope
 }
 
 export interface SkillListItem {

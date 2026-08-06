@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { memoryAuditPath, memoryBackupDir, memoryDir, memoryIndexPath } from './paths'
-import { topicEnabled, type AgentAccess } from '../../shared/agentAccess'
+import { topicEnabled, defaultAgentAccess, type AgentAccess } from '../../shared/agentAccess'
 import { fillPrompt } from './prompts/fill'
 import type { PromptTextSpecs } from '../../shared/promptSpec'
 import { MEMORY_SCOPES, type MemoryScope } from '../../shared/memoryScope'
@@ -13,9 +13,8 @@ const TOPIC_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
 
 /**
  * Single source of truth for what a memory topic name may look like — backs both
- * topicPath's validation here and staging.ts's pre-validation pass, so a distiller
- * output that would later hard-fail in applyMemoryWrite is instead caught (and
- * reported) before anything is staged.
+ * topicPath's validation here and memoryHygiene.ts's archive/restore validation,
+ * so a bad topic name is caught (and reported) the same way in both places.
  */
 export function isValidMemoryTopic(topic: string): boolean {
   return TOPIC_RE.test(topic)
@@ -35,6 +34,9 @@ export interface MemoryAuditEntry {
   caseSlug: string
   topic: string
   indexEntry: string | null
+  /** Size of the final stamped body written to disk (frontmatter + content), not the raw
+   *  `content` argument the caller passed in. Matches MemoryTopic.sizeBytes for the same
+   *  write and is what MEMORY_TOPIC_MAX_BYTES caps. */
   bytes: number
   /** Absent = agent write (the original shape). UI-driven hygiene actions tag themselves. */
   action?: 'archive' | 'restore'
@@ -173,6 +175,11 @@ export const MEMORY_FEEDBACK: PromptTextSpecs = {
     title: 'write_memory — wrote to _index',
     text: 'write_memory: "_index" is a reserved topic name and cannot be written to'
   },
+  'write_memory.topic-disabled': {
+    title: 'write_memory — topic disabled by agent access',
+    text: 'write_memory: topic "{topic}" is disabled by agent-access settings',
+    placeholders: ['topic']
+  },
   'write_memory.empty-content': {
     title: 'write_memory — empty content',
     text: 'write_memory: content must not be empty'
@@ -204,22 +211,34 @@ export function applyMemoryWrite(
   argusHome: string,
   caseSlug: string,
   input: { topic: string; content: string; scope: string; indexEntry?: string },
-  resolve?: (id: string) => string
+  resolve?: (id: string) => string,
+  access?: AgentAccess
 ): string {
   /** Resolve one `tool-feedback.*` entry and fill it. No resolver = the default. */
   const fb = (key: string, vars: Record<string, string> = {}): string =>
     fillPrompt(resolve ? resolve(`tool-feedback.${key}`) : MEMORY_FEEDBACK[key].text, vars)
 
-  const { topic, content, scope } = input
+  const { topic, content } = input
   // Runtime, not just zod: tool args cross a stringly-typed driver boundary
   // (nativeTools.ts coerces every field with String(...)), so the enum in the tool schema is
-  // a hint to the model and THIS is the gate.
+  // a hint to the model and THIS is the gate. Coerce here too — this function's whole point is
+  // being that gate, and an uncoerced undefined/non-string would throw a bare TypeError instead
+  // of the missing-scope feedback.
+  const scope = String(input.scope ?? '')
   if (!scope.trim()) throw new Error(fb('write_memory.missing-scope'))
   if (!MEMORY_SCOPES.includes(scope as MemoryScope)) {
     throw new Error(fb('write_memory.invalid-scope', { scope }))
   }
   if (topic === '_index') {
     throw new Error(fb('write_memory.reserved-index'))
+  }
+  // Symmetric with read_memory: a topic the user has hidden via agent-access settings must not
+  // be discoverable OR overwritable through write_memory either. This matters more here than it
+  // would for an append — a replace destroys the whole body, read_memory (the description's own
+  // remedy) refuses the same topic, and filteredIndex hides it from context, so the model would
+  // believe it is creating a brand-new topic.
+  if (!topicEnabled(access ?? defaultAgentAccess(), topic)) {
+    throw new Error(fb('write_memory.topic-disabled', { topic }))
   }
   const p = topicPath(argusHome, topic) // validates the name
   if (!content.trim()) throw new Error(fb('write_memory.empty-content'))
@@ -268,7 +287,9 @@ export function applyMemoryWrite(
   // Nothing above this line touches disk: every rejection leaves the topic file, the backup,
   // the index and the audit exactly as they were.
   fs.mkdirSync(memoryDir(argusHome), { recursive: true })
-  if (nextIndex !== null) fs.writeFileSync(memoryIndexPath(argusHome), nextIndex)
+  // Design order: .bak copy → write body → index line → audit. The backup and the topic write
+  // go first so a failure between them (e.g. EPERM on copyFileSync) never leaves an index line
+  // pointing at a topic file that was never created.
   // Replace is lossy if a model rewrites without reading first. One level, no rotation, no UI —
   // a floor under that failure, not a version history.
   if (fs.existsSync(p)) {
@@ -276,6 +297,7 @@ export function applyMemoryWrite(
     fs.copyFileSync(p, path.join(memoryBackupDir(argusHome), `${topic}.md`))
   }
   fs.writeFileSync(p, body)
+  if (nextIndex !== null) fs.writeFileSync(memoryIndexPath(argusHome), nextIndex)
 
   const entry: MemoryAuditEntry = {
     ts: new Date().toISOString(),

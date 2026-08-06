@@ -337,6 +337,87 @@ describe('write_memory scope contract', () => {
   })
 })
 
+describe('write_memory is gated on topicEnabled, symmetric with read_memory', () => {
+  it('rejects a write to a topic disabled by agent access, leaving the file on disk unchanged', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'binder',
+      content: 'original content the user hid this topic to protect',
+      scope: 'correction'
+    })
+    const access = agentAccessSchema.parse({ memory: { binder: false } })
+    expect(() =>
+      applyMemoryWrite(
+        argusHome,
+        'NAV-1',
+        { topic: 'binder', content: 'overwritten by the agent', scope: 'correction' },
+        undefined,
+        access
+      )
+    ).toThrow(/disabled/i)
+    const body = readTopic(argusHome, 'binder')
+    expect(body).toContain('original content')
+    expect(body).not.toContain('overwritten')
+    // a rejected write must not even leave a .bak — nothing touched disk
+    expect(fs.existsSync(path.join(argusHome, 'memory', '.bak', 'binder.md'))).toBe(false)
+  })
+
+  it('a disabled topic that does not exist yet still cannot be created', () => {
+    const access = agentAccessSchema.parse({ memory: { 'new-topic': false } })
+    expect(() =>
+      applyMemoryWrite(
+        argusHome,
+        'NAV-1',
+        { topic: 'new-topic', content: 'x', scope: 'preference' },
+        undefined,
+        access
+      )
+    ).toThrow(/disabled/i)
+    expect(fs.existsSync(path.join(argusHome, 'memory', 'new-topic.md'))).toBe(false)
+  })
+
+  it('does not gate when no access is supplied — default is everything enabled', () => {
+    expect(() =>
+      applyMemoryWrite(argusHome, 'NAV-1', { topic: 'binder', content: 'x', scope: 'correction' })
+    ).not.toThrow()
+  })
+})
+
+describe('applyMemoryWrite coerces scope before validating it', () => {
+  it('a non-string scope (e.g. undefined) hits the missing-scope feedback, not a bare TypeError', () => {
+    expect(() =>
+      applyMemoryWrite(argusHome, 'NAV-1', {
+        topic: 'nope',
+        content: 'x',
+        scope: undefined as unknown as string
+      })
+    ).toThrow(/scope is required/)
+  })
+})
+
+describe('write order matches the documented data flow: backup+body land before the index line', () => {
+  it('a failure taking the .bak backup leaves the index without the new line', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'first', scope: 'preference' })
+    const spy = vi.spyOn(fs, 'copyFileSync').mockImplementation(() => {
+      throw new Error('EPERM: simulated backup failure')
+    })
+    try {
+      expect(() =>
+        applyMemoryWrite(argusHome, 'NAV-1', {
+          topic: 'dlt',
+          content: 'second',
+          scope: 'preference',
+          indexEntry: 'a brand new index line'
+        })
+      ).toThrow(/EPERM/)
+      // Old order wrote the index line first; under the fixed order this write never reached
+      // the index step, so the line must be absent.
+      expect(readIndex(argusHome)).not.toContain('a brand new index line')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
+
 describe('replace semantics and the single-level backup', () => {
   const bak = (topic: string): string => path.join(argusHome, 'memory', '.bak', `${topic}.md`)
 

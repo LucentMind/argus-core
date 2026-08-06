@@ -20,10 +20,15 @@ After an RCA or investigation surfaces something reusable:
 | A correction or addition to a reference (glossary, runbook, protocol doc) | `reference-edit` | the reference file name |
 | A proven command sequence worth keeping verbatim | `recipe` | short kebab-case name |
 
-**Memory vs proposal:** durable cross-case *facts and lessons* belong in agent memory
-(`write_memory`). Reusable *procedures and reference content* belong in proposals. If it
-tells a future session what is **true**, it is memory; if it tells a future session what
-to **do**, it is a proposal.
+**Memory vs proposal vs case:** there are three destinations for what a case teaches you,
+never two. Agent memory (`write_memory`) is **PERSONAL** — this user's standing preferences,
+this machine's setup, or a correction of something you got wrong (scope: preference |
+environment | correction). It is never for knowledge a teammate would also want, no matter
+how durable or reusable the fact is: that is **team-valuable**, and it goes in the table
+above as `reference-edit` (which CREATES the reference if the target doesn't exist yet) or
+one of the other proposal types. Detail that only matters for this case is neither memory nor
+a proposal — that's `append_finding`. So: true for you alone → `write_memory`; true for the
+whole team → a proposal (this page); true only for this case → `append_finding`.
 
 ## How to propose
 

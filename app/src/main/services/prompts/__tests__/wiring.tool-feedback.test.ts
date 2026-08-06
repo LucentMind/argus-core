@@ -39,7 +39,10 @@ describe('tool-feedback registry entries', () => {
   })
 
   it('every declared placeholder appears in its own default text', () => {
-    for (const [key, spec] of Object.entries(TOOL_FEEDBACK)) {
+    for (const [key, spec] of [
+      ...Object.entries(TOOL_FEEDBACK),
+      ...Object.entries(MEMORY_FEEDBACK)
+    ]) {
       for (const p of spec.placeholders ?? []) {
         expect(spec.text, `${key} is missing {${p}}`).toContain(`{${p}}`)
       }

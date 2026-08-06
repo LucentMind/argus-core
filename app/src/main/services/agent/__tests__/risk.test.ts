@@ -50,7 +50,7 @@ describe('classifyToolCall — native and FS tools', () => {
       action: 'ask',
       risk: 'MEDIUM',
       grantKey: null,
-      reason: 'Write to agent memory (steers all future sessions)'
+      reason: "Replace an agent-memory topic's whole body (steers all future sessions)"
     })
   })
 
