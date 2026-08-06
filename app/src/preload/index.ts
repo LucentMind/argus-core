@@ -53,7 +53,11 @@ import type {
   SkillsPayload,
   SkillsWriteResult,
   SkillReadPayload,
-  SkillListItem
+  SkillListItem,
+  SkillImportSource,
+  SkillImportCandidate,
+  SkillImportItem,
+  SkillImportApplyResult
 } from '../shared/memoryIpc'
 import type {
   PromptCatalogPayload,
@@ -555,6 +559,10 @@ const argus = {
       invoke(IPC.skillsWrite, name, content, baseHash),
     fork: (name: string, newName?: string): Promise<{ name: string; skills: SkillListItem[] }> =>
       invoke(IPC.skillsFork, name, newName),
+    scanImport: (source: SkillImportSource): Promise<SkillImportCandidate[]> =>
+      invoke(IPC.skillsImportScan, source),
+    applyImport: (items: SkillImportItem[]): Promise<SkillImportApplyResult> =>
+      invoke(IPC.skillsImportApply, items),
     /** Fires in every window when any of them writes a skill — the editor window included. */
     onChanged: (cb: (p: SkillsPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: SkillsPayload): void => cb(p)

@@ -75,6 +75,11 @@ export const IPC = {
   skillsRead: 'skills:read',
   skillsWrite: 'skills:write',
   skillsFork: 'skills:fork',
+  /** renderer → main: scan a Claude Code skills directory (global `~/.claude/skills`, or a
+   *  project's `<dir>/.claude/skills`) for skills that could be imported into the Library. */
+  skillsImportScan: 'skills:import-scan',
+  /** renderer → main: copy the selected scanned skills into skills-user. */
+  skillsImportApply: 'skills:import-apply',
   /** main → renderer broadcast: the skill list changed. Carries the full `SkillsPayload`, so a
    *  window that did not perform the write (the Library, while the editor window saves) can
    *  adopt the new list without a refetch. */

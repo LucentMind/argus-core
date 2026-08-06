@@ -72,6 +72,7 @@ import {
   forkSkill,
   userSkillShadowDiverged
 } from './services/agent/skillsResolver'
+import { scanClaudeSkills, importSkills } from './services/agent/skillsImport'
 import { HivemindService } from './services/hivemind'
 import {
   listProposals,
@@ -82,7 +83,12 @@ import {
 } from './services/proposals'
 import { identity } from './services/authorship'
 import type { RejectReason } from '../shared/proposals'
-import type { MemoryTopicsPayload, SkillsPayload } from '../shared/memoryIpc'
+import type {
+  MemoryTopicsPayload,
+  SkillsPayload,
+  SkillImportSource,
+  SkillImportItem
+} from '../shared/memoryIpc'
 import { loadPresets, isOpenableUrl } from './services/presets'
 import { McpService } from './services/mcp'
 import { McpOAuth } from './services/oauth'
@@ -2136,6 +2142,15 @@ function registerIpc(): void {
     // READ-ONLY until the app restarts: they can make a copy and then cannot edit it.
     broadcast(IPC.skillsChanged, payload)
     return { name: created, skills: payload.skills }
+  })
+  ipcMain.handle(IPC.skillsImportScan, (_e, source: SkillImportSource) =>
+    scanClaudeSkills(argusHome, source)
+  )
+  ipcMain.handle(IPC.skillsImportApply, async (_e, items: SkillImportItem[]) => {
+    const results = importSkills(argusHome, items, await identity())
+    const payload = skillsPayload()
+    broadcast(IPC.skillsChanged, payload)
+    return { results, payload }
   })
 
   // — authoring assist (skill/reference editor Draft + Improve) —
