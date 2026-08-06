@@ -120,7 +120,7 @@ export function ImportSkillsDialog({ onClose }: { onClose: () => void }): React.
         <Btn
           variant="outline"
           onClick={() => void browseProject()}
-          disabled={scanning || browsing || applying}
+          disabled={busy}
         >
           {browsing ? 'Scanning…' : 'Browse project folder…'}
         </Btn>
@@ -175,7 +175,7 @@ export function ImportSkillsDialog({ onClose }: { onClose: () => void }): React.
           </>
         )}
         <div className="flex justify-end gap-2">
-          <Btn variant="ghost" onClick={onClose} disabled={applying}>
+          <Btn variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Btn>
           <Btn
