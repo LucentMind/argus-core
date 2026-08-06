@@ -18,6 +18,16 @@ import { artifactsDir } from '../paths'
  *  is the full raw file (frontmatter + body) a reference-edit must return with its change
  *  merged in; tier is the trust_tier ('confluence' files are auto-synced and must never be an
  *  edit target — the distiller is told so via rule 7). */
+/*
+ * FLAT ON PURPOSE — do not "fix" this to use listReferenceFiles.
+ *
+ * This enumeration feeds the distiller, whose only output for a reference is a `reference-edit`
+ * proposal. That proposal's target must satisfy ASSET_NAME_RE (`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`,
+ * no separator), re-checked in acceptProposal. Listing a nested reference here would let the
+ * distiller propose an edit whose accept then throws `Invalid proposal target` — strictly worse
+ * than not offering it. Nested references are read-only by design: they are visible in the
+ * Library, INDEX.md, search, usage stats and the agent prompt, and editable nowhere.
+ */
 export function buildReferencesIndex(
   argusHome: string
 ): { name: string; summary: string; content: string; tier: string | null }[] {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -92,14 +92,45 @@ describe('buildReferenceIndex', () => {
     expect(out.startsWith('CUSTOM LEAD')).toBe(true)
   })
 
-  it('skips an unreadable entry rather than killing session construction', () => {
-    // This runs on the CaseSession constructor path. A reference deleted between the directory
-    // walk and the per-file read must not take the whole session down with it — simulated here
-    // with a directory named *.md, which the walk skips but a stat-blind read would not.
+  it('the walk skips a directory named like a reference', () => {
+    // NOT the unreadable-entry case: listReferenceFiles requires isFile(), so this never
+    // reaches the per-file read at all. Kept as its own statement so the read-failure test
+    // below cannot be satisfied by this, which is how it silently passed before.
     write('real.md', 'Kept.\n')
     fs.mkdirSync(path.join(dir, 'ghost.md'))
     const out = buildReferenceIndex(dir, config)
     expect(out).toContain('- real.md')
     expect(out).not.toContain('ghost.md')
+  })
+
+  it('skips a file that fails to read rather than killing session construction', () => {
+    // buildReferenceIndex runs inline in the CaseSession constructor, so a reference deleted
+    // between the directory walk and its read must not take the session down. The fault has to
+    // be injected at the READ — a file that vanishes mid-walk cannot be staged on disk, and
+    // staging a directory instead is skipped by the walk before the catch is ever reached.
+    write('gone.md', 'Vanishes.\n')
+    write('real.md', 'Kept.\n')
+    const realRead = fs.readFileSync
+    const spy = vi.spyOn(fs, 'readFileSync').mockImplementation(((p: string, ...rest: never[]) => {
+      if (String(p).endsWith('gone.md'))
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+      return (realRead as (p: string, ...r: never[]) => string)(p, ...rest)
+    }) as typeof fs.readFileSync)
+    try {
+      const out = buildReferenceIndex(dir, config)
+      expect(out).toContain('- real.md')
+      expect(out).not.toContain('- gone.md')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('does not throw when the references directory is unreadable', () => {
+    // listReferenceFiles' readdirSync calls were unguarded, and this runs on the session
+    // constructor path — an ENOTDIR/EPERM there would abort session creation, not degrade.
+    const notADir = path.join(dir, 'file-not-dir')
+    fs.writeFileSync(notADir, 'x')
+    expect(() => buildReferenceIndex(notADir, config)).not.toThrow()
+    expect(buildReferenceIndex(notADir, config)).toBe('')
   })
 })

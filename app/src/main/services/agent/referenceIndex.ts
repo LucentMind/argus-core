@@ -66,7 +66,10 @@ export function buildReferenceIndex(
   return [
     lead,
     `Directory: ${refsDir}`,
-    ...lines,
+    // Sorted as rendered, matching generateReferencesIndex — the two views of the same directory
+    // should not present it in two different orders. The cap above is applied to the relPath
+    // order first, so which entries are shown stays independent of how they read.
+    ...lines.sort(),
     ...(withheld > 0 ? [`- …and ${withheld} more in that directory.`] : [])
   ].join('\n')
 }

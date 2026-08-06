@@ -13,15 +13,30 @@ import { refBody } from './refFrontmatter'
  * got a usage row but no Library row, no index line and no search hit.
  */
 export function listReferenceFiles(refsDir: string): string[] {
-  if (!fs.existsSync(refsDir)) return []
   const out: string[] = []
   const walk = (dir: string): void => {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      // existsSync is not enough: it passes for a plain FILE at refsDir (ENOTDIR), and for a
+      // directory that then fails to scandir (EPERM, or an ENOENT race with an external
+      // process). This walk feeds buildReferenceIndex, which runs INLINE in the CaseSession
+      // constructor — a throw here would abort session creation rather than degrade to "no
+      // references". An unreadable directory contributes nothing; it never fails the caller.
+      return
+    }
+    for (const e of entries) {
       const p = path.join(dir, e.name)
       if (e.isDirectory()) walk(p)
       else if (e.isFile() && e.name.endsWith('.md')) {
-        const rel = path.relative(refsDir, p).split(path.sep).join('/')
-        if (rel !== REFERENCES_INDEX) out.push(rel)
+        // Compare the BASENAME, not the relPath: a pack that ships its own sub-router at
+        // references/protocols/INDEX.md is a generated file too, and shared/assetEditable.ts
+        // only recognizes the top-level one — so a relPath compare would list it as an ordinary
+        // reference and offer it as editable.
+        if (e.name !== REFERENCES_INDEX) {
+          out.push(path.relative(refsDir, p).split(path.sep).join('/'))
+        }
       }
     }
   }

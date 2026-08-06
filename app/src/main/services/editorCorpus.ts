@@ -62,7 +62,15 @@ export class EditorCorpusService {
   }
 
   /** Reference filenames, or `[]` when the directory is absent — an ARGUS_HOME that has never
-   *  synced is normal, not an error. */
+   *  synced is normal, not an error.
+   *
+   *  FLAT ON PURPOSE — do not "fix" this to use listReferenceFiles. This list is what the editor
+   *  window may OPEN AS A BUFFER, and a buffer is only useful if it can be saved: writeReference
+   *  runs REF_TARGET_RE, which rejects every path separator. Listing a nested reference here
+   *  would hand the user an editable pane whose save is refused. Nested references are read-only
+   *  by design — visible in the Library, INDEX.md, search, usage stats and the agent prompt, and
+   *  editable nowhere. The one cost is that INDEX.md's link to a nested reference does not
+   *  resolve in the editor's link decoration (mdLinks.resolveLink matches against this list). */
   private refFiles(): string[] {
     try {
       return this.io.readDir(this.refsDir()).filter((f) => f.toLowerCase().endsWith('.md'))
