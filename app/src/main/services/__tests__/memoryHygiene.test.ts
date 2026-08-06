@@ -147,7 +147,12 @@ describe('archive / restore round-trip', () => {
   })
 
   it('a rolled-back archive (index-edit failure) leaves the backup untouched', () => {
-    applyMemoryWrite(home, 'c', { topic: 'roll', content: 'v1', scope: 'preference', indexEntry: 'x' })
+    applyMemoryWrite(home, 'c', {
+      topic: 'roll',
+      content: 'v1',
+      scope: 'preference',
+      indexEntry: 'x'
+    })
     applyMemoryWrite(home, 'c', { topic: 'roll', content: 'v2', scope: 'preference' })
     const bak = path.join(memoryBackupDir(home), 'roll.md')
     expect(fs.existsSync(bak)).toBe(true)

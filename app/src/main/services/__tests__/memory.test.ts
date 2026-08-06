@@ -391,15 +391,27 @@ describe('replace semantics and the single-level backup', () => {
   // expiry), and if a topic of this name is recreated later, its one recoverable level is a body
   // from the deleted topic's PREVIOUS lifetime rather than nothing.
   it('deleteTopic removes the backup along with the topic', () => {
-    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'first fact', scope: 'preference' })
-    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'second fact', scope: 'preference' })
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'dlt',
+      content: 'first fact',
+      scope: 'preference'
+    })
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'dlt',
+      content: 'second fact',
+      scope: 'preference'
+    })
     expect(fs.existsSync(bak('dlt'))).toBe(true)
     deleteTopic(argusHome, 'dlt')
     expect(fs.existsSync(bak('dlt'))).toBe(false)
   })
 
   it('deleteTopic on a topic that was never replaced (no backup) does not throw', () => {
-    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'only fact', scope: 'preference' })
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'dlt',
+      content: 'only fact',
+      scope: 'preference'
+    })
     expect(fs.existsSync(bak('dlt'))).toBe(false)
     expect(() => deleteTopic(argusHome, 'dlt')).not.toThrow()
   })
@@ -423,7 +435,11 @@ describe('replace semantics and the single-level backup', () => {
   // and the model is expected to pass that merged text straight back in as `content`. Pins that
   // withFrontmatter overlays rather than duplicates the key when content already has one.
   it('accepts content that already carries a stamped frontmatter block without doubling the scope line', () => {
-    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'first fact', scope: 'correction' })
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'dlt',
+      content: 'first fact',
+      scope: 'correction'
+    })
     const stamped = readTopic(argusHome, 'dlt') // "---\nscope: correction\n---\nfirst fact\n"
     applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: stamped, scope: 'preference' })
     const raw = readTopic(argusHome, 'dlt')
@@ -550,7 +566,7 @@ describe('the per-topic byte cap', () => {
 })
 
 describe('listTopics reports the stored scope', () => {
-  it('reads the scope out of a topic\'s frontmatter', () => {
+  it("reads the scope out of a topic's frontmatter", () => {
     applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'x', scope: 'environment' })
     expect(listTopics(argusHome).find((t) => t.name === 'dlt')?.scope).toBe('environment')
   })
