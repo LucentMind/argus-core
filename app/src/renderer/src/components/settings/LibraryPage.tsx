@@ -4,6 +4,7 @@ import { SettingsSection, SettingRow, Switch, RowActions, RowToggle } from './se
 import { Btn, Chip, IconBtn, MenuButton } from '../ui'
 import { ProposalsBanner } from './ProposalsBanner'
 import { ForkSkillDialog } from './ForkSkillDialog'
+import { ImportSkillsDialog } from './ImportSkillsDialog'
 import { SharePushDialog, PushReceiptChip } from './SharePushDialog'
 import { useSharePush } from './useSharePush'
 import { RefViewer, MarkdownViewer } from '../references/RefViewer'
@@ -143,6 +144,7 @@ export function LibraryPage({
   const [viewer, setViewer] = useState<{ kind: LibraryKind; name: string } | null>(null)
   // the skill being forked, while the "Edit a copy" name dialog is open
   const [forking, setForking] = useState<SkillListItem | null>(null)
+  const [importing, setImporting] = useState(false)
   // one dialog serves both kinds — keyed `${kind}/${name}` like push receipts
   const [sharing, setSharing] = useState<string | null>(null)
   const [sharePushing, setSharePushing] = useState(false)
@@ -625,6 +627,10 @@ export function LibraryPage({
             {
               label: 'New reference',
               onSelect: () => openEditor({ kind: 'reference', name: 'my-notes.md', mode: 'create' })
+            },
+            {
+              label: 'Import from Claude…',
+              onSelect: () => setImporting(true)
             }
           ]}
         />
@@ -696,6 +702,7 @@ export function LibraryPage({
           onConfirm={(newName) => doFork(forking, newName)}
         />
       )}
+      {importing && <ImportSkillsDialog onClose={() => setImporting(false)} />}
       {viewer?.kind === 'reference' &&
         (() => {
           const r = references.find((x) => x.file === viewer.name)
