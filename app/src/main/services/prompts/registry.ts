@@ -8,6 +8,7 @@ import { NATIVE_TOOL_SPECS, NATIVE_TOOL_DRIVERS, TOOL_FEEDBACK } from '../agent/
 import { REVIEW_WRITE_FEEDBACK } from '../agent/reviewWrites'
 import { CI_LOG_FEEDBACK } from '../agent/ciLogs'
 import { SKILL_INDEX_LEAD } from '../agent/skillIndex'
+import { REFERENCE_INDEX_LEAD } from '../agent/referenceIndex'
 import { MEMORY_HEADER } from '../agent/session'
 import { MEMORY_FEEDBACK } from '../memory'
 import { RISK_DENY_REASONS } from '../agent/risk'
@@ -206,6 +207,15 @@ const SESSION_ENTRIES: PromptEntry[] = [
     reaches: 'all',
     editable: true,
     default: () => SKILL_INDEX_LEAD
+  },
+  {
+    id: 'session.reference-index-lead',
+    category: 'session-context',
+    title: 'Reference-index lead line',
+    source: 'app/src/main/services/agent/referenceIndex.ts:24',
+    reaches: 'all',
+    editable: true,
+    default: () => REFERENCE_INDEX_LEAD
   }
 ]
 
