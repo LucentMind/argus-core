@@ -45,10 +45,10 @@ export function ImportSkillsDialog({ onClose }: { onClose: () => void }): React.
 
   async function browseProject(): Promise<void> {
     setError(null)
-    const dir = await window.argus.workspaces.pick()
-    if (!dir) return
     setBrowsing(true)
     try {
+      const dir = await window.argus.workspaces.pick()
+      if (!dir) return
       mergeFound(await window.argus.skills.scanImport({ kind: 'project', dir }))
     } catch (err) {
       setError((err as Error).message)
@@ -69,6 +69,10 @@ export function ImportSkillsDialog({ onClose }: { onClose: () => void }): React.
   const importable = items.filter((i) => i.status === 'importable')
   const allSelected = importable.length > 0 && importable.every((i) => selected.has(i.sourceDir))
   const busy = scanning || browsing || applying
+  // The initial mount-effect scan already guards its setState with a `mounted` flag, so a slow
+  // scan is safe to dismiss through — only an in-flight browse or apply (whose IPC calls are not
+  // similarly guarded) needs to block Escape/backdrop/X/Cancel.
+  const closeBusy = browsing || applying
 
   async function confirmImport(): Promise<void> {
     const toImport = items
@@ -81,7 +85,10 @@ export function ImportSkillsDialog({ onClose }: { onClose: () => void }): React.
     try {
       const { results } = await window.argus.skills.applyImport(toImport)
       const failed = toImport
-        .map((item, idx) => ({ item, result: results[idx] }))
+        .map((item, idx) => ({
+          item,
+          result: results[idx] ?? { name: item.name, ok: false, error: 'No result returned.' }
+        }))
         .filter(({ result }) => !result.ok)
       if (failed.length > 0) {
         setFailures(
@@ -105,7 +112,7 @@ export function ImportSkillsDialog({ onClose }: { onClose: () => void }): React.
     <ModalShell
       title={title}
       ariaLabel={title}
-      onClose={busy ? () => {} : onClose}
+      onClose={closeBusy ? () => {} : onClose}
       className="flex max-h-[80vh] w-[32rem] flex-col"
     >
       <div className="flex flex-1 flex-col gap-3 overflow-hidden p-4">
@@ -121,7 +128,7 @@ export function ImportSkillsDialog({ onClose }: { onClose: () => void }): React.
           {browsing ? 'Scanning…' : 'Browse project folder…'}
         </Btn>
         {scanning ? (
-          <div className="text-xs text-dim">Scanning ~/.claude/skills…</div>
+          <div className="text-xs text-dim">Scanning your Claude skills…</div>
         ) : items.length === 0 ? (
           <div className="text-xs text-faint">No skills found.</div>
         ) : (
@@ -171,7 +178,7 @@ export function ImportSkillsDialog({ onClose }: { onClose: () => void }): React.
           </>
         )}
         <div className="flex justify-end gap-2">
-          <Btn variant="ghost" onClick={onClose} disabled={busy}>
+          <Btn variant="ghost" onClick={onClose} disabled={closeBusy}>
             Cancel
           </Btn>
           <Btn

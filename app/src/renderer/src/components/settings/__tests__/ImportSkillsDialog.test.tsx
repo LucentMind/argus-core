@@ -46,6 +46,13 @@ const globalScan: SkillImportCandidate[] = [
 ]
 
 describe('ImportSkillsDialog', () => {
+  it('leaves Cancel clickable while the initial mount scan is still in flight', () => {
+    // scanImport never resolves in this test — the dialog should still be dismissable.
+    argus.skills.scanImport.mockReturnValue(new Promise(() => {}))
+    render(<ImportSkillsDialog onClose={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Cancel' })).not.toBeDisabled()
+  })
+
   it('scans the global directory on mount and disables conflict/invalid rows', async () => {
     argus.skills.scanImport.mockResolvedValue(globalScan)
     render(<ImportSkillsDialog onClose={vi.fn()} />)

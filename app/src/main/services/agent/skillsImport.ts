@@ -57,7 +57,7 @@ function classify(
       sourceDir: dir,
       description,
       status: 'conflict',
-      reason: 'Already in your Library.'
+      reason: 'Already in Library.'
     }
   }
   return { name, sourceDir: dir, description, status: 'importable' }
@@ -117,6 +117,7 @@ export function importSkills(
       const issues = validateSkill({ name, content })
       if (hasErrors(issues)) throw new Error(issues.find((i) => i.severity === 'error')!.message)
       const dest = path.join(userSkillsDir(argusHome), name)
+      if (fs.existsSync(dest)) throw new Error(`"${name}" already exists in your skills.`)
       fs.cpSync(sourceDir, dest, { recursive: true })
       const destFile = path.join(dest, 'SKILL.md')
       const stamped = stampAuthorship(fs.readFileSync(destFile, 'utf8'), {

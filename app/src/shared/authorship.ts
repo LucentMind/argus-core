@@ -121,7 +121,9 @@ export function mergeAuthorship(incoming: string, existing: string | null): stri
  * `origin: null` means "this write is not authorship" — claim and any other take-ownership
  * action passes it, so the claimer joins the contributor list without the asset asserting that
  * they wrote it. A non-null origin sets author+origin only when there is no author yet; `fork`
- * additionally overwrites origin, which is the sole case where origin is ever rewritten.
+ * and `import` additionally overwrite origin even when an author is already present — both are
+ * take-ownership events (a copy landing in a new location) that must be recorded regardless of
+ * who originally wrote the file, which the existing `author:` is deliberately left untouched.
  *
  * Dates are day-resolution: the same person stamping twice in one day yields byte-identical
  * output, so repeat saves do not dirty the file or add noise to a HiveMind push diff.
@@ -139,7 +141,7 @@ export function stampAuthorship(
     if (!fmField(fm, 'author')) {
       flat.author = formatIdentity(identity)
       flat.origin = origin
-    } else if (origin === 'fork') {
+    } else if (origin === 'fork' || origin === 'import') {
       flat.origin = origin
     }
   }

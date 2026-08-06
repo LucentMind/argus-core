@@ -74,7 +74,7 @@ describe('scanClaudeSkills', () => {
     addClaudeSkill(path.join(claudeHome, '.claude', 'skills'), 'my-notes', 'Personal notes skill')
     const found = scanClaudeSkills(argusHome, { kind: 'global' })
     expect(found[0]).toMatchObject({ name: 'my-notes', status: 'conflict' })
-    expect(found[0].reason).toMatch(/already/i)
+    expect(found[0].reason).toBe('Already in Library.')
   })
 
   it('flags malformed SKILL.md as invalid without aborting the scan', () => {
@@ -138,6 +138,26 @@ describe('importSkills', () => {
     expect(a.author).toBe('Jiawei Han <jiawiehan@gmail.com>')
   })
 
+  it('stamps origin "import" even when the source already has an author', () => {
+    const skillsDir = path.join(claudeHome, '.claude', 'skills')
+    const dir = path.join(skillsDir, 'round-tripped')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, 'SKILL.md'),
+      '---\nname: round-tripped\ndescription: was authored in Argus, hand-copied out, now re-imported\nauthor: Someone Else <someone@example.test>\norigin: authored\n---\nbody\n'
+    )
+    const me = { name: 'Jiawei Han', email: 'jiawiehan@gmail.com' }
+    importSkills(argusHome, [{ name: 'round-tripped', sourceDir: dir }], me)
+    const raw = fs.readFileSync(
+      path.join(userSkillsDir(argusHome), 'round-tripped', 'SKILL.md'),
+      'utf8'
+    )
+    const a = parseAuthorship(raw)
+    expect(a.origin).toBe('import')
+    // the ORIGINAL author is preserved — importing doesn't reassign who wrote the file
+    expect(a.author).toBe('Someone Else <someone@example.test>')
+  })
+
   it('refuses a name that collides with a bundled skill, with the shared friendly message', () => {
     fs.mkdirSync(path.join(argusHome, 'skills', 'analyze-applog'), { recursive: true })
     fs.writeFileSync(
@@ -155,6 +175,26 @@ describe('importSkills', () => {
       { name: 'analyze-applog', ok: false, error: expect.stringContaining('ships with a pack') }
     ])
     expect(fs.existsSync(path.join(userSkillsDir(argusHome), 'analyze-applog'))).toBe(false)
+  })
+
+  it('refuses to merge into a leftover skills-user dir that has no SKILL.md yet', () => {
+    const skillsDir = path.join(claudeHome, '.claude', 'skills')
+    addClaudeSkill(skillsDir, 'half-copied', 'A fine skill')
+    // simulate a prior import that cpSync'd partway through and left a SKILL.md-less directory
+    // behind — invisible to resolveSkills/existingNames since scanTier requires a SKILL.md.
+    fs.mkdirSync(path.join(argusHome, 'skills-user', 'half-copied'), { recursive: true })
+    fs.writeFileSync(
+      path.join(argusHome, 'skills-user', 'half-copied', 'some-other-file.txt'),
+      'leftover'
+    )
+    const results = importSkills(
+      argusHome,
+      [{ name: 'half-copied', sourceDir: path.join(skillsDir, 'half-copied') }],
+      null
+    )
+    expect(results).toEqual([
+      { name: 'half-copied', ok: false, error: expect.stringContaining('already exists') }
+    ])
   })
 
   it('re-validates against live state rather than trusting the scan snapshot', () => {
