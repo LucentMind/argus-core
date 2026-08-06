@@ -60,7 +60,8 @@ import {
   writeTopicFile,
   deleteTopic,
   readAudit,
-  MEMORY_INDEX_MAX_LINES
+  MEMORY_INDEX_MAX_LINES,
+  MEMORY_TOPIC_MAX_BYTES
 } from './services/memory'
 import { archiveTopic, restoreTopic } from './services/memoryHygiene'
 import {
@@ -800,7 +801,8 @@ function registerIpc(): void {
     return {
       topics: listTopics(argusHome).map((t) => ({ ...t, enabled: topicEnabled(access, t.name) })),
       indexLines,
-      capLines: MEMORY_INDEX_MAX_LINES
+      capLines: MEMORY_INDEX_MAX_LINES,
+      capBytes: MEMORY_TOPIC_MAX_BYTES
     }
   }
 

@@ -25,11 +25,31 @@ vi.mock('../../../lib/accessStore', () => ({
 
 const topics: MemoryTopicsPayload = {
   topics: [
-    { name: 'hot-topic', sizeBytes: 2048, lastWritten: '2026-07-19T10:00:00.000Z', enabled: true },
-    { name: 'cold-topic', sizeBytes: 1024, lastWritten: '2026-01-05T10:00:00.000Z', enabled: true }
+    {
+      name: 'hot-topic',
+      sizeBytes: 2048,
+      lastWritten: '2026-07-19T10:00:00.000Z',
+      enabled: true,
+      scope: 'environment'
+    },
+    {
+      name: 'cold-topic',
+      sizeBytes: 1024,
+      lastWritten: '2026-01-05T10:00:00.000Z',
+      enabled: true,
+      scope: 'preference'
+    },
+    {
+      name: 'legacy-topic',
+      sizeBytes: 9000,
+      lastWritten: '2026-01-05T10:00:00.000Z',
+      enabled: true,
+      scope: null
+    }
   ],
   indexLines: 2,
-  capLines: 200
+  capLines: 200,
+  capBytes: 4096
 }
 const usage: UsageStatsPayload = {
   hygiene: { staleDays: 45, minRecalls: 3, trackingStartedAt: '2026-01-01T00:00:00.000Z' },
@@ -93,6 +113,17 @@ describe('MemorySettings usage + hygiene', () => {
     expect(await screen.findByText(/never recalled/)).toBeInTheDocument()
     const stale = await screen.findAllByText('stale')
     expect(stale).toHaveLength(1)
+  })
+
+  it('renders the scope chip, the byte size, and an over-cap flag', async () => {
+    render(<MemorySettings />)
+
+    expect(await screen.findByText('environment')).toBeInTheDocument()
+    expect(screen.getByText('preference')).toBeInTheDocument()
+    expect(screen.getByText('2048 B')).toBeInTheDocument()
+    // the unscoped topic gets no chip; only the 9000-byte one is flagged
+    expect(screen.queryByText('correction')).not.toBeInTheDocument()
+    expect(screen.getAllByText(/over cap/i)).toHaveLength(1)
   })
 
   it('archive asks for confirmation then calls memory.archive', async () => {

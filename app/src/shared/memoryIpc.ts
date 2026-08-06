@@ -10,16 +10,22 @@
  * rootDir containment check. So the two small shapes are duplicated here instead,
  * structurally identical to `main/services/memory.ts`'s `MemoryTopic`/`MemoryAuditEntry`.
  */
+import type { MemoryScope } from './memoryScope'
+
 export interface MemoryTopic {
   name: string
   sizeBytes: number
   lastWritten: string
+  /** null for a pre-feature or hand-created topic; the UI then shows no chip. */
+  scope: MemoryScope | null
 }
 
 export interface MemoryTopicsPayload {
   topics: Array<MemoryTopic & { enabled: boolean }>
   indexLines: number
   capLines: number
+  /** MEMORY_TOPIC_MAX_BYTES — what an agent write may produce; the user's own edits are free. */
+  capBytes: number
 }
 
 export interface MemoryAuditEntry {

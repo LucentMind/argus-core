@@ -548,3 +548,20 @@ describe('the per-topic byte cap', () => {
     ).toThrow(/append_finding/)
   })
 })
+
+describe('listTopics reports the stored scope', () => {
+  it('reads the scope out of a topic\'s frontmatter', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'dlt', content: 'x', scope: 'environment' })
+    expect(listTopics(argusHome).find((t) => t.name === 'dlt')?.scope).toBe('environment')
+  })
+
+  it('reports null for a hand-created topic with no frontmatter', () => {
+    writeTopicFile(argusHome, 'legacy', 'just a body, no frontmatter\n')
+    expect(listTopics(argusHome).find((t) => t.name === 'legacy')?.scope).toBeNull()
+  })
+
+  it('reports null for a frontmatter block with an unrecognised scope value', () => {
+    writeTopicFile(argusHome, 'weird', '---\nscope: workflow\n---\nbody\n')
+    expect(listTopics(argusHome).find((t) => t.name === 'weird')?.scope).toBeNull()
+  })
+})

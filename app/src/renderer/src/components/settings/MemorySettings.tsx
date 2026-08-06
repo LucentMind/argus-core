@@ -290,6 +290,19 @@ export function MemorySettings(): React.JSX.Element {
                     label={t.name}
                     description={`last written ${t.lastWritten.slice(0, 10)}${usageLine(u)}`}
                   >
+                    {t.scope && <Chip tone="neutral">{t.scope}</Chip>}
+                    <Chip tone={t.sizeBytes > payload.capBytes ? 'danger' : 'neutral'}>
+                      {t.sizeBytes} B
+                    </Chip>
+                    {t.sizeBytes > payload.capBytes && (
+                      <Chip tone="danger">
+                        <span
+                          title={`Larger than the ${payload.capBytes}-byte cap on agent writes. Your own edits are not capped — this is a nudge to move the non-personal bulk into a reference.`}
+                        >
+                          over cap
+                        </span>
+                      </Chip>
+                    )}
                     {u?.staleCandidate && (
                       <Chip tone="review">
                         <span

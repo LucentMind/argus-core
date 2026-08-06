@@ -5,7 +5,7 @@ import { topicEnabled, type AgentAccess } from '../../shared/agentAccess'
 import { fillPrompt } from './prompts/fill'
 import type { PromptTextSpecs } from '../../shared/promptSpec'
 import { MEMORY_SCOPES, type MemoryScope } from '../../shared/memoryScope'
-import { withFrontmatter } from '../../shared/frontmatter'
+import { fmBlock, fmField, withFrontmatter } from '../../shared/frontmatter'
 
 export const MEMORY_INDEX_MAX_LINES = 200
 
@@ -25,6 +25,9 @@ export interface MemoryTopic {
   name: string
   sizeBytes: number
   lastWritten: string
+  /** From the file's `scope:` frontmatter. null for a pre-feature or hand-created topic, and
+   *  for any value outside MEMORY_SCOPES — the UI shows no chip rather than an invented one. */
+  scope: MemoryScope | null
 }
 
 export interface MemoryAuditEntry {
@@ -80,8 +83,16 @@ export function listTopics(argusHome: string): MemoryTopic[] {
     .readdirSync(dir)
     .filter((f) => f.endsWith('.md') && f !== '_index.md')
     .map((f) => {
-      const st = fs.statSync(path.join(dir, f))
-      return { name: f.slice(0, -3), sizeBytes: st.size, lastWritten: st.mtime.toISOString() }
+      const full = path.join(dir, f)
+      const st = fs.statSync(full)
+      const block = fmBlock(fs.readFileSync(full, 'utf8'))
+      const raw = block ? fmField(block.fm, 'scope') : ''
+      return {
+        name: f.slice(0, -3),
+        sizeBytes: st.size,
+        lastWritten: st.mtime.toISOString(),
+        scope: MEMORY_SCOPES.includes(raw as MemoryScope) ? (raw as MemoryScope) : null
+      }
     })
     .sort((a, b) => a.name.localeCompare(b.name))
 }
