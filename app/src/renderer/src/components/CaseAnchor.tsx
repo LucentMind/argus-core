@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { MenuButton } from './ui'
+import { MenuButton, Checkbox } from './ui'
 import { uiStore } from '../lib/uiStore'
 import { notice } from '../lib/noticeStore'
+import { confirm } from '../lib/confirmStore'
 import { useDistillJob, distillMenuLabel, isDistillInFlight } from '../lib/distillJob'
 import { CASE_RESOLUTIONS } from '../../../shared/types'
 import type { CaseResolution, CaseStatus } from '../../../shared/types'
@@ -22,6 +23,31 @@ import type { DistillJobRow } from '../../../shared/distill'
  * `JiraSection`: one component owns one subject end to end. `Close case` is what lets the anchor
  * have no `×` — the active case is not in the tab strip any more, so there is no `×` to press.
  */
+
+/** The confirm dialog's checkbox content. Its own `useState` gives it independent re-renders
+ *  inside `ConfirmHost`'s static `message` tree; `onChange` reports the current value back to
+ *  the caller via closure, since `confirm()` itself only ever resolves accept/cancel. */
+function DistillOptIn({
+  initial,
+  onChange
+}: {
+  initial: boolean
+  onChange: (next: boolean) => void
+}): React.JSX.Element {
+  const [checked, setChecked] = useState(initial)
+  return (
+    <Checkbox
+      checked={checked}
+      onChange={(next) => {
+        setChecked(next)
+        onChange(next)
+      }}
+      label="Start distillation"
+      aria-label="Start distillation"
+    />
+  )
+}
+
 export function CaseAnchor({
   slug,
   status,
@@ -72,9 +98,29 @@ export function CaseAnchor({
   }, [tracked])
   const distillJob = override ?? tracked
 
-  async function applyStatus(next: CaseStatus, res: CaseResolution | null): Promise<void> {
-    await window.argus.cases.setStatus(slug, next, res)
+  async function applyStatus(
+    next: CaseStatus,
+    res: CaseResolution | null,
+    distill = true
+  ): Promise<void> {
+    await window.argus.cases.setStatus(slug, next, res, distill)
     onStatusChanged()
+  }
+
+  async function confirmClose(res: CaseResolution): Promise<void> {
+    let defaultDistill = true
+    try {
+      defaultDistill = await window.argus.distill.needsRun(slug)
+    } catch {
+      defaultDistill = true
+    }
+    let distill = defaultDistill
+    const ok = await confirm({
+      title: `Close case as ${res}?`,
+      message: <DistillOptIn initial={defaultDistill} onChange={(next) => (distill = next)} />
+    })
+    if (!ok) return
+    await applyStatus('closed', res, distill)
   }
 
   async function exportBundle(includeTranscripts: boolean): Promise<void> {
@@ -87,7 +133,7 @@ export function CaseAnchor({
   const statusItems = [
     ...CASE_RESOLUTIONS.map((r) => ({
       label: r,
-      onSelect: () => void applyStatus('closed', r)
+      onSelect: () => void confirmClose(r)
     })),
     ...(status === 'closed'
       ? [{ label: 'Reopen', onSelect: () => void applyStatus('open', null) }]

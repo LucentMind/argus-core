@@ -3,6 +3,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CaseAnchor } from '../CaseAnchor'
+import { ConfirmHost } from '../ConfirmHost'
 import { uiStore } from '../../lib/uiStore'
 import { noticeStore } from '../../lib/noticeStore'
 import type { DistillJobRow, DistillStatusPayload } from '../../../../shared/distill'
@@ -10,6 +11,7 @@ import type { DistillJobRow, DistillStatusPayload } from '../../../../shared/dis
 let statusMock: ReturnType<typeof vi.fn>
 let redistillMock: ReturnType<typeof vi.fn>
 let cancelMock: ReturnType<typeof vi.fn>
+let needsRunMock: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   noticeStore.reset()
@@ -26,6 +28,8 @@ beforeEach(() => {
   redistillMock.mockResolvedValue(undefined)
   cancelMock = vi.fn()
   cancelMock.mockResolvedValue(undefined)
+  needsRunMock = vi.fn()
+  needsRunMock.mockResolvedValue(true)
   window.argus = {
     cases: { setStatus: setStatusMock },
     bundle: { export: exportMock },
@@ -33,7 +37,8 @@ beforeEach(() => {
       status: statusMock,
       onChanged: onChangedMock,
       redistill: redistillMock,
-      cancel: cancelMock
+      cancel: cancelMock,
+      needsRun: needsRunMock
     }
   } as never
 })
@@ -45,13 +50,16 @@ function renderAnchor(overrides?: {
   onHome?: () => void
 }): void {
   render(
-    <CaseAnchor
-      slug="NN-5187"
-      status={(overrides?.status ?? 'open') as never}
-      resolution={(overrides?.resolution ?? null) as never}
-      onStatusChanged={overrides?.onStatusChanged ?? vi.fn()}
-      onHome={overrides?.onHome ?? vi.fn()}
-    />
+    <>
+      <CaseAnchor
+        slug="NN-5187"
+        status={(overrides?.status ?? 'open') as never}
+        resolution={(overrides?.resolution ?? null) as never}
+        onStatusChanged={overrides?.onStatusChanged ?? vi.fn()}
+        onHome={overrides?.onHome ?? vi.fn()}
+      />
+      <ConfirmHost />
+    </>
   )
 }
 
@@ -101,7 +109,7 @@ describe('CaseAnchor', () => {
     // "Reopen" is a leaf item inside the now-open submenu; drive it with fireEvent.
     fireEvent.click(screen.getByText('Reopen'))
     await vi.waitFor(() =>
-      expect(window.argus.cases.setStatus).toHaveBeenCalledWith('NN-5187', 'open', null)
+      expect(window.argus.cases.setStatus).toHaveBeenCalledWith('NN-5187', 'open', null, true)
     )
     await vi.waitFor(() => expect(onStatusChanged).toHaveBeenCalled())
   })
@@ -125,10 +133,80 @@ describe('CaseAnchor', () => {
     await user.click(screen.getByText('Close as…'))
     await vi.waitFor(() => expect(screen.getByText('solved')).toBeTruthy())
     fireEvent.click(screen.getByText('solved'))
+    await screen.findByText('Close case as solved?')
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     await vi.waitFor(() =>
-      expect(window.argus.cases.setStatus).toHaveBeenCalledWith('NN-5187', 'closed', 'solved')
+      expect(window.argus.cases.setStatus).toHaveBeenCalledWith('NN-5187', 'closed', 'solved', true)
     )
     await vi.waitFor(() => expect(onStatusChanged).toHaveBeenCalled())
+  })
+
+  it('preselects the distill checkbox unchecked when needsRun resolves false, and honors it', async () => {
+    needsRunMock.mockResolvedValue(false)
+    const user = userEvent.setup()
+    renderAnchor()
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    await user.click(screen.getByText('Close as…'))
+    await vi.waitFor(() => expect(screen.getByText('solved')).toBeTruthy())
+    fireEvent.click(screen.getByText('solved'))
+    const checkbox = (await screen.findByLabelText('Start distillation')) as HTMLInputElement
+    expect(checkbox.checked).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await vi.waitFor(() =>
+      expect(window.argus.cases.setStatus).toHaveBeenCalledWith(
+        'NN-5187',
+        'closed',
+        'solved',
+        false
+      )
+    )
+  })
+
+  it('lets the user uncheck a preselected-checked distill checkbox before confirming', async () => {
+    needsRunMock.mockResolvedValue(true)
+    const user = userEvent.setup()
+    renderAnchor()
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    await user.click(screen.getByText('Close as…'))
+    await vi.waitFor(() => expect(screen.getByText('solved')).toBeTruthy())
+    fireEvent.click(screen.getByText('solved'))
+    const checkbox = (await screen.findByLabelText('Start distillation')) as HTMLInputElement
+    expect(checkbox.checked).toBe(true)
+    fireEvent.click(checkbox)
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await vi.waitFor(() =>
+      expect(window.argus.cases.setStatus).toHaveBeenCalledWith(
+        'NN-5187',
+        'closed',
+        'solved',
+        false
+      )
+    )
+  })
+
+  it('cancelling the close confirmation closes nothing', async () => {
+    const user = userEvent.setup()
+    renderAnchor()
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    await user.click(screen.getByText('Close as…'))
+    await vi.waitFor(() => expect(screen.getByText('solved')).toBeTruthy())
+    fireEvent.click(screen.getByText('solved'))
+    await screen.findByText('Close case as solved?')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(window.argus.cases.setStatus).not.toHaveBeenCalled()
+  })
+
+  it('defaults to checked (fail open) when needsRun rejects', async () => {
+    needsRunMock.mockRejectedValue(new Error('boom'))
+    const user = userEvent.setup()
+    renderAnchor()
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    await user.click(screen.getByText('Close as…'))
+    await vi.waitFor(() => expect(screen.getByText('solved')).toBeTruthy())
+    fireEvent.click(screen.getByText('solved'))
+    const checkbox = (await screen.findByLabelText('Start distillation')) as HTMLInputElement
+    expect(checkbox.checked).toBe(true)
   })
 
   it('reports a finished export as a notice, not as anchor text', async () => {
