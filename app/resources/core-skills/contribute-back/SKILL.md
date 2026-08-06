@@ -27,8 +27,8 @@ environment | correction). It is never for knowledge a teammate would also want,
 how durable or reusable the fact is: that is **team-valuable**, and it goes in the table
 above as `reference-edit` (which CREATES the reference if the target doesn't exist yet) or
 one of the other proposal types. Detail that only matters for this case is neither memory nor
-a proposal — that's `append_finding`. So: true for you alone → `write_memory`; true for the
-whole team → a proposal (this page); true only for this case → `append_finding`.
+a proposal — that's `append_finding`. So: true only for this user and machine → `write_memory`;
+true for the whole team → a proposal (this page); true only for this case → `append_finding`.
 
 ## How to propose
 

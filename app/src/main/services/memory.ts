@@ -206,7 +206,12 @@ export const MEMORY_FEEDBACK: PromptTextSpecs = {
 }
 
 /** Backend for the write_memory native tool. REPLACES the topic body (previous body → memory/.bak);
- *  maintains the index; audits. There is no append path. */
+ *  maintains the index; audits. There is no append path.
+ *
+ *  `access` is optional and DEFAULTS OPEN: omitting it skips the agent-access topic gate below.
+ *  That default exists for the archive/restore and test call sites, which are the user's own
+ *  doing and must not be gated by the agent's permissions — but any new AGENT-reachable caller
+ *  must pass it, or the gate silently does nothing for that path. */
 export function applyMemoryWrite(
   argusHome: string,
   caseSlug: string,
