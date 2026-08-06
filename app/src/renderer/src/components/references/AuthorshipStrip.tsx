@@ -4,7 +4,8 @@ import { parseAuthorship, authorName, type Origin } from '../../../../shared/aut
 const ORIGIN_LABEL: Record<Origin, string> = {
   authored: 'written by hand',
   proposal: 'from an agent proposal',
-  fork: 'forked'
+  fork: 'forked',
+  import: 'imported from Claude'
 }
 
 /** The audit trail, rendered from the raw file the viewer already loaded — no IPC involved. */

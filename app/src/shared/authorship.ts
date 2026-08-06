@@ -15,7 +15,7 @@ import {
   withFrontmatterList
 } from './frontmatter'
 
-export type Origin = 'authored' | 'proposal' | 'fork'
+export type Origin = 'authored' | 'proposal' | 'fork' | 'import'
 export interface Identity {
   name: string
   email: string
@@ -32,7 +32,7 @@ export interface Authorship {
   contributors: Contributor[]
 }
 
-const ORIGINS: readonly string[] = ['authored', 'proposal', 'fork']
+const ORIGINS: readonly string[] = ['authored', 'proposal', 'fork', 'import']
 
 /** `Name <email> YYYY-MM-DD` — the name may be empty, the date is required. */
 const CONTRIBUTOR_RE = /^(.*?)\s*<([^>]+)>\s+(\d{4}-\d{2}-\d{2})$/

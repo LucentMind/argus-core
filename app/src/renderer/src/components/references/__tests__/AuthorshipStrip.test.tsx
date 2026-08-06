@@ -35,4 +35,13 @@ describe('AuthorshipStrip', () => {
     expect(screen.getByText('A B')).toBeInTheDocument()
     expect(screen.queryByText(/agent proposal|by hand|forked/)).not.toBeInTheDocument()
   })
+
+  it('renders the import origin label', () => {
+    render(
+      <AuthorshipStrip
+        raw={'---\nauthor: A B <a@x.test>\norigin: import\n---\nbody'}
+      />
+    )
+    expect(screen.getByText(/imported from claude/i)).toBeInTheDocument()
+  })
 })
