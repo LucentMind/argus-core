@@ -731,6 +731,12 @@ function registerIpc(): void {
     broadcast(IPC.refsyncChanged, refSync.payload())
   }
   refSyncStore.subscribe(() => referencesChanged())
+  // Heal the router once at boot, after seedSharedAssets has laid down pack references.
+  // Existing installs carry an INDEX.md last written by whenever their final Confluence sync
+  // apply ran — on this machine, five days and one hand-authored reference out of date — and
+  // without this it stays wrong until something happens to mutate a reference. No broadcast:
+  // no window exists yet, and regenerateIndex writes nothing when the content already matches.
+  refSync.regenerateIndex()
 
   // — case-close distillation (part 3a): mirrors the resolveSkills(...) call used by
   // skillsPayload() below, filtered to enabled and mapped to the {name, description, content}
