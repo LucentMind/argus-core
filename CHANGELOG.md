@@ -1,5 +1,56 @@
 # Changelog
 
+## v2.0.8 — 2026-08-06
+
+23 commits since v2.0.7, 38 files changed (+1,845 / −117).
+
+### Added
+
+**References are finally visible to the agent**
+
+- Every session now receives a prompt-visible reference index — built fresh
+  from the references directory (not read off `INDEX.md`, so a missed
+  writer can't poison it), one line per reference with a capped 160-char
+  summary and a 60-entry cap with an "…and N more" tail, telling the agent
+  where to `Read` a file to register real usage.
+- `INDEX.md` itself now regenerates on every reference mutation and heals a
+  stale copy at boot, off a single recursive walk shared by statuses, the
+  index, search, and usage — closing the gap where references existed but
+  were never actually surfaced to any agent.
+
+**Import skills from Claude**
+
+- The Library's New menu gains "Import from Claude," which scans your local
+  Claude skill directories and copies selected ones into `skills-user`
+  through a picker dialog (conflict detection included).
+- Imported skills are stamped with an `import` origin the same way a fork
+  gets a `fork` origin, so a re-imported Argus-authored skill doesn't keep
+  stale authorship metadata.
+- The IPC-supplied source directory is validated to actually look like a
+  Claude skills path (`<root>/.claude/skills/<name>`) before anything reads
+  from or copies out of it.
+
+**Case close**
+
+- Closing a case now checks whether its distillation is stale and offers an
+  opt-out checkbox to run one as part of the close confirmation, gated to
+  the actual open→closed transition.
+
+### Fixed
+
+- Reference walk: a nested `INDEX.md` is now excluded by basename rather
+  than path, so a pack shipping its own sub-router doesn't get its
+  generated file offered as an editable asset; unguarded `readdirSync`
+  calls in the walk that could abort session creation on a permission error
+  are now guarded to degrade to "no references" instead.
+- Prompts: the reference index is declared in the preview's omitted-blocks
+  list so it doesn't silently inflate a size estimate meant to exclude it.
+- Import dialog: the Cancel button and close paths are now gated on the
+  dialog's actual busy state (scanning excluded) rather than blocking
+  dismissal during the initial scan; a result-list index mismatch during
+  confirm now falls back to a synthetic failure instead of misreading a
+  neighboring result.
+
 ## v2.0.7 — 2026-08-06
 
 120 commits since v2.0.6, 149 files changed (+12,270 / −1,071).
