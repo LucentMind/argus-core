@@ -202,12 +202,15 @@ describe('argus native tools', () => {
   it('the memory-facing descriptions state the personal-only rule and both redirects', () => {
     const wm = NATIVE_TOOL_SPECS.find((s) => s.name === 'write_memory')!.description
     expect(wm).toMatch(/preference \| environment \| correction/)
-    expect(wm).toMatch(/read_memory/) // replace semantics: read first, hand back the whole body
+    // replace semantics: REPLACES the whole body, and read_memory first before handing it back
+    expect(wm).toMatch(/REPLACES the whole topic body: call read_memory first/)
     expect(wm).toMatch(/reference-edit/)
     expect(wm).toMatch(/append_finding/)
+    expect(wm).toMatch(/4096 bytes/) // byte budget
 
     const wp = NATIVE_TOOL_SPECS.find((s) => s.name === 'write_proposal')!.description
-    expect(wp).toMatch(/CREATES/) // reference-edit creates a reference that does not exist yet
+    // reference-edit specifically creates a reference that does not exist yet
+    expect(wp).toMatch(/reference-edit CREATES the reference when the target does not exist/)
   })
 
   it('list_evidence shows a review session only artifacts', async () => {

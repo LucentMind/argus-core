@@ -836,7 +836,7 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'read_memory',
     description:
-      'Load a lesson from agent memory by topic name (the names appear in the Agent memory index lines in your context).',
+      'Load a fact from agent memory by topic name (the names appear in the Agent memory index lines in your context).',
     schema: { topic: z.string() }
   },
   {
