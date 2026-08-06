@@ -68,6 +68,7 @@ export function ImportSkillsDialog({ onClose }: { onClose: () => void }): React.
 
   const importable = items.filter((i) => i.status === 'importable')
   const allSelected = importable.length > 0 && importable.every((i) => selected.has(i.sourceDir))
+  const busy = scanning || browsing || applying
 
   async function confirmImport(): Promise<void> {
     const toImport = items
@@ -79,14 +80,16 @@ export function ImportSkillsDialog({ onClose }: { onClose: () => void }): React.
     setFailures({})
     try {
       const { results } = await window.argus.skills.applyImport(toImport)
-      const failed = results.filter((r) => !r.ok)
+      const failed = toImport
+        .map((item, idx) => ({ item, result: results[idx] }))
+        .filter(({ result }) => !result.ok)
       if (failed.length > 0) {
-        setFailures(Object.fromEntries(failed.map((r) => [r.name, r.error ?? 'Import failed.'])))
-        setSelected(
-          new Set(
-            items.filter((i) => failed.some((f) => f.name === i.name)).map((i) => i.sourceDir)
+        setFailures(
+          Object.fromEntries(
+            failed.map(({ item, result }) => [item.sourceDir, result.error ?? 'Import failed.'])
           )
         )
+        setSelected(new Set(failed.map(({ item }) => item.sourceDir)))
       } else {
         onClose()
       }
@@ -102,7 +105,7 @@ export function ImportSkillsDialog({ onClose }: { onClose: () => void }): React.
     <ModalShell
       title={title}
       ariaLabel={title}
-      onClose={onClose}
+      onClose={busy ? () => {} : onClose}
       className="flex max-h-[80vh] w-[32rem] flex-col"
     >
       <div className="flex flex-1 flex-col gap-3 overflow-hidden p-4">
@@ -162,8 +165,8 @@ export function ImportSkillsDialog({ onClose }: { onClose: () => void }): React.
                     {i.status === 'importable' && i.description && (
                       <div className="text-xs text-dim">{i.description}</div>
                     )}
-                    {failures[i.name] && (
-                      <div className="text-xs text-danger">{failures[i.name]}</div>
+                    {failures[i.sourceDir] && (
+                      <div className="text-xs text-danger">{failures[i.sourceDir]}</div>
                     )}
                   </div>
                 </div>

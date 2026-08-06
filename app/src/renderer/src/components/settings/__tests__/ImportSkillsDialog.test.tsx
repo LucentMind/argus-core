@@ -115,4 +115,47 @@ describe('ImportSkillsDialog', () => {
     expect(await screen.findByText(/already exists in your Library/)).toBeInTheDocument()
     expect(onClose).not.toHaveBeenCalled()
   })
+
+  it('attributes a partial failure by position when two selected items share a name from different sources', async () => {
+    const projectDup: SkillImportCandidate = {
+      name: 'my-notes',
+      sourceDir: '/repo/.claude/skills/my-notes',
+      description: 'from the project',
+      status: 'importable'
+    }
+    argus.skills.scanImport
+      .mockResolvedValueOnce(globalScan)
+      .mockResolvedValueOnce([projectDup])
+    argus.workspaces.pick.mockResolvedValue('/repo')
+    argus.skills.applyImport.mockResolvedValue({
+      results: [
+        { name: 'my-notes', ok: false, error: '"my-notes" already exists in your Library.' },
+        { name: 'my-notes', ok: true }
+      ],
+      payload: { skills: [] }
+    } satisfies SkillImportApplyResult)
+    const onClose = vi.fn()
+    render(<ImportSkillsDialog onClose={onClose} />)
+
+    await waitFor(() => expect(argus.skills.scanImport).toHaveBeenCalledTimes(1))
+    fireEvent.click(screen.getByRole('button', { name: 'Browse project folder…' }))
+    await screen.findByLabelText('Import · my-notes')
+
+    const checkboxes = screen.getAllByLabelText('Import · my-notes')
+    expect(checkboxes).toHaveLength(2)
+    fireEvent.click(checkboxes[0])
+    fireEvent.click(checkboxes[1])
+    fireEvent.click(screen.getByRole('button', { name: /Import \(2\)/ }))
+
+    await waitFor(() =>
+      expect(argus.skills.applyImport).toHaveBeenCalledWith([
+        { name: 'my-notes', sourceDir: '/home/me/.claude/skills/my-notes' },
+        { name: 'my-notes', sourceDir: '/repo/.claude/skills/my-notes' }
+      ])
+    )
+    await waitFor(() => expect(checkboxes[0]).toBeChecked())
+    expect(checkboxes[1]).not.toBeChecked()
+    expect(screen.getByText(/already exists in your Library/)).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+  })
 })
