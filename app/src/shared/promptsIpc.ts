@@ -124,6 +124,7 @@ export interface SessionPromptCapture {
   systemAppend: string
   fragments: PromptCaptureFragment[]
   skillIndex: string
+  referenceIndex: string
   memoryIndex: string
   enabledSkills: string[]
   tools: PromptCaptureTool[]

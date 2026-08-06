@@ -127,6 +127,7 @@ import { TextDocSearchHub, type TextDocSearchOpts } from './services/textdocSear
 import type { TextDocSource } from '../shared/textdoc'
 import { searchMessages, searchAllMessages } from './services/chatSearch'
 import { AgentService } from './services/agent/registry'
+import { buildReferenceIndex } from './services/agent/referenceIndex'
 import { flattenPanelCommands } from './services/agent/panelCommands'
 import {
   listSessions,
@@ -1416,6 +1417,8 @@ function registerIpc(): void {
       graphsRoot(argusHome)
     ],
     personaFragments: () => packRegistry.personaFragments(),
+    referenceIndex: () =>
+      buildReferenceIndex(sharedReferencesDir(argusHome), refSyncStore.get(), resolvePrompt),
     packCliNames: () => packRegistry.binaryDecls().flatMap(({ decl }) => decl.names),
     resolvePrompt,
     activeOverrides: () => promptStore.activeOverrideIds(),

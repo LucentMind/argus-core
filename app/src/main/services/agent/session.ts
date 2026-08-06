@@ -76,6 +76,9 @@ export interface SessionDeps {
    *  after the persona. The driver allowlist (`enabledSkills`) is unaffected — advertising is
    *  scoped, availability is not. */
   skillIndex?: string
+  /** Prompt-visible index of team references (agent/referenceIndex.ts, built in index.ts).
+   *  Mode-independent, unlike skillIndex — a reference is relevant to a case, not to a role. */
+  referenceIndex?: string
   /** Registry ids parallel to `personaFragments` (from `assembleMode`); attributes captured
    *  bytes to the entry that produced them. */
   personaFragmentIds?: (string | null)[]
@@ -250,6 +253,13 @@ export class CaseSession {
     const skillIndexAppend = (deps.skillIndex ?? '').trim()
       ? `\n\n${(deps.skillIndex ?? '').trim()}`
       : ''
+    // References used to be advertised nowhere: not here, not in the case CLAUDE.md working
+    // rules, not in any shipped skill — so agents never opened one and usage stats correctly
+    // reported every reference as never read. buildReferenceIndex supplies its own lead line,
+    // same as buildSkillIndex, so only the blank-line separator is added here.
+    const referenceIndexAppend = (deps.referenceIndex ?? '').trim()
+      ? `\n\n${(deps.referenceIndex ?? '').trim()}`
+      : ''
     this.riskCtx = {
       caseDir: dir,
       workspaceRoots: deps.workspaceRoots,
@@ -274,6 +284,7 @@ export class CaseSession {
     const systemAppend =
       composePersona(deps.personaFragments ?? [], ao.personaAppend) +
       skillIndexAppend +
+      referenceIndexAppend +
       memoryAppend
     // personaAppend is a user setting (Settings page), not a registry entry — attribute it with
     // a null id, same as pack fragments, so captureFragments accounts for every byte
@@ -307,6 +318,7 @@ export class CaseSession {
               activeOverrides
             }),
             skillIndex: deps.skillIndex ?? '',
+            referenceIndex: deps.referenceIndex ?? '',
             memoryIndex: memIndex,
             enabledSkills: deps.enabledSkills ?? [],
             tools: captureTools({

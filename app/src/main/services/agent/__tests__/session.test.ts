@@ -888,6 +888,35 @@ describe('CaseSession', () => {
     await s.stop('stopped')
   })
 
+  it('appends a non-empty reference index to the system prompt', async () => {
+    // The whole point of the reference-visibility work: references were synced, indexed and
+    // browsable but never in a prompt, so no agent ever read one and every Library row said
+    // "never read" — correctly.
+    const sdk = fakeSdk()
+    const s = makeSession(sdk, {
+      referenceIndex: 'Team references:\n- log-patterns.md — log patterns: How to read logcat.'
+    })
+    await flush()
+    const sys = sdk.captured.options!.systemPrompt as { append: string }
+    expect(sys.append).toContain('Team references:')
+    expect(sys.append).toContain('- log-patterns.md — log patterns: How to read logcat.')
+    await s.stop('stopped')
+  })
+
+  it('an empty reference index contributes nothing — no stray header or blank lines', async () => {
+    const withEmpty = fakeSdk()
+    const a = makeSession(withEmpty, { personaFragments: ['IDENTITY'], referenceIndex: '' })
+    const withNone = fakeSdk()
+    const b = makeSession(withNone, { personaFragments: ['IDENTITY'] })
+    await flush()
+    const appendOf = (sdk: typeof withEmpty): string =>
+      (sdk.captured.options!.systemPrompt as { append: string }).append
+    expect(appendOf(withEmpty)).toBe(appendOf(withNone))
+    expect(appendOf(withEmpty)).not.toMatch(/\n{3}/)
+    await a.stop('stopped')
+    await b.stop('stopped')
+  })
+
   it('an empty skill index contributes nothing — no stray header or blank lines', async () => {
     // Compared against the same session WITHOUT a skill index rather than to a literal, so this
     // stays a statement about the skill index alone. It previously asserted the whole append was

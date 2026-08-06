@@ -15,6 +15,7 @@ function capture(over: Partial<SessionPromptCapture> = {}): SessionPromptCapture
     systemAppend: 'PERSONA\n\n## Agent memory\nindex line',
     fragments: [],
     skillIndex: '',
+    referenceIndex: '',
     memoryIndex: 'index line',
     enabledSkills: [],
     tools: [],

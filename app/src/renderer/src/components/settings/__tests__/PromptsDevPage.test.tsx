@@ -109,6 +109,7 @@ const captureDetail: PromptCaptureDetail = {
       { id: null, label: 'Pack or settings fragment', chars: 6, overridden: false }
     ],
     skillIndex: 'Skills most relevant to this mode:\n- doctor',
+    referenceIndex: 'Team references:\n- log-patterns.md — log patterns: How to read logcat.',
     memoryIndex: '- topic: hook',
     enabledSkills: ['doctor'],
     tools: [{ name: 'grep_lines', description: 'search', origin: 'native' }],

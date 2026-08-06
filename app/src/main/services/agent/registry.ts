@@ -54,6 +54,10 @@ export interface AgentServiceDeps {
   skillsRoots: string[]
   /** Live pack persona fragments (PackRegistry); read at each session construction. */
   personaFragments?: () => string[]
+  /** Prompt-visible index of team references; read at each session construction. A thunk
+   *  because both the references directory and the routing config it reads live in index.ts,
+   *  and the answer must reflect whatever is on disk right now. */
+  referenceIndex?: () => string
   /** Live pack-declared CLI binary names (PackRegistry); read at each session construction. */
   packCliNames?: () => string[]
   onEvent: (e: AgentEvent) => void
@@ -282,6 +286,9 @@ export class AgentService {
       enabledSkills: assembled.enabledSkills,
       personaFragments: assembled.personaFragments,
       skillIndex: assembled.skillIndex,
+      // Not from assembleMode: unlike the skill index this has no mode dimension — a reference
+      // is relevant to a case, not to a role.
+      referenceIndex: this.deps.referenceIndex?.() ?? '',
       personaFragmentIds: assembled.personaFragmentIds,
       activeOverrides: this.deps.activeOverrides,
       recordPromptCapture: this.deps.recordPromptCapture,

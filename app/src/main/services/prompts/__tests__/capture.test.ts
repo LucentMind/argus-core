@@ -27,6 +27,7 @@ function capture(over: Partial<SessionPromptCapture> = {}): SessionPromptCapture
     systemAppend: 'PERSONA TEXT',
     fragments: [{ id: 'persona.neutral', label: 'persona.neutral', chars: 12, overridden: false }],
     skillIndex: '',
+    referenceIndex: '',
     memoryIndex: '',
     enabledSkills: [],
     tools: [],
