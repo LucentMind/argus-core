@@ -38,13 +38,20 @@ function mkCase(overrides: Partial<CaseRecord> = {}): CaseRecord {
     activeMode: DEFAULT_MODE,
     tags: [],
     createdAt: '2026-07-01T00:00:00Z',
-    updatedAt: '2026-07-08T00:00:00Z',
+    // Relative, not a literal: the card renders `updated <age>` in its context line, so a fixed
+    // date here makes that string wander with the calendar (`29d ago` today, `30d ago` tomorrow).
+    updatedAt: daysAgo(2),
     actionItems: [],
     ...overrides
   }
 }
 
-/** Relative to the real clock — these assertions must not rot with the date. */
+/**
+ * Relative to the real clock — these assertions must not rot with the date. Ages built this way
+ * are exact (`formatSyncAge` floors epoch milliseconds, so `daysAgo(9)` always reads `9d ago`),
+ * but match them against a specific slot, not the whole card: a bare /9d ago/ also matches the
+ * tail of `29d ago` elsewhere on it.
+ */
 function daysAgo(n: number): string {
   return new Date(Date.now() - n * 86_400_000).toISOString()
 }
@@ -214,7 +221,15 @@ describe('CaseDashboard triage', () => {
         {...noopHandlers}
       />
     )
-    expect(screen.getAllByText(/9d ago/)).toHaveLength(1)
+    // Asserted per-slot rather than by counting /9d ago/ matches across the card: the context
+    // line renders an `updated Nd ago` of its own, and an unanchored match claimed it as a
+    // second "recency" whenever that N ended in 9 — which, off a hardcoded `updatedAt`, meant
+    // one calendar date in ten.
+    expect(screen.getByTestId('sync-badge').textContent).toBe('9d ago')
+    // The chip row is where the repeat would appear, and it is absent entirely: `stale` is the
+    // only item here, and the card drops it because the footer already states the fact.
+    expect(screen.queryByTestId('action-items')).not.toBeInTheDocument()
+    expect(screen.queryByText('synced 9d ago')).not.toBeInTheDocument()
   })
 
   it('shows the jira priority', () => {
