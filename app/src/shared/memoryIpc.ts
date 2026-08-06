@@ -68,3 +68,21 @@ export interface SkillReadPayload {
   /** Optimistic-concurrency token; hand it back to `skills:write`. */
   hash: string
 }
+
+/** `skills:import-scan`'s input — where to look for importable Claude Code skills. */
+export interface SkillImportSource {
+  kind: 'global' | 'project'
+  /** Required when kind is 'project': scans `<dir>/.claude/skills`. */
+  dir?: string
+}
+
+/** One directory found while scanning a Claude skills folder. */
+export interface SkillImportCandidate {
+  name: string
+  /** Absolute path to the source skill directory (SKILL.md's parent). */
+  sourceDir: string
+  description: string
+  status: 'importable' | 'conflict' | 'invalid'
+  /** Present when status is 'conflict' or 'invalid'. */
+  reason?: string
+}
