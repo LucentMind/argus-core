@@ -221,7 +221,11 @@ describe('importSkills', () => {
     )
     const results = importSkills(argusHome, [{ name: 'my-notes', sourceDir: rogueDir }], null)
     expect(results).toEqual([
-      { name: 'my-notes', ok: false, error: expect.stringContaining('not a Claude skills directory') }
+      {
+        name: 'my-notes',
+        ok: false,
+        error: expect.stringContaining('not a Claude skills directory')
+      }
     ])
     expect(fs.existsSync(path.join(userSkillsDir(argusHome), 'my-notes'))).toBe(false)
   })

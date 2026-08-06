@@ -37,11 +37,7 @@ describe('AuthorshipStrip', () => {
   })
 
   it('renders the import origin label', () => {
-    render(
-      <AuthorshipStrip
-        raw={'---\nauthor: A B <a@x.test>\norigin: import\n---\nbody'}
-      />
-    )
+    render(<AuthorshipStrip raw={'---\nauthor: A B <a@x.test>\norigin: import\n---\nbody'} />)
     expect(screen.getByText(/imported from claude/i)).toBeInTheDocument()
   })
 })

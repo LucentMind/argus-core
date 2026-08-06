@@ -123,9 +123,7 @@ describe('ImportSkillsDialog', () => {
       description: 'from the project',
       status: 'importable'
     }
-    argus.skills.scanImport
-      .mockResolvedValueOnce(globalScan)
-      .mockResolvedValueOnce([projectDup])
+    argus.skills.scanImport.mockResolvedValueOnce(globalScan).mockResolvedValueOnce([projectDup])
     argus.workspaces.pick.mockResolvedValue('/repo')
     argus.skills.applyImport.mockResolvedValue({
       results: [

@@ -117,11 +117,7 @@ export function ImportSkillsDialog({ onClose }: { onClose: () => void }): React.
             {error}
           </p>
         )}
-        <Btn
-          variant="outline"
-          onClick={() => void browseProject()}
-          disabled={busy}
-        >
+        <Btn variant="outline" onClick={() => void browseProject()} disabled={busy}>
           {browsing ? 'Scanning…' : 'Browse project folder…'}
         </Btn>
         {scanning ? (
