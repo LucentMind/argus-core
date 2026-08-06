@@ -152,6 +152,50 @@ describe('assembleBundle', () => {
     expect(fs.existsSync(path.join(staging, 'ui', 'real.txt'))).toBe(true)
   })
 
+  // The real case: a panel is its own npm project several levels down, so the filter
+  // has to bite below the top level of a BUNDLE_DIR too.
+  it('excludes node_modules nested below the top level of a bundle dir', () => {
+    const m = readManifest(SAMPLE)
+    const pack = tmpDir()
+    fs.cpSync(SAMPLE, pack, { recursive: true })
+    const panel = path.join(pack, 'ui', 'panel')
+    fs.mkdirSync(path.join(panel, 'node_modules', 'left-pad'), { recursive: true })
+    fs.writeFileSync(path.join(panel, 'node_modules', 'left-pad', 'index.js'), 'dev dep')
+    fs.writeFileSync(path.join(panel, 'index.html'), '<h1>panel</h1>')
+    fs.mkdirSync(path.join(pack, 'skills', 'demo', 'tool', 'node_modules'), { recursive: true })
+    fs.writeFileSync(path.join(pack, 'skills', 'demo', 'tool', 'node_modules', 'x.js'), 'dev dep')
+
+    const staging = tmpDir()
+    assembleBundle(m, pack, BIN, 'mac-arm64', staging)
+
+    expect(fs.existsSync(path.join(staging, 'ui', 'panel', 'index.html'))).toBe(true)
+    expect(fs.existsSync(path.join(staging, 'ui', 'panel', 'node_modules'))).toBe(false)
+    expect(fs.existsSync(path.join(staging, 'skills', 'demo', 'tool', 'node_modules'))).toBe(false)
+  })
+
+  it('warns naming each dev artifact it skipped, so the build output shows it', () => {
+    const m = readManifest(SAMPLE)
+    const pack = tmpDir()
+    fs.cpSync(SAMPLE, pack, { recursive: true })
+    fs.mkdirSync(path.join(pack, 'ui', 'panel', 'node_modules'), { recursive: true })
+    fs.writeFileSync(path.join(pack, 'ui', 'panel', 'node_modules', 'x.js'), 'dev dep')
+
+    const staging = tmpDir()
+    const { warnings } = assembleBundle(m, pack, BIN, 'mac-arm64', staging)
+    expect(warnings.join('\n')).toMatch(/ui\/panel\/node_modules/)
+  })
+
+  it('reports the skip through build() so the CLI prints it', async () => {
+    const pack = tmpDir()
+    fs.cpSync(SAMPLE, pack, { recursive: true })
+    fs.mkdirSync(path.join(pack, 'ui', 'panel', 'node_modules'), { recursive: true })
+    fs.writeFileSync(path.join(pack, 'ui', 'panel', 'node_modules', 'x.js'), 'dev dep')
+
+    const res = await build({ packDir: pack, binDir: BIN, platform: 'mac-arm64', outDir: tmpDir() })
+    expect(res.warnings.join('\n')).toMatch(/node_modules/)
+    expect(res.files.some((f) => f.includes('node_modules'))).toBe(false)
+  })
+
   it('creates an empty bin/ instead of throwing when --bin does not exist', () => {
     const m = packManifestSchema.parse({ id: 'x', displayName: 'X', version: '1.0.0', argusApi: '^1' })
     const packDir = tmpDir()

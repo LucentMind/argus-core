@@ -94,7 +94,8 @@ export function assembleBundle(
   binDir: string,
   platform: string,
   stagingDir: string
-): void {
+): { warnings: string[] } {
+  const warnings: string[] = []
   fs.mkdirSync(stagingDir, { recursive: true })
 
   // Manifest with platform stamped in — re-validate so an invalid platform
@@ -116,13 +117,20 @@ export function assembleBundle(
   // Declarative dirs (allowlist — never bin-src/.git/etc). Filtered to drop
   // common dev artifacts a working checkout accumulates (node_modules from
   // running a panel's tests, .git, __pycache__, .DS_Store) — otherwise these
-  // ship to every user, silently, and can 10x the bundle size.
+  // ship to every user, silently, and can 10x the bundle size. Each skip is
+  // reported so the build output names what it dropped rather than leaving a
+  // maintainer to infer it from the size line.
   for (const d of BUNDLE_DIRS) {
     const src = path.join(packDir, d)
     if (fs.existsSync(src)) {
       fs.cpSync(src, path.join(stagingDir, d), {
         recursive: true,
-        filter: (from) => !BUNDLE_IGNORE.has(path.basename(from))
+        filter: (from) => {
+          if (!BUNDLE_IGNORE.has(path.basename(from))) return true
+          const rel = path.relative(packDir, from).split(path.sep).join('/')
+          warnings.push(`skipped dev artifact, not bundled: ${rel}`)
+          return false
+        }
       })
     }
   }
@@ -138,6 +146,8 @@ export function assembleBundle(
       if (ent.isFile()) fs.cpSync(path.join(binDir, ent.name), path.join(binOut, ent.name))
     }
   }
+
+  return { warnings }
 }
 
 const CHECKSUMS_FILE = 'CHECKSUMS'
@@ -203,7 +213,7 @@ export async function build(opts: BuildOptions): Promise<BuildResult> {
 
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'packtools-stage-'))
   try {
-    assembleBundle(manifest, opts.packDir, opts.binDir, opts.platform, staging)
+    const staged = assembleBundle(manifest, opts.packDir, opts.binDir, opts.platform, staging)
     writeChecksums(staging)
     const files = walkFiles(staging).sort()
     const totalBytes = files.reduce(
@@ -211,7 +221,7 @@ export async function build(opts: BuildOptions): Promise<BuildResult> {
       0
     )
     const zipPath = await zipBundle(staging, opts.outDir, bundleName)
-    return { zipPath, bundleName, files, totalBytes, warnings }
+    return { zipPath, bundleName, files, totalBytes, warnings: [...warnings, ...staged.warnings] }
   } finally {
     fs.rmSync(staging, { recursive: true, force: true })
   }
