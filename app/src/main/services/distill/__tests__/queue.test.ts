@@ -4,7 +4,8 @@ import path from 'node:path'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
-import { DistillQueue, reconcileAndEnqueue } from '../queue'
+import { createCase } from '../../caseService'
+import { DistillQueue, reconcileAndEnqueue, needsDistillRun } from '../queue'
 import { DistillParseError } from '../contract'
 import type { CaseDistillInput, DistillStatusPayload } from '../../../../shared/distill'
 
@@ -563,5 +564,59 @@ describe('DistillQueue', () => {
     const cur = q.statusFor('case-a')!
     expect(cur.id).toBe(jobA.id)
     expect(cur.state).toBe('running')
+  })
+})
+
+describe('needsDistillRun', () => {
+  it('true when no job has ever run', () => {
+    const { q } = makeQueue()
+    createCase(db, home, { slug: 'case-a', title: 'T' })
+    expect(needsDistillRun(db, q, 'case-a')).toBe(true)
+  })
+
+  it('false while the latest job is queued or running', () => {
+    const { q } = makeQueue({ distill: () => new Promise(() => {}) }) // never resolves
+    createCase(db, home, { slug: 'case-a', title: 'T' })
+    q.enqueue('case-a')
+    expect(needsDistillRun(db, q, 'case-a')).toBe(false)
+  })
+
+  it('true when the latest job failed', async () => {
+    const { q } = makeQueue({
+      distill: async () => {
+        throw new DistillParseError('bad', 'RAW')
+      }
+    })
+    createCase(db, home, { slug: 'case-a', title: 'T' })
+    q.enqueue('case-a')
+    await q.idle()
+    expect(needsDistillRun(db, q, 'case-a')).toBe(true)
+  })
+
+  it('true when the latest job was cancelled', () => {
+    const { q } = makeQueue({ distill: () => new Promise(() => {}) })
+    createCase(db, home, { slug: 'case-a', title: 'T' })
+    const job = q.enqueue('case-a')
+    q.cancel(job.id)
+    expect(needsDistillRun(db, q, 'case-a')).toBe(true)
+  })
+
+  it('false when the latest job is done and no evidence arrived since', async () => {
+    const { q } = makeQueue()
+    createCase(db, home, { slug: 'case-a', title: 'T' })
+    q.enqueue('case-a')
+    await q.idle()
+    expect(needsDistillRun(db, q, 'case-a')).toBe(false)
+  })
+
+  it('true when evidence was added after the last done job\'s snapshot', async () => {
+    const { q } = makeQueue()
+    const rec = createCase(db, home, { slug: 'case-a', title: 'T' })
+    q.enqueue('case-a')
+    await q.idle()
+    db.prepare(
+      `INSERT INTO evidence (case_id, rel_path, sha256, artifact_type, size, created_at) VALUES (?, 'new.log', 'abc', 'text', 10, ?)`
+    ).run(rec.id, '9999-01-01T00:00:00.000Z')
+    expect(needsDistillRun(db, q, 'case-a')).toBe(true)
   })
 })

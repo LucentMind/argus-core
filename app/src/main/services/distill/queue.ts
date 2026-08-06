@@ -389,3 +389,24 @@ export class DistillQueue {
 export function reconcileAndEnqueue(queue: DistillQueue, slug: string): DistillJobRow {
   return queue.enqueue(slug)
 }
+
+/**
+ * Whether the case-close confirm dialog's distill checkbox should default checked: no job has
+ * ever run, the last one failed/was cancelled with nothing to show for it, or evidence arrived
+ * after the last successful job's snapshot was taken (its `created_at`, not `finishedAt` — that's
+ * the moment `assembleInput` actually ran). A job still queued/running already covers this close,
+ * so defaults to unchecked rather than suggesting a second one.
+ */
+export function needsDistillRun(db: DatabaseSync, queue: DistillQueue, slug: string): boolean {
+  const job = queue.statusFor(slug)
+  if (!job) return true
+  if (job.state === 'queued' || job.state === 'running') return false
+  if (job.state === 'failed' || job.state === 'cancelled') return true
+  const row = db
+    .prepare(
+      `SELECT MAX(e.created_at) as maxCreated FROM evidence e JOIN cases c ON c.id = e.case_id WHERE c.slug = ?`
+    )
+    .get(slug) as { maxCreated: string | null } | undefined
+  if (!row?.maxCreated) return false
+  return row.maxCreated > job.createdAt
+}
