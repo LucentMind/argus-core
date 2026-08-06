@@ -365,6 +365,31 @@ it('deleteReference rejects invalid names and the generated index', () => {
   }
 })
 
+it('regenerates INDEX.md when a reference is authored or deleted, not only on sync apply', () => {
+  // Regeneration used to live in applyDrafts and prune only, so a reference authored in the
+  // in-app editor never reached the agent-facing router. Observed on a real ARGUS_HOME: a file
+  // authored 2026-08-01 was still absent from an INDEX.md last written 2026-07-18.
+  const indexPath = path.join(sharedReferencesDir(home), 'INDEX.md')
+
+  svc.writeReference('hand-authored.md', '# Hand authored\n\nA body line.\n', null, null)
+  expect(fs.readFileSync(indexPath, 'utf8')).toContain('hand-authored.md')
+
+  svc.deleteReference('hand-authored.md')
+  expect(fs.readFileSync(indexPath, 'utf8')).not.toContain('hand-authored.md')
+})
+
+it('regenerateIndex leaves the file untouched when nothing changed', () => {
+  // Content-guarded, which is what makes it safe to hang off the universal "references changed"
+  // broadcast rather than asking seven writers to remember.
+  svc.writeReference('stable.md', '# Stable\n\nBody.\n', null, null)
+  const indexPath = path.join(sharedReferencesDir(home), 'INDEX.md')
+  const before = fs.readFileSync(indexPath, 'utf8')
+
+  svc.regenerateIndex()
+
+  expect(fs.readFileSync(indexPath, 'utf8')).toBe(before)
+})
+
 it('readReference reaches nested references but still refuses to escape the root', () => {
   // readReference swapped REF_TARGET_RE (basename-only) for a resolve-and-contain check so a
   // pack-seeded subtree can be opened. Pin BOTH halves: the subtree is reachable, and the

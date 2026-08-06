@@ -716,7 +716,20 @@ function registerIpc(): void {
     run: headlessRun,
     resolvePrompt
   })
-  refSyncStore.subscribe(() => broadcast(IPC.refsyncChanged, refSync.payload()))
+  /**
+   * The one "references changed" signal.
+   *
+   * Regenerating INDEX.md is tied to the broadcast because the broadcast is the thing no writer
+   * can forget — skip it and the Library list goes stale in front of the user. Regeneration used
+   * to live in two of the seven writers, so a reference authored in the editor stayed absent from
+   * the agent-facing router indefinitely. regenerateIndex is content-guarded, so calling it on a
+   * path that changed nothing writes nothing.
+   */
+  const referencesChanged = (): void => {
+    refSync.regenerateIndex()
+    broadcast(IPC.refsyncChanged, refSync.payload())
+  }
+  refSyncStore.subscribe(() => referencesChanged())
 
   // — case-close distillation (part 3a): mirrors the resolveSkills(...) call used by
   // skillsPayload() below, filtered to enabled and mapped to the {name, description, content}
@@ -1096,6 +1109,9 @@ function registerIpc(): void {
       if (res.ok) {
         packsTouched.add(res.id)
         broadcast(IPC.packsChanged, undefined)
+        // A pack seeds (and on uninstall reaps) reference files, so its install is a reference
+        // mutation too — packsChanged alone left the Library list and INDEX.md behind.
+        referencesChanged()
       }
       return res
     }
@@ -1105,6 +1121,7 @@ function registerIpc(): void {
     if (res.ok) {
       packsTouched.add(res.id)
       broadcast(IPC.packsChanged, undefined)
+      referencesChanged()
     }
     return res
   })
@@ -1113,6 +1130,7 @@ function registerIpc(): void {
     if (res.ok) {
       packsTouched.add(id)
       broadcast(IPC.packsChanged, undefined)
+      referencesChanged()
     }
     return res
   })
@@ -2185,7 +2203,7 @@ function registerIpc(): void {
         // and is only updated by this broadcast (referenceSyncStore.start() is idempotent). Its
         // absence is why a reference removed here and then re-downloaded never came back until
         // the window reloaded: the remove broadcast, the download did not.
-        broadcast(IPC.refsyncChanged, refSync.payload())
+        referencesChanged()
       }
       return p
     }
@@ -2199,12 +2217,12 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.hivemindUninstallReference, async (_e, name: string) => {
     const p = await hivemind.uninstallReference(name)
-    broadcast(IPC.refsyncChanged, refSync.payload())
+    referencesChanged()
     return p
   })
   ipcMain.handle(IPC.hivemindClaimReference, async (_e, name: string) => {
     const p = await hivemind.claimReference(name, await identity())
-    broadcast(IPC.refsyncChanged, refSync.payload())
+    referencesChanged()
     return p
   })
   ipcMain.handle(IPC.hivemindDiff, (_e, kind: 'skill' | 'reference', name: string) =>
@@ -2231,6 +2249,10 @@ function registerIpc(): void {
       editedContent,
       identity: await identity()
     })
+    // A reference-edit proposal WRITES a reference — it is how an agent's durable knowledge
+    // gets into the library — but this handler never signalled it, so both the Library list and
+    // INDEX.md stayed as they were until something else happened to fire.
+    if (accepted.kind === 'reference') referencesChanged()
     return { proposals: listProposals(argusHome), accepted }
   })
   ipcMain.handle(IPC.proposalsReject, (_e, file: string, reason?: RejectReason) => {
@@ -2688,12 +2710,12 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC.refsyncApplyDrafts, (_e, syncId: string, targets: string[]) => {
     const r = refSync.applyDrafts(syncId, targets)
-    broadcast(IPC.refsyncChanged, refSync.payload())
+    referencesChanged()
     return r
   })
   ipcMain.handle(IPC.refsyncPrune, (_e, syncId: string, targets: string[]) => {
     const r = refSync.prune(syncId, targets)
-    broadcast(IPC.refsyncChanged, refSync.payload())
+    referencesChanged()
     return r
   })
   ipcMain.handle(IPC.refsyncReadRef, (_e, file: string) => refSync.readReference(file))
@@ -2701,14 +2723,14 @@ function registerIpc(): void {
     IPC.refsyncWriteRef,
     async (_e, file: string, content: string, baseHash: string | null) => {
       const hash = refSync.writeReference(file, content, baseHash, await identity())
-      broadcast(IPC.refsyncChanged, refSync.payload())
+      referencesChanged()
       return hash
     }
   )
   ipcMain.handle(IPC.refsyncSearchRefs, (_e, query: string) => refSync.searchReferences(query))
   ipcMain.handle(IPC.refsyncDeleteRef, (_e, file: string) => {
     refSync.deleteReference(file)
-    broadcast(IPC.refsyncChanged, refSync.payload())
+    referencesChanged()
   })
 }
 

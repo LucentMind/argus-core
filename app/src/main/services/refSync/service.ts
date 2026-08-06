@@ -92,6 +92,27 @@ export class RefSyncService {
     }
   }
 
+  /**
+   * Rewrite the generated INDEX.md router from what is on disk.
+   *
+   * Idempotent and content-guarded, so it is safe to call from any path that MAY have touched a
+   * reference — including ones that changed nothing. That is what lets index.ts hang it off the
+   * universal "references changed" broadcast instead of asking seven separate writers to
+   * remember. Before this, regeneration lived in applyDrafts and prune only, so a reference
+   * authored in the editor, downloaded from the HiveMind, accepted from a proposal or seeded by
+   * a pack never reached the one router an agent is pointed at.
+   */
+  regenerateIndex(): void {
+    const dir = this.refsDir()
+    if (!fs.existsSync(dir)) return
+    const next = generateReferencesIndex(dir, this.deps.store.get())
+    const indexPath = path.join(dir, REFERENCES_INDEX)
+    const current = fs.existsSync(indexPath) ? fs.readFileSync(indexPath, 'utf8') : null
+    if (current === next) return
+    fs.writeFileSync(indexPath + '.tmp', next)
+    fs.renameSync(indexPath + '.tmp', indexPath)
+  }
+
   async validateSpace(key: string): Promise<{ space: ConfluenceSpace; root: TreeNodeVM }> {
     const space = await this.deps.reader.getConfluenceSpace(key)
     if (!space.homepageId) throw new Error(`Space ${key} has no homepage`)
@@ -155,6 +176,7 @@ export class RefSyncService {
     const tier = refTier(fs.readFileSync(p, 'utf8')) ?? 'team-knowledge'
     assertHandOwnedReferenceTier(tier, file)
     fs.rmSync(p, { force: true })
+    this.regenerateIndex()
   }
 
   /**
@@ -208,6 +230,7 @@ export class RefSyncService {
       }
     )
     fs.writeFileSync(p, written)
+    this.regenerateIndex()
     return contentHash(written)
   }
 
@@ -360,15 +383,8 @@ export class RefSyncService {
       fs.renameSync(file + '.tmp', file)
       written.push(target)
     }
-    if (written.length) {
-      // amendment: keep the agent-facing router in step with every applied write
-      const indexPath = path.join(this.refsDir(), REFERENCES_INDEX)
-      fs.writeFileSync(
-        indexPath + '.tmp',
-        generateReferencesIndex(this.refsDir(), this.deps.store.get())
-      )
-      fs.renameSync(indexPath + '.tmp', indexPath)
-    }
+    // amendment: keep the agent-facing router in step with every applied write
+    if (written.length) this.regenerateIndex()
     const state = readSyncState(this.deps.argusHome)
     const st = state.spaces[report.spaceKey]
     if (st) {
@@ -438,16 +454,9 @@ export class RefSyncService {
       fs.renameSync(file + '.tmp', file)
       trimmed.push(target)
     }
-    if (removed.length || trimmed.length) {
-      // INDEX.md is generated from the directory listing, so an orphan removed here must be
-      // dropped from the agent-facing router in the same breath.
-      const indexPath = path.join(this.refsDir(), REFERENCES_INDEX)
-      fs.writeFileSync(
-        indexPath + '.tmp',
-        generateReferencesIndex(this.refsDir(), this.deps.store.get())
-      )
-      fs.renameSync(indexPath + '.tmp', indexPath)
-    }
+    // INDEX.md is generated from the directory listing, so an orphan removed here must be
+    // dropped from the agent-facing router in the same breath.
+    if (removed.length || trimmed.length) this.regenerateIndex()
     return { removed, trimmed, skipped }
   }
 }
