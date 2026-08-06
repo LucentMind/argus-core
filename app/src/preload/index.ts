@@ -183,8 +183,12 @@ const argus = {
     cost: (caseSlug: string) => invoke(IPC.caseCost, caseSlug),
     readFindings: (caseSlug: string) => invoke(IPC.caseReadFindings, caseSlug),
     delete: (slug: string): Promise<void> => invoke(IPC.casesDelete, slug),
-    setStatus: (slug: string, status: CaseStatus, resolution: CaseResolution | null) =>
-      invoke(IPC.casesSetStatus, slug, status, resolution),
+    setStatus: (
+      slug: string,
+      status: CaseStatus,
+      resolution: CaseResolution | null,
+      distill?: boolean
+    ) => invoke(IPC.casesSetStatus, slug, status, resolution, distill),
     /** Switch the case's active mode, creating (or resuming) that mode's chat. */
     setMode: (caseSlug: string, mode: ModeId): Promise<{ sessionId: number }> =>
       invoke(IPC.casesSetMode, caseSlug, mode)
@@ -364,6 +368,7 @@ const argus = {
   },
   distill: {
     status: (slug: string): Promise<DistillJobRow | null> => invoke(IPC.distillStatus, slug),
+    needsRun: (slug: string): Promise<boolean> => invoke(IPC.distillNeedsRun, slug),
     retry: (jobId: number): Promise<DistillJobRow> => invoke(IPC.distillRetry, jobId),
     redistill: (slug: string): Promise<DistillJobRow> => invoke(IPC.distillRedistill, slug),
     cancel: (jobId: number): Promise<DistillJobRow> => invoke(IPC.distillCancel, jobId),
