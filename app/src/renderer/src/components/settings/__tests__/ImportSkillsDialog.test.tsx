@@ -34,7 +34,7 @@ const globalScan: SkillImportCandidate[] = [
     sourceDir: '/home/me/.claude/skills/rca',
     description: 'already have it',
     status: 'conflict',
-    reason: 'Already in your Library.'
+    reason: 'Already in Library.'
   },
   {
     name: 'broken',
@@ -60,7 +60,7 @@ describe('ImportSkillsDialog', () => {
     expect(argus.skills.scanImport).toHaveBeenCalledWith({ kind: 'global' })
     expect(screen.getByLabelText('Import · my-notes')).toBeInTheDocument()
     expect(screen.queryByLabelText('Import · rca')).not.toBeInTheDocument()
-    expect(screen.getByText(/Already in your Library/)).toBeInTheDocument()
+    expect(screen.getByText(/Already in Library/)).toBeInTheDocument()
     expect(screen.getByText(/Missing frontmatter/)).toBeInTheDocument()
   })
 
