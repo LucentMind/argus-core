@@ -211,4 +211,18 @@ describe('importSkills', () => {
       fs.readFileSync(path.join(userSkillsDir(argusHome), 'dup', 'SKILL.md'), 'utf8')
     ).toContain('from global')
   })
+
+  it('refuses a sourceDir that is not shaped like a Claude skills directory', () => {
+    const rogueDir = path.join(tmp, 'not-a-claude-skills-dir')
+    fs.mkdirSync(rogueDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(rogueDir, 'SKILL.md'),
+      '---\nname: my-notes\ndescription: forged\n---\nbody\n'
+    )
+    const results = importSkills(argusHome, [{ name: 'my-notes', sourceDir: rogueDir }], null)
+    expect(results).toEqual([
+      { name: 'my-notes', ok: false, error: expect.stringContaining('not a Claude skills directory') }
+    ])
+    expect(fs.existsSync(path.join(userSkillsDir(argusHome), 'my-notes'))).toBe(false)
+  })
 })

@@ -82,6 +82,15 @@ export function scanClaudeSkills(
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
+/** `scanClaudeSkills` only ever produces sourceDir values shaped `<root>/.claude/skills/<name>` —
+ *  reject anything else before reading from or copying it, so `importSkills` can't be pointed at
+ *  an arbitrary directory via a forged IPC payload. */
+function looksLikeClaudeSkillsDir(sourceDir: string): boolean {
+  const parent = path.basename(path.dirname(sourceDir))
+  const grandparent = path.basename(path.dirname(path.dirname(sourceDir)))
+  return parent === 'skills' && grandparent === '.claude'
+}
+
 /**
  * Copy the selected candidates into skills-user. Re-validates and re-checks name collisions
  * against live state (not the scan snapshot the renderer is holding, which may be stale by the
@@ -101,6 +110,9 @@ export function importSkills(
       if (!ASSET_NAME_RE.test(name)) throw new Error(`"${name}" is not a legal skill name.`)
       if (isBundledSkillName(argusHome, name)) throw bundledSkillError(name)
       if (existing.has(name)) throw new Error(`"${name}" already exists in your Library.`)
+      if (!looksLikeClaudeSkillsDir(sourceDir)) {
+        throw new Error(`"${sourceDir}" is not a Claude skills directory.`)
+      }
       const content = fs.readFileSync(path.join(sourceDir, 'SKILL.md'), 'utf8')
       const issues = validateSkill({ name, content })
       if (hasErrors(issues)) throw new Error(issues.find((i) => i.severity === 'error')!.message)
