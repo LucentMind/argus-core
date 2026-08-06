@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { MemorySettings } from '../MemorySettings'
@@ -121,9 +121,26 @@ describe('MemorySettings usage + hygiene', () => {
     expect(await screen.findByText('environment')).toBeInTheDocument()
     expect(screen.getByText('preference')).toBeInTheDocument()
     expect(screen.getByText('2048 B')).toBeInTheDocument()
-    // the unscoped topic gets no chip; only the 9000-byte one is flagged
-    expect(screen.queryByText('correction')).not.toBeInTheDocument()
     expect(screen.getAllByText(/over cap/i)).toHaveLength(1)
+
+    // The unscoped topic (legacy-topic, scope: null) must render no scope chip on its OWN
+    // row — not merely no chip reading the literal text "correction" (no fixture even uses
+    // that scope, so that assertion could never fail regardless of what legacy-topic renders).
+    // Scope to legacy-topic's row and enumerate every chip in it directly: an empty chip or one
+    // reading the literal "null" would still show up here, unlike a queryByText probe for one
+    // specific string.
+    const row = screen.getByText('legacy-topic').closest('[class*="group/row"]')
+    if (!row) throw new Error('no row container found for legacy-topic')
+    expect(within(row as HTMLElement).queryByText('preference')).not.toBeInTheDocument()
+    expect(within(row as HTMLElement).queryByText('environment')).not.toBeInTheDocument()
+    expect(within(row as HTMLElement).queryByText('correction')).not.toBeInTheDocument()
+    const chipTexts = Array.from(row.querySelectorAll('[class*="rounded-r1"]')).map((el) =>
+      el.textContent?.trim()
+    )
+    // legacy-topic is 9000 bytes (over the 4096-byte cap) with no usage entry, so its only
+    // legitimate chips are the byte-size chip and the over-cap flag — a scope chip appearing
+    // here would be a third entry, changing this array.
+    expect(chipTexts).toEqual(['9000 B', 'over cap'])
   })
 
   it('archive asks for confirmation then calls memory.archive', async () => {

@@ -85,8 +85,16 @@ export function listTopics(argusHome: string): MemoryTopic[] {
     .map((f) => {
       const full = path.join(dir, f)
       const st = fs.statSync(full)
-      const block = fmBlock(fs.readFileSync(full, 'utf8'))
-      const raw = block ? fmField(block.fm, 'scope') : ''
+      // Reading frontmatter is best-effort per file: one locked/unreadable topic must cost that
+      // topic its chip, not take down the whole list (and every caller behind it — the Memory
+      // settings page and usage-stats payload). Same shape as null-for-no-scope-frontmatter.
+      let raw = ''
+      try {
+        const block = fmBlock(fs.readFileSync(full, 'utf8'))
+        raw = block ? fmField(block.fm, 'scope') : ''
+      } catch (err) {
+        console.warn(`[memory] failed to read frontmatter for ${f}:`, err)
+      }
       return {
         name: f.slice(0, -3),
         sizeBytes: st.size,

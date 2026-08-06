@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -15,7 +15,7 @@ import {
   stripTopicEcho,
   writeTopicFile
 } from '../memory'
-import { memoryIndexPath } from '../paths'
+import { memoryDir, memoryIndexPath } from '../paths'
 import { agentAccessSchema } from '../../../shared/agentAccess'
 import { MEMORY_SCOPES } from '../../../shared/memoryScope'
 import { fmBlock, fmField, withFrontmatter } from '../../../shared/frontmatter'
@@ -563,5 +563,25 @@ describe('listTopics reports the stored scope', () => {
   it('reports null for a frontmatter block with an unrecognised scope value', () => {
     writeTopicFile(argusHome, 'weird', '---\nscope: workflow\n---\nbody\n')
     expect(listTopics(argusHome).find((t) => t.name === 'weird')?.scope).toBeNull()
+  })
+
+  // A single unreadable topic file must cost that topic its chip, not take down the whole list —
+  // listTopics backs memoryTopicsPayload (5 IPC handlers) and usageStats, so an unguarded throw
+  // here would blank the entire Memory settings page over one bad file. A directory named
+  // `<topic>.md` makes statSync succeed but readFileSync throw EISDIR (confirmed on this
+  // machine — same trick as clearFindings.test.ts's "propagates a non-ENOENT" case).
+  it('keeps other topics visible when one topic file is unreadable, reporting scope: null for it', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      applyMemoryWrite(argusHome, 'NAV-1', { topic: 'good', content: 'x', scope: 'environment' })
+      fs.mkdirSync(path.join(memoryDir(argusHome), 'bad.md'))
+      const topics = listTopics(argusHome)
+      expect(topics.map((t) => t.name).sort()).toEqual(['bad', 'good'])
+      expect(topics.find((t) => t.name === 'good')?.scope).toBe('environment')
+      expect(topics.find((t) => t.name === 'bad')?.scope).toBeNull()
+      expect(warnSpy).toHaveBeenCalled()
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 })
