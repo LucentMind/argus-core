@@ -11,6 +11,7 @@ import { composePersona } from '../agent/persona'
 const OMITTED_BLOCKS = [
   'Agent memory index — filtered per case by agent-access settings',
   'Skill index — depends on the skills resolved for the case',
+  'Reference index — built from the references directory at session construction',
   'Driver base prompt — ships inside the provider CLI (see the External category)'
 ]
 
