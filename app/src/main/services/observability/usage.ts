@@ -1,10 +1,8 @@
-import fs from 'node:fs'
-import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { AppSettings } from '../../../shared/settings'
 import type { AgentAccess } from '../../../shared/agentAccess'
 import type { UsageStatsPayload, SkillUsageRow } from '../../../shared/observability'
-import { REFERENCES_INDEX } from '../../../shared/referenceSync'
+import { listReferenceFiles } from '../refSync/referenceFiles'
 import { resolveSkills } from '../agent/skillsResolver'
 import { listTopics } from '../memory'
 import { isStaleCandidate, listArchivedTopics, type HygieneConfig } from '../memoryHygiene'
@@ -47,25 +45,6 @@ function countsFor(db: DatabaseSync, where: string, bind: string[]): Map<string,
     )
     .all(...bind) as unknown as CountRow[]
   return new Map(rows.map((r) => [r.detail, r]))
-}
-
-/** Every *.md under the references dir (recursive), relPath with forward slashes,
- *  excluding the generated INDEX.md router. */
-function listReferenceFiles(refsDir: string): string[] {
-  if (!fs.existsSync(refsDir)) return []
-  const out: string[] = []
-  const walk = (dir: string): void => {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      const p = path.join(dir, e.name)
-      if (e.isDirectory()) walk(p)
-      else if (e.name.endsWith('.md')) {
-        const rel = path.relative(refsDir, p).split(path.sep).join('/')
-        if (rel !== REFERENCES_INDEX) out.push(rel)
-      }
-    }
-  }
-  walk(refsDir)
-  return out.sort()
 }
 
 export function usageStats(deps: UsageStatsDeps): UsageStatsPayload {

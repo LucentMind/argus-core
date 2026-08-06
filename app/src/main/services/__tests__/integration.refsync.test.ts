@@ -365,6 +365,21 @@ it('deleteReference rejects invalid names and the generated index', () => {
   }
 })
 
+it('readReference reaches nested references but still refuses to escape the root', () => {
+  // readReference swapped REF_TARGET_RE (basename-only) for a resolve-and-contain check so a
+  // pack-seeded subtree can be opened. Pin BOTH halves: the subtree is reachable, and the
+  // traversal the old guard blocked is still blocked.
+  const dir = sharedReferencesDir(home)
+  fs.mkdirSync(path.join(dir, 'protocols'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'protocols', 'nested.md'), '# nested\nBody.\n')
+
+  expect(svc.readReference('protocols/nested.md').content).toContain('# nested')
+
+  for (const evil of ['../evil.md', 'protocols/../../evil.md', 'no-md-suffix', '']) {
+    expect(() => svc.readReference(evil)).toThrow(/invalid reference name/)
+  }
+})
+
 describe('writeReference', () => {
   let refsDir: string
   beforeEach(() => {

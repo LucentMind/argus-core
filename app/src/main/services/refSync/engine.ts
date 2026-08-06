@@ -14,7 +14,8 @@ import {
   type ReferenceSyncConfig,
   type VanishedRef
 } from '../../../shared/referenceSync'
-import { refTier, refTitle, refBody, parseRefSources } from './refFrontmatter'
+import { refTier, refTitle, parseRefSources } from './refFrontmatter'
+import { listReferenceFiles, referenceSummary } from './referenceFiles'
 import { parseAuthorship } from '../../../shared/authorship'
 
 /** Structural subset of AtlassianClient — lets tests inject a fake without HTTP. */
@@ -106,12 +107,9 @@ export function computeChangedSet(
 
 /** Per-file staleness for the References page (>14 days unsynced, confluence tier only). */
 export function referenceStatuses(referencesDir: string, now: Date): ReferenceStatus[] {
-  if (!fs.existsSync(referencesDir)) return []
-  return fs
-    .readdirSync(referencesDir, { withFileTypes: true })
-    .filter((e) => e.isFile() && e.name.endsWith('.md') && e.name !== REFERENCES_INDEX)
-    .map((e) => {
-      const raw = fs.readFileSync(path.join(referencesDir, e.name), 'utf8')
+  return listReferenceFiles(referencesDir)
+    .map((rel) => {
+      const raw = fs.readFileSync(path.join(referencesDir, rel), 'utf8')
       const tier = refTier(raw)
       const sources = parseRefSources(raw)
       const newest =
@@ -121,7 +119,7 @@ export function referenceStatuses(referencesDir: string, now: Date): ReferenceSt
           .sort()
           .at(-1) ?? null
       return {
-        file: e.name,
+        file: rel,
         tier,
         lastSynced: newest,
         sourceCount: sources.length,
@@ -143,21 +141,15 @@ export function generateReferencesIndex(
   config: ReferenceSyncConfig
 ): string {
   const rules = config.spaces.flatMap((s) => s.routingRules)
-  const lines = fs
-    .readdirSync(referencesDir, { withFileTypes: true })
-    .filter((e) => e.isFile() && e.name.endsWith('.md') && e.name !== REFERENCES_INDEX)
-    .map((e) => {
-      const raw = fs.readFileSync(path.join(referencesDir, e.name), 'utf8')
-      const title = refTitle(raw) ?? e.name.replace(/\.md$/, '')
-      const summary =
-        refBody(raw)
-          .split(/\r?\n/)
-          .map((l) => l.trim())
-          .find((l) => l && !l.startsWith('#')) ?? ''
+  const lines = listReferenceFiles(referencesDir)
+    .map((rel) => {
+      const raw = fs.readFileSync(path.join(referencesDir, rel), 'utf8')
+      const title = refTitle(raw) ?? path.basename(rel).replace(/\.md$/, '')
+      const summary = referenceSummary(raw)
       const keywords = [
-        ...new Set(rules.filter((r) => r.target === e.name).flatMap((r) => r.keywords))
+        ...new Set(rules.filter((r) => r.target === rel).flatMap((r) => r.keywords))
       ]
-      return `- [${title}](${e.name}) — ${summary.slice(0, 160)}${
+      return `- [${title}](${rel}) — ${summary.slice(0, 160)}${
         keywords.length ? ` · keywords: ${keywords.join(', ')}` : ''
       }`
     })

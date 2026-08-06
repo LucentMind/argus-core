@@ -15,6 +15,7 @@ import {
   detectVanished,
   type ConfluenceReader
 } from './engine'
+import { listReferenceFiles, resolveReferencePath } from './referenceFiles'
 import { distillTarget } from './distill'
 import {
   refBody,
@@ -126,10 +127,18 @@ export class RefSyncService {
     }
   }
 
-  /** Read one reference file for the in-app viewer/editor (name guarded like applyDrafts). */
+  /**
+   * Read one reference file for the in-app viewer/editor.
+   *
+   * Accepts a nested relPath — a pack may seed subtrees — and guards containment by RESOLVING
+   * the path rather than by REF_TARGET_RE, which rejects every separator. That is strictly
+   * stronger against traversal than the basename test it replaces, and it is read-only:
+   * writeReference, deleteReference, applyDrafts and prune all still run REF_TARGET_RE, so
+   * nothing here widens what the app will overwrite or unlink.
+   */
   readReference(file: string): { file: string; content: string; hash: string } {
-    if (!REF_TARGET_RE.test(file)) throw new Error(`invalid reference name: ${file}`)
-    const content = fs.readFileSync(path.join(this.refsDir(), file), 'utf8')
+    if (!file.endsWith('.md')) throw new Error(`invalid reference name: ${file}`)
+    const content = fs.readFileSync(resolveReferencePath(this.refsDir(), file), 'utf8')
     return { file, content, hash: contentHash(content) }
   }
 
@@ -205,22 +214,15 @@ export class RefSyncService {
   /** Case-insensitive search over reference file names AND bodies; INDEX.md excluded. */
   searchReferences(query: string): string[] {
     const q = query.trim().toLowerCase()
-    if (!q || !fs.existsSync(this.refsDir())) return []
-    return fs
-      .readdirSync(this.refsDir(), { withFileTypes: true })
-      .filter((e) => e.isFile() && e.name.endsWith('.md') && e.name !== REFERENCES_INDEX)
-      .filter((e) => {
-        if (e.name.toLowerCase().includes(q)) return true
-        try {
-          return fs
-            .readFileSync(path.join(this.refsDir(), e.name), 'utf8')
-            .toLowerCase()
-            .includes(q)
-        } catch {
-          return false
-        }
-      })
-      .map((e) => e.name)
+    if (!q) return []
+    return listReferenceFiles(this.refsDir()).filter((rel) => {
+      if (rel.toLowerCase().includes(q)) return true
+      try {
+        return fs.readFileSync(path.join(this.refsDir(), rel), 'utf8').toLowerCase().includes(q)
+      } catch {
+        return false
+      }
+    })
   }
 
   /** Deterministic walk + per-target headless distillation. Never writes reference files. */
