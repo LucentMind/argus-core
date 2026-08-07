@@ -73,7 +73,8 @@ export function NewCaseDialog({
     // can't transiently collide with the fetched key's displayed value once the
     // preview step mounts — the two fields would otherwise briefly show the same
     // text while the async fetch is in flight. Restored below if the fetch fails,
-    // so a failed lookup doesn't cost the user their typed key.
+    // so a failed lookup doesn't cost the user their typed key — restored as the
+    // parsed key, not the raw paste, matching the error text below.
     setTicketKey('')
     const r = await window.argus.jira.preview(key)
     setBusy(false)

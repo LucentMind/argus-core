@@ -36,6 +36,8 @@ let jira: {
   setAttachmentSelection: ReturnType<typeof vi.fn>
 }
 
+const noop = { onClose: vi.fn(), onCreateBlank: vi.fn(async () => {}), onOpenCase: vi.fn() }
+
 beforeEach(() => {
   progressCb = null
   jira = {
@@ -49,9 +51,12 @@ beforeEach(() => {
     setAttachmentSelection: vi.fn(async () => ({ ok: true, value: {} }))
   }
   window.argus = { jira } as never
+  // A stale call from an earlier test would let a same-shaped toHaveBeenCalledWith
+  // assertion pass without this test's own action actually firing it.
+  noop.onClose.mockClear()
+  noop.onCreateBlank.mockClear()
+  noop.onOpenCase.mockClear()
 })
-
-const noop = { onClose: vi.fn(), onCreateBlank: vi.fn(async () => {}), onOpenCase: vi.fn() }
 
 afterEach(() => __resetEscapeLayersForTest())
 
