@@ -105,6 +105,10 @@ export class RoutinesService {
         model: routine.model ?? null
       })
       attachRunSession(db, runId, session.id)
+      // Announce promptly: without this, every payload() consumer sees a `running` row whose
+      // sessionId is still null for the entire run (up to timeoutMs), unable to link the row to
+      // the live agent session while it's actually running — exactly when that link matters.
+      this.deps.notify?.()
 
       const preamble =
         `You are running unattended as the routine "${routine.name}". No user is present: ` +

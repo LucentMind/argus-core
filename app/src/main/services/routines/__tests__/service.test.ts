@@ -182,6 +182,9 @@ describe('RoutinesService', () => {
     // The service is idle again and accepts the next run.
     expect(svc.payload().runningId).toBeNull()
     expect(() => svc.startRun('sweep')).not.toThrow()
+    // This second run must settle before the test (and its afterEach db.close/rmSync) ends —
+    // otherwise it's left in flight against fixtures that are about to be torn down.
+    await svc.whenIdle()
   })
 
   it('records a failed run when case/session setup throws — never a stuck running row', async () => {
@@ -288,11 +291,22 @@ describe('RoutinesService', () => {
     expect(after.runningId).toBeNull()
     expect(after.runs[0]).toMatchObject({ status: 'ok', summary: 'swept' })
 
-    expect(notify).toHaveBeenCalledTimes(2)
+    // Three notifications: run opened (no session yet), session attached while still running
+    // (the fix under test), and the settled finish. A consumer watching notify must be able to
+    // open the live agent session the moment it exists, not only after the run completes.
+    expect(notify).toHaveBeenCalledTimes(3)
+
     expect(seen[0]).toMatchObject({ runningId: 'sweep' })
-    expect(seen[0].runs[0]).toMatchObject({ status: 'running' })
+    expect(seen[0].runs[0]).toMatchObject({ status: 'running', sessionId: null })
+
+    // The session-link notification: still running, but sessionId is now populated and matches
+    // the session row actually created for this run.
+    const sessionId = sessionRows()[0].id
+    expect(seen[1]).toMatchObject({ runningId: 'sweep' })
+    expect(seen[1].runs[0]).toMatchObject({ status: 'running', sessionId })
+
     // The finish notification must already show the settled state, not a stale running one.
-    expect(seen[1].runningId).toBeNull()
-    expect(seen[1].runs[0]).toMatchObject({ status: 'ok', summary: 'swept' })
+    expect(seen[2].runningId).toBeNull()
+    expect(seen[2].runs[0]).toMatchObject({ status: 'ok', summary: 'swept', sessionId })
   })
 })
