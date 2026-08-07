@@ -354,6 +354,17 @@ describe('DiagnosticsSettings timeline', () => {
     expect(screen.queryByTestId('diag-timeline-cpu')).toBeNull()
     expect(screen.getByTestId('diag-cpu')).toBeInTheDocument()
   })
+
+  it('does not refetch history when a pushed sample keeps the same sidecar status', async () => {
+    // The history effect depends on `healthy` (a boolean), not on `snap` itself, so it
+    // must not re-run on every 1Hz snapshot push — only on a real status transition.
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot()))
+    const callsAfterFirstSample = historyCalls.length
+
+    await act(async () => onSampleCb(snapshot({ readAt: 2_000 })))
+    expect(historyCalls.length).toBe(callsAfterFirstSample)
+  })
 })
 
 describe('DiagnosticsSettings object sparklines and ended rows', () => {
@@ -479,5 +490,30 @@ describe('DiagnosticsSettings object sparklines and ended rows', () => {
     // The unqualified "These rows account for the footprint" would be false the moment an
     // ended row appears, because ended rows sit outside 2a's partition.
     expect(screen.getByText(/live rows account for the footprint/i)).toBeInTheDocument()
+  })
+
+  it('never renders the synthetic unattributed id as an ended row', async () => {
+    // splitRows excludes 'unattributed' explicitly — it is synthetic and exists whenever
+    // a snapshot does, so it can never legitimately have "exited" — but nothing pinned
+    // that exclusion until now.
+    ;(window.argus.diagnostics.history as ReturnType<typeof vi.fn>).mockResolvedValue(
+      emptyHistory(4, {
+        objects: [
+          {
+            id: 'unattributed',
+            label: 'Unattributed',
+            kind: 'unattributed',
+            inferred: false,
+            live: false,
+            cpuPercent: [1, 2, null, null],
+            rssBytes: [10, 20, null, null]
+          }
+        ]
+      })
+    )
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot({ objects: [liveObject] })))
+
+    expect(screen.queryByTestId('diag-object-row-ended')).toBeNull()
   })
 })

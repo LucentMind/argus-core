@@ -1,13 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
-import type {
-  DiagnosticsHistory,
-  DiagnosticsHistorySeries,
-  DiagnosticsObject,
-  DiagnosticsSeries,
-  DiagnosticsSnapshot,
-  SidecarHealth,
-  SidecarStatus
+import {
+  DIAGNOSTICS_BUCKET_MS,
+  type DiagnosticsHistory,
+  type DiagnosticsHistorySeries,
+  type DiagnosticsObject,
+  type DiagnosticsSeries,
+  type DiagnosticsSnapshot,
+  type SidecarHealth,
+  type SidecarStatus
 } from '../../../../shared/diagnostics'
 import { bridgeBuckets, lastIndexWithData, niceMax } from '../../lib/timeline'
 import { Sparkline } from './diagnostics/Sparkline'
@@ -54,6 +55,20 @@ const WINDOWS = [
 ] as const
 
 type WindowId = (typeof WINDOWS)[number]['id']
+
+const DEFAULT_WINDOW_ID: WindowId = '15m'
+const DEFAULT_WINDOW_MS = WINDOWS.find((w) => w.id === DEFAULT_WINDOW_ID)!.ms
+
+/**
+ * The same short form as a WINDOWS id ("5m", "1h"), derived from an actual payload size
+ * rather than looked up from the selector — so a header built from this and a row built
+ * from the same payload can never disagree, even mid-refetch when the selector has
+ * already moved on to a window whose data hasn't arrived yet.
+ */
+function formatWindowMs(ms: number): string {
+  const minutes = ms / 60_000
+  return minutes < 60 ? `${minutes}m` : `${minutes / 60}h`
+}
 
 /**
  * The history poll interval, deliberately the bucket size rather than the 1s sample push.
@@ -238,11 +253,30 @@ function EndedObjectRow({
 
 export default function DiagnosticsSettings(): React.JSX.Element {
   const [snap, setSnap] = useState<DiagnosticsSnapshot | null>(null)
-  const [windowId, setWindowId] = useState<WindowId>('15m')
+  const [windowId, setWindowId] = useState<WindowId>(DEFAULT_WINDOW_ID)
   const [history, setHistory] = useState<DiagnosticsHistory | null>(null)
 
   const healthy = snap?.sidecar.status === 'healthy'
-  const windowMs = WINDOWS.find((w) => w.id === windowId)?.ms ?? 15 * 60_000
+  const windowMs = WINDOWS.find((w) => w.id === windowId)?.ms ?? DEFAULT_WINDOW_MS
+
+  // Both depend only on `history`, which changes at most once per HISTORY_REFRESH_MS —
+  // not on every 1Hz snapshot push. Without memoizing, a 1h window's flatMap allocates
+  // ~46,000 array entries a second for no reason: nothing here reads `snap`.
+  const seriesById = useMemo(
+    () => new Map((history?.objects ?? []).map((s) => [s.id, s])),
+    [history]
+  )
+  // ONE axis maximum across every sparkline in the table, so a tall spike in one row
+  // reads as taller than a flat line in another. Per-row autoscaling would make every
+  // row look equally busy — the exact opposite of what the column is for.
+  const sparkMax = useMemo(
+    () =>
+      niceMax(
+        [...seriesById.values()].flatMap((s) => s.cpuPercent),
+        'percent'
+      ),
+    [seriesById]
+  )
 
   useEffect(() => {
     let alive = true
@@ -286,16 +320,14 @@ export default function DiagnosticsSettings(): React.JSX.Element {
 
   const hasTree = snap.tree.length > 0
 
-  const seriesById = new Map((history?.objects ?? []).map((s) => [s.id, s]))
   const { ended, endedOverflow } = splitRows(snap.objects, history)
-  // ONE axis maximum across every sparkline in the table, so a tall spike in one row
-  // reads as taller than a flat line in another. Per-row autoscaling would make every
-  // row look equally busy — the exact opposite of what the column is for.
-  const sparkMax = niceMax(
-    [...seriesById.values()].flatMap((s) => s.cpuPercent),
-    'percent'
-  )
-  const sparkBridge = bridgeBuckets(history?.bucketMs ?? 5_000)
+  const sparkBridge = bridgeBuckets(history?.bucketMs ?? DIAGNOSTICS_BUCKET_MS)
+  // The selected window (`windowId`) and the fetched payload (`history`) are updated on
+  // different cadences — the selector changes instantly, the payload only after the next
+  // IPC round trip resolves. Deriving the label from the payload itself, rather than from
+  // `windowId`, means the header can never claim a window the rows underneath don't
+  // actually hold. Falls back to the selector only when there is no payload at all yet.
+  const windowLabel = history ? formatWindowMs(history.bucketCount * history.bucketMs) : windowId
 
   const windowSelector = (
     <div
@@ -393,13 +425,23 @@ export default function DiagnosticsSettings(): React.JSX.Element {
       {(snap.objects.length > 0 || ended.length > 0) && (
         <SettingsSection
           title="Argus objects"
-          subtitle="Every process attributed to the driver, connector, or window that owns it. The live rows account for the footprint above (displayed values are independently rounded, so they may not add up exactly); rows below the divider have already exited and are shown for their history only."
+          subtitle={
+            'Every process attributed to the driver, connector, or window that owns it. ' +
+            'The live rows account for the footprint above (displayed values are ' +
+            'independently rounded, so they may not add up exactly).' +
+            // Only claimed when there is a divider and ended rows beneath it to describe —
+            // in the normal case there is neither, and the unconditional sentence would be
+            // an assertion about a divider the page never draws.
+            (ended.length > 0
+              ? ' Rows below the divider have already exited and are shown for their history only.'
+              : '')
+          }
         >
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-mute">
                 <th className="px-3 py-1">Object</th>
-                <th className="px-3 py-1">CPU · {windowId}</th>
+                <th className="px-3 py-1">CPU · {windowLabel}</th>
                 <th className="px-3 py-1 text-right">CPU</th>
                 <th className="px-3 py-1 text-right">Memory</th>
                 <th className="px-3 py-1 text-right">Uptime</th>
@@ -419,7 +461,7 @@ export default function DiagnosticsSettings(): React.JSX.Element {
               {ended.length > 0 && (
                 <tr className="border-t border-hair">
                   <td colSpan={6} className="px-3 py-1 text-xs uppercase tracking-wide text-mute">
-                    Ended in the last {windowId}
+                    Ended in the last {windowLabel}
                     {endedOverflow > 0 ? ` · ${endedOverflow} more not shown` : ''}
                   </td>
                 </tr>
