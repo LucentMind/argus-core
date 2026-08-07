@@ -41,6 +41,17 @@ function slotOf(absoluteBucket: number): number {
   return m < 0 ? m + BUCKET_COUNT : m
 }
 
+/** Zeroes a ring's storage in place, without changing its identity — used to recover
+ *  from a clock discontinuity rather than reconstructing a fresh Ring object, since the
+ *  fields holding onto the rings (`totals`, `objects[].ring`) are readonly references. */
+function resetRing(ring: Ring): void {
+  ring.bucketIndex.fill(EMPTY)
+  ring.cpuMax.fill(0)
+  ring.rssSum.fill(0)
+  ring.rssCount.fill(0)
+  ring.procMax?.fill(0)
+}
+
 /**
  * Fold one observation into its bucket.
  *
@@ -73,6 +84,11 @@ function fold(
 type Pick = (ring: Ring, slot: number) => number
 
 const pickCpu: Pick = (r, slot) => r.cpuMax[slot]
+// Belt-and-braces, not currently reachable: fold() always sets rssCount[slot] = 1 (or
+// increments from there) on the same write that gives the slot a real bucketIndex stamp,
+// and readSeries only ever calls a Pick when that stamp matches — so a matched slot's
+// rssCount is never 0 in practice. Kept as a guard in case a future caller of `pick`
+// stops going through that stamp check.
 const pickRss: Pick = (r, slot) => (r.rssCount[slot] === 0 ? 0 : r.rssSum[slot] / r.rssCount[slot])
 const pickProc: Pick = (r, slot) => (r.procMax ? r.procMax[slot] : 0)
 
@@ -120,6 +136,23 @@ export class DiagnosticsHistoryRing {
 
   record(input: HistoryRecordInput): void {
     const absolute = Math.floor(input.atMs / BUCKET_MS)
+    // A backwards system-clock step (NTP correction, manual change) can land `absolute`
+    // more than a full ring behind the last write. Left alone, two things go wrong at
+    // once: read() derives its `lastBucket` from the now-earlier clock, so the window it
+    // queries no longer reaches the recent data already in the ring — the chart reads
+    // empty — while ordinary future writes keep landing on `absolute % BUCKET_COUNT`
+    // slots that, by coincidence of the modulus, still hold that recent data, silently
+    // overwriting it before wall time ever catches back up to reveal it was still there.
+    // Detected and reset once, loudly, instead of corrupting slot-by-slot with no signal.
+    if (this.lastRecordedBucket !== EMPTY && absolute < this.lastRecordedBucket - BUCKET_COUNT) {
+      console.warn(
+        `[diagnostics] clock moved backwards past retention (last recorded bucket ` +
+          `${this.lastRecordedBucket}, new bucket ${absolute}); resetting history`
+      )
+      resetRing(this.totals)
+      this.objects.clear()
+      this.lastRecordedBucket = EMPTY
+    }
     fold(this.totals, absolute, input.cpuPercent, input.rssBytes, input.processCount)
     if (absolute > this.lastRecordedBucket) this.lastRecordedBucket = absolute
 
@@ -185,6 +218,14 @@ export class DiagnosticsHistoryRing {
 
     const objects: DiagnosticsHistorySeries[] = []
     for (const [id, entry] of this.objects) {
+      // Cheap, exact pre-filter for the common case: if this object's ring hasn't been
+      // touched since before the window even starts, it cannot possibly intersect it, so
+      // skip it before allocating and filling its arrays. On a 1h window (720 buckets)
+      // this avoids allocating and immediately discarding up to 64 * 720 numbers on every
+      // 5s poll. The `some()` check below stays — it still catches objects whose
+      // lastSeenBucket is inside the window but whose retained samples inside it happen
+      // to have aged out or never landed.
+      if (entry.lastSeenBucket < firstBucket) continue
       const cpuPercent = readSeries(entry.ring, firstBucket, bucketCount, pickCpu)
       // Omit an object with nothing inside the requested window rather than shipping a
       // full-length run of nulls describing a period the caller did not ask about.

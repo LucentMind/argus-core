@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { DiagnosticsHistoryRing, OBJECT_CAP } from '../history'
 import {
   DIAGNOSTICS_BUCKET_COUNT as BUCKET_COUNT,
@@ -68,6 +68,54 @@ describe('DiagnosticsHistoryRing — totals', () => {
     const ring = new DiagnosticsHistoryRing()
     expect(() => ring.read(0, Number.NaN)).not.toThrow()
     expect(ring.read(0, Number.NaN).bucketCount).toBe(1)
+  })
+
+  it('resets instead of quietly corrupting when the clock steps backwards past retention', () => {
+    // An NTP correction or manual clock change can move the wall clock backwards by more
+    // than a full hour. Left unguarded, read()'s lastBucket would derive from the new,
+    // earlier clock — leaving the chart looking empty — while ordinary future writes
+    // slowly clobber the slots that still hold the real recent hour, with no signal that
+    // it happened.
+    const ring = new DiagnosticsHistoryRing()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const lateMs = RETENTION_MS * 10
+    ring.record({ atMs: lateMs, cpuPercent: 99, rssBytes: 900, processCount: 5, objects: [] })
+
+    // Step backwards by more than a full retention window.
+    const earlyMs = lateMs - RETENTION_MS - BUCKET_MS * 5
+    ring.record({ atMs: earlyMs, cpuPercent: 3, rssBytes: 30, processCount: 1, objects: [] })
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    const [message] = warnSpy.mock.calls[0]
+    // Both bucket indices are named in the one warning, per spec.
+    expect(message).toContain(String(Math.floor(lateMs / BUCKET_MS)))
+    expect(message).toContain(String(Math.floor(earlyMs / BUCKET_MS)))
+
+    // The reset actually happened: reading right after the jump sees only the NEW data,
+    // not a stale value smuggled through a slot the modulus happens to collide with.
+    const h = ring.read(earlyMs + BUCKET_MS - 1, BUCKET_MS)
+    expect(h.total.cpuPercent).toEqual([3])
+
+    warnSpy.mockRestore()
+  })
+
+  it('does not reset on an ordinary forward gap, even a long one', () => {
+    const ring = new DiagnosticsHistoryRing()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    ring.record({ atMs: 0, cpuPercent: 10, rssBytes: 100, processCount: 1, objects: [] })
+    // Forward by less than a full retention window — an ordinary gap, not a clock step.
+    ring.record({
+      atMs: RETENTION_MS - BUCKET_MS,
+      cpuPercent: 20,
+      rssBytes: 200,
+      processCount: 2,
+      objects: []
+    })
+
+    expect(warnSpy).not.toHaveBeenCalled()
+    warnSpy.mockRestore()
   })
 
   it('aligns `from` to a bucket boundary and covers `now`', () => {

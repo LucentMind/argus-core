@@ -239,12 +239,18 @@ export class DiagnosticsService {
     this.peakRssBytes = result.footprint.peakRssBytes
     this.counters = result.counters
 
+    // Captured once and reused for both the ring write and the published snapshot: two
+    // separate this.now() calls straddling a bucket boundary would let record() and
+    // current.readAt disagree about which 5s bucket "now" is, for one ingest() call in
+    // roughly every BUCKET_MS worth of them.
+    const nowMs = this.now()
+
     // Recorded from the SERVICE clock — the same one history() reads with. Using the
     // sidecar's sampledAtUnixMs here instead would put record and read on two clocks that
     // could disagree about which bucket "now" is, for no accuracy gained over the transit
     // time of one NDJSON line.
     this.ring.record({
-      atMs: this.now(),
+      atMs: nowMs,
       cpuPercent: result.footprint.cpuPercent,
       rssBytes: result.footprint.rssBytes,
       processCount: result.footprint.processCount,
@@ -252,7 +258,7 @@ export class DiagnosticsService {
     })
 
     this.current = {
-      readAt: this.now(),
+      readAt: nowMs,
       sampleIntervalMs: this.subscribers.size > 0 ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS,
       cores: this.deps.cores,
       totalMemoryBytes: this.deps.totalMemoryBytes,
