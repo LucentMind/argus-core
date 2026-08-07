@@ -152,6 +152,49 @@ describe('ChatPane', () => {
     clearSpy.mockRestore()
   })
 
+  // Regression: `agent.send` rejects for reasons only the user can act on — main refuses a
+  // send into a session a routine is currently running, and throws an actionable sentence
+  // exactly so the renderer can show it. Fire-and-forget (`void window.argus.agent.send(...)`)
+  // sent that sentence to an unhandled rejection — nothing in this app handles those — while
+  // the Composer had already cleared its box, so the message vanished with no explanation.
+  it('surfaces a refused send and puts the typed text back in the composer', async () => {
+    const slug = 'NAV-REFUSED'
+    const refusal =
+      'A routine is running in this chat. Wait for it to finish before sending a message.'
+    const send = vi.fn(async () => {
+      throw new Error(refusal)
+    })
+    window.argus.agent = { ...window.argus.agent, send } as never
+
+    render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
+    const box = screen.getByPlaceholderText(/message the analyst/i) as HTMLTextAreaElement
+    fireEvent.change(box, { target: { value: 'why did the ingest stall?' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+
+    // the Composer owns its own text and clears it the instant it hands the body over...
+    expect(box.value).toBe('')
+    // ...so the refusal has to both explain itself and give the text back. A real DOM wait on
+    // the alert, not a mock-gated waitFor: this is the tail of a promise rejection.
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe(refusal)
+    expect(box.value).toBe('why did the ingest stall?')
+
+    // and the refusal is not sticky — a retry that succeeds clears it and takes the text,
+    // leaving the normal send path exactly as it was
+    send.mockResolvedValue(undefined as never)
+    fireEvent.keyDown(box, { key: 'Enter' })
+    // cleared synchronously when the retry starts, so there is no stale reason on screen
+    // while it is in flight
+    expect(screen.queryByRole('alert')).toBeNull()
+    // await the exact promise the component awaits rather than polling
+    await act(async () => {
+      await send.mock.results[1]!.value
+    })
+    expect(send).toHaveBeenLastCalledWith(slug, 1, 'why did the ingest stall?')
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(box.value).toBe('')
+  })
+
   it('renders a data-turn-id anchor on user turns for jump-to-turn', () => {
     const slug = 'NAV-ANCHOR'
     const at = (type: string, payload: unknown, turnId: number): AgentEvent =>

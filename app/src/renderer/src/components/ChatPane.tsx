@@ -272,6 +272,44 @@ export function ChatPane({
     return () => clearTimeout(t)
   }, [flashIndex])
 
+  // Why a send can be refused rather than accepted, or null. See `sendTurn`.
+  const [sendError, setSendError] = useState<string | null>(null)
+
+  /**
+   * Deliver a composed turn, and surface a refusal.
+   *
+   * `agent.send` REJECTS for reasons the user alone can act on — most sharply, main refuses a
+   * send into a session a routine is currently running (registry.ts's `sessionUnavailable`
+   * guard), and it throws an actionable sentence precisely so the renderer can show it. This
+   * used to be `void window.argus.agent.send(...)`: the sentence went to an unhandled rejection
+   * (this app installs no `unhandledrejection` handler) and the Composer had already cleared its
+   * own box, so the user's message vanished with no explanation — exactly the outcome the guard
+   * exists to prevent. Await/catch/show, like `analyzeCheck` in CaseWorkspace and `act`/
+   * `applySelected` in FindingsPane.
+   *
+   * The text is put back by RE-STAGING it as the composer's prefill rather than by holding the
+   * box hostage until the IPC settles: `send` only resolves once main has a live session, which
+   * on a cold session means spawning a CLI, so waiting would leave already-sent text sitting in
+   * the box for seconds with the user free to type into it. Re-staging also cannot clobber
+   * anything the user did meanwhile — the Composer's prefill rules already pick the safe merge
+   * (verbatim into an empty box, replacing an untouched staged block, appended to anything the
+   * user has since typed).
+   *
+   * Attachments are deliberately NOT re-staged: their `[evidence/...]` lines are already inside
+   * the restored body, so re-adding the chips would send each attachment twice.
+   */
+  async function sendTurn(text: string): Promise<void> {
+    setSendError(null)
+    composerDraft.clear(slug, sessionId)
+    composerAttachments.clear(slug, sessionId)
+    try {
+      await window.argus.agent.send(slug, sessionId, text)
+    } catch (err) {
+      setSendError((err as Error).message)
+      composerDraft.set(slug, sessionId, text)
+    }
+  }
+
   function findRingClass(i: number): string {
     if (i === currentFindIndex) return 'ring-2 ring-signal'
     if (findMatches.includes(i)) return 'ring-1 ring-signal/40'
@@ -376,16 +414,19 @@ export function ChatPane({
           <div ref={bottom} />
         </div>
       </div>
+      {/* A refused send, above the composer rather than inside the transcript: it is about the
+          message still in the box, not about the conversation, and the transcript scrolls. */}
+      {sendError && (
+        <div role="alert" className="border-t border-hair px-4 py-2 text-xs text-danger">
+          {sendError}
+        </div>
+      )}
       {/* key: the draft (typed or Analyze-prefilled) belongs to one session — reset it on switch */}
       <Composer
         key={`${slug}#${sessionId}`}
         disabled={false}
         prefill={stagedDraft ?? prefill}
-        onSend={(t) => {
-          void window.argus.agent.send(slug, sessionId, t)
-          composerDraft.clear(slug, sessionId)
-          composerAttachments.clear(slug, sessionId)
-        }}
+        onSend={(t) => void sendTurn(t)}
         session={session}
         onModelChange={onModelChange}
         onRunOptionsChange={onRunOptionsChange}
