@@ -210,13 +210,29 @@ describe.skipIf(!SMOKE)('codex driver — real runtime smoke (e2e)', () => {
   it('(b) runCodexHeadless returns non-empty text for a one-shot prompt', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-smoke-headless-'))
     try {
+      // Finding (whole-branch review): the real `defaultCodexClientFactory`'s
+      // `if (child.pid !== undefined) opts.onSpawn?.(child.pid)` line has zero coverage —
+      // every other codex test injects a FAKE `CodexClientFactory` that calls `onSpawn` itself.
+      // This is the one place the REAL factory runs end-to-end (real `codex app-server` child),
+      // so wrap the factory to capture the pid it actually reports and assert it's real.
+      const seenPids: number[] = []
+      const wrappedFactory: typeof defaultCodexClientFactory = (opts) =>
+        defaultCodexClientFactory({
+          ...opts,
+          onSpawn: (pid) => {
+            seenPids.push(pid)
+            opts.onSpawn?.(pid)
+          }
+        })
       const text = await runCodexHeadless(
         'Reply with exactly one short sentence confirming you received this message.',
         { argusHome: root, timeoutMs: 60000 },
-        defaultCodexClientFactory
+        wrappedFactory
       )
       console.log('[SMOKE b] headless text:', JSON.stringify(text.slice(0, 300)))
       expect(text.length).toBeGreaterThan(0)
+      expect(seenPids).toHaveLength(1)
+      expect(seenPids[0]).toBeGreaterThan(0)
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }

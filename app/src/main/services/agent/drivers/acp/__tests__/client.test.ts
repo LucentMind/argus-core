@@ -130,11 +130,21 @@ describe('routeSessionUpdate (single authoritative delivery path)', () => {
  */
 describe('defaultAcpClientFactory stop() (real child process)', () => {
   it('resolves once the real spawned child has actually exited', async () => {
+    // Finding (whole-branch review): the very first hop that reports a driver child's pid —
+    // `if (child.pid !== undefined) opts.onSpawn?.(child.pid)` in the real factory — had zero
+    // coverage; every other test here injects a FAKE client factory that calls `onSpawn` itself,
+    // so deleting that production line left 1068 tests green. This asserts the REAL factory
+    // actually reads `child.pid` off the real spawned child and forwards it, synchronously,
+    // before anything else happens.
+    const seen: number[] = []
     const c = defaultAcpClientFactory({
       spawn: { command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'], env: {} },
+      onSpawn: (p) => seen.push(p),
       onPermission: async () => ({ cancelled: true }),
       onUpdate: () => {}
     })
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toBeGreaterThan(0)
     await c.stop()
     // A second stop() must be a no-op (exitCode/signalCode already set) rather than erroring.
     await c.stop()
