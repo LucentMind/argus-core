@@ -249,4 +249,43 @@ describe('DiagnosticsSettings', () => {
     await act(async () => onSampleCb(snapshot({ objects: [] })))
     expect(screen.queryByText('Argus objects')).toBeNull()
   })
+
+  it('badges an orphaned row and shows its owner', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () =>
+      onSampleCb(
+        snapshot({
+          footprint: { ...snapshot().footprint, orphanCount: 1 },
+          objects: [
+            {
+              id: '2:1000',
+              kind: 'driver',
+              label: 'Codex driver',
+              owner: 'CASE-A:7',
+              inferred: false,
+              orphan: true,
+              rootPid: 2,
+              processCount: 1,
+              cpuPercent: 1,
+              rssBytes: 1024 * 1024,
+              uptimeMs: 1_000
+            }
+          ]
+        })
+      )
+    )
+    const row = screen.getByTestId('diag-object-row')
+    expect(row.getAttribute('data-orphan')).toBe('true')
+    expect(row).toHaveTextContent('CASE-A:7')
+    expect(
+      within(row).getByTitle('The case or session that started this process is gone')
+    ).toBeInTheDocument()
+  })
+
+  it('shows no orphan badge and no orphan count when nothing is orphaned', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot()))
+    expect(screen.queryByTitle('The case or session that started this process is gone')).toBeNull()
+    expect(screen.queryByText(/orphaned/)).toBeNull()
+  })
 })

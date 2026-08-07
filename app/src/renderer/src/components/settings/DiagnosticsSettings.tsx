@@ -88,13 +88,24 @@ function ObjectRow({ o }: { o: DiagnosticsObject }): React.JSX.Element {
       data-testid="diag-object-row"
       data-kind={o.kind}
       data-procs={o.processCount}
+      data-orphan={o.orphan}
+      data-inferred={o.inferred}
       className={`border-t border-hair${unattributed ? ' text-mute' : ''}`}
     >
       <td className="px-3 py-1">
         {o.label}
+        {o.owner ? <span className="ml-2 text-xs text-mute">{o.owner}</span> : null}
         {o.inferred ? (
           <span className="ml-2 text-xs text-mute" title="Inferred from the command line">
             inferred
+          </span>
+        ) : null}
+        {o.orphan ? (
+          <span
+            className="ml-2 text-xs text-mute"
+            title="The case or session that started this process is gone"
+          >
+            orphaned
           </span>
         ) : null}
       </td>
@@ -201,7 +212,9 @@ export default function DiagnosticsSettings(): React.JSX.Element {
             testId="diag-procs"
             label="Processes"
             value={String(snap.footprint.processCount)}
-            sub={`${snap.footprint.starts} starts · ${snap.footprint.exits} exits`}
+            sub={`${snap.footprint.starts} starts · ${snap.footprint.exits} exits${
+              snap.footprint.orphanCount > 0 ? ` · ${snap.footprint.orphanCount} orphaned` : ''
+            }`}
           />
         </div>
       </SettingsSection>
