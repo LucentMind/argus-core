@@ -315,6 +315,15 @@ describe('AgentSettings session defaults', () => {
     expect(window.argus.settings.patch).toHaveBeenCalledWith({ agent: { maxSessions: 5 } })
   })
 
+  it('show tool calls switch writes uiStore (renderer-local), not IPC', async () => {
+    render(<AgentSettings payload={payload()} />)
+    const sw = await screen.findByRole('switch', { name: 'Show tool calls' })
+    expect(sw.getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(sw)
+    expect(sw.getAttribute('aria-checked')).toBe('false')
+    expect(window.argus.settings.patch).not.toHaveBeenCalled()
+  })
+
   it('provider rows and session defaults are distinct sections', async () => {
     render(<AgentSettings payload={payload()} />)
     const providers = (await screen.findByText('Providers')).closest('section')!

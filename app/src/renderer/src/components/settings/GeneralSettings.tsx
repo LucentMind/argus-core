@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { FolderGit2, X } from 'lucide-react'
 import { uiStore, UI_SCALES, type Theme, type UiScale } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm } from '../../lib/confirmStore'
@@ -8,11 +9,7 @@ import { Btn, Chip, IconBtn } from '../ui'
 import { RepoPickerMenu } from '../RepoPickerMenu'
 import { SettingsSection, SettingRow, Switch, SelectField } from './settingsLayout'
 import { UpdateSettings } from './UpdateSettings'
-import {
-  TIMESTAMP_FORMATS,
-  type SettingsPayload,
-  type TimestampFormat
-} from '../../../../shared/settings'
+import type { SettingsPayload } from '../../../../shared/settings'
 
 export function GeneralSettings({ payload }: { payload: SettingsPayload }): React.JSX.Element {
   const ui = useSyncExternalStore(
@@ -53,20 +50,6 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
           />
         </SettingRow>
         <SettingRow
-          label="Timestamp format"
-          isDefault={g.timestampFormat === 'locale'}
-          onReset={() => void settingsStore.patch({ general: { timestampFormat: null } })}
-        >
-          <SelectField
-            aria-label="Timestamp format"
-            value={g.timestampFormat}
-            options={TIMESTAMP_FORMATS}
-            onChange={(v) =>
-              void settingsStore.patch({ general: { timestampFormat: v as TimestampFormat } })
-            }
-          />
-        </SettingRow>
-        <SettingRow
           label="Confirm case delete"
           description="Require typing the case slug before a case is deleted"
           isDefault={g.confirmCaseDelete}
@@ -97,28 +80,35 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
           onReset={() => void settingsStore.patch({ general: { defaultRepos: null } })}
           stacked
         >
-          <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex min-w-0 flex-col gap-0.5">
             {g.defaultRepos.length === 0 && <span className="text-xs text-dim">not set</span>}
-            {g.defaultRepos.map((p) => (
-              <div key={p} className="flex min-w-0 items-center gap-1">
-                <span className="max-w-64 truncate font-mono text-xs text-dim" title={p}>
-                  {p}
-                </span>
-                <IconBtn
-                  size="xs"
-                  aria-label={`Remove ${p}`}
-                  title="Remove from defaults"
-                  className="hover:text-danger"
-                  onClick={() =>
-                    void settingsStore.patch({
-                      general: { defaultRepos: g.defaultRepos.filter((d) => d !== p) }
-                    })
-                  }
+            {g.defaultRepos.map((p) => {
+              const name = p.split(/[\\/]/).pop() ?? p
+              return (
+                <div
+                  key={p}
+                  className="group/repo flex min-w-0 items-center gap-1.5 rounded-r2 border border-transparent px-1.5 py-1 transition-colors hover:border-hair hover:bg-hair/50"
                 >
-                  ×
-                </IconBtn>
-              </div>
-            ))}
+                  <FolderGit2 size={12} className="shrink-0 text-mute" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink" title={p}>
+                    {name}
+                  </span>
+                  <IconBtn
+                    size="xs"
+                    aria-label={`Remove ${p}`}
+                    title="Remove from defaults"
+                    className="shrink-0 opacity-0 transition-opacity hover:text-danger group-hover/repo:opacity-100 group-focus-within/repo:opacity-100"
+                    onClick={() =>
+                      void settingsStore.patch({
+                        general: { defaultRepos: g.defaultRepos.filter((d) => d !== p) }
+                      })
+                    }
+                  >
+                    <X size={12} />
+                  </IconBtn>
+                </div>
+              )
+            })}
           </div>
           <RepoPickerMenu
             onPick={(p) =>
@@ -126,16 +116,6 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
             }
             exclude={g.defaultRepos}
             trigger={{ text: 'Add…' }}
-          />
-        </SettingRow>
-        <SettingRow
-          label="Show tool calls"
-          description="Default visibility of tool-call cards (stored locally)"
-        >
-          <Switch
-            checked={ui.showToolCalls}
-            onChange={(v) => uiStore.setShowToolCalls(v)}
-            aria-label="Show tool calls"
           />
         </SettingRow>
         <SettingRow

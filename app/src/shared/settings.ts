@@ -19,9 +19,6 @@ export const MODE_BY_LABEL: Record<string, PermissionMode> = Object.fromEntries(
   Object.entries(PERMISSION_MODE_LABELS).map(([mode, label]) => [label, mode as PermissionMode])
 ) as Record<string, PermissionMode>
 
-export const TIMESTAMP_FORMATS = ['locale', '12h', '24h'] as const
-export type TimestampFormat = (typeof TIMESTAMP_FORMATS)[number]
-
 const providerInstanceSchema = z.looseObject({
   driver: z.string(), // OPEN slug — unknown drivers must round-trip
   displayName: z.string().optional(),
@@ -31,7 +28,6 @@ const providerInstanceSchema = z.looseObject({
 export type ProviderInstance = z.infer<typeof providerInstanceSchema>
 
 const generalSchema = z.looseObject({
-  timestampFormat: z.enum(TIMESTAMP_FORMATS).default('locale'),
   confirmCaseDelete: z.boolean().default(true),
   /** @deprecated Superseded by `defaultRepos`. Retained only so the one-time
    *  `migrateDefaultRepoToList` can read it; that migration nulls it, after which

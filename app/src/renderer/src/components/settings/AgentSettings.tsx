@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm } from '../../lib/confirmStore'
+import { uiStore } from '../../lib/uiStore'
 import { Btn, Chip, IconBtn } from '../ui'
 import {
   SettingsSection,
   SettingRow,
+  Switch,
   SelectField,
   FIELD,
   DraftInput,
@@ -67,6 +69,10 @@ function RemoveProviderButton({
 
 export function AgentSettings({ payload }: { payload: SettingsPayload }): React.JSX.Element {
   const a = payload.settings.agent
+  const ui = useSyncExternalStore(
+    (cb) => uiStore.subscribe(cb),
+    () => uiStore.get()
+  )
   const [statuses, setStatuses] = useState<ProviderStatus[]>([])
   const [refreshing, setRefreshing] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -286,6 +292,16 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
       <DistillationSection payload={payload} />
 
       <SettingsSection title="Session defaults">
+        <SettingRow
+          label="Show tool calls"
+          description="Default visibility of tool-call cards (stored locally)"
+        >
+          <Switch
+            checked={ui.showToolCalls}
+            onChange={(v) => uiStore.setShowToolCalls(v)}
+            aria-label="Show tool calls"
+          />
+        </SettingRow>
         <SettingRow
           label="Persona append"
           description="Appended to the Argus persona for new sessions"

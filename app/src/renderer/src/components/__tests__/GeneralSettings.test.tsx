@@ -105,19 +105,6 @@ describe('GeneralSettings', () => {
     })
   })
 
-  it('timestamp format patches app-global settings; reset appears when non-default', () => {
-    const { rerender } = render(<GeneralSettings payload={payload()} />)
-    expect(screen.queryByRole('button', { name: 'Reset Timestamp format' })).toBeNull()
-    choose('Timestamp format', '24h')
-    expect(window.argus.settings.patch).toHaveBeenCalledWith({
-      general: { timestampFormat: '24h' }
-    })
-    rerender(
-      <GeneralSettings payload={payload((p) => (p.settings.general.timestampFormat = '24h'))} />
-    )
-    expect(screen.getByRole('button', { name: 'Reset Timestamp format' })).toBeTruthy()
-  })
-
   it('shows the data root read-only with env badge and open-folder action', () => {
     render(<GeneralSettings payload={payload()} />)
     expect(screen.getByText('C:\\Users\\x\\Argus')).toBeTruthy()
@@ -160,8 +147,10 @@ function withDefaults(repos: string[]): SettingsPayload {
 describe('GeneralSettings default repositories', () => {
   it('lists every default repo', async () => {
     render(<GeneralSettings payload={withDefaults([ALPHA, BETA])} />)
-    expect(await screen.findByText(ALPHA)).toBeInTheDocument()
-    expect(screen.getByText(BETA)).toBeInTheDocument()
+    expect(await screen.findByTitle(ALPHA)).toBeInTheDocument()
+    expect(screen.getByTitle(BETA)).toBeInTheDocument()
+    expect(screen.getByText('alpha')).toBeInTheDocument()
+    expect(screen.getByText('beta')).toBeInTheDocument()
   })
 
   it('shows "not set" when the list is empty', () => {

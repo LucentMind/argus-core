@@ -10,7 +10,6 @@ import {
 describe('settings schema', () => {
   it('parses {} to full defaults including the claude-default instance', () => {
     const s = settingsSchema.parse({})
-    expect(s.general.timestampFormat).toBe('locale')
     expect(s.general.confirmCaseDelete).toBe(true)
     expect(s.general.similarPastCasesEnabled).toBe(false)
     expect(s.agent.activeInstanceId).toBe('claude-default')
@@ -30,7 +29,6 @@ describe('settings schema', () => {
     const s = settingsSchema.parse({ agent: { maxSessions: 5 } })
     expect(s.agent.maxSessions).toBe(5)
     expect(s.agent.probeTimeoutMs).toBe(10000)
-    expect(s.general.timestampFormat).toBe('locale')
   })
 
   it('passes through unknown keys at every level (forward compat)', () => {
