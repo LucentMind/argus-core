@@ -6,6 +6,9 @@ import type {
   ProcessSample
 } from '../../../shared/diagnostics'
 import { resolveLabel, type LabelSources } from './labels'
+import { identityKey } from './identity'
+
+export { identityKey } from './identity'
 
 /**
  * Pure transformation of raw sidecar samples into a renderable snapshot.
@@ -44,10 +47,6 @@ export type BuildResult = {
   footprint: DiagnosticsAggregate
   next: Map<string, ProcessState>
   counters: { starts: number; exits: number }
-}
-
-export function identityKey(pid: number, startTimeMs: number): string {
-  return `${pid}:${startTimeMs}`
 }
 
 /**
