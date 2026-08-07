@@ -197,8 +197,122 @@ describe('RoutinesPage — editing', () => {
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: '!!!' } })
     fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'x' } })
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
-    expect(await screen.findByText(/letter or digit/i)).toBeInTheDocument()
+    expect(await screen.findByText(/only a–z, 0–9 and hyphens/i)).toBeInTheDocument()
     expect(api.save).not.toHaveBeenCalled()
+  })
+
+  it('tells the truth about the id charset for a name that is all non-ASCII letters', async () => {
+    // 日次巡回 is nothing BUT letters, and still derives an empty id. A message claiming the name
+    // needs "a letter or digit" would be flatly wrong here and leave the user with no next step.
+    render(<RoutinesPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /new routine/i }))
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: '日次巡回' } })
+    fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'x' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    const msg = await screen.findByRole('alert')
+    expect(msg).toHaveTextContent(/only a–z, 0–9 and hyphens/i)
+    expect(msg).not.toHaveTextContent(/must contain at least one letter/i)
+    expect(api.save).not.toHaveBeenCalled()
+  })
+
+  it('refuses to create a routine whose derived id collides with an existing one', async () => {
+    // `save` is a whole-object upsert keyed on id, so going through here would replace the
+    // existing routine's prompt and settings outright. Nothing in the form hints that "Sweep"
+    // and "Nightly sweep" (id `sweep`) are the same routine.
+    render(<RoutinesPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /new routine/i }))
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Sweep' } })
+    fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'a different job' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    expect(await screen.findByText(/already uses the id sweep/i)).toBeInTheDocument()
+    expect(api.save).not.toHaveBeenCalled()
+    // Mutation-tier error: the list the user was looking at must survive it.
+    expect(screen.getByText('Nightly sweep')).toBeInTheDocument()
+  })
+
+  it('catches a collision two long names produce only after the 56-char id truncation', async () => {
+    // Both names are visibly different; their ids are identical because deriveId slices at 56.
+    stubApi(
+      payload({ routines: [{ ...sweep, id: 'a'.repeat(56), name: `${'a'.repeat(60)} one` }] })
+    )
+    render(<RoutinesPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /new routine/i }))
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: `${'a'.repeat(58)} two` } })
+    fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'x' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    expect(await screen.findByText(/already uses the id a{56}/i)).toBeInTheDocument()
+    expect(api.save).not.toHaveBeenCalled()
+  })
+
+  it('still lets an edit replace the routine it is editing', async () => {
+    // The collision guard is create-only — an edit legitimately overwrites its own id.
+    render(<RoutinesPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /edit · Nightly sweep/i }))
+    fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'sweep harder' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() =>
+      expect(api.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'sweep', prompt: 'sweep harder' })
+      )
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('preserves keys the editor knows nothing about', async () => {
+    // routineSchema is a looseObject, so a hand-added (or Increment 2) key survives the store.
+    // An editor that rebuilt the routine from its own fields would drop it on every save.
+    stubApi(payload({ routines: [{ ...sweep, schedule: '0 2 * * *' }] }))
+    render(<RoutinesPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /edit · Nightly sweep/i }))
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Nightly sweep v2' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() =>
+      expect(api.save).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Nightly sweep v2', schedule: '0 2 * * *' })
+      )
+    )
+  })
+
+  it('clearing the model drops it instead of resurrecting the stored one', async () => {
+    // The other half of preserving unknown keys: layering the form over the stored routine must
+    // not make an emptied optional field un-clearable.
+    stubApi(payload({ routines: [{ ...sweep, model: 'gpt-5-codex' }] }))
+    render(<RoutinesPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /edit · Nightly sweep/i }))
+    fireEvent.change(screen.getByLabelText('Model'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(api.save).toHaveBeenCalled())
+    expect(api.save.mock.calls[0][0]).not.toHaveProperty('model')
+  })
+
+  it('saves a model typed into the editor', async () => {
+    render(<RoutinesPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /edit · Nightly sweep/i }))
+    fireEvent.change(screen.getByLabelText('Model'), { target: { value: '  claude-opus-4-6  ' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() =>
+      expect(api.save).toHaveBeenCalledWith(
+        // Trimmed: a model slug with stray whitespace is not a model the driver can resolve.
+        expect.objectContaining({ id: 'sweep', model: 'claude-opus-4-6' })
+      )
+    )
+  })
+
+  it('toggles enabled off and saves it', async () => {
+    render(<RoutinesPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /edit · Nightly sweep/i }))
+    const box = screen.getByLabelText('Enabled')
+    expect(box).toBeChecked()
+    fireEvent.click(box)
+    expect(box).not.toBeChecked()
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() =>
+      expect(api.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'sweep', enabled: false })
+      )
+    )
   })
 
   it('refuses to save an empty prompt', async () => {

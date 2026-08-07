@@ -265,10 +265,30 @@ export function RoutinesPage(): React.JSX.Element {
     const prompt = editing.prompt.trim()
     const id = editing.id ?? deriveId(name)
     if (!id) {
+      // Deliberately not "must contain a letter or digit": a Japanese or Cyrillic name is full of
+      // letters and still derives nothing, because the id charset is ASCII-only. Say what the id
+      // can hold, so the user knows what to add rather than doubting what they typed.
       setMutationError(
-        'Name must contain at least one letter or digit — the id is derived from it.'
+        'No id could be derived from this name — ids use only a–z, 0–9 and hyphens, and everything else (accents, other scripts, punctuation) is dropped. Add at least one plain letter or digit.'
       )
       return
+    }
+    // CREATE only — in edit mode replacing the routine under this id is the whole point.
+    // `save` is a whole-object upsert keyed on id, so a colliding id overwrites the existing
+    // routine's prompt and settings with no trace. Refusing rather than offering a confirm:
+    // nothing in the form hints that "Morning Triage" and "morning triage" are the same routine
+    // (nor that two long names sharing a 56-char prefix are), so an overwrite prompt would put a
+    // one-click destruction of a prompt the user cannot see behind a surprise they did not
+    // anticipate. Naming the routine in the way instead leaves both real intents reachable:
+    // rename, or Edit the existing routine — which shows its prompt before touching it.
+    if (editing.id === null) {
+      const clash = payload?.routines.find((r) => r.id === id)
+      if (clash) {
+        setMutationError(
+          `"${clash.name}" already uses the id ${id} — ids are derived from the name, so different names can produce the same one. Pick another name, or edit "${clash.name}" instead.`
+        )
+        return
+      }
     }
     if (!prompt) {
       setMutationError(
@@ -281,15 +301,30 @@ export function RoutinesPage(): React.JSX.Element {
       setMutationError('Timeout must be a positive number of minutes.')
       return
     }
+    const model = editing.model.trim()
+    /**
+     * The routine as stored, with this form's fields layered on top — NOT a fresh object built
+     * from form state. `routineSchema` is a `looseObject`, so config/routines.json can carry keys
+     * this editor knows nothing about, and Increment 2's schedule/trigger fields will be exactly
+     * that until the form catches up. Rebuilding from the form would drop every one of them on
+     * the next edit — the same shape of loss as the `driverKind` defect already fixed here.
+     */
+    const base =
+      editing.id === null ? undefined : payload?.routines.find((r) => r.id === editing.id)
     const def: RoutineDef = {
+      ...base,
       id,
       name,
       prompt,
       timeoutMs: Math.round(minutes * 60_000),
-      enabled: editing.enabled,
-      ...(editing.driverKind ? { driverKind: editing.driverKind } : {}),
-      ...(editing.model.trim() ? { model: editing.model.trim() } : {})
+      enabled: editing.enabled
     }
+    // Optional fields are ASSIGNED OR DELETED, never conditionally spread: a spread only ever adds
+    // keys, so a Model the user emptied would be resurrected from `base` and never clearable.
+    if (editing.driverKind) def.driverKind = editing.driverKind
+    else delete def.driverKind
+    if (model) def.model = model
+    else delete def.model
     try {
       setPayload(await window.argus.routines.save(def))
       setMutationError(null)
