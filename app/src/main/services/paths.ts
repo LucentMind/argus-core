@@ -128,6 +128,11 @@ export function refSyncStatePath(argusHome: string): string {
   return path.join(configDir(argusHome), 'reference-sync.state.json')
 }
 
+/** User-editable routine definitions (spec 2026-08-03-routines §2). */
+export function routinesPath(argusHome: string): string {
+  return path.join(configDir(argusHome), 'routines.json')
+}
+
 export function deletionAuditPath(argusHome: string): string {
   return path.join(argusHome, '.audit', 'deletions.jsonl')
 }
