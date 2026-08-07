@@ -271,7 +271,19 @@ const recon = await waitFor('objects section to render with real data', async ()
     const tile = document.querySelector('[data-testid="diag-procs"]')
     const rows = [...document.querySelectorAll('[data-testid="diag-object-row"]')].map((tr) => ({
       kind: tr.getAttribute('data-kind'),
-      procs: Number(tr.getAttribute('data-procs'))
+      procs: Number(tr.getAttribute('data-procs')),
+      // Kept as the raw string: React renders a boolean data- attribute as the
+      // literal text "true"/"false", and the orphan check below compares against
+      // that string directly (see its comment).
+      orphan: tr.getAttribute('data-orphan'),
+      // Converted to a real boolean here, unlike orphan: the authoritative-rows
+      // check below negates it with plain '!', which on the raw "true"/"false"
+      // string would be false for BOTH values (every non-empty string is
+      // truthy) and silently empty the filter.
+      inferred: tr.getAttribute('data-inferred') === 'true',
+      // Diagnostic only — not used by any assertion condition, just printed on
+      // failure so a missing tier-A row is legible instead of a bare kind list.
+      label: (tr.querySelector('td')?.textContent || '').trim()
     }))
     if (!tile || rows.length === 0) return null
     return { footprint: Number.parseInt(tile.textContent.trim(), 10), rows }
@@ -297,6 +309,32 @@ check('objects reconcile with the footprint process count', rowProcs === recon.f
   footprint: recon.footprint,
   rows: recon.rows
 })
+
+// Tier A is the increment's deliverable. A row that is NOT marked inferred and is
+// not an Electron kind can only have come from the registry — tier B produces only
+// electron-* kinds, and every tier-C label is marked inferred.
+//
+// The startup driver probe does NOT supply this on its own: the ACP and Codex
+// auth-probe paths have no case/session identity, so onSpawn is never wired there
+// and they produce only a tier-C `driver` row marked inferred. A genuine tier-A row
+// needs an MCP connector probe, a pack app, a graphify run, or a real agent session
+// to have run during this session — printing every row's kind/label/inferred/orphan
+// on failure is what makes a live run's cause legible instead of a bare boolean.
+const authoritative = recon.rows.filter(
+  (r) => !r.inferred && !r.kind.startsWith('electron-') && r.kind !== 'unattributed'
+)
+check(
+  'at least one row is labelled from the registry (tier A)',
+  authoritative.length > 0,
+  recon.rows
+)
+
+// Orphan flagging must be off in a healthy run — every owner is live.
+check(
+  'no row is orphaned in a healthy session',
+  recon.rows.every((r) => r.orphan !== 'true'),
+  recon.rows.filter((r) => r.orphan === 'true')
+)
 
 // A page that renders once and then freezes passes every static assertion above.
 // readAt is monotonic per push, so a strict increase is the one check that tells
