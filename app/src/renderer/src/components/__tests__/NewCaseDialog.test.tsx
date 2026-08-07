@@ -86,6 +86,32 @@ describe('NewCaseDialog', () => {
     for (const b of boxes) expect(b).toBeChecked()
   })
 
+  it('fetches a ticket from a pasted full Jira link', async () => {
+    render(<NewCaseDialog {...noop} />)
+    fireEvent.change(screen.getByPlaceholderText(/PROJ-1234/i), {
+      target: { value: 'https://foo.atlassian.net/browse/PROJ-7' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+    await waitFor(() => expect(jira.preview).toHaveBeenCalledWith('PROJ-7'))
+  })
+
+  it('creates a blank case from a pasted full Jira link in the optional jira field', async () => {
+    render(<NewCaseDialog {...noop} />)
+    fireEvent.change(screen.getByPlaceholderText(/^slug/i), { target: { value: 'adhoc-1' } })
+    fireEvent.change(screen.getByPlaceholderText(/^title/i), { target: { value: 'Ad hoc' } })
+    fireEvent.change(screen.getByPlaceholderText(/jira key/i), {
+      target: { value: 'https://foo.atlassian.net/browse/PROJ-7' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: /create blank case/i }))
+    await waitFor(() =>
+      expect(noop.onCreateBlank).toHaveBeenCalledWith({
+        slug: 'adhoc-1',
+        title: 'Ad hoc',
+        jiraKey: 'PROJ-7'
+      })
+    )
+  })
+
   it('not-configured errors point at the Connectors page; blank path stays available', async () => {
     jira.preview.mockResolvedValueOnce({
       ok: false,

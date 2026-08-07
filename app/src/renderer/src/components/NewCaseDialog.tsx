@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Btn, Chip } from './ui'
 import { ModalShell } from './ModalShell'
 import { transientFieldEscape } from '../lib/escapeLayer'
+import { parseJiraKeyInput } from '../lib/jiraKeyInput'
 import type { NewCaseInput } from '../../../shared/types'
 import type { JiraAttachmentInfo, JiraIssuePreview } from '../../../shared/jira'
 
@@ -65,7 +66,7 @@ export function NewCaseDialog({
   }, [ingestSlug])
 
   async function fetchTicket(): Promise<void> {
-    const key = ticketKey.trim()
+    const key = parseJiraKeyInput(ticketKey)
     setBusy(true)
     setError(null)
     // Clear the entry field synchronously (same render as setBusy) so its value
@@ -98,7 +99,7 @@ export function NewCaseDialog({
     setBusy(true)
     setError(null)
     try {
-      await onCreateBlank({ slug, title, jiraKey: jira || undefined })
+      await onCreateBlank({ slug, title, jiraKey: jira.trim() ? parseJiraKeyInput(jira) : undefined })
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -178,7 +179,7 @@ export function NewCaseDialog({
               <div className="flex gap-2">
                 <input
                   className={`${INPUT} min-w-0 flex-1 font-mono`}
-                  placeholder="ticket key (e.g. PROJ-1234)"
+                  placeholder="ticket key or link (e.g. PROJ-1234)"
                   value={ticketKey}
                   onChange={(e) => setTicketKey(e.target.value)}
                   onKeyDown={(e) =>
@@ -213,7 +214,7 @@ export function NewCaseDialog({
               />
               <input
                 className={`${INPUT} font-mono`}
-                placeholder="jira key (optional)"
+                placeholder="jira key or link (optional)"
                 value={jira}
                 onChange={(e) => setJira(e.target.value)}
                 onKeyDown={(e) => transientFieldEscape(e, jira === '', () => setJira(''))}
