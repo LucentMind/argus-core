@@ -315,8 +315,8 @@ import {
 } from './services/diagnostics/windowDescriptors'
 import { RoutineStore } from './services/routines/store'
 import { RoutinesService } from './services/routines/service'
-import { reconcileInterruptedRuns } from './services/routines/runs'
-import { runBackgroundTurn } from './services/agent/background'
+import { reconcileInterruptedRuns, runningRoutineForSession } from './services/routines/runs'
+import { createRoutineTurnRunner } from './services/routines/turnRunner'
 import type { RoutinesPayload } from '../shared/routines'
 
 let agentService: AgentService | null = null
@@ -1577,6 +1577,15 @@ function registerIpc(): void {
     onWorktreeChanged: (slug) => broadcast(IPC.workspacesChanged, slug),
     defectCorpus,
     processLabels: defaultProcessLabels,
+    // A routine's background session is streamed into the normal case UI but is NOT in
+    // AgentService's live map, so an attach would build a second, fully-permissioned session on
+    // the same row. Refuse instead, with a reason the renderer can show.
+    sessionUnavailable: (sessionId) => {
+      const routineId = runningRoutineForSession(db, sessionId)
+      return routineId
+        ? `This chat is running the routine "${routineId}" unattended right now. Wait for the run to finish before sending a message.`
+        : null
+    },
     dispatchPanelCommand: (caseSlug, packId, windowId, cmd, args) => {
       const w = panelWindow(packId, windowId)
       return w?.decl.kind === 'externalApp'
@@ -1792,31 +1801,21 @@ function registerIpc(): void {
     db,
     argusHome,
     store: routines,
-    runTurn: ({ driverKind, ...params }) => {
-      // getDriverByKind falls back to Claude for anything unregistered. Say so out loud: an
-      // unattended run on a provider the user did not pick is exactly the kind of thing that
-      // is invisible without a window watching.
-      const driver = getDriverByKind(driverKind)
-      if (driver.kind !== driverKind) {
-        console.warn(
-          `[routines] unknown driver kind "${driverKind}"; running on ${driver.kind} instead`
-        )
-      }
-      return runBackgroundTurn(
-        {
-          db,
-          argusHome,
-          detection,
-          skillsRoots,
-          driver,
-          // Same channel as an interactive turn, so a routine's transcript streams into the
-          // normal session UI while it runs; `mirrorFactory` is what makes it replayable after.
-          onEvent: (e) => routinesBroadcast(IPC.agentEventChannel, e),
-          mirrorFactory
-        },
-        params
-      )
-    },
+    // The binding itself lives in services/routines/turnRunner.ts — electron-free, so it is
+    // reachable by a runtime test, unlike anything written inline here. It also owns the
+    // driver-kind mismatch guard: getDriverByKind falls back to Claude for any unregistered
+    // kind, which would execute a run on a provider the session row does not name.
+    runTurn: createRoutineTurnRunner({
+      db,
+      argusHome,
+      detection,
+      skillsRoots,
+      driverFor: getDriverByKind,
+      // Same channel as an interactive turn, so a routine's transcript streams into the
+      // normal session UI while it runs; `mirrorFactory` is what makes it replayable after.
+      onEvent: (e) => routinesBroadcast(IPC.agentEventChannel, e),
+      mirrorFactory
+    }),
     notify: () => routinesBroadcast(IPC.routinesChanged, null)
   })
   // File-level changes (an edit through the IPC handlers below, or someone editing
