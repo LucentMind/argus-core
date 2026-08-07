@@ -401,7 +401,7 @@ const chart = await waitFor(
         d: el.querySelector('path[stroke-width="2"]')?.getAttribute('d') || ''
       }
     })()`)
-    return r && r.empty === 'false' ? r : null
+    return r && r.empty === 'false' && r.buckets === 60 ? r : null
   },
   45_000
 )
