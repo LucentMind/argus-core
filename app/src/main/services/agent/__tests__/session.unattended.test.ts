@@ -206,9 +206,11 @@ describe('unattended sessions', () => {
     await s.stop('stopped')
   })
 
-  it('leaves non-bypassing modes alone under unattended', async () => {
-    // acceptEdits reaches classifyOnly, which denies asks under unattended — so it is safe to
-    // honour, and the guard must not flatten every mode to default.
+  it('never hands the driver acceptEdits when unattended', async () => {
+    // acceptEdits reaches classifyOnly on the three non-Claude drivers, but the Claude driver
+    // has NO classifyOnly call site: it forwards the mode to the SDK, which auto-accepts
+    // edit/write tools without invoking canUseTool. So on this driver acceptEdits skips BOTH
+    // deny seams, and an ask-level Write the classifier would deny would execute unseen.
     const sdk = fakeSdk()
     const s = h.makeSession(sdk, {
       unattended: true,
@@ -216,7 +218,35 @@ describe('unattended sessions', () => {
     })
     s.send('go')
     await canUseToolOf(sdk)
+    // queryOptions.ts omits the field entirely for 'default'.
+    expect(sdk.captured.options!.permissionMode).not.toBe('acceptEdits')
+    expect(sdk.captured.options!.permissionMode).toBeUndefined()
+    await s.stop('stopped')
+  })
+
+  it('control: an interactive session DOES get acceptEdits', async () => {
+    // Proves the assertion above is load-bearing rather than a fixture structurally incapable
+    // of producing acceptEdits, and that the guard is scoped to unattended runs only.
+    const sdk = fakeSdk()
+    const s = h.makeSession(sdk, { agentOptions: { permissionMode: 'acceptEdits' } })
+    s.send('go')
+    await canUseToolOf(sdk)
     expect(sdk.captured.options!.permissionMode).toBe('acceptEdits')
+    expect(sdk.captured.options!.allowDangerouslySkipPermissions).toBeUndefined()
+    await s.stop('stopped')
+  })
+
+  it('leaves non-seam-skipping modes alone under unattended', async () => {
+    // `plan` routes through canUseTool, which denies asks under unattended — so it is safe to
+    // honour, and the guard must not flatten every mode to default.
+    const sdk = fakeSdk()
+    const s = h.makeSession(sdk, {
+      unattended: true,
+      agentOptions: { permissionMode: 'plan' }
+    })
+    s.send('go')
+    await canUseToolOf(sdk)
+    expect(sdk.captured.options!.permissionMode).toBe('plan')
     expect(sdk.captured.options!.allowDangerouslySkipPermissions).toBeUndefined()
     await s.stop('stopped')
   })

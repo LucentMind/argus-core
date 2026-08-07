@@ -340,20 +340,31 @@ export class CaseSession {
       caseDir: dir
     }
     const ao = deps.agentOptions ?? {}
-    // Structural guard on the unattended trust boundary, NOT a preference: both deny seams
-    // (handleToolRequest, classifyOnly) are unreachable under `bypassPermissions`. Every
-    // non-Claude driver returns an approve short-circuit BEFORE it calls either seam
-    // (drivers/copilot/index.ts, drivers/acp/index.ts, drivers/codex/index.ts, each at their
-    // `ctx.permissionMode === 'bypassPermissions'` branch), and the Claude SDK skips
-    // canUseTool entirely once queryOptions.ts pairs the mode with
-    // allowDangerouslySkipPermissions. So a single stray agentOptions.permissionMode from a
-    // caller would silently void the boundary. Downgraded here, at the one place that builds
-    // the driver context, so no caller CAN void it. Other modes are safe to honour: `plan`
-    // and `default` route through canUseTool, and `acceptEdits` routes through classifyOnly,
-    // which denies asks under unattended too.
+    // Structural guard on the unattended trust boundary, NOT a preference. The two deny seams
+    // are `handleToolRequest` (the canUseTool path) and `classifyOnly` (the seam the
+    // permission-mode short-circuits consult). Which modes reach them is per-driver:
+    //
+    //  - `bypassPermissions` reaches NEITHER seam on ANY driver. The three non-Claude drivers
+    //    return an approve short-circuit before calling either one (drivers/copilot/index.ts,
+    //    drivers/acp/index.ts, drivers/codex/index.ts, each at their
+    //    `ctx.permissionMode === 'bypassPermissions'` branch), and the Claude SDK skips
+    //    canUseTool entirely once queryOptions.ts pairs the mode with
+    //    allowDangerouslySkipPermissions.
+    //  - `acceptEdits` reaches classifyOnly on the non-Claude drivers ONLY. Those three are the
+    //    sole classifyOnly call sites in the repo; the Claude driver has no classifyOnly path at
+    //    all — it forwards the mode to the SDK (queryOptions.ts), which auto-accepts edit/write
+    //    tools WITHOUT invoking canUseTool. So on Claude, `acceptEdits` also reaches neither
+    //    seam, and ask-level Write/Edit calls the classifier would DENY would execute unseen.
+    //  - `plan` and `default` route through canUseTool on every driver, so they are safe to
+    //    honour: their ask verdicts still become denies under unattended.
+    //
+    // Both seam-skipping modes are therefore downgraded here, at the one place that builds the
+    // driver context, so no stray agentOptions.permissionMode from a caller CAN void the
+    // boundary.
     const requestedPermissionMode = ao.permissionMode ?? 'default'
     const permissionMode: PermissionMode =
-      deps.unattended && requestedPermissionMode === 'bypassPermissions'
+      deps.unattended &&
+      (requestedPermissionMode === 'bypassPermissions' || requestedPermissionMode === 'acceptEdits')
         ? 'default'
         : requestedPermissionMode
     // The options bag, stream loop, cursor/result extraction, and the SDK prompt envelope
