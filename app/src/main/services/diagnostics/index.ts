@@ -62,6 +62,9 @@ export class DiagnosticsService {
   private unsubscribeHealth: (() => void) | null = null
   private unsubscribeRegister: (() => void) | null = null
   private sampleNowSeq = 0
+  /** Last status seen from the client, so publishHealth can detect a transition
+   *  INTO 'healthy' rather than firing on every health event. */
+  private lastHealthStatus: SidecarHealth['status'] | null = null
 
   constructor(private readonly deps: DiagnosticsServiceDeps) {}
 
@@ -72,7 +75,7 @@ export class DiagnosticsService {
   start(): void {
     if (this.unsubscribeClient) return
     this.unsubscribeClient = this.deps.client.onSnapshot((s) => this.ingest(s))
-    this.unsubscribeHealth = this.deps.client.onHealthChange((h) => this.publishHealth(h))
+    this.unsubscribeHealth = this.deps.client.onHealthChange((h) => this.handleHealthChange(h))
     // A registration landing on the slow tier must not wait up to 15s for the next
     // tick — three times the pin tolerance — or a driver started while the page is
     // closed would expire before it was ever pinned.
@@ -82,8 +85,12 @@ export class DiagnosticsService {
     this.deps.client.start()
     this.applyCadence()
     // Publish immediately so latest() is never null after startup — including
-    // when there is no working sidecar and no sample will ever arrive.
-    this.publishHealth(this.deps.client.health())
+    // when there is no working sidecar and no sample will ever arrive. This is
+    // the baseline reading, not a transition, so it goes straight to
+    // publishHealth() rather than through handleHealthChange()'s resync check.
+    const initialHealth = this.deps.client.health()
+    this.lastHealthStatus = initialHealth.status
+    this.publishHealth(initialHealth)
   }
 
   stop(): void {
@@ -94,6 +101,7 @@ export class DiagnosticsService {
     this.unsubscribeRegister?.()
     this.unsubscribeRegister = null
     this.deps.client.stop()
+    this.lastHealthStatus = null
   }
 
   latest(): DiagnosticsSnapshot | null {
@@ -120,6 +128,25 @@ export class DiagnosticsService {
 
   retrySidecar(): void {
     this.deps.client.retry()
+  }
+
+  /**
+   * A registration's on-register sampleNow() (see start()) can be dropped on
+   * the floor if the sidecar is mid-restart when it fires — send() in
+   * SidecarClient is a no-op without a live, handshaken child, and restart
+   * backoff runs up to 10s, well past the 5s pin tolerance. Once the client
+   * comes back to 'healthy' any such drop is otherwise permanent: the unpinned
+   * entry has already expired. Firing one resync sample on the transition
+   * closes that window. Only the transition matters — a flapping sidecar that
+   * reports 'healthy' repeatedly must not storm sampleNow.
+   */
+  private handleHealthChange(health: SidecarHealth): void {
+    const wasHealthy = this.lastHealthStatus === 'healthy'
+    this.lastHealthStatus = health.status
+    if (!wasHealthy && health.status === 'healthy') {
+      this.deps.client.sampleNow(`reg-resync-${++this.sampleNowSeq}`)
+    }
+    this.publishHealth(health)
   }
 
   /**

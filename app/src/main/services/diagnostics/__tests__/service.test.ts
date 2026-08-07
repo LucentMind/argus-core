@@ -519,4 +519,76 @@ describe('DiagnosticsService', () => {
     labels.register(99, { kind: 'driver', label: 'Codex driver' }, 1_000)
     expect(client.sampleNowCalls).toBe(before)
   })
+
+  it('requests one resync sample on a health transition into healthy, and does not re-fire on repeated healthy events', () => {
+    // The on-register sampleNow() (see the 'requests an immediate sample'
+    // test above) can be silently dropped by SidecarClient.send() while the
+    // sidecar is mid-restart, since send() is a no-op without a live,
+    // handshaken child. Restart backoff runs up to 10s — past the 5s pin
+    // tolerance — so a drop there is otherwise permanent. A resync fired on
+    // recovery closes that window.
+    const { service, client } = makeService()
+    service.start()
+
+    const before = client.sampleNowCalls
+    client.emitHealth({
+      status: 'degraded',
+      version: '0.1.0',
+      restartCount: 1,
+      lastError: 'sidecar exited with code 1'
+    })
+    expect(client.sampleNowCalls).toBe(before)
+
+    client.emitHealth({ status: 'healthy', version: '0.1.0', restartCount: 1, lastError: null })
+    expect(client.sampleNowCalls).toBe(before + 1)
+
+    // A flapping sidecar reporting 'healthy' again without leaving that state
+    // must not storm sampleNow.
+    client.emitHealth({ status: 'healthy', version: '0.1.0', restartCount: 1, lastError: null })
+    expect(client.sampleNowCalls).toBe(before + 1)
+  })
+
+  it('uses the injected clock, not Date.now(), to age out unpinned registrations', () => {
+    // With now: () => 3_000 and a registration at 1_000, only 2s have
+    // elapsed when the first sample without pid 99 arrives — under the 5s
+    // pin tolerance, so the entry must survive. Swapping this.now() for a
+    // real Date.now() call in index.ts's reconcile() call would sweep the
+    // entry immediately (real elapsed time is not 2s) and this test would
+    // fail on the second assertion.
+    const labels = new ProcessLabels()
+    const { service, client } = makeService(fakeClient(), {
+      processLabels: labels,
+      now: () => 3_000
+    })
+    service.start()
+    labels.register(99, { kind: 'driver', label: 'Codex driver' }, 1_000)
+
+    // First sample doesn't report pid 99 at all — the entry must not be swept.
+    client.emit(snapshot({ processes: [] }))
+
+    // Second sample: pid 99 now appears, with a start time within tolerance
+    // of the registration.
+    client.emit(
+      snapshot({
+        sequence: 2,
+        sampledAtUnixMs: 11_000,
+        processes: [
+          {
+            pid: 99,
+            ppid: 0,
+            startTimeMs: 1_200,
+            runTimeMs: 100,
+            name: 'codex',
+            command: 'codex',
+            status: 'Run',
+            cpuTimeMs: 0,
+            residentBytes: 100
+          }
+        ]
+      })
+    )
+
+    const obj = service.latest()?.objects.find((o) => o.rootPid === 99)
+    expect(obj).toMatchObject({ kind: 'driver', label: 'Codex driver', inferred: false })
+  })
 })

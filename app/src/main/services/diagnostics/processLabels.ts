@@ -44,7 +44,16 @@ export class ProcessLabels {
   /** Record a label for a pid we just spawned. Overwrites any stale entry for that pid. */
   register(pid: number, label: RegisteredLabel, nowMs: number): void {
     this.entries.set(pid, { pid, registeredAtMs: nowMs, label })
-    for (const cb of this.listeners) cb()
+    // A throwing listener must not propagate into the spawn site that called
+    // register() — a diagnostics failure degrades the Diagnostics page, never
+    // the app (see the `ingest` comment in index.ts for the same invariant).
+    for (const cb of this.listeners) {
+      try {
+        cb()
+      } catch (err) {
+        console.error('[diagnostics] onRegister listener threw', err)
+      }
+    }
   }
 
   /** Fires after a registration lands, so the service can request an immediate sample. */

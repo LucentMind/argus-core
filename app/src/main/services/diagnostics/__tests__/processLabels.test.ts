@@ -101,6 +101,23 @@ describe('ProcessLabels', () => {
     expect(r.reconcile([sample({ pid: 51, startTimeMs: 10_100 })], 10_300).size).toBe(0)
   })
 
+  it('does not let a throwing onRegister listener propagate out of register()', () => {
+    // register() runs synchronously inside every spawn site (drivers, MCP,
+    // panels). A listener throw must degrade the Diagnostics page, never the
+    // app that just spawned a process.
+    const r = new ProcessLabels()
+    r.onRegister(() => {
+      throw new Error('listener boom')
+    })
+    let secondCalls = 0
+    r.onRegister(() => {
+      secondCalls += 1
+    })
+
+    expect(() => r.register(50, DRIVER, 10_000)).not.toThrow()
+    expect(secondCalls).toBe(1)
+  })
+
   it('keeps registrations for distinct pids independent', () => {
     const r = new ProcessLabels()
     const mcp = { kind: 'mcp' as const, label: 'MCP probe: github', instanceId: 'github' }
