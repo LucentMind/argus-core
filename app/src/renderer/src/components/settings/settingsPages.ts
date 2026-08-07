@@ -12,6 +12,7 @@ import {
   Braces,
   Activity,
   DatabaseZap,
+  Repeat,
   type LucideIcon
 } from 'lucide-react'
 
@@ -48,6 +49,14 @@ export const PAGES = [
     enabled: true,
     Icon: Cable,
     blurb: 'External systems Argus can reach — Atlassian and any other MCP server.'
+  },
+  {
+    id: 'routines',
+    label: 'Routines',
+    group: 'App',
+    enabled: true,
+    Icon: Repeat,
+    blurb: 'Saved unattended tasks: define a prompt, run it on demand, review what each run did.'
   },
   {
     id: 'proposals',

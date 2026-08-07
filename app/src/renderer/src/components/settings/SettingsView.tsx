@@ -20,6 +20,7 @@ import { DefectCorpusSettings } from './DefectCorpusSettings'
 import { ObservabilitySettings } from './ObservabilitySettings'
 import { KnowledgeFlowStrip } from './KnowledgeFlowStrip'
 import { PromptsDevPage } from './PromptsDevPage'
+import { RoutinesPage } from './RoutinesPage'
 import { OverrideBanner } from './OverrideBanner'
 
 // The nav table and its dev-gate filter live in `settingsPages.ts`; react-refresh requires a
@@ -208,6 +209,7 @@ export function SettingsView({
           {page === 'health' && <HealthSettings />}
           {page === 'diagnostics' && <DiagnosticsSettings />}
           {page === 'connectors' && <ConnectorsSettings />}
+          {page === 'routines' && <RoutinesPage />}
           {page === 'proposals' && (
             <ProposalsPage
               // Remount on preset change (see Tier-1 rationale): wipes transient state deliberately.
