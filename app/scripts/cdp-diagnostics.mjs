@@ -359,5 +359,96 @@ check(
   !(await conn.evalJs(`/child-process attribution is unavailable/i.test(document.body.innerText)`))
 )
 
+// ── increment 3: history and timeline ────────────────────────────────────────
+
+// `clickByLabel` (above) matches a button's trimmed textContent, not its accessible
+// name. The window buttons (DiagnosticsSettings.tsx) render only their bare id — "5m",
+// "15m", "30m", "1h" — as text; the fuller "Timeline window · <id>" string the brief's
+// original snippet searched for lives on `aria-label` only, which textContent never
+// contains. Matching on it would have returned false forever. Scoped to the window
+// selector's own `[role="group"]` rather than 'body', following the Finding-2 precedent
+// above (a document-wide search is one unrelated "5m"/"15m" substring away from a false
+// match) — `aria-label="Timeline window"` is unique to this component.
+const TIMELINE_WINDOW_GROUP = '[role="group"][aria-label="Timeline window"]'
+
+// The 5-MINUTE window, deliberately. A freshly booted app has no hour of history, so a
+// gate asserting on 1h would pass only on a machine that had been left running.
+//
+// The Timeline section only mounts once the first `history()` IPC round-trip resolves
+// (`{history && (...)}` in DiagnosticsSettings.tsx) — a real async gap a single
+// synchronous click attempt could lose to. Bounded to 10s, well under the 45s budget the
+// slower waits below get, since this is only waiting on one IPC round trip, not on
+// buckets of real sampling.
+const clickedWindow = await waitFor(
+  'the 5m timeline window button to become clickable',
+  () => clickByLabel(TIMELINE_WINDOW_GROUP, '5m'),
+  10_000
+)
+check('the 5m timeline window can be selected', clickedWindow, clickedWindow)
+
+// A generous bound rather than waitFor's 20s default. Two buckets must fill (up to 10s of
+// real sampling) AND the renderer's 5s history poll must come round, and the whole thing
+// runs behind a live sidecar on a machine that may be busy.
+const chart = await waitFor(
+  'the CPU timeline to draw from real samples',
+  async () => {
+    const r = await conn.evalJs(`(() => {
+      const el = document.querySelector('[data-testid="diag-timeline-cpu"]')
+      if (!el) return null
+      return {
+        buckets: Number(el.getAttribute('data-buckets')),
+        empty: el.getAttribute('data-empty'),
+        d: el.querySelector('path[stroke-width="2"]')?.getAttribute('d') || ''
+      }
+    })()`)
+    return r && r.empty === 'false' ? r : null
+  },
+  45_000
+)
+
+check('the CPU timeline renders a real path', chart.d.startsWith('M'), chart.d.slice(0, 40))
+// The projector guards this, but a NaN reaching the attribute renders nothing and raises
+// nothing — so the only place it can be caught is against a real render.
+check('the rendered path contains no NaN', !chart.d.includes('NaN'), chart.d.slice(0, 80))
+// 5 minutes / 5s buckets = 60. A hardcoded expectation, not a range: it is derived from
+// two constants this branch owns (DIAGNOSTICS_BUCKET_MS, the 5m entry in WINDOWS), and
+// drift in either should fail loudly.
+check('the 5m window is 60 buckets wide', chart.buckets === 60, chart.buckets)
+
+// Changing the selector must change the data, not just the button styling.
+await clickByLabel(TIMELINE_WINDOW_GROUP, '15m')
+const widened = await waitFor(
+  'the timeline to widen to the 15m window',
+  async () => {
+    const n = await conn.evalJs(
+      `Number(document.querySelector('[data-testid="diag-timeline-cpu"]')?.getAttribute('data-buckets') || 0)`
+    )
+    return n === 180 ? n : null
+  },
+  20_000
+)
+check('selecting 15m refetches a wider window', widened === 180, widened)
+
+// A sparkline in an object row proves the PER-OBJECT ring filled — a separate write path
+// from the totals, and the one the ended-row feature depends on.
+const sparks = await waitFor(
+  'at least one object row to grow a sparkline',
+  async () => {
+    const n = await conn.evalJs(
+      `document.querySelectorAll('[data-testid="diag-sparkline"][data-empty="false"]').length`
+    )
+    return n > 0 ? n : null
+  },
+  45_000
+)
+check('at least one object row has a populated sparkline', sparks > 0, sparks)
+
+// The memory chart is a second, independently-scaled series. Its absence would mean the
+// bytes branch of niceMax never ran against real data.
+const rssEmpty = await conn.evalJs(
+  `document.querySelector('[data-testid="diag-timeline-rss"]')?.getAttribute('data-empty')`
+)
+check('the memory timeline also renders', rssEmpty === 'false', rssEmpty)
+
 conn.close()
 report()
