@@ -3,6 +3,8 @@ import { CaseSession, type SessionMirrorLike } from './session'
 import type { AgentDriver } from './driver'
 import type { Detection } from '../packs/detection'
 import type { AgentEvent } from '../../../shared/agent-events'
+import type { AgentAccess } from '../../../shared/agentAccess'
+import type { RiskLevel } from '../../../shared/connectors'
 
 // Deliberately imports NO electron. The routines engine must stay pure Node so a future
 // headless server can host it; event forwarding is the injected `onEvent` callback only.
@@ -13,6 +15,49 @@ export interface BackgroundTurnDeps {
   detection: Detection
   skillsRoots: string[]
   driver: AgentDriver
+  /**
+   * SESSION-SHAPE DEPS — the ones an interactive session gets from AgentService.getOrCreate
+   * (registry.ts) and a background session must get too. They are INJECTED rather than derived
+   * here because their live sources (the agent-access store, the tool-risk store, the pack
+   * registry) are host-owned; `routines/turnRunner.ts` is what binds them in production.
+   *
+   * Each one is absent-safe so existing tests keep constructing a bare deps object, but leaving
+   * any of them out in production is a real behaviour difference, not a missing nicety:
+   *  - no `enabledSkills`  -> `session.ts` passes `skills: []`, so the run has NO Argus skills;
+   *  - no `skillIndex`     -> the skills are loadable but never advertised, which defeats
+   *                           passing `enabledSkills` at all;
+   *  - no `agentAccess`    -> `session.ts` falls back to `defaultAgentAccess()`, which INJECTS
+   *                           memory topics the user explicitly disabled on the Knowledge page.
+   *                           That is a user-facing privacy control, so this one is the reason
+   *                           the whole group exists;
+   *  - no `toolRisk`       -> the user's connector-tool risk overrides are ignored. INERT today
+   *                           and passed for correctness only: risk.ts consults `toolRisk` on
+   *                           the generic `mcp__<server>__<tool>` branch alone, which sits below
+   *                           the hardcoded native-tool table, and a background session
+   *                           registers no connector servers at all;
+   *  - no `packCliNames`   -> pack analysis CLIs lose their LOW-risk allowlist (`risk.ts`).
+   *                           NARROWER than it sounds, and verified rather than assumed: an
+   *                           unrecognized bash program already defaults to allow/LOW, so this
+   *                           only decides anything for a pack CLI whose name collides with the
+   *                           raw-text-tool list (grep/rg/cat/…) on an `evidence/` path — which
+   *                           is MEDIUM-ask, and every ask is DENIED under `unattended`.
+   *
+   * DELIBERATELY NOT HERE: `personaFragments` / `personaFragmentIds`. A persona written to help
+   * a human triage a defect and a persona for unattended automation are different things, so
+   * inheriting the interactive one would be wrong rather than merely incomplete. The
+   * automation-side identity is supplied by the unattended preamble `RoutinesService` prepends
+   * to the prompt; a purpose-built automation persona is future work.
+   */
+  /** Driver-visible skill allowlist (assembleMode). */
+  enabledSkills?: string[]
+  /** Prompt-visible skill index, so the model knows the allowlisted skills exist. */
+  skillIndex?: string
+  /** Pack-declared CLI binary names — their LOW-risk allowlist in risk.ts. */
+  packCliNames?: string[]
+  /** Live agent-access overrides (skills/memory); consulted per session construction. */
+  agentAccess?: () => AgentAccess
+  /** Live tool-risk overrides; consulted per classification. */
+  toolRisk?: () => Record<string, RiskLevel>
   /** Forwarded every session event (e.g. index.ts broadcast) so an open window can watch live. */
   onEvent?: (e: AgentEvent) => void
   mirrorFactory?: (caseSlug: string, sessionId: number) => SessionMirrorLike
@@ -142,6 +187,13 @@ export function runBackgroundTurn(
       sessionId: params.sessionId,
       workspaceRoots: [],
       skillsRoots: deps.skillsRoots,
+      // See the SESSION-SHAPE DEPS note on BackgroundTurnDeps. `personaFragments` /
+      // `personaFragmentIds` are absent BY DECISION, not by omission.
+      enabledSkills: deps.enabledSkills,
+      skillIndex: deps.skillIndex,
+      packCliNames: deps.packCliNames,
+      agentAccess: deps.agentAccess,
+      toolRisk: deps.toolRisk,
       emit,
       driver: deps.driver,
       resumeCursor: null,

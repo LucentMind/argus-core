@@ -1521,10 +1521,25 @@ function registerIpc(): void {
 
   // — agent —
   // Hoisted out of the AgentService literal below because the routines engine's background
-  // turns must run with EXACTLY these — an unattended run that saw a different skills set or
-  // wrote its transcript somewhere else would be a second, silently divergent session shape.
-  // Sharing the bindings makes that structural instead of a comment asking two literals to
-  // agree.
+  // turns are bound from the SAME values (see createRoutineTurnRunner further down): sharing
+  // one binding is what keeps the two session shapes from drifting, instead of a comment asking
+  // two literals to agree.
+  //
+  // WHAT AN UNATTENDED RUN SHARES WITH AN INTERACTIVE ONE, precisely — the shapes are close but
+  // deliberately NOT identical:
+  //  - shared: `skillsRoots` and `mirrorFactory` (below), plus the live agentAccess / toolRisk /
+  //    packCliNames / resolvePrompt sources and the same skill resolution (materializeSessionSkills
+  //    + assembleMode). So a routine sees the same skills, obeys the same memory-topic and
+  //    tool-risk settings, and writes its transcript to the same `sessions/<id>.jsonl` mirror.
+  //  - NOT shared, by decision: the persona. `assembleMode`'s persona half and the pack persona
+  //    fragments are discarded for background turns, because a persona for helping a human triage
+  //    a defect is not a persona for unattended automation; the automation identity comes from the
+  //    unattended preamble RoutinesService prepends. See turnRunner.ts.
+  //  - NOT shared, by containment: connectors (`extraMcpServers` is omitted entirely), any
+  //    `permissionMode`, and `unattended: true` — see the TRUST BOUNDARY note in
+  //    agent/background.ts. A background session also never enters AgentService's live map.
+  //  - NOT shared, still: `referenceIndex`. Out of scope for this fix wave and left as future
+  //    work — a routine is not told which team references exist.
   const skillsRoots = [
     sharedSkillsDir(argusHome),
     sharedReferencesDir(argusHome),
@@ -1811,6 +1826,13 @@ function registerIpc(): void {
       detection,
       skillsRoots,
       driverFor: getDriverByKind,
+      // The same live sources AgentService is given above. Skipping any of them does not make
+      // an unattended run "smaller" — it makes it differently-shaped: no skills at all, pack
+      // CLIs denied, and (agentAccess) memory topics the user disabled injected anyway.
+      agentAccess: () => agentAccessStore.get(),
+      toolRisk: () => toolRiskStore.get(),
+      packCliNames: () => packRegistry.binaryDecls().flatMap(({ decl }) => decl.names),
+      resolvePrompt,
       // Same channel as an interactive turn, so a routine's transcript streams into the
       // normal session UI while it runs; `mirrorFactory` is what makes it replayable after.
       onEvent: (e) => routinesBroadcast(IPC.agentEventChannel, e),
