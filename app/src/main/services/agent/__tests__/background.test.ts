@@ -12,7 +12,8 @@ import { fakeSdk, flush, canUseToolOf, type FakeSdk } from './helpers/fakeSdk'
 import {
   runBackgroundTurn,
   type BackgroundTurnDeps,
-  type BackgroundTurnParams
+  type BackgroundTurnParams,
+  type BackgroundTurnResult
 } from '../background'
 import type { AgentDriver, DriverSession, DriverSessionContext } from '../driver'
 import type { AgentEvent } from '../../../../shared/agent-events'
@@ -109,6 +110,47 @@ function throwingSendDriver(inner: AgentDriver, message: string): AgentDriver {
   }
 }
 
+/** Wrap a driver so every `turn.completed` it emits carries `status: 'interrupted'`.
+ *
+ *  The Claude driver can only produce 'success' or 'error' (normalize.ts derives the status
+ *  from `is_error` alone), but `turn.completed.status` is a three-way union
+ *  (shared/agent-events.ts) and the Copilot (`abort`), ACP (`stopReason: cancelled`) and Codex
+ *  ('interrupted') drivers all emit the third value for a turn that was cut short. Its text is
+ *  partial, so the runner must never report it as `ok` — and no Claude-driven test can reach
+ *  that branch on its own. CaseSession.consume() re-emits driver events verbatim, so rewriting
+ *  the stream here is the same wire shape those drivers put on it. */
+function interruptedTurnDriver(inner: AgentDriver): AgentDriver {
+  return {
+    ...inner,
+    createSession(ctx: DriverSessionContext): DriverSession {
+      const s = inner.createSession(ctx)
+      return {
+        ...s,
+        events(): AsyncIterable<AgentEvent> {
+          return (async function* () {
+            for await (const e of s.events()) {
+              yield e.type === 'turn.completed'
+                ? { ...e, payload: { ...e.payload, status: 'interrupted' as const } }
+                : e
+            }
+          })()
+        }
+      }
+    }
+  }
+}
+
+/** Wrap a driver so `createSession` throws — construction failure, which happens INSIDE
+ *  `new CaseSession(...)` and therefore before any promise, timer or event exists. */
+function throwingCreateSessionDriver(inner: AgentDriver, message: string): AgentDriver {
+  return {
+    ...inner,
+    createSession(): DriverSession {
+      throw new Error(message)
+    }
+  }
+}
+
 describe('runBackgroundTurn', () => {
   it('runs one turn and returns the final assistant text', async () => {
     const sdk = fakeSdk()
@@ -140,6 +182,23 @@ describe('runBackgroundTurn', () => {
     expect(r.status).toBe('failed')
   })
 
+  it('does NOT report ok when the turn completes as interrupted', async () => {
+    const sdk = fakeSdk()
+    const driver = interruptedTurnDriver(createClaudeDriver(sdk.createQuery))
+    const p = runBackgroundTurn(deps(sdk, { driver }), params({ timeoutMs: 5000 }))
+    await flush()
+    sdk.messages.push(assistantText('half an answ'))
+    // A CLEAN result on the wire: were `status` the only thing checked against 'error', this
+    // truncated turn would be reported as a clean `ok` with partial text.
+    sdk.messages.push(RESULT_SUCCESS)
+    const r = await p
+    expect(r.status).not.toBe('ok')
+    expect(r.status).toBe('failed')
+    expect(r.error).toMatch(/interrupted/)
+    // The partial text is still returned — it is just not certified as a completed turn.
+    expect(r.text).toBe('half an answ')
+  })
+
   // --- resolution model: exactly one resolution, teardown on every path ------------------
 
   it('tears the session down exactly once on the success path', async () => {
@@ -164,8 +223,18 @@ describe('runBackgroundTurn', () => {
     expect(closed).toBe(1)
     expect(events.filter((e) => e.type === 'session.exited')).toHaveLength(1)
     // A late event after resolution must not resolve a second time or throw.
+    //
+    // HONESTY NOTE: this is a smoke check, not a proof of the write-once latch. A second
+    // `resolve()` on a settled promise is a silent no-op and `stop()` early-returns once the
+    // session is 'dead', so removing the `if (outcome) return` guard would still leave this
+    // green. Proving it directly would mean exporting a resolve counter from production code
+    // purely for the test; the assertions below are what CAN be observed from outside — no
+    // second teardown, and the settled value unchanged.
     sdk.messages.push(RESULT_ERROR)
     await flush()
+    expect(closed).toBe(1)
+    expect(events.filter((e) => e.type === 'session.exited')).toHaveLength(1)
+    await expect(p).resolves.toEqual({ status: 'ok', text: 'done' })
   })
 
   it('resolves failed and still tears down when send() throws synchronously', async () => {
@@ -175,6 +244,26 @@ describe('runBackgroundTurn', () => {
     expect(r.status).toBe('failed')
     expect(r.error).toMatch(/driver send exploded/)
     expect(events.filter((e) => e.type === 'session.exited')).toHaveLength(1)
+  })
+
+  it('resolves failed (never throws synchronously) when the session cannot be constructed', async () => {
+    const sdk = fakeSdk()
+    const driver = throwingCreateSessionDriver(
+      createClaudeDriver(sdk.createQuery),
+      'cannot build session'
+    )
+    // The assertion that matters is that CALLING it does not throw: runBackgroundTurn is typed
+    // `Promise<BackgroundTurnResult>`, so a synchronous throw is invisible to a caller holding
+    // `.catch()` on the returned promise (Task 6 is that caller). Constructing the CaseSession
+    // does real work — touchSession, caseDir, driver.createSession — so it genuinely can throw.
+    let p: Promise<BackgroundTurnResult>
+    expect(() => {
+      p = runBackgroundTurn(deps(sdk, { driver }), params({ timeoutMs: 5000 }))
+    }).not.toThrow()
+    const r = await p!
+    expect(r).toEqual({ status: 'failed', text: '', error: 'cannot build session' })
+    // Nothing was constructed, so nothing may be torn down: no stop(), hence no session.exited.
+    expect(events).toHaveLength(0)
   })
 
   it('reports failed when the session exits before the turn completes', async () => {

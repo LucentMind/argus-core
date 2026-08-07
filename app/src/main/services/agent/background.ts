@@ -56,6 +56,14 @@ export interface BackgroundTurnResult {
  *  runs on every path (success, failure, timeout, a synchronous `send()` throw) so the mirror
  *  flushes and no session leaks, and the promise resolves whether it settles or rejects — a
  *  teardown failure must not strand the caller.
+ *
+ *  CONSTRUCTION IS INSIDE THAT MODEL TOO. `new CaseSession(...)` does real work
+ *  (`touchSession`, `caseDir`, `driver.createSession`), so it can throw. That throw is caught
+ *  and reported as a resolved `{ status: 'failed' }` — the SAME channel as a synchronous
+ *  `send()` throw — because this function's signature is `Promise<BackgroundTurnResult>` and a
+ *  synchronous throw out of it is invisible to a caller holding `.catch()` on the returned
+ *  promise. `settle()` is the only teardown site and skips `stop()` when `session` is still
+ *  undefined: nothing was constructed, so there is nothing to tear down.
  */
 export function runBackgroundTurn(
   deps: BackgroundTurnDeps,
@@ -78,6 +86,12 @@ export function runBackgroundTurn(
     if (timer) clearTimeout(timer)
     timer = undefined
     const finish = (): void => resolveResult(r)
+    // `session` is undefined only when construction itself threw — there is no session to
+    // stop, and calling stop() on a half-built one is exactly what must not happen.
+    if (!session) {
+      finish()
+      return
+    }
     void session.stop('stopped').then(finish, finish)
   }
 
@@ -115,24 +129,32 @@ export function runBackgroundTurn(
 
   // Safe to reference from `settle`/`emit` above: no event can be emitted synchronously during
   // construction (CaseSession defers its own startup emits to a microtask and `consume()`
-  // awaits the driver stream before yielding anything), so this binding is always initialized
-  // by the time either closure runs.
-  const session = new CaseSession({
-    db: deps.db,
-    argusHome: deps.argusHome,
-    detection: deps.detection,
-    caseId: params.caseId,
-    caseSlug: params.caseSlug,
-    sessionId: params.sessionId,
-    workspaceRoots: [],
-    skillsRoots: deps.skillsRoots,
-    emit,
-    driver: deps.driver,
-    resumeCursor: null,
-    unattended: true,
-    mirror: deps.mirrorFactory?.(params.caseSlug, params.sessionId),
-    ...(params.model ? { agentOptions: { model: params.model } } : {})
-  })
+  // awaits the driver stream before yielding anything), so this binding is always assigned
+  // by the time either closure runs on a session that was built at all.
+  let session: CaseSession | undefined
+  try {
+    session = new CaseSession({
+      db: deps.db,
+      argusHome: deps.argusHome,
+      detection: deps.detection,
+      caseId: params.caseId,
+      caseSlug: params.caseSlug,
+      sessionId: params.sessionId,
+      workspaceRoots: [],
+      skillsRoots: deps.skillsRoots,
+      emit,
+      driver: deps.driver,
+      resumeCursor: null,
+      unattended: true,
+      mirror: deps.mirrorFactory?.(params.caseSlug, params.sessionId),
+      ...(params.model ? { agentOptions: { model: params.model } } : {})
+    })
+  } catch (err) {
+    // Reported, not thrown: see the CONSTRUCTION note above. The timeout is not armed yet, so
+    // settle()'s `if (timer)` guard covers this path unchanged.
+    settle({ status: 'failed', text: '', error: err instanceof Error ? err.message : String(err) })
+    return done
+  }
 
   timer = setTimeout(() => {
     // Latching 'timeout' BEFORE stop() is what makes the timeout stick: stop() interrupts the
