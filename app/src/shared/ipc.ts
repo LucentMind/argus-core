@@ -256,6 +256,14 @@ export const IPC = {
    *  driven by this, not by the click — the OS maximizes on a double-click of the drag region
    *  and on a snap gesture too, neither of which goes through our handler. */
   windowMaximizedChanged: 'window:maximized-changed',
+  windowIsFullScreen: 'window:is-full-screen',
+  /** main→renderer: the window entered (true) or left (false) OS full screen. Only macOS reads
+   *  it today — full screen there hides the traffic lights, so the header's ~78px left inset
+   *  reserves space for a cluster that is no longer on screen. Nothing in the renderer can
+   *  observe this on its own: `env(titlebar-area-x)` is not published on darwin, and the
+   *  `fullscreenchange` DOM event fires only for the Fullscreen API, never for the OS's own
+   *  green-button/⌃⌘F transition. */
+  windowFullScreenChanged: 'window:full-screen-changed',
   panelsChanged: 'panels:changed',
   // main→renderer: select this panel (agent-opened panels aren't selected client-side)
   panelsActivate: 'panels:activate',

@@ -959,6 +959,17 @@ const argus = {
       return () => {
         ipcRenderer.removeListener(IPC.windowMaximizedChanged, listener)
       }
+    },
+    /** Whether the window is in OS full screen. Read once at startup by `watchFullScreen`,
+     *  because the change events below cannot describe the state a reload lands in. */
+    isFullScreen: (): Promise<boolean> => invoke(IPC.windowIsFullScreen),
+    /** main → renderer. Returns an unsubscribe function, like every other listener here. */
+    onFullScreenChanged: (cb: (fullScreen: boolean) => void): (() => void) => {
+      const listener = (_e: unknown, fullScreen: boolean): void => cb(fullScreen)
+      ipcRenderer.on(IPC.windowFullScreenChanged, listener)
+      return () => {
+        ipcRenderer.removeListener(IPC.windowFullScreenChanged, listener)
+      }
     }
   },
   pathForFile: (file: File) => webUtils.getPathForFile(file),

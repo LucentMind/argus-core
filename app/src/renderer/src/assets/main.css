@@ -700,6 +700,23 @@ body {
   padding-left: max(78px, calc(0.75rem + env(titlebar-area-x, 0px)));
 }
 
+/* …and full screen takes that floor away again: macOS hides the traffic lights entirely when the
+   window goes full screen (they only slide back in on a hover at the top edge, over the app, not
+   in a reserved gutter), so the 78px above becomes an empty indent the wordmark is pushed off by.
+   Back to the base rule's plain 12px gutter, matching what win32 shows.
+
+   `data-fullscreen` is stamped on `<html>` by `lib/fullScreen.ts` from main's enter/leave-full-
+   screen events. It has to be told: darwin never publishes `env(titlebar-area-x)` (which is why
+   the floor above exists at all), so there is nothing here that would go to 0 by itself, and the
+   DOM's own `fullscreenchange` only ever fires for the Fullscreen API — never for the green
+   button, ⌃⌘F, or the View menu.
+
+   Beats the floor on specificity (two attributes + a class vs one + a class), so its position in
+   the file is not what is holding it up. */
+:root[data-platform='darwin'][data-fullscreen='true'] .argus-header-inset {
+  padding-left: calc(0.75rem + env(titlebar-area-x, 0px));
+}
+
 /* The Settings page title's left offset, lining it up with SettingsView's content column:
    `w-48` of rail plus the page's `p-8` = 14rem measured from the window edge, because nothing
    between the window and that rail adds padding.

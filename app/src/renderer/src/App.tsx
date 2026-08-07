@@ -17,6 +17,7 @@ import { UpdateBanner } from './components/UpdateBanner'
 import { AmbientAnchorContext, useAmbientAnchorState } from './lib/ambientAnchors'
 import { citationsTray } from './lib/citationsTray'
 import { viewerForFileNode } from './lib/fileRouting'
+import { watchFullScreen } from './lib/fullScreen'
 import { composerDraft } from './lib/composerDraft'
 import { panelsStore } from './lib/panelsStore'
 import { uiStore } from './lib/uiStore'
@@ -62,6 +63,11 @@ function App(): React.JSX.Element {
   useEffect(() => {
     void reload()
   }, [reload])
+
+  // Mirrors the window's OS full-screen state onto `<html>` for main.css. Here rather than in a
+  // component that could unmount: the attribute is document-wide chrome state, and the header
+  // that reads it (via CSS) is present on every view.
+  useEffect(() => watchFullScreen(), [])
 
   // single global subscriber: cite chips land in the tray regardless of which
   // pane/session is focused when the `cite` verb fires

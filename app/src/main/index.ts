@@ -47,6 +47,7 @@ import { pushScaleIfChanged, pushThemeIfChanged, type TitleBarTheme } from './se
 import { mainWindowOptions } from './services/windowOptions'
 import {
   closeWindow,
+  isWindowFullScreen,
   isWindowMaximized,
   minimizeWindow,
   toggleMaximizeWindow
@@ -1413,6 +1414,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.windowToggleMaximize, (e) => toggleMaximizeWindow(senderWindow(e)))
   ipcMain.handle(IPC.windowClose, (e) => closeWindow(senderWindow(e)))
   ipcMain.handle(IPC.windowIsMaximized, (e) => isWindowMaximized(senderWindow(e)))
+  ipcMain.handle(IPC.windowIsFullScreen, (e) => isWindowFullScreen(senderWindow(e)))
   ipcMain.handle(IPC.panelsDecls, () =>
     packRegistry.windowDecls().map((w) => ({
       packId: w.packId,
@@ -2888,6 +2890,18 @@ function createWindow(): void {
   }
   mainWindow.on('maximize', sendMaximized(true))
   mainWindow.on('unmaximize', sendMaximized(false))
+
+  // macOS hides the traffic lights in full screen, so the header's left inset (which reserves
+  // room for them) has to collapse. Told, not inferred: `env(titlebar-area-x)` is never published
+  // on darwin, and the DOM's `fullscreenchange` fires only for the Fullscreen API — the green
+  // button and ⌃⌘F are invisible to the renderer. Registered on every platform, since the
+  // renderer's consumer is a CSS rule already scoped to darwin.
+  const sendFullScreen = (full: boolean) => (): void => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.webContents.send(IPC.windowFullScreenChanged, full)
+  }
+  mainWindow.on('enter-full-screen', sendFullScreen(true))
+  mainWindow.on('leave-full-screen', sendFullScreen(false))
 
   mainWindow.on('closed', () => {
     mainWindow = null

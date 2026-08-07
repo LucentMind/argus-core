@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   closeWindow,
+  isWindowFullScreen,
   isWindowMaximized,
   minimizeWindow,
   toggleMaximizeWindow,
@@ -10,12 +11,16 @@ import {
 class FakeWindow implements ControllableWindow {
   destroyed = false
   maximized = false
+  fullScreen = false
   calls: string[] = []
   isDestroyed(): boolean {
     return this.destroyed
   }
   isMaximized(): boolean {
     return this.maximized
+  }
+  isFullScreen(): boolean {
+    return this.fullScreen
   }
   minimize(): void {
     this.calls.push('minimize')
@@ -68,11 +73,21 @@ describe('windowControls', () => {
     expect(isWindowMaximized(win)).toBe(true)
   })
 
+  // The macOS header inset keys off this: full screen hides the traffic lights, so the ~78px
+  // reserved for them has to come back.
+  it('reports full-screen state', () => {
+    const win = new FakeWindow()
+    expect(isWindowFullScreen(win)).toBe(false)
+    win.fullScreen = true
+    expect(isWindowFullScreen(win)).toBe(true)
+  })
+
   it('is inert on a null window', () => {
     expect(() => minimizeWindow(null)).not.toThrow()
     expect(() => toggleMaximizeWindow(null)).not.toThrow()
     expect(() => closeWindow(null)).not.toThrow()
     expect(isWindowMaximized(null)).toBe(false)
+    expect(isWindowFullScreen(null)).toBe(false)
   })
 
   it('is inert on a destroyed window — a click can land after the window is gone', () => {
@@ -83,5 +98,7 @@ describe('windowControls', () => {
     closeWindow(win)
     expect(win.calls).toEqual([])
     expect(isWindowMaximized(win)).toBe(false)
+    win.fullScreen = true
+    expect(isWindowFullScreen(win)).toBe(false)
   })
 })

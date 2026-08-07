@@ -16,6 +16,7 @@
 export interface ControllableWindow {
   isDestroyed(): boolean
   isMaximized(): boolean
+  isFullScreen(): boolean
   minimize(): void
   maximize(): void
   unmaximize(): void
@@ -44,4 +45,11 @@ export function closeWindow(win: ControllableWindow | null): void {
 
 export function isWindowMaximized(win: ControllableWindow | null): boolean {
   return live(win)?.isMaximized() ?? false
+}
+
+/** The renderer's initial read, for the same reason `isWindowMaximized` exists: the
+ *  enter/leave events only report CHANGES, and a reload while already full screen would
+ *  otherwise leave the renderer believing it is windowed. */
+export function isWindowFullScreen(win: ControllableWindow | null): boolean {
+  return live(win)?.isFullScreen() ?? false
 }
