@@ -1,11 +1,36 @@
 // @vitest-environment jsdom
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SessionChips } from '../SessionChips'
+import { checkDetail } from '../../lib/preflightDetail'
 import { agentStore } from '../../lib/agentStore'
 import { settingsStore } from '../../lib/settingsStore'
+import { uiStore } from '../../lib/uiStore'
 import { defaultSettings } from '../../../../shared/settings'
 import type { AuthStatus } from '../../../../shared/types'
+import type { AgentEvent } from '../../../../shared/agent-events'
+
+/** Fill in the envelope every AgentEvent carries so tests only state the payload. */
+function emit(type: AgentEvent['type'], payload: unknown, slug = 'case-a'): void {
+  act(() => {
+    agentStore.apply({
+      eventId: `e-${type}-${JSON.stringify(payload)}`,
+      caseId: 1,
+      caseSlug: slug,
+      sessionId: 1,
+      turnId: 1,
+      ts: '2026-07-31T14:01:00.000Z',
+      type,
+      payload
+    } as AgentEvent)
+  })
+}
+
+/** The pill is the only control in the strip; opening it reveals the status popover. */
+function openPopover(): HTMLElement {
+  fireEvent.click(screen.getByRole('button', { name: 'Session status' }))
+  return screen.getByTestId('session-status-popover')
+}
 
 function auth(overrides?: Partial<AuthStatus>): AuthStatus {
   return { ok: true, verified: true, detail: 'claude ready', ...overrides }
@@ -22,6 +47,9 @@ const AUTH_FAILURE_DETAIL =
 beforeEach(() => {
   onAuthChangedCb = null
   settingsStore.reset()
+  // uiStore is a module singleton with no reset(); the dynamic-theme test flips it, and
+  // leaving it on would silently change what every later test renders.
+  uiStore.setDynamicTheme(false)
   window.argus = {
     agent: {
       authStatus: vi.fn(async () => auth()),
@@ -137,39 +165,44 @@ describe('SessionChips auth reactivity', () => {
 })
 
 describe('SessionChips cost', () => {
-  it('renders the running token total', async () => {
+  it('keeps the token and cost readout inside the popover, never beside the pill', async () => {
     render(<SessionChips slug="case-a" sessionId={1} />)
     await screen.findByText('ready')
-    // `turn.completed` is the only event that accumulates cost (agentStore.ts:195) —
-    // there is no `cost` event.
-    act(() => {
-      agentStore.apply({
-        eventId: 'e',
-        caseId: 1,
-        caseSlug: 'case-a',
-        sessionId: 1,
-        turnId: 1,
-        ts: '2026-07-31T14:01:00.000Z',
-        type: 'turn.completed',
-        payload: { inputTokens: 140000, outputTokens: 797, costUsd: 27.04 }
-      } as never)
-    })
+    // `turn.completed` is the only event that accumulates cost (agentStore.ts) — there is
+    // no `cost` event.
+    emit('turn.completed', { inputTokens: 140000, outputTokens: 797, costUsd: 27.04 })
+
+    // The strip itself is the pill and nothing else: the running total used to sit next to it
+    // and was the widest thing in the tab strip.
+    const strip = screen.getByTestId('session-chips')
+    expect(strip.textContent).toBe('ready')
+
     // toLocaleString()'s thousands separator is host-locale-dependent (this machine's
     // Node default resolves to de-DE, which renders "140.797" not "140,797") — match
     // either grouping character rather than assuming en-US.
-    expect(screen.getByText(/140[.,]797 tok/)).toBeTruthy()
-    expect(screen.getByText(/\$27\.04/)).toBeTruthy()
+    const popover = openPopover()
+    expect(popover.textContent).toMatch(/140[.,]797/)
+    expect(popover.textContent).toMatch(/\$27\.04/)
+  })
+
+  it('qualifies the estimate as an upper bound', async () => {
+    // The SDK reports list price; on a subscription the marginal cost is lower or zero. An
+    // unqualified "$27.04" reads as a bill.
+    render(<SessionChips slug="case-a" sessionId={1} />)
+    await screen.findByText('ready')
+    expect(openPopover().textContent).toMatch(/Est\. cost \(actual cost is lower\)/)
   })
 
   it('renders no cost suffix (not "n/a") when a reporting driver truly has zero accumulated cost', async () => {
     // A fresh case/session with no turn.completed applied yet: the accumulator is still
     // at its zero initial value, and the default (claude) driver has costReporting: true.
-    // That must render as a blank suffix, not "n/a" (n/a is reserved for costReporting:
+    // That must render as a blank dash, not "n/a" (n/a is reserved for costReporting:
     // false) and not "$0.00" (no turn has actually completed yet).
     render(<SessionChips slug="NAV-COST-ZERO" sessionId={1} />)
     await screen.findByText('ready')
-    expect(screen.queryByText(/n\/a/)).toBeNull()
-    expect(screen.queryByText(/\$/)).toBeNull()
+    const popover = openPopover()
+    expect(popover.textContent).not.toMatch(/n\/a/)
+    expect(popover.textContent).not.toMatch(/\$/)
   })
 
   it('says n/a rather than $0.00 for a provider that reports no cost', async () => {
@@ -192,6 +225,138 @@ describe('SessionChips cost', () => {
       loadError: null
     }))
     render(<SessionChips slug="case-a" sessionId={1} instanceId="copilot-1" />)
-    expect(await screen.findByText(/n\/a/)).toBeTruthy()
+    await screen.findByText('ready')
+    expect(openPopover().textContent).toMatch(/n\/a/)
+  })
+})
+
+describe('checkDetail', () => {
+  it('drops a resolved absolute path on a passing check, on either platform', () => {
+    expect(
+      checkDetail({ name: 'dlt-parse', ok: true, detail: '/Users/j/Argus/packs/nav/bin/dlt-parse' })
+    ).toBeNull()
+    expect(
+      checkDetail({
+        name: 'dlt-parse',
+        ok: true,
+        detail: 'C:\\Users\\j\\packs\\bin\\dlt-parse.exe'
+      })
+    ).toBeNull()
+    expect(checkDetail({ name: 'x', ok: true, detail: '\\\\server\\share\\x.exe' })).toBeNull()
+  })
+
+  it('drops a detail that only echoes the check name', () => {
+    expect(checkDetail({ name: 'graphify', ok: true, detail: 'graphify' })).toBeNull()
+  })
+
+  it('keeps versions and sub-tool lists — the reason to open the popover at all', () => {
+    expect(checkDetail({ name: 'navnative-trace', ok: true, detail: '0.3.0' })).toBe('0.3.0')
+    // Contains slashes but is not a path: a bare-relative check must not be mistaken for one.
+    expect(checkDetail({ name: 'esotrace', ok: true, detail: 'find/parse/extract esotrace' })).toBe(
+      'find/parse/extract esotrace'
+    )
+  })
+
+  it('keeps a failing check\u2019s detail even when it is a path — that is the fix hint', () => {
+    expect(checkDetail({ name: 'gh', ok: false, detail: '/usr/local/bin/gh not found' })).toBe(
+      '/usr/local/bin/gh not found'
+    )
+    expect(checkDetail({ name: 'gh', ok: false, detail: 'C:\\tools\\gh.exe' })).toBe(
+      'C:\\tools\\gh.exe'
+    )
+  })
+})
+
+describe('SessionChips preflight detail', () => {
+  it('lists a passing tool by name alone once its detail is just an install path', async () => {
+    window.argus.agent.preflight = vi.fn(async () => ({
+      ok: true,
+      checks: [
+        { name: 'dlt-parse', ok: true, detail: '/Users/j/Argus/packs/nav/bin/dlt-parse' },
+        { name: 'navnative-trace', ok: true, detail: '0.3.0' }
+      ]
+    }))
+    render(<SessionChips slug="case-a" sessionId={1} />)
+    await screen.findByText('ready')
+    const popover = openPopover()
+    expect(popover.textContent).toContain('✓ dlt-parse')
+    expect(popover.textContent).not.toContain('/Users/j/')
+    expect(popover.textContent).toContain('✓ navnative-trace: 0.3.0')
+  })
+})
+
+describe('SessionChips unconfirmed sign-in wording', () => {
+  it('does not claim the sign-in is confirmed while reporting it unconfirmed', async () => {
+    window.argus.agent.authStatus = vi.fn(async () =>
+      auth({ verified: false, detail: 'claude ready (claude-sonnet-5)' })
+    )
+    render(<SessionChips slug="case-a" sessionId={1} />)
+    await screen.findByText('ready ~')
+    const popover = openPopover()
+    expect(popover.textContent).toContain('ready (unconfirmed)')
+    // The old copy read "— confirmed on your first message", i.e. an accomplished fact, sitting
+    // directly under "(unconfirmed)". Whatever the wording, the detail must not assert that.
+    expect(popover.textContent).not.toContain('confirmed on your first message')
+    expect(popover.textContent).toMatch(/not confirmed yet/)
+  })
+})
+
+describe('SessionChips context gauge', () => {
+  const CONTEXT_SLUG = 'NAV-CTX'
+
+  it('shows nothing until both the usage and the window size have arrived', async () => {
+    render(<SessionChips slug={CONTEXT_SLUG} sessionId={1} />)
+    await screen.findByText('ready')
+    expect(screen.queryByTestId('context-gauge')).toBeNull()
+
+    // usedTokens alone is not enough — a token count with no window is not a percentage.
+    emit('context.usage', { usedTokens: 50_000, contextWindow: null }, CONTEXT_SLUG)
+    expect(screen.queryByTestId('context-gauge')).toBeNull()
+
+    emit('context.usage', { usedTokens: null, contextWindow: 200_000 }, CONTEXT_SLUG)
+    expect(screen.getByTestId('context-gauge').style.width).toBe('25%')
+  })
+
+  it('tracks the level down after a compaction instead of accumulating', async () => {
+    render(<SessionChips slug="NAV-CTX-COMPACT" sessionId={1} />)
+    await screen.findByText('ready')
+    emit('context.usage', { usedTokens: null, contextWindow: 200_000 }, 'NAV-CTX-COMPACT')
+    emit('context.usage', { usedTokens: 180_000, contextWindow: null }, 'NAV-CTX-COMPACT')
+    expect(screen.getByTestId('context-gauge').style.width).toBe('90%')
+
+    // The CLI compacted: the live context really is smaller now. A cumulative counter would
+    // have gone up.
+    emit('context.usage', { usedTokens: 40_000, contextWindow: null }, 'NAV-CTX-COMPACT')
+    expect(screen.getByTestId('context-gauge').style.width).toBe('20%')
+  })
+
+  it('clamps an over-full window rather than painting past the pill', async () => {
+    render(<SessionChips slug="NAV-CTX-OVER" sessionId={1} />)
+    await screen.findByText('ready')
+    emit('context.usage', { usedTokens: 260_000, contextWindow: 200_000 }, 'NAV-CTX-OVER')
+    expect(screen.getByTestId('context-gauge').style.width).toBe('100%')
+  })
+
+  it('paints the clean CSS edge in the classic theme', async () => {
+    render(<SessionChips slug="NAV-CTX-THEME" sessionId={1} />)
+    await screen.findByText('ready')
+    emit('context.usage', { usedTokens: 100_000, contextWindow: 200_000 }, 'NAV-CTX-THEME')
+    const el = screen.getByTestId('context-gauge')
+    expect(el.dataset.mode).toBe('flat')
+    expect(el.className).toContain('ctx-gauge')
+    expect(el.style.width).toBe('50%')
+  })
+
+  it('keeps the clean edge under the dynamic theme when WebGL2 is unavailable', async () => {
+    // jsdom has no WebGL2, which is exactly the fallback path a lost GPU process takes. The
+    // wave rendering itself is covered in ContextGauge.test.tsx with an injected renderer;
+    // what matters here is that a dynamic-theme user still gets a gauge.
+    act(() => uiStore.setDynamicTheme(true))
+    render(<SessionChips slug="NAV-CTX-THEME-DYN" sessionId={1} />)
+    await screen.findByText('ready')
+    emit('context.usage', { usedTokens: 100_000, contextWindow: 200_000 }, 'NAV-CTX-THEME-DYN')
+    const el = screen.getByTestId('context-gauge')
+    expect(el.dataset.mode).toBe('flat')
+    expect(el.style.width).toBe('50%')
   })
 })

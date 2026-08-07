@@ -27,6 +27,10 @@ export interface CaseAgentState {
   pendingDialogs: PendingDialog[]
   running: boolean
   cost: { inputTokens: number; outputTokens: number; costUsd: number }
+  /** Latest known context-window occupancy — a LEVEL, not an accumulator (see the
+   *  `context.usage` event doc). The two halves arrive on different messages, so each keeps
+   *  its last non-null value independently. */
+  context: { usedTokens: number | null; contextWindow: number | null }
   sessionNote: string | null
   findingsBump: number
 }
@@ -37,6 +41,7 @@ export const EMPTY_CASE_AGENT_STATE: CaseAgentState = {
   pendingDialogs: [],
   running: false,
   cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+  context: { usedTokens: null, contextWindow: null },
   sessionNote: null,
   findingsBump: 0
 }
@@ -200,6 +205,14 @@ export class AgentStore {
               inputTokens: s.cost.inputTokens + (e.payload.inputTokens ?? 0),
               outputTokens: s.cost.outputTokens + (e.payload.outputTokens ?? 0),
               costUsd: s.cost.costUsd + (e.payload.costUsd ?? 0)
+            }
+          }
+        case 'context.usage':
+          return {
+            ...s,
+            context: {
+              usedTokens: e.payload.usedTokens ?? s.context.usedTokens,
+              contextWindow: e.payload.contextWindow ?? s.context.contextWindow
             }
           }
         case 'case.finding.added':

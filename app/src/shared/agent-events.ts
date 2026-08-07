@@ -35,6 +35,17 @@ export type AgentEvent = AgentEventBase &
           durationMs: number | null
         }
       }
+    | {
+        // How full the model's context window is RIGHT NOW — deliberately not derivable from
+        // turn.completed, whose token counts are per-turn totals summed over every API call in
+        // the turn and so grow without bound while the live context stays flat (and drops on a
+        // compaction). Both fields are nullable because they arrive from different messages:
+        // the size of the context comes from the assistant turn that was just billed, the size
+        // of the WINDOW only from the end-of-turn result. Consumers keep the last non-null of
+        // each rather than treating a null as "unknown now".
+        type: 'context.usage'
+        payload: { usedTokens: number | null; contextWindow: number | null }
+      }
     | { type: 'content.delta'; payload: { text: string } }
     | { type: 'assistant.message'; payload: { text: string } } // finalized text of the block(s)
     | { type: 'tool.call.started'; payload: { toolCallId: string; name: string } }

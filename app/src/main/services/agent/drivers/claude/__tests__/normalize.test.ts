@@ -139,6 +139,92 @@ describe('normalizeSdkMessage', () => {
     })
   })
 
+  it('reports live context from an assistant message as the whole prompt plus the output', () => {
+    // Every one of these four occupies window space. Reading only input_tokens (the field
+    // turn.completed already carries) would report 12 of a real 4,700.
+    const evs = normalizeSdkMessage(
+      {
+        type: 'assistant',
+        session_id: 'abc',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'hi' }],
+          usage: {
+            input_tokens: 12,
+            cache_read_input_tokens: 4000,
+            cache_creation_input_tokens: 600,
+            output_tokens: 88
+          }
+        }
+      },
+      ctx
+    )
+    // Emitted after the transcript-bearing event, not before it.
+    expect(evs.map((e) => e.type)).toEqual(['assistant.message', 'context.usage'])
+    expect(evs[1]).toMatchObject({
+      type: 'context.usage',
+      payload: { usedTokens: 4700, contextWindow: null }
+    })
+  })
+
+  it('ignores a sub-agent message’s usage — that is a different context window', () => {
+    const evs = normalizeSdkMessage(
+      {
+        type: 'assistant',
+        session_id: 'abc',
+        parent_tool_use_id: 't-parent',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'sub' }],
+          usage: { input_tokens: 190_000, output_tokens: 10 }
+        }
+      },
+      ctx
+    )
+    expect(evs.some((e) => e.type === 'context.usage')).toBe(false)
+  })
+
+  it('takes the window size from modelUsage on the result, alongside turn.completed', () => {
+    const evs = normalizeSdkMessage(
+      {
+        type: 'result',
+        subtype: 'success',
+        session_id: 'abc',
+        usage: { input_tokens: 100, output_tokens: 20 },
+        // A turn that fell back across models reports one entry each; the live thread runs in
+        // the larger window.
+        modelUsage: {
+          'claude-haiku-4-5': { contextWindow: 200_000 },
+          'claude-opus-5': { contextWindow: 1_000_000 }
+        },
+        total_cost_usd: 0.01,
+        duration_ms: 900,
+        is_error: false
+      },
+      ctx
+    )
+    expect(evs.map((e) => e.type)).toEqual(['turn.completed', 'context.usage'])
+    expect(evs[1]).toMatchObject({
+      type: 'context.usage',
+      payload: { usedTokens: null, contextWindow: 1_000_000 }
+    })
+  })
+
+  it('emits no window size when the result carries no usable modelUsage', () => {
+    const evs = normalizeSdkMessage(
+      {
+        type: 'result',
+        subtype: 'success',
+        session_id: 'abc',
+        usage: { input_tokens: 100, output_tokens: 20 },
+        modelUsage: { 'claude-opus-5': { contextWindow: 0 } },
+        is_error: false
+      },
+      ctx
+    )
+    expect(evs.map((e) => e.type)).toEqual(['turn.completed'])
+  })
+
   it('returns [] for messages it does not surface', () => {
     expect(normalizeSdkMessage({ type: 'system', subtype: 'hook_event' }, ctx)).toEqual([])
   })

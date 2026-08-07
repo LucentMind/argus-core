@@ -399,6 +399,31 @@ body {
   }
 }
 
+/* Context-window gauge inside the session-status pill — the CLASSIC rendering: a clean,
+   straight, unmoving edge. Plain CSS for the same HMR reason as .argus-shimmer above.
+
+   The dynamic theme does not use this at all; it paints a wandering ridge on the GPU instead
+   (contextGaugeGL.ts). This rule is still the fallback for that path whenever WebGL2 is
+   unavailable, so it must keep working on its own.
+
+   Named `ctx-gauge`, not `ctx-fill`: the theme-colour guard (themeUtilities.test.tsx) splits
+   class strings on `-` and reads `…-fill-dyn` as the Tailwind colour utility `fill-dyn`.
+
+   Everything is mixed from `currentColor`, which the pill has already set to its status tone —
+   so the gauge is green on a ready session and red on a failed one without a second palette.
+   The gradient runs dim→bright left to right, putting the brightest band at the fill's leading
+   edge: that edge is the datum, and it should be the thing the eye lands on. */
+.ctx-gauge {
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in oklab, currentColor 14%, transparent) 0%,
+    color-mix(in oklab, currentColor 34%, transparent) 55%,
+    color-mix(in oklab, currentColor 42%, transparent) 82%,
+    color-mix(in oklab, currentColor 78%, transparent) 100%
+  );
+  background-size: 100% 100%;
+}
+
 /* Terminal-cursor blink for the chat thinking indicator (ThinkingIndicator).
    Plain CSS rather than a Tailwind utility, for the same HMR reason as .argus-shimmer above.
    steps(1) so the cursor snaps between on/off like a real terminal instead of fading. */

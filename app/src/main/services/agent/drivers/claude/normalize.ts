@@ -85,6 +85,29 @@ export function normalizeSdkMessage(msg: any, ctx: NormalizeCtx): AgentEvent[] {
         }
       }
 
+      // Live context size, emitted last so the transcript-bearing events keep their order.
+      // `message.usage` here is ONE API call's usage, which is exactly what fills the window:
+      // the prompt (fresh + cache-created + cache-read) plus what was just written. The result
+      // message's `usage` cannot be used for this — it is the turn's total across every API
+      // call, so a 30-tool turn would report many times the real context.
+      //
+      // Sub-agent messages (parent_tool_use_id set) are billed against their OWN window, not
+      // the main thread's, so they must not overwrite it.
+      const usage = msg.message?.usage
+      if (usage && !msg.parent_tool_use_id) {
+        const n = (v: unknown): number => (typeof v === 'number' ? v : 0)
+        out.push(
+          makeEvent(ctx, 'context.usage', {
+            usedTokens:
+              n(usage.input_tokens) +
+              n(usage.cache_read_input_tokens) +
+              n(usage.cache_creation_input_tokens) +
+              n(usage.output_tokens),
+            contextWindow: null
+          })
+        )
+      }
+
       return out
     }
 
@@ -105,8 +128,8 @@ export function normalizeSdkMessage(msg: any, ctx: NormalizeCtx): AgentEvent[] {
       return out
     }
 
-    case 'result':
-      return [
+    case 'result': {
+      const out: AgentEvent[] = [
         makeEvent(ctx, 'turn.completed', {
           status: msg.is_error ? 'error' : 'success',
           inputTokens: msg.usage?.input_tokens ?? null,
@@ -115,6 +138,23 @@ export function normalizeSdkMessage(msg: any, ctx: NormalizeCtx): AgentEvent[] {
           durationMs: msg.duration_ms ?? null
         })
       ]
+      // `modelUsage` is the only place the SDK states the window size. Unlike its sibling
+      // token counts it is a static property of the model, not an accumulator, so reading it
+      // off a turn total is sound. A turn that fell back across models reports one entry each;
+      // take the largest, since that is the window the live thread is running in.
+      const windows = Object.values(msg.modelUsage ?? {})
+        .map((m) => (m as { contextWindow?: unknown }).contextWindow)
+        .filter((w): w is number => typeof w === 'number' && w > 0)
+      if (windows.length > 0) {
+        out.push(
+          makeEvent(ctx, 'context.usage', {
+            usedTokens: null,
+            contextWindow: Math.max(...windows)
+          })
+        )
+      }
+      return out
+    }
 
     default:
       return []

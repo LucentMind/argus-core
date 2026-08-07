@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
 import { useSettingsPayload } from '../lib/settingsStore'
+import { uiStore } from '../lib/uiStore'
+import { checkDetail } from '../lib/preflightDetail'
+import { ContextGauge } from './ContextGauge'
 import { capabilitiesFor, defaultInstanceId } from '../../../shared/drivers'
 import type { AuthStatus, PreflightReport } from '../../../shared/types'
 
@@ -47,6 +50,13 @@ export function SessionChips({
     () => (sessionId === null ? EMPTY_CASE_AGENT_STATE : agentStore.get(slug, sessionId))
   )
   const settingsPayload = useSettingsPayload()
+  // Read directly rather than relying on a `.dyn` ancestor: the gauge is chosen by this
+  // component, so it must not depend on which scope wrapper happens to enclose the strip.
+  const ui = useSyncExternalStore(
+    (cb) => uiStore.subscribe(cb),
+    () => uiStore.get()
+  )
+  const dynamic = ui.dynamicTheme
   const costReporting = capabilitiesFor(
     settingsPayload?.settings,
     instanceId ?? (settingsPayload ? defaultInstanceId(settingsPayload.settings) : null)
@@ -108,15 +118,22 @@ export function SessionChips({
       : auth.verified
         ? 'review'
         : 'neutral'
+  // `verified` means "a real turn has proven these credentials work" (AuthCache.onAuthVerified).
+  // Until then the probe's green is provisional — it runs with maxTurns:0 and never contacts the
+  // API. The old wording said "confirmed on your first message", which reads as a completed fact
+  // and directly contradicted the "ready (unconfirmed)" line right above it. State the pending
+  // condition instead, so both lines say the same thing.
   const authDetail = auth
     ? auth.ok && !auth.verified
-      ? `${auth.detail} — confirmed on your first message`
+      ? `${auth.detail} — sign-in not confirmed yet; sending your first message confirms it`
       : auth.detail
     : 'probing agent…'
   const title = [
     authDetail,
     preflight
-      ? preflight.checks.map((c) => `${c.ok ? '✓' : '✗'} ${c.name}: ${c.detail}`).join('\n')
+      ? preflight.checks
+          .map((c) => [`${c.ok ? '✓' : '✗'} ${c.name}`, checkDetail(c)].filter(Boolean).join(': '))
+          .join('\n')
       : 'running preflight…'
   ]
     .filter(Boolean)
@@ -130,33 +147,58 @@ export function SessionChips({
       ? `$${state.cost.costUsd.toFixed(2)}`
       : '—'
 
+  // Clamped, not just rounded: a window can be exceeded briefly before the CLI compacts, and a
+  // bar wider than its own pill would paint outside the border radius.
+  const { usedTokens, contextWindow } = state.context
+  const contextPct =
+    usedTokens !== null && contextWindow !== null && contextWindow > 0
+      ? Math.min(100, Math.max(0, (usedTokens / contextWindow) * 100))
+      : null
+  const contextLabel =
+    contextPct === null || contextWindow === null
+      ? null
+      : `${Math.round(contextPct)}% of ${contextWindow.toLocaleString()}`
+
   return (
     <div
       className="relative flex shrink-0 items-center gap-2"
       data-testid="session-chips"
       ref={ref}
     >
+      {/* Fixed width (w-24), not hug: the gauge inside is a proportion of the pill, so a pill
+          that resized with its label ("checking…" → "ready") would redraw the same percentage
+          at a different length. */}
       <button
         type="button"
-        title={title}
+        title={contextPct === null ? title : `context ${Math.round(contextPct)}% full\n\n${title}`}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label="Session status"
         onClick={() => setOpen((o) => !o)}
-        className={`inline-flex items-center gap-1 rounded-r1 border px-1.5 py-0.5 font-mono text-[10.5px] uppercase tracking-wide transition-colors hover:brightness-110 ${PILL_TONES[tone]}`}
+        className={`relative inline-flex w-24 items-center justify-center overflow-hidden rounded-r1 border px-1.5 py-0.5 font-mono text-[10.5px] uppercase tracking-wide transition-colors hover:brightness-110 ${PILL_TONES[tone]}`}
       >
-        {label}
+        {/* Context gauge. Both renderings take their colour from `currentColor`, so the gauge
+            tracks the tone the pill already carries instead of introducing a fourth status
+            colour — and follows the theme for free. */}
+        {contextPct !== null && (
+          <ContextGauge
+            pct={contextPct}
+            dynamic={dynamic}
+            toneKey={tone}
+            light={ui.theme === 'light'}
+          />
+        )}
+        {/* Ink, not the status tone — and this is a fix, not a preference. A tone-coloured label
+            on a tone-coloured fill cannot reach AA at ANY gauge brightness: measured worst-case
+            under the glyphs it tops out at 2.4:1 in light even with the gauge dimmed to nothing,
+            and it is 2.9:1 with no gauge at all. Ink measures 8.2:1 light / 5.1:1 dark against
+            the same worst case. Status is still carried by the border and the fill; this only
+            moves the *glyphs* off the same hue as their own background.
+
+            The button keeps `text-<tone>`, so `currentColor` — which is what BOTH gauge
+            renderings read their colour from — is unchanged. */}
+        <span className="relative text-ink">{label}</span>
       </button>
-      <span className="whitespace-nowrap font-mono text-[10.5px] uppercase tracking-wide text-mute">
-        {tokens.toLocaleString()} tok
-        {/* costReporting=false (e.g. Copilot v1) never accumulates a real cost — say so
-            instead of rendering the accumulator's initial 0 as a measured $0.00 turn. */}
-        {!costReporting
-          ? ' · n/a'
-          : state.cost.costUsd > 0
-            ? ` · $${state.cost.costUsd.toFixed(2)}`
-            : ''}
-      </span>
       {open && (
         <div
           role="dialog"
@@ -190,20 +232,36 @@ export function SessionChips({
             </div>
             {preflight && preflight.checks.length > 0 && (
               <ul className="flex flex-col gap-0.5 text-mute">
-                {preflight.checks.map((c) => (
-                  <li key={c.name} className={c.ok ? '' : 'text-danger'}>
-                    {c.ok ? '✓' : '✗'} {c.name}: {c.detail}
-                  </li>
-                ))}
+                {preflight.checks.map((c) => {
+                  const detail = checkDetail(c)
+                  return (
+                    <li key={c.name} className={c.ok ? '' : 'text-danger'}>
+                      {c.ok ? '✓' : '✗'} {c.name}
+                      {detail ? `: ${detail}` : ''}
+                    </li>
+                  )
+                })}
               </ul>
             )}
-            <div className="flex items-center justify-between gap-3 border-t border-hair pt-2">
+            {contextLabel !== null && (
+              <div className="flex items-center justify-between gap-3 border-t border-hair pt-2">
+                <dt className="text-mute">Context</dt>
+                <dd className="text-ink">{contextLabel}</dd>
+              </div>
+            )}
+            <div
+              className={`flex items-center justify-between gap-3 ${contextLabel === null ? 'border-t border-hair pt-2' : ''}`}
+            >
               <dt className="text-mute">Tokens</dt>
               <dd className="text-ink">{tokens.toLocaleString()}</dd>
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <dt className="text-mute">Est. cost</dt>
-              <dd className="text-ink">{costLabel}</dd>
+            <div className="flex items-start justify-between gap-3">
+              {/* The SDK reports list price. On a subscription the marginal cost of these tokens
+                  is lower (often zero) — say so, rather than let a $89 readout imply a bill. */}
+              <dt className="text-mute">
+                Est. cost <span className="text-faint">(actual cost is lower)</span>
+              </dt>
+              <dd className="shrink-0 text-ink">{costLabel}</dd>
             </div>
           </dl>
         </div>
