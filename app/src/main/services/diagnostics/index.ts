@@ -169,7 +169,10 @@ export class DiagnosticsService {
         electronMetrics: this.deps.getElectronMetrics(),
         labelSources: {
           windows: this.deps.getWindowDescriptors(),
-          connectors: this.deps.getConnectorCommands()
+          connectors: this.deps.getConnectorCommands(),
+          // Tier A is wired to the live ProcessLabels registry in a later increment
+          // task (reconcile() on the sampling path); until then no pid is registered.
+          registered: new Map()
         }
       })
     } catch (err) {

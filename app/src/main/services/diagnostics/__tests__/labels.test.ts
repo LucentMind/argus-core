@@ -7,6 +7,7 @@ import {
   type WindowDescriptor
 } from '../labels'
 import type { ElectronProcessMetric, ProcessSample } from '../../../../shared/diagnostics'
+import type { RegisteredLabel } from '../processLabels'
 
 function sample(over: Partial<ProcessSample> & { pid: number }): ProcessSample {
   return {
@@ -27,7 +28,7 @@ function metric(over: Partial<ElectronProcessMetric> & { pid: number }): Electro
 }
 
 function sources(over: Partial<LabelSources> = {}): LabelSources {
-  return { windows: [], connectors: [], ...over }
+  return { windows: [], connectors: [], registered: new Map(), ...over }
 }
 
 describe('resolveLabel — tier B (Electron)', () => {
@@ -342,5 +343,77 @@ describe('stdioConnectorCommands', () => {
         blank: { kind: 'stdio', config: { command: '  ', args: [] } }
       } as never)
     ).toEqual([{ instanceId: 'gh', command: 'npx', args: ['-y', '@x/gh'] }])
+  })
+})
+
+describe('resolveLabel — tier A (registry)', () => {
+  const registered = (
+    over: Record<string, RegisteredLabel> = {}
+  ): ReadonlyMap<string, RegisteredLabel> => new Map(Object.entries(over))
+
+  it('returns the registered label, marked authoritative', () => {
+    const r = resolveLabel(
+      sample({ pid: 70, startTimeMs: 1_000 }),
+      undefined,
+      sources({
+        registered: registered({
+          '70:1000': {
+            kind: 'driver',
+            label: 'Cursor driver',
+            provider: 'cursor',
+            owner: 'CASE-A:7'
+          }
+        })
+      })
+    )
+    expect(r).toEqual({
+      kind: 'driver',
+      label: 'Cursor driver',
+      provider: 'cursor',
+      owner: 'CASE-A:7',
+      inferred: false
+    })
+  })
+
+  it('beats tier B', () => {
+    const r = resolveLabel(
+      sample({ pid: 71, startTimeMs: 1_000 }),
+      metric({ pid: 71, type: 'Tab' }),
+      sources({
+        windows: [{ osPid: 71, kind: 'main-window' }],
+        registered: registered({ '71:1000': { kind: 'driver', label: 'Codex driver' } })
+      })
+    )
+    expect(r?.label).toBe('Codex driver')
+  })
+
+  it('beats tier C', () => {
+    const r = resolveLabel(
+      sample({ pid: 72, startTimeMs: 1_000, command: '/usr/local/bin/claude --print' }),
+      undefined,
+      sources({ registered: registered({ '72:1000': { kind: 'driver', label: 'Codex driver' } }) })
+    )
+    expect(r?.label).toBe('Codex driver')
+    expect(r?.inferred).toBe(false)
+  })
+
+  it('does not match a registration for the same pid at a different start time', () => {
+    const r = resolveLabel(
+      sample({ pid: 73, startTimeMs: 2_000 }),
+      undefined,
+      sources({ registered: registered({ '73:1000': { kind: 'driver', label: 'Codex driver' } }) })
+    )
+    expect(r).toBeNull()
+  })
+
+  it('omits provider, instanceId and owner when the registration does not carry them', () => {
+    const r = resolveLabel(
+      sample({ pid: 74, startTimeMs: 1_000 }),
+      undefined,
+      sources({ registered: registered({ '74:1000': { kind: 'pack-binary', label: 'graphify' } }) })
+    )
+    expect('provider' in r!).toBe(false)
+    expect('instanceId' in r!).toBe(false)
+    expect('owner' in r!).toBe(false)
   })
 })

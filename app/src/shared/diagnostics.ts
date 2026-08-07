@@ -135,6 +135,8 @@ export type DiagnosticsObject = {
   provider?: string
   /** kind 'mcp' — the connector instance id. */
   instanceId?: string
+  /** Tier A only — opaque owner key of the Argus object that owns this process. */
+  owner?: string
   /** True when the label came from tier-C command-line inference rather than Electron. */
   inferred: boolean
   /** null for the unattributed row. */

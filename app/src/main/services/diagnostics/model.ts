@@ -168,6 +168,7 @@ export function buildSnapshot(input: BuildInput): BuildResult {
         label: label.label,
         ...(label.provider ? { provider: label.provider } : {}),
         ...(label.instanceId ? { instanceId: label.instanceId } : {}),
+        ...(label.owner ? { owner: label.owner } : {}),
         inferred: label.inferred,
         rootPid: s.pid,
         processCount: 0,

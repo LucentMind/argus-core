@@ -39,7 +39,7 @@ function build(
     rootPid: 1,
     cores: 4,
     electronMetrics: [],
-    labelSources: { windows: [], connectors: [] },
+    labelSources: { windows: [], connectors: [], registered: new Map() },
     ...extra
   })
 }
@@ -166,7 +166,7 @@ describe('buildSnapshot', () => {
       rootPid: 1,
       cores: 4,
       electronMetrics: [],
-      labelSources: { windows: [], connectors: [] }
+      labelSources: { windows: [], connectors: [], registered: new Map() }
     })
     // Each process peaked at 100 at different moments, but the total never exceeded 100.
     expect(second.footprint.peakRssBytes).toBe(100)
@@ -197,7 +197,7 @@ describe('buildSnapshot', () => {
       rootPid: 1,
       cores: 4,
       electronMetrics: [],
-      labelSources: { windows: [], connectors: [] }
+      labelSources: { windows: [], connectors: [], registered: new Map() }
     })
     expect(second.footprint.exits).toBe(1)
     expect(second.footprint.starts).toBe(2)
@@ -238,7 +238,7 @@ describe('buildSnapshot — object rollup', () => {
     })
     const node = sample({ pid: 3, ppid: 2, command: '/usr/bin/node index.js', residentBytes: 400 })
     const r = build([ROOT, npx, node], new Map(), 2_000, {
-      labelSources: { windows: [], connectors: CONNECTORS }
+      labelSources: { windows: [], connectors: CONNECTORS, registered: new Map() }
     })
 
     const mcp = r.objects.find((o) => o.kind === 'mcp')
@@ -265,7 +265,7 @@ describe('buildSnapshot — object rollup', () => {
     })
     const npx = sample({ pid: 3, ppid: 2, command: 'npx @x/server-github', residentBytes: 400 })
     const r = build([ROOT, claude, npx], new Map(), 2_000, {
-      labelSources: { windows: [], connectors: CONNECTORS }
+      labelSources: { windows: [], connectors: CONNECTORS, registered: new Map() }
     })
 
     expect(r.objects.find((o) => o.kind === 'driver')).toMatchObject({
@@ -303,7 +303,7 @@ describe('buildSnapshot — object rollup', () => {
       ])
     )
     const r = build(samples, previous, 2_000, {
-      labelSources: { windows: [], connectors: CONNECTORS }
+      labelSources: { windows: [], connectors: CONNECTORS, registered: new Map() }
     })
 
     const sum = (f: (o: (typeof r.objects)[number]) => number): number =>
@@ -350,7 +350,7 @@ describe('buildSnapshot — object rollup', () => {
       ])
     )
     const r = build(samples, previous, 4_000, {
-      labelSources: { windows: [], connectors: CONNECTORS }
+      labelSources: { windows: [], connectors: CONNECTORS, registered: new Map() }
     })
 
     const derivedFromRows = r.objects.reduce((t, o) => t + o.cpuPercent, 0)
@@ -368,7 +368,7 @@ describe('buildSnapshot — object rollup', () => {
     const big = sample({ pid: 3, ppid: 1, command: 'npx @x/server-github', residentBytes: 900 })
     const stray = sample({ pid: 4, ppid: 1, residentBytes: 5_000 })
     const r = build([ROOT, small, big, stray], new Map(), 2_000, {
-      labelSources: { windows: [], connectors: CONNECTORS }
+      labelSources: { windows: [], connectors: CONNECTORS, registered: new Map() }
     })
     expect(r.objects.map((o) => o.kind)).toEqual(['mcp', 'driver', 'unattributed'])
   })
@@ -391,7 +391,7 @@ describe('buildSnapshot — object rollup', () => {
     const claude = sample({ pid: 2, ppid: 1, command: '/usr/local/bin/claude' })
     const npx = sample({ pid: 3, ppid: 1, command: 'npx @x/server-github' })
     const r = build([ROOT, claude, npx], new Map(), 2_000, {
-      labelSources: { windows: [], connectors: CONNECTORS }
+      labelSources: { windows: [], connectors: CONNECTORS, registered: new Map() }
     })
 
     const driver = r.objects.find((o) => o.kind === 'driver')
@@ -447,7 +447,7 @@ describe('buildSnapshot — object rollup', () => {
       })
       const r = build([ROOT, npx, node], new Map(), 2_000, {
         electronMetrics: ELECTRON_MAIN,
-        labelSources: { windows: [], connectors: CONNECTORS }
+        labelSources: { windows: [], connectors: CONNECTORS, registered: new Map() }
       })
 
       const mcp = r.objects.find((o) => o.kind === 'mcp')
