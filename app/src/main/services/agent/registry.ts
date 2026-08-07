@@ -170,6 +170,12 @@ export class AgentService {
     return `${caseSlug}::${sessionId}`
   }
 
+  /** Recover the caseSlug from an internal session-map key. Length-subtraction
+   *  rather than `split('::')`, because a slug may itself contain `::`. */
+  private caseSlugOf(key: string, sessionId: number): string {
+    return key.slice(0, key.length - `::${sessionId}`.length)
+  }
+
   private async getOrCreate(caseSlug: string, sessionId: number): Promise<CaseSession> {
     const key = this.keyOf(caseSlug, sessionId)
 
@@ -446,7 +452,7 @@ export class AgentService {
 
   states(): { caseSlug: string; sessionId: number; state: string; activeTurn: boolean }[] {
     return [...this.sessions.entries()].map(([key, s]) => ({
-      caseSlug: key.slice(0, key.length - `::${s.sessionId}`.length),
+      caseSlug: this.caseSlugOf(key, s.sessionId),
       sessionId: s.sessionId,
       state: s.state,
       activeTurn: s.activeTurn
@@ -462,7 +468,7 @@ export class AgentService {
    */
   liveOwnerKeys(): string[] {
     return [...this.sessions.entries()].map(([key, s]) =>
-      ownerKeyOf(key.slice(0, key.length - `::${s.sessionId}`.length), s.sessionId)
+      ownerKeyOf(this.caseSlugOf(key, s.sessionId), s.sessionId)
     )
   }
 }

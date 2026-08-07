@@ -502,12 +502,20 @@ describe('buildSnapshot — orphan detection', () => {
     expect(r.footprint.orphanCount).toBe(0)
   })
 
-  it('never flags a row that carries no owner', () => {
-    // Tier B and C rows have no owner; an empty live-owner set must not make the
-    // whole page read as orphaned.
+  it('never flags a LABELED row that carries no owner', () => {
+    // Tier B (Electron) and tier C (command-line inference) rows have no owner;
+    // an empty live-owner set must not make them read as orphaned. This uses a
+    // real tier-B row (matched via electronMetrics), not the synthetic
+    // Unattributed row — Unattributed's `orphan: false` is a hardcoded literal
+    // in model.ts and would pass this assertion regardless of what the orphan
+    // guard does, proving nothing about the guard itself.
     const r = build([ROOT, sample({ pid: 2, ppid: 1 })], new Map(), 2_000, {
+      electronMetrics: [{ pid: 2, creationTimeMs: 1_000, type: 'Renderer' }],
       liveOwners: new Set<string>()
     })
+    const electronRow = r.objects.find((o) => o.kind === 'electron-internal')
+    expect(electronRow).not.toHaveProperty('owner')
+    expect(electronRow?.orphan).toBe(false)
     expect(r.objects.every((o) => o.orphan === false)).toBe(true)
     expect(r.footprint.orphanCount).toBe(0)
   })

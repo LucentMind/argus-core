@@ -171,7 +171,7 @@ export function buildSnapshot(input: BuildInput): BuildResult {
         label: label.label,
         ...(label.provider ? { provider: label.provider } : {}),
         ...(label.instanceId ? { instanceId: label.instanceId } : {}),
-        ...(label.owner ? { owner: label.owner } : {}),
+        ...(label.owner !== undefined ? { owner: label.owner } : {}),
         orphan: label.owner !== undefined && !input.liveOwners.has(label.owner),
         inferred: label.inferred,
         rootPid: s.pid,
