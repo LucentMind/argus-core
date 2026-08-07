@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-empty-function -- fake AcpClientLike/AcpSessionLike
  * implementations below stub the interface's methods intentionally with empty bodies. */
 import type { SessionNotification } from '@zed-industries/agent-client-protocol'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { defaultAcpClientFactory, routeSessionUpdate, type AcpClientFactory } from '../client'
 
 /**
@@ -183,11 +183,13 @@ describe('defaultAcpClientFactory child-exit hardening', () => {
       onPermission: async () => ({ cancelled: true }),
       onUpdate: (u) => updates.push(u)
     })
-    // start() is deliberately not awaited/called — the dummy child never speaks ACP. Wait
-    // comfortably longer than the fixed 50ms exit delay so this stays deterministic.
-    await new Promise((resolve) => setTimeout(resolve, 250))
+    // start() is deliberately not awaited/called — the dummy child never speaks ACP. Poll
+    // instead of a fixed sleep: a wall-clock wait races full-suite CPU contention (the child's
+    // spawn + 50ms exit + event round trip can exceed a fixed budget under load), while
+    // vi.waitFor resolves the instant the update lands and only times out if something's
+    // actually broken.
+    await vi.waitFor(() => expect(updates).toHaveLength(1))
 
-    expect(updates).toHaveLength(1)
     const item = updates[0] as { type: string; message: string }
     expect(item.type).toBe('error')
     expect(item.message).toMatch(/exited unexpectedly/i)

@@ -5,3 +5,6 @@ out
 .eslintcache
 *.log*
 *.tsbuildinfo
+
+# scratch manual-testing tool, not part of the shipped app
+/e2e-driver.mjs

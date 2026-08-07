@@ -16,7 +16,9 @@ export default defineConfig(
       '**/out',
       'scripts/spike-copilot/**',
       'scripts/testscript/**',
-      'scripts/acp-spike.mjs'
+      'scripts/acp-spike.mjs',
+      // Untracked manual e2e driver (gitignored) — not part of the shipped app.
+      'e2e-driver.mjs'
     ]
   },
   tseslint.configs.recommended,
