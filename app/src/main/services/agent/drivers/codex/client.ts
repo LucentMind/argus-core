@@ -50,6 +50,9 @@ export interface CodexClientLike {
 
 export type CodexClientFactory = (opts: {
   spawn: { command: string; args: string[]; env: NodeJS.ProcessEnv }
+  /** Called once with the spawned child's pid, for diagnostics attribution. Optional so
+   *  in-memory test factories need not implement it. */
+  onSpawn?: (pid: number) => void
 }) => CodexClientLike
 
 /** Shape of a decoded inbound wire line — a union of all four envelope kinds. */
@@ -211,6 +214,7 @@ export const defaultCodexClientFactory: CodexClientFactory = (opts) => {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true
       })
+      if (child.pid !== undefined) opts.onSpawn?.(child.pid)
       child.stdout.setEncoding('utf8')
       child.stderr.setEncoding('utf8')
       // Swallow async stream errors (e.g. EPIPE from a broken-pipe write after the

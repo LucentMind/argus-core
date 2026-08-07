@@ -8,11 +8,13 @@ import { makeEvent, type NormalizeCtx } from './events'
 import { classifyToolCall, type RiskContext } from './risk'
 import type {
   AgentDriver,
+  DriverKind,
   DriverSession,
   DriverSessionContext,
   SystemPromptTransport,
   TurnResult
 } from './driver'
+import type { ProcessLabels } from '../diagnostics/processLabels'
 import { isAuthFailure } from './drivers/claude'
 import { captureFragments, captureTools } from '../prompts/captureInput'
 import type { SessionPromptCapture } from '../../../shared/promptsIpc'
@@ -147,6 +149,33 @@ export interface SessionDeps {
   /** Multi-source known-defects search, session-bound by AgentService. Absent when the
    *  corpus feature is unwired (tests, or a session built without it). */
   defectCorpus?: NativeToolDeps['defectCorpus']
+  /** Tier-A diagnostics registry (services/diagnostics/processLabels.ts): CaseSession
+   *  registers the pid a driver reports via `onProcessSpawn` here, and unregisters it in
+   *  stop(). Absent = no registration attempted (tests that don't care about diagnostics). */
+  processLabels?: ProcessLabels
+  /** Injected clock for diagnostics registration timestamps, mirroring the same optional
+   *  dep on ExternalAppHost/CodeGraphService/McpService. Defaults to Date.now(); tests pin
+   *  it so a registration can be reconciled against literal fixture timestamps. */
+  now?: () => number
+}
+
+/** Maps a driver kind to the label diagnostics displays for it, matching the EXACT strings
+ *  tier C already emits for the same provider on a heuristic (unregistered) match
+ *  (`diagnostics/labels/command.ts`'s DRIVER_BASENAMES) — so an inferred row and an
+ *  authoritative row for the same provider read identically. */
+export function driverLabelFor(kind: DriverKind): string {
+  switch (kind) {
+    case 'cursor':
+      return 'Cursor driver'
+    case 'grok':
+      return 'Grok driver'
+    case 'codex':
+      return 'Codex driver'
+    case 'github-copilot':
+      return 'Copilot driver'
+    case 'claude-agent-sdk':
+      return 'Claude driver'
+  }
 }
 
 /** Tool name for the panel-initiated finding approval card (MEDIUM, editable). Distinct from the
@@ -229,6 +258,10 @@ export class CaseSession {
   private detailCtx: ToolDetailCtx
   private turnIndex = 0
   private currentTurnRow: number | null = null
+  /** Pids this session registered with `deps.processLabels`, so `stop()` can unregister
+   *  exactly what it registered — a missed unregister would leak a stale 'driver' row
+   *  across session restarts. */
+  private spawnedPids = new Set<number>()
 
   constructor(deps: SessionDeps) {
     this.deps = deps
@@ -394,7 +427,24 @@ export class CaseSession {
           )
           .run(cursor, this.deps.driver.kind, new Date().toISOString(), this.sessionId)
       },
-      onTurnResult: (r) => this.handleTurnResult(r)
+      onTurnResult: (r) => this.handleTurnResult(r),
+      // Tier-A diagnostics: the driver knows the spawned child's pid but not the case/session
+      // that owns it; CaseSession knows the case/session but not the pid. This callback is the
+      // channel between them — register the pid against this session's owner key and remember
+      // it so stop() can unregister exactly the pids this session registered.
+      onProcessSpawn: (pid) => {
+        this.deps.processLabels?.register(
+          pid,
+          {
+            kind: 'driver',
+            label: driverLabelFor(this.deps.driver.kind),
+            provider: this.deps.driver.kind,
+            owner: `${this.deps.caseSlug}:${this.sessionId}`
+          },
+          this.deps.now?.() ?? Date.now()
+        )
+        this.spawnedPids.add(pid)
+      }
     }
     this.driverSession = deps.driver.createSession(driverCtx)
     // Deferred past the synchronous construction+mirror-attach block: AgentService
@@ -688,6 +738,8 @@ export class CaseSession {
     }
     this.driverSession.end()
     await this.interrupt()
+    for (const pid of this.spawnedPids) this.deps.processLabels?.unregister(pid)
+    this.spawnedPids.clear()
     this.emit(makeEvent(this.ctx(), 'session.exited', { reason }))
     // The mirror is write-behind (buffers + a 250ms flush timer): without an explicit
     // close(), a caller that deletes the session's .jsonl right after stop() races the

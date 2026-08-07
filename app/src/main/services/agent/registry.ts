@@ -15,6 +15,7 @@ import { settingsSchema, type AgentSettings } from '../../../shared/settings'
 import type { AgentAccess } from '../../../shared/agentAccess'
 import { CaseSession, type SessionMirrorLike } from './session'
 import type { AgentDriver } from './driver'
+import type { ProcessLabels } from '../diagnostics/processLabels'
 import { createClaudeDriver, type CreateQueryFn } from './drivers/claude'
 import type { PanelCommandDecl } from './panelCommands'
 import {
@@ -130,6 +131,10 @@ export interface AgentServiceDeps {
   /** Multi-source known-defects search (DefectCorpusService.searchAll); threaded into every
    *  session's nativeToolDeps unchanged — the tool needs no per-case/session binding. */
   defectCorpus?: NativeToolDeps['defectCorpus']
+  /** Tier-A diagnostics registry; forwarded to every CaseSession so a driver's spawn-site
+   *  pid (ACP/Codex) can be registered against its case/session. Absent = no registration
+   *  (tests that don't construct a diagnostics registry). */
+  processLabels?: ProcessLabels
 }
 
 export class AgentService {
@@ -315,6 +320,7 @@ export class AgentService {
       onCaseClosed: this.deps.onCaseClosed,
       onWorktreeChanged: this.deps.onWorktreeChanged,
       defectCorpus: this.deps.defectCorpus,
+      processLabels: this.deps.processLabels,
       panelCommandDecls: this.deps.panelCommandDecls?.(),
       dispatchPanelCommand: this.deps.dispatchPanelCommand
         ? (packId, windowId, cmd, args) =>

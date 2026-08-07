@@ -18,6 +18,22 @@ import type { DatabaseSync } from 'node:sqlite'
 import { compileLayerAgents } from '../reviewSubagents'
 import { REVIEW_LAYER_ORDER } from '../../../../shared/reviewLayers'
 import { PERMISSION_MODES } from '../../../../shared/settings'
+import { ProcessLabels } from '../../diagnostics/processLabels'
+import type { ProcessSample } from '../../../../shared/diagnostics'
+
+function sample(over: Partial<ProcessSample> & { pid: number }): ProcessSample {
+  return {
+    ppid: 1,
+    startTimeMs: 10_000,
+    runTimeMs: 5_000,
+    name: `proc-${over.pid}`,
+    command: `/bin/proc-${over.pid}`,
+    status: 'Run',
+    cpuTimeMs: 0,
+    residentBytes: 0,
+    ...over
+  }
+}
 
 interface FakeSdk {
   messages: AsyncQueue<unknown>
@@ -1217,6 +1233,71 @@ describe('CaseSession', () => {
       REVIEW_LAYER_ORDER.map((id) => `review-${id}`)
     )
     await s.stop('stopped')
+  })
+
+  // Task 6 (diagnostics tier A): CaseSession owns the case/session identity a driver's
+  // spawn-site pid does not know, so it is the one that must translate
+  // ctx.onProcessSpawn(pid) into a ProcessLabels registration — and reverse it on stop() so
+  // a restarted session never leaves a stale 'driver' row behind.
+  it('registers a driver child against its case and session, and unregisters it on stop', async () => {
+    const labels = new ProcessLabels()
+    let captured: DriverSessionContext | undefined
+    const cursorStubDriver: AgentDriver = {
+      kind: 'cursor',
+      toolTaxonomy: CLAUDE_TOOL_TAXONOMY,
+      authFixHint: 'stub',
+      capabilities: {
+        permissionModes: PERMISSION_MODES,
+        editableApprovals: false,
+        costReporting: false,
+        headlessOneShot: false,
+        systemPromptTransport: 'none',
+        subagents: 'promptable'
+      },
+      createSession(ctx): DriverSession {
+        captured = ctx
+        const queue = new AsyncQueue<AgentEvent>()
+        return {
+          events: () => queue,
+          send: () => {},
+          interrupt: async () => queue.end(),
+          end: () => queue.end()
+        }
+      },
+      probeAuth: async () => ({ ok: true, detail: '' })
+    }
+    const rec = createCase(db, argusHome, { slug: 'CASE-A', title: 't' })
+    const sessionId = createSession(db, 'CASE-A', 'cursor').id
+    const s = new CaseSession({
+      db,
+      argusHome,
+      detection: createDetection(),
+      caseId: rec.id,
+      caseSlug: 'CASE-A',
+      sessionId,
+      workspaceRoots: [],
+      skillsRoots: [],
+      emit: (e) => events.push(e),
+      driver: cursorStubDriver,
+      resumeCursor: null,
+      processLabels: labels,
+      now: () => 1_100
+    })
+    expect(captured).toBeDefined()
+
+    captured!.onProcessSpawn?.(4242)
+    expect(
+      labels.reconcile([sample({ pid: 4242, startTimeMs: 1_000 })], 1_100).get('4242:1000')
+    ).toMatchObject({
+      kind: 'driver',
+      label: 'Cursor driver',
+      provider: 'cursor',
+      owner: `CASE-A:${sessionId}`
+    })
+
+    await s.stop('stopped')
+    // unregister happened in stop(): the same pid/startTimeMs is no longer reconciled.
+    expect(labels.reconcile([sample({ pid: 4242, startTimeMs: 1_000 })], 1_100).size).toBe(0)
   })
 })
 

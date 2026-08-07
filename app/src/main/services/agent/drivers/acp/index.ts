@@ -246,7 +246,8 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
           onPermission,
           // Unused fallback: the per-session `session.onUpdate` callback below is the
           // authoritative sink (see client.ts's `routeSessionUpdate` precedence).
-          onUpdate: () => {}
+          onUpdate: () => {},
+          onSpawn: ctx.onProcessSpawn
         })
         await client.start()
 

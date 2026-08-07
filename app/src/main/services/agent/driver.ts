@@ -118,6 +118,9 @@ export interface DriverSessionContext {
     toolName: string,
     input: Record<string, unknown>
   ) => { action: 'allow' | 'ask' | 'deny'; reason?: string }
+  /** Called with the pid of any long-lived child this session spawns. Drivers that
+   *  spawn nothing, or whose SDK hides the pid (Claude, Copilot), simply never call it. */
+  onProcessSpawn?: (pid: number) => void
 }
 
 export interface DriverSession {

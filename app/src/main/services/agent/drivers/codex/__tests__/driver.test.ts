@@ -231,6 +231,25 @@ describe('createCodexDriver — scripted session', () => {
   })
 })
 
+describe('createCodexDriver — diagnostics pid attribution', () => {
+  it('reports the spawned child pid to onProcessSpawn', async () => {
+    const seen: number[] = []
+    const { factory: baseFactory } = makeFake({ noDrive: true })
+    const factory: CodexClientFactory = (opts) => {
+      opts.onSpawn?.(4242)
+      return baseFactory(opts)
+    }
+    const driver = createCodexDriver({}, { clientFactory: factory })
+    const session = driver.createSession(makeCtx({ onProcessSpawn: (pid) => seen.push(pid) }))
+    void (async () => {
+      for await (const _e of session.events()) void _e
+    })()
+    await tick()
+    expect(seen).toEqual([4242])
+    session.end()
+  })
+})
+
 describe('createCodexDriver — developerInstructions (systemAppend)', () => {
   it('forwards a non-empty systemAppend as developerInstructions on thread/start', async () => {
     const { factory, requests } = makeFake({ noDrive: true })

@@ -236,7 +236,8 @@ export function createCodexDriver(
               ...process.env,
               ...(home ? { CODEX_HOME: home } : {})
             }
-          }
+          },
+          onSpawn: ctx.onProcessSpawn
         })
         await client.start()
         await client.request('initialize', {

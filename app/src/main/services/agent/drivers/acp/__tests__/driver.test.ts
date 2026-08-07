@@ -470,6 +470,20 @@ describe('createAcpDriver — session lifecycle + event normalization', () => {
     session.end()
   })
 
+  it('reports the spawned child pid to onProcessSpawn', async () => {
+    const seen: number[] = []
+    const fake = makeFake()
+    const factory: AcpClientFactory = (opts) => {
+      opts.onSpawn?.(4242)
+      return fake.factory(opts)
+    }
+    const driver = createAcpDriver(PROFILE, { clientFactory: factory })
+    const session = driver.createSession(makeCtx({ onProcessSpawn: (pid) => seen.push(pid) }))
+    await tick()
+    expect(seen).toEqual([4242])
+    session.end()
+  })
+
   it('loadSession is used when ctx.resumeCursor is set', async () => {
     const fake = makeFake()
     const driver = createAcpDriver(PROFILE, { clientFactory: fake.factory })

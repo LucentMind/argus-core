@@ -1542,6 +1542,7 @@ function registerIpc(): void {
     onCaseClosed,
     onWorktreeChanged: (slug) => broadcast(IPC.workspacesChanged, slug),
     defectCorpus,
+    processLabels: defaultProcessLabels,
     dispatchPanelCommand: (caseSlug, packId, windowId, cmd, args) => {
       const w = panelWindow(packId, windowId)
       return w?.decl.kind === 'externalApp'

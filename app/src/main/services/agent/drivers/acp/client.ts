@@ -126,6 +126,9 @@ export interface AcpClientFactoryOpts {
   /** Called for every `session/update`, across all sessions, with the flat `update`
    *  sub-object (non-negotiable: NOT the whole `{sessionId, update}` params). */
   onUpdate: (update: AcpSessionUpdate) => void
+  /** Called once with the spawned child's pid, for diagnostics attribution. Optional so
+   *  in-memory test factories need not implement it. */
+  onSpawn?: (pid: number) => void
 }
 
 export type AcpClientFactory = (opts: AcpClientFactoryOpts) => AcpClientLike
@@ -197,6 +200,7 @@ export const defaultAcpClientFactory: AcpClientFactory = (opts) => {
     env: { ...process.env, ...opts.spawn.env },
     stdio: ['pipe', 'pipe', 'pipe']
   })
+  if (child.pid !== undefined) opts.onSpawn?.(child.pid)
   // Never let a spawn/runtime error crash the process with an unhandled 'error' event; the
   // caller observes failure via the initialize/session promises rejecting instead.
   child.on('error', () => {})
