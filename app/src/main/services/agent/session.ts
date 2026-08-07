@@ -110,6 +110,16 @@ export interface SessionDeps {
   resumeCursor: string | null
   mirror?: SessionMirrorLike
   agentOptions?: SessionAgentOptions
+  /** Background/unattended session (routines runner): no renderer exists, so nothing can
+   *  answer an approval card or a dialog. Every ask-level verdict resolves immediately as
+   *  deny — in BOTH handleToolRequest and classifyOnly (the acceptEdits short-circuit the
+   *  Copilot/ACP/Codex drivers use) — and AskUserQuestion resolves as dismissed. This is what
+   *  makes background turns structurally unable to hang: PendingApprovals/PendingDialogs have
+   *  no timeout, so an ask with no one to answer it blocks the turn forever. It is also the
+   *  trust boundary: an unattended run must never take a risky action nobody approved.
+   *  NOT a permission mode — `agentOptions.permissionMode` stays whatever it was; in
+   *  particular this must never be paired with a mode that skips the canUseTool gate. */
+  unattended?: boolean
   /** Live tool-risk overrides, re-read on every permission decision. */
   toolRisk?: () => Record<string, RiskLevel>
   /** Live agent-access overrides (skills/memory), re-read at construction. */
@@ -221,6 +231,13 @@ function normalizeQuestions(input: Record<string, unknown>): Array<{
       })
     }
   })
+}
+
+/** The single denial message both unattended seams return, so the agent sees the same
+ *  explanation whichever path suppressed the ask. Phrased as guidance, not just a refusal:
+ *  the turn continues, and the model should route around the tool rather than retry it. */
+function unattendedDenial(toolName: string): string {
+  return `Unattended run: ${toolName} requires interactive approval and was denied. Continue without it.`
 }
 
 /** Fixed prose of the system-prompt memory block; the index itself is appended after it.
@@ -812,6 +829,13 @@ export class CaseSession {
       ...this.riskCtx,
       toolRisk: this.deps.toolRisk?.()
     })
+    // Seam 2 of 2 for unattended runs. A caller of this seam has ALREADY decided to suppress
+    // the ask; returning 'ask' here would let it fall through to its own auto-accept, so the
+    // ask must become a deny before it is returned — not just in handleToolRequest.
+    if (this.deps.unattended && verdict.action === 'ask') {
+      this.logToolCall(toolName, input, verdict.risk, 'denied', Date.now() - started)
+      return { action: 'deny', reason: unattendedDenial(toolName) }
+    }
     this.logToolCall(
       toolName,
       input,
@@ -854,6 +878,14 @@ export class CaseSession {
     if (verdict.action === 'allow') {
       log('auto')
       return { behavior: 'allow', updatedInput: input }
+    }
+    // Seam 1 of 2 for unattended runs. Everything from here down is `verdict.action === 'ask'`,
+    // and the await on `this.approvals.open` below has NO timeout — with no renderer attached
+    // it would never resolve, hanging the turn forever. Placed BEFORE the session-grant check
+    // so an unattended run can never ride a grant into a risky action either.
+    if (this.deps.unattended) {
+      log('denied')
+      return { behavior: 'deny', message: unattendedDenial(toolName) }
     }
     if (verdict.grantKey && this.grants.has(verdict.grantKey)) {
       log('grant')
@@ -916,10 +948,25 @@ export class CaseSession {
     | { behavior: 'allow'; updatedInput: Record<string, unknown> }
     | { behavior: 'deny'; message: string }
   > {
+    const passthroughQuestions = Array.isArray(input.questions) ? input.questions : []
+    // No renderer means no one can answer the dialog, and PendingDialogs has no timeout.
+    // Returned as a clean allow carrying a `response` (never a deny) for the same reason the
+    // dismissed path below does: a deny surfaces as an is_error tool_result and makes the
+    // agent retry the question, which in a background run would loop.
+    if (this.deps.unattended) {
+      this.logToolCall('AskUserQuestion', input, 'LOW', 'cancelled', 0)
+      return {
+        behavior: 'allow',
+        updatedInput: {
+          questions: passthroughQuestions,
+          answers: {},
+          response: 'Unattended run: no user is present. Proceed with your best judgment.'
+        }
+      }
+    }
     const started = Date.now()
     const dialogId = crypto.randomUUID()
     const questions = normalizeQuestions(input)
-    const passthroughQuestions = Array.isArray(input.questions) ? input.questions : []
     this.emit(makeEvent(this.ctx(), 'dialog.opened', { dialogId, questions }))
     const outcome = await this.dialogs.open(dialogId, opts.signal)
     this.emit(makeEvent(this.ctx(), 'dialog.resolved', { dialogId, behavior: outcome.behavior }))
