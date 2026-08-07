@@ -99,7 +99,11 @@ export function NewCaseDialog({
     setBusy(true)
     setError(null)
     try {
-      await onCreateBlank({ slug, title, jiraKey: jira.trim() ? parseJiraKeyInput(jira) : undefined })
+      await onCreateBlank({
+        slug,
+        title,
+        jiraKey: jira.trim() ? parseJiraKeyInput(jira) : undefined
+      })
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
