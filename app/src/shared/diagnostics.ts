@@ -117,6 +117,7 @@ export type DiagnosticsObjectKind =
   | 'driver'
   | 'mcp'
   | 'pack-binary'
+  | 'pack-app'
   | 'unattributed'
 
 /**

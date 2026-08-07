@@ -302,6 +302,7 @@ import {
 import { SidecarClient, createDisabledSidecarClient } from './services/diagnostics/sidecarClient'
 import { createElectronSidecarSpawner } from './services/diagnostics/spawner'
 import { resolveSidecarBinary } from './services/diagnostics/sidecarBinary'
+import { defaultProcessLabels } from './services/diagnostics/processLabels'
 import {
   stdioConnectorCommands,
   type ConnectorCommand,
@@ -571,7 +572,8 @@ function registerIpc(): void {
   externalAppHost = new ExternalAppHost({
     spawner: createElectronProcessSpawner(),
     logDir: path.join(argusHome, 'logs', 'external-app'),
-    onChange: () => broadcast(IPC.panelsChanged, undefined)
+    onChange: () => broadcast(IPC.panelsChanged, undefined),
+    processLabels: defaultProcessLabels
   })
 
   const packsState = new PacksStateStore(argusHome)
@@ -663,7 +665,8 @@ function registerIpc(): void {
     argusHome,
     pathOf: (id) => binariesService.pathOf(id),
     recompute: () => binariesService.recompute(),
-    broadcast
+    broadcast,
+    processLabels: defaultProcessLabels
   })
 
   // 1d: pack-driven detection engine replaces the hardcoded detect.ts.
@@ -773,7 +776,8 @@ function registerIpc(): void {
     registry: connectorRegistry,
     secrets: secretStore,
     toolRisk: () => toolRiskStore.get(),
-    oauth: mcpOauth
+    oauth: mcpOauth,
+    processLabels: defaultProcessLabels
   })
 
   // — Atlassian REST (UI-native; the agent uses Rovo MCP) —

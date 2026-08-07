@@ -9,6 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { ConnectorRegistry } from '../connectors'
 import { SecretStore, type SecretCrypto } from '../secrets'
 import { McpService, fingerprintServers } from '../mcp'
+import { ProcessLabels } from '../diagnostics/processLabels'
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/fixture-mcp.mjs', import.meta.url))
 
@@ -52,6 +53,34 @@ describe('McpService discovery against the fixture stdio server', () => {
     const reloaded = new ConnectorRegistry(argusHome)
     expect(reloaded.get().fix.lastDiscovered?.tools).toHaveLength(4)
     reloaded.close()
+  }, 30000)
+
+  it('registers the real stdio child pid as a tier-A mcp label and unregisters it on teardown', async () => {
+    // Real spawn, real StdioClientTransport — this is the actual production seam
+    // (mcp.ts connect()), not the extracted registerProbe() helper unit-tested elsewhere.
+    registry.patch({
+      fix: { kind: 'stdio', config: { command: process.execPath, args: [FIXTURE] } }
+    })
+    const labels = new ProcessLabels()
+    const registerSpy = vi.spyOn(labels, 'register')
+    const unregisterSpy = vi.spyOn(labels, 'unregister')
+    const svc = new McpService({
+      registry,
+      secrets,
+      toolRisk: () => ({}),
+      processLabels: labels,
+      now: () => 5_000
+    })
+    const r = await svc.probe('fix')
+    expect(r.ok).toBe(true)
+    expect(registerSpy).toHaveBeenCalledWith(
+      expect.any(Number),
+      { kind: 'mcp', label: 'MCP probe: fix', instanceId: 'fix' },
+      5_000
+    )
+    const pid = registerSpy.mock.calls[0][0]
+    // torn down at the end of probe() (spec §2.3) — the pid must not linger in the registry
+    expect(unregisterSpy).toHaveBeenCalledWith(pid)
   }, 30000)
 
   it('tool-risk overrides apply at discovery time', async () => {

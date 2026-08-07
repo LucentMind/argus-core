@@ -16,6 +16,7 @@ import {
   CodeGraphService,
   type GraphMeta
 } from '../codeGraph'
+import { ProcessLabels } from '../diagnostics/processLabels'
 
 const execFileAsync = promisify(execFile)
 
@@ -269,6 +270,47 @@ describe('CodeGraphService', () => {
         message: 'AST extraction: 50/100 files (50%)',
         percent: 50
       })
+    }
+  )
+
+  it(
+    // No injected `exec`: every other test in this file supplies one, which bypasses
+    // execWithProgress's real `spawn()` entirely. This test forces the real streaming
+    // path (onOutput is always passed by runBuild's extract call) with a real child
+    // process, so the register/unregister pair at that spawn site gets genuine coverage
+    // rather than only typecheck. process.execPath ('node ...') is used as the "graphify"
+    // binary since it's always present; it does not understand graphify's args and exits
+    // non-zero, which is fine — we only care that a real child was spawned and torn down.
+    'build via the real streaming exec path registers and unregisters the child pid',
+    { timeout: 30_000 },
+    async () => {
+      const repo = await makeRepo()
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
+      const labels = new ProcessLabels()
+      const registerSpy = vi.spyOn(labels, 'register')
+      const unregisterSpy = vi.spyOn(labels, 'unregister')
+      const svc = new CodeGraphService({
+        argusHome: home,
+        pathOf: () => process.execPath,
+        recompute: vi.fn(),
+        broadcast: vi.fn(),
+        processLabels: labels,
+        now: () => 4_000
+      })
+      svc.build(repo, null)
+      await vi.waitFor(async () => {
+        const rows = await svc.status(repo)
+        // node chokes on graphify's 'extract ...' args and exits non-zero — that still
+        // proves the real spawn+register+unregister path ran to completion.
+        expect(rows[0]?.status).toBe('failed')
+      }, POLL)
+      expect(registerSpy).toHaveBeenCalledWith(
+        expect.any(Number),
+        { kind: 'pack-binary', label: 'graphify' },
+        4_000
+      )
+      const registeredPid = registerSpy.mock.calls[0][0]
+      expect(unregisterSpy).toHaveBeenCalledWith(registeredPid)
     }
   )
 

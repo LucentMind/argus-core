@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { PanelKey, ExternalAppInfo } from '../../../shared/panels'
 import { panelKeyStr } from '../../../shared/panels'
 import type { PanelDispatchResult } from './panelHost'
+import type { ProcessLabels } from '../diagnostics/processLabels'
 
 export type { ExternalAppInfo }
 export type DispatchResult = PanelDispatchResult
@@ -62,6 +63,8 @@ export class ExternalAppHost {
       logDir: string
       onChange?: () => void
       dispatchTimeoutMs?: number
+      processLabels?: ProcessLabels
+      now?: () => number
     }
   ) {}
 
@@ -76,6 +79,16 @@ export class ExternalAppHost {
     const handle = this.deps.spawner.spawn(cmd, args, { cwd: input.cwd, env })
     const app: RunningApp = { input, handle, status: 'running', stdoutBuf: '' }
     this.apps.set(key, app)
+
+    this.deps.processLabels?.register(
+      handle.pid,
+      {
+        kind: 'pack-app',
+        label: `Pack app: ${input.packId}/${input.windowId}`,
+        owner: input.caseSlug
+      },
+      this.deps.now?.() ?? Date.now()
+    )
 
     handle.onStdoutLine((line) => this.onStdout(key, line))
     handle.onStderr((chunk) => this.appendLog(input, chunk))
@@ -165,6 +178,7 @@ export class ExternalAppHost {
   private onExit(key: string): void {
     const app = this.apps.get(key)
     if (!app) return
+    this.deps.processLabels?.unregister(app.handle.pid)
     if (app.killTimer) clearTimeout(app.killTimer)
     for (const [rid, entry] of this.pending) {
       if (entry.key === key) {

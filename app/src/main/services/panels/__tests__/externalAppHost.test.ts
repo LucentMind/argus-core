@@ -5,6 +5,22 @@ import {
   type ProcessSpawner,
   type OpenExternalAppInput
 } from '../externalAppHost'
+import { ProcessLabels } from '../../diagnostics/processLabels'
+import type { ProcessSample } from '../../../../shared/diagnostics'
+
+function extSample(over: Partial<ProcessSample> & { pid: number }): ProcessSample {
+  return {
+    ppid: 1,
+    startTimeMs: 10_000,
+    runTimeMs: 5_000,
+    name: `proc-${over.pid}`,
+    command: `/bin/proc-${over.pid}`,
+    status: 'Run',
+    cpuTimeMs: 0,
+    residentBytes: 0,
+    ...over
+  }
+}
 
 class FakeHandle implements ProcessHandle {
   killed: Array<'SIGTERM' | 'SIGKILL'> = []
@@ -78,15 +94,19 @@ const input = (over: Partial<OpenExternalAppInput> = {}): OpenExternalAppInput =
 let spawner: FakeSpawner
 let host: ExternalAppHost
 let changes: number
+let labels: ProcessLabels
 
 beforeEach(() => {
   spawner = new FakeSpawner()
   changes = 0
+  labels = new ProcessLabels()
   host = new ExternalAppHost({
     spawner,
     logDir: '/tmp/logs',
     onChange: () => changes++,
-    dispatchTimeoutMs: 50
+    dispatchTimeoutMs: 50,
+    processLabels: labels,
+    now: () => 1_000
   })
 })
 
@@ -105,6 +125,22 @@ describe('ExternalAppHost', () => {
     const s = spawner.spawned[0]
     expect(s.cmd).toBe('/packs/ext-pack/bin/sim.exe')
     expect(s.args).toEqual([])
+  })
+
+  it('registers a spawned external app and unregisters it on exit', () => {
+    host.open(input())
+    const pid = spawner.handles[0].pid
+
+    expect(
+      labels.reconcile([extSample({ pid, startTimeMs: 1_000 })], 1_100).get(`${pid}:1000`)
+    ).toMatchObject({
+      kind: 'pack-app',
+      label: 'Pack app: ext-pack/sim',
+      owner: 'CASE-A'
+    })
+
+    spawner.handles[0].emitExit(0)
+    expect(labels.reconcile([extSample({ pid, startTimeMs: 1_000 })], 1_200).size).toBe(0)
   })
 
   it('open is idempotent — re-open focuses, does not re-spawn', () => {

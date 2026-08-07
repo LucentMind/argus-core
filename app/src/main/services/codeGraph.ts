@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { GraphStatusRow } from '../../shared/types'
+import type { ProcessLabels } from './diagnostics/processLabels'
 
 export type { GraphStatusRow }
 
@@ -111,16 +112,35 @@ const GIT_TIMEOUT_MS = 15_000
 
 type Exec = NonNullable<CodeGraphDeps['exec']>
 
-/** Real exec with optional live output streaming (used only when a caller passes onOutput). */
+/**
+ * Real exec with optional live output streaming (used only when a caller passes onOutput).
+ *
+ * Only this streaming branch spawns via `spawn` and therefore has a child handle with a
+ * pid to register as a tier-A 'pack-binary' label; the plain `execFileAsync` branch above
+ * (no onOutput, e.g. the `--version` probe) has no accessible pid, so a non-streaming
+ * graphify run stays unlabeled (tier D).
+ */
 function execWithProgress(
   bin: string,
   args: string[],
   opts: { timeout: number; cwd?: string },
-  onOutput?: ExecOutputCb
+  onOutput?: ExecOutputCb,
+  processLabels?: ProcessLabels,
+  now?: () => number
 ): Promise<{ stdout: string; stderr: string }> {
   if (!onOutput) return execFileAsync(bin, args, opts)
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { cwd: opts.cwd, windowsHide: true })
+    if (child.pid != null) {
+      processLabels?.register(
+        child.pid,
+        { kind: 'pack-binary', label: 'graphify' },
+        now?.() ?? Date.now()
+      )
+    }
+    const unregister = (): void => {
+      if (child.pid != null) processLabels?.unregister(child.pid)
+    }
     let stdout = ''
     let stderr = ''
     const timer = setTimeout(() => {
@@ -139,10 +159,12 @@ function execWithProgress(
     })
     child.on('error', (err) => {
       clearTimeout(timer)
+      unregister()
       reject(err)
     })
     child.on('close', (code) => {
       clearTimeout(timer)
+      unregister()
       if (code === 0) resolve({ stdout, stderr })
       else reject(new Error(`Command failed: ${bin} ${args.join(' ')}\n${stderr}`.trim()))
     })
@@ -160,6 +182,8 @@ export interface CodeGraphDeps {
     opts: { timeout: number; cwd?: string },
     onOutput?: ExecOutputCb
   ) => Promise<{ stdout: string; stderr: string }>
+  processLabels?: ProcessLabels
+  now?: () => number
 }
 
 export class CodeGraphService {
@@ -169,7 +193,9 @@ export class CodeGraphService {
 
   constructor(private deps: CodeGraphDeps) {
     this.exec =
-      deps.exec ?? ((bin, args, opts, onOutput) => execWithProgress(bin, args, opts, onOutput))
+      deps.exec ??
+      ((bin, args, opts, onOutput) =>
+        execWithProgress(bin, args, opts, onOutput, deps.processLabels, deps.now))
   }
 
   /** Always real execFile (never the injected exec): tests build real git fixture repos. */

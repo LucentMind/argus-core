@@ -5,6 +5,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import type { ConnectorRegistry } from './connectors'
 import type { SecretStore } from './secrets'
+import type { ProcessLabels } from './diagnostics/processLabels'
 import {
   classifyToolName,
   connectorConfig,
@@ -77,6 +78,25 @@ export interface McpServiceDeps {
   oauth?: McpOAuthLike
   /** Per-step probe budget (connect / listTools each); tests inject a small value. */
   probeTimeoutMs?: number
+  processLabels?: ProcessLabels
+  now?: () => number
+}
+
+/**
+ * Registers a stdio probe's child pid so Diagnostics can label it tier A ("Argus spawned
+ * this, we know what it is") instead of inferring it from the command line. Exported so
+ * the register call at this spawn site can be unit-tested directly: the real path spawns
+ * a live child via StdioClientTransport (also exercised end to end by
+ * integration.mcp-discovery.test.ts against the fixture server), and a direct unit test
+ * keeps this reachable even if that fixture ever stops using a real process.
+ */
+export function registerProbe(
+  labels: ProcessLabels | undefined,
+  instanceId: string,
+  pid: number,
+  now: number
+): void {
+  labels?.register(pid, { kind: 'mcp', label: `MCP probe: ${instanceId}`, instanceId }, now)
 }
 
 /**
@@ -170,8 +190,9 @@ export class McpService {
     // down — even when connect() loses the timeout race with a transport already
     // attached and a stdio child already spawned.
     const client = new Client({ name: 'argus-health', version: '1.0.0' })
+    let stdioPid: number | null = null
     try {
-      await this.withTimeout(this.connect(client, instanceId, inst), 'connect')
+      stdioPid = await this.withTimeout(this.connect(client, instanceId, inst), 'connect')
       const listed = await this.withTimeout(client.listTools(), 'listTools')
       const overrides = this.deps.toolRisk()
       const tools: DiscoveredTool[] = listed.tools.map((t) => ({
@@ -200,6 +221,7 @@ export class McpService {
       return { ok: false, error: message }
     } finally {
       // spec §2.3: probe processes/connections are torn down after the probe
+      if (stdioPid != null) this.deps.processLabels?.unregister(stdioPid)
       await client.close().catch(() => {})
     }
   }
@@ -243,23 +265,33 @@ export class McpService {
     return Promise.race([p, timeout]).finally(() => clearTimeout(timer))
   }
 
+  /** Returns the stdio child's pid when one was spawned (for the caller's teardown), else null. */
   private async connect(
     client: Client,
     instanceId: string,
     inst: ConnectorInstance
-  ): Promise<void> {
+  ): Promise<number | null> {
     if (inst.kind === 'stdio') {
       const cfg = connectorConfig<StdioConnectorConfig>('stdio', inst.config)
       const { value, missing } = resolveSecretRefs(cfg.env, (n) => this.deps.secrets.resolve(n))
       if (missing.length) throw new Error(`missing secrets: ${missing.join(', ')}`)
-      await client.connect(
-        new StdioClientTransport({
-          command: cfg.command,
-          args: cfg.args,
-          env: { ...(process.env as Record<string, string>), ...toStringRecord(value) }
-        })
-      )
-      return
+      // Hoisted out of the connect() call (rather than constructed inline) so its pid is
+      // reachable here for registration.
+      const transport = new StdioClientTransport({
+        command: cfg.command,
+        args: cfg.args,
+        env: { ...(process.env as Record<string, string>), ...toStringRecord(value) }
+      })
+      await client.connect(transport)
+      if (transport.pid != null) {
+        registerProbe(
+          this.deps.processLabels,
+          instanceId,
+          transport.pid,
+          this.deps.now?.() ?? Date.now()
+        )
+      }
+      return transport.pid
     }
     if (inst.kind === 'http') {
       const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
@@ -269,7 +301,7 @@ export class McpService {
         await client.connect(new SSEClientTransport(url, { requestInit: { headers } }))
       else
         await client.connect(new StreamableHTTPClientTransport(url, { requestInit: { headers } }))
-      return
+      return null
     }
     throw new Error(`unsupported kind: ${inst.kind}`)
   }
