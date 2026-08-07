@@ -39,10 +39,18 @@ type Entry = {
 
 export class ProcessLabels {
   private entries = new Map<number, Entry>()
+  private listeners = new Set<() => void>()
 
   /** Record a label for a pid we just spawned. Overwrites any stale entry for that pid. */
   register(pid: number, label: RegisteredLabel, nowMs: number): void {
     this.entries.set(pid, { pid, registeredAtMs: nowMs, label })
+    for (const cb of this.listeners) cb()
+  }
+
+  /** Fires after a registration lands, so the service can request an immediate sample. */
+  onRegister(cb: () => void): () => void {
+    this.listeners.add(cb)
+    return () => this.listeners.delete(cb)
   }
 
   /** Forget a pid — call on process exit. Safe to call for a pid never registered. */

@@ -6,6 +6,7 @@ import type {
 } from '../../../shared/diagnostics'
 import { buildSnapshot, type BuildResult, type ProcessState } from './model'
 import type { ConnectorCommand, WindowDescriptor } from './labels'
+import type { ProcessLabels } from './processLabels'
 
 /** Page open: one sample a second. */
 export const FAST_INTERVAL_MS = 1_000
@@ -38,6 +39,8 @@ export type DiagnosticsServiceDeps = {
   getWindowDescriptors: () => WindowDescriptor[]
   /** Live configured stdio connectors, for tier-C MCP matching. */
   getConnectorCommands: () => ConnectorCommand[]
+  /** Tier-A registry: authoritative labels Argus recorded at its own spawn sites. */
+  processLabels: ProcessLabels
   now?: () => number
 }
 
@@ -57,6 +60,8 @@ export class DiagnosticsService {
   private listeners: ((s: DiagnosticsSnapshot) => void)[] = []
   private unsubscribeClient: (() => void) | null = null
   private unsubscribeHealth: (() => void) | null = null
+  private unsubscribeRegister: (() => void) | null = null
+  private sampleNowSeq = 0
 
   constructor(private readonly deps: DiagnosticsServiceDeps) {}
 
@@ -68,6 +73,12 @@ export class DiagnosticsService {
     if (this.unsubscribeClient) return
     this.unsubscribeClient = this.deps.client.onSnapshot((s) => this.ingest(s))
     this.unsubscribeHealth = this.deps.client.onHealthChange((h) => this.publishHealth(h))
+    // A registration landing on the slow tier must not wait up to 15s for the next
+    // tick — three times the pin tolerance — or a driver started while the page is
+    // closed would expire before it was ever pinned.
+    this.unsubscribeRegister = this.deps.processLabels.onRegister(() =>
+      this.deps.client.sampleNow(`reg-${++this.sampleNowSeq}`)
+    )
     this.deps.client.start()
     this.applyCadence()
     // Publish immediately so latest() is never null after startup — including
@@ -80,6 +91,8 @@ export class DiagnosticsService {
     this.unsubscribeClient = null
     this.unsubscribeHealth?.()
     this.unsubscribeHealth = null
+    this.unsubscribeRegister?.()
+    this.unsubscribeRegister = null
     this.deps.client.stop()
   }
 
@@ -158,6 +171,7 @@ export class DiagnosticsService {
       // as an unhandled main-process exception. A wedged sidecar or label source must
       // degrade the Diagnostics page, never the app, so keep whatever snapshot is
       // already published and let the next sample get a fresh try.
+      const registered = this.deps.processLabels.reconcile(raw.processes, this.now())
       result = buildSnapshot({
         samples: raw.processes,
         previous: this.previous,
@@ -170,9 +184,7 @@ export class DiagnosticsService {
         labelSources: {
           windows: this.deps.getWindowDescriptors(),
           connectors: this.deps.getConnectorCommands(),
-          // Tier A is wired to the live ProcessLabels registry in a later increment
-          // task (reconcile() on the sampling path); until then no pid is registered.
-          registered: new Map()
+          registered
         }
       })
     } catch (err) {

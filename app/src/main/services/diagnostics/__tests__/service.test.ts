@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { DiagnosticsService, FAST_INTERVAL_MS, SLOW_INTERVAL_MS } from '../index'
 import type { SidecarClientLike, DiagnosticsServiceDeps } from '../index'
 import { createDisabledSidecarClient } from '../sidecarClient'
+import { ProcessLabels } from '../processLabels'
 import type {
   SidecarSnapshot,
   DiagnosticsSnapshot,
@@ -42,6 +43,7 @@ type FakeClient = SidecarClientLike & {
   listenerCount: number
   unsubscribeCalls: number
   healthListenerCount: number
+  sampleNowCalls: number
   emit(s: SidecarSnapshot): void
   emitHealth(h: SidecarHealth): void
 }
@@ -64,6 +66,7 @@ function fakeClient(): FakeClient {
     listenerCount: 0,
     unsubscribeCalls: 0,
     healthListenerCount: 0,
+    sampleNowCalls: 0,
     start() {
       this.started = true
     },
@@ -76,8 +79,9 @@ function fakeClient(): FakeClient {
     setSampleInterval(ms: number) {
       this.intervals.push(ms)
     },
-    // eslint-disable-next-line @typescript-eslint/no-empty-function -- unused by these tests
-    sampleNow() {},
+    sampleNow() {
+      this.sampleNowCalls += 1
+    },
     health: () => currentHealth,
     onSnapshot(fn: (s: SidecarSnapshot) => void) {
       callbacks.push(fn)
@@ -127,6 +131,7 @@ function makeService(
     getWindowDescriptors: () => [],
     getConnectorCommands: () => [],
     now: () => 10_000,
+    processLabels: new ProcessLabels(),
     ...overrides
   })
   return { service, client }
@@ -269,7 +274,8 @@ describe('DiagnosticsService', () => {
       getElectronMetrics: () => [],
       getWindowDescriptors: () => [],
       getConnectorCommands: () => [],
-      now: () => 10_000
+      now: () => 10_000,
+      processLabels: new ProcessLabels()
     })
     service.start()
     expect(service.latest()?.sidecar.status).toBe('disabled')
@@ -477,5 +483,40 @@ describe('DiagnosticsService', () => {
     explode = true
     client.emit(snapshot({ sequence: 2, sampledAtUnixMs: 11_000 }))
     expect(service.latest()).toBe(before)
+  })
+
+  it('applies registered labels to the objects it publishes', () => {
+    const labels = new ProcessLabels()
+    const { service, client } = makeService(fakeClient(), { processLabels: labels })
+    service.start()
+    labels.register(1, { kind: 'driver', label: 'Codex driver', owner: 'CASE-A:7' }, 1_000)
+
+    client.emit(snapshot())
+    expect(service.latest()?.objects[0]).toMatchObject({
+      kind: 'driver',
+      label: 'Codex driver',
+      inferred: false
+    })
+  })
+
+  it('requests an immediate sample when a registration lands', () => {
+    // In the slow tier the next tick is 15s away — three times the pin tolerance —
+    // so a driver started with the page closed would expire before it was pinned.
+    const labels = new ProcessLabels()
+    const { service, client } = makeService(fakeClient(), { processLabels: labels })
+    service.start()
+    const before = client.sampleNowCalls
+    labels.register(99, { kind: 'driver', label: 'Codex driver' }, 1_000)
+    expect(client.sampleNowCalls).toBe(before + 1)
+  })
+
+  it('stops requesting samples after stop()', () => {
+    const labels = new ProcessLabels()
+    const { service, client } = makeService(fakeClient(), { processLabels: labels })
+    service.start()
+    service.stop()
+    const before = client.sampleNowCalls
+    labels.register(99, { kind: 'driver', label: 'Codex driver' }, 1_000)
+    expect(client.sampleNowCalls).toBe(before)
   })
 })

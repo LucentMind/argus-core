@@ -494,7 +494,8 @@ function registerIpc(): void {
           ...(m.serviceName ? { serviceName: m.serviceName } : {})
         })),
       getWindowDescriptors: collectWindowDescriptorsFromElectron,
-      getConnectorCommands: () => connectorCommandsRef()
+      getConnectorCommands: () => connectorCommandsRef(),
+      processLabels: defaultProcessLabels
     })
   })()
 
