@@ -91,16 +91,32 @@ function HitRow({
           <span className="w-5 shrink-0" />
         )}
         {primary}
+        {/* Spec §7: a semantic-hit affordance. Also the only place `fuse`'s
+            widening of a merged row's matchedOn to 'both' is observable.
+            A dot, not a chip: at the rail's default width a full "semantic"
+            pill competed with the provenance/status chips below for space
+            and pushed the title itself to zero width (see the second row's
+            gap-1.5 flex-wrap, still tight at 320px). The dot rides the title
+            line instead, where there is always room. */}
+        {(hit.matchedOn === 'semantic' || hit.matchedOn === 'both') && (
+          <span
+            className="h-1.5 w-1.5 shrink-0 rounded-full bg-defect"
+            title="Semantic match"
+            aria-label="Semantic match"
+          />
+        )}
+      </div>
+      {/* ml-7: chevron/spacer (`w-5`) + the row's `gap-2` — matches the
+          distilled detail's own indent below so both lines agree with the
+          title's left edge. flex-wrap lets the chips drop to their own line
+          instead of overflowing when both a provenance and a status chip
+          don't fit the rail's width. */}
+      <div className="ml-7 flex flex-wrap items-center gap-1.5">
         {hit.provenance.map((p) => (
           <Chip key={p.providerId} tone={p.kind === 'local' ? 'neutral' : 'signal'}>
             {p.providerName}
           </Chip>
         ))}
-        {/* Spec §7: a semantic-hit affordance. Also the only place `fuse`'s
-            widening of a merged row's matchedOn to 'both' is observable. */}
-        {(hit.matchedOn === 'semantic' || hit.matchedOn === 'both') && (
-          <Chip tone="defect">semantic</Chip>
-        )}
         <Chip tone={statusTone(hit.status.tone)}>{hit.status.label}</Chip>
       </div>
       {expanded && hit.distilled && (

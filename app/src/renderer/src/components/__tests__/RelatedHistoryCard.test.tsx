@@ -220,8 +220,10 @@ describe('RelatedHistoryCard', () => {
 
   // Important 3 (partial): spec §7 calls for a matchedOn affordance on semantic
   // hits. This is also the only place `fuse`'s widening of a merged row's
-  // matchedOn to 'both' is observable.
-  it('shows a semantic marker chip only on rows matched semantically or both', async () => {
+  // matchedOn to 'both' is observable. The affordance is a dot on the title
+  // line (aria-label "Semantic match"), not a text chip — a full pill left no
+  // room for the title at the rail's default width.
+  it('shows a semantic marker dot only on rows matched semantically or both', async () => {
     setArgus({
       hits: [
         corpusHit({ id: 'corpus:src1:KAN-1', key: 'KAN-1', title: 'a', matchedOn: 'semantic' }),
@@ -231,7 +233,7 @@ describe('RelatedHistoryCard', () => {
     })
     render(<RelatedHistoryCard slug="new" />)
     await screen.findByText(/a$/)
-    expect(screen.getAllByText('semantic')).toHaveLength(2)
+    expect(screen.getAllByLabelText('Semantic match')).toHaveLength(2)
   })
 
   it('requests only the slug — the renderer never composes the query', async () => {
