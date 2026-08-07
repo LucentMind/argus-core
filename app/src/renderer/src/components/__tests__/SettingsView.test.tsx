@@ -239,6 +239,7 @@ describe('SettingsView', () => {
       'General',
       'Agent',
       'Connectors',
+      'Routines',
       'Proposals',
       'Library',
       'Memory',
