@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -54,5 +54,26 @@ describe('RoutineStore', () => {
   it('rejects invalid routines', () => {
     store = new RoutineStore(home)
     expect(() => store!.upsert({ id: 'Bad Id', name: 'x', prompt: 'y' })).toThrow()
+  })
+
+  it('leaves in-memory state unchanged when the disk write fails mid-save (persist-before-adopt)', () => {
+    store = new RoutineStore(home)
+    store.upsert({ id: 'sweep', name: 'Sweep', prompt: 'v1' })
+    const before = store.list()
+
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementation(() => {
+      throw new Error('simulated disk failure')
+    })
+    try {
+      expect(() => store!.upsert({ id: 'sweep', name: 'Sweep', prompt: 'v2' })).toThrow(
+        'simulated disk failure'
+      )
+    } finally {
+      renameSpy.mockRestore()
+    }
+
+    // The failed write must not have been adopted into memory.
+    expect(store.list()).toEqual(before)
+    expect(store.get('sweep')?.prompt).toBe('v1')
   })
 })
