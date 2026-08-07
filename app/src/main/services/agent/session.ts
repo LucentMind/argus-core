@@ -719,6 +719,16 @@ export class CaseSession {
     return this.approvals.resolve(d.requestId, d.kind, d.comment, d.updatedInput)
   }
 
+  /** Releases every pid this session registered with `deps.processLabels`. Called from both
+   * stop() and consume()'s `finally` block, so a session that dies via a natural stream end
+   * or a stream error -- neither of which necessarily route through stop() -- still drains
+   * `spawnedPids`. Idempotent: `unregister` tolerates an already-gone pid, and `clear()` makes
+   * a second call from the other path a no-op. */
+  private releaseSpawnedPids(): void {
+    for (const pid of this.spawnedPids) this.deps.processLabels?.unregister(pid)
+    this.spawnedPids.clear()
+  }
+
   async interrupt(): Promise<void> {
     // Harness-side swallow (matches the pre-driver `query.interrupt().catch(...)`): stop()
     // awaits this between draining approvals and emitting session.exited / closing the
@@ -738,8 +748,7 @@ export class CaseSession {
     }
     this.driverSession.end()
     await this.interrupt()
-    for (const pid of this.spawnedPids) this.deps.processLabels?.unregister(pid)
-    this.spawnedPids.clear()
+    this.releaseSpawnedPids()
     this.emit(makeEvent(this.ctx(), 'session.exited', { reason }))
     // The mirror is write-behind (buffers + a 250ms flush timer): without an explicit
     // close(), a caller that deletes the session's .jsonl right after stop() races the
@@ -1009,6 +1018,7 @@ export class CaseSession {
       }
     } finally {
       this.activeTurn = false
+      this.releaseSpawnedPids()
     }
   }
 }

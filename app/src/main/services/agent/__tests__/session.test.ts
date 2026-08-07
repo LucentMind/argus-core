@@ -1299,6 +1299,80 @@ describe('CaseSession', () => {
     // unregister happened in stop(): the same pid/startTimeMs is no longer reconciled.
     expect(labels.reconcile([sample({ pid: 4242, startTimeMs: 1_000 })], 1_100).size).toBe(0)
   })
+
+  // Task 6 follow-up: registry.ts discards a session the moment consume() marks it
+  // 'dead' -- on BOTH natural stream end and stream error -- without ever calling
+  // stop() (any later stop() early-returns since state is already 'dead'). If unregister
+  // only ran inside stop(), a session that dies this way would leave its pids registered
+  // until ProcessLabels.reconcile() eventually sweeps them by absence. This exercises that
+  // death path directly: end the driver's event stream out from under the session (not via
+  // s.stop()) and assert the registration is gone through reconcile(), not a unregister spy.
+  it('unregisters spawned pids when the driver stream ends without stop() ever being called', async () => {
+    const labels = new ProcessLabels()
+    let captured: DriverSessionContext | undefined
+    let queue: AsyncQueue<AgentEvent> | undefined
+    const cursorStubDriver: AgentDriver = {
+      kind: 'cursor',
+      toolTaxonomy: CLAUDE_TOOL_TAXONOMY,
+      authFixHint: 'stub',
+      capabilities: {
+        permissionModes: PERMISSION_MODES,
+        editableApprovals: false,
+        costReporting: false,
+        headlessOneShot: false,
+        systemPromptTransport: 'none',
+        subagents: 'promptable'
+      },
+      createSession(ctx): DriverSession {
+        captured = ctx
+        queue = new AsyncQueue<AgentEvent>()
+        return {
+          events: () => queue!,
+          send: () => {},
+          interrupt: async () => queue!.end(),
+          end: () => queue!.end()
+        }
+      },
+      probeAuth: async () => ({ ok: true, detail: '' })
+    }
+    const rec = createCase(db, argusHome, { slug: 'CASE-B', title: 't' })
+    const sessionId = createSession(db, 'CASE-B', 'cursor').id
+    const s = new CaseSession({
+      db,
+      argusHome,
+      detection: createDetection(),
+      caseId: rec.id,
+      caseSlug: 'CASE-B',
+      sessionId,
+      workspaceRoots: [],
+      skillsRoots: [],
+      emit: (e) => events.push(e),
+      driver: cursorStubDriver,
+      resumeCursor: null,
+      processLabels: labels,
+      now: () => 1_100
+    })
+    expect(captured).toBeDefined()
+
+    captured!.onProcessSpawn?.(5150)
+    expect(
+      labels.reconcile([sample({ pid: 5150, startTimeMs: 1_000 })], 1_100).get('5150:1000')
+    ).toMatchObject({
+      kind: 'driver',
+      label: 'Cursor driver',
+      provider: 'cursor',
+      owner: `CASE-B:${sessionId}`
+    })
+
+    // The driver's stream ends on its own (e.g. the child process exited) -- nobody
+    // calls s.stop(). This is exactly what consume()'s `if (this.state !== 'dead')`
+    // branch (natural end) handles, mirroring what registry.ts's own discard does.
+    queue!.end()
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(s.state).toBe('dead')
+    expect(labels.reconcile([sample({ pid: 5150, startTimeMs: 1_000 })], 1_100).size).toBe(0)
+  })
 })
 
 describe('isAuthFailure', () => {
