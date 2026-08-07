@@ -622,3 +622,42 @@ describe('DiagnosticsService', () => {
     expect(obj).toMatchObject({ kind: 'driver', label: 'Codex driver', inferred: false })
   })
 })
+
+describe('DiagnosticsService history', () => {
+  it('records one bucket per ingested sample', () => {
+    let clock = 0
+    const { service, client } = makeService(fakeClient(), { now: () => clock })
+    service.start()
+
+    client.emit(snapshot())
+    clock = 10_000 // two buckets later
+    client.emit(snapshot({ sequence: 2 }))
+
+    const h = service.history(60_000)
+    expect(h.total.cpuPercent.filter((v) => v !== null)).toHaveLength(2)
+  })
+
+  it('does not record history on a health-only republish', () => {
+    // publishHealth() re-emits the LAST snapshot with fresh sidecar health. Recording it
+    // would stamp stale tree values into new buckets and draw a flat, continuous line
+    // across a sidecar outage — a fabricated continuity, and the exact opposite of what
+    // the page exists to show. An outage must read as a gap.
+    let clock = 0
+    const { service, client } = makeService(fakeClient(), { now: () => clock })
+    service.start()
+
+    client.emit(snapshot())
+    clock = 30_000
+    client.emitHealth({ status: 'degraded', version: '0.1.0', restartCount: 1, lastError: 'boom' })
+
+    const h = service.history(60_000)
+    expect(h.total.cpuPercent.filter((v) => v !== null)).toHaveLength(1)
+  })
+
+  it('clamps a hostile window rather than throwing', () => {
+    const { service } = makeService()
+    service.start()
+    expect(() => service.history(Number.NaN)).not.toThrow()
+    expect(service.history(999 * 60 * 60 * 1000).bucketCount).toBe(720)
+  })
+})

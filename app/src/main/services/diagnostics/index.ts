@@ -1,17 +1,22 @@
-import type {
-  DiagnosticsSnapshot,
-  ElectronProcessMetric,
-  SidecarHealth,
-  SidecarSnapshot
+import {
+  DIAGNOSTICS_SLOW_INTERVAL_MS,
+  type DiagnosticsHistory,
+  type DiagnosticsSnapshot,
+  type ElectronProcessMetric,
+  type SidecarHealth,
+  type SidecarSnapshot
 } from '../../../shared/diagnostics'
 import { buildSnapshot, type BuildResult, type ProcessState } from './model'
+import { DiagnosticsHistoryRing } from './history'
 import type { ConnectorCommand, WindowDescriptor } from './labels'
 import type { ProcessLabels } from './processLabels'
 
 /** Page open: one sample a second. */
 export const FAST_INTERVAL_MS = 1_000
-/** Page closed: keep a low-rate heartbeat so history predates opening the page. */
-export const SLOW_INTERVAL_MS = 15_000
+/** Page closed: keep a low-rate heartbeat so history predates opening the page.
+ *  Defined in shared/ because the renderer needs the same number to tell "sampled
+ *  slowly" apart from "not sampling" when it draws a gap. */
+export const SLOW_INTERVAL_MS = DIAGNOSTICS_SLOW_INTERVAL_MS
 
 /** The surface DiagnosticsService needs from SidecarClient, so tests can fake it. */
 export interface SidecarClientLike {
@@ -69,6 +74,7 @@ export class DiagnosticsService {
   /** Last status seen from the client, so publishHealth can detect a transition
    *  INTO 'healthy' rather than firing on every health event. */
   private lastHealthStatus: SidecarHealth['status'] | null = null
+  private readonly ring = new DiagnosticsHistoryRing()
 
   constructor(private readonly deps: DiagnosticsServiceDeps) {}
 
@@ -110,6 +116,10 @@ export class DiagnosticsService {
 
   latest(): DiagnosticsSnapshot | null {
     return this.current
+  }
+
+  history(windowMs: number): DiagnosticsHistory {
+    return this.ring.read(this.now(), windowMs)
   }
 
   onSnapshot(cb: (s: DiagnosticsSnapshot) => void): () => void {
@@ -228,6 +238,18 @@ export class DiagnosticsService {
     this.previous = result.next
     this.peakRssBytes = result.footprint.peakRssBytes
     this.counters = result.counters
+
+    // Recorded from the SERVICE clock — the same one history() reads with. Using the
+    // sidecar's sampledAtUnixMs here instead would put record and read on two clocks that
+    // could disagree about which bucket "now" is, for no accuracy gained over the transit
+    // time of one NDJSON line.
+    this.ring.record({
+      atMs: this.now(),
+      cpuPercent: result.footprint.cpuPercent,
+      rssBytes: result.footprint.rssBytes,
+      processCount: result.footprint.processCount,
+      objects: result.objects
+    })
 
     this.current = {
       readAt: this.now(),

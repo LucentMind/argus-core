@@ -2720,6 +2720,10 @@ function registerIpc(): void {
   ipcMain.handle(IPC.diagnosticsRetrySidecar, () => {
     diagnostics?.retrySidecar()
   })
+  ipcMain.handle(
+    IPC.diagnosticsHistory,
+    (_e, windowMs: number) => diagnostics?.history(windowMs) ?? null
+  )
 
   // — jira case lifecycle (Part 3) —
   const jiraCases = new JiraCases({

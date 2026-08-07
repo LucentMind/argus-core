@@ -111,6 +111,8 @@ export const IPC = {
   diagnosticsSubscribe: 'diagnostics:subscribe',
   diagnosticsUnsubscribe: 'diagnostics:unsubscribe',
   diagnosticsRetrySidecar: 'diagnostics:retry-sidecar',
+  /** renderer → main: `{ windowMs }` → a bucketed DiagnosticsHistory. */
+  diagnosticsHistory: 'diagnostics:history',
   /** main → renderer: a new DiagnosticsSnapshot. */
   diagnosticsSample: 'diagnostics:sample',
   sourceControlStatus: 'sourcecontrol:status',

@@ -28,7 +28,7 @@ import type { SettingsPayload, PermissionMode } from '../shared/settings'
 import type { RunOptionSelection, ModelOptionInfo } from '../shared/runOptions'
 import type { ConnectorsPayload } from '../shared/connectors'
 import type { HealthCheckResult } from '../shared/health'
-import type { DiagnosticsSnapshot } from '../shared/diagnostics'
+import type { DiagnosticsHistory, DiagnosticsSnapshot } from '../shared/diagnostics'
 import type {
   CorpusAdminConfig,
   CorpusAdminResult,
@@ -848,6 +848,8 @@ const argus = {
     subscribe: (): Promise<void> => invoke(IPC.diagnosticsSubscribe),
     unsubscribe: (): Promise<void> => invoke(IPC.diagnosticsUnsubscribe),
     retrySidecar: (): Promise<void> => invoke(IPC.diagnosticsRetrySidecar),
+    history: (windowMs: number): Promise<DiagnosticsHistory | null> =>
+      invoke(IPC.diagnosticsHistory, windowMs),
     onSample: (cb: (s: DiagnosticsSnapshot) => void): (() => void) => {
       const listener = (_e: unknown, s: DiagnosticsSnapshot): void => cb(s)
       ipcRenderer.on(IPC.diagnosticsSample, listener)
