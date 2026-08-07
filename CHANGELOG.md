@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.0.9 — 2026-08-07
+
+5 commits since v2.0.8, 13 files changed (+287 / −15).
+
+### Added
+
+- Dev tools are now reachable without setting `ARGUS_DEV_TOOLS=1` before
+  launch: tapping the version number in Settings → General 6 times persists
+  an unlock marker that takes effect on the next launch, the same
+  restart-required contract the env var already had.
+- New case: both Jira key fields now accept a pasted full Jira issue link,
+  not just a bare key, parsed down to the key before use.
+
+### Fixed
+
+- New-case Jira key handling: the restored key shown after a failed fetch
+  is now correctly described as the parsed key rather than the raw pasted
+  text, matching the error message shown alongside it.
+
 ## v2.0.8 — 2026-08-06
 
 23 commits since v2.0.7, 38 files changed (+1,845 / −117).
