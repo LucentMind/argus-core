@@ -112,14 +112,17 @@ export interface SessionDeps {
   agentOptions?: SessionAgentOptions
   /** Background/unattended session (routines runner): no renderer exists, so nothing can
    *  answer an approval card or a dialog. Every ask-level verdict resolves immediately as
-   *  deny — in BOTH handleToolRequest and classifyOnly (the acceptEdits short-circuit the
-   *  Copilot/ACP/Codex drivers use) — and AskUserQuestion resolves as dismissed. This is what
-   *  makes background turns structurally unable to hang: PendingApprovals/PendingDialogs have
-   *  no timeout, so an ask with no one to answer it blocks the turn forever. It is also the
-   *  trust boundary: an unattended run must never take a risky action nobody approved.
+   *  deny — in BOTH handleToolRequest (canUseTool) and classifyOnly — and AskUserQuestion
+   *  resolves as dismissed. This is what makes background turns structurally unable to hang:
+   *  PendingApprovals/PendingDialogs have no timeout, so an ask with no one to answer it blocks
+   *  the turn forever. It is also the trust boundary: an unattended run must never take a risky
+   *  action nobody approved.
    *  NOT a permission mode itself — `agentOptions.permissionMode` is otherwise honoured — but
-   *  it does force one: `bypassPermissions` is downgraded to 'default' because both deny seams
-   *  sit behind the gate that mode skips. See the guard at the top of the constructor. */
+   *  it does force a downgrade: BOTH `bypassPermissions` and `acceptEdits` fall back to
+   *  'default', because either one would let some driver skip both deny seams entirely.
+   *  (classifyOnly's own acceptEdits handling is defense-in-depth only under unattended — this
+   *  downgrade means that branch is never actually reached while it's on.) See the guard at the
+   *  top of the constructor for the full per-driver reachability table. */
   unattended?: boolean
   /** Live tool-risk overrides, re-read on every permission decision. */
   toolRisk?: () => Record<string, RiskLevel>
@@ -367,6 +370,11 @@ export class CaseSession {
       (requestedPermissionMode === 'bypassPermissions' || requestedPermissionMode === 'acceptEdits')
         ? 'default'
         : requestedPermissionMode
+    if (permissionMode !== requestedPermissionMode) {
+      console.warn(
+        `[agent] unattended session downgraded permissionMode from '${requestedPermissionMode}' to '${permissionMode}'`
+      )
+    }
     // The options bag, stream loop, cursor/result extraction, and the SDK prompt envelope
     // now live in the driver (agent/driver.ts + drivers/*). CaseSession supplies the
     // driver-agnostic context — persona/memory append, native tool deps, the approval

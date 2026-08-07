@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createClaudeDriver } from '../drivers/claude'
 import {
   fakeSdk,
@@ -192,6 +192,38 @@ describe('unattended sessions', () => {
     expect(opts.permissionMode).toBeUndefined()
     expect(opts.allowDangerouslySkipPermissions).toBeUndefined()
     await s.stop('stopped')
+  })
+
+  it('logs a warning when unattended downgrades the requested permission mode', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const sdk = fakeSdk()
+    const s = h.makeSession(sdk, {
+      unattended: true,
+      agentOptions: { permissionMode: 'bypassPermissions' }
+    })
+    s.send('go')
+    await canUseToolOf(sdk)
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/bypassPermissions.*default/))
+    await s.stop('stopped')
+    warn.mockRestore()
+  })
+
+  it('does not log when the effective mode already matches the requested one', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const sdk = fakeSdk()
+    // unattended with no override (defaults to 'default') and an interactive bypassPermissions
+    // session are both cases where requested === effective — neither should warn.
+    const s1 = h.makeSession(sdk, { unattended: true })
+    s1.send('go')
+    await canUseToolOf(sdk)
+    await s1.stop('stopped')
+    const sdk2 = fakeSdk()
+    const s2 = h.makeSession(sdk2, { agentOptions: { permissionMode: 'bypassPermissions' } })
+    s2.send('go')
+    await canUseToolOf(sdk2)
+    await s2.stop('stopped')
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 
   it('control: an interactive session DOES get bypassPermissions', async () => {
