@@ -17,14 +17,26 @@ const HOST = { platform: process.platform, arch: process.arch }
 const isWin = process.platform === 'win32'
 const DEMO = isWin ? 'argus-demo.exe' : 'argus-demo'
 
+/**
+ * This is the one test that copies a real executable (node.exe) into a temp dir and then actually
+ * *spawns* it via `binaries.probe()`. On Windows the OS can hold the image handle for a moment
+ * after the child reports exit, so unlinking it immediately throws EBUSY — a starved CI runner
+ * widens that window. `force` only suppresses ENOENT, so the retry is what covers EBUSY/EPERM:
+ * `rmSync` retries those natively with a linear backoff (same shape production uses in
+ * githubInstall.ts / packUpdates.ts), here budgeted at up to ~5.5s and only paid when it races.
+ */
+function rmWithRetry(dir: string): void {
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+}
+
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-e2e-'))
   state = new PacksStateStore(home)
 })
 afterEach(() => {
   state.close()
-  fs.rmSync(home, { recursive: true, force: true })
-  for (const dir of bundleDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true })
+  rmWithRetry(home)
+  for (const dir of bundleDirs.splice(0)) rmWithRetry(dir)
 })
 
 /** Assemble a real host-arch bundle dir: manifest + bin/<host node copy> + valid CHECKSUMS. */
@@ -99,6 +111,6 @@ describe('install → verify → load → resolve → spawn (host-arch sample bu
     expect(demoRow?.ok).toBe(true)
     expect(demoRow?.chip).toMatch(/found · /)
 
-    fs.rmSync(emptySeed, { recursive: true, force: true })
+    rmWithRetry(emptySeed)
   })
 })
