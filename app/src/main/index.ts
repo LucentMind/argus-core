@@ -315,6 +315,7 @@ import {
 } from './services/diagnostics/windowDescriptors'
 import { RoutineStore } from './services/routines/store'
 import { RoutinesService } from './services/routines/service'
+import { reconcileInterruptedRuns } from './services/routines/runs'
 import { runBackgroundTurn } from './services/agent/background'
 import type { RoutinesPayload } from '../shared/routines'
 
@@ -1748,9 +1749,12 @@ function registerIpc(): void {
   // destroyed". Each of the three call sites turns that into a different, worse failure:
   //  - `notify` right after `insertRoutineRun` (service.ts) sits OUTSIDE the try/catch that
   //    records a run's outcome. A throw there escapes `execute()` to startRun's `.catch()`,
-  //    which only logs — leaving the freshly-opened row `running` forever, the one state the
-  //    service is built to make impossible, and blocking nothing but every future run's
-  //    busy check.
+  //    which only logs — leaving the freshly-opened row `running` for the rest of the session,
+  //    the one state the service is built to make impossible. Nothing is actually blocked: the
+  //    busy check reads the in-memory `running` flag, which the `.finally()` still clears, so
+  //    later runs start normally. The damage is the row itself, which the UI renders as a
+  //    routine executing forever — until the next launch, where reconcileInterruptedRuns
+  //    (wired below) closes it out as failed.
   //  - `notify` after `attachRunSession` is INSIDE that try, so a throw is recorded as a
   //    FAILED run: a perfectly good routine reported as broken because a window closed.
   //  - `notify` in the `.finally()` runs after `this.running = null`, so the flag is safe,
@@ -1771,6 +1775,19 @@ function registerIpc(): void {
   // handlers below can use it without a non-null assertion on a `let` that quit-time sets aside.
   const routines = new RoutineStore(argusHome)
   routineStore = routines
+  // Startup reconciliation, and this is the only correct moment for it. The service's "no run is
+  // ever left `running`" guarantee holds within a process; a crash or a quit mid-run breaks it
+  // across processes, and nothing else ever revisits those rows. Placed HERE — before the
+  // `ipcMain.handle` calls below — because `routinesRunNow` is the only way to reach `startRun`,
+  // so no run of this process can be in flight yet and the `status='running'` predicate can only
+  // match rows left by a previous one. Deliberately not in RoutinesService's constructor: see the
+  // contract on reconcileInterruptedRuns.
+  const strandedRuns = reconcileInterruptedRuns(db)
+  if (strandedRuns > 0) {
+    console.warn(
+      `[routines] marked ${strandedRuns} run(s) failed: still 'running' from a previous session`
+    )
+  }
   const routinesService = new RoutinesService({
     db,
     argusHome,
