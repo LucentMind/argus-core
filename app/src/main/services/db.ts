@@ -194,6 +194,22 @@ CREATE TABLE IF NOT EXISTS repo_prefs (
   path              TEXT PRIMARY KEY,
   promote_dismissed INTEGER NOT NULL DEFAULT 0
 );
+-- One row per routine invocation (spec 2026-08-03-routines §2). routine_id references a
+-- definition in config/routines.json, not a table row — no FK. case_slug is denormalized so
+-- the run list renders without a join even if the case is later deleted. summary holds the
+-- final assistant text; per-item outcomes arrive with the pre-triage template increment.
+CREATE TABLE IF NOT EXISTS routine_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  routine_id TEXT NOT NULL,
+  case_slug TEXT NOT NULL,
+  session_id INTEGER,
+  status TEXT NOT NULL DEFAULT 'running',
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  summary TEXT,
+  error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_routine_runs_routine ON routine_runs(routine_id);
 `
 
 export function openDb(file: string): DatabaseSync {
