@@ -242,6 +242,10 @@ describe('DiagnosticsSettings', () => {
     expect(within(rows[0]).queryByTitle('Inferred from the command line')).toBeNull()
     expect(within(rows[2]).getByTitle('Inferred from the command line')).toBeInTheDocument()
     expect(rows[1].getAttribute('data-procs')).toBe('4')
+    // data-inferred is the CDP acceptance gate's only way to tell an authoritative
+    // (tier-A) row from an inferred (tier-C) one — pin both values explicitly.
+    expect(rows[0].getAttribute('data-inferred')).toBe('false')
+    expect(rows[2].getAttribute('data-inferred')).toBe('true')
   })
 
   it('omits the objects section entirely when there are no objects', async () => {
@@ -280,6 +284,9 @@ describe('DiagnosticsSettings', () => {
     expect(
       within(row).getByTitle('The case or session that started this process is gone')
     ).toBeInTheDocument()
+    // diag-procs marks only the tile's value div ("7"); the orphan count lives in
+    // the sibling sub-text div, so assert on the tile (its parent) as a whole.
+    expect(screen.getByTestId('diag-procs').parentElement).toHaveTextContent('1 orphaned')
   })
 
   it('shows no orphan badge and no orphan count when nothing is orphaned', async () => {
