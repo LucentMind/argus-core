@@ -34,6 +34,24 @@ export function TimelineChart({
 }): React.JSX.Element {
   const [hover, setHover] = useState<number | null>(null)
 
+  // `hover` is an index into `series`, but `series` is a prop whose length changes
+  // whenever the timeline window changes (720 buckets at 1h, 60 at 5m). React preserves
+  // component state across that prop change, so a hover index that was valid for the old,
+  // longer series can point past the end of a new, shorter one. The pointer never has to
+  // leave the SVG for this to happen — Tab-ing to a window button and pressing Enter
+  // never fires onMouseLeave.
+  //
+  // Reset it during render rather than in a useEffect: an effect would let this render
+  // commit with the stale, out-of-range index first and only fix it on the NEXT render,
+  // whereas adjusting state while rendering (React's documented pattern for this — see
+  // "you might not need an effect") throws this render away and redoes it immediately
+  // with the corrected value, so nothing stale ever commits to the DOM.
+  const [prevSeriesLength, setPrevSeriesLength] = useState(series.length)
+  if (series.length !== prevSeriesLength) {
+    setPrevSeriesLength(series.length)
+    if (hover !== null && hover >= series.length) setHover(null)
+  }
+
   const max = niceMax(series, kind)
   const projection = { width: VIEW_W, height: VIEW_H, max, bridge }
   const line = projectSeries(series, projection)
@@ -43,14 +61,21 @@ export function TimelineChart({
   const onMove = (e: React.MouseEvent<SVGSVGElement>): void => {
     const rect = e.currentTarget.getBoundingClientRect()
     // jsdom reports a zero-size rect, and a collapsed container can too. Without this
-    // guard the division yields Infinity (or NaN if clientX equals rect.left), and the
-    // clamp below would then map this to a wrong bucket instead of failing safely.
+    // guard, rect.width === 0 makes the division yield Infinity, which the clamp below
+    // would map to a wrong bucket (the last one) instead of failing safely. If clientX
+    // also equals rect.left the division instead yields NaN — Math.min/Math.max
+    // *propagate* NaN rather than clamp it, so that sub-case doesn't pick a wrong bucket
+    // at all, it leaves hover state non-finite.
     if (!(rect.width > 0) || series.length === 0) return
     const i = Math.round(((e.clientX - rect.left) / rect.width) * denom)
     setHover(Math.min(Math.max(i, 0), series.length - 1))
   }
 
-  const hovered = hover === null ? null : series[hover]
+  // Belt-and-braces alongside the render-phase reset above: `series[hover] ?? null` makes
+  // this lookup total so that even a hover index this component failed to catch cannot
+  // smuggle `undefined` into `format()`, which would print the literal string
+  // "NaN%"/"NaN GB" to a user-visible tooltip.
+  const hovered = hover === null ? null : (series[hover] ?? null)
 
   return (
     <div className="p-3">

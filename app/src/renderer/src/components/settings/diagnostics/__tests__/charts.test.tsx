@@ -61,6 +61,36 @@ describe('TimelineChart', () => {
     expect(screen.getByTestId('diag-timeline-cpu-tip')).toHaveTextContent('no sample')
   })
 
+  it('never shows NaN when the series shrinks out from under a stale hover index', () => {
+    // `hover` is component state holding an index; `series` is a prop whose length
+    // changes when the timeline window changes (720 buckets at 1h, 60 at 5m). React
+    // preserves `hover` across that prop change, so the old index can point past the end
+    // of the new, shorter series. Reachable by keyboard (hover near the right edge, then
+    // Tab to a window button and press Enter) without ever firing onMouseLeave.
+    //
+    // `format` mirrors DiagnosticsSettings.tsx's real formatPercent, which is what
+    // actually turns an undefined lookup into the literal string "NaN%" — the generic
+    // `base.format` above would throw on `undefined.toFixed`, masking the real defect.
+    const formatPercent = (v: number): string => `${(Math.round(v * 10) / 10).toFixed(1)}%`
+    const long = Array.from({ length: 720 }, (_, i) => i)
+    const { rerender } = render(<TimelineChart {...base} series={long} format={formatPercent} />)
+    const svg = screen.getByTestId('diag-timeline-cpu')
+    svg.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 120 }) as DOMRect
+
+    // Hover right at the far edge, pinning `hover` to the last valid index (719).
+    fireEvent.mouseMove(svg, { clientX: 100 })
+    expect(screen.getByTestId('diag-timeline-cpu-tip')).toHaveTextContent('719.0%')
+
+    // The window narrows to 60 buckets. The pointer never left the SVG, so onMouseLeave
+    // never fires and `hover` survives the re-render pointing at an index the new series
+    // doesn't have.
+    const short = Array.from({ length: 60 }, (_, i) => i)
+    rerender(<TimelineChart {...base} series={short} format={formatPercent} />)
+
+    const tip = screen.queryByTestId('diag-timeline-cpu-tip')
+    expect(tip?.textContent ?? '').not.toContain('NaN')
+  })
+
   it('does not crash on a zero-width container', () => {
     render(<TimelineChart {...base} series={[1, 2, 3]} />)
     const svg = screen.getByTestId('diag-timeline-cpu')
