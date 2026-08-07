@@ -3,11 +3,16 @@ import {
   DIAGNOSTICS_BUCKET_MS as BUCKET_MS,
   DIAGNOSTICS_RETENTION_MS as RETENTION_MS,
   type DiagnosticsHistory,
-  type DiagnosticsSeries
+  type DiagnosticsSeries,
+  type DiagnosticsObject,
+  type DiagnosticsHistorySeries,
+  type DiagnosticsObjectKind
 } from '../../../shared/diagnostics'
 
-/** Sentinel for a slot nothing has ever been written into. */
-const EMPTY = -1
+/** Sentinel for a slot nothing has ever been written into.
+ *  Must be sufficiently negative to avoid colliding with real bucket numbers,
+ *  which can range from -(BUCKET_COUNT - 1) when reading windows spanning time 0. */
+const EMPTY = -(BUCKET_COUNT + 1)
 
 type Ring = {
   /** The ABSOLUTE bucket index owning each slot. This stamp is the ring mechanism. */
@@ -83,6 +88,20 @@ function readSeries(ring: Ring, firstBucket: number, count: number, pick: Pick):
   return out
 }
 
+/**
+ * Distinct object ids retained. Sized well above the ~10–15 rows a typical session shows,
+ * so live rows are never at risk even before the LRU ordering protects them.
+ */
+export const OBJECT_CAP = 64
+
+type ObjectEntry = {
+  ring: Ring
+  label: string
+  kind: DiagnosticsObjectKind
+  inferred: boolean
+  lastSeenBucket: number
+}
+
 export type HistoryRecordInput = {
   /** Wall clock of the sample, from the SERVICE's clock — the same one read() is given,
    *  so record and read can never disagree about which bucket "now" is. */
@@ -90,17 +109,70 @@ export type HistoryRecordInput = {
   cpuPercent: number
   rssBytes: number
   processCount: number
+  objects: DiagnosticsObject[]
 }
 
 export class DiagnosticsHistoryRing {
   private readonly totals = makeRing(true)
   /** Highest absolute bucket anything has been recorded into; EMPTY before the first. */
-  protected lastRecordedBucket = EMPTY
+  private lastRecordedBucket = EMPTY
+  private readonly objects = new Map<string, ObjectEntry>()
 
   record(input: HistoryRecordInput): void {
     const absolute = Math.floor(input.atMs / BUCKET_MS)
     fold(this.totals, absolute, input.cpuPercent, input.rssBytes, input.processCount)
     if (absolute > this.lastRecordedBucket) this.lastRecordedBucket = absolute
+
+    for (const o of input.objects) {
+      let entry = this.objects.get(o.id)
+      if (!entry) {
+        entry = {
+          ring: makeRing(),
+          label: o.label,
+          kind: o.kind,
+          inferred: o.inferred,
+          lastSeenBucket: absolute
+        }
+        this.objects.set(o.id, entry)
+      }
+      // Refresh the identity every time: a panel's title and a row's inferred flag can
+      // both change over the life of one process, and the latest is the true one.
+      entry.label = o.label
+      entry.kind = o.kind
+      entry.inferred = o.inferred
+      if (absolute > entry.lastSeenBucket) entry.lastSeenBucket = absolute
+      fold(entry.ring, absolute, o.cpuPercent, o.rssBytes)
+    }
+    this.evict()
+  }
+
+  /**
+   * LRU by last-seen, and the ORDERING is load-bearing rather than incidental.
+   *
+   * A crash-looping process mints a fresh `pid:startTimeMs` id on every respawn — exactly
+   * the churn signal this page exists to surface — so a cap that evicted arbitrarily
+   * would discard the history of rows that are still running. A live row is by definition
+   * among the most recently seen, so smallest-lastSeenBucket-first always discards dead
+   * history before live.
+   *
+   * A linear scan, not a heap: the map holds at most OBJECT_CAP + the rows of one sample,
+   * and an obviously-correct O(n) loop beats a clever structure at this size. Strict `<`
+   * keeps the FIRST-inserted entry as the victim on a tie, which makes eviction
+   * deterministic for tests.
+   */
+  private evict(): void {
+    while (this.objects.size > OBJECT_CAP) {
+      let victim: string | null = null
+      let oldest = Number.POSITIVE_INFINITY
+      for (const [id, entry] of this.objects) {
+        if (entry.lastSeenBucket < oldest) {
+          oldest = entry.lastSeenBucket
+          victim = id
+        }
+      }
+      if (victim === null) return
+      this.objects.delete(victim)
+    }
   }
 
   read(nowMs: number, windowMs: number): DiagnosticsHistory {
@@ -110,6 +182,26 @@ export class DiagnosticsHistoryRing {
     const bucketCount = Math.ceil(clamped / BUCKET_MS)
     const lastBucket = Math.floor(nowMs / BUCKET_MS)
     const firstBucket = lastBucket - bucketCount + 1
+
+    const objects: DiagnosticsHistorySeries[] = []
+    for (const [id, entry] of this.objects) {
+      const cpuPercent = readSeries(entry.ring, firstBucket, bucketCount, pickCpu)
+      // Omit an object with nothing inside the requested window rather than shipping a
+      // full-length run of nulls describing a period the caller did not ask about.
+      if (!cpuPercent.some((v) => v !== null)) continue
+      objects.push({
+        id,
+        label: entry.label,
+        kind: entry.kind,
+        inferred: entry.inferred,
+        // Derived from recorded data rather than passed in, so liveness can never become
+        // a second source of truth that disagrees with the ring itself.
+        live: entry.lastSeenBucket === this.lastRecordedBucket,
+        cpuPercent,
+        rssBytes: readSeries(entry.ring, firstBucket, bucketCount, pickRss)
+      })
+    }
+
     return {
       bucketMs: BUCKET_MS,
       from: firstBucket * BUCKET_MS,
@@ -119,7 +211,7 @@ export class DiagnosticsHistoryRing {
         rssBytes: readSeries(this.totals, firstBucket, bucketCount, pickRss),
         processCount: readSeries(this.totals, firstBucket, bucketCount, pickProc)
       },
-      objects: []
+      objects
     }
   }
 }
