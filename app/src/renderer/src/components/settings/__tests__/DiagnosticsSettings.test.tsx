@@ -3,10 +3,26 @@ import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, act, within } from '@testing-library/react'
 import DiagnosticsSettings from '../DiagnosticsSettings'
-import type { DiagnosticsSnapshot } from '../../../../../shared/diagnostics'
+import type { DiagnosticsHistory, DiagnosticsSnapshot } from '../../../../../shared/diagnostics'
 
 let onSampleCb: (s: DiagnosticsSnapshot) => void = () => {}
 let unsubscribeCalls = 0
+let historyCalls: number[] = []
+
+function emptyHistory(bucketCount = 4, over: Partial<DiagnosticsHistory> = {}): DiagnosticsHistory {
+  return {
+    bucketMs: 5_000,
+    from: 1_700_000_000_000,
+    bucketCount,
+    total: {
+      cpuPercent: Array.from({ length: bucketCount }, (_, i) => i + 1),
+      rssBytes: Array.from({ length: bucketCount }, () => 100_000_000),
+      processCount: Array.from({ length: bucketCount }, () => 5)
+    },
+    objects: [],
+    ...over
+  }
+}
 
 function snapshot(over: Partial<DiagnosticsSnapshot> = {}): DiagnosticsSnapshot {
   return {
@@ -45,6 +61,7 @@ function snapshot(over: Partial<DiagnosticsSnapshot> = {}): DiagnosticsSnapshot 
 
 beforeEach(() => {
   unsubscribeCalls = 0
+  historyCalls = []
   window.argus = {
     diagnostics: {
       latest: vi.fn().mockResolvedValue(null),
@@ -57,6 +74,10 @@ beforeEach(() => {
       onSample: vi.fn((cb: (s: DiagnosticsSnapshot) => void) => {
         onSampleCb = cb
         return () => {}
+      }),
+      history: vi.fn((windowMs: number) => {
+        historyCalls.push(windowMs)
+        return Promise.resolve(emptyHistory())
       })
     }
   } as never
@@ -294,5 +315,43 @@ describe('DiagnosticsSettings', () => {
     await act(async () => onSampleCb(snapshot()))
     expect(screen.queryByTitle('The case or session that started this process is gone')).toBeNull()
     expect(screen.queryByText(/orphaned/)).toBeNull()
+  })
+})
+
+describe('DiagnosticsSettings timeline', () => {
+  it('fetches the default 15 minute window on mount', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot()))
+    expect(historyCalls[0]).toBe(15 * 60_000)
+  })
+
+  it('refetches with the new window when the selector changes', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot()))
+    historyCalls = []
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Timeline window · 5m' }).click()
+    })
+    expect(historyCalls).toContain(5 * 60_000)
+  })
+
+  it('renders a CPU and a memory chart from the fetched history', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot()))
+
+    expect(screen.getByTestId('diag-timeline-cpu')).toHaveAttribute('data-buckets', '4')
+    expect(screen.getByTestId('diag-timeline-cpu')).toHaveAttribute('data-empty', 'false')
+    expect(screen.getByTestId('diag-timeline-rss')).toBeInTheDocument()
+  })
+
+  it('keeps the page usable when the platform has no diagnostics service', async () => {
+    // history() resolves null when `diagnostics` is undefined in main.
+    ;(window.argus.diagnostics.history as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot()))
+
+    expect(screen.queryByTestId('diag-timeline-cpu')).toBeNull()
+    expect(screen.getByTestId('diag-cpu')).toBeInTheDocument()
   })
 })

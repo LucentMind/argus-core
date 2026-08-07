@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import type {
+  DiagnosticsHistory,
   DiagnosticsObject,
   DiagnosticsSnapshot,
   SidecarHealth,
   SidecarStatus
 } from '../../../../shared/diagnostics'
+import { bridgeBuckets } from '../../lib/timeline'
+import { TimelineChart } from './diagnostics/TimelineChart'
 import { SettingsSection } from './settingsLayout'
 
 // SettingsSection's real signature (settingsLayout.tsx:53) is
@@ -35,6 +38,25 @@ function formatUptime(ms: number): string {
   if (m < 60) return `${m}m`
   return `${Math.floor(m / 60)}h ${m % 60}m`
 }
+
+const WINDOWS = [
+  { id: '5m', ms: 5 * 60_000 },
+  { id: '15m', ms: 15 * 60_000 },
+  { id: '30m', ms: 30 * 60_000 },
+  { id: '1h', ms: 60 * 60_000 }
+] as const
+
+type WindowId = (typeof WINDOWS)[number]['id']
+
+/**
+ * The history poll interval, deliberately the bucket size rather than the 1s sample push.
+ *
+ * Nothing arriving inside a bucket can change anything except that bucket's own partial
+ * value, so polling faster only re-clones the payload. The visible consequence: the
+ * rightmost point lags up to 5s behind the tiles above it. The tiles are the
+ * instantaneous reading; the chart is the interval one.
+ */
+const HISTORY_REFRESH_MS = 5_000
 
 /** Status-specific reason, appended to the honest "unavailable" headline below. */
 function unavailableHint(status: SidecarStatus): string {
@@ -121,6 +143,11 @@ function ObjectRow({ o }: { o: DiagnosticsObject }): React.JSX.Element {
 
 export default function DiagnosticsSettings(): React.JSX.Element {
   const [snap, setSnap] = useState<DiagnosticsSnapshot | null>(null)
+  const [windowId, setWindowId] = useState<WindowId>('15m')
+  const [history, setHistory] = useState<DiagnosticsHistory | null>(null)
+
+  const healthy = snap?.sidecar.status === 'healthy'
+  const windowMs = WINDOWS.find((w) => w.id === windowId)?.ms ?? 15 * 60_000
 
   useEffect(() => {
     let alive = true
@@ -138,6 +165,22 @@ export default function DiagnosticsSettings(): React.JSX.Element {
     }
   }, [])
 
+  useEffect(() => {
+    let alive = true
+    const load = async (): Promise<void> => {
+      const h = await window.argus.diagnostics.history(windowMs)
+      if (alive) setHistory(h)
+    }
+    void load()
+    const timer = setInterval(() => void load(), HISTORY_REFRESH_MS)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+    // `healthy` is a boolean, so this only re-runs on a real transition — not on every
+    // 1Hz snapshot push. A sidecar coming back up should refill the chart promptly.
+  }, [windowMs, healthy])
+
   if (!snap) {
     return (
       <SettingsSection title="Diagnostics">
@@ -146,8 +189,30 @@ export default function DiagnosticsSettings(): React.JSX.Element {
     )
   }
 
-  const healthy = snap.sidecar.status === 'healthy'
   const hasTree = snap.tree.length > 0
+
+  const windowSelector = (
+    <div
+      role="group"
+      aria-label="Timeline window"
+      className="flex shrink-0 overflow-hidden rounded-r2 border border-hair"
+    >
+      {WINDOWS.map((w, i) => (
+        <button
+          key={w.id}
+          type="button"
+          aria-label={`Timeline window · ${w.id}`}
+          aria-pressed={windowId === w.id}
+          className={`px-2.5 py-1 text-xs transition-colors ${
+            windowId === w.id ? 'bg-signal/10 text-ink' : 'text-dim hover:text-ink'
+          } ${i < WINDOWS.length - 1 ? 'border-r border-hair' : ''}`}
+          onClick={() => setWindowId(w.id)}
+        >
+          {w.id}
+        </button>
+      ))}
+    </div>
+  )
 
   // No working sidecar and nothing to show from a past one: a full panel
   // explaining why, instead of empty tiles and an empty table.
@@ -240,6 +305,37 @@ export default function DiagnosticsSettings(): React.JSX.Element {
               ))}
             </tbody>
           </table>
+        </SettingsSection>
+      )}
+
+      {history && (
+        <SettingsSection
+          title="Timeline"
+          subtitle="Totals over time, sampled every 5 seconds. Gaps are stretches with no sample — the sidecar was down, or the machine was asleep."
+          action={windowSelector}
+        >
+          <TimelineChart
+            testId="diag-timeline-cpu"
+            title="CPU · peak per 5s"
+            series={history.total.cpuPercent}
+            kind="percent"
+            accent="--signal"
+            bridge={bridgeBuckets(history.bucketMs)}
+            from={history.from}
+            bucketMs={history.bucketMs}
+            format={(v) => `${formatPercent(v)}%`}
+          />
+          <TimelineChart
+            testId="diag-timeline-rss"
+            title="Memory · mean per 5s"
+            series={history.total.rssBytes}
+            kind="bytes"
+            accent="--review"
+            bridge={bridgeBuckets(history.bucketMs)}
+            from={history.from}
+            bucketMs={history.bucketMs}
+            format={formatBytes}
+          />
         </SettingsSection>
       )}
 
