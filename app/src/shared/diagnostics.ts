@@ -167,6 +167,62 @@ export type DiagnosticsSnapshot = {
   sidecar: SidecarHealth
 }
 
+// ── history ──────────────────────────────────────────────────────────────────
+
+/** 5s buckets × 720 slots = exactly one hour, independent of the sample cadence. */
+export const DIAGNOSTICS_BUCKET_MS = 5_000
+export const DIAGNOSTICS_BUCKET_COUNT = 720
+export const DIAGNOSTICS_RETENTION_MS = DIAGNOSTICS_BUCKET_MS * DIAGNOSTICS_BUCKET_COUNT
+
+/**
+ * Slow-tier cadence — the interval the sidecar samples at with the page closed.
+ *
+ * Declared here rather than only in the service because the RENDERER needs it. A run of
+ * empty buckets 15s long means "sampled at the slow rate"; a longer one means "not
+ * sampling at all". Only the second of those should break a chart's line, and the
+ * renderer cannot import from src/main to find out which is which.
+ */
+export const DIAGNOSTICS_SLOW_INTERVAL_MS = 15_000
+
+/** Longest empty stretch a chart draws through. Derived, so it stays correct if the
+ *  slow-tier cadence ever moves. */
+export const DIAGNOSTICS_MAX_BRIDGE_MS = DIAGNOSTICS_SLOW_INTERVAL_MS + DIAGNOSTICS_BUCKET_MS
+
+/**
+ * One value per bucket, oldest first.
+ *
+ * `null` means no sample landed in that bucket, which is NEVER the same thing as a
+ * measured zero. Collapsing the two would draw CPU dropping to nothing every ten seconds
+ * across the whole slow-tier region — which is precisely the region the timeline exists
+ * to show, since it is everything that happened before you opened the page.
+ */
+export type DiagnosticsSeries = (number | null)[]
+
+export type DiagnosticsHistorySeries = {
+  id: string
+  label: string
+  kind: DiagnosticsObjectKind
+  inferred: boolean
+  /** False when this object is absent from the most recent recorded sample. */
+  live: boolean
+  cpuPercent: DiagnosticsSeries
+  rssBytes: DiagnosticsSeries
+}
+
+export type DiagnosticsHistory = {
+  bucketMs: number
+  /** Start of the first bucket, ALIGNED to a bucket boundary — never a raw timestamp.
+   *  Bucket i covers [from + i*bucketMs, from + (i+1)*bucketMs). */
+  from: number
+  bucketCount: number
+  total: {
+    cpuPercent: DiagnosticsSeries
+    rssBytes: DiagnosticsSeries
+    processCount: DiagnosticsSeries
+  }
+  objects: DiagnosticsHistorySeries[]
+}
+
 /** Narrow projection of Electron's getAppMetrics(), so the pure model never imports electron. */
 export type ElectronProcessMetric = {
   pid: number
