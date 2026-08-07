@@ -307,6 +307,10 @@ import {
   type ConnectorCommand,
   type WindowDescriptor
 } from './services/diagnostics/labels'
+import {
+  collectWindowDescriptors,
+  type WindowSource
+} from './services/diagnostics/windowDescriptors'
 
 let agentService: AgentService | null = null
 let providerStatusService: ProviderStatusService | null = null
@@ -363,40 +367,34 @@ let connectorCommandsRef: () => ConnectorCommand[] = () => []
  * fourth window kind that DOES navigate its own webContents would need this
  * revisited.
  */
-function collectWindowDescriptors(): WindowDescriptor[] {
-  const out: WindowDescriptor[] = []
+function collectWindowDescriptorsFromElectron(): WindowDescriptor[] {
+  const sources: WindowSource[] = []
   try {
     const mainId = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.id : null
     for (const wc of webContents.getAllWebContents()) {
       if (wc.isDestroyed()) continue
-      let osPid: number
+      let osPid: number | null = null
       try {
         osPid = wc.getOSProcessId()
       } catch {
         continue
       }
-      if (osPid <= 0) continue
-
-      const panelTitle = panelHost?.titleForWebContents(wc.id) ?? null
-      if (panelTitle !== null) {
-        out.push({ osPid, kind: 'panel', title: panelTitle })
-        continue
-      }
-      if (mainId !== null && wc.id === mainId) {
-        out.push({ osPid, kind: 'main-window' })
-        continue
-      }
-      if (BrowserWindow.fromWebContents(wc)) out.push({ osPid, kind: 'editor-window' })
+      sources.push({
+        id: wc.id,
+        osPid,
+        isBrowserWindow: BrowserWindow.fromWebContents(wc) !== null,
+        panelTitle: panelHost?.titleForWebContents(wc.id) ?? null,
+        isMain: mainId !== null && wc.id === mainId
+      })
     }
   } catch (err) {
-    console.error('[diagnostics] failed to collect window descriptors', err)
+    console.error('[diagnostics] failed to enumerate webContents', err)
     // Return what was already collected rather than discarding it: windows
     // already resolved keep their names, and whatever wasn't reached yet
     // degrades to a generic "Renderer process" via the label layer's
     // empty-match path instead of vanishing from the page entirely.
-    return out
   }
-  return out
+  return collectWindowDescriptors(sources)
 }
 let externalAppHost: ExternalAppHost | null = null
 // Module-scope like mainWindow above: registerIpc() constructs this, but createWindow()'s
@@ -494,7 +492,7 @@ function registerIpc(): void {
           type: m.type,
           ...(m.serviceName ? { serviceName: m.serviceName } : {})
         })),
-      getWindowDescriptors: collectWindowDescriptors,
+      getWindowDescriptors: collectWindowDescriptorsFromElectron,
       getConnectorCommands: () => connectorCommandsRef()
     })
   })()
