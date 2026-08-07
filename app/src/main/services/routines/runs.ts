@@ -65,6 +65,32 @@ export function reconcileInterruptedRuns(db: DatabaseSync, now: () => Date = def
   return Number(res.changes)
 }
 
+/**
+ * The routine id whose run is CURRENTLY executing in `sessionId`, or null.
+ *
+ * Exists to keep a second, fully-permissioned session off a routine's own session row. A
+ * routine's transcript is deliberately streamed into the normal case UI (index.ts), so the
+ * `routine-<id>` case is openable and its session selectable WHILE the run is in flight. A
+ * message typed there reaches `AgentService.send`, which finds no map entry for the background
+ * session (it never enters that map) and builds a SECOND `CaseSession` on the same `sessionId`:
+ * this one without `unattended`, with connectors composed, resuming from the same cursor. Two
+ * drivers would then write the same `sessions/<id>.jsonl` mirror and the same `turns` /
+ * `tool_calls` rows — and when the routine finished, its `stop()` would emit `session.exited`
+ * for that sessionId and tear the user's live chat down under them.
+ *
+ * Reads the run table rather than asking the service, so it answers correctly from anywhere
+ * holding the db — including AgentService, which knows nothing about routines and is handed
+ * this as an injected predicate.
+ */
+export function runningRoutineForSession(db: DatabaseSync, sessionId: number): string | null {
+  const row = db
+    .prepare(
+      `SELECT routine_id FROM routine_runs WHERE session_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1`
+    )
+    .get(sessionId) as { routine_id: string } | undefined
+  return row?.routine_id ?? null
+}
+
 export function finishRoutineRun(
   db: DatabaseSync,
   runId: number,

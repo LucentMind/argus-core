@@ -135,6 +135,10 @@ export interface AgentServiceDeps {
    *  pid (ACP/Codex) can be registered against its case/session. Absent = no registration
    *  (tests that don't construct a diagnostics registry). */
   processLabels?: ProcessLabels
+  /** Why this session may not be attached to right now, or null. Injected (not a routines
+   *  import) so AgentService keeps knowing nothing about routines; index.ts binds
+   *  `runningRoutineForSession`. See the guard in getOrCreate. */
+  sessionUnavailable?: (sessionId: number) => string | null
 }
 
 export class AgentService {
@@ -190,6 +194,19 @@ export class AgentService {
     if (!owner || owner.case_id !== rec.id) {
       throw new Error(`Unknown session ${sessionId} for case ${caseSlug}`)
     }
+
+    // Some sessions are owned by something other than this map. A routine's background session
+    // never enters `this.sessions`, so without this guard the lookup below would miss and we
+    // would silently construct a SECOND CaseSession on the same session row — this one fully
+    // permissioned, with connectors, resuming from the same cursor, writing the same mirror and
+    // the same turns/tool_calls rows, and torn down by the routine's own `stop()` mid-chat.
+    // Placed after the ownership check (so a bogus request still gets the more specific error)
+    // and before ANY side effect: composeMcp below can perform a network OAuth refresh, and the
+    // reap can stop a live session — neither should happen for a request that is about to be
+    // refused. Throws rather than no-ops: this reaches the renderer as the send's rejection,
+    // which is the only place the user can be told why their message went nowhere.
+    const unavailable = this.deps.sessionUnavailable?.(sessionId)
+    if (unavailable) throw new Error(unavailable)
 
     const as = this.deps.agentSettings?.()
     // Composed on EVERY call (spec §1/§2): connector config and credentials are re-derived

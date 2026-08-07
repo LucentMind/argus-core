@@ -10,6 +10,7 @@ import {
   finishRoutineRun,
   listRoutineRuns,
   reconcileInterruptedRuns,
+  runningRoutineForSession,
   INTERRUPTED_RUN_ERROR
 } from '../runs'
 
@@ -122,5 +123,41 @@ describe('reconcileInterruptedRuns', () => {
   it('reports 0 on a clean previous shutdown (empty table)', () => {
     expect(reconcileInterruptedRuns(db, () => LATER)).toBe(0)
     expect(listRoutineRuns(db)).toEqual([])
+  })
+})
+
+describe('runningRoutineForSession', () => {
+  const AFTER = new Date('2026-08-03T03:00:00.000Z')
+
+  it('names the routine occupying a session, and only while it is running', () => {
+    const id = insertRoutineRun(db, 'nightly-sweep', 'routine-nightly-sweep', () => NOW)
+    // Before the session row is attached there is nothing to collide with.
+    expect(runningRoutineForSession(db, 42)).toBeNull()
+    attachRunSession(db, id, 42)
+    expect(runningRoutineForSession(db, 42)).toBe('nightly-sweep')
+    // Scoped to the session it was asked about — an unrelated chat is never blocked.
+    expect(runningRoutineForSession(db, 43)).toBeNull()
+    finishRoutineRun(db, id, { status: 'ok', summary: 'done' }, () => AFTER)
+    // The moment the run settles the session is ordinary again.
+    expect(runningRoutineForSession(db, 42)).toBeNull()
+  })
+
+  it('a run stranded by a crash stops blocking once startup reconciles it', () => {
+    // Otherwise a hard quit mid-run would lock that chat out permanently: nothing else ever
+    // revisits those rows, and `status='running'` is exactly what the guard keys on.
+    const id = insertRoutineRun(db, 'r-a', 'routine-r-a', () => NOW)
+    attachRunSession(db, id, 7)
+    expect(runningRoutineForSession(db, 7)).toBe('r-a')
+    reconcileInterruptedRuns(db, () => AFTER)
+    expect(runningRoutineForSession(db, 7)).toBeNull()
+  })
+
+  it('reports the newest run when a session somehow carries more than one', () => {
+    const older = insertRoutineRun(db, 'r-a', 'routine-r-a', () => NOW)
+    attachRunSession(db, older, 9)
+    finishRoutineRun(db, older, { status: 'ok' }, () => NOW)
+    const newer = insertRoutineRun(db, 'r-b', 'routine-r-b', () => NOW)
+    attachRunSession(db, newer, 9)
+    expect(runningRoutineForSession(db, 9)).toBe('r-b')
   })
 })
