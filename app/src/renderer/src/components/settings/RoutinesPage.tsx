@@ -4,7 +4,12 @@ import { SettingsSection, SettingRow, FIELD, TEXTAREA_FIELD } from './settingsLa
 import { Btn, Checkbox, Chip, IconBtn } from '../ui'
 import { confirm } from '../../lib/confirmStore'
 import { chipStamp } from '../../lib/time'
-import type { RoutineDef, RoutineRunSummary, RoutinesPayload } from '../../../../shared/routines'
+import {
+  MAX_TIMEOUT_MINUTES,
+  type RoutineDef,
+  type RoutineRunSummary,
+  type RoutinesPayload
+} from '../../../../shared/routines'
 
 /**
  * Derives a routine id from its name, inside `routineSchema`'s `/^[a-z0-9][a-z0-9-]{0,55}$/`.
@@ -189,6 +194,10 @@ function RoutineEditor({
           <input
             type="number"
             min={1}
+            // Increment 1 has no cancel, so an over-long turn holds the serial routine slot
+            // until it ends on its own. `max` is only a nudge (a number input still accepts a
+            // typed value above it) — saveDraft below and routineSchema are the real gates.
+            max={MAX_TIMEOUT_MINUTES}
             className={`${FIELD} w-28`}
             value={draft.timeoutMinutes}
             onChange={(e) => onChange({ ...draft, timeoutMinutes: e.target.value })}
@@ -299,6 +308,12 @@ export function RoutinesPage(): React.JSX.Element {
     const minutes = Number(editing.timeoutMinutes)
     if (!Number.isFinite(minutes) || minutes <= 0) {
       setMutationError('Timeout must be a positive number of minutes.')
+      return
+    }
+    if (minutes > MAX_TIMEOUT_MINUTES) {
+      setMutationError(
+        `Timeout must be at most ${MAX_TIMEOUT_MINUTES} minutes — a run cannot be cancelled once it starts.`
+      )
       return
     }
     const model = editing.model.trim()

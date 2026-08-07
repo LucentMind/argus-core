@@ -315,6 +315,35 @@ describe('RoutinesPage — editing', () => {
     )
   })
 
+  it('refuses to save a timeout above the cap, naming the limit', async () => {
+    // Increment 1 has no cancel: once a run starts, the only thing that ends it is the turn
+    // completing or the timeout firing. With `min={1}` and no ceiling the user was one keystroke
+    // ('600') from a ten-hour run holding the serial routine slot. The number input's `max` is
+    // only a nudge — a typed value sails past it — so this is the gate that matters.
+    render(<RoutinesPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /new routine/i }))
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Runaway' } })
+    fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'x' } })
+    fireEvent.change(screen.getByLabelText('Timeout (minutes)'), { target: { value: '600' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/at most 120 minutes/i)).toBeInTheDocument()
+    expect(api.save).not.toHaveBeenCalled()
+  })
+
+  it('saves a timeout exactly at the cap', async () => {
+    // The boundary itself must remain usable — an off-by-one on the guard would make the
+    // largest legal value unsaveable, and the test above would not notice.
+    render(<RoutinesPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /new routine/i }))
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Long one' } })
+    fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'x' } })
+    fireEvent.change(screen.getByLabelText('Timeout (minutes)'), { target: { value: '120' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() =>
+      expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 7_200_000 }))
+    )
+  })
+
   it('refuses to save an empty prompt', async () => {
     render(<RoutinesPage />)
     fireEvent.click(await screen.findByRole('button', { name: /new routine/i }))

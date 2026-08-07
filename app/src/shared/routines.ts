@@ -10,6 +10,19 @@ import { z } from './zodConfig'
  * charset (SLUG_RE also allows uppercase and `.`), and a length cap of 56 so the full slug
  * never exceeds SLUG_RE's 64-char ceiling.
  */
+/**
+ * Hard ceiling on a routine's turn budget: 2 hours.
+ *
+ * Increment 1 has NO cancel — once `runBackgroundTurn` arms its timer, the only thing that ends
+ * the run early is the turn itself completing. The editor's number input therefore puts a user
+ * one keystroke from a run that occupies the (serial) routine slot for the rest of the day.
+ * Enforced HERE rather than only in the form so a hand-edited config/routines.json cannot
+ * exceed it either. 120 minutes is well past any plausible single unattended turn while still
+ * bounding the damage of a typo.
+ */
+export const MAX_TIMEOUT_MINUTES = 120
+export const MAX_TIMEOUT_MS = MAX_TIMEOUT_MINUTES * 60_000
+
 export const routineSchema = z.looseObject({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,55}$/),
   name: z.string().min(1),
@@ -18,7 +31,12 @@ export const routineSchema = z.looseObject({
   driverKind: z.string().optional(),
   /** Model slug for the driver. Absent = driver default. */
   model: z.string().optional(),
-  timeoutMs: z.number().int().positive().default(600_000),
+  timeoutMs: z
+    .number()
+    .int()
+    .positive()
+    .max(MAX_TIMEOUT_MS, `Timeout must be at most ${MAX_TIMEOUT_MINUTES} minutes`)
+    .default(600_000),
   enabled: z.boolean().default(true)
 })
 export type RoutineDef = z.infer<typeof routineSchema>
