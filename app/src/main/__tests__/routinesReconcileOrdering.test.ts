@@ -1,0 +1,58 @@
+import { describe, it, expect } from 'vitest'
+import fs from 'node:fs'
+import path from 'node:path'
+
+// `index.ts` imports `electron` at module scope, so it cannot be `import`ed into a Vitest test
+// (see invokeScrubsIpcWrapper.test.ts for the same constraint on preload/index.ts) — this test
+// reads it as source text instead, following that file's idiom.
+const SRC = path.resolve(__dirname, '..')
+const indexSrc = fs.readFileSync(path.join(SRC, 'index.ts'), 'utf8')
+
+describe('reconcileInterruptedRuns runs before routinesRunNow is registered', () => {
+  // reconcileInterruptedRuns() blanket-marks every run row still `status='running'` as failed.
+  // That is only safe because `registerIpc()`'s body is synchronous and the reconcile call sits
+  // ahead of `ipcMain.handle(IPC.routinesRunNow, ...)` — the ONLY path that can start a run — so
+  // no run of this process can possibly be in flight yet when reconcile runs; every `running` row
+  // it finds must be a leftover from a previous, now-dead process.
+  //
+  // If a future edit moved (or deleted) the reconcile call so it landed after routinesRunNow is
+  // registered, a run started immediately after boot could still be `running` when reconcile
+  // fires, and reconcile would mark that LIVE, legitimately in-flight run as failed — corrupting
+  // its record while it is still executing. Nothing else pins this ordering: index.ts imports
+  // `electron` at module scope and is not exercised by any runtime test, so a reordering compiles
+  // clean and turns no other test red. This test exists to catch exactly that reordering.
+  it('reconciles stranded runs before the run-now handler can start a new one', () => {
+    const reconcileMarker = 'reconcileInterruptedRuns('
+    const runNowMarker = 'IPC.routinesRunNow'
+
+    // Guard against a vacuous pass: if either marker stops appearing at all — the reconcile call
+    // is deleted outright, or routinesRunNow is renamed — indexOf silently returns -1 for both,
+    // -1 < -1 is false, and a naive ordering assertion would pass on a test that no longer
+    // guards anything. Fail loudly instead, with a message that says which piece went missing.
+    expect(
+      indexSrc.includes(reconcileMarker),
+      `expected to find a "${reconcileMarker}" call in main/index.ts. If it was renamed or ` +
+        'removed, this test can no longer verify that stranded runs are reconciled before ' +
+        'routinesRunNow is registered — a run started right after boot could then be marked ' +
+        'failed while still in flight. Update this test alongside whatever renamed it.'
+    ).toBe(true)
+    expect(
+      indexSrc.includes(runNowMarker),
+      `expected to find "${runNowMarker}" in main/index.ts. If it was renamed, this test can no ` +
+        'longer verify the reconcile-before-run-handler ordering it exists to guard.'
+    ).toBe(true)
+
+    const reconcileIndex = indexSrc.indexOf(reconcileMarker)
+    const runNowIndex = indexSrc.indexOf(runNowMarker)
+
+    expect(
+      reconcileIndex,
+      'reconcileInterruptedRuns(db) must be called BEFORE ipcMain.handle(IPC.routinesRunNow, ...) ' +
+        'is registered. registerIpc() is synchronous, so this ordering is what guarantees no run ' +
+        "can be in flight when reconcile blanket-marks status='running' rows as failed. Moving " +
+        'the reconcile call after the routinesRunNow registration would let a run started right ' +
+        'after boot be falsely marked failed while it is still legitimately executing — corrupting ' +
+        "a live run's record. Move the reconcile call back above the routinesRunNow handler."
+    ).toBeLessThan(runNowIndex)
+  })
+})
