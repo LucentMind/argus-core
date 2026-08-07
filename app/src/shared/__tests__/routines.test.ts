@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { routineSchema, routinesFileSchema, defaultRoutines } from '../routines'
+import {
+  routineSchema,
+  routinesFileSchema,
+  defaultRoutines,
+  MAX_TIMEOUT_MS,
+  MAX_TIMEOUT_MINUTES
+} from '../routines'
 
 describe('routine schema', () => {
   it('applies defaults for timeoutMs and enabled', () => {
@@ -14,5 +20,45 @@ describe('routine schema', () => {
 
   it('parses an empty file to defaults', () => {
     expect(routinesFileSchema.parse({})).toEqual(defaultRoutines())
+  })
+
+  /**
+   * The id-length boundary, both sides.
+   *
+   * The bound is not arbitrary and its failure is not local: the id becomes `routine-<id>` (8 + n
+   * chars) in caseService's slug, whose SLUG_RE tops out at 64 — so 56 is the largest id that can
+   * ever produce a legal case slug. Widening the regex would compile clean, pass every other test,
+   * and only surface at run time in a different module, as `createCase` rejecting a routine the
+   * user already saved. These two cases are what make an accidental widening go red HERE.
+   */
+  describe('id length is bounded so `routine-<id>` fits a 64-char case slug', () => {
+    const idOf = (n: number): string => 'a'.repeat(n)
+
+    it('accepts the longest id that still fits (56)', () => {
+      const id = idOf(56)
+      expect(routineSchema.parse({ id, name: 'x', prompt: 'y' }).id).toBe(id)
+      // The reason the cap is 56 and not something else, asserted rather than described.
+      expect(`routine-${id}`.length).toBe(64)
+    })
+
+    it('rejects one character more (57)', () => {
+      expect(() => routineSchema.parse({ id: idOf(57), name: 'x', prompt: 'y' })).toThrow()
+    })
+  })
+
+  describe('timeoutMs is capped', () => {
+    it('accepts exactly the cap', () => {
+      const r = routineSchema.parse({ id: 'a', name: 'x', prompt: 'y', timeoutMs: MAX_TIMEOUT_MS })
+      expect(r.timeoutMs).toBe(MAX_TIMEOUT_MS)
+      expect(MAX_TIMEOUT_MS).toBe(MAX_TIMEOUT_MINUTES * 60_000)
+    })
+
+    it('rejects one millisecond over, and says what the limit is', () => {
+      // A hand-edited config must not be able to buy a run longer than the UI allows —
+      // increment 1 has no cancel, so an over-long turn cannot be stopped.
+      expect(() =>
+        routineSchema.parse({ id: 'a', name: 'x', prompt: 'y', timeoutMs: MAX_TIMEOUT_MS + 1 })
+      ).toThrow(new RegExp(`at most ${MAX_TIMEOUT_MINUTES} minutes`))
+    })
   })
 })
