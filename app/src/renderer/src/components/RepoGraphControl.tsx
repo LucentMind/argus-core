@@ -79,7 +79,11 @@ export function RepoGraphControl({ repoPath }: { repoPath: string }): React.JSX.
         <Waypoints size={12} />
       </IconBtn>
       {open && (
-        <div className="absolute left-0 top-6 z-30 max-h-96 w-80 overflow-y-auto rounded-r2 surface-card p-2 text-xs shadow-lg">
+        // `overlay-menu`, not `surface-card` + `shadow-lg`: this is a popover anchored to a
+        // button, so it belongs to the popover material like every other one (MenuButton,
+        // OptionsMenu, SessionSwitcher…). `surface-card` is the in-flow sheet material and left
+        // this panel reading as an opaque card dropped on top of the rail.
+        <div className="absolute left-0 top-6 z-30 max-h-96 w-80 overflow-y-auto rounded-r2 overlay-menu p-2 text-xs">
           {rows.map((r) => (
             <div key={r.scopeKey} className="mb-1">
               {r.status === 'building' && (

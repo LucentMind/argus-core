@@ -130,22 +130,43 @@ body {
      `.glass-card`, exist only for the cursor-tracked ring/sheen layers a plain overlay never
      hosts, and are exactly what broke the dropdown's anchoring. Dark reproduces each surface's
      pre-existing flat utilities verbatim (two genuinely different looks — the dialog is
-     `--bg-2`/`--hair-2`/shadow-2xl, the menu is `--bg-1`/`--hair`/shadow-lg); light shares one
-     frosted declaration below with `.glass-card` itself (Task 12) — the same rule now paints
-     all four, through the `--glass-*` / `--card-shadow` tokens, rather than four copies. */
+     `--bg-2`/`--hair-2`/shadow-2xl); light shares one frosted declaration below with
+     `.glass-card` itself (Task 12) — the same rule paints all three, through the `--glass-*` /
+     `--card-shadow` tokens, rather than three copies. `.overlay-menu` is no longer one of them:
+     see its own rule below. */
   .overlay-card {
     border: 1px solid var(--hair-2);
     background: var(--bg-2);
     box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25); /* Tailwind's shadow-2xl */
   }
 
+  /* The popover material — ONE theme-agnostic rule reading the `--menu-*` tokens theme.css
+     switches, the same shape `.glass-panel` uses, rather than a dark base plus a light override.
+     A dropdown is the one surface where both themes want the SAME thing (a translucent, blurred
+     pane floating over live content); writing that twice is how the two halves drift.
+
+     Replaces `border-hair` + a flat `var(--bg-1)` fill + Tailwind's `shadow-lg`. That fill is
+     what made every popup a rectangle: under `.dyn` `--bg-1` is #000000, so a menu opened over
+     the ambient wash punched a black hole in it, and in light it was near-solid white on a pale
+     ground with a 0.1-alpha shadow too weak to separate the two. Both themes now get the
+     frosted treatment the rest of the app's surfaces already had.
+
+     Same layout-property prohibition as `.overlay-card` above — no position/overflow, ever, or
+     the panel's own `absolute`/`fixed` anchoring loses the cascade (pinned by
+     `overlayMaterialRules` in themeTokens.test.ts / MenuButton.test.tsx). `backdrop-filter` is
+     safe here and `position` is not: it makes this element a containing block for FIXED
+     descendants only, and a menu hosts none — the click-outside catcher every consumer renders
+     is a SIBLING (`fixed inset-0`, one z-layer below), never a child. */
   .overlay-menu {
-    border: 1px solid var(--hair);
-    background: var(--bg-1);
-    /* Tailwind's shadow-lg */
+    border: 1px solid var(--menu-border);
+    background:
+      linear-gradient(155deg, var(--menu-lens-1) 0%, var(--menu-lens-2) 44%, transparent 78%),
+      radial-gradient(120% 100% at 6% 0%, var(--menu-cap), transparent 62%), var(--menu-bg);
     box-shadow:
-      0 10px 15px -3px rgb(0 0 0 / 0.1),
-      0 4px 6px -4px rgb(0 0 0 / 0.1);
+      inset 0 1px 0 var(--menu-hi),
+      inset 0 -1px 0 var(--menu-edge),
+      var(--menu-shadow);
+    backdrop-filter: var(--menu-filter);
   }
 
   /* `.glass-chrome` (below) shares this exact recipe (Task 10 review finding 2), and so now does
@@ -158,8 +179,12 @@ body {
      drift (a tuning pass changing the waist inset here but not on a duplicate) structurally
      impossible; `cssRuleScan.ts`'s `overlayMaterialRules` scans this rule (and `.glass-chrome`'s
      own dark base rule below) for the position/overflow invariant the same way it already does
-     `.overlay-card`/`.overlay-menu`. */
-  :root[data-theme='light'] :is(.overlay-card, .overlay-menu, .glass-chrome, .glass-card) {
+     `.overlay-card`/`.overlay-menu`.
+
+     `.overlay-menu` LEFT this list when popovers got their own `--menu-*` material: it is the
+     one member whose light and dark renderings are the same recipe, so it is written once,
+     unconditionally, instead of as a dark base plus a share of this override. */
+  :root[data-theme='light'] :is(.overlay-card, .glass-chrome, .glass-card) {
     border-color: var(--glass-border);
     background:
       linear-gradient(

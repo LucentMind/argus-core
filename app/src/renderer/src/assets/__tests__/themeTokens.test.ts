@@ -429,15 +429,14 @@ describe('overlay material (dialogs and menus own their own look, not glass-card
     }
   })
 
-  it('dark overlay shadow literals are unchanged', () => {
-    // These used to come from Tailwind's shadow-2xl / shadow-lg utilities; they are now
-    // hand-written literals, so nothing but this pin protects them from drifting under a later
-    // tuning pass.
+  it('the dark dialog shadow literal is unchanged', () => {
+    // This used to come from Tailwind's shadow-2xl utility; it is now a hand-written literal, so
+    // nothing but this pin protects it from drifting under a later tuning pass. `.overlay-menu`
+    // was pinned here too until popovers got their own material — its shadow is now a token
+    // (`--menu-shadow`), covered by the frosted-material test below rather than by a literal.
     const rules = overlayMaterialRules(main)
     const card = rules.find((r) => r.selector === '.overlay-card')
-    const menu = rules.find((r) => r.selector === '.overlay-menu')
     expect(card, '.overlay-card dark rule must be found').toBeDefined()
-    expect(menu, '.overlay-menu dark rule must be found').toBeDefined()
 
     const shadowValue = (body: string): string | undefined => {
       const m = body.match(/box-shadow\s*:([\s\S]*?);/)
@@ -448,9 +447,52 @@ describe('overlay material (dialogs and menus own their own look, not glass-card
     }
 
     expect(shadowValue(card!.body)).toBe('0 25px 50px -12px rgb(0 0 0 / 0.25)')
-    expect(shadowValue(menu!.body)).toBe(
-      '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)'
-    )
+  })
+
+  // The regression this guards is the one the user reported: popovers rendered as flat
+  // black (dark, where `.dyn` resolves `--bg-1` to #000000) or flat white (light) rectangles,
+  // because `.overlay-menu` was a solid `--bg-1` fill with no blur. jsdom resolves no cascade,
+  // so the contract a unit test can hold is the source text: ONE unconditional rule, reading
+  // the `--menu-*` family, that actually asks for a backdrop blur.
+  it('.overlay-menu is one theme-agnostic frosted rule over the --menu-* tokens', () => {
+    const rules = leafRules(main).filter((r) => r.selector.includes('.overlay-menu'))
+    expect(rules.length, '.overlay-menu must be written exactly once').toBe(1)
+    // Unconditional — no `[data-theme=...]` guard, so light and dark cannot drift apart.
+    expect(rules[0].selector).toBe('.overlay-menu')
+
+    const { body } = rules[0]
+    expect(body, 'must blur what it covers').toMatch(/backdrop-filter\s*:\s*var\(--menu-filter\)/)
+    // The flat fill that caused the defect. `--bg-1` inside `.dyn` is #000000.
+    expect(body, 'must not go back to a flat surface fill').not.toMatch(/var\(--bg-[12]\)/)
+    for (const token of [
+      '--menu-bg',
+      '--menu-border',
+      '--menu-lens-1',
+      '--menu-lens-2',
+      '--menu-cap',
+      '--menu-hi',
+      '--menu-edge',
+      '--menu-shadow'
+    ]) {
+      expect(body, `must read ${token}`).toContain(`var(${token})`)
+    }
+  })
+
+  it('both themes define every --menu-* token the material reads', () => {
+    const theme = readCss('theme.css')
+    const rules = leafRules(theme)
+    const dark = rules.find((r) => r.selector === ':root')
+    const light = rules.find((r) => r.selector === ":root[data-theme='light']")
+    expect(dark, 'the :root token block must be found').toBeDefined()
+    expect(light, 'the light token block must be found').toBeDefined()
+
+    const names = [...(dark!.body.match(/--menu-[\w-]+(?=\s*:)/g) ?? [])]
+    expect(names.length, 'expected the --menu-* family in :root').toBeGreaterThanOrEqual(9)
+    for (const name of names) {
+      expect(light!.body, `light must override ${name}`).toMatch(
+        new RegExp(`(?<![\\w-])${name}\\s*:`)
+      )
+    }
   })
 
   // Task 10 review finding 3: `.overlay-card` / `.overlay-menu` had the position/overflow guard
@@ -482,7 +524,7 @@ describe('overlay material (dialogs and menus own their own look, not glass-card
     expect(darkIdx).toBeGreaterThan(braceOpen)
     expect(darkIdx).toBeLessThan(layerEnd)
 
-    const lightSelector = ':is(.overlay-card, .overlay-menu, .glass-chrome, .glass-card) {'
+    const lightSelector = ':is(.overlay-card, .glass-chrome, .glass-card) {'
     const lightIdx = main.indexOf(lightSelector)
     expect(lightIdx, 'the merged light override selector must be found').toBeGreaterThanOrEqual(0)
     expect(lightIdx).toBeGreaterThan(braceOpen)
