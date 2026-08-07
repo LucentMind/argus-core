@@ -2,6 +2,12 @@ import { DIAGNOSTICS_MAX_BRIDGE_MS, type DiagnosticsSeries } from '../../../shar
 
 export type SeriesPoint = { i: number; v: number }
 
+/** The x-axis divisor: N buckets span N-1 gaps. Shared so the drawn path and any
+ *  hover mapping cannot disagree about where a bucket sits. */
+export function seriesDenominator(length: number): number {
+  return length > 1 ? length - 1 : 1
+}
+
 export type Projection = {
   width: number
   height: number
@@ -54,7 +60,7 @@ function scales(
   length: number,
   p: Projection
 ): { x: (i: number) => number; y: (v: number) => number } {
-  const denom = length > 1 ? length - 1 : 1
+  const denom = seriesDenominator(length)
   return {
     x: (i) => r2((i / denom) * p.width),
     y: (v) => r2(p.height - (Math.min(Math.max(v, 0), p.max) / p.max) * p.height)

@@ -5,11 +5,20 @@ import {
   niceMax,
   projectArea,
   projectSeries,
+  seriesDenominator,
   splitRuns
 } from '../timeline'
 import { DIAGNOSTICS_BUCKET_MS } from '../../../../shared/diagnostics'
 
 const P = { width: 100, height: 20, max: 10, bridge: 3 }
+
+describe('seriesDenominator', () => {
+  it('yields the divisor: N buckets span N-1 gaps, and never yields 0', () => {
+    expect(seriesDenominator(0)).toBe(1)
+    expect(seriesDenominator(1)).toBe(1)
+    expect(seriesDenominator(5)).toBe(4)
+  })
+})
 
 describe('bridgeBuckets', () => {
   it('draws through a slow-tier gap and breaks on a real outage', () => {

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { DiagnosticsSeries } from '../../../../../shared/diagnostics'
-import { niceMax, projectArea, projectSeries } from '../../../lib/timeline'
+import { niceMax, projectArea, projectSeries, seriesDenominator } from '../../../lib/timeline'
 
 const VIEW_W = 600
 const VIEW_H = 120
@@ -38,12 +38,13 @@ export function TimelineChart({
   const projection = { width: VIEW_W, height: VIEW_H, max, bridge }
   const line = projectSeries(series, projection)
   const area = projectArea(series, projection)
-  const denom = series.length > 1 ? series.length - 1 : 1
+  const denom = seriesDenominator(series.length)
 
   const onMove = (e: React.MouseEvent<SVGSVGElement>): void => {
     const rect = e.currentTarget.getBoundingClientRect()
     // jsdom reports a zero-size rect, and a collapsed container can too. Without this
-    // guard the division below is NaN and the crosshair lands at index NaN.
+    // guard the division yields Infinity (or NaN if clientX equals rect.left), and the
+    // clamp below would then map this to a wrong bucket instead of failing safely.
     if (!(rect.width > 0) || series.length === 0) return
     const i = Math.round(((e.clientX - rect.left) / rect.width) * denom)
     setHover(Math.min(Math.max(i, 0), series.length - 1))
