@@ -55,9 +55,15 @@ describe('projectSeries', () => {
   it('returns an empty path when there is nothing to draw', () => {
     expect(projectSeries([], P)).toBe('')
     expect(projectSeries([null, null, null], P)).toBe('')
-    // A lone point has no width; an "M x y" with no line command draws nothing anyway.
-    expect(projectSeries([5], P)).toBe('')
     expect(projectSeries([1, 2], { ...P, max: 0 })).toBe('')
+  })
+
+  it('renders a lone point as a zero-length segment rather than dropping it', () => {
+    // A single-point run has no width to draw as a line, but it is real data — a process
+    // whose entire life fits inside one 5s bucket. `M x yL x y` is a degenerate segment
+    // that a round linecap paints as a dot; the JS-level assertion here is only that the
+    // coordinates come out right, since jsdom cannot verify the paint.
+    expect(projectSeries([5], P)).toBe('M0 10L0 10')
   })
 
   it('maps the first and last buckets to the full width and inverts the y axis', () => {
@@ -74,7 +80,11 @@ describe('projectSeries', () => {
 
   it('starts a new subpath after an unbridgeable gap', () => {
     const d = projectSeries([1, null, null, null, null, 2, 3], P)
-    expect(d.match(/M/g)).toHaveLength(1) // the lone leading point is dropped
+    // The lone leading point [1] is its own single-point run. It used to be dropped for
+    // having no width; now it draws as its own dot segment (see the lone-point test
+    // above), so the gap still produces two distinct subpaths — just not for the same
+    // reason as the [2, 3] run that follows it.
+    expect(d.match(/M/g)).toHaveLength(2)
     const d2 = projectSeries([1, 2, null, null, null, null, 3, 4], P)
     expect(d2.match(/M/g)).toHaveLength(2)
   })

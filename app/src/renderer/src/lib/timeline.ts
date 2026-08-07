@@ -67,41 +67,64 @@ function scales(
   }
 }
 
-/** Runs worth drawing: a single point has no width and would emit a bare `M` that draws
- *  nothing while still bloating the attribute. */
+/** Runs worth drawing at all: a non-positive axis or an empty series has nothing to draw
+ *  regardless of how the caller wants to render each run. Length filtering is the
+ *  caller's job — `projectSeries` and `projectArea` want different minimums (see
+ *  each's own comment below). */
 function drawableRuns(series: DiagnosticsSeries, p: Projection): SeriesPoint[][] {
   if (!(p.max > 0) || series.length === 0) return []
-  return splitRuns(series, p.bridge).filter((run) => run.length >= 2)
+  return splitRuns(series, p.bridge)
 }
 
 export function projectSeries(series: DiagnosticsSeries, p: Projection): string {
   const { x, y } = scales(series.length, p)
   return drawableRuns(series, p)
-    .map(
-      (run) =>
-        `M${x(run[0].i)} ${y(run[0].v)}` +
+    .map((run) => {
+      const [x0, y0] = [x(run[0].i), y(run[0].v)]
+      if (run.length === 1) {
+        // A single-point run has no width to draw as a line, but it is real data — most
+        // often a process whose entire life fit inside one or two 5s buckets, which is
+        // exactly the crash-loop churn this ring exists to surface. Dropping it here
+        // would render that row as a label and four em-dashes with nothing in between:
+        // zero information for the flagship scenario. `M x yL x y` is a zero-length
+        // segment; both consuming components (Sparkline, TimelineChart) set
+        // strokeLinecap="round", and a round cap on a zero-length subpath paints a dot
+        // of diameter strokeWidth at that point (SVG spec behaviour for degenerate
+        // subpaths — a butt cap would draw nothing, which is why this depends on the
+        // linecap staying "round").
+        return `M${x0} ${y0}L${x0} ${y0}`
+      }
+      return (
+        `M${x0} ${y0}` +
         run
           .slice(1)
           .map((pt) => `L${x(pt.i)} ${y(pt.v)}`)
           .join('')
-    )
+      )
+    })
     .join('')
 }
 
 export function projectArea(series: DiagnosticsSeries, p: Projection): string {
   const { x, y } = scales(series.length, p)
   const base = r2(p.height)
-  return drawableRuns(series, p)
-    .map((run) => {
-      const last = run[run.length - 1]
-      const head = `M${x(run[0].i)} ${base}L${x(run[0].i)} ${y(run[0].v)}`
-      const body = run
-        .slice(1)
-        .map((pt) => `L${x(pt.i)} ${y(pt.v)}`)
-        .join('')
-      return `${head}${body}L${x(last.i)} ${base}Z`
-    })
-    .join('')
+  return (
+    drawableRuns(series, p)
+      // Unlike projectSeries, a lone point has no area: a zero-width filled region is
+      // meaningless (and a "M x yL x yL x yZ" would flicker as an invisible sliver, not a
+      // dot — area has no cap to render one).
+      .filter((run) => run.length >= 2)
+      .map((run) => {
+        const last = run[run.length - 1]
+        const head = `M${x(run[0].i)} ${base}L${x(run[0].i)} ${y(run[0].v)}`
+        const body = run
+          .slice(1)
+          .map((pt) => `L${x(pt.i)} ${y(pt.v)}`)
+          .join('')
+        return `${head}${body}L${x(last.i)} ${base}Z`
+      })
+      .join('')
+  )
 }
 
 const PERCENT_STEPS = [5, 10, 25, 50, 100]
@@ -127,6 +150,10 @@ export function niceMax(series: DiagnosticsSeries, kind: 'percent' | 'bytes'): n
   // 500,000,000 does not.
   const base = 2 ** Math.floor(Math.log2(peak))
   for (const m of [1, 1.5, 2]) if (peak <= m * base) return m * base
+  // Belt-and-braces, not currently reachable: base = 2^floor(log2(peak)) always satisfies
+  // base <= peak < 2*base, so the `m = 2` arm of the loop above always returns first.
+  // Kept as a guard against a future change to the step list rather than trusting that
+  // invariant to hold forever silently.
   return base * 2
 }
 

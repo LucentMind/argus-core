@@ -19,6 +19,20 @@ describe('Sparkline', () => {
     expect(svg).toHaveAttribute('data-empty', 'true')
     expect(svg.querySelector('path')).toBeNull()
   })
+
+  it('renders a process whose whole life fits in one bucket as a dot, not nothing', () => {
+    // Two correct-in-isolation decisions (a 1-point run has no line; an ended row's
+    // numeric cells are all em-dashes) used to combine into a hole: a crash-looping
+    // process — the flagship scenario this ring exists to surface — rendered as a label
+    // and four dashes with an empty <svg> in between. A zero-length `M x yL x y` segment
+    // with a round linecap closes that gap.
+    render(<Sparkline series={[7, null, null]} max={10} bridge={3} label="CPU for foo" />)
+    const svg = screen.getByTestId('diag-sparkline')
+    expect(svg).toHaveAttribute('data-empty', 'false')
+    const d = svg.querySelector('path')?.getAttribute('d')
+    expect(d).toMatch(/^M(-?[\d.]+) (-?[\d.]+)L\1 \2$/)
+    expect(svg.querySelector('path')).toHaveAttribute('stroke-linecap', 'round')
+  })
 })
 
 describe('TimelineChart', () => {
