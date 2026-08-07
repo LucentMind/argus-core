@@ -117,8 +117,9 @@ export interface SessionDeps {
    *  makes background turns structurally unable to hang: PendingApprovals/PendingDialogs have
    *  no timeout, so an ask with no one to answer it blocks the turn forever. It is also the
    *  trust boundary: an unattended run must never take a risky action nobody approved.
-   *  NOT a permission mode — `agentOptions.permissionMode` stays whatever it was; in
-   *  particular this must never be paired with a mode that skips the canUseTool gate. */
+   *  NOT a permission mode itself — `agentOptions.permissionMode` is otherwise honoured — but
+   *  it does force one: `bypassPermissions` is downgraded to 'default' because both deny seams
+   *  sit behind the gate that mode skips. See the guard at the top of the constructor. */
   unattended?: boolean
   /** Live tool-risk overrides, re-read on every permission decision. */
   toolRisk?: () => Record<string, RiskLevel>
@@ -339,6 +340,22 @@ export class CaseSession {
       caseDir: dir
     }
     const ao = deps.agentOptions ?? {}
+    // Structural guard on the unattended trust boundary, NOT a preference: both deny seams
+    // (handleToolRequest, classifyOnly) are unreachable under `bypassPermissions`. Every
+    // non-Claude driver returns an approve short-circuit BEFORE it calls either seam
+    // (drivers/copilot/index.ts, drivers/acp/index.ts, drivers/codex/index.ts, each at their
+    // `ctx.permissionMode === 'bypassPermissions'` branch), and the Claude SDK skips
+    // canUseTool entirely once queryOptions.ts pairs the mode with
+    // allowDangerouslySkipPermissions. So a single stray agentOptions.permissionMode from a
+    // caller would silently void the boundary. Downgraded here, at the one place that builds
+    // the driver context, so no caller CAN void it. Other modes are safe to honour: `plan`
+    // and `default` route through canUseTool, and `acceptEdits` routes through classifyOnly,
+    // which denies asks under unattended too.
+    const requestedPermissionMode = ao.permissionMode ?? 'default'
+    const permissionMode: PermissionMode =
+      deps.unattended && requestedPermissionMode === 'bypassPermissions'
+        ? 'default'
+        : requestedPermissionMode
     // The options bag, stream loop, cursor/result extraction, and the SDK prompt envelope
     // now live in the driver (agent/driver.ts + drivers/*). CaseSession supplies the
     // driver-agnostic context — persona/memory append, native tool deps, the approval
@@ -373,7 +390,9 @@ export class CaseSession {
             driverKind: deps.driver.kind,
             model: ao.model ?? null,
             mode: this.mode,
-            permissionMode: ao.permissionMode ?? 'default',
+            // The effective mode, not the requested one — the capture must record what the
+            // driver actually received (see the hoisting note above).
+            permissionMode,
             transport,
             systemAppend,
             fragments: captureFragments({
@@ -406,7 +425,7 @@ export class CaseSession {
       ),
       model: ao.model,
       cliPath: ao.cliPath,
-      permissionMode: ao.permissionMode ?? 'default',
+      permissionMode,
       runOptions: ao.runOptions,
       systemAppend,
       resolvePrompt: deps.resolvePrompt,
