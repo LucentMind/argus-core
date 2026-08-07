@@ -1,6 +1,7 @@
 import os from 'node:os'
 import { describe, it, expect } from 'vitest'
 import { probeAuth } from '../probe'
+import { agentScratchCwd } from '../../../scratchCwd'
 import { AsyncQueue } from '../../../asyncQueue'
 import type { CreateQueryFn } from '../index'
 
@@ -175,14 +176,15 @@ describe('probeAuth', () => {
     expect(captured?.pathToClaudeCodeExecutable).toBeUndefined()
   })
 
-  it('pins cwd to the OS temp dir — an unset cwd inherits the packaged app cwd ("/" on macOS) and the CLI boot walk triggers TCC prompts attributed to Argus', async () => {
+  it('pins cwd to an empty scratch dir, not the temp root — an unset cwd inherits the packaged app cwd ("/" on macOS) and trips TCC, but the temp root itself made the CLI boot walk take 6–17s against a 10s budget', async () => {
     let captured: Record<string, unknown> | undefined
     const spy: CreateQueryFn = (args) => {
       captured = args.options as Record<string, unknown>
       return fake([{ type: 'system', subtype: 'init', model: 'claude-sonnet-5' }])(args)
     }
     await probeAuth(spy)
-    expect(captured?.cwd).toBe(os.tmpdir())
+    expect(captured?.cwd).toBe(agentScratchCwd())
+    expect(captured?.cwd).not.toBe(os.tmpdir())
   })
 
   it('a successful init reports verified:false — init proves the CLI booted, not that credentials work', async () => {

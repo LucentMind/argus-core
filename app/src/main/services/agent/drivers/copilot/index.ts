@@ -32,6 +32,7 @@ import {
   type CopilotToolDef
 } from './client'
 import { acquireAuthRejectionTrap } from './authTrap'
+import { agentScratchCwd } from '../../scratchCwd'
 import { runCopilotHeadless } from './headless'
 import { copilotCustomAgents } from './subagentBinding'
 
@@ -502,11 +503,14 @@ export function createCopilotDriver(
       const releaseTrap = acquireAuthRejectionTrap()
       try {
         // A probe only needs a scratch home to boot the runtime; auth resolves via gh-cli
-        // regardless. Use the OS temp dir so probing never pollutes the repo/cwd.
+        // regardless. Both dirs sit under the OS temp dir so probing never pollutes the
+        // repo/cwd — but neither is the temp root itself: a CLI that walks its cwd at boot
+        // pays for every entry in a long-lived %TEMP% (scratchCwd.ts, where that cost made
+        // the Claude probe miss its timeout on every run).
         const probeHome = copilotHome(os.tmpdir())
         client = clientFactory({
           baseDirectory: probeHome,
-          workingDirectory: os.tmpdir(),
+          workingDirectory: agentScratchCwd(),
           ...((config2.cliPath ?? config.cliPath)
             ? { cliPath: config2.cliPath ?? config.cliPath }
             : {})

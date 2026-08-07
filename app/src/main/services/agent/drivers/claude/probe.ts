@@ -1,7 +1,7 @@
-import os from 'node:os'
 import type { AuthStatus } from '../../../../../shared/types'
 import type { CreateQueryFn } from './index'
 import { claudeSpawnEnv, resolveClaudeCliPath } from './cliPath'
+import { agentScratchCwd } from '../../scratchCwd'
 
 /** "max*"/"pro*"/"team*"/"enterprise*" prefixes win; apiKey token source overrides all; else title-case. */
 function subscriptionLabel(
@@ -62,8 +62,9 @@ export async function probeAuth(
       options: {
         // Without an explicit cwd the CLI inherits the app's — "/" for a Finder-launched
         // packaged build — and its boot-time discovery walks into TCC-protected folders,
-        // prompting as Argus. Same containment as the copilot probe's workingDirectory.
-        cwd: os.tmpdir(),
+        // prompting as Argus. An empty scratch dir rather than the temp root itself: the
+        // same boot walk over a large %TEMP% outran this timeout every time (scratchCwd.ts).
+        cwd: agentScratchCwd(),
         maxTurns: 0,
         allowedTools: [],
         // Auth probe: keep it a pure ping, with no auto-memory read. See claudeSpawnEnv.

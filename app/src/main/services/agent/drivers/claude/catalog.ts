@@ -1,8 +1,8 @@
-import os from 'node:os'
 import type { ModelOptionInfo } from '../../../../../shared/runOptions'
 import { CLAUDE_MODEL_INFO, resolveModelInfo } from '../../../../../shared/drivers'
 import type { CreateQueryFn } from './index'
 import { claudeSpawnEnv, resolveClaudeCliPath } from './cliPath'
+import { agentScratchCwd } from '../../scratchCwd'
 
 /**
  * Offline fallback: the shared built-in table (`CLAUDE_MODEL_SPECS` in shared/drivers.ts),
@@ -63,8 +63,9 @@ async function ask(
       options: {
         // Same containment as probe.ts: without an explicit cwd the CLI inherits the
         // app's — "/" for a Finder-launched packaged build — and its boot-time discovery
-        // walks into TCC-protected folders, prompting as Argus.
-        cwd: os.tmpdir(),
+        // walks into TCC-protected folders, prompting as Argus. Empty scratch dir rather
+        // than the temp root, for the boot-walk cost measured in scratchCwd.ts.
+        cwd: agentScratchCwd(),
         maxTurns: 0,
         allowedTools: [],
         env: claudeSpawnEnv(),

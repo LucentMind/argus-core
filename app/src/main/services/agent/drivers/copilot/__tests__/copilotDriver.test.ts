@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createCopilotDriver, isCopilotAuthErrorMessage } from '../index'
+import { agentScratchCwd } from '../../../scratchCwd'
 import type {
   CopilotClientFactory,
   CopilotClientLike,
@@ -401,6 +402,18 @@ describe('createCopilotDriver — probeAuth', () => {
     expect(res.email).toBeUndefined() // login is NOT an email — never lie
     expect(res.version).toBe('1.0.71')
     expect(stop).toHaveBeenCalled() // probe client is torn down
+  })
+
+  it('boots the probe runtime in an empty scratch dir, not the temp root — a CLI that walks its cwd at boot pays for every entry in a long-lived %TEMP% (see scratchCwd.ts)', async () => {
+    const { factory } = makeFake({ authenticated: true })
+    let captured: { workingDirectory: string } | undefined
+    const spy: CopilotClientFactory = (o) => {
+      captured = o
+      return factory(o)
+    }
+    await createCopilotDriver({}, { clientFactory: spy }).probeAuth({})
+    expect(captured?.workingDirectory).toBe(agentScratchCwd())
+    expect(captured?.workingDirectory).not.toBe(os.tmpdir())
   })
 
   it('reports not-ok when unauthenticated', async () => {

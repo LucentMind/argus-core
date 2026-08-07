@@ -1,7 +1,7 @@
-import os from 'node:os'
 import { abortRacer, type HeadlessOpts } from '../../driver'
 import type { CreateQueryFn } from '.'
 import { claudeSpawnEnv, resolveClaudeCliPath } from './cliPath'
+import { agentScratchCwd } from '../../scratchCwd'
 
 // One message, then hold the stream open — the CLI only emits after the prompt
 // stream yields (probe.ts idiom); interrupt() in finally tears the process down.
@@ -61,8 +61,9 @@ export async function runClaudeHeadless(
       options: {
         // Without an explicit cwd the CLI inherits the app's — "/" for a Finder-launched
         // packaged build — and its boot-time discovery walks into TCC-protected folders,
-        // prompting as Argus. Same containment as the auth probe (probe.ts).
-        cwd: os.tmpdir(),
+        // prompting as Argus. Same containment as the auth probe (probe.ts), and the same
+        // empty scratch dir rather than the temp root (scratchCwd.ts).
+        cwd: agentScratchCwd(),
         maxTurns: 1,
         allowedTools: [],
         // No auto-memory in a one-shot: it cannot write here (no tools), but it would still

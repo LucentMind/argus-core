@@ -196,6 +196,56 @@ describe('AuthCache', () => {
     expect(probe).toHaveBeenCalledTimes(2)
   })
 
+  it('coalesces concurrent get() calls onto one probe — each renderer caller used to spawn its own CLI, and the pile-up is what pushed a marginal probe past its timeout', async () => {
+    const inFlight = deferred<AuthStatus>()
+    const probe = vi.fn<() => Promise<AuthStatus>>().mockReturnValue(inFlight.promise)
+    const c = new AuthCache(probe, () => {})
+
+    const all = Promise.all([c.get(), c.get(), c.get()])
+    inFlight.resolve(ok(false))
+
+    expect(await all).toEqual([ok(false), ok(false), ok(false)])
+    expect(probe).toHaveBeenCalledTimes(1)
+  })
+
+  it('a failed probe that has already settled is not shared with the next caller (the in-flight slot is released, not cached)', async () => {
+    const probe = vi
+      .fn<() => Promise<AuthStatus>>()
+      .mockResolvedValue({ ok: false, verified: false, detail: 'nope' })
+    const c = new AuthCache(probe, () => {})
+    await c.get()
+    await c.get()
+    expect(probe).toHaveBeenCalledTimes(2)
+  })
+
+  it('force starts a fresh probe instead of joining one already in flight — "re-probe now" must not be answered by a probe that started before the reason to re-probe existed', async () => {
+    const stale = deferred<AuthStatus>()
+    const probe = vi
+      .fn<() => Promise<AuthStatus>>()
+      .mockReturnValueOnce(stale.promise)
+      .mockResolvedValue(ok(true))
+    const c = new AuthCache(probe, () => {})
+
+    const first = c.get() // in flight...
+    const forced = c.get(true) // ...force must not join it
+    expect(probe).toHaveBeenCalledTimes(2)
+
+    stale.resolve({ ok: false, verified: false, detail: 'stale' })
+    expect((await first).detail).toBe('stale')
+    expect((await forced).ok).toBe(true)
+  })
+
+  it('a rejecting probe releases the in-flight slot, so the next get() can probe again', async () => {
+    const probe = vi
+      .fn<() => Promise<AuthStatus>>()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValue(ok(true))
+    const c = new AuthCache(probe, () => {})
+    await expect(c.get()).rejects.toThrow('boom')
+    expect((await c.get()).ok).toBe(true)
+    expect(probe).toHaveBeenCalledTimes(2)
+  })
+
   it('a get() with no interleaved invalidation still caches its success', async () => {
     const probe = vi.fn<() => Promise<AuthStatus>>().mockResolvedValue(ok(true))
     const c = new AuthCache(probe, () => {})

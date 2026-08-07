@@ -2,6 +2,7 @@ import os from 'node:os'
 import { describe, it, expect, vi } from 'vitest'
 import { createClaudeDriver, type CreateQueryFn } from '..'
 import { runClaudeHeadless } from '../headless'
+import { agentScratchCwd } from '../../../scratchCwd'
 
 /** A scripted query handle: yields the given SDK messages, then a success result. */
 function scriptedQuery(texts: string[]): {
@@ -118,11 +119,12 @@ describe('claude runHeadless', () => {
     expect(q.opts()).not.toHaveProperty('pathToClaudeCodeExecutable')
   })
 
-  it('pins cwd to the OS temp dir — an unset cwd inherits the packaged app cwd ("/" on macOS) and the CLI boot walk triggers TCC prompts attributed to Argus', async () => {
+  it('pins cwd to an empty scratch dir, not the temp root — an unset cwd inherits the packaged app cwd ("/" on macOS) and trips TCC, but the temp root itself can hold enough entries to make the CLI boot walk take seconds', async () => {
     const q = scriptedQuery(['ok'])
     const d = createClaudeDriver(q.fn)
     await d.runHeadless!('prompt', { argusHome: '/tmp/argus' })
-    expect(q.opts()).toMatchObject({ cwd: os.tmpdir() })
+    expect(q.opts()).toMatchObject({ cwd: agentScratchCwd() })
+    expect((q.opts() as { cwd: string }).cwd).not.toBe(os.tmpdir())
   })
 
   it('rejects when the timeout elapses first', async () => {
