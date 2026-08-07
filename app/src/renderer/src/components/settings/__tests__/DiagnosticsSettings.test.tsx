@@ -355,3 +355,129 @@ describe('DiagnosticsSettings timeline', () => {
     expect(screen.getByTestId('diag-cpu')).toBeInTheDocument()
   })
 })
+
+describe('DiagnosticsSettings object sparklines and ended rows', () => {
+  const liveObject = {
+    id: '100:1000',
+    kind: 'driver' as const,
+    label: 'Cursor driver',
+    orphan: false,
+    inferred: false,
+    rootPid: 100,
+    processCount: 2,
+    cpuPercent: 3,
+    rssBytes: 200_000_000,
+    uptimeMs: 60_000
+  }
+
+  it('renders a sparkline for a live row that has history', async () => {
+    ;(window.argus.diagnostics.history as ReturnType<typeof vi.fn>).mockResolvedValue(
+      emptyHistory(4, {
+        objects: [
+          {
+            id: '100:1000',
+            label: 'Cursor driver',
+            kind: 'driver',
+            inferred: false,
+            live: true,
+            cpuPercent: [1, 2, 3, 4],
+            rssBytes: [10, 20, 30, 40]
+          }
+        ]
+      })
+    )
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot({ objects: [liveObject] })))
+
+    const row = screen.getByTestId('diag-object-row')
+    expect(within(row).getByTestId('diag-sparkline')).toHaveAttribute('data-empty', 'false')
+  })
+
+  it('leaves the sparkline cell empty for a row with no history yet', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot({ objects: [liveObject] })))
+
+    const row = screen.getByTestId('diag-object-row')
+    expect(within(row).getByTestId('diag-sparkline')).toHaveAttribute('data-empty', 'true')
+  })
+
+  it('shows a dimmed ended row for an object that ran in the window but is gone', async () => {
+    ;(window.argus.diagnostics.history as ReturnType<typeof vi.fn>).mockResolvedValue(
+      emptyHistory(4, {
+        objects: [
+          {
+            id: '200:2000',
+            label: 'Codex driver',
+            kind: 'driver',
+            inferred: false,
+            live: false,
+            cpuPercent: [9, 8, null, null],
+            rssBytes: [10, 20, null, null]
+          }
+        ]
+      })
+    )
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot({ objects: [liveObject] })))
+
+    const ended = screen.getByTestId('diag-object-row-ended')
+    expect(ended).toHaveTextContent('Codex driver')
+    expect(ended).toHaveTextContent('ended')
+    // Numeric cells are em-dashes: an ended row has no current CPU, memory or uptime.
+    expect(ended).not.toHaveTextContent('%')
+  })
+
+  it('never lists the same object as both live and ended', async () => {
+    // `live` is derived from the ring's last recorded bucket while the snapshot's row set
+    // comes from the 1Hz push — the two are fetched on different cadences and can
+    // disagree for one tick. Both conditions must hold for a row to be "ended".
+    ;(window.argus.diagnostics.history as ReturnType<typeof vi.fn>).mockResolvedValue(
+      emptyHistory(4, {
+        objects: [
+          {
+            id: '100:1000',
+            label: 'Cursor driver',
+            kind: 'driver',
+            inferred: false,
+            live: false,
+            cpuPercent: [1, 2, 3, 4],
+            rssBytes: [10, 20, 30, 40]
+          }
+        ]
+      })
+    )
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot({ objects: [liveObject] })))
+
+    expect(screen.queryByTestId('diag-object-row-ended')).toBeNull()
+    expect(screen.getAllByTestId('diag-object-row')).toHaveLength(1)
+  })
+
+  it('caps ended rows and says how many were left out', async () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      id: `${i}:1`,
+      label: `Gone ${i}`,
+      kind: 'driver' as const,
+      inferred: false,
+      live: false,
+      cpuPercent: [i + 1, null, null, null],
+      rssBytes: [10, null, null, null]
+    }))
+    ;(window.argus.diagnostics.history as ReturnType<typeof vi.fn>).mockResolvedValue(
+      emptyHistory(4, { objects: many })
+    )
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot({ objects: [liveObject] })))
+
+    expect(screen.getAllByTestId('diag-object-row-ended')).toHaveLength(8)
+    expect(screen.getByText(/4 more/)).toBeInTheDocument()
+  })
+
+  it('scopes the reconciliation claim to the live rows', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot({ objects: [liveObject] })))
+    // The unqualified "These rows account for the footprint" would be false the moment an
+    // ended row appears, because ended rows sit outside 2a's partition.
+    expect(screen.getByText(/live rows account for the footprint/i)).toBeInTheDocument()
+  })
+})

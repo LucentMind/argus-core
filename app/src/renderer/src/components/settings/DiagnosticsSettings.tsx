@@ -2,14 +2,21 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import type {
   DiagnosticsHistory,
+  DiagnosticsHistorySeries,
   DiagnosticsObject,
+  DiagnosticsSeries,
   DiagnosticsSnapshot,
   SidecarHealth,
   SidecarStatus
 } from '../../../../shared/diagnostics'
-import { bridgeBuckets } from '../../lib/timeline'
+import { bridgeBuckets, lastIndexWithData, niceMax } from '../../lib/timeline'
+import { Sparkline } from './diagnostics/Sparkline'
 import { TimelineChart } from './diagnostics/TimelineChart'
 import { SettingsSection } from './settingsLayout'
+
+/** Ended rows shown before the overflow count. Uncapped, a crash-loop would push sixty
+ *  rows into the table and bury the live ones. */
+const ENDED_ROW_LIMIT = 8
 
 // SettingsSection's real signature (settingsLayout.tsx:53) is
 // { title, subtitle?, action?, count?, collapsed?, onToggle?, children } — it takes
@@ -103,7 +110,48 @@ function Tile(props: {
   )
 }
 
-function ObjectRow({ o }: { o: DiagnosticsObject }): React.JSX.Element {
+/**
+ * The rows to render below the live objects: the ones that ran inside the window and
+ * have since exited.
+ *
+ * Requires BOTH `!s.live` and absence from the live id set. `live` is derived inside the
+ * ring from its last recorded bucket, while the id set comes from the 1Hz snapshot push;
+ * the two are fetched on different cadences and can disagree for a tick. Demanding both
+ * means a row can never appear in two groups at once.
+ *
+ * `unattributed` is excluded explicitly: it is synthetic and exists whenever a snapshot
+ * does, so it can never legitimately be an ended row.
+ */
+function splitRows(
+  objects: DiagnosticsObject[],
+  history: DiagnosticsHistory | null
+): { ended: DiagnosticsHistorySeries[]; endedOverflow: number } {
+  const liveIds = new Set(objects.map((o) => o.id))
+  const ended = (history?.objects ?? [])
+    .filter((s) => !s.live && !liveIds.has(s.id) && s.id !== 'unattributed')
+    .sort((a, b) => {
+      // Most recently finished first; id breaks ties so the order is deterministic
+      // rather than dependent on array insertion order.
+      const d = lastIndexWithData(b.cpuPercent) - lastIndexWithData(a.cpuPercent)
+      return d !== 0 ? d : a.id.localeCompare(b.id)
+    })
+  return {
+    ended: ended.slice(0, ENDED_ROW_LIMIT),
+    endedOverflow: Math.max(0, ended.length - ENDED_ROW_LIMIT)
+  }
+}
+
+function ObjectRow({
+  o,
+  series,
+  max,
+  bridge
+}: {
+  o: DiagnosticsObject
+  series: DiagnosticsSeries | null
+  max: number
+  bridge: number
+}): React.JSX.Element {
   const unattributed = o.kind === 'unattributed'
   return (
     <tr
@@ -131,12 +179,59 @@ function ObjectRow({ o }: { o: DiagnosticsObject }): React.JSX.Element {
           </span>
         ) : null}
       </td>
+      <td className="px-3 py-1">
+        <Sparkline
+          series={series ?? []}
+          max={max}
+          bridge={bridge}
+          label={`CPU history · ${o.label}`}
+        />
+      </td>
       <td className="px-3 py-1 text-right font-mono">{formatPercent(o.cpuPercent)}%</td>
       <td className="px-3 py-1 text-right font-mono">{formatBytes(o.rssBytes)}</td>
       <td className="px-3 py-1 text-right font-mono text-mute">
         {unattributed ? '—' : formatUptime(o.uptimeMs)}
       </td>
       <td className="px-3 py-1 text-right font-mono text-mute">{o.processCount}</td>
+    </tr>
+  )
+}
+
+function EndedObjectRow({
+  s,
+  max,
+  bridge
+}: {
+  s: DiagnosticsHistorySeries
+  max: number
+  bridge: number
+}): React.JSX.Element {
+  return (
+    <tr
+      data-testid="diag-object-row-ended"
+      data-kind={s.kind}
+      className="border-t border-hair text-mute"
+    >
+      <td className="px-3 py-1">
+        {s.label}
+        <span className="ml-2 text-xs" title="This process has exited; its history is kept">
+          ended
+        </span>
+      </td>
+      <td className="px-3 py-1">
+        <Sparkline
+          series={s.cpuPercent}
+          max={max}
+          bridge={bridge}
+          label={`CPU history · ${s.label}`}
+        />
+      </td>
+      {/* An ended row has no current reading. Em-dashes rather than a stale last value,
+          which would read as live. */}
+      <td className="px-3 py-1 text-right font-mono">—</td>
+      <td className="px-3 py-1 text-right font-mono">—</td>
+      <td className="px-3 py-1 text-right font-mono">—</td>
+      <td className="px-3 py-1 text-right font-mono">—</td>
     </tr>
   )
 }
@@ -190,6 +285,17 @@ export default function DiagnosticsSettings(): React.JSX.Element {
   }
 
   const hasTree = snap.tree.length > 0
+
+  const seriesById = new Map((history?.objects ?? []).map((s) => [s.id, s]))
+  const { ended, endedOverflow } = splitRows(snap.objects, history)
+  // ONE axis maximum across every sparkline in the table, so a tall spike in one row
+  // reads as taller than a flat line in another. Per-row autoscaling would make every
+  // row look equally busy — the exact opposite of what the column is for.
+  const sparkMax = niceMax(
+    [...seriesById.values()].flatMap((s) => s.cpuPercent),
+    'percent'
+  )
+  const sparkBridge = bridgeBuckets(history?.bucketMs ?? 5_000)
 
   const windowSelector = (
     <div
@@ -284,15 +390,16 @@ export default function DiagnosticsSettings(): React.JSX.Element {
         </div>
       </SettingsSection>
 
-      {snap.objects.length > 0 && (
+      {(snap.objects.length > 0 || ended.length > 0) && (
         <SettingsSection
           title="Argus objects"
-          subtitle="Every process attributed to the driver, connector, or window that owns it. These rows account for the footprint above (displayed values are independently rounded, so they may not add up exactly)."
+          subtitle="Every process attributed to the driver, connector, or window that owns it. The live rows account for the footprint above (displayed values are independently rounded, so they may not add up exactly); rows below the divider have already exited and are shown for their history only."
         >
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-mute">
                 <th className="px-3 py-1">Object</th>
+                <th className="px-3 py-1">CPU · {windowId}</th>
                 <th className="px-3 py-1 text-right">CPU</th>
                 <th className="px-3 py-1 text-right">Memory</th>
                 <th className="px-3 py-1 text-right">Uptime</th>
@@ -301,7 +408,24 @@ export default function DiagnosticsSettings(): React.JSX.Element {
             </thead>
             <tbody>
               {snap.objects.map((o) => (
-                <ObjectRow key={o.id} o={o} />
+                <ObjectRow
+                  key={o.id}
+                  o={o}
+                  series={seriesById.get(o.id)?.cpuPercent ?? null}
+                  max={sparkMax}
+                  bridge={sparkBridge}
+                />
+              ))}
+              {ended.length > 0 && (
+                <tr className="border-t border-hair">
+                  <td colSpan={6} className="px-3 py-1 text-xs uppercase tracking-wide text-mute">
+                    Ended in the last {windowId}
+                    {endedOverflow > 0 ? ` · ${endedOverflow} more not shown` : ''}
+                  </td>
+                </tr>
+              )}
+              {ended.map((s) => (
+                <EndedObjectRow key={s.id} s={s} max={sparkMax} bridge={sparkBridge} />
               ))}
             </tbody>
           </table>
