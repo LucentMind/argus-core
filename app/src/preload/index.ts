@@ -66,6 +66,7 @@ import type {
   PromptCaptureDetail
 } from '../shared/promptsIpc'
 import type { DistillEvalExportResult } from '../shared/distillEval'
+import type { RoutineDef, RoutinesPayload } from '../shared/routines'
 import type {
   JiraAttachmentInfo,
   JiraAttachmentProgress,
@@ -739,6 +740,21 @@ const argus = {
     audit: (): Promise<MemoryAuditEntry[]> => invoke(IPC.memoryAudit),
     archive: (name: string): Promise<MemoryTopicsPayload> => invoke(IPC.memoryArchive, name),
     restore: (name: string): Promise<MemoryTopicsPayload> => invoke(IPC.memoryRestore, name)
+  },
+  routines: {
+    list: (): Promise<RoutinesPayload> => invoke(IPC.routinesList),
+    /** Upsert by id. Every mutation resolves to the refreshed payload, so a caller never has
+     *  to follow a write with a read. */
+    save: (routine: RoutineDef): Promise<RoutinesPayload> => invoke(IPC.routinesSave, routine),
+    remove: (id: string): Promise<RoutinesPayload> => invoke(IPC.routinesDelete, id),
+    /** Rejects when the routine is unknown, disabled, or another run is already in flight. */
+    runNow: (id: string): Promise<RoutinesPayload> => invoke(IPC.routinesRunNow, id),
+    /** Payload-free: the listener re-reads `list()`, so a missed broadcast still converges. */
+    onChanged: (cb: () => void): (() => void) => {
+      const listener = (): void => cb()
+      ipcRenderer.on(IPC.routinesChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.routinesChanged, listener)
+    }
   },
   /** Dev-only prompt surface. Exposed unconditionally — main enforces the gate, so a build
    *  without it rejects these calls rather than hiding the bridge. */

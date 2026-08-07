@@ -333,5 +333,16 @@ export const IPC = {
    *  touched — the panel uses this to show live exec/tech previews before confirming. */
   rcaRenderPreview: 'rca:render-preview',
   /** main → all renderer windows broadcast: a case's RCA job state changed. */
-  rcaChanged: 'rca:changed'
+  rcaChanged: 'rca:changed',
+  // — routines (saved prompt + trigger, run unattended) —
+  routinesList: 'routines:list',
+  /** Upsert. The argument is untyped at runtime; the store zod-validates it. */
+  routinesSave: 'routines:save',
+  routinesDelete: 'routines:delete',
+  /** Start one run now. Rejects synchronously on unknown/disabled/already-running. */
+  routinesRunNow: 'routines:run-now',
+  /** main → all renderer windows broadcast: the routine list, the running routine, or the run
+   *  history changed. Payload-free on purpose — every listener re-reads `routinesList`, so a
+   *  window that missed an earlier broadcast still converges. */
+  routinesChanged: 'routines:changed'
 } as const

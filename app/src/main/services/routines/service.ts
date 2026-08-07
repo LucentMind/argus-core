@@ -10,13 +10,27 @@ import type { BackgroundTurnParams, BackgroundTurnResult } from '../agent/backgr
 // stay pure Node so a future headless server can host it. Change announcement is the injected
 // `notify` callback only — never BrowserWindow.
 
+/**
+ * What `runTurn` is handed: everything `runBackgroundTurn` needs, plus the driver kind this
+ * routine asked for.
+ *
+ * `driverKind` is carried FORWARD rather than looked up backward. index.ts binds the driver, and
+ * the alternative — reverse-mapping `params.caseSlug` to a routine through the store at run time
+ * — would read the CURRENT definition, so editing or deleting a routine mid-run could resolve a
+ * different driver than the session row this service already wrote. Here the kind is decided once,
+ * at the same moment the session row records it, and the two cannot disagree.
+ */
+export interface RoutineTurnRequest extends BackgroundTurnParams {
+  driverKind: string
+}
+
 export interface RoutinesServiceDeps {
   db: DatabaseSync
   argusHome: string
   store: RoutineStore
   /** Executes one background turn; production binds runBackgroundTurn + driver resolution
    *  in index.ts. Injected so these tests never touch a driver. */
-  runTurn: (params: BackgroundTurnParams) => Promise<BackgroundTurnResult>
+  runTurn: (params: RoutineTurnRequest) => Promise<BackgroundTurnResult>
   /** Change announcement (index.ts wires broadcast). */
   notify?: () => void
   now?: () => Date
@@ -96,12 +110,16 @@ export class RoutinesService {
     const runId = insertRoutineRun(db, routine.id, slug, this.deps.now)
     this.deps.notify?.()
 
+    // One decision, two consumers: the session row below and the turn request further down.
+    // Deriving it twice is how the recorded driver and the executing driver drift apart.
+    const driverKind = routine.driverKind ?? 'claude-agent-sdk'
+
     let result: BackgroundTurnResult
     try {
       const rec =
         getCase(db, slug) ?? createCase(db, argusHome, { slug, title: `Routine: ${routine.name}` })
       const session = createSession(db, slug, {
-        driverKind: routine.driverKind ?? 'claude-agent-sdk',
+        driverKind,
         model: routine.model ?? null
       })
       attachRunSession(db, runId, session.id)
@@ -119,6 +137,7 @@ export class RoutinesService {
         caseId: rec.id,
         caseSlug: slug,
         sessionId: session.id,
+        driverKind,
         prompt: preamble + routine.prompt,
         timeoutMs: routine.timeoutMs,
         ...(routine.model ? { model: routine.model } : {})

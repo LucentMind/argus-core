@@ -313,12 +313,19 @@ import {
   collectWindowDescriptors,
   type WindowSource
 } from './services/diagnostics/windowDescriptors'
+import { RoutineStore } from './services/routines/store'
+import { RoutinesService } from './services/routines/service'
+import { runBackgroundTurn } from './services/agent/background'
+import type { RoutinesPayload } from '../shared/routines'
 
 let agentService: AgentService | null = null
 let providerStatusService: ProviderStatusService | null = null
 let langfuseExporter: LangfuseExporter | null = null
 let mainWindow: BrowserWindow | null = null
 let editorWindowService: EditorWindowService | null = null
+// Module-scope for the same reason as draftStore below: registerIpc() constructs it, but
+// `before-quit` lives out here and has to close the config/routines.json directory watcher.
+let routineStore: RoutineStore | null = null
 /**
  * The theme main believes the UI is on. Windows are constructed before any renderer can report
  * one, so the first main window opens on this default and self-corrects the instant uiStore's
@@ -1512,15 +1519,30 @@ function registerIpc(): void {
   )
 
   // — agent —
+  // Hoisted out of the AgentService literal below because the routines engine's background
+  // turns must run with EXACTLY these — an unattended run that saw a different skills set or
+  // wrote its transcript somewhere else would be a second, silently divergent session shape.
+  // Sharing the bindings makes that structural instead of a comment asking two literals to
+  // agree.
+  const skillsRoots = [
+    sharedSkillsDir(argusHome),
+    sharedReferencesDir(argusHome),
+    graphsRoot(argusHome)
+  ]
+  const mirrorFactory = (caseSlug: string, sessionId: number): SessionMirror =>
+    new SessionMirror(
+      db,
+      path.join(caseDir(argusHome, caseSlug), 'sessions', `${sessionId}.jsonl`),
+      {
+        caseId: listCases(db).find((c) => c.slug === caseSlug)?.id ?? 0,
+        sessionId
+      }
+    )
   agentService = new AgentService({
     db,
     argusHome,
     detection,
-    skillsRoots: [
-      sharedSkillsDir(argusHome),
-      sharedReferencesDir(argusHome),
-      graphsRoot(argusHome)
-    ],
+    skillsRoots,
     personaFragments: () => packRegistry.personaFragments(),
     referenceIndex: () =>
       buildReferenceIndex(sharedReferencesDir(argusHome), refSyncStore.get(), resolvePrompt),
@@ -1560,15 +1582,7 @@ function registerIpc(): void {
         ? externalAppHost!.dispatchToProcess({ caseSlug, packId, windowId }, cmd, args)
         : panelHost!.dispatchToPanel({ caseSlug, packId, windowId }, cmd, args)
     },
-    mirrorFactory: (caseSlug, sessionId) =>
-      new SessionMirror(
-        db,
-        path.join(caseDir(argusHome, caseSlug), 'sessions', `${sessionId}.jsonl`),
-        {
-          caseId: listCases(db).find((c) => c.slug === caseSlug)?.id ?? 0,
-          sessionId
-        }
-      )
+    mirrorFactory
   })
   ipcMain.handle(
     IPC.agentSend,
@@ -1720,6 +1734,95 @@ function registerIpc(): void {
     // switch into reusing the live one.
     if (mode === 'review') broadcast(IPC.workspacesChanged, caseSlug)
     return r
+  })
+
+  // — routines (saved prompt + trigger, run unattended) —
+  //
+  // This is the ONLY place Electron and the routines engine meet. `services/routines/*` and
+  // `agent/background.ts` import no electron at all, so a future headless server can host them;
+  // everything window-shaped enters through the two callbacks bound below.
+  //
+  // BOTH CALLBACKS MUST BE NON-THROWING, and that is load-bearing rather than defensive.
+  // `broadcast` really can throw: `webContents.send` on a window destroyed mid-iteration —
+  // app quit, or a window closing while a routine streams — raises "Object has been
+  // destroyed". Each of the three call sites turns that into a different, worse failure:
+  //  - `notify` right after `insertRoutineRun` (service.ts) sits OUTSIDE the try/catch that
+  //    records a run's outcome. A throw there escapes `execute()` to startRun's `.catch()`,
+  //    which only logs — leaving the freshly-opened row `running` forever, the one state the
+  //    service is built to make impossible, and blocking nothing but every future run's
+  //    busy check.
+  //  - `notify` after `attachRunSession` is INSIDE that try, so a throw is recorded as a
+  //    FAILED run: a perfectly good routine reported as broken because a window closed.
+  //  - `notify` in the `.finally()` runs after `this.running = null`, so the flag is safe,
+  //    but the throw rejects the promise `whenIdle()` hands to shutdown and to every test,
+  //    and nothing follows the `.finally()` to catch it — an unhandled rejection.
+  // `onEvent` is the first statement of runBackgroundTurn's `emit`, ahead of the switch that
+  // decides the turn's outcome, so a throw would skip `settle()` for that event entirely: no
+  // result, no teardown, and the turn only ends when its timeout eventually fires.
+  const routinesBroadcast = (channel: string, payload: unknown): void => {
+    try {
+      broadcast(channel, payload)
+    } catch (err) {
+      // Logged, never rethrown: losing one UI refresh is strictly better than losing the run.
+      console.error(`[routines] broadcast on ${channel} failed:`, err)
+    }
+  }
+  // Local const published to the module-scope handle (same idiom as `flushTabs` above), so the
+  // handlers below can use it without a non-null assertion on a `let` that quit-time sets aside.
+  const routines = new RoutineStore(argusHome)
+  routineStore = routines
+  const routinesService = new RoutinesService({
+    db,
+    argusHome,
+    store: routines,
+    runTurn: ({ driverKind, ...params }) => {
+      // getDriverByKind falls back to Claude for anything unregistered. Say so out loud: an
+      // unattended run on a provider the user did not pick is exactly the kind of thing that
+      // is invisible without a window watching.
+      const driver = getDriverByKind(driverKind)
+      if (driver.kind !== driverKind) {
+        console.warn(
+          `[routines] unknown driver kind "${driverKind}"; running on ${driver.kind} instead`
+        )
+      }
+      return runBackgroundTurn(
+        {
+          db,
+          argusHome,
+          detection,
+          skillsRoots,
+          driver,
+          // Same channel as an interactive turn, so a routine's transcript streams into the
+          // normal session UI while it runs; `mirrorFactory` is what makes it replayable after.
+          onEvent: (e) => routinesBroadcast(IPC.agentEventChannel, e),
+          mirrorFactory
+        },
+        params
+      )
+    },
+    notify: () => routinesBroadcast(IPC.routinesChanged, null)
+  })
+  // File-level changes (an edit through the IPC handlers below, or someone editing
+  // config/routines.json by hand) announce through the store's own watcher; run-level changes
+  // announce through `notify`. Both land on the same channel, and listeners re-read rather than
+  // trusting the payload, so a double announce is harmless.
+  routines.subscribe(() => routinesBroadcast(IPC.routinesChanged, null))
+
+  ipcMain.handle(IPC.routinesList, (): RoutinesPayload => routinesService.payload())
+  ipcMain.handle(IPC.routinesSave, (_e, routine: unknown): RoutinesPayload => {
+    // `unknown`, deliberately: IPC arguments are untyped at runtime and the store zod-validates.
+    routines.upsert(routine)
+    return routinesService.payload()
+  })
+  ipcMain.handle(IPC.routinesDelete, (_e, id: string): RoutinesPayload => {
+    routines.remove(id)
+    return routinesService.payload()
+  })
+  ipcMain.handle(IPC.routinesRunNow, (_e, id: string): RoutinesPayload => {
+    // Throws (unknown / disabled / already running) straight back to the renderer; the payload
+    // returned on success already carries `runningId`, so the caller needs no second read.
+    routinesService.startRun(id)
+    return routinesService.payload()
   })
 
   // — modes —
@@ -3009,6 +3112,10 @@ app.on('before-quit', (event) => {
   flushTabs?.()
   editorWindowService?.forceClose()
   void agentService?.stopAll()
+  // Holds an fs watcher on config/routines.json. Unlike caseWatch/proposals (which the exit
+  // path deliberately leaves to process teardown), this one also drops the subscriber that
+  // broadcasts to windows — and windows are being torn down right now.
+  routineStore?.close()
 
   // shutdown() (not flush()) — it also calls provider.shutdown(), which was never
   // reached on the quit path before. Race it against a hard timeout: a quit hang
