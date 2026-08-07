@@ -132,6 +132,7 @@ function makeService(
     getConnectorCommands: () => [],
     now: () => 10_000,
     processLabels: new ProcessLabels(),
+    getLiveOwners: () => [],
     ...overrides
   })
   return { service, client }
@@ -275,7 +276,8 @@ describe('DiagnosticsService', () => {
       getWindowDescriptors: () => [],
       getConnectorCommands: () => [],
       now: () => 10_000,
-      processLabels: new ProcessLabels()
+      processLabels: new ProcessLabels(),
+      getLiveOwners: () => []
     })
     service.start()
     expect(service.latest()?.sidecar.status).toBe('disabled')
@@ -497,6 +499,34 @@ describe('DiagnosticsService', () => {
       label: 'Codex driver',
       inferred: false
     })
+  })
+
+  it('flags an orphaned row when getLiveOwners() does not include the registered owner', () => {
+    const labels = new ProcessLabels()
+    const { service, client } = makeService(fakeClient(), {
+      processLabels: labels,
+      getLiveOwners: () => ['CASE-B:9']
+    })
+    service.start()
+    labels.register(1, { kind: 'driver', label: 'Codex driver', owner: 'CASE-A:7' }, 1_000)
+
+    client.emit(snapshot())
+    expect(service.latest()?.objects[0]).toMatchObject({ orphan: true })
+    expect(service.latest()?.footprint.orphanCount).toBe(1)
+  })
+
+  it('does not flag a row whose owner is present in getLiveOwners()', () => {
+    const labels = new ProcessLabels()
+    const { service, client } = makeService(fakeClient(), {
+      processLabels: labels,
+      getLiveOwners: () => ['CASE-A:7']
+    })
+    service.start()
+    labels.register(1, { kind: 'driver', label: 'Codex driver', owner: 'CASE-A:7' }, 1_000)
+
+    client.emit(snapshot())
+    expect(service.latest()?.objects[0]).toMatchObject({ orphan: false })
+    expect(service.latest()?.footprint.orphanCount).toBe(0)
   })
 
   it('requests an immediate sample when a registration lands', () => {

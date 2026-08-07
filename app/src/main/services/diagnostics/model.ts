@@ -39,6 +39,9 @@ export type BuildInput = {
   cores: number
   electronMetrics: ElectronProcessMetric[]
   labelSources: LabelSources
+  /** Keys of every Argus object currently alive (session owner keys, pack-app case
+   *  slugs). A tier-A row's `owner` not present here is orphaned. */
+  liveOwners: ReadonlySet<string>
 }
 
 export type BuildResult = {
@@ -169,6 +172,7 @@ export function buildSnapshot(input: BuildInput): BuildResult {
         ...(label.provider ? { provider: label.provider } : {}),
         ...(label.instanceId ? { instanceId: label.instanceId } : {}),
         ...(label.owner ? { owner: label.owner } : {}),
+        orphan: label.owner !== undefined && !input.liveOwners.has(label.owner),
         inferred: label.inferred,
         rootPid: s.pid,
         processCount: 0,
@@ -194,6 +198,7 @@ export function buildSnapshot(input: BuildInput): BuildResult {
           id: UNATTRIBUTED_ID,
           kind: 'unattributed',
           label: 'Unattributed',
+          orphan: false,
           inferred: false,
           rootPid: null,
           processCount: 0,
@@ -226,6 +231,7 @@ export function buildSnapshot(input: BuildInput): BuildResult {
   // in the same order cannot.
   const totalCpuPercent = objects.reduce((t, o) => t + o.cpuPercent, 0)
   const totalRss = objects.reduce((t, o) => t + o.rssBytes, 0)
+  const orphanCount = objects.reduce((t, o) => t + (o.orphan ? 1 : 0), 0)
 
   let starts = input.counters.starts
   let exits = input.counters.exits
@@ -241,7 +247,8 @@ export function buildSnapshot(input: BuildInput): BuildResult {
       rssBytes: totalRss,
       peakRssBytes: Math.max(input.previousPeakRssBytes, totalRss),
       starts,
-      exits
+      exits,
+      orphanCount
     },
     next,
     counters: { starts, exits }

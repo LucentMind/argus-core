@@ -41,6 +41,10 @@ export type DiagnosticsServiceDeps = {
   getConnectorCommands: () => ConnectorCommand[]
   /** Tier-A registry: authoritative labels Argus recorded at its own spawn sites. */
   processLabels: ProcessLabels
+  /** Live owner keys of every Argus object that could own a tier-A process (session
+   *  owner keys, pack-app case slugs) — the set a registered row's `owner` is checked
+   *  against to detect orphans. */
+  getLiveOwners: () => string[]
   now?: () => number
 }
 
@@ -171,7 +175,8 @@ export class DiagnosticsService {
             rssBytes: 0,
             peakRssBytes: 0,
             starts: 0,
-            exits: 0
+            exits: 0,
+            orphanCount: 0
           },
           objects: [],
           tree: [],
@@ -212,7 +217,8 @@ export class DiagnosticsService {
           windows: this.deps.getWindowDescriptors(),
           connectors: this.deps.getConnectorCommands(),
           registered
-        }
+        },
+        liveOwners: new Set(this.deps.getLiveOwners())
       })
     } catch (err) {
       console.error('[diagnostics] failed to build snapshot from sidecar sample', err)

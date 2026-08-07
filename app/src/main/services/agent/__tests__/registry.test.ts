@@ -118,6 +118,25 @@ describe('AgentService', () => {
     await svc.stopAll()
   })
 
+  it('liveOwnerKeys reports the single-colon owner format session.ts registers, not the internal :: map key', async () => {
+    const { createQuery } = fakeCreateQuery()
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery
+    })
+    const a = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    const b = createSession(db, 'NAV-2', 'claude-agent-sdk')
+    await svc.send('NAV-1', a.id, 'hello a')
+    await svc.send('NAV-2', b.id, 'hello b')
+    expect(new Set(svc.liveOwnerKeys())).toEqual(new Set([`NAV-1:${a.id}`, `NAV-2:${b.id}`]))
+    await svc.stopAll()
+  })
+
   it('rejects a bad sessionId without reaping any live session', async () => {
     const { createQuery, queues } = fakeCreateQuery()
     const svc = new AgentService({

@@ -13,7 +13,7 @@ import {
 } from '../../../shared/drivers'
 import { settingsSchema, type AgentSettings } from '../../../shared/settings'
 import type { AgentAccess } from '../../../shared/agentAccess'
-import { CaseSession, type SessionMirrorLike } from './session'
+import { CaseSession, ownerKeyOf, type SessionMirrorLike } from './session'
 import type { AgentDriver } from './driver'
 import type { ProcessLabels } from '../diagnostics/processLabels'
 import { createClaudeDriver, type CreateQueryFn } from './drivers/claude'
@@ -451,5 +451,18 @@ export class AgentService {
       state: s.state,
       activeTurn: s.activeTurn
     }))
+  }
+
+  /**
+   * Keys of every live session, for diagnostics orphan detection — one per entry in
+   * `this.sessions`, in the `ownerKeyOf` format CaseSession registers as `owner` at
+   * driver spawn (session.ts), NOT this class's own internal map key (`keyOf`, which
+   * uses `::` for stopAllForCase's exact-prefix match and is a different concept).
+   * caseSlug is recovered the same way `states()` does, from the internal key.
+   */
+  liveOwnerKeys(): string[] {
+    return [...this.sessions.entries()].map(([key, s]) =>
+      ownerKeyOf(key.slice(0, key.length - `::${s.sessionId}`.length), s.sessionId)
+    )
   }
 }

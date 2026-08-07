@@ -45,6 +45,20 @@ import {
   type ReviewWriteDeps
 } from './reviewWrites'
 
+/**
+ * The `owner` string CaseSession registers with ProcessLabels at driver spawn
+ * (tier-A diagnostics), and the format `AgentService.liveOwnerKeys()` (registry.ts)
+ * must reproduce to compare against it for orphan detection. Exported as a single
+ * shared function — not hand-built at each call site — so the two formats cannot
+ * drift apart. Deliberately a single colon, distinct from AgentService's internal
+ * session-map key (registry.ts's private `keyOf`, which uses `::` so
+ * `stopAllForCase`'s prefix match stays exact); that internal key is a different
+ * concept and is not on the wire anywhere diagnostics can see it.
+ */
+export function ownerKeyOf(caseSlug: string, sessionId: number): string {
+  return `${caseSlug}:${sessionId}`
+}
+
 export interface SessionMirrorLike {
   append(e: AgentEvent): void
   indexText(role: string, content: string, turnId: number | null): void
@@ -439,7 +453,7 @@ export class CaseSession {
             kind: 'driver',
             label: driverLabelFor(this.deps.driver.kind),
             provider: this.deps.driver.kind,
-            owner: `${this.deps.caseSlug}:${this.sessionId}`
+            owner: ownerKeyOf(this.deps.caseSlug, this.sessionId)
           },
           this.deps.now?.() ?? Date.now()
         )

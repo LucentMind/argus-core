@@ -103,6 +103,9 @@ export type DiagnosticsAggregate = {
   peakRssBytes: number
   starts: number
   exits: number
+  /** Count of `objects` rows with `orphan: true` — a tier-A process still alive
+   *  whose owning Argus object (session, pack app) is gone. */
+  orphanCount: number
 }
 
 /**
@@ -138,6 +141,10 @@ export type DiagnosticsObject = {
   instanceId?: string
   /** Tier A only — opaque owner key of the Argus object that owns this process. */
   owner?: string
+  /** True when this process is still alive but its owning Argus object (a session
+   *  reaped by AgentService, a pack app whose case was closed) is gone. Always false
+   *  for a row with no `owner` — only tier-A rows can be orphaned. */
+  orphan: boolean
   /** True when the label came from tier-C command-line inference rather than Electron. */
   inferred: boolean
   /** null for the unattributed row. */

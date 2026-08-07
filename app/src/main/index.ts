@@ -495,7 +495,15 @@ function registerIpc(): void {
         })),
       getWindowDescriptors: collectWindowDescriptorsFromElectron,
       getConnectorCommands: () => connectorCommandsRef(),
-      processLabels: defaultProcessLabels
+      processLabels: defaultProcessLabels,
+      // DiagnosticsService is constructed before AgentService and ExternalAppHost, and
+      // this getter is called from the sidecar's stdout handler — same forward-ref shape
+      // as connectorCommandsRef above, for the same reason (a closed-over const would be
+      // a temporal-dead-zone ReferenceError on an unlucky first sample).
+      getLiveOwners: () => [
+        ...(agentService?.liveOwnerKeys() ?? []),
+        ...(externalAppHost?.list().map((a) => a.caseSlug) ?? [])
+      ]
     })
   })()
 

@@ -7,6 +7,7 @@ import {
   type ProcessState
 } from '../model'
 import type { ProcessSample } from '../../../../shared/diagnostics'
+import type { RegisteredLabel } from '../processLabels'
 
 function sample(over: Partial<ProcessSample> & { pid: number }): ProcessSample {
   return {
@@ -40,6 +41,7 @@ function build(
     cores: 4,
     electronMetrics: [],
     labelSources: { windows: [], connectors: [], registered: new Map() },
+    liveOwners: new Set(),
     ...extra
   })
 }
@@ -166,7 +168,8 @@ describe('buildSnapshot', () => {
       rootPid: 1,
       cores: 4,
       electronMetrics: [],
-      labelSources: { windows: [], connectors: [], registered: new Map() }
+      labelSources: { windows: [], connectors: [], registered: new Map() },
+      liveOwners: new Set()
     })
     // Each process peaked at 100 at different moments, but the total never exceeded 100.
     expect(second.footprint.peakRssBytes).toBe(100)
@@ -197,7 +200,8 @@ describe('buildSnapshot', () => {
       rootPid: 1,
       cores: 4,
       electronMetrics: [],
-      labelSources: { windows: [], connectors: [], registered: new Map() }
+      labelSources: { windows: [], connectors: [], registered: new Map() },
+      liveOwners: new Set()
     })
     expect(second.footprint.exits).toBe(1)
     expect(second.footprint.starts).toBe(2)
@@ -472,5 +476,39 @@ describe('buildSnapshot — object rollup', () => {
       expect(sum((o) => o.rssBytes)).toBe(r.footprint.rssBytes)
       expect(sum((o) => o.cpuPercent)).toBe(r.footprint.cpuPercent)
     })
+  })
+})
+
+describe('buildSnapshot — orphan detection', () => {
+  const owned = (owner: string): ReadonlyMap<string, RegisteredLabel> =>
+    new Map([['2:1000', { kind: 'driver' as const, label: 'Codex driver', owner }]])
+
+  it('flags a registered row whose owner is no longer live', () => {
+    const r = build([ROOT, sample({ pid: 2, ppid: 1 })], new Map(), 2_000, {
+      labelSources: { windows: [], connectors: [], registered: owned('CASE-A:7') },
+      liveOwners: new Set(['CASE-B:9'])
+    })
+    const driver = r.objects.find((o) => o.kind === 'driver')
+    expect(driver?.orphan).toBe(true)
+    expect(r.footprint.orphanCount).toBe(1)
+  })
+
+  it('does not flag a row whose owner is still live', () => {
+    const r = build([ROOT, sample({ pid: 2, ppid: 1 })], new Map(), 2_000, {
+      labelSources: { windows: [], connectors: [], registered: owned('CASE-A:7') },
+      liveOwners: new Set(['CASE-A:7'])
+    })
+    expect(r.objects.find((o) => o.kind === 'driver')?.orphan).toBe(false)
+    expect(r.footprint.orphanCount).toBe(0)
+  })
+
+  it('never flags a row that carries no owner', () => {
+    // Tier B and C rows have no owner; an empty live-owner set must not make the
+    // whole page read as orphaned.
+    const r = build([ROOT, sample({ pid: 2, ppid: 1 })], new Map(), 2_000, {
+      liveOwners: new Set<string>()
+    })
+    expect(r.objects.every((o) => o.orphan === false)).toBe(true)
+    expect(r.footprint.orphanCount).toBe(0)
   })
 })

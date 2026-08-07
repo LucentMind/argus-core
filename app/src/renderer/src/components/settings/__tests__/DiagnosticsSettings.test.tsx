@@ -20,7 +20,8 @@ function snapshot(over: Partial<DiagnosticsSnapshot> = {}): DiagnosticsSnapshot 
       rssBytes: 867_000_000,
       peakRssBytes: 900_000_000,
       starts: 15,
-      exits: 8
+      exits: 8,
+      orphanCount: 0
     },
     tree: [
       {
@@ -193,6 +194,7 @@ describe('DiagnosticsSettings', () => {
               kind: 'electron-window',
               label: 'Main window',
               inferred: false,
+              orphan: false,
               rootPid: 3,
               processCount: 1,
               cpuPercent: 1,
@@ -204,6 +206,7 @@ describe('DiagnosticsSettings', () => {
               kind: 'unattributed',
               label: 'Unattributed',
               inferred: false,
+              orphan: false,
               rootPid: null,
               processCount: 4,
               cpuPercent: 0.5,
@@ -216,6 +219,7 @@ describe('DiagnosticsSettings', () => {
               label: 'MCP: github',
               instanceId: 'github',
               inferred: true,
+              orphan: false,
               rootPid: 2,
               processCount: 2,
               cpuPercent: 3.2,
