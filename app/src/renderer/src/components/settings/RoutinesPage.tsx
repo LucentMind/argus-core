@@ -12,6 +12,7 @@ import { Btn, Checkbox, Chip, IconBtn } from '../ui'
 import { confirm } from '../../lib/confirmStore'
 import { chipStamp } from '../../lib/time'
 import { useRoutinesPayload } from '../../lib/routinesStore'
+import { settingsStore, useSettingsPayload } from '../../lib/settingsStore'
 import { RUN_TONE, TriggerChip, RunSummaryText } from '../routines/runDisplay'
 import {
   MAX_TIMEOUT_MINUTES,
@@ -180,6 +181,9 @@ function RoutineEditor({
   // On an existing routine the id is fixed: `save` upserts BY id, so re-deriving it from an
   // edited name would leave the old routine in place and add a second one beside it.
   const id = draft.id ?? deriveId(draft.name)
+  const settings = useSettingsPayload()
+  const keepAlive = settings?.settings.general.keepAliveInBackground ?? false
+  const scheduled = draft.scheduleKind !== 'manual'
   return (
     // A bare child of the section Card, outside any SettingRow, so it carries its own padding
     // (same idiom as MemorySettings' MemoryEditor).
@@ -323,10 +327,29 @@ function RoutineEditor({
           </div>
         )}
       </div>
-      <p className="text-xs text-mute">
-        Scheduled routines run only while Argus is open. A run missed while it was closed starts
-        once at the next launch.
-      </p>
+      {scheduled &&
+        (keepAlive ? (
+          <p className="text-xs text-mute">
+            Argus keeps running in the background, so this fires on time even with the window
+            closed.
+          </p>
+        ) : (
+          // The one moment a user has demonstrably decided they want unattended work is the
+          // moment they set a schedule — so the setting that makes it punctual is offered here,
+          // not left to be discovered in General. Derived from the draft and the setting, so it
+          // retires itself the instant either changes; there is no dismissal state to get stuck.
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs text-mute">
+              Scheduled routines run only while Argus is open. A run missed while it was closed
+              starts once at the next launch.
+            </p>
+            <Btn
+              onClick={() => void settingsStore.patch({ general: { keepAliveInBackground: true } })}
+            >
+              Keep Argus running
+            </Btn>
+          </div>
+        ))}
 
       <div className="flex items-center gap-2">
         <Btn variant="primary" onClick={onSave}>
