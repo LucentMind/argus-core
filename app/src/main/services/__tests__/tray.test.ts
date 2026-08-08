@@ -11,7 +11,7 @@ const harness = (
   clicks: Record<string, () => void>
   destroyed: () => number
   showWindow: ReturnType<typeof vi.fn>
-  focusInbox: ReturnType<typeof vi.fn>
+  showWindowAndFocusInbox: ReturnType<typeof vi.fn>
   quit: ReturnType<typeof vi.fn>
 } => {
   const menus: TrayMenuItem[][] = []
@@ -19,7 +19,7 @@ const harness = (
   const clicks: Record<string, () => void> = {}
   let destroyed = 0
   const showWindow = vi.fn()
-  const focusInbox = vi.fn()
+  const showWindowAndFocusInbox = vi.fn()
   const quit = vi.fn()
 
   const tray: TrayHandle = {
@@ -43,14 +43,24 @@ const harness = (
     icon: () => ({}),
     unreviewedCount: unreviewed,
     showWindow,
-    focusInbox,
+    showWindowAndFocusInbox,
     quit
   })
 
-  return { service, menus, tooltips, clicks, destroyed: () => destroyed, showWindow, focusInbox, quit }
+  return {
+    service,
+    menus,
+    tooltips,
+    clicks,
+    destroyed: () => destroyed,
+    showWindow,
+    showWindowAndFocusInbox,
+    quit
+  }
 }
 
-const labels = (menu: TrayMenuItem[]): string[] => menu.filter((i) => i.visible !== false).map((i) => i.label)
+const labels = (menu: TrayMenuItem[]): string[] =>
+  menu.filter((i) => i.visible !== false).map((i) => i.label)
 
 describe('TrayService', () => {
   it('hides the review item when nothing is unreviewed', () => {
@@ -91,13 +101,15 @@ describe('TrayService', () => {
   })
 
   // The whole reason the item names the inbox: opening the window alone can land the user on
-  // Settings or a case, with the runs it just advertised nowhere in sight.
-  it('both opens the window and focuses the inbox from the review item', () => {
+  // Settings or a case, with the runs it just advertised nowhere in sight. The two actions are one
+  // injected callback (not showWindow + a separate focusInbox) because only the caller in
+  // main/index.ts knows whether the window had to be created, and therefore whether focusing the
+  // inbox has to wait.
+  it('opens the window and focuses the inbox from the review item, via one composed callback', () => {
     const h = harness(() => 3)
     h.service.start()
     h.menus[0].find((i) => i.label === '3 runs to review')?.click?.()
-    expect(h.showWindow).toHaveBeenCalledTimes(1)
-    expect(h.focusInbox).toHaveBeenCalledTimes(1)
+    expect(h.showWindowAndFocusInbox).toHaveBeenCalledTimes(1)
   })
 
   it('quits from the menu', () => {
