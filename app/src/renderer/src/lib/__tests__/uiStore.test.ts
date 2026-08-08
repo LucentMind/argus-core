@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   UiStore,
   FINDINGS_MIN_WIDTH,
@@ -104,9 +104,9 @@ describe('UiStore', () => {
     expect(document.documentElement.getAttribute('data-platform')).toBe('darwin')
   })
 
-  it('toggleTheme flips the attribute and persists across instances', () => {
+  it('setTheme flips the attribute and persists across instances', () => {
     const store = new UiStore()
-    store.toggleTheme()
+    store.setTheme('light')
     expect(store.get().theme).toBe('light')
     expect(document.documentElement.getAttribute('data-theme')).toBe('light')
     expect(new UiStore().get().theme).toBe('light')
@@ -164,9 +164,9 @@ describe('UiStore', () => {
     let n = 0
     const off = store.subscribe(() => n++)
     store.openTab('NAV-1')
-    store.toggleTheme()
+    store.setTheme('light')
     off()
-    store.toggleTheme()
+    store.setTheme('dark')
     expect(n).toBe(2)
   })
 
@@ -219,6 +219,76 @@ describe('UiStore', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(window as any).argus = { ui: { setZoomFactor: vi.fn() }, panels: { setTheme: vi.fn() } }
     expect(() => new UiStore().setUiScale(1.1)).not.toThrow()
+  })
+})
+
+describe('system theme preference', () => {
+  /** Stubs `window.matchMedia` with a fake `MediaQueryList` whose `matches` and `change`
+   *  listener the test controls directly — jsdom's own implementation never fires real OS
+   *  changes, so there is nothing else here to drive `watchSystemTheme` with. */
+  function mockMatchMedia(matches: boolean): { fire: (matches: boolean) => void } {
+    let current = matches
+    let onChange: ((e: { matches: boolean }) => void) | null = null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).matchMedia = vi.fn().mockReturnValue({
+      get matches() {
+        return current
+      },
+      addEventListener: (_event: string, cb: (e: { matches: boolean }) => void) => {
+        onChange = cb
+      },
+      removeEventListener: vi.fn()
+    })
+    return {
+      fire: (next: boolean) => {
+        current = next
+        onChange?.({ matches: next })
+      }
+    }
+  }
+
+  afterEach(() => {
+    // jsdom's stock matchMedia would otherwise leak into later tests in this file.
+    delete (window as { matchMedia?: unknown }).matchMedia
+  })
+
+  it('resolves `system` from the OS preference at construction', () => {
+    mockMatchMedia(true)
+    localStorage.setItem('argus.ui.theme', 'system')
+    const store = new UiStore()
+    expect(store.get().themePreference).toBe('system')
+    expect(store.get().theme).toBe('dark')
+  })
+
+  it('live-updates the resolved theme on an OS change while the preference is system', () => {
+    const mq = mockMatchMedia(true)
+    const store = new UiStore()
+    store.setThemePreference('system')
+    expect(store.get().theme).toBe('dark')
+
+    mq.fire(false)
+
+    expect(store.get().theme).toBe('light')
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+  })
+
+  it('ignores an OS change once the preference has moved off system', () => {
+    const mq = mockMatchMedia(true)
+    const store = new UiStore()
+    store.setThemePreference('system')
+    store.setThemePreference('dark')
+
+    mq.fire(false)
+
+    expect(store.get().theme).toBe('dark')
+  })
+
+  it('persists `system` as the preference and survives a reload', () => {
+    mockMatchMedia(true)
+    const store = new UiStore()
+    store.setThemePreference('system')
+    expect(localStorage.getItem('argus.ui.theme')).toBe('system')
+    expect(new UiStore().get().themePreference).toBe('system')
   })
 })
 

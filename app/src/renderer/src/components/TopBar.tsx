@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { Sun, Moon, Settings, Gauge, History, Home } from 'lucide-react'
+import { Settings, History, Home } from 'lucide-react'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { uiStore } from '../lib/uiStore'
 import { caseBarStore, useCaseBar } from '../lib/caseBarStore'
@@ -39,7 +39,6 @@ export function TopBar({
   onSelect,
   onSettings,
   onStatusChanged,
-  onObservability,
   onRelatedHistory
 }: {
   activeSlug: string | null
@@ -52,7 +51,6 @@ export function TopBar({
   onSettings: () => void
   /** A case action changed status in the DB; the owner of the `cases` array must refetch. */
   onStatusChanged: () => void
-  onObservability?: () => void
   onRelatedHistory?: () => void
 }): React.JSX.Element {
   const ui = useSyncExternalStore(
@@ -273,30 +271,8 @@ export function TopBar({
             <History size={19} strokeWidth={1.5} />
           </button>
         )}
-        {onObservability && (
-          <button
-            className={ACTION_BTN}
-            aria-label="Observability"
-            title="Observability"
-            onClick={onObservability}
-          >
-            <Gauge size={19} strokeWidth={1.5} />
-          </button>
-        )}
         <button className={ACTION_BTN} aria-label="Settings" title="Settings" onClick={onSettings}>
           <Settings size={19} strokeWidth={1.5} />
-        </button>
-        <button
-          className={ACTION_BTN}
-          aria-label={ui.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-          title={ui.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-          onClick={() => uiStore.toggleTheme()}
-        >
-          {ui.theme === 'dark' ? (
-            <Sun size={19} strokeWidth={1.5} />
-          ) : (
-            <Moon size={19} strokeWidth={1.5} />
-          )}
         </button>
       </div>
       {/* Outside the `max-w-[50%]` group on purpose: the window's caption buttons are not part of

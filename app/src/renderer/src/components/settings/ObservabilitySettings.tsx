@@ -66,9 +66,13 @@ function SecretInput({
 }
 
 export function ObservabilitySettings({
-  payload
+  payload,
+  onOpenDashboard
 }: {
   payload: SettingsPayload
+  /** Opens the full-page metrics dashboard (App.tsx's `ObservabilityView`) — the dashboard's
+   *  own entry point, now that the top bar no longer carries one directly. */
+  onOpenDashboard?: () => void
 }): React.JSX.Element {
   const { langfuse, dashboard } = payload.settings.observability
   const [secretSet, setSecretSet] = useState(false)
@@ -116,6 +120,15 @@ export function ObservabilitySettings({
 
   return (
     <div className="flex flex-col gap-6">
+      <SettingsSection title="Dashboard">
+        <SettingRow
+          label="Metrics dashboard"
+          description="Cost, tokens, findings, and latency across cases — the same view the top bar used to open directly."
+        >
+          <Btn onClick={onOpenDashboard}>Open dashboard</Btn>
+        </SettingRow>
+      </SettingsSection>
+
       <SettingsSection title="Langfuse">
         <SettingRow
           label="Enable Langfuse"

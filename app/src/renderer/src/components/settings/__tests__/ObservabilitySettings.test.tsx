@@ -21,6 +21,15 @@ beforeEach(() => {
 })
 
 describe('ObservabilitySettings', () => {
+  // The top bar no longer opens the dashboard directly (user-directed, 2026-08-08) — this
+  // button is its only entry point now.
+  it('opens the dashboard via the callback', () => {
+    const onOpenDashboard = vi.fn()
+    render(<ObservabilitySettings payload={payload as never} onOpenDashboard={onOpenDashboard} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open dashboard' }))
+    expect(onOpenDashboard).toHaveBeenCalled()
+  })
+
   it('enables Langfuse via a patch', async () => {
     render(<ObservabilitySettings payload={payload as never} />)
     const toggle = await screen.findByLabelText(/enable langfuse/i)

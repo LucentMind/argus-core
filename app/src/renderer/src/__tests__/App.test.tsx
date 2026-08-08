@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import App from '../App'
@@ -88,6 +88,12 @@ beforeEach(() => {
       global: vi.fn(async () => globalMetrics),
       case: vi.fn(async () => globalMetrics)
     },
+    // ObservabilitySettings (now reachable via Settings' nav) checks for a stored Langfuse
+    // secret on mount.
+    secrets: {
+      has: vi.fn(async () => false),
+      set: vi.fn(async () => undefined)
+    },
     // GeneralSettings' default-repositories row (Task 8) mounts RepoPickerMenu
     // unconditionally, which calls recent() on mount.
     workspaces: {
@@ -147,13 +153,31 @@ afterEach(() => {
   uiStore.setDynamicTheme(false)
 })
 
+/** The dashboard's own Close (`ObservabilityView.tsx`) shares its aria-label with the window's
+ *  native caption button (`WindowControls.tsx`) — scoped to the heading's row so `getByLabelText`
+ *  doesn't ambiguously match both. */
+function closeObservabilityDashboard(): HTMLElement {
+  const heading = screen.getByRole('heading', { name: 'Observability' })
+  return within(heading.parentElement!).getByRole('button', { name: 'Close' })
+}
+
 describe('App: toolbar icon toggles', () => {
-  it('a second Observability click returns to the previous view', async () => {
+  // The dashboard's only entry point now (user-directed, 2026-08-08): the top bar carries no
+  // Observability button of its own any more, so reaching it means Settings' nav, then the
+  // page's own "Open dashboard" button; closing it returns to that same Settings page
+  // (user-directed) rather than going through `prevView` the way Related History still does.
+  it('opens the observability dashboard from its settings page and closes back to that page', async () => {
     render(<App />)
-    await userEvent.click(screen.getByLabelText('Observability'))
+    await userEvent.click(screen.getByLabelText('Settings'))
+    await userEvent.click(screen.getByRole('button', { name: 'Observability' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Open dashboard' }))
     expect(screen.getByRole('heading', { name: 'Observability' })).toBeInTheDocument()
-    await userEvent.click(screen.getByLabelText('Observability'))
+    expect(screen.queryByLabelText('Settings sections')).not.toBeInTheDocument()
+    await userEvent.click(closeObservabilityDashboard())
     expect(screen.queryByRole('heading', { name: 'Observability' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Settings sections')).toBeInTheDocument()
+    // Back on the Observability page specifically, not wherever Settings defaults to.
+    expect(screen.getByRole('button', { name: 'Open dashboard' })).toBeInTheDocument()
   })
 
   it('a second Settings click returns to the previous view', async () => {
@@ -177,44 +201,42 @@ describe('App: toolbar icon toggles', () => {
     expect(screen.queryByLabelText('Settings sections')).not.toBeInTheDocument()
   })
 
-  it('the gear still toggles Settings shut after a Settings -> Observability -> toggle-shut sequence', async () => {
+  it('the gear still toggles Settings shut after a Settings -> Observability -> close sequence', async () => {
     render(<App />)
     // 1. Home -> Settings
     await userEvent.click(screen.getByLabelText('Settings'))
     expect(screen.getByLabelText('Settings sections')).toBeInTheDocument()
-    // 2. Settings -> Observability
-    await userEvent.click(screen.getByLabelText('Observability'))
+    // 2. Settings -> Observability's page -> its dashboard
+    await userEvent.click(screen.getByRole('button', { name: 'Observability' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Open dashboard' }))
     expect(screen.getByRole('heading', { name: 'Observability' })).toBeInTheDocument()
-    // 3. Observability -> toggle shut. `prevView` must have stayed Home (the
-    // base view from step 1) rather than being corrupted to Settings, so this
-    // lands on Home, not back on Settings.
-    await userEvent.click(screen.getByLabelText('Observability'))
+    // 3. Close the dashboard -- back on Settings itself (its own entry point), not Home.
+    await userEvent.click(closeObservabilityDashboard())
     expect(screen.queryByRole('heading', { name: 'Observability' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Settings sections')).toBeInTheDocument()
+    // 4. The gear closes Settings from here. `prevView` must have stayed Home (the base view
+    // from step 1) rather than being corrupted to Settings itself, so this lands on Home.
+    await userEvent.click(screen.getByLabelText('Settings'))
     expect(screen.queryByLabelText('Settings sections')).not.toBeInTheDocument()
-    // 4. Gear click from Home opens Settings again (prevView is still Home).
+    // 5. A second gear click from Home must actually reopen Settings -- under the bug this
+    // guards against, a corrupted `prevView` would have made step 4 a no-op and left
+    // Settings permanently open instead.
     await userEvent.click(screen.getByLabelText('Settings'))
     expect(screen.getByLabelText('Settings sections')).toBeInTheDocument()
-    // 5. A second gear click must actually toggle it shut -- under the bug,
-    // `prevView` had been corrupted to Settings itself, making this a
-    // permanent no-op that left Settings undismissable.
-    await userEvent.click(screen.getByLabelText('Settings'))
-    expect(screen.queryByLabelText('Settings sections')).not.toBeInTheDocument()
   })
 
-  it('Escape still closes Settings after a Settings -> Observability -> toggle-shut sequence', async () => {
+  it('Escape still closes Settings after a Settings -> Observability -> close sequence', async () => {
     render(<App />)
     await userEvent.click(screen.getByLabelText('Settings'))
     expect(screen.getByLabelText('Settings sections')).toBeInTheDocument()
-    await userEvent.click(screen.getByLabelText('Observability'))
+    await userEvent.click(screen.getByRole('button', { name: 'Observability' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Open dashboard' }))
     expect(screen.getByRole('heading', { name: 'Observability' })).toBeInTheDocument()
-    // Toggling Observability shut returns to the base view (Home), not Settings.
-    await userEvent.click(screen.getByLabelText('Observability'))
-    expect(screen.queryByLabelText('Settings sections')).not.toBeInTheDocument()
-    // Reopen Settings from Home, then confirm Escape (wired to closeSettings,
-    // i.e. setView(prevView)) actually dismisses it instead of no-oping on a
-    // self-referential prevView.
-    await userEvent.click(screen.getByLabelText('Settings'))
+    // Closing the dashboard returns straight to Settings.
+    await userEvent.click(closeObservabilityDashboard())
     expect(screen.getByLabelText('Settings sections')).toBeInTheDocument()
+    // Escape (wired to closeSettings, i.e. setView(prevView)) still dismisses it from here,
+    // proving `prevView` was never touched by the Observability round trip.
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByLabelText('Settings sections')).not.toBeInTheDocument()
   })

@@ -106,7 +106,9 @@ describe('TopBar', () => {
     expect(onSelect).toHaveBeenCalledWith('NAV-2')
   })
 
-  it('toggles theme from the bar; tool-call visibility lives in the composer only', () => {
+  // Theme lives in Settings only now (user-directed, 2026-08-08) — the bar carries no
+  // dark/light control of its own to flip.
+  it('carries no theme control of its own', () => {
     render(
       <TopBar
         activeSlug={null}
@@ -117,11 +119,7 @@ describe('TopBar', () => {
         onStatusChanged={vi.fn()}
       />
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Switch to light theme' }))
-    expect(uiStore.get().theme).toBe('light')
-    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
-    // label flips with state
-    expect(screen.getByRole('button', { name: 'Switch to dark theme' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /switch to (light|dark) theme/i })).toBeNull()
     // the tool-call toggle moved to the composer control row
     expect(screen.queryByRole('button', { name: /tool calls/i })).toBeNull()
   })
@@ -185,7 +183,6 @@ describe('TopBar', () => {
         onHome={vi.fn()}
         onSelect={vi.fn()}
         onSettings={vi.fn()}
-        onObservability={vi.fn()}
         onStatusChanged={vi.fn()}
       />
     )
@@ -266,7 +263,6 @@ describe('TopBar', () => {
         onHome={vi.fn()}
         onSelect={vi.fn()}
         onSettings={vi.fn()}
-        onObservability={vi.fn()}
         onStatusChanged={vi.fn()}
       />
     )
@@ -281,8 +277,8 @@ describe('TopBar', () => {
     expect(group.className).toContain('min-w-0')
     expect(group.className).toContain('ml-auto')
 
-    // the icons live in that same group, after the band, and never give up width
-    for (const name of ['Observability', 'Settings', 'Switch to light theme']) {
+    // the icon lives in that same group, after the band, and never gives up width
+    for (const name of ['Settings']) {
       const btn = screen.getByRole('button', { name })
       expect(btn.parentElement, `${name} must sit in the bounded right group`).toBe(group)
       expect(btn.className, `${name} must not shrink`).toContain('shrink-0')

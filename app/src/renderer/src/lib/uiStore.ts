@@ -1,12 +1,31 @@
+/** The resolved theme actually painted — what every consumer outside this store (main process,
+ *  panels, the editor window, DynamicScope) has ever known about. `system` never escapes this
+ *  file: it is resolved to one of these before anything downstream sees it. */
 export type Theme = 'dark' | 'light'
+/** What Settings shows and persists — `system` means "track the OS setting live". */
+export type ThemePreference = Theme | 'system'
 
 /** Discrete UI zoom factors offered in General settings. */
 export const UI_SCALES = [0.9, 1.0, 1.1, 1.25, 1.5] as const
 export type UiScale = (typeof UI_SCALES)[number]
 const UI_SCALE_DEFAULT: UiScale = 1.0
 
+const DARK_SCHEME_QUERY = '(prefers-color-scheme: dark)'
+
+/** No OS signal to read (older preload, non-browser test harness) — default to dark, matching
+ *  every other default in this store. */
+function systemPrefersDark(): boolean {
+  return window.matchMedia?.(DARK_SCHEME_QUERY)?.matches ?? true
+}
+
+function resolveTheme(pref: ThemePreference): Theme {
+  return pref === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : pref
+}
+
 export interface UiState {
+  /** Resolved — always `dark`/`light`, even while `themePreference` is `system`. */
   theme: Theme
+  themePreference: ThemePreference
   uiScale: UiScale
   showToolCalls: boolean
   dynamicTheme: boolean
@@ -44,12 +63,15 @@ export const EVIDENCE_MAX_WIDTH = 640
 const EVIDENCE_DEFAULT_WIDTH = 320
 
 function readPersisted(): Omit<UiState, 'recentTabs' | 'activeSessions'> {
-  const theme = localStorage.getItem(KEYS.theme)
+  const stored = localStorage.getItem(KEYS.theme)
+  const themePreference: ThemePreference =
+    stored === 'light' || stored === 'system' ? stored : 'dark'
   const width = Number(localStorage.getItem(KEYS.findingsWidth))
   const evidenceWidth = Number(localStorage.getItem(KEYS.evidenceWidth))
   const scale = Number(localStorage.getItem(KEYS.uiScale))
   return {
-    theme: theme === 'light' ? 'light' : 'dark',
+    themePreference,
+    theme: resolveTheme(themePreference),
     uiScale: (UI_SCALES as readonly number[]).includes(scale)
       ? (scale as UiScale)
       : UI_SCALE_DEFAULT,
@@ -86,6 +108,30 @@ export class UiStore {
     // editor, switch theme in the main window, and the editor stays on the old palette
     // until it is reopened. Adopt-only — no persist, no re-broadcast (see `adoptTheme`).
     window.argus?.ui?.onThemeChanged?.((theme) => this.adoptTheme(theme))
+    this.watchSystemTheme()
+  }
+
+  /**
+   * Live-update the resolved theme while the preference is `system` — an OS-level dark/light
+   * switch (time-of-day auto-switching, a manual OS toggle) has to reach the app without a
+   * restart, or "follow system" would only apply at launch.
+   */
+  private watchSystemTheme(): void {
+    const mq = window.matchMedia?.(DARK_SCHEME_QUERY)
+    if (!mq?.addEventListener) return
+    mq.addEventListener('change', (e) => {
+      if (this.state.themePreference !== 'system') return
+      this.applyResolvedTheme(e.matches ? 'dark' : 'light')
+    })
+  }
+
+  /** Shared by `setThemePreference` and the OS-change listener: apply+broadcast a newly
+   *  resolved theme without touching `themePreference` or re-persisting it. */
+  private applyResolvedTheme(theme: Theme): void {
+    if (theme === this.state.theme) return
+    this.set({ theme })
+    this.applyTheme()
+    void window.argus?.panels?.setTheme(theme)
   }
 
   /**
@@ -160,15 +206,20 @@ export class UiStore {
     this.applyScale()
   }
 
-  setTheme(theme: Theme): void {
-    this.set({ theme })
-    localStorage.setItem(KEYS.theme, theme)
+  /** Settings' Theme control. `system` tracks the OS live (see `watchSystemTheme`); `dark`/
+   *  `light` are the preference and the resolved theme in one. */
+  setThemePreference(pref: ThemePreference): void {
+    const theme = resolveTheme(pref)
+    this.set({ themePreference: pref, theme })
+    localStorage.setItem(KEYS.theme, pref)
     this.applyTheme()
     void window.argus?.panels?.setTheme(theme)
   }
 
-  toggleTheme(): void {
-    this.setTheme(this.state.theme === 'dark' ? 'light' : 'dark')
+  /** Explicit dark/light — a thin alias over `setThemePreference` for call sites (tests, the
+   *  onboarding wizard) that only ever want a concrete resolved theme, never `system`. */
+  setTheme(theme: Theme): void {
+    this.setThemePreference(theme)
   }
 
   setShowToolCalls(show: boolean): void {

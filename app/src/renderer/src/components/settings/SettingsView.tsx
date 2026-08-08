@@ -58,10 +58,16 @@ const ANCHOR: Partial<Record<PageId, string>> = {
 
 export function SettingsView({
   onClose,
-  initialPage
+  initialPage,
+  onOpenObservability
 }: {
   onClose: () => void
   initialPage?: SettingsDeepLink
+  /** Wired to the Observability page's "Open dashboard" button — the dashboard itself is a
+   *  full-page view (App.tsx), not settings content, so opening it is the app's job, passed
+   *  down rather than owned here. Optional only so the many tests that never touch that page
+   *  don't have to supply it. */
+  onOpenObservability?: () => void
 }): React.JSX.Element {
   // Read before the deep link resolves: the dev-tools gate decides which pages a link may
   // reach, so `payload` has to be in hand first.
@@ -235,7 +241,9 @@ export function SettingsView({
           {payload && page === 'defectCorpus' && <DefectCorpusSettings payload={payload} />}
           {payload && page === 'sources' && <SourcesPage settings={payload} />}
           {page === 'memory' && <MemorySettings />}
-          {payload && page === 'observability' && <ObservabilitySettings payload={payload} />}
+          {payload && page === 'observability' && (
+            <ObservabilitySettings payload={payload} onOpenDashboard={onOpenObservability} />
+          )}
           {page === 'prompts' && <PromptsDevPage />}
         </div>
       </div>

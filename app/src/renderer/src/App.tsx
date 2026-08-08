@@ -130,13 +130,16 @@ function App(): React.JSX.Element {
     void reload()
   }
 
-  // `prevView` is where the Settings/Observability overlays return to, so it must
+  // `prevView` is where the Settings/Related History overlays return to, so it must
   // only ever hold a base view. Recording an overlay here would let `prevView`
   // point at the very view being closed, making both the toggle and Escape no-ops.
   //
-  // Consequence: going Settings -> Observability -> toggle-shut now lands on
+  // Consequence: going Settings -> Related History -> toggle-shut now lands on
   // the base view (Home or the case you were in), not back on Settings --
-  // `prevView` is the base view, not a history stack.
+  // `prevView` is the base view, not a history stack. Observability is the one
+  // exception (see `closeObservability`): its only entry point is Settings' own
+  // Observability page now, so closing it returns there directly instead of
+  // going through `prevView`.
   function recordPrevView(): void {
     if (view.kind === 'home' || view.kind === 'case') setPrevView(view)
   }
@@ -166,6 +169,13 @@ function App(): React.JSX.Element {
     recordPrevView()
     setView(nextView(view, prevView, { kind: 'observability' }))
   }
+  // The dashboard's only entry point is Settings' Observability page (its "Open dashboard"
+  // button) now that the top bar carries no Observability control of its own -- closing it
+  // always lands back there, not on `prevView` (which is whatever base view was showing
+  // *before* Settings was opened, e.g. Home, and would otherwise skip Settings entirely).
+  function closeObservability(): void {
+    setView({ kind: 'settings', page: 'observability' })
+  }
 
   function openRelatedHistory(): void {
     recordPrevView()
@@ -191,7 +201,6 @@ function App(): React.JSX.Element {
           onSelect={openCase}
           onSettings={() => openSettings()}
           onStatusChanged={() => void reload()}
-          onObservability={openObservability}
           onRelatedHistory={openRelatedHistory}
         />
         <UpdateBanner />
@@ -212,14 +221,18 @@ function App(): React.JSX.Element {
             </DynamicScope>
           ) : view.kind === 'settings' ? (
             <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>
-              <SettingsView onClose={closeSettings} initialPage={view.page} />
+              <SettingsView
+                onClose={closeSettings}
+                initialPage={view.page}
+                onOpenObservability={openObservability}
+              />
             </DynamicScope>
           ) : view.kind === 'observability' ? (
             // Same `settings` band as the Settings view: these are the app's other two full-page
             // surfaces reached from the top bar, they carry a title row of their own, and without a
             // scope they rendered in classic tokens while every neighbouring view was ambient.
             <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>
-              <ObservabilityView onOpenCase={openCase} onClose={() => setView(prevView)} />
+              <ObservabilityView onOpenCase={openCase} onClose={closeObservability} />
             </DynamicScope>
           ) : view.kind === 'relatedHistory' ? (
             <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>

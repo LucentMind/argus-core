@@ -1,6 +1,6 @@
 import { useState, useSyncExternalStore } from 'react'
 import { FolderGit2, X } from 'lucide-react'
-import { uiStore, UI_SCALES, type Theme, type UiScale } from '../../lib/uiStore'
+import { uiStore, UI_SCALES, type ThemePreference, type UiScale } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm } from '../../lib/confirmStore'
 import { onboardingReplay } from '../../lib/onboardingStore'
@@ -132,12 +132,15 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
       {/* Untitled: the page label in the header masthead already says "General", and this
           section is the whole page (user-directed, 2026-08-02). */}
       <SettingsSection>
-        <SettingRow label="Theme" description="This window only (stored locally)">
+        <SettingRow
+          label="Theme"
+          description="This window only (stored locally) — System follows your OS setting"
+        >
           <SelectField
             aria-label="Theme"
-            value={ui.theme}
-            options={['dark', 'light']}
-            onChange={(v) => uiStore.setTheme(v as Theme)}
+            value={ui.themePreference}
+            options={['system', 'dark', 'light']}
+            onChange={(v) => uiStore.setThemePreference(v as ThemePreference)}
           />
         </SettingRow>
         <SettingRow
