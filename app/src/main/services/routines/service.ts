@@ -6,8 +6,10 @@ import {
   attachRunSession,
   finishRoutineRun,
   listRoutineRuns,
-  lastSuccessAt
+  lastSuccessAt,
+  lastAttemptAt
 } from './runs'
+import { nextFireAfter } from './schedule'
 import type { RoutineStore } from './store'
 import type { RoutineDef, RoutinesPayload, RoutineTrigger } from '../../../shared/routines'
 import type { BackgroundTurnParams, BackgroundTurnResult } from '../agent/background'
@@ -40,6 +42,14 @@ export interface RoutinesServiceDeps {
   /** Change announcement (index.ts wires broadcast). */
   notify?: () => void
   now?: () => Date
+  /**
+   * Anchor for a routine that has never run. Defaults to construction time, which in production
+   * is app boot — so a routine created at 23:00 with a `daily 02:00` schedule fires at the next
+   * 02:00, and an `every 4h` fires four hours from now, rather than either firing immediately.
+   * Nothing is persisted for this: `daily` and `weekly` are absolute, and `interval`'s
+   * relative-to-boot behaviour is the least surprising answer available.
+   */
+  epoch?: Date
 }
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err))
@@ -70,8 +80,11 @@ export class RoutinesService {
   private running: RoutineDef | null = null
   private queue: { routine: RoutineDef; trigger: RoutineTrigger }[] = []
   private current: Promise<void> = Promise.resolve()
+  private readonly epoch: Date
 
-  constructor(private deps: RoutinesServiceDeps) {}
+  constructor(private deps: RoutinesServiceDeps) {
+    this.epoch = deps.epoch ?? deps.now?.() ?? new Date()
+  }
 
   /**
    * Invokes `deps.notify`, catching and logging anything it throws instead of letting it
@@ -99,8 +112,28 @@ export class RoutinesService {
       loadError: this.deps.store.loadError(),
       runningId: this.running?.id ?? null,
       queued: this.queue.map((e) => e.routine.id),
+      nextRunAt: Object.fromEntries(
+        this.deps.store.list().map((r) => [r.id, this.nextRunAt(r)])
+      ),
       runs: listRoutineRuns(this.deps.db)
     }
+  }
+
+  /**
+   * When this routine next fires, ISO — or null if it never will on its own.
+   *
+   * THE single definition of due-ness. The scheduler compares this against the clock and the
+   * Settings page prints it, so what the user is shown and what will actually happen cannot
+   * drift apart.
+   *
+   * Returns null for a disabled routine as well as an unscheduled one, so neither caller has to
+   * remember the `enabled` rule separately.
+   */
+  nextRunAt(routine: RoutineDef): string | null {
+    if (!routine.schedule || !routine.enabled) return null
+    const attempt = lastAttemptAt(this.deps.db, routine.id)
+    const anchor = attempt ? new Date(attempt) : this.epoch
+    return nextFireAfter(routine.schedule, anchor).toISOString()
   }
 
   /** Sync-validates (throws on unknown/disabled), then queues a manual run. */

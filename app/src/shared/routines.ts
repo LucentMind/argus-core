@@ -123,5 +123,7 @@ export interface RoutinesPayload {
   runningId: string | null
   /** Routine ids waiting for the execution slot, in the order they will run. */
   queued: string[]
+  /** Derived next fire per routine id; null = manual-only or disabled. */
+  nextRunAt: Record<string, string | null>
   runs: RoutineRunSummary[]
 }

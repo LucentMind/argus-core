@@ -572,3 +572,75 @@ describe('pending queue', () => {
     expect(svc.payload().runningId).toBeNull()
   })
 })
+
+describe('nextRunAt', () => {
+  const EPOCH = new Date('2026-08-08T01:00:00.000Z')
+  const build = (): RoutinesService =>
+    new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async () => ({ status: 'ok', text: 'done' }),
+      now: () => NOW,
+      epoch: EPOCH
+    })
+
+  it('is null for a manual-only routine', () => {
+    expect(build().nextRunAt(store.get('sweep')!)).toBeNull()
+  })
+
+  it('is null for a disabled routine even when it has a schedule', () => {
+    // One rule in one place: the scheduler and the Settings page both get this for free.
+    store.upsert({
+      id: 'off',
+      name: 'Off',
+      prompt: 'x',
+      enabled: false,
+      schedule: { kind: 'interval', everyMinutes: 60 }
+    })
+    expect(build().nextRunAt(store.get('off')!)).toBeNull()
+  })
+
+  it('anchors a never-run routine on the epoch, so a new routine never fires immediately', () => {
+    store.upsert({
+      id: 'sweep',
+      name: 'Sweep',
+      prompt: 'sweep it',
+      timeoutMs: 1000,
+      schedule: { kind: 'interval', everyMinutes: 60 }
+    })
+    expect(build().nextRunAt(store.get('sweep')!)).toBe('2026-08-08T02:00:00.000Z')
+  })
+
+  it('anchors on the last attempt once one exists', async () => {
+    store.upsert({
+      id: 'sweep',
+      name: 'Sweep',
+      prompt: 'sweep it',
+      timeoutMs: 1000,
+      schedule: { kind: 'interval', everyMinutes: 60 }
+    })
+    const svc = build()
+    svc.startRun('sweep')
+    await svc.whenIdle()
+    // NOW is the injected clock the run row was written with.
+    expect(svc.nextRunAt(store.get('sweep')!)).toBe(
+      new Date(NOW.getTime() + 60 * 60_000).toISOString()
+    )
+  })
+
+  it('is reported per routine in the payload', () => {
+    store.upsert({
+      id: 'sweep',
+      name: 'Sweep',
+      prompt: 'sweep it',
+      timeoutMs: 1000,
+      schedule: { kind: 'interval', everyMinutes: 60 }
+    })
+    store.upsert({ id: 'manual', name: 'Manual', prompt: 'x' })
+    expect(build().payload().nextRunAt).toEqual({
+      sweep: '2026-08-08T02:00:00.000Z',
+      manual: null
+    })
+  })
+})
