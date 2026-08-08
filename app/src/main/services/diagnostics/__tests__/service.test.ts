@@ -850,8 +850,13 @@ describe('terminate', () => {
   })
 
   it('refuses an unknown id', async () => {
-    const { service } = makeService()
+    const { service, client } = makeService()
     service.start()
+    // A fresh sample first, so this exercises the row-lookup 'gone' rather than being
+    // shadowed by the staleness refusal below (lastSampleAtMs starts null and reads as
+    // stale on its own — that path now reports 'failed', not 'gone', see the staleness
+    // test further down).
+    client.emit(snapshot())
     expect(await service.terminate('999:1')).toEqual({ ok: false, reason: 'gone' })
   })
 
@@ -951,7 +956,18 @@ describe('terminate', () => {
     // nothing ever subscribed).
     clock += 3 * SLOW_INTERVAL_MS + 1
 
-    expect(await service.terminate('2:10000')).toEqual({ ok: false, reason: 'gone' })
+    // NOT reason: 'gone' — this is exactly the path a wedged-but-still-handshaken sidecar
+    // takes (SidecarClient reports 'healthy' forever with no sample-arrival watchdog), so
+    // the row is very much alive. The renderer's copy for 'gone' is "It is no longer
+    // running.", which would be false here; 'failed' with an honest message is required.
+    const result = await service.terminate('2:10000')
+    expect(result.ok).toBe(false)
+    expect((result as { reason: string }).reason).not.toBe('gone')
+    expect(result).toEqual({
+      ok: false,
+      reason: 'failed',
+      message: 'Diagnostics has not received a fresh sample; the table may be stale.'
+    })
     expect(term.signalled).toEqual([])
   })
 })

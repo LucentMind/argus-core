@@ -179,11 +179,23 @@ export class DiagnosticsService {
     // read while its contents are arbitrarily old. `readAt` cannot detect that; only
     // lastSampleAtMs (set exclusively in ingest()) can. Bound is 3x the snapshot's own
     // sampleIntervalMs so it tracks the fast/slow tier rather than a fixed constant.
+    //
+    // NOT 'gone' — the renderer's copy for 'gone' is "It is no longer running.", and this
+    // is exactly the wrong moment to say that: SidecarClient sets status = 'healthy' at
+    // handshake and never watches for samples actually arriving, so a sidecar that
+    // handshakes and then wedges keeps reporting healthy forever. The renderer leaves
+    // Stop enabled on a very-much-alive process; this is the refusal it hits. Telling the
+    // user the process is gone is false and just invites another press for the same lie —
+    // 'failed' with an honest message describes what is actually true here.
     if (
       this.lastSampleAtMs === null ||
       this.now() - this.lastSampleAtMs > 3 * snap.sampleIntervalMs
     ) {
-      return { ok: false, reason: 'gone' }
+      return {
+        ok: false,
+        reason: 'failed',
+        message: 'Diagnostics has not received a fresh sample; the table may be stale.'
+      }
     }
 
     const row = snap.objects.find((o) => o.id === id)
@@ -262,7 +274,7 @@ export class DiagnosticsService {
    * against `this.current`, the freshest snapshot this service holds by the time
    * `stop()` has resolved (ingest() keeps advancing it independently of terminate()
    * while the owner closure is in flight). The check is the same pid+startTimeMs
-   * match `stillIs` uses for the SIGKILL escalation in Terminator: a candidate
+   * match `treeStartTimeMs` uses for the SIGKILL escalation in Terminator: a candidate
    * whose startTimeMs no longer matches what that snapshot reports for its pid is
    * not our process and must be skipped, not signalled on faith. This does not
    * force a fresher sample via sampleNow() first — see the report for why a
