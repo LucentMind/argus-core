@@ -68,7 +68,10 @@ const noopHandlers = {
 beforeEach(() => {
   window.argus = {
     settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) },
-    proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) },
+    proposals: {
+      list: vi.fn().mockResolvedValue({ proposals: [] }),
+      onChanged: vi.fn(() => () => {})
+    },
     bundle: { export: vi.fn() },
     cases: { delete: vi.fn() },
     // The dashboard mounts usePrStatuses for every case, which reads the cache and

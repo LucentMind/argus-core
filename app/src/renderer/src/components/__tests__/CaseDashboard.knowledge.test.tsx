@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { CaseDashboard } from '../CaseDashboard'
 import { settingsStore } from '../../lib/settingsStore'
 import { routinesStore } from '../../lib/routinesStore'
+import { proposalsStore } from '../../lib/proposalsStore'
+import type { ProposalCounts } from '../../../../shared/proposals'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { CaseRecord } from '../../../../shared/types'
 import { DEFAULT_MODE } from '../../../../shared/modes'
@@ -54,6 +56,8 @@ const defaultProps = {
   onDeleted: vi.fn()
 }
 
+let onChangedCb: ((c: ProposalCounts) => void) | null = null
+
 beforeEach(() => {
   window.argus = {
     settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) },
@@ -89,8 +93,19 @@ beforeEach(() => {
   } as never
   settingsStore.reset()
   routinesStore.reset()
+  proposalsStore.reset()
+  onChangedCb = null
   ;(window as never as { argus: Record<string, unknown> }).argus.proposals = {
-    list: vi.fn().mockResolvedValue({ proposals: [{ file: 'a.md' }, { file: 'b.md' }] })
+    list: vi.fn().mockResolvedValue({
+      proposals: [
+        { file: 'a.md', type: 'recipe' },
+        { file: 'b.md', type: 'recipe' }
+      ]
+    }),
+    onChanged: vi.fn((cb: (c: ProposalCounts) => void) => {
+      onChangedCb = cb
+      return () => {}
+    })
   }
 })
 
@@ -98,6 +113,23 @@ describe('knowledge pending line', () => {
   it('shows the pending count when > 0', async () => {
     render(<CaseDashboard {...defaultProps} />)
     expect(await screen.findByText(/Knowledge review pending: 2/)).toBeInTheDocument()
+  })
+
+  it('updates live when the proposals store broadcasts a change', async () => {
+    render(<CaseDashboard {...defaultProps} />)
+    expect(await screen.findByText(/Knowledge review pending: 2/)).toBeInTheDocument()
+
+    act(() => {
+      onChangedCb?.({ pendingCount: 5, byType: { recipe: 5 } })
+    })
+    expect(await screen.findByText(/Knowledge review pending: 5/)).toBeInTheDocument()
+
+    act(() => {
+      onChangedCb?.({ pendingCount: 0, byType: {} })
+    })
+    await waitFor(() =>
+      expect(screen.queryByText(/Knowledge review pending/)).not.toBeInTheDocument()
+    )
   })
 
   it('hides when 0', async () => {

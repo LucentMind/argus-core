@@ -6,6 +6,7 @@ import { CaseCard } from './CaseCard'
 import { DeleteCaseDialog } from './DeleteCaseDialog'
 import { RoutineInbox } from './routines/RoutineInbox'
 import { useRoutinesPayload } from '../lib/routinesStore'
+import { useProposalCounts } from '../lib/proposalsStore'
 import { useSettingsPayload } from '../lib/settingsStore'
 import { usePrStatuses } from '../lib/prStatusStore'
 import { uiStore } from '../lib/uiStore'
@@ -35,7 +36,6 @@ export function CaseDashboard({
   const [exportNote, setExportNote] = useState<{ slug: string; text: string } | null>(null)
   const [deleteError, setDeleteError] = useState<{ slug: string; text: string } | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
-  const [pendingKnowledge, setPendingKnowledge] = useState(0)
   const [login, setLogin] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
   const [showClosed, setShowClosed] = useState(false)
@@ -56,18 +56,9 @@ export function CaseDashboard({
   const gridRef = useRef<HTMLDivElement | null>(null)
   useGlassPointer(gridRef, dynamic)
 
-  useEffect(() => {
-    let mounted = true
-    window.argus.proposals
-      .list()
-      .then((p) => {
-        if (mounted) setPendingKnowledge(p.proposals.length)
-      })
-      .catch(() => undefined)
-    return () => {
-      mounted = false
-    }
-  }, [])
+  // Live via the proposals:changed broadcast — same store the TopBar badge reads,
+  // so accepting/rejecting a proposal elsewhere updates this line without a remount.
+  const pendingKnowledge = useProposalCounts()?.pendingCount ?? 0
 
   // Cached in githubIdentity for the renderer's lifetime, so remounting home on every return
   // from a case doesn't re-spawn gh. Resolves null (never rejects) when gh is absent or logged

@@ -112,7 +112,8 @@ beforeEach(() => {
   settingsStore.reset()
   routinesStore.reset()
   ;(window as never as { argus: Record<string, unknown> }).argus.proposals = {
-    list: vi.fn().mockResolvedValue({ proposals: [] })
+    list: vi.fn().mockResolvedValue({ proposals: [] }),
+    onChanged: vi.fn(() => () => {})
   }
   ;(window as never as { argus: Record<string, unknown> }).argus.routines = {
     list: vi.fn().mockResolvedValue(routinesPayload()),
