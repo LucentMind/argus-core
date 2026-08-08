@@ -14,7 +14,7 @@ import { RELATED_SEARCH_MAX_LIMIT } from '../../../../shared/relatedHistory'
 import { Btn, Chip, IconBtn } from '../ui'
 import { ModalShell } from '../ModalShell'
 import { blurOnEscape, useEscapeLayer } from '../../lib/escapeLayer'
-import { useAmbientAnchors } from '../../lib/ambientAnchors'
+import { viewTitleStore } from '../../lib/viewTitleStore'
 import { panelsStore } from '../../lib/panelsStore'
 import { ExplorerFilters } from './ExplorerFilters'
 import { HitDetail } from './HitDetail'
@@ -557,31 +557,17 @@ export function RelatedHistoryStandalone({
   onClose: () => void
 }): React.JSX.Element {
   useEscapeLayer({ onEscape: onClose })
-  // The dynamic theme's light anchors (App wraps this view in a `settings`-variant DynamicScope).
-  // Claimed here rather than in TopBar because this view owns its own title row: the light sits on
-  // the title, and the band dies at the row's bottom edge. Outside the dynamic theme these are
-  // no-ops from the context default. `setLight`/`setCutoff` are claim/release ref callbacks, not
-  // bare setters, so react-hooks/refs is a false positive — see lib/ambientAnchors.ts.
-  const anchors = useAmbientAnchors()
+  // TopBar renders the title now (user-directed, 2026-08-08), so this view's own title row —
+  // one word and a close button, ~34px of height under a header that had room for both — is
+  // gone, and the dynamic theme's anchors go with it: the header claims light and cutoff for
+  // itself whenever `viewTitleStore` is non-null. Escape (above) and the top bar's own Related
+  // history toggle both still close the view, exactly as Settings closes.
+  useEffect(() => {
+    viewTitleStore.publish({ label: 'Related history' })
+    return () => viewTitleStore.publish(null)
+  }, [])
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div
-        // eslint-disable-next-line react-hooks/refs
-        ref={anchors.setCutoff}
-        className="flex items-center justify-between border-b border-hair px-3 py-2"
-      >
-        <span
-          // eslint-disable-next-line react-hooks/refs
-          ref={anchors.setLight}
-          className="flex items-center gap-2 font-mono text-sm text-ink"
-        >
-          <History size={14} strokeWidth={1.5} />
-          Related history
-        </span>
-        <IconBtn aria-label="Close" title="Close" onClick={onClose}>
-          <X size={14} strokeWidth={1.5} />
-        </IconBtn>
-      </div>
       <RelatedHistoryExplorer onOpenCase={onOpenCase} />
     </div>
   )

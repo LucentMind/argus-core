@@ -4,7 +4,7 @@ import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useEffect, type ReactNode } from 'react'
 import { AmbientAnchorContext, useAmbientAnchors, useAmbientAnchorState } from '../ambientAnchors'
-import { settingsBarStore } from '../settingsBarStore'
+import { viewTitleStore } from '../viewTitleStore'
 import { caseBarStore } from '../caseBarStore'
 import { uiStore } from '../uiStore'
 import { TopBar } from '../../components/TopBar'
@@ -20,7 +20,7 @@ import { TopBar } from '../../components/TopBar'
 
 beforeEach(() => {
   localStorage.clear()
-  settingsBarStore.reset()
+  viewTitleStore.reset()
   caseBarStore.reset()
   uiStore.setDynamicTheme(false)
   window.argus = {
@@ -99,9 +99,9 @@ function FakeHome(): React.JSX.Element {
  */
 function FakeSettings(): React.JSX.Element {
   useEffect(() => {
-    settingsBarStore.publish({ label: 'General', blurb: 'Appearance.' })
+    viewTitleStore.publish({ label: 'General', blurb: 'Appearance.' })
   }, [])
-  useEffect(() => () => settingsBarStore.publish(null), [])
+  useEffect(() => () => viewTitleStore.publish(null), [])
   return <div>settings body</div>
 }
 
@@ -109,13 +109,13 @@ describe('ambient anchor slots', () => {
   it('hands the anchors to TopBar while Settings is up', () => {
     render(<Harness view="settings" />)
     expect(seen.cutoff).toBe(screen.getByRole('banner'))
-    expect(seen.light).toBe(screen.getByTestId('settings-title'))
+    expect(seen.light).toBe(screen.getByTestId('view-title'))
   })
 
   it('leaving Settings does not clobber the destination view’s anchors', () => {
     // THE REGRESSION (2026-08-02). Home attaches its anchors in the commit that swaps the view;
     // TopBar drops its own one commit later, when SettingsView's passive cleanup clears
-    // settingsBarStore. With last-write-wins slots that trailing detach wrote null over anchors
+    // viewTitleStore. With last-write-wins slots that trailing detach wrote null over anchors
     // that already belonged to home, and the ambient canvas fell back to its hardcoded 460px
     // cutoff on every view reached from Settings.
     const { rerender } = render(<Harness view="settings" />)
@@ -127,7 +127,7 @@ describe('ambient anchor slots', () => {
     expect(seen.light).toBe(screen.getByTestId('home-light'))
     // and TopBar really has let go — the assertion above would also pass if Settings were somehow
     // still up, which would mean the ordering was never exercised
-    expect(screen.queryByTestId('settings-title')).toBeNull()
+    expect(screen.queryByTestId('view-title')).toBeNull()
   })
 
   it('entering Settings hands the anchors over rather than leaving the old view’s', () => {
@@ -140,7 +140,7 @@ describe('ambient anchor slots', () => {
     rerender(<Harness view="settings" />)
 
     expect(seen.cutoff).toBe(screen.getByRole('banner'))
-    expect(seen.light).toBe(screen.getByTestId('settings-title'))
+    expect(seen.light).toBe(screen.getByTestId('view-title'))
   })
 
   it('a departing writer releases only the node it claimed', () => {

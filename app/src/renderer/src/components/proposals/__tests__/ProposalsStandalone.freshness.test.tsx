@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { ProposalsStandalone } from '../ProposalsStandalone'
 import { settingsStore } from '../../../lib/settingsStore'
 import { proposalsStore } from '../../../lib/proposalsStore'
+import { viewTitleStore } from '../../../lib/viewTitleStore'
 import type {
   ProposalCounts,
   ProposalRecord,
@@ -52,6 +53,7 @@ function setList(p: ProposalsPayload): void {
 beforeEach(() => {
   settingsStore.reset()
   proposalsStore.reset()
+  viewTitleStore.reset()
   fireChanged = null
   list = vi.fn().mockResolvedValue({ proposals: [recA] })
   ;(window as unknown as { argus: unknown }).argus = {
@@ -136,11 +138,10 @@ describe('ProposalsStandalone freshness', () => {
     setList({ proposals: [] })
     broadcast({ pendingCount: 0, byType: {} })
 
-    // "0 pending" renders in both the top bar and the queue header — scope to
-    // the queue (an <aside>, implicit role "complementary").
-    await waitFor(() =>
-      expect(within(screen.getByRole('complementary')).getByText(/0 pending/)).toBeInTheDocument()
-    )
+    // The count lives only in the top bar now (the queue's own header is gone) — and the top
+    // bar is a SIBLING view this test never mounts, so the published title is what says the
+    // refetch landed.
+    await waitFor(() => expect(viewTitleStore.get()?.detail).toBe('· 0 pending'))
     expect(screen.getByText(/accepted into your library/i)).toBeInTheDocument()
   })
 
