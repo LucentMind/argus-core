@@ -258,4 +258,22 @@ describe('RoutineInbox', () => {
     render(<RoutineInbox onOpen={vi.fn()} />)
     expect(await screen.findByText(/62 to review/)).toBeInTheDocument()
   })
+
+  it('explains an empty box when the backlog is older than the 50-run window it can show', async () => {
+    // unreviewedCount is a SQL count over every row; payload.runs is capped at the 50 newest.
+    // If those 50 are all reviewed while older rows are not, the header still says "to review"
+    // but there is nothing in `pending` to render a row for.
+    api.list.mockResolvedValue(
+      payload({
+        unreviewedCount: 5,
+        runs: [run({ reviewedAt: '2026-08-03T09:00:00.000Z' })]
+      })
+    )
+    render(<RoutineInbox onOpen={vi.fn()} />)
+    expect(await screen.findByText(/5 to review/)).toBeInTheDocument()
+    expect(screen.getByText(/older than the 50 this list carries/)).toBeInTheDocument()
+    // Mark all reviewed must still be there — it is the only control that can clear a backlog
+    // sitting outside the window.
+    expect(screen.getByRole('button', { name: 'Mark all reviewed' })).toBeInTheDocument()
+  })
 })

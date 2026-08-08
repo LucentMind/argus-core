@@ -532,11 +532,16 @@ describe('case origin', () => {
     expect(getCase(db, 'nav-1')?.origin).toBe('user')
   })
 
-  it('stamps an existing case as routine-created, idempotently', () => {
+  it('stamps an existing case as routine-created, idempotently, without touching updated_at', () => {
     createCase(db, home, { slug: 'routine-sweep', title: 'Routine: Nightly sweep' })
+    const before = getCase(db, 'routine-sweep')!.updatedAt
     ensureCaseOrigin(db, 'routine-sweep', 'routine')
     ensureCaseOrigin(db, 'routine-sweep', 'routine')
     expect(getCase(db, 'routine-sweep')?.origin).toBe('routine')
+    // origin is a classification, not activity: updated_at feeds formatSyncAge and the `idle`
+    // action item, and ensureCaseOrigin runs on every routine run, so touching it here would
+    // make every routine case look permanently fresh and silently suppress its idle signal.
+    expect(getCase(db, 'routine-sweep')?.updatedAt).toBe(before)
   })
 
   it('backfills origin from the run table, not from the slug', () => {
@@ -581,6 +586,17 @@ describe('case origin', () => {
     const migrated = openDb(older)
     expect(getCase(migrated, 'routine-sweep')?.origin).toBe('routine')
     expect(getCase(migrated, 'routine-cleanup')?.origin).toBe('user')
+    // Simulate a human reclaiming a routine-touched case after the one-time backfill has already
+    // run. `routine_runs` for this slug is untouched (still historical fact), so the only thing
+    // that can prove the backfill does not re-fire on a later launch is that this override
+    // survives a reopen.
+    ensureCaseOrigin(migrated, 'routine-sweep', 'user')
     migrated.close()
+
+    // The column guard is what makes the backfill one-time. Without it, a later launch would
+    // re-run the `slug IN (...)` UPDATE and stomp the reclaim back to 'routine'.
+    const reopened = openDb(older)
+    expect(getCase(reopened, 'routine-sweep')?.origin).toBe('user')
+    reopened.close()
   })
 })

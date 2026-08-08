@@ -88,6 +88,11 @@ export function RoutineInbox({
         </p>
       )}
       <div className="flex flex-col divide-y divide-hair2 rounded-r2 border border-hair2 bg-overlay">
+        {pending.length === 0 && (
+          <p className="p-4 text-xs text-faint">
+            These runs are older than the 50 this list carries — Mark all reviewed clears them.
+          </p>
+        )}
         {pending.map((run) => {
           const name = nameOf(run.routineId)
           // The inbox's ordinary shape is several runs of the *same* routine (a nightly job that

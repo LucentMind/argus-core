@@ -328,6 +328,12 @@ describe('reviewed_at migration', () => {
     finishRoutineRun(migrated, fresh, { status: 'ok' }, () => NOW)
     expect(listRoutineRuns(migrated)[0].reviewedAt).toBeNull()
     migrated.close()
+
+    // The column guard is what makes the backfill one-time. Without it, every launch would
+    // mark every finished run reviewed and the inbox would be permanently empty.
+    const reopened = openDb(older)
+    expect(listRoutineRuns(reopened)[0].reviewedAt).toBeNull()
+    reopened.close()
   })
 
   it('leaves a stranded running row unreviewed after migration', () => {

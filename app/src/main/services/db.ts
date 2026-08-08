@@ -468,6 +468,8 @@ export function openDb(file: string): DatabaseSync {
     // and a run the app died inside of belongs in the inbox.
     db.exec(`UPDATE routine_runs SET reviewed_at = finished_at WHERE finished_at IS NOT NULL`)
   }
+
+  // Increment 3: case origin.
   if (!caseCols.some((c) => c.name === 'origin')) {
     db.exec(`ALTER TABLE cases ADD COLUMN origin TEXT NOT NULL DEFAULT 'user'`)
     // Backfilled from the RUN TABLE, not from `slug LIKE 'routine-%'`. The prefix is a naming

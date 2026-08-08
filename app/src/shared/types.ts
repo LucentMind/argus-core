@@ -102,16 +102,17 @@ export interface SyncError {
 }
 
 /**
- * Who created a case. `'user'` covers every human entry point — New case, import, create from a
- * Jira ticket — and is the column default, so a path that knows nothing about this field is
- * still correct.
+ * Whether a routine has written into this case. `'user'` is the column default, so a path that
+ * knows nothing about this field is still correct. `'routine'` is not "who created it" — a
+ * human-created case a routine later adopts gets relabelled `'routine'` too, since that is what
+ * `ensureCaseOrigin` and the one-time backfill both key on.
  */
 export type CaseOrigin = 'user' | 'routine'
 
 export interface CaseRecord {
   id: number
   slug: string
-  /** Who created this case. Machine-created cases are marked in the case grid. */
+  /** Whether a routine has written into this case. Routine-touched cases are marked in the case grid. */
   origin: CaseOrigin
   title: string
   jiraKey: string | null
