@@ -105,7 +105,7 @@ describe('RoutineInbox', () => {
     await screen.findByText('nothing new')
 
     api.list.mockResolvedValue(payload({ unreviewedCount: 0, runs: [] }))
-    fireEvent.click(screen.getByRole('button', { name: 'Mark reviewed' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark reviewed · Nightly sweep' }))
 
     expect(api.markReviewed).toHaveBeenCalledWith(1)
     // The store re-reads on the broadcast, which main emits after the write.
@@ -113,19 +113,56 @@ describe('RoutineInbox', () => {
     await waitFor(() => expect(screen.queryByText('nothing new')).not.toBeInTheDocument())
   })
 
-  it('marks every run reviewed', async () => {
+  it('marks every run reviewed and drops the section once the payload refreshes', async () => {
     render(<RoutineInbox onOpen={vi.fn()} />)
     await screen.findByText('nothing new')
+
+    api.list.mockResolvedValue(payload({ unreviewedCount: 0, runs: [] }))
     fireEvent.click(screen.getByRole('button', { name: 'Mark all reviewed' }))
+
     expect(api.markAllReviewed).toHaveBeenCalled()
+    // Same convergence path as the single-mark case: the store re-reads on the broadcast.
+    listeners.forEach((l) => l())
+    await waitFor(() => expect(screen.queryByText('nothing new')).not.toBeInTheDocument())
   })
 
   it('opens the case the run wrote to', async () => {
     const onOpen = vi.fn()
     render(<RoutineInbox onOpen={onOpen} />)
     await screen.findByText('nothing new')
-    fireEvent.click(screen.getByRole('button', { name: 'Open case' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open case · Nightly sweep' }))
     expect(onOpen).toHaveBeenCalledWith('routine-sweep')
+  })
+
+  it('marks the clicked row reviewed, not the other pending row', async () => {
+    const other: RoutineDef = { ...sweep, id: 'digest', name: 'Morning digest' }
+    api.list.mockResolvedValue(
+      payload({
+        unreviewedCount: 2,
+        routines: [sweep, other],
+        runs: [run({ id: 1 }), run({ id: 2, routineId: 'digest', summary: 'digest done' })]
+      })
+    )
+    render(<RoutineInbox onOpen={vi.fn()} />)
+    await screen.findByText('digest done')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mark reviewed · Morning digest' }))
+
+    expect(api.markReviewed).toHaveBeenCalledWith(2)
+    expect(api.markReviewed).not.toHaveBeenCalledWith(1)
+  })
+
+  it('surfaces a rejected mark-reviewed instead of leaving the click silent', async () => {
+    api.markReviewed.mockRejectedValueOnce(new Error('routine store is locked'))
+    render(<RoutineInbox onOpen={vi.fn()} />)
+    await screen.findByText('nothing new')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mark reviewed · Nightly sweep' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('routine store is locked')
+    // The failed write must not have removed the row — the click did nothing, and the banner
+    // is the only thing that is allowed to say so.
+    expect(screen.getByText('nothing new')).toBeInTheDocument()
   })
 
   it('falls back to the raw id when the routine has been deleted', async () => {
