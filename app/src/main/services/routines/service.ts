@@ -41,7 +41,11 @@ import {
   type RoutineTrigger
 } from '../../../shared/routines'
 import type { CaseResolution } from '../../../shared/types'
-import type { BackgroundTurnParams, BackgroundTurnResult } from '../agent/background'
+import {
+  TURN_ABORTED_ERROR,
+  type BackgroundTurnParams,
+  type BackgroundTurnResult
+} from '../agent/background'
 
 // Deliberately imports NO electron (same rule as agent/background.ts): the routines engine must
 // stay pure Node so a future headless server can host it. Change announcement is the injected
@@ -682,6 +686,34 @@ export class RoutinesService {
           status: 'failed',
           error: message(err),
           ...(attempted ? { summary: summarize() } : {})
+        },
+        this.deps.now
+      )
+      return
+    }
+
+    // Checked AFTER the loop, not just inside its own guard — the loop's `break` only covers
+    // quit landing WHILE an item is being attempted (or between items). Quit can just as easily
+    // land during `resolveTargets` above (a real, seconds-wide Jira query the abort signal is
+    // not wired into at all), in which case the loop above never even runs once: `processed` and
+    // `failed` both stay zero, and the OLD `processed === 0 && failed > 0 ? 'failed' : 'ok'`
+    // read that as a clean `ok`. Either shape — cut short mid-item, or cut short before the
+    // first item — means this run did NOT finish on its own terms and must never read `ok`:
+    // `lastSuccessAt` (runs.ts) only advances on `status='ok'`, and moving it here would tell
+    // the NEXT run "nothing has changed since" work that, for whatever this run never reached,
+    // in fact never happened — exactly what `lastSuccessAt`'s own docblock forbids.
+    if (this.runningAbort?.signal.aborted) {
+      const attempted = processed > 0 || skipped > 0 || failed > 0
+      finishRoutineRun(
+        db,
+        runId,
+        {
+          status: 'failed',
+          error: TURN_ABORTED_ERROR,
+          // Distinguishes "cut short by quit, but did real work first" from a run that failed
+          // outright — summarize() alone (e.g. "1 processed · 1 failed") reads as an ordinary
+          // mixed-outcome run with nothing to explain why item 3 is simply absent.
+          ...(attempted ? { summary: `${summarize()} · stopped: the app was quitting` } : {})
         },
         this.deps.now
       )

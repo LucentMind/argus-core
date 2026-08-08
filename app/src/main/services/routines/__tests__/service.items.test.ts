@@ -7,6 +7,7 @@ import { openDb } from '../../db'
 import { createCase, getCase, findCaseByJiraKey } from '../../caseService'
 import { RoutinesService, type RoutineTurnRequest } from '../service'
 import { listRunItems, runItemForCase } from '../runItems'
+import { lastSuccessAt } from '../runs'
 import { readRoutineCursor } from '../cursors'
 import type { ScopeResolver } from '../scopeResolver'
 import type { RoutineDef } from '../../../../shared/routines'
@@ -110,6 +111,17 @@ afterEach(() => {
   db.close()
   fs.rmSync(tmp, { recursive: true, force: true })
 })
+
+/** Polls a macrotask at a time (each tick flushes every pending microtask) until `cond` is true
+ *  or `maxTicks` is exhausted — for driving a real service up to a specific point mid-run (e.g.
+ *  "item 2's turn has started") without assuming a fixed number of intervening `await`s. */
+async function flushUntil(cond: () => boolean, maxTicks = 50): Promise<void> {
+  for (let i = 0; i < maxTicks; i++) {
+    if (cond()) return
+    await new Promise((r) => setTimeout(r, 0))
+  }
+  throw new Error(`flushUntil: condition never became true within ${maxTicks} ticks`)
+}
 
 describe('scoped runs', () => {
   it('runs ONE turn per item and records an item row for each', async () => {
@@ -455,6 +467,104 @@ describe('scoped runs', () => {
     const run = svc.payload().runs[0]
     expect(listRunItems(db, [run.id]).map((i) => i.itemKey)).toEqual(['ABC-1'])
     expect(run.status).toBe('failed')
+    // A quit-cut run must never move the watermark — see the two tests below for why this one
+    // alone cannot prove the general rule (it happens to land on `failed` even under the OLD,
+    // buggy `processed === 0 && failed > 0 ? 'failed' : 'ok'` computation, since nothing here
+    // was ever `processed`).
+    expect(lastSuccessAt(db, 'nightly')).toBeNull()
+  })
+
+  it('records failed, not ok, when quit interrupts item 2 of a 3-item scope — processed=1, failed=1 must not read ok', async () => {
+    // The bug this pins: `processed === 0 && failed > 0 ? 'failed' : 'ok'` only ever catches a
+    // quit that happens to leave `processed` at zero. The moment even ONE earlier item finished
+    // cleanly before quit cut the run short, that formula reads `ok` — exactly wrong, since the
+    // run did NOT finish on its own terms and item 3 was never even opened.
+    const started: string[] = []
+    const svc = new RoutinesService({
+      db,
+      argusHome: tmp,
+      store: storeOf(routine({ maxItemsPerRun: 5 })) as never,
+      scopeResolver: fakeResolver([
+        { key: 'ABC-1', created: '2026-08-01T00:00:00.000Z' },
+        { key: 'ABC-2', created: '2026-08-02T00:00:00.000Z' },
+        { key: 'ABC-3', created: '2026-08-03T00:00:00.000Z' }
+      ]),
+      runTurn: (p) => {
+        started.push(p.caseSlug)
+        if (p.caseSlug === 'abc-1') return Promise.resolve({ status: 'ok', text: 'did abc-1' })
+        // abc-2 (and, if ever reached, abc-3): mirrors runBackgroundTurn's real contract for
+        // params.signal — hangs until aborted, then settles failed.
+        return new Promise((resolve) => {
+          p.signal?.addEventListener(
+            'abort',
+            () =>
+              resolve({ status: 'failed', text: '', error: 'turn aborted: the app is quitting' }),
+            { once: true }
+          )
+        })
+      },
+      now: () => new Date('2026-08-08T02:00:00.000Z')
+    })
+
+    svc.startRun('nightly')
+    await flushUntil(() => started.includes('abc-2'))
+    expect(started).toEqual(['abc-1', 'abc-2'])
+
+    svc.stopForQuit()
+    await svc.whenIdle()
+
+    // abc-3 was never opened.
+    expect(started).toEqual(['abc-1', 'abc-2'])
+    const run = svc.payload().runs[0]
+    expect(listRunItems(db, [run.id]).map((i) => i.itemKey)).toEqual(['ABC-1', 'ABC-2'])
+    expect(run.status).toBe('failed')
+    expect(run.error).toMatch(/quit/i)
+    // THE assertion: a quit-cut run — even one with real, successful work behind it — must never
+    // advance the "last successful run" watermark the next run's preamble reads (runs.ts).
+    expect(lastSuccessAt(db, 'nightly')).toBeNull()
+  })
+
+  it('records failed, not ok, when quit fires during scope resolution — before any item is even opened', async () => {
+    // The other shape of the same bug: quit lands while resolveTargets (a real, seconds-wide
+    // Jira query) is still in flight. The loop's abort guard breaks on its very first iteration,
+    // so processed=0 AND failed=0 — the old computation's `else` branch reads that as `ok`.
+    const started: string[] = []
+    let releaseResolve: (() => void) | undefined
+    const gate = new Promise<void>((r) => {
+      releaseResolve = r
+    })
+    const svc = new RoutinesService({
+      db,
+      argusHome: tmp,
+      store: storeOf(routine({ maxItemsPerRun: 5 })) as never,
+      scopeResolver: {
+        resolveJql: async () => {
+          await gate
+          return [{ key: 'ABC-1', cursorValue: '2026-08-01T00:00:00.000Z' }]
+        },
+        ingestJiraItem: async () => ({ caseSlug: 'x', created: true })
+      },
+      runTurn: (p) => {
+        started.push(p.caseSlug)
+        return new Promise(() => {}) // never reached in this test
+      },
+      now: () => new Date('2026-08-08T02:00:00.000Z')
+    })
+
+    svc.startRun('nightly')
+    // Give resolveTargets a real chance to start awaiting `gate` before quitting.
+    await new Promise((r) => setTimeout(r, 0))
+
+    svc.stopForQuit()
+    releaseResolve?.()
+    await svc.whenIdle()
+
+    expect(started).toEqual([])
+    const run = svc.payload().runs[0]
+    expect(listRunItems(db, [run.id])).toEqual([])
+    expect(run.status).toBe('failed')
+    expect(run.error).toMatch(/quit/i)
+    expect(lastSuccessAt(db, 'nightly')).toBeNull()
   })
 
   it('records a failed run when the scope itself cannot be resolved', async () => {
