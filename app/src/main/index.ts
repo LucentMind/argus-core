@@ -1856,6 +1856,28 @@ function registerIpc(): void {
       console.error(`[routines] broadcast on ${channel} failed:`, err)
     }
   }
+  // showMainWindow(), then push the run inbox into view — the tray's "N runs to review" item and
+  // a clicked run-finished notification both mean this (both wired further down, still inside
+  // this function).
+  //
+  // The tray-resident case (no window open) is the PRIMARY case for both callers, and that is
+  // exactly the case where a broadcast sent right after `showMainWindow()` returns would be sent
+  // into a `webContents` that has only just started `loadFile`/`loadURL` — no renderer listener
+  // registered yet, message silently dropped (App.tsx subscribes to routines:focus-inbox from a
+  // `useEffect`, well after that point). Deferred to that window's own `did-finish-load` in that
+  // case, the same idiom `electronEditorWindow.ts` and `panels/electronPlatform.ts` use for
+  // "don't send until the page can hear it". When the window already existed, send immediately as
+  // before.
+  const showMainWindowAndFocusInbox = (): void => {
+    const created = showMainWindow()
+    if (!created) {
+      routinesBroadcast(IPC.routinesFocusInbox, null)
+      return
+    }
+    mainWindow?.webContents.once('did-finish-load', () => {
+      routinesBroadcast(IPC.routinesFocusInbox, null)
+    })
+  }
   // Local const published to the module-scope handle (same idiom as `flushTabs` above), so the
   // handlers below can use it without a non-null assertion on a `let` that quit-time sets aside.
   const routines = new RoutineStore(argusHome)
@@ -1926,8 +1948,7 @@ function registerIpc(): void {
       liveNotifications.add(n)
       n.on('click', () => {
         liveNotifications.delete(n)
-        showMainWindow()
-        routinesBroadcast(IPC.routinesFocusInbox, null)
+        showMainWindowAndFocusInbox()
       })
       n.on('close', () => {
         liveNotifications.delete(n)
@@ -2014,7 +2035,7 @@ function registerIpc(): void {
     },
     unreviewedCount: () => routinesService.payload().unreviewedCount,
     showWindow: () => showMainWindow(),
-    focusInbox: () => routinesBroadcast(IPC.routinesFocusInbox, null),
+    showWindowAndFocusInbox: () => showMainWindowAndFocusInbox(),
     quit: () => app.quit()
   })
   trayService.start()
@@ -3251,15 +3272,20 @@ function createWindow(): void {
  * `activate` used to test) is not a proxy for "the main window is open": the editor is a second
  * BrowserWindow, so with the editor up and the main window closed that test is false and the
  * window the user asked for never appears.
+ *
+ * Returns whether it had to create the window — callers that need to push something into the
+ * renderer right after (see {@link showMainWindowAndFocusInbox}) cannot just send immediately in
+ * that case: a fresh window's `webContents` has only just started loading.
  */
-function showMainWindow(): void {
+function showMainWindow(): boolean {
   if (!mainWindow || mainWindow.isDestroyed()) {
     createWindow()
-    return
+    return true
   }
   if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.show()
   mainWindow.focus()
+  return false
 }
 
 /**

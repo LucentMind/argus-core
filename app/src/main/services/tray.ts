@@ -33,7 +33,15 @@ export interface TrayServiceDeps {
   /** Increment 3's SQL count over every unreviewed run, not the capped 50-row window. */
   unreviewedCount: () => number
   showWindow: () => void
-  focusInbox: () => void
+  /**
+   * Show the window (creating it if needed) and land on the run inbox once it can actually
+   * receive that push. A window that has to be created cannot be told to focus the inbox in the
+   * same tick — its `webContents` has only just started loading — so composing "show" and "focus
+   * inbox" into one callback lets the caller (main/index.ts, which owns window lifecycle) decide
+   * when the second half fires. This service deliberately does not: it only ever calls the two
+   * actions it is given, never Electron's window APIs directly.
+   */
+  showWindowAndFocusInbox: () => void
   quit: () => void
 }
 
@@ -76,10 +84,7 @@ export class TrayService {
         {
           label: reviewLabel,
           visible: n > 0,
-          click: () => {
-            this.deps.showWindow()
-            this.deps.focusInbox()
-          }
+          click: () => this.deps.showWindowAndFocusInbox()
         },
         { label: 'Quit Argus', click: () => this.deps.quit() }
       ])
