@@ -11,12 +11,12 @@ import {
 import { Btn, Checkbox, Chip, IconBtn } from '../ui'
 import { confirm } from '../../lib/confirmStore'
 import { chipStamp } from '../../lib/time'
+import { RUN_TONE, TriggerChip, RunSummaryText } from '../routines/runDisplay'
 import {
   MAX_TIMEOUT_MINUTES,
   MIN_INTERVAL_MINUTES,
   MAX_INTERVAL_MINUTES,
   type RoutineDef,
-  type RoutineRunSummary,
   type RoutineSchedule,
   type RoutinesPayload
 } from '../../../../shared/routines'
@@ -143,22 +143,6 @@ function duration(startedAt: string, finishedAt: string | null): string | null {
 }
 
 /**
- * Four tones for four outcomes. `timeout` and `running` deliberately do NOT share a tone with
- * `failed`/`ok`: this list is the audit trail for unattended work, and a user scanning it is
- * asking "did my overnight work actually happen?" — a run that was cut off at its time limit,
- * and a run still going, are both wrong answers to read as a clean pass.
- */
-const RUN_TONE: Record<RoutineRunSummary['status'], 'signal' | 'danger' | 'defect' | 'review'> = {
-  ok: 'signal',
-  failed: 'danger',
-  timeout: 'defect',
-  running: 'review'
-}
-
-/** Beyond this, a run's summary/error is cut and gets a toggle. */
-const TRUNCATE_AT = 200
-
-/**
  * What a routine will do next, in one phrase.
  *
  * `queued` and `running` beat the clock: a routine whose slot is already claimed has a more
@@ -180,43 +164,6 @@ function nextRunLabel(
   // reports a fire from whenever the app was last closed. Printing "next <past time>" for it
   // reads as a schedule that has broken rather than one about to run.
   return new Date(nextRunAt).getTime() <= Date.now() ? 'due now' : `next ${chipStamp(nextRunAt)}`
-}
-
-/**
- * A run's summary or error, truncated until asked for.
- *
- * Truncated in JS rather than by a `line-clamp` so the cut is real: an unattended run's final
- * text can be several paragraphs, and a CSS-only clamp would leave the whole thing in the DOM,
- * where no test in this suite (jsdom resolves no stylesheet) can tell readable from hidden.
- *
- * Module scope, not nested in the row: `react-hooks/static-components`, and a component
- * redeclared per render would drop its open/closed state on every payload refresh.
- */
-function ExpandableText({
-  text,
-  kind
-}: {
-  text: string
-  kind: 'summary' | 'error'
-}): React.JSX.Element {
-  const [open, setOpen] = useState(false)
-  const long = text.length > TRUNCATE_AT
-  return (
-    <p className={kind === 'error' ? 'text-danger' : 'text-dim'}>
-      <span className="whitespace-pre-wrap">
-        {open || !long ? text : `${text.slice(0, TRUNCATE_AT)}…`}
-      </span>
-      {long && (
-        <button
-          type="button"
-          className="ml-1.5 whitespace-nowrap text-mute underline transition-colors hover:text-ink"
-          onClick={() => setOpen(!open)}
-        >
-          {open ? 'Show less' : 'Show more'}
-        </button>
-      )}
-    </p>
-  )
 }
 
 function RoutineEditor({
@@ -719,13 +666,7 @@ export function RoutinesPage(): React.JSX.Element {
               <Chip tone={RUN_TONE[run.status]}>
                 <span data-testid={`run-status-${run.id}`}>{run.status}</span>
               </Chip>
-              {run.trigger !== 'manual' && (
-                <Chip tone="neutral">
-                  <span data-testid={`run-trigger-${run.id}`}>
-                    {run.trigger === 'catchup' ? 'catch-up' : 'scheduled'}
-                  </span>
-                </Chip>
-              )}
+              {run.trigger !== 'manual' && <TriggerChip run={run} />}
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 {/* Name plus where the work landed, in one line (PromptsDevPage's capture rows
                     use the same `a · b` shape). The routine may have been deleted since, so the
@@ -733,8 +674,8 @@ export function RoutinesPage(): React.JSX.Element {
                 <span data-testid={`run-routine-${run.id}`} className="truncate text-ink">
                   {nameOf(run.routineId)} · {run.caseSlug}
                 </span>
-                {run.error && <ExpandableText text={run.error} kind="error" />}
-                {run.summary && <ExpandableText text={run.summary} kind="summary" />}
+                {run.error && <RunSummaryText text={run.error} kind="error" />}
+                {run.summary && <RunSummaryText text={run.summary} kind="summary" />}
                 {!run.error && !run.summary && (
                   <p className="text-faint">
                     {run.status === 'running' ? 'in progress…' : 'no output recorded'}
