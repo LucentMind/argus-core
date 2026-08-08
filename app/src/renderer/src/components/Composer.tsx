@@ -391,7 +391,16 @@ export function Composer({
 
   function changeOption(d: RunOptionDescriptor, value: string | boolean): void {
     if (d.type === 'select' && d.promptInjected?.includes(String(value))) {
-      setText(applyUltrathink(text))
+      // A toggle, not a one-way set: the row reads "On" exactly when `ultrathinkOn`, so
+      // clicking it while it reads On has to take the marker back out. Reaching this line at
+      // all means the section is unlocked, which is precisely the case where the marker is
+      // leading and `stripUltrathink` can actually remove it — `ultrathinkInBody` (the case
+      // where it cannot) disables every control in the section, so no click gets here.
+      //
+      // Removing the marker restores the stored effort level rather than clearing it: the
+      // selection was never overwritten, only overridden for display, so the scale simply
+      // shows its own value again.
+      setText(ultrathinkOn ? stripUltrathink(text) : applyUltrathink(text))
       return
     }
     if (ultrathinkInBody && d.id === 'effort') return

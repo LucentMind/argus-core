@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, MoreHorizontal } from 'lucide-react'
 import {
   selectionLabel,
@@ -7,8 +7,227 @@ import {
   type RunOptionSelection
 } from '../../../shared/runOptions'
 
-/** One labelled radio group per descriptor. Shared verbatim by the wide chips and the
- *  narrow collapsed popup, so the two can never drift apart. */
+/** A choice as the controls below consume it — `RunOptionChoice` for a select, the two
+ *  synthesised positions for a boolean. */
+type Choice = { value: string | boolean; label: string }
+
+/**
+ * A row of side-by-side positions in one recessed track — the shape Claude Code's own
+ * settings use for a short, closed set (Off/On, 200k/1M).
+ *
+ * Every position stays a `role="menuitem"` button whose accessible name is its own label,
+ * and the selected one keeps `text-ink` against the others' `text-dim`. That is deliberate:
+ * this replaced a vertical list of exactly those buttons, and keeping the role, the name and
+ * the selected-state class means the change is purely visual to anything reading the menu —
+ * a screen reader, or the composer's own tests.
+ */
+function Segmented({
+  choices,
+  current,
+  onChange,
+  locked,
+  className
+}: {
+  choices: readonly Choice[]
+  current: string | boolean | undefined
+  onChange: (value: string | boolean) => void
+  locked?: boolean
+  className?: string
+}): React.JSX.Element {
+  return (
+    <div className={`flex gap-0.5 rounded-r2 bg-hair p-0.5${className ? ` ${className}` : ''}`}>
+      {choices.map((c) => (
+        <button
+          key={String(c.value)}
+          type="button"
+          role="menuitem"
+          disabled={locked}
+          className={`flex-1 whitespace-nowrap rounded-r1 px-2 py-0.5 text-xs transition-colors disabled:opacity-40 ${
+            c.value === current
+              ? 'bg-hi text-ink shadow-sm'
+              : 'text-dim hover:text-ink disabled:hover:text-dim'
+          }`}
+          onClick={() => onChange(c.value)}
+        >
+          {c.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * An ordered scale as a slider — Claude Code's Effort control. Used instead of {@link Segmented}
+ * once a descriptor offers enough positions that naming all of them side by side stops fitting
+ * (Reasoning runs Low → Max plus Ultracode); the current value is named once in the section
+ * header instead, and the track carries only dots.
+ *
+ * Each stop is still a `role="menuitem"` button — named via `aria-label`, since the visible
+ * content is a dot — so the same reading holds as for `Segmented`: role, accessible name and
+ * the `text-ink`/`text-dim` selected state all survive the redesign.
+ *
+ * It is draggable as well as clickable. The two paths are deliberately separate rather than
+ * unified through one hit-test:
+ *
+ *  - Click is the stop buttons' own `onClick`, untouched. It needs no geometry, so it keeps
+ *    working in jsdom — where every `getBoundingClientRect()` is a zero-sized box and a
+ *    position-from-x calculation would land on stop 0 no matter where the click was.
+ *  - Drag runs off `pointermove` on `window` (started by a `pointerdown` anywhere on the
+ *    track) and bails whenever the track measures zero-width, so it can never fire in that
+ *    same jsdom case and fight the click.
+ *
+ * Pointer *capture* is avoided on purpose: capturing retargets the subsequent `click` to the
+ * capturing element, which would swallow the stop buttons' own clicks. Window listeners give
+ * the same "keep tracking past the edge" behaviour without touching click dispatch. A drag
+ * that starts and ends on different stops fires its `click` at the wrapper (their common
+ * ancestor), not at a button, so the two paths never both apply a value.
+ */
+function Scale({
+  choices,
+  current,
+  onChange,
+  locked,
+  minLabel,
+  maxLabel
+}: {
+  choices: readonly Choice[]
+  current: string | boolean | undefined
+  onChange: (value: string | boolean) => void
+  locked?: boolean
+  minLabel: string
+  maxLabel: string
+}): React.JSX.Element {
+  const selected = choices.findIndex((c) => c.value === current)
+  const trackRef = useRef<HTMLDivElement>(null)
+  const [dragging, setDragging] = useState(false)
+
+  // Latest values for the window listeners below, which are installed once per drag and must
+  // not go stale on the re-render each step of that drag causes.
+  const live = useRef({ choices, current, onChange })
+  useEffect(() => {
+    live.current = { choices, current, onChange }
+  })
+
+  useEffect(() => {
+    if (!dragging) return
+    function apply(clientX: number): void {
+      const el = trackRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      if (r.width <= 0) return
+      const { choices: cs, current: cur, onChange: fire } = live.current
+      // Stops sit at the CENTRE of equal slices, so the boundary between two of them is the
+      // midpoint between their dots — `round(t*n - 0.5)`, clamped, is exactly that.
+      const i = Math.min(
+        cs.length - 1,
+        Math.max(0, Math.round(((clientX - r.left) / r.width) * cs.length - 0.5))
+      )
+      if (cs[i].value !== cur) fire(cs[i].value)
+    }
+    const move = (e: PointerEvent): void => apply(e.clientX)
+    const stop = (): void => setDragging(false)
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+    }
+  }, [dragging])
+
+  /** Arrow keys walk the scale, so it is operable without a pointer at all. */
+  function onKeyDown(e: React.KeyboardEvent): void {
+    if (locked || selected < 0) return
+    const step =
+      e.key === 'ArrowRight' || e.key === 'ArrowUp'
+        ? 1
+        : e.key === 'ArrowLeft' || e.key === 'ArrowDown'
+          ? -1
+          : 0
+    if (step === 0) return
+    const next = Math.min(choices.length - 1, Math.max(0, selected + step))
+    if (next !== selected) {
+      e.preventDefault()
+      onChange(choices[next].value)
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between pb-1 text-[10px] text-mute">
+        <span>{minLabel}</span>
+        <span>{maxLabel}</span>
+      </div>
+      <div
+        ref={trackRef}
+        className={`relative h-5 touch-none select-none ${locked ? '' : 'cursor-pointer'}`}
+        onPointerDown={() => {
+          if (!locked) setDragging(true)
+        }}
+        onKeyDown={onKeyDown}
+      >
+        <div className="absolute inset-0 rounded-full bg-hair" />
+        {/* The travelled part of the track, so the scale reads as a magnitude and not just as
+            six equivalent dots. Stops at the CENTRE of the selected stop, which is where the
+            thumb sits. */}
+        {selected >= 0 && (
+          <div
+            className="absolute inset-y-0 left-0 rounded-full bg-hair2"
+            style={{ width: `${((selected + 0.5) / choices.length) * 100}%` }}
+          />
+        )}
+        <div className="absolute inset-0 flex">
+          {choices.map((c, i) => (
+            <button
+              key={String(c.value)}
+              type="button"
+              role="menuitem"
+              aria-label={c.label}
+              title={c.label}
+              disabled={locked}
+              className={`flex flex-1 items-center justify-center rounded-full transition-colors disabled:opacity-40 ${
+                i === selected ? 'text-ink' : 'text-dim hover:text-ink disabled:hover:text-dim'
+              }`}
+              onClick={() => onChange(c.value)}
+            >
+              {i === selected ? (
+                <span
+                  className={`h-3.5 w-3.5 rounded-r1 bg-ink transition-transform ${
+                    dragging ? 'scale-110' : ''
+                  }`}
+                />
+              ) : (
+                /* Ultracode is not another notch further along the same axis — it is a
+                   different kind of run that happens to sit at the far end — so its dot takes
+                   the accent the chip's own `.argus-ultracode` treatment uses. */
+                <span
+                  className={`h-1 w-1 rounded-full ${
+                    c.value === 'ultracode' ? 'bg-analytics' : 'bg-current opacity-60'
+                  }`}
+                />
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Below this many positions a select is named in full, side by side; at or above it the
+ *  labels stop fitting and the scale takes over. Two (Context Window) and three sit
+ *  comfortably; Reasoning's five-to-six do not. */
+const SCALE_AT = 4
+
+/** One labelled control per descriptor. Shared verbatim by the wide chips and the
+ *  narrow collapsed popup, so the two can never drift apart.
+ *
+ *  A prompt-injected value (Ultrathink) is pulled OUT of its descriptor's own control and
+ *  given a row of its own: it is not a position on the Reasoning scale — it is prompt text
+ *  that overrides whatever position is set — so sitting it on the track next to `Max` would
+ *  claim an ordering that does not exist. It is read off `promptInjected` rather than by
+ *  name, the same field `Composer`'s `changeOption` dispatches on. */
 export function OptionSection({
   descriptor,
   selections,
@@ -28,29 +247,63 @@ export function OptionSection({
   currentOverride?: string | boolean
 }): React.JSX.Element {
   const current = currentOverride ?? selectionValue(descriptor, selections)
-  const choices =
+  const all: Choice[] =
     descriptor.type === 'select'
       ? descriptor.options.map((o) => ({ value: o.value as string | boolean, label: o.label }))
       : [
-          { value: true as string | boolean, label: 'On' },
-          { value: false as string | boolean, label: 'Off' }
+          { value: false as string | boolean, label: 'Off' },
+          { value: true as string | boolean, label: 'On' }
         ]
+  const injected =
+    descriptor.type === 'select' ? (descriptor.promptInjected ?? []) : ([] as readonly string[])
+  const choices = all.filter((c) => !injected.includes(String(c.value)))
+  const extras = all.filter((c) => injected.includes(String(c.value)))
+  const scale = choices.length >= SCALE_AT
+  const currentLabel = all.find((c) => c.value === current)?.label
+
   return (
-    <div>
-      <div className="px-2 pb-1 pt-1.5 text-xs font-medium text-mute">{descriptor.label}</div>
-      {locked && lockNote ? <div className="px-2 pb-1.5 text-xs text-mute">{lockNote}</div> : null}
-      {choices.map((c) => (
+    <div className="px-2 pb-1.5 pt-1.5">
+      <div className="flex items-baseline justify-between gap-3 pb-1">
+        <span className="text-xs font-medium text-mute">{descriptor.label}</span>
+        {/* The value is named here only when the control itself cannot name it — the scale
+            shows dots, and a boolean's own row is a two-word toggle sitting right beside this. */}
+        {scale && currentLabel ? (
+          <span className="whitespace-nowrap text-xs text-ink">{currentLabel}</span>
+        ) : null}
+      </div>
+      {locked && lockNote ? <div className="pb-1.5 text-xs text-mute">{lockNote}</div> : null}
+      {scale ? (
+        <Scale
+          choices={choices}
+          current={current}
+          onChange={onChange}
+          locked={locked}
+          minLabel="Faster"
+          maxLabel="Smarter"
+        />
+      ) : (
+        <Segmented choices={choices} current={current} onChange={onChange} locked={locked} />
+      )}
+      {extras.map((c) => (
         <button
           key={String(c.value)}
           type="button"
           role="menuitem"
+          aria-label={c.label}
           disabled={locked}
-          className={`block w-full whitespace-nowrap rounded-r1 px-2 py-1 text-left text-xs transition-colors hover:bg-hi disabled:opacity-40 ${
+          className={`mt-1 flex w-full items-center justify-between gap-3 rounded-r2 px-2 py-1 text-xs transition-colors hover:bg-hi disabled:opacity-40 disabled:hover:bg-transparent ${
             c.value === current ? 'text-ink' : 'text-dim'
           }`}
           onClick={() => onChange(c.value)}
         >
-          {c.label}
+          <span>{c.label}</span>
+          <span
+            className={`rounded-r1 px-1.5 py-0.5 text-[10px] ${
+              c.value === current ? 'bg-hi text-ink' : 'text-mute'
+            }`}
+          >
+            {c.value === current ? 'On' : 'Off'}
+          </span>
         </button>
       ))}
     </div>
@@ -139,7 +392,7 @@ export function TraitsChip({
           <div
             role="menu"
             aria-label="Traits"
-            className="absolute bottom-full left-0 z-30 mb-1 min-w-44 rounded-r2 overlay-menu p-1"
+            className="absolute bottom-full left-0 z-30 mb-1 min-w-56 rounded-r2 overlay-menu p-1"
           >
             {descriptors.map((d) => (
               <OptionSection
@@ -229,7 +482,7 @@ export function CollapsedMenu({
           <div
             role="menu"
             aria-label="Session options"
-            className="absolute bottom-full left-0 z-30 mb-1 min-w-44 rounded-r2 overlay-menu p-1"
+            className="absolute bottom-full left-0 z-30 mb-1 min-w-56 rounded-r2 overlay-menu p-1"
           >
             {sections.includes('traits') &&
               descriptors.map((d) => (
@@ -244,49 +497,48 @@ export function CollapsedMenu({
                 />
               ))}
             {sections.includes('access') && (
-              <>
-                <div className="px-2 pb-1 pt-1.5 text-xs font-medium text-mute">Access</div>
-                {permissionOptions.map((label) => (
-                  <button
-                    key={label}
-                    type="button"
-                    role="menuitem"
-                    className={`block w-full whitespace-nowrap rounded-r1 px-2 py-1 text-left text-xs transition-colors hover:bg-hi ${
-                      label === permission ? 'text-ink' : 'text-dim'
-                    }`}
-                    onClick={() => {
-                      onPermissionChange(label)
-                      setOpen(false)
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </>
+              /* Access stays a stack rather than a `Segmented` row: its labels are sentences
+                 ("Auto-approve edits"), not the one-word positions a segmented track fits. It
+                 takes the same selected pill so it still reads as one family with them. */
+              <div className="px-2 pb-1.5 pt-1.5">
+                <div className="pb-1 text-xs font-medium text-mute">Access</div>
+                <div className="flex flex-col gap-0.5 rounded-r2 bg-hair p-0.5">
+                  {permissionOptions.map((label) => (
+                    <button
+                      key={label}
+                      type="button"
+                      role="menuitem"
+                      className={`w-full whitespace-nowrap rounded-r1 px-2 py-0.5 text-left text-xs transition-colors ${
+                        label === permission
+                          ? 'bg-hi text-ink shadow-sm'
+                          : 'text-dim hover:text-ink'
+                      }`}
+                      onClick={() => {
+                        onPermissionChange(label)
+                        setOpen(false)
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
             {sections.includes('toolResults') && (
-              <>
-                <div className="px-2 pb-1 pt-1.5 text-xs font-medium text-mute">Tool results</div>
-                {[
-                  { label: 'On', on: true },
-                  { label: 'Off', on: false }
-                ].map((o) => (
-                  <button
-                    key={o.label}
-                    type="button"
-                    role="menuitem"
-                    className={`block w-full rounded-r1 px-2 py-1 text-left text-xs transition-colors hover:bg-hi ${
-                      o.on === showToolCalls ? 'text-ink' : 'text-dim'
-                    }`}
-                    onClick={() => {
-                      if (o.on !== showToolCalls) onToggleToolCalls()
-                      setOpen(false)
-                    }}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </>
+              <div className="px-2 pb-1.5 pt-1.5">
+                <div className="pb-1 text-xs font-medium text-mute">Tool results</div>
+                <Segmented
+                  choices={[
+                    { value: false, label: 'Off' },
+                    { value: true, label: 'On' }
+                  ]}
+                  current={showToolCalls}
+                  onChange={(v) => {
+                    if (v !== showToolCalls) onToggleToolCalls()
+                    setOpen(false)
+                  }}
+                />
+              </div>
             )}
           </div>
         </>

@@ -1005,6 +1005,45 @@ describe('Composer option chips', () => {
       expect(onRunOptionsChange).not.toHaveBeenCalled()
     })
 
+    // User-directed: the row reads On/Off, so clicking it has to work in both directions.
+    // Before this, Ultrathink was one-way — the only way back off it was to pick a different
+    // effort level, which is a different intent from "turn this off".
+    it('takes the prefix back out when clicked again', async () => {
+      const onRunOptionsChange = vi.fn()
+      render(
+        <Composer
+          disabled={false}
+          onSend={() => {}}
+          session={SESSION}
+          onRunOptionsChange={onRunOptionsChange}
+        />
+      )
+      const box = screen.getByPlaceholderText(/Message the analyst/)
+      await userEvent.type(box, 'fix the crash')
+      await userEvent.click(await screen.findByTitle('Traits'))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Ultrathink' }))
+      expect(box).toHaveValue('Ultrathink:\nfix the crash')
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Ultrathink' }))
+      expect(box).toHaveValue('fix the crash')
+      // Toggling off restores the stored level rather than writing one — the selection was
+      // only ever overridden for display.
+      expect(onRunOptionsChange).not.toHaveBeenCalled()
+      expect(screen.getByRole('menuitem', { name: 'High' })).toHaveClass('text-ink')
+    })
+
+    // Same toggle, narrow density: TraitsChip and CollapsedMenu share OptionSection, and both
+    // route through the one `changeOption`, so neither may diverge.
+    it('takes the prefix back out when clicked again in the collapsed menu', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await screen.findByTitle('Traits')
+      act(() => setRowWidth(360))
+      const box = screen.getByPlaceholderText(/Message the analyst/)
+      await userEvent.type(box, 'Ultrathink:\ngo')
+      await userEvent.click(screen.getByLabelText('More options'))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Ultrathink' }))
+      expect(box).toHaveValue('go')
+    })
+
     it('reads its selected state back out of the prompt', async () => {
       render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
       await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'Ultrathink:\ngo')
