@@ -13,7 +13,6 @@ import type { SettingsDeepLink } from '../settings/SettingsView'
 // content (the "marked but not opened" bug).
 const SETTINGS_PAGE: Partial<Record<TourTarget, SettingsDeepLink>> = {
   'settings-memory': 'memory',
-  'settings-proposals': 'proposals',
   'settings-library': 'library',
   'settings-team': 'team'
 }
@@ -26,7 +25,7 @@ export function TourCompanion({
 }: {
   sampleSlug: string
   settings: AppSettings
-  onNavigate: (view: 'case' | 'settings', page?: SettingsDeepLink) => void
+  onNavigate: (view: 'case' | 'settings' | 'proposals', page?: SettingsDeepLink) => void
   onExit: () => void
 }): React.JSX.Element | null {
   const { open, index } = useTour()

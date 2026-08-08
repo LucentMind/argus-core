@@ -352,7 +352,8 @@ function App(): React.JSX.Element {
       )}
       <OnboardingProvider
         onNavigate={(view, target) => {
-          if (view === 'settings') gotoSettings(target as SettingsDeepLink | undefined)
+          if (view === 'proposals') gotoProposals()
+          else if (view === 'settings') gotoSettings(target as SettingsDeepLink | undefined)
           else if (target) openCase(target)
         }}
       />

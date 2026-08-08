@@ -98,7 +98,7 @@ describe('TourCompanion', () => {
     expect(screen.getByRole('button', { name: /stage prompt/i })).toBeTruthy()
   })
 
-  it('the Proposals step opens the Proposals settings page (not just "settings")', () => {
+  it('the Proposals step opens the top-level proposals view (not a settings page)', () => {
     const onNavigate = vi.fn()
     act(() => tourStore.goto(1)) // proposals = second step
     render(
@@ -109,15 +109,37 @@ describe('TourCompanion', () => {
         onExit={vi.fn()}
       />
     )
-    // The bug: a settings step used to land on the default (General) page,
-    // ringing the right tab but showing the wrong pane. It must open the
-    // named page.
-    expect(onNavigate).toHaveBeenCalledWith('settings', 'proposals')
+    // Proposals moved out of Settings into its own top-level view (Task 6/7/8), reached from
+    // the TopBar's Inbox button — the step now navigates straight there, with no settings page.
+    expect(onNavigate).toHaveBeenCalledWith('proposals', undefined)
+  })
+
+  it('the Proposals step spotlights the TopBar anchor (topbar-proposals), not the settings rail', () => {
+    // A stand-in for the TopBar's Inbox button — Coachmark resolves purely by
+    // `[data-onboarding-anchor]` selector, so a bare stub node is enough to prove the step points
+    // at 'topbar-proposals' and not the old settings-rail id. If it targeted the wrong id this
+    // stub would go unmatched and Coachmark would fall back to its centered callout (no ring).
+    const stub = document.createElement('div')
+    stub.setAttribute('data-onboarding-anchor', 'topbar-proposals')
+    document.body.appendChild(stub)
+    act(() => tourStore.goto(1)) // proposals = second step
+    render(
+      <TourCompanion
+        sampleSlug="sample-onboarding"
+        settings={defaultSettings()}
+        onNavigate={vi.fn()}
+        onExit={vi.fn()}
+      />
+    )
+    expect(screen.getByTestId('coachmark-ring')).toBeTruthy()
+    document.body.removeChild(stub)
   })
 
   it('re-navigates to each page when stepping between two settings steps', () => {
+    // Proposals is a top-level view now (Task 6/7/8), not a settings page, so this uses two
+    // steps that both still land in Settings: Library and HiveMind.
     const onNavigate = vi.fn()
-    act(() => tourStore.goto(1)) // proposals
+    act(() => tourStore.goto(2)) // skills -> Library page
     const { rerender } = render(
       <TourCompanion
         sampleSlug="sample-onboarding"
@@ -126,12 +148,12 @@ describe('TourCompanion', () => {
         onExit={vi.fn()}
       />
     )
-    expect(onNavigate).toHaveBeenCalledWith('settings', 'proposals')
+    expect(onNavigate).toHaveBeenCalledWith('settings', 'library')
 
-    // Advance to the Library step — still a settings step, but a DIFFERENT page.
+    // Advance to the HiveMind step — still a settings step, but a DIFFERENT page.
     // The anti-flicker guard must not swallow this: keying on view alone left
     // every later settings step stranded on the first page.
-    act(() => tourStore.goto(2)) // skills -> Library page
+    act(() => tourStore.goto(3)) // hivemind -> Team page
     rerender(
       <TourCompanion
         sampleSlug="sample-onboarding"
@@ -140,7 +162,7 @@ describe('TourCompanion', () => {
         onExit={vi.fn()}
       />
     )
-    expect(onNavigate).toHaveBeenCalledWith('settings', 'library')
+    expect(onNavigate).toHaveBeenCalledWith('settings', 'team')
   })
 
   it('HiveMind step shows the explain card when no repo is configured', () => {
@@ -162,7 +184,7 @@ describe('TourCompanion', () => {
     // each render and re-fired. The effect must navigate only when the effective
     // destination (view + page) actually CHANGES.
     const spy = vi.fn()
-    act(() => tourStore.goto(1)) // proposals = a settings-view step
+    act(() => tourStore.goto(2)) // skills/library = a settings-view step
     const { rerender } = render(
       <TourCompanion
         sampleSlug="sample-onboarding"

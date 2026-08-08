@@ -2,6 +2,7 @@
 import { render } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SettingsView } from '../../settings/SettingsView'
+import { TopBar } from '../../TopBar'
 import { settingsStore } from '../../../lib/settingsStore'
 import { updateStore } from '../../../lib/updateStore'
 import { defaultSettings } from '../../../../../shared/settings'
@@ -56,13 +57,27 @@ beforeEach(() => {
 describe('settings tab anchors', () => {
   it('memory/skills/references/hivemind tabs carry onboarding anchors', () => {
     const { container } = render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
-    for (const id of [
-      'settings-memory',
-      'settings-library',
-      'settings-team',
-      'settings-proposals'
-    ]) {
+    for (const id of ['settings-memory', 'settings-library', 'settings-team']) {
       expect(container.querySelector(`[data-onboarding-anchor="${id}"]`)).toBeTruthy()
     }
+  })
+})
+
+describe('topbar anchors', () => {
+  // Proposals moved out of Settings into a TopBar entrypoint (Task 6/7/8) — the tour now
+  // spotlights the TopBar button, so its anchor lives there, not in the settings rail.
+  it('the Proposals button carries the topbar-proposals onboarding anchor', () => {
+    const { container } = render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+        onProposals={vi.fn()}
+      />
+    )
+    expect(container.querySelector('[data-onboarding-anchor="topbar-proposals"]')).toBeTruthy()
   })
 })

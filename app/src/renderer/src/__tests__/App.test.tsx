@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, within, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import App from '../App'
@@ -33,6 +33,26 @@ vi.mock('../components/AmbientCanvas', async (importOriginal) => {
     }
   }
 })
+
+/**
+ * OnboardingProvider's own suites already cover the wizard/tour internals in detail; what App
+ * owns is just the `onNavigate` WIRING — routing a (view, target) pair from the provider to the
+ * right App-level navigation call (Task 8). Mocked to a bare capture, the same shape as the
+ * AmbientCanvas capture above, so the wiring test below can invoke that callback directly with
+ * a value no live caller inside the provider produces any more (the stale 'settings' + 'proposals'
+ * deep link a pre-Task-8 tour step or wizard link could have sent) and prove App still escalates
+ * it out to the proposals view rather than leaving it stranded on Settings.
+ */
+let lastOnboardingNavigate:
+  ((view: 'case' | 'settings' | 'proposals', target?: string) => void) | null = null
+vi.mock('../components/onboarding/OnboardingProvider', () => ({
+  OnboardingProvider: (props: {
+    onNavigate: (view: 'case' | 'settings' | 'proposals', target?: string) => void
+  }) => {
+    lastOnboardingNavigate = props.onNavigate
+    return null
+  }
+}))
 
 function settingsPayload(): SettingsPayload {
   const settings = defaultSettings()
@@ -71,6 +91,7 @@ beforeEach(() => {
   proposalsStore.reset()
   uiStore.setDynamicTheme(false)
   lastAmbientCanvasProps = null
+  lastOnboardingNavigate = null
   window.argus = {
     cases: {
       list: vi.fn(async () => [])
@@ -317,6 +338,20 @@ describe('App: proposals view', () => {
     expect(await screen.findByText(/^· \d+ pending$/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Proposals' }))
     await waitFor(() => expect(screen.queryByText(/^· \d+ pending$/)).not.toBeInTheDocument())
+    expect(screen.queryByRole('navigation', { name: 'Settings sections' })).not.toBeInTheDocument()
+  })
+
+  // Deferred from Task 6: 'proposals' stays a valid `SettingsDeepLink` value even though the page
+  // moved out of Settings (Task 7) — a stale wizard/tour caller could still hand App a
+  // ('settings', 'proposals') pair, and gotoSettings intercepts that page id before it ever reaches
+  // SettingsView. This drives that exact pair through App's real OnboardingProvider `onNavigate`
+  // wiring (the mock above just captures the callback App passes down) and checks the intercept
+  // lands on the proposals view, not a Settings page named "proposals".
+  it('escalates a stale settings/proposals deep link out of Settings into the proposals view', async () => {
+    render(<App />)
+    await waitFor(() => expect(lastOnboardingNavigate).not.toBeNull())
+    act(() => lastOnboardingNavigate!('settings', 'proposals'))
+    expect(await screen.findByText(/^· \d+ pending$/)).toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: 'Settings sections' })).not.toBeInTheDocument()
   })
 })

@@ -13,9 +13,11 @@ export function OnboardingProvider({
   /**
    * Navigate the app. `target` is the case slug when `view === 'case'`, or the
    * settings page id when `view === 'settings'` (used by wizard "configure in
-   * Settings" steps and, absent, opens Settings to its default page).
+   * Settings" steps and, absent, opens Settings to its default page). `target`
+   * is unused when `view === 'proposals'` (the tour's Proposals step — Task 8)
+   * since that view has no sub-pages of its own.
    */
-  onNavigate: (view: 'case' | 'settings', target?: string) => void
+  onNavigate: (view: 'case' | 'settings' | 'proposals', target?: string) => void
 }): React.JSX.Element | null {
   const payload = useSettingsPayload()
   const replay = useSyncExternalStore(onboardingReplay.subscribe, onboardingReplay.get)

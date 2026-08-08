@@ -1,13 +1,13 @@
 import { TOUR_PROMPTS } from '../../../../shared/tourPrompts'
 
 export type TourTarget =
-  'composer' | 'settings-memory' | 'settings-proposals' | 'settings-library' | 'settings-team'
+  'composer' | 'settings-memory' | 'topbar-proposals' | 'settings-library' | 'settings-team'
 
 export interface TourStep {
   key: 'memory' | 'proposals' | 'skills' | 'hivemind'
   title: string
   target: TourTarget
-  view: 'case' | 'settings'
+  view: 'case' | 'settings' | 'proposals'
   narration: string
   suggestedPrompt?: string
   /** Registry id of `suggestedPrompt`, when it has one. Lets the dev page override it. */
@@ -61,8 +61,8 @@ export const TOUR_STEPS: TourStep[] = [
   {
     key: 'proposals',
     title: 'Proposals',
-    target: 'settings-proposals',
-    view: 'settings',
+    target: 'topbar-proposals',
+    view: 'proposals',
     narration:
       'The agent drafted that skill as an inert proposal — nothing enters your library without your say. Review it here and Accept to add it.',
     explain: ''
