@@ -7,7 +7,9 @@ import {
   MAX_TIMEOUT_MINUTES,
   scheduleSchema,
   MIN_INTERVAL_MINUTES,
-  MAX_INTERVAL_MINUTES
+  MAX_INTERVAL_MINUTES,
+  MAX_ITEMS_PER_RUN,
+  DEFAULT_ITEMS_PER_RUN
 } from '../routines'
 
 describe('routine schema', () => {
@@ -148,5 +150,53 @@ describe('schedule schema', () => {
       schedule: { kind: 'daily', at: '02:00' }
     })
     expect(scheduled.schedule).toEqual({ kind: 'daily', at: '02:00' })
+  })
+})
+
+const base = { id: 'nightly', name: 'Nightly', prompt: 'do the thing' }
+
+describe('routine scope', () => {
+  it('accepts a routine with no scope, which is every increment 1-4 routine', () => {
+    const r = routineSchema.parse(base)
+    expect(r.scope).toBeUndefined()
+    // No default: an absent scope must stay absent so `execute` can branch on it.
+    expect(r.maxItemsPerRun).toBeUndefined()
+  })
+
+  it('parses a jira-jql scope', () => {
+    const r = routineSchema.parse({
+      ...base,
+      scope: { kind: 'jira-jql', jql: 'project = ABC', cursorField: 'created' }
+    })
+    expect(r.scope).toEqual({ kind: 'jira-jql', jql: 'project = ABC', cursorField: 'created' })
+  })
+
+  it('rejects an empty jql, which would select the entire instance', () => {
+    expect(() =>
+      routineSchema.parse({ ...base, scope: { kind: 'jira-jql', jql: '', cursorField: 'created' } })
+    ).toThrow()
+  })
+
+  it('parses a cases scope with every filter absent', () => {
+    const r = routineSchema.parse({ ...base, scope: { kind: 'cases' } })
+    expect(r.scope).toEqual({ kind: 'cases' })
+  })
+
+  it('caps maxItemsPerRun in the SCHEMA, not only in the form', () => {
+    // config/routines.json is hand-editable and each item buys an unattended agent turn.
+    expect(() =>
+      routineSchema.parse({ ...base, maxItemsPerRun: MAX_ITEMS_PER_RUN + 1 })
+    ).toThrow()
+    expect(routineSchema.parse({ ...base, maxItemsPerRun: MAX_ITEMS_PER_RUN }).maxItemsPerRun).toBe(
+      MAX_ITEMS_PER_RUN
+    )
+  })
+
+  it('rejects zero items, which is a routine that can never do anything', () => {
+    expect(() => routineSchema.parse({ ...base, maxItemsPerRun: 0 })).toThrow()
+  })
+
+  it('exposes a default that is well under the cap', () => {
+    expect(DEFAULT_ITEMS_PER_RUN).toBeLessThan(MAX_ITEMS_PER_RUN)
   })
 })
