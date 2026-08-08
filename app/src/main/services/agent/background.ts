@@ -91,6 +91,15 @@ export interface BackgroundTurnParams {
    * turn, where it can only ever refuse.
    */
   runItemId?: number
+  /**
+   * External interrupt seam. `timeoutMs` is this turn's OWN deadline; `signal` is a second,
+   * independent way to cut it short for a reason that has nothing to do with the turn itself —
+   * today, `RoutinesService.stopForQuit` aborts it when the host is quitting. Firing it (or it
+   * already being aborted when this function is called) settles the turn exactly the way the
+   * timeout does: `settle()` still runs `session.stop('stopped')`, which interrupts the live
+   * driver and tears the session down — this is not a softer, database-only stop.
+   */
+  signal?: AbortSignal
 }
 
 export interface BackgroundTurnResult {
@@ -98,6 +107,10 @@ export interface BackgroundTurnResult {
   text: string
   error?: string
 }
+
+/** `BackgroundTurnResult.error` when `params.signal` is what ended the turn. Exported so a test
+ *  asserts the real string. */
+export const TURN_ABORTED_ERROR = 'turn aborted: the app is quitting'
 
 /**
  * One unattended turn in a windowless CaseSession, resolved programmatically.
@@ -234,6 +247,16 @@ export function runBackgroundTurn(
     // settle()'s `if (timer)` guard covers this path unchanged.
     settle({ status: 'failed', text: '', error: err instanceof Error ? err.message : String(err) })
     return done
+  }
+
+  // Wired before the timer is armed, same reasoning as the construction-failure path above:
+  // an already-aborted `signal` (the host started quitting before this turn even got here)
+  // settles immediately, and settle()'s `if (timer)` guard finds nothing to disarm yet.
+  if (params.signal) {
+    const onAbort = (): void =>
+      settle({ status: 'failed', text: lastText, error: TURN_ABORTED_ERROR })
+    if (params.signal.aborted) onAbort()
+    else params.signal.addEventListener('abort', onAbort, { once: true })
   }
 
   timer = setTimeout(() => {

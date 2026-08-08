@@ -9,7 +9,7 @@ import { listRoutineRuns, insertRoutineRun, finishRoutineRun } from '../runs'
 import { RoutineStore } from '../store'
 import { RoutinesService, type RoutineRunFinished } from '../service'
 import { readRoutineCursor, writeRoutineCursor } from '../cursors'
-import type { BackgroundTurnParams } from '../../agent/background'
+import type { BackgroundTurnParams, BackgroundTurnResult } from '../../agent/background'
 import {
   MAX_INTERVAL_MINUTES,
   type RoutineDef,
@@ -784,21 +784,39 @@ describe('pending queue', () => {
 })
 
 describe('stopForQuit', () => {
-  /** A runTurn that never settles on its own — stands in for a routine still executing when
-   *  the app quits. */
-  const hung = (): { runTurn: (p: BackgroundTurnParams) => Promise<never>; started: string[] } => {
+  /**
+   * A runTurn that mirrors `runBackgroundTurn`'s real contract for `params.signal`
+   * (agent/background.ts): it hangs until the signal fires, then settles failed — the SAME
+   * shape a real interrupted driver turn resolves with, not a synthetic "stopped" outcome
+   * invented just for this test double. Captures every signal it was handed, so a test can
+   * assert `stopForQuit`'s abort actually reaches it.
+   */
+  const respectsAbort = (): {
+    runTurn: (p: BackgroundTurnParams) => Promise<BackgroundTurnResult>
+    started: string[]
+    signals: (AbortSignal | undefined)[]
+  } => {
     const started: string[] = []
+    const signals: (AbortSignal | undefined)[] = []
     return {
       started,
-      runTurn: (p) => {
-        started.push(p.caseSlug)
-        return new Promise<never>(() => {})
-      }
+      signals,
+      runTurn: (p) =>
+        new Promise((resolve) => {
+          started.push(p.caseSlug)
+          signals.push(p.signal)
+          p.signal?.addEventListener(
+            'abort',
+            () =>
+              resolve({ status: 'failed', text: '', error: 'turn aborted: the app is quitting' }),
+            { once: true }
+          )
+        })
     }
   }
 
-  it('closes the running row as failed immediately, instead of leaving it running until the next launch reconciles it', async () => {
-    const h = hung()
+  it('aborts the signal threaded into the live turn — not merely a database relabel', async () => {
+    const h = respectsAbort()
     const svc = new RoutinesService({
       db,
       argusHome: home,
@@ -807,10 +825,36 @@ describe('stopForQuit', () => {
       now: () => NOW
     })
     svc.startRun('sweep')
-    expect(svc.payload().runningId).toBe('sweep')
+    expect(h.signals).toHaveLength(1)
+    expect(h.signals[0]?.aborted).toBe(false)
 
     svc.stopForQuit()
 
+    expect(h.signals[0]?.aborted).toBe(true)
+  })
+
+  it('is synchronous and returns before the interrupted turn actually settles', async () => {
+    // `AbortController.abort()` only flips the signal and calls listeners synchronously — the
+    // listener's own teardown (session.stop(), simulated here by the promise this resolves)
+    // still happens on its own time. stopForQuit() must not be the thing awaiting that.
+    const h = respectsAbort()
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: h.runTurn,
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+
+    svc.stopForQuit()
+    // Synchronously after stopForQuit() returns, the row is NOT yet closed — proving
+    // stopForQuit() itself didn't (and couldn't) wait for the turn's promise to resolve.
+    expect(listRoutineRuns(db)[0].status).toBe('running')
+
+    // The interrupted turn's promise resolves on its own; `execute()`'s normal completion path
+    // closes the row through the SAME `finishRoutineRun` call every other run uses.
+    await svc.whenIdle()
     expect(listRoutineRuns(db)[0]).toMatchObject({ routineId: 'sweep', status: 'failed' })
     expect(listRoutineRuns(db)[0].error).toMatch(/quit/i)
     expect(svc.payload().runningId).toBeNull()
@@ -818,7 +862,7 @@ describe('stopForQuit', () => {
 
   it('drops everything still waiting in the queue, without opening a run row for any of it', async () => {
     store.upsert({ id: 'second', name: 'Second', prompt: 'also sweep', timeoutMs: 1000 })
-    const h = hung()
+    const h = respectsAbort()
     const svc = new RoutinesService({
       db,
       argusHome: home,
@@ -833,7 +877,10 @@ describe('stopForQuit', () => {
     svc.stopForQuit()
 
     expect(svc.payload().queued).toEqual([])
-    // Only sweep (the one actually running) ever opened a row; 'second' never started.
+    // Only sweep (the one actually running) ever opened a row; 'second' never started, so its
+    // signal was never even created — abort() had nothing of 'second"'s to reach.
+    expect(h.started).toEqual(['routine-sweep'])
+    await svc.whenIdle()
     expect(listRoutineRuns(db).map((r) => r.routineId)).toEqual(['sweep'])
   })
 
@@ -848,13 +895,8 @@ describe('stopForQuit', () => {
     expect(listRoutineRuns(db)).toEqual([])
   })
 
-  it('never calls the injected runTurn again and never rejects whenIdle', async () => {
-    // The point of stopForQuit is that it does NOT wait for or interact with the live turn any
-    // further — before-quit must stay synchronous (see whenIdle's own docblock for why quit
-    // cannot block on a run in flight). This only proves stopForQuit itself returns without
-    // touching the promise runTurn already returned; it does not (and cannot) prove the real
-    // agent turn stops executing, because nothing in this engine can cancel one.
-    const h = hung()
+  it('a second stopForQuit call (a repeated quit signal) is a harmless no-op', async () => {
+    const h = respectsAbort()
     const svc = new RoutinesService({
       db,
       argusHome: home,
@@ -863,8 +905,10 @@ describe('stopForQuit', () => {
       now: () => NOW
     })
     svc.startRun('sweep')
+    svc.stopForQuit()
     expect(() => svc.stopForQuit()).not.toThrow()
-    expect(h.started).toEqual(['routine-sweep'])
+    await svc.whenIdle()
+    expect(listRoutineRuns(db)[0].status).toBe('failed')
   })
 })
 

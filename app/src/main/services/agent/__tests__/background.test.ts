@@ -173,6 +173,46 @@ describe('runBackgroundTurn', () => {
     expect(r.status).toBe('timeout')
   })
 
+  it('interrupts and reports failed when params.signal aborts', async () => {
+    // The app-quit seam: RoutinesService.stopForQuit() aborts this signal. It must produce a
+    // REAL interrupt — the same session.stop() the timeout path uses — not a softer, purely
+    // cosmetic settlement.
+    const sdk = fakeSdk()
+    const controller = new AbortController()
+    const p = runBackgroundTurn(deps(sdk), params({ timeoutMs: 5000, signal: controller.signal }))
+    await flush()
+    controller.abort()
+    const r = await p
+    expect(r.status).toBe('failed')
+    expect(r.error).toMatch(/quit/i)
+    expect(sdk.interrupt).toHaveBeenCalled()
+    expect(events.filter((e) => e.type === 'session.exited')).toHaveLength(1)
+  })
+
+  it('settles immediately, without ever sending, when the signal is already aborted', async () => {
+    const sdk = fakeSdk()
+    const controller = new AbortController()
+    controller.abort()
+    const r = await runBackgroundTurn(
+      deps(sdk),
+      params({ timeoutMs: 5000, signal: controller.signal })
+    )
+    expect(r.status).toBe('failed')
+    expect(r.error).toMatch(/quit/i)
+  })
+
+  it('a signal that fires AFTER the turn already completed changes nothing', async () => {
+    const sdk = fakeSdk()
+    const controller = new AbortController()
+    const p = runBackgroundTurn(deps(sdk), params({ timeoutMs: 5000, signal: controller.signal }))
+    await flush()
+    sdk.messages.push(assistantText('all quiet tonight'))
+    sdk.messages.push(RESULT_SUCCESS)
+    const r = await p
+    controller.abort()
+    expect(r).toEqual({ status: 'ok', text: 'all quiet tonight' })
+  })
+
   it('reports failed when the turn errors', async () => {
     const sdk = fakeSdk()
     const p = runBackgroundTurn(deps(sdk), params({ timeoutMs: 5000 }))
