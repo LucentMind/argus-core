@@ -3248,6 +3248,13 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+    // A focus request belongs to the window it was made for. Without this, a window destroyed
+    // before it ever mounted (and so before it could consume the flag) leaves the request set,
+    // and the NEXT window to open — including one opened from the dock or a second launch, which
+    // never asked for the inbox — would consume it and navigate somewhere the user didn't ask to
+    // go. Harmless only while App's default view is already Home; that is a coincidence, not a
+    // guarantee, and this branch has twice been bitten by resting on it.
+    pendingFocusInbox = false
     // A closed window that stays subscribed pins the service to the 1s fast tier forever
     // with nobody watching, since the subscriber set is keyed by webContents id.
     diagnostics?.unsubscribe(windowContentsId)
