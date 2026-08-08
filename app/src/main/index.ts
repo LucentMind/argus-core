@@ -1857,8 +1857,9 @@ function registerIpc(): void {
     return routinesService.payload()
   })
   ipcMain.handle(IPC.routinesRunNow, (_e, id: string): RoutinesPayload => {
-    // Throws (unknown / disabled / already running) straight back to the renderer; the payload
-    // returned on success already carries `runningId`, so the caller needs no second read.
+    // Throws (unknown / disabled) straight back to the renderer; a busy engine no longer throws —
+    // the id is queued instead. The payload returned on success already carries `runningId` and
+    // `queued`, so the caller needs no second read.
     routinesService.startRun(id)
     return routinesService.payload()
   })

@@ -121,5 +121,7 @@ export interface RoutinesPayload {
   loadError: string | null
   /** Routine id currently executing, or null. Runs are serial. */
   runningId: string | null
+  /** Routine ids waiting for the execution slot, in the order they will run. */
+  queued: string[]
   runs: RoutineRunSummary[]
 }

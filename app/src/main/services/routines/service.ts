@@ -9,7 +9,7 @@ import {
   lastSuccessAt
 } from './runs'
 import type { RoutineStore } from './store'
-import type { RoutineDef, RoutinesPayload } from '../../../shared/routines'
+import type { RoutineDef, RoutinesPayload, RoutineTrigger } from '../../../shared/routines'
 import type { BackgroundTurnParams, BackgroundTurnResult } from '../agent/background'
 
 // Deliberately imports NO electron (same rule as agent/background.ts): the routines engine must
@@ -47,12 +47,18 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
 /**
  * Turns a stored routine definition into an unattended agent run and records what happened.
  *
- * SERIAL BY CONSTRUCTION (spec §5): `running` is set synchronously inside `startRun`, before the
- * detached execution ever suspends, so a second `startRun` in the same tick already sees it.
+ * SERIAL BY CONSTRUCTION (spec §5): only one routine ever executes at a time. A `startRun`
+ * (or `enqueue`) that arrives while another is in flight no longer throws — it joins a FIFO
+ * `queue` instead, and `drain` sets `running` synchronously, before the detached execution
+ * ever suspends, so a second call in the same tick already sees it.
  *
- * VALIDATION ORDER MATTERS: the id is resolved (unknown / disabled) BEFORE the busy check.
- * Checking busy first would report `A routine is already running` for a typo'd id, which is a
- * wrong and confusing answer to a question that has nothing to do with the run in flight.
+ * VALIDATION ORDER MATTERS: the id is resolved (unknown / disabled) BEFORE it is queued.
+ * Checking busy first would report contention for a typo'd id, which is a wrong and confusing
+ * answer to a question that has nothing to do with the run in flight.
+ *
+ * COALESCING IS BY ROUTINE: a routine already running, or already waiting in `queue`, is not
+ * added again. Without this, a routine still executing when its next scheduled fire comes due
+ * would stack up a backlog of itself.
  *
  * NO RUN IS EVER LEFT `running`. That is structural rather than careful: the run row is opened
  * FIRST and everything that follows — case creation, session creation, the turn itself — lives
@@ -62,6 +68,7 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
  */
 export class RoutinesService {
   private running: RoutineDef | null = null
+  private queue: { routine: RoutineDef; trigger: RoutineTrigger }[] = []
   private current: Promise<void> = Promise.resolve()
 
   constructor(private deps: RoutinesServiceDeps) {}
@@ -71,18 +78,46 @@ export class RoutinesService {
       routines: this.deps.store.list(),
       loadError: this.deps.store.loadError(),
       runningId: this.running?.id ?? null,
+      queued: this.queue.map((e) => e.routine.id),
       runs: listRoutineRuns(this.deps.db)
     }
   }
 
-  /** Sync-validates (throws on unknown/disabled/busy), then detaches execution. */
+  /** Sync-validates (throws on unknown/disabled), then queues a manual run. */
   startRun(id: string): void {
     const routine = this.deps.store.get(id)
     if (!routine) throw new Error(`Unknown routine: ${id}`)
     if (!routine.enabled) throw new Error(`Routine is disabled: ${id}`)
-    if (this.running) throw new Error('A routine is already running')
-    this.running = routine
-    this.current = this.execute(routine)
+    this.enqueue(routine, 'manual')
+  }
+
+  /**
+   * Adds a routine to the serial queue, or does nothing if it is already running or queued.
+   *
+   * COALESCING IS SILENT ON PURPOSE. Increment 1 threw `A routine is already running`, which a
+   * scheduler cannot act on: three routines set to 02:00 would mean two of them permanently
+   * starved, tomorrow and every day after, because the same collision recurs. A caller that
+   * genuinely needs to know can read `payload()`.
+   *
+   * De-duplication is BY ROUTINE, not by request: a routine still executing when its next fire
+   * comes due must not stack up a backlog of itself.
+   *
+   * `running` is set synchronously inside `drain` before any suspension point, so a second
+   * `enqueue` in the same tick already sees it.
+   */
+  enqueue(routine: RoutineDef, trigger: RoutineTrigger): void {
+    if (this.running?.id === routine.id) return
+    if (this.queue.some((e) => e.routine.id === routine.id)) return
+    this.queue.push({ routine, trigger })
+    this.deps.notify?.()
+    if (!this.running) this.drain()
+  }
+
+  private drain(): void {
+    const next = this.queue.shift()
+    if (!next) return
+    this.running = next.routine
+    this.current = this.execute(next.routine, next.trigger)
       // `execute` swallows its own failures into the run row, so this catch only fires if the
       // recording itself failed (e.g. a closed DB). It must still not escape: `whenIdle` is
       // awaited by shutdown and by every test, and a rejecting idle promise would turn one bad
@@ -93,27 +128,33 @@ export class RoutinesService {
       .finally(() => {
         this.running = null
         this.deps.notify?.()
+        // Serial continuation. Not stack recursion — this runs on a microtask.
+        this.drain()
       })
   }
 
   /**
-   * Resolves when no run is executing — for tests and shutdown.
+   * Resolves when nothing is running AND the queue is empty — for tests and shutdown.
    *
-   * Never rejects and never pends forever: before the first `startRun` it is an
-   * already-resolved promise, and afterwards it is the (caught) tail of the latest run, which
-   * resolves on the failure paths exactly as it does on the success path.
+   * The loop is required, not defensive. `drain` replaces `current` with the NEXT run's promise
+   * from inside the previous one's `.finally()`, so awaiting a single snapshot would resolve
+   * while the queue still held work — and shutdown awaits this. It terminates because the queue
+   * only shrinks here (each iteration consumes the run that was in flight when it started) and
+   * `drain` never leaves `running` set without either a queued successor or a settled `current`.
    */
-  whenIdle(): Promise<void> {
-    return this.current
+  async whenIdle(): Promise<void> {
+    while (this.running || this.queue.length) {
+      await this.current
+    }
   }
 
-  private async execute(routine: RoutineDef): Promise<void> {
+  private async execute(routine: RoutineDef, trigger: RoutineTrigger): Promise<void> {
     const { db, argusHome } = this.deps
     const slug = `routine-${routine.id}`
     // Opened before any fallible work so a setup failure is a recorded `failed` run rather than
     // an invisible no-op. routine_runs has no FK to cases (db.ts), so the row is legal even if
     // the case is never created.
-    const runId = insertRoutineRun(db, routine.id, slug, 'manual', this.deps.now)
+    const runId = insertRoutineRun(db, routine.id, slug, trigger, this.deps.now)
     this.deps.notify?.()
 
     // One decision, two consumers: the session row below and the turn request further down.

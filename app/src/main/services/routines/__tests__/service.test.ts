@@ -23,8 +23,7 @@ const PREAMBLE =
 
 // The watermark sentence for a routine with no prior successful run — this is what run 1 of any
 // fresh routine sees, appended to PREAMBLE above.
-const FIRST_RUN_WATERMARK =
-  `This is the first run of this routine — there is no previous run to compare against.\n\n`
+const FIRST_RUN_WATERMARK = `This is the first run of this routine — there is no previous run to compare against.\n\n`
 
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-rsvc-'))
@@ -139,7 +138,7 @@ describe('RoutinesService', () => {
     expect(sessionRows()).toHaveLength(2)
   })
 
-  it('rejects while busy, unknown ids, and disabled routines', async () => {
+  it('coalesces while busy instead of throwing, and still rejects unknown/disabled ids', async () => {
     let release!: () => void
     const gate = new Promise<void>((r) => (release = r))
     const svc = new RoutinesService({
@@ -152,12 +151,17 @@ describe('RoutinesService', () => {
       }
     })
     svc.startRun('sweep')
-    expect(() => svc.startRun('sweep')).toThrow(/already running/)
+    // Increment 1 threw here. Now a routine already running is coalesced (silently skipped)
+    // rather than rejected — see the pending-queue describe block below for the queueing
+    // contract itself. This test keeps its original job: proving id validation still runs and
+    // still throws, and that a busy engine no longer does.
+    expect(() => svc.startRun('sweep')).not.toThrow()
+    expect(svc.payload().queued).toEqual([])
     // Validation of the id must not be masked by the busy check.
     expect(() => svc.startRun('nope')).toThrow(/Unknown routine: nope/)
     release()
     await svc.whenIdle()
-    // Only the one accepted run ever reached the DB.
+    // Only the one accepted run ever reached the DB — the coalesced duplicate never queued.
     expect(listRoutineRuns(db)).toHaveLength(1)
 
     store.upsert({ id: 'off', name: 'Off', prompt: 'x', enabled: false })
@@ -296,23 +300,30 @@ describe('RoutinesService', () => {
     expect(after.runningId).toBeNull()
     expect(after.runs[0]).toMatchObject({ status: 'ok', summary: 'swept' })
 
-    // Three notifications: run opened (no session yet), session attached while still running
+    // Four notifications, now that startRun goes through the pending queue: the routine joining
+    // the queue (task 5), run opened (no session yet), session attached while still running
     // (the fix under test), and the settled finish. A consumer watching notify must be able to
     // open the live agent session the moment it exists, not only after the run completes.
-    expect(notify).toHaveBeenCalledTimes(3)
+    expect(notify).toHaveBeenCalledTimes(4)
 
-    expect(seen[0]).toMatchObject({ runningId: 'sweep' })
-    expect(seen[0].runs[0]).toMatchObject({ status: 'running', sessionId: null })
+    // The enqueue notification: nothing has started yet, `sweep` is only queued. `drain` runs
+    // synchronously right after this (nothing else was running), so this is a same-tick, real
+    // transition rather than a state the caller could otherwise observe.
+    expect(seen[0]).toMatchObject({ runningId: null, queued: ['sweep'] })
+    expect(seen[0].runs).toEqual([])
+
+    expect(seen[1]).toMatchObject({ runningId: 'sweep', queued: [] })
+    expect(seen[1].runs[0]).toMatchObject({ status: 'running', sessionId: null })
 
     // The session-link notification: still running, but sessionId is now populated and matches
     // the session row actually created for this run.
     const sessionId = sessionRows()[0].id
-    expect(seen[1]).toMatchObject({ runningId: 'sweep' })
-    expect(seen[1].runs[0]).toMatchObject({ status: 'running', sessionId })
+    expect(seen[2]).toMatchObject({ runningId: 'sweep' })
+    expect(seen[2].runs[0]).toMatchObject({ status: 'running', sessionId })
 
     // The finish notification must already show the settled state, not a stale running one.
-    expect(seen[2].runningId).toBeNull()
-    expect(seen[2].runs[0]).toMatchObject({ status: 'ok', summary: 'swept', sessionId })
+    expect(seen[3].runningId).toBeNull()
+    expect(seen[3].runs[0]).toMatchObject({ status: 'ok', summary: 'swept', sessionId })
   })
 })
 
@@ -378,5 +389,155 @@ describe('watermark', () => {
     await svc.whenIdle()
     // Run 2 follows a FAILED run 1, so it is still the first run that matters.
     expect(calls[1].prompt).toContain('This is the first run of this routine')
+  })
+})
+
+describe('pending queue', () => {
+  /** A runTurn that only settles when the returned `release` is called. */
+  const gated = (): {
+    runTurn: (p: BackgroundTurnParams) => Promise<{ status: 'ok'; text: string }>
+    started: string[]
+    release: () => void
+  } => {
+    const started: string[] = []
+    let unblock: () => void = () => {}
+    const gate = new Promise<void>((r) => {
+      unblock = r
+    })
+    return {
+      started,
+      release: () => unblock(),
+      runTurn: async (p) => {
+        started.push(p.caseSlug)
+        await gate
+        return { status: 'ok', text: 'done' }
+      }
+    }
+  }
+
+  beforeEach(() => {
+    store.upsert({ id: 'second', name: 'Second', prompt: 'also sweep', timeoutMs: 1000 })
+  })
+
+  it('queues a second routine instead of throwing, and drains it', async () => {
+    const g = gated()
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: g.runTurn,
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    expect(() => svc.startRun('second')).not.toThrow()
+    expect(svc.payload().queued).toEqual(['second'])
+    expect(svc.payload().runningId).toBe('sweep')
+    g.release()
+    await svc.whenIdle()
+    expect(g.started).toEqual(['routine-sweep', 'routine-second'])
+    expect(svc.payload().queued).toEqual([])
+    expect(listRoutineRuns(db)).toHaveLength(2)
+  })
+
+  it('coalesces: a routine already running is not queued again', async () => {
+    const g = gated()
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: g.runTurn,
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    svc.startRun('sweep')
+    svc.startRun('sweep')
+    expect(svc.payload().queued).toEqual([])
+    g.release()
+    await svc.whenIdle()
+    expect(g.started).toEqual(['routine-sweep'])
+  })
+
+  it('coalesces: a routine already queued is not queued twice', async () => {
+    const g = gated()
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: g.runTurn,
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    svc.startRun('second')
+    svc.startRun('second')
+    expect(svc.payload().queued).toEqual(['second'])
+    g.release()
+    await svc.whenIdle()
+    expect(g.started).toEqual(['routine-sweep', 'routine-second'])
+  })
+
+  it('still throws for unknown and disabled ids', () => {
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async () => ({ status: 'ok', text: '' }),
+      now: () => NOW
+    })
+    expect(() => svc.startRun('nope')).toThrow(/Unknown routine/)
+    store.upsert({ id: 'off', name: 'Off', prompt: 'x', enabled: false })
+    expect(() => svc.startRun('off')).toThrow(/disabled/)
+  })
+
+  it('drains the queue even when the run ahead of it fails', async () => {
+    const seen: string[] = []
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async (p) => {
+        seen.push(p.caseSlug)
+        if (p.caseSlug === 'routine-sweep') throw new Error('boom')
+        return { status: 'ok', text: 'done' }
+      },
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    svc.startRun('second')
+    await svc.whenIdle()
+    expect(seen).toEqual(['routine-sweep', 'routine-second'])
+  })
+
+  it('whenIdle waits for the whole queue, not just the run in flight', async () => {
+    const g = gated()
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: g.runTurn,
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    svc.startRun('second')
+    g.release()
+    await svc.whenIdle()
+    // If whenIdle resolved on the first run alone, the second would still be pending here —
+    // and shutdown, which awaits this, would cut it off mid-turn.
+    expect(svc.payload().queued).toEqual([])
+    expect(svc.payload().runningId).toBeNull()
+    expect(g.started).toHaveLength(2)
+  })
+
+  it('records the trigger the run was enqueued with', async () => {
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async () => ({ status: 'ok', text: 'done' }),
+      now: () => NOW
+    })
+    const sweep = store.get('sweep')!
+    svc.enqueue(sweep, 'catchup')
+    await svc.whenIdle()
+    expect(listRoutineRuns(db)[0].trigger).toBe('catchup')
   })
 })
