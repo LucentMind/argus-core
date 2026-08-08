@@ -419,6 +419,87 @@ describe('RoutinesPage — editing', () => {
   })
 })
 
+describe('RoutinesPage — schedule editor', () => {
+  const openEditor = async (): Promise<void> => {
+    render(<RoutinesPage />)
+    await screen.findByText('Nightly sweep')
+    fireEvent.click(screen.getByRole('button', { name: 'edit · Nightly sweep' }))
+  }
+  const pickKind = (label: string): void => {
+    fireEvent.click(screen.getByRole('combobox', { name: 'Schedule' }))
+    fireEvent.click(screen.getByRole('option', { name: label }))
+  }
+  const savedDef = (): RoutineDef => api.save.mock.calls[0][0] as RoutineDef
+
+  it('saves a daily schedule', async () => {
+    await openEditor()
+    pickKind('Daily')
+    fireEvent.change(screen.getByLabelText('Time'), { target: { value: '02:30' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(api.save).toHaveBeenCalled())
+    expect(savedDef().schedule).toEqual({ kind: 'daily', at: '02:30' })
+  })
+
+  it('saves an interval schedule', async () => {
+    await openEditor()
+    pickKind('Every N minutes')
+    fireEvent.change(screen.getByLabelText('Minutes'), { target: { value: '240' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(api.save).toHaveBeenCalled())
+    expect(savedDef().schedule).toEqual({ kind: 'interval', everyMinutes: 240 })
+  })
+
+  it('saves a weekly schedule with the days that are toggled on', async () => {
+    await openEditor()
+    pickKind('Weekly')
+    // The default is Mon–Fri; turn Wednesday off.
+    fireEvent.click(screen.getByRole('button', { name: 'Wed' }))
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(api.save).toHaveBeenCalled())
+    expect(savedDef().schedule).toEqual({ kind: 'weekly', days: [1, 2, 4, 5], at: '07:00' })
+  })
+
+  it('round-trips an existing schedule into the editor', async () => {
+    stubApi(payload({ routines: [{ ...sweep, schedule: { kind: 'daily', at: '05:15' } }] }))
+    await openEditor()
+    expect(screen.getByRole('combobox', { name: 'Schedule' })).toHaveTextContent('Daily')
+    expect(screen.getByLabelText('Time')).toHaveValue('05:15')
+  })
+
+  it('clears the schedule when switched back to manual', async () => {
+    stubApi(payload({ routines: [{ ...sweep, schedule: { kind: 'daily', at: '05:15' } }] }))
+    await openEditor()
+    pickKind('Manual only')
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(api.save).toHaveBeenCalled())
+    // DELETED, not merely absent from the form's own object: `saveDraft` layers onto the stored
+    // routine, so a spread-only update would resurrect the old schedule forever.
+    expect('schedule' in savedDef()).toBe(false)
+  })
+
+  it('refuses an interval under the floor without closing the editor', async () => {
+    await openEditor()
+    pickKind('Every N minutes')
+    fireEvent.change(screen.getByLabelText('Minutes'), { target: { value: '1' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/at least 5 minutes/i)).toBeInTheDocument()
+    expect(api.save).not.toHaveBeenCalled()
+    // The editor stays open, so the rejected value is still there to correct.
+    expect(screen.getByLabelText('Minutes')).toBeInTheDocument()
+  })
+
+  it('refuses a weekly schedule with no days selected', async () => {
+    await openEditor()
+    pickKind('Weekly')
+    for (const d of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']) {
+      fireEvent.click(screen.getByRole('button', { name: d }))
+    }
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/at least one day/i)).toBeInTheDocument()
+    expect(api.save).not.toHaveBeenCalled()
+  })
+})
+
 describe('RoutinesPage — run history', () => {
   it('shows what each run did, when it started and how long it took', async () => {
     render(<RoutinesPage />)

@@ -1,15 +1,40 @@
 import { useEffect, useState } from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
-import { SettingsSection, SettingRow, FIELD, TEXTAREA_FIELD } from './settingsLayout'
+import { SettingsSection, SettingRow, FIELD, TEXTAREA_FIELD, SelectField } from './settingsLayout'
 import { Btn, Checkbox, Chip, IconBtn } from '../ui'
 import { confirm } from '../../lib/confirmStore'
 import { chipStamp } from '../../lib/time'
 import {
   MAX_TIMEOUT_MINUTES,
+  MIN_INTERVAL_MINUTES,
+  MAX_INTERVAL_MINUTES,
   type RoutineDef,
   type RoutineRunSummary,
+  type RoutineSchedule,
   type RoutinesPayload
 } from '../../../../shared/routines'
+
+type ScheduleKind = 'manual' | 'interval' | 'daily' | 'weekly'
+
+/**
+ * Labels ARE the SelectField's values — it renders raw strings — so the mapping lives here in
+ * one direction and is inverted on change. Kept free of ellipses and other punctuation so the
+ * accessible name a test queries by is exactly what is written here.
+ */
+const SCHEDULE_LABELS: Record<ScheduleKind, string> = {
+  manual: 'Manual only',
+  interval: 'Every N minutes',
+  daily: 'Daily',
+  weekly: 'Weekly'
+}
+const SCHEDULE_KINDS = Object.keys(SCHEDULE_LABELS) as ScheduleKind[]
+const SCHEDULE_OPTIONS = SCHEDULE_KINDS.map((k) => SCHEDULE_LABELS[k])
+
+/** Index IS the value: 0 = Sunday, matching `Date.prototype.getDay()` and scheduleSchema. */
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+
+/** Default time for a new daily/weekly schedule — a plain default, not a claim about "nightly". */
+const DEFAULT_SCHEDULE_TIME = '07:00'
 
 /**
  * Derives a routine id from its name, inside `routineSchema`'s `/^[a-z0-9][a-z0-9-]{0,55}$/`.
@@ -42,6 +67,11 @@ interface Draft {
    * would silently move the routine back onto the default driver on the next name edit.
    */
   driverKind?: string
+  /** Held as separate form state, like `timeoutMinutes` — assembled into a schedule on save. */
+  scheduleKind: ScheduleKind
+  everyMinutes: string
+  at: string
+  days: number[]
 }
 
 function draftFrom(r: RoutineDef): Draft {
@@ -52,7 +82,12 @@ function draftFrom(r: RoutineDef): Draft {
     model: r.model ?? '',
     timeoutMinutes: String(r.timeoutMs / 60_000),
     enabled: r.enabled,
-    ...(r.driverKind ? { driverKind: r.driverKind } : {})
+    ...(r.driverKind ? { driverKind: r.driverKind } : {}),
+    scheduleKind: r.schedule?.kind ?? 'manual',
+    everyMinutes: r.schedule?.kind === 'interval' ? String(r.schedule.everyMinutes) : '60',
+    // Defaults chosen so switching kinds never lands on an empty field the user must discover.
+    at: r.schedule && r.schedule.kind !== 'interval' ? r.schedule.at : DEFAULT_SCHEDULE_TIME,
+    days: r.schedule?.kind === 'weekly' ? r.schedule.days : [1, 2, 3, 4, 5]
   }
 }
 
@@ -62,7 +97,11 @@ const BLANK_DRAFT: Draft = {
   prompt: '',
   model: '',
   timeoutMinutes: '10',
-  enabled: true
+  enabled: true,
+  scheduleKind: 'manual',
+  everyMinutes: '60',
+  at: DEFAULT_SCHEDULE_TIME,
+  days: [1, 2, 3, 4, 5]
 }
 
 /** `null` while a run is still in flight — the caller renders nothing rather than a fake 0s. */
@@ -212,6 +251,81 @@ function RoutineEditor({
         </div>
       </div>
 
+      <div className="flex flex-wrap items-end gap-4">
+        <label className="flex flex-col gap-1 text-xs text-dim">
+          Schedule
+          <SelectField
+            aria-label="Schedule"
+            value={SCHEDULE_LABELS[draft.scheduleKind]}
+            options={SCHEDULE_OPTIONS}
+            onChange={(label) =>
+              onChange({
+                ...draft,
+                scheduleKind: SCHEDULE_KINDS.find((k) => SCHEDULE_LABELS[k] === label) ?? 'manual'
+              })
+            }
+          />
+        </label>
+        {draft.scheduleKind === 'interval' && (
+          <label className="flex flex-col gap-1 text-xs text-dim">
+            Minutes
+            <input
+              type="number"
+              min={MIN_INTERVAL_MINUTES}
+              max={MAX_INTERVAL_MINUTES}
+              className={`${FIELD} w-28`}
+              value={draft.everyMinutes}
+              onChange={(e) => onChange({ ...draft, everyMinutes: e.target.value })}
+            />
+          </label>
+        )}
+        {draft.scheduleKind !== 'manual' && draft.scheduleKind !== 'interval' && (
+          <label className="flex flex-col gap-1 text-xs text-dim">
+            Time
+            <input
+              type="time"
+              className={`${FIELD} w-32`}
+              value={draft.at}
+              onChange={(e) => onChange({ ...draft, at: e.target.value })}
+            />
+          </label>
+        )}
+        {draft.scheduleKind === 'weekly' && (
+          <div className="flex flex-col gap-1 text-xs text-dim">
+            Days
+            <div className="flex gap-1">
+              {DAY_LABELS.map((label, day) => {
+                const on = draft.days.includes(day)
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    aria-pressed={on}
+                    className={`rounded-r1 border px-2 py-1 text-[11px] transition-colors ${
+                      on ? 'border-hair bg-hair/50 text-ink' : 'border-hair/50 text-mute'
+                    }`}
+                    onClick={() =>
+                      onChange({
+                        ...draft,
+                        days: on
+                          ? draft.days.filter((d) => d !== day)
+                          : [...draft.days, day].sort((a, b) => a - b)
+                      })
+                    }
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+      <p className="text-xs text-mute">
+        Scheduled routines run only while Argus is open. A run missed while it was closed starts
+        once at the next launch.
+      </p>
+
       <div className="flex items-center gap-2">
         <Btn variant="primary" onClick={onSave}>
           Save
@@ -317,12 +431,45 @@ export function RoutinesPage(): React.JSX.Element {
       return
     }
     const model = editing.model.trim()
+    let schedule: RoutineSchedule | undefined
+    if (editing.scheduleKind === 'interval') {
+      const every = Number(editing.everyMinutes)
+      if (!Number.isInteger(every) || every < MIN_INTERVAL_MINUTES) {
+        setMutationError(
+          `An interval schedule must be at least ${MIN_INTERVAL_MINUTES} minutes — runs are ` +
+            `serial, and a shorter one would hold the single slot continuously.`
+        )
+        return
+      }
+      if (every > MAX_INTERVAL_MINUTES) {
+        setMutationError(
+          `An interval schedule must be at most ${MAX_INTERVAL_MINUTES} minutes (one week) — ` +
+            `use Daily or Weekly for anything longer.`
+        )
+        return
+      }
+      schedule = { kind: 'interval', everyMinutes: every }
+    } else if (editing.scheduleKind === 'daily' || editing.scheduleKind === 'weekly') {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(editing.at)) {
+        setMutationError('Pick a time in 24-hour HH:MM form.')
+        return
+      }
+      if (editing.scheduleKind === 'daily') {
+        schedule = { kind: 'daily', at: editing.at }
+      } else {
+        if (editing.days.length === 0) {
+          setMutationError('A weekly schedule needs at least one day.')
+          return
+        }
+        schedule = { kind: 'weekly', days: [...editing.days].sort((a, b) => a - b), at: editing.at }
+      }
+    }
     /**
      * The routine as stored, with this form's fields layered on top — NOT a fresh object built
      * from form state. `routineSchema` is a `looseObject`, so config/routines.json can carry keys
-     * this editor knows nothing about, and Increment 2's schedule/trigger fields will be exactly
-     * that until the form catches up. Rebuilding from the form would drop every one of them on
-     * the next edit — the same shape of loss as the `driverKind` defect already fixed here.
+     * this editor knows nothing about — a hand-added key, or a future field this form does not
+     * yet expose. Rebuilding from the form would drop every one of them on the next edit — the
+     * same shape of loss as the `driverKind` defect already fixed here.
      */
     const base =
       editing.id === null ? undefined : payload?.routines.find((r) => r.id === editing.id)
@@ -340,6 +487,8 @@ export function RoutinesPage(): React.JSX.Element {
     else delete def.driverKind
     if (model) def.model = model
     else delete def.model
+    if (schedule) def.schedule = schedule
+    else delete def.schedule
     try {
       setPayload(await window.argus.routines.save(def))
       setMutationError(null)
