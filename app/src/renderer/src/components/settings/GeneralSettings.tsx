@@ -185,6 +185,18 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
             aria-label="Similar past cases"
           />
         </SettingRow>
+        <SettingRow
+          label="Keep running in the background"
+          description="Closing the window leaves Argus in the tray so scheduled routines keep firing. On macOS Argus always keeps running; this controls whether routines fire while it does."
+          isDefault={!g.keepAliveInBackground}
+          onReset={() => void settingsStore.patch({ general: { keepAliveInBackground: null } })}
+        >
+          <Switch
+            checked={g.keepAliveInBackground}
+            onChange={(v) => void settingsStore.patch({ general: { keepAliveInBackground: v } })}
+            aria-label="Keep running in the background"
+          />
+        </SettingRow>
         <DefaultReposRow repos={g.defaultRepos} />
         <SettingRow
           label="Data root"
