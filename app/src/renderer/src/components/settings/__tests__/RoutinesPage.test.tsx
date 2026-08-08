@@ -90,7 +90,10 @@ function settingsPayload(keepAliveInBackground = false): SettingsPayload {
   }
 }
 
-function stubApi(p: RoutinesPayload = payload(), settings: SettingsPayload = settingsPayload()): void {
+function stubApi(
+  p: RoutinesPayload = payload(),
+  settings: SettingsPayload = settingsPayload()
+): void {
   api = {
     list: vi.fn(async () => p),
     save: vi.fn(async () => p),
@@ -626,6 +629,31 @@ describe('RoutinesPage — schedule editor', () => {
     pickKind('Manual only')
 
     expect(screen.queryByText(/only while Argus is open/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Keep Argus running' })).not.toBeInTheDocument()
+  })
+
+  // RoutineScheduler.start() is unconditional and shouldKeepAlive() is hardcoded true on darwin —
+  // the window-closed catch-up story the OFF branch tells (and the button that "fixes" it) is
+  // simply false on a Mac, keep-alive setting or not.
+  it('states the schedule fires with the window closed on macOS, with no keep-alive button, even with the setting off', async () => {
+    stubApi(payload(), settingsPayload(false))
+    window.argus = { ...window.argus, platform: 'darwin' } as never
+    await openEditor()
+    pickKind('Daily')
+
+    expect(await screen.findByText(/macOS/i)).toBeInTheDocument()
+    expect(screen.getByText(/fires on time even with the window closed/i)).toBeInTheDocument()
+    expect(screen.queryByText(/only while Argus is open/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Keep Argus running' })).not.toBeInTheDocument()
+  })
+
+  it('states the same on macOS even with keep-alive on — the setting changes nothing there', async () => {
+    stubApi(payload(), settingsPayload(true))
+    window.argus = { ...window.argus, platform: 'darwin' } as never
+    await openEditor()
+    pickKind('Daily')
+
+    expect(await screen.findByText(/macOS/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Keep Argus running' })).not.toBeInTheDocument()
   })
 })
