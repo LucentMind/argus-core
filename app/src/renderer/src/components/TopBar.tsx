@@ -239,8 +239,11 @@ export function TopBar({
           territory. `ml-auto` is what keeps it flush right once it stops growing (a capped
           flex item leaves free space unclaimed; an auto margin absorbs it). `min-w-0` is the
           "icons are always visible" half: the group may shrink below its content, and since
-          the three buttons inside it are `shrink-0` and the tab band is `min-w-0`, the band is
-          what gives — down to nothing — while the icons keep their width.
+          the action buttons inside it are each `shrink-0` and the tab band is `min-w-0`, the
+          band is what gives — down to nothing — while the icons keep their width. (Which icons
+          render, and how many, is conditional on `onProposals`/`onRelatedHistory` — don't
+          hardcode a count here, it has already gone stale once as buttons were added and
+          removed across chrome-consolidation commits.)
 
           What NOT to do here, because it was tried: putting the 50% on the tab band itself as
           `ml-[50%]`. A percentage margin is not flexible, so once the case group plus that

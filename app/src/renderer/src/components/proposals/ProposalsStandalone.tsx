@@ -45,7 +45,13 @@ export function ProposalsStandalone({
     void window.argus.proposals
       .list()
       .then((p) => {
-        if (!stale) setPayload(p)
+        if (!stale) {
+          setPayload(p)
+          // A background refetch that resolves clears any alert left over from an
+          // earlier transient failure — otherwise a single dropped IPC call leaves
+          // the banner up forever even after the list is fresh again.
+          setError(null)
+        }
       })
       .catch((e) => {
         if (!stale) {
@@ -71,15 +77,7 @@ export function ProposalsStandalone({
     }
   }
 
-  if (!payload) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col p-6">
-        <SettingsSkeleton rows={6} />
-      </div>
-    )
-  }
-
-  const typesPresent = Array.from(new Set(payload.proposals.map((p) => p.type)))
+  const typesPresent = Array.from(new Set((payload?.proposals ?? []).map((p) => p.type)))
   // active may contain types no longer present (e.g. the last proposal of that type was just
   // accepted/rejected) — intersect with what's actually here so a stale chip can't hide everything.
   const effective = new Set([...active].filter((t) => typesPresent.includes(t)))
@@ -92,8 +90,15 @@ export function ProposalsStandalone({
     b: { caseSlug: string; date: string }
   ): number => a.caseSlug.localeCompare(b.caseSlug) || b.date.localeCompare(a.date)
 
-  const pendingSorted = payload.proposals.filter((p) => matches(p.type)).sort(byCase)
-  const acceptedVisible = accepted.filter((a) => matches(a.type))
+  const pendingSorted = (payload?.proposals ?? []).filter((p) => matches(p.type)).sort(byCase)
+  // A same-day re-distill can regenerate the identical proposals/ filename after accept
+  // archives the original (writeProposal only uniquifies against files still present) — so a
+  // session-accepted row can share a `file` with a freshly re-proposed pending row. Drop the
+  // accepted row in that case: the pending row is what's actionable, and keeping both would
+  // hand ProposalQueue two entries with the same React key.
+  const acceptedVisible = accepted
+    .filter((a) => matches(a.type))
+    .filter((a) => !pendingSorted.some((p) => p.file === a.file))
   const entries: QueueEntry[] = [
     ...pendingSorted.map((p) => ({
       kind: 'pending' as const,
@@ -126,13 +131,40 @@ export function ProposalsStandalone({
       ? selectedFile
       : (entries[0]?.file ?? null)
   const selectedPending = pendingSorted.find((p) => p.file === effectiveSelected) ?? null
-  const selectedAccepted = acceptedVisible.find((a) => a.file === effectiveSelected) ?? null
+  // Pending wins over a same-file accepted row (see acceptedVisible above) — this is
+  // belt-and-suspenders since the dedupe already keeps them out of `entries` together, but it
+  // keeps this derivation correct on its own terms too.
+  const selectedAccepted = selectedPending
+    ? null
+    : (acceptedVisible.find((a) => a.file === effectiveSelected) ?? null)
   const position = selectedPending
     ? {
         index: pendingSorted.findIndex((p) => p.file === selectedPending.file) + 1,
         total: pendingSorted.length
       }
     : null
+
+  // Commit the entries[0] fallback into state once we actually have a list: without this,
+  // `effectiveSelected` above recomputes its fallback on every render, so a background refetch
+  // that changes which proposal sorts first (a new proposal landing ahead of the one on screen)
+  // silently retargets Accept/Reject at a DIFFERENT proposal than the one the user is looking
+  // at. selectedFile stays null until this fires, so the retarget window is real, not
+  // hypothetical. Adopted from a microtask, the repo's usual set-state-in-effect idiom (see
+  // TextViewer's page-cache effect) — there is no same-commit requirement here.
+  useEffect(() => {
+    if (selectedFile !== null || !entries[0]) return
+    const file = entries[0].file
+    void Promise.resolve().then(() => setSelectedFile(file))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFile, entries[0]?.file])
+
+  if (!payload) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col p-6">
+        <SettingsSkeleton rows={6} />
+      </div>
+    )
+  }
 
   function toggleType(t: ProposalType): void {
     setActive((prev) => {
@@ -152,14 +184,28 @@ export function ProposalsStandalone({
     })
   }
 
+  // A stale draft must not attach to a future same-name re-proposal (same-day re-distill can
+  // regenerate the identical filename once the original is archived out of the way) — prune it
+  // on every path that removes `p` from the pending list.
+  function pruneEditing(file: string): void {
+    setEditing((prev) => {
+      if (!(file in prev)) return prev
+      const next = { ...prev }
+      delete next[file]
+      return next
+    })
+  }
+
   function acceptSelected(p: ProposalRecord): void {
     const draft = p.file in editing ? editing[p.file] : undefined
     void act(async () => {
       const r = await (draft !== undefined
         ? window.argus.proposals.accept(p.file, draft)
         : window.argus.proposals.accept(p.file))
+      // Replace, not append: accepting a same-named re-proposal must not leave two
+      // session-accepted entries for one file (only the latest target is meaningful).
       setAccepted((prev) => [
-        ...prev,
+        ...prev.filter((a) => a.file !== p.file),
         {
           file: p.file,
           title: p.title,
@@ -169,6 +215,7 @@ export function ProposalsStandalone({
           target: r.accepted
         }
       ])
+      pruneEditing(p.file)
       // Selection stays on p.file — the row flips to its accepted entry.
       setSelectedFile(p.file)
       return r
@@ -188,6 +235,7 @@ export function ProposalsStandalone({
       // fresh `proposals` list is the source of truth (a distiller run may
       // have touched other rows too), not something to reconcile locally.
       const r = await window.argus.proposals.reject(p.file, reason)
+      pruneEditing(p.file)
       setSelectedFile(next?.file ?? null)
       return r
     })

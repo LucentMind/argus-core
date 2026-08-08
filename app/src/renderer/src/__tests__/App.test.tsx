@@ -56,8 +56,6 @@ vi.mock('../components/onboarding/OnboardingProvider', () => ({
 
 function settingsPayload(): SettingsPayload {
   const settings = defaultSettings()
-  // Non-null completedAt keeps OnboardingProvider's SetupWizard from mounting
-  // over the toolbar and swallowing the clicks this test drives.
   settings.onboarding.completedAt = '2026-01-01T00:00:00.000Z'
   return {
     settings,
@@ -351,6 +349,17 @@ describe('App: proposals view', () => {
     render(<App />)
     await waitFor(() => expect(lastOnboardingNavigate).not.toBeNull())
     act(() => lastOnboardingNavigate!('settings', 'proposals'))
+    expect(await screen.findByText(/^· \d+ pending$/)).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Settings sections' })).not.toBeInTheDocument()
+  })
+
+  // The tour's actual emission for this step is the bare ('proposals') pair (App.tsx's
+  // onNavigate wiring: `if (view === 'proposals') gotoProposals()`, no target) — the deep-link
+  // pair above covers the OTHER caller (a stale settings/proposals value), not this one.
+  it('opens the proposals view for a bare proposals onNavigate (the tour emission)', async () => {
+    render(<App />)
+    await waitFor(() => expect(lastOnboardingNavigate).not.toBeNull())
+    act(() => lastOnboardingNavigate!('proposals'))
     expect(await screen.findByText(/^· \d+ pending$/)).toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: 'Settings sections' })).not.toBeInTheDocument()
   })

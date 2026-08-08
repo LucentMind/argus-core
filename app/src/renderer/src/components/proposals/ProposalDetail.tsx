@@ -225,7 +225,12 @@ export function ProposalDetail({
         >
           Accept
         </Btn>
-        <Btn variant="outline" aria-label={`Edit ${p.title}`} onClick={onToggleEdit}>
+        <Btn
+          variant="outline"
+          aria-label={`Edit ${p.title}`}
+          disabled={busy}
+          onClick={onToggleEdit}
+        >
           {isEditing ? 'View diff' : 'Edit'}
         </Btn>
         <Btn

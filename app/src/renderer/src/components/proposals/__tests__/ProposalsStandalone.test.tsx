@@ -182,6 +182,78 @@ describe('ProposalsStandalone', () => {
     )
   })
 
+  // Regression for the "next = null" advance branch: rejecting the only pending row leaves
+  // pendingSorted empty, so rejectSelected's `next` computation falls all the way through to
+  // null — unexercised before this test (see the review's carried-forward minor finding).
+  it('rejecting the only pending row falls back to the empty state without crashing', async () => {
+    const solo: ProposalsPayload = { proposals: [payload.proposals[0]] }
+    const list = vi.fn().mockResolvedValue(solo)
+    // Genuinely empty, not a stale echo of `solo` — the real IPC contract after the only row
+    // is gone.
+    const reject = vi.fn().mockResolvedValue({ proposals: [] })
+    const argus = (
+      window as unknown as {
+        argus: { proposals: { list: ReturnType<typeof vi.fn>; reject: ReturnType<typeof vi.fn> } }
+      }
+    ).argus
+    argus.proposals.list = list
+    argus.proposals.reject = reject
+    renderShell()
+    fireEvent.click(await screen.findByRole('button', { name: 'Reject Sharpen step 4' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reject without a reason' }))
+    await waitFor(() => expect(reject).toHaveBeenCalledWith('2026-07-10-NAV-100-rca.md', undefined))
+    expect(await screen.findByText(/No pending proposals/)).toBeInTheDocument()
+  })
+
+  // Same "next = null" branch, but with a session-accepted row still around: the entries[0]
+  // fallback (the pin fix under test elsewhere in this suite) must land selection on it instead
+  // of leaving the view looking blank.
+  it('rejecting the last pending row falls back to a session-accepted row via the entries[0] fallback', async () => {
+    const two: ProposalsPayload = { proposals: [payload.proposals[0], payload.proposals[2]] }
+    const list = vi.fn().mockResolvedValue(two)
+    const accept = vi.fn((file: string) =>
+      Promise.resolve({
+        proposals: two.proposals.filter((p) => p.file !== file),
+        accepted: { kind: 'skill', name: 'rca' }
+      })
+    )
+    const reject = vi.fn().mockResolvedValue({ proposals: [] })
+    const argus = (
+      window as unknown as {
+        argus: {
+          proposals: {
+            list: ReturnType<typeof vi.fn>
+            accept: ReturnType<typeof vi.fn>
+            reject: ReturnType<typeof vi.fn>
+          }
+        }
+      }
+    ).argus
+    argus.proposals.list = list
+    argus.proposals.accept = accept
+    argus.proposals.reject = reject
+    renderShell()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Accept Sharpen step 4' }))
+    await screen.findByText(/accepted into your library/i)
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Select proposal Reference edit proposal' })
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Reject Reference edit proposal' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reject without a reason' }))
+    await waitFor(() => expect(reject).toHaveBeenCalled())
+
+    // No pending rows left — entries[0] is the session-accepted row, and the fallback commits
+    // it as the selection instead of leaving `selectedFile` null forever.
+    expect(await screen.findByText(/accepted into your library/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Select proposal Sharpen step 4' })).toHaveAttribute(
+      'aria-current',
+      'true'
+    )
+  })
+
   it('empty payload shows the empty-state copy', async () => {
     ;(
       window as unknown as { argus: { proposals: { list: ReturnType<typeof vi.fn> } } }
