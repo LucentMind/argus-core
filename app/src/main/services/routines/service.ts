@@ -36,6 +36,16 @@ export interface RoutineTurnRequest extends BackgroundTurnParams {
   driverKind: string
 }
 
+/** What a finished run tells its host. Enough to render a notification without a second read. */
+export interface RoutineRunFinished {
+  runId: number
+  routineId: string
+  routineName: string
+  status: BackgroundTurnResult['status']
+  summary?: string
+  error?: string
+}
+
 export interface RoutinesServiceDeps {
   db: DatabaseSync
   argusHome: string
@@ -45,6 +55,16 @@ export interface RoutinesServiceDeps {
   runTurn: (params: RoutineTurnRequest) => Promise<BackgroundTurnResult>
   /** Change announcement (index.ts wires broadcast). */
   notify?: () => void
+  /**
+   * One finished run, announced. Separate from `notify` (which is payload-free and fires on
+   * every change, including a run STARTING) because a notification must fire once, at the end,
+   * and needs to know which run and how it went.
+   *
+   * A callback, not a Notification: services/routines/ imports no electron, so the host decides
+   * what "announce" means — the tray host shows an OS notification, a future headless server
+   * might write a log line or post a webhook.
+   */
+  onRunFinished?: (info: RoutineRunFinished) => void
   /**
    * The clock, for run timestamps AND for the first-seen anchor a never-run routine's schedule
    * is measured from (see anchors.ts). One clock, so what a test steps forward moves both.
@@ -355,5 +375,21 @@ export class RoutinesService {
       },
       this.deps.now
     )
+
+    // Swallowed and logged for exactly the reason safeNotify is (see its contract above): this
+    // sits in the queue's control flow, and an escaping throw would skip drain()'s continuation
+    // and stall every pending run. Losing one notification beats stalling the engine.
+    try {
+      this.deps.onRunFinished?.({
+        runId,
+        routineId: routine.id,
+        routineName: routine.name,
+        status: result.status,
+        ...(result.text ? { summary: result.text } : {}),
+        ...(result.error ? { error: result.error } : {})
+      })
+    } catch (err) {
+      console.error('[routines] onRunFinished failed:', message(err))
+    }
   }
 }
