@@ -94,4 +94,26 @@ describe('ProposalQueue', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Filter Skill · new' }))
     expect(onToggleType).toHaveBeenCalledWith('skill-new')
   })
+
+  // Ported from ProposalsPage.knowledge.test.tsx's "filter chips show human-readable
+  // type labels" — the label dictionary itself isn't exercised elsewhere.
+  it('filter chips render human-readable labels for every present type', () => {
+    renderQueue({
+      typesPresent: ['skill-edit', 'skill-new', 'reference-edit', 'case-summary'],
+      countByType: { 'skill-edit': 1, 'skill-new': 1, 'reference-edit': 1, 'case-summary': 1 }
+    })
+    expect(screen.getByRole('button', { name: 'Filter Reference' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Filter Case summary' })).toBeInTheDocument()
+  })
+
+  // Ported from ProposalsPage.knowledge.test.tsx's "shows Reference / Case summary
+  // labels, previously-reviewed badge, and case groups" — the badge half; the label
+  // half is covered by ProposalDetail's own header-chip test, and case groups are
+  // covered by the "groups rows under case headers" test above.
+  it('shows a "seen before" badge for previously-reviewed rows', () => {
+    renderQueue({
+      entries: [{ ...entries[0], previouslyReviewed: true }]
+    })
+    expect(screen.getByText('seen before')).toBeInTheDocument()
+  })
 })

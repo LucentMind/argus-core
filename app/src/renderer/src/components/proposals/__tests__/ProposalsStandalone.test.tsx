@@ -204,4 +204,74 @@ describe('ProposalsStandalone', () => {
     fireEvent.click(within(strip).getByRole('button', { name: /Library/ }))
     expect(onNavigateSettings).toHaveBeenCalledWith('library')
   })
+
+  // Ported from the old ProposalsPage.test.tsx — same regression, re-targeted at the
+  // standalone view: `active` (the chip-filter state) must not keep a type once its
+  // last matching proposal disappears from the list, else the filtered view stays
+  // empty though other (non-matching-type) proposals still exist.
+  it('accepting the only proposal of an active filter type does not hide the remaining proposals', async () => {
+    ;(
+      window as unknown as { argus: { proposals: { accept: ReturnType<typeof vi.fn> } } }
+    ).argus.proposals.accept = vi.fn().mockResolvedValue({
+      proposals: [payload.proposals[2]], // only the reference-edit proposal remains
+      accepted: { kind: 'skill', name: 'rca' }
+    })
+    renderShell()
+    const chip = await screen.findByRole('button', { name: 'Filter Skill · edit' })
+    fireEvent.click(chip)
+    expect(chip).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Accept Sharpen step 4' }))
+
+    expect(await screen.findByText('Reference edit proposal')).toBeInTheDocument()
+  })
+
+  // Ported from ProposalsPage.test.tsx's "mount fetch error surfaces in alert banner
+  // instead of hanging" — the initial-mount list() rejection, distinct from a failed
+  // background refetch (covered in ProposalsStandalone.freshness.test.tsx).
+  it('mount fetch error surfaces in alert banner instead of hanging', async () => {
+    // the proposals store's own priming shares the rejecting list() and warns too —
+    // keep test output clean.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    ;(window as unknown as { argus: unknown }).argus = {
+      proposals: {
+        list: vi.fn().mockRejectedValue(new Error('ipc dead')),
+        accept: vi.fn().mockResolvedValue({ proposals: [] }),
+        reject: vi.fn().mockResolvedValue({ proposals: [] }),
+        onChanged: vi.fn(() => () => {})
+      },
+      settings: {
+        get: vi.fn(async () => ({
+          settings: { hivemind: { repo: 'org/hive' }, ui: { knowledgeStripDismissed: true } },
+          loadError: null
+        })),
+        onChanged: vi.fn(() => () => {})
+      }
+    }
+    renderShell()
+    expect(await screen.findByRole('alert')).toHaveTextContent(/ipc dead/)
+    expect(await screen.findByText(/No pending proposals/)).toBeInTheDocument()
+    warn.mockRestore()
+  })
+
+  // Ported from ProposalsPage.test.tsx's "without a hive repo the row links to
+  // HiveMind setup instead" — re-targeted at the standalone view's onNavigateSettings
+  // callback (ProposalDetail's own unit test only checks the button renders, not the
+  // wiring through to navigation).
+  it('without a hive repo, Set up HiveMind routes to the team settings page', async () => {
+    ;(
+      window as unknown as { argus: { settings: { get: ReturnType<typeof vi.fn> } } }
+    ).argus.settings.get = vi.fn(async () => ({
+      settings: { hivemind: { repo: '' }, ui: { knowledgeStripDismissed: true } },
+      loadError: null
+    }))
+    const onNavigateSettings = vi.fn()
+    renderShell({ onNavigateSettings })
+    fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Accept Sharpen step 4' }))
+    const link = await screen.findByRole('button', { name: 'Set up HiveMind to share →' })
+    fireEvent.click(link)
+    expect(onNavigateSettings).toHaveBeenCalledWith('team')
+  })
 })

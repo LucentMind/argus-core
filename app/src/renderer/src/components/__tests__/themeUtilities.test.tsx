@@ -115,6 +115,7 @@ const STRUCTURAL_UTILITIES = new Set([
   'border-b-2',
   'border-l',
   'border-l-0',
+  'border-l-2',
   'border-r',
   'border-t',
   'border-t-0',

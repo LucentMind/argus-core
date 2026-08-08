@@ -26,6 +26,7 @@ beforeEach(() => {
   window.argus = {
     modes: { available: vi.fn(async () => ['investigation', 'review']) },
     distill: { status: vi.fn(async () => null), onChanged: vi.fn(() => () => {}) },
+    proposals: { list: vi.fn(async () => ({ proposals: [] })), onChanged: vi.fn(() => () => {}) },
     cases: {
       setStatus: vi.fn(async () => undefined),
       setMode: vi.fn(async () => ({ sessionId: 9 }))

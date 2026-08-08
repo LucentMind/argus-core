@@ -61,7 +61,7 @@ describe('MessageView citations', () => {
     expect(container.textContent).toContain('para two')
   })
 
-  it('falls back to plain citation links without caseSlug (ProposalsPage path)', () => {
+  it('falls back to plain citation links without caseSlug (case-summary proposal path)', () => {
     const onCite = vi.fn()
     render(<MessageView markdown="see [evidence/app.log:2]" onCite={onCite} />)
     const link = screen.getByRole('link', { name: 'evidence/app.log:2' })
