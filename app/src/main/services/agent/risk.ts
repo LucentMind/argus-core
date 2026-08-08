@@ -88,6 +88,12 @@ export const NATIVE_RISK: Record<string, RiskVerdict> = {
   mcp__argus__fetch_check_logs: { action: 'allow', risk: 'LOW' },
   mcp__argus__open_panel: { action: 'allow', risk: 'LOW' },
   mcp__argus__capture_panel: { action: 'allow', risk: 'LOW' },
+  // Inert until a human accepts it in the Home inbox (spec §5.3): the suggestion is written to
+  // routine_run_items, never to the case. Same rationale as write_proposal above. WITHOUT this
+  // entry it falls to the taxonomy fallback, which reads it as write-capable and ASKS — and an
+  // unattended routine turn denies every ask, so the one tool the item loop exists to call is
+  // denied on every item, always.
+  mcp__argus__propose_case_triage: { action: 'allow', risk: 'LOW' },
   mcp__argus__update_case_status: {
     action: 'ask',
     risk: 'MEDIUM',
