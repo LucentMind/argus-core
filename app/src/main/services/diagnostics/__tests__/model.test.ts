@@ -522,19 +522,25 @@ describe('buildSnapshot — orphan detection', () => {
 })
 
 describe('terminable', () => {
-  it('is true for the kinds Argus may stop', () => {
-    const r = build([ROOT, sample({ pid: 2, ppid: 1 })], new Map(), 10_000, {
-      labelSources: {
-        windows: [],
-        connectors: [],
-        registered: new Map([
-          ['2:1000', { kind: 'pack-app' as const, label: 'Pack app: demo/console' }]
-        ])
-      }
-    })
-    const row = r.objects.find((o) => o.kind === 'pack-app')
-    expect(row?.terminable).toBe(true)
-  })
+  // A typo in TERMINABLE_KINDS's Set literal (model.ts) would silently drop Stop from
+  // whichever kind it misspells or omits — asserting only 'pack-app' (as this test
+  // originally did) can't catch a bug in 'driver', 'mcp', or 'pack-binary'. Cover all
+  // four kinds the model actually declares terminable.
+  it.each(['driver', 'mcp', 'pack-binary', 'pack-app'] as const)(
+    'is true for the terminable kind %s',
+    (kind) => {
+      const r = build([ROOT, sample({ pid: 2, ppid: 1 })], new Map(), 10_000, {
+        labelSources: {
+          windows: [],
+          connectors: [],
+          registered: new Map([['2:1000', { kind, label: `Test: ${kind}` }]])
+        }
+      })
+      const row = r.objects.find((o) => o.kind === kind)
+      expect(row).toBeDefined()
+      expect(row?.terminable).toBe(true)
+    }
+  )
 
   it('is false for every electron kind — the page must not offer to kill its own app', () => {
     const r = build([ROOT], new Map(), 10_000, {

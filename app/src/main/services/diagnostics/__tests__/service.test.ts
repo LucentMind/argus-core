@@ -755,8 +755,15 @@ describe('terminate', () => {
     // terminate '2:9999' — the same pid, a startTimeMs that does not match — is
     // the reused-pid case an id-with-startTimeMs design exists to catch: no row
     // in the CURRENT snapshot has this exact id, so it must resolve to nothing.
+    //
+    // The label carries a `stop` closure so this also closes the OWNER-route arm of
+    // the same property: a lookup-then-parse bug (or one that resolved the row by pid
+    // alone, ignoring startTimeMs) could just as easily call the owner's `stop` as
+    // reach the raw signal path — the two assertions below cover both routes this id
+    // must never reach.
     const labels = new ProcessLabels()
-    labels.register(2, { kind: 'mcp', label: 'MCP: demo' }, 10_000)
+    const stop = vi.fn()
+    labels.register(2, { kind: 'mcp', label: 'MCP: demo', stop }, 10_000)
     const term = fakeTerminator()
     const { service, client } = makeService(fakeClient(), {
       processLabels: labels,
@@ -767,6 +774,7 @@ describe('terminate', () => {
 
     expect(await service.terminate('2:9999')).toEqual({ ok: false, reason: 'gone' })
     expect(term.signalled).toEqual([])
+    expect(stop).not.toHaveBeenCalled()
   })
 
   it('never signals the tree root, whatever the row claims', async () => {

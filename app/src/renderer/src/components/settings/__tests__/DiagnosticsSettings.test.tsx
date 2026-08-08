@@ -691,14 +691,17 @@ describe('stop', () => {
 
   it("clears a pressed row's escape-hatch timer, not just its pending flag, when the stream proves it is gone", async () => {
     // Pins the stream-clears-timers loop specifically (as opposed to the stream-clears-
-    // pending behaviour already covered by "shows the row as stopping..."). The escape
-    // hatch's job is done the moment the stream proves the row is actually gone — if its
-    // timer isn't ALSO cleared then (not just removed from `pending`), it lingers as a
-    // stray timer that could later fire during a SUBSEQUENT press for the same id.
-    // `vi.getTimerCount()` is used because the button/pending-state-only assertions on
-    // their own can't distinguish this: a second press always arms its own fresh timer
-    // regardless of whether the first press's stray timer was cleaned up, so only
-    // directly counting the pending native timers proves the leak is gone.
+    // pending behaviour already covered by "shows the row as stopping..."). This is NOT
+    // guarding against a stale timer clobbering a subsequent press's state — armPendingTimer
+    // always clears any existing timer for `id` before arming a fresh one, so a later press
+    // can never inherit an earlier one's timer regardless of whether this loop runs. The
+    // loop is pure hygiene: without it, a row the stream has already proven dead leaves a
+    // dangling no-op timer (nothing left in `pending` for its callback to touch) armed for
+    // up to STOP_PENDING_TIMEOUT_MS. `vi.getTimerCount()` is used because the
+    // button/pending-state-only assertions on their own can't distinguish this: a second
+    // press always arms its own fresh timer regardless of whether the first press's stray
+    // timer was cleaned up, so only directly counting the pending native timers proves the
+    // leak itself is gone.
     vi.useFakeTimers()
     try {
       render(<DiagnosticsSettings />)

@@ -346,6 +346,13 @@ export default function DiagnosticsSettings(): React.JSX.Element {
   // One counter per id, bumped on every press. Lets a late-resolving terminate() call
   // tell whether it's still the press that owns `o.id`'s pending/timer state, or a stale
   // one a later press has since superseded — see onStop.
+  //
+  // Entries are never deleted, including when a row leaves the snapshot — that is
+  // required, not a missed cleanup. If an id's entry were removed, a row that later
+  // returns (a fresh process reusing the same tier-A slot, or the row simply reappearing
+  // on the next sample) would restart its counter at 1, and a still-in-flight token-1
+  // call from BEFORE it disappeared would then wrongly match a brand new press that also
+  // starts at 1.
   const stopTokens = useRef<Map<string, number>>(new Map())
 
   const clearPendingTimer = (id: string): void => {
@@ -429,9 +436,13 @@ export default function DiagnosticsSettings(): React.JSX.Element {
         const live = new Set(s.objects.map((o) => o.id))
         const stale = [...pendingTimers.current.keys()].filter((id) => !live.has(id))
         if (stale.length > 0) {
-          // The stream just proved these ids are gone — their escape-hatch timers would
-          // otherwise still be armed and could fire later, prematurely clearing a
-          // SUBSEQUENT press's pending state for the same id.
+          // This is hygiene, not a guard against a live hazard: armPendingTimer always
+          // clears any existing timer for `id` before arming a fresh one, so a subsequent
+          // press can never inherit this one's timer regardless of whether it's cleared
+          // here. Left alone, though, the stream having just proved these ids are gone
+          // leaves their escape-hatch timers dangling — armed for up to
+          // STOP_PENDING_TIMEOUT_MS with nothing left in `pending` for their callback to
+          // touch, a no-op wait for a row that no longer needs one.
           for (const id of stale) clearPendingTimer(id)
           setPending((prev) => {
             const next = new Set(prev)
