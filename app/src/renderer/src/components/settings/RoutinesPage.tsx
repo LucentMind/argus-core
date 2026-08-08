@@ -152,6 +152,21 @@ const RUN_TONE: Record<RoutineRunSummary['status'], 'signal' | 'danger' | 'defec
 const TRUNCATE_AT = 200
 
 /**
+ * What a routine will do next, in one phrase.
+ *
+ * `queued` and `running` beat the clock: a routine whose slot is already claimed has a more
+ * useful answer than the time it was scheduled for.
+ */
+function nextRunLabel(
+  nextRunAt: string | null | undefined,
+  state: 'running' | 'queued' | 'idle'
+): string {
+  if (state === 'running') return 'running now'
+  if (state === 'queued') return 'queued'
+  return nextRunAt ? `next ${chipStamp(nextRunAt)}` : 'manual only'
+}
+
+/**
  * A run's summary or error, truncated until asked for.
  *
  * Truncated in JS rather than by a `line-clamp` so the cut is real: an unattended run's final
@@ -545,7 +560,7 @@ export function RoutinesPage(): React.JSX.Element {
   if (error) return <p className="p-3 text-xs text-danger">{error}</p>
   if (!payload) return <p className="p-3 text-xs text-mute">Loading…</p>
 
-  const { routines, runs, runningId } = payload
+  const { routines, runs, runningId, queued, nextRunAt } = payload
   const nameOf = (routineId: string): string =>
     routines.find((r) => r.id === routineId)?.name ?? routineId
 
@@ -571,7 +586,7 @@ export function RoutinesPage(): React.JSX.Element {
 
       <SettingsSection
         title="Routines"
-        subtitle="Saved prompts Argus runs unattended, each in its own case. Runs are serial — one at a time."
+        subtitle="Saved prompts Argus runs unattended, each in its own case — on demand or on a schedule. Runs are serial, one at a time."
         action={
           <Btn onClick={() => setEditing({ ...BLANK_DRAFT })} disabled={editing?.id === null}>
             New routine
@@ -585,6 +600,7 @@ export function RoutinesPage(): React.JSX.Element {
         )}
         {routines.map((r) => {
           const running = runningId === r.id
+          const isQueued = queued.includes(r.id)
           return (
             <div key={r.id}>
               <SettingRow
@@ -596,17 +612,27 @@ export function RoutinesPage(): React.JSX.Element {
                     {r.driverKind && <Chip tone="neutral">{r.driverKind}</Chip>}
                     {r.model && <Chip tone="neutral">{r.model}</Chip>}
                     <Chip tone="neutral">limit {Math.round(r.timeoutMs / 60_000)}m</Chip>
+                    <Chip tone="neutral">
+                      <span data-testid={`next-run-${r.id}`}>
+                        {nextRunLabel(
+                          nextRunAt[r.id],
+                          running ? 'running' : isQueued ? 'queued' : 'idle'
+                        )}
+                      </span>
+                    </Chip>
                   </>
                 }
               >
                 <Btn
                   aria-label={running ? `Running · ${r.name}` : `Run now · ${r.name}`}
-                  // Every button, not just this row's: runs are serial, so while one is in
-                  // flight the honest state of all of them is unavailable.
-                  disabled={!r.enabled || runningId !== null}
+                  // Only this row's own state disables it now. Increment 1 disabled every
+                  // button while any run was in flight because a second click could only
+                  // throw; a click now joins the queue, which is a real answer (task 5's
+                  // `enqueue` coalesces rather than rejecting).
+                  disabled={!r.enabled || running || isQueued}
                   onClick={() => void runNow(r.id)}
                 >
-                  {running ? 'Running…' : 'Run now'}
+                  {running ? 'Running…' : isQueued ? 'Queued' : 'Run now'}
                 </Btn>
                 <IconBtn
                   aria-label={`edit · ${r.name}`}
@@ -663,6 +689,13 @@ export function RoutinesPage(): React.JSX.Element {
               <Chip tone={RUN_TONE[run.status]}>
                 <span data-testid={`run-status-${run.id}`}>{run.status}</span>
               </Chip>
+              {run.trigger !== 'manual' && (
+                <Chip tone="neutral">
+                  <span data-testid={`run-trigger-${run.id}`}>
+                    {run.trigger === 'catchup' ? 'catch-up' : 'scheduled'}
+                  </span>
+                </Chip>
+              )}
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 {/* Name plus where the work landed, in one line (PromptsDevPage's capture rows
                     use the same `a · b` shape). The routine may have been deleted since, so the

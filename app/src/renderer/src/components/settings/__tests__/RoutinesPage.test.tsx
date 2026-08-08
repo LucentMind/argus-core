@@ -613,3 +613,59 @@ describe('RoutinesPage — run history', () => {
     expect(await screen.findByText(/No runs yet/i)).toBeInTheDocument()
   })
 })
+
+describe('RoutinesPage — schedule status', () => {
+  it('shows the next run for a scheduled routine', async () => {
+    stubApi(payload({ nextRunAt: { sweep: '2026-08-09T02:00:00.000Z' } }))
+    render(<RoutinesPage />)
+    // chipStamp renders LOCAL time, so assert through it rather than a hardcoded string — this
+    // suite runs under whatever timezone the machine or CI happens to have.
+    expect(await screen.findByTestId('next-run-sweep')).toHaveTextContent(
+      chipStamp('2026-08-09T02:00:00.000Z')
+    )
+  })
+
+  it('says manual only for a routine with no next run', async () => {
+    stubApi(payload({ nextRunAt: { sweep: null } }))
+    render(<RoutinesPage />)
+    expect(await screen.findByTestId('next-run-sweep')).toHaveTextContent(/manual only/i)
+  })
+
+  it('marks the running and queued rows, and leaves an idle routine runnable', async () => {
+    const digest: RoutineDef = { ...sweep, id: 'digest', name: 'Weekly digest' }
+    const audit: RoutineDef = { ...sweep, id: 'audit', name: 'Dep audit' }
+    stubApi(
+      payload({
+        routines: [sweep, digest, audit],
+        runningId: 'sweep',
+        queued: ['digest'],
+        nextRunAt: { sweep: null, digest: null, audit: null }
+      })
+    )
+    render(<RoutinesPage />)
+    expect(await screen.findByTestId('next-run-sweep')).toHaveTextContent(/running now/i)
+    expect(screen.getByTestId('next-run-digest')).toHaveTextContent(/queued/i)
+    // Increment 1 disabled EVERY Run now while any run was in flight, because a second click
+    // could only throw. A click now joins the queue, so an idle routine's button is honestly
+    // enabled — and a routine already queued still is not.
+    expect(screen.getByRole('button', { name: 'Run now · Dep audit' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Run now · Weekly digest' })).toBeDisabled()
+  })
+
+  it('badges each run with what triggered it', async () => {
+    stubApi(
+      payload({
+        runs: [
+          run({ id: 3, trigger: 'catchup' }),
+          run({ id: 2, trigger: 'scheduled' }),
+          run({ id: 1, trigger: 'manual' })
+        ]
+      })
+    )
+    render(<RoutinesPage />)
+    expect(await screen.findByTestId('run-trigger-3')).toHaveTextContent('catch-up')
+    expect(screen.getByTestId('run-trigger-2')).toHaveTextContent('scheduled')
+    // Manual is the unremarkable case and gets no badge — a badge on every row is no signal.
+    expect(screen.queryByTestId('run-trigger-1')).toBeNull()
+  })
+})
