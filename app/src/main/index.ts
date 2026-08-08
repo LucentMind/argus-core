@@ -441,6 +441,13 @@ let diagnostics: DiagnosticsService | null = null
 // drift apart.
 const diagnosticsDestroyedWired = new Set<number>()
 
+// A shown `Notification` outlives the tick that created it — on Windows the Action Center keeps
+// it indefinitely. Its only reference must stay reachable for as long as the OS can still deliver
+// a click to it, or V8 is free to collect it (and the click handler with it), silently turning a
+// clicked notification into a no-op. Cleared on 'close' too, so a notification the user dismisses
+// (or that the OS expires) does not pin memory forever.
+const liveNotifications = new Set<Notification>()
+
 // D1 spike instrumentation (exit-check step 7): ARGUS_LOOP_METRICS=1 logs
 // main-process event-loop delay percentiles every 30s. Threshold: p99 < 50ms
 // with two sessions streaming.
@@ -1916,9 +1923,14 @@ function registerIpc(): void {
             ? info.summary?.split('\n')[0] || 'Run finished'
             : (info.error ?? `Run ${info.status}`)
       })
+      liveNotifications.add(n)
       n.on('click', () => {
+        liveNotifications.delete(n)
         showMainWindow()
         routinesBroadcast(IPC.routinesFocusInbox, null)
+      })
+      n.on('close', () => {
+        liveNotifications.delete(n)
       })
       n.show()
     }
