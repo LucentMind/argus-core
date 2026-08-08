@@ -211,6 +211,16 @@ CREATE TABLE IF NOT EXISTS routine_runs (
   trigger_kind TEXT NOT NULL DEFAULT 'manual'
 );
 CREATE INDEX IF NOT EXISTS idx_routine_runs_routine ON routine_runs(routine_id);
+-- When a routine was first seen with a schedule — the origin its first fire is measured from,
+-- for a routine that has no rows in routine_runs yet. Persisted rather than derived from process
+-- start: an in-memory anchor moves on every launch, which makes a freshly saved routine already
+-- overdue once uptime exceeds its period, and makes a routine whose period exceeds typical uptime
+-- unable to ever fire at all. Written by ensureRoutineAnchor, dropped by forgetRoutineAnchor when
+-- the definition is deleted (services/routines/anchors.ts).
+CREATE TABLE IF NOT EXISTS routine_anchors (
+  routine_id TEXT PRIMARY KEY,
+  anchored_at TEXT NOT NULL
+);
 `
 
 export function openDb(file: string): DatabaseSync {

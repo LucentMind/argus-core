@@ -1858,6 +1858,10 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.routinesDelete, (_e, id: string): RoutinesPayload => {
     routines.remove(id)
+    // The store owns config/routines.json; the engine owns db rows keyed by the same id. Ids are
+    // derived from the routine's name, so recreating a deleted routine lands on the same id —
+    // and a surviving schedule anchor would make it overdue the instant it was saved.
+    routinesService.forgetRoutine(id)
     return routinesService.payload()
   })
   ipcMain.handle(IPC.routinesRunNow, (_e, id: string): RoutinesPayload => {
@@ -1874,9 +1878,10 @@ function registerIpc(): void {
   // `running` row before the reconcile would have that row rewritten as failed underneath it)
   // and after the handlers above (a run beginning against a half-registered host).
   //
-  // No `epoch` is passed to RoutinesService: it defaults to construction time, which here is
-  // app boot — so a routine that has never run fires at its next natural occurrence rather than
-  // the instant Argus opens.
+  // A routine that has never run is anchored on the persisted `routine_anchors` row written the
+  // first time it is seen with a live schedule (anchors.ts), NOT on this process's start — so a
+  // routine saved hours into a session fires at its next natural occurrence rather than being
+  // already overdue, and a long-interval one converges instead of receding on every launch.
   routineScheduler = new RoutineScheduler({
     store: routines,
     service: routinesService

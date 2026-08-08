@@ -9,6 +9,7 @@ import {
   lastSuccessAt,
   lastAttemptAt
 } from './runs'
+import { ensureRoutineAnchor, forgetRoutineAnchor } from './anchors'
 import { nextFireAfter } from './schedule'
 import type { RoutineStore } from './store'
 import type { RoutineDef, RoutinesPayload, RoutineTrigger } from '../../../shared/routines'
@@ -41,15 +42,11 @@ export interface RoutinesServiceDeps {
   runTurn: (params: RoutineTurnRequest) => Promise<BackgroundTurnResult>
   /** Change announcement (index.ts wires broadcast). */
   notify?: () => void
-  now?: () => Date
   /**
-   * Anchor for a routine that has never run. Defaults to construction time, which in production
-   * is app boot — so a routine created at 23:00 with a `daily 02:00` schedule fires at the next
-   * 02:00, and an `every 4h` fires four hours from now, rather than either firing immediately.
-   * Nothing is persisted for this: `daily` and `weekly` are absolute, and `interval`'s
-   * relative-to-boot behaviour is the least surprising answer available.
+   * The clock, for run timestamps AND for the first-seen anchor a never-run routine's schedule
+   * is measured from (see anchors.ts). One clock, so what a test steps forward moves both.
    */
-  epoch?: Date
+  now?: () => Date
 }
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err))
@@ -80,11 +77,8 @@ export class RoutinesService {
   private running: RoutineDef | null = null
   private queue: { routine: RoutineDef; trigger: RoutineTrigger }[] = []
   private current: Promise<void> = Promise.resolve()
-  private readonly epoch: Date
 
-  constructor(private deps: RoutinesServiceDeps) {
-    this.epoch = deps.epoch ?? deps.now?.() ?? new Date()
-  }
+  constructor(private deps: RoutinesServiceDeps) {}
 
   /**
    * Invokes `deps.notify`, catching and logging anything it throws instead of letting it
@@ -140,12 +134,32 @@ export class RoutinesService {
    *
    * Returns null for a disabled routine as well as an unscheduled one, so neither caller has to
    * remember the `enabled` rule separately.
+   *
+   * WRITES on the first call for a never-run routine: `ensureRoutineAnchor` records the instant
+   * this routine was first seen with a live schedule, and every later call reads it back. The
+   * anchor has to be persisted rather than held here — see anchors.ts for what an in-memory one
+   * does to a routine created hours into an app session. Only routines that pass the guard above
+   * get a row, so a manual-only or disabled routine writes nothing.
    */
   nextRunAt(routine: RoutineDef): string | null {
     if (!routine.schedule || !routine.enabled) return null
     const attempt = lastAttemptAt(this.deps.db, routine.id)
-    const anchor = attempt ? new Date(attempt) : this.epoch
+    const anchor = attempt
+      ? new Date(attempt)
+      : new Date(ensureRoutineAnchor(this.deps.db, routine.id, this.deps.now))
     return nextFireAfter(routine.schedule, anchor).toISOString()
+  }
+
+  /**
+   * Drops the engine-owned state for a routine whose definition has been deleted.
+   *
+   * Called by the host alongside `store.remove` — the store owns config/routines.json, and the
+   * db rows it knows nothing about are this service's to clean up. Run history is deliberately
+   * NOT touched: those rows are the audit trail for work that really happened, and the Settings
+   * page renders them by id after the definition is gone.
+   */
+  forgetRoutine(id: string): void {
+    forgetRoutineAnchor(this.deps.db, id)
   }
 
   /** Sync-validates (throws on unknown/disabled), then queues a manual run. */

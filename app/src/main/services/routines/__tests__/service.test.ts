@@ -9,7 +9,12 @@ import { listRoutineRuns } from '../runs'
 import { RoutineStore } from '../store'
 import { RoutinesService } from '../service'
 import type { BackgroundTurnParams } from '../../agent/background'
-import type { RoutineDef, RoutinesPayload } from '../../../../shared/routines'
+import {
+  MAX_INTERVAL_MINUTES,
+  type RoutineDef,
+  type RoutineSchedule,
+  type RoutinesPayload
+} from '../../../../shared/routines'
 
 let home: string
 let db: DatabaseSync
@@ -574,15 +579,34 @@ describe('pending queue', () => {
 })
 
 describe('nextRunAt', () => {
-  const EPOCH = new Date('2026-08-08T01:00:00.000Z')
-  const build = (): RoutinesService =>
+  const HOUR = 3_600_000
+  /** App boot. Everything below measures the gap between this and the comparison clock. */
+  const BOOT = new Date('2026-08-08T01:00:00.000Z')
+
+  /**
+   * A clock that can be stepped forward AFTER the service is constructed.
+   *
+   * A constant clock structurally cannot see the defect these tests exist for: with `now` fixed,
+   * construction time and comparison time are the same instant, so anchoring on either looks
+   * identical. In production the gap between them is app uptime, which is routinely days.
+   */
+  const stepping = (start: Date): { now: () => Date; advance: (ms: number) => void } => {
+    let t = start
+    return {
+      now: () => t,
+      advance: (ms) => {
+        t = new Date(t.getTime() + ms)
+      }
+    }
+  }
+
+  const build = (now: () => Date = () => NOW): RoutinesService =>
     new RoutinesService({
       db,
       argusHome: home,
       store,
       runTurn: async () => ({ status: 'ok', text: 'done' }),
-      now: () => NOW,
-      epoch: EPOCH
+      now
     })
 
   it('is null for a manual-only routine', () => {
@@ -601,15 +625,72 @@ describe('nextRunAt', () => {
     expect(build().nextRunAt(store.get('off')!)).toBeNull()
   })
 
-  it('anchors a never-run routine on the epoch, so a new routine never fires immediately', () => {
+  /**
+   * The regression guard for the defect the whole-branch review found: a never-run routine used
+   * to anchor on SERVICE CONSTRUCTION (app boot in production), so once uptime exceeded the
+   * schedule's period every newly saved routine was already overdue and launched an unattended
+   * run within one scheduler tick.
+   *
+   * The assertion is against the clock the scheduler will compare against — not against a
+   * precomputed ISO string, which is what the test this replaced did and why it never noticed.
+   */
+  const FRESH_SCHEDULES: [string, RoutineSchedule][] = [
+    ['interval', { kind: 'interval', everyMinutes: 60 }],
+    ['daily', { kind: 'daily', at: '02:00' }],
+    ['weekly', { kind: 'weekly', days: [0, 1, 2, 3, 4, 5, 6], at: '02:00' }]
+  ]
+  it.each(FRESH_SCHEDULES)(
+    'a %s routine first seen now is due in the future, never immediately',
+    (_kind, schedule) => {
+      const clock = stepping(BOOT)
+      const svc = build(clock.now)
+      // Two days of uptime before the user saves the routine — the reported scenario.
+      clock.advance(48 * HOUR)
+      store.upsert({ id: 'fresh', name: 'Fresh', prompt: 'x', schedule })
+
+      const due = svc.nextRunAt(store.get('fresh')!)
+      expect(due).toBeTruthy()
+      expect(new Date(due!).getTime()).toBeGreaterThan(clock.now().getTime())
+    }
+  )
+
+  it('keeps a never-run routine anchored across a restart instead of receding on every launch', () => {
+    // MAX_INTERVAL_MINUTES (one week) on a machine rebooted more often than that is scenario
+    // (c): with a boot-time anchor the fire moves forward every launch and the routine can
+    // never run at all. The anchor row is what makes it converge.
     store.upsert({
       id: 'sweep',
       name: 'Sweep',
       prompt: 'sweep it',
       timeoutMs: 1000,
-      schedule: { kind: 'interval', everyMinutes: 60 }
+      schedule: { kind: 'interval', everyMinutes: MAX_INTERVAL_MINUTES }
     })
-    expect(build().nextRunAt(store.get('sweep')!)).toBe('2026-08-08T02:00:00.000Z')
+    const first = build(() => BOOT).nextRunAt(store.get('sweep')!)
+    expect(first).toBe(new Date(BOOT.getTime() + MAX_INTERVAL_MINUTES * 60_000).toISOString())
+
+    // A second service over the SAME db three days later — a restart, with no run in between.
+    const later = new Date(BOOT.getTime() + 3 * 24 * HOUR)
+    expect(build(() => later).nextRunAt(store.get('sweep')!)).toBe(first)
+  })
+
+  it('gives a routine recreated under the same id a fresh anchor', () => {
+    // Ids are derived from the name, so delete-then-recreate lands on the same id. A surviving
+    // anchor row from weeks ago would make the recreated routine overdue the instant it saved —
+    // the original defect, resurrected through the store.
+    const schedule = { kind: 'interval', everyMinutes: 60 } as const
+    store.upsert({ id: 'sweep', name: 'Sweep', prompt: 'sweep it', timeoutMs: 1000, schedule })
+    expect(build(() => BOOT).nextRunAt(store.get('sweep')!)).toBe(
+      new Date(BOOT.getTime() + HOUR).toISOString()
+    )
+
+    store.remove('sweep')
+    build(() => BOOT).forgetRoutine('sweep')
+
+    const later = new Date(BOOT.getTime() + 10 * 24 * HOUR)
+    store.upsert({ id: 'sweep', name: 'Sweep', prompt: 'sweep it', timeoutMs: 1000, schedule })
+    expect(build(() => later).nextRunAt(store.get('sweep')!)).toBe(
+      new Date(later.getTime() + HOUR).toISOString()
+    )
   })
 
   it('anchors on the last attempt once one exists', async () => {
@@ -639,7 +720,7 @@ describe('nextRunAt', () => {
     })
     store.upsert({ id: 'manual', name: 'Manual', prompt: 'x' })
     expect(build().payload().nextRunAt).toEqual({
-      sweep: '2026-08-08T02:00:00.000Z',
+      sweep: new Date(NOW.getTime() + 60 * 60_000).toISOString(),
       manual: null
     })
   })
@@ -680,8 +761,7 @@ describe('nextRunAt', () => {
       argusHome: home,
       store: stubStore,
       runTurn: async () => ({ status: 'ok', text: 'done' }),
-      now: () => NOW,
-      epoch: EPOCH
+      now: () => NOW
     })
 
     let payload: RoutinesPayload | undefined
@@ -692,7 +772,7 @@ describe('nextRunAt', () => {
     expect(payload!.routines).toEqual([broken, healthy])
     expect(payload!.runs).toEqual([])
     expect(payload!.nextRunAt.broken).toBeNull()
-    expect(payload!.nextRunAt.healthy).toBe(new Date(EPOCH.getTime() + 60 * 60_000).toISOString())
+    expect(payload!.nextRunAt.healthy).toBe(new Date(NOW.getTime() + 60 * 60_000).toISOString())
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringMatching(/^\[routines\].*broken/),
       expect.any(String)
