@@ -69,6 +69,20 @@ describe('the scheduler starts after reconcile and after the IPC handlers', () =
         'started there, nothing fires a scheduled routine and this test can no longer verify ' +
         'the ordering it exists to guard.'
     ).toBe(true)
+    expect(
+      indexSrc.includes(reconcileMarker),
+      `expected to find "${reconcileMarker}" in main/index.ts. If it was renamed or removed, ` +
+        'this test can no longer verify that the scheduler starts after reconciling stranded ' +
+        'runs — a launch catch-up run\'s row could be blanket-marked failed by the reconcile ' +
+        'that follows. Update this test alongside whatever renamed it.'
+    ).toBe(true)
+    expect(
+      indexSrc.includes(runNowMarker),
+      `expected to find "${runNowMarker}" in main/index.ts. If it was renamed, this test can ` +
+        'no longer verify that the scheduler starts only after the run-now handler is registered ' +
+        '— a run beginning on the first synchronous tick would otherwise run against a ' +
+        'half-registered host.'
+    ).toBe(true)
 
     const start = indexSrc.indexOf(startMarker)
     // start() runs its first tick SYNCHRONOUSLY — that tick is the launch catch-up, so a run
