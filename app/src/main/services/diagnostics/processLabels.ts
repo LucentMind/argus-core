@@ -27,6 +27,15 @@ export type RegisteredLabel = {
    * Compared against a live-owner set to detect orphans; never parsed.
    */
   owner?: string
+  /**
+   * How to stop this process through its owner, supplied by the spawn site that
+   * created it. A raw kill would work but would leave the owner's own bookkeeping
+   * lying: ExternalAppHost would keep showing a "running" chip and AgentService
+   * would keep a corpse in its session map. Absent = there is no owner worth
+   * routing through (an MCP probe, a one-shot pack binary), and the caller falls
+   * back to signalling the process directly.
+   */
+  stop?: () => void | Promise<void>
 }
 
 type Entry = {
@@ -72,6 +81,23 @@ export class ProcessLabels {
     let n = 0
     for (const e of this.entries.values()) if (e.startTimeMs !== undefined) n += 1
     return n
+  }
+
+  /**
+   * The owner-supplied terminator for a row id, or null.
+   *
+   * Only a PINNED entry can answer: an unpinned registration has not yet been
+   * proven to refer to the process we spawned, which is the entire reason the pin
+   * handshake exists. Returning a closure for an unproven identity would let a
+   * reused pid route a kill through the wrong owner.
+   */
+  stopFor(id: string): (() => void | Promise<void>) | null {
+    for (const entry of this.entries.values()) {
+      if (entry.startTimeMs === undefined) continue
+      if (identityKey(entry.pid, entry.startTimeMs) !== id) continue
+      return entry.label.stop ?? null
+    }
+    return null
   }
 
   /**

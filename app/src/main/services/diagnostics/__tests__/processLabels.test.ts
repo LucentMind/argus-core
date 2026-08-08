@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { ProcessLabels, PIN_TOLERANCE_MS } from '../processLabels'
 import type { ProcessSample } from '../../../../shared/diagnostics'
 
@@ -129,5 +129,35 @@ describe('ProcessLabels', () => {
     )
     expect(map.get('50:10100')).toEqual(DRIVER)
     expect(map.get('60:10100')).toEqual(mcp)
+  })
+})
+
+describe('stopFor', () => {
+  it('returns the closure for a pinned entry', () => {
+    const labels = new ProcessLabels()
+    const stop = vi.fn()
+    labels.register(7, { kind: 'pack-app', label: 'Pack app: demo/console', stop }, 1_000)
+    labels.reconcile([sample({ pid: 7, startTimeMs: 1_200 })], 1_300)
+    expect(labels.stopFor('7:1200')).toBe(stop)
+  })
+
+  it('returns null while the entry is still unpinned', () => {
+    const labels = new ProcessLabels()
+    labels.register(7, { kind: 'pack-app', label: 'Pack app: demo/console', stop: vi.fn() }, 1_000)
+    expect(labels.stopFor('7:1200')).toBeNull()
+  })
+
+  it('returns null when the start time does not match the pinned identity', () => {
+    const labels = new ProcessLabels()
+    labels.register(7, { kind: 'pack-app', label: 'Pack app: demo/console', stop: vi.fn() }, 1_000)
+    labels.reconcile([sample({ pid: 7, startTimeMs: 1_200 })], 1_300)
+    expect(labels.stopFor('7:9999')).toBeNull()
+  })
+
+  it('returns null for a pinned entry that registered no closure', () => {
+    const labels = new ProcessLabels()
+    labels.register(7, { kind: 'mcp', label: 'MCP: demo' }, 1_000)
+    labels.reconcile([sample({ pid: 7, startTimeMs: 1_200 })], 1_300)
+    expect(labels.stopFor('7:1200')).toBeNull()
   })
 })
