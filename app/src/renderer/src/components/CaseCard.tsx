@@ -146,7 +146,7 @@ export function CaseCard({
             </Chip>
           )}
           {c.origin === 'routine' && (reviewCount ?? 0) > 0 && (
-            <Chip tone="review">
+            <Chip tone="signal">
               <span data-testid="case-review-count">{reviewCount} to review</span>
             </Chip>
           )}

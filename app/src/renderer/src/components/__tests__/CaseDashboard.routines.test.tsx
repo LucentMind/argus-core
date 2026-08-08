@@ -14,7 +14,7 @@ const cases: CaseRecord[] = [
   {
     id: 1,
     slug: 'NAV-1',
-    origin: 'user',
+    origin: 'routine',
     title: 'Bearing jumps',
     jiraKey: 'NAV-1',
     jiraSyncedAt: null,
@@ -138,5 +138,28 @@ describe('routine inbox on Home', () => {
     ).argus.routines.list.mockResolvedValue(routinesPayload({ unreviewedCount: 0, runs: [] }))
     render(<CaseDashboard {...defaultProps} />)
     await waitFor(() => expect(screen.queryByTestId('routine-inbox')).not.toBeInTheDocument())
+  })
+})
+
+describe('per-case review tally on the case card', () => {
+  it('counts only unreviewed, non-running runs for THIS case, ignoring other cases', async () => {
+    ;(
+      window as never as { argus: { routines: { list: ReturnType<typeof vi.fn> } } }
+    ).argus.routines.list.mockResolvedValue(
+      routinesPayload({
+        // Deliberately wrong relative to the per-case answer below (2), so a regression that
+        // swaps in the global unreviewedCount fails loudly instead of coincidentally passing.
+        unreviewedCount: 99,
+        runs: [
+          run({ id: 1, status: 'ok', reviewedAt: null }), // counted
+          run({ id: 2, status: 'ok', reviewedAt: null }), // counted
+          run({ id: 3, status: 'ok', reviewedAt: '2026-08-03T03:00:00.000Z' }), // reviewed — excluded
+          run({ id: 4, status: 'running', reviewedAt: null }), // running — excluded
+          run({ id: 5, caseSlug: 'OTHER-1', status: 'ok', reviewedAt: null }) // different case — excluded
+        ]
+      })
+    )
+    render(<CaseDashboard {...defaultProps} />)
+    expect(await screen.findByTestId('case-review-count')).toHaveTextContent('2 to review')
   })
 })
