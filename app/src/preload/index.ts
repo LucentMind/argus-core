@@ -767,7 +767,11 @@ const argus = {
       const listener = (): void => cb()
       ipcRenderer.on(IPC.routinesFocusInbox, listener)
       return () => ipcRenderer.removeListener(IPC.routinesFocusInbox, listener)
-    }
+    },
+    /** Consume-once read for the window-creation case: true if a focus-inbox request was left
+     *  pending when this window had to be created (main cannot push it — no listener exists yet
+     *  at that point). Clears the flag on read, so a second caller (or a later mount) sees false. */
+    consumeFocusInbox: (): Promise<boolean> => invoke(IPC.routinesConsumeFocusInbox)
   },
   /** Dev-only prompt surface. Exposed unconditionally — main enforces the gate, so a build
    *  without it rejects these calls rather than hiding the bridge. */

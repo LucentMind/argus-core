@@ -74,7 +74,8 @@ beforeEach(() => {
     },
     // App mounts RoutineInbox and subscribes to focus-inbox on Home; this stub allows mount.
     routines: {
-      onFocusInbox: vi.fn(() => () => {})
+      onFocusInbox: vi.fn(() => () => {}),
+      consumeFocusInbox: vi.fn(async () => false)
     },
     update: {
       status: vi.fn(async () => ({ currentVersion: '1.0.0', status: { phase: 'idle' } })),
