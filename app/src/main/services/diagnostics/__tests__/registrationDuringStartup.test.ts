@@ -126,6 +126,8 @@ function harness(): Harness {
     processLabels: labels,
     // The pack app's case is open, so the row is owned, not orphaned.
     getLiveOwners: () => ['CASE-A'],
+    getBusyOwners: () => [],
+    terminator: { signal: () => {}, dispose: () => {} },
     now: () => clock
   })
   return {
