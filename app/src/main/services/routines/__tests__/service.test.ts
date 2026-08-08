@@ -380,9 +380,19 @@ describe('RoutinesService', () => {
   // Same hazard `safeNotify` exists for: this call sits in the queue's control flow, so a throw
   // escaping it would skip the drain() continuation and stall every PENDING run, not just this
   // one. Two routines queued, the first callback throws, the second must still run.
+  //
+  // Both routines running is necessary but not sufficient: drain() also wraps `current` in its
+  // own .catch()/.finally(), so the queue would keep moving even if execute()'s inner try/catch
+  // around onRunFinished were deleted — that outer safety net would swallow the escaped throw and
+  // continue the queue regardless, and the `ran` assertion alone could not tell the two apart. The
+  // console.error label is what distinguishes them: execute()'s try/catch logs
+  // '[routines] onRunFinished failed:', while drain()'s catch (a different failure mode entirely)
+  // would log '[routines] run bookkeeping failed:'. Asserting the former fired and the latter did
+  // not pins the swallow to the intended layer, so removing execute()'s try/catch makes this fail.
   it('does not let a throwing callback stall the queue', async () => {
     store.upsert({ id: 'second', name: 'Second', prompt: 'also sweep', timeoutMs: 1000 })
     const ran: string[] = []
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const svc = new RoutinesService({
       db,
       argusHome: home,
@@ -401,6 +411,15 @@ describe('RoutinesService', () => {
     await svc.whenIdle()
 
     expect(ran).toEqual(['routine-sweep', 'routine-second'])
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[routines] onRunFinished failed:',
+      'notification exploded'
+    )
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('[routines] run bookkeeping failed:'),
+      expect.anything()
+    )
+    errorSpy.mockRestore()
   })
 })
 
