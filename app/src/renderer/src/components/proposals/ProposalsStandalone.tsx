@@ -79,22 +79,20 @@ export function ProposalsStandalone({
     )
   }
 
-  // Narrowed once here: `payload` is non-null for the rest of this render, but
-  // TS does not carry that across the nested closures below (act/reject/accept
-  // callbacks), so this local alias is what lets them reference it safely.
-  const currentProposals = payload.proposals
-  const typesPresent = Array.from(new Set(currentProposals.map((p) => p.type)))
+  const typesPresent = Array.from(new Set(payload.proposals.map((p) => p.type)))
   // active may contain types no longer present (e.g. the last proposal of that type was just
   // accepted/rejected) — intersect with what's actually here so a stale chip can't hide everything.
   const effective = new Set([...active].filter((t) => typesPresent.includes(t)))
   const matches = (t: ProposalType): boolean => effective.size === 0 || effective.has(t)
 
+  // Same comparator as the old ProposalsPage: caseSlug asc, then date desc (spec:
+  // "sorted as today"). Newest proposal within a case leads the queue.
   const byCase = (
     a: { caseSlug: string; date: string },
     b: { caseSlug: string; date: string }
-  ): number => a.caseSlug.localeCompare(b.caseSlug) || a.date.localeCompare(b.date)
+  ): number => a.caseSlug.localeCompare(b.caseSlug) || b.date.localeCompare(a.date)
 
-  const pendingSorted = currentProposals.filter((p) => matches(p.type)).sort(byCase)
+  const pendingSorted = payload.proposals.filter((p) => matches(p.type)).sort(byCase)
   const acceptedVisible = accepted.filter((a) => matches(a.type))
   const entries: QueueEntry[] = [
     ...pendingSorted.map((p) => ({
@@ -186,14 +184,12 @@ export function ProposalsStandalone({
     const i = pendingSorted.findIndex((x) => x.file === p.file)
     const next = pendingSorted[i + 1] ?? pendingSorted[i - 1] ?? null
     void act(async () => {
-      await window.argus.proposals.reject(p.file, reason)
+      // Trust the IPC response the same way the old page's `act()` does — the
+      // fresh `proposals` list is the source of truth (a distiller run may
+      // have touched other rows too), not something to reconcile locally.
+      const r = await window.argus.proposals.reject(p.file, reason)
       setSelectedFile(next?.file ?? null)
-      // Drop the rejected file locally rather than trusting the IPC response's
-      // `proposals` list verbatim — the eventual proposals:changed broadcast
-      // (via useProposalCounts) is what reconciles with the server's real
-      // state; this optimistic removal is what makes the untouched rows (and
-      // the advanced selection) survive the round trip without waiting on it.
-      return { proposals: currentProposals.filter((x) => x.file !== p.file) }
+      return r
     })
   }
 
@@ -240,7 +236,7 @@ export function ProposalsStandalone({
           pendingCount={pendingSorted.length}
           typesPresent={typesPresent}
           countByType={Object.fromEntries(
-            typesPresent.map((t) => [t, currentProposals.filter((p) => p.type === t).length])
+            typesPresent.map((t) => [t, payload.proposals.filter((p) => p.type === t).length])
           )}
           activeTypes={active}
           onToggleType={toggleType}

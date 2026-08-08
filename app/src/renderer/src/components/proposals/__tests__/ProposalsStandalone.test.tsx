@@ -53,15 +53,28 @@ const payload: ProposalsPayload = {
   ]
 }
 
+// Sort order is caseSlug asc, then date DESC (same comparator as the old
+// ProposalsPage) — within NAV-100 that's: Locked (07-13), Reference edit
+// (07-12), New skill (07-11), Sharpen step 4 (07-10, oldest → last).
+
 let acceptMock: ReturnType<typeof vi.fn>
 let rejectMock: ReturnType<typeof vi.fn>
 beforeEach(() => {
   settingsStore.reset()
   proposalsStore.reset()
-  acceptMock = vi
-    .fn()
-    .mockResolvedValue({ proposals: [], accepted: { kind: 'skill', name: 'rca' } })
-  rejectMock = vi.fn().mockResolvedValue({ proposals: [] })
+  // Realistic IPC behavior: accept/reject return the fresh remaining list
+  // (source of truth may have also changed other rows via a distiller run),
+  // never a hardcoded empty array — the component trusts this response
+  // verbatim, exactly as the old ProposalsPage's `act()` does.
+  acceptMock = vi.fn((file: string) =>
+    Promise.resolve({
+      proposals: payload.proposals.filter((p) => p.file !== file),
+      accepted: { kind: 'skill', name: 'rca' }
+    })
+  )
+  rejectMock = vi.fn((file: string) =>
+    Promise.resolve({ proposals: payload.proposals.filter((p) => p.file !== file) })
+  )
   ;(window as unknown as { argus: unknown }).argus = {
     proposals: {
       list: vi.fn().mockResolvedValue(payload),
@@ -86,8 +99,9 @@ function renderShell(over: Partial<Parameters<typeof ProposalsStandalone>[0]> = 
 describe('ProposalsStandalone', () => {
   it('selects the first proposal by default and shows its diff in the detail pane', async () => {
     renderShell()
-    expect(await screen.findByText('- old line')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Select proposal Sharpen step 4' })).toHaveAttribute(
+    // First in caseSlug-asc/date-desc order is the newest proposal: Locked proposal (07-13).
+    expect(await screen.findByText('- old')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Select proposal Locked proposal' })).toHaveAttribute(
       'aria-current',
       'true'
     )
@@ -113,7 +127,8 @@ describe('ProposalsStandalone', () => {
 
   it('accept keeps selection on the row, flips it to accepted, offers Share', async () => {
     renderShell()
-    fireEvent.click(await screen.findByRole('button', { name: 'Accept Sharpen step 4' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Accept Sharpen step 4' }))
     expect(acceptMock).toHaveBeenCalledWith('2026-07-10-NAV-100-rca.md')
     expect(await screen.findByText(/accepted into your library/)).toBeInTheDocument()
     // queue row remains, now in accepted style
@@ -126,7 +141,8 @@ describe('ProposalsStandalone', () => {
 
   it('accept while editing sends the edited content', async () => {
     renderShell()
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit Sharpen step 4' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Sharpen step 4' }))
     fireEvent.change(screen.getByLabelText('Edit proposal content'), {
       target: { value: '# rca\nedited\n' }
     })
@@ -134,14 +150,36 @@ describe('ProposalsStandalone', () => {
     expect(acceptMock).toHaveBeenCalledWith(expect.any(String), '# rca\nedited\n')
   })
 
-  it('reject advances selection to the next pending row', async () => {
+  it('reject the last pending row (in display order) advances to the previous one', async () => {
     renderShell()
-    fireEvent.click(await screen.findByRole('button', { name: 'Reject Sharpen step 4' }))
+    // Sharpen step 4 is oldest → last in the caseSlug-asc/date-desc order.
+    fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reject Sharpen step 4' }))
     fireEvent.click(screen.getByRole('button', { name: 'Reject without a reason' }))
-    await waitFor(() => expect(rejectMock).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(rejectMock).toHaveBeenCalledWith('2026-07-10-NAV-100-rca.md', undefined)
+    )
     expect(
       screen.getByRole('button', { name: 'Select proposal New skill proposal' })
     ).toHaveAttribute('aria-current', 'true')
+  })
+
+  it('reject a middle pending row advances to the next one', async () => {
+    renderShell()
+    // New skill proposal sits between Reference edit and Sharpen step 4 in
+    // display order — rejecting it should advance forward, not back.
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Select proposal New skill proposal' })
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Reject New skill proposal' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reject without a reason' }))
+    await waitFor(() =>
+      expect(rejectMock).toHaveBeenCalledWith('2026-07-11-NAV-100-skill.md', undefined)
+    )
+    expect(screen.getByRole('button', { name: 'Select proposal Sharpen step 4' })).toHaveAttribute(
+      'aria-current',
+      'true'
+    )
   })
 
   it('empty payload shows the empty-state copy', async () => {
