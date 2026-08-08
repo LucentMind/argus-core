@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import App from '../App'
 import { settingsStore } from '../lib/settingsStore'
+import { routinesStore } from '../lib/routinesStore'
 import { accessStore } from '../lib/accessStore'
 import { updateStore } from '../lib/updateStore'
 import { uiStore } from '../lib/uiStore'
@@ -63,6 +64,7 @@ const memoryTopics = { topics: [], indexLines: 0, capLines: 200 }
 beforeEach(() => {
   __resetEscapeLayersForTest()
   settingsStore.reset()
+  routinesStore.reset()
   accessStore.reset()
   updateStore.clearForTests()
   uiStore.setDynamicTheme(false)
@@ -124,6 +126,22 @@ beforeEach(() => {
       onSyncProgress: vi.fn(() => () => {}),
       markReviewed: vi.fn(async () => undefined),
       syncAll: vi.fn(async () => undefined)
+    },
+    // CaseDashboard now also mounts RoutineInbox unconditionally on Home; an empty payload
+    // keeps it hidden so it doesn't affect this file's toolbar-toggle assertions.
+    routines: {
+      list: vi.fn(async () => ({
+        routines: [],
+        loadError: null,
+        runningId: null,
+        queued: [],
+        nextRunAt: {},
+        unreviewedCount: 0,
+        runs: []
+      })),
+      onChanged: vi.fn(() => () => {}),
+      markReviewed: vi.fn(),
+      markAllReviewed: vi.fn()
     },
     // OverrideBanner (Guard 3) subscribes on every Settings mount; the real preload exposes
     // this bridge unconditionally (main enforces the dev-tools gate), so the test stub must too.

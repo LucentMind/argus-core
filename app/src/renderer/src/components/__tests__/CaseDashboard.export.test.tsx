@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { CaseDashboard } from '../CaseDashboard'
 import { settingsStore } from '../../lib/settingsStore'
+import { routinesStore } from '../../lib/routinesStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { CaseRecord } from '../../../../shared/types'
 import { DEFAULT_MODE } from '../../../../shared/modes'
@@ -61,9 +62,27 @@ beforeEach(() => {
     jira: {
       syncAll: vi.fn().mockResolvedValue({ ok: true, value: { synced: 0, changed: 0, failed: 0 } }),
       onSyncProgress: vi.fn(() => () => {})
+    },
+
+    // The dashboard now also mounts RoutineInbox unconditionally; an empty payload keeps it
+    // hidden so this file's assertions (none of which are about routines) are unaffected.
+    routines: {
+      list: vi.fn().mockResolvedValue({
+        routines: [],
+        loadError: null,
+        runningId: null,
+        queued: [],
+        nextRunAt: {},
+        unreviewedCount: 0,
+        runs: []
+      }),
+      onChanged: vi.fn(() => () => {}),
+      markReviewed: vi.fn(),
+      markAllReviewed: vi.fn()
     }
   }
   settingsStore.reset()
+  routinesStore.reset()
 })
 
 describe('CaseDashboard export button', () => {

@@ -4,6 +4,7 @@ import { Btn, MenuButton, SectionLabel, Toggle, type MenuItem } from './ui'
 import { FolderInput, Plus, RefreshCw, Search } from 'lucide-react'
 import { CaseCard } from './CaseCard'
 import { DeleteCaseDialog } from './DeleteCaseDialog'
+import { RoutineInbox } from './routines/RoutineInbox'
 import { useSettingsPayload } from '../lib/settingsStore'
 import { usePrStatuses } from '../lib/prStatusStore'
 import { uiStore } from '../lib/uiStore'
@@ -299,6 +300,11 @@ export function CaseDashboard({
       </div>
       <div className="scroll-fade-top min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-8 pb-8 pt-6">
+          {/* Above the grid, inside the scroll region: overnight results below the fold are
+              results nobody reads, and the pinned masthead is not the place for a list that
+              can grow. Renders null when the inbox is empty, so Home is unchanged for a user
+              with no routines. */}
+          <RoutineInbox onOpen={onOpen} />
           <div ref={gridRef} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {visible.map((c, i) => (
               <CaseCard
