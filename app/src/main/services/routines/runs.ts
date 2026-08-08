@@ -138,6 +138,63 @@ export function finishRoutineRun(
   ).run(outcome.status, now().toISOString(), outcome.summary ?? null, outcome.error ?? null, runId)
 }
 
+/**
+ * The inbox predicate, written once.
+ *
+ * A run still `running` is not a result: it has produced no summary, and showing it as
+ * something to review would put a row in the inbox that cannot be acted on. Reviewed-ness and
+ * the count and "mark all" all read this same string, so the three can never disagree about
+ * what is in the inbox.
+ */
+const UNREVIEWED = `status != 'running' AND reviewed_at IS NULL`
+
+/**
+ * Clears one run out of the inbox.
+ *
+ * `AND ${UNREVIEWED}` rather than a bare `WHERE id = ?`, for two reasons. A run can finish
+ * between the render that produced the button and the click that lands on it, and a live run
+ * must not be pre-reviewed by a click that raced it — putting the guard in the renderer would
+ * mean putting it on the losing side of that race. And re-marking an already-reviewed run
+ * would silently move its timestamp, which is the one fact the row records.
+ */
+export function markRunReviewed(
+  db: DatabaseSync,
+  runId: number,
+  now: () => Date = defaultNow
+): void {
+  db.prepare(`UPDATE routine_runs SET reviewed_at = ? WHERE id = ? AND ${UNREVIEWED}`).run(
+    now().toISOString(),
+    runId
+  )
+}
+
+/**
+ * Clears the whole inbox.
+ *
+ * Operates in SQL over every row, not over the 50 `listRoutineRuns` hands the renderer — an
+ * inbox deeper than the payload window must still be emptiable in one click.
+ *
+ * @returns how many rows were cleared.
+ */
+export function markAllRunsReviewed(db: DatabaseSync, now: () => Date = defaultNow): number {
+  const res = db
+    .prepare(`UPDATE routine_runs SET reviewed_at = ? WHERE ${UNREVIEWED}`)
+    .run(now().toISOString())
+  return Number(res.changes)
+}
+
+/**
+ * How many finished runs are waiting to be reviewed.
+ *
+ * A real COUNT rather than `listRoutineRuns(db).filter(...).length`: that list is capped at 50,
+ * so a derived count would under-report precisely when the backlog is large enough to matter.
+ */
+export function countUnreviewedRuns(db: DatabaseSync): number {
+  const row = db.prepare(`SELECT COUNT(*) AS n FROM routine_runs WHERE ${UNREVIEWED}`).get() as
+    { n: number } | undefined
+  return Number(row?.n ?? 0)
+}
+
 interface Row {
   id: number
   routine_id: string

@@ -13,7 +13,10 @@ import {
   runningRoutineForSession,
   lastAttemptAt,
   lastSuccessAt,
-  INTERRUPTED_RUN_ERROR
+  INTERRUPTED_RUN_ERROR,
+  markRunReviewed,
+  markAllRunsReviewed,
+  countUnreviewedRuns
 } from '../runs'
 
 let home: string
@@ -354,5 +357,62 @@ describe('reviewed_at migration', () => {
     const migrated = openDb(older)
     expect(listRoutineRuns(migrated)[0].reviewedAt).toBeNull()
     migrated.close()
+  })
+})
+
+describe('marking runs reviewed', () => {
+  const finished = (routineId: string, at = NOW): number => {
+    const id = insertRoutineRun(db, routineId, `routine-${routineId}`, 'scheduled', () => at)
+    finishRoutineRun(db, id, { status: 'ok', summary: 'done' }, () => at)
+    return id
+  }
+
+  it('marks one run and drops it out of the count', () => {
+    const a = finished('a')
+    finished('b')
+    expect(countUnreviewedRuns(db)).toBe(2)
+
+    markRunReviewed(db, a, () => NOW)
+
+    expect(countUnreviewedRuns(db)).toBe(1)
+    expect(listRoutineRuns(db).find((r) => r.id === a)?.reviewedAt).toBe(NOW.toISOString())
+  })
+
+  it('never marks a run that is still running', () => {
+    // A run can finish between a payload render and the click that lands on it. The guard is in
+    // the SQL rather than the renderer so the renderer cannot lose that race.
+    const live = insertRoutineRun(db, 'live', 'routine-live', 'scheduled', () => NOW)
+    markRunReviewed(db, live, () => NOW)
+    expect(listRoutineRuns(db)[0].reviewedAt).toBeNull()
+    // And it is not counted as unreviewed either — it is not a result yet.
+    expect(countUnreviewedRuns(db)).toBe(0)
+  })
+
+  it('does not move the timestamp when a run is marked twice', () => {
+    const a = finished('a')
+    const later = new Date('2026-08-04T09:00:00.000Z')
+    markRunReviewed(db, a, () => NOW)
+    markRunReviewed(db, a, () => later)
+    expect(listRoutineRuns(db)[0].reviewedAt).toBe(NOW.toISOString())
+  })
+
+  it('marks all finished unreviewed runs and reports how many', () => {
+    finished('a')
+    finished('b')
+    insertRoutineRun(db, 'live', 'routine-live', 'scheduled', () => NOW)
+
+    expect(markAllRunsReviewed(db, () => NOW)).toBe(2)
+    expect(countUnreviewedRuns(db)).toBe(0)
+    // The in-flight run is untouched, so it enters the inbox when it finishes.
+    expect(listRoutineRuns(db).find((r) => r.routineId === 'live')?.reviewedAt).toBeNull()
+  })
+
+  it('counts beyond the 50-row list window', () => {
+    // listRoutineRuns caps at 50, so a count derived from it would under-report exactly when
+    // the number matters most.
+    for (let i = 0; i < 55; i++) finished(`r${i}`)
+    expect(listRoutineRuns(db)).toHaveLength(50)
+    expect(countUnreviewedRuns(db)).toBe(55)
+    expect(markAllRunsReviewed(db, () => NOW)).toBe(55)
   })
 })
