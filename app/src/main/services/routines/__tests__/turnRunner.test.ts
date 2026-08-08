@@ -268,6 +268,21 @@ describe('createRoutineTurnRunner — session-shape deps (review fix 1)', () => 
     await p
   })
 
+  it('forwards the run item id to the session, so propose_case_triage can reach it', async () => {
+    // This layer names only `driverKind` and spreads the rest, so `runItemId` should survive it
+    // untouched — "should" is the reason this is asserted rather than assumed. ctx.nativeToolDeps
+    // is where the tool handler reads it, so this covers turnRunner.ts -> background.ts ->
+    // session.ts in one assertion; RoutinesService's half is covered in service.items.test.ts.
+    const sdk = fakeSdk()
+    const cap = capturingDriver(createClaudeDriver(sdk.createQuery))
+    const run = createRoutineTurnRunner(runnerDeps(cap.driver))
+    const p = run(request({ runItemId: 42 }))
+    await flush()
+    expect(cap.ctx().nativeToolDeps.currentRunItemId?.()).toBe(42)
+    sdk.messages.push(RESULT_SUCCESS)
+    await p
+  })
+
   it('threads defectCorpus through, so search_known_defects works unattended (task 8 fix)', async () => {
     // The live defect: RoutineTurnRunnerDeps had no defectCorpus field, so it never reached
     // background.ts, and search_known_defects took its no-sources fallback on every routine

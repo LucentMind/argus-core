@@ -65,6 +65,11 @@ export interface RoutineTurnRunnerDeps {
 export function createRoutineTurnRunner(
   deps: RoutineTurnRunnerDeps
 ): (req: RoutineTurnRequest) => Promise<BackgroundTurnResult> {
+  // `driverKind` is the ONLY field this layer consumes; everything else — including the scoped
+  // item loop's `runItemId`, which is what makes `propose_case_triage` reachable — rides through
+  // untouched in `params`. Anything added to `BackgroundTurnParams` therefore reaches
+  // `runBackgroundTurn` without another edit here, and a field this file does not name cannot be
+  // dropped by it either.
   return ({ driverKind, ...params }) => {
     const driver = deps.driverFor(driverKind)
     if (driver.kind !== driverKind) {

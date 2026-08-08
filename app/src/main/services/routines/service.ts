@@ -1,5 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { createCase, ensureCaseOrigin, getCase } from '../caseService'
+import {
+  createCase,
+  ensureCaseOrigin,
+  getCase,
+  setCaseReviewState,
+  setCaseStatus,
+  setCaseTriage
+} from '../caseService'
 import { createSession } from '../agent/sessionStore'
 import {
   insertRoutineRun,
@@ -12,12 +19,28 @@ import {
   markAllRunsReviewed,
   countUnreviewedRuns
 } from './runs'
-import { listRunItems } from './runItems'
+import {
+  attemptedItemKeys,
+  attachItemCase,
+  finishRunItem,
+  getRunItem,
+  insertRunItem,
+  listRunItems
+} from './runItems'
 import { ensureRoutineAnchor, forgetRoutineAnchor } from './anchors'
-import { forgetRoutineCursor } from './cursors'
+import { forgetRoutineCursor, readRoutineCursor, writeRoutineCursor } from './cursors'
+import { selectCaseItems, selectJqlItems, type Selection } from './items'
+import { resolveCaseCandidates, type ScopeResolver } from './scopeResolver'
 import { nextFireAfter } from './schedule'
 import type { RoutineStore } from './store'
-import type { RoutineDef, RoutinesPayload, RoutineTrigger } from '../../../shared/routines'
+import {
+  DEFAULT_ITEMS_PER_RUN,
+  type RoutineDef,
+  type RoutineScope,
+  type RoutinesPayload,
+  type RoutineTrigger
+} from '../../../shared/routines'
+import type { CaseResolution } from '../../../shared/types'
 import type { BackgroundTurnParams, BackgroundTurnResult } from '../agent/background'
 
 // Deliberately imports NO electron (same rule as agent/background.ts): the routines engine must
@@ -55,6 +78,14 @@ export interface RoutinesServiceDeps {
   /** Executes one background turn; production binds runBackgroundTurn + driver resolution
    *  in index.ts. Injected so these tests never touch a driver. */
   runTurn: (params: RoutineTurnRequest) => Promise<BackgroundTurnResult>
+  /**
+   * Turns a scope into items. Absent = no routine may use a scope (a scoped run records itself
+   * `failed` rather than silently doing nothing); index.ts always binds it.
+   *
+   * Injected because the jira half needs the Atlassian client, which this directory must not
+   * import — see scopeResolver.ts.
+   */
+  scopeResolver?: ScopeResolver
   /** Change announcement (index.ts wires broadcast). */
   notify?: () => void
   /**
@@ -75,6 +106,37 @@ export interface RoutinesServiceDeps {
 }
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err))
+
+/**
+ * How many rows past the cap a `jira-jql` window asks for.
+ *
+ * The cursor boundary is INCLUSIVE (scopeResolver.ts), so every window after the first re-contains
+ * the items sharing the last attempted item's timestamp — at minimum the last item of the previous
+ * run. Asking Jira for exactly `maxItemsPerRun` would spend those slots on keys `selectJqlItems`
+ * then filters out, so a run would do less than a full run's work; at `maxItemsPerRun: 1` it
+ * STARVES outright — a second ticket sharing the boundary timestamp could never enter the window,
+ * because the one already attempted fills it on every future run, forever. Over-fetching is what
+ * makes items.ts's "filtered BEFORE the cap, so a run still does a full run's worth of new work"
+ * true rather than aspirational, and it is also what makes the reported carry-over count real.
+ *
+ * Ten bounds the tie: a boundary shared by more than ten ALREADY-ATTEMPTED items would still
+ * starve. Paging until the window yields new keys is the complete fix and is deliberately not
+ * built here — nothing in the product pages yet, and a bounded over-fetch removes every case
+ * anyone has described.
+ */
+const CURSOR_BOUNDARY_SLACK = 10
+
+/** One item a scoped run will attempt, as resolution produced it. */
+interface ItemTarget {
+  /** Jira key, or case slug for a `cases` scope — what `routine_run_items.item_key` records. */
+  key: string
+  /** What the cursor moves to once this item is attempted. Null for `cases`, which has no
+   *  cursor at all (items.ts) — not "no value yet". */
+  cursorValue: string | null
+  /** The case, when resolution already knows it (`cases` scope). Null when only ingest can
+   *  produce it. */
+  caseSlug: string | null
+}
 
 /**
  * Turns a stored routine definition into an unattended agent run and records what happened.
@@ -322,6 +384,15 @@ export class RoutinesService {
     // Deriving it twice is how the recorded driver and the executing driver drift apart.
     const driverKind = routine.driverKind ?? 'claude-agent-sdk'
 
+    // Branched HERE, before anything below has run, so the unscoped path is byte-for-byte the
+    // increment-2 path it has been live-verified as. A scoped run creates no `routine-<id>` case
+    // and no run-level session; an unscoped run opens no item row. Nothing is shared but the run
+    // row above and the preamble.
+    if (routine.scope) {
+      await this.executeItems(routine, routine.scope, runId, driverKind)
+      return
+    }
+
     let result: BackgroundTurnResult
     try {
       const rec =
@@ -339,21 +410,7 @@ export class RoutinesService {
       // the live agent session while it's actually running — exactly when that link matters.
       this.safeNotify()
 
-      /**
-       * Read here, not at enqueue time: a run that waits in the queue behind another must see
-       * the watermark as it stands when IT starts, not as it stood when it was queued.
-       */
-      const since = lastSuccessAt(db, routine.id)
-      const watermark = since
-        ? `Your last successful run of this routine finished at ${since}. Concentrate on what ` +
-          `has changed since then.`
-        : `This is the first run of this routine — there is no previous run to compare against.`
-
-      const preamble =
-        `You are running unattended as the routine "${routine.name}". No user is present: ` +
-        `never ask questions, make reasonable assumptions, note anything that needs human ` +
-        `review, and end with a concise summary of what you did and found.\n\n` +
-        `${watermark}\n\n`
+      const preamble = this.unattendedPreamble(routine)
 
       result = await this.deps.runTurn({
         caseId: rec.id,
@@ -397,5 +454,301 @@ export class RoutinesService {
     } catch (err) {
       console.error('[routines] onRunFinished failed:', message(err))
     }
+  }
+
+  /**
+   * The unattended identity and freshness watermark both paths prepend to a routine's prompt.
+   *
+   * Read when the run EXECUTES, not when it was queued: a run that waited behind another must see
+   * the watermark as it stands when IT starts. Read once per run rather than once per item — the
+   * run in flight cannot change its own `lastSuccessAt`, so a per-item read would return the same
+   * string N times while implying it might not.
+   */
+  private unattendedPreamble(routine: RoutineDef): string {
+    const since = lastSuccessAt(this.deps.db, routine.id)
+    const watermark = since
+      ? `Your last successful run of this routine finished at ${since}. Concentrate on what ` +
+        `has changed since then.`
+      : `This is the first run of this routine — there is no previous run to compare against.`
+
+    return (
+      `You are running unattended as the routine "${routine.name}". No user is present: ` +
+      `never ask questions, make reasonable assumptions, note anything that needs human ` +
+      `review, and end with a concise summary of what you did and found.\n\n` +
+      `${watermark}\n\n`
+    )
+  }
+
+  /**
+   * One turn per item, serially.
+   *
+   * THE CURSOR ADVANCES OVER ATTEMPTED ITEMS, INCLUDING FAILED AND SKIPPED ONES, AND NEVER OVER
+   * CAPPED ONES. A deliberate deviation from the parent spec's "advanced only for items actually
+   * processed", which exists to stop a capped run dropping its tail. Capping and failing are
+   * different: a capped item was never looked at, a failed one was. Holding the cursor on a
+   * failure makes one permanently-bad ticket the first item of every future run, forever, with
+   * nothing behind it ever reached — while the run still reports success on everything else.
+   *
+   * PER-ITEM FAILURES NEVER KILL THE RUN. Each item has its own try/catch that closes its row as
+   * `failed`; only a failure to resolve the scope AT ALL (or a failure of the bookkeeping itself)
+   * reaches the outer catch, because that one produces no items and so is a failed RUN rather
+   * than a failed item.
+   */
+  private async executeItems(
+    routine: RoutineDef,
+    scope: RoutineScope,
+    runId: number,
+    driverKind: string
+  ): Promise<void> {
+    const { db } = this.deps
+    // Defaulted HERE and not in the schema, so an unscoped routine's parsed shape stays exactly
+    // what increment 2 produced (shared/routines.ts).
+    const max = routine.maxItemsPerRun ?? DEFAULT_ITEMS_PER_RUN
+    const resolver = this.deps.scopeResolver
+
+    let processed = 0
+    let failed = 0
+    let skipped = 0
+    let deferred = 0
+
+    try {
+      if (!resolver) {
+        throw new Error('No scope resolver is bound; this host cannot run scoped routines')
+      }
+
+      const targets = await this.resolveTargets(routine, scope, resolver, max)
+      deferred = targets.deferred
+      const preamble = this.unattendedPreamble(routine)
+
+      for (const target of targets.selected) {
+        const itemId = insertRunItem(db, runId, target.key, this.deps.now)
+        this.safeNotify()
+        try {
+          const caseSlug = await this.materializeItem(target, itemId, resolver)
+          if (getCase(db, caseSlug)?.reviewState === 'draft') {
+            // Already produced a draft nobody has acted on. A second one is noise, and a backlog
+            // of ignored drafts would otherwise consume every run's cap forever so no new item is
+            // ever reached. A skip is a REAL attempt: it consumes a slot and moves the cursor,
+            // because the alternative is a run that silently does more work than its cap allows.
+            finishRunItem(db, itemId, { status: 'skipped' }, this.deps.now)
+            skipped++
+          } else {
+            await this.runItemTurn({
+              routine,
+              target,
+              caseSlug,
+              itemId,
+              runId,
+              driverKind,
+              preamble
+            })
+            // Ordered after the turn: a case is only a draft once there is something to review.
+            setCaseReviewState(db, caseSlug, 'draft')
+            finishRunItem(db, itemId, { status: 'processed' }, this.deps.now)
+            processed++
+          }
+        } catch (err) {
+          // Ingest threw, or the turn did not come back `ok`. Nothing distinguishes the two in
+          // the schema because nothing acts on the distinction — the error text does.
+          finishRunItem(db, itemId, { status: 'failed', error: message(err) }, this.deps.now)
+          failed++
+        }
+        // OUTSIDE the per-item catch, and inside the loop. Outside, because the cursor tracks
+        // what was ATTEMPTED. Inside, because a run capped at 10 of 40 must resume at item 11 and
+        // a crash at item 7 must not replay items 1-6.
+        if (target.cursorValue !== null) {
+          writeRoutineCursor(db, routine.id, target.cursorValue, this.deps.now)
+        }
+        this.safeNotify()
+      }
+    } catch (err) {
+      // Scope resolution itself failed — no items exist, so this is a failed RUN.
+      finishRoutineRun(db, runId, { status: 'failed', error: message(err) }, this.deps.now)
+      return
+    }
+
+    const parts = [`${processed} processed`]
+    if (skipped) parts.push(`${skipped} skipped`)
+    if (failed) parts.push(`${failed} failed`)
+    if (deferred) parts.push(`${deferred} carried to the next run`)
+    finishRoutineRun(
+      db,
+      runId,
+      // A run where every item failed is a failed run — no new rule needed for the inbox, which
+      // already shows failures.
+      { status: processed === 0 && failed > 0 ? 'failed' : 'ok', summary: parts.join(' · ') },
+      this.deps.now
+    )
+  }
+
+  /**
+   * The scope's items, capped, with the remainder counted rather than dropped.
+   *
+   * The two branches differ in more than their source: `jira-jql` is a remote query bounded by a
+   * persisted cursor and de-duplicated by key, while `cases` is a local predicate with no cursor
+   * at all (items.ts explains why a cursor would be actively wrong for a sweep).
+   */
+  private async resolveTargets(
+    routine: RoutineDef,
+    scope: RoutineScope,
+    resolver: ScopeResolver,
+    max: number
+  ): Promise<Selection<ItemTarget>> {
+    const { db } = this.deps
+
+    if (scope.kind === 'jira-jql') {
+      const resolved = await resolver.resolveJql(
+        scope.jql,
+        scope.cursorField,
+        readRoutineCursor(db, routine.id),
+        max + CURSOR_BOUNDARY_SLACK
+      )
+      const sel = selectJqlItems(resolved, attemptedItemKeys(db, routine.id), max)
+      return {
+        selected: sel.selected.map((i) => ({
+          key: i.key,
+          cursorValue: i.cursorValue,
+          caseSlug: null
+        })),
+        deferred: sel.deferred
+      }
+    }
+
+    const sel = selectCaseItems(resolveCaseCandidates(db, routine.id, scope, this.deps.now), max)
+    return {
+      selected: sel.selected.map((c) => ({
+        key: c.slug,
+        cursorValue: null,
+        caseSlug: c.slug
+      })),
+      deferred: sel.deferred
+    }
+  }
+
+  /**
+   * Gets the item's case onto disk and bound to its item row, and returns its slug.
+   *
+   * `ingestJiraItem` CREATES OR ADOPTS (scopeResolver.ts), so re-ingesting a ticket that already
+   * has a case is the normal path, not an error — it is how the draft check below ever sees a
+   * draft, and how a ticket the user already opened by hand is worked in place rather than
+   * duplicated.
+   *
+   * `ensureCaseOrigin` runs on the jira branch only. A `cases`-scoped item was SELECTED FROM the
+   * cases table, so it demonstrably predates this run; stamping it `routine` would relabel the
+   * user's own case as routine-created, which the case list renders.
+   */
+  private async materializeItem(
+    target: ItemTarget,
+    itemId: number,
+    resolver: ScopeResolver
+  ): Promise<string> {
+    const { db } = this.deps
+    if (target.caseSlug) {
+      attachItemCase(db, itemId, target.caseSlug)
+      return target.caseSlug
+    }
+    const { caseSlug } = await resolver.ingestJiraItem(target.key)
+    attachItemCase(db, itemId, caseSlug)
+    ensureCaseOrigin(db, caseSlug, 'routine')
+    return caseSlug
+  }
+
+  /**
+   * One unattended turn against one item's case.
+   *
+   * `runItemId` IS THE POINT. It is what `propose_case_triage` is gated on: the tool is advertised
+   * only to a session constructed with that thunk, and refuses without an id even then
+   * (nativeTools.ts). Without this field the whole suggestion half of the feature is unreachable
+   * while every unit test still passes, because each end of the chain is testable alone.
+   *
+   * A turn that does not come back `ok` THROWS, so the caller's per-item catch records the item
+   * `failed`. Returning normally would leave a timed-out item indistinguishable from a processed
+   * one, and would mark its case a draft with nothing in it to review.
+   */
+  private async runItemTurn(args: {
+    routine: RoutineDef
+    target: ItemTarget
+    caseSlug: string
+    itemId: number
+    runId: number
+    driverKind: string
+    preamble: string
+  }): Promise<void> {
+    const { db } = this.deps
+    const { routine, target, caseSlug, itemId, runId, driverKind, preamble } = args
+
+    const rec = getCase(db, caseSlug)
+    if (!rec) throw new Error(`Item ${target.key} produced no case (${caseSlug})`)
+
+    const session = createSession(db, caseSlug, { driverKind, model: routine.model ?? null })
+    // The run row carries ONE session id and a scoped run has one session per item, so this
+    // tracks the item in flight. That is the useful answer while the run is live — the per-item
+    // audit trail is `routine_run_items`, which is where an item's own history belongs.
+    attachRunSession(db, runId, session.id)
+    this.safeNotify()
+
+    const itemPreamble =
+      `You are processing item ${target.key} of this routine's scope; this case is that item. ` +
+      `Propose a title or tags for it with propose_case_triage rather than editing the case ` +
+      `yourself — a human reviews every suggestion before any of it is applied.\n\n`
+
+    const result = await this.deps.runTurn({
+      caseId: rec.id,
+      caseSlug,
+      sessionId: session.id,
+      runItemId: itemId,
+      driverKind,
+      prompt: preamble + itemPreamble + routine.prompt,
+      timeoutMs: routine.timeoutMs,
+      ...(routine.model ? { model: routine.model } : {})
+    })
+    if (result.status !== 'ok') {
+      throw new Error(result.error ?? `turn ended: ${result.status}`)
+    }
+  }
+
+  /**
+   * Promotes a draft: applies the suggestion, then clears the draft flag.
+   *
+   * ORDERED, not transactional, and the order is the guarantee. `setCaseTriage` writes the row AND
+   * mirrors case.json, so no SQL transaction could cover both halves anyway; doing it before the
+   * flag is cleared means a failure leaves the case still a draft, still in the inbox, and still
+   * acceptable — whereas the reverse would drop a case out of review with the suggestion never
+   * applied and no trace that it was meant to be.
+   *
+   * Reads the item's CURRENT state rather than trusting the renderer, so a second window that
+   * already accepted it re-applies the same values instead of double-applying different ones.
+   */
+  acceptItem(itemId: number): void {
+    const item = getRunItem(this.deps.db, itemId)
+    if (!item?.caseSlug) return
+    const s = item.suggestion
+    if (s && (s.title || s.tags)) {
+      setCaseTriage(this.deps.db, this.deps.argusHome, item.caseSlug, {
+        ...(s.title ? { title: s.title } : {}),
+        ...(s.tags ? { tags: s.tags } : {})
+      })
+    }
+    // Unconditional: an item whose turn proposed nothing is still a draft a human has now read,
+    // and leaving it flagged would keep it in the inbox with no verb that can clear it.
+    setCaseReviewState(this.deps.db, item.caseSlug, null)
+    this.safeNotify()
+  }
+
+  /**
+   * Closes the draft's case.
+   *
+   * `review_state` STAYS SET on purpose, so a dismissed draft remains distinguishable from a case
+   * that was never one. The already-closed guard makes a second window's dismissal a no-op rather
+   * than a second close with a different resolution.
+   */
+  dismissItem(itemId: number, resolution: CaseResolution): void {
+    const item = getRunItem(this.deps.db, itemId)
+    if (!item?.caseSlug) return
+    const kase = getCase(this.deps.db, item.caseSlug)
+    if (kase && kase.status !== 'closed') {
+      setCaseStatus(this.deps.db, this.deps.argusHome, item.caseSlug, 'closed', resolution)
+    }
+    this.safeNotify()
   }
 }
