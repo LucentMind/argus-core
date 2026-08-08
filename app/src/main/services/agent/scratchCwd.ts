@@ -22,14 +22,22 @@ const SCRATCH_DIR = path.join(os.tmpdir(), 'argus-agent-cwd')
  * and costs nothing to walk.
  *
  * Created on demand rather than once at boot — a temp sweeper may remove it between spawns.
- * A creation failure falls back to the temp root: a slow spawn beats no spawn.
+ * A creation failure falls back to the parent directory: a slow spawn beats no spawn.
+ *
+ * `mkdir` and `dir` are injection seams for tests only; every production caller uses the
+ * defaults. `dir` exists because the default is process-wide and held open as the cwd of any
+ * agent CLI a running Argus has spawned — a test that deletes it to prove the self-heal would
+ * fail with EBUSY on Windows against a live dev instance, and no retry budget helps.
  */
-export function agentScratchCwd(mkdir: (dir: string) => void = defaultMkdir): string {
+export function agentScratchCwd(
+  mkdir: (dir: string) => void = defaultMkdir,
+  dir: string = SCRATCH_DIR
+): string {
   try {
-    mkdir(SCRATCH_DIR)
-    return SCRATCH_DIR
+    mkdir(dir)
+    return dir
   } catch {
-    return os.tmpdir()
+    return path.dirname(dir)
   }
 }
 

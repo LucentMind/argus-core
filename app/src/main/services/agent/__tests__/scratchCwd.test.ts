@@ -11,10 +11,18 @@ describe('agentScratchCwd', () => {
     expect(path.dirname(dir)).toBe(os.tmpdir())
   })
 
+  // Runs against its own temp subdirectory, never the process-wide default: a running Argus
+  // holds that one open as a spawned CLI's cwd, so deleting it fails with EBUSY on Windows.
   it('exists after the call — a temp sweeper may have removed it between spawns', () => {
-    const dir = agentScratchCwd()
-    fs.rmSync(dir, { recursive: true, force: true })
-    expect(fs.existsSync(agentScratchCwd())).toBe(true)
+    const own = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-agent-cwd-test-'))
+    try {
+      fs.rmSync(own, { recursive: true, force: true })
+      expect(fs.existsSync(own)).toBe(false)
+      expect(agentScratchCwd(undefined, own)).toBe(own)
+      expect(fs.existsSync(own)).toBe(true)
+    } finally {
+      fs.rmSync(own, { recursive: true, force: true })
+    }
   })
 
   it('falls back to the temp root rather than throwing when the directory cannot be created — a spawn with a busy cwd beats no spawn at all', () => {
