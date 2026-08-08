@@ -959,8 +959,10 @@ describe('RoutinesPage — schedule status', () => {
   it('shows one state chip, not both DISABLED and PAUSED, for a disabled routine that has a schedule', async () => {
     // The bug this pins: a static `disabled` badge chip and a `paused` word inside a SEPARATE
     // next-run chip used to render side by side for exactly this routine — two chips agreeing
-    // the routine won't run, in different words. Now there is one chip, and it says "disabled":
-    // that already covers "and therefore won't fire on its schedule" without a second word.
+    // the routine won't run, in different words. Now there is one chip, and it leads with
+    // "disabled" — but the schedule waiting behind it is real information (a switched-off
+    // nightly routine is not the same fact as a switched-off manual-only one, and nowhere else
+    // on the row shows a schedule), so it is carried INSIDE the single chip rather than dropped.
     stubApi(
       payload({
         routines: [{ ...sweep, enabled: false, schedule: { kind: 'daily', at: '02:00' } }],
@@ -968,14 +970,23 @@ describe('RoutinesPage — schedule status', () => {
       })
     )
     render(<RoutinesPage />)
-    expect(await screen.findByTestId('routine-state-chip')).toHaveTextContent(/disabled/i)
+    const chip = await screen.findByTestId('routine-state-chip')
+    expect(chip).toHaveTextContent(/disabled/i)
+    expect(chip).toHaveTextContent(/daily/i)
+    expect(chip).toHaveTextContent('02:00')
     expect(screen.getAllByTestId('routine-state-chip')).toHaveLength(1)
   })
 
-  it('also says disabled for a disabled routine with no schedule', async () => {
+  it('says plain "disabled" with no schedule detail for a disabled routine that has no schedule', async () => {
+    // Pins the distinction the test above draws: this routine and the one above are BOTH
+    // disabled, but only one of them has a schedule to report, and this is the row that must
+    // NOT claim one — the two tests would trivially collapse into duplicates of each other if
+    // this one fed a different input but asserted the same string.
     stubApi(payload({ routines: [{ ...sweep, enabled: false }], nextRunAt: { sweep: null } }))
     render(<RoutinesPage />)
-    expect(await screen.findByTestId('routine-state-chip')).toHaveTextContent(/disabled/i)
+    const chip = await screen.findByTestId('routine-state-chip')
+    expect(chip).toHaveTextContent(/disabled/i)
+    expect(chip.textContent).toBe('disabled')
   })
 
   it('says due now rather than printing a next run that has already passed', async () => {
