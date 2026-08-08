@@ -16,7 +16,10 @@ export function UnifiedDiff({
 }): React.JSX.Element {
   const lines = diffLines(current ?? '', content)
   return (
-    <pre className="whitespace-pre-wrap px-4 py-3 font-mono text-xs">
+    // `break-words`: `whitespace-pre-wrap` only wraps at existing whitespace — an unbroken
+    // token (long URL/path/minified line, no spaces) has no break opportunity and needs
+    // overflow-wrap to avoid growing past the pane. jsdom cannot see this; live-verified 2026-08-08.
+    <pre className="whitespace-pre-wrap break-words px-4 py-3 font-mono text-xs">
       {lines.map((l, i) => (
         <div key={i} className={KIND_CLASS[l.kind]}>
           {KIND_PREFIX[l.kind]}

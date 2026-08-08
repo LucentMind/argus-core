@@ -119,7 +119,12 @@ export function ProposalDetail({
   const stat = !isMarkdown ? diffStat(p.current, p.content) : null
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    // `min-w-0`: this is a flex item of the surface-card row in ProposalsStandalone
+    // (queue + detail); flex's default min-width:auto lets a long-unbroken-line diff grow
+    // this pane to its content's intrinsic width instead of the row's allotted space, and
+    // the card's overflow-hidden then clips it with no scrollbar. jsdom cannot see this;
+    // live-verified 2026-08-08.
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="border-b border-hair px-5 py-4">
         <h2 className="text-[15px] font-medium text-ink">{p.title}</h2>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-mute">
@@ -162,7 +167,11 @@ export function ProposalDetail({
           )}
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* `min-w-0`: same flex min-width:auto constraint as the root above, one level down —
+          without it this pane still balloons to the diff's intrinsic width before the
+          SplitDiff/UnifiedDiff `overflow-x-auto`/wrap can engage. jsdom cannot see this;
+          live-verified 2026-08-08. */}
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
         {isEditing ? (
           <textarea
             aria-label="Edit proposal content"

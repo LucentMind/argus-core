@@ -150,3 +150,17 @@ describe('ProposalDetail: accepted pane', () => {
     expect(screen.getByRole('button', { name: /Set up HiveMind/ })).toBeInTheDocument()
   })
 })
+
+describe('ProposalDetail: min-w-0 tripwire', () => {
+  // Tripwire, not proof: jsdom does not lay out flexbox, so it cannot see the actual bug
+  // (a long unbroken line silently clipped by the surface-card's overflow-hidden — live-verified
+  // 2026-08-08). This only guards against someone removing the className that fixes it.
+  it('keeps min-w-0 on the two flex ancestors of the diff body', () => {
+    renderDetail()
+    const heading = screen.getByText('Sharpen step 4')
+    const root = heading.closest('.flex.min-h-0.min-w-0.flex-1.flex-col')
+    expect(root).not.toBeNull()
+    const content = root?.querySelector('.min-h-0.min-w-0.flex-1.overflow-y-auto')
+    expect(content).not.toBeNull()
+  })
+})
