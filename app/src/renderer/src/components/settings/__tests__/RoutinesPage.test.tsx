@@ -989,6 +989,27 @@ describe('RoutinesPage — schedule status', () => {
     expect(chip.textContent).toBe('disabled')
   })
 
+  it('separates the days in a disabled weekly schedule summary — not a run-together MonWedFri', async () => {
+    stubApi(
+      payload({
+        routines: [
+          { ...sweep, enabled: false, schedule: { kind: 'weekly', days: [1, 3, 5], at: '07:00' } }
+        ],
+        nextRunAt: { sweep: null }
+      })
+    )
+    render(<RoutinesPage />)
+    const chip = await screen.findByTestId('routine-state-chip')
+    // Not `MonWedFri` — three day labels concatenated with no separator reads as one token, not
+    // three days. The exact separator is not the contract; that the three labels are each
+    // independently present as whole words is.
+    expect(chip.textContent).not.toMatch(/MonWedFri/)
+    expect(chip).toHaveTextContent(/\bMon\b/)
+    expect(chip).toHaveTextContent(/\bWed\b/)
+    expect(chip).toHaveTextContent(/\bFri\b/)
+    expect(chip).toHaveTextContent('07:00')
+  })
+
   it('says due now rather than printing a next run that has already passed', async () => {
     // The scheduler polls every 30s and catches up on launch, so an overdue routine is a real
     // state a user can see — and "next <a time in the past>" reads as a broken schedule.

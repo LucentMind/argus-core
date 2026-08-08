@@ -204,7 +204,7 @@ function routineDisplayState(
 function scheduleSummary(s: RoutineSchedule): string {
   if (s.kind === 'interval') return `every ${s.everyMinutes}m`
   if (s.kind === 'daily') return `daily ${s.at}`
-  return `${s.days.map((d) => DAY_LABELS[d]).join('')} ${s.at}`
+  return `${s.days.map((d) => DAY_LABELS[d]).join(',')} ${s.at}`
 }
 
 /**
