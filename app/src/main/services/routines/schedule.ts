@@ -17,8 +17,8 @@ import type { RoutineSchedule } from '../../../shared/routines'
  */
 export function nextFireAfter(schedule: RoutineSchedule, after: Date): Date {
   if (schedule.kind === 'interval') {
-    // Unreachable for a schema-validated schedule (`everyMinutes` is positive). Reachable via a
-    // hand-edited config/routines.json, where returning early or looping would be worse.
+    // UNREACHABLE TODAY, and kept anyway — see the note on nextLocalTimeAfter's throw below,
+    // which is the same guard for the same reason.
     if (schedule.everyMinutes <= 0) {
       throw new Error('Schedule interval must be positive: everyMinutes must be greater than 0')
     }
@@ -55,7 +55,17 @@ function nextLocalTimeAfter(after: Date, hh: number, mm: number, days: Set<numbe
     if (days && !days.has(candidate.getDay())) continue
     return candidate
   }
-  // Unreachable for a schema-validated schedule (`days` is non-empty). Reachable via a
-  // hand-edited config/routines.json, where returning undefined or looping would be worse.
+  /**
+   * UNREACHABLE TODAY. Not "reachable via a hand-edited config/routines.json", which is what
+   * this comment used to claim: `RoutineStore.loadNow` parses the file as ONE document, so a
+   * single schema-busting schedule reverts EVERY routine to defaults and raises `loadError` —
+   * nothing malformed ever reaches this function.
+   *
+   * Kept as defence in depth because it is two lines and the thing that makes it unreachable is
+   * one property of one loader. Per-routine parsing (keep the good routines, report the bad
+   * ones) is an obvious future change, and it is exactly the change that would make a malformed
+   * schedule arrive here — where returning undefined, or looping, would be silently worse than
+   * a throw the scheduler already catches and logs per routine.
+   */
   throw new Error('Schedule has no allowed day: no fire within 8 days')
 }

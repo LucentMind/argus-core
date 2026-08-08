@@ -107,10 +107,13 @@ export class RoutinesService {
       runningId: this.running?.id ?? null,
       queued: this.queue.map((e) => e.routine.id),
       // Guarded per routine, not delegated to nextRunAt itself: nextRunAt's throw on a
-      // schema-busting schedule (schedule.ts) is the honest signal task 7's scheduler catches
-      // and logs per-tick — swallowing it inside nextRunAt would leave that scheduler with
-      // nothing to log, and one hand-edited config/routines.json entry would otherwise take
-      // down every OTHER routine's nextRunAt (and hence the whole payload) with it.
+      // schema-busting schedule (schedule.ts) is the honest signal the scheduler catches and
+      // logs per-tick — swallowing it inside nextRunAt would leave that scheduler with nothing
+      // to log, and one broken routine would otherwise take down every OTHER routine's
+      // nextRunAt (and hence the whole payload) with it. No production path produces such a
+      // schedule today (the store parses routines.json as one document, so a bad entry reverts
+      // the file to defaults instead); the isolation is what makes per-routine parsing a safe
+      // change to make later.
       nextRunAt: Object.fromEntries(
         this.deps.store.list().map((r) => {
           try {

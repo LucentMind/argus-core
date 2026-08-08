@@ -814,9 +814,9 @@ describe('nextRunAt', () => {
       schedule: { kind: 'interval', everyMinutes: 60 },
       enabled: true
     }
-    // everyMinutes <= 0 can only arrive via a hand-edited config/routines.json — the zod schema
-    // (MIN_INTERVAL_MINUTES) forbids it — and is one of nextFireAfter's two documented throw
-    // sites (schedule.ts).
+    // everyMinutes <= 0 is one of nextFireAfter's two throw sites (schedule.ts). No production
+    // path produces it — RoutineStore's zod gate and its parse-the-whole-file idiom see to that,
+    // which is why the stub store above is needed to reach payload()'s guard at all.
     const broken: RoutineDef = {
       id: 'broken',
       name: 'Broken',

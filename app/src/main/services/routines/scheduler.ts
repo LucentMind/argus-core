@@ -90,9 +90,11 @@ export class RoutineScheduler {
           first && due.getTime() < startedAt.getTime() ? 'catchup' : 'scheduled'
         this.deps.service.enqueue(routine, trigger)
       } catch (err) {
-        // One routine with a schedule hand-edited past the schema makes `nextRunAt` throw.
-        // Letting that escape would silence every OTHER routine's schedule for the session —
-        // an unattended feature failing silently is the one outcome worth structural effort.
+        // A routine whose schedule got past the schema makes `nextRunAt` throw. Nothing
+        // produces one today — the store parses routines.json as one document, so a bad entry
+        // reverts the whole file to defaults — but letting a throw escape would silence every
+        // OTHER routine's schedule for the session, and an unattended feature failing silently
+        // is the one outcome worth structural effort against.
         console.error(`[routines] scheduling ${routine.id} failed:`, err)
       }
     }

@@ -75,18 +75,26 @@ describe('nextFireAfter', () => {
     }
   })
 
-  it('throws on a hand-edited weekly schedule with no days', () => {
+  /**
+   * The two defence-in-depth guards, called directly.
+   *
+   * No production path reaches either: `RoutineStore.loadNow` parses config/routines.json as one
+   * document, so a schedule this broken reverts the whole file to defaults with a `loadError`
+   * rather than arriving here. These call `nextFireAfter` straight, which is the only way to
+   * exercise a guard whose job is to survive a change that has not happened yet (per-routine
+   * parsing) — and they pin the messages so that change finds a throw, not a silent `undefined`.
+   */
+  it('throws on a weekly schedule with no days', () => {
     // No cast needed: an empty `days` satisfies the TYPE (`number[]`) and is rejected only by
-    // zod's `.min(1)` — which is exactly the gap a hand-edited routines.json slips through.
+    // zod's `.min(1)`.
     expect(() =>
       nextFireAfter({ kind: 'weekly', days: [], at: '07:00' }, local(2026, 8, 8))
     ).toThrow(/no allowed day/i)
   })
 
-  it('throws on a hand-edited interval schedule with non-positive everyMinutes', () => {
+  it('throws on an interval schedule with non-positive everyMinutes', () => {
     // No cast needed: a zero or negative `everyMinutes` satisfies the TYPE (`number`) and is
-    // rejected only by zod's `.min(MIN_INTERVAL_MINUTES)` — which is exactly the gap a
-    // hand-edited routines.json slips through.
+    // rejected only by zod's `.min(MIN_INTERVAL_MINUTES)`.
     expect(() => nextFireAfter({ kind: 'interval', everyMinutes: 0 }, local(2026, 8, 8))).toThrow(
       /interval must be positive/i
     )
