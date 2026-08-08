@@ -68,6 +68,44 @@ export const scheduleSchema = z.discriminatedUnion('kind', [
 ])
 export type RoutineSchedule = z.infer<typeof scheduleSchema>
 
+/**
+ * Hard ceiling on how many items one run may process.
+ *
+ * Enforced HERE and not only in the editor, for the same reason MAX_TIMEOUT_MS is:
+ * `config/routines.json` is hand-editable, and every item on this number buys one unattended
+ * agent turn of up to MAX_TIMEOUT_MINUTES. Fifty is already an absurd upper bound; the point is
+ * that a typo cannot ask for five hundred.
+ */
+export const MAX_ITEMS_PER_RUN = 50
+/** What a routine created from a template gets. Deliberately far below the ceiling. */
+export const DEFAULT_ITEMS_PER_RUN = 10
+
+/**
+ * What a routine operates over. ABSENT = increment 1-4 behaviour: one turn, one reused
+ * `routine-<id>` case, no items. That is what keeps every existing routine and every
+ * hand-written routines.json valid with no migration and no default to backfill.
+ *
+ * `repo` from the parent spec's §2 is deliberately not here: it has no defined item unit —
+ * commits, files and directories are all defensible readings — and inventing one would be
+ * guesswork against a use case nobody has stated.
+ */
+export const scopeSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('jira-jql'),
+    /** Non-empty: an empty JQL selects the entire Jira instance. */
+    jql: z.string().min(1),
+    /** Which timestamp the cursor tracks and the query orders by. */
+    cursorField: z.enum(['created', 'updated'])
+  }),
+  z.object({
+    kind: z.literal('cases'),
+    status: z.array(z.enum(['open', 'closed'])).optional(),
+    tags: z.array(z.string()).optional(),
+    untouchedForDays: z.number().int().min(1).optional()
+  })
+])
+export type RoutineScope = z.infer<typeof scopeSchema>
+
 export const routineSchema = z.looseObject({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,55}$/),
   name: z.string().min(1),
@@ -84,6 +122,12 @@ export const routineSchema = z.looseObject({
     .default(600_000),
   /** Absent = manual-only. See scheduleSchema. */
   schedule: scheduleSchema.optional(),
+  /** Absent = no item loop. See scopeSchema. */
+  scope: scopeSchema.optional(),
+  /** Item cap per run; the remainder carries to the next run. Meaningless without `scope`,
+   *  and deliberately NOT defaulted here — `execute` defaults it only on the scoped branch, so
+   *  an unscoped routine's parsed shape is byte-identical to what increment 2 produced. */
+  maxItemsPerRun: z.number().int().min(1).max(MAX_ITEMS_PER_RUN).optional(),
   enabled: z.boolean().default(true)
 })
 export type RoutineDef = z.infer<typeof routineSchema>
