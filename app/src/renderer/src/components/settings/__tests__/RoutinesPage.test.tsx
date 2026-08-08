@@ -135,6 +135,21 @@ describe('RoutinesPage — definitions', () => {
     expect(await screen.findByText('Renamed by another window')).toBeInTheDocument()
   })
 
+  it('keeps the list on screen when a broadcast-triggered reload fails', async () => {
+    // routinesStore's reload() deliberately keeps the last good payload on a failed refresh —
+    // this is the render-side half of that contract: a page-level error must not blank a list
+    // the user was already reading, only the initial load (payload still null) earns that.
+    render(<RoutinesPage />)
+    await screen.findByText('Nightly sweep')
+
+    api.list.mockRejectedValueOnce(new Error('routines are unavailable'))
+    const onBroadcast = api.onChanged.mock.calls[0][0] as () => void
+    act(() => onBroadcast())
+
+    expect(await screen.findByText(/routines are unavailable/)).toBeInTheDocument()
+    expect(screen.getByText('Nightly sweep')).toBeInTheDocument()
+  })
+
   // No longer applicable after the Task 8 migration onto the shared routinesStore singleton:
   // the store's IPC subscription is started once for the process's lifetime (same convention as
   // settingsStore, which has no equivalent test), precisely so a second consumer — the Home

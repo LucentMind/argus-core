@@ -514,7 +514,12 @@ export function RoutinesPage(): React.JSX.Element {
     }
   }
 
-  if (error) return <p className="p-3 text-xs text-danger">{error}</p>
+  // `error` only replaces the page when there is nothing to show underneath it — the initial
+  // load failing with no payload yet. Once a payload has landed once, the store deliberately
+  // keeps serving it through a failed refresh (see routinesStore's reload()), and blanking the
+  // page here on every subsequent broadcast-triggered failure would throw away exactly the list
+  // the user was reading. That case is instead surfaced as a banner below, alongside the payload.
+  if (error && !payload) return <p className="p-3 text-xs text-danger">{error}</p>
   if (!payload) return <SettingsSkeleton />
 
   const { routines, runs, runningId, queued, nextRunAt } = payload
@@ -523,6 +528,14 @@ export function RoutinesPage(): React.JSX.Element {
 
   return (
     <div className="flex flex-col gap-6">
+      {error && (
+        <p
+          role="alert"
+          className="rounded-r2 border border-danger/40 bg-danger/10 p-2 text-xs text-danger"
+        >
+          {error}
+        </p>
+      )}
       {mutationError && (
         <p
           role="alert"
