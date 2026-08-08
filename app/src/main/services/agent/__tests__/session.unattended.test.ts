@@ -87,6 +87,28 @@ describe('unattended sessions', () => {
     await s.stop('stopped')
   })
 
+  it('still auto-allows propose_case_triage (routine item loop must never see it asked/denied)', async () => {
+    // Regression for the dead-feature defect: propose_case_triage must classify as allow/LOW
+    // (risk.ts NATIVE_RISK) so an unattended routine turn never denies it. Goes through the
+    // full canUseTool seam, not classifyToolCall directly, to prove the unattended deny path
+    // really does let this tool through rather than merely asserting the classifier's opinion.
+    const sdk = fakeSdk()
+    const s = h.makeSession(sdk, { unattended: true })
+    s.send('go')
+    const canUse = await canUseToolOf(sdk)
+    const out = await canUse(
+      'mcp__argus__propose_case_triage',
+      { rationale: 'r' },
+      { signal: new AbortController().signal }
+    )
+    expect(out.behavior).toBe('allow')
+    const call = h.db
+      .prepare(`SELECT decision FROM tool_calls WHERE tool = 'mcp__argus__propose_case_triage'`)
+      .get() as { decision: string }
+    expect(call.decision).toBe('auto')
+    await s.stop('stopped')
+  })
+
   it('still enforces deny verdicts with the classifier reason, not the unattended one', async () => {
     const sdk = fakeSdk()
     const s = h.makeSession(sdk, { unattended: true })
