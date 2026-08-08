@@ -6,8 +6,19 @@ import { RoutinesPage } from '../RoutinesPage'
 import { routinesStore } from '../../../lib/routinesStore'
 import { settingsStore } from '../../../lib/settingsStore'
 import { chipStamp } from '../../../lib/time'
-import type { RoutineDef, RoutineRunSummary, RoutinesPayload } from '../../../../../shared/routines'
+import type {
+  RoutineDef,
+  RoutineRunSummary,
+  RoutinesPayload,
+  RoutineTemplate
+} from '../../../../../shared/routines'
 import { defaultSettings, type SettingsPayload } from '../../../../../shared/settings'
+// The real templates, not a fixture double — this is the same data main hands over the
+// routines:templates channel (see services/routines/templates.ts), so a test exercising it
+// proves the actual pre-triage template's shape flows through the editor, not a stand-in that
+// could silently drift from it. Electron-free, same as the rest of services/routines/, so
+// importing it into a renderer test has nothing to stub.
+import { ROUTINE_TEMPLATES } from '../../../../../main/services/routines/templates'
 
 // Same idiom as PromptsDevPage.test: confirmStore renders <ConfirmHost/> at the app root, which
 // is not mounted here, so an unstubbed confirm() would hang the delete path forever.
@@ -72,12 +83,13 @@ interface RoutinesApi {
   remove: Mock
   runNow: Mock
   onChanged: Mock
+  templates: Mock
 }
 let api: RoutinesApi
 
 /**
- * `RoutineEditor` now reads `useSettingsPayload()` unconditionally (Task 11's keep-alive nudge),
- * so every test that opens the editor — not just the nudge-specific ones below — mounts a
+ * `RoutineEditor` now reads `useSettingsPayload()` unconditionally (increment 4's keep-alive
+ * nudge), so every test that opens the editor — not just the nudge-specific ones below — mounts a
  * consumer of `window.argus.settings`. Defaulted here to keep-alive OFF so the rest of the file
  * needs no changes; the nudge tests pass their own override.
  */
@@ -91,8 +103,11 @@ function settingsPayload(keepAliveInBackground = false): SettingsPayload {
   }
 }
 
+// `templates` stays the SECOND parameter and `settings` moved to third: the template call sites
+// below are the ones this increment keeps adding, and the keep-alive ones are a fixed set.
 function stubApi(
   p: RoutinesPayload = payload(),
+  templates: RoutineTemplate[] = [],
   settings: SettingsPayload = settingsPayload()
 ): void {
   api = {
@@ -100,7 +115,8 @@ function stubApi(
     save: vi.fn(async () => p),
     remove: vi.fn(async () => p),
     runNow: vi.fn(async () => ({ ...p, runningId: 'sweep' })),
-    onChanged: vi.fn(() => () => {})
+    onChanged: vi.fn(() => () => {}),
+    templates: vi.fn(async () => templates)
   }
   ;(window as unknown as { argus: unknown }).argus = {
     routines: api,
@@ -476,6 +492,66 @@ describe('RoutinesPage — editing', () => {
   })
 })
 
+describe('RoutinesPage — templates', () => {
+  it('offers no "New from template" control when there are no templates', async () => {
+    render(<RoutinesPage />)
+    await screen.findByText('Nightly sweep')
+    expect(screen.queryByRole('button', { name: /new from template/i })).not.toBeInTheDocument()
+  })
+
+  it('blocks save on a template whose JQL is still empty', async () => {
+    stubApi(payload(), [...ROUTINE_TEMPLATES])
+    render(<RoutinesPage />)
+    await screen.findByText('Nightly sweep')
+    fireEvent.click(screen.getByRole('button', { name: /new from template/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Pre-triage/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/JQL/i)
+    expect(api.save).not.toHaveBeenCalled()
+  })
+
+  it('pre-fills the editor from the template — name, prompt and schedule — with a fresh id', async () => {
+    stubApi(payload(), [...ROUTINE_TEMPLATES])
+    render(<RoutinesPage />)
+    await screen.findByText('Nightly sweep')
+    fireEvent.click(screen.getByRole('button', { name: /new from template/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Pre-triage/ }))
+    // A fresh id derived from the template's name on save, not the sentinel `pre-triage` — this
+    // is a NEW routine (draft.id === null), same as any other "New routine".
+    expect(screen.getByTestId('routine-id')).toHaveTextContent('pre-triage')
+    expect(screen.getByLabelText('Name')).toHaveValue('Pre-triage')
+    expect(screen.getByLabelText('Prompt')).toHaveValue(ROUTINE_TEMPLATES[0].draft.prompt as string)
+    expect(screen.getByRole('combobox', { name: 'Schedule' })).toHaveTextContent('Daily')
+    expect(screen.getByLabelText('Time')).toHaveValue('02:00')
+  })
+
+  it('saves the template once a real JQL is filled in', async () => {
+    stubApi(payload(), [...ROUTINE_TEMPLATES])
+    render(<RoutinesPage />)
+    await screen.findByText('Nightly sweep')
+    fireEvent.click(screen.getByRole('button', { name: /new from template/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Pre-triage/ }))
+    fireEvent.change(screen.getByLabelText('JQL'), {
+      target: { value: 'project = ABC AND status = "To Do"' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() =>
+      expect(api.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'pre-triage',
+          scope: {
+            kind: 'jira-jql',
+            jql: 'project = ABC AND status = "To Do"',
+            cursorField: 'created'
+          },
+          maxItemsPerRun: ROUTINE_TEMPLATES[0].draft.maxItemsPerRun
+        })
+      )
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})
+
 describe('RoutinesPage — schedule editor', () => {
   const openEditor = async (): Promise<void> => {
     render(<RoutinesPage />)
@@ -604,7 +680,7 @@ describe('RoutinesPage — schedule editor', () => {
   })
 
   it('offers to enable keep-alive when a schedule is set and it is off', async () => {
-    stubApi(payload(), settingsPayload(false))
+    stubApi(payload(), [], settingsPayload(false))
     await openEditor()
     pickKind('Daily')
     expect(await screen.findByText(/only while Argus is open/i)).toBeInTheDocument()
@@ -616,7 +692,7 @@ describe('RoutinesPage — schedule editor', () => {
 
   // The nudge is derived, not dismissed — there is no seen-flag to get stuck.
   it('replaces the nudge with the true statement once keep-alive is on', async () => {
-    stubApi(payload(), settingsPayload(true))
+    stubApi(payload(), [], settingsPayload(true))
     await openEditor()
     pickKind('Daily')
 
@@ -625,7 +701,7 @@ describe('RoutinesPage — schedule editor', () => {
   })
 
   it('says nothing about keep-alive for a manual routine', async () => {
-    stubApi(payload(), settingsPayload(false))
+    stubApi(payload(), [], settingsPayload(false))
     await openEditor()
     pickKind('Manual only')
 
@@ -637,7 +713,7 @@ describe('RoutinesPage — schedule editor', () => {
   // the window-closed catch-up story the OFF branch tells (and the button that "fixes" it) is
   // simply false on a Mac, keep-alive setting or not.
   it('states the schedule fires with the window closed on macOS, with no keep-alive button, even with the setting off', async () => {
-    stubApi(payload(), settingsPayload(false))
+    stubApi(payload(), [], settingsPayload(false))
     window.argus = { ...window.argus, platform: 'darwin' } as never
     await openEditor()
     pickKind('Daily')
@@ -649,7 +725,7 @@ describe('RoutinesPage — schedule editor', () => {
   })
 
   it('states the same on macOS even with keep-alive on — the setting changes nothing there', async () => {
-    stubApi(payload(), settingsPayload(true))
+    stubApi(payload(), [], settingsPayload(true))
     window.argus = { ...window.argus, platform: 'darwin' } as never
     await openEditor()
     pickKind('Daily')

@@ -70,7 +70,7 @@ import type {
   PromptCaptureDetail
 } from '../shared/promptsIpc'
 import type { DistillEvalExportResult } from '../shared/distillEval'
-import type { RoutineDef, RoutinesPayload } from '../shared/routines'
+import type { RoutineDef, RoutinesPayload, RoutineTemplate } from '../shared/routines'
 import type {
   JiraAttachmentInfo,
   JiraAttachmentProgress,
@@ -747,6 +747,9 @@ const argus = {
   },
   routines: {
     list: (): Promise<RoutinesPayload> => invoke(IPC.routinesList),
+    /** Static templates for the editor's "New from template" control. Read once — there is no
+     *  broadcast, because the list never changes at runtime. */
+    templates: (): Promise<RoutineTemplate[]> => invoke(IPC.routinesTemplates),
     /** Upsert by id. Every mutation resolves to the refreshed payload, so a caller never has
      *  to follow a write with a read. */
     save: (routine: RoutineDef): Promise<RoutinesPayload> => invoke(IPC.routinesSave, routine),

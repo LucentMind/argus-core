@@ -338,6 +338,9 @@ export const IPC = {
   rcaChanged: 'rca:changed',
   // — routines (saved prompt + trigger, run unattended) —
   routinesList: 'routines:list',
+  /** Static data, not a payload field — see services/routines/templates.ts. Read once; there is
+   *  no broadcast, because the list never changes at runtime. */
+  routinesTemplates: 'routines:templates',
   /** Upsert. The argument is untyped at runtime; the store zod-validates it. */
   routinesSave: 'routines:save',
   routinesDelete: 'routines:delete',
