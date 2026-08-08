@@ -73,6 +73,26 @@ export class RoutinesService {
 
   constructor(private deps: RoutinesServiceDeps) {}
 
+  /**
+   * Invokes `deps.notify`, catching and logging anything it throws instead of letting it
+   * propagate. `notify` wraps Electron's `webContents.send` in production, which throws
+   * "Object has been destroyed" when a window closes mid-run — and this file must not assume
+   * every caller remembers to guard against that (services/routines/ is required to stay pure
+   * Node, hostable by a future headless server, so the queue's own integrity cannot depend on
+   * one particular caller's wrapping). An uncaught throw here would land on call sites that sit
+   * directly in the queue's control flow — most sharply `drain()`'s `.finally()`, where it would
+   * skip the `this.drain()` continuation and stall the ENTIRE pending queue, not just the one
+   * run in flight. Losing one UI refresh is strictly better than stalling the queue or
+   * corrupting a run record.
+   */
+  private safeNotify(): void {
+    try {
+      this.deps.notify?.()
+    } catch (err) {
+      console.error('[routines] notify failed:', message(err))
+    }
+  }
+
   payload(): RoutinesPayload {
     return {
       routines: this.deps.store.list(),
@@ -109,7 +129,7 @@ export class RoutinesService {
     if (this.running?.id === routine.id) return
     if (this.queue.some((e) => e.routine.id === routine.id)) return
     this.queue.push({ routine, trigger })
-    this.deps.notify?.()
+    this.safeNotify()
     if (!this.running) this.drain()
   }
 
@@ -127,7 +147,7 @@ export class RoutinesService {
       })
       .finally(() => {
         this.running = null
-        this.deps.notify?.()
+        this.safeNotify()
         // Serial continuation. Not stack recursion — this runs on a microtask.
         this.drain()
       })
@@ -155,7 +175,7 @@ export class RoutinesService {
     // an invisible no-op. routine_runs has no FK to cases (db.ts), so the row is legal even if
     // the case is never created.
     const runId = insertRoutineRun(db, routine.id, slug, trigger, this.deps.now)
-    this.deps.notify?.()
+    this.safeNotify()
 
     // One decision, two consumers: the session row below and the turn request further down.
     // Deriving it twice is how the recorded driver and the executing driver drift apart.
@@ -173,7 +193,7 @@ export class RoutinesService {
       // Announce promptly: without this, every payload() consumer sees a `running` row whose
       // sessionId is still null for the entire run (up to timeoutMs), unable to link the row to
       // the live agent session while it's actually running — exactly when that link matters.
-      this.deps.notify?.()
+      this.safeNotify()
 
       /**
        * Read here, not at enqueue time: a run that waits in the queue behind another must see

@@ -540,4 +540,35 @@ describe('pending queue', () => {
     await svc.whenIdle()
     expect(listRoutineRuns(db)[0].trigger).toBe('catchup')
   })
+
+  it('survives a throwing notify: the queue keeps draining and whenIdle still resolves', async () => {
+    // A `notify` this hostile is realistic: production's wraps webContents.send, which throws
+    // "Object has been destroyed" when a window closes mid-run. Nothing in the service is
+    // allowed to depend on the caller having wrapped it — see drain()'s `.finally()`, which
+    // must reach `this.drain()` (the serial-queue continuation) even when this throws.
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      notify: () => {
+        throw new Error('window destroyed')
+      },
+      runTurn: async () => ({ status: 'ok', text: 'done' }),
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    svc.startRun('second')
+    await svc.whenIdle()
+
+    // Both routines actually ran — a stalled queue would leave 'second' (or both) stuck behind
+    // an uncaught throw, never reaching runTurn at all.
+    expect(listRoutineRuns(db)).toHaveLength(2)
+    expect(
+      listRoutineRuns(db)
+        .map((r) => r.caseSlug)
+        .sort()
+    ).toEqual(['routine-second', 'routine-sweep'])
+    expect(svc.payload().queued).toEqual([])
+    expect(svc.payload().runningId).toBeNull()
+  })
 })
