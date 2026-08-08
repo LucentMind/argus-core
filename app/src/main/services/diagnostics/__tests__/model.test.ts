@@ -520,3 +520,74 @@ describe('buildSnapshot — orphan detection', () => {
     expect(r.footprint.orphanCount).toBe(0)
   })
 })
+
+describe('terminable', () => {
+  it('is true for the kinds Argus may stop', () => {
+    const r = build([ROOT, sample({ pid: 2, ppid: 1 })], new Map(), 10_000, {
+      labelSources: {
+        windows: [],
+        connectors: [],
+        registered: new Map([
+          ['2:1000', { kind: 'pack-app' as const, label: 'Pack app: demo/console' }]
+        ])
+      }
+    })
+    const row = r.objects.find((o) => o.kind === 'pack-app')
+    expect(row?.terminable).toBe(true)
+  })
+
+  it('is false for every electron kind — the page must not offer to kill its own app', () => {
+    const r = build([ROOT], new Map(), 10_000, {
+      electronMetrics: [{ pid: 1, creationTimeMs: 1_000, type: 'Browser' }]
+    })
+    const row = r.objects.find((o) => o.kind === 'electron-internal')
+    expect(row).toBeDefined()
+    expect(row?.terminable).toBe(false)
+  })
+
+  it('is false for the unattributed row, which is a bucket of unrelated pids', () => {
+    const r = build([ROOT, sample({ pid: 2, ppid: 1 })], new Map(), 10_000, {
+      electronMetrics: [{ pid: 1, creationTimeMs: 1_000, type: 'Browser' }]
+    })
+    const row = r.objects.find((o) => o.kind === 'unattributed')
+    expect(row).toBeDefined()
+    expect(row?.terminable).toBe(false)
+  })
+})
+
+describe('busy', () => {
+  it('is true when the row owner is mid-turn', () => {
+    const registered = new Map([
+      ['2:1000', { kind: 'driver' as const, label: 'Cursor', provider: 'cursor', owner: 'NAV-1:7' }]
+    ])
+    const r = build([ROOT, sample({ pid: 2, ppid: 1 })], new Map(), 10_000, {
+      labelSources: { windows: [], connectors: [], registered },
+      liveOwners: new Set(['NAV-1:7']),
+      busyOwners: new Set(['NAV-1:7'])
+    })
+    expect(r.objects.find((o) => o.kind === 'driver')?.busy).toBe(true)
+  })
+
+  it('is false for a live owner that is idle', () => {
+    const registered = new Map([
+      ['2:1000', { kind: 'driver' as const, label: 'Cursor', provider: 'cursor', owner: 'NAV-1:7' }]
+    ])
+    const r = build([ROOT, sample({ pid: 2, ppid: 1 })], new Map(), 10_000, {
+      labelSources: { windows: [], connectors: [], registered },
+      liveOwners: new Set(['NAV-1:7']),
+      busyOwners: new Set()
+    })
+    expect(r.objects.find((o) => o.kind === 'driver')?.busy).toBe(false)
+  })
+
+  it('is false for a row with no owner — an inferred CLI row can never be busy', () => {
+    const registered = new Map([
+      ['2:1000', { kind: 'driver' as const, label: 'Claude', provider: 'claude-agent-sdk' }]
+    ])
+    const r = build([ROOT, sample({ pid: 2, ppid: 1 })], new Map(), 10_000, {
+      labelSources: { windows: [], connectors: [], registered },
+      busyOwners: new Set(['NAV-1:7'])
+    })
+    expect(r.objects.find((o) => o.kind === 'driver')?.busy).toBe(false)
+  })
+})

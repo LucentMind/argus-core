@@ -50,6 +50,9 @@ export type DiagnosticsServiceDeps = {
    *  owner keys, pack-app case slugs) — the set a registered row's `owner` is checked
    *  against to detect orphans. */
   getLiveOwners: () => string[]
+  /** Owner keys of every Argus object currently mid-turn, so a row can warn before it
+   *  is stopped. Mirrors getLiveOwners in shape and in wiring. */
+  getBusyOwners: () => string[]
   now?: () => number
 }
 
@@ -233,7 +236,8 @@ export class DiagnosticsService {
           connectors: this.deps.getConnectorCommands(),
           registered
         },
-        liveOwners: new Set(this.deps.getLiveOwners())
+        liveOwners: new Set(this.deps.getLiveOwners()),
+        busyOwners: new Set(this.deps.getBusyOwners())
       })
     } catch (err) {
       console.error('[diagnostics] failed to build snapshot from sidecar sample', err)

@@ -136,6 +136,8 @@ function obj(id: string, over: Partial<DiagnosticsObject> = {}): DiagnosticsObje
     label: id,
     orphan: false,
     inferred: false,
+    terminable: false,
+    busy: false,
     rootPid: 1,
     processCount: 1,
     cpuPercent: 5,

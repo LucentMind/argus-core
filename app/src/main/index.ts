@@ -144,6 +144,7 @@ import { TextDocSearchHub, type TextDocSearchOpts } from './services/textdocSear
 import type { TextDocSource } from '../shared/textdoc'
 import { searchMessages, searchAllMessages } from './services/chatSearch'
 import { AgentService } from './services/agent/registry'
+import { ownerKeyOf } from './services/agent/session'
 import { buildReferenceIndex } from './services/agent/referenceIndex'
 import { flattenPanelCommands } from './services/agent/panelCommands'
 import {
@@ -516,7 +517,13 @@ function registerIpc(): void {
       getLiveOwners: () => [
         ...(agentService?.liveOwnerKeys() ?? []),
         ...(externalAppHost?.list().map((a) => a.caseSlug) ?? [])
-      ]
+      ],
+      // Same forward-ref shape and reason as getLiveOwners above: this is read from the
+      // sidecar's stdout handler, and AgentService is constructed later.
+      getBusyOwners: () =>
+        (agentService?.states() ?? [])
+          .filter((s) => s.activeTurn)
+          .map((s) => ownerKeyOf(s.caseSlug, s.sessionId))
     })
   })()
 

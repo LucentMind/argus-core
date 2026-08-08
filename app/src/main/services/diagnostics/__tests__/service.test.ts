@@ -133,6 +133,7 @@ function makeService(
     now: () => 10_000,
     processLabels: new ProcessLabels(),
     getLiveOwners: () => [],
+    getBusyOwners: () => [],
     ...overrides
   })
   return { service, client }
@@ -277,7 +278,8 @@ describe('DiagnosticsService', () => {
       getConnectorCommands: () => [],
       now: () => 10_000,
       processLabels: new ProcessLabels(),
-      getLiveOwners: () => []
+      getLiveOwners: () => [],
+      getBusyOwners: () => []
     })
     service.start()
     expect(service.latest()?.sidecar.status).toBe('disabled')

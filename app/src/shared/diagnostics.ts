@@ -147,6 +147,14 @@ export type DiagnosticsObject = {
   orphan: boolean
   /** True when the label came from tier-C command-line inference rather than Electron. */
   inferred: boolean
+  /** True when this row may be stopped from the page. Computed in the pure model so
+   *  the allowlist has exactly one definition; the renderer never re-derives it from
+   *  `kind`. Always false for every electron-* kind and for `unattributed`. */
+  terminable: boolean
+  /** True when this row's owner is mid-turn, so the confirm gate can say what is
+   *  about to be lost. Only tier-A rows carry an `owner`, so an inferred CLI row is
+   *  never busy — Argus genuinely cannot tell which session it belongs to. */
+  busy: boolean
   /** null for the unattributed row. */
   rootPid: number | null
   processCount: number

@@ -1,6 +1,7 @@
 import type {
   DiagnosticsAggregate,
   DiagnosticsObject,
+  DiagnosticsObjectKind,
   DiagnosticsProcess,
   ElectronProcessMetric,
   ProcessSample
@@ -42,6 +43,8 @@ export type BuildInput = {
   /** Keys of every Argus object currently alive (session owner keys, pack-app case
    *  slugs). A tier-A row's `owner` not present here is orphaned. */
   liveOwners: ReadonlySet<string>
+  /** Owner keys currently mid-turn. Absent means nothing is known to be busy. */
+  busyOwners?: ReadonlySet<string>
 }
 
 export type BuildResult = {
@@ -109,6 +112,18 @@ function orderDepthFirst(
 /** The id of the single synthetic row absorbing every process no label matched. */
 const UNATTRIBUTED_ID = 'unattributed'
 
+/**
+ * The kinds a user may stop from the page. Every electron-* kind is the app itself,
+ * and `unattributed` is a synthetic bucket of unrelated pids with no coherent kill
+ * semantics — neither is ever terminable.
+ */
+const TERMINABLE_KINDS: ReadonlySet<DiagnosticsObjectKind> = new Set([
+  'driver',
+  'mcp',
+  'pack-binary',
+  'pack-app'
+])
+
 export function buildSnapshot(input: BuildInput): BuildResult {
   const ordered = orderDepthFirst(input.samples, input.rootPid)
   const next = new Map<string, ProcessState>()
@@ -174,6 +189,8 @@ export function buildSnapshot(input: BuildInput): BuildResult {
         ...(label.owner !== undefined ? { owner: label.owner } : {}),
         orphan: label.owner !== undefined && !input.liveOwners.has(label.owner),
         inferred: label.inferred,
+        terminable: TERMINABLE_KINDS.has(label.kind),
+        busy: label.owner !== undefined && (input.busyOwners?.has(label.owner) ?? false),
         rootPid: s.pid,
         processCount: 0,
         cpuPercent: 0,
@@ -200,6 +217,8 @@ export function buildSnapshot(input: BuildInput): BuildResult {
           label: 'Unattributed',
           orphan: false,
           inferred: false,
+          terminable: false,
+          busy: false,
           rootPid: null,
           processCount: 0,
           cpuPercent: 0,
