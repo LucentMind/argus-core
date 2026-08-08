@@ -4,8 +4,10 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { RoutinesPage } from '../RoutinesPage'
 import { routinesStore } from '../../../lib/routinesStore'
+import { settingsStore } from '../../../lib/settingsStore'
 import { chipStamp } from '../../../lib/time'
 import type { RoutineDef, RoutineRunSummary, RoutinesPayload } from '../../../../../shared/routines'
+import { defaultSettings, type SettingsPayload } from '../../../../../shared/settings'
 
 // Same idiom as PromptsDevPage.test: confirmStore renders <ConfirmHost/> at the app root, which
 // is not mounted here, so an unstubbed confirm() would hang the delete path forever.
@@ -72,7 +74,23 @@ interface RoutinesApi {
 }
 let api: RoutinesApi
 
-function stubApi(p: RoutinesPayload = payload()): void {
+/**
+ * `RoutineEditor` now reads `useSettingsPayload()` unconditionally (Task 11's keep-alive nudge),
+ * so every test that opens the editor — not just the nudge-specific ones below — mounts a
+ * consumer of `window.argus.settings`. Defaulted here to keep-alive OFF so the rest of the file
+ * needs no changes; the nudge tests pass their own override.
+ */
+function settingsPayload(keepAliveInBackground = false): SettingsPayload {
+  const settings = defaultSettings()
+  return {
+    settings: { ...settings, general: { ...settings.general, keepAliveInBackground } },
+    resolvedTools: [],
+    dataRoot: { path: 'C:/tmp/argus', fromEnv: false },
+    loadError: null
+  }
+}
+
+function stubApi(p: RoutinesPayload = payload(), settings: SettingsPayload = settingsPayload()): void {
   api = {
     list: vi.fn(async () => p),
     save: vi.fn(async () => p),
@@ -80,14 +98,22 @@ function stubApi(p: RoutinesPayload = payload()): void {
     runNow: vi.fn(async () => ({ ...p, runningId: 'sweep' })),
     onChanged: vi.fn(() => () => {})
   }
-  ;(window as unknown as { argus: unknown }).argus = { routines: api }
+  ;(window as unknown as { argus: unknown }).argus = {
+    routines: api,
+    settings: {
+      get: vi.fn(async () => settings),
+      onChanged: vi.fn(() => () => {})
+    }
+  }
 }
 
 beforeEach(() => {
   // The store is a module-level singleton (by design — it is shared with the Home inbox in a
   // later task), so it must be reset between tests or a later test's render() would see the
-  // PREVIOUS test's window.argus mock frozen in as its already-fetched payload.
+  // PREVIOUS test's window.argus mock frozen in as its already-fetched payload. settingsStore is
+  // the same kind of singleton, now that the editor reads it too.
   routinesStore.reset()
+  settingsStore.reset()
   stubApi()
 })
 
@@ -571,6 +597,36 @@ describe('RoutinesPage — schedule editor', () => {
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
     expect(await screen.findByText(/at least one day/i)).toBeInTheDocument()
     expect(api.save).not.toHaveBeenCalled()
+  })
+
+  it('offers to enable keep-alive when a schedule is set and it is off', async () => {
+    stubApi(payload(), settingsPayload(false))
+    await openEditor()
+    pickKind('Daily')
+    expect(await screen.findByText(/only while Argus is open/i)).toBeInTheDocument()
+
+    const patch = vi.spyOn(settingsStore, 'patch').mockResolvedValue(undefined)
+    fireEvent.click(screen.getByRole('button', { name: 'Keep Argus running' }))
+    expect(patch).toHaveBeenCalledWith({ general: { keepAliveInBackground: true } })
+  })
+
+  // The nudge is derived, not dismissed — there is no seen-flag to get stuck.
+  it('replaces the nudge with the true statement once keep-alive is on', async () => {
+    stubApi(payload(), settingsPayload(true))
+    await openEditor()
+    pickKind('Daily')
+
+    expect(await screen.findByText(/keeps running in the background/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Keep Argus running' })).not.toBeInTheDocument()
+  })
+
+  it('says nothing about keep-alive for a manual routine', async () => {
+    stubApi(payload(), settingsPayload(false))
+    await openEditor()
+    pickKind('Manual only')
+
+    expect(screen.queryByText(/only while Argus is open/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Keep Argus running' })).not.toBeInTheDocument()
   })
 })
 
