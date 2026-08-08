@@ -79,6 +79,18 @@ export interface BackgroundTurnParams {
   prompt: string
   timeoutMs: number
   model?: string
+  /**
+   * The `routine_run_items` row this turn is processing — a scoped routine's item loop
+   * (`RoutinesService.executeItems`) is the only producer.
+   *
+   * A PARAM, not a dep, because it changes per turn while everything on `BackgroundTurnDeps` is
+   * bound once per host. Absence is meaningful rather than merely permissive: `session.ts` and
+   * `nativeTools.ts` both gate on `currentRunItemId != null` (the thunk being PRESENT, not what
+   * it returns), so a turn without an item never has `propose_case_triage` advertised to it at
+   * all. Passing an unconditional thunk here would offer the tool to every unscoped routine
+   * turn, where it can only ever refuse.
+   */
+  runItemId?: number
 }
 
 export interface BackgroundTurnResult {
@@ -186,6 +198,9 @@ export function runBackgroundTurn(
   // awaits the driver stream before yielding anything), so this binding is always assigned
   // by the time either closure runs on a session that was built at all.
   let session: CaseSession | undefined
+  // Hoisted so the thunk below closes over a plain number rather than `params`, and so the
+  // conditional spread reads as the gate it is (see BackgroundTurnParams.runItemId).
+  const runItemId = params.runItemId
   try {
     session = new CaseSession({
       db: deps.db,
@@ -204,6 +219,9 @@ export function runBackgroundTurn(
       agentAccess: deps.agentAccess,
       toolRisk: deps.toolRisk,
       defectCorpus: deps.defectCorpus,
+      // Spread, not assigned: an ordinary background turn must carry NO thunk, because presence
+      // alone is what advertises `propose_case_triage` to the model.
+      ...(runItemId !== undefined ? { currentRunItemId: (): number | null => runItemId } : {}),
       emit,
       driver: deps.driver,
       resumeCursor: null,

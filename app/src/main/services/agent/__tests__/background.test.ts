@@ -347,6 +347,35 @@ describe('runBackgroundTurn', () => {
     expect(ctx().nativeToolDeps.defectCorpus).toBe(corpus)
   })
 
+  // --- the routine item id: what makes propose_case_triage reachable at all ---------------
+
+  it('gives the session the run item id its turn is processing', async () => {
+    // `propose_case_triage` writes to `routine_run_items.suggestion` and gets the row id from
+    // `nativeToolDeps.currentRunItemId` — the exact place asserted here. Nothing threaded an
+    // item id into a turn before this, so the tool was unreachable in production while both
+    // ends of the chain had passing tests of their own.
+    const sdk = fakeSdk()
+    const { driver, ctx } = capturingDriver(createClaudeDriver(sdk.createQuery))
+    const p = runBackgroundTurn(deps(sdk, { driver }), params({ runItemId: 77 }))
+    await flush()
+    sdk.messages.push(RESULT_SUCCESS)
+    await p
+    expect(ctx().nativeToolDeps.currentRunItemId?.()).toBe(77)
+  })
+
+  it('carries NO item thunk when the turn has no item, which is the advertisement gate', async () => {
+    // session.ts and nativeTools.ts both gate on `currentRunItemId != null` — the thunk being
+    // PRESENT, not what it returns. An unconditional thunk here would advertise
+    // propose_case_triage to every unscoped routine turn, where it can only ever refuse.
+    const sdk = fakeSdk()
+    const { driver, ctx } = capturingDriver(createClaudeDriver(sdk.createQuery))
+    const p = runBackgroundTurn(deps(sdk, { driver }), params())
+    await flush()
+    sdk.messages.push(RESULT_SUCCESS)
+    await p
+    expect(ctx().nativeToolDeps.currentRunItemId).toBeUndefined()
+  })
+
   it('still constructs a session when defectCorpus is absent, as tests and headless hosts do', async () => {
     const sdk = fakeSdk()
     const { driver, ctx } = capturingDriver(createClaudeDriver(sdk.createQuery))
