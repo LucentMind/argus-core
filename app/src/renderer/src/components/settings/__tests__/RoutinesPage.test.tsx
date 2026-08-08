@@ -263,14 +263,14 @@ describe('RoutinesPage — editing', () => {
   it('preserves keys the editor knows nothing about', async () => {
     // routineSchema is a looseObject, so a hand-added (or Increment 2) key survives the store.
     // An editor that rebuilt the routine from its own fields would drop it on every save.
-    stubApi(payload({ routines: [{ ...sweep, schedule: '0 2 * * *' }] }))
+    stubApi(payload({ routines: [{ ...sweep, customField: 'custom-value' }] }))
     render(<RoutinesPage />)
     fireEvent.click(await screen.findByRole('button', { name: /edit · Nightly sweep/i }))
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Nightly sweep v2' } })
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
     await waitFor(() =>
       expect(api.save).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'Nightly sweep v2', schedule: '0 2 * * *' })
+        expect.objectContaining({ name: 'Nightly sweep v2', customField: 'custom-value' })
       )
     )
   })

@@ -4,7 +4,9 @@ import {
   routinesFileSchema,
   defaultRoutines,
   MAX_TIMEOUT_MS,
-  MAX_TIMEOUT_MINUTES
+  MAX_TIMEOUT_MINUTES,
+  scheduleSchema,
+  MIN_INTERVAL_MINUTES
 } from '../routines'
 
 describe('routine schema', () => {
@@ -60,5 +62,55 @@ describe('routine schema', () => {
         routineSchema.parse({ id: 'a', name: 'x', prompt: 'y', timeoutMs: MAX_TIMEOUT_MS + 1 })
       ).toThrow(new RegExp(`at most ${MAX_TIMEOUT_MINUTES} minutes`))
     })
+  })
+})
+
+describe('schedule schema', () => {
+  it('accepts the three kinds', () => {
+    expect(scheduleSchema.parse({ kind: 'interval', everyMinutes: 240 })).toEqual({
+      kind: 'interval',
+      everyMinutes: 240
+    })
+    expect(scheduleSchema.parse({ kind: 'daily', at: '02:00' })).toEqual({
+      kind: 'daily',
+      at: '02:00'
+    })
+    expect(scheduleSchema.parse({ kind: 'weekly', days: [1, 2, 3, 4, 5], at: '07:00' })).toEqual({
+      kind: 'weekly',
+      days: [1, 2, 3, 4, 5],
+      at: '07:00'
+    })
+  })
+
+  it('rejects an interval under the floor', () => {
+    expect(() =>
+      scheduleSchema.parse({ kind: 'interval', everyMinutes: MIN_INTERVAL_MINUTES - 1 })
+    ).toThrow()
+  })
+
+  it('rejects a malformed or out-of-range time', () => {
+    expect(() => scheduleSchema.parse({ kind: 'daily', at: '2:00' })).toThrow()
+    expect(() => scheduleSchema.parse({ kind: 'daily', at: '24:00' })).toThrow()
+    expect(() => scheduleSchema.parse({ kind: 'daily', at: '02:60' })).toThrow()
+  })
+
+  it('rejects a weekly schedule with no days', () => {
+    expect(() => scheduleSchema.parse({ kind: 'weekly', days: [], at: '07:00' })).toThrow()
+  })
+
+  it('rejects a day outside 0..6', () => {
+    expect(() => scheduleSchema.parse({ kind: 'weekly', days: [7], at: '07:00' })).toThrow()
+  })
+
+  it('leaves a routine without a schedule valid, and round-trips one with', () => {
+    const manual = routineSchema.parse({ id: 'a', name: 'A', prompt: 'p' })
+    expect(manual.schedule).toBeUndefined()
+    const scheduled = routineSchema.parse({
+      id: 'b',
+      name: 'B',
+      prompt: 'p',
+      schedule: { kind: 'daily', at: '02:00' }
+    })
+    expect(scheduled.schedule).toEqual({ kind: 'daily', at: '02:00' })
   })
 })
