@@ -17,6 +17,11 @@ import type { RoutineSchedule } from '../../../shared/routines'
  */
 export function nextFireAfter(schedule: RoutineSchedule, after: Date): Date {
   if (schedule.kind === 'interval') {
+    // Unreachable for a schema-validated schedule (`everyMinutes` is positive). Reachable via a
+    // hand-edited config/routines.json, where returning early or looping would be worse.
+    if (schedule.everyMinutes <= 0) {
+      throw new Error('Schedule interval must be positive: everyMinutes must be greater than 0')
+    }
     return new Date(after.getTime() + schedule.everyMinutes * 60_000)
   }
   const [hh, mm] = schedule.at.split(':').map(Number)

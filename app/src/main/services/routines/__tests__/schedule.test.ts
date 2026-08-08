@@ -82,4 +82,13 @@ describe('nextFireAfter', () => {
       nextFireAfter({ kind: 'weekly', days: [], at: '07:00' }, local(2026, 8, 8))
     ).toThrow(/no allowed day/i)
   })
+
+  it('throws on a hand-edited interval schedule with non-positive everyMinutes', () => {
+    // No cast needed: a zero or negative `everyMinutes` satisfies the TYPE (`number`) and is
+    // rejected only by zod's `.min(MIN_INTERVAL_MINUTES)` — which is exactly the gap a
+    // hand-edited routines.json slips through.
+    expect(() =>
+      nextFireAfter({ kind: 'interval', everyMinutes: 0 }, local(2026, 8, 8))
+    ).toThrow(/interval must be positive/i)
+  })
 })
