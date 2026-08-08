@@ -677,9 +677,13 @@ export class RoutinesService {
    * draft, and how a ticket the user already opened by hand is worked in place rather than
    * duplicated.
    *
-   * `ensureCaseOrigin` runs on the jira branch only. A `cases`-scoped item was SELECTED FROM the
-   * cases table, so it demonstrably predates this run; stamping it `routine` would relabel the
-   * user's own case as routine-created, which the case list renders.
+   * `ensureCaseOrigin` runs on the jira branch only, and only when `created` is true. A
+   * `cases`-scoped item was SELECTED FROM the cases table, so it demonstrably predates this run.
+   * On the jira branch, `ingestJiraItem` ADOPTS an existing case when the ticket already has one
+   * (scopeResolver.ts) — `created: false` in that case — and stamping an adopted case `routine`
+   * would relabel a case the user opened by hand as routine-created, exactly the same mistake the
+   * `cases` branch avoids, just reached through the ingest path instead of selection (Task 11
+   * review finding).
    */
   private async materializeItem(
     target: ItemTarget,
@@ -691,9 +695,9 @@ export class RoutinesService {
       attachItemCase(db, itemId, target.caseSlug)
       return target.caseSlug
     }
-    const { caseSlug } = await resolver.ingestJiraItem(target.key)
+    const { caseSlug, created } = await resolver.ingestJiraItem(target.key)
     attachItemCase(db, itemId, caseSlug)
-    ensureCaseOrigin(db, caseSlug, 'routine')
+    if (created) ensureCaseOrigin(db, caseSlug, 'routine')
     return caseSlug
   }
 
