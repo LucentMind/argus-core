@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { RoutinesPage } from '../RoutinesPage'
+import { routinesStore } from '../../../lib/routinesStore'
 import { chipStamp } from '../../../lib/time'
 import type { RoutineDef, RoutineRunSummary, RoutinesPayload } from '../../../../../shared/routines'
 
@@ -83,6 +84,10 @@ function stubApi(p: RoutinesPayload = payload()): void {
 }
 
 beforeEach(() => {
+  // The store is a module-level singleton (by design — it is shared with the Home inbox in a
+  // later task), so it must be reset between tests or a later test's render() would see the
+  // PREVIOUS test's window.argus mock frozen in as its already-fetched payload.
+  routinesStore.reset()
   stubApi()
 })
 
@@ -130,22 +135,27 @@ describe('RoutinesPage — definitions', () => {
     expect(await screen.findByText('Renamed by another window')).toBeInTheDocument()
   })
 
-  it('unsubscribes from the broadcast on unmount', async () => {
-    const unsubscribe = vi.fn()
-    api.onChanged = vi.fn(() => unsubscribe)
-    const { unmount } = render(<RoutinesPage />)
-    await screen.findByText('Nightly sweep')
-    unmount()
-    expect(unsubscribe).toHaveBeenCalledTimes(1)
-  })
+  // No longer applicable after the Task 8 migration onto the shared routinesStore singleton:
+  // the store's IPC subscription is started once for the process's lifetime (same convention as
+  // settingsStore, which has no equivalent test), precisely so a second consumer — the Home
+  // inbox, added in Task 9 — keeps receiving broadcasts after THIS page unmounts. Removed rather
+  // than weakened: there is no per-component unsubscribe left to assert on, and asserting one
+  // would pin behaviour this migration deliberately removed.
 })
 
 describe('RoutinesPage — running on demand', () => {
   it('Run now calls the API and reflects the running state', async () => {
     render(<RoutinesPage />)
     await screen.findByText('Nightly sweep')
+    // The store now owns the payload, and it arrives on the routines:changed broadcast rather
+    // than runNow's own invoke reply — main fires that broadcast itself once the run is
+    // recorded, so the mock re-reads and the registered onChanged callback is driven explicitly
+    // here rather than trusting a timing-sensitive wait for a reload nothing has triggered.
+    api.list.mockResolvedValueOnce({ ...payload(), runningId: 'sweep' })
     fireEvent.click(screen.getByRole('button', { name: /run now/i }))
     await waitFor(() => expect(api.runNow).toHaveBeenCalledWith('sweep'))
+    const onBroadcast = api.onChanged.mock.calls[0][0] as () => void
+    act(() => onBroadcast())
     // The adopted payload carries runningId — the button must say so and stop accepting clicks,
     // because a second start is exactly what main rejects.
     const busy = await screen.findByRole('button', { name: /running/i })

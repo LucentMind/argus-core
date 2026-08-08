@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
 import {
   SettingsSection,
@@ -11,14 +11,14 @@ import {
 import { Btn, Checkbox, Chip, IconBtn } from '../ui'
 import { confirm } from '../../lib/confirmStore'
 import { chipStamp } from '../../lib/time'
+import { useRoutinesPayload } from '../../lib/routinesStore'
 import { RUN_TONE, TriggerChip, RunSummaryText } from '../routines/runDisplay'
 import {
   MAX_TIMEOUT_MINUTES,
   MIN_INTERVAL_MINUTES,
   MAX_INTERVAL_MINUTES,
   type RoutineDef,
-  type RoutineSchedule,
-  type RoutinesPayload
+  type RoutineSchedule
 } from '../../../../shared/routines'
 
 type ScheduleKind = 'manual' | 'interval' | 'daily' | 'weekly'
@@ -349,8 +349,7 @@ function RoutineEditor({
  * is only trustworthy if there is a record of it afterwards.
  */
 export function RoutinesPage(): React.JSX.Element {
-  const [payload, setPayload] = useState<RoutinesPayload | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const { payload, error } = useRoutinesPayload()
   /**
    * Separate from `error`, which replaces the whole page. A failed save — or, far more often, a
    * `runNow` rejected because another run is already in flight — must not blank the list the
@@ -359,22 +358,11 @@ export function RoutinesPage(): React.JSX.Element {
   const [mutationError, setMutationError] = useState<string | null>(null)
   const [editing, setEditing] = useState<Draft | null>(null)
 
-  useEffect(() => {
-    const reload = (): void => {
-      window.argus.routines
-        .list()
-        .then(setPayload)
-        .catch((e: Error) => setError(e.message))
-    }
-    reload()
-    // Payload-free broadcast: runs start, finish and get reconciled in main, and another window
-    // (or a hand-edit of config/routines.json) can change the definitions underneath this page.
-    return window.argus.routines.onChanged(reload)
-  }, [])
-
   async function runNow(id: string): Promise<void> {
     try {
-      setPayload(await window.argus.routines.runNow(id))
+      // The store owns the payload now: this call's own reply is discarded and the new state
+      // arrives on the routines:changed broadcast, same as every other window sees it.
+      await window.argus.routines.runNow(id)
       setMutationError(null)
     } catch (e) {
       // Expected, not exceptional: unknown / disabled / already-running all land here, and runs
@@ -499,7 +487,7 @@ export function RoutinesPage(): React.JSX.Element {
     if (schedule) def.schedule = schedule
     else delete def.schedule
     try {
-      setPayload(await window.argus.routines.save(def))
+      await window.argus.routines.save(def)
       setMutationError(null)
       setEditing(null)
     } catch (e) {
@@ -518,7 +506,7 @@ export function RoutinesPage(): React.JSX.Element {
     })
     if (!ok) return
     try {
-      setPayload(await window.argus.routines.remove(r.id))
+      await window.argus.routines.remove(r.id)
       setMutationError(null)
       setEditing((cur) => (cur?.id === r.id ? null : cur))
     } catch (e) {
