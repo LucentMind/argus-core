@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { RoutineRunSummary, RoutineTrigger } from '../../../shared/routines'
+import { reconcileInterruptedRunItems } from './runItems'
 
 /**
  * DB accessors for the routine-run audit trail (`routine_runs` table, see db.ts). One row per
@@ -14,7 +15,9 @@ const defaultNow = (): Date => new Date()
 export function insertRoutineRun(
   db: DatabaseSync,
   routineId: string,
-  caseSlug: string,
+  // Null for a scoped run: it opens no `routine-<id>` case, so there is nothing true to record
+  // here (service.ts). Per-item cases live on routine_run_items instead.
+  caseSlug: string | null,
   trigger: RoutineTrigger,
   now: () => Date = defaultNow
 ): number {
@@ -36,34 +39,44 @@ export const INTERRUPTED_RUN_ERROR =
   'Interrupted: the app exited or crashed while this run was in progress.'
 
 /**
- * Closes out runs stranded by a process that died mid-run.
+ * Closes out runs AND their in-flight items, stranded by a process that died mid-run.
  *
- * RoutinesService guarantees no run is left `running` — but only within one process lifetime.
- * A crash or a quit mid-run leaves the row `status='running'`, `finished_at=NULL` forever, and
- * `listRoutineRuns` hands it to the UI as a routine that has been executing since last week.
- * This turns those rows into ordinary `failed` runs that say why.
+ * RoutinesService guarantees no run — and, per item, no `routine_run_items` row — is left
+ * `running`, but only within one process lifetime. A crash or a quit mid-run leaves the run row
+ * `status='running'`, `finished_at=NULL` forever, and `listRoutineRuns` hands it to the UI as a
+ * routine that has been executing since last week; a crash mid-TURN leaves that item's own row
+ * in the same state, and `payload().runItems` hands it to the UI the same way, forever. This
+ * turns both into ordinary `failed` rows that say why — the item reconciliation runs inside this
+ * same function (delegated to runItems.ts, which owns that table's SQL) so a stranded item can
+ * never outlive its parent run's reconciliation.
  *
- * SAFE ONLY AT STARTUP, AND THAT IS THE WHOLE CONTRACT. The predicate is `status='running'`,
- * which cannot distinguish a row abandoned by a dead process from one a live run is about to
- * finish — so calling this while a run is in flight would mark a perfectly healthy run failed
- * and then have `finishRoutineRun` overwrite it, corrupting real data. The single call site
- * (index.ts, inside registerIpc) is what makes it safe: it runs before any `ipcMain` handler
- * exists, so before `routinesRunNow` — the only door into `startRun` — can be reached, and runs
- * are serial anyway. A host that is not index.ts (a future headless server) must call this the
- * same way: once, at boot, before it accepts its first run request. Do NOT move it into
- * RoutinesService's constructor: a service can be constructed at any moment, which would make
- * "no run is in flight yet" an assumption instead of a fact.
+ * SAFE ONLY AT STARTUP, AND THAT IS THE WHOLE CONTRACT. The predicate on both tables is
+ * `status='running'`, which cannot distinguish a row abandoned by a dead process from one a live
+ * run (or a live item within it) is about to finish — so calling this while a run is in flight
+ * would mark a perfectly healthy run (or item) failed and then have `finishRoutineRun` /
+ * `finishRunItem` overwrite it, corrupting real data. The single call site (index.ts, inside
+ * registerIpc) is what makes it safe: it runs before any `ipcMain` handler exists, so before
+ * `routinesRunNow` — the only door into `startRun` — can be reached, and runs are serial anyway.
+ * A host that is not index.ts (a future headless server) must call this the same way: once, at
+ * boot, before it accepts its first run request. Do NOT move it into RoutinesService's
+ * constructor: a service can be constructed at any moment, which would make "no run is in flight
+ * yet" an assumption instead of a fact.
  *
- * Idempotent: a second call matches no rows, because the first left none `running`.
+ * Idempotent: a second call matches no rows on either table, because the first left none
+ * `running`.
  *
- * @returns how many stranded rows were reconciled (0 on a clean previous shutdown).
+ * @returns how many stranded RUN rows were reconciled (0 on a clean previous shutdown). Item
+ * rows are reconciled as a side effect but not counted here — `strandedRuns` is what index.ts's
+ * boot log reports, and a run can strand with zero, one, or many items still `running`.
  */
 export function reconcileInterruptedRuns(db: DatabaseSync, now: () => Date = defaultNow): number {
+  const finishedAt = now().toISOString()
   const res = db
     .prepare(
       `UPDATE routine_runs SET status = 'failed', finished_at = ?, error = ? WHERE status = 'running'`
     )
-    .run(now().toISOString(), INTERRUPTED_RUN_ERROR)
+    .run(finishedAt, INTERRUPTED_RUN_ERROR)
+  reconcileInterruptedRunItems(db, finishedAt, INTERRUPTED_RUN_ERROR)
   return Number(res.changes)
 }
 
@@ -198,7 +211,7 @@ export function countUnreviewedRuns(db: DatabaseSync): number {
 interface Row {
   id: number
   routine_id: string
-  case_slug: string
+  case_slug: string | null
   session_id: number | null
   status: string
   started_at: string

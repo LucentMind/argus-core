@@ -100,6 +100,9 @@ export function RoutineInbox({
           // stamp is already rendered per row and reads naturally in an accessible name; fall
           // back to the run id for a run that has not finished (still unique, just less pretty).
           const rowLabel = `${name} · ${run.finishedAt ? chipStamp(run.finishedAt) : `run ${run.id}`}`
+          // Local const, not `run.caseSlug` re-read below: narrowing a property through a
+          // closure does not survive in TS, but narrowing a local variable does.
+          const caseSlug = run.caseSlug
           return (
             <div key={run.id} className="flex items-start gap-3 px-4 py-2.5 text-xs">
               <Chip tone={RUN_TONE[run.status]}>
@@ -115,9 +118,14 @@ export function RoutineInbox({
                 {!run.error && !run.summary && <p className="text-faint">no output recorded</p>}
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <Btn aria-label={`Open case · ${rowLabel}`} onClick={() => onOpen(run.caseSlug)}>
-                  Open case
-                </Btn>
+                {/* A scoped run's own row opens no case (its items each open their own, listed
+                    per-item elsewhere) — caseSlug is null for exactly that run, and offering a
+                    button that can only 404 is worse than offering none. */}
+                {caseSlug && (
+                  <Btn aria-label={`Open case · ${rowLabel}`} onClick={() => onOpen(caseSlug)}>
+                    Open case
+                  </Btn>
+                )}
                 <Btn
                   aria-label={`Mark reviewed · ${rowLabel}`}
                   onClick={() => void markReviewed(run.id)}

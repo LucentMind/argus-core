@@ -146,6 +146,22 @@ describe('RoutineInbox', () => {
     expect(onOpen).toHaveBeenCalledWith('routine-sweep')
   })
 
+  it('offers no Open case button for a scoped run that opened no case', async () => {
+    // Finding 2: a scoped run's own row has caseSlug: null (its items each open their own,
+    // shown elsewhere) — the button used to render anyway and point onOpen at a case that was
+    // never created.
+    api.list.mockResolvedValue(payload({ runs: [run({ caseSlug: null })] }))
+    render(<RoutineInbox onOpen={vi.fn()} />)
+    await screen.findByText('nothing new')
+    expect(
+      screen.queryByRole('button', { name: `Open case · ${rowLabel('Nightly sweep', run())}` })
+    ).not.toBeInTheDocument()
+    // Mark reviewed must still be offered — losing the case link is not the same as losing the row.
+    expect(
+      screen.getByRole('button', { name: `Mark reviewed · ${rowLabel('Nightly sweep', run())}` })
+    ).toBeInTheDocument()
+  })
+
   it('marks the clicked row reviewed, not the other pending row', async () => {
     const other: RoutineDef = { ...sweep, id: 'digest', name: 'Morning digest' }
     const digestRun = run({ id: 2, routineId: 'digest', summary: 'digest done' })

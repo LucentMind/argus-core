@@ -149,7 +149,9 @@ export type RoutineTrigger = 'manual' | 'scheduled' | 'catchup'
 export interface RoutineRunSummary {
   id: number
   routineId: string
-  caseSlug: string
+  /** Null for a scoped run — it opens no `routine-<id>` case, so there is nothing to point at.
+   *  Per-item cases are on `RoutineRunItemSummary.caseSlug` instead. */
+  caseSlug: string | null
   sessionId: number | null
   trigger: RoutineTrigger
   status: 'running' | 'ok' | 'failed' | 'timeout'

@@ -199,10 +199,13 @@ CREATE TABLE IF NOT EXISTS repo_prefs (
 -- definition in config/routines.json, not a table row — no FK. case_slug is denormalized so
 -- the run list renders without a join even if the case is later deleted. summary holds the
 -- final assistant text; per-item outcomes arrive with the pre-triage template increment.
+-- NULLABLE (fix pass, increment 5): a SCOPED run never opens a routine-<id> case — its items
+-- open their own cases, recorded on routine_run_items instead — so this column has nothing
+-- true to hold for that run. NULL means exactly that, not "not known yet".
 CREATE TABLE IF NOT EXISTS routine_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   routine_id TEXT NOT NULL,
-  case_slug TEXT NOT NULL,
+  case_slug TEXT,
   session_id INTEGER,
   status TEXT NOT NULL DEFAULT 'running',
   started_at TEXT NOT NULL,
@@ -494,6 +497,41 @@ export function openDb(file: string): DatabaseSync {
     // stranded `running` rows, which reconcileInterruptedRuns turns into failed runs at boot,
     // and a run the app died inside of belongs in the inbox.
     db.exec(`UPDATE routine_runs SET reviewed_at = finished_at WHERE finished_at IS NOT NULL`)
+  }
+
+  // Fix pass (increment 5): case_slug loses its NOT NULL — a scoped run's row must not claim a
+  // `routine-<id>` case it never creates (that case is what the UI's "Open case" button used to
+  // point at for a routine that has only ever run scoped). SQLite cannot drop a column
+  // constraint via ALTER, so this rebuilds the table once, gated on the constraint still being
+  // there — same idiom as the sessions UNIQUE(case_id) rebuild above. Runs AFTER the trigger_kind
+  // / reviewed_at migrations so every column already exists to copy across.
+  const runCaseSlugCol = (
+    db.prepare(`PRAGMA table_info(routine_runs)`).all() as { name: string; notnull: number }[]
+  ).find((c) => c.name === 'case_slug')
+  if (runCaseSlugCol?.notnull === 1) {
+    db.exec(`BEGIN;
+      CREATE TABLE routine_runs_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        routine_id TEXT NOT NULL,
+        case_slug TEXT,
+        session_id INTEGER,
+        status TEXT NOT NULL DEFAULT 'running',
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        summary TEXT,
+        error TEXT,
+        trigger_kind TEXT NOT NULL DEFAULT 'manual',
+        reviewed_at TEXT
+      );
+      INSERT INTO routine_runs_new
+        (id, routine_id, case_slug, session_id, status, started_at, finished_at, summary, error,
+         trigger_kind, reviewed_at)
+        SELECT id, routine_id, case_slug, session_id, status, started_at, finished_at, summary,
+               error, trigger_kind, reviewed_at FROM routine_runs;
+      DROP TABLE routine_runs;
+      ALTER TABLE routine_runs_new RENAME TO routine_runs;
+    COMMIT;`)
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_routine_runs_routine ON routine_runs(routine_id);`)
   }
 
   // Increment 3: case origin.

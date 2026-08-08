@@ -18,6 +18,7 @@ import {
   markAllRunsReviewed,
   countUnreviewedRuns
 } from '../runs'
+import { insertRunItem, finishRunItem, getRunItem } from '../runItems'
 
 let home: string
 let db: DatabaseSync
@@ -128,6 +129,49 @@ describe('reconcileInterruptedRuns', () => {
   it('reports 0 on a clean previous shutdown (empty table)', () => {
     expect(reconcileInterruptedRuns(db, () => LATER)).toBe(0)
     expect(listRoutineRuns(db)).toEqual([])
+  })
+
+  // Finding 1: reconcileInterruptedRuns only healed routine_runs, leaving a stranded item row
+  // (opened by a crash mid-turn) at status='running', finished_at=NULL forever — payload().runItems
+  // hands that row to the UI indefinitely, exactly the defect this function exists to close for
+  // the run row it belongs to.
+  it('closes out a stranded ITEM row the same way it closes its run: failed, error, finished_at', () => {
+    const runId = insertRoutineRun(db, 'nightly-sweep', null, 'scheduled', () => NOW)
+    const itemId = insertRunItem(db, runId, 'ABC-1', () => NOW)
+    expect(getRunItem(db, itemId)).toMatchObject({ status: 'running', finishedAt: null })
+
+    reconcileInterruptedRuns(db, () => LATER)
+
+    expect(getRunItem(db, itemId)).toMatchObject({
+      status: 'failed',
+      error: INTERRUPTED_RUN_ERROR,
+      finishedAt: LATER.toISOString(),
+      // Untouched: which item and case this row was working is still the useful part of it.
+      itemKey: 'ABC-1'
+    })
+  })
+
+  it('is idempotent for item rows too: a second pass changes nothing', () => {
+    const runId = insertRoutineRun(db, 'nightly-sweep', null, 'scheduled', () => NOW)
+    const itemId = insertRunItem(db, runId, 'ABC-1', () => NOW)
+    reconcileInterruptedRuns(db, () => LATER)
+    const afterFirst = getRunItem(db, itemId)
+
+    // A later `now` would be visible in finishedAt if the second pass rewrote the row.
+    reconcileInterruptedRuns(db, () => new Date('2026-08-04T00:00:00.000Z'))
+
+    expect(getRunItem(db, itemId)).toEqual(afterFirst)
+  })
+
+  it('leaves an item row that already finished exactly as it was', () => {
+    const runId = insertRoutineRun(db, 'nightly-sweep', null, 'scheduled', () => NOW)
+    const itemId = insertRunItem(db, runId, 'ABC-1', () => NOW)
+    finishRunItem(db, itemId, { status: 'processed' }, () => NOW)
+    const before = getRunItem(db, itemId)
+
+    reconcileInterruptedRuns(db, () => LATER)
+
+    expect(getRunItem(db, itemId)).toEqual(before)
   })
 })
 
