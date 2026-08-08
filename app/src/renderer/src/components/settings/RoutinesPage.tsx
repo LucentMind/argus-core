@@ -136,9 +136,16 @@ function draftFrom(r: RoutineDef): Draft {
  * the schedule/timeout/scope mapping in exactly one place rather than duplicating it here. The
  * empty `id` is thrown away immediately: `id: null` is what marks this as a NEW routine, so
  * `saveDraft` derives a fresh one from the (editable) name, same as "New routine".
+ *
+ * No cast: `RoutineTemplate['draft']` keeps `RoutineDef`'s required fields required (see
+ * `RoutineTemplateDraft` in shared/routines.ts for why that needed hand-listed `Pick` keys
+ * rather than `Omit<RoutineDef, 'id'>`), so `{ id: '', ...t.draft }` is already structurally a
+ * `RoutineDef` — a template that forgot a required field (`timeoutMs`, `enabled`, ...) fails to
+ * compile at its OWN definition in templates.ts, instead of rendering `"NaN"` in the Timeout
+ * field here.
  */
 function draftFromTemplate(t: RoutineTemplate): Draft {
-  return { ...draftFrom({ id: '', ...t.draft } as RoutineDef), id: null }
+  return { ...draftFrom({ id: '', ...t.draft }), id: null }
 }
 
 const BLANK_DRAFT: Draft = {
@@ -530,6 +537,24 @@ export function RoutinesPage(): React.JSX.Element {
         'This routine needs a JQL query before it can be saved — pick which Jira tickets it should pull each run.'
       )
       return
+    }
+    if (editing.maxItemsPerRun !== undefined) {
+      // Mirrors the interval-Minutes guard below: integrality checked and reported separately
+      // from range, so a fractional value in range doesn't get told to fix a floor it already
+      // meets. `max={MAX_ITEMS_PER_RUN}` on the number input is only a nudge — a typed or
+      // cleared value sails past it, same caveat as Timeout's own `max` above.
+      if (!Number.isInteger(editing.maxItemsPerRun)) {
+        setMutationError('Max items per run must be a whole number.')
+        return
+      }
+      if (editing.maxItemsPerRun < 1) {
+        setMutationError('Max items per run must be at least 1.')
+        return
+      }
+      if (editing.maxItemsPerRun > MAX_ITEMS_PER_RUN) {
+        setMutationError(`Max items per run must be at most ${MAX_ITEMS_PER_RUN}.`)
+        return
+      }
     }
     const model = editing.model.trim()
     let schedule: RoutineSchedule | undefined

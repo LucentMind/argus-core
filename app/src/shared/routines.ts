@@ -205,12 +205,46 @@ export interface RoutineRunItemSummary {
  * boundary that legally crosses both — the same reason RoutinesPayload lives here instead of in
  * services/routines/service.ts.
  */
+/**
+ * `RoutineTemplate['draft']`'s shape, hand-listed rather than derived with `Omit<RoutineDef,
+ * 'id'>`.
+ *
+ * `routineSchema` is a `z.looseObject`, so its inferred type carries a `[x: string]: unknown`
+ * index signature alongside the named fields. `Omit`'s definition is
+ * `Pick<T, Exclude<keyof T, K>>`, and `keyof` on a type with an index signature widens to
+ * `string | number` — so `Exclude<string | number, 'id'>` is still `string | number`, and the
+ * resulting `Pick` collapses every named field's required-vs-optional distinction into the
+ * index signature. Verified empirically (not assumed): `const y: Omit<RoutineDef, 'id'> =
+ * { name: 'a' }` — missing `prompt`/`timeoutMs`/`enabled` — compiles with ZERO errors.
+ * `Pick<RoutineDef, 'name' | 'prompt' | ...>` with the keys spelled out literally does not hit
+ * this, because `T[P]` for an explicit literal `P` reads the named field directly rather than
+ * going through `keyof`.
+ */
+type RoutineTemplateDraft = Pick<
+  RoutineDef,
+  | 'name'
+  | 'prompt'
+  | 'timeoutMs'
+  | 'enabled'
+  | 'driverKind'
+  | 'model'
+  | 'schedule'
+  | 'scope'
+  | 'maxItemsPerRun'
+>
+
 export interface RoutineTemplate {
   id: string
   name: string
   description: string
-  /** No `id` — the editor derives one from the name, same as any other new routine. */
-  draft: Omit<Partial<RoutineDef>, 'id'>
+  /**
+   * No `id` — the editor derives one from the name, same as any other new routine.
+   * `RoutineTemplateDraft` keeps `RoutineDef`'s required fields (name, prompt, timeoutMs,
+   * enabled) required and its optional ones (schedule, scope, driverKind, model,
+   * maxItemsPerRun) optional — a template omitting `timeoutMs` now fails to compile instead of
+   * rendering the Timeout field as the string `"NaN"` (`String(undefined / 60_000)`) at runtime.
+   */
+  draft: RoutineTemplateDraft
 }
 
 export interface RoutinesPayload {
