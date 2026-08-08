@@ -61,6 +61,7 @@ function payload(over: Partial<RoutinesPayload> = {}): RoutinesPayload {
         error: 'driver exploded'
       })
     ],
+    runItems: [],
     ...over
   }
 }
