@@ -210,7 +210,13 @@ export class RoutinesService {
       routines: this.deps.store.list(),
       loadError: this.deps.store.loadError(),
       runningId: this.running?.id ?? null,
-      queued: this.queue.map((e) => e.routine.id),
+      // Re-resolved against the store, same as `drain` does when it actually reaches an entry —
+      // a deleted routine's id must drop out of the DISPLAYED queue immediately, not linger
+      // until drain gets there and skips it. `drain` also skips a routine that was DISABLED
+      // while it waited, but that id is left in `queued` here: the row is still real and still
+      // saved, just not currently runnable, so it still belongs on screen until drain resolves it
+      // (matching payload() elsewhere, which never hides a disabled routine's row outright).
+      queued: this.queue.filter((e) => this.deps.store.get(e.routine.id)).map((e) => e.routine.id),
       // Guarded per routine, not delegated to nextRunAt itself: nextRunAt's throw on a
       // schema-busting schedule (schedule.ts) is the honest signal the scheduler catches and
       // logs per-tick — swallowing it inside nextRunAt would leave that scheduler with nothing

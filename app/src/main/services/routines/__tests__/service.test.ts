@@ -661,6 +661,10 @@ describe('pending queue', () => {
     svc.startRun('third')
 
     store.remove('second')
+    // The run itself already skips a deleted routine correctly (drain re-resolves against the
+    // store) — this is the transient DISPLAY: the deleted id must drop out of `queued`
+    // immediately, not linger until drain finally reaches and skips it.
+    expect(svc.payload().queued).toEqual(['third'])
     g.release()
     await svc.whenIdle()
 
