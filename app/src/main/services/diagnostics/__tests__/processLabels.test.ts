@@ -147,6 +147,19 @@ describe('stopFor', () => {
     expect(labels.stopFor('7:1200')).toBeNull()
   })
 
+  it('does not answer for an unpinned entry even when the id matches its undefined identity', () => {
+    // stopFor's guard skips entries whose startTimeMs is still undefined. Without
+    // that guard, identityKey(7, undefined) collapses to the literal string
+    // '7:undefined', which — queried here — WOULD match and hand back the
+    // closure for a pid we have not yet proven is ours. Querying '7:1200' (as the
+    // sibling test above does) can never catch that: it fails to match regardless
+    // of the guard, so it passes for the wrong reason. This id is the one string
+    // that only the guard can save us from.
+    const labels = new ProcessLabels()
+    labels.register(7, { kind: 'pack-app', label: 'Pack app: demo/console', stop: vi.fn() }, 1_000)
+    expect(labels.stopFor('7:undefined')).toBeNull()
+  })
+
   it('returns null when the start time does not match the pinned identity', () => {
     const labels = new ProcessLabels()
     labels.register(7, { kind: 'pack-app', label: 'Pack app: demo/console', stop: vi.fn() }, 1_000)
