@@ -644,6 +644,40 @@ describe('stop', () => {
     expect(screen.queryByText('Stopping…')).not.toBeInTheDocument()
   })
 
+  it('re-enables the button after the pending timeout even when the row never leaves the snapshot', async () => {
+    // Pins the finding: terminate() can return `ok: true` and then the sample stream
+    // never drops the row again (owner teardown that doesn't reap the child; or the
+    // sidecar dying right after the press, so publishHealth keeps republishing the same
+    // stale objects). Without a bounded escape, the button would stay "Stopping…" and
+    // disabled forever, recoverable only by unmounting the page.
+    vi.useFakeTimers()
+    try {
+      render(<DiagnosticsSettings />)
+      await act(async () => onSampleCb(snapshot({ objects: [objectRow()] })))
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Stop MCP: demo' }))
+      })
+      expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).toBeDisabled()
+      expect(screen.getByText('Stopping…')).toBeInTheDocument()
+
+      // The stream keeps re-affirming the SAME row is still present — it never proves the
+      // process died, so the stream-based clearing path never fires.
+      await act(async () => onSampleCb(snapshot({ objects: [objectRow()] })))
+      expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).toBeDisabled()
+
+      // Advancing past the timeout inside act() flushes the resulting setPending update.
+      await act(async () => {
+        vi.advanceTimersByTime(10_000)
+      })
+
+      expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).not.toBeDisabled()
+      expect(screen.queryByText('Stopping…')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).toHaveTextContent('Stop')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('surfaces a failure and clears the pending state', async () => {
     terminateMock.mockResolvedValueOnce({ ok: false, reason: 'failed', message: 'boom' })
     render(<DiagnosticsSettings />)

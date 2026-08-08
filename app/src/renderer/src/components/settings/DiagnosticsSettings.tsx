@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import {
   DIAGNOSTICS_BUCKET_MS,
@@ -178,6 +178,21 @@ function stopCopy(o: DiagnosticsObject): { title: string; message: string } {
   }
 }
 
+/**
+ * A pending Stop is normally only cleared by the sample stream — that's the sole proof a
+ * process actually died. But two reachable paths return `ok: true` from `terminate()` and
+ * then never produce a snapshot without the row: an owner route whose teardown doesn't
+ * reap the child, or the sidecar dying right after the press (the service preserves the
+ * existing objects when it republishes on a health change, so no fresh sample ever
+ * arrives). Either way the row would stay "Stopping…" and disabled forever, recoverable
+ * only by leaving the page.
+ *
+ * This timeout is a dead-end escape hatch, NOT a second claim that the process died — the
+ * stream stays the only thing that clears `pending` in the normal case. All this does is
+ * let the id drop out of `pending` after a wait, so the user can press Stop again.
+ */
+const STOP_PENDING_TIMEOUT_MS = 10_000
+
 const STOP_FAILURE: Record<'not-terminable' | 'gone' | 'failed', string> = {
   'not-terminable': 'This row cannot be stopped from here.',
   gone: 'It is no longer running.',
@@ -308,6 +323,49 @@ export default function DiagnosticsSettings(): React.JSX.Element {
   const [windowId, setWindowId] = useState<WindowId>(DEFAULT_WINDOW_ID)
   const [history, setHistory] = useState<DiagnosticsHistory | null>(null)
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set())
+  // One STOP_PENDING_TIMEOUT_MS timer per pending id. A plain Map in a ref rather than
+  // state: arming/clearing a timer is bookkeeping, not something the render output
+  // depends on. The Map instance itself never changes identity across renders or across
+  // StrictMode's mount→unmount→mount, so clearing it in an unmount effect can never leave
+  // it in a state where a later id can no longer be armed — unlike a boolean "alive" ref,
+  // there is no one-shot flag here to get stuck at `false`.
+  const pendingTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  const clearPendingTimer = (id: string): void => {
+    const timer = pendingTimers.current.get(id)
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      pendingTimers.current.delete(id)
+    }
+  }
+
+  // Clears any existing timer for `id` first, so a second press on the same row can never
+  // inherit the first press's shorter remaining deadline.
+  const armPendingTimer = (id: string): void => {
+    clearPendingTimer(id)
+    const timer = setTimeout(() => {
+      pendingTimers.current.delete(id)
+      setPending((prev) => {
+        if (!prev.has(id)) return prev
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }, STOP_PENDING_TIMEOUT_MS)
+    pendingTimers.current.set(id, timer)
+  }
+
+  // Clear every outstanding timer on unmount. Captures the Map instance (stable across
+  // the component's life via useRef) rather than reading pendingTimers.current inside the
+  // cleanup, so this can't be tripped up by ref timing — but it wouldn't matter either way
+  // since it's the same object.
+  useEffect(() => {
+    const timers = pendingTimers.current
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer)
+      timers.clear()
+    }
+  }, [])
 
   const healthy = snap?.sidecar.status === 'healthy'
   const windowMs = WINDOWS.find((w) => w.id === windowId)?.ms ?? DEFAULT_WINDOW_MS
@@ -343,7 +401,14 @@ export default function DiagnosticsSettings(): React.JSX.Element {
         if (prev.size === 0) return prev
         const live = new Set(s.objects.map((o) => o.id))
         const next = new Set([...prev].filter((id) => live.has(id)))
-        return next.size === prev.size ? prev : next
+        if (next.size === prev.size) return prev
+        // The stream just proved these ids are gone — their escape-hatch timers would
+        // otherwise still be armed and could fire later, prematurely clearing a
+        // SUBSEQUENT press's pending state for the same id.
+        for (const id of prev) {
+          if (!next.has(id)) clearPendingTimer(id)
+        }
+        return next
       })
     })
     void window.argus.diagnostics.latest().then((s) => {
@@ -378,8 +443,10 @@ export default function DiagnosticsSettings(): React.JSX.Element {
     if (!(await confirm({ title, message, confirmLabel: 'Stop', danger: true }))) return
 
     setPending((p) => new Set(p).add(o.id))
+    armPendingTimer(o.id)
     const res = await window.argus.diagnostics.terminate(o.id)
     if (!res.ok) {
+      clearPendingTimer(o.id)
       setPending((p) => {
         const next = new Set(p)
         next.delete(o.id)
