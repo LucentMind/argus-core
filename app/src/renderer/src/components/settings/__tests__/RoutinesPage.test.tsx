@@ -523,6 +523,18 @@ describe('RoutinesPage — schedule editor', () => {
     expect(screen.getByLabelText('Minutes')).toBeInTheDocument()
   })
 
+  it('names the real problem with a fractional interval above the floor', async () => {
+    // 5.5 satisfies "at least 5 minutes", so reporting the floor tells the user to fix
+    // something they have already done. Integrality is the rule it actually breaks.
+    await openEditor()
+    pickKind('Every N minutes')
+    fireEvent.change(screen.getByLabelText('Minutes'), { target: { value: '5.5' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/whole number of minutes/i)).toBeInTheDocument()
+    expect(screen.queryByText(/at least 5 minutes/i)).toBeNull()
+    expect(api.save).not.toHaveBeenCalled()
+  })
+
   it('refuses a weekly schedule with no days selected', async () => {
     await openEditor()
     pickKind('Weekly')

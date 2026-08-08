@@ -482,7 +482,13 @@ export function RoutinesPage(): React.JSX.Element {
     let schedule: RoutineSchedule | undefined
     if (editing.scheduleKind === 'interval') {
       const every = Number(editing.everyMinutes)
-      if (!Number.isInteger(every) || every < MIN_INTERVAL_MINUTES) {
+      // Integrality FIRST, and separately: 5.5 satisfies the floor, so folding the two rules
+      // into one message told a user who typed it to raise a value they had already raised.
+      if (!Number.isInteger(every)) {
+        setMutationError('An interval schedule must be a whole number of minutes.')
+        return
+      }
+      if (every < MIN_INTERVAL_MINUTES) {
         setMutationError(
           `An interval schedule must be at least ${MIN_INTERVAL_MINUTES} minutes — runs are ` +
             `serial, and a shorter one would hold the single slot continuously.`
