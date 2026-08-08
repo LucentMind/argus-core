@@ -238,6 +238,10 @@ function App(): React.JSX.Element {
             <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>
               <RelatedHistoryStandalone onOpenCase={openCase} onClose={() => setView(prevView)} />
             </DynamicScope>
+          ) : view.kind === 'proposals' ? (
+            <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>
+              <div>Proposals view - to be implemented in a later task</div>
+            </DynamicScope>
           ) : (
             <DynamicScope variant="case" light={ambientLight} cutoff={ambientCutoff}>
               <CaseWorkspace

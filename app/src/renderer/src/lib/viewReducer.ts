@@ -1,4 +1,5 @@
 import type { SettingsDeepLink } from '../components/settings/SettingsView'
+import type { ProposalType } from '../../../shared/proposals'
 
 export type View =
   | { kind: 'home' }
@@ -6,18 +7,20 @@ export type View =
   | { kind: 'settings'; page?: SettingsDeepLink }
   | { kind: 'observability' }
   | { kind: 'relatedHistory' }
+  | { kind: 'proposals'; types?: readonly ProposalType[] }
 
 export type ViewAction =
   | { kind: 'settings'; page?: SettingsDeepLink }
   | { kind: 'observability' }
   | { kind: 'relatedHistory' }
+  | { kind: 'proposals'; types?: readonly ProposalType[] }
 
 /**
- * Pure view-transition logic shared by the Settings, Observability and
- * Related History toolbar icons (App.tsx's
- * `openSettings`/`openObservability`/`openRelatedHistory`). Extracted from
- * App so the toggle rules -- including the branch below with no DOM path --
- * have an honest, directly-testable seam.
+ * Pure view-transition logic shared by the Settings, Observability,
+ * Related History and Proposals toolbar icons (App.tsx's
+ * `openSettings`/`openObservability`/`openRelatedHistory`/`openProposals`).
+ * Extracted from App so the toggle rules -- including the branch below with
+ * no DOM path -- have an honest, directly-testable seam.
  *
  * Toggle rules:
  *  - Observability: a click while already on Observability returns to
@@ -34,6 +37,11 @@ export type ViewAction =
  *    (SettingsView stays mounted across this transition -- App renders it
  *    unkeyed, and it syncs its visible page from the changed `initialPage`
  *    prop itself.)
+ *  - Proposals: same toggle rule as Settings with the `page` carve-out copied
+ *    for `types` -- a click while already on Proposals AND the action carries
+ *    no `types` returns to `prevView` (toggles shut). But opening Proposals
+ *    with a preset `types` while already open re-presets instead of closing
+ *    (this is what the Library banner's deep link does).
  *
  * `prevView` bookkeeping (recording the view being left, and not overwriting
  * it when re-entering a view already active) stays the caller's job -- this
@@ -48,6 +56,13 @@ export function nextView(cur: View, prevView: View, action: ViewAction): View {
     // Same toggle rule as Observability: a second click returns to the base view.
     if (cur.kind === 'relatedHistory') return prevView
     return { kind: 'relatedHistory' }
+  }
+  if (action.kind === 'proposals') {
+    // Same toggle rule as Observability, with Settings' page carve-out copied
+    // for `types`: opening with a preset while already open re-presets rather
+    // than slamming the view shut (the Library banner's deep link).
+    if (cur.kind === 'proposals' && action.types === undefined) return prevView
+    return { kind: 'proposals', types: action.types }
   }
   if (cur.kind === 'settings' && action.page === undefined) return prevView
   return { kind: 'settings', page: action.page }

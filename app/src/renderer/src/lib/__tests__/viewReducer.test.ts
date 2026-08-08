@@ -63,3 +63,32 @@ describe('related history view', () => {
     expect(nextView({ kind: 'relatedHistory' }, c, { kind: 'relatedHistory' })).toEqual(c)
   })
 })
+
+describe('nextView: proposals', () => {
+  const home: View = { kind: 'home' }
+  const caseView: View = { kind: 'case', slug: 'NAV-1' }
+
+  it('opens the proposals view from any base view', () => {
+    expect(nextView(home, home, { kind: 'proposals' })).toEqual({
+      kind: 'proposals',
+      types: undefined
+    })
+    expect(nextView(caseView, caseView, { kind: 'proposals' })).toEqual({
+      kind: 'proposals',
+      types: undefined
+    })
+  })
+
+  it('toggles shut back to prevView on a second no-preset click', () => {
+    const cur: View = { kind: 'proposals' }
+    expect(nextView(cur, caseView, { kind: 'proposals' })).toEqual(caseView)
+  })
+
+  it('re-presets instead of toggling shut when a types preset is given', () => {
+    const cur: View = { kind: 'proposals' }
+    expect(nextView(cur, home, { kind: 'proposals', types: ['skill-new'] })).toEqual({
+      kind: 'proposals',
+      types: ['skill-new']
+    })
+  })
+})
