@@ -5,7 +5,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { getCase } from '../../caseService'
-import { listRoutineRuns } from '../runs'
+import { listRoutineRuns, insertRoutineRun, finishRoutineRun } from '../runs'
 import { RoutineStore } from '../store'
 import { RoutinesService } from '../service'
 import type { BackgroundTurnParams } from '../../agent/background'
@@ -917,5 +917,34 @@ describe('review state', () => {
 
     svc.markAllReviewed()
     expect(svc.payload().unreviewedCount).toBe(0)
+  })
+
+  it('reports the true total when unreviewed runs exceed the 50-row cap on listRoutineRuns', () => {
+    // Inserted directly rather than driven through 51 real startRun/whenIdle round trips — the
+    // service runs serially, so that would make this test needlessly slow. What matters here is
+    // only what payload() does with rows already in the table.
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async () => ({ status: 'ok', text: 'nothing new' }),
+      now: () => NOW
+    })
+
+    const TOTAL = 55
+    for (let i = 0; i < TOTAL; i++) {
+      const runId = insertRoutineRun(db, 'sweep', 'routine-sweep', 'manual', () => NOW)
+      finishRoutineRun(db, runId, { status: 'ok', summary: 'nothing new' }, () => NOW)
+    }
+
+    const payload = svc.payload()
+    // The cap is real: listRoutineRuns never hands back more than 50 rows...
+    expect(payload.runs).toHaveLength(50)
+    // ...but unreviewedCount must still be the true total, not a derivation from that capped
+    // array — otherwise it would silently under-report exactly when the backlog is big enough
+    // to matter.
+    expect(payload.unreviewedCount).toBe(TOTAL)
+    expect(payload.unreviewedCount).toBeGreaterThan(50)
+    expect(payload.unreviewedCount).toBeGreaterThan(payload.runs.length)
   })
 })
