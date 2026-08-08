@@ -194,6 +194,9 @@ describe('scoped runs', () => {
     // The shared `routine-<id>` case is the UNSCOPED shape. A scoped run works in the items'
     // own cases, so creating one here would leave an empty case in the user's list forever.
     expect(getCase(db, 'routine-nightly')).toBeNull()
+    // Finding 2: the run row itself must not claim a case it never created either — the UI's
+    // "Open case" button reads exactly this field.
+    expect(run.caseSlug).toBeNull()
   })
 
   it('carries the remainder to the next run instead of dropping it', async () => {
@@ -313,6 +316,8 @@ describe('scoped runs', () => {
     expect(run.status).toBe('failed')
     expect(run.error).toMatch(/disk full/)
     expect(readRoutineCursor(db, 'nightly')).toBe('2026-08-01T00:00:00.000Z')
+    // Minor 5: the abort must not discard the count of items already processed before it hit.
+    expect(run.summary).toBe('1 processed')
   })
 
   it('records an item failed when its turn does not come back ok', async () => {
@@ -365,6 +370,8 @@ describe('scoped runs', () => {
     await svc.whenIdle()
     expect(turns).toEqual(['routine-nightly'])
     expect(listRunItems(db, [svc.payload().runs[0].id])).toEqual([])
+    // Unchanged by the Finding 2 fix: only a SCOPED run's row gets a null case_slug.
+    expect(svc.payload().runs[0].caseSlug).toBe('routine-nightly')
   })
 
   it('records a failed run when the scope itself cannot be resolved', async () => {

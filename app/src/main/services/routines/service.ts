@@ -117,7 +117,12 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
  * STARVES outright — a second ticket sharing the boundary timestamp could never enter the window,
  * because the one already attempted fills it on every future run, forever. Over-fetching is what
  * makes items.ts's "filtered BEFORE the cap, so a run still does a full run's worth of new work"
- * true rather than aspirational, and it is also what makes the reported carry-over count real.
+ * true rather than aspirational, and it is also what makes the reported carry-over count NON-ZERO
+ * for jira scopes at all — NOT what makes it real. `deferred` only ever reflects however many of
+ * these `max + CURSOR_BOUNDARY_SLACK` over-fetched rows survive the cap after already-attempted
+ * keys are filtered out, never the true remainder: at `max: 2` against 100 matching tickets the
+ * reported "carried to the next run" count tops out at 10 while 98 tickets actually remain. A
+ * caller that needs the true count would have to ask Jira for it separately; nothing here does.
  *
  * Ten bounds the tie: a boundary shared by more than ten ALREADY-ATTEMPTED items would still
  * starve. Paging until the window yields new keys is the complete fix and is deliberately not
@@ -377,7 +382,18 @@ export class RoutinesService {
     // Opened before any fallible work so a setup failure is a recorded `failed` run rather than
     // an invisible no-op. routine_runs has no FK to cases (db.ts), so the row is legal even if
     // the case is never created.
-    const runId = insertRoutineRun(db, routine.id, slug, trigger, this.deps.now)
+    //
+    // NULL for a scoped run, not `slug`: a scoped run never creates a `routine-<id>` case (see
+    // the branch below) — its items open their OWN cases, recorded on routine_run_items. Writing
+    // `slug` here regardless was Finding 2's bug: the run row claimed a case that was never
+    // created, and RoutineInbox's "Open case" button took the user to a 404.
+    const runId = insertRoutineRun(
+      db,
+      routine.id,
+      routine.scope ? null : slug,
+      trigger,
+      this.deps.now
+    )
     this.safeNotify()
 
     // One decision, two consumers: the session row below and the turn request further down.
@@ -490,9 +506,11 @@ export class RoutinesService {
    * nothing behind it ever reached — while the run still reports success on everything else.
    *
    * PER-ITEM FAILURES NEVER KILL THE RUN. Each item has its own try/catch that closes its row as
-   * `failed`; only a failure to resolve the scope AT ALL (or a failure of the bookkeeping itself)
-   * reaches the outer catch, because that one produces no items and so is a failed RUN rather
-   * than a failed item.
+   * `failed`; only a failure to resolve the scope AT ALL, or a failure of the bookkeeping itself
+   * (the per-item DB writes below), reaches the outer catch. The first of those produces no items
+   * at all; the second can fire mid-loop with items already processed behind it — the outer catch
+   * reports the run failed either way, but keeps whatever processed/skipped/failed counts the
+   * loop had already earned rather than discarding them.
    */
   private async executeItems(
     routine: RoutineDef,
@@ -510,6 +528,17 @@ export class RoutinesService {
     let failed = 0
     let skipped = 0
     let deferred = 0
+
+    // Closes over the counters above, read at whichever point the run finishes — the happy path
+    // at the bottom of this function, or the outer catch when the loop aborts mid-run. One
+    // function so the two call sites cannot format the same numbers two different ways.
+    const summarize = (): string => {
+      const parts = [`${processed} processed`]
+      if (skipped) parts.push(`${skipped} skipped`)
+      if (failed) parts.push(`${failed} failed`)
+      if (deferred) parts.push(`${deferred} carried to the next run`)
+      return parts.join(' · ')
+    }
 
     try {
       if (!resolver) {
@@ -562,21 +591,26 @@ export class RoutinesService {
         this.safeNotify()
       }
     } catch (err) {
-      // Scope resolution itself failed — no items exist, so this is a failed RUN.
-      finishRoutineRun(db, runId, { status: 'failed', error: message(err) }, this.deps.now)
+      // Reached either by scope resolution failing outright (no items were ever produced) or by
+      // the per-item bookkeeping itself failing mid-loop (the abort test drives exactly this: an
+      // item already `processed` behind the one that aborted). Either way the RUN is failed, but
+      // a run that completed 6 of 8 items before dying must still say so — summarize() below
+      // reports whatever processed/skipped/failed the loop had already earned, not nothing.
+      finishRoutineRun(
+        db,
+        runId,
+        { status: 'failed', error: message(err), summary: summarize() },
+        this.deps.now
+      )
       return
     }
 
-    const parts = [`${processed} processed`]
-    if (skipped) parts.push(`${skipped} skipped`)
-    if (failed) parts.push(`${failed} failed`)
-    if (deferred) parts.push(`${deferred} carried to the next run`)
     finishRoutineRun(
       db,
       runId,
       // A run where every item failed is a failed run — no new rule needed for the inbox, which
       // already shows failures.
-      { status: processed === 0 && failed > 0 ? 'failed' : 'ok', summary: parts.join(' · ') },
+      { status: processed === 0 && failed > 0 ? 'failed' : 'ok', summary: summarize() },
       this.deps.now
     )
   }
