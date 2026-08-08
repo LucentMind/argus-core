@@ -258,6 +258,14 @@ export function runBackgroundTurn(
     if (params.signal.aborted) onAbort()
     else params.signal.addEventListener('abort', onAbort, { once: true })
   }
+  // An already-aborted `signal` just settled synchronously, above — `outcome` is non-null the
+  // instant `onAbort()` returns. Without this, the two statements below still ran anyway: a
+  // `timeoutMs` timer (up to 30 minutes, MAX_TIMEOUT_MINUTES) got armed for a turn that had
+  // already ended, sitting there to eventually fire a no-op (settle()'s own `if (outcome) return`
+  // catches it, so nothing corrupts — it is pure waste, not a correctness bug) — and `send()`
+  // dispatched a prompt into a session already mid-teardown from `settle()`'s own `session.stop()`
+  // call two lines up.
+  if (outcome) return done
 
   timer = setTimeout(() => {
     // Latching 'timeout' BEFORE stop() is what makes the timeout stick: stop() interrupts the
