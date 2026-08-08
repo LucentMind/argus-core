@@ -16,56 +16,121 @@ export interface QueueEntry {
   previouslyReviewed: boolean
 }
 
-// skill = signal, reference/recipe = analytics, summary = review — the accent
-// families the rest of the app already uses for these asset kinds.
-const TYPE_ICON: Record<ProposalType, { Icon: LucideIcon; cls: string }> = {
-  'skill-new': { Icon: Zap, cls: 'bg-signal/15 text-signal' },
-  'skill-edit': { Icon: Zap, cls: 'bg-signal/15 text-signal' },
-  'reference-edit': { Icon: BookOpen, cls: 'bg-analytics/15 text-analytics' },
-  recipe: { Icon: BookOpen, cls: 'bg-analytics/15 text-analytics' },
-  'case-summary': { Icon: FileText, cls: 'bg-review/15 text-review' }
+/**
+ * The three kinds of thing a proposal can be, as the rows already draw them: skill = signal,
+ * reference/recipe = analytics, summary = review — the accent families the rest of the app uses
+ * for these asset kinds.
+ *
+ * This is also the filter set (user-directed, 2026-08-08). It used to be one chip per
+ * `ProposalType`, i.e. five, which split "Skill · new" from "Skill · edit" and "Reference" from
+ * "Recipe" — distinctions the row subtitles already make and that nobody filters by. Three chips,
+ * one per icon, is the whole control now; the exact type still shows on every row.
+ */
+const TYPE_GROUPS = [
+  {
+    key: 'skill',
+    label: 'Skill',
+    Icon: Zap,
+    badge: 'bg-signal/15 text-signal',
+    ink: 'text-signal'
+  },
+  {
+    key: 'reference',
+    label: 'Reference',
+    Icon: BookOpen,
+    badge: 'bg-analytics/15 text-analytics',
+    ink: 'text-analytics'
+  },
+  {
+    key: 'summary',
+    label: 'Case summary',
+    Icon: FileText,
+    badge: 'bg-review/15 text-review',
+    ink: 'text-review'
+  }
+] as const satisfies readonly {
+  key: string
+  label: string
+  Icon: LucideIcon
+  badge: string
+  ink: string
+}[]
+
+type GroupKey = (typeof TYPE_GROUPS)[number]['key']
+
+const GROUP_OF: Record<ProposalType, GroupKey> = {
+  'skill-new': 'skill',
+  'skill-edit': 'skill',
+  'reference-edit': 'reference',
+  recipe: 'reference',
+  'case-summary': 'summary'
 }
+
+/** The row icon comes from the same table as the filter chip — one source of truth for
+ *  "what kind of thing is this", so the chip and the rows it filters can never disagree. */
+const TYPE_ICON: Record<ProposalType, { Icon: LucideIcon; cls: string }> = Object.fromEntries(
+  (Object.keys(GROUP_OF) as ProposalType[]).map((t) => {
+    const g = TYPE_GROUPS.find((x) => x.key === GROUP_OF[t])!
+    return [t, { Icon: g.Icon, cls: g.badge }]
+  })
+) as Record<ProposalType, { Icon: LucideIcon; cls: string }>
 
 export function ProposalQueue({
   entries,
-  pendingCount,
   typesPresent,
   countByType,
   activeTypes,
-  onToggleType,
+  onToggleTypes,
   selectedFile,
   onSelect
 }: {
   entries: QueueEntry[]
-  pendingCount: number
   typesPresent: ProposalType[]
   countByType: Partial<Record<ProposalType, number>>
   activeTypes: ReadonlySet<ProposalType>
-  onToggleType: (t: ProposalType) => void
+  /** Toggling a chip moves every type in its group at once — the filter is per group, the
+   *  state it drives is still per type (the caller filters rows by `ProposalType`). */
+  onToggleTypes: (types: readonly ProposalType[], active: boolean) => void
   selectedFile: string | null
   onSelect: (file: string) => void
 }): React.JSX.Element {
+  // Only groups with something in the queue get a chip, same rule the per-type chips had.
+  const groups = TYPE_GROUPS.map((g) => {
+    const types = typesPresent.filter((t) => GROUP_OF[t] === g.key)
+    return {
+      ...g,
+      types,
+      count: types.reduce((n, t) => n + (countByType[t] ?? 0), 0),
+      // `some`, not `every`: a group is "on" as soon as any of its types is filtered in, which is
+      // the only state the chip can produce (it sets or clears the whole group together) and is
+      // also the honest reading of a stale set left over from a type that has since drained.
+      active: types.some((t) => activeTypes.has(t))
+    }
+  }).filter((g) => g.types.length > 0)
+
   return (
+    // No "Proposals · N pending" header of its own (user-directed, 2026-08-08): the top bar
+    // carries exactly that, a few pixels above, ever since this view stopped drawing its own
+    // title row. The filter chips are this column's first row now, and the queue gets the
+    // height back.
     <aside className="flex min-h-0 w-72 shrink-0 flex-col border-r border-hair">
-      <div className="flex items-baseline gap-2 border-b border-hair px-4 py-3">
-        <span className="text-sm font-medium text-ink">Proposals</span>
-        <span className="text-xs text-mute">{pendingCount} pending</span>
-      </div>
-      {typesPresent.length > 0 && (
+      {groups.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 border-b border-hair px-3 py-2">
-          {typesPresent.map((t) => (
+          {groups.map((g) => (
             <button
-              key={t}
-              aria-pressed={activeTypes.has(t)}
-              aria-label={`Filter ${PROPOSAL_TYPE_LABELS[t]}`}
-              onClick={() => onToggleType(t)}
-              className={`rounded-full border px-2 py-0.5 text-xs transition-colors ${
-                activeTypes.has(t)
-                  ? 'border-signal text-ink'
-                  : 'border-hair text-dim hover:text-ink'
+              key={g.key}
+              aria-pressed={g.active}
+              aria-label={`Filter ${g.label}`}
+              onClick={() => onToggleTypes(g.types, !g.active)}
+              className={`flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs transition-colors ${
+                g.active ? 'border-signal text-ink' : 'border-hair text-dim hover:text-ink'
               }`}
             >
-              {PROPOSAL_TYPE_LABELS[t]} · {countByType[t] ?? 0}
+              {/* The icon carries the accent colour whatever the chip's own state, so a chip is
+                  identifiable by its family before you read the label — the rows use the same
+                  pairing. */}
+              <g.Icon size={12} strokeWidth={1.75} className={g.ink} />
+              {g.label} · {g.count}
             </button>
           ))}
         </div>

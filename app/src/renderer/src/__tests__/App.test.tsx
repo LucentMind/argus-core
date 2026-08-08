@@ -308,7 +308,7 @@ describe('App: ambient anchor Provider', () => {
     uiStore.setDynamicTheme(true)
     render(<App />)
     await userEvent.click(screen.getByLabelText('Settings'))
-    const title = await screen.findByTestId('settings-title')
+    const title = await screen.findByTestId('view-title')
     await waitFor(() => {
       expect(lastAmbientCanvasProps?.light).toBe(title)
       expect(lastAmbientCanvasProps?.cutoff).toBe(screen.getByRole('banner'))
@@ -337,15 +337,13 @@ describe('App: ambient anchor Provider', () => {
 
 describe('App: proposals view', () => {
   // The TopBar entrypoint is a toggle (openProposalsView), same shape as Related History and
-  // Observability: a second click returns to the previous base view. Asserting on the standalone
-  // shell's own "N pending" header segment rather than its "Close" IconBtn: this harness leaves
-  // `window.argus.platform` unset (not 'darwin'), so WindowControls draws its own native Close
-  // caption button on every view too, and the two share the accessible name "Close".
+  // Observability: a second click returns to the previous base view. Asserted through the
+  // header's pending-count segment, which the proposals view publishes and only it publishes —
+  // the view has no close button of its own to click any more (Escape and this same toggle are
+  // how it shuts, exactly as Settings does).
   it('opens the proposals view from the TopBar and toggles shut on second click', async () => {
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: 'Proposals' }))
-    // The header's own "· N pending" segment, not ProposalQueue's identically-worded but
-    // dot-less "N pending" count (both are mounted at once).
     expect(await screen.findByText(/^· \d+ pending$/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Proposals' }))
     await waitFor(() => expect(screen.queryByText(/^· \d+ pending$/)).not.toBeInTheDocument())

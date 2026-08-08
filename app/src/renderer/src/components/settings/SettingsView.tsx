@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState, useSyncExternalStore } from 'react'
 import { visiblePages, type PageId } from './settingsPages'
 import { useSettingsPayload } from '../../lib/settingsStore'
 import { useEscapeLayer } from '../../lib/escapeLayer'
-import { settingsBarStore } from '../../lib/settingsBarStore'
+import { viewTitleStore } from '../../lib/viewTitleStore'
 import { uiStore } from '../../lib/uiStore'
 import type { ProposalType } from '../../../../shared/proposals'
 import { GeneralSettings } from './GeneralSettings'
@@ -97,9 +97,9 @@ export function SettingsView({
   // the header's title on each navigation. This one tracks the page; the next clears on the way
   // out of Settings only.
   useEffect(() => {
-    settingsBarStore.publish({ label: active.label, blurb: active.blurb })
+    viewTitleStore.publish({ label: active.label, blurb: active.blurb })
   }, [active.label, active.blurb])
-  useEffect(() => () => settingsBarStore.publish(null), [])
+  useEffect(() => () => viewTitleStore.publish(null), [])
 
   useEscapeLayer({ onEscape: onClose })
 

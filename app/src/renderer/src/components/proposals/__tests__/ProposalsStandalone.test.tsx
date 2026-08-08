@@ -5,6 +5,7 @@ import '@testing-library/jest-dom/vitest'
 import { ProposalsStandalone } from '../ProposalsStandalone'
 import { settingsStore } from '../../../lib/settingsStore'
 import { proposalsStore } from '../../../lib/proposalsStore'
+import { viewTitleStore } from '../../../lib/viewTitleStore'
 import type { ProposalsPayload } from '../../../../../shared/proposals'
 
 const payload: ProposalsPayload = {
@@ -62,6 +63,7 @@ let rejectMock: ReturnType<typeof vi.fn>
 beforeEach(() => {
   settingsStore.reset()
   proposalsStore.reset()
+  viewTitleStore.reset()
   // Realistic IPC behavior: accept/reject return the fresh remaining list
   // (source of truth may have also changed other rows via a distiller run),
   // never a hardcoded empty array — the component trusts this response
@@ -105,6 +107,30 @@ describe('ProposalsStandalone', () => {
       'aria-current',
       'true'
     )
+  })
+
+  // The view has no title row of its own any more (user-directed, 2026-08-08) — TopBar renders
+  // it, from this store, and the pending count rides along as the detail. Asserted here rather
+  // than through a rendered node precisely because the node is a SIBLING view's; the store is
+  // the whole contract between them.
+  it('publishes its title and live pending count for the header, and clears it on unmount', async () => {
+    const { unmount } = render(
+      <ProposalsStandalone onClose={vi.fn()} onNavigateSettings={vi.fn()} />
+    )
+    await waitFor(() => expect(viewTitleStore.get()?.label).toBe('Proposals'))
+    expect(viewTitleStore.get()?.detail).toBe('· 4 pending')
+    // Accepting one drops the count — the header is not a snapshot of the moment it opened.
+    fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Accept Sharpen step 4' }))
+    await waitFor(() => expect(viewTitleStore.get()?.detail).toBe('· 3 pending'))
+    unmount()
+    expect(viewTitleStore.get()).toBeNull()
+  })
+
+  // A count of 0 while the list is still in flight would be a claim, not a placeholder.
+  it('publishes no count until the list has loaded', () => {
+    render(<ProposalsStandalone onClose={vi.fn()} onNavigateSettings={vi.fn()} />)
+    expect(viewTitleStore.get()).toEqual({ label: 'Proposals', detail: undefined })
   })
 
   it('clicking another queue row swaps the detail pane', async () => {
@@ -289,7 +315,8 @@ describe('ProposalsStandalone', () => {
       accepted: { kind: 'skill', name: 'rca' }
     })
     renderShell()
-    const chip = await screen.findByRole('button', { name: 'Filter Skill · edit' })
+    // One chip per icon family now — "Skill" covers skill-edit and skill-new together.
+    const chip = await screen.findByRole('button', { name: 'Filter Skill' })
     fireEvent.click(chip)
     expect(chip).toHaveAttribute('aria-pressed', 'true')
 

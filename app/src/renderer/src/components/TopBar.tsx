@@ -1,9 +1,9 @@
 import { useSyncExternalStore } from 'react'
-import { Settings, History, Home, Inbox } from 'lucide-react'
+import { Settings, Timeline, Home, Inbox } from 'lucide-react'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { uiStore } from '../lib/uiStore'
 import { caseBarStore, useCaseBar } from '../lib/caseBarStore'
-import { useSettingsBar } from '../lib/settingsBarStore'
+import { useViewTitle } from '../lib/viewTitleStore'
 import { useProposalCounts } from '../lib/proposalsStore'
 import { isDarwin } from '../lib/platform'
 import { WindowControls } from './WindowControls'
@@ -63,10 +63,11 @@ export function TopBar({
   const bar = useCaseBar()
   const anchors = useAmbientAnchors()
   const proposalCounts = useProposalCounts()
-  // Non-null exactly while Settings is up — SettingsView publishes its active page here because
-  // this bar is its SIBLING, not its ancestor. Doubles as the "am I in Settings" flag the
-  // anchor below keys off, so there is one source of truth for it.
-  const settingsBar = useSettingsBar()
+  // Non-null exactly while one of the full-page views (Settings, Proposals, Related history) is
+  // up — each publishes its own title here because this bar is its SIBLING, not its ancestor.
+  // Doubles as the "am I on such a view" flag the anchor below keys off, so there is one source
+  // of truth for it.
+  const viewTitle = useViewTitle()
   // Busy state is only this case's if it was published for this case: CaseWorkspace publishes
   // on a case switch too, and the bar re-renders before that publish lands.
   const busyForThisCase = activeSlug !== null && bar.slug === activeSlug
@@ -76,16 +77,17 @@ export function TopBar({
     // This header IS the title bar now — there is no strip above it, and the window's caption
     // buttons live at its right end.
     <header
-      // In Settings the band dies at this header's own bottom edge; on every other view the view
-      // owns this anchor (home's filter row, the case view's band), which is why the ref is
-      // conditional: the header outlives each view, so an unconditional one would keep the band
-      // pinned here after Settings closes. `setLight`/`setCutoff` are the claim/release ref
-      // callbacks from lib/ambientAnchors.ts, not bare `useState` setters: each returns a cleanup
-      // that clears the slot only if it still holds the node THAT callback attached, so this
-      // header's detach on leaving Settings cannot null out an anchor the incoming view already
-      // claimed. Still a ref callback underneath, so react-hooks/refs is a false positive.
+      // On a title-publishing view (Settings, Proposals, Related history) the band dies at this
+      // header's own bottom edge; on every other view the view owns this anchor (home's filter
+      // row, the case view's band), which is why the ref is conditional: the header outlives each
+      // view, so an unconditional one would keep the band pinned here after that view closes.
+      // `setLight`/`setCutoff` are the claim/release ref callbacks from lib/ambientAnchors.ts, not
+      // bare `useState` setters: each returns a cleanup that clears the slot only if it still
+      // holds the node THAT callback attached, so this header's detach on leaving cannot null out
+      // an anchor the incoming view already claimed. Still a ref callback underneath, so
+      // react-hooks/refs is a false positive.
       // eslint-disable-next-line react-hooks/refs
-      ref={settingsBar ? anchors.setCutoff : null}
+      ref={viewTitle ? anchors.setCutoff : null}
       className={`argus-drag argus-header-inset relative z-20 flex h-12 items-center gap-1.5 ${
         // Transparent so the flow reads through it. With the dynamic theme off there is no
         // canvas, and the bar keeps its own ground and hairline.
@@ -114,11 +116,12 @@ export function TopBar({
         </span>
         <Home size={16} strokeWidth={1.5} />
       </button>
-      {/* Settings' page identity, where the case group sits in a case. The two are mutually
-          exclusive by construction: Settings is not a case view, so `activeSlug` is null whenever
-          this is non-null. `min-w-0` with no grow factor — sized by its content, free to shrink
-          and truncate when the tab band needs the width. */}
-      {settingsBar && (
+      {/* The active full-page view's identity (Settings' page, or Proposals / Related history),
+          where the case group sits in a case. The two are mutually exclusive by construction:
+          none of those views is a case view, so `activeSlug` is null whenever this is non-null.
+          `min-w-0` with no grow factor — sized by its content, free to shrink and truncate when
+          the tab band needs the width. */}
+      {viewTitle && (
         // Absolutely positioned, and OUT of the flex row on purpose (user-directed, 2026-08-02):
         // the title has to line up with the settings content column below, and that column's left
         // edge is a fact about SettingsView's layout (`w-48` rail + the page's `p-8`), not about
@@ -127,7 +130,7 @@ export function TopBar({
         // label would push the tab band and the action icons rightward, which is the failure the
         // right group's width budget exists to prevent.
         //
-        // The offset itself is `.argus-settings-masthead` in main.css, NOT a `left-*`/`pl-*`
+        // The offset itself is `.argus-view-masthead` in main.css, NOT a `left-*`/`pl-*`
         // utility, purely so a fixed `14rem` has one named place to live rather than being an
         // arbitrary Tailwind value repeated at the call site. It is a plain `left: 14rem` — the
         // header's own `.argus-header-inset` padding does NOT need cancelling here, because an
@@ -140,8 +143,8 @@ export function TopBar({
         // alignment loosens is a window wide enough for the content pane to exceed `max-w-6xl`
         // (~1350px+), where `mx-auto` starts centring the column away from the rail; the title
         // stays put. Tracking that exactly would mean measuring a sibling view's DOM from here.
-        <div className="argus-settings-masthead pointer-events-none absolute inset-y-0 flex items-center">
-          {/* Blurb text survives as the tooltip — every page still has one (see
+        <div className="argus-view-masthead pointer-events-none absolute inset-y-0 flex items-center gap-2">
+          {/* Blurb text survives as the tooltip — every settings page still has one (see
               SettingsMasthead.test) and it is the only place the longer description is reachable
               now that the second line is gone. `pointer-events-auto` is what lets it be hovered
               at all, the wrapper above having turned them off so this overlay cannot eat clicks
@@ -149,12 +152,18 @@ export function TopBar({
           <span
             // eslint-disable-next-line react-hooks/refs
             ref={anchors.setLight}
-            data-testid="settings-title"
-            title={settingsBar.blurb}
+            data-testid="view-title"
+            title={viewTitle.blurb}
             className="pointer-events-auto truncate text-base leading-tight text-ink"
           >
-            {settingsBar.label}
+            {viewTitle.label}
           </span>
+          {/* Live counts (Proposals' pending total) ride along here rather than in the label, so
+              the light anchor above stays the title alone — the ambient band reads that node's
+              box, and a count that grows a digit would otherwise nudge it. */}
+          {viewTitle.detail && (
+            <span className="shrink-0 text-xs text-mute">{viewTitle.detail}</span>
+          )}
         </div>
       )}
       {activeSlug !== null && (
@@ -294,7 +303,7 @@ export function TopBar({
             title="Related history"
             onClick={onRelatedHistory}
           >
-            <History size={19} strokeWidth={1.5} />
+            <Timeline size={19} strokeWidth={1.5} />
           </button>
         )}
         <button className={ACTION_BTN} aria-label="Settings" title="Settings" onClick={onSettings}>

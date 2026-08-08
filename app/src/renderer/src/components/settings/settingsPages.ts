@@ -142,7 +142,7 @@ export const PAGES = [
   label: string
   group: 'App' | 'Knowledge' | 'System'
   enabled: boolean
-  /** One line under the page title, published to `settingsBarStore` and rendered in the header's
+  /** One line under the page title, published to `viewTitleStore` and rendered in the header's
    *  Settings identity group (TopBar), not in the page body — Settings has no masthead of its
    *  own any more. Same rule as SettingsSection's subtitle: state what the page's rows have in
    *  common. */
