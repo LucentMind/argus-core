@@ -145,7 +145,7 @@ export function CaseCard({
               <span data-testid="case-origin">Routine</span>
             </Chip>
           )}
-          {c.reviewState === 'draft' && <Chip tone="signal">Draft</Chip>}
+          {c.reviewState === 'draft' && <Chip tone="review">Draft</Chip>}
           {c.origin === 'routine' && (reviewCount ?? 0) > 0 && (
             <Chip tone="signal">
               <span data-testid="case-review-count">{reviewCount} to review</span>
