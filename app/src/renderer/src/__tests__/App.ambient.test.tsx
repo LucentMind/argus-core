@@ -54,10 +54,9 @@ beforeEach(() => {
     },
     // Settings' own surface — this file opens it to prove the chrome light does NOT follow.
     proposals: { list: vi.fn(async () => ({ proposals: [] })), onChanged: vi.fn(() => () => {}) },
-    // App subscribes to routines:changed unconditionally now, to refetch cases when a routine's
-    // first-ever run lands — this file never opens the Routines page, so only the subscribe stub
-    // is needed.
-    routines: { onChanged: vi.fn(() => () => {}) },
+    // Deliberately absent: App's routines:changed subscription is guarded (`window.argus?.routines
+    // ?.onChanged`), same idiom as the cite/draft subscriptions below, precisely so a stub bridge
+    // that never opens the Routines page — this file's — doesn't need to carry it.
     access: {
       get: vi.fn(async () => ({ access: { skills: {}, memory: {} }, loadError: null })),
       onChanged: vi.fn(() => () => {})

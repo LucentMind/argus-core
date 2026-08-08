@@ -71,8 +71,13 @@ function App(): React.JSX.Element {
   // only reloads on navigation (goHome). Without this, that run's card sits off-screen until the
   // user leaves Home and comes back. `routines:changed` already fires for exactly this moment
   // (RoutineInbox's routinesStore keys off the same broadcast) — reused here rather than
-  // inventing a second routines subscription.
-  useEffect(() => window.argus.routines.onChanged(() => void reload()), [reload])
+  // inventing a second routines subscription. Guarded the same way the cite/draft subscriptions
+  // below are: this effect runs on every window, including ones a test's stub bridge may not
+  // have fully populated.
+  useEffect(() => {
+    if (!window.argus?.routines?.onChanged) return
+    return window.argus.routines.onChanged(() => void reload())
+  }, [reload])
 
   // Mirrors the window's OS full-screen state onto `<html>` for main.css. Here rather than in a
   // component that could unmount: the attribute is document-wide chrome state, and the header
