@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, act, within, fireEvent } from '@testing-library/react'
-import DiagnosticsSettings from '../DiagnosticsSettings'
+import DiagnosticsSettings, { STOP_PENDING_TIMEOUT_MS } from '../DiagnosticsSettings'
 import type {
   DiagnosticsHistory,
   DiagnosticsObject,
@@ -667,7 +667,7 @@ describe('stop', () => {
 
       // Advancing past the timeout inside act() flushes the resulting setPending update.
       await act(async () => {
-        vi.advanceTimersByTime(10_000)
+        vi.advanceTimersByTime(STOP_PENDING_TIMEOUT_MS)
       })
 
       expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).not.toBeDisabled()
@@ -687,6 +687,132 @@ describe('stop', () => {
     })
     expect(vi.mocked(alert).mock.calls[0][0]).toMatchObject({ message: 'boom' })
     expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).not.toBeDisabled()
+  })
+
+  it("clears a pressed row's escape-hatch timer, not just its pending flag, when the stream proves it is gone", async () => {
+    // Pins the stream-clears-timers loop specifically (as opposed to the stream-clears-
+    // pending behaviour already covered by "shows the row as stopping..."). The escape
+    // hatch's job is done the moment the stream proves the row is actually gone — if its
+    // timer isn't ALSO cleared then (not just removed from `pending`), it lingers as a
+    // stray timer that could later fire during a SUBSEQUENT press for the same id.
+    // `vi.getTimerCount()` is used because the button/pending-state-only assertions on
+    // their own can't distinguish this: a second press always arms its own fresh timer
+    // regardless of whether the first press's stray timer was cleaned up, so only
+    // directly counting the pending native timers proves the leak is gone.
+    vi.useFakeTimers()
+    try {
+      render(<DiagnosticsSettings />)
+      await act(async () => onSampleCb(snapshot({ objects: [objectRow()] })))
+      const timersBeforePress = vi.getTimerCount()
+
+      // t=0: press 1.
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Stop MCP: demo' }))
+      })
+      expect(vi.getTimerCount()).toBe(timersBeforePress + 1)
+
+      // t=2s: the stream proves the row is gone — this is the normal, sole proof of
+      // death, arriving well before press 1's own escape-hatch deadline (t=10s).
+      await act(async () => {
+        vi.advanceTimersByTime(2_000)
+      })
+      await act(async () => onSampleCb(snapshot({ objects: [] })))
+      expect(screen.queryByText('Stopping…')).not.toBeInTheDocument()
+      // The escape-hatch timer must be gone too, back to the pre-press count — not just
+      // `pending`. This is the one assertion the "still disabled" checks below can't
+      // make on their own: a second press always arms its own fresh timer regardless of
+      // whether the first press's stray timer was cleaned up, so only directly counting
+      // the pending native timers proves the leak itself is gone.
+      expect(vi.getTimerCount()).toBe(timersBeforePress)
+
+      // Still t=2s: row comes back; press again (press 2, timer deadline t=12s).
+      await act(async () => onSampleCb(snapshot({ objects: [objectRow()] })))
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Stop MCP: demo' }))
+      })
+      expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).toBeDisabled()
+
+      // t=10s: roughly the timeout window elapsed since the FIRST press (press 1's own
+      // deadline, had its timer not been cleared at t=2s) — but only 8s since press 2,
+      // which is still short of ITS deadline (t=12s). The row must still read
+      // "Stopping…": press 2's own state, undisturbed by press 1's timer.
+      await act(async () => {
+        vi.advanceTimersByTime(8_000)
+      })
+      expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).toBeDisabled()
+      expect(screen.getByText('Stopping…')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("ignores a stale press's late failure so it cannot clear a later press's pending state", async () => {
+    // Pins Finding 1: the main process has no in-flight guard on terminate(), so the
+    // disabled-while-pending button is the only thing preventing two overlapping kill
+    // sequences for one row. Sequence from the review finding:
+    //   t=0   press 1: pending={X}, timer T1 armed, terminate(X) in flight (slow/hung).
+    //   t=10s T1 fires: pending={}, button re-enabled (the escape hatch, working as
+    //         intended — terminate() for press 1 STILL hasn't resolved).
+    //   t=11s press 2: pending={X}, timer T2 armed, a second terminate(X) in flight.
+    //   t=15s press 1's call finally resolves ok:false. Without a token guard this would
+    //         clear T2 and press 2's pending entry, re-enabling the button while press
+    //         2's kill is still running, and alert about press 1 as though it were press
+    //         2's failure.
+    vi.useFakeTimers()
+    try {
+      render(<DiagnosticsSettings />)
+      await act(async () => onSampleCb(snapshot({ objects: [objectRow()] })))
+
+      let resolvePress1: (v: { ok: false; reason: 'failed'; message: string }) => void = () => {}
+      const press1Result = new Promise<{ ok: false; reason: 'failed'; message: string }>(
+        (resolve) => {
+          resolvePress1 = resolve
+        }
+      )
+      terminateMock.mockImplementationOnce(() => press1Result)
+
+      // t=0: press 1.
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Stop MCP: demo' }))
+      })
+      expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).toBeDisabled()
+
+      // t=10s: the escape hatch fires. Press 1's terminate() call is still in flight.
+      await act(async () => {
+        vi.advanceTimersByTime(STOP_PENDING_TIMEOUT_MS)
+      })
+      expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).not.toBeDisabled()
+
+      // t=11s: press 2. terminateMock falls back to its default (resolves ok:true), so
+      // this press's own terminate() call settles harmlessly and leaves it pending on
+      // the stream, same as any other successful stop.
+      await act(async () => {
+        vi.advanceTimersByTime(1_000)
+      })
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Stop MCP: demo' }))
+      })
+      expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).toBeDisabled()
+
+      // t=15s: press 1's slow call finally resolves, with a real failure.
+      await act(async () => {
+        resolvePress1({ ok: false, reason: 'failed', message: 'press 1 boom' })
+        await press1Result
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      // Press 2's pending/timer state must be untouched: still "Stopping…", still
+      // disabled.
+      expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).toBeDisabled()
+      expect(screen.getByText('Stopping…')).toBeInTheDocument()
+      // The failure is still real and still worth surfacing — only the state mutation
+      // was stale, not the alert.
+      expect(vi.mocked(alert)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(alert).mock.calls[0][0]).toMatchObject({ message: 'press 1 boom' })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('an ended row offers no Stop button — there is nothing left to stop', async () => {

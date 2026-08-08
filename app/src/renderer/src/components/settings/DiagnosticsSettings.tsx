@@ -191,7 +191,7 @@ function stopCopy(o: DiagnosticsObject): { title: string; message: string } {
  * stream stays the only thing that clears `pending` in the normal case. All this does is
  * let the id drop out of `pending` after a wait, so the user can press Stop again.
  */
-const STOP_PENDING_TIMEOUT_MS = 10_000
+export const STOP_PENDING_TIMEOUT_MS = 10_000
 
 const STOP_FAILURE: Record<'not-terminable' | 'gone' | 'failed', string> = {
   'not-terminable': 'This row cannot be stopped from here.',
@@ -331,6 +331,11 @@ export default function DiagnosticsSettings(): React.JSX.Element {
   // there is no one-shot flag here to get stuck at `false`.
   const pendingTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
+  // One counter per id, bumped on every press. Lets a late-resolving terminate() call
+  // tell whether it's still the press that owns `o.id`'s pending/timer state, or a stale
+  // one a later press has since superseded — see onStop.
+  const stopTokens = useRef<Map<string, number>>(new Map())
+
   const clearPendingTimer = (id: string): void => {
     const timer = pendingTimers.current.get(id)
     if (timer !== undefined) {
@@ -395,21 +400,34 @@ export default function DiagnosticsSettings(): React.JSX.Element {
       if (!alive) return
       setSnap(s)
       // The sample stream is the only proof a process died, so pending clears from
-      // the snapshot rather than from the terminate call's return value. Returning
-      // `prev` unchanged when nothing left keeps this off the 1Hz render path.
-      setPending((prev) => {
-        if (prev.size === 0) return prev
+      // the snapshot rather than from the terminate call's return value.
+      //
+      // The removed-id computation happens here, above the setPending call, rather than
+      // inside its updater — `pendingTimers.current` is a stable ref that always mirrors
+      // which ids currently have an armed timer, so it can be read outside the updater
+      // with no closure-staleness problem. That keeps `clearPendingTimer` (which mutates
+      // the timer map and calls `clearTimeout`) out of the updater entirely: React
+      // updaters are expected to be pure functions of `prev`, and StrictMode
+      // double-invokes them in dev specifically to surface a stray side effect like this
+      // one. It was harmless before only because `clearPendingTimer` is idempotent.
+      //
+      // Guarding on `pendingTimers.current.size` first — rather than computing `live`
+      // unconditionally — keeps this off the 1Hz render path whenever nothing is pending.
+      if (pendingTimers.current.size > 0) {
         const live = new Set(s.objects.map((o) => o.id))
-        const next = new Set([...prev].filter((id) => live.has(id)))
-        if (next.size === prev.size) return prev
-        // The stream just proved these ids are gone — their escape-hatch timers would
-        // otherwise still be armed and could fire later, prematurely clearing a
-        // SUBSEQUENT press's pending state for the same id.
-        for (const id of prev) {
-          if (!next.has(id)) clearPendingTimer(id)
+        const stale = [...pendingTimers.current.keys()].filter((id) => !live.has(id))
+        if (stale.length > 0) {
+          // The stream just proved these ids are gone — their escape-hatch timers would
+          // otherwise still be armed and could fire later, prematurely clearing a
+          // SUBSEQUENT press's pending state for the same id.
+          for (const id of stale) clearPendingTimer(id)
+          setPending((prev) => {
+            const next = new Set(prev)
+            for (const id of stale) next.delete(id)
+            return next
+          })
         }
-        return next
-      })
+      }
     })
     void window.argus.diagnostics.latest().then((s) => {
       if (alive && s) setSnap(s)
@@ -444,14 +462,29 @@ export default function DiagnosticsSettings(): React.JSX.Element {
 
     setPending((p) => new Set(p).add(o.id))
     armPendingTimer(o.id)
+    // Stamped right before the await that can outlive this press: `terminate` has no
+    // in-flight guard in main, so a slow owner-route call can still be running when the
+    // timeout escape hatch re-enables the button and a second press starts a fresh
+    // terminate() for the same id. When this call finally resolves, the token tells it
+    // whether it's still the press that owns `o.id` in `pending`/`pendingTimers`, or a
+    // stale one that a later press has since superseded.
+    const token = (stopTokens.current.get(o.id) ?? 0) + 1
+    stopTokens.current.set(o.id, token)
     const res = await window.argus.diagnostics.terminate(o.id)
     if (!res.ok) {
-      clearPendingTimer(o.id)
-      setPending((p) => {
-        const next = new Set(p)
-        next.delete(o.id)
-        return next
-      })
+      // Only touch the shared pending/timer state if this press still owns it. A stale
+      // press must not clear a SUBSEQUENT press's timer or re-enable the button while
+      // that later press's own terminate() is still in flight.
+      if (stopTokens.current.get(o.id) === token) {
+        clearPendingTimer(o.id)
+        setPending((p) => {
+          const next = new Set(p)
+          next.delete(o.id)
+          return next
+        })
+      }
+      // The failure is real regardless of which press it belongs to, so it's always
+      // worth surfacing — only the state mutation above is conditional on staleness.
       await alert({
         title: `Could not stop ${o.label}`,
         message: res.message ?? STOP_FAILURE[res.reason]
