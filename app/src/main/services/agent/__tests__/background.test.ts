@@ -8,7 +8,7 @@ import { createCase } from '../../caseService'
 import { createSession } from '../sessionStore'
 import { createDetection } from '../../packs/detection'
 import { createClaudeDriver } from '../drivers/claude'
-import { fakeSdk, flush, canUseToolOf, type FakeSdk } from './helpers/fakeSdk'
+import { fakeSdk, flush, canUseToolOf, capturingDriver, type FakeSdk } from './helpers/fakeSdk'
 import {
   runBackgroundTurn,
   type BackgroundTurnDeps,
@@ -325,5 +325,35 @@ describe('runBackgroundTurn', () => {
     expect(sdk.captured.options!.allowDangerouslySkipPermissions).toBeUndefined()
     sdk.messages.push(RESULT_SUCCESS)
     await p
+  })
+
+  // --- defectCorpus: the live defect this task fixes -------------------------------------
+
+  it('passes defectCorpus through to the session, so search_known_defects works unattended', async () => {
+    // The bug: BackgroundTurnDeps had no defectCorpus field at all, so registry.ts's
+    // interactive sessions got the corpus and background turns never did — every routine run
+    // took search_known_defects's no-sources fallback, a plausible STRING and not an error.
+    // capturingDriver (the same DI seam turnRunner.test.ts's `contextOf` uses) captures the
+    // DriverSessionContext CaseSession actually built, so this proves the dep reaches
+    // nativeToolDeps.defectCorpus — the exact place the tool handler reads it — without
+    // mocking the session module.
+    const sdk = fakeSdk()
+    const corpus = { searchAll: async () => [] } as unknown as BackgroundTurnDeps['defectCorpus']
+    const { driver, ctx } = capturingDriver(createClaudeDriver(sdk.createQuery))
+    const p = runBackgroundTurn(deps(sdk, { defectCorpus: corpus, driver }), params())
+    await flush()
+    sdk.messages.push(RESULT_SUCCESS)
+    await p
+    expect(ctx().nativeToolDeps.defectCorpus).toBe(corpus)
+  })
+
+  it('still constructs a session when defectCorpus is absent, as tests and headless hosts do', async () => {
+    const sdk = fakeSdk()
+    const { driver, ctx } = capturingDriver(createClaudeDriver(sdk.createQuery))
+    const p = runBackgroundTurn(deps(sdk, { driver }), params())
+    await flush()
+    sdk.messages.push(RESULT_SUCCESS)
+    await p
+    expect(ctx().nativeToolDeps.defectCorpus).toBeUndefined()
   })
 })

@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { runBackgroundTurn, type BackgroundTurnResult } from '../agent/background'
 import type { AgentDriver } from '../agent/driver'
 import type { SessionMirrorLike } from '../agent/session'
+import type { NativeToolDeps } from '../agent/nativeTools'
 import { materializeSessionSkills } from '../agent/skillsResolver'
 import { assembleMode } from '../agent/modeAssembly'
 import { sessionMode } from '../agent/sessionStore'
@@ -31,6 +32,9 @@ export interface RoutineTurnRunnerDeps {
   agentAccess: () => AgentAccess
   toolRisk?: () => Record<string, RiskLevel>
   packCliNames?: () => string[]
+  /** Known-defects corpus, forwarded to the background session. Without it a routine's
+   *  dup-check silently finds nothing — see background.ts's SESSION-SHAPE DEPS note. */
+  defectCorpus?: NativeToolDeps['defectCorpus']
   resolvePrompt?: (id: string) => string
   onEvent?: (e: AgentEvent) => void
   mirrorFactory?: (caseSlug: string, sessionId: number) => SessionMirrorLike
@@ -95,6 +99,7 @@ export function createRoutineTurnRunner(
         packCliNames: deps.packCliNames?.() ?? [],
         agentAccess: deps.agentAccess,
         toolRisk: deps.toolRisk,
+        defectCorpus: deps.defectCorpus,
         onEvent: deps.onEvent,
         mirrorFactory: deps.mirrorFactory
       },

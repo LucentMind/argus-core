@@ -1595,9 +1595,10 @@ function registerIpc(): void {
   // WHAT AN UNATTENDED RUN SHARES WITH AN INTERACTIVE ONE, precisely — the shapes are close but
   // deliberately NOT identical:
   //  - shared: `skillsRoots` and `mirrorFactory` (below), plus the live agentAccess / toolRisk /
-  //    packCliNames / resolvePrompt sources and the same skill resolution (materializeSessionSkills
-  //    + assembleMode). So a routine sees the same skills, obeys the same memory-topic and
-  //    tool-risk settings, and writes its transcript to the same `sessions/<id>.jsonl` mirror.
+  //    packCliNames / resolvePrompt / defectCorpus sources and the same skill resolution
+  //    (materializeSessionSkills + assembleMode). So a routine sees the same skills, obeys the
+  //    same memory-topic and tool-risk settings, can search the same known-defects sources, and
+  //    writes its transcript to the same `sessions/<id>.jsonl` mirror.
   //  - NOT shared, by decision: the persona. `assembleMode`'s persona half and the pack persona
   //    fragments are discarded for background turns, because a persona for helping a human triage
   //    a defect is not a persona for unattended automation; the automation identity comes from the
@@ -1922,6 +1923,9 @@ function registerIpc(): void {
       toolRisk: () => toolRiskStore.get(),
       packCliNames: () => packRegistry.binaryDecls().flatMap(({ decl }) => decl.names),
       resolvePrompt,
+      // Same value AgentService is given above (line ~1631) — not a second corpus service, so
+      // both session shapes search the same configured sources.
+      defectCorpus,
       // Same channel as an interactive turn, so a routine's transcript streams into the
       // normal session UI while it runs; `mirrorFactory` is what makes it replayable after.
       onEvent: (e) => routinesBroadcast(IPC.agentEventChannel, e),
