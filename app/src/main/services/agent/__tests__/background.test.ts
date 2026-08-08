@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -189,16 +189,28 @@ describe('runBackgroundTurn', () => {
     expect(events.filter((e) => e.type === 'session.exited')).toHaveLength(1)
   })
 
-  it('settles immediately, without ever sending, when the signal is already aborted', async () => {
-    const sdk = fakeSdk()
-    const controller = new AbortController()
-    controller.abort()
-    const r = await runBackgroundTurn(
-      deps(sdk),
-      params({ timeoutMs: 5000, signal: controller.signal })
-    )
-    expect(r.status).toBe('failed')
-    expect(r.error).toMatch(/quit/i)
+  it('settles immediately, and arms no lingering timeoutMs timer, when the signal is already aborted', async () => {
+    // The already-aborted path used to settle and then STILL run the two statements below the
+    // signal check: arm a timeoutMs timer (up to 30 minutes) for a turn that had already ended,
+    // and call session.send() into a session already mid-teardown. Neither corrupted the
+    // RETURNED result (settle()'s own latch swallows the eventual no-op timer fire), so this can
+    // only be caught by observing what got scheduled, not by asserting on `r` alone.
+    vi.useFakeTimers()
+    try {
+      const sdk = fakeSdk()
+      const controller = new AbortController()
+      controller.abort()
+      const p = runBackgroundTurn(deps(sdk), params({ timeoutMs: 5000, signal: controller.signal }))
+      // Fake timers don't gate microtasks — session.stop()'s own teardown (driver interrupt,
+      // event emission) still needs to run before `p` resolves.
+      await vi.advanceTimersByTimeAsync(0)
+      const r = await p
+      expect(r.status).toBe('failed')
+      expect(r.error).toMatch(/quit/i)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('a signal that fires AFTER the turn already completed changes nothing', async () => {
