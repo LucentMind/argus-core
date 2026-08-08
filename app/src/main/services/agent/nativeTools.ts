@@ -747,6 +747,14 @@ export interface NativeToolSpec {
   name: string
   description: string
   schema: z.ZodRawShape
+  /** True for a tool that only ever succeeds while a routine is processing a run item (see
+   *  `NativeToolDeps.currentRunItemId`). `resolveToolSpecs`/`createArgusMcpServer` drop it from
+   *  the advertised list for any session that was not constructed with that thunk, so an
+   *  ordinary interactive session — the overwhelming majority of sessions — never sees the tool
+   *  at all, rather than seeing it and having it refuse on every call. The handler's own runtime
+   *  refusal (`deps.currentRunItemId?.() ?? null`) is kept regardless, as defence in depth for a
+   *  routine session that is between items on a given turn. */
+  itemContextOnly?: boolean
 }
 
 /** The driver kinds that register Argus's native MCP tools — Claude via `createArgusMcpServer`,
@@ -790,7 +798,8 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
       title: z.string().optional(),
       tags: z.array(z.string()).optional(),
       rationale: z.string()
-    }
+    },
+    itemContextOnly: true
   },
   {
     name: 'get_artifact_meta',
@@ -926,10 +935,25 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
  * `NATIVE_TOOL_SPECS` with each description resolved through the prompt registry.
  * Returns a fresh array and fresh objects — the source table is a `readonly` module constant
  * shared by both drivers and must never be mutated. No resolver = the table verbatim.
+ *
+ * `opts.hasItemContext` gates every `itemContextOnly` spec (currently just
+ * `propose_case_triage`) out of the returned list unless explicitly set `true`. Defaulting to
+ * excluded — not included — matters: every existing call site that does not yet pass this
+ * option (or ever forgets to) gets the SAFE behaviour, an ordinary session with one fewer tool,
+ * rather than silently advertising a tool that can only ever refuse. Callers pass `true` from
+ * the one signal that actually means "this session is processing a routine item":
+ * `NativeToolDeps.currentRunItemId` being a populated thunk (see `createArgusMcpServer` below
+ * and `drivers/copilot/index.ts`'s `buildCopilotTools`).
  */
-export function resolveToolSpecs(resolve?: (id: string) => string): NativeToolSpec[] {
-  if (!resolve) return NATIVE_TOOL_SPECS.map((s) => ({ ...s }))
-  return NATIVE_TOOL_SPECS.map((s) => ({
+export function resolveToolSpecs(
+  resolve?: (id: string) => string,
+  opts?: { hasItemContext?: boolean }
+): NativeToolSpec[] {
+  const specs = opts?.hasItemContext
+    ? NATIVE_TOOL_SPECS
+    : NATIVE_TOOL_SPECS.filter((s) => !s.itemContextOnly)
+  if (!resolve) return specs.map((s) => ({ ...s }))
+  return specs.map((s) => ({
     ...s,
     description: resolve(`tool.${s.name}.description`)
   }))
@@ -943,7 +967,7 @@ export function createArgusMcpServer(
   return createSdkMcpServer({
     name: 'argus',
     version: '1.0.0',
-    tools: resolveToolSpecs(resolve).map((s) =>
+    tools: resolveToolSpecs(resolve, { hasItemContext: deps.currentRunItemId != null }).map((s) =>
       tool(s.name, s.description, s.schema, async (a) =>
         asText(await h[s.name as keyof typeof h](a))
       )

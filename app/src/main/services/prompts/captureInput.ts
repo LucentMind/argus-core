@@ -59,11 +59,16 @@ export function captureTools(input: {
   panelCommandDecls: readonly PanelCommandDecl[]
   /** Composed connector server ids (`extraMcpServers` keys). */
   connectorIds: readonly string[]
+  /** Mirrors `NativeToolDeps.currentRunItemId != null` — whether THIS session was constructed
+   *  as a routine-item run. Forwarded into `resolveToolSpecs` so the capture records exactly
+   *  what the driver actually registered (`itemContextOnly` tools included only for a session
+   *  that has one), never a second, possibly-drifted list. Absent/false = ordinary session. */
+  hasItemContext?: boolean
 }): PromptCaptureTool[] {
   const native: PromptCaptureTool[] = (NATIVE_TOOL_DRIVERS as readonly string[]).includes(
     input.driverKind
   )
-    ? resolveToolSpecs(input.resolve).map((s) => ({
+    ? resolveToolSpecs(input.resolve, { hasItemContext: input.hasItemContext }).map((s) => ({
         name: s.name,
         description: s.description,
         origin: 'native' as const

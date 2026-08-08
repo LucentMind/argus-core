@@ -435,7 +435,8 @@ export class CaseSession {
               driverKind: deps.driver.kind,
               resolve: deps.resolvePrompt,
               panelCommandDecls: deps.panelCommandDecls ?? [],
-              connectorIds: Object.keys(deps.extraMcpServers ?? {})
+              connectorIds: Object.keys(deps.extraMcpServers ?? {}),
+              hasItemContext: deps.currentRunItemId != null
             }),
             activeOverrides
           })

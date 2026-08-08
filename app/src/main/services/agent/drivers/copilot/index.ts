@@ -186,7 +186,9 @@ export function buildCopilotTools(
 ): CopilotToolDef[] {
   const tools: CopilotToolDef[] = []
   const handlers = argusToolHandlers(ctx.nativeToolDeps)
-  for (const spec of resolveToolSpecs(ctx.resolvePrompt)) {
+  for (const spec of resolveToolSpecs(ctx.resolvePrompt, {
+    hasItemContext: ctx.nativeToolDeps.currentRunItemId != null
+  })) {
     const registration = `${ARGUS_TOOL_PREFIX}${spec.name}`
     const canonical = `mcp__argus__${spec.name}`
     toolNameMap.set(registration, canonical)
