@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
 import {
   SettingsSection,
@@ -19,8 +19,12 @@ import {
   MAX_TIMEOUT_MINUTES,
   MIN_INTERVAL_MINUTES,
   MAX_INTERVAL_MINUTES,
+  MAX_ITEMS_PER_RUN,
+  DEFAULT_ITEMS_PER_RUN,
   type RoutineDef,
-  type RoutineSchedule
+  type RoutineSchedule,
+  type RoutineScope,
+  type RoutineTemplate
 } from '../../../../shared/routines'
 
 type ScheduleKind = 'manual' | 'interval' | 'daily' | 'weekly'
@@ -98,6 +102,14 @@ interface Draft {
   dailyAt: string
   weeklyAt: string
   days: number[]
+  /**
+   * Carried through untouched, same idiom as `driverKind` — this editor has no scope-kind
+   * picker (the only way in is a template's draft, or editing a routine that already has one),
+   * only a JQL field for the `jira-jql` case. A `cases` scope round-trips with no field at all.
+   */
+  scope?: RoutineScope
+  /** Meaningless without `scope`; only shown once one is present. */
+  maxItemsPerRun?: number
 }
 
 function draftFrom(r: RoutineDef): Draft {
@@ -113,8 +125,20 @@ function draftFrom(r: RoutineDef): Draft {
     everyMinutes: r.schedule?.kind === 'interval' ? String(r.schedule.everyMinutes) : '60',
     dailyAt: r.schedule?.kind === 'daily' ? r.schedule.at : DAILY_DEFAULT_TIME,
     weeklyAt: r.schedule?.kind === 'weekly' ? r.schedule.at : WEEKLY_DEFAULT_TIME,
-    days: r.schedule?.kind === 'weekly' ? r.schedule.days : [1, 2, 3, 4, 5]
+    days: r.schedule?.kind === 'weekly' ? r.schedule.days : [1, 2, 3, 4, 5],
+    ...(r.scope ? { scope: r.scope } : {}),
+    ...(r.maxItemsPerRun !== undefined ? { maxItemsPerRun: r.maxItemsPerRun } : {})
   }
+}
+
+/**
+ * A template offers a whole `RoutineDef`-shaped draft (minus `id`) — reusing `draftFrom` keeps
+ * the schedule/timeout/scope mapping in exactly one place rather than duplicating it here. The
+ * empty `id` is thrown away immediately: `id: null` is what marks this as a NEW routine, so
+ * `saveDraft` derives a fresh one from the (editable) name, same as "New routine".
+ */
+function draftFromTemplate(t: RoutineTemplate): Draft {
+  return { ...draftFrom({ id: '', ...t.draft } as RoutineDef), id: null }
 }
 
 const BLANK_DRAFT: Draft = {
@@ -360,6 +384,34 @@ function RoutineEditor({
           </div>
         ))}
 
+      {draft.scope && draft.scope.kind === 'jira-jql' && (
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="flex min-w-[280px] flex-1 flex-col gap-1 text-xs text-dim">
+            JQL
+            <input
+              className={`${FIELD} font-mono`}
+              placeholder='project = ABC AND status = "To Do"'
+              value={draft.scope.jql}
+              onChange={(e) => {
+                if (draft.scope?.kind !== 'jira-jql') return
+                onChange({ ...draft, scope: { ...draft.scope, jql: e.target.value } })
+              }}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-dim">
+            Max items per run
+            <input
+              type="number"
+              min={1}
+              max={MAX_ITEMS_PER_RUN}
+              className={`${FIELD} w-28`}
+              value={draft.maxItemsPerRun ?? DEFAULT_ITEMS_PER_RUN}
+              onChange={(e) => onChange({ ...draft, maxItemsPerRun: Number(e.target.value) })}
+            />
+          </label>
+        </div>
+      )}
+
       <div className="flex items-center gap-2">
         <Btn variant="primary" onClick={onSave}>
           Save
@@ -389,6 +441,24 @@ export function RoutinesPage(): React.JSX.Element {
    */
   const [mutationError, setMutationError] = useState<string | null>(null)
   const [editing, setEditing] = useState<Draft | null>(null)
+  const [templates, setTemplates] = useState<RoutineTemplate[]>([])
+  const [templatePicker, setTemplatePicker] = useState(false)
+
+  // Static list, read once — there is no routines:changed broadcast for it, because it never
+  // changes at runtime (see IPC.routinesTemplates). A rejected fetch just leaves the "New from
+  // template" control absent rather than replacing the page.
+  useEffect(() => {
+    let live = true
+    void window.argus.routines
+      .templates()
+      .then((ts) => {
+        if (live) setTemplates(ts)
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
 
   async function runNow(id: string): Promise<void> {
     try {
@@ -449,6 +519,15 @@ export function RoutinesPage(): React.JSX.Element {
     if (minutes > MAX_TIMEOUT_MINUTES) {
       setMutationError(
         `Timeout must be at most ${MAX_TIMEOUT_MINUTES} minutes — a run cannot be cancelled once it starts.`
+      )
+      return
+    }
+    if (editing.scope?.kind === 'jira-jql' && !editing.scope.jql.trim()) {
+      // The property templates.ts relies on: a jira-jql scope ships with an empty JQL rather
+      // than a placeholder project key, and this is the gate that makes shipping it honest —
+      // the routine cannot be saved, let alone scheduled nightly, until a human supplies one.
+      setMutationError(
+        'This routine needs a JQL query before it can be saved — pick which Jira tickets it should pull each run.'
       )
       return
     }
@@ -518,6 +597,10 @@ export function RoutinesPage(): React.JSX.Element {
     else delete def.model
     if (schedule) def.schedule = schedule
     else delete def.schedule
+    if (editing.scope) def.scope = editing.scope
+    else delete def.scope
+    if (editing.maxItemsPerRun !== undefined) def.maxItemsPerRun = editing.maxItemsPerRun
+    else delete def.maxItemsPerRun
     try {
       await window.argus.routines.save(def)
       setMutationError(null)
@@ -590,11 +673,45 @@ export function RoutinesPage(): React.JSX.Element {
         title="Routines"
         subtitle="Saved prompts Argus runs unattended, each in its own case — on demand or on a schedule. Runs are serial, one at a time."
         action={
-          <Btn onClick={() => setEditing({ ...BLANK_DRAFT })} disabled={editing?.id === null}>
-            New routine
-          </Btn>
+          <div className="flex items-center gap-2">
+            <Btn
+              onClick={() => {
+                setTemplatePicker(false)
+                setEditing({ ...BLANK_DRAFT })
+              }}
+              disabled={editing?.id === null}
+            >
+              New routine
+            </Btn>
+            {templates.length > 0 && (
+              <Btn onClick={() => setTemplatePicker((v) => !v)} disabled={editing?.id === null}>
+                New from template
+              </Btn>
+            )}
+          </div>
         }
       >
+        {templatePicker && (
+          <div className="flex flex-col gap-2 border-b border-hair/50 px-4 py-3">
+            <p className="text-xs text-mute">
+              Pre-fills the editor below — nothing is saved until you save it.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {templates.map((t) => (
+                <Btn
+                  key={t.id}
+                  onClick={() => {
+                    setEditing(draftFromTemplate(t))
+                    setTemplatePicker(false)
+                  }}
+                  title={t.description}
+                >
+                  {t.name}
+                </Btn>
+              ))}
+            </div>
+          </div>
+        )}
         {routines.length === 0 && editing === null && (
           <div className="px-4 py-3 text-xs text-faint">
             No routines yet — add one to have Argus run a saved prompt on demand.

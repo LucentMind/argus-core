@@ -195,6 +195,24 @@ export interface RoutineRunItemSummary {
   finishedAt: string | null
 }
 
+/**
+ * A pre-filled routine offered through the editor's "New from template" control (Task 15).
+ *
+ * DATA, not a seeding side effect — nothing in `draft` is written to config/routines.json until
+ * the user explicitly saves it. Defined here rather than alongside `ROUTINE_TEMPLATES` in
+ * services/routines/templates.ts because both main (which produces the list) and the renderer
+ * (which reads it over IPC to pre-fill the editor) need the type, and shared/ is the only
+ * boundary that legally crosses both — the same reason RoutinesPayload lives here instead of in
+ * services/routines/service.ts.
+ */
+export interface RoutineTemplate {
+  id: string
+  name: string
+  description: string
+  /** No `id` — the editor derives one from the name, same as any other new routine. */
+  draft: Omit<Partial<RoutineDef>, 'id'>
+}
+
 export interface RoutinesPayload {
   routines: RoutineDef[]
   loadError: string | null

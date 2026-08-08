@@ -332,7 +332,8 @@ import { reconcileInterruptedRuns, runningRoutineForSession } from './services/r
 import { createRoutineTurnRunner } from './services/routines/turnRunner'
 import { RoutineScheduler } from './services/routines/scheduler'
 import type { ScopeResolver } from './services/routines/scopeResolver'
-import type { RoutinesPayload } from '../shared/routines'
+import { ROUTINE_TEMPLATES } from './services/routines/templates'
+import type { RoutinesPayload, RoutineTemplate } from '../shared/routines'
 
 let agentService: AgentService | null = null
 let providerStatusService: ProviderStatusService | null = null
@@ -2016,6 +2017,9 @@ function registerIpc(): void {
   })
 
   ipcMain.handle(IPC.routinesList, (): RoutinesPayload => routinesService.payload())
+  // Static data, imported straight from services/routines/templates.ts — no store, no db, no
+  // broadcast. The list never changes at runtime, so there is nothing to keep in sync.
+  ipcMain.handle(IPC.routinesTemplates, (): readonly RoutineTemplate[] => ROUTINE_TEMPLATES)
   ipcMain.handle(IPC.routinesSave, (_e, routine: unknown): RoutinesPayload => {
     // `unknown`, deliberately: IPC arguments are untyped at runtime and the store zod-validates.
     routines.upsert(routine)
