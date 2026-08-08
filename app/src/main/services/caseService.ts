@@ -709,6 +709,62 @@ export function setCaseStatus(
 }
 
 /**
+ * Applies an accepted routine suggestion to a case.
+ *
+ * Mirrors `setCaseStatus`'s shape — validate, update the row, write case.json — because these
+ * are the only two writers of canonical case fields and they must not drift in how they mirror.
+ *
+ * A patch, not a replacement: an omitted key leaves its field alone, so accepting a suggestion
+ * that proposed only tags cannot blank a title a human wrote.
+ */
+export function setCaseTriage(
+  db: DatabaseSync,
+  argusHome: string,
+  slug: string,
+  patch: { title?: string; tags?: string[] }
+): CaseRecord {
+  const existing = getCase(db, slug)
+  if (!existing) throw new Error(`Unknown case: ${slug}`)
+
+  const title = patch.title ?? existing.title
+  // Deduplicated because accepting the same suggestion twice (two windows, a double click)
+  // must be idempotent in the data, not just in the UI.
+  const tags = patch.tags ? [...new Set(patch.tags)] : existing.tags
+  const now = new Date().toISOString()
+
+  db.prepare(`UPDATE cases SET title = ?, tags = ?, updated_at = ? WHERE slug = ?`).run(
+    title,
+    JSON.stringify(tags),
+    now,
+    slug
+  )
+
+  const file = path.join(caseDir(argusHome, slug), 'case.json')
+  let onDisk: Record<string, unknown>
+  try {
+    onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+  } catch {
+    // corrupt/unreadable case.json — rebuild from the DB record (same shape as
+    // createCase: full record minus id) so other fields survive. phase/actionItems are
+    // DERIVED — never stored (Finding 7, same as createCase's fix).
+    onDisk = { ...existing, id: undefined, phase: undefined, actionItems: undefined }
+  }
+  fs.writeFileSync(file, JSON.stringify({ ...onDisk, title, tags, updatedAt: now }, null, 2))
+  return getCase(db, slug)!
+}
+
+/**
+ * Marks or unmarks a case as a routine's unreviewed draft.
+ *
+ * Does NOT touch `updated_at`, for the same reason `ensureCaseOrigin` does not: review state is
+ * a classification, not activity on the case. Moving the timestamp here would also re-select the
+ * case in a `cases`-scoped sweep on the next run, which is a loop.
+ */
+export function setCaseReviewState(db: DatabaseSync, slug: string, state: CaseReviewState): void {
+  db.prepare(`UPDATE cases SET review_state = ? WHERE slug = ?`).run(state, slug)
+}
+
+/**
  * Declare a phase that cannot be derived from any artifact — today only `rca-drafted`, which
  * no file, table or rule produces. Mirrors setCaseStatus's shape: validate, update the row,
  * mirror into case.json.

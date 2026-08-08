@@ -12,7 +12,9 @@ import {
   setCaseJiraDeselected,
   setCaseStatus,
   setCaseSyncState,
-  setReviewBaseline
+  setReviewBaseline,
+  setCaseTriage,
+  setCaseReviewState
 } from '../caseService'
 import { ingestContent } from '../ingest'
 import { createDetection } from '../packs/detection'
@@ -598,5 +600,70 @@ describe('case origin', () => {
     const reopened = openDb(older)
     expect(getCase(reopened, 'routine-sweep')?.origin).toBe('user')
     reopened.close()
+  })
+})
+
+describe('setCaseTriage', () => {
+  it('applies a title and tags and mirrors them into case.json', () => {
+    createCase(db, home, { slug: 'abc-1', title: 'ABC-1' })
+    const out = setCaseTriage(db, home, 'abc-1', {
+      title: 'Crash on empty payload',
+      tags: ['severity:high', 'component:auth']
+    })
+    expect(out.title).toBe('Crash on empty payload')
+    expect(out.tags).toEqual(['severity:high', 'component:auth'])
+    const onDisk = JSON.parse(
+      fs.readFileSync(path.join(home, 'cases', 'abc-1', 'case.json'), 'utf8')
+    )
+    expect(onDisk.title).toBe('Crash on empty payload')
+    expect(onDisk.tags).toEqual(['severity:high', 'component:auth'])
+  })
+
+  it('leaves a field alone when the patch omits it', () => {
+    createCase(db, home, { slug: 'abc-1', title: 'ABC-1' })
+    setCaseTriage(db, home, 'abc-1', { tags: ['severity:low'] })
+    const out = getCase(db, 'abc-1')!
+    expect(out.title).toBe('ABC-1')
+    expect(out.tags).toEqual(['severity:low'])
+  })
+
+  it('deduplicates tags, so accepting twice does not double them', () => {
+    createCase(db, home, { slug: 'abc-1', title: 'ABC-1' })
+    const out = setCaseTriage(db, home, 'abc-1', { tags: ['a', 'b', 'a'] })
+    expect(out.tags).toEqual(['a', 'b'])
+  })
+
+  it('throws on an unknown case rather than writing a phantom row', () => {
+    expect(() => setCaseTriage(db, home, 'nope', { title: 'x' })).toThrow(/Unknown case/)
+  })
+
+  // Copied from setCaseStatus's rebuild-on-corrupt-file catch, so it needs its own coverage:
+  // a copied catch block nobody exercises is how a rebuild path silently rots.
+  it('rebuilds case.json from the DB record when the file is corrupt, without derived fields', () => {
+    createCase(db, home, { slug: 'abc-1', title: 'ABC-1' })
+    const file = path.join(home, 'cases', 'abc-1', 'case.json')
+    fs.writeFileSync(file, '{ not valid json')
+    const out = setCaseTriage(db, home, 'abc-1', {
+      title: 'Rebuilt title',
+      tags: ['rebuilt']
+    })
+    expect(out.title).toBe('Rebuilt title')
+    expect(out.tags).toEqual(['rebuilt'])
+    const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'))
+    expect(onDisk.title).toBe('Rebuilt title')
+    expect(onDisk.tags).toEqual(['rebuilt'])
+    expect(onDisk).not.toHaveProperty('id')
+    expect(onDisk).not.toHaveProperty('phase')
+    expect(onDisk).not.toHaveProperty('actionItems')
+  })
+
+  it('sets and clears review state without touching updated_at', () => {
+    createCase(db, home, { slug: 'abc-1', title: 'ABC-1' })
+    const before = getCase(db, 'abc-1')!.updatedAt
+    setCaseReviewState(db, 'abc-1', 'draft')
+    expect(getCase(db, 'abc-1')!.reviewState).toBe('draft')
+    setCaseReviewState(db, 'abc-1', null)
+    expect(getCase(db, 'abc-1')!.reviewState).toBeNull()
+    expect(getCase(db, 'abc-1')!.updatedAt).toBe(before)
   })
 })
