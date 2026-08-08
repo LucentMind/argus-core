@@ -578,6 +578,45 @@ function SourceCard({ id, cfg }: { id: string; cfg: DefectCorpusSourceCfg }): Re
     }
   }, [id])
 
+  /**
+   * Re-probes a configured source on mount (user-directed, 2026-08-08).
+   *
+   * `canSync` — and with it Sync now, the status line, and the whole Ingestion settings editor —
+   * hangs off `testResult`, which is per-mount state. Leaving this page and coming back therefore
+   * dropped every one of them until the user pressed Test again, on a source they had already
+   * tested and configured. The gate itself is still the right one (nothing about admin capability
+   * is persisted, by design); what was missing is that re-entering the page re-establishes it.
+   *
+   * Keyed on `baseUrl`, so committing a new one re-probes rather than leaving the previous
+   * server's capabilities on screen. Skipped entirely when there is no URL to probe.
+   *
+   * Deliberately does NOT set `testing`: this is a background restore, not a button press, and
+   * flashing "Testing…" on a control the user did not touch would read as an action they started.
+   *
+   * A SUCCESS only. A failed probe leaves the card exactly as it was — no inline error, no chips.
+   * The card would otherwise greet a user who opened this page for an unrelated setting with a red
+   * banner about an action they never took, and one they cannot dismiss; the manual Test button is
+   * still there and still reports every failure verbatim. Nothing is hidden by staying quiet: a
+   * failed probe means no admin capability, which is the same thing the card shows today.
+   */
+  useEffect(() => {
+    if (!cfg.baseUrl.trim()) return
+    let live = true
+    void window.argus.defects
+      .test(id)
+      .then((r) => {
+        if (!live || !r.ok) return
+        setTestResult(r)
+        if (r.info.capabilities.admin) {
+          void window.argus.defects.syncStatus(id).then((s) => live && setSyncStatus(s))
+        }
+      })
+      .catch((err: unknown) => console.warn(`[defects] probe for ${id} failed`, err))
+    return () => {
+      live = false
+    }
+  }, [id, cfg.baseUrl])
+
   // Polls only while a sync is actually in flight — `syncStatus?.state` in the dep array means
   // the effect re-runs (and stops scheduling) the moment a poll observes anything but 'running',
   // so there is nothing left ticking once a sync finishes or errors.

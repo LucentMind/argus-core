@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, within, act } from '@testing-library/react'
+import { render, screen, fireEvent, within, act, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { DefectCorpusSettings } from '../DefectCorpusSettings'
@@ -65,7 +65,9 @@ function mockArgus(): void {
       delete: vi.fn().mockResolvedValue(undefined)
     },
     defects: {
-      test: vi.fn(),
+      // Resolves rather than returning undefined: a configured source re-probes on mount now
+      // (2026-08-08), so every render calls this, not only the ones that click Test.
+      test: vi.fn().mockResolvedValue({ ok: false, error: 'not tested' }),
       syncNow: vi.fn().mockResolvedValue({ ok: true }),
       syncStatus: vi.fn().mockResolvedValue(null),
       getConfig: vi
@@ -285,6 +287,53 @@ describe('DefectCorpusSettings', () => {
         }
       }
     })
+  })
+
+  /**
+   * The admin affordances (Sync now, the status line, the whole ingestion editor) hang off the
+   * last Test result, which is per-mount state — so leaving Settings and coming back used to drop
+   * every one of them until the user pressed Test again on a source they had already configured
+   * (user-directed, 2026-08-08).
+   */
+  it('re-probes a configured source on mount, restoring the admin affordances without a click', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: true, info: okInfo })
+    render(
+      <DefectCorpusSettings
+        payload={payloadWith({
+          jira: { name: 'Jira', baseUrl: 'https://defects.example.com', enabled: true }
+        })}
+      />
+    )
+    const card = screen.getByRole('group', { name: 'Jira' })
+    expect(await within(card).findByText('4821 tickets')).toBeInTheDocument()
+    expect(within(card).getByRole('button', { name: 'Sync now · Jira' })).toBeInTheDocument()
+    expect(window.argus.defects.test).toHaveBeenCalledWith('jira')
+  })
+
+  /** A source with nothing to probe must not fire a request that can only fail. */
+  it('does not probe a source with no base URL', () => {
+    render(<DefectCorpusSettings payload={payloadWith({ jira: jiraSource })} />)
+    expect(window.argus.defects.test).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The probe is silent on failure: the user did not ask for it, and a red banner they cannot
+   * dismiss is a worse greeting than the card simply looking untested — which is what a failed
+   * Test leaves behind anyway.
+   */
+  it('says nothing when the mount probe fails', async () => {
+    window.argus.defects.test = vi.fn().mockResolvedValue({ ok: false, error: 'unreachable' })
+    render(
+      <DefectCorpusSettings
+        payload={payloadWith({
+          jira: { name: 'Jira', baseUrl: 'https://defects.example.com', enabled: true }
+        })}
+      />
+    )
+    const card = screen.getByRole('group', { name: 'Jira' })
+    await waitFor(() => expect(window.argus.defects.test).toHaveBeenCalledWith('jira'))
+    expect(within(card).queryByRole('alert')).toBeNull()
+    expect(within(card).queryByText('unreachable')).toBeNull()
   })
 
   it('renders the error inline when Test rejects instead of resolving {ok:false}', async () => {
