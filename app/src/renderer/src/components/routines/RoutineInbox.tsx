@@ -3,6 +3,8 @@ import { Btn, Chip, SectionLabel } from '../ui'
 import { chipStamp } from '../../lib/time'
 import { useRoutinesPayload } from '../../lib/routinesStore'
 import { RUN_TONE, RunSummaryText, TriggerChip } from './runDisplay'
+import { RunItemRows } from './RunItemRows'
+import type { RoutineRunItemSummary } from '../../../../shared/routines'
 
 /**
  * What unattended work did, on the surface the user actually lands on.
@@ -51,6 +53,15 @@ export function RoutineInbox({
   const pending = payload.runs.filter((r) => r.status !== 'running' && r.reviewedAt === null)
   const nameOf = (routineId: string): string =>
     payload.routines.find((r) => r.id === routineId)?.name ?? routineId
+
+  // `runItems` is flat (one array shared by every run in the payload) so it serialises over IPC
+  // as one shape; grouped here, once, rather than filtered per row on every render.
+  const byRun = new Map<number, RoutineRunItemSummary[]>()
+  for (const item of payload.runItems) {
+    const forRun = byRun.get(item.runId)
+    if (forRun) forRun.push(item)
+    else byRun.set(item.runId, [item])
+  }
 
   async function markReviewed(id: number): Promise<void> {
     try {
@@ -103,36 +114,56 @@ export function RoutineInbox({
           // Local const, not `run.caseSlug` re-read below: narrowing a property through a
           // closure does not survive in TS, but narrowing a local variable does.
           const caseSlug = run.caseSlug
+          const items = byRun.get(run.id) ?? []
+          // Same counting shape as `unreviewedCount` vs `runs`: this is over the items THIS
+          // payload actually carries, which is fine here (unlike that count) because `runItems`
+          // is not independently capped — it is exactly the items belonging to `runs`.
+          const processed = items.filter((i) => i.status === 'processed').length
+          const failed = items.filter((i) => i.status === 'failed').length
+          const skipped = items.filter((i) => i.status === 'skipped').length
+          const counts = [
+            processed > 0 ? `${processed} processed` : null,
+            failed > 0 ? `${failed} failed` : null,
+            skipped > 0 ? `${skipped} skipped` : null
+          ].filter((s): s is string => s !== null)
           return (
-            <div key={run.id} className="flex items-start gap-3 px-4 py-2.5 text-xs">
-              <Chip tone={RUN_TONE[run.status]}>
-                <span data-testid={`run-status-${run.id}`}>{run.status}</span>
-              </Chip>
-              <TriggerChip run={run} />
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="truncate text-ink">
-                  {name} · {run.finishedAt ? chipStamp(run.finishedAt) : ''}
-                </span>
-                {run.error && <RunSummaryText text={run.error} kind="error" />}
-                {run.summary && <RunSummaryText text={run.summary} kind="summary" />}
-                {!run.error && !run.summary && <p className="text-faint">no output recorded</p>}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {/* A scoped run's own row opens no case (its items each open their own, listed
-                    per-item elsewhere) — caseSlug is null for exactly that run, and offering a
-                    button that can only 404 is worse than offering none. */}
-                {caseSlug && (
-                  <Btn aria-label={`Open case · ${rowLabel}`} onClick={() => onOpen(caseSlug)}>
-                    Open case
+            <div key={run.id} className="flex flex-col gap-1.5 px-4 py-2.5">
+              <div className="flex items-start gap-3 text-xs">
+                <Chip tone={RUN_TONE[run.status]}>
+                  <span data-testid={`run-status-${run.id}`}>{run.status}</span>
+                </Chip>
+                <TriggerChip run={run} />
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="truncate text-ink">
+                    {name} · {run.finishedAt ? chipStamp(run.finishedAt) : ''}
+                  </span>
+                  {run.error && <RunSummaryText text={run.error} kind="error" />}
+                  {run.summary && <RunSummaryText text={run.summary} kind="summary" />}
+                  {!run.error && !run.summary && items.length === 0 && (
+                    <p className="text-faint">no output recorded</p>
+                  )}
+                  {items.length > 0 && (
+                    <p className="text-[10.5px] text-mute">{counts.join(' · ')}</p>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {/* A scoped run's own row opens no case (its items each open their own, listed
+                      per-item elsewhere) — caseSlug is null for exactly that run, and offering a
+                      button that can only 404 is worse than offering none. */}
+                  {caseSlug && (
+                    <Btn aria-label={`Open case · ${rowLabel}`} onClick={() => onOpen(caseSlug)}>
+                      Open case
+                    </Btn>
+                  )}
+                  <Btn
+                    aria-label={`Mark reviewed · ${rowLabel}`}
+                    onClick={() => void markReviewed(run.id)}
+                  >
+                    Mark reviewed
                   </Btn>
-                )}
-                <Btn
-                  aria-label={`Mark reviewed · ${rowLabel}`}
-                  onClick={() => void markReviewed(run.id)}
-                >
-                  Mark reviewed
-                </Btn>
+                </div>
               </div>
+              <RunItemRows items={items} onOpen={onOpen} />
             </div>
           )
         })}
