@@ -9,7 +9,7 @@ import { listRoutineRuns } from '../runs'
 import { RoutineStore } from '../store'
 import { RoutinesService } from '../service'
 import type { BackgroundTurnParams } from '../../agent/background'
-import type { RoutinesPayload } from '../../../../shared/routines'
+import type { RoutineDef, RoutinesPayload } from '../../../../shared/routines'
 
 let home: string
 let db: DatabaseSync
@@ -642,5 +642,61 @@ describe('nextRunAt', () => {
       sweep: '2026-08-08T02:00:00.000Z',
       manual: null
     })
+  })
+
+  it('does not let one routine with a hand-edited, schema-busting schedule blank the whole payload()', () => {
+    // RoutineStore's own zod gate is exactly what makes this unreachable in production (a
+    // routine this broken reverts the whole file to defaults instead). Bypassing it with a
+    // minimal stub store is the legitimate way to exercise payload()'s own guard in isolation —
+    // RoutineStore itself is untouched.
+    const healthy: RoutineDef = {
+      id: 'healthy',
+      name: 'Healthy',
+      prompt: 'x',
+      timeoutMs: 1000,
+      schedule: { kind: 'interval', everyMinutes: 60 },
+      enabled: true
+    }
+    // everyMinutes <= 0 can only arrive via a hand-edited config/routines.json — the zod schema
+    // (MIN_INTERVAL_MINUTES) forbids it — and is one of nextFireAfter's two documented throw
+    // sites (schedule.ts).
+    const broken: RoutineDef = {
+      id: 'broken',
+      name: 'Broken',
+      prompt: 'x',
+      timeoutMs: 1000,
+      schedule: { kind: 'interval', everyMinutes: 0 },
+      enabled: true
+    }
+    const stubStore = {
+      list: () => [broken, healthy],
+      get: (id: string) => [broken, healthy].find((r) => r.id === id),
+      loadError: () => null
+    } as unknown as RoutineStore
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store: stubStore,
+      runTurn: async () => ({ status: 'ok', text: 'done' }),
+      now: () => NOW,
+      epoch: EPOCH
+    })
+
+    let payload: RoutinesPayload | undefined
+    expect(() => {
+      payload = svc.payload()
+    }).not.toThrow()
+
+    expect(payload!.routines).toEqual([broken, healthy])
+    expect(payload!.runs).toEqual([])
+    expect(payload!.nextRunAt.broken).toBeNull()
+    expect(payload!.nextRunAt.healthy).toBe(new Date(EPOCH.getTime() + 60 * 60_000).toISOString())
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/^\[routines\].*broken/),
+      expect.any(String)
+    )
+    errorSpy.mockRestore()
   })
 })

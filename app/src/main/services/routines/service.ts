@@ -112,8 +112,20 @@ export class RoutinesService {
       loadError: this.deps.store.loadError(),
       runningId: this.running?.id ?? null,
       queued: this.queue.map((e) => e.routine.id),
+      // Guarded per routine, not delegated to nextRunAt itself: nextRunAt's throw on a
+      // schema-busting schedule (schedule.ts) is the honest signal task 7's scheduler catches
+      // and logs per-tick — swallowing it inside nextRunAt would leave that scheduler with
+      // nothing to log, and one hand-edited config/routines.json entry would otherwise take
+      // down every OTHER routine's nextRunAt (and hence the whole payload) with it.
       nextRunAt: Object.fromEntries(
-        this.deps.store.list().map((r) => [r.id, this.nextRunAt(r)])
+        this.deps.store.list().map((r) => {
+          try {
+            return [r.id, this.nextRunAt(r)]
+          } catch (err) {
+            console.error(`[routines] nextRunAt failed for ${r.id}:`, message(err))
+            return [r.id, null]
+          }
+        })
       ),
       runs: listRoutineRuns(this.deps.db)
     }
