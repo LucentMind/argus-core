@@ -173,6 +173,96 @@ describe('resolveJql', () => {
       await resolver.resolveJql('project = ABC AND status = Open', 'created', null, 10)
       expect(capture.jql).toBe('project = ABC AND status = Open ORDER BY created ASC')
     })
+
+    it('still strips a multi-key sort completely', async () => {
+      const capture: { jql?: string } = {}
+      const resolver = buildJiraScopeResolver({
+        db,
+        atlassian: fakeAtlassian({ issues: [], nextPageToken: null }, capture),
+        jiraCases: noCreate
+      })
+      await resolver.resolveJql('project = ABC ORDER BY a ASC, b DESC', 'created', null, 10)
+      expect(capture.jql).toBe('project = ABC ORDER BY created ASC')
+      expect(capture.jql?.match(/order by/gi)).toHaveLength(1)
+    })
+  })
+
+  // Important 1 (fix pass 2): the naive strip regex could not tell a real trailing ORDER BY
+  // clause from the literal text "order by" sitting inside a quoted JQL string value — it matched
+  // at the whitespace before "order" wherever it first appeared, ate to end-of-string, and stripped
+  // the closing quote off a value like `text ~ "please order by end of day"`, producing an
+  // unterminated string literal (invalid JQL, 100% failure). The strip must only ever treat an
+  // ORDER BY as real when it occurs outside a quoted string.
+  describe('a quoted JQL value containing the literal text "order by"', () => {
+    it('is not mistaken for a trailing clause and the JQL survives intact', async () => {
+      const capture: { jql?: string } = {}
+      const resolver = buildJiraScopeResolver({
+        db,
+        atlassian: fakeAtlassian({ issues: [], nextPageToken: null }, capture),
+        jiraCases: noCreate
+      })
+      await resolver.resolveJql('text ~ "please order by end of day"', 'created', null, 10)
+      expect(capture.jql).toBe('text ~ "please order by end of day" ORDER BY created ASC')
+      expect(capture.jql?.match(/order by/gi)).toHaveLength(2) // the literal text, plus the real clause
+    })
+
+    it('strips only the real trailing clause, leaving the quoted text untouched', async () => {
+      const capture: { jql?: string } = {}
+      const resolver = buildJiraScopeResolver({
+        db,
+        atlassian: fakeAtlassian({ issues: [], nextPageToken: null }, capture),
+        jiraCases: noCreate
+      })
+      await resolver.resolveJql(
+        'text ~ "please order by end of day" ORDER BY created DESC',
+        'created',
+        null,
+        10
+      )
+      expect(capture.jql).toBe('text ~ "please order by end of day" ORDER BY created ASC')
+      expect(capture.jql?.match(/order by/gi)).toHaveLength(2)
+    })
+
+    it('behaves the same for a single-quoted value', async () => {
+      const capture: { jql?: string } = {}
+      const resolver = buildJiraScopeResolver({
+        db,
+        atlassian: fakeAtlassian({ issues: [], nextPageToken: null }, capture),
+        jiraCases: noCreate
+      })
+      await resolver.resolveJql(
+        "text ~ 'please order by end of day' ORDER BY created DESC",
+        'created',
+        null,
+        10
+      )
+      expect(capture.jql).toBe("text ~ 'please order by end of day' ORDER BY created ASC")
+      expect(capture.jql?.match(/order by/gi)).toHaveLength(2)
+    })
+
+    it('is not confused by an escaped quote inside the value', async () => {
+      // The space before "order" inside the escaped inner quotes matters: a naive regex without
+      // quote-tracking would happily match `\s+order\s+by\s+` starting there (there's nothing
+      // quote-aware stopping it), eating from mid-literal to end-of-string. Only a scanner that
+      // treats the backslash as escaping the following `"` — keeping the literal open across it —
+      // avoids that.
+      const capture: { jql?: string } = {}
+      const resolver = buildJiraScopeResolver({
+        db,
+        atlassian: fakeAtlassian({ issues: [], nextPageToken: null }, capture),
+        jiraCases: noCreate
+      })
+      await resolver.resolveJql(
+        'text ~ "say \\"please order by end of day\\" twice" ORDER BY created DESC',
+        'created',
+        null,
+        10
+      )
+      expect(capture.jql).toBe(
+        'text ~ "say \\"please order by end of day\\" twice" ORDER BY created ASC'
+      )
+      expect(capture.jql?.match(/order by/gi)).toHaveLength(2)
+    })
   })
 })
 
