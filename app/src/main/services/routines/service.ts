@@ -596,10 +596,20 @@ export class RoutinesService {
       // item already `processed` behind the one that aborted). Either way the RUN is failed, but
       // a run that completed 6 of 8 items before dying must still say so — summarize() below
       // reports whatever processed/skipped/failed the loop had already earned, not nothing.
+      // Nothing was ever attempted when the loop never opened an item row at all — scope
+      // resolution failing outright is the common case, but a bookkeeping write can also throw
+      // before the very first item completes. Either way `summarize()` would report only
+      // "0 processed", which reads as a run that did something rather than one that couldn't
+      // start; omit it so the inbox shows the error alone.
+      const attempted = processed > 0 || skipped > 0 || failed > 0
       finishRoutineRun(
         db,
         runId,
-        { status: 'failed', error: message(err), summary: summarize() },
+        {
+          status: 'failed',
+          error: message(err),
+          ...(attempted ? { summary: summarize() } : {})
+        },
         this.deps.now
       )
       return
