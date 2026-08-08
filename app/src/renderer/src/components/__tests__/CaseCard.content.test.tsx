@@ -178,4 +178,21 @@ describe('routine origin', () => {
     renderCard(mkCase({ origin: 'routine', actionItems: [] }))
     expect(screen.getByTestId('action-items')).toBeInTheDocument()
   })
+
+  it('shows a Draft badge for an unreviewed routine draft', () => {
+    renderCard(mkCase({ origin: 'routine', reviewState: 'draft' }))
+    expect(screen.getByText('Draft')).toBeInTheDocument()
+    expect(screen.getByText('Routine')).toBeInTheDocument()
+  })
+
+  it('drops the Draft badge once accepted, keeping the Routine chip', () => {
+    renderCard(mkCase({ origin: 'routine', reviewState: null }))
+    expect(screen.queryByText('Draft')).not.toBeInTheDocument()
+    expect(screen.getByText('Routine')).toBeInTheDocument()
+  })
+
+  it('shows no Draft badge on an ordinary case', () => {
+    renderCard(mkCase({ origin: 'user', reviewState: null }))
+    expect(screen.queryByText('Draft')).not.toBeInTheDocument()
+  })
 })
