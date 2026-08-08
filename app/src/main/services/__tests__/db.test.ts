@@ -197,5 +197,74 @@ describe('openDb', () => {
       const row = db.prepare(`SELECT detail FROM tool_calls`).get() as { detail: string | null }
       expect(row.detail).toBeNull()
     })
+
+    describe('increment 5 schema', () => {
+      it('creates routine_run_items with a cascading FK to routine_runs', () => {
+        const db = openDb(path.join(tmp, 'a.sqlite'))
+        db.prepare(
+          `INSERT INTO routine_runs (routine_id, case_slug, status, started_at)
+           VALUES ('r', 'routine-r', 'running', '2026-01-01T00:00:00.000Z')`
+        ).run()
+        const runId = Number(
+          (db.prepare(`SELECT MAX(id) AS id FROM routine_runs`).get() as { id: number }).id
+        )
+        db.prepare(
+          `INSERT INTO routine_run_items (run_id, item_key, status, started_at)
+           VALUES (?, 'ABC-1', 'processed', '2026-01-01T00:00:01.000Z')`
+        ).run(runId)
+
+        db.prepare(`DELETE FROM routine_runs WHERE id = ?`).run(runId)
+        const left = db.prepare(`SELECT COUNT(*) AS n FROM routine_run_items`).get() as {
+          n: number
+        }
+        expect(left.n).toBe(0)
+        db.close()
+      })
+
+      it('creates routine_cursors keyed by routine', () => {
+        const db = openDb(path.join(tmp, 'b.sqlite'))
+        db.prepare(
+          `INSERT INTO routine_cursors (routine_id, cursor, updated_at) VALUES ('r', 'x', 't')`
+        ).run()
+        expect(() =>
+          db
+            .prepare(
+              `INSERT INTO routine_cursors (routine_id, cursor, updated_at) VALUES ('r','y','u')`
+            )
+            .run()
+        ).toThrow()
+        db.close()
+      })
+
+      it('adds cases.review_state to an existing database, defaulting every row to NULL', () => {
+        const file = path.join(tmp, 'c.sqlite')
+        const first = openDb(file)
+        first
+          .prepare(
+            `INSERT INTO cases (slug, title, status, tags, created_at, updated_at)
+             VALUES ('old', 'Old', 'open', '[]', 't', 't')`
+          )
+          .run()
+        // Simulate a pre-increment-5 database by dropping the column back off.
+        first.exec(`ALTER TABLE cases DROP COLUMN review_state`)
+        first.close()
+
+        const second = openDb(file)
+        const cols = second.prepare(`PRAGMA table_info(cases)`).all() as { name: string }[]
+        expect(cols.some((c) => c.name === 'review_state')).toBe(true)
+        const row = second.prepare(`SELECT review_state FROM cases WHERE slug = 'old'`).get() as {
+          review_state: string | null
+        }
+        // No backfill: NULL is already the right answer for every pre-existing case.
+        expect(row.review_state).toBeNull()
+        second.close()
+      })
+
+      it('is idempotent across reopens', () => {
+        const file = path.join(tmp, 'd.sqlite')
+        openDb(file).close()
+        expect(() => openDb(file).close()).not.toThrow()
+      })
+    })
   })
 })

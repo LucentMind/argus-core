@@ -5,6 +5,7 @@ import type {
   CaseOrigin,
   CaseRecord,
   CaseResolution,
+  CaseReviewState,
   CaseStatus,
   NewCaseInput,
   ReviewBaseline,
@@ -62,6 +63,7 @@ interface CaseRow {
   id: number
   slug: string
   origin: string
+  review_state: string | null
   title: string
   jira_key: string | null
   jira_synced_at: string | null
@@ -90,6 +92,7 @@ function rowToCase(r: CaseRow): CaseRecord {
     // below: an unknown value reads as the default rather than reaching the renderer's chip
     // logic as a string it has never heard of.
     origin: (r.origin === 'routine' ? 'routine' : 'user') as CaseOrigin,
+    reviewState: (r.review_state as CaseReviewState) ?? null,
     title: r.title,
     jiraKey: r.jira_key,
     jiraSyncedAt: r.jira_synced_at ?? null,
@@ -166,6 +169,7 @@ export function createCase(
       id,
       slug: input.slug,
       origin: 'user',
+      reviewState: null,
       title: input.title,
       jiraKey: input.jiraKey ?? null,
       jiraSyncedAt: null,
