@@ -115,9 +115,13 @@ describe('GeneralSettings', () => {
     })
   })
 
-  it('names macOS in the description, where the setting does not govern quitting', () => {
+  it('states that macOS keeps routines firing regardless of this setting, not merely that macOS is different', () => {
     render(<GeneralSettings payload={payload()} />)
-    expect(screen.getByText(/macOS/)).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /On macOS Argus always keeps running, so scheduled routines fire regardless of this setting\./
+      )
+    ).toBeInTheDocument()
   })
 
   it('shows the data root read-only with env badge and open-folder action', () => {

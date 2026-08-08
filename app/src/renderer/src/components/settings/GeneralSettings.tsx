@@ -187,7 +187,7 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
         </SettingRow>
         <SettingRow
           label="Keep running in the background"
-          description="Closing the window leaves Argus in the tray so scheduled routines keep firing. On macOS Argus always keeps running; this controls whether routines fire while it does."
+          description="Closing the window leaves Argus in the tray so scheduled routines keep firing. On macOS Argus always keeps running, so scheduled routines fire regardless of this setting."
           isDefault={!g.keepAliveInBackground}
           onReset={() => void settingsStore.patch({ general: { keepAliveInBackground: null } })}
         >
