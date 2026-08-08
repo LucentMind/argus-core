@@ -120,11 +120,11 @@ import {
   atlassianRestConfigured,
   rovoInstanceId,
   jiraBrowseUrl,
-  jiraDate,
   resolveAtlassianCreds,
   type AtlassianAuth
 } from './services/atlassian'
 import { JiraCases } from './services/jiraCases'
+import { buildJiraScopeResolver } from './services/jiraScopeResolver'
 import type { JiraAttachmentInfo, JiraResult } from '../shared/jira'
 import {
   connectorConfig,
@@ -138,8 +138,7 @@ import {
   setCaseStatus,
   setCaseJiraDeselected,
   setCaseMode,
-  getCase,
-  findCaseByJiraKey
+  getCase
 } from './services/caseService'
 import { OnboardingService, resolveSampleAssetsDir } from './services/onboarding'
 import { ingestArtifact, ingestBytes, listEvidence, deleteEvidence } from './services/ingest'
@@ -258,15 +257,16 @@ import { resolvePanelAsset, buildPanelCsp, type PanelWindowLoc } from './service
 import { ExternalAppHost } from './services/panels/externalAppHost'
 import { createElectronProcessSpawner } from './services/panels/electronProcessSpawner'
 import type { OpenPanelRequest, PanelKey, PanelPermission, PanelRect } from '../shared/panels'
-import type {
-  ApprovalDecision,
-  CaseRecord,
-  CaseResolution,
-  CaseStatus,
-  DialogAnswer,
-  NewCaseInput,
-  SearchFilters,
-  UnifiedHit
+import {
+  CASE_RESOLUTIONS,
+  type ApprovalDecision,
+  type CaseRecord,
+  type CaseResolution,
+  type CaseStatus,
+  type DialogAnswer,
+  type NewCaseInput,
+  type SearchFilters,
+  type UnifiedHit
 } from '../shared/types'
 import { globalMetrics, caseMetrics } from './services/observability/metrics'
 import { LangfuseExporter } from './services/observability/langfuse'
@@ -1906,38 +1906,40 @@ function registerIpc(): void {
     )
   }
 
-  /**
-   * The jira half of ScopeResolver. Lives HERE, not in services/routines/, because it needs the
-   * Atlassian client and the ingest path — neither of which the engine may import.
-   *
-   * Both methods close over `atlassian` and `jiraCases`, the latter declared FURTHER DOWN in this
-   * same function. That is safe: neither method runs synchronously here — they only execute later,
-   * once a scoped run actually resolves — and by then `registerIpc()` has finished building every
-   * const in its body, `jiraCases` included. Nothing in this object's construction reads either
-   * binding; only its returned closures do.
-   */
-  const scopeResolver: ScopeResolver = {
-    async resolveJql(jql, cursorField, cursor, limit) {
-      // `>=` on the cursor is deliberate and items.ts depends on it: Jira timestamps are not
-      // unique, so a strict `>` drops one of two tickets sharing a minute, permanently and
-      // silently. The duplicate is removed by key, not by tightening this comparison.
-      const bounded = cursor ? `(${jql}) AND ${cursorField} >= "${jiraDate(cursor)}"` : jql
-      const page = await atlassian.searchIssues(`${bounded} ORDER BY ${cursorField} ASC`, {
-        maxResults: limit
-      })
-      return page.issues.map((i) => ({ key: i.key, cursorValue: i[cursorField] }))
-    },
-    async ingestJiraItem(key) {
-      // ADOPT first: a JQL result whose key already has a case must never get a second one.
-      // `jiraCases.createFromTicket` takes a caller-supplied slug and would happily create a
-      // duplicate, so pre-triage checks findCaseByJiraKey before ever reaching it.
-      const existing = findCaseByJiraKey(db, key)
-      if (existing) return { caseSlug: existing.slug, created: false }
-      const slug = key.toLowerCase()
-      const rec = await jiraCases.createFromTicket({ slug, title: key, key })
-      return { caseSlug: rec.slug, created: true }
-    }
-  }
+  // `jiraCases` is constructed HERE — hoisted up from its old spot near the rest of the "jira
+  // case lifecycle" handlers below — specifically so `buildJiraScopeResolver` (right after) can
+  // take it as a plain, already-built argument instead of closing over a `const` declared further
+  // down in this same function. The earlier version of this file DID close over a later `const`,
+  // justified by a comment claiming `registerIpc()` always finishes building every one of its
+  // `const`s before either resolver method could run. That claim was false as a general
+  // guarantee — the scheduler's `start()` call a bit further down fires its first tick
+  // SYNCHRONOUSLY, and that tick sits well before the old `jiraCases` declaration. It happened
+  // not to matter only because the synchronous path to a jira-scoped item always crosses an
+  // `await` on a real network call first (`atlassian.searchIssues`) — true today, but incidental
+  // and easy to invalidate with a caching layer or a synchronous first-page short-circuit.
+  // Hoisting removes the ordering dependency entirely rather than re-documenting it.
+  const jiraCases = new JiraCases({
+    db,
+    argusHome,
+    detection,
+    client: atlassian,
+    // Read only after a successful client call (getIssue) already warmed the
+    // discovery cache for this instance, so the sync cache read is safe here —
+    // resolveSiteUrl's async discovery path is not needed on this hot path.
+    site: () => atlassian.cachedSiteUrl(rovoInstanceId(connectorRegistry.get()) ?? '') ?? '',
+    extractors,
+    emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
+    evidenceChanged: evidenceChangedB,
+    parsing: (slug, id, active) => broadcast(IPC.evidenceParsing, { slug, evidenceId: id, active }),
+    resolvePrompt
+  })
+
+  // The jira half of ScopeResolver. Lives HERE, not in services/routines/, because it needs the
+  // Atlassian client and the ingest path — neither of which the engine may import. The actual
+  // JQL-building and adopt/create logic lives in jiraScopeResolver.ts (electron-free, so it is
+  // directly unit-testable), and this is just its Electron-adjacent binding: `db` and `atlassian`
+  // are already constructed above, `jiraCases` immediately above.
+  const scopeResolver: ScopeResolver = buildJiraScopeResolver({ db, atlassian, jiraCases })
 
   const routinesService = new RoutinesService({
     db,
@@ -2055,8 +2057,13 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.routinesDismissItem,
     (_e, itemId: number, resolution: CaseResolution): RoutinesPayload => {
-      // A missing resolution must reject rather than close a case with no explanation attached.
-      if (!resolution) throw new Error('Dismissing a draft requires a resolution reason')
+      // A missing OR bogus resolution must reject rather than close a case with no (real)
+      // explanation attached. IPC arguments are untyped at runtime — `resolution` is only
+      // `CaseResolution` by annotation, not by anything the renderer is prevented from sending —
+      // so a truthiness check alone lets an arbitrary non-empty string through.
+      if (!resolution || !CASE_RESOLUTIONS.includes(resolution)) {
+        throw new Error('Dismissing a draft requires a resolution reason')
+      }
       routinesService.dismissItem(itemId, resolution)
       return routinesService.payload()
     }
@@ -3120,21 +3127,8 @@ function registerIpc(): void {
   )
 
   // — jira case lifecycle (Part 3) —
-  const jiraCases = new JiraCases({
-    db,
-    argusHome,
-    detection,
-    client: atlassian,
-    // Read only after a successful client call (getIssue) already warmed the
-    // discovery cache for this instance, so the sync cache read is safe here —
-    // resolveSiteUrl's async discovery path is not needed on this hot path.
-    site: () => atlassian.cachedSiteUrl(rovoInstanceId(connectorRegistry.get()) ?? '') ?? '',
-    extractors,
-    emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
-    evidenceChanged: evidenceChangedB,
-    parsing: (slug, id, active) => broadcast(IPC.evidenceParsing, { slug, evidenceId: id, active }),
-    resolvePrompt
-  })
+  // `jiraCases` itself is constructed further up, near the routines scope-resolver binding
+  // (see the comment there) — it needs to exist before that binding, not before this comment.
 
   // Typed-result boundary: AtlassianError → { ok: false, code }, auth errors also
   // land on the connector card (payload.rest) + are cleared on the next success.

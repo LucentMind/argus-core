@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
-import { createCase, getCase } from '../../caseService'
+import { createCase, getCase, findCaseByJiraKey } from '../../caseService'
 import { RoutinesService, type RoutineTurnRequest } from '../service'
 import { listRunItems, runItemForCase } from '../runItems'
 import { readRoutineCursor } from '../cursors'
@@ -47,9 +47,15 @@ const storeOf = (r: RoutineDef): unknown => ({
  * UNIQUE slug constraint, which would turn the draft-skip rule below into an untestable one.
  *
  * `created` mirrors the real resolver's `findCaseByJiraKey`-vs-`createFromTicket` branch
- * (main/index.ts): false when the case already existed before this call. The caller
- * (RoutinesService.materializeItem) uses it to decide whether stamping `origin: 'routine'` is
- * safe — see the "adopted case" test below.
+ * (services/jiraScopeResolver.ts): false when the case already existed before this call. The
+ * caller (RoutinesService.materializeItem) uses it to decide whether stamping `origin: 'routine'`
+ * is safe — see the "adopted case" test below.
+ *
+ * Adoption here keys off `jira_key` via `findCaseByJiraKey`, same as production — NOT off the
+ * slug. A fake that looked cases up by `key.toLowerCase()` would still pass every test where the
+ * slug happens to equal the lowercased key (true of every case this file creates), but that is
+ * exactly the divergence that would hide a real adopt-by-slug regression: production would never
+ * find a case whose slug differs from its key, while a slug-keyed fake would find it anyway.
  */
 function fakeResolver(
   issues: Array<{ key: string; created: string }>,
@@ -68,10 +74,11 @@ function fakeResolver(
         .map((i) => ({ key: i.key, cursorValue: i.created })),
     ingestJiraItem: async (key: string) => {
       if (key === opts.failOn) throw new Error(`ingest failed for ${key}`)
+      const existing = findCaseByJiraKey(db, key)
+      if (existing) return { caseSlug: existing.slug, created: false }
       const slug = key.toLowerCase()
-      const existing = getCase(db, slug)
-      if (!existing) createCase(db, tmp, { slug, title: key })
-      return { caseSlug: slug, created: !existing }
+      createCase(db, tmp, { slug, title: key, jiraKey: key })
+      return { caseSlug: slug, created: true }
     }
   }
 }
