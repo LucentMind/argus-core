@@ -143,7 +143,7 @@ export function CaseCard({
           .filter(Boolean)
           .join(' · ')}
       </div>
-      {(chips.length + infos.length > 0 || c.origin === 'routine') && (
+      {(chips.length + infos.length > 0 || c.origin === 'routine' || c.reviewState === 'draft') && (
         <div data-testid="action-items" className="flex flex-wrap items-center gap-1.5">
           {c.origin === 'routine' && (
             <Chip tone="neutral">
