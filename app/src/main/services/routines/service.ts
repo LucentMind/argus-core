@@ -13,6 +13,7 @@ import {
   countUnreviewedRuns
 } from './runs'
 import { ensureRoutineAnchor, forgetRoutineAnchor } from './anchors'
+import { forgetRoutineCursor } from './cursors'
 import { nextFireAfter } from './schedule'
 import type { RoutineStore } from './store'
 import type { RoutineDef, RoutinesPayload, RoutineTrigger } from '../../../shared/routines'
@@ -187,6 +188,7 @@ export class RoutinesService {
    */
   forgetRoutine(id: string): void {
     forgetRoutineAnchor(this.deps.db, id)
+    forgetRoutineCursor(this.deps.db, id)
   }
 
   /**
