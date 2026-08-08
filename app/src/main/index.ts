@@ -535,10 +535,21 @@ function registerIpc(): void {
         // reported, with the SAME startTimeMs. `diagnostics` is a forward ref for the
         // same reason getLiveOwners below is — the Terminator is constructed before the
         // DiagnosticsService whose deps embed it.
-        stillIs: (pid, startTimeMs) =>
-          (diagnostics?.latest()?.tree ?? []).some(
-            (p) => p.pid === pid && p.startTimeMs === startTimeMs
-          )
+        treeStartTimeMs: (pid) =>
+          (diagnostics?.latest()?.tree ?? []).find((p) => p.pid === pid)?.startTimeMs ?? null,
+        // The fallback for when the tree above can't answer at all — an ancestor also
+        // missing from the walk, not just this pid (see terminate.ts Terminator.shouldKill).
+        // This is real process.kill(pid, 0), the same "does SOME process hold this pid"
+        // check called out above: safe here specifically because it is only ever reached
+        // once treeStartTimeMs has already ruled out a live-but-recycled process at pid.
+        isAlive: (pid) => {
+          try {
+            process.kill(pid, 0)
+            return true
+          } catch {
+            return false
+          }
+        }
       })
     })
   })()

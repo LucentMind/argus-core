@@ -10,14 +10,19 @@ import type { DiagnosticsSnapshot } from '../../../shared/diagnostics'
  *  escalation guards on `this.apps.get(key)?.status === 'running'` (cleared by the
  *  child's own exit event) and signals through a ProcessHandle, so it is never fooled
  *  by pid reuse. This path re-signals a bare pid, so it must independently re-resolve
- *  identity — see TerminatorDeps.stillIs below — rather than trusting the OS's answer
- *  to "does SOME process hold this pid" after a 5s window in which the OS is free to
- *  recycle it. */
+ *  identity — see TerminatorDeps.treeStartTimeMs below — rather than trusting the OS's
+ *  answer to "does SOME process hold this pid" after a 5s window in which the OS is
+ *  free to recycle it. */
 export const KILL_GRACE_MS = 5_000
 
 /** A termination target, carrying enough identity to survive pid reuse across the
- *  grace window. */
-export type TerminatorTarget = { pid: number; startTimeMs: number }
+ *  grace window, PLUS the pid of its immediate parent at resolve time. `parentPid` is
+ *  not identity — it is a structural canary: the sidecar's tree walk (tree.rs) only
+ *  enqueues a pid as a child of an already-tracked, currently-alive parent, so a
+ *  target vanishes from the tree both when it exits for real AND when an ancestor
+ *  dies first (see Terminator.shouldKill below for why that second case cannot be
+ *  read as death). */
+export type TerminatorTarget = { pid: number; startTimeMs: number; parentPid: number }
 
 export type ResolvedTargets =
   { ok: true; targets: TerminatorTarget[] } | { ok: false; reason: 'gone' | 'not-terminable' }
@@ -60,7 +65,7 @@ export function resolveTargets(
   }
   if (!byPid.has(row.rootPid)) return { ok: false, reason: 'gone' }
 
-  const collected: { pid: number; depth: number }[] = []
+  const collected: { pid: number; depth: number; ppid: number }[] = []
   const seen = new Set<number>()
   const queue = [row.rootPid]
   while (queue.length > 0) {
@@ -70,14 +75,14 @@ export function resolveTargets(
     if (seen.has(pid)) continue
     seen.add(pid)
     const p = byPid.get(pid)
-    if (p) collected.push({ pid, depth: p.depth })
+    if (p) collected.push({ pid, depth: p.depth, ppid: p.ppid })
     for (const child of childrenOf.get(pid) ?? []) queue.push(child)
   }
 
   const targets = collected
     .filter(({ pid }) => !denied.has(pid) && byPid.get(pid)?.electronType === undefined)
     .sort((a, b) => b.depth - a.depth)
-    .map(({ pid }) => ({ pid, startTimeMs: byPid.get(pid)!.startTimeMs }))
+    .map(({ pid, ppid }) => ({ pid, startTimeMs: byPid.get(pid)!.startTimeMs, parentPid: ppid }))
 
   // Everything in the row was denied or has already exited. Claiming success would
   // leave the page showing "Stopping…" for something nothing was sent to.
@@ -87,12 +92,25 @@ export function resolveTargets(
 
 export type TerminatorDeps = {
   kill: (pid: number, signal: 'SIGTERM' | 'SIGKILL') => void
-  /** Re-resolves identity against the CURRENT process tree at escalation time — this is
-   *  deliberately NOT "does some process hold this pid" (that's what `process.kill(pid,
+  /** Looks up the CURRENT process tree at escalation time and returns the live
+   *  startTimeMs reported for `pid`, or null if the tree has no row for it at all.
+   *  Deliberately NOT "does some process hold this pid" (that's what `process.kill(pid,
    *  0)` answers, and it cannot tell the original target from an unrelated process the
-   *  OS recycled the pid to during the grace window). Must return false whenever the
-   *  live process at `pid` does not have this exact `startTimeMs`. */
-  stillIs: (pid: number, startTimeMs: number) => boolean
+   *  OS recycled the pid to during the grace window) — a non-null return that does not
+   *  equal the target's original startTimeMs means exactly that: recycled, not ours,
+   *  never escalate. A null return means the tree has no opinion on `pid` at all, which
+   *  Terminator.shouldKill below must NOT read as "exited" on its own — see isAlive. */
+  treeStartTimeMs: (pid: number) => number | null
+  /** Raw OS liveness (`process.kill(pid, 0)`) — the escape hatch for exactly the case
+   *  `treeStartTimeMs` cannot answer: this target's row is gone from the tree AND the
+   *  row for its own parent (`TerminatorTarget.parentPid`) is ALSO gone. The sidecar's
+   *  tree walk (tree.rs) only reaches a pid through an unbroken chain of currently-alive
+   *  ancestors, so losing the parent's row is enough to make the whole subtree below it
+   *  unreachable regardless of whether those descendants are themselves alive or dead —
+   *  see the module docblock on resolveTargets. This predicate is never consulted when
+   *  the parent's row is still present, so it can never resurrect the recycled-pid
+   *  hazard `treeStartTimeMs` exists to close. */
+  isAlive: (pid: number) => boolean
 }
 
 /**
@@ -113,7 +131,7 @@ export class Terminator {
     const timer = setTimeout(() => {
       this.timers.delete(timer)
       for (const t of targets) {
-        if (this.deps.stillIs(t.pid, t.startTimeMs)) this.safeKill(t.pid, 'SIGKILL')
+        if (this.shouldKill(t)) this.safeKill(t.pid, 'SIGKILL')
       }
     }, KILL_GRACE_MS)
     // Never hold the process open for an escalation nobody is waiting on.
@@ -125,6 +143,32 @@ export class Terminator {
   dispose(): void {
     for (const t of this.timers) clearTimeout(t)
     this.timers.clear()
+  }
+
+  /**
+   * Whether `t` should be SIGKILLed after the grace window.
+   *
+   * `signal()` above SIGTERMs an entire subtree in one synchronous loop, so a shallow
+   * target exiting before a deeper, wedged one is the NORMAL outcome, not an exotic
+   * race — that wedged leaf is exactly why the user pressed Stop. The sidecar's tree
+   * walk (tree.rs) reaches a pid only through an unbroken chain of currently-alive
+   * ancestors, so that ordinary shallow-exits-first sequence makes the deeper target
+   * disappear from the tree too, even though it is very much still running. Treating
+   * "absent from the tree" as "dead" — the bug this method exists to fix — would
+   * silently drop the SIGKILL on precisely the wedged process the escalation exists to
+   * catch, leaving it alive, invisible, and with no row left to ever Stop again.
+   *
+   * So absence is only trusted as death when the tree could actually have seen this
+   * pid: when its immediate parent (`t.parentPid`) is still present. If the parent's
+   * row is ALSO gone, the walk is structurally blind here — the tree cannot answer
+   * either way — and only then does this fall back to a raw OS liveness check.
+   */
+  private shouldKill(t: TerminatorTarget): boolean {
+    const current = this.deps.treeStartTimeMs(t.pid)
+    if (current !== null) return current === t.startTimeMs
+    const ancestorPresent = this.deps.treeStartTimeMs(t.parentPid) !== null
+    if (ancestorPresent) return false
+    return this.deps.isAlive(t.pid)
   }
 
   /** A pid that exited between resolution and signalling throws ESRCH. That is the

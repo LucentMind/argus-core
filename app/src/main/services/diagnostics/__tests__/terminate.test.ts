@@ -74,9 +74,9 @@ describe('resolveTargets', () => {
     expect(r).toEqual({
       ok: true,
       targets: [
-        { pid: 4, startTimeMs: 1_000 },
-        { pid: 3, startTimeMs: 1_000 },
-        { pid: 2, startTimeMs: 1_000 }
+        { pid: 4, startTimeMs: 1_000, parentPid: 3 },
+        { pid: 3, startTimeMs: 1_000, parentPid: 2 },
+        { pid: 2, startTimeMs: 1_000, parentPid: 1 }
       ]
     })
   })
@@ -94,8 +94,8 @@ describe('resolveTargets', () => {
     expect(r).toEqual({
       ok: true,
       targets: [
-        { pid: 3, startTimeMs: 1_000 },
-        { pid: 2, startTimeMs: 1_000 }
+        { pid: 3, startTimeMs: 1_000, parentPid: 2 },
+        { pid: 2, startTimeMs: 1_000, parentPid: 1 }
       ]
     })
   })
@@ -111,7 +111,7 @@ describe('resolveTargets', () => {
     })
     expect(resolveTargets(s, '2:1000', new Set([3]))).toEqual({
       ok: true,
-      targets: [{ pid: 2, startTimeMs: 1_000 }]
+      targets: [{ pid: 2, startTimeMs: 1_000, parentPid: 1 }]
     })
   })
 
@@ -126,7 +126,7 @@ describe('resolveTargets', () => {
     })
     expect(resolveTargets(s, '2:1000', new Set())).toEqual({
       ok: true,
-      targets: [{ pid: 2, startTimeMs: 1_000 }]
+      targets: [{ pid: 2, startTimeMs: 1_000, parentPid: 1 }]
     })
   })
 
@@ -160,9 +160,9 @@ describe('Terminator', () => {
 
   it('sends SIGTERM to every target immediately', () => {
     const kill = vi.fn()
-    new Terminator({ kill, stillIs: () => false }).signal([
-      { pid: 3, startTimeMs: 1_000 },
-      { pid: 2, startTimeMs: 1_000 }
+    new Terminator({ kill, treeStartTimeMs: () => null, isAlive: () => false }).signal([
+      { pid: 3, startTimeMs: 1_000, parentPid: 1 },
+      { pid: 2, startTimeMs: 1_000, parentPid: 1 }
     ])
     expect(kill.mock.calls).toEqual([
       [3, 'SIGTERM'],
@@ -173,12 +173,16 @@ describe('Terminator', () => {
   it('escalates to SIGKILL only for targets whose identity the current tree still confirms after the grace window', () => {
     const kill = vi.fn()
     // Only pid 2, at exactly its original startTimeMs, is confirmed still alive by the
-    // (fake) current-tree lookup — pid 3 exited and is gone.
-    const stillIs = (pid: number, startTimeMs: number): boolean =>
-      pid === 2 && startTimeMs === 1_000
-    new Terminator({ kill, stillIs }).signal([
-      { pid: 3, startTimeMs: 1_000 },
-      { pid: 2, startTimeMs: 1_000 }
+    // (fake) current-tree lookup — pid 3 exited and is gone, and its parent (pid 1) is
+    // still present, so pid 3's absence is unambiguous death, not a blind spot.
+    const treeStartTimeMs = (pid: number): number | null => {
+      if (pid === 2) return 1_000
+      if (pid === 1) return 5_000
+      return null
+    }
+    new Terminator({ kill, treeStartTimeMs, isAlive: () => true }).signal([
+      { pid: 3, startTimeMs: 1_000, parentPid: 1 },
+      { pid: 2, startTimeMs: 1_000, parentPid: 1 }
     ])
     kill.mockClear()
     vi.advanceTimersByTime(KILL_GRACE_MS)
@@ -188,16 +192,41 @@ describe('Terminator', () => {
   it('does NOT escalate to SIGKILL when a different process now holds the pid — the recycled-pid case', () => {
     // This is the hazard the whole id-with-startTimeMs design exists to close: pid 2
     // exited within the grace window and the OS handed the same pid to an unrelated
-    // process before the timer fired. `stillIs` reports the CURRENT process at pid 2 (a
-    // different startTimeMs), which must read as "not our target" — not as "still alive,
-    // escalate". A liveness-only check (process.kill(pid,0)) would wrongly say yes here.
+    // process before the timer fired. `treeStartTimeMs` reports the CURRENT process at
+    // pid 2 (a different startTimeMs) — present, just not a match — which must read as
+    // "not our target", not as "absent, ask isAlive". `isAlive` is deliberately wired to
+    // return true here: if the fix mistakenly fell through to the raw-liveness fallback
+    // for a pid the tree can already explain, this assertion is what catches it.
     const kill = vi.fn()
-    const stillIs = (pid: number, startTimeMs: number): boolean =>
-      pid === 2 && startTimeMs === 4_000 // the recycled process's own start time
-    new Terminator({ kill, stillIs }).signal([{ pid: 2, startTimeMs: 1_000 }])
+    const treeStartTimeMs = (pid: number): number | null => (pid === 2 ? 4_000 : null)
+    new Terminator({ kill, treeStartTimeMs, isAlive: () => true }).signal([
+      { pid: 2, startTimeMs: 1_000, parentPid: 1 }
+    ])
     kill.mockClear()
     vi.advanceTimersByTime(KILL_GRACE_MS)
     expect(kill).not.toHaveBeenCalled()
+  })
+
+  it('falls back to raw liveness when both a target and its parent are absent from the tree — the wedged-leaf-behind-a-dead-ancestor case', () => {
+    // Mirrors the spec's own example: npx(100) -> node(101), both SIGTERMed together.
+    // npx exits for real; node is wedged (the reason Stop was pressed at all). Once npx
+    // is gone, the sidecar's reachability walk can no longer reach node either, so
+    // `treeStartTimeMs` returns null for BOTH pids — that shared "absent" verdict is
+    // exactly the ambiguity a wedged leaf produces, and is why the tree-only check is
+    // not enough. pid 100's own parent (99, outside this kill batch — e.g. a shell) IS
+    // still present, so pid 100's absence is unambiguous and must NOT escalate. pid
+    // 101's parent (100) is NOT present, so the walk is blind for pid 101 specifically,
+    // and only there does the raw isAlive() fallback get consulted.
+    const kill = vi.fn()
+    const treeStartTimeMs = (pid: number): number | null => (pid === 99 ? 5_000 : null)
+    const isAlive = (pid: number): boolean => pid === 101
+    new Terminator({ kill, treeStartTimeMs, isAlive }).signal([
+      { pid: 101, startTimeMs: 1_000, parentPid: 100 },
+      { pid: 100, startTimeMs: 1_000, parentPid: 99 }
+    ])
+    kill.mockClear()
+    vi.advanceTimersByTime(KILL_GRACE_MS)
+    expect(kill.mock.calls).toEqual([[101, 'SIGKILL']])
   })
 
   it('a throwing kill does not stop the remaining targets', () => {
@@ -205,9 +234,9 @@ describe('Terminator', () => {
       if (pid === 3) throw new Error('ESRCH')
     })
     expect(() =>
-      new Terminator({ kill, stillIs: () => false }).signal([
-        { pid: 3, startTimeMs: 1_000 },
-        { pid: 2, startTimeMs: 1_000 }
+      new Terminator({ kill, treeStartTimeMs: () => null, isAlive: () => false }).signal([
+        { pid: 3, startTimeMs: 1_000, parentPid: 1 },
+        { pid: 2, startTimeMs: 1_000, parentPid: 1 }
       ])
     ).not.toThrow()
     expect(kill).toHaveBeenCalledWith(2, 'SIGTERM')
@@ -215,8 +244,8 @@ describe('Terminator', () => {
 
   it('dispose cancels a pending escalation', () => {
     const kill = vi.fn()
-    const t = new Terminator({ kill, stillIs: () => true })
-    t.signal([{ pid: 2, startTimeMs: 1_000 }])
+    const t = new Terminator({ kill, treeStartTimeMs: () => 1_000, isAlive: () => true })
+    t.signal([{ pid: 2, startTimeMs: 1_000, parentPid: 1 }])
     kill.mockClear()
     t.dispose()
     vi.advanceTimersByTime(KILL_GRACE_MS)
