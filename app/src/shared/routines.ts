@@ -162,6 +162,37 @@ export interface RoutineRunSummary {
   reviewedAt: string | null
 }
 
+export type RoutineRunItemStatus = 'running' | 'processed' | 'skipped' | 'failed'
+
+/**
+ * What a routine turn PROPOSES for a case. Never applied until a human accepts (spec §5.3).
+ *
+ * `title` and `tags` are the whole surface because they are the whole of what a case has:
+ * CaseRecord carries status, resolution, tags, title, phase, activeMode, origin and the Jira
+ * mirror fields — there is no severity, component or owner column. The parent spec's
+ * "suggest severity/component/owner" is expressed as tags (`severity:high`, `component:auth`).
+ */
+export interface TriageSuggestion {
+  title?: string
+  tags?: string[]
+  rationale: string
+}
+
+export interface RoutineRunItemSummary {
+  id: number
+  runId: number
+  /** Jira key, or case slug for a `cases` scope. */
+  itemKey: string
+  /** Null when the item failed before a case existed. */
+  caseSlug: string | null
+  status: RoutineRunItemStatus
+  error: string | null
+  /** Null when the turn proposed nothing, or when the stored blob failed to parse. */
+  suggestion: TriageSuggestion | null
+  startedAt: string
+  finishedAt: string | null
+}
+
 export interface RoutinesPayload {
   routines: RoutineDef[]
   loadError: string | null
@@ -175,4 +206,7 @@ export interface RoutinesPayload {
   /** Finished runs waiting to be reviewed. A SQL count, not `runs.filter(...)`: `runs` is
    *  capped at 50 and would under-report a large backlog. */
   unreviewedCount: number
+  /** Items belonging to the runs in `runs`. Flat, not nested, so the renderer groups by runId
+   *  and one shape serialises over IPC. */
+  runItems: RoutineRunItemSummary[]
 }
