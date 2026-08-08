@@ -356,15 +356,28 @@ check(
 )
 
 // The IPC round-trip the click drove already resolved (waitFor above only returns once the
-// store's local state reflects it), but the write to disk is a separate async hop — give it a
-// moment before reading the file back.
-await sleep(500)
+// store's local state reflects it), but the write to disk is a separate async hop — poll
+// for it with a timeout rather than a fixed sleep.
 let settingsOnDisk
 try {
-  settingsOnDisk = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'))
+  settingsOnDisk = await waitFor(
+    'general.keepAliveInBackground to reach config/settings.json',
+    () => {
+      try {
+        const data = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'))
+        if (data?.general?.keepAliveInBackground === true) {
+          return data
+        }
+        return false
+      } catch {
+        return false
+      }
+    },
+    5000
+  )
 } catch (e) {
   settingsOnDisk = null
-  console.error(`could not read ${SETTINGS_PATH}: ${e.message}`)
+  console.error(`general.keepAliveInBackground never reached disk within 5s: ${e.message}`)
 }
 check(
   'general.keepAliveInBackground round-tripped through the UI into config/settings.json',
