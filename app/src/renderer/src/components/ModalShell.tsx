@@ -1,7 +1,8 @@
-import type { ReactNode, KeyboardEvent } from 'react'
+import { useSyncExternalStore, type ReactNode, type KeyboardEvent } from 'react'
 import { X } from 'lucide-react'
 import { IconBtn } from './ui'
 import { useEscapeLayer } from '../lib/escapeLayer'
+import { uiStore } from '../lib/uiStore'
 
 /**
  * The shared floating-overlay chrome: dimmed backdrop, centered card, header
@@ -39,12 +40,24 @@ export function ModalShell({
   variant?: 'chrome' | 'reading'
 }): React.JSX.Element {
   useEscapeLayer({ onEscape: onClose })
+  const ui = useSyncExternalStore(
+    (cb) => uiStore.subscribe(cb),
+    () => uiStore.get()
+  )
   const material = variant === 'reading' ? 'glass-panel' : 'overlay-card'
+  // Dialogs are rendered by App and by view subtrees alike, and the ones App renders (New case,
+  // Import case, the viewers) sit OUTSIDE every DynamicScope — so with the dynamic theme on they
+  // kept the classic tokens while the page behind them was ambient. `.dyn` is only a
+  // re-declaration of the raw token vars (theme.css maps every Tailwind colour through them), so
+  // it nests harmlessly on the dialogs that already have a scoped ancestor and restyles the ones
+  // that do not. No `.dyn-<variant>` here: a dialog is not one of the three banded views, and
+  // those classes carry band/rail geometry this shell has no use for.
+  const scope = ui.dynamicTheme ? 'dyn ' : ''
 
   return (
     <div
       data-testid="modal-backdrop"
-      className={`fixed inset-0 flex items-center justify-center modal-scrim backdrop-blur-[2px] ${overlayZClassName}`}
+      className={`${scope}fixed inset-0 flex items-center justify-center modal-scrim backdrop-blur-[2px] ${overlayZClassName}`}
       onClick={onClose}
       onKeyDown={onKeyDown}
       tabIndex={-1}

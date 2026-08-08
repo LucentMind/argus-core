@@ -215,9 +215,16 @@ function App(): React.JSX.Element {
               <SettingsView onClose={closeSettings} initialPage={view.page} />
             </DynamicScope>
           ) : view.kind === 'observability' ? (
-            <ObservabilityView onOpenCase={openCase} onClose={() => setView(prevView)} />
+            // Same `settings` band as the Settings view: these are the app's other two full-page
+            // surfaces reached from the top bar, they carry a title row of their own, and without a
+            // scope they rendered in classic tokens while every neighbouring view was ambient.
+            <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>
+              <ObservabilityView onOpenCase={openCase} onClose={() => setView(prevView)} />
+            </DynamicScope>
           ) : view.kind === 'relatedHistory' ? (
-            <RelatedHistoryStandalone onOpenCase={openCase} onClose={() => setView(prevView)} />
+            <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>
+              <RelatedHistoryStandalone onOpenCase={openCase} onClose={() => setView(prevView)} />
+            </DynamicScope>
           ) : (
             <DynamicScope variant="case" light={ambientLight} cutoff={ambientCutoff}>
               <CaseWorkspace

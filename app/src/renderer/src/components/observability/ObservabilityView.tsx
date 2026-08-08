@@ -3,6 +3,7 @@ import { X } from 'lucide-react'
 import type { CaseRecord } from '../../../../shared/types'
 import { IconBtn } from '../ui'
 import { blurOnEscape, useEscapeLayer } from '../../lib/escapeLayer'
+import { useAmbientAnchors } from '../../lib/ambientAnchors'
 import { useCaseMetrics, useGlobalMetrics } from '../../lib/metricsStore'
 import { useSettingsPayload } from '../../lib/settingsStore'
 import { StatCard, pct, usd } from './MetricCards'
@@ -46,6 +47,11 @@ export function ObservabilityView({
   // so App.tsx's call site doesn't change shape between tasks.
   void onOpenCase
   useEscapeLayer({ onEscape: onClose })
+  // Light anchors for the dynamic theme (App wraps this view in a `settings`-variant
+  // DynamicScope). This page owns its own masthead, so it claims the slots itself; outside the
+  // dynamic theme the context default makes both a no-op. Claim/release ref callbacks, so the
+  // react-hooks/refs complaint below is a false positive — see lib/ambientAnchors.ts.
+  const anchors = useAmbientAnchors()
   const [range, setRange] = useState<(typeof RANGES)[number]['id']>('30d')
   const [scope, setScope] = useState<'global' | string>('global')
   const [cases, setCases] = useState<CaseRecord[]>([])
@@ -64,9 +70,19 @@ export function ObservabilityView({
 
   return (
     <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 p-8">
-      <div className="flex items-center justify-between">
+      <div
+        // eslint-disable-next-line react-hooks/refs
+        ref={anchors.setCutoff}
+        className="flex items-center justify-between"
+      >
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-semibold text-ink">Observability</h1>
+          <h1
+            // eslint-disable-next-line react-hooks/refs
+            ref={anchors.setLight}
+            className="text-lg font-semibold text-ink"
+          >
+            Observability
+          </h1>
           <IconBtn aria-label="Close" title="Close" onClick={onClose}>
             <X size={14} />
           </IconBtn>

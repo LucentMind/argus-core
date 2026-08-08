@@ -5,9 +5,15 @@ import { useState } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ModalShell } from '../ModalShell'
+import { uiStore } from '../../lib/uiStore'
 import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 
-afterEach(() => __resetEscapeLayersForTest())
+afterEach(() => {
+  __resetEscapeLayersForTest()
+  // `uiStore` is a module singleton: the dynamic-theme test below would otherwise leave every
+  // later case in this file (and any file sharing the worker) running with it on.
+  uiStore.setDynamicTheme(false)
+})
 
 describe('ModalShell', () => {
   it('closes on Escape', async () => {
@@ -163,5 +169,34 @@ describe('ModalShell', () => {
     const cls = getByRole('dialog').className
     expect(cls).toContain('glass-panel')
     expect(cls).not.toContain('overlay-card')
+  })
+
+  /**
+   * Dialogs carry the ambient token scope themselves (user-directed, 2026-08-08).
+   *
+   * The ones App renders — New case, Import case, the viewers — sit outside every DynamicScope,
+   * so with the dynamic theme on they kept the classic tokens while the page behind them was
+   * ambient. Both directions are pinned: the OFF case is the standing trap in this codebase, where
+   * a conditional class ships with layout or material classes hoisted out of the ternary and leaks
+   * into the classic theme.
+   */
+  it('scopes itself to the ambient tokens only while the dynamic theme is on', () => {
+    const { getByTestId, unmount } = render(
+      <ModalShell title="t" onClose={() => undefined}>
+        body
+      </ModalShell>
+    )
+    expect(getByTestId('modal-backdrop').className.split(/\s+/)).not.toContain('dyn')
+    unmount()
+
+    uiStore.setDynamicTheme(true)
+    const on = render(
+      <ModalShell title="t" onClose={() => undefined}>
+        body
+      </ModalShell>
+    )
+    expect(on.getByTestId('modal-backdrop').className.split(/\s+/)).toContain('dyn')
+    // No band/rail variant: a dialog is not one of the three banded views.
+    expect(on.getByTestId('modal-backdrop').className).not.toContain('dyn-')
   })
 })
