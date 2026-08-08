@@ -3157,10 +3157,58 @@ function createWindow(): void {
   }
 }
 
+/**
+ * Raise the main window, creating it if it is gone.
+ *
+ * One function because four callers mean the same thing by it — macOS's `activate`, the tray icon
+ * and its Open item, `second-instance`, and a clicked run-finished notification — and four ad-hoc
+ * versions is how one of them ends up not un-minimizing.
+ *
+ * It targets the MAIN window specifically. `BrowserWindow.getAllWindows().length === 0` (what
+ * `activate` used to test) is not a proxy for "the main window is open": the editor is a second
+ * BrowserWindow, so with the editor up and the main window closed that test is false and the
+ * window the user asked for never appears.
+ */
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow()
+    return
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+/**
+ * One process per database.
+ *
+ * Before keep-alive this was theoretical — closing the window quit the app, so every launch was a
+ * cold start. With the app resident in the tray and no window on screen, the natural thing to do
+ * is double-click the icon again, and without this that starts a SECOND process: two schedulers
+ * polling, two writers on one SQLite file, and the same routine firing twice.
+ *
+ * Taken only when ARGUS_HOME is unset. Electron keys the lock on `app.getPath('userData')`, which
+ * ARGUS_HOME does not redirect (services/paths.ts resolves the Argus data dir only), so an
+ * unconditional lock would refuse every isolated-home launch — the verify skill's and every
+ * scripts/cdp-*.mjs gate's. That is not just a harness concession: the lock exists to keep two
+ * processes off one database, and two instances on different homes share no database.
+ */
+const singleInstance = process.env.ARGUS_HOME ? true : app.requestSingleInstanceLock()
+if (!singleInstance) {
+  app.quit()
+} else {
+  // The second launch's real request: show me the app I already have.
+  app.on('second-instance', () => showMainWindow())
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
+  // Belt-and-suspenders for the losing instance: `app.quit()` above should exit before 'ready',
+  // but if it does not, nothing below may run — the database must not be opened twice.
+  if (!singleInstance) return
+
   // Packaged apps launched from Finder/Dock inherit the minimal launchd PATH; merge in
   // the login shell's PATH before anything spawns a child process (gh detection, drivers).
   await hydratePathFromLoginShell()
@@ -3202,9 +3250,9 @@ app.whenReady().then(async () => {
   createWindow()
 
   app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    // macOS: clicking the dock icon with no window open should bring the app back. Delegated so
+    // it also covers the editor-window case the old getAllWindows() test got wrong.
+    showMainWindow()
   })
 })
 
