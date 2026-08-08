@@ -683,6 +683,15 @@ describe('RoutinesPage — run history', () => {
     expect(screen.getByTestId('run-routine-1')).toHaveTextContent('gone-routine')
   })
 
+  it('names a scoped run by its routine alone, with no trailing separator for the case it never opened', async () => {
+    // Finding 2: caseSlug is null for a scoped run's own row.
+    stubApi(payload({ runs: [run({ id: 5, caseSlug: null })] }))
+    render(<RoutinesPage />)
+    await screen.findByTestId('run-routine-5')
+    expect(screen.getByTestId('run-routine-5')).toHaveTextContent('Nightly sweep')
+    expect(screen.getByTestId('run-routine-5').textContent).toBe('Nightly sweep')
+  })
+
   it('gives ok, failed, timeout and running visually distinct pills', async () => {
     // The audit trail's whole job is answering "did my overnight work actually happen?" — a
     // timeout that renders identically to a clean ok answers it wrongly.

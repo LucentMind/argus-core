@@ -266,5 +266,83 @@ describe('openDb', () => {
         expect(() => openDb(file).close()).not.toThrow()
       })
     })
+
+    describe('routine_runs.case_slug nullability (fix pass)', () => {
+      it('drops NOT NULL on a fresh database', () => {
+        const db = openDb(path.join(tmp, 'fresh.sqlite'))
+        const cols = db.prepare(`PRAGMA table_info(routine_runs)`).all() as {
+          name: string
+          notnull: number
+        }[]
+        expect(cols.find((c) => c.name === 'case_slug')?.notnull).toBe(0)
+        // A scoped run's row must actually accept NULL, not just report nullable.
+        db.prepare(
+          `INSERT INTO routine_runs (routine_id, case_slug, status, started_at)
+           VALUES ('r', NULL, 'running', '2026-01-01T00:00:00.000Z')`
+        ).run()
+        db.close()
+      })
+
+      it('rebuilds a database whose routine_runs.case_slug predates the fix, preserving rows', () => {
+        const file = path.join(tmp, 'legacy-runs.sqlite')
+        const legacy = new DatabaseSync(file)
+        legacy.exec(`CREATE TABLE routine_runs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          routine_id TEXT NOT NULL,
+          case_slug TEXT NOT NULL,
+          session_id INTEGER,
+          status TEXT NOT NULL DEFAULT 'running',
+          started_at TEXT NOT NULL,
+          finished_at TEXT,
+          summary TEXT,
+          error TEXT
+        )`)
+        legacy
+          .prepare(
+            `INSERT INTO routine_runs
+               (routine_id, case_slug, session_id, status, started_at, finished_at, summary, error)
+             VALUES ('sweep', 'routine-sweep', 9, 'ok', '2026-01-01T00:00:00.000Z',
+                     '2026-01-01T00:05:00.000Z', 'did the thing', NULL)`
+          )
+          .run()
+        legacy.close()
+
+        const migrated = openDb(file)
+        const cols = migrated.prepare(`PRAGMA table_info(routine_runs)`).all() as {
+          name: string
+          notnull: number
+        }[]
+        expect(cols.find((c) => c.name === 'case_slug')?.notnull).toBe(0)
+        // The pre-existing row survived the rebuild untouched, including the columns added by
+        // the trigger_kind/reviewed_at migrations that ran earlier in the same openDb() call.
+        const row = migrated.prepare(`SELECT * FROM routine_runs`).get() as Record<
+          string,
+          unknown
+        >
+        expect(row).toMatchObject({
+          routine_id: 'sweep',
+          case_slug: 'routine-sweep',
+          session_id: 9,
+          status: 'ok',
+          summary: 'did the thing',
+          trigger_kind: 'manual'
+        })
+        // And a scoped run can now be inserted with no case at all.
+        migrated
+          .prepare(
+            `INSERT INTO routine_runs (routine_id, case_slug, status, started_at)
+             VALUES ('scoped', NULL, 'running', '2026-01-02T00:00:00.000Z')`
+          )
+          .run()
+        migrated.close()
+
+        // The column guard is what makes the rebuild one-time — a second open must not re-run it.
+        const reopened = openDb(file)
+        expect(
+          (reopened.prepare(`SELECT COUNT(*) AS n FROM routine_runs`).get() as { n: number }).n
+        ).toBe(2)
+        reopened.close()
+      })
+    })
   })
 })

@@ -162,7 +162,9 @@ export function CaseDashboard({
   // a case whose backlog is deeper than that and shows the count it can prove.
   const reviewCounts = new Map<string, number>()
   for (const r of routines.payload?.runs ?? []) {
-    if (r.status !== 'running' && r.reviewedAt === null) {
+    // A scoped run's own row has no case (its items each have their own — not counted here,
+    // same as before this run type existed) — nothing to key the tally by, so skip it.
+    if (r.caseSlug && r.status !== 'running' && r.reviewedAt === null) {
       reviewCounts.set(r.caseSlug, (reviewCounts.get(r.caseSlug) ?? 0) + 1)
     }
   }

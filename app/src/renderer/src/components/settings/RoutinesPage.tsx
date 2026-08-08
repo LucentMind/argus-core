@@ -705,7 +705,11 @@ export function RoutinesPage(): React.JSX.Element {
                     use the same `a · b` shape). The routine may have been deleted since, so the
                     raw id is the fallback — a run with no label at all is unreadable history. */}
                 <span data-testid={`run-routine-${run.id}`} className="truncate text-ink">
-                  {nameOf(run.routineId)} · {run.caseSlug}
+                  {/* A scoped run's row has no case of its own (its items each have theirs) —
+                      fall back to naming the routine alone rather than trailing off with
+                      nothing after the separator. */}
+                  {nameOf(run.routineId)}
+                  {run.caseSlug ? ` · ${run.caseSlug}` : ''}
                 </span>
                 {run.error && <RunSummaryText text={run.error} kind="error" />}
                 {run.summary && <RunSummaryText text={run.summary} kind="summary" />}

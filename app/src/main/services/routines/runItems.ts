@@ -49,6 +49,33 @@ export function finishRunItem(
   ).run(outcome.status, outcome.error ?? null, now().toISOString(), itemId)
 }
 
+/**
+ * Closes out item rows stranded by a process that died mid-turn.
+ *
+ * Same contract as `reconcileInterruptedRuns` (runs.ts) — SAFE ONLY AT STARTUP — because it is
+ * called from inside that same function, on the same predicate (`status='running'`), so it
+ * inherits that function's single call site and its "before any run can be in flight" guarantee.
+ * Exported so runs.ts (which owns the boot-time reconcile) and tests can reach it directly;
+ * nothing else should call it.
+ *
+ * Takes `finishedAt` and `errorText` rather than a `now` callback so the caller computes the
+ * timestamp exactly once and shares it with the run-row update — two independent `now()` calls
+ * would let a real (non-mocked) clock give the run and its stranded items two different
+ * `finished_at` values for the same crash.
+ */
+export function reconcileInterruptedRunItems(
+  db: DatabaseSync,
+  finishedAt: string,
+  errorText: string
+): number {
+  const res = db
+    .prepare(
+      `UPDATE routine_run_items SET status = 'failed', finished_at = ?, error = ? WHERE status = 'running'`
+    )
+    .run(finishedAt, errorText)
+  return Number(res.changes)
+}
+
 export function saveItemSuggestion(
   db: DatabaseSync,
   itemId: number,
