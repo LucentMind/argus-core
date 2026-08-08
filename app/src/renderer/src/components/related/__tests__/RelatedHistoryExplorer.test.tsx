@@ -96,6 +96,58 @@ describe('RelatedHistoryExplorer', () => {
     expect(search).not.toHaveBeenCalled()
   })
 
+  /**
+   * One pane until a result is picked (user-directed, 2026-08-08). The detail column used to be
+   * permanent, half the width given over to a "Select a result…" placeholder while the results
+   * themselves were squeezed into the other half.
+   *
+   * Keyed on the presence of the hit's own detail content rather than on a class name, so the
+   * assertion survives a layout rewrite and still fails if the pane comes back uninvited.
+   */
+  describe('detail pane', () => {
+    it('shows no detail pane until a result is selected, then splits', async () => {
+      setArgus({ query: 'q', hits: [hit()] })
+      render(<RelatedHistoryExplorer caseSlug="current" />)
+      const row = await screen.findByText('ECU reset drifts DLT')
+      expect(screen.queryByRole('button', { name: 'Close detail' })).toBeNull()
+
+      fireEvent.click(row)
+      expect(await screen.findByRole('button', { name: 'Close detail' })).toBeInTheDocument()
+    })
+
+    it('closes the detail pane again, returning to a single pane', async () => {
+      setArgus({ query: 'q', hits: [hit()] })
+      render(<RelatedHistoryExplorer caseSlug="current" />)
+      fireEvent.click(await screen.findByText('ECU reset drifts DLT'))
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Close detail' }))
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Close detail' })).toBeNull())
+      // The result list is still there — closing the detail must not clear the search.
+      expect(screen.getByText('ECU reset drifts DLT')).toBeInTheDocument()
+    })
+
+    /** No state of its own to reset: `active` is `selected` looked up in the CURRENT hits, so a
+     *  search that no longer returns that row collapses the split by construction. */
+    it('collapses when a later search no longer returns the selected hit', async () => {
+      const search = vi
+        .fn()
+        .mockResolvedValueOnce({ query: 'q', hits: [hit()], sources: [] })
+        .mockResolvedValue({ query: 'q', hits: [], sources: [] })
+      ;(window as unknown as { argus: unknown }).argus = {
+        related: { search, sources: vi.fn().mockResolvedValue(SOURCES), defect: vi.fn() }
+      }
+      render(<RelatedHistoryExplorer caseSlug="current" />)
+      fireEvent.click(await screen.findByText('ECU reset drifts DLT'))
+      expect(await screen.findByRole('button', { name: 'Close detail' })).toBeInTheDocument()
+
+      fireEvent.change(screen.getByLabelText('Search related history'), {
+        target: { value: 'something else' }
+      })
+      fireEvent.submit(screen.getByRole('search'))
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Close detail' })).toBeNull())
+    })
+  })
+
   it('raises the limit on show-more and stops at the contract ceiling', async () => {
     // A full page every step, so "Show more" keeps offering — otherwise the
     // component would stop paging on its own before the ceiling is reached

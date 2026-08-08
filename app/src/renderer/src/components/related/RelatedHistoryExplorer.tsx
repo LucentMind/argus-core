@@ -14,6 +14,7 @@ import { RELATED_SEARCH_MAX_LIMIT } from '../../../../shared/relatedHistory'
 import { Btn, Chip, IconBtn } from '../ui'
 import { ModalShell } from '../ModalShell'
 import { blurOnEscape, useEscapeLayer } from '../../lib/escapeLayer'
+import { useAmbientAnchors } from '../../lib/ambientAnchors'
 import { panelsStore } from '../../lib/panelsStore'
 import { ExplorerFilters } from './ExplorerFilters'
 import { HitDetail } from './HitDetail'
@@ -424,8 +425,21 @@ export function RelatedHistoryExplorer({
         </form>
         {degraded && <div className="text-[11px] text-mute">{degraded}</div>}
         {error && <div className="text-[11px] text-danger">{error}</div>}
+        {/* One pane until a result is picked (user-directed, 2026-08-08). The detail column used
+            to hold a permanent "Select a result…" placeholder, so half the width of the widest
+            surface in the app was reserved for a sentence — and the results themselves, which are
+            what the user came to read, were squeezed into the other half from the moment the page
+            opened. The split now appears with the thing it is for.
+
+            Collapsing back is automatic and needs no state of its own: `active` is resolved by
+            looking `selected` up in the CURRENT hits, so a fresh search that no longer contains
+            that row drops the pane. The explicit Close below covers the same result set. */}
         <div className="flex min-h-0 flex-1 gap-3">
-          <div className="flex min-h-0 w-1/2 flex-col gap-1.5 overflow-y-auto">
+          <div
+            className={`flex min-h-0 flex-col gap-1.5 overflow-y-auto ${
+              active ? 'w-1/2' : 'min-w-0 flex-1'
+            }`}
+          >
             {hits.map((h) => (
               <HitLine
                 key={h.id}
@@ -459,25 +473,35 @@ export function RelatedHistoryExplorer({
               </Btn>
             )}
           </div>
-          <div className="min-h-0 w-1/2 overflow-y-auto border-l border-hair pl-3">
-            {active ? (
-              // key: HitDetail holds the followed-link key as instance state.
-              // Without a remount per hit, selecting another row would keep
-              // showing the previous row's linked ticket — and resetting it from
-              // an effect trips `react-hooks/set-state-in-effect`, which is
-              // enabled here and only fails after tests and typecheck are green.
-              <HitDetail
-                key={active.id}
-                hit={active}
-                onOpenCase={onOpenCase}
-                caseSlug={caseSlug}
-                sessionId={sessionId}
-                onReferenced={onReferenced}
-              />
-            ) : (
-              <p className="text-xs text-dim">Select a result to see the full record.</p>
-            )}
-          </div>
+          {active && (
+            <div className="flex min-h-0 w-1/2 flex-col border-l border-hair pl-3">
+              <div className="flex shrink-0 justify-end">
+                <IconBtn
+                  aria-label="Close detail"
+                  title="Close detail"
+                  size="xs"
+                  onClick={() => setSelected(null)}
+                >
+                  <X size={12} strokeWidth={1.5} />
+                </IconBtn>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {/* key: HitDetail holds the followed-link key as instance state.
+                    Without a remount per hit, selecting another row would keep
+                    showing the previous row's linked ticket — and resetting it from
+                    an effect trips `react-hooks/set-state-in-effect`, which is
+                    enabled here and only fails after tests and typecheck are green. */}
+                <HitDetail
+                  key={active.id}
+                  hit={active}
+                  onOpenCase={onOpenCase}
+                  caseSlug={caseSlug}
+                  sessionId={sessionId}
+                  onReferenced={onReferenced}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -533,10 +557,24 @@ export function RelatedHistoryStandalone({
   onClose: () => void
 }): React.JSX.Element {
   useEscapeLayer({ onEscape: onClose })
+  // The dynamic theme's light anchors (App wraps this view in a `settings`-variant DynamicScope).
+  // Claimed here rather than in TopBar because this view owns its own title row: the light sits on
+  // the title, and the band dies at the row's bottom edge. Outside the dynamic theme these are
+  // no-ops from the context default. `setLight`/`setCutoff` are claim/release ref callbacks, not
+  // bare setters, so react-hooks/refs is a false positive — see lib/ambientAnchors.ts.
+  const anchors = useAmbientAnchors()
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between border-b border-hair px-3 py-2">
-        <span className="flex items-center gap-2 font-mono text-sm text-ink">
+      <div
+        // eslint-disable-next-line react-hooks/refs
+        ref={anchors.setCutoff}
+        className="flex items-center justify-between border-b border-hair px-3 py-2"
+      >
+        <span
+          // eslint-disable-next-line react-hooks/refs
+          ref={anchors.setLight}
+          className="flex items-center gap-2 font-mono text-sm text-ink"
+        >
           <History size={14} strokeWidth={1.5} />
           Related history
         </span>
