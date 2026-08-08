@@ -143,6 +143,12 @@ export class SidecarClient {
     this.send({ type: 'sampleNow', requestId })
   }
 
+  /** Pid of the live sidecar child, for the termination denylist. Null when no child
+   *  is running — there is then nothing to protect. */
+  sidecarPid(): number | null {
+    return this.proc?.pid ?? null
+  }
+
   // ── internals ──────────────────────────────────────────────────────────────
 
   private clearTimers(): void {
@@ -321,7 +327,8 @@ export function createDisabledSidecarClient(reason: string): SidecarClientLike {
     sampleNow() {},
     health: () => health,
     onSnapshot: () => () => {},
-    onHealthChange: () => () => {}
+    onHealthChange: () => () => {},
+    sidecarPid: () => null
   }
   /* eslint-enable @typescript-eslint/no-empty-function */
 }

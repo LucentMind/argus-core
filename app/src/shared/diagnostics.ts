@@ -175,6 +175,20 @@ export type DiagnosticsSnapshot = {
   sidecar: SidecarHealth
 }
 
+export type TerminateRoute = 'owner' | 'signal'
+
+/**
+ * Outcome of a terminate request. Returned as soon as the attempt is made — the
+ * process only really dies when a later sidecar sample stops reporting it, so the
+ * snapshot stream, not this result, is the proof.
+ *
+ * `reason` is typed rather than a bare boolean because "refused, this row cannot be
+ * stopped" and "tried, and it did not work" need different words in front of a user.
+ */
+export type TerminateResult =
+  | { ok: true; route: TerminateRoute; pids: number[] }
+  | { ok: false; reason: 'not-terminable' | 'gone' | 'failed'; message?: string }
+
 // ── history ──────────────────────────────────────────────────────────────────
 
 /** 5s buckets × 720 slots = exactly one hour, independent of the sample cadence. */

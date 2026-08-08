@@ -6,7 +6,8 @@ import { ProcessLabels } from '../processLabels'
 import type {
   SidecarSnapshot,
   DiagnosticsSnapshot,
-  SidecarHealth
+  SidecarHealth,
+  ProcessSample
 } from '../../../../shared/diagnostics'
 
 function snapshot(over: Partial<SidecarSnapshot> = {}): SidecarSnapshot {
@@ -44,6 +45,7 @@ type FakeClient = SidecarClientLike & {
   unsubscribeCalls: number
   healthListenerCount: number
   sampleNowCalls: number
+  sidecarPid: () => number | null
   emit(s: SidecarSnapshot): void
   emitHealth(h: SidecarHealth): void
 }
@@ -67,6 +69,7 @@ function fakeClient(): FakeClient {
     unsubscribeCalls: 0,
     healthListenerCount: 0,
     sampleNowCalls: 0,
+    sidecarPid: () => null,
     start() {
       this.started = true
     },
@@ -134,9 +137,45 @@ function makeService(
     processLabels: new ProcessLabels(),
     getLiveOwners: () => [],
     getBusyOwners: () => [],
+    terminator: fakeTerminator(),
     ...overrides
   })
   return { service, client }
+}
+
+type FakeTerminator = DiagnosticsServiceDeps['terminator'] & {
+  signalled: number[][]
+  disposed: number
+}
+
+function fakeTerminator(): FakeTerminator {
+  const rec: FakeTerminator = {
+    signalled: [],
+    disposed: 0,
+    signal(pids: readonly number[]) {
+      rec.signalled.push([...pids])
+    },
+    dispose() {
+      rec.disposed += 1
+    }
+  }
+  return rec
+}
+
+/** A child of the root sample, started at the same instant makeService's clock reports,
+ *  so a registration made at that instant pins to it. */
+function child(pid: number): ProcessSample {
+  return {
+    pid,
+    ppid: 1,
+    startTimeMs: 10_000,
+    runTimeMs: 1_000,
+    name: `child-${pid}`,
+    command: `/bin/child-${pid}`,
+    status: 'Run',
+    cpuTimeMs: 0,
+    residentBytes: 100
+  }
 }
 
 beforeEach(() => vi.useFakeTimers())
@@ -279,7 +318,8 @@ describe('DiagnosticsService', () => {
       now: () => 10_000,
       processLabels: new ProcessLabels(),
       getLiveOwners: () => [],
-      getBusyOwners: () => []
+      getBusyOwners: () => [],
+      terminator: fakeTerminator()
     })
     service.start()
     expect(service.latest()?.sidecar.status).toBe('disabled')
@@ -623,6 +663,121 @@ describe('DiagnosticsService', () => {
 
     const obj = service.latest()?.objects.find((o) => o.rootPid === 99)
     expect(obj).toMatchObject({ kind: 'driver', label: 'Codex driver', inferred: false })
+  })
+})
+
+describe('terminate', () => {
+  it('prefers the owner closure over signalling', async () => {
+    const labels = new ProcessLabels()
+    const stop = vi.fn()
+    labels.register(2, { kind: 'pack-app', label: 'Pack app: demo/console', stop }, 10_000)
+    const term = fakeTerminator()
+    const { service, client } = makeService(fakeClient(), {
+      processLabels: labels,
+      terminator: term
+    })
+    service.start()
+    client.emit(snapshot({ processes: [...snapshot().processes, child(2)] }))
+
+    expect(await service.terminate('2:10000')).toEqual({
+      ok: true,
+      route: 'owner',
+      pids: [2]
+    })
+    expect(stop).toHaveBeenCalledTimes(1)
+    expect(term.signalled).toEqual([])
+  })
+
+  it('falls back to signalling when no owner closure is registered', async () => {
+    const labels = new ProcessLabels()
+    labels.register(2, { kind: 'mcp', label: 'MCP: demo' }, 10_000)
+    const term = fakeTerminator()
+    const { service, client } = makeService(fakeClient(), {
+      processLabels: labels,
+      terminator: term
+    })
+    service.start()
+    client.emit(snapshot({ processes: [...snapshot().processes, child(2)] }))
+
+    expect(await service.terminate('2:10000')).toEqual({
+      ok: true,
+      route: 'signal',
+      pids: [2]
+    })
+    expect(term.signalled).toEqual([[2]])
+  })
+
+  it('reports a throwing owner closure as failed and does not crash', async () => {
+    const labels = new ProcessLabels()
+    labels.register(
+      2,
+      {
+        kind: 'pack-app',
+        label: 'Pack app: demo/console',
+        stop: () => {
+          throw new Error('boom')
+        }
+      },
+      10_000
+    )
+    const { service, client } = makeService(fakeClient(), { processLabels: labels })
+    service.start()
+    client.emit(snapshot({ processes: [...snapshot().processes, child(2)] }))
+
+    const res = await service.terminate('2:10000')
+    expect(res.ok).toBe(false)
+    if (!res.ok) {
+      expect(res.reason).toBe('failed')
+      expect(res.message).toContain('boom')
+    }
+  })
+
+  it('refuses an unknown id', async () => {
+    const { service } = makeService()
+    service.start()
+    expect(await service.terminate('999:1')).toEqual({ ok: false, reason: 'gone' })
+  })
+
+  it('never signals the tree root, whatever the row claims', async () => {
+    // A tier-A registration on the Electron main pid itself. registeredAtMs must be
+    // 1_000 to match the root sample's startTimeMs — registering at 10_000 would be
+    // 9s outside PIN_TOLERANCE_MS and the entry would be discarded as pid reuse,
+    // so the row would never become a driver and the test would pass vacuously.
+    const labels = new ProcessLabels()
+    labels.register(1, { kind: 'driver', label: 'Fake driver' }, 1_000)
+    const term = fakeTerminator()
+    const { service, client } = makeService(fakeClient(), {
+      processLabels: labels,
+      terminator: term
+    })
+    service.start()
+    client.emit(snapshot())
+
+    expect(service.latest()?.objects.find((o) => o.id === '1:1000')?.terminable).toBe(true)
+    expect(await service.terminate('1:1000')).toEqual({ ok: false, reason: 'gone' })
+    expect(term.signalled).toEqual([])
+  })
+
+  it('never signals the sidecar, even when it sits inside a terminable subtree', async () => {
+    // Proves the client.sidecarPid() wiring, not just the denylist mechanism: with a
+    // null sidecar pid this test would signal [3, 2] and fail.
+    const labels = new ProcessLabels()
+    labels.register(2, { kind: 'mcp', label: 'MCP: demo' }, 10_000)
+    const term = fakeTerminator()
+    const client = fakeClient()
+    client.sidecarPid = () => 3
+    const { service } = makeService(client, { processLabels: labels, terminator: term })
+    service.start()
+    client.emit(
+      snapshot({ processes: [...snapshot().processes, child(2), { ...child(3), ppid: 2 }] })
+    )
+
+    expect(await service.terminate('2:10000')).toEqual({
+      ok: true,
+      route: 'signal',
+      pids: [2]
+    })
+    expect(term.signalled).toEqual([[2]])
   })
 })
 

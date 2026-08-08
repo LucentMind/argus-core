@@ -305,6 +305,7 @@ import { SidecarClient, createDisabledSidecarClient } from './services/diagnosti
 import { createElectronSidecarSpawner } from './services/diagnostics/spawner'
 import { resolveSidecarBinary } from './services/diagnostics/sidecarBinary'
 import { defaultProcessLabels } from './services/diagnostics/processLabels'
+import { Terminator } from './services/diagnostics/terminate'
 import {
   stdioConnectorCommands,
   type ConnectorCommand,
@@ -523,7 +524,19 @@ function registerIpc(): void {
       getBusyOwners: () =>
         (agentService?.states() ?? [])
           .filter((s) => s.activeTurn)
-          .map((s) => ownerKeyOf(s.caseSlug, s.sessionId))
+          .map((s) => ownerKeyOf(s.caseSlug, s.sessionId)),
+      terminator: new Terminator({
+        kill: (pid, signal) => process.kill(pid, signal),
+        // process.kill(pid, 0) sends no signal; it throws ESRCH iff the pid is gone.
+        isAlive: (pid) => {
+          try {
+            process.kill(pid, 0)
+            return true
+          } catch {
+            return false
+          }
+        }
+      })
     })
   })()
 

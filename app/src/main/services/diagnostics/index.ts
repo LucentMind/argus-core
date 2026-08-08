@@ -4,10 +4,12 @@ import {
   type DiagnosticsSnapshot,
   type ElectronProcessMetric,
   type SidecarHealth,
-  type SidecarSnapshot
+  type SidecarSnapshot,
+  type TerminateResult
 } from '../../../shared/diagnostics'
 import { buildSnapshot, type BuildResult, type ProcessState } from './model'
 import { DiagnosticsHistoryRing } from './history'
+import { resolveTargets } from './terminate'
 import type { ConnectorCommand, WindowDescriptor } from './labels'
 import type { ProcessLabels } from './processLabels'
 
@@ -31,6 +33,8 @@ export interface SidecarClientLike {
    *  restart count, or last error. Lets the service publish a fresh snapshot
    *  even when no sample has arrived, or when none ever will. */
   onHealthChange(cb: (h: SidecarHealth) => void): () => void
+  /** Pid of the live sidecar child, or null. Denied as a termination target. */
+  sidecarPid(): number | null
 }
 
 export type DiagnosticsServiceDeps = {
@@ -53,6 +57,9 @@ export type DiagnosticsServiceDeps = {
   /** Owner keys of every Argus object currently mid-turn, so a row can warn before it
    *  is stopped. Mirrors getLiveOwners in shape and in wiring. */
   getBusyOwners: () => string[]
+  /** Sends the signals for the raw fallback path. Injected so the service tests
+   *  never touch a real process. */
+  terminator: { signal(pids: readonly number[]): void; dispose(): void }
   now?: () => number
 }
 
@@ -114,6 +121,7 @@ export class DiagnosticsService {
     this.unsubscribeRegister?.()
     this.unsubscribeRegister = null
     this.deps.client.stop()
+    this.deps.terminator.dispose()
     this.lastHealthStatus = null
   }
 
@@ -145,6 +153,44 @@ export class DiagnosticsService {
 
   retrySidecar(): void {
     this.deps.client.retry()
+  }
+
+  /**
+   * Stop the Argus object a row represents.
+   *
+   * Takes the row id rather than a pid: the id carries startTimeMs, so a renderer
+   * holding a stale snapshot cannot address a reused pid, and it is resolved by
+   * lookup against the CURRENT snapshot rather than parsed.
+   */
+  async terminate(id: string): Promise<TerminateResult> {
+    const snap = this.current
+    if (!snap) return { ok: false, reason: 'gone' }
+
+    const row = snap.objects.find((o) => o.id === id)
+    if (!row) return { ok: false, reason: 'gone' }
+    if (!row.terminable || row.rootPid === null) return { ok: false, reason: 'not-terminable' }
+
+    const stop = this.deps.processLabels.stopFor(id)
+    if (stop) {
+      try {
+        await stop()
+      } catch (err) {
+        // A failing owner degrades the button, never the main process — the same
+        // containment rule ingest() follows.
+        return { ok: false, reason: 'failed', message: String(err) }
+      }
+      return { ok: true, route: 'owner', pids: [row.rootPid] }
+    }
+
+    const sidecarPid = this.deps.client.sidecarPid()
+    const denied = new Set<number>([this.deps.rootPid])
+    if (sidecarPid !== null) denied.add(sidecarPid)
+
+    const targets = resolveTargets(snap, id, denied)
+    if (!targets.ok) return { ok: false, reason: targets.reason }
+
+    this.deps.terminator.signal(targets.pids)
+    return { ok: true, route: 'signal', pids: targets.pids }
   }
 
   /**
