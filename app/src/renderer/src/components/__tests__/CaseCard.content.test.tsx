@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { render, screen, cleanup } from '@testing-library/react'
-import { it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { CaseCard } from '../CaseCard'
 import type { CaseRecord } from '../../../../shared/types'
 import { DEFAULT_MODE } from '../../../../shared/modes'
@@ -58,6 +58,16 @@ function mkCase(patch: Partial<CaseRecord>): CaseRecord {
     actionItems: [],
     ...patch
   }
+}
+
+/** Renders a card from a case patch plus optional extra props (e.g. `reviewCount`), on top of
+ *  the shared `noop` handlers. Used by the newer describe blocks below; earlier tests in this
+ *  file render directly and are left as-is. */
+function renderCard(
+  c: CaseRecord,
+  extra?: Partial<React.ComponentProps<typeof CaseCard>>
+): ReturnType<typeof render> {
+  return render(<CaseCard c={c} {...noop} {...extra} />)
 }
 
 afterEach(cleanup)
@@ -137,4 +147,34 @@ it('renders the full PR face, not just the CI rollup', () => {
 it('renders no PR glyph when the case has no bound PR', () => {
   render(<CaseCard c={mkCase({})} {...noop} />)
   expect(screen.queryByRole('img', { name: /^PR #/ })).not.toBeInTheDocument()
+})
+
+describe('routine origin', () => {
+  it('marks a routine-created case', () => {
+    renderCard(mkCase({ origin: 'routine' }))
+    expect(screen.getByTestId('case-origin')).toHaveTextContent('Routine')
+  })
+
+  it('leaves a user case unmarked', () => {
+    renderCard(mkCase({ origin: 'user' }))
+    expect(screen.queryByTestId('case-origin')).not.toBeInTheDocument()
+  })
+
+  it('shows how many of its runs are waiting to be reviewed', () => {
+    renderCard(mkCase({ origin: 'routine' }), { reviewCount: 3 })
+    expect(screen.getByTestId('case-review-count')).toHaveTextContent('3 to review')
+  })
+
+  it('shows no count when nothing is waiting', () => {
+    renderCard(mkCase({ origin: 'routine' }), { reviewCount: 0 })
+    expect(screen.queryByTestId('case-review-count')).not.toBeInTheDocument()
+  })
+
+  it('renders the action-items row for a routine case with no action items', () => {
+    // The row is otherwise conditional on chips.length + infos.length > 0 — a routine case
+    // with an empty actionItems array must still get the row so the origin chip has somewhere
+    // to live.
+    renderCard(mkCase({ origin: 'routine', actionItems: [] }))
+    expect(screen.getByTestId('action-items')).toBeInTheDocument()
+  })
 })

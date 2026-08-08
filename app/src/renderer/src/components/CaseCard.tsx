@@ -36,7 +36,8 @@ export function CaseCard({
   note,
   prStatus,
   dynamic = false,
-  index = 0
+  index = 0,
+  reviewCount
 }: {
   c: CaseRecord
   onOpen: (slug: string) => void
@@ -50,6 +51,9 @@ export function CaseCard({
   dynamic?: boolean
   /** Grid position — drives the entrance stagger delay in dynamic mode. */
   index?: number
+  /** Unreviewed runs that wrote to this case. The dashboard derives it from the routines
+   *  payload it already holds — the card never fetches. */
+  reviewCount?: number
 }): React.JSX.Element {
   const actions = c.actionItems.filter((i) => i.severity === 'action')
   // Comments and attachments leave the chip row entirely: they are quantities, not states.
@@ -134,8 +138,18 @@ export function CaseCard({
           .filter(Boolean)
           .join(' · ')}
       </div>
-      {chips.length + infos.length > 0 && (
+      {(chips.length + infos.length > 0 || c.origin === 'routine') && (
         <div data-testid="action-items" className="flex flex-wrap items-center gap-1.5">
+          {c.origin === 'routine' && (
+            <Chip tone="neutral">
+              <span data-testid="case-origin">Routine</span>
+            </Chip>
+          )}
+          {c.origin === 'routine' && (reviewCount ?? 0) > 0 && (
+            <Chip tone="review">
+              <span data-testid="case-review-count">{reviewCount} to review</span>
+            </Chip>
+          )}
           {chips.map((i) => (
             <Chip key={i.kind} tone={ITEM_TONE[i.kind as keyof typeof ITEM_TONE]}>
               {i.label}

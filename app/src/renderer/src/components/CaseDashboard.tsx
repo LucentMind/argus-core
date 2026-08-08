@@ -5,6 +5,7 @@ import { FolderInput, Plus, RefreshCw, Search } from 'lucide-react'
 import { CaseCard } from './CaseCard'
 import { DeleteCaseDialog } from './DeleteCaseDialog'
 import { RoutineInbox } from './routines/RoutineInbox'
+import { useRoutinesPayload } from '../lib/routinesStore'
 import { useSettingsPayload } from '../lib/settingsStore'
 import { usePrStatuses } from '../lib/prStatusStore'
 import { uiStore } from '../lib/uiStore'
@@ -43,6 +44,9 @@ export function CaseDashboard({
   const [syncing, setSyncing] = useState<{ done: number; total: number } | null>(null)
   const [syncNote, setSyncNote] = useState<string | null>(null)
   const settings = useSettingsPayload()
+  // RoutineInbox (mounted below) is the first reader of this singleton; start() is idempotent
+  // and the store fetches once, so this is a second subscriber, not a second IPC round trip.
+  const routines = useRoutinesPayload()
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
     () => uiStore.get()
@@ -162,6 +166,15 @@ export function CaseDashboard({
       (c.jiraKey?.toLowerCase().includes(q) ?? false)
     )
   })
+  // Per-case tally of unreviewed runs, from the payload the inbox already loaded. Same
+  // predicate main counts with; capped at the payload's 50-run window, which only matters for
+  // a case whose backlog is deeper than that and shows the count it can prove.
+  const reviewCounts = new Map<string, number>()
+  for (const r of routines.payload?.runs ?? []) {
+    if (r.status !== 'running' && r.reviewedAt === null) {
+      reviewCounts.set(r.caseSlug, (reviewCounts.get(r.caseSlug) ?? 0) + 1)
+    }
+  }
   const counts = cases.reduce<Record<string, number>>((acc, c) => {
     acc[c.phase] = (acc[c.phase] ?? 0) + 1
     return acc
@@ -316,6 +329,7 @@ export function CaseDashboard({
                 onExport={(slug) => void exportCase(slug)}
                 onDelete={(slug) => void requestDelete(slug)}
                 prStatus={prStatuses[c.slug]}
+                reviewCount={reviewCounts.get(c.slug) ?? 0}
                 note={
                   deleteError?.slug === c.slug
                     ? { text: deleteError.text, danger: true }
