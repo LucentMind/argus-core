@@ -396,6 +396,14 @@ describe('DiagnosticsService', () => {
     expect(client.stopped).toBe(true)
   })
 
+  it('stop() disposes the terminator so a pending SIGKILL escalation cannot outlive the service', () => {
+    const term = fakeTerminator()
+    const { service } = makeService(fakeClient(), { terminator: term })
+    service.start()
+    service.stop()
+    expect(term.disposed).toBe(1)
+  })
+
   it('is idempotent for a repeated start(): only one listener stays registered', () => {
     const { service, client } = makeService()
     service.start()
@@ -736,6 +744,27 @@ describe('terminate', () => {
     const { service } = makeService()
     service.start()
     expect(await service.terminate('999:1')).toEqual({ ok: false, reason: 'gone' })
+  })
+
+  it('resolves by id LOOKUP, not by parsing the pid out of a reused id', async () => {
+    // Pid 2 IS present in the snapshot, labeled and terminable, with row id
+    // '2:10000' — so a hypothetical implementation that split the id on ':' and
+    // resolved/signalled the parsed pid would find pid 2 and signal it. Asking to
+    // terminate '2:9999' — the same pid, a startTimeMs that does not match — is
+    // the reused-pid case an id-with-startTimeMs design exists to catch: no row
+    // in the CURRENT snapshot has this exact id, so it must resolve to nothing.
+    const labels = new ProcessLabels()
+    labels.register(2, { kind: 'mcp', label: 'MCP: demo' }, 10_000)
+    const term = fakeTerminator()
+    const { service, client } = makeService(fakeClient(), {
+      processLabels: labels,
+      terminator: term
+    })
+    service.start()
+    client.emit(snapshot({ processes: [...snapshot().processes, child(2)] }))
+
+    expect(await service.terminate('2:9999')).toEqual({ ok: false, reason: 'gone' })
+    expect(term.signalled).toEqual([])
   })
 
   it('never signals the tree root, whatever the row claims', async () => {

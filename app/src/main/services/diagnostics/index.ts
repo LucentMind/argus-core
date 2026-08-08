@@ -170,6 +170,12 @@ export class DiagnosticsService {
     if (!row) return { ok: false, reason: 'gone' }
     if (!row.terminable || row.rootPid === null) return { ok: false, reason: 'not-terminable' }
 
+    // The denylist below (rootPid, sidecarPid) is not consulted on this branch. That is
+    // safe, not an oversight: a `stop` closure only exists when a spawn site registered
+    // it for a process it spawned as its own child (see processLabels.register) — it can
+    // never be the tree root or the sidecar itself — and calling it runs Argus's own
+    // teardown for that child, not a raw signal to a pid the tree/sidecar denylist guards
+    // against.
     const stop = this.deps.processLabels.stopFor(id)
     if (stop) {
       try {
