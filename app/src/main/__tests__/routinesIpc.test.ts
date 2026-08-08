@@ -20,6 +20,14 @@ import { IPC } from '../../shared/ipc'
  * REAL existing convention for asserting behaviour wired into `registerIpc()`: read the source and
  * check for the markers that prove the wiring is present and in the right shape, the same way
  * routinesReconcileOrdering.test.ts pins ordering it cannot invoke directly.
+ *
+ * The Jira half of `ScopeResolver` itself (JQL composition, the ORDER BY strip, adopt-vs-create)
+ * no longer lives in this file's source-text blast radius at all — it was extracted to
+ * `services/jiraScopeResolver.ts` (Task 12 review, Important 1) specifically so it could get real
+ * behavioural coverage instead of regex-on-source-text. See
+ * `services/__tests__/jiraScopeResolver.test.ts`. What remains testable only as source text here
+ * is the thin Electron-adjacent binding: that `index.ts` actually calls the builder and wires its
+ * result into `RoutinesService`.
  */
 const SRC = path.resolve(__dirname, '..')
 const indexSrc = fs.readFileSync(path.join(SRC, 'index.ts'), 'utf8')
@@ -43,22 +51,36 @@ describe('main/index.ts registers the accept/dismiss handlers', () => {
   })
 
   it('the accept handler reaches routinesService.acceptItem and returns the fresh payload', () => {
+    // Bounded by the NEXT handler registration rather than a fixed character width — a magic
+    // width risks either truncating the body or spilling into the next handler's source (the
+    // latter happened here: a 300-char window used to reach past this handler's closing `})`
+    // and into the dismiss handler below it).
     const start = indexSrc.indexOf('ipcMain.handle(IPC.routinesAcceptItem')
     expect(start).toBeGreaterThan(-1)
-    const body = indexSrc.slice(start, start + 300)
+    const end = indexSrc.search(/ipcMain\.handle\(\s*IPC\.routinesDismissItem/)
+    expect(end).toBeGreaterThan(start)
+    const body = indexSrc.slice(start, end)
     expect(body).toContain('routinesService.acceptItem(')
     expect(body).toContain('routinesService.payload()')
   })
 
-  it('rejects a dismiss with no resolution rather than closing a case unexplained', () => {
+  it('rejects a dismiss with no resolution, or one that is not a real CaseResolution, rather than closing a case unexplained', () => {
     // The IPC step-1 test this file replaces would call the handler with `undefined` and expect
     // a rejection; ipcMain.handle handlers can't be invoked without electron, so this asserts the
     // guard exists in source instead, and asserts it runs BEFORE dismissItem is ever called.
     const start = indexSrc.search(/ipcMain\.handle\(\s*IPC\.routinesDismissItem/)
     expect(start).toBeGreaterThan(-1)
-    const body = indexSrc.slice(start, start + 500)
-    expect(body).toMatch(/if\s*\(\s*!resolution\s*\)\s*throw/)
-    const guardIndex = body.search(/if\s*\(\s*!resolution\s*\)\s*throw/)
+    // Bounded by the next distinct block (scheduling) rather than a fixed 500-char width, for the
+    // same reason as the accept handler above.
+    const end = indexSrc.indexOf('// Scheduling, and this is the only correct moment', start)
+    expect(end).toBeGreaterThan(start)
+    const body = indexSrc.slice(start, end)
+    // Truthiness alone lets any non-empty string through IPC (untyped at runtime) — the guard
+    // must also check CASE_RESOLUTIONS membership.
+    expect(body).toMatch(
+      /if\s*\(\s*!resolution\s*\|\|\s*!CASE_RESOLUTIONS\.includes\(resolution\)\s*\)/
+    )
+    const guardIndex = body.search(/if\s*\(\s*!resolution/)
     const dismissCallIndex = body.indexOf('routinesService.dismissItem(')
     expect(dismissCallIndex).toBeGreaterThan(-1)
     expect(guardIndex).toBeLessThan(dismissCallIndex)
@@ -67,33 +89,12 @@ describe('main/index.ts registers the accept/dismiss handlers', () => {
 })
 
 describe('the Jira scope resolver binding', () => {
-  it('binds a ScopeResolver and passes it to the RoutinesService constructor', () => {
-    expect(indexSrc).toMatch(/scopeResolver\s*:\s*ScopeResolver/)
-    expect(indexSrc).toContain('scopeResolver')
+  it('builds the resolver via buildJiraScopeResolver and passes it to the RoutinesService constructor', () => {
+    expect(indexSrc).toContain('buildJiraScopeResolver(')
     const ctorStart = indexSrc.indexOf('new RoutinesService({')
     expect(ctorStart).toBeGreaterThan(-1)
     const ctorBody = indexSrc.slice(ctorStart, ctorStart + 1200)
     expect(ctorBody).toMatch(/scopeResolver(,|\s*:\s*scopeResolver)/)
-  })
-
-  it('resolveJql uses an INCLUSIVE (>=) cursor boundary, not a strict >', () => {
-    // Jira timestamps are not unique; a strict `>` would drop one of two tickets sharing a
-    // minute, permanently and silently. items.ts removes the duplicate by key.
-    const start = indexSrc.indexOf('async resolveJql(')
-    expect(start).toBeGreaterThan(-1)
-    const body = indexSrc.slice(start, start + 600)
-    expect(body).toContain('${cursorField} >= "')
-    expect(body).not.toMatch(/\$\{cursorField\}\s*>\s*[^=]/)
-  })
-
-  it('ingestJiraItem checks findCaseByJiraKey before creating, so a routine adopts rather than duplicating', () => {
-    const start = indexSrc.indexOf('async ingestJiraItem(')
-    expect(start).toBeGreaterThan(-1)
-    const body = indexSrc.slice(start, start + 700)
-    expect(body).toContain('findCaseByJiraKey(')
-    expect(body).toContain('createFromTicket(')
-    // The adopt branch must return before ever reaching createFromTicket.
-    expect(body.indexOf('findCaseByJiraKey(')).toBeLessThan(body.indexOf('createFromTicket('))
   })
 })
 
