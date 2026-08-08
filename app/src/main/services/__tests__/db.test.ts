@@ -297,6 +297,22 @@ describe('openDb', () => {
           summary TEXT,
           error TEXT
         )`)
+        // Legacy-shaped databases also carry routine_run_items rows referencing routine_runs
+        // via ON DELETE CASCADE — the exact shape that reproduced the cascade-delete bug (2 item
+        // rows before the rebuild, 0 after) when the rebuild's DROP TABLE ran with foreign_keys
+        // still ON. Without these rows here, an empty routine_run_items table makes the cascade
+        // delete nothing and the test would pass with the bug present.
+        legacy.exec(`CREATE TABLE routine_run_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          run_id INTEGER NOT NULL REFERENCES routine_runs(id) ON DELETE CASCADE,
+          item_key TEXT NOT NULL,
+          case_slug TEXT,
+          status TEXT NOT NULL DEFAULT 'running',
+          error TEXT,
+          suggestion TEXT,
+          started_at TEXT NOT NULL,
+          finished_at TEXT
+        )`)
         legacy
           .prepare(
             `INSERT INTO routine_runs
@@ -305,6 +321,21 @@ describe('openDb', () => {
                      '2026-01-01T00:05:00.000Z', 'did the thing', NULL)`
           )
           .run()
+        const legacyRunId = Number(
+          (legacy.prepare(`SELECT MAX(id) AS id FROM routine_runs`).get() as { id: number }).id
+        )
+        legacy
+          .prepare(
+            `INSERT INTO routine_run_items (run_id, item_key, status, started_at)
+             VALUES (?, 'ABC-1', 'processed', '2026-01-01T00:00:01.000Z')`
+          )
+          .run(legacyRunId)
+        legacy
+          .prepare(
+            `INSERT INTO routine_run_items (run_id, item_key, status, started_at)
+             VALUES (?, 'ABC-2', 'failed', '2026-01-01T00:00:02.000Z')`
+          )
+          .run(legacyRunId)
         legacy.close()
 
         const migrated = openDb(file)
@@ -315,11 +346,9 @@ describe('openDb', () => {
         expect(cols.find((c) => c.name === 'case_slug')?.notnull).toBe(0)
         // The pre-existing row survived the rebuild untouched, including the columns added by
         // the trigger_kind/reviewed_at migrations that ran earlier in the same openDb() call.
-        const row = migrated.prepare(`SELECT * FROM routine_runs`).get() as Record<
-          string,
-          unknown
-        >
+        const row = migrated.prepare(`SELECT * FROM routine_runs`).get() as Record<string, unknown>
         expect(row).toMatchObject({
+          id: legacyRunId,
           routine_id: 'sweep',
           case_slug: 'routine-sweep',
           session_id: 9,
@@ -327,6 +356,17 @@ describe('openDb', () => {
           summary: 'did the thing',
           trigger_kind: 'manual'
         })
+        // The item rows — the whole point of this test — must survive the rebuild with their
+        // run_id intact, not be cascade-deleted by the DROP TABLE routine_runs inside it.
+        const items = migrated
+          .prepare(`SELECT run_id, item_key, status FROM routine_run_items ORDER BY item_key`)
+          .all() as { run_id: number; item_key: string; status: string }[]
+        expect(items).toEqual([
+          { run_id: legacyRunId, item_key: 'ABC-1', status: 'processed' },
+          { run_id: legacyRunId, item_key: 'ABC-2', status: 'failed' }
+        ])
+        // The child FK must still resolve after the rebuild — no dangling references.
+        expect(migrated.prepare(`PRAGMA foreign_key_check`).all()).toEqual([])
         // And a scoped run can now be inserted with no case at all.
         migrated
           .prepare(
@@ -340,6 +380,13 @@ describe('openDb', () => {
         const reopened = openDb(file)
         expect(
           (reopened.prepare(`SELECT COUNT(*) AS n FROM routine_runs`).get() as { n: number }).n
+        ).toBe(2)
+        expect(
+          (
+            reopened.prepare(`SELECT COUNT(*) AS n FROM routine_run_items`).get() as {
+              n: number
+            }
+          ).n
         ).toBe(2)
         reopened.close()
       })
