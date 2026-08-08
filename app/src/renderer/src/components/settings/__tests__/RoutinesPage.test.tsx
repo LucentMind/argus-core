@@ -466,6 +466,41 @@ describe('RoutinesPage — schedule editor', () => {
     expect(screen.getByLabelText('Time')).toHaveValue('05:15')
   })
 
+  it('round-trips an existing weekly schedule’s stored time unchanged', async () => {
+    // The weekly default is 07:00 — this stored routine deliberately uses a different time, so a
+    // draftFrom that defaulted instead of round-tripping would pass unnoticed.
+    stubApi(
+      payload({ routines: [{ ...sweep, schedule: { kind: 'weekly', days: [1, 3], at: '09:45' } }] })
+    )
+    await openEditor()
+    expect(screen.getByRole('combobox', { name: 'Schedule' })).toHaveTextContent('Weekly')
+    expect(screen.getByLabelText('Time')).toHaveValue('09:45')
+  })
+
+  it('defaults a fresh daily schedule to 02:00, the overnight-work case the feature is for', async () => {
+    await openEditor()
+    pickKind('Daily')
+    expect(screen.getByLabelText('Time')).toHaveValue('02:00')
+  })
+
+  it('defaults a fresh weekly schedule to 07:00, the start of the working day', async () => {
+    await openEditor()
+    pickKind('Weekly')
+    expect(screen.getByLabelText('Time')).toHaveValue('07:00')
+  })
+
+  it('keeps a typed time when the schedule kind is switched away and back', async () => {
+    await openEditor()
+    pickKind('Daily')
+    fireEvent.change(screen.getByLabelText('Time'), { target: { value: '03:15' } })
+    pickKind('Weekly')
+    // Weekly's own default, untouched by the Daily edit above.
+    expect(screen.getByLabelText('Time')).toHaveValue('07:00')
+    pickKind('Daily')
+    // The typed value survived the round trip through another kind — not silently overwritten.
+    expect(screen.getByLabelText('Time')).toHaveValue('03:15')
+  })
+
   it('clears the schedule when switched back to manual', async () => {
     stubApi(payload({ routines: [{ ...sweep, schedule: { kind: 'daily', at: '05:15' } }] }))
     await openEditor()

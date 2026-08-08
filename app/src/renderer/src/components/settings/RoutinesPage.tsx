@@ -33,8 +33,15 @@ const SCHEDULE_OPTIONS = SCHEDULE_KINDS.map((k) => SCHEDULE_LABELS[k])
 /** Index IS the value: 0 = Sunday, matching `Date.prototype.getDay()` and scheduleSchema. */
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
 
-/** Default time for a new daily/weekly schedule — a plain default, not a claim about "nightly". */
-const DEFAULT_SCHEDULE_TIME = '07:00'
+/**
+ * Per-kind defaults for a fresh schedule — NOT one shared value. Routines exist for work that
+ * happens without a human present: Daily is the overnight-sweep case the feature was built for,
+ * so it defaults into the small hours; Weekly is a weekday digest, so it defaults to the start of
+ * the working day. Collapsing these into one constant would default a new Daily routine into the
+ * middle of the morning — the opposite of what "Daily" is for here.
+ */
+const DAILY_DEFAULT_TIME = '02:00'
+const WEEKLY_DEFAULT_TIME = '07:00'
 
 /**
  * Derives a routine id from its name, inside `routineSchema`'s `/^[a-z0-9][a-z0-9-]{0,55}$/`.
@@ -70,7 +77,17 @@ interface Draft {
   /** Held as separate form state, like `timeoutMinutes` — assembled into a schedule on save. */
   scheduleKind: ScheduleKind
   everyMinutes: string
-  at: string
+  /**
+   * One field PER KIND, not a single `at` shared by both — that is what lets "switch kinds" and
+   * "the user already typed a time" coexist without a separate touched flag. Each field starts at
+   * that kind's default and is only ever written by the Time input while its own kind is
+   * selected, so switching away and back always returns exactly what was there before: the
+   * user's typed value if they touched it, the kind's default if they never did. `draftFrom`
+   * seeds the field for the *stored* kind from the routine and leaves the other at its default,
+   * since there is no stored value for a kind the routine isn't using.
+   */
+  dailyAt: string
+  weeklyAt: string
   days: number[]
 }
 
@@ -85,8 +102,8 @@ function draftFrom(r: RoutineDef): Draft {
     ...(r.driverKind ? { driverKind: r.driverKind } : {}),
     scheduleKind: r.schedule?.kind ?? 'manual',
     everyMinutes: r.schedule?.kind === 'interval' ? String(r.schedule.everyMinutes) : '60',
-    // Defaults chosen so switching kinds never lands on an empty field the user must discover.
-    at: r.schedule && r.schedule.kind !== 'interval' ? r.schedule.at : DEFAULT_SCHEDULE_TIME,
+    dailyAt: r.schedule?.kind === 'daily' ? r.schedule.at : DAILY_DEFAULT_TIME,
+    weeklyAt: r.schedule?.kind === 'weekly' ? r.schedule.at : WEEKLY_DEFAULT_TIME,
     days: r.schedule?.kind === 'weekly' ? r.schedule.days : [1, 2, 3, 4, 5]
   }
 }
@@ -100,7 +117,8 @@ const BLANK_DRAFT: Draft = {
   enabled: true,
   scheduleKind: 'manual',
   everyMinutes: '60',
-  at: DEFAULT_SCHEDULE_TIME,
+  dailyAt: DAILY_DEFAULT_TIME,
+  weeklyAt: WEEKLY_DEFAULT_TIME,
   days: [1, 2, 3, 4, 5]
 }
 
@@ -285,8 +303,14 @@ function RoutineEditor({
             <input
               type="time"
               className={`${FIELD} w-32`}
-              value={draft.at}
-              onChange={(e) => onChange({ ...draft, at: e.target.value })}
+              value={draft.scheduleKind === 'daily' ? draft.dailyAt : draft.weeklyAt}
+              onChange={(e) =>
+                onChange(
+                  draft.scheduleKind === 'daily'
+                    ? { ...draft, dailyAt: e.target.value }
+                    : { ...draft, weeklyAt: e.target.value }
+                )
+              }
             />
           </label>
         )}
@@ -450,18 +474,19 @@ export function RoutinesPage(): React.JSX.Element {
       }
       schedule = { kind: 'interval', everyMinutes: every }
     } else if (editing.scheduleKind === 'daily' || editing.scheduleKind === 'weekly') {
-      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(editing.at)) {
+      const at = editing.scheduleKind === 'daily' ? editing.dailyAt : editing.weeklyAt
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(at)) {
         setMutationError('Pick a time in 24-hour HH:MM form.')
         return
       }
       if (editing.scheduleKind === 'daily') {
-        schedule = { kind: 'daily', at: editing.at }
+        schedule = { kind: 'daily', at }
       } else {
         if (editing.days.length === 0) {
           setMutationError('A weekly schedule needs at least one day.')
           return
         }
-        schedule = { kind: 'weekly', days: [...editing.days].sort((a, b) => a - b), at: editing.at }
+        schedule = { kind: 'weekly', days: [...editing.days].sort((a, b) => a - b), at }
       }
     }
     /**
