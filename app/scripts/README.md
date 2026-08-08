@@ -40,7 +40,7 @@ The script refuses to run destructively against a home it does not own:
   `config/tool-risk.json` are overwritten wholesale on every run (they are deliberately excluded
   from the marker/guard check above — a freshly booted home always has a fully-configured
   `config/` even before it has ever been seeded, so guarding it there would make every first seed
-  of a scratch home demand `--force`). Each file's contents from just before the *first* such
+  of a scratch home demand `--force`). Each file's contents from just before the _first_ such
   overwrite are backed up to `config/.seed-backup/<name>.json`. That backup is first-generation
   wins: once a backup for a name exists, a later run never replaces it, so it stays whatever
   predated the seed rather than turning into a copy of the seed's own output.
@@ -71,7 +71,7 @@ The `running` and `unstable` pull-request check-rollup states are not represente
 seed. `running` exists only mid-workflow — a check that is actually in progress — so it can't be
 captured as a static fixture; to see it live, re-run a job (`gh run rerun`) on pull request 6 and
 open that case while the run is in flight. `unstable` is unreachable by this fixture: it needs a
-non-required *failing* check, which needs branch protection that `JiaweiHan88/HiveMindTest` does
+non-required _failing_ check, which needs branch protection that `JiaweiHan88/HiveMindTest` does
 not have. `unavailable` IS covered — `SYN-5-edge`'s pull request (999) does not exist, and the
 app's own first-mount refresh writes a real `unavailable` status for it within a second of boot.
 
@@ -100,9 +100,38 @@ Before the fix this gate guards, that row squeezed the name to 44px and broke it
 lines (`triage-` / `a-` / `flaky-` / `test`) while the label line still overflowed by 170px.
 
 **Pick a debugging port nothing else holds.** Every worktree's dev instance can be running at
-once, and `/json/list` will happily hand you a *different* checkout's window on a port already
+once, and `/json/list` will happily hand you a _different_ checkout's window on a port already
 taken — the probe preflights the renderer over IPC for the fixture skill and refuses to click
 anything if it is not there, but the port collision is silent up to that point.
+
+## cdp-routines-tray.mjs
+
+Routines increment 4's live gate (spec `2026-08-08-routines-increment-4-design.md` §7.2). A tray
+icon, its menu and an OS notification live outside the page, so CDP cannot see any of them — this
+proves the mechanism instead: the keep-alive toggle round-trips into `config/settings.json`,
+closing the main window with it ON leaves the process running, a routine on a schedule fires with
+no window open (a `routine_runs` row appears, read straight from `argus.db`), and reopening a
+window shows that run in Home's inbox. The tray icon's pixels, its menu labels, both
+notifications, and the single-instance lock on a packaged build are the exit check's job, not
+this script's — see `argus-docs/superpowers/plans/2026-08-08-routines-increment-4-exit-check.md`.
+
+```bash
+ARGUS_HOME=/tmp/argus-inc4-gate npx electron-vite dev --remoteDebuggingPort 9228
+ARGUS_HOME=/tmp/argus-inc4-gate node scripts/cdp-routines-tray.mjs
+```
+
+**Needs a human partway through.** Once the only window closes, there is no page target left for
+`Runtime.evaluate` to run inside — nothing can click the tray icon from a script, which is the
+whole point of the surface split this gate encodes. It waits (polling the debug port, up to 10
+minutes) for a window to reappear and prints an instruction to click "Open Argus" from the tray
+when it is time. The wait for the schedule itself to fire is up to 8 minutes — `MIN_INTERVAL_MINUTES`
+(`shared/routines.ts`) floors interval schedules at 5, so this is genuinely a several-minute gate,
+not a quick one.
+
+Resolves the app's PID by asking the OS which process owns `CDP_PORT`'s listening socket (same
+technique as `cdp-diagnostics.mjs`), rather than trusting a human-read PID off the terminal —
+`electron-vite` spawning Electron through a wrapper process makes the terminal's own PID
+unreliable for this.
 
 ## make-tray-icons.mjs
 
