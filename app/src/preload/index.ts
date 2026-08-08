@@ -753,6 +753,9 @@ const argus = {
     remove: (id: string): Promise<RoutinesPayload> => invoke(IPC.routinesDelete, id),
     /** Rejects when the routine is unknown, disabled, or another run is already in flight. */
     runNow: (id: string): Promise<RoutinesPayload> => invoke(IPC.routinesRunNow, id),
+    markReviewed: (runId: number): Promise<RoutinesPayload> =>
+      invoke(IPC.routinesMarkReviewed, runId),
+    markAllReviewed: (): Promise<RoutinesPayload> => invoke(IPC.routinesMarkAllReviewed),
     /** Payload-free: the listener re-reads `list()`, so a missed broadcast still converges. */
     onChanged: (cb: () => void): (() => void) => {
       const listener = (): void => cb()

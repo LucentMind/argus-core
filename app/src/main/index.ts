@@ -1906,6 +1906,20 @@ function registerIpc(): void {
     return routinesService.payload()
   })
 
+  // The service notifies on both, which fans out as `routines:changed`. Returning the payload
+  // as well is not redundant: the caller gets its own answer synchronously with the click, and
+  // every OTHER window (and the Settings page in this one) converges on the broadcast. A
+  // renderer store refreshed only by its own invoke reply is the multi-window bug this product
+  // has already shipped twice.
+  ipcMain.handle(IPC.routinesMarkReviewed, (_e, runId: number): RoutinesPayload => {
+    routinesService.markReviewed(runId)
+    return routinesService.payload()
+  })
+  ipcMain.handle(IPC.routinesMarkAllReviewed, (): RoutinesPayload => {
+    routinesService.markAllReviewed()
+    return routinesService.payload()
+  })
+
   // Scheduling, and this is the only correct moment to start it. `start()` runs its first tick
   // SYNCHRONOUSLY — that tick is the launch catch-up — so a run can begin on this very line.
   // It must therefore come after `reconcileInterruptedRuns` above (a catch-up run inserting a

@@ -343,6 +343,10 @@ export const IPC = {
   routinesDelete: 'routines:delete',
   /** Start one run now. Rejects synchronously on unknown/disabled/already-running. */
   routinesRunNow: 'routines:run-now',
+  /** Clear one finished run out of the Home inbox. */
+  routinesMarkReviewed: 'routines:mark-reviewed',
+  /** Clear every finished unreviewed run, including any older than the 50 the payload carries. */
+  routinesMarkAllReviewed: 'routines:mark-all-reviewed',
   /** main → all renderer windows broadcast: the routine list, the running routine, or the run
    *  history changed. Payload-free on purpose — every listener re-reads `routinesList`, so a
    *  window that missed an earlier broadcast still converges. */
