@@ -29,6 +29,21 @@ export function RoutineInbox({
    * the list underneath it.
    */
   const [mutationError, setMutationError] = useState<string | null>(null)
+  /**
+   * `payload.unreviewedCount === 0` renders `null` below, which does not unmount this component
+   * — the parent keeps the fiber at the same position, so a `mutationError` set here would
+   * otherwise survive to resurface against whatever unrelated backlog shows up next. Resetting it
+   * during render (the React-documented "adjust state when a prop changes" pattern, not an
+   * effect) retires it the moment the store hands this component a new payload object. Main only
+   * broadcasts `routines:changed` after a *successful* write, so a failed mark never produces a
+   * new `payload` reference and this never wipes an error before the user sees it — only a
+   * genuine external refresh (another window's mark, a new run landing) retires it.
+   */
+  const [errorPayload, setErrorPayload] = useState(payload)
+  if (payload !== errorPayload) {
+    setErrorPayload(payload)
+    setMutationError(null)
+  }
 
   if (!payload || payload.unreviewedCount === 0) return null
 
@@ -75,6 +90,11 @@ export function RoutineInbox({
       <div className="flex flex-col divide-y divide-hair2 rounded-r2 border border-hair2 bg-overlay">
         {pending.map((run) => {
           const name = nameOf(run.routineId)
+          // The inbox's ordinary shape is several runs of the *same* routine (a nightly job that
+          // ran twice, neither reviewed yet), so `name` alone collides across rows. The finish
+          // stamp is already rendered per row and reads naturally in an accessible name; fall
+          // back to the run id for a run that has not finished (still unique, just less pretty).
+          const rowLabel = `${name} · ${run.finishedAt ? chipStamp(run.finishedAt) : `run ${run.id}`}`
           return (
             <div key={run.id} className="flex items-start gap-3 px-4 py-2.5 text-xs">
               <Chip tone={RUN_TONE[run.status]}>
@@ -90,11 +110,11 @@ export function RoutineInbox({
                 {!run.error && !run.summary && <p className="text-faint">no output recorded</p>}
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <Btn aria-label={`Open case · ${name}`} onClick={() => onOpen(run.caseSlug)}>
+                <Btn aria-label={`Open case · ${rowLabel}`} onClick={() => onOpen(run.caseSlug)}>
                   Open case
                 </Btn>
                 <Btn
-                  aria-label={`Mark reviewed · ${name}`}
+                  aria-label={`Mark reviewed · ${rowLabel}`}
                   onClick={() => void markReviewed(run.id)}
                 >
                   Mark reviewed

@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { RoutineInbox } from '../RoutineInbox'
 import { routinesStore } from '../../../lib/routinesStore'
+import { chipStamp } from '../../../lib/time'
 import type { RoutineDef, RoutineRunSummary, RoutinesPayload } from '../../../../../shared/routines'
 
 const sweep: RoutineDef = {
@@ -29,6 +30,12 @@ function run(over: Partial<RoutineRunSummary> = {}): RoutineRunSummary {
     reviewedAt: null,
     ...over
   }
+}
+
+// Matches RoutineInbox's own `rowLabel`: the accessible name is per-run, not per-routine, so two
+// unreviewed runs of the same routine (the inbox's ordinary shape) don't collide.
+function rowLabel(name: string, r: RoutineRunSummary): string {
+  return `${name} · ${r.finishedAt ? chipStamp(r.finishedAt) : `run ${r.id}`}`
 }
 
 function payload(over: Partial<RoutinesPayload> = {}): RoutinesPayload {
@@ -105,7 +112,9 @@ describe('RoutineInbox', () => {
     await screen.findByText('nothing new')
 
     api.list.mockResolvedValue(payload({ unreviewedCount: 0, runs: [] }))
-    fireEvent.click(screen.getByRole('button', { name: 'Mark reviewed · Nightly sweep' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: `Mark reviewed · ${rowLabel('Nightly sweep', run())}` })
+    )
 
     expect(api.markReviewed).toHaveBeenCalledWith(1)
     // The store re-reads on the broadcast, which main emits after the write.
@@ -130,23 +139,49 @@ describe('RoutineInbox', () => {
     const onOpen = vi.fn()
     render(<RoutineInbox onOpen={onOpen} />)
     await screen.findByText('nothing new')
-    fireEvent.click(screen.getByRole('button', { name: 'Open case · Nightly sweep' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: `Open case · ${rowLabel('Nightly sweep', run())}` })
+    )
     expect(onOpen).toHaveBeenCalledWith('routine-sweep')
   })
 
   it('marks the clicked row reviewed, not the other pending row', async () => {
     const other: RoutineDef = { ...sweep, id: 'digest', name: 'Morning digest' }
+    const digestRun = run({ id: 2, routineId: 'digest', summary: 'digest done' })
     api.list.mockResolvedValue(
       payload({
         unreviewedCount: 2,
         routines: [sweep, other],
-        runs: [run({ id: 1 }), run({ id: 2, routineId: 'digest', summary: 'digest done' })]
+        runs: [run({ id: 1 }), digestRun]
       })
     )
     render(<RoutineInbox onOpen={vi.fn()} />)
     await screen.findByText('digest done')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Mark reviewed · Morning digest' }))
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: `Mark reviewed · ${rowLabel('Morning digest', digestRun)}`
+      })
+    )
+
+    expect(api.markReviewed).toHaveBeenCalledWith(2)
+    expect(api.markReviewed).not.toHaveBeenCalledWith(1)
+  })
+
+  it('marks the clicked row reviewed when two unreviewed runs share the same routine', async () => {
+    // The inbox's ordinary content: one routine, run twice, neither reviewed. Both rows share
+    // `nameOf(routineId)` — the accessible name must still disambiguate by run.
+    const firstRun = run({ id: 1, finishedAt: '2026-08-03T02:05:00.000Z', summary: 'monday run' })
+    const secondRun = run({ id: 2, finishedAt: '2026-08-04T02:05:00.000Z', summary: 'tuesday run' })
+    api.list.mockResolvedValue(payload({ unreviewedCount: 2, runs: [firstRun, secondRun] }))
+    render(<RoutineInbox onOpen={vi.fn()} />)
+    await screen.findByText('tuesday run')
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: `Mark reviewed · ${rowLabel('Nightly sweep', secondRun)}`
+      })
+    )
 
     expect(api.markReviewed).toHaveBeenCalledWith(2)
     expect(api.markReviewed).not.toHaveBeenCalledWith(1)
@@ -157,12 +192,49 @@ describe('RoutineInbox', () => {
     render(<RoutineInbox onOpen={vi.fn()} />)
     await screen.findByText('nothing new')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Mark reviewed · Nightly sweep' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: `Mark reviewed · ${rowLabel('Nightly sweep', run())}` })
+    )
 
     expect(await screen.findByRole('alert')).toHaveTextContent('routine store is locked')
     // The failed write must not have removed the row — the click did nothing, and the banner
     // is the only thing that is allowed to say so.
     expect(screen.getByText('nothing new')).toBeInTheDocument()
+  })
+
+  it('surfaces a rejected mark-all-reviewed instead of leaving the click silent', async () => {
+    api.markAllReviewed.mockRejectedValueOnce(new Error('routine store is locked'))
+    render(<RoutineInbox onOpen={vi.fn()} />)
+    await screen.findByText('nothing new')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mark all reviewed' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('routine store is locked')
+    // Same as the single-mark case: a failed write must not touch the list underneath it.
+    expect(screen.getByText('nothing new')).toBeInTheDocument()
+  })
+
+  it('clears a stale mutation error once the store hands it a fresh payload', async () => {
+    api.markReviewed.mockRejectedValueOnce(new Error('routine store is locked'))
+    render(<RoutineInbox onOpen={vi.fn()} />)
+    await screen.findByText('nothing new')
+
+    fireEvent.click(
+      screen.getByRole('button', { name: `Mark reviewed · ${rowLabel('Nightly sweep', run())}` })
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent('routine store is locked')
+
+    // Returning null on unreviewedCount === 0 does not unmount this component, so the fiber (and
+    // its mutationError state) survives. Simulate another window clearing this run, then a brand
+    // new unrelated run landing — the surviving error must not resurface over it.
+    const freshRun = run({ id: 99, summary: 'a fresh, unrelated run' })
+    api.list.mockResolvedValue(payload({ unreviewedCount: 1, runs: [freshRun] }))
+    listeners.forEach((l) => l())
+
+    await screen.findByText('a fresh, unrelated run')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    // The fresh row must still be there — only the stale error is gone.
+    expect(screen.getByText('a fresh, unrelated run')).toBeInTheDocument()
   })
 
   it('falls back to the raw id when the routine has been deleted', async () => {
