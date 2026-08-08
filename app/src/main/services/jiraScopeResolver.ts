@@ -20,6 +20,45 @@ export interface JiraScopeResolverDeps {
 }
 
 /**
+ * Replaces the contents of every quoted JQL string literal with `_` (one-for-one, so positions
+ * and length are preserved) while leaving quote delimiters and everything outside quotes intact.
+ *
+ * JQL literals may be single- or double-quoted, and a quote can be escaped with a backslash
+ * inside its own literal (`"say \"hi\""`). A naive quote-toggle scanner would flip state on that
+ * escaped quote and lose track of where the literal actually ends; this walks the string once,
+ * tracking which quote character (if any) is currently open, and treats a backslash inside a
+ * quote as consuming the next character rather than ending the literal.
+ */
+function maskJqlStringLiterals(jql: string): string {
+  let masked = ''
+  let openQuote: '"' | "'" | null = null
+  for (let i = 0; i < jql.length; i++) {
+    const ch = jql[i]
+    if (openQuote) {
+      if (ch === '\\' && i + 1 < jql.length) {
+        masked += '__'
+        i++
+        continue
+      }
+      if (ch === openQuote) {
+        openQuote = null
+        masked += ch
+        continue
+      }
+      masked += '_'
+      continue
+    }
+    if (ch === '"' || ch === "'") {
+      openQuote = ch
+      masked += ch
+      continue
+    }
+    masked += ch
+  }
+  return masked
+}
+
+/**
  * Strips a trailing `ORDER BY ...` clause off a user-authored JQL string.
  *
  * Jira's own issue navigator appends `ORDER BY created DESC` (or similar) to every query it
@@ -30,9 +69,17 @@ export interface JiraScopeResolverDeps {
  * so silently dropping the user's sort (rather than erroring, or trying to merge the two) is the
  * correct behaviour here — case-insensitive and tolerant of surrounding whitespace, matching how
  * forgiving the navigator's own paste target is.
+ *
+ * The clause must be found OUTSIDE any quoted string literal: `text ~ "please order by end of
+ * day"` contains the literal text "order by" but has no real trailing clause, and must survive
+ * untouched. `maskJqlStringLiterals` blanks out literal contents (preserving every other
+ * character's position) so the same whitespace/order/by pattern can be matched against the masked
+ * copy, then used to slice the real string.
  */
 function stripTrailingOrderBy(jql: string): string {
-  return jql.replace(/\s+order\s+by\s+.+$/i, '').trim()
+  const match = maskJqlStringLiterals(jql).match(/\s+order\s+by\s+.+$/i)
+  if (!match || match.index === undefined) return jql.trim()
+  return jql.slice(0, match.index).trim()
 }
 
 export function buildJiraScopeResolver(deps: JiraScopeResolverDeps): ScopeResolver {
