@@ -205,18 +205,85 @@ export class DiagnosticsService {
         // containment rule ingest() follows.
         return { ok: false, reason: 'failed', message: String(err) }
       }
-      return { ok: true, route: 'owner', pids: [row.rootPid] }
+      // The owner closure kills only the row's ROOT process — ExternalAppHost.stop
+      // kills one handle, AgentService.stopSession ends one driver connection —
+      // neither walks the subtree. A surviving child would be left with a dead
+      // parent, unreachable from the sidecar's own BFS from the Electron main pid
+      // (native/resource-monitor/src/tree.rs walks live ppid chains — a dead
+      // intermediate node breaks it for everything below, alive or not), so it
+      // would stay alive, unattributed and unlistable — the exact outcome the
+      // signal route's leaves-first ordering exists to prevent. Sweep the rest of
+      // the row's subtree so both routes end up meaning the same thing.
+      const swept = this.sweepStrays(snap, id, row.rootPid)
+      return { ok: true, route: 'owner', pids: [row.rootPid, ...swept] }
     }
 
-    const sidecarPid = this.deps.client.sidecarPid()
-    const denied = new Set<number>([this.deps.rootPid])
-    if (sidecarPid !== null) denied.add(sidecarPid)
-
-    const resolved = resolveTargets(snap, id, denied)
+    const resolved = resolveTargets(snap, id, this.baseDenied())
     if (!resolved.ok) return { ok: false, reason: resolved.reason }
 
     this.deps.terminator.signal(resolved.targets)
     return { ok: true, route: 'signal', pids: resolved.targets.map((t) => t.pid) }
+  }
+
+  /** The tree root and the sidecar's own pid — never a valid signal target,
+   *  whatever a row claims. Shared by the raw signal route and the owner-route
+   *  sweep below. */
+  private baseDenied(): Set<number> {
+    const sidecarPid = this.deps.client.sidecarPid()
+    const denied = new Set<number>([this.deps.rootPid])
+    if (sidecarPid !== null) denied.add(sidecarPid)
+    return denied
+  }
+
+  /**
+   * After a successful owner closure, signal whatever is still alive in that row's
+   * subtree — the owner only tore down the root, so this is the sweep that keeps
+   * "stops this process and everything it started" true regardless of which route
+   * main picked.
+   *
+   * The subtree is resolved from `preKillSnap` — the SAME pre-kill snapshot
+   * `terminate()` already checked for freshness before calling `stop()` — not a
+   * fresher sample taken after. By the time the owner's closure resolves the root
+   * is usually already dead, and once it is, the sidecar's own BFS from the
+   * Electron main pid (tree.rs) can no longer reach anything below it: that walk
+   * requires an unbroken chain of currently-alive ancestors, and a dead
+   * intermediate node breaks it for every descendant, alive or not. A "fresher"
+   * post-kill sample would not see a genuine straggler either — it would just make
+   * the sweep blind to exactly the processes it exists to catch. `preKillSnap` is
+   * the last view in which the subtree was actually reachable, so it is what the
+   * sweep's candidate list is drawn from.
+   *
+   * The row root itself is excluded: the owner already handled it, re-signalling
+   * it buys nothing, and by sweep time it is the single pid in the row most likely
+   * to have already been recycled by the OS (termination is immediate on Windows,
+   * out of a small, aggressively-reused pid pool).
+   *
+   * Every remaining candidate is still identity-checked before being signalled —
+   * against `this.current`, the freshest snapshot this service holds by the time
+   * `stop()` has resolved (ingest() keeps advancing it independently of terminate()
+   * while the owner closure is in flight). The check is the same pid+startTimeMs
+   * match `stillIs` uses for the SIGKILL escalation in Terminator: a candidate
+   * whose startTimeMs no longer matches what that snapshot reports for its pid is
+   * not our process and must be skipped, not signalled on faith. This does not
+   * force a fresher sample via sampleNow() first — see the report for why a
+   * best-effort check against whatever is already in hand is the right amount of
+   * machinery here.
+   */
+  private sweepStrays(preKillSnap: DiagnosticsSnapshot, id: string, rootPid: number): number[] {
+    const denied = this.baseDenied()
+    denied.add(rootPid)
+
+    const resolved = resolveTargets(preKillSnap, id, denied)
+    if (!resolved.ok) return []
+
+    const liveTree = this.current?.tree ?? []
+    const confirmed = resolved.targets.filter((t) =>
+      liveTree.some((p) => p.pid === t.pid && p.startTimeMs === t.startTimeMs)
+    )
+    if (confirmed.length === 0) return []
+
+    this.deps.terminator.signal(confirmed)
+    return confirmed.map((t) => t.pid)
   }
 
   /**

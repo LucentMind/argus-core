@@ -730,9 +730,17 @@ describe('terminate', () => {
       },
       10_000
     )
-    const { service, client } = makeService(fakeClient(), { processLabels: labels })
+    const term = fakeTerminator()
+    const { service, client } = makeService(fakeClient(), {
+      processLabels: labels,
+      terminator: term
+    })
     service.start()
-    client.emit(snapshot({ processes: [...snapshot().processes, child(2)] }))
+    // A child alongside the throwing root: proves the failure short-circuits before
+    // ever reaching the sweep, rather than the sweep simply finding nothing to do.
+    client.emit(
+      snapshot({ processes: [...snapshot().processes, child(2), { ...child(3), ppid: 2 }] })
+    )
 
     const res = await service.terminate('2:10000')
     expect(res.ok).toBe(false)
@@ -740,6 +748,105 @@ describe('terminate', () => {
       expect(res.reason).toBe('failed')
       expect(res.message).toContain('boom')
     }
+    expect(term.signalled).toEqual([])
+  })
+
+  it('sweeps a surviving child after a successful owner closure', async () => {
+    // The owner closure (ExternalAppHost.stop / AgentService.stopSession) only ever
+    // kills the row's root — it has no way to reach a grandchild the row's own
+    // process spawned. A survivor left behind gets a dead parent and becomes
+    // unreachable from the sidecar's own tree walk, so the service must chase it
+    // down itself rather than trust the owner's bookkeeping alone.
+    const labels = new ProcessLabels()
+    const stop = vi.fn()
+    labels.register(2, { kind: 'pack-app', label: 'Pack app: demo/console', stop }, 10_000)
+    const term = fakeTerminator()
+    const { service, client } = makeService(fakeClient(), {
+      processLabels: labels,
+      terminator: term
+    })
+    service.start()
+    client.emit(
+      snapshot({ processes: [...snapshot().processes, child(2), { ...child(3), ppid: 2 }] })
+    )
+
+    expect(await service.terminate('2:10000')).toEqual({
+      ok: true,
+      route: 'owner',
+      pids: [2, 3]
+    })
+    expect(stop).toHaveBeenCalledTimes(1)
+    expect(term.signalled).toEqual([[3]])
+  })
+
+  it('never signals the row root itself as part of the sweep', async () => {
+    // The owner closure already tore the root down, and by sweep time its pid is
+    // the single one in the row most likely to have already been recycled by the
+    // OS — re-signalling it buys nothing and risks hitting an unrelated process.
+    const labels = new ProcessLabels()
+    const stop = vi.fn()
+    labels.register(2, { kind: 'pack-app', label: 'Pack app: demo/console', stop }, 10_000)
+    const term = fakeTerminator()
+    const { service, client } = makeService(fakeClient(), {
+      processLabels: labels,
+      terminator: term
+    })
+    service.start()
+    client.emit(
+      snapshot({
+        processes: [
+          ...snapshot().processes,
+          child(2),
+          { ...child(3), ppid: 2 },
+          { ...child(4), ppid: 3 }
+        ]
+      })
+    )
+
+    await service.terminate('2:10000')
+
+    expect(term.signalled.flat()).not.toContain(2)
+    expect(term.signalled.flat().sort()).toEqual([3, 4])
+  })
+
+  it('does not sweep a child whose startTimeMs no longer matches the live tree — the recycled-pid case', async () => {
+    // Between the owner closure being invoked and it resolving, the sidecar can
+    // publish a fresh sample. If pid 3 now belongs to a different process (a new
+    // startTimeMs at the same pid — the OS having handed the number to something
+    // else), signalling it on the strength of the PRE-kill snapshot alone would be
+    // exactly the identity-confusion hazard the whole id-with-startTimeMs design
+    // exists to close. The candidate must be re-checked against the freshest
+    // snapshot the service holds before it is signalled, and dropped if it no
+    // longer matches.
+    const client = fakeClient()
+    const labels = new ProcessLabels()
+    const term = fakeTerminator()
+    const stop = vi.fn(() => {
+      client.emit(
+        snapshot({
+          sequence: 2,
+          sampledAtUnixMs: 11_000,
+          processes: [
+            ...snapshot().processes,
+            child(2),
+            { ...child(3), ppid: 2, startTimeMs: 99_000 }
+          ]
+        })
+      )
+    })
+    labels.register(2, { kind: 'pack-app', label: 'Pack app: demo/console', stop }, 10_000)
+    const { service } = makeService(client, { processLabels: labels, terminator: term })
+    service.start()
+    client.emit(
+      snapshot({ processes: [...snapshot().processes, child(2), { ...child(3), ppid: 2 }] })
+    )
+
+    expect(await service.terminate('2:10000')).toEqual({
+      ok: true,
+      route: 'owner',
+      pids: [2]
+    })
+    expect(term.signalled).toEqual([])
   })
 
   it('refuses an unknown id', async () => {
