@@ -12,6 +12,7 @@ import {
   markAllRunsReviewed,
   countUnreviewedRuns
 } from './runs'
+import { listRunItems } from './runItems'
 import { ensureRoutineAnchor, forgetRoutineAnchor } from './anchors'
 import { forgetRoutineCursor } from './cursors'
 import { nextFireAfter } from './schedule'
@@ -125,6 +126,8 @@ export class RoutinesService {
   }
 
   payload(): RoutinesPayload {
+    const runs = listRoutineRuns(this.deps.db)
+    const runIds = runs.map((r) => r.id)
     return {
       routines: this.deps.store.list(),
       loadError: this.deps.store.loadError(),
@@ -148,7 +151,8 @@ export class RoutinesService {
           }
         })
       ),
-      runs: listRoutineRuns(this.deps.db),
+      runs,
+      runItems: listRunItems(this.deps.db, runIds),
       unreviewedCount: countUnreviewedRuns(this.deps.db)
     }
   }

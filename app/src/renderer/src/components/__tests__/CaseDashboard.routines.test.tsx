@@ -80,6 +80,7 @@ function routinesPayload(over: Partial<RoutinesPayload> = {}): RoutinesPayload {
     nextRunAt: {},
     unreviewedCount: 1,
     runs: [run()],
+    runItems: [],
     ...over
   }
 }
