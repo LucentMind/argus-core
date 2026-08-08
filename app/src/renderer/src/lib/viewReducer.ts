@@ -18,7 +18,7 @@ export type ViewAction =
 /**
  * Pure view-transition logic shared by the Settings, Observability,
  * Related History and Proposals toolbar icons (App.tsx's
- * `openSettings`/`openObservability`/`openRelatedHistory`/`openProposals`).
+ * `openSettings`/`openObservability`/`openRelatedHistory`/`openProposalsView`).
  * Extracted from App so the toggle rules -- including the branch below with
  * no DOM path -- have an honest, directly-testable seam.
  *

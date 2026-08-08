@@ -1,9 +1,10 @@
 import { useSyncExternalStore } from 'react'
-import { Settings, History, Home } from 'lucide-react'
+import { Settings, History, Home, Inbox } from 'lucide-react'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { uiStore } from '../lib/uiStore'
 import { caseBarStore, useCaseBar } from '../lib/caseBarStore'
 import { useSettingsBar } from '../lib/settingsBarStore'
+import { useProposalCounts } from '../lib/proposalsStore'
 import { isDarwin } from '../lib/platform'
 import { WindowControls } from './WindowControls'
 import { CaseAnchor } from './CaseAnchor'
@@ -39,7 +40,8 @@ export function TopBar({
   onSelect,
   onSettings,
   onStatusChanged,
-  onRelatedHistory
+  onRelatedHistory,
+  onProposals
 }: {
   activeSlug: string | null
   /** The active case's record, or null while `cases` is still loading. `activeSlug` comes
@@ -52,6 +54,7 @@ export function TopBar({
   /** A case action changed status in the DB; the owner of the `cases` array must refetch. */
   onStatusChanged: () => void
   onRelatedHistory?: () => void
+  onProposals?: () => void
 }): React.JSX.Element {
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -59,6 +62,7 @@ export function TopBar({
   )
   const bar = useCaseBar()
   const anchors = useAmbientAnchors()
+  const proposalCounts = useProposalCounts()
   // Non-null exactly while Settings is up — SettingsView publishes its active page here because
   // this bar is its SIBLING, not its ancestor. Doubles as the "am I in Settings" flag the
   // anchor below keys off, so there is one source of truth for it.
@@ -261,6 +265,25 @@ export function TopBar({
             The tabs themselves are NOT forgotten while hidden: `uiStore.recentTabs` outlives
             this, so reopening any case brings the whole band back as it was. */}
         {activeSlug !== null && <RecentTabs activeSlug={activeSlug} onSelect={onSelect} />}
+        {onProposals && (
+          <button
+            className={`${ACTION_BTN} relative`}
+            aria-label="Proposals"
+            title="Proposals"
+            data-onboarding-anchor="topbar-proposals"
+            onClick={onProposals}
+          >
+            <Inbox size={19} strokeWidth={1.5} />
+            {(proposalCounts?.pendingCount ?? 0) > 0 && (
+              <span
+                aria-hidden="true"
+                className="absolute -right-0.5 -top-0.5 rounded-full bg-signal/15 px-1 font-mono text-[10px] leading-4 text-signal"
+              >
+                {proposalCounts!.pendingCount}
+              </span>
+            )}
+          </button>
+        )}
         {onRelatedHistory && (
           <button
             className={ACTION_BTN}

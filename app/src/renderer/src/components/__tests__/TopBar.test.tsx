@@ -7,6 +7,7 @@ import { TopBar } from '../TopBar'
 import { uiStore } from '../../lib/uiStore'
 import { caseBarStore } from '../../lib/caseBarStore'
 import { settingsBarStore } from '../../lib/settingsBarStore'
+import { proposalsStore } from '../../lib/proposalsStore'
 import { AmbientAnchorContext } from '../../lib/ambientAnchors'
 import type { CaseRecord } from '../../../../shared/types'
 import type { DistillJobRow } from '../../../../shared/distill'
@@ -30,10 +31,15 @@ beforeEach(() => {
   if (!uiStore.get().showToolCalls) uiStore.setShowToolCalls(true)
   caseBarStore.reset()
   settingsBarStore.reset()
+  proposalsStore.reset()
   uiStore.setDynamicTheme(false)
   window.argus = {
     modes: { available: vi.fn(async () => ['investigation', 'review']) },
     distill: { status: vi.fn(async () => null), onChanged: vi.fn(() => () => {}) },
+    proposals: {
+      list: vi.fn(async () => ({ proposals: [] })),
+      onChanged: vi.fn(() => () => {})
+    },
     cases: {
       setStatus: vi.fn(async () => undefined),
       setMode: vi.fn(async () => ({ sessionId: 9 }))
@@ -172,6 +178,58 @@ describe('TopBar', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
     expect(onSettings).toHaveBeenCalled()
+  })
+
+  it('renders the Proposals button and fires onProposals', () => {
+    const onProposals = vi.fn()
+    render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+        onProposals={onProposals}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Proposals' }))
+    expect(onProposals).toHaveBeenCalled()
+  })
+
+  it('shows the pending-count pill only when counts are positive', async () => {
+    window.argus.proposals.list = vi.fn(async () => ({
+      proposals: [{ type: 'recipe' }, { type: 'recipe' }, { type: 'skill-new' }]
+    })) as never
+    render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+        onProposals={vi.fn()}
+      />
+    )
+    expect(await screen.findByText('3')).toBeInTheDocument()
+  })
+
+  it('hides the pending-count pill when there are no pending proposals', async () => {
+    render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+        onProposals={vi.fn()}
+      />
+    )
+    await screen.findByRole('button', { name: 'Proposals' })
+    await vi.waitFor(() => expect(window.argus.proposals.list).toHaveBeenCalled())
+    expect(screen.queryByText('0')).not.toBeInTheDocument()
   })
 
   it('is a drag region, with every interactive element opted out', async () => {

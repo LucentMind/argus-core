@@ -8,6 +8,7 @@ import { FileViewer } from './components/FileViewer'
 import { NewCaseDialog } from './components/NewCaseDialog'
 import { OnboardingProvider } from './components/onboarding/OnboardingProvider'
 import { ObservabilityView } from './components/observability/ObservabilityView'
+import { ProposalsStandalone } from './components/proposals/ProposalsStandalone'
 import { RelatedHistoryStandalone } from './components/related/RelatedHistoryExplorer'
 import { SearchBar } from './components/SearchBar'
 import { SettingsView, type SettingsDeepLink } from './components/settings/SettingsView'
@@ -23,6 +24,7 @@ import { panelsStore } from './lib/panelsStore'
 import { uiStore } from './lib/uiStore'
 import { nextView, type View } from './lib/viewReducer'
 import type { CaseRecord, NewCaseInput, UnifiedHit } from '../../shared/types'
+import type { ProposalType } from '../../shared/proposals'
 import { DEFAULT_MODE } from '../../shared/modes'
 
 type Viewer =
@@ -145,6 +147,12 @@ function App(): React.JSX.Element {
   }
 
   function openSettings(page?: SettingsDeepLink): void {
+    // 'proposals' stays a valid deep link (wizard, tour, stale runtime values)
+    // but the destination moved out of Settings — escalate to the view.
+    if (page === 'proposals') {
+      gotoProposals()
+      return
+    }
     // The TopBar gear calls this with no page, so a second click toggles shut
     // (nextView returns to prevView). A page argument is a deep link and must
     // switch pages instead, even while already on Settings -- see
@@ -158,11 +166,29 @@ function App(): React.JSX.Element {
   // the gear's close-on-repeat behavior. openSettings stays the toggle for the
   // gear itself.
   function gotoSettings(page?: SettingsDeepLink): void {
+    // 'proposals' stays a valid deep link (wizard, tour, stale runtime values)
+    // but the destination moved out of Settings — escalate to the view.
+    if (page === 'proposals') {
+      gotoProposals()
+      return
+    }
     recordPrevView()
     setView({ kind: 'settings', page })
   }
   function closeSettings(): void {
     setView(prevView)
+  }
+
+  function openProposalsView(types?: readonly ProposalType[]): void {
+    recordPrevView()
+    setView(nextView(view, prevView, { kind: 'proposals', types }))
+  }
+  // Idempotent "ensure the proposals view is showing" — never toggles shut.
+  // Same reasoning as gotoSettings: deep links and the tour must not invoke
+  // the TopBar button's close-on-repeat behavior.
+  function gotoProposals(types?: readonly ProposalType[]): void {
+    recordPrevView()
+    setView({ kind: 'proposals', types })
   }
 
   function openObservability(): void {
@@ -202,6 +228,7 @@ function App(): React.JSX.Element {
           onSettings={() => openSettings()}
           onStatusChanged={() => void reload()}
           onRelatedHistory={openRelatedHistory}
+          onProposals={() => openProposalsView()}
         />
         <UpdateBanner />
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -238,7 +265,16 @@ function App(): React.JSX.Element {
             <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>
               <RelatedHistoryStandalone onOpenCase={openCase} onClose={() => setView(prevView)} />
             </DynamicScope>
-          ) : view.kind === 'proposals' ? null : (
+          ) : view.kind === 'proposals' ? (
+            <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>
+              <ProposalsStandalone
+                key={view.types?.join(',') ?? 'all'}
+                initialTypes={view.types}
+                onClose={() => setView(prevView)}
+                onNavigateSettings={(page) => gotoSettings(page)}
+              />
+            </DynamicScope>
+          ) : (
             <DynamicScope variant="case" light={ambientLight} cutoff={ambientCutoff}>
               <CaseWorkspace
                 slug={view.slug}

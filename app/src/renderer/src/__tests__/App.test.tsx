@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import App from '../App'
@@ -9,6 +9,7 @@ import { routinesStore } from '../lib/routinesStore'
 import { accessStore } from '../lib/accessStore'
 import { updateStore } from '../lib/updateStore'
 import { uiStore } from '../lib/uiStore'
+import { proposalsStore } from '../lib/proposalsStore'
 import { __resetEscapeLayersForTest } from '../lib/escapeLayer'
 import { defaultSettings, type SettingsPayload } from '../../../shared/settings'
 
@@ -67,6 +68,7 @@ beforeEach(() => {
   routinesStore.reset()
   accessStore.reset()
   updateStore.clearForTests()
+  proposalsStore.reset()
   uiStore.setDynamicTheme(false)
   lastAmbientCanvasProps = null
   window.argus = {
@@ -298,5 +300,23 @@ describe('App: ambient anchor Provider', () => {
     // instead); a non-empty match here would mean a bare strip is back above the header.
     expect(container.querySelectorAll('.argus-titlebar-inset')).toHaveLength(0)
     expect(screen.getByRole('banner')).toBeInTheDocument()
+  })
+})
+
+describe('App: proposals view', () => {
+  // The TopBar entrypoint is a toggle (openProposalsView), same shape as Related History and
+  // Observability: a second click returns to the previous base view. Asserting on the standalone
+  // shell's own "N pending" header segment rather than its "Close" IconBtn: this harness leaves
+  // `window.argus.platform` unset (not 'darwin'), so WindowControls draws its own native Close
+  // caption button on every view too, and the two share the accessible name "Close".
+  it('opens the proposals view from the TopBar and toggles shut on second click', async () => {
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Proposals' }))
+    // The header's own "· N pending" segment, not ProposalQueue's identically-worded but
+    // dot-less "N pending" count (both are mounted at once).
+    expect(await screen.findByText(/^· \d+ pending$/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Proposals' }))
+    await waitFor(() => expect(screen.queryByText(/^· \d+ pending$/)).not.toBeInTheDocument())
+    expect(screen.queryByRole('navigation', { name: 'Settings sections' })).not.toBeInTheDocument()
   })
 })
