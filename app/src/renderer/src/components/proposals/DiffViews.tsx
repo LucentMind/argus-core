@@ -4,6 +4,7 @@ import type { DiffCell } from '../../lib/lineDiff'
 import { KIND_PREFIX, KIND_CLASS } from './diffUtils'
 
 export type { DiffViewMode } from './diffUtils'
+// eslint-disable-next-line react-refresh/only-export-components -- re-export of a pure helper co-located with the diff components that consume it; see ToolRow.tsx for the same pattern
 export { diffStat } from './diffUtils'
 
 export function UnifiedDiff({
