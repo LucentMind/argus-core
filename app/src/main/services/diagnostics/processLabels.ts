@@ -86,10 +86,20 @@ export class ProcessLabels {
    * their process are dropped; unpinned entries whose pid now appears are pinned or
    * discarded; and pinned entries whose exact process is gone are swept, so a missed
    * `unregister` cannot leak.
+   *
+   * `sampledAtMs` is when the SIDECAR took this scan, not when main got around to
+   * ingesting it, and the difference is load-bearing. An unpinned entry gets exactly
+   * one chance — nothing re-registers it — so sweeping it against ingest time lets a
+   * sample taken BEFORE the process was even spawned be the thing that deletes it.
+   * That is not hypothetical: at boot the sidecar handshakes and immediately emits a
+   * sample while main is still busy, so that first sample can sit in the event queue
+   * across a pack-app spawn and land seconds later, older than it looks. Judged by
+   * its own clock a sample that predates the registration simply cannot speak to it,
+   * and the entry survives to be pinned by the next one.
    */
   reconcile(
     samples: readonly ProcessSample[],
-    nowMs: number
+    sampledAtMs: number
   ): ReadonlyMap<string, RegisteredLabel> {
     const byPid = new Map<number, ProcessSample>()
     for (const s of samples) if (!byPid.has(s.pid)) byPid.set(s.pid, s)
@@ -101,9 +111,11 @@ export class ProcessLabels {
 
       if (entry.startTimeMs === undefined) {
         if (!sample) {
-          // Never observed. Past the tolerance the spawn either failed or the process
-          // already exited, so stop holding the slot.
-          if (nowMs - entry.registeredAtMs > PIN_TOLERANCE_MS) this.entries.delete(pid)
+          // Not in this scan. Only a scan taken comfortably AFTER the registration is
+          // evidence of anything: past the tolerance the spawn either failed or the
+          // process already exited, so stop holding the slot. An older scan is simply
+          // silent about this pid — dropping on it would destroy a live registration.
+          if (sampledAtMs - entry.registeredAtMs > PIN_TOLERANCE_MS) this.entries.delete(pid)
           continue
         }
         if (Math.abs(sample.startTimeMs - entry.registeredAtMs) > PIN_TOLERANCE_MS) {

@@ -213,7 +213,12 @@ export class DiagnosticsService {
       // as an unhandled main-process exception. A wedged sidecar or label source must
       // degrade the Diagnostics page, never the app, so keep whatever snapshot is
       // already published and let the next sample get a fresh try.
-      const registered = this.deps.processLabels.reconcile(raw.processes, this.now())
+      // The sample's OWN timestamp, not this.now(): a registration must be aged
+      // against when the scan was taken, never against when main got round to
+      // ingesting it. See reconcile()'s doc comment — passing ingest time here
+      // lets a sample that predates a pack app's spawn be the thing that deletes
+      // its label. This is also the clock `startTimeMs` below is already on.
+      const registered = this.deps.processLabels.reconcile(raw.processes, raw.sampledAtUnixMs)
       result = buildSnapshot({
         samples: raw.processes,
         previous: this.previous,

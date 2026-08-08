@@ -578,23 +578,24 @@ describe('DiagnosticsService', () => {
     expect(client.sampleNowCalls).toBe(before + 1)
   })
 
-  it('uses the injected clock, not Date.now(), to age out unpinned registrations', () => {
-    // With now: () => 3_000 and a registration at 1_000, only 2s have
-    // elapsed when the first sample without pid 99 arrives — under the 5s
-    // pin tolerance, so the entry must survive. Swapping this.now() for a
-    // real Date.now() call in index.ts's reconcile() call would sweep the
-    // entry immediately (real elapsed time is not 2s) and this test would
-    // fail on the second assertion.
+  it("ages out unpinned registrations against the sample's own timestamp, not the ingest clock", () => {
+    // The registration lands at 1_000 and the first sample was taken at 2_000 —
+    // 1s later, inside the 5s pin tolerance — so the entry must survive to be
+    // pinned by the second sample. Ingest happens much later (now: () => 60_000),
+    // modelling a sample that sat in the event queue while main was busy. Aging
+    // against that ingest clock (reconcile(raw.processes, this.now()) — what
+    // index.ts used to pass) sweeps the entry on the first sample and this test
+    // fails on the final assertion.
     const labels = new ProcessLabels()
     const { service, client } = makeService(fakeClient(), {
       processLabels: labels,
-      now: () => 3_000
+      now: () => 60_000
     })
     service.start()
     labels.register(99, { kind: 'driver', label: 'Codex driver' }, 1_000)
 
     // First sample doesn't report pid 99 at all — the entry must not be swept.
-    client.emit(snapshot({ processes: [] }))
+    client.emit(snapshot({ sampledAtUnixMs: 2_000, processes: [] }))
 
     // Second sample: pid 99 now appears, with a start time within tolerance
     // of the registration.
