@@ -195,4 +195,18 @@ describe('routine origin', () => {
     renderCard(mkCase({ origin: 'user', reviewState: null }))
     expect(screen.queryByText('Draft')).not.toBeInTheDocument()
   })
+
+  it('shows a Draft badge on a user-created case while in draft state', () => {
+    // Proves the badge tracks review state, not case origin. The condition is
+    // reviewState-only; if it regressed to `origin === 'routine' && reviewState === 'draft'`,
+    // this test would fail. A user-origin case needs an actionItem to render the row.
+    renderCard(
+      mkCase({
+        origin: 'user',
+        reviewState: 'draft',
+        actionItems: [{ kind: 'status', severity: 'action', label: 'status → X', count: 0 }]
+      })
+    )
+    expect(screen.getByText('Draft')).toBeInTheDocument()
+  })
 })
