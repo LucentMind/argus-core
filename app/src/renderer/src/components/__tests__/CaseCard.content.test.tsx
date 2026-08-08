@@ -37,6 +37,7 @@ function mkCase(patch: Partial<CaseRecord>): CaseRecord {
   return {
     id: 1,
     slug: 'NAV-1',
+    origin: 'user',
     title: 'Bearing jumps',
     jiraKey: 'NAV-1',
     jiraSyncedAt: null,

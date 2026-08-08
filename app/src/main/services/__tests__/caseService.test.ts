@@ -7,6 +7,7 @@ import {
   createCase,
   listCases,
   getCase,
+  ensureCaseOrigin,
   setCaseJira,
   setCaseJiraDeselected,
   setCaseStatus,
@@ -521,5 +522,65 @@ describe('evidence-scope phase signal (Finding I1)', () => {
     // still counts it, exactly like an investigation-scoped row would.
     const rec = listCases(db).find((c) => c.slug === 'IDLE-SCOPE-1')!
     expect(rec.actionItems).not.toContainEqual(expect.objectContaining({ kind: 'idle' }))
+  })
+})
+
+describe('case origin', () => {
+  it('defaults a new case to user origin', () => {
+    const rec = createCase(db, home, { slug: 'nav-1', title: 'Bearing jumps' })
+    expect(rec.origin).toBe('user')
+    expect(getCase(db, 'nav-1')?.origin).toBe('user')
+  })
+
+  it('stamps an existing case as routine-created, idempotently', () => {
+    createCase(db, home, { slug: 'routine-sweep', title: 'Routine: Nightly sweep' })
+    ensureCaseOrigin(db, 'routine-sweep', 'routine')
+    ensureCaseOrigin(db, 'routine-sweep', 'routine')
+    expect(getCase(db, 'routine-sweep')?.origin).toBe('routine')
+  })
+
+  it('backfills origin from the run table, not from the slug', () => {
+    // A human is allowed to name a case `routine-cleanup`. The prefix is a convention; the run
+    // table is the record of which cases a routine actually wrote to.
+    const older = path.join(home, 'older-origin.db')
+    const raw = openDb(older)
+    raw.exec(`DROP TABLE cases`)
+    raw.exec(`CREATE TABLE cases (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      slug TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      jira_key TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      resolution TEXT,
+      tags TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`)
+    const insertCase = raw.prepare(
+      `INSERT INTO cases (slug, title, created_at, updated_at) VALUES (?, ?, ?, ?)`
+    )
+    insertCase.run(
+      'routine-sweep',
+      'Routine: sweep',
+      '2026-08-01T00:00:00.000Z',
+      '2026-08-01T00:00:00.000Z'
+    )
+    insertCase.run(
+      'routine-cleanup',
+      'Hand-named by a human',
+      '2026-08-01T00:00:00.000Z',
+      '2026-08-01T00:00:00.000Z'
+    )
+    raw
+      .prepare(
+        `INSERT INTO routine_runs (routine_id, case_slug, status, started_at) VALUES (?, ?, 'ok', ?)`
+      )
+      .run('sweep', 'routine-sweep', '2026-08-01T00:00:00.000Z')
+    raw.close()
+
+    const migrated = openDb(older)
+    expect(getCase(migrated, 'routine-sweep')?.origin).toBe('routine')
+    expect(getCase(migrated, 'routine-cleanup')?.origin).toBe('user')
+    migrated.close()
   })
 })

@@ -101,9 +101,18 @@ export interface SyncError {
   at: string // ISO 8601
 }
 
+/**
+ * Who created a case. `'user'` covers every human entry point — New case, import, create from a
+ * Jira ticket — and is the column default, so a path that knows nothing about this field is
+ * still correct.
+ */
+export type CaseOrigin = 'user' | 'routine'
+
 export interface CaseRecord {
   id: number
   slug: string
+  /** Who created this case. Machine-created cases are marked in the case grid. */
+  origin: CaseOrigin
   title: string
   jiraKey: string | null
   /** Last successful Jira sync (create-from-ticket or refresh); null when never synced. */

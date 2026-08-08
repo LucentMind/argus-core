@@ -9,6 +9,7 @@ function mkCase(over: Partial<CaseRecord> = {}): CaseRecord {
   return {
     id: 1,
     slug: 'NAV-1',
+    origin: 'user',
     title: 'Bearing jumps',
     jiraKey: 'NAV-1',
     jiraSyncedAt: '2026-07-08T00:00:00Z',

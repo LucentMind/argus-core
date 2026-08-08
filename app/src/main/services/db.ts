@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS cases (
   status TEXT NOT NULL DEFAULT 'open',
   resolution TEXT,
   tags TEXT NOT NULL DEFAULT '[]',
+  origin TEXT NOT NULL DEFAULT 'user',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -466,6 +467,16 @@ export function openDb(file: string): DatabaseSync {
     // stranded `running` rows, which reconcileInterruptedRuns turns into failed runs at boot,
     // and a run the app died inside of belongs in the inbox.
     db.exec(`UPDATE routine_runs SET reviewed_at = finished_at WHERE finished_at IS NOT NULL`)
+  }
+  if (!caseCols.some((c) => c.name === 'origin')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN origin TEXT NOT NULL DEFAULT 'user'`)
+    // Backfilled from the RUN TABLE, not from `slug LIKE 'routine-%'`. The prefix is a naming
+    // convention that a human is free to use, and mislabelling their case would be permanent —
+    // this migration is one-time. `routine_runs.case_slug` is the record of which cases a
+    // routine actually wrote to.
+    db.exec(
+      `UPDATE cases SET origin = 'routine' WHERE slug IN (SELECT DISTINCT case_slug FROM routine_runs)`
+    )
   }
   // Populate the FTS map tables for DBs that already held FTS rows before the
   // side-table fix landed (one-time; gated on the maps being empty).

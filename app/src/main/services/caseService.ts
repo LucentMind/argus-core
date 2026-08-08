@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type {
+  CaseOrigin,
   CaseRecord,
   CaseResolution,
   CaseStatus,
@@ -60,6 +61,7 @@ ${rules}`
 interface CaseRow {
   id: number
   slug: string
+  origin: string
   title: string
   jira_key: string | null
   jira_synced_at: string | null
@@ -84,6 +86,10 @@ function rowToCase(r: CaseRow): CaseRecord {
   return {
     id: r.id,
     slug: r.slug,
+    // Defence in depth against a direct DB edit or a downgrade, same convention as activeMode
+    // below: an unknown value reads as the default rather than reaching the renderer's chip
+    // logic as a string it has never heard of.
+    origin: (r.origin === 'routine' ? 'routine' : 'user') as CaseOrigin,
     title: r.title,
     jiraKey: r.jira_key,
     jiraSyncedAt: r.jira_synced_at ?? null,
@@ -159,6 +165,7 @@ export function createCase(
     const rec: CaseRecord = {
       id,
       slug: input.slug,
+      origin: 'user',
       title: input.title,
       jiraKey: input.jiraKey ?? null,
       jiraSyncedAt: null,
@@ -436,6 +443,20 @@ export function getCase(db: DatabaseSync, slug: string): CaseRecord | null {
   // empty — that is pre-existing behaviour and out of scope.
   const sig = readCaseSignals(db, c.id).get(c.id) ?? emptySignals()
   return { ...c, phase: attachPhase(c, row, sig) }
+}
+
+/**
+ * Classifies an existing case.
+ *
+ * A setter rather than a `createCase` parameter, deliberately: the routines engine does
+ * `getCase(slug) ?? createCase(...)`, so an origin passed at creation would mark only the cases
+ * a routine created itself and miss every case it adopted — and the one-time backfill in db.ts
+ * never revisits them. One call after get-or-create is correct on both branches.
+ *
+ * Idempotent. Does not touch `updated_at`: origin is a classification, not activity.
+ */
+export function ensureCaseOrigin(db: DatabaseSync, slug: string, origin: CaseOrigin): void {
+  db.prepare(`UPDATE cases SET origin = ? WHERE slug = ?`).run(origin, slug)
 }
 
 export interface CaseJiraLink {
