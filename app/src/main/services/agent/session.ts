@@ -177,6 +177,9 @@ export interface SessionDeps {
   /** Multi-source known-defects search, session-bound by AgentService. Absent when the
    *  corpus feature is unwired (tests, or a session built without it). */
   defectCorpus?: NativeToolDeps['defectCorpus']
+  /** The `routine_run_items` row this session is processing (routines runner only). Absent for
+   *  an ordinary interactive session. */
+  currentRunItemId?: NativeToolDeps['currentRunItemId']
   /** Tier-A diagnostics registry (services/diagnostics/processLabels.ts): CaseSession
    *  registers the pid a driver reports via `onProcessSpawn` here, and unregisters it in
    *  stop(). Absent = no registration attempted (tests that don't care about diagnostics). */
@@ -474,7 +477,8 @@ export class CaseSession {
         capturePanel: deps.capturePanel,
         onCaseClosed: deps.onCaseClosed,
         onWorktreeChanged: deps.onWorktreeChanged,
-        defectCorpus: deps.defectCorpus
+        defectCorpus: deps.defectCorpus,
+        currentRunItemId: deps.currentRunItemId
       },
       panelCommandDecls: deps.panelCommandDecls ?? [],
       dispatchPanelCommand: deps.dispatchPanelCommand,
