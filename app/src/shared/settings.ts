@@ -41,7 +41,18 @@ const generalSchema = z.looseObject({
    *  cases). Off by default; a live global setting, not snapshotted per case — flipping it
    *  takes effect on the very next search, for every case. Corpus providers and the
    *  search_case_history agent tool are unaffected (design decision, 2026-08-05 spec). */
-  similarPastCasesEnabled: z.boolean().default(false)
+  similarPastCasesEnabled: z.boolean().default(false),
+  /** Closing the last window leaves Argus in the tray instead of quitting, so scheduled
+   *  routines keep firing. Off by default: a fresh install must not leave a background process
+   *  behind for a user who has never created a routine. With it off nothing is lost, only
+   *  delayed — increment 2's catch-up fires an overdue routine once on the next launch.
+   *  No effect on macOS, which never quit on last-window-close to begin with (see
+   *  services/keepAlive.ts). */
+  keepAliveInBackground: z.boolean().default(false),
+  /** Set once, the first time keep-alive swallows a window close, so the "Argus is still
+   *  running" notice shows exactly once per install. Deliberately not surfaced in the Settings
+   *  UI — it is a seen-marker, not a preference. */
+  keepAliveNoticeShown: z.boolean().default(false)
 })
 
 /** Per-instance model list customization (favorite/hide/reorder). All three lists default empty. */

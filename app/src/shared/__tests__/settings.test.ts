@@ -237,4 +237,17 @@ describe('settings schema', () => {
     expect(stripped).toEqual({ ui: { knowledgeStripDismissed: true } })
     expect(settingsSchema.parse(stripped).ui.knowledgeStripDismissed).toBe(true)
   })
+
+  it('defaults both keep-alive keys off', () => {
+    const s = settingsSchema.parse({})
+    expect(s.general.keepAliveInBackground).toBe(false)
+    expect(s.general.keepAliveNoticeShown).toBe(false)
+  })
+
+  it('round-trips keep-alive on', () => {
+    const s = settingsSchema.parse({ general: { keepAliveInBackground: true } })
+    expect(s.general.keepAliveInBackground).toBe(true)
+    // Untouched siblings keep their own defaults rather than being wiped by the partial parse.
+    expect(s.general.confirmCaseDelete).toBe(true)
+  })
 })
