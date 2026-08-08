@@ -627,6 +627,21 @@ describe('setCaseTriage', () => {
     expect(out.tags).toEqual(['severity:low'])
   })
 
+  it('leaves a field alone when the patch omits it (also checks case.json on disk)', () => {
+    createCase(db, home, { slug: 'abc-2', title: 'Original Title' })
+    setCaseTriage(db, home, 'abc-2', { tags: ['severity:medium'] })
+    // Verify the DB row
+    const out = getCase(db, 'abc-2')!
+    expect(out.title).toBe('Original Title')
+    expect(out.tags).toEqual(['severity:medium'])
+    // Verify the on-disk file preserves the title when patch omits it
+    const onDisk = JSON.parse(
+      fs.readFileSync(path.join(home, 'cases', 'abc-2', 'case.json'), 'utf8')
+    )
+    expect(onDisk.title).toBe('Original Title')
+    expect(onDisk.tags).toEqual(['severity:medium'])
+  })
+
   it('deduplicates tags, so accepting twice does not double them', () => {
     createCase(db, home, { slug: 'abc-1', title: 'ABC-1' })
     const out = setCaseTriage(db, home, 'abc-1', { tags: ['a', 'b', 'a'] })
