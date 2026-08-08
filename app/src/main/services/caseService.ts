@@ -450,6 +450,23 @@ export function getCase(db: DatabaseSync, slug: string): CaseRecord | null {
 }
 
 /**
+ * Looks up a case by its bound Jira key.
+ *
+ * This is what lets a routine's `jira-jql` scope ADOPT a ticket the user already opened by hand
+ * instead of duplicating it: `jiraCases.createFromTicket` takes a caller-supplied slug and would
+ * happily insert a second case for the same key, so the scope resolver (main/index.ts) must check
+ * here first (scopeResolver.ts's `ingestJiraItem`).
+ */
+export function findCaseByJiraKey(db: DatabaseSync, key: string): CaseRecord | null {
+  const row = db.prepare(`SELECT * FROM cases WHERE jira_key = ?`).get(key) as unknown as
+    CaseRow | undefined
+  if (!row) return null
+  const c = rowToCase(row)
+  const sig = readCaseSignals(db, c.id).get(c.id) ?? emptySignals()
+  return { ...c, phase: attachPhase(c, row, sig) }
+}
+
+/**
  * Classifies an existing case.
  *
  * A setter rather than a `createCase` parameter, deliberately: the routines engine does

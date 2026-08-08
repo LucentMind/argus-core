@@ -756,6 +756,13 @@ const argus = {
     markReviewed: (runId: number): Promise<RoutinesPayload> =>
       invoke(IPC.routinesMarkReviewed, runId),
     markAllReviewed: (): Promise<RoutinesPayload> => invoke(IPC.routinesMarkAllReviewed),
+    /** Promotes a draft item: applies its suggestion, clears the draft. */
+    acceptItem: (itemId: number): Promise<RoutinesPayload> =>
+      invoke(IPC.routinesAcceptItem, itemId),
+    /** Closes a draft item's case. Rejects with no resolution given, rather than closing a case
+     *  unexplained. */
+    dismissItem: (itemId: number, resolution: CaseResolution): Promise<RoutinesPayload> =>
+      invoke(IPC.routinesDismissItem, itemId, resolution),
     /** Payload-free: the listener re-reads `list()`, so a missed broadcast still converges. */
     onChanged: (cb: () => void): (() => void) => {
       const listener = (): void => cb()

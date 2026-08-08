@@ -655,3 +655,27 @@ function nextCursorPath(next: string | undefined): string | null {
 export function jiraBrowseUrl(siteUrl: string, key: string): string {
   return `${siteUrl}/browse/${encodeURIComponent(key)}`
 }
+
+/**
+ * Formats an ISO timestamp as a JQL date literal: `yyyy-MM-dd HH:mm`, in UTC.
+ *
+ * JQL date/time comparisons have MINUTE resolution — seconds (and anything finer) are silently
+ * dropped by Jira itself, not by this function. That loss is only safe because the scope
+ * resolver's cursor boundary is INCLUSIVE (`>=`, scopeResolver.ts): a strict `>` combined with
+ * this precision loss would drop every ticket sharing the cursor's minute, permanently and
+ * silently, whenever more than one ticket lands in the same minute. items.ts removes the
+ * resulting duplicate by key instead.
+ *
+ * UTC, not the host machine's local zone: the cursor values this formats come straight from
+ * Jira's own `created`/`updated` fields (ISO 8601 with an explicit offset), and formatting in
+ * local time would make the bound query — and every test of it — depend on the machine's
+ * timezone.
+ */
+export function jiraDate(iso: string): string {
+  const d = new Date(iso)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return (
+    `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
+    `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
+  )
+}

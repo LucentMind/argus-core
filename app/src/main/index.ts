@@ -120,6 +120,7 @@ import {
   atlassianRestConfigured,
   rovoInstanceId,
   jiraBrowseUrl,
+  jiraDate,
   resolveAtlassianCreds,
   type AtlassianAuth
 } from './services/atlassian'
@@ -137,7 +138,8 @@ import {
   setCaseStatus,
   setCaseJiraDeselected,
   setCaseMode,
-  getCase
+  getCase,
+  findCaseByJiraKey
 } from './services/caseService'
 import { OnboardingService, resolveSampleAssetsDir } from './services/onboarding'
 import { ingestArtifact, ingestBytes, listEvidence, deleteEvidence } from './services/ingest'
@@ -329,6 +331,7 @@ import { RoutinesService } from './services/routines/service'
 import { reconcileInterruptedRuns, runningRoutineForSession } from './services/routines/runs'
 import { createRoutineTurnRunner } from './services/routines/turnRunner'
 import { RoutineScheduler } from './services/routines/scheduler'
+import type { ScopeResolver } from './services/routines/scopeResolver'
 import type { RoutinesPayload } from '../shared/routines'
 
 let agentService: AgentService | null = null
@@ -1902,10 +1905,45 @@ function registerIpc(): void {
       `[routines] marked ${strandedRuns} run(s) failed: still 'running' from a previous session`
     )
   }
+
+  /**
+   * The jira half of ScopeResolver. Lives HERE, not in services/routines/, because it needs the
+   * Atlassian client and the ingest path — neither of which the engine may import.
+   *
+   * Both methods close over `atlassian` and `jiraCases`, the latter declared FURTHER DOWN in this
+   * same function. That is safe: neither method runs synchronously here — they only execute later,
+   * once a scoped run actually resolves — and by then `registerIpc()` has finished building every
+   * const in its body, `jiraCases` included. Nothing in this object's construction reads either
+   * binding; only its returned closures do.
+   */
+  const scopeResolver: ScopeResolver = {
+    async resolveJql(jql, cursorField, cursor, limit) {
+      // `>=` on the cursor is deliberate and items.ts depends on it: Jira timestamps are not
+      // unique, so a strict `>` drops one of two tickets sharing a minute, permanently and
+      // silently. The duplicate is removed by key, not by tightening this comparison.
+      const bounded = cursor ? `(${jql}) AND ${cursorField} >= "${jiraDate(cursor)}"` : jql
+      const page = await atlassian.searchIssues(`${bounded} ORDER BY ${cursorField} ASC`, {
+        maxResults: limit
+      })
+      return page.issues.map((i) => ({ key: i.key, cursorValue: i[cursorField] }))
+    },
+    async ingestJiraItem(key) {
+      // ADOPT first: a JQL result whose key already has a case must never get a second one.
+      // `jiraCases.createFromTicket` takes a caller-supplied slug and would happily create a
+      // duplicate, so pre-triage checks findCaseByJiraKey before ever reaching it.
+      const existing = findCaseByJiraKey(db, key)
+      if (existing) return { caseSlug: existing.slug, created: false }
+      const slug = key.toLowerCase()
+      const rec = await jiraCases.createFromTicket({ slug, title: key, key })
+      return { caseSlug: rec.slug, created: true }
+    }
+  }
+
   const routinesService = new RoutinesService({
     db,
     argusHome,
     store: routines,
+    scopeResolver,
     // The binding itself lives in services/routines/turnRunner.ts — electron-free, so it is
     // reachable by a runtime test, unlike anything written inline here. It also owns the
     // driver-kind mismatch guard: getDriverByKind falls back to Claude for any unregistered
@@ -2010,6 +2048,19 @@ function registerIpc(): void {
     routinesService.markAllReviewed()
     return routinesService.payload()
   })
+  ipcMain.handle(IPC.routinesAcceptItem, (_e, itemId: number): RoutinesPayload => {
+    routinesService.acceptItem(itemId)
+    return routinesService.payload()
+  })
+  ipcMain.handle(
+    IPC.routinesDismissItem,
+    (_e, itemId: number, resolution: CaseResolution): RoutinesPayload => {
+      // A missing resolution must reject rather than close a case with no explanation attached.
+      if (!resolution) throw new Error('Dismissing a draft requires a resolution reason')
+      routinesService.dismissItem(itemId, resolution)
+      return routinesService.payload()
+    }
+  )
 
   // Consume-once read: App.tsx calls this on every mount (including the very first, freshly
   // created window) so it can land on the inbox without waiting on a push it might not be

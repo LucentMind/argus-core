@@ -9,6 +9,7 @@ import {
   atlassianRestConfigured,
   rovoInstanceId,
   jiraBrowseUrl,
+  jiraDate,
   resolveAtlassianCreds
 } from '../atlassian'
 import type { ConnectorMap } from '../../../shared/connectors'
@@ -521,6 +522,24 @@ describe('jiraBrowseUrl', () => {
     expect(jiraBrowseUrl('https://acme.atlassian.net', 'NAV 7/../x')).toBe(
       'https://acme.atlassian.net/browse/NAV%207%2F..%2Fx'
     )
+  })
+})
+
+describe('jiraDate', () => {
+  it('formats an ISO timestamp as JQL minute-resolution local-to-UTC', () => {
+    expect(jiraDate('2026-08-01T10:15:42.123Z')).toBe('2026-08-01 10:15')
+  })
+
+  it('drops seconds entirely, which is why the cursor boundary must be inclusive', () => {
+    // Two tickets at :30 and :59 seconds past the same minute format identically here. If the
+    // caller used a strict `>` cursor comparison, the second of the two would never be seen
+    // again once the first advanced the cursor — see scopeResolver.ts's `>=` boundary and
+    // items.ts's by-key de-duplication, which is what makes this precision loss safe.
+    expect(jiraDate('2026-08-01T10:15:30.000Z')).toBe(jiraDate('2026-08-01T10:15:59.999Z'))
+  })
+
+  it('pads single-digit month, day, hour and minute', () => {
+    expect(jiraDate('2026-01-02T03:04:00.000Z')).toBe('2026-01-02 03:04')
   })
 })
 

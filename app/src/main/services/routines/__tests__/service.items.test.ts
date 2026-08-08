@@ -45,6 +45,11 @@ const storeOf = (r: RoutineDef): unknown => ({
  * what the interface promises ("creating or adopting", scopeResolver.ts) and what the real Jira
  * ingest does. A fake that always INSERTs would make every re-visit of a ticket throw on the
  * UNIQUE slug constraint, which would turn the draft-skip rule below into an untestable one.
+ *
+ * `created` mirrors the real resolver's `findCaseByJiraKey`-vs-`createFromTicket` branch
+ * (main/index.ts): false when the case already existed before this call. The caller
+ * (RoutinesService.materializeItem) uses it to decide whether stamping `origin: 'routine'` is
+ * safe — see the "adopted case" test below.
  */
 function fakeResolver(
   issues: Array<{ key: string; created: string }>,
@@ -64,8 +69,9 @@ function fakeResolver(
     ingestJiraItem: async (key: string) => {
       if (key === opts.failOn) throw new Error(`ingest failed for ${key}`)
       const slug = key.toLowerCase()
-      if (!getCase(db, slug)) createCase(db, tmp, { slug, title: key })
-      return { caseSlug: slug }
+      const existing = getCase(db, slug)
+      if (!existing) createCase(db, tmp, { slug, title: key })
+      return { caseSlug: slug, created: !existing }
     }
   }
 }
@@ -176,6 +182,28 @@ describe('scoped runs', () => {
     expect(getCase(db, 'abc-1')!.reviewState).toBe('draft')
     expect(getCase(db, 'abc-1')!.origin).toBe('routine')
   })
+
+  it(
+    'leaves an ADOPTED case origin alone: a ticket the user already opened by hand keeps ' +
+      "origin 'user', not 'routine'",
+    async () => {
+      // Task 11's reviewer finding: ingestJiraItem used to return only `{ caseSlug }`, so
+      // materializeItem could not tell "just created" from "already existed" and stamped
+      // `origin: 'routine'` unconditionally — relabelling a human-created case. `created: false`
+      // (fakeResolver, mirroring the real resolver's findCaseByJiraKey branch) is what lets
+      // materializeItem skip ensureCaseOrigin here.
+      createCase(db, tmp, { slug: 'abc-1', title: 'Human-opened', jiraKey: 'ABC-1' })
+      const svc = build(
+        routine(),
+        fakeResolver([{ key: 'ABC-1', created: '2026-08-01T00:00:00.000Z' }])
+      )
+      svc.startRun('nightly')
+      await svc.whenIdle()
+      expect(getCase(db, 'abc-1')!.origin).toBe('user')
+      // Still worked as a draft — adoption means "work it in place", not "skip it".
+      expect(getCase(db, 'abc-1')!.reviewState).toBe('draft')
+    }
+  )
 
   it('records the run with per-outcome counts, and opens no routine-<id> case', async () => {
     const svc = build(
@@ -383,7 +411,7 @@ describe('scoped runs', () => {
         resolveJql: async () => {
           throw new Error('JQL is invalid')
         },
-        ingestJiraItem: async () => ({ caseSlug: 'x' })
+        ingestJiraItem: async () => ({ caseSlug: 'x', created: true })
       },
       runTurn: async () => ({ status: 'ok', text: '' }),
       now: () => new Date('2026-08-08T02:00:00.000Z')

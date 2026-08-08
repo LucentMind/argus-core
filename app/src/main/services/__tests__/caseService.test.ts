@@ -7,6 +7,7 @@ import {
   createCase,
   listCases,
   getCase,
+  findCaseByJiraKey,
   ensureCaseOrigin,
   setCaseJira,
   setCaseJiraDeselected,
@@ -117,6 +118,14 @@ describe('listCases / getCase', () => {
     createCase(db, home, { slug: 'GARBAGE-1', title: 'g' })
     db.prepare(`UPDATE cases SET active_mode = 'some-future-mode' WHERE slug = 'GARBAGE-1'`).run()
     expect(getCase(db, 'GARBAGE-1')?.activeMode).toBe('investigation')
+  })
+})
+
+describe('findCaseByJiraKey', () => {
+  it('finds a case by its Jira key, so a routine adopts rather than duplicating', () => {
+    createCase(db, home, { slug: 'my-own-name', title: 'ABC-1', jiraKey: 'ABC-1' })
+    expect(findCaseByJiraKey(db, 'ABC-1')!.slug).toBe('my-own-name')
+    expect(findCaseByJiraKey(db, 'ABC-2')).toBeNull()
   })
 })
 
