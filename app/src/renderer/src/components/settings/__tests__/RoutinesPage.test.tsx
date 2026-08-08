@@ -649,7 +649,11 @@ describe('RoutinesPage — schedule status', () => {
     // could only throw. A click now joins the queue, so an idle routine's button is honestly
     // enabled — and a routine already queued still is not.
     expect(screen.getByRole('button', { name: 'Run now · Dep audit' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Run now · Weekly digest' })).toBeDisabled()
+    // The accessible name tracks the visible state. A queued button reading "Run now" told a
+    // screen-reader user the opposite of what the button says and does.
+    expect(screen.getByRole('button', { name: 'Queued · Weekly digest' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Running · Nightly sweep' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Run now · Weekly digest' })).toBeNull()
   })
 
   it('badges each run with what triggered it', async () => {

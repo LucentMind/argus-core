@@ -624,7 +624,9 @@ export function RoutinesPage(): React.JSX.Element {
                 }
               >
                 <Btn
-                  aria-label={running ? `Running · ${r.name}` : `Run now · ${r.name}`}
+                  // Tracks the LABEL below, not just `running`: a queued button announcing
+                  // "Run now" tells a screen-reader user the opposite of what it says and does.
+                  aria-label={`${running ? 'Running' : isQueued ? 'Queued' : 'Run now'} · ${r.name}`}
                   // Only this row's own state disables it now. Increment 1 disabled every
                   // button while any run was in flight because a second click could only
                   // throw; a click now joins the queue, which is a real answer (task 5's
