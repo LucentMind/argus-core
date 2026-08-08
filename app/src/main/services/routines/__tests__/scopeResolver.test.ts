@@ -46,6 +46,7 @@ describe('resolveCaseCandidates', () => {
   it('filters by tag, matching any of the requested tags', () => {
     addCase('tagged', '2026-08-01T00:00:00.000Z', 'open', ['severity:high'])
     addCase('untagged', '2026-08-01T00:00:00.000Z', 'open', [])
+    addCase('prefix-mismatch', '2026-08-01T00:00:00.000Z', 'open', ['severity:highest'])
     const out = resolveCaseCandidates(db, 'sweep', { kind: 'cases', tags: ['severity:high'] })
     expect(out.map((c) => c.slug)).toEqual(['tagged'])
   })
