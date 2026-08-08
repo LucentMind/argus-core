@@ -107,7 +107,7 @@ export class RoutinesService {
     // Opened before any fallible work so a setup failure is a recorded `failed` run rather than
     // an invisible no-op. routine_runs has no FK to cases (db.ts), so the row is legal even if
     // the case is never created.
-    const runId = insertRoutineRun(db, routine.id, slug, this.deps.now)
+    const runId = insertRoutineRun(db, routine.id, slug, 'manual', this.deps.now)
     this.deps.notify?.()
 
     // One decision, two consumers: the session row below and the turn request further down.

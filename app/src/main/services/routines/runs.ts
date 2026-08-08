@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { RoutineRunSummary } from '../../../shared/routines'
+import type { RoutineRunSummary, RoutineTrigger } from '../../../shared/routines'
 
 /**
  * DB accessors for the routine-run audit trail (`routine_runs` table, see db.ts). One row per
@@ -15,13 +15,15 @@ export function insertRoutineRun(
   db: DatabaseSync,
   routineId: string,
   caseSlug: string,
+  trigger: RoutineTrigger,
   now: () => Date = defaultNow
 ): number {
   const res = db
     .prepare(
-      `INSERT INTO routine_runs (routine_id, case_slug, status, started_at) VALUES (?, ?, 'running', ?)`
+      `INSERT INTO routine_runs (routine_id, case_slug, status, started_at, trigger_kind)
+       VALUES (?, ?, 'running', ?, ?)`
     )
-    .run(routineId, caseSlug, now().toISOString())
+    .run(routineId, caseSlug, now().toISOString(), trigger)
   return Number(res.lastInsertRowid)
 }
 
@@ -91,6 +93,40 @@ export function runningRoutineForSession(db: DatabaseSync, sessionId: number): s
   return row?.routine_id ?? null
 }
 
+/**
+ * When this routine was last ATTEMPTED, whatever the outcome — the schedule's anchor.
+ *
+ * Attempts, not successes, and the distinction is load-bearing: anchoring on success would
+ * leave a failing routine's anchor unmoved, so it would be due again on the very next tick and
+ * retry every 30 seconds, unattended, until someone noticed. See lastSuccessAt for the other
+ * half of the pair.
+ *
+ * MAX() over ISO-8601 UTC text is chronological because `toISOString()` is fixed-width and
+ * zero-padded, so lexicographic order and time order coincide. Every writer here goes through
+ * `toISOString()`; anything that writes a different format breaks this.
+ */
+export function lastAttemptAt(db: DatabaseSync, routineId: string): string | null {
+  const row = db
+    .prepare(`SELECT MAX(started_at) AS t FROM routine_runs WHERE routine_id = ?`)
+    .get(routineId) as { t: string | null } | undefined
+  return row?.t ?? null
+}
+
+/**
+ * When this routine last SUCCEEDED — the watermark handed to the next run.
+ *
+ * Successes only: a failed run advanced nothing, and telling the next run it succeeded then
+ * would make it skip work that was never done.
+ */
+export function lastSuccessAt(db: DatabaseSync, routineId: string): string | null {
+  const row = db
+    .prepare(
+      `SELECT MAX(finished_at) AS t FROM routine_runs WHERE routine_id = ? AND status = 'ok'`
+    )
+    .get(routineId) as { t: string | null } | undefined
+  return row?.t ?? null
+}
+
 export function finishRoutineRun(
   db: DatabaseSync,
   runId: number,
@@ -112,6 +148,7 @@ interface Row {
   finished_at: string | null
   summary: string | null
   error: string | null
+  trigger_kind: string
 }
 
 export function listRoutineRuns(db: DatabaseSync, limit = 50): RoutineRunSummary[] {
@@ -123,6 +160,7 @@ export function listRoutineRuns(db: DatabaseSync, limit = 50): RoutineRunSummary
     routineId: r.routine_id,
     caseSlug: r.case_slug,
     sessionId: r.session_id,
+    trigger: r.trigger_kind as RoutineTrigger,
     status: r.status as RoutineRunSummary['status'],
     startedAt: r.started_at,
     finishedAt: r.finished_at,

@@ -27,6 +27,7 @@ function run(over: Partial<RoutineRunSummary> = {}): RoutineRunSummary {
     routineId: 'sweep',
     caseSlug: 'routine-sweep',
     sessionId: 7,
+    trigger: 'manual',
     status: 'ok',
     startedAt: '2026-08-03T02:00:00.000Z',
     finishedAt: '2026-08-03T02:05:00.000Z',

@@ -207,7 +207,8 @@ CREATE TABLE IF NOT EXISTS routine_runs (
   started_at TEXT NOT NULL,
   finished_at TEXT,
   summary TEXT,
-  error TEXT
+  error TEXT,
+  trigger_kind TEXT NOT NULL DEFAULT 'manual'
 );
 CREATE INDEX IF NOT EXISTS idx_routine_runs_routine ON routine_runs(routine_id);
 `
@@ -434,6 +435,12 @@ export function openDb(file: string): DatabaseSync {
     // capability-derived, not model-derived, so it must survive a model with no
     // descriptors. NULL means "use settings.agent.defaultPermissionMode".
     db.exec(`ALTER TABLE sessions ADD COLUMN permission_mode TEXT`)
+  }
+  // Increment 2: what started a run. Named trigger_kind because TRIGGER is a SQLite keyword.
+  // The DEFAULT is what makes every increment-1 row correct after this runs.
+  const runCols = db.prepare(`PRAGMA table_info(routine_runs)`).all() as { name: string }[]
+  if (!runCols.some((c) => c.name === 'trigger_kind')) {
+    db.exec(`ALTER TABLE routine_runs ADD COLUMN trigger_kind TEXT NOT NULL DEFAULT 'manual'`)
   }
   // Populate the FTS map tables for DBs that already held FTS rows before the
   // side-table fix landed (one-time; gated on the maps being empty).

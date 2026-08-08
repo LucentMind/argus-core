@@ -98,7 +98,7 @@ describe('a running routine owns its session row', () => {
     const sdk = fakeCreateQuery()
     const svc = mkService(sdk)
     const session = createSession(db, SLUG, 'claude-agent-sdk')
-    const runId = insertRoutineRun(db, 'x', SLUG)
+    const runId = insertRoutineRun(db, 'x', SLUG, 'manual')
     attachRunSession(db, runId, session.id)
 
     await expect(svc.send(SLUG, session.id, 'hello')).rejects.toThrow(
@@ -116,7 +116,7 @@ describe('a running routine owns its session row', () => {
     const sdk = fakeCreateQuery()
     const svc = mkService(sdk)
     const session = createSession(db, SLUG, 'claude-agent-sdk')
-    const runId = insertRoutineRun(db, 'x', SLUG)
+    const runId = insertRoutineRun(db, 'x', SLUG, 'manual')
     attachRunSession(db, runId, session.id)
     await expect(svc.send(SLUG, session.id, 'hello')).rejects.toThrow()
 
@@ -136,7 +136,7 @@ describe('a running routine owns its session row', () => {
     createCase(db, argusHome, { slug: 'NAV-1', title: 'NAV-1' })
     const routineSession = createSession(db, SLUG, 'claude-agent-sdk')
     const userSession = createSession(db, 'NAV-1', 'claude-agent-sdk')
-    const runId = insertRoutineRun(db, 'x', SLUG)
+    const runId = insertRoutineRun(db, 'x', SLUG, 'manual')
     attachRunSession(db, runId, routineSession.id)
 
     // A run in flight must lock exactly one session row, not the app.
@@ -153,7 +153,7 @@ describe('a running routine owns its session row', () => {
     const svc = mkService(sdk)
     createCase(db, argusHome, { slug: 'NAV-1', title: 'NAV-1' })
     const routineSession = createSession(db, SLUG, 'claude-agent-sdk')
-    const runId = insertRoutineRun(db, 'x', SLUG)
+    const runId = insertRoutineRun(db, 'x', SLUG, 'manual')
     attachRunSession(db, runId, routineSession.id)
 
     await expect(svc.send('NAV-1', routineSession.id, 'hi')).rejects.toThrow(

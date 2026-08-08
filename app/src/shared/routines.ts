@@ -99,11 +99,15 @@ export function defaultRoutines(): RoutinesFile {
 
 // — cross-process payloads —
 
+/** What started a run. `catchup` is a scheduled fire the app was closed for. */
+export type RoutineTrigger = 'manual' | 'scheduled' | 'catchup'
+
 export interface RoutineRunSummary {
   id: number
   routineId: string
   caseSlug: string
   sessionId: number | null
+  trigger: RoutineTrigger
   status: 'running' | 'ok' | 'failed' | 'timeout'
   startedAt: string
   finishedAt: string | null
