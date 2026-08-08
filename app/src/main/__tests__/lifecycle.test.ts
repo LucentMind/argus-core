@@ -32,26 +32,35 @@ describe('before-quit stops the live routine run', () => {
     ).toBe(true)
 
     // The call must actually be INSIDE the before-quit handler, not merely present somewhere
-    // else in the file — bound loosely to the next app.on('before-quit', ...) call registered
-    // after app is done being configured (there is only one in this file).
+    // LATER in the file — a bare `indexOf(...) > indexOf(...)` ordering check would pass for
+    // that too, since anything textually after the handler satisfies "greater than" without
+    // ever being inside it. Bounded against the START of the NEXT top-level `app.on(...)`
+    // registration instead (there is exactly one other in this file, 'window-all-closed', and it
+    // is the statement immediately following the before-quit handler's closing brace) — a
+    // stopForQuit call sitting between the two markers cannot be anywhere but inside this
+    // handler's body.
+    const nextHandlerMarker = "app.on('window-all-closed'"
+    expect(
+      indexSrc.includes(nextHandlerMarker),
+      `expected to find "${nextHandlerMarker}" in main/index.ts — the marker this test uses to ` +
+        'bound the end of the before-quit handler. If it was renamed, use whatever now follows ' +
+        'before-quit instead.'
+    ).toBe(true)
+
     const beforeQuitIndex = indexSrc.indexOf(beforeQuitMarker)
     const stopForQuitIndex = indexSrc.indexOf(stopForQuitMarker)
+    const nextHandlerIndex = indexSrc.indexOf(nextHandlerMarker)
     expect(
       stopForQuitIndex,
       'routinesServiceHandle?.stopForQuit() must be called from WITHIN the before-quit handler, ' +
-        'not merely present elsewhere in the file.'
+        'not merely present later in the file.'
     ).toBeGreaterThan(beforeQuitIndex)
-
-    // Ahead of the scheduler stop is fine either way, but it must not run so late that quit's
-    // own app.quit() call has already fired — that would be a call registered outside the
-    // handler entirely, which the ordering check above already guards against; this instead
-    // guards the more likely mistake of the call being dropped from a future edit that reshuffles
-    // the handler body.
-    const schedulerStopMarker = 'routineScheduler?.stop()'
     expect(
-      indexSrc.includes(schedulerStopMarker),
-      `expected to find "${schedulerStopMarker}" in main/index.ts.`
-    ).toBe(true)
+      stopForQuitIndex,
+      'routinesServiceHandle?.stopForQuit() appears AFTER the before-quit handler has already ' +
+        'closed (it comes at or past the next app.on(...) registration) — it must be called from ' +
+        'inside the handler body, not after it.'
+    ).toBeLessThan(nextHandlerIndex)
   })
 
   it('publishes routinesServiceHandle right after RoutinesService is constructed', () => {
