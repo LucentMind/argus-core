@@ -103,3 +103,9 @@ lines (`triage-` / `a-` / `flaky-` / `test`) while the label line still overflow
 once, and `/json/list` will happily hand you a *different* checkout's window on a port already
 taken — the probe preflights the renderer over IPC for the fixture skill and refuses to click
 anything if it is not there, but the port collision is silent up to that point.
+
+## make-tray-icons.mjs
+
+Regenerates `resources/trayTemplate.png`, `trayTemplate@2x.png` and `trayIcon.png` for the system
+tray. Pure Node (no image dependency): it draws the Argus mark procedurally and PNG-encodes it
+with `node:zlib`. Run it only when the mark changes — the outputs are committed.
