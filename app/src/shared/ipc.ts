@@ -350,5 +350,9 @@ export const IPC = {
   /** main → all renderer windows broadcast: the routine list, the running routine, or the run
    *  history changed. Payload-free on purpose — every listener re-reads `routinesList`, so a
    *  window that missed an earlier broadcast still converges. */
-  routinesChanged: 'routines:changed'
+  routinesChanged: 'routines:changed',
+  /** Main → renderer: show Home's run inbox. Sent by the tray's "N runs to review" item and by
+   *  a clicked run-finished notification, both of which name the inbox and would otherwise dump
+   *  the user on whatever view they left open. Payload-free — it is a request to navigate. */
+  routinesFocusInbox: 'routines:focus-inbox'
 } as const
