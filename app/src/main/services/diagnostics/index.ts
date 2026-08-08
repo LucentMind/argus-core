@@ -265,6 +265,15 @@ export class DiagnosticsService {
    * the last view in which the subtree was actually reachable, so it is what the
    * sweep's candidate list is drawn from.
    *
+   * That "no fresher sample" rule governs the CANDIDATE list only. Confirmation below
+   * deliberately does the opposite and re-checks each candidate against `this.current`
+   * — the freshest tree in hand — before signalling it. These are not in tension: a
+   * fresher view can only ever SHRINK the candidate list (drop a pid that turns out to
+   * be gone or recycled), never grow it back with something `preKillSnap` never saw, so
+   * it cannot reproduce the blinding failure the paragraph above rules out. Candidates
+   * come from the last view that could see the whole subtree; confirmation only asks
+   * whether each one individually still checks out.
+   *
    * The row root itself is excluded: the owner already handled it, re-signalling
    * it buys nothing, and by sweep time it is the single pid in the row most likely
    * to have already been recycled by the OS (termination is immediate on Windows,
@@ -280,6 +289,16 @@ export class DiagnosticsService {
    * force a fresher sample via sampleNow() first — see the report for why a
    * best-effort check against whatever is already in hand is the right amount of
    * machinery here.
+   *
+   * Accepted residual: this can under-sweep. A slow owner teardown combined with an
+   * already-dead root can leave `this.current` behind `preKillSnap` for a candidate
+   * that is, in fact, still a genuine straggler — reported with a startTimeMs the newer
+   * snapshot simply hasn't caught up to yet — and this drops it rather than signalling
+   * it. That is a deliberate choice, not an oversight: the alternative is signalling a
+   * pid this service cannot currently confirm, which is the unconfirmed-pid hazard this
+   * whole identity design exists to avoid. A missed straggler here is still visible and
+   * still stoppable on the next sample or the next Stop press; a wrongly-signalled pid
+   * is not recoverable.
    */
   private sweepStrays(preKillSnap: DiagnosticsSnapshot, id: string, rootPid: number): number[] {
     const denied = this.baseDenied()
