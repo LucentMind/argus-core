@@ -98,6 +98,10 @@ beforeEach(() => {
       install: vi.fn(),
       uninstall: vi.fn(),
       relaunch: vi.fn(),
+      // Sources auto-checks for updates on mount; Team's Confluence panel asks whether any pack
+      // declares reference-routing rules (both 2026-08-08).
+      checkUpdates: vi.fn(async () => ({})),
+      referenceRouting: vi.fn(async () => []),
       onChanged: vi.fn(() => () => {})
     },
     agent: { authStatus: vi.fn(async () => ({ ok: true, detail: 'ready' })) },

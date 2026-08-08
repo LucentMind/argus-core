@@ -113,6 +113,12 @@ function mockArgus(payload: HivemindPayload): Record<string, unknown> {
       onChanged: vi.fn(() => () => undefined),
       onProgress: vi.fn(() => () => undefined)
     },
+    // Confluence is dormant unless an installed pack declares reference-routing rules
+    // (2026-08-08). One rule here, so the section renders for the suite below exactly as it did
+    // before the gate existed; the gate's own two outcomes are asserted directly.
+    packs: {
+      referenceRouting: vi.fn().mockResolvedValue([{ keywords: ['adasis'], target: 'adasis.md' }])
+    },
     // An AUTHORIZED rovo connector, not an empty payload: with none configured,
     // `ConfluenceSpaces` renders its own `role="alert"` warning, and the several tests below
     // that assert on `getByRole('alert')` would then match two banners instead of the
@@ -195,6 +201,54 @@ describe('HivemindSettings', () => {
     expect(await screen.findByText('Repository')).toBeInTheDocument()
     expect(await screen.findByText('Confluence')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Add Confluence space' })).toBeInTheDocument()
+  })
+
+  /**
+   * The gate (user-directed, 2026-08-08): a synced Confluence page only lands anywhere once a
+   * routing rule says which reference file it belongs in, and packs are where those rules come
+   * from — so an install with no pack declaring any has nothing for the feature to do.
+   *
+   * `findByText('Repository')` first, not a bare `queryByText`: the section is hidden while the
+   * `referenceRouting` call is still in flight, so asserting absence on the first frame would
+   * pass whatever the answer turned out to be.
+   */
+  it('hides Confluence when no installed pack declares reference-routing rules', async () => {
+    // `mockArgus`'s return type is inferred structurally and widens these to `unknown`; the
+    // suite's established shape for reaching into it is a cast at the call site.
+    const argus = mockArgus(ready) as unknown as {
+      packs: { referenceRouting: ReturnType<typeof vi.fn> }
+      refsync: { get: ReturnType<typeof vi.fn> }
+    }
+    argus.packs.referenceRouting.mockResolvedValue([])
+    ;(window as unknown as { argus: unknown }).argus = argus
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    expect(await screen.findByText('Repository')).toBeInTheDocument()
+    await waitFor(() => expect(argus.packs.referenceRouting).toHaveBeenCalled())
+    expect(screen.queryByText('Confluence')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add Confluence space' })).not.toBeInTheDocument()
+  })
+
+  /** A space someone already set up keeps the section, whatever any pack declares — otherwise the
+   *  gate would strand existing configuration (and its Remove button) rather than tidy it. */
+  it('keeps Confluence when a space is already configured and no pack declares rules', async () => {
+    const argus = mockArgus(ready) as unknown as {
+      packs: { referenceRouting: ReturnType<typeof vi.fn> }
+      refsync: { get: ReturnType<typeof vi.fn> }
+    }
+    argus.packs.referenceRouting.mockResolvedValue([])
+    argus.refsync.get.mockResolvedValue({
+      config: {
+        spaces: [{ key: 'ENG', name: 'Engineering', homepageId: '1' }],
+        outdatedWindowMonths: 12,
+        mustKeep: {}
+      },
+      loadError: null,
+      cards: [],
+      references: []
+    })
+    ;(window as unknown as { argus: unknown }).argus = argus
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    expect(await screen.findByText('Confluence')).toBeInTheDocument()
   })
 
   it('repo row commits hivemind.repo on blur', async () => {

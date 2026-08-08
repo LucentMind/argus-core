@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { Download, ExternalLink, RefreshCw, Trash2, X } from 'lucide-react'
 import { SettingsSection, SettingRow, DraftInput, FIELD } from './settingsLayout'
-import { ConfluenceSpaces } from './ConfluenceSpaces'
+import { ConfluenceSpaces, useConfluenceEnabled } from './ConfluenceSpaces'
 import { Btn, Chip, IconBtn } from '../ui'
 import { TierBadge } from './TierBadge'
 import { withByline } from './byline'
@@ -228,6 +228,7 @@ export function HivemindSettings({
   } | null>(null)
 
   const g = settingsPayload.settings.hivemind
+  const confluenceOn = useConfluenceEnabled()
 
   // Re-runs whenever the repo setting changes so the payload, gh status, and
   // readiness probe all refresh immediately after the user commits a new repo
@@ -471,10 +472,14 @@ export function HivemindSettings({
    * Rendered by every return path below, including the dormant one: Confluence sync does not
    * depend on a HiveMind repo being set, so hiding it behind that would strand it.
    */
+  // Confluence is dormant until a pack declares reference-routing rules (see
+  // `useConfluenceEnabled`), so the pair can be a single panel — and when it is, the grid has to
+  // collapse to one column too. Left at `lg:grid-cols-2` the repo panel would sit in a half-width
+  // column with an empty half beside it, which reads as a panel that failed to load.
   const upstreams = (
-    <div className="grid items-start gap-6 lg:grid-cols-2">
+    <div className={`grid items-start gap-6 ${confluenceOn ? 'lg:grid-cols-2' : ''}`}>
       {repoSection}
-      <ConfluenceSpaces />
+      {confluenceOn && <ConfluenceSpaces />}
     </div>
   )
 

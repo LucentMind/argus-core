@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { RefreshCw, Pencil, Trash2 } from 'lucide-react'
 import { SettingsSection } from './settingsLayout'
 import { Btn, Card, Chip, IconBtn } from '../ui'
@@ -23,6 +23,51 @@ function atlassianTokenWarning(connectors: ReturnType<typeof useConnectorsPayloa
     return 'Authorize the Atlassian connector (Settings → Connectors) before syncing.'
   }
   return null
+}
+
+/**
+ * Confluence sync is off unless something asked for it (user-directed, 2026-08-08).
+ *
+ * A synced space only produces anything useful once a routing rule says which reference file each
+ * page's content belongs in — unrouted pages are reported and dropped, never written. Packs are
+ * where those rules come from (`referenceRouting` in `argus-pack.json`), so a workspace with no
+ * pack declaring any has nothing for the feature to do, and the section was pure noise on the Team
+ * page for every such install.
+ *
+ * `null` while the check is in flight, so the section does not flash in and then vanish (or the
+ * reverse) on every mount of the Team page.
+ *
+ * A failed IPC call resolves to "enabled". The rule is meant to hide an inapplicable feature, not
+ * to be a gate that a transient failure can slam on configuration the user already depends on.
+ */
+// Not a component, but it belongs with the section whose visibility it decides — and its one
+// consumer (HivemindSettings) needs it to drop the empty grid column too, so it cannot be private.
+// eslint-disable-next-line react-refresh/only-export-components
+export function useConfluenceEnabled(): boolean {
+  const [declared, setDeclared] = useState<boolean | null>(null)
+  // Reads the shared store mirror, not a second IPC call — so this hook costs one `packs`
+  // round trip and nothing else, wherever it is mounted.
+  const payload = useRefSyncPayload()
+  useEffect(() => {
+    let live = true
+    void window.argus.packs.referenceRouting().then(
+      (rules) => live && setDeclared(rules.length > 0),
+      (err) => {
+        console.warn(`[refsync] referenceRouting failed: ${(err as Error).message}`)
+        if (live) setDeclared(true)
+      }
+    )
+    return () => {
+      live = false
+    }
+  }, [])
+  // Spaces already configured keep the section regardless of what any pack declares: the rule is
+  // meant to keep an inapplicable feature out of the way, and hiding a space someone set up (with
+  // its sync history and its Remove button) would strand it, not tidy it.
+  if ((payload?.config.spaces.length ?? 0) > 0) return true
+  // `null` = still checking. Hidden until it resolves, so the section fades in rather than
+  // appearing and then being yanked away on the answer.
+  return declared === true
 }
 
 export function ConfluenceSpaces(): React.JSX.Element {
