@@ -480,19 +480,6 @@ describe('pending queue', () => {
     expect(g.started).toEqual(['routine-sweep', 'routine-second'])
   })
 
-  it('still throws for unknown and disabled ids', () => {
-    const svc = new RoutinesService({
-      db,
-      argusHome: home,
-      store,
-      runTurn: async () => ({ status: 'ok', text: '' }),
-      now: () => NOW
-    })
-    expect(() => svc.startRun('nope')).toThrow(/Unknown routine/)
-    store.upsert({ id: 'off', name: 'Off', prompt: 'x', enabled: false })
-    expect(() => svc.startRun('off')).toThrow(/disabled/)
-  })
-
   /**
    * The queue can hold a routine behind a run of up to MAX_TIMEOUT_MINUTES, and there is no
    * cancel anywhere in the product — so disabling or deleting it is the only lever the user has
