@@ -50,8 +50,13 @@ const SAMPLE_DRAFT: RcaDraft = {
 }
 
 describe('tool descriptions honour an injected resolver', () => {
+  // hasItemContext: true throughout this describe block — these tests pin the RESOLVER
+  // mechanics (description substitution, name/schema passthrough, no-mutation), which is
+  // orthogonal to item-context filtering. Asserting against the full table keeps the
+  // index-aligned NATIVE_TOOL_SPECS[i] comparisons meaningful. Filtering itself is covered by
+  // 'resolveToolSpecs filters itemContextOnly tools by session type' below.
   it('resolveToolSpecs swaps every description by id and keeps name and schema', () => {
-    const specs = resolveToolSpecs(stub)
+    const specs = resolveToolSpecs(stub, { hasItemContext: true })
     expect(specs.length).toBe(NATIVE_TOOL_SPECS.length)
     for (const [i, s] of specs.entries()) {
       expect(s.name).toBe(NATIVE_TOOL_SPECS[i].name)
@@ -61,14 +66,38 @@ describe('tool descriptions honour an injected resolver', () => {
   })
 
   it('resolveToolSpecs with no resolver returns the table unchanged', () => {
-    const specs = resolveToolSpecs()
+    const specs = resolveToolSpecs(undefined, { hasItemContext: true })
     expect(specs.map((s) => s.description)).toEqual(NATIVE_TOOL_SPECS.map((s) => s.description))
   })
 
   it('resolveToolSpecs does not mutate the source table', () => {
     const before = NATIVE_TOOL_SPECS[0].description
-    resolveToolSpecs(stub)
+    resolveToolSpecs(stub, { hasItemContext: true })
     expect(NATIVE_TOOL_SPECS[0].description).toBe(before)
+  })
+})
+
+describe('resolveToolSpecs filters itemContextOnly tools by session type', () => {
+  it('excludes propose_case_triage when no options are passed at all (the safe default)', () => {
+    const specs = resolveToolSpecs()
+    expect(specs.some((s) => s.name === 'propose_case_triage')).toBe(false)
+    // Nothing else was dropped — only the one itemContextOnly spec.
+    expect(specs.length).toBe(NATIVE_TOOL_SPECS.length - 1)
+  })
+
+  it('excludes propose_case_triage for an ordinary session (hasItemContext: false)', () => {
+    const specs = resolveToolSpecs(undefined, { hasItemContext: false })
+    expect(specs.some((s) => s.name === 'propose_case_triage')).toBe(false)
+  })
+
+  it('includes propose_case_triage for a routine-item session (hasItemContext: true)', () => {
+    const specs = resolveToolSpecs(undefined, { hasItemContext: true })
+    expect(specs.some((s) => s.name === 'propose_case_triage')).toBe(true)
+    expect(specs.length).toBe(NATIVE_TOOL_SPECS.length)
+  })
+
+  it('NATIVE_TOOL_SPECS itself is never filtered — it is the shared source table', () => {
+    expect(NATIVE_TOOL_SPECS.some((s) => s.name === 'propose_case_triage')).toBe(true)
   })
 })
 
