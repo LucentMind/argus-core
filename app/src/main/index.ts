@@ -6,7 +6,10 @@ import {
   dialog,
   safeStorage,
   protocol,
-  webContents
+  webContents,
+  Tray,
+  Menu,
+  nativeImage
 } from 'electron'
 import fs from 'node:fs'
 import path, { join } from 'node:path'
@@ -14,6 +17,10 @@ import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { ZodError } from 'zod'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/argus-icon.png?asset'
+import trayIconPng from '../../resources/trayIcon.png?asset'
+import trayTemplatePng from '../../resources/trayTemplate.png?asset'
+import { TrayService } from './services/tray'
+import { shouldKeepAlive } from './services/keepAlive'
 import { IPC } from '../shared/ipc'
 import {
   resolveArgusHome,
@@ -334,6 +341,13 @@ let routineStore: RoutineStore | null = null
 // Same reason as routineStore above: `before-quit` lives out here and has to clear the poll
 // interval. A timer left running past quit keeps ticking against a closing database.
 let routineScheduler: RoutineScheduler | null = null
+// Module-scope for the same reason as routineScheduler above: `before-quit` lives out here and
+// must destroy the tray. A leaked Tray handle is itself a reason a Windows process refuses to
+// exit, which would turn a successful quit into a zombie.
+let trayService: TrayService | null = null
+// Published from registerIpc()'s local const (same idiom as routineStore): `window-all-closed`
+// out here has to read the keep-alive setting, and it fires after registerIpc has long returned.
+let appSettings: SettingsService | null = null
 /**
  * The theme main believes the UI is on. Windows are constructed before any renderer can report
  * one, so the first main window opens on this default and self-corrects the instant uiStore's
@@ -691,6 +705,7 @@ function registerIpc(): void {
     resolvedTools: () => binariesService.settingsRows(),
     devTools
   })
+  appSettings = settingsService
 
   // Usage-stats epoch: stamped once; anchors the memory-hygiene grace period (spec §2).
   ensureTrackingStarted(settingsService)
@@ -1876,13 +1891,19 @@ function registerIpc(): void {
       onEvent: (e) => routinesBroadcast(IPC.agentEventChannel, e),
       mirrorFactory
     }),
-    notify: () => routinesBroadcast(IPC.routinesChanged, null)
+    notify: () => {
+      routinesBroadcast(IPC.routinesChanged, null)
+      trayService?.refresh()
+    }
   })
   // File-level changes (an edit through the IPC handlers below, or someone editing
   // config/routines.json by hand) announce through the store's own watcher; run-level changes
   // announce through `notify`. Both land on the same channel, and listeners re-read rather than
   // trusting the payload, so a double announce is harmless.
-  routines.subscribe(() => routinesBroadcast(IPC.routinesChanged, null))
+  routines.subscribe(() => {
+    routinesBroadcast(IPC.routinesChanged, null)
+    trayService?.refresh()
+  })
 
   ipcMain.handle(IPC.routinesList, (): RoutinesPayload => routinesService.payload())
   ipcMain.handle(IPC.routinesSave, (_e, routine: unknown): RoutinesPayload => {
@@ -1935,6 +1956,29 @@ function registerIpc(): void {
     service: routinesService
   })
   routineScheduler.start()
+
+  // After the scheduler, so the first menu it builds already reflects any catch-up run that the
+  // synchronous first tick just queued.
+  trayService = new TrayService({
+    createTray: (image) => new Tray(image as Electron.NativeImage),
+    buildMenu: (template) =>
+      Menu.buildFromTemplate(template as Electron.MenuItemConstructorOptions[]),
+    icon: () => {
+      // macOS wants a monochrome template image so the menu bar can invert it with the theme;
+      // everywhere else renders the image as given.
+      if (process.platform === 'darwin') {
+        const img = nativeImage.createFromPath(trayTemplatePng)
+        img.setTemplateImage(true)
+        return img
+      }
+      return nativeImage.createFromPath(trayIconPng)
+    },
+    unreviewedCount: () => routinesService.payload().unreviewedCount,
+    showWindow: () => showMainWindow(),
+    focusInbox: () => routinesBroadcast(IPC.routinesFocusInbox, null),
+    quit: () => app.quit()
+  })
+  trayService.start()
 
   // — modes —
   ipcMain.handle(IPC.modesAvailable, (_e, caseSlug: string) => {
@@ -3276,6 +3320,9 @@ app.on('before-quit', (event) => {
   flushTabs?.()
   editorWindowService?.forceClose()
   void agentService?.stopAll()
+  // Before the scheduler stop below is fine either way, but it must happen: an undestroyed Tray
+  // keeps the process alive after quit on Windows.
+  trayService?.destroy()
   // Before routineStore.close() below: the tick reads the store, and a tick landing on a closed
   // watcher is a needless error on the quit path.
   routineScheduler?.stop()
@@ -3295,13 +3342,21 @@ app.on('before-quit', (event) => {
   void Promise.race([shutdown, timeout]).finally(() => app.quit())
 })
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
+/** Reads through the live settings service — the user can flip the toggle mid-session. */
+function keepAliveEnabled(): boolean {
+  return appSettings?.get().general.keepAliveInBackground ?? false
+}
+
+// Quit when all windows are closed, except on macOS (where it's common for applications and
+// their menu bar to stay active until the user quits explicitly with Cmd + Q), or when the
+// keep-alive-in-background setting is on.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  // macOS never quits here and never did — see services/keepAlive.ts for why that is the rule
+  // rather than an exception. On Windows and Linux the setting decides, and with it off this
+  // behaves exactly as it did before: quit, and let increment 2's catch-up fire the overdue
+  // routine once on the next launch.
+  if (shouldKeepAlive({ platform: process.platform, keepAlive: keepAliveEnabled() })) return
+  app.quit()
 })
 
 // In this file you can include the rest of your app's specific main process
