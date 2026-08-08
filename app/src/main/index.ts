@@ -360,8 +360,8 @@ let trayService: TrayService | null = null
 // out here has to read the keep-alive setting, and it fires after registerIpc has long returned.
 let appSettings: SettingsService | null = null
 // Same reason as routineStore/routineScheduler above: `before-quit` lives out here and has to
-// stop whatever routine is currently running, rather than leaving its row `running` — rendered
-// as a routine executing since last week — until the next launch's reconcile pass gets to it.
+// interrupt whatever routine is currently running — a background session never enters
+// AgentService's map, so nothing else on the quit path reaches it.
 let routinesServiceHandle: RoutinesService | null = null
 /**
  * The theme main believes the UI is on. Windows are constructed before any renderer can report
@@ -3472,10 +3472,13 @@ app.on('before-quit', (event) => {
   // Before routineStore.close() below: the tick reads the store, and a tick landing on a closed
   // watcher is a needless error on the quit path.
   routineScheduler?.stop()
-  // A run left running at this instant would otherwise sit that way — rendered as still
-  // executing — until the next launch's reconcile pass finally closes it out. This does not
-  // (and cannot) interrupt the live turn; it only makes the DATABASE honest right away. See
-  // RoutinesService's own docblock for why this stays synchronous and never awaits.
+  // `agentService?.stopAll()` two lines up does NOT reach this: a routine's background session
+  // never enters AgentService's map (registry.ts), so it keeps executing, unattended, straight
+  // through quit unless told otherwise here. This actually interrupts the live turn's driver —
+  // the same session.stop() a turn's own timeout already uses — it does not merely relabel a
+  // database row (a stranded `running` row is not user-visible either way: the startup backstop
+  // reconciles it before any renderer could ever see it). See RoutinesService's own docblock for
+  // why this stays synchronous and never awaits the teardown it starts.
   routinesServiceHandle?.stopForQuit()
   // Holds an fs watcher on config/routines.json. Unlike caseWatch/proposals (which the exit
   // path deliberately leaves to process teardown), this one also drops the subscriber that
