@@ -49,6 +49,8 @@ import { defaultGhRunner, type Runner } from '../github'
 import { parseFindingBodies } from '../findings'
 import { sessionMode } from './sessionStore'
 import type { CorpusSearchInput, SourceSearchResult } from '../../../shared/defectCorpus'
+import { saveItemSuggestion } from '../routines/runItems'
+import type { TriageSuggestion } from '../../../shared/routines'
 
 export interface NativeToolDeps {
   db: DatabaseSync
@@ -91,6 +93,9 @@ export interface NativeToolDeps {
   defectCorpus?: {
     searchAll(req: CorpusSearchInput): Promise<SourceSearchResult[]>
   }
+  /** The `routine_run_items` row this session is processing, or null for an ordinary session.
+   *  Read per call, because one routine run reuses nothing across items. */
+  currentRunItemId?: () => number | null
 }
 
 // What the tool ACCEPTS, not what it stores: `closed`/`open` are written to the lifecycle,
@@ -210,6 +215,14 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
   'read_findings.no-body': {
     title: 'read_findings — finding has no recorded body',
     text: '(no body recorded in findings.md for this finding)'
+  },
+  'propose_case_triage.no-item': {
+    title: 'propose_case_triage — not processing an item',
+    text: 'propose_case_triage is only available while a routine is processing an item; this session is not processing an item, so nothing was recorded.'
+  },
+  'propose_case_triage.ok': {
+    title: 'propose_case_triage — recorded as a suggestion',
+    text: 'Recorded as a suggestion. It is NOT applied to the case — a human accepts or dismisses it.'
   }
 }
 
@@ -391,6 +404,22 @@ export function argusToolHandlers(
           return `## ${r.sourceName}\n${lines.join('\n')}`
         })
         .join('\n\n')
+    },
+
+    async propose_case_triage(args) {
+      const itemId = deps.currentRunItemId?.() ?? null
+      if (itemId === null) {
+        // Refused, not silently dropped. A model that believes it recorded a judgement and did
+        // not is worse than one told plainly that this tool does not apply here.
+        return fb('propose_case_triage.no-item')
+      }
+      const suggestion: TriageSuggestion = {
+        ...(typeof args.title === 'string' && args.title ? { title: args.title } : {}),
+        ...(Array.isArray(args.tags) ? { tags: args.tags.map(String) } : {}),
+        rationale: String(args.rationale ?? '')
+      }
+      saveItemSuggestion(db, itemId, suggestion)
+      return fb('propose_case_triage.ok')
     },
 
     async get_artifact_meta(args) {
@@ -752,6 +781,16 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
     description:
       "Search the team's external known-defects corpus (past Jira tickets with resolutions and duplicate links) for defects similar to the query. Returns matches grouped by source with ticket keys, URLs, resolutions, and distilled root-cause info when available.",
     schema: { query: z.string(), limit: z.number().int().min(1).max(20).optional() }
+  },
+  {
+    name: 'propose_case_triage',
+    description:
+      'Propose a title and tags for the case you are analysing. Recorded as a SUGGESTION beside the case and never applied to it — a human accepts or dismisses it. Express severity, component and owner as tags (severity:high, component:auth, owner:alice). Only available while a routine is processing an item.',
+    schema: {
+      title: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+      rationale: z.string()
+    }
   },
   {
     name: 'get_artifact_meta',
