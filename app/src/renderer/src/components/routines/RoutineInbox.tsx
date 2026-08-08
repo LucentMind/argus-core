@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Btn, Chip, SectionLabel } from '../ui'
 import { chipStamp } from '../../lib/time'
 import { useRoutinesPayload } from '../../lib/routinesStore'
@@ -47,21 +47,40 @@ export function RoutineInbox({
     setMutationError(null)
   }
 
+  /**
+   * `runItems` is flat (one array shared by every run in the payload) so it serialises over IPC
+   * as one shape; grouped here, once per distinct `payload`, rather than filtered per row on
+   * every render.
+   *
+   * Memoized (not just computed once per render): `RunItemRows` resets its own `mutationError` by
+   * comparing its `items` prop by reference (see that file's comment for why). That idiom only
+   * holds if `items` keeps its identity across a re-render that did not actually change the
+   * payload. This component re-renders on its OWN state changes too — `mutationError`/
+   * `errorPayload` above flip whenever ANY row's `markReviewed`/`markAllReviewed` rejects, which is
+   * completely unrelated to whatever `RunItemRows` is showing for a different row. An unmemoized
+   * rebuild would hand every run a brand-new `items` array on that re-render and wipe a
+   * legitimate, still-unresolved per-item error on a row nobody touched — the exact bug the
+   * render-time-reset idiom exists to prevent, just tripped one layer up. Keyed on `payload`
+   * itself (not `payload.runItems`), the same stable `useSyncExternalStore` reference `errorPayload`
+   * above compares by identity: it only changes on a genuine refresh (main broadcasts
+   * `routines:changed` only after a *successful* write), never on a rejected mutation.
+   */
+  const byRun = useMemo(() => {
+    const map = new Map<number, RoutineRunItemSummary[]>()
+    for (const item of payload?.runItems ?? []) {
+      const forRun = map.get(item.runId)
+      if (forRun) forRun.push(item)
+      else map.set(item.runId, [item])
+    }
+    return map
+  }, [payload])
+
   if (!payload || payload.unreviewedCount === 0) return null
 
   // Same predicate main counts with: a run still going is not a result to review.
   const pending = payload.runs.filter((r) => r.status !== 'running' && r.reviewedAt === null)
   const nameOf = (routineId: string): string =>
     payload.routines.find((r) => r.id === routineId)?.name ?? routineId
-
-  // `runItems` is flat (one array shared by every run in the payload) so it serialises over IPC
-  // as one shape; grouped here, once, rather than filtered per row on every render.
-  const byRun = new Map<number, RoutineRunItemSummary[]>()
-  for (const item of payload.runItems) {
-    const forRun = byRun.get(item.runId)
-    if (forRun) forRun.push(item)
-    else byRun.set(item.runId, [item])
-  }
 
   async function markReviewed(id: number): Promise<void> {
     try {
@@ -126,43 +145,58 @@ export function RoutineInbox({
             failed > 0 ? `${failed} failed` : null,
             skipped > 0 ? `${skipped} skipped` : null
           ].filter((s): s is string => s !== null)
-          return (
-            <div key={run.id} className="flex flex-col gap-1.5 px-4 py-2.5">
-              <div className="flex items-start gap-3 text-xs">
-                <Chip tone={RUN_TONE[run.status]}>
-                  <span data-testid={`run-status-${run.id}`}>{run.status}</span>
-                </Chip>
-                <TriggerChip run={run} />
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="truncate text-ink">
-                    {name} · {run.finishedAt ? chipStamp(run.finishedAt) : ''}
-                  </span>
-                  {run.error && <RunSummaryText text={run.error} kind="error" />}
-                  {run.summary && <RunSummaryText text={run.summary} kind="summary" />}
-                  {!run.error && !run.summary && items.length === 0 && (
-                    <p className="text-faint">no output recorded</p>
-                  )}
-                  {items.length > 0 && (
-                    <p className="text-[10.5px] text-mute">{counts.join(' · ')}</p>
-                  )}
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  {/* A scoped run's own row opens no case (its items each open their own, listed
-                      per-item elsewhere) — caseSlug is null for exactly that run, and offering a
-                      button that can only 404 is worse than offering none. */}
-                  {caseSlug && (
-                    <Btn aria-label={`Open case · ${rowLabel}`} onClick={() => onOpen(caseSlug)}>
-                      Open case
-                    </Btn>
-                  )}
-                  <Btn
-                    aria-label={`Mark reviewed · ${rowLabel}`}
-                    onClick={() => void markReviewed(run.id)}
-                  >
-                    Mark reviewed
-                  </Btn>
-                </div>
+          // Shared between both branches below so a no-items run's markup stays byte-identical to
+          // its pre-Task-13 shape (see the branch split further down) instead of drifting apart
+          // from a copy-pasted duplicate.
+          const rowContent = (
+            <>
+              <Chip tone={RUN_TONE[run.status]}>
+                <span data-testid={`run-status-${run.id}`}>{run.status}</span>
+              </Chip>
+              <TriggerChip run={run} />
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="truncate text-ink">
+                  {name} · {run.finishedAt ? chipStamp(run.finishedAt) : ''}
+                </span>
+                {run.error && <RunSummaryText text={run.error} kind="error" />}
+                {run.summary && <RunSummaryText text={run.summary} kind="summary" />}
+                {!run.error && !run.summary && items.length === 0 && (
+                  <p className="text-faint">no output recorded</p>
+                )}
+                {items.length > 0 && (
+                  <p className="text-[10.5px] text-mute">{counts.join(' · ')}</p>
+                )}
               </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {/* A scoped run's own row opens no case (its items each open their own, listed
+                    per-item elsewhere) — caseSlug is null for exactly that run, and offering a
+                    button that can only 404 is worse than offering none. */}
+                {caseSlug && (
+                  <Btn aria-label={`Open case · ${rowLabel}`} onClick={() => onOpen(caseSlug)}>
+                    Open case
+                  </Btn>
+                )}
+                <Btn
+                  aria-label={`Mark reviewed · ${rowLabel}`}
+                  onClick={() => void markReviewed(run.id)}
+                >
+                  Mark reviewed
+                </Btn>
+              </div>
+            </>
+          )
+          // A run with no items renders the exact pre-Task-13 markup — same outer div, same
+          // classes, content laid straight inside it. The `flex-col` wrapper (for the item count
+          // line + `RunItemRows` below the row) only exists for a run that actually has something
+          // to put in it; adding it unconditionally would restructure every no-items run (every
+          // routine shipped in increments 1-3) for no visible reason and no test could tell.
+          return items.length === 0 ? (
+            <div key={run.id} className="flex items-start gap-3 px-4 py-2.5 text-xs">
+              {rowContent}
+            </div>
+          ) : (
+            <div key={run.id} className="flex flex-col gap-1.5 px-4 py-2.5">
+              <div className="flex items-start gap-3 text-xs">{rowContent}</div>
               <RunItemRows items={items} onOpen={onOpen} />
             </div>
           )
