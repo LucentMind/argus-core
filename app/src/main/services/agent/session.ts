@@ -185,6 +185,11 @@ export interface SessionDeps {
    *  dep on ExternalAppHost/CodeGraphService/McpService. Defaults to Date.now(); tests pin
    *  it so a registration can be reconciled against literal fixture timestamps. */
   now?: () => number
+  /** How this session asks its owner (AgentService) to stop and evict it. Used by the
+   *  tier-A diagnostics stop route, so terminating a driver from the Diagnostics page
+   *  also removes the session from AgentService's map rather than leaving a corpse.
+   *  Absent = no owner routing (tests, or a session built standalone). */
+  stopSelf?: () => Promise<void>
 }
 
 /** Maps a driver kind to the label diagnostics displays for it, matching the EXACT strings
@@ -508,7 +513,8 @@ export class CaseSession {
             kind: 'driver',
             label: driverLabelFor(this.deps.driver.kind),
             provider: this.deps.driver.kind,
-            owner: ownerKeyOf(this.deps.caseSlug, this.sessionId)
+            owner: ownerKeyOf(this.deps.caseSlug, this.sessionId),
+            ...(this.deps.stopSelf ? { stop: this.deps.stopSelf } : {})
           },
           this.deps.now?.() ?? Date.now()
         )

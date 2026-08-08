@@ -258,4 +258,15 @@ describe('ExternalAppHost', () => {
     expect(host.list('CASE-A').length).toBe(1)
     expect(host.list('CASE-A')[0].status).toBe('exited')
   })
+
+  it('registers a stop closure that routes through its own stop()', () => {
+    host.open(input())
+    const handle = spawner.handles[0]
+    labels.reconcile([extSample({ pid: handle.pid, startTimeMs: 1_000 })], 1_000)
+
+    const stop = labels.stopFor(`${handle.pid}:1000`)
+    expect(stop).toBeTypeOf('function')
+    stop!()
+    expect(handle.killed).toEqual(['SIGTERM'])
+  })
 })

@@ -85,7 +85,10 @@ export class ExternalAppHost {
       {
         kind: 'pack-app',
         label: `Pack app: ${input.packId}/${input.windowId}`,
-        owner: input.caseSlug
+        owner: input.caseSlug,
+        // Route a Diagnostics stop through the same path the presence chip uses, so
+        // the chip clears instead of lingering as "running" over a dead process.
+        stop: () => this.stop(input)
       },
       this.deps.now?.() ?? Date.now()
     )

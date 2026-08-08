@@ -1373,6 +1373,61 @@ describe('CaseSession', () => {
     expect(s.state).toBe('dead')
     expect(labels.reconcile([sample({ pid: 5150, startTimeMs: 1_000 })], 1_100).size).toBe(0)
   })
+
+  it('registers a stop closure that evicts the session through its owner', async () => {
+    const labels = new ProcessLabels()
+    const stopSelf = vi.fn().mockResolvedValue(undefined)
+    let captured: DriverSessionContext | undefined
+    const cursorStubDriver: AgentDriver = {
+      kind: 'cursor',
+      toolTaxonomy: CLAUDE_TOOL_TAXONOMY,
+      authFixHint: 'stub',
+      capabilities: {
+        permissionModes: PERMISSION_MODES,
+        editableApprovals: false,
+        costReporting: false,
+        headlessOneShot: false,
+        systemPromptTransport: 'none',
+        subagents: 'promptable'
+      },
+      createSession(ctx): DriverSession {
+        captured = ctx
+        const queue = new AsyncQueue<AgentEvent>()
+        return {
+          events: () => queue,
+          send: () => {},
+          interrupt: async () => queue.end(),
+          end: () => queue.end()
+        }
+      },
+      probeAuth: async () => ({ ok: true, detail: '' })
+    }
+    const rec = createCase(db, argusHome, { slug: 'CASE-C', title: 't' })
+    const sessionId = createSession(db, 'CASE-C', 'cursor').id
+    new CaseSession({
+      db,
+      argusHome,
+      detection: createDetection(),
+      caseId: rec.id,
+      caseSlug: 'CASE-C',
+      sessionId,
+      workspaceRoots: [],
+      skillsRoots: [],
+      emit: (e) => events.push(e),
+      driver: cursorStubDriver,
+      resumeCursor: null,
+      processLabels: labels,
+      stopSelf,
+      now: () => 1_000
+    })
+    expect(captured).toBeDefined()
+
+    captured!.onProcessSpawn?.(4242)
+    labels.reconcile([sample({ pid: 4242, startTimeMs: 1_000 })], 1_000)
+
+    await labels.stopFor('4242:1000')!()
+    expect(stopSelf).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('isAuthFailure', () => {

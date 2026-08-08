@@ -344,6 +344,9 @@ export class AgentService {
       onWorktreeChanged: this.deps.onWorktreeChanged,
       defectCorpus: this.deps.defectCorpus,
       processLabels: this.deps.processLabels,
+      // stopSession() stops AND evicts; a bare session.stop() would leave the dead
+      // session in this.sessions where getOrCreate could hand it back out.
+      stopSelf: () => this.stopSession(caseSlug, sessionId),
       panelCommandDecls: this.deps.panelCommandDecls?.(),
       dispatchPanelCommand: this.deps.dispatchPanelCommand
         ? (packId, windowId, cmd, args) =>
