@@ -761,6 +761,12 @@ const argus = {
       const listener = (): void => cb()
       ipcRenderer.on(IPC.routinesChanged, listener)
       return () => ipcRenderer.removeListener(IPC.routinesChanged, listener)
+    },
+    /** Payload-free: main is asking for navigation, not handing over data. */
+    onFocusInbox: (cb: () => void): (() => void) => {
+      const listener = (): void => cb()
+      ipcRenderer.on(IPC.routinesFocusInbox, listener)
+      return () => ipcRenderer.removeListener(IPC.routinesFocusInbox, listener)
     }
   },
   /** Dev-only prompt surface. Exposed unconditionally — main enforces the gate, so a build

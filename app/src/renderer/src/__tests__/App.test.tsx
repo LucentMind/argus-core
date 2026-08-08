@@ -80,6 +80,8 @@ const globalMetrics = {
 
 const memoryTopics = { topics: [], indexLines: 0, capLines: 200 }
 
+let fireFocusInbox: (() => void) | null = null
+
 beforeEach(() => {
   __resetEscapeLayersForTest()
   settingsStore.reset()
@@ -90,6 +92,7 @@ beforeEach(() => {
   uiStore.setDynamicTheme(false)
   lastAmbientCanvasProps = null
   lastOnboardingNavigate = null
+  fireFocusInbox = null
   window.argus = {
     cases: {
       list: vi.fn(async () => [])
@@ -162,7 +165,13 @@ beforeEach(() => {
       })),
       onChanged: vi.fn(() => () => {}),
       markReviewed: vi.fn(),
-      markAllReviewed: vi.fn()
+      markAllReviewed: vi.fn(),
+      onFocusInbox: vi.fn((cb: () => void) => {
+        fireFocusInbox = cb
+        return () => {
+          fireFocusInbox = null
+        }
+      })
     },
     // OverrideBanner (Guard 3) subscribes on every Settings mount; the real preload exposes
     // this bridge unconditionally (main enforces the dev-tools gate), so the test stub must too.
@@ -362,5 +371,27 @@ describe('App: proposals view', () => {
     act(() => lastOnboardingNavigate!('proposals'))
     expect(await screen.findByText(/^· \d+ pending$/)).toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: 'Settings sections' })).not.toBeInTheDocument()
+  })
+})
+
+describe('App: routines focus-inbox channel', () => {
+  it('returns to Home from another view when main pushes focus-inbox', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByLabelText('Settings'))
+    expect(screen.getByLabelText('Settings sections')).toBeInTheDocument()
+
+    // The tray menu item said "3 runs to review". Landing anywhere but Home makes it a lie.
+    await act(async () => {
+      fireFocusInbox?.()
+    })
+
+    expect(screen.queryByLabelText('Settings sections')).not.toBeInTheDocument()
+  })
+
+  it('unsubscribes the focus-inbox listener on unmount', () => {
+    const { unmount } = render(<App />)
+    expect(fireFocusInbox).not.toBeNull()
+    unmount()
+    expect(fireFocusInbox).toBeNull()
   })
 })

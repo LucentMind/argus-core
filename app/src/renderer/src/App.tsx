@@ -89,6 +89,18 @@ function App(): React.JSX.Element {
     )
   }, [])
 
+  // Main asks for the inbox when the tray item or a run-finished notification is clicked. Both
+  // name the runs explicitly, so merely raising the window is not enough — the view has to be
+  // Home, where increment 3 put the inbox.
+  useEffect(
+    () =>
+      window.argus.routines.onFocusInbox(() => {
+        setViewer(null)
+        setView({ kind: 'home' })
+      }),
+    []
+  )
+
   const openCase = useCallback((slug: string) => {
     uiStore.openTab(slug)
     // Clears the card's action items — see spec §1 (baseline capture on open).
