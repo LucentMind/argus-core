@@ -1,5 +1,106 @@
 # Changelog
 
+## v2.0.10 — 2026-08-08
+
+135 commits since v2.0.9, 151 files changed (+16,669 / −452).
+
+### Added
+
+**Diagnostics: what a process is, and stopping it**
+
+- Every raw OS process is now attributed to a labeled Argus object instead
+  of guessed at: a tier-A registry records real identity (pinned on first
+  sample by pid+start time) at each process's own spawn site — Argus
+  windows, driver children (Claude/Codex/ACP/Copilot), pack apps, MCP
+  connector probes, and `graphify` — with tier-B/C inference over Electron
+  flags and command lines as the fallback for anything unregistered, and
+  reconciliation running on the sampling path so a registration and its
+  first sample never race.
+- Rows are flagged orphaned when the session or case that owns them is
+  gone; the object section shows the owning case/session alongside the
+  badge.
+- A bucketed history ring retains a per-object CPU/memory series under an
+  LRU cap, rendered as a sparkline on each row plus a full CPU/memory
+  timeline chart with a window selector; a process that already exited
+  still gets an ended-object row instead of vanishing from the history it
+  left behind.
+- Diagnostics rows can now be stopped from the page: termination routes
+  through the owning driver or pack app's own stop mechanism when one is
+  registered, escalating to a direct signal (leaves-first, identity-checked
+  by pid+start time so a recycled pid is never touched) when there isn't
+  one. An owner-routed stop also sweeps any stray subtree survivors it left
+  behind, and the UI guards a stuck pending Stop with an escape-hatch
+  timeout and ignores a stale press once a later one is in flight.
+
+**Routines: scheduled unattended agent runs**
+
+- A routine is a saved, schedulable definition — interval, daily, or
+  weekly — that runs an agent turn in the background with no window and
+  nobody present. Unattended sessions auto-deny risky permission asks and
+  auto-dismiss questions rather than blocking forever, and the
+  `bypassPermissions`/`acceptEdits` permission modes are force-downgraded
+  so neither can silently skip that deny path.
+- A wall-clock scheduler derives each routine's next fire time from its own
+  run history (not a fixed anchor), runs at boot and stops at quit, catches
+  up on a missed fire as an ordinary consequence of that arithmetic rather
+  than a separate code path, and is verified across both DST transitions.
+- A routine already running is queued rather than refused, re-resolving the
+  live definition at drain time so editing or disabling a queued routine
+  while it waits actually takes effect; run timeouts are capped at 120
+  minutes. Runs are recorded with what triggered them and whether they
+  succeeded, and reconciled on boot so one stranded by a crash or quit
+  doesn't sit "running" forever.
+- Settings gains a Routines page to define routines, run one now, and see
+  next-run/queued state and each run's trigger.
+
+**Suspect-commits skill**
+
+- A new core skill for regression localization — finding which commit(s)
+  introduced a bug — hooked into the systematic-triage workflow. It uses
+  `git log -S`/pickaxe so a removal (not just an addition) can be caught as
+  the suspect change, and avoids `git tag` since it sits outside the
+  skill's read-allowlist.
+
+**Composer and chat polish**
+
+- The run-option menu's Reasoning level is now a real slider, and Context
+  Window/Fast Mode/Thinking/Tool Results are segmented toggles; Ultrathink
+  is drawn and behaves as the toggle it always was instead of inert text.
+- The chat session status pill now shows a context-window usage gauge read
+  off each assistant turn's own usage, so it reflects how close the next
+  message is to triggering a compaction (currently populated only by the
+  Claude driver).
+
+### Fixed
+
+- A session pinned to the bare `claude-opus-5` slug showed "Claude Opus 5
+  (1M)" while actually running at the 200k window — context window is now
+  represented only by the run option, not doubled up in the model's
+  display name.
+- The Claude/Copilot auth probe was timing out against a healthy,
+  logged-in CLI: it ran from `os.tmpdir()`, and the CLI's boot-time
+  directory walk took 6–17s against a large Windows temp root. Probes and
+  headless one-shots now run from an app-owned empty scratch directory.
+- Chat: a send refused by main (most notably the new routines guard) used
+  to vanish the typed draft with no explanation; it now surfaces inline
+  above the composer and re-stages the text.
+- Default repositories collapses into a disclosure row instead of an
+  always-open list; the Packs Sources page now checks for updates as soon
+  as it's opened instead of only on request; popovers get their own
+  frosted material instead of rendering as a flat rectangle.
+- Diagnostics: a pack app opened within a few seconds of boot no longer
+  gets stuck under the synthetic "Unattributed" row forever (tier-A
+  registrations now age against the sidecar's own sample clock, not
+  wall-clock arrival time); a wedged-but-handshaken sidecar no longer
+  tells the user a live process "is no longer running."
+- macOS: full screen dropped the traffic-light inset reservation.
+
+### Internal
+
+- Windows: the packs integration test that spawns a real copied
+  executable now retries its teardown delete on `EBUSY`/`EPERM` instead of
+  failing outright, closing a flake seen on a starved CI runner.
+
 ## v2.0.9 — 2026-08-07
 
 5 commits since v2.0.8, 13 files changed (+287 / −15).
