@@ -73,14 +73,17 @@ describe('captureTools', () => {
   ]
 
   it('lists native tools for a driver that registers them', () => {
+    // hasItemContext defaults to false/absent, so the itemContextOnly tool is excluded here —
+    // see the dedicated 'item-context gating' block below for that behaviour.
     const out = captureTools({
       driverKind: 'claude-agent-sdk',
       panelCommandDecls: [],
       connectorIds: []
     })
-    expect(out).toHaveLength(NATIVE_TOOL_SPECS.length)
+    expect(out).toHaveLength(NATIVE_TOOL_SPECS.length - 1)
     expect(out.every((t) => t.origin === 'native')).toBe(true)
     expect(out.map((t) => t.name)).toContain('grep_lines')
+    expect(out.map((t) => t.name)).not.toContain('propose_case_triage')
   })
 
   it('omits native tools for a driver that does not register them', () => {
@@ -178,5 +181,47 @@ describe('captureTools', () => {
       connectorIds: ['jira']
     })
     expect(out).toEqual([])
+  })
+
+  describe('item-context gating (propose_case_triage)', () => {
+    it('omits propose_case_triage when hasItemContext is absent', () => {
+      const out = captureTools({
+        driverKind: 'claude-agent-sdk',
+        panelCommandDecls: [],
+        connectorIds: []
+      })
+      expect(out.map((t) => t.name)).not.toContain('propose_case_triage')
+    })
+
+    it('omits propose_case_triage when hasItemContext is explicitly false', () => {
+      const out = captureTools({
+        driverKind: 'claude-agent-sdk',
+        panelCommandDecls: [],
+        connectorIds: [],
+        hasItemContext: false
+      })
+      expect(out.map((t) => t.name)).not.toContain('propose_case_triage')
+    })
+
+    it('includes propose_case_triage when hasItemContext is true', () => {
+      const out = captureTools({
+        driverKind: 'claude-agent-sdk',
+        panelCommandDecls: [],
+        connectorIds: [],
+        hasItemContext: true
+      })
+      expect(out.map((t) => t.name)).toContain('propose_case_triage')
+      expect(out).toHaveLength(NATIVE_TOOL_SPECS.length)
+    })
+
+    it('a non-native driver never advertises it regardless of hasItemContext', () => {
+      const out = captureTools({
+        driverKind: 'cursor',
+        panelCommandDecls: [],
+        connectorIds: [],
+        hasItemContext: true
+      })
+      expect(out.filter((t) => t.origin === 'native')).toEqual([])
+    })
   })
 })

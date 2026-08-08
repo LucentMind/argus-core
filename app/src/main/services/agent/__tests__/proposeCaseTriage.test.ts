@@ -8,7 +8,7 @@ import { createCase } from '../../caseService'
 import { createDetection } from '../../packs/detection'
 import { insertRoutineRun } from '../../routines/runs'
 import { insertRunItem, getRunItem } from '../../routines/runItems'
-import { argusToolHandlers } from '../nativeTools'
+import { argusToolHandlers, resolveToolSpecs, type NativeToolDeps } from '../nativeTools'
 
 let tmp: string
 let db: DatabaseSync
@@ -57,17 +57,19 @@ describe('propose_case_triage', () => {
 
   it('DOES NOT touch the case — that is the whole point of it being a suggestion', async () => {
     const itemId = makeItem()
+    // Snapshot the ENTIRE row, not just title/tags: `cases` has id, slug, title, jira_key,
+    // status, resolution, tags, origin, review_state, created_at, updated_at. Checking only two
+    // columns would pass even if the handler started flipping status/resolution/review_state or
+    // bumping updated_at — any of which would silently defeat "it's a suggestion until a human
+    // accepts it". SELECT * so a future column addition is covered automatically too.
+    const before = db.prepare(`SELECT * FROM cases WHERE slug = 'abc-1'`).get()
     await tools(() => itemId).propose_case_triage({
       title: 'Crash on empty payload',
       tags: ['severity:high'],
       rationale: 'because'
     })
-    const kase = db.prepare(`SELECT title, tags FROM cases WHERE slug = 'abc-1'`).get() as {
-      title: string
-      tags: string
-    }
-    expect(kase.title).toBe('ABC-1')
-    expect(kase.tags).toBe('[]')
+    const after = db.prepare(`SELECT * FROM cases WHERE slug = 'abc-1'`).get()
+    expect(after).toEqual(before)
   })
 
   it('refuses outside an item run rather than silently discarding the proposal', async () => {
@@ -84,5 +86,54 @@ describe('propose_case_triage', () => {
     await t.propose_case_triage({ title: 'first', rationale: 'a' })
     await t.propose_case_triage({ title: 'second', rationale: 'b' })
     expect(getRunItem(db, itemId)!.suggestion!.title).toBe('second')
+  })
+})
+
+describe('propose_case_triage tool-list advertisement', () => {
+  // Mirrors exactly how the two driver call sites decide the flag —
+  // `drivers/claude/index.ts`'s createArgusMcpServer and `drivers/copilot/index.ts`'s
+  // buildCopilotTools both compute `hasItemContext: deps.currentRunItemId != null` off the same
+  // NativeToolDeps field. An ordinary interactive session (registry.ts) never sets
+  // currentRunItemId at all, so this is the one signal that separates it from a routine-item
+  // session.
+  const baseDeps: Pick<
+    NativeToolDeps,
+    'db' | 'argusHome' | 'detection' | 'caseId' | 'caseSlug' | 'sessionId' | 'emitFinding'
+  > = {
+    db: undefined as unknown as NativeToolDeps['db'], // unused: resolveToolSpecs never touches deps.db
+    argusHome: '',
+    detection: undefined as unknown as NativeToolDeps['detection'],
+    caseId: 1,
+    caseSlug: 'abc-1',
+    sessionId: 1,
+    emitFinding: () => {}
+  }
+
+  it('is NOT advertised to a session without an item context (ordinary case session)', () => {
+    const deps: NativeToolDeps = { ...baseDeps } // no currentRunItemId at all
+    const specs = resolveToolSpecs(undefined, { hasItemContext: deps.currentRunItemId != null })
+    expect(specs.map((s) => s.name)).not.toContain('propose_case_triage')
+  })
+
+  it('IS advertised to a session with an item context (routine processing an item)', () => {
+    const deps: NativeToolDeps = { ...baseDeps, currentRunItemId: () => 42 }
+    const specs = resolveToolSpecs(undefined, { hasItemContext: deps.currentRunItemId != null })
+    expect(specs.map((s) => s.name)).toContain('propose_case_triage')
+  })
+
+  it('IS advertised even when currentRunItemId is wired but returns null between items', () => {
+    // The gate is on the SESSION being wired for item-processing (the thunk being populated),
+    // not on the per-call return value — a routine session must still see the tool between
+    // items; the handler's own runtime refusal (deps.currentRunItemId?.() ?? null) is what
+    // covers that turn.
+    const deps: NativeToolDeps = { ...baseDeps, currentRunItemId: () => null }
+    const specs = resolveToolSpecs(undefined, { hasItemContext: deps.currentRunItemId != null })
+    expect(specs.map((s) => s.name)).toContain('propose_case_triage')
+  })
+
+  it('every OTHER native tool stays advertised regardless of item context', () => {
+    const without = resolveToolSpecs(undefined, { hasItemContext: false }).map((s) => s.name)
+    const withCtx = resolveToolSpecs(undefined, { hasItemContext: true }).map((s) => s.name)
+    expect(withCtx.filter((n) => n !== 'propose_case_triage').sort()).toEqual(without.sort())
   })
 })
