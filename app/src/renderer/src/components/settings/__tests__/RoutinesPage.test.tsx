@@ -6,11 +6,12 @@ import { RoutinesPage } from '../RoutinesPage'
 import { routinesStore } from '../../../lib/routinesStore'
 import { settingsStore } from '../../../lib/settingsStore'
 import { chipStamp } from '../../../lib/time'
-import type {
-  RoutineDef,
-  RoutineRunSummary,
-  RoutinesPayload,
-  RoutineTemplate
+import {
+  MAX_ITEMS_PER_RUN,
+  type RoutineDef,
+  type RoutineRunSummary,
+  type RoutinesPayload,
+  type RoutineTemplate
 } from '../../../../../shared/routines'
 import { defaultSettings, type SettingsPayload } from '../../../../../shared/settings'
 // The real templates, not a fixture double — this is the same data main hands over the
@@ -33,6 +34,26 @@ const sweep: RoutineDef = {
   prompt: 'Sweep the repo for new crashes',
   timeoutMs: 600_000,
   enabled: true
+}
+
+// Two scoped fixtures for the round-trip tests below — a `jira-jql` routine (the only variant
+// the editor has a field for) and a `cases` routine (no field at all). Distinct `maxItemsPerRun`
+// values (not DEFAULT_ITEMS_PER_RUN) so a test that silently fell back to the default would be
+// caught, not just one that dropped the field outright.
+const scopedJira: RoutineDef = {
+  ...sweep,
+  id: 'scoped-jira',
+  name: 'Scoped jira',
+  scope: { kind: 'jira-jql', jql: 'project = ABC AND status = "To Do"', cursorField: 'created' },
+  maxItemsPerRun: 7
+}
+
+const scopedCases: RoutineDef = {
+  ...sweep,
+  id: 'scoped-cases',
+  name: 'Scoped cases',
+  scope: { kind: 'cases', status: ['open'], tags: ['bug'] },
+  maxItemsPerRun: 5
 }
 
 function run(over: Partial<RoutineRunSummary> = {}): RoutineRunSummary {
@@ -549,6 +570,101 @@ describe('RoutinesPage — templates', () => {
       )
     )
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})
+
+describe('RoutinesPage — editing a routine that already has a scope', () => {
+  // Every test above opens the editor from a TEMPLATE. The highest-consequence behaviour this
+  // task introduced — "open a routine that already has a scope, save without touching it, get
+  // the same scope back" — needs its own fixtures: a real EXISTING routine with a scope, edited
+  // via the ordinary "edit" button, never a template.
+
+  it('pre-populates the JQL field and round-trips scope + maxItemsPerRun on an untouched save', async () => {
+    stubApi(payload({ routines: [scopedJira] }))
+    render(<RoutinesPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /edit · Scoped jira/i }))
+    expect(screen.getByLabelText('JQL')).toHaveValue('project = ABC AND status = "To Do"')
+    expect(screen.getByLabelText('Max items per run')).toHaveValue(7)
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() =>
+      expect(api.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'scoped-jira',
+          scope: {
+            kind: 'jira-jql',
+            jql: 'project = ABC AND status = "To Do"',
+            cursorField: 'created'
+          },
+          maxItemsPerRun: 7
+        })
+      )
+    )
+  })
+
+  it('renders no JQL field for a cases scope, and still round-trips it unchanged on save', async () => {
+    // The same silent-strip risk as the test above, from the other direction: this variant has
+    // NO field in the form at all, which is exactly where a `draftFrom` that forgot to carry
+    // `scope` through would hide — nothing on screen would look wrong.
+    stubApi(payload({ routines: [scopedCases] }))
+    render(<RoutinesPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /edit · Scoped cases/i }))
+    expect(screen.queryByLabelText('JQL')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() =>
+      expect(api.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'scoped-cases',
+          scope: { kind: 'cases', status: ['open'], tags: ['bug'] },
+          maxItemsPerRun: 5
+        })
+      )
+    )
+  })
+})
+
+describe('RoutinesPage — max items per run guard', () => {
+  // `max={MAX_ITEMS_PER_RUN}` on the number input is only a nudge (same caveat as the Timeout
+  // field's own `max`, a few lines up in RoutinesPage.tsx) — a typed or cleared value sails past
+  // it. These pin the written-sentence guard in `saveDraft` that is the real gate.
+
+  it('accepts max items per run exactly at the cap', async () => {
+    stubApi(payload({ routines: [scopedJira] }))
+    render(<RoutinesPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /edit · Scoped jira/i }))
+    fireEvent.change(screen.getByLabelText('Max items per run'), {
+      target: { value: String(MAX_ITEMS_PER_RUN) }
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() =>
+      expect(api.save).toHaveBeenCalledWith(
+        expect.objectContaining({ maxItemsPerRun: MAX_ITEMS_PER_RUN })
+      )
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('refuses max items per run one over the cap, naming the limit', async () => {
+    stubApi(payload({ routines: [scopedJira] }))
+    render(<RoutinesPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /edit · Scoped jira/i }))
+    fireEvent.change(screen.getByLabelText('Max items per run'), {
+      target: { value: String(MAX_ITEMS_PER_RUN + 1) }
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(
+      await screen.findByText(new RegExp(`at most ${MAX_ITEMS_PER_RUN}`, 'i'))
+    ).toBeInTheDocument()
+    expect(api.save).not.toHaveBeenCalled()
+  })
+
+  it('refuses a cleared max items per run field instead of sending 0 to save', async () => {
+    stubApi(payload({ routines: [scopedJira] }))
+    render(<RoutinesPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /edit · Scoped jira/i }))
+    fireEvent.change(screen.getByLabelText('Max items per run'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/at least 1/i)).toBeInTheDocument()
+    expect(api.save).not.toHaveBeenCalled()
   })
 })
 
