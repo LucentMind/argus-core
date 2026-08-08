@@ -731,7 +731,7 @@ describe('Composer option chips', () => {
     render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
     await userEvent.click(await screen.findByTitle('Traits'))
     expect(screen.getByRole('menuitem', { name: 'Ultracode' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: 'Ultrathink' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Ultrathink On' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Extra High' })).toBeInTheDocument()
   })
 
@@ -1000,7 +1000,7 @@ describe('Composer option chips', () => {
       const box = screen.getByPlaceholderText(/Message the analyst/)
       await userEvent.type(box, 'fix the crash')
       await userEvent.click(await screen.findByTitle('Traits'))
-      await userEvent.click(screen.getByRole('menuitem', { name: 'Ultrathink' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Ultrathink On' }))
       expect(box).toHaveValue('Ultrathink:\nfix the crash')
       expect(onRunOptionsChange).not.toHaveBeenCalled()
     })
@@ -1021,14 +1021,26 @@ describe('Composer option chips', () => {
       const box = screen.getByPlaceholderText(/Message the analyst/)
       await userEvent.type(box, 'fix the crash')
       await userEvent.click(await screen.findByTitle('Traits'))
-      await userEvent.click(screen.getByRole('menuitem', { name: 'Ultrathink' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Ultrathink On' }))
       expect(box).toHaveValue('Ultrathink:\nfix the crash')
-      await userEvent.click(screen.getByRole('menuitem', { name: 'Ultrathink' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Ultrathink Off' }))
       expect(box).toHaveValue('fix the crash')
       // Toggling off restores the stored level rather than writing one — the selection was
       // only ever overridden for display.
       expect(onRunOptionsChange).not.toHaveBeenCalled()
       expect(screen.getByRole('menuitem', { name: 'High' })).toHaveClass('text-ink')
+    })
+
+    // The row dispatches as a toggle but is DRAWN as a segmented Off/On pair, so the two
+    // disagree unless the control suppresses a click on the position already selected.
+    // Without that guard, clicking "On" while it is on would turn it off.
+    it('leaves the prefix alone when the position already selected is clicked', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      const box = screen.getByPlaceholderText(/Message the analyst/)
+      await userEvent.type(box, 'Ultrathink:\ngo')
+      await userEvent.click(await screen.findByTitle('Traits'))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Ultrathink On' }))
+      expect(box).toHaveValue('Ultrathink:\ngo')
     })
 
     // Same toggle, narrow density: TraitsChip and CollapsedMenu share OptionSection, and both
@@ -1040,7 +1052,7 @@ describe('Composer option chips', () => {
       const box = screen.getByPlaceholderText(/Message the analyst/)
       await userEvent.type(box, 'Ultrathink:\ngo')
       await userEvent.click(screen.getByLabelText('More options'))
-      await userEvent.click(screen.getByRole('menuitem', { name: 'Ultrathink' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Ultrathink Off' }))
       expect(box).toHaveValue('go')
     })
 
@@ -1089,7 +1101,7 @@ describe('Composer option chips', () => {
       render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
       await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'Ultrathink:\ngo')
       await userEvent.click(await screen.findByTitle('Traits'))
-      expect(screen.getByRole('menuitem', { name: 'Ultrathink' })).toHaveClass('text-ink')
+      expect(screen.getByRole('menuitem', { name: 'Ultrathink On' })).toHaveClass('text-ink')
       expect(screen.getByRole('menuitem', { name: 'High' })).toHaveClass('text-dim')
     })
 
@@ -1101,7 +1113,7 @@ describe('Composer option chips', () => {
       act(() => setRowWidth(360))
       await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'Ultrathink:\ngo')
       await userEvent.click(screen.getByLabelText('More options'))
-      expect(screen.getByRole('menuitem', { name: 'Ultrathink' })).toHaveClass('text-ink')
+      expect(screen.getByRole('menuitem', { name: 'Ultrathink On' })).toHaveClass('text-ink')
       expect(screen.getByRole('menuitem', { name: 'High' })).toHaveClass('text-dim')
     })
 

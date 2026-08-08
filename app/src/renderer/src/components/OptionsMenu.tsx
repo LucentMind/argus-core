@@ -8,8 +8,12 @@ import {
 } from '../../../shared/runOptions'
 
 /** A choice as the controls below consume it — `RunOptionChoice` for a select, the two
- *  synthesised positions for a boolean. */
-type Choice = { value: string | boolean; label: string }
+ *  synthesised positions for a boolean.
+ *
+ *  `name` overrides the accessible name when the visible label alone would be ambiguous: one
+ *  menu holds several Off/On pairs (Fast Mode, Thinking, Ultrathink), and three menuitems all
+ *  named "On" is a menu a screen reader cannot navigate. */
+type Choice = { value: string | boolean; label: string; name?: string }
 
 /**
  * A row of side-by-side positions in one recessed track — the shape Claude Code's own
@@ -41,6 +45,7 @@ function Segmented({
           key={String(c.value)}
           type="button"
           role="menuitem"
+          aria-label={c.name}
           disabled={locked}
           className={`flex-1 whitespace-nowrap rounded-r1 px-2 py-0.5 text-xs transition-colors disabled:opacity-40 ${
             c.value === current
@@ -170,10 +175,15 @@ function Scale({
         <div className="absolute inset-0 rounded-full bg-hair" />
         {/* The travelled part of the track, so the scale reads as a magnitude and not just as
             six equivalent dots. Stops at the CENTRE of the selected stop, which is where the
-            thumb sits. */}
+            thumb sits.
+
+            `bg-faint`, not `bg-hair2`: the two hairlines are 4 percentage points of alpha
+            apart (0.06 vs 0.10 in dark), which is a border-vs-border distinction and is
+            invisible as a fill — seen live, the track read as uniformly dark. `--faint` is
+            the lowest FOREGROUND step, so it clears the surface in both themes. */}
         {selected >= 0 && (
           <div
-            className="absolute inset-y-0 left-0 rounded-full bg-hair2"
+            className="absolute inset-y-0 left-0 rounded-full bg-faint"
             style={{ width: `${((selected + 0.5) / choices.length) * 100}%` }}
           />
         )}
@@ -284,28 +294,31 @@ export function OptionSection({
       ) : (
         <Segmented choices={choices} current={current} onChange={onChange} locked={locked} />
       )}
-      {extras.map((c) => (
-        <button
-          key={String(c.value)}
-          type="button"
-          role="menuitem"
-          aria-label={c.label}
-          disabled={locked}
-          className={`mt-1 flex w-full items-center justify-between gap-3 rounded-r2 px-2 py-1 text-xs transition-colors hover:bg-hi disabled:opacity-40 disabled:hover:bg-transparent ${
-            c.value === current ? 'text-ink' : 'text-dim'
-          }`}
-          onClick={() => onChange(c.value)}
-        >
-          <span>{c.label}</span>
-          <span
-            className={`rounded-r1 px-1.5 py-0.5 text-[10px] ${
-              c.value === current ? 'bg-hi text-ink' : 'text-mute'
-            }`}
-          >
-            {c.value === current ? 'On' : 'Off'}
-          </span>
-        </button>
-      ))}
+      {extras.map((c) => {
+        const on = c.value === current
+        return (
+          <div key={String(c.value)} className="mt-1.5 flex items-center justify-between gap-3">
+            <span className="text-xs text-dim">{c.label}</span>
+            <Segmented
+              className="w-24 shrink-0"
+              choices={[
+                { value: false, label: 'Off', name: `${c.label} Off` },
+                { value: true, label: 'On', name: `${c.label} On` }
+              ]}
+              current={on}
+              locked={locked}
+              // The row is dispatched as a TOGGLE — `Composer`'s `changeOption` reads the
+              // marker in the draft as the state and flips it — so this fires only when the
+              // requested position differs from the current one. Firing unconditionally would
+              // make clicking the already-selected segment turn the thing off, which is the
+              // one thing a segmented control must never do.
+              onChange={(want) => {
+                if (want !== on) onChange(c.value)
+              }}
+            />
+          </div>
+        )
+      })}
     </div>
   )
 }
