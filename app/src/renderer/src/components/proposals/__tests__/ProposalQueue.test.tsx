@@ -45,32 +45,38 @@ const entries: QueueEntry[] = [
 
 function renderQueue(over: Partial<Parameters<typeof ProposalQueue>[0]> = {}): {
   onSelect: ReturnType<typeof vi.fn>
-  onToggleType: ReturnType<typeof vi.fn>
+  onToggleTypes: ReturnType<typeof vi.fn>
 } {
   const onSelect = vi.fn()
-  const onToggleType = vi.fn()
+  const onToggleTypes = vi.fn()
   render(
     <ProposalQueue
       entries={entries}
-      pendingCount={2}
       typesPresent={['skill-edit', 'skill-new', 'reference-edit']}
       countByType={{ 'skill-edit': 1, 'skill-new': 1, 'reference-edit': 1 }}
       activeTypes={new Set()}
-      onToggleType={onToggleType}
+      onToggleTypes={onToggleTypes}
       selectedFile="a.md"
       onSelect={onSelect}
       {...over}
     />
   )
-  return { onSelect, onToggleType }
+  return { onSelect, onToggleTypes }
 }
 
 describe('ProposalQueue', () => {
-  it('groups rows under case headers and shows the pending count', () => {
+  it('groups rows under case headers', () => {
     renderQueue()
     expect(screen.getByText('NAV-100')).toBeInTheDocument()
     expect(screen.getByText('ZED-7')).toBeInTheDocument()
-    expect(screen.getByText('2 pending')).toBeInTheDocument()
+  })
+
+  // The column's own "Proposals · N pending" header is gone (user-directed, 2026-08-08): the top
+  // bar carries exactly that line a few pixels above it. Pinned so it cannot creep back.
+  it('renders no title or pending count of its own', () => {
+    renderQueue()
+    expect(screen.queryByText(/pending/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Proposals')).not.toBeInTheDocument()
   })
 
   it('marks the selected row aria-current and fires onSelect on click', () => {
@@ -89,21 +95,48 @@ describe('ProposalQueue', () => {
     expect(screen.getByText('accepted')).toBeInTheDocument()
   })
 
-  it('filter chips carry counts and toggle', () => {
-    const { onToggleType } = renderQueue()
-    fireEvent.click(screen.getByRole('button', { name: 'Filter Skill · new' }))
-    expect(onToggleType).toHaveBeenCalledWith('skill-new')
+  // One chip per ICON family, not per type (user-directed, 2026-08-08): the Skill chip owns
+  // both skill-new and skill-edit, so its count sums them and a click moves both at once.
+  it('filter chips are per icon family, carry the group count, and toggle the whole group', () => {
+    const { onToggleTypes } = renderQueue()
+    const skill = screen.getByRole('button', { name: 'Filter Skill' })
+    expect(skill).toHaveTextContent('Skill · 2')
+    fireEvent.click(skill)
+    expect(onToggleTypes).toHaveBeenCalledWith(['skill-edit', 'skill-new'], true)
   })
 
-  // Ported from ProposalsPage.knowledge.test.tsx's "filter chips show human-readable
-  // type labels" — the label dictionary itself isn't exercised elsewhere.
-  it('filter chips render human-readable labels for every present type', () => {
+  // A group already filtered in clears on the next click — `activeTypes` holding EITHER of its
+  // types is enough to make the chip pressed, since the chip can only ever set or clear both.
+  it('a pressed chip clears its whole group', () => {
+    const { onToggleTypes } = renderQueue({ activeTypes: new Set(['skill-new']) })
+    const skill = screen.getByRole('button', { name: 'Filter Skill' })
+    expect(skill).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(skill)
+    expect(onToggleTypes).toHaveBeenCalledWith(['skill-edit', 'skill-new'], false)
+  })
+
+  // Three chips at most, and only for families actually in the queue — the five per-type chips
+  // this replaced ("Skill · new", "Skill · edit", "Reference", "Recipe", "Case summary") must
+  // not come back.
+  it('renders exactly the three family chips, and only those present', () => {
     renderQueue({
-      typesPresent: ['skill-edit', 'skill-new', 'reference-edit', 'case-summary'],
-      countByType: { 'skill-edit': 1, 'skill-new': 1, 'reference-edit': 1, 'case-summary': 1 }
+      typesPresent: ['skill-edit', 'skill-new', 'recipe', 'case-summary'],
+      countByType: { 'skill-edit': 1, 'skill-new': 1, recipe: 3, 'case-summary': 1 }
     })
-    expect(screen.getByRole('button', { name: 'Filter Reference' })).toBeInTheDocument()
+    // Recipe rides in the Reference family, so its count lands on that chip.
+    expect(screen.getByRole('button', { name: 'Filter Reference' })).toHaveTextContent(
+      'Reference · 3'
+    )
     expect(screen.getByRole('button', { name: 'Filter Case summary' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Filter Skill · new' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Filter Recipe' })).not.toBeInTheDocument()
+  })
+
+  it('omits a family chip entirely when nothing in the queue belongs to it', () => {
+    renderQueue({ typesPresent: ['skill-edit'], countByType: { 'skill-edit': 1 } })
+    expect(screen.getByRole('button', { name: 'Filter Skill' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Filter Reference' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Filter Case summary' })).not.toBeInTheDocument()
   })
 
   // Ported from ProposalsPage.knowledge.test.tsx's "shows Reference / Case summary

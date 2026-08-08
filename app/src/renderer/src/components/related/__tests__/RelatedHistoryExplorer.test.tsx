@@ -2,7 +2,12 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { RelatedHistoryExplorer, RelatedHistoryExplorerModal } from '../RelatedHistoryExplorer'
+import {
+  RelatedHistoryExplorer,
+  RelatedHistoryExplorerModal,
+  RelatedHistoryStandalone
+} from '../RelatedHistoryExplorer'
+import { viewTitleStore } from '../../../lib/viewTitleStore'
 import type {
   CorpusDefectHit,
   LocalCaseHit,
@@ -1001,5 +1006,26 @@ describe('RelatedHistoryExplorer — pull into the case', () => {
     fireEvent.click(screen.getByRole('button', { name: /attach as evidence/i }))
     await waitFor(() => expect(screen.getByText(/attached as/i)).toBeInTheDocument())
     expect(onClose).not.toHaveBeenCalled()
+  })
+})
+
+describe('RelatedHistoryStandalone', () => {
+  // The view's own title row is gone (user-directed, 2026-08-08): TopBar renders the title, from
+  // this store, and claims the ambient anchors with it. The store is the entire contract between
+  // the two, so it is what gets asserted — the header is a sibling this test never mounts.
+  it('publishes its title for the header and clears it on unmount', () => {
+    viewTitleStore.reset()
+    setArgus({ hits: [] })
+    const { unmount } = render(<RelatedHistoryStandalone onOpenCase={vi.fn()} onClose={vi.fn()} />)
+    expect(viewTitleStore.get()).toEqual({ label: 'Related history' })
+    unmount()
+    expect(viewTitleStore.get()).toBeNull()
+  })
+
+  it('renders no title row or close button of its own', () => {
+    viewTitleStore.reset()
+    setArgus({ hits: [] })
+    render(<RelatedHistoryStandalone onOpenCase={vi.fn()} onClose={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument()
   })
 })

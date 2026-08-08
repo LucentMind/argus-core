@@ -780,7 +780,7 @@ body {
    [[argus-css-cascade-probe-recipe]]). A previous version of this rule subtracted the inset back
    out on the theory that it needed cancelling, which pulled the title left by the exact width of
    the darwin floor and landed it under the wordmark button. */
-.argus-settings-masthead {
+.argus-view-masthead {
   left: 14rem;
 }
 

@@ -2,7 +2,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { UnifiedDiff, SplitDiff, ProposedView, diffStat } from '../DiffViews'
+import { UnifiedDiff, SplitDiff, ProposedView, NewFileView, diffStat } from '../DiffViews'
 
 const CURRENT = 'keep\nold line\n'
 const CONTENT = 'keep\nnew line\nadded tail\n'
@@ -45,5 +45,31 @@ describe('ProposedView', () => {
     render(<ProposedView content={CONTENT} />)
     expect(screen.getByText(/new line/)).toBeInTheDocument()
     expect(screen.queryByText('+ new line')).not.toBeInTheDocument()
+  })
+})
+
+describe('NewFileView', () => {
+  it('splits frontmatter out and renders the body as markdown', () => {
+    render(<NewFileView content={'---\nname: rca\ndescription: d\n---\n\n# Title\n\n- one\n'} />)
+    // Frontmatter verbatim, in one block — a reviewer reads those keys literally.
+    expect(screen.getByText(/name: rca/)).toBeInTheDocument()
+    // Body as markdown: a heading element, not a line of `#` text.
+    expect(screen.getByRole('heading', { name: 'Title' })).toBeInTheDocument()
+    expect(screen.getByRole('listitem')).toHaveTextContent('one')
+  })
+
+  it('renders content with no frontmatter as markdown on its own', () => {
+    render(<NewFileView content={'# Ref\n\nbody\n'} />)
+    expect(screen.getByRole('heading', { name: 'Ref' })).toBeInTheDocument()
+    // A leading `---` is the only frontmatter marker; without one nothing is held back.
+    expect(screen.getByText('body')).toBeInTheDocument()
+  })
+
+  // `---` inside the body (a thematic break under a heading) is not frontmatter: the fence has
+  // to open on line 1, or the split would eat real content.
+  it('does not treat a mid-document rule as frontmatter', () => {
+    render(<NewFileView content={'# Ref\n\n---\n\nbody\n'} />)
+    expect(screen.getByRole('heading', { name: 'Ref' })).toBeInTheDocument()
+    expect(screen.getByRole('separator')).toBeInTheDocument()
   })
 })

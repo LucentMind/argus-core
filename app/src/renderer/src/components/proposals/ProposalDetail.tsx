@@ -2,7 +2,14 @@ import { useState } from 'react'
 import { Btn, Chip } from '../ui'
 import { MessageView } from '../MessageView'
 import { SharePushDialog } from '../settings/SharePushDialog'
-import { UnifiedDiff, SplitDiff, ProposedView, diffStat, type DiffViewMode } from './DiffViews'
+import {
+  UnifiedDiff,
+  SplitDiff,
+  ProposedView,
+  NewFileView,
+  diffStat,
+  type DiffViewMode
+} from './DiffViews'
 import {
   PROPOSAL_TYPE_LABELS,
   REJECT_REASON_TAGS,
@@ -115,8 +122,13 @@ export function ProposalDetail({
 
   const p = proposal
   const isMarkdown = p.type === 'case-summary'
+  // A new file has no `current` to diff against, so it gets neither a diff nor the view toggle
+  // over it (user-directed, 2026-08-08) — every mode would have shown the same single column of
+  // added lines. Same shape as the case-summary branch: rendered content, no view bar.
+  const isNewFile = p.current === null
   const isEditing = editValue !== null
-  const stat = !isMarkdown ? diffStat(p.current, p.content) : null
+  const showViewBar = !isMarkdown && !isNewFile && !isEditing
+  const stat = !isMarkdown && !isNewFile ? diffStat(p.current, p.content) : null
 
   return (
     // `min-w-0`: this is a flex item of the surface-card row in ProposalsStandalone
@@ -142,7 +154,7 @@ export function ProposalDetail({
           </div>
         )}
       </div>
-      {!isMarkdown && !isEditing && (
+      {showViewBar && (
         <div className="flex items-center gap-2 border-b border-hair px-5 py-2">
           <div className="flex overflow-hidden rounded-r2 border border-hair2">
             {VIEW_MODES.map((v) => (
@@ -183,6 +195,8 @@ export function ProposalDetail({
           <div className="px-5 py-3">
             <MessageView markdown={p.content} onCite={noop} />
           </div>
+        ) : isNewFile ? (
+          <NewFileView content={p.content} />
         ) : viewMode === 'split' ? (
           <SplitDiff current={p.current} content={p.content} />
         ) : viewMode === 'proposed' ? (

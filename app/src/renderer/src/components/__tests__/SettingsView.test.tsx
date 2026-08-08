@@ -11,7 +11,7 @@ import { proposalsStore } from '../../lib/proposalsStore'
 import { referenceSyncStore } from '../../lib/referenceSyncStore'
 import { connectorsStore } from '../../lib/connectorsStore'
 import { updateStore } from '../../lib/updateStore'
-import { settingsBarStore } from '../../lib/settingsBarStore'
+import { viewTitleStore } from '../../lib/viewTitleStore'
 import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import { DEFAULT_PRESETS } from '../../../../shared/connectors'
@@ -82,7 +82,7 @@ beforeEach(() => {
   referenceSyncStore.reset()
   connectorsStore.reset()
   updateStore.clearForTests()
-  settingsBarStore.reset()
+  viewTitleStore.reset()
   window.argus = {
     settings: {
       get: vi.fn(async () => currentPayload),
@@ -534,14 +534,14 @@ describe('SettingsView', () => {
   describe('masthead', () => {
     // The masthead itself moved into TopBar (a sibling, not rendered by this test — see
     // TopBar.test.tsx). What SettingsView owns is publishing the active page's identity to
-    // settingsBarStore; these assertions read that back instead of a DOM node that no longer
+    // viewTitleStore; these assertions read that back instead of a DOM node that no longer
     // exists here.
     it('publishes the active page title and blurb on initial mount', async () => {
       render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
       await screen.findByRole('button', { name: /General/ })
-      await waitFor(() => expect(settingsBarStore.get()?.label).toBe('General'))
-      expect(settingsBarStore.get()?.blurb).toBeTruthy()
-      expect(screen.queryByTestId('settings-title')).not.toBeInTheDocument()
+      await waitFor(() => expect(viewTitleStore.get()?.label).toBe('General'))
+      expect(viewTitleStore.get()?.blurb).toBeTruthy()
+      expect(screen.queryByTestId('view-title')).not.toBeInTheDocument()
     })
 
     // The wordmark moved to the top bar's home button; a second copy here would put two brand
@@ -554,17 +554,17 @@ describe('SettingsView', () => {
 
     it('clears the store on unmount', async () => {
       const { unmount } = render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
-      await waitFor(() => expect(settingsBarStore.get()?.label).toBe('General'))
+      await waitFor(() => expect(viewTitleStore.get()?.label).toBe('General'))
       unmount()
-      expect(settingsBarStore.get()).toBeNull()
+      expect(viewTitleStore.get()).toBeNull()
     })
 
     it('follows the active page when switching via the nav', async () => {
       render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
       await screen.findByRole('button', { name: /General/ })
       fireEvent.click(screen.getByRole('button', { name: /^Health$/ }))
-      await waitFor(() => expect(settingsBarStore.get()?.label).toBe('Health'))
-      expect(settingsBarStore.get()?.blurb).toContain('runs on open or on demand')
+      await waitFor(() => expect(viewTitleStore.get()?.label).toBe('Health'))
+      expect(viewTitleStore.get()?.blurb).toContain('runs on open or on demand')
     })
 
     it('follows a deep link that arrives while Settings is already open', async () => {
@@ -572,19 +572,19 @@ describe('SettingsView', () => {
       const { rerender } = render(<SettingsView onClose={onClose} onOpenProposals={vi.fn()} />)
       await screen.findByRole('button', { name: /General/ })
       rerender(<SettingsView onClose={onClose} initialPage={'health'} onOpenProposals={vi.fn()} />)
-      await waitFor(() => expect(settingsBarStore.get()?.label).toBe('Health'))
+      await waitFor(() => expect(viewTitleStore.get()?.label).toBe('Health'))
     })
 
     it('follows a legacy-alias deep link (hivemind -> Team)', async () => {
       render(<SettingsView onClose={vi.fn()} initialPage={'hivemind'} onOpenProposals={vi.fn()} />)
-      await waitFor(() => expect(settingsBarStore.get()?.label).toBe('Team'))
+      await waitFor(() => expect(viewTitleStore.get()?.label).toBe('Team'))
     })
 
     it('falls back to General, not undefined, for an unrecognised initialPage', async () => {
       render(
         <SettingsView onClose={vi.fn()} initialPage={'tools' as never} onOpenProposals={vi.fn()} />
       )
-      await waitFor(() => expect(settingsBarStore.get()?.label).toBe('General'))
+      await waitFor(() => expect(viewTitleStore.get()?.label).toBe('General'))
     })
 
     it('shows the Prompts title when the dev-tools gate is on and Prompts is active', async () => {
@@ -598,7 +598,7 @@ describe('SettingsView', () => {
       render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
       await screen.findByRole('button', { name: /General/ })
       fireEvent.click(screen.getByRole('button', { name: /^Prompts$/ }))
-      await waitFor(() => expect(settingsBarStore.get()?.label).toBe('Prompts'))
+      await waitFor(() => expect(viewTitleStore.get()?.label).toBe('Prompts'))
     })
   })
 })

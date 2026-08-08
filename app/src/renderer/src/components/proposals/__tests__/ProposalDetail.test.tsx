@@ -102,6 +102,32 @@ describe('ProposalDetail: pending', () => {
     expect(screen.queryByRole('button', { name: 'Split view' })).not.toBeInTheDocument()
   })
 
+  // A new file has no `current`, so there is nothing to diff — the view toggle is gone and the
+  // content renders formatted (user-directed, 2026-08-08). Frontmatter is held out of the
+  // markdown so its keys stay literal.
+  it('new file renders formatted content with no view bar and no diff', () => {
+    renderDetail({
+      proposal: {
+        ...pending,
+        type: 'skill-new',
+        current: null,
+        content: '---\nname: window-boundary-math\n---\n\n## When to use\nBody text\n'
+      }
+    })
+    expect(screen.queryByRole('button', { name: 'Split view' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Unified view' })).not.toBeInTheDocument()
+    // Markdown, not a `+`-prefixed diff line.
+    expect(screen.getByRole('heading', { name: 'When to use' })).toBeInTheDocument()
+    expect(screen.queryByText('+ Body text')).not.toBeInTheDocument()
+    expect(screen.getByText(/name: window-boundary-math/)).toBeInTheDocument()
+  })
+
+  // The +/− stat measured a diff that no longer renders — a "+6 −0" beside no diff is noise.
+  it('new file shows no +/− stat', () => {
+    renderDetail({ proposal: { ...pending, current: null, content: 'a\nb\n' } })
+    expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument()
+  })
+
   it('case summary renders markdown, no view bar, no target chip', () => {
     renderDetail({
       proposal: { ...pending, type: 'case-summary', content: '## Summary\nBody text\n' }

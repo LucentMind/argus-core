@@ -63,7 +63,7 @@ function anchorRef(set: Dispatch<SetStateAction<HTMLElement | null>>): AnchorRef
  * WHY CLAIM/RELEASE AND NOT TWO `useState` SETTERS (regression fixed 2026-08-02): several
  * unrelated components write these two slots — the active view (home's filter row, the case
  * band) and `TopBar` (Settings' title and the header itself). They do not mount and unmount in
- * the same React commit, because `TopBar`'s anchors are gated on `settingsBarStore`, which
+ * the same React commit, because `TopBar`'s anchors are gated on `viewTitleStore`, which
  * `SettingsView` clears from an unmount effect in the PASSIVE phase — one commit after the
  * destination view has already rendered and attached its own anchors.
  *

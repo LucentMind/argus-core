@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TopBar } from '../TopBar'
 import { uiStore } from '../../lib/uiStore'
 import { caseBarStore } from '../../lib/caseBarStore'
-import { settingsBarStore } from '../../lib/settingsBarStore'
+import { viewTitleStore } from '../../lib/viewTitleStore'
 import { proposalsStore } from '../../lib/proposalsStore'
 import { AmbientAnchorContext } from '../../lib/ambientAnchors'
 import type { CaseRecord } from '../../../../shared/types'
@@ -30,7 +30,7 @@ beforeEach(() => {
   if (uiStore.get().theme !== 'dark') uiStore.setTheme('dark')
   if (!uiStore.get().showToolCalls) uiStore.setShowToolCalls(true)
   caseBarStore.reset()
-  settingsBarStore.reset()
+  viewTitleStore.reset()
   proposalsStore.reset()
   uiStore.setDynamicTheme(false)
   window.argus = {
@@ -195,6 +195,24 @@ describe('TopBar', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'Proposals' }))
     expect(onProposals).toHaveBeenCalled()
+  })
+
+  // The Related history glyph is lucide's `timeline`, not `history` (user-directed, 2026-08-08).
+  // Pinned by lucide's own generated class — an icon swap is otherwise invisible to every test.
+  it('draws Related history with the timeline icon', () => {
+    render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+        onRelatedHistory={vi.fn()}
+      />
+    )
+    const svg = screen.getByRole('button', { name: 'Related history' }).querySelector('svg')
+    expect(svg?.getAttribute('class')).toContain('lucide-timeline')
   })
 
   it('shows the pending-count pill only when counts are positive', async () => {
@@ -652,9 +670,9 @@ describe('TopBar', () => {
         onStatusChanged={vi.fn()}
       />
     )
-    expect(screen.queryByTestId('settings-title')).not.toBeInTheDocument()
-    act(() => settingsBarStore.publish({ label: 'General', blurb: 'Appearance and shell.' }))
-    const title = screen.getByTestId('settings-title')
+    expect(screen.queryByTestId('view-title')).not.toBeInTheDocument()
+    act(() => viewTitleStore.publish({ label: 'General', blurb: 'Appearance and shell.' }))
+    const title = screen.getByTestId('view-title')
     expect(title).toHaveTextContent('General')
     // The blurb has no line of its own any more (user-directed, 2026-08-02) — it is the title's
     // tooltip, which is now the only place the longer description is reachable. Asserted as an
@@ -663,8 +681,32 @@ describe('TopBar', () => {
     expect(screen.queryByTestId('settings-blurb')).not.toBeInTheDocument()
     expect(title.getAttribute('title')).toBe('Appearance and shell.')
     expect(title.className).toContain('truncate')
-    act(() => settingsBarStore.publish(null))
-    expect(screen.queryByTestId('settings-title')).not.toBeInTheDocument()
+    act(() => viewTitleStore.publish(null))
+    expect(screen.queryByTestId('view-title')).not.toBeInTheDocument()
+  })
+
+  // Proposals and Related history publish here too (user-directed, 2026-08-08) — they used to
+  // carry a title row of their own under the header, which is now deleted. A live count rides
+  // alongside the title but OUTSIDE it, so the ambient light anchor stays the title's own box.
+  it('renders a published detail beside the title, outside the light anchor', () => {
+    render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    act(() => viewTitleStore.publish({ label: 'Proposals', detail: '· 5 pending' }))
+    const title = screen.getByTestId('view-title')
+    expect(title).toHaveTextContent('Proposals')
+    expect(title).not.toHaveTextContent('pending')
+    expect(screen.getByText('· 5 pending')).toBeInTheDocument()
+    // No detail published (Settings, Related history) means no second span at all.
+    act(() => viewTitleStore.publish({ label: 'Related history' }))
+    expect(screen.queryByText(/pending/)).not.toBeInTheDocument()
   })
 
   // The title lines up with the settings CONTENT column, not with whatever is to its left in the
@@ -686,9 +728,9 @@ describe('TopBar', () => {
         onStatusChanged={vi.fn()}
       />
     )
-    act(() => settingsBarStore.publish({ label: 'General', blurb: 'Appearance and shell.' }))
-    const box = screen.getByTestId('settings-title').parentElement!
-    expect(box.className).toContain('argus-settings-masthead')
+    act(() => viewTitleStore.publish({ label: 'General', blurb: 'Appearance and shell.' }))
+    const box = screen.getByTestId('view-title').parentElement!
+    expect(box.className).toContain('argus-view-masthead')
     // Absolute, so a long page label cannot push the tab band or the action icons rightward —
     // in flow it would compete with them for the bar's width.
     expect(box.className).toContain('absolute')
@@ -750,10 +792,10 @@ describe('TopBar', () => {
     )
     const dividers = (): number => container.querySelectorAll('.w-px').length
     expect(dividers()).toBe(0)
-    act(() => settingsBarStore.publish({ label: 'General', blurb: 'Appearance and shell.' }))
+    act(() => viewTitleStore.publish({ label: 'General', blurb: 'Appearance and shell.' }))
     expect(dividers()).toBe(0)
 
-    act(() => settingsBarStore.publish(null))
+    act(() => viewTitleStore.publish(null))
     rerender(
       <TopBar
         activeSlug="NAV-1"
@@ -827,9 +869,9 @@ describe('TopBar', () => {
     )
     // Outside Settings the header owns neither anchor.
     expect(setCutoff).not.toHaveBeenCalledWith(expect.any(HTMLElement))
-    act(() => settingsBarStore.publish({ label: 'General', blurb: 'Appearance.' }))
+    act(() => viewTitleStore.publish({ label: 'General', blurb: 'Appearance.' }))
     expect(setCutoff).toHaveBeenCalledWith(screen.getByRole('banner'))
-    expect(setLight).toHaveBeenCalledWith(screen.getByTestId('settings-title'))
+    expect(setLight).toHaveBeenCalledWith(screen.getByTestId('view-title'))
   })
 
   it('releases the anchors on leaving Settings', () => {
@@ -852,10 +894,10 @@ describe('TopBar', () => {
         />
       </AmbientAnchorContext.Provider>
     )
-    act(() => settingsBarStore.publish({ label: 'General', blurb: 'Appearance.' }))
+    act(() => viewTitleStore.publish({ label: 'General', blurb: 'Appearance.' }))
     setLight.mockClear()
     setCutoff.mockClear()
-    act(() => settingsBarStore.publish(null))
+    act(() => viewTitleStore.publish(null))
     expect(released).toEqual(expect.arrayContaining(['cutoff', 'light']))
     // and never by re-calling the ref itself, which is what would silently clobber whichever view
     // has since claimed the slot

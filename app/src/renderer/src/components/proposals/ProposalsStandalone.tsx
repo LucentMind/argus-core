@@ -1,6 +1,4 @@
 import { useEffect, useState } from 'react'
-import { Inbox, X } from 'lucide-react'
-import { IconBtn } from '../ui'
 import { ProposalQueue, type QueueEntry } from './ProposalQueue'
 import { ProposalDetail, type AcceptedEntry } from './ProposalDetail'
 import type { DiffViewMode } from './DiffViews'
@@ -9,7 +7,7 @@ import { SettingsSkeleton } from '../settings/settingsLayout'
 import { useSettingsPayload } from '../../lib/settingsStore'
 import { useProposalCounts } from '../../lib/proposalsStore'
 import { useEscapeLayer } from '../../lib/escapeLayer'
-import { useAmbientAnchors } from '../../lib/ambientAnchors'
+import { viewTitleStore } from '../../lib/viewTitleStore'
 import type { ProposalRecord, ProposalsPayload, ProposalType } from '../../../../shared/proposals'
 
 /** Top-level work surface, not a Settings page — same standing as
@@ -34,7 +32,6 @@ export function ProposalsStandalone({
   const settings = useSettingsPayload()
   const repoSet = (settings?.settings.hivemind.repo ?? '').trim() !== ''
   const counts = useProposalCounts()
-  const anchors = useAmbientAnchors()
 
   useEscapeLayer({ onEscape: onClose })
 
@@ -158,6 +155,22 @@ export function ProposalsStandalone({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFile, entries[0]?.file])
 
+  // The header renders this view's title (user-directed, 2026-08-08) — the second bar that used
+  // to carry it, and a close button, is gone: it cost ~34px of height on a view whose header
+  // already had room, and Settings had already proved the pattern. Escape (above) and the top
+  // bar's own Proposals toggle both still close the view, which is exactly how Settings closes.
+  //
+  // Two effects rather than one with a cleanup, for the same reason as SettingsView: a single
+  // effect would publish `null` on every count change before republishing, and this one's deps
+  // move whenever a proposal is accepted or rejected.
+  // No count until the list is in hand — the skeleton would otherwise claim "0 pending" for as
+  // long as the fetch takes, which is a statement, not a placeholder.
+  const titleDetail = payload ? `· ${pendingSorted.length} pending` : undefined
+  useEffect(() => {
+    viewTitleStore.publish({ label: 'Proposals', detail: titleDetail })
+  }, [titleDetail])
+  useEffect(() => () => viewTitleStore.publish(null), [])
+
   if (!payload) {
     return (
       <div className="flex min-h-0 flex-1 flex-col p-6">
@@ -166,11 +179,15 @@ export function ProposalsStandalone({
     )
   }
 
-  function toggleType(t: ProposalType): void {
+  // One chip covers a whole icon family (Skill = new + edit, Reference = reference + recipe), so
+  // a click sets or clears every type behind it at once — half-on has no chip that can express it.
+  function toggleTypes(types: readonly ProposalType[], on: boolean): void {
     setActive((prev) => {
       const next = new Set(prev)
-      if (next.has(t)) next.delete(t)
-      else next.add(t)
+      for (const t of types) {
+        if (on) next.add(t)
+        else next.delete(t)
+      }
       return next
     })
   }
@@ -242,26 +259,9 @@ export function ProposalsStandalone({
   }
 
   return (
+    // No title row of its own: TopBar carries the title, and the ambient anchors with it (the
+    // header claims both whenever `viewTitleStore` is non-null).
     <div className="flex min-h-0 flex-1 flex-col">
-      <div
-        // Ambient anchors, same claim/release pattern as RelatedHistoryStandalone.
-        // eslint-disable-next-line react-hooks/refs
-        ref={anchors.setCutoff}
-        className="flex items-center justify-between border-b border-hair px-3 py-2"
-      >
-        <span
-          // eslint-disable-next-line react-hooks/refs
-          ref={anchors.setLight}
-          className="flex items-center gap-2 font-mono text-sm text-ink"
-        >
-          <Inbox size={14} strokeWidth={1.5} />
-          Proposals
-          <span className="text-xs text-mute">· {pendingSorted.length} pending</span>
-        </span>
-        <IconBtn aria-label="Close" title="Close" onClick={onClose}>
-          <X size={14} strokeWidth={1.5} />
-        </IconBtn>
-      </div>
       <div className="flex flex-col gap-3 px-4 pt-3">
         <KnowledgeFlowStrip
           current="proposals"
@@ -281,13 +281,12 @@ export function ProposalsStandalone({
       <div className="m-4 flex min-h-0 flex-1 overflow-hidden rounded-r3 border border-hair surface-card">
         <ProposalQueue
           entries={entries}
-          pendingCount={pendingSorted.length}
           typesPresent={typesPresent}
           countByType={Object.fromEntries(
             typesPresent.map((t) => [t, payload.proposals.filter((p) => p.type === t).length])
           )}
           activeTypes={active}
-          onToggleType={toggleType}
+          onToggleTypes={toggleTypes}
           selectedFile={effectiveSelected}
           onSelect={setSelectedFile}
         />
