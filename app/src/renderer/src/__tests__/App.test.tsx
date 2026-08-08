@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest'
 import { render, screen, waitFor, within, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest'
 import App from '../App'
 import { settingsStore } from '../lib/settingsStore'
 import { routinesStore } from '../lib/routinesStore'
@@ -291,6 +291,33 @@ describe('App: toolbar icon toggles', () => {
     // proving `prevView` was never touched by the Observability round trip.
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByLabelText('Settings sections')).not.toBeInTheDocument()
+  })
+})
+
+describe('App: cases refetch on routines broadcast', () => {
+  // A routine's first-ever run writes `origin: 'routine'` straight to the database — the DB is
+  // correct the instant the run starts. Home's grid, though, is a `cases` snapshot from the last
+  // `reload()`, and Home previously only reloaded on navigation: the new card sat off-screen until
+  // the user left and came back. `routines:changed` already fires for this (routinesStore and
+  // RoutineInbox both key off it via `window.argus.routines.onChanged`) — this proves App reuses
+  // that SAME broadcast rather than inventing a second subscription.
+  it('refetches cases when routines broadcast a change', async () => {
+    render(<App />)
+    // Not necessarily 1: OnboardingProvider also reads the case list on mount, for an unrelated
+    // count check. Wait for mount to settle, then measure from THERE, so this test only proves
+    // what it claims — a routines broadcast causes an ADDITIONAL fetch — without pinning how
+    // many unrelated components happen to fetch cases on first render.
+    await waitFor(() => expect(window.argus.cases.list as Mock).toHaveBeenCalled())
+    const before = (window.argus.cases.list as Mock).mock.calls.length
+    // Multiple things subscribe to routines:changed on mount (RoutineInbox's routinesStore, and
+    // now App itself) — invoke every registered callback rather than guessing which mock.calls
+    // index is App's own, so this test does not depend on subscription order between components.
+    const onChangedMock = window.argus.routines.onChanged as Mock
+    expect(onChangedMock.mock.calls.length).toBeGreaterThan(0)
+    onChangedMock.mock.calls.forEach(([cb]) => (cb as () => void)())
+    await waitFor(() =>
+      expect((window.argus.cases.list as Mock).mock.calls.length).toBeGreaterThan(before)
+    )
   })
 })
 

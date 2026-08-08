@@ -66,6 +66,14 @@ function App(): React.JSX.Element {
     void reload()
   }, [reload])
 
+  // A routine's first-ever run writes `origin: 'routine'` straight to the database the instant
+  // it starts — but this grid is a `cases` snapshot from the last `reload()`, and Home otherwise
+  // only reloads on navigation (goHome). Without this, that run's card sits off-screen until the
+  // user leaves Home and comes back. `routines:changed` already fires for exactly this moment
+  // (RoutineInbox's routinesStore keys off the same broadcast) — reused here rather than
+  // inventing a second routines subscription.
+  useEffect(() => window.argus.routines.onChanged(() => void reload()), [reload])
+
   // Mirrors the window's OS full-screen state onto `<html>` for main.css. Here rather than in a
   // component that could unmount: the attribute is document-wide chrome state, and the header
   // that reads it (via CSS) is present on every view.
