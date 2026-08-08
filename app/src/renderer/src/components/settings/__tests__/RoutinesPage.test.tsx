@@ -45,6 +45,7 @@ function payload(over: Partial<RoutinesPayload> = {}): RoutinesPayload {
     runningId: null,
     queued: [],
     nextRunAt: {},
+    unreviewedCount: 0,
     // Newest-first, exactly as listRoutineRuns hands them over (ORDER BY id DESC).
     runs: [
       run({ id: 2 }),

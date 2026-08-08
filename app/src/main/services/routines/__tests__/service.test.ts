@@ -856,3 +856,66 @@ describe('nextRunAt', () => {
     errorSpy.mockRestore()
   })
 })
+
+describe('review state', () => {
+  it('reports unreviewed finished runs in the payload and clears them', async () => {
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async () => ({ status: 'ok', text: 'nothing new' }),
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    await svc.whenIdle()
+
+    const before = svc.payload()
+    expect(before.unreviewedCount).toBe(1)
+    expect(before.runs[0].reviewedAt).toBeNull()
+
+    svc.markReviewed(before.runs[0].id)
+
+    const after = svc.payload()
+    expect(after.unreviewedCount).toBe(0)
+    expect(after.runs[0].reviewedAt).not.toBeNull()
+  })
+
+  it('announces both mark verbs, so a second window and the Settings page follow', async () => {
+    const notify = vi.fn()
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      notify,
+      runTurn: async () => ({ status: 'ok', text: 'nothing new' }),
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    await svc.whenIdle()
+    notify.mockClear()
+
+    svc.markReviewed(svc.payload().runs[0].id)
+    expect(notify).toHaveBeenCalledTimes(1)
+
+    svc.markAllReviewed()
+    expect(notify).toHaveBeenCalledTimes(2)
+  })
+
+  it('clears every unreviewed run with markAllReviewed', async () => {
+    store.upsert({ id: 'b', name: 'B', prompt: 'b', timeoutMs: 1000 })
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async () => ({ status: 'ok', text: 'nothing new' }),
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    svc.startRun('b')
+    await svc.whenIdle()
+    expect(svc.payload().unreviewedCount).toBe(2)
+
+    svc.markAllReviewed()
+    expect(svc.payload().unreviewedCount).toBe(0)
+  })
+})

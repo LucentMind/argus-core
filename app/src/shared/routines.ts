@@ -128,4 +128,7 @@ export interface RoutinesPayload {
   /** Derived next fire per routine id; null = manual-only or disabled. */
   nextRunAt: Record<string, string | null>
   runs: RoutineRunSummary[]
+  /** Finished runs waiting to be reviewed. A SQL count, not `runs.filter(...)`: `runs` is
+   *  capped at 50 and would under-report a large backlog. */
+  unreviewedCount: number
 }

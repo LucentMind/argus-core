@@ -7,7 +7,10 @@ import {
   finishRoutineRun,
   listRoutineRuns,
   lastSuccessAt,
-  lastAttemptAt
+  lastAttemptAt,
+  markRunReviewed,
+  markAllRunsReviewed,
+  countUnreviewedRuns
 } from './runs'
 import { ensureRoutineAnchor, forgetRoutineAnchor } from './anchors'
 import { nextFireAfter } from './schedule'
@@ -124,7 +127,8 @@ export class RoutinesService {
           }
         })
       ),
-      runs: listRoutineRuns(this.deps.db)
+      runs: listRoutineRuns(this.deps.db),
+      unreviewedCount: countUnreviewedRuns(this.deps.db)
     }
   }
 
@@ -163,6 +167,23 @@ export class RoutinesService {
    */
   forgetRoutine(id: string): void {
     forgetRoutineAnchor(this.deps.db, id)
+  }
+
+  /**
+   * Clears one run out of the Home inbox.
+   *
+   * Thin on purpose: the guard that a live run cannot be marked lives in the SQL (runs.ts), so
+   * this stays a write plus an announcement and there is no second place for the rule to drift.
+   */
+  markReviewed(runId: number): void {
+    markRunReviewed(this.deps.db, runId, this.deps.now)
+    this.safeNotify()
+  }
+
+  /** Clears the whole inbox, including runs older than the 50 the payload carries. */
+  markAllReviewed(): void {
+    markAllRunsReviewed(this.deps.db, this.deps.now)
+    this.safeNotify()
   }
 
   /** Sync-validates (throws on unknown/disabled), then queues a manual run. */
