@@ -20,8 +20,7 @@ export const KILL_GRACE_MS = 5_000
 export type TerminatorTarget = { pid: number; startTimeMs: number }
 
 export type ResolvedTargets =
-  | { ok: true; targets: TerminatorTarget[] }
-  | { ok: false; reason: 'gone' | 'not-terminable' }
+  { ok: true; targets: TerminatorTarget[] } | { ok: false; reason: 'gone' | 'not-terminable' }
 
 /**
  * Resolve a row id to the pids that must die, ordered DEEPEST FIRST.

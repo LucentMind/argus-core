@@ -174,7 +174,8 @@ describe('Terminator', () => {
     const kill = vi.fn()
     // Only pid 2, at exactly its original startTimeMs, is confirmed still alive by the
     // (fake) current-tree lookup — pid 3 exited and is gone.
-    const stillIs = (pid: number, startTimeMs: number): boolean => pid === 2 && startTimeMs === 1_000
+    const stillIs = (pid: number, startTimeMs: number): boolean =>
+      pid === 2 && startTimeMs === 1_000
     new Terminator({ kill, stillIs }).signal([
       { pid: 3, startTimeMs: 1_000 },
       { pid: 2, startTimeMs: 1_000 }
