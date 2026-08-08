@@ -21,7 +21,11 @@ describe('UnifiedDiff', () => {
     render(<UnifiedDiff current={CURRENT} content={CONTENT} />)
     expect(screen.getByText('- old line')).toBeInTheDocument()
     expect(screen.getByText('+ new line')).toBeInTheDocument()
-    expect(screen.getByText('keep')).toBeInTheDocument()
+    // Verify the two-space prefix is rendered for 'same' lines (RTL's normalizer trims whitespace
+    // in default mode, so we check raw textContent to catch regressions like KIND_PREFIX.same = '')
+    expect(
+      screen.getByText((_, node) => node?.textContent === '  keep' && node?.tagName === 'DIV')
+    ).toBeInTheDocument()
   })
 })
 
