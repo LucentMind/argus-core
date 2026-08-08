@@ -199,19 +199,32 @@ function routineDisplayState(
   return 'idle'
 }
 
+/** A schedule, summarised for display beside "disabled" — the one place a disabled routine's
+ *  own row still shows it, since collapsing to a single chip means nowhere else does. */
+function scheduleSummary(s: RoutineSchedule): string {
+  if (s.kind === 'interval') return `every ${s.everyMinutes}m`
+  if (s.kind === 'daily') return `daily ${s.at}`
+  return `${s.days.map((d) => DAY_LABELS[d]).join('')} ${s.at}`
+}
+
 /**
  * What the single state chip says, in one phrase.
  *
- * Only `idle` still defers to `nextRunAt` — display of a stored field, not a second opinion
- * about due-ness: nothing here recomputes WHEN a routine fires (see `RoutinesService.nextRunAt`,
- * the one place that does). `nextRunAt` is already null for both "no schedule" and "disabled"
- * (main folds the two together, same source), which is exactly why `disabled` above is decided
- * before this is ever consulted rather than by reading this field.
+ * `disabled` carries the schedule (if any) as a suffix — a disabled routine that would otherwise
+ * fire nightly and a disabled manual-only routine are different facts, and collapsing to one
+ * chip means nowhere ELSE on the row still shows a schedule for a disabled routine to compare
+ * against `next-run`'s own display of the SAME field. `idle` is the only other state that still
+ * defers to `nextRunAt` — display of a stored field, not a second opinion about due-ness: nothing
+ * here recomputes WHEN a routine fires (see `RoutinesService.nextRunAt`, the one place that does).
  */
-function stateChipText(state: RoutineDisplayState, nextRunAt: string | null | undefined): string {
+function stateChipText(
+  state: RoutineDisplayState,
+  nextRunAt: string | null | undefined,
+  schedule: RoutineSchedule | undefined
+): string {
   if (state === 'running') return 'running now'
   if (state === 'queued') return 'queued'
-  if (state === 'disabled') return 'disabled'
+  if (state === 'disabled') return schedule ? `disabled · ${scheduleSummary(schedule)}` : 'disabled'
   if (!nextRunAt) return 'manual only'
   // Overdue is a state the user really sees: the poll is 30 seconds wide and a launch catch-up
   // reports a fire from whenever the app was last closed. Printing "next <past time>" for it
@@ -779,7 +792,8 @@ export function RoutinesPage(): React.JSX.Element {
                       <span data-testid="routine-state-chip">
                         {stateChipText(
                           routineDisplayState(r.enabled, running, isQueued),
-                          nextRunAt[r.id]
+                          nextRunAt[r.id],
+                          r.schedule
                         )}
                       </span>
                     </Chip>
