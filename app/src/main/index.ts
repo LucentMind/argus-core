@@ -1904,13 +1904,16 @@ function registerIpc(): void {
       // info.trigger. A minimized window still reports isVisible() === true, so that has to be
       // excluded explicitly — don't simplify this back down to isVisible() alone.
       const visible =
-        !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMinimized()
+        !!mainWindow &&
+        !mainWindow.isDestroyed() &&
+        mainWindow.isVisible() &&
+        !mainWindow.isMinimized()
       if (visible || !Notification.isSupported()) return
       const n = new Notification({
         title: info.routineName,
         body:
           info.status === 'ok'
-            ? (info.summary?.split('\n')[0] || 'Run finished')
+            ? info.summary?.split('\n')[0] || 'Run finished'
             : (info.error ?? `Run ${info.status}`)
       })
       n.on('click', () => {
