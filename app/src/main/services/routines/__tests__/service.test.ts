@@ -493,6 +493,95 @@ describe('pending queue', () => {
     expect(() => svc.startRun('off')).toThrow(/disabled/)
   })
 
+  /**
+   * The queue can hold a routine behind a run of up to MAX_TIMEOUT_MINUTES, and there is no
+   * cancel anywhere in the product — so disabling or deleting it is the only lever the user has
+   * while it waits. Executing the enqueue-time snapshot ignored both, and ran a routine the
+   * user had just switched off.
+   */
+  it('skips a queued routine that was disabled while it waited, and drains the rest', async () => {
+    store.upsert({ id: 'third', name: 'Third', prompt: 'and third', timeoutMs: 1000 })
+    const g = gated()
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: g.runTurn,
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    svc.startRun('second')
+    svc.startRun('third')
+    expect(svc.payload().queued).toEqual(['second', 'third'])
+
+    store.upsert({
+      id: 'second',
+      name: 'Second',
+      prompt: 'also sweep',
+      timeoutMs: 1000,
+      enabled: false
+    })
+    g.release()
+    await svc.whenIdle()
+
+    expect(g.started).toEqual(['routine-sweep', 'routine-third'])
+    // Nothing recorded either: a skipped routine is not a run that happened.
+    expect(
+      listRoutineRuns(db)
+        .map((r) => r.routineId)
+        .sort()
+    ).toEqual(['sweep', 'third'])
+    expect(svc.payload().queued).toEqual([])
+  })
+
+  it('skips a queued routine that was deleted while it waited, and drains the rest', async () => {
+    store.upsert({ id: 'third', name: 'Third', prompt: 'and third', timeoutMs: 1000 })
+    const g = gated()
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: g.runTurn,
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    svc.startRun('second')
+    svc.startRun('third')
+
+    store.remove('second')
+    g.release()
+    await svc.whenIdle()
+
+    expect(g.started).toEqual(['routine-sweep', 'routine-third'])
+    expect(
+      listRoutineRuns(db)
+        .map((r) => r.routineId)
+        .sort()
+    ).toEqual(['sweep', 'third'])
+  })
+
+  it('executes the CURRENT definition, not the one snapshotted at enqueue time', async () => {
+    const calls: BackgroundTurnParams[] = []
+    const g = gated()
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async (p) => {
+        calls.push(p)
+        return g.runTurn(p)
+      },
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    svc.startRun('second')
+    // Edited while it waits. The snapshot would run the old prompt — silently, unattended.
+    store.upsert({ id: 'second', name: 'Second', prompt: 'the edited prompt', timeoutMs: 1000 })
+    g.release()
+    await svc.whenIdle()
+    expect(calls[1].prompt).toContain('the edited prompt')
+  })
+
   it('drains the queue even when the run ahead of it fails', async () => {
     const seen: string[] = []
     const svc = new RoutinesService({

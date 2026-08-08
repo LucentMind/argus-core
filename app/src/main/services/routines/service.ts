@@ -192,11 +192,35 @@ export class RoutinesService {
     if (!this.running) this.drain()
   }
 
+  /**
+   * Takes the next queue entry and runs it — against the definition AS IT STANDS NOW.
+   *
+   * The entry carries a snapshot taken at enqueue time, and the snapshot is not what executes.
+   * A queued routine can wait behind a run of up to MAX_TIMEOUT_MINUTES and there is no cancel
+   * anywhere in the product, so disabling or deleting it is the only lever the user has while it
+   * waits; running the snapshot would ignore both and start an unattended run of a routine the
+   * user had just switched off.
+   *
+   * This is NOT the "driverKind is carried forward, not looked up backward" rule breaking (see
+   * the RoutineTurnRequest docblock). That rule protects a run already under way, whose session
+   * row already names a driver: re-resolving THEN could execute a driver the record contradicts.
+   * Nothing has been written for this run yet — `execute` opens its first row below — so
+   * drain-start is the last moment at which the current definition is still the right answer.
+   */
   private drain(): void {
     const next = this.queue.shift()
     if (!next) return
-    this.running = next.routine
-    this.current = this.execute(next.routine, next.trigger)
+    const live = this.deps.store.get(next.routine.id)
+    if (!live || !live.enabled) {
+      // Announce (the id has left `queued`), then continue with the entry behind it. The
+      // recursion is bounded by the queue length — every arm shifts an entry and nothing here
+      // adds one.
+      this.safeNotify()
+      this.drain()
+      return
+    }
+    this.running = live
+    this.current = this.execute(live, next.trigger)
       // `execute` swallows its own failures into the run row, so this catch only fires if the
       // recording itself failed (e.g. a closed DB). It must still not escape: `whenIdle` is
       // awaited by shutdown and by every test, and a rejecting idle promise would turn one bad
