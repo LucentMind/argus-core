@@ -1897,17 +1897,20 @@ function registerIpc(): void {
       trayService?.refresh()
     },
     onRunFinished: (info) => {
-      // The rule is one input: was there a window to see this? A scheduled run finishing while
-      // the user watches needs no notification — the inbox already updated through
-      // routines:changed. A MANUAL run whose window was closed mid-flight does need one, which
-      // is why this asks about the window rather than about info.trigger.
-      const visible = !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()
+      // The rule is one input: was there a window the user can actually see right now? A
+      // scheduled run finishing while the user watches needs no notification — the inbox
+      // already updated through routines:changed. A MANUAL run whose window was closed
+      // mid-flight does need one, which is why this asks about the window rather than about
+      // info.trigger. A minimized window still reports isVisible() === true, so that has to be
+      // excluded explicitly — don't simplify this back down to isVisible() alone.
+      const visible =
+        !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMinimized()
       if (visible || !Notification.isSupported()) return
       const n = new Notification({
         title: info.routineName,
         body:
           info.status === 'ok'
-            ? (info.summary?.split('\n')[0] ?? 'Run finished')
+            ? (info.summary?.split('\n')[0] || 'Run finished')
             : (info.error ?? `Run ${info.status}`)
       })
       n.on('click', () => {
