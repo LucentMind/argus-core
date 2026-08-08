@@ -208,7 +208,11 @@ CREATE TABLE IF NOT EXISTS routine_runs (
   finished_at TEXT,
   summary TEXT,
   error TEXT,
-  trigger_kind TEXT NOT NULL DEFAULT 'manual'
+  trigger_kind TEXT NOT NULL DEFAULT 'manual',
+  -- Increment 3: when a human cleared this run from the Home inbox. NULL = unreviewed.
+  -- Nullable rather than a boolean + timestamp pair: one column answers both "is it in the
+  -- inbox" and "when was it cleared".
+  reviewed_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_routine_runs_routine ON routine_runs(routine_id);
 -- When a routine was first seen with a schedule — the origin its first fire is measured from,
@@ -451,6 +455,17 @@ export function openDb(file: string): DatabaseSync {
   const runCols = db.prepare(`PRAGMA table_info(routine_runs)`).all() as { name: string }[]
   if (!runCols.some((c) => c.name === 'trigger_kind')) {
     db.exec(`ALTER TABLE routine_runs ADD COLUMN trigger_kind TEXT NOT NULL DEFAULT 'manual'`)
+  }
+  // Increment 3: inbox review state.
+  if (!runCols.some((c) => c.name === 'reviewed_at')) {
+    db.exec(`ALTER TABLE routine_runs ADD COLUMN reviewed_at TEXT`)
+    // ONE-TIME, and the column guard is what makes it one-time. Every run recorded before this
+    // migration has already been visible in Settings -> Recent runs since increment 1; letting
+    // them all arrive as unreviewed would make the inbox's first act be to present a wall of
+    // work the user has read. Rows with no finished_at are skipped deliberately: they are
+    // stranded `running` rows, which reconcileInterruptedRuns turns into failed runs at boot,
+    // and a run the app died inside of belongs in the inbox.
+    db.exec(`UPDATE routine_runs SET reviewed_at = finished_at WHERE finished_at IS NOT NULL`)
   }
   // Populate the FTS map tables for DBs that already held FTS rows before the
   // side-table fix landed (one-time; gated on the maps being empty).

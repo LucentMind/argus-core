@@ -149,6 +149,7 @@ interface Row {
   summary: string | null
   error: string | null
   trigger_kind: string
+  reviewed_at: string | null
 }
 
 export function listRoutineRuns(db: DatabaseSync, limit = 50): RoutineRunSummary[] {
@@ -165,6 +166,7 @@ export function listRoutineRuns(db: DatabaseSync, limit = 50): RoutineRunSummary
     startedAt: r.started_at,
     finishedAt: r.finished_at,
     summary: r.summary,
-    error: r.error
+    error: r.error,
+    reviewedAt: r.reviewed_at ?? null
   }))
 }

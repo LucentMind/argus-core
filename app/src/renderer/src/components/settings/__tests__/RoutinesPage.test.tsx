@@ -33,6 +33,7 @@ function run(over: Partial<RoutineRunSummary> = {}): RoutineRunSummary {
     finishedAt: '2026-08-03T02:05:00.000Z',
     summary: 'nothing new',
     error: null,
+    reviewedAt: null,
     ...over
   }
 }

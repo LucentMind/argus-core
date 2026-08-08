@@ -282,3 +282,77 @@ describe('trigger_kind migration', () => {
     migrated.close()
   })
 })
+
+describe('reviewed_at', () => {
+  it('records a finished run as unreviewed', () => {
+    const id = insertRoutineRun(db, 'sweep', 'routine-sweep', 'scheduled', () => NOW)
+    finishRoutineRun(db, id, { status: 'ok', summary: 'done' }, () => NOW)
+    expect(listRoutineRuns(db)[0].reviewedAt).toBeNull()
+  })
+})
+
+describe('reviewed_at migration', () => {
+  it('backfills existing finished rows as reviewed and leaves later runs unreviewed', () => {
+    const older = path.join(home, 'older-review.db')
+    const raw = openDb(older)
+    raw.exec(`DROP TABLE routine_runs`)
+    raw.exec(`CREATE TABLE routine_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      routine_id TEXT NOT NULL,
+      case_slug TEXT NOT NULL,
+      session_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'running',
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      summary TEXT,
+      error TEXT,
+      trigger_kind TEXT NOT NULL DEFAULT 'manual'
+    )`)
+    raw
+      .prepare(
+        `INSERT INTO routine_runs (routine_id, case_slug, status, started_at, finished_at)
+         VALUES (?, ?, 'ok', ?, ?)`
+      )
+      .run('sweep', 'routine-sweep', '2026-08-01T00:00:00.000Z', '2026-08-01T00:05:00.000Z')
+    raw.close()
+
+    const migrated = openDb(older)
+    // Pre-existing history was already visible in Settings; it must not arrive as a wall of
+    // unread work the first time the inbox exists.
+    expect(listRoutineRuns(migrated)[0].reviewedAt).toBe('2026-08-01T00:05:00.000Z')
+
+    const fresh = insertRoutineRun(migrated, 'sweep', 'routine-sweep', 'scheduled', () => NOW)
+    finishRoutineRun(migrated, fresh, { status: 'ok' }, () => NOW)
+    expect(listRoutineRuns(migrated)[0].reviewedAt).toBeNull()
+    migrated.close()
+  })
+
+  it('leaves a stranded running row unreviewed after migration', () => {
+    const older = path.join(home, 'older-stranded.db')
+    const raw = openDb(older)
+    raw.exec(`DROP TABLE routine_runs`)
+    raw.exec(`CREATE TABLE routine_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      routine_id TEXT NOT NULL,
+      case_slug TEXT NOT NULL,
+      session_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'running',
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      summary TEXT,
+      error TEXT,
+      trigger_kind TEXT NOT NULL DEFAULT 'manual'
+    )`)
+    raw
+      .prepare(`INSERT INTO routine_runs (routine_id, case_slug, started_at) VALUES (?, ?, ?)`)
+      .run('sweep', 'routine-sweep', '2026-08-01T00:00:00.000Z')
+    raw.close()
+
+    // It has no finished_at, so the backfill must skip it. reconcileInterruptedRuns will turn
+    // it into a `failed` run at boot, and it SHOULD then land in the inbox — a run the app
+    // died in the middle of is exactly what the inbox exists to report.
+    const migrated = openDb(older)
+    expect(listRoutineRuns(migrated)[0].reviewedAt).toBeNull()
+    migrated.close()
+  })
+})

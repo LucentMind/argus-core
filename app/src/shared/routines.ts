@@ -114,6 +114,8 @@ export interface RoutineRunSummary {
   /** Final assistant text of the run's single turn. */
   summary: string | null
   error: string | null
+  /** When a human cleared this run from the Home inbox; null = still unreviewed. */
+  reviewedAt: string | null
 }
 
 export interface RoutinesPayload {
