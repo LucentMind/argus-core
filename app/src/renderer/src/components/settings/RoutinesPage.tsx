@@ -155,15 +155,24 @@ const TRUNCATE_AT = 200
  * What a routine will do next, in one phrase.
  *
  * `queued` and `running` beat the clock: a routine whose slot is already claimed has a more
- * useful answer than the time it was scheduled for.
+ * useful answer than the time it was scheduled for. `paused` is next, because main's `nextRunAt`
+ * folds "no schedule" and "disabled" into the same null — one rule in one place, which is right
+ * for the scheduler and leaves this the only place that can tell a paused routine from a
+ * manual-only one. That distinction is display of two stored fields, not a second opinion about
+ * due-ness: nothing here recomputes WHEN a routine fires.
  */
 function nextRunLabel(
   nextRunAt: string | null | undefined,
-  state: 'running' | 'queued' | 'idle'
+  state: 'running' | 'queued' | 'paused' | 'idle'
 ): string {
   if (state === 'running') return 'running now'
   if (state === 'queued') return 'queued'
-  return nextRunAt ? `next ${chipStamp(nextRunAt)}` : 'manual only'
+  if (state === 'paused') return 'paused'
+  if (!nextRunAt) return 'manual only'
+  // Overdue is a state the user really sees: the poll is 30 seconds wide and a launch catch-up
+  // reports a fire from whenever the app was last closed. Printing "next <past time>" for it
+  // reads as a schedule that has broken rather than one about to run.
+  return new Date(nextRunAt).getTime() <= Date.now() ? 'due now' : `next ${chipStamp(nextRunAt)}`
 }
 
 /**
@@ -616,7 +625,13 @@ export function RoutinesPage(): React.JSX.Element {
                       <span data-testid={`next-run-${r.id}`}>
                         {nextRunLabel(
                           nextRunAt[r.id],
-                          running ? 'running' : isQueued ? 'queued' : 'idle'
+                          running
+                            ? 'running'
+                            : isQueued
+                              ? 'queued'
+                              : !r.enabled && r.schedule
+                                ? 'paused'
+                                : 'idle'
                         )}
                       </span>
                     </Chip>

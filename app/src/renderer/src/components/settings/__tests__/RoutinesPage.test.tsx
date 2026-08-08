@@ -631,6 +631,36 @@ describe('RoutinesPage — schedule status', () => {
     expect(await screen.findByTestId('next-run-sweep')).toHaveTextContent(/manual only/i)
   })
 
+  it('says paused, not manual only, for a disabled routine that does have a schedule', async () => {
+    // nextRunAt is null for BOTH "no schedule" and "disabled", so the chip cannot tell them
+    // apart from that field alone — and calling a scheduled routine "manual only" hides the
+    // reason it has stopped running.
+    stubApi(
+      payload({
+        routines: [{ ...sweep, enabled: false, schedule: { kind: 'daily', at: '02:00' } }],
+        nextRunAt: { sweep: null }
+      })
+    )
+    render(<RoutinesPage />)
+    expect(await screen.findByTestId('next-run-sweep')).toHaveTextContent(/paused/i)
+  })
+
+  it('still says manual only for a disabled routine with no schedule', async () => {
+    stubApi(payload({ routines: [{ ...sweep, enabled: false }], nextRunAt: { sweep: null } }))
+    render(<RoutinesPage />)
+    expect(await screen.findByTestId('next-run-sweep')).toHaveTextContent(/manual only/i)
+  })
+
+  it('says due now rather than printing a next run that has already passed', async () => {
+    // The scheduler polls every 30s and catches up on launch, so an overdue routine is a real
+    // state a user can see — and "next <a time in the past>" reads as a broken schedule.
+    stubApi(payload({ nextRunAt: { sweep: '2020-01-01T00:00:00.000Z' } }))
+    render(<RoutinesPage />)
+    const chip = await screen.findByTestId('next-run-sweep')
+    expect(chip).toHaveTextContent(/due now/i)
+    expect(chip).not.toHaveTextContent(/next/i)
+  })
+
   it('marks the running and queued rows, and leaves an idle routine runnable', async () => {
     const digest: RoutineDef = { ...sweep, id: 'digest', name: 'Weekly digest' }
     const audit: RoutineDef = { ...sweep, id: 'audit', name: 'Dep audit' }
