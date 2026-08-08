@@ -109,11 +109,21 @@ export interface SyncError {
  */
 export type CaseOrigin = 'user' | 'routine'
 
+/**
+ * Whether this case is a routine's unreviewed draft. `null` is a normal case — including one a
+ * routine created that a human has since accepted, and one that was dismissed (dismiss closes
+ * the case and leaves this set, so a dismissed draft stays distinguishable from a case that was
+ * never one).
+ */
+export type CaseReviewState = 'draft' | null
+
 export interface CaseRecord {
   id: number
   slug: string
   /** Whether a routine has written into this case. Routine-touched cases are marked in the case grid. */
   origin: CaseOrigin
+  /** Non-null only while a routine's item output is awaiting accept/dismiss. */
+  reviewState: CaseReviewState
   title: string
   jiraKey: string | null
   /** Last successful Jira sync (create-from-ticket or refresh); null when never synced. */

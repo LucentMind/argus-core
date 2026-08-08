@@ -226,6 +226,33 @@ CREATE TABLE IF NOT EXISTS routine_anchors (
   routine_id TEXT PRIMARY KEY,
   anchored_at TEXT NOT NULL
 );
+-- Increment 5: one row per ITEM a run processed. This is what makes "per-item errors never kill
+-- a run" a host-observed fact rather than something the model reports about its own work.
+-- ON DELETE CASCADE because an item row without its run is unreadable — every consumer joins
+-- through run_id.
+CREATE TABLE IF NOT EXISTS routine_run_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL REFERENCES routine_runs(id) ON DELETE CASCADE,
+  item_key TEXT NOT NULL,
+  case_slug TEXT,
+  status TEXT NOT NULL DEFAULT 'running',
+  error TEXT,
+  suggestion TEXT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_routine_run_items_run ON routine_run_items(run_id);
+-- Not speculative: the jira-jql selection path asks "which keys has this routine already
+-- attempted", which scans by key across every run of that routine.
+CREATE INDEX IF NOT EXISTS idx_routine_run_items_key ON routine_run_items(item_key);
+-- Increment 5: where a jira-jql routine's next query starts. Persisted for the same reason
+-- routine_anchors is — an in-memory cursor is re-derived at every launch, which either replays
+-- work already done or skips work never done, both silently.
+CREATE TABLE IF NOT EXISTS routine_cursors (
+  routine_id TEXT PRIMARY KEY,
+  cursor TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `
 
 export function openDb(file: string): DatabaseSync {
@@ -479,6 +506,14 @@ export function openDb(file: string): DatabaseSync {
     db.exec(
       `UPDATE cases SET origin = 'routine' WHERE slug IN (SELECT DISTINCT case_slug FROM routine_runs)`
     )
+  }
+
+  // Increment 5: draft review state on a case an item produced. Nullable with NO backfill and
+  // no 'ready' value — NULL is already the correct answer for every case that exists, so the
+  // migration is the column and nothing else. A two-valued column would have to be kept
+  // consistent with `origin` forever; a nullable one cannot disagree with itself.
+  if (!caseCols.some((c) => c.name === 'review_state')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN review_state TEXT`)
   }
   // Populate the FTS map tables for DBs that already held FTS rows before the
   // side-table fix landed (one-time; gated on the maps being empty).

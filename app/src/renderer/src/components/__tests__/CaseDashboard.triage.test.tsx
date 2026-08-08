@@ -24,6 +24,7 @@ function mkCase(overrides: Partial<CaseRecord> = {}): CaseRecord {
     id: 1,
     slug: 'NAV-1',
     origin: 'user',
+    reviewState: null,
     title: 'Bearing jumps',
     jiraKey: 'NAV-1',
     jiraSyncedAt: null,

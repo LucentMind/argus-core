@@ -13,6 +13,7 @@ const cases: CaseRecord[] = [
     id: 1,
     slug: 'NAV-1',
     origin: 'user',
+    reviewState: null,
     title: 'Bearing jumps',
     jiraKey: null,
     jiraSyncedAt: null,

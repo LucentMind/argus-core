@@ -14,6 +14,7 @@ const cases: CaseRecord[] = [
     id: 1,
     slug: 'NAV-100',
     origin: 'user',
+    reviewState: null,
     title: 'Tile region fails',
     jiraKey: null,
     jiraSyncedAt: null,
