@@ -317,6 +317,7 @@ import { RoutineStore } from './services/routines/store'
 import { RoutinesService } from './services/routines/service'
 import { reconcileInterruptedRuns, runningRoutineForSession } from './services/routines/runs'
 import { createRoutineTurnRunner } from './services/routines/turnRunner'
+import { RoutineScheduler } from './services/routines/scheduler'
 import type { RoutinesPayload } from '../shared/routines'
 
 let agentService: AgentService | null = null
@@ -327,6 +328,9 @@ let editorWindowService: EditorWindowService | null = null
 // Module-scope for the same reason as draftStore below: registerIpc() constructs it, but
 // `before-quit` lives out here and has to close the config/routines.json directory watcher.
 let routineStore: RoutineStore | null = null
+// Same reason as routineStore above: `before-quit` lives out here and has to clear the poll
+// interval. A timer left running past quit keeps ticking against a closing database.
+let routineScheduler: RoutineScheduler | null = null
 /**
  * The theme main believes the UI is on. Windows are constructed before any renderer can report
  * one, so the first main window opens on this default and self-corrects the instant uiStore's
@@ -1864,6 +1868,21 @@ function registerIpc(): void {
     return routinesService.payload()
   })
 
+  // Scheduling, and this is the only correct moment to start it. `start()` runs its first tick
+  // SYNCHRONOUSLY — that tick is the launch catch-up — so a run can begin on this very line.
+  // It must therefore come after `reconcileInterruptedRuns` above (a catch-up run inserting a
+  // `running` row before the reconcile would have that row rewritten as failed underneath it)
+  // and after the handlers above (a run beginning against a half-registered host).
+  //
+  // No `epoch` is passed to RoutinesService: it defaults to construction time, which here is
+  // app boot — so a routine that has never run fires at its next natural occurrence rather than
+  // the instant Argus opens.
+  routineScheduler = new RoutineScheduler({
+    store: routines,
+    service: routinesService
+  })
+  routineScheduler.start()
+
   // — modes —
   ipcMain.handle(IPC.modesAvailable, (_e, caseSlug: string) => {
     assertSlug(caseSlug)
@@ -3151,6 +3170,9 @@ app.on('before-quit', (event) => {
   flushTabs?.()
   editorWindowService?.forceClose()
   void agentService?.stopAll()
+  // Before routineStore.close() below: the tick reads the store, and a tick landing on a closed
+  // watcher is a needless error on the quit path.
+  routineScheduler?.stop()
   // Holds an fs watcher on config/routines.json. Unlike caseWatch/proposals (which the exit
   // path deliberately leaves to process teardown), this one also drops the subscriber that
   // broadcasts to windows — and windows are being torn down right now.

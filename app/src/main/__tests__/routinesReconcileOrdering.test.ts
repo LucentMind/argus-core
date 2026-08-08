@@ -56,3 +56,39 @@ describe('reconcileInterruptedRuns runs before routinesRunNow is registered', ()
     ).toBeLessThan(runNowIndex)
   })
 })
+
+describe('the scheduler starts after reconcile and after the IPC handlers', () => {
+  it('starts only once the host is fully built', () => {
+    const startMarker = 'routineScheduler.start()'
+    const reconcileMarker = 'reconcileInterruptedRuns('
+    const runNowMarker = 'IPC.routinesRunNow'
+
+    expect(
+      indexSrc.includes(startMarker),
+      `expected to find "${startMarker}" in main/index.ts. If the scheduler is no longer ` +
+        'started there, nothing fires a scheduled routine and this test can no longer verify ' +
+        'the ordering it exists to guard.'
+    ).toBe(true)
+
+    const start = indexSrc.indexOf(startMarker)
+    // start() runs its first tick SYNCHRONOUSLY — that tick is the launch catch-up, so a run
+    // can begin on that very line. Ahead of the reconcile, its fresh `running` row would be
+    // blanket-marked failed by the reconcile that follows. Ahead of the handlers, it would run
+    // against a half-registered host.
+    expect(
+      start,
+      'routineScheduler.start() must come AFTER reconcileInterruptedRuns(db): its first tick is ' +
+        "synchronous, so a catch-up run's row would otherwise be rewritten as failed underneath it."
+    ).toBeGreaterThan(indexSrc.indexOf(reconcileMarker))
+    expect(
+      start,
+      'routineScheduler.start() must come AFTER the ipcMain.handle(IPC.routinesRunNow, ...) ' +
+        'registration, so a run beginning on the first synchronous tick meets a fully built host.'
+    ).toBeGreaterThan(indexSrc.indexOf(runNowMarker))
+  })
+
+  it('stops the scheduler on quit', () => {
+    // A poll left running past quit keeps ticking against a closing database.
+    expect(indexSrc).toContain('routineScheduler?.stop()')
+  })
+})
