@@ -144,22 +144,65 @@ function withDefaults(repos: string[]): SettingsPayload {
   })
 }
 
+/** Expands the default-repos disclosure (collapsed whenever the list is non-empty). Named after
+ *  the shared `DisclosureBtn`, whose accessible name is "Expand …"/"Collapse …" — the same control
+ *  a provider row uses. */
+function openDefaults(): void {
+  fireEvent.click(screen.getByRole('button', { name: 'Expand default repositories' }))
+}
+
 describe('GeneralSettings default repositories', () => {
-  it('lists every default repo', async () => {
+  it('lists every default repo once expanded', async () => {
     render(<GeneralSettings payload={withDefaults([ALPHA, BETA])} />)
+    openDefaults()
     expect(await screen.findByTitle(ALPHA)).toBeInTheDocument()
     expect(screen.getByTitle(BETA)).toBeInTheDocument()
     expect(screen.getByText('alpha')).toBeInTheDocument()
     expect(screen.getByText('beta')).toBeInTheDocument()
   })
 
-  it('shows "not set" when the list is empty', () => {
+  /**
+   * Collapsed, the row still has to say what it holds — that count is the whole reason the
+   * disclosure is allowed to hide the list (user-directed, 2026-08-08). Asserted alongside the
+   * absence of the entries themselves, so a regression that simply stopped collapsing would not
+   * satisfy it.
+   */
+  it('summarises the list while collapsed', () => {
+    render(<GeneralSettings payload={withDefaults([ALPHA, BETA])} />)
+    expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.getByText('Automatically linked to new cases')).toBeInTheDocument()
+    expect(screen.queryByTitle(ALPHA)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Expand default repositories' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
+  })
+
+  /**
+   * The reset eraser is gone (user-directed, 2026-08-08): per-entry Remove is how the list
+   * empties, and a clear-everything button sitting where the chevron belongs gave the row two
+   * competing affordances in the same corner. Pinned as an absence so it cannot drift back in
+   * with the next `SettingRow` refactor.
+   */
+  it('offers a disclosure chevron and no reset button', () => {
+    render(<GeneralSettings payload={withDefaults([ALPHA, BETA])} />)
+    expect(screen.getByRole('button', { name: 'Expand default repositories' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reset Default repositories' })).toBeNull()
+  })
+
+  /** Auto-expanded when empty: a collapsed row would be a summary of nothing, and the only reason
+   *  to open it would be to reach `Add…`. */
+  it('starts open, and says so, when the list is empty', async () => {
     render(<GeneralSettings payload={withDefaults([])} />)
-    expect(screen.getByText('not set')).toBeInTheDocument()
+    expect(screen.getByText('None — new cases start unlinked')).toBeInTheDocument()
+    expect(screen.getByText(/No default repositories yet/)).toBeInTheDocument()
+    // `find`, not `get`: RepoPickerMenu withholds its trigger until the recents fetch settles.
+    expect(await screen.findByRole('button', { name: 'Add…' })).toBeInTheDocument()
   })
 
   it('removes one entry without disturbing the others', async () => {
     render(<GeneralSettings payload={withDefaults([ALPHA, BETA])} />)
+    openDefaults()
 
     fireEvent.click(await screen.findByRole('button', { name: `Remove ${ALPHA}` }))
     await waitFor(() =>
@@ -172,6 +215,7 @@ describe('GeneralSettings default repositories', () => {
   it('appends a repo chosen from the picker', async () => {
     window.argus.workspaces.recent = vi.fn(async () => [{ path: BETA, name: 'beta' }])
     render(<GeneralSettings payload={withDefaults([ALPHA])} />)
+    openDefaults()
 
     fireEvent.click(await screen.findByRole('button', { name: 'Add…' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'beta' }))
@@ -185,6 +229,7 @@ describe('GeneralSettings default repositories', () => {
   it('does not offer a repo that is already a default', async () => {
     window.argus.workspaces.recent = vi.fn(async () => [{ path: ALPHA, name: 'alpha' }])
     render(<GeneralSettings payload={withDefaults([ALPHA])} />)
+    openDefaults()
 
     // nothing left to offer, so the trigger goes straight to the native dialog
     fireEvent.click(await screen.findByRole('button', { name: 'Add…' }))
