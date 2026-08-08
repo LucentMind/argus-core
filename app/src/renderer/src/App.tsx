@@ -252,6 +252,7 @@ function App(): React.JSX.Element {
                 onClose={closeSettings}
                 initialPage={view.page}
                 onOpenObservability={openObservability}
+                onOpenProposals={gotoProposals}
               />
             </DynamicScope>
           ) : view.kind === 'observability' ? (

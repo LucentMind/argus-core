@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { SettingsView } from '../settings/SettingsView'
+import { LIBRARY_TYPES } from '../settings/LibraryPage'
 import { SetupWizard } from '../onboarding/SetupWizard'
 import { settingsStore } from '../../lib/settingsStore'
 import { proposalsStore } from '../../lib/proposalsStore'
@@ -216,7 +217,7 @@ afterEach(() => __resetEscapeLayersForTest())
 
 describe('SettingsView', () => {
   it('renders the rail: 10 active pages, 0 coming-soon entries', async () => {
-    render(<SettingsView onClose={vi.fn()} />)
+    render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     for (const label of [
       'General',
@@ -236,7 +237,7 @@ describe('SettingsView', () => {
   })
 
   it('lists sections in the intended order and drops Analysis Tools', () => {
-    render(<SettingsView onClose={() => {}} />)
+    render(<SettingsView onClose={() => {}} onOpenProposals={vi.fn()} />)
     const nav = screen.getByRole('navigation', { name: 'Settings sections' })
     const labels = Array.from(nav.querySelectorAll('button')).map((b) => b.textContent?.trim())
     expect(labels).toEqual([
@@ -244,7 +245,6 @@ describe('SettingsView', () => {
       'Agent',
       'Connectors',
       'Routines',
-      'Proposals',
       'Library',
       'Memory',
       'Team',
@@ -257,14 +257,20 @@ describe('SettingsView', () => {
     expect(screen.queryByText('Analysis Tools')).toBeNull()
   })
 
+  it('has no Proposals entry in the nav rail', async () => {
+    render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
+    await screen.findByRole('navigation', { name: 'Settings sections' })
+    expect(screen.queryByRole('button', { name: /Proposals/ })).not.toBeInTheDocument()
+  })
+
   it('sidebar renders three labeled groups', () => {
-    render(<SettingsView onClose={() => {}} />)
+    render(<SettingsView onClose={() => {}} onOpenProposals={vi.fn()} />)
     const nav = screen.getByRole('navigation', { name: 'Settings sections' })
     for (const g of ['App', 'Knowledge', 'System']) expect(nav).toHaveTextContent(g)
   })
 
   it('sidebar lists Defect corpus under the Knowledge group, beside Team', () => {
-    render(<SettingsView onClose={() => {}} />)
+    render(<SettingsView onClose={() => {}} onOpenProposals={vi.fn()} />)
     const nav = screen.getByRole('navigation', { name: 'Settings sections' })
     // Walk the nav's direct children in order, tracking the most recent group heading seen —
     // a heading only renders when the group changes (see SettingsView's Fragment map), so the
@@ -284,7 +290,9 @@ describe('SettingsView', () => {
   it('falls back to General for an unrecognised initialPage', () => {
     // OnboardingProvider deep-links via `target as PageId`, so a stale 'tools'
     // target is a runtime value the type system never sees.
-    render(<SettingsView onClose={() => {}} initialPage={'tools' as never} />)
+    render(
+      <SettingsView onClose={() => {}} initialPage={'tools' as never} onOpenProposals={vi.fn()} />
+    )
     const general = screen
       .getByRole('navigation', { name: 'Settings sections' })
       .querySelector('button')
@@ -292,21 +300,21 @@ describe('SettingsView', () => {
   })
 
   it('clicking Health renders the health page', async () => {
-    render(<SettingsView onClose={vi.fn()} />)
+    render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     fireEvent.click(screen.getByRole('button', { name: /^Health$/ }))
     expect(await screen.findByText('Health checks')).toBeTruthy()
   })
 
   it('clicking Connectors renders the connectors page', async () => {
-    render(<SettingsView onClose={vi.fn()} />)
+    render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     fireEvent.click(screen.getByRole('button', { name: /Connectors/ }))
     expect(await screen.findByRole('button', { name: /add connector/i })).toBeTruthy()
   })
 
   it('clicking Sources renders SourcesPage', async () => {
-    render(<SettingsView onClose={vi.fn()} />)
+    render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     fireEvent.click(screen.getByRole('button', { name: /^Sources$/ }))
     expect(await screen.findByText('Installed Packs')).toBeTruthy()
@@ -314,7 +322,7 @@ describe('SettingsView', () => {
   })
 
   it('Team renders HivemindSettings only — DefectCorpusSettings moved to its own page', async () => {
-    render(<SettingsView onClose={vi.fn()} />)
+    render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     fireEvent.click(screen.getByRole('button', { name: /^Team$/ }))
     expect(await screen.findByLabelText('HiveMind repo')).toBeInTheDocument()
@@ -322,7 +330,7 @@ describe('SettingsView', () => {
   })
 
   it('clicking Defect corpus renders DefectCorpusSettings, not HivemindSettings', async () => {
-    render(<SettingsView onClose={vi.fn()} />)
+    render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     fireEvent.click(screen.getByRole('button', { name: /^Defect corpus$/ }))
     expect(await screen.findByText('Defect corpus sources')).toBeInTheDocument()
@@ -331,7 +339,7 @@ describe('SettingsView', () => {
 
   it('Escape calls onClose', async () => {
     const onClose = vi.fn()
-    render(<SettingsView onClose={onClose} />)
+    render(<SettingsView onClose={onClose} onOpenProposals={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(onClose).toHaveBeenCalled()
@@ -343,7 +351,7 @@ describe('SettingsView', () => {
     // wizard is opened over it via "rerun setup".
     render(
       <>
-        <SettingsView onClose={onClose} />
+        <SettingsView onClose={onClose} onOpenProposals={vi.fn()} />
         <SetupWizard onComplete={vi.fn()} onDismiss={vi.fn()} />
       </>
     )
@@ -354,7 +362,7 @@ describe('SettingsView', () => {
 
   it('Escape closes settings when no wizard is open', async () => {
     const onClose = vi.fn()
-    render(<SettingsView onClose={onClose} />)
+    render(<SettingsView onClose={onClose} onOpenProposals={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     await userEvent.keyboard('{Escape}')
     expect(onClose).toHaveBeenCalledTimes(1)
@@ -373,7 +381,7 @@ describe('SettingsView', () => {
    */
   it('Escape closes an open SelectField popup without closing Settings', async () => {
     const onClose = vi.fn()
-    render(<SettingsView onClose={onClose} />)
+    render(<SettingsView onClose={onClose} onOpenProposals={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     const theme = screen.getByRole('combobox', { name: 'Theme' })
     fireEvent.click(theme)
@@ -390,7 +398,7 @@ describe('SettingsView', () => {
 
   it('shows a load-error banner with an Open file action', async () => {
     currentPayload = payload({ loadError: 'Unexpected token' })
-    render(<SettingsView onClose={vi.fn()} />)
+    render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('could not be parsed')
     fireEvent.click(screen.getByRole('button', { name: 'Open file' }))
@@ -399,28 +407,26 @@ describe('SettingsView', () => {
 
   it('a save-failure loadError renders its own message, not the parse-failure copy', async () => {
     currentPayload = payload({ loadError: 'settings save failed: EACCES' })
-    render(<SettingsView onClose={vi.fn()} />)
+    render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
     const alert = await screen.findByRole('alert')
     expect(screen.queryByText(/could not be parsed/)).toBeNull()
     expect(alert.textContent).toContain('settings save failed: EACCES')
   })
 
-  it('sidebar shows Proposals with a pending-count badge', async () => {
-    window.argus.proposals = {
-      list: vi.fn(async () => ({ proposals: [{ type: 'skill-new' }, { type: 'recipe' }] })),
-      onChanged: vi.fn(() => () => {})
-    } as never
-    render(<SettingsView onClose={vi.fn()} />)
-    const btn = await screen.findByRole('button', { name: /Proposals/ })
-    await waitFor(() => expect(btn).toHaveTextContent('2'))
+  // Task 7: the Proposals page and its nav badge left Settings entirely — Library's banner
+  // and the knowledge strip now escalate straight to App's standalone Proposals view instead
+  // of navigating to an in-Settings page, so there is no sidebar badge left to assert on.
+  it("the Library page's knowledge strip escalates the Proposals step out of Settings", async () => {
+    const onOpenProposals = vi.fn()
+    render(
+      <SettingsView onClose={vi.fn()} initialPage={'library'} onOpenProposals={onOpenProposals} />
+    )
+    const strip = await screen.findByRole('navigation', { name: 'Knowledge flow' })
+    fireEvent.click(within(strip).getByRole('button', { name: /Proposals/ }))
+    expect(onOpenProposals).toHaveBeenCalledWith()
   })
 
-  it('visiting Proposals via the sidebar after a banner preset clears the stale filter', async () => {
-    // Regression: ProposalsPage seeded its chip-filter state from initialTypes in a
-    // useState initializer only. Clicking the sidebar's own "Proposals" entry while
-    // already on the (preset-filtered) Proposals page called setProposalTypes(undefined)
-    // without remounting the page, so the stale filter chip stayed pressed. The fix keys
-    // <ProposalsPage> on the preset so a changed preset forces a remount.
+  it("the Library banner's Review button escalates to onOpenProposals with the library preset", async () => {
     window.argus.proposals = {
       list: vi.fn(async () => ({
         proposals: [
@@ -439,28 +445,16 @@ describe('SettingsView', () => {
       })),
       onChanged: vi.fn(() => () => {})
     } as never
-    render(<SettingsView onClose={vi.fn()} />)
-    await screen.findByRole('button', { name: /General/ })
-
-    // Go to Library and use the banner's "Review ->" to open Proposals pre-filtered.
-    fireEvent.click(screen.getByRole('button', { name: /^Library$/ }))
+    const onOpenProposals = vi.fn()
+    render(
+      <SettingsView onClose={vi.fn()} initialPage={'library'} onOpenProposals={onOpenProposals} />
+    )
     fireEvent.click(await screen.findByRole('button', { name: /Review/ }))
-
-    const chip = await screen.findByRole('button', { name: 'Filter Skill · new' })
-    expect(chip).toHaveAttribute('aria-pressed', 'true')
-
-    // Now click the sidebar's own Proposals entry while already on the Proposals page.
-    // (The pending-count badge is aria-hidden, so the accessible name stays exactly "Proposals".
-    // Scoped to the nav: the knowledge-flow strip on this same page also links to "Proposals".)
-    const nav = screen.getByRole('navigation', { name: 'Settings sections' })
-    fireEvent.click(within(nav).getByRole('button', { name: 'Proposals' }))
-
-    const chipAfter = await screen.findByRole('button', { name: 'Filter Skill · new' })
-    expect(chipAfter).toHaveAttribute('aria-pressed', 'false')
+    expect(onOpenProposals).toHaveBeenCalledWith(LIBRARY_TYPES)
   })
 
   it("alias: initialPage 'skills' lands on Library filtered to skills", async () => {
-    render(<SettingsView onClose={vi.fn()} initialPage={'skills'} />)
+    render(<SettingsView onClose={vi.fn()} initialPage={'skills'} onOpenProposals={vi.fn()} />)
     const lib = await screen.findByRole('button', { name: 'Library' })
     expect(lib.className).toContain('bg-hi')
     expect(await screen.findByRole('button', { name: 'Filter kind · skill' })).toHaveAttribute(
@@ -470,7 +464,7 @@ describe('SettingsView', () => {
   })
 
   it("alias: initialPage 'references' lands on Library filtered to references", async () => {
-    render(<SettingsView onClose={vi.fn()} initialPage={'references'} />)
+    render(<SettingsView onClose={vi.fn()} initialPage={'references'} onOpenProposals={vi.fn()} />)
     expect(await screen.findByRole('button', { name: 'Filter kind · reference' })).toHaveAttribute(
       'aria-pressed',
       'true'
@@ -478,10 +472,12 @@ describe('SettingsView', () => {
   })
 
   it("alias: 'hivemind' → Team and 'packs' → Sources", async () => {
-    const { unmount } = render(<SettingsView onClose={vi.fn()} initialPage={'hivemind'} />)
+    const { unmount } = render(
+      <SettingsView onClose={vi.fn()} initialPage={'hivemind'} onOpenProposals={vi.fn()} />
+    )
     expect((await screen.findByRole('button', { name: 'Team' })).className).toContain('bg-hi')
     unmount()
-    render(<SettingsView onClose={vi.fn()} initialPage={'packs'} />)
+    render(<SettingsView onClose={vi.fn()} initialPage={'packs'} onOpenProposals={vi.fn()} />)
     expect((await screen.findByRole('button', { name: 'Sources' })).className).toContain('bg-hi')
     expect(await screen.findByText('Installed Packs')).toBeInTheDocument()
   })
@@ -491,9 +487,9 @@ describe('SettingsView', () => {
     // deep link fired while Settings is open (onboarding "configure in Settings",
     // tour, gotoSettings) only changes the prop — the view must follow it.
     const onClose = vi.fn()
-    const { rerender } = render(<SettingsView onClose={onClose} />)
+    const { rerender } = render(<SettingsView onClose={onClose} onOpenProposals={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
-    rerender(<SettingsView onClose={onClose} initialPage={'health'} />)
+    rerender(<SettingsView onClose={onClose} initialPage={'health'} onOpenProposals={vi.fn()} />)
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /^Health$/ }).className).toContain('bg-hi')
     )
@@ -502,9 +498,9 @@ describe('SettingsView', () => {
 
   it('a legacy-alias deep link while open lands on Library with the kind preset', async () => {
     const onClose = vi.fn()
-    const { rerender } = render(<SettingsView onClose={onClose} />)
+    const { rerender } = render(<SettingsView onClose={onClose} onOpenProposals={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
-    rerender(<SettingsView onClose={onClose} initialPage={'skills'} />)
+    rerender(<SettingsView onClose={onClose} initialPage={'skills'} onOpenProposals={vi.fn()} />)
     // Scoped to the nav: the knowledge-flow strip on the Library page also says "Library".
     const nav = screen.getByRole('navigation', { name: 'Settings sections' })
     expect((await within(nav).findByRole('button', { name: 'Library' })).className).toContain(
@@ -517,7 +513,7 @@ describe('SettingsView', () => {
   })
 
   it('knowledge strip steps navigate, and the strip follows to Team', async () => {
-    render(<SettingsView onClose={vi.fn()} initialPage={'library'} />)
+    render(<SettingsView onClose={vi.fn()} initialPage={'library'} onOpenProposals={vi.fn()} />)
     // The strip's own Team step — matched on its hint so this can never pick up the sidebar's
     // Team nav item, whose accessible name is the bare word.
     await userEvent.click(await screen.findByRole('button', { name: /share to the hive/ }))
@@ -530,7 +526,7 @@ describe('SettingsView', () => {
   })
 
   it('hides the knowledge strip on a page outside the loop', async () => {
-    render(<SettingsView onClose={vi.fn()} initialPage={'general'} />)
+    render(<SettingsView onClose={vi.fn()} initialPage={'general'} onOpenProposals={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     expect(screen.queryByRole('navigation', { name: 'Knowledge flow' })).not.toBeInTheDocument()
   })
@@ -541,7 +537,7 @@ describe('SettingsView', () => {
     // settingsBarStore; these assertions read that back instead of a DOM node that no longer
     // exists here.
     it('publishes the active page title and blurb on initial mount', async () => {
-      render(<SettingsView onClose={vi.fn()} />)
+      render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
       await screen.findByRole('button', { name: /General/ })
       await waitFor(() => expect(settingsBarStore.get()?.label).toBe('General'))
       expect(settingsBarStore.get()?.blurb).toBeTruthy()
@@ -551,20 +547,20 @@ describe('SettingsView', () => {
     // The wordmark moved to the top bar's home button; a second copy here would put two brand
     // marks in one window.
     it('carries no wordmark of its own', async () => {
-      render(<SettingsView onClose={vi.fn()} />)
+      render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
       await screen.findByRole('button', { name: /General/ })
       expect(screen.queryByText('ARGUS')).toBeNull()
     })
 
     it('clears the store on unmount', async () => {
-      const { unmount } = render(<SettingsView onClose={vi.fn()} />)
+      const { unmount } = render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
       await waitFor(() => expect(settingsBarStore.get()?.label).toBe('General'))
       unmount()
       expect(settingsBarStore.get()).toBeNull()
     })
 
     it('follows the active page when switching via the nav', async () => {
-      render(<SettingsView onClose={vi.fn()} />)
+      render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
       await screen.findByRole('button', { name: /General/ })
       fireEvent.click(screen.getByRole('button', { name: /^Health$/ }))
       await waitFor(() => expect(settingsBarStore.get()?.label).toBe('Health'))
@@ -573,19 +569,21 @@ describe('SettingsView', () => {
 
     it('follows a deep link that arrives while Settings is already open', async () => {
       const onClose = vi.fn()
-      const { rerender } = render(<SettingsView onClose={onClose} />)
+      const { rerender } = render(<SettingsView onClose={onClose} onOpenProposals={vi.fn()} />)
       await screen.findByRole('button', { name: /General/ })
-      rerender(<SettingsView onClose={onClose} initialPage={'health'} />)
+      rerender(<SettingsView onClose={onClose} initialPage={'health'} onOpenProposals={vi.fn()} />)
       await waitFor(() => expect(settingsBarStore.get()?.label).toBe('Health'))
     })
 
     it('follows a legacy-alias deep link (hivemind -> Team)', async () => {
-      render(<SettingsView onClose={vi.fn()} initialPage={'hivemind'} />)
+      render(<SettingsView onClose={vi.fn()} initialPage={'hivemind'} onOpenProposals={vi.fn()} />)
       await waitFor(() => expect(settingsBarStore.get()?.label).toBe('Team'))
     })
 
     it('falls back to General, not undefined, for an unrecognised initialPage', async () => {
-      render(<SettingsView onClose={vi.fn()} initialPage={'tools' as never} />)
+      render(
+        <SettingsView onClose={vi.fn()} initialPage={'tools' as never} onOpenProposals={vi.fn()} />
+      )
       await waitFor(() => expect(settingsBarStore.get()?.label).toBe('General'))
     })
 
@@ -597,7 +595,7 @@ describe('SettingsView', () => {
         activeOverrideIds: [],
         loadError: null
       }))
-      render(<SettingsView onClose={vi.fn()} />)
+      render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
       await screen.findByRole('button', { name: /General/ })
       fireEvent.click(screen.getByRole('button', { name: /^Prompts$/ }))
       await waitFor(() => expect(settingsBarStore.get()?.label).toBe('Prompts'))

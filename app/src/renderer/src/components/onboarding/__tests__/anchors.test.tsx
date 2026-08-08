@@ -55,7 +55,7 @@ beforeEach(() => {
 
 describe('settings tab anchors', () => {
   it('memory/skills/references/hivemind tabs carry onboarding anchors', () => {
-    const { container } = render(<SettingsView onClose={vi.fn()} />)
+    const { container } = render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
     for (const id of [
       'settings-memory',
       'settings-library',

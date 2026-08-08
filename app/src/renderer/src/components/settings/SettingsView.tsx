@@ -1,7 +1,6 @@
 import { Fragment, useEffect, useState, useSyncExternalStore } from 'react'
 import { visiblePages, type PageId } from './settingsPages'
 import { useSettingsPayload } from '../../lib/settingsStore'
-import { useProposalCounts } from '../../lib/proposalsStore'
 import { useEscapeLayer } from '../../lib/escapeLayer'
 import { settingsBarStore } from '../../lib/settingsBarStore'
 import { uiStore } from '../../lib/uiStore'
@@ -12,7 +11,6 @@ import { ConnectorsSettings } from './ConnectorsSettings'
 import { HealthSettings } from './HealthSettings'
 import DiagnosticsSettings from './DiagnosticsSettings'
 import { MemorySettings } from './MemorySettings'
-import { ProposalsPage } from './ProposalsPage'
 import { LibraryPage, type LibraryKind } from './LibraryPage'
 import { SourcesPage } from './SourcesPage'
 import { HivemindSettings } from './HivemindSettings'
@@ -36,7 +34,10 @@ const LEGACY_PAGES = {
   packs: { page: 'sources' }
 } as const satisfies Record<string, { page: PageId; kind?: LibraryKind }>
 export type LegacyPageId = keyof typeof LEGACY_PAGES
-export type SettingsDeepLink = PageId | LegacyPageId
+/** 'proposals' is no longer a `PageId` — the page moved to a top-level App view (Task 6/7) — but
+ *  it stays a valid deep-link value: App intercepts it before SettingsView ever sees it, and
+ *  `resolveDeepLink`'s fallback to 'general' is the defense if one leaks through anyway. */
+export type SettingsDeepLink = PageId | LegacyPageId | 'proposals'
 
 function resolveDeepLink(
   p: string | undefined,
@@ -52,14 +53,14 @@ function resolveDeepLink(
 const ANCHOR: Partial<Record<PageId, string>> = {
   memory: 'settings-memory',
   library: 'settings-library',
-  team: 'settings-team',
-  proposals: 'settings-proposals'
+  team: 'settings-team'
 }
 
 export function SettingsView({
   onClose,
   initialPage,
-  onOpenObservability
+  onOpenObservability,
+  onOpenProposals
 }: {
   onClose: () => void
   initialPage?: SettingsDeepLink
@@ -68,6 +69,10 @@ export function SettingsView({
    *  down rather than owned here. Optional only so the many tests that never touch that page
    *  don't have to supply it. */
   onOpenObservability?: () => void
+  /** Wired to App's `gotoProposals` (Task 6/7) — Proposals is a full-page view now, not settings
+   *  content, so opening it (optionally pre-filtered, from Library's banner or the knowledge
+   *  strip) is the app's job rather than a page this view renders itself. */
+  onOpenProposals: (types?: readonly ProposalType[]) => void
 }): React.JSX.Element {
   // Read before the deep link resolves: the dev-tools gate decides which pages a link may
   // reach, so `payload` has to be in hand first.
@@ -80,9 +85,7 @@ export function SettingsView({
   const devTools = Boolean(payload?.devTools)
   const init = resolveDeepLink(initialPage, devTools)
   const [page, setPage] = useState<PageId>(init.page)
-  const [proposalTypes, setProposalTypes] = useState<readonly ProposalType[] | undefined>(undefined)
   const [libraryKind, setLibraryKind] = useState<LibraryKind | undefined>(init.kind)
-  const counts = useProposalCounts()
   const pages = visiblePages(devTools)
   // `pages`, not PAGES: an active page that the dev gate would hide must still fall back to
   // pages[0] rather than land on undefined (resolveDeepLink already keeps `page` inside
@@ -108,21 +111,14 @@ export function SettingsView({
   if (initialPage !== lastDeepLink) {
     setLastDeepLink(initialPage)
     const next = resolveDeepLink(initialPage, devTools)
-    setProposalTypes(undefined)
     setLibraryKind(next.kind)
     setPage(next.page)
   }
 
   /** All internal navigation funnels through here so page presets never leak across pages. */
   function goTo(p: PageId): void {
-    setProposalTypes(undefined)
     setLibraryKind(undefined)
     setPage(p)
-  }
-
-  function openProposals(types: readonly ProposalType[]): void {
-    setProposalTypes(types)
-    setPage('proposals')
   }
 
   return (
@@ -168,14 +164,6 @@ export function SettingsView({
             >
               <p.Icon size={15} strokeWidth={1.5} className="shrink-0" />
               <span className="flex-1">{p.label}</span>
-              {p.id === 'proposals' && (counts?.pendingCount ?? 0) > 0 && (
-                <span
-                  aria-hidden="true"
-                  className="rounded-full bg-signal/15 px-1.5 font-mono text-[10px] text-signal"
-                >
-                  {counts!.pendingCount}
-                </span>
-              )}
               {!p.enabled && (
                 <span className="font-mono text-[9px] uppercase tracking-wide text-faint">
                   soon
@@ -209,11 +197,16 @@ export function SettingsView({
             </div>
           )}
           <OverrideBanner devTools={devTools} />
-          {/* Team joins Library and Proposals now that the strip reports position rather than
-              explaining the pipeline: Team IS one of the three steps, and it was the one page
-              in the loop that never showed where it sat in it. */}
-          {(page === 'library' || page === 'proposals' || page === 'team') && (
-            <KnowledgeFlowStrip current={page} onNavigate={goTo} />
+          {/* Team joins Library now that the strip reports position rather than explaining the
+              pipeline: Team IS one of the three steps, and it was the one page in the loop that
+              never showed where it sat in it. Proposals is still a step the strip can link to
+              (`onNavigate` escalates it out to `onOpenProposals`), but it is no longer a page
+              this view renders, so it drops out of the render condition itself (Task 7). */}
+          {(page === 'library' || page === 'team') && (
+            <KnowledgeFlowStrip
+              current={page}
+              onNavigate={(p) => (p === 'proposals' ? onOpenProposals() : goTo(p))}
+            />
           )}
           {payload && page === 'general' && <GeneralSettings payload={payload} />}
           {payload && page === 'agent' && <AgentSettings payload={payload} />}
@@ -221,20 +214,12 @@ export function SettingsView({
           {page === 'diagnostics' && <DiagnosticsSettings />}
           {page === 'connectors' && <ConnectorsSettings />}
           {page === 'routines' && <RoutinesPage />}
-          {page === 'proposals' && (
-            <ProposalsPage
-              // Remount on preset change (see Tier-1 rationale): wipes transient state deliberately.
-              key={proposalTypes?.join(',') ?? 'all'}
-              initialTypes={proposalTypes}
-              onOpenHivemind={() => goTo('team')}
-            />
-          )}
           {page === 'library' && (
             <LibraryPage
-              // Same remount idiom as ProposalsPage: an alias/banner preset forces a fresh page.
+              // Remount idiom (see Tier-1 rationale): an alias/banner preset forces a fresh page.
               key={libraryKind ?? 'all'}
               initialKind={libraryKind}
-              onReviewProposals={openProposals}
+              onReviewProposals={(types) => onOpenProposals(types)}
             />
           )}
           {payload && page === 'team' && <HivemindSettings payload={payload} />}

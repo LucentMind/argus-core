@@ -8,7 +8,6 @@ import {
   BookMarked,
   Gauge,
   Package,
-  Inbox,
   Braces,
   Activity,
   DatabaseZap,
@@ -57,14 +56,6 @@ export const PAGES = [
     enabled: true,
     Icon: Repeat,
     blurb: 'Saved unattended tasks: define a prompt, run it on demand, review what each run did.'
-  },
-  {
-    id: 'proposals',
-    label: 'Proposals',
-    group: 'Knowledge',
-    enabled: true,
-    Icon: Inbox,
-    blurb: 'Proposals the agent drafted during sessions or case distillation, awaiting your review.'
   },
   {
     id: 'library',
