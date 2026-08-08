@@ -163,6 +163,12 @@ export interface JiraIssueData {
   raw: unknown
 }
 
+/** One page of a JQL search. `nextPageToken` is null on the last page. */
+export interface JiraSearchPage {
+  issues: Array<{ key: string; created: string; updated: string }>
+  nextPageToken: string | null
+}
+
 const REST_TIMEOUT_MS = 15000
 
 const DOWNLOAD_IDLE_MS = 60000 // default 60s of no progress → abort
@@ -396,6 +402,53 @@ export class AtlassianClient {
       attachments
     }
     return { preview, descriptionMarkdown: adfToMarkdown(f.description), raw }
+  }
+
+  /**
+   * JQL search — the only thing on this client a routine's scope resolver calls.
+   *
+   * `/rest/api/3/search/jql` with a page token, not the deprecated offset-based
+   * `/rest/api/3/search`. This shape is documented, not observed: the Task 6 live-instance
+   * spike (plan step) could not run in this environment (no Atlassian credentials available),
+   * so the endpoint path, the `nextPageToken` field name, and the presence of `fields.created`
+   * are unverified assumptions taken from Jira Cloud's published docs, not a captured
+   * response. Treat them as unconfirmed until the live exit-check runs against a real
+   * instance — do not "correct" this shape from the SDK types or the docs without capturing
+   * a real response first.
+   *
+   * Returns only the key and the two cursor fields. Everything else a routine needs about a
+   * ticket comes from the existing ingest path, which already fetches the full issue — asking
+   * for it twice would double the request volume of a nightly sweep for nothing.
+   */
+  async searchIssues(
+    jql: string,
+    opts: { maxResults?: number; pageToken?: string }
+  ): Promise<JiraSearchPage> {
+    const params = new URLSearchParams({
+      fields: 'created,updated',
+      maxResults: String(opts.maxResults ?? 50)
+    })
+    if (opts.pageToken) params.set('nextPageToken', opts.pageToken)
+    // jql is appended via encodeURIComponent rather than folded into URLSearchParams: the
+    // latter's form-encoding turns spaces into `+`, not `%20`, which is a perfectly valid
+    // query string but makes the raw request URL harder to eyeball/diff in logs.
+    const res = await this.request(
+      `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&${params.toString()}`
+    )
+    const body = await this.parseJson<{
+      issues?: Array<{ key: string; fields?: { created?: string; updated?: string } }>
+      nextPageToken?: string
+    }>(res)
+    return {
+      issues: (body.issues ?? []).map((i) => ({
+        key: i.key,
+        // A missing fields block is not worth failing a whole nightly sweep over; the empty
+        // string sorts before every real timestamp, so such an item is simply processed first.
+        created: i.fields?.created ?? '',
+        updated: i.fields?.updated ?? ''
+      })),
+      nextPageToken: body.nextPageToken ?? null
+    }
   }
 
   /** All comments on an issue, oldest first; paginated so long threads are never truncated. */

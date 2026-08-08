@@ -448,6 +448,68 @@ describe('getComments', () => {
   })
 })
 
+describe('searchIssues', () => {
+  const ARES_JIRA = (): Response =>
+    new Response(
+      JSON.stringify([{ id: 'c1', url: 'https://x.atlassian.net', scopes: ['read:jira-work'] }]),
+      { status: 200 }
+    )
+
+  // This file has no `clientWithResponses` helper (that name doesn't exist anywhere in the
+  // repo) — its real per-describe-block convention is a local fake fetch that answers OAuth
+  // discovery, then returns a single fixed status/body for the call under test, recording
+  // every URL seen. Mirrors the `getComments` describe block above.
+  const searchClient = (
+    status: number,
+    body: unknown
+  ): { client: AtlassianClient; calls: string[] } => {
+    const calls: string[] = []
+    const fakeFetch = (async (url: string) => {
+      calls.push(String(url))
+      if (String(url).includes('accessible-resources')) return ARES_JIRA()
+      return new Response(JSON.stringify(body), { status })
+    }) as unknown as typeof fetch
+    return { client: new AtlassianClient(oauthFixture, fakeFetch), calls }
+  }
+
+  it('returns keys with their cursor fields and the next page token', async () => {
+    const { client, calls } = searchClient(200, {
+      issues: [
+        { key: 'ABC-1', fields: { created: '2026-08-01T10:00:00.000+0000', updated: 'u1' } },
+        { key: 'ABC-2', fields: { created: '2026-08-01T11:00:00.000+0000', updated: 'u2' } }
+      ],
+      nextPageToken: 'tok'
+    })
+    const page = await client.searchIssues('project = ABC', { maxResults: 2 })
+    expect(page.issues).toEqual([
+      { key: 'ABC-1', created: '2026-08-01T10:00:00.000+0000', updated: 'u1' },
+      { key: 'ABC-2', created: '2026-08-01T11:00:00.000+0000', updated: 'u2' }
+    ])
+    expect(page.nextPageToken).toBe('tok')
+    const searchCall = calls.find((c) => c.includes('/rest/api/3/search/jql'))
+    expect(searchCall).toBeDefined()
+    expect(searchCall).toContain(encodeURIComponent('project = ABC'))
+  })
+
+  it('reports no next page as null rather than undefined', async () => {
+    const { client } = searchClient(200, { issues: [] })
+    const page = await client.searchIssues('project = ABC', {})
+    expect(page.nextPageToken).toBeNull()
+    expect(page.issues).toEqual([])
+  })
+
+  it('tolerates an issue whose fields block is missing', async () => {
+    const { client } = searchClient(200, { issues: [{ key: 'ABC-3' }] })
+    const page = await client.searchIssues('project = ABC', {})
+    expect(page.issues).toEqual([{ key: 'ABC-3', created: '', updated: '' }])
+  })
+
+  it('surfaces an invalid JQL as an AtlassianError the run can record', async () => {
+    const { client } = searchClient(400, { errorMessages: ["Field 'nope' does not exist"] })
+    await expect(client.searchIssues('nope = 1', {})).rejects.toBeInstanceOf(AtlassianError)
+  })
+})
+
 describe('jiraBrowseUrl', () => {
   it('joins site url and issue key', () => {
     expect(jiraBrowseUrl('https://acme.atlassian.net', 'NAV-7')).toBe(
