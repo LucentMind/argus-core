@@ -213,7 +213,7 @@ describe('ProviderModels runtime catalog (Claude instance)', () => {
     // 5 fixture rows, `default`/`opus[1m]` deduped to one -> 4, plus the 3 built-ins the
     // fixture's alias menu never names (fable/sonnet/haiku already cover their built-ins)
     expect(await screen.findByText('Models · 7 available')).toBeTruthy()
-    expect(screen.getByText('Claude Opus 5 (1M)')).toBeTruthy()
+    expect(screen.getByText('Claude Opus 5')).toBeTruthy()
     expect(screen.getByText('Claude Fable 5')).toBeTruthy()
     expect(screen.getByText('Claude Sonnet 5')).toBeTruthy()
     expect(screen.getByText('Claude Haiku 4.5')).toBeTruthy()
@@ -226,7 +226,7 @@ describe('ProviderModels runtime catalog (Claude instance)', () => {
     expect(screen.queryByText('Fable')).toBeNull()
     expect(screen.queryByText('Sonnet')).toBeNull()
     // and the dedupe really did collapse to one row, not just hide a duplicate visually
-    expect(screen.getAllByText('Claude Opus 5 (1M)')).toHaveLength(1)
+    expect(screen.getAllByText('Claude Opus 5')).toHaveLength(1)
   })
 
   it('a non-Claude instance keeps its static catalog unchanged, even if a catalog fetch is mocked', async () => {
@@ -251,7 +251,7 @@ describe('ProviderModels runtime catalog (Claude instance)', () => {
     // a "Claude Haiku 4.5" row before the catalog resolves) — otherwise `findByLabelText`
     // below can resolve against the STATIC list's button, which is then unmounted out from
     // under the click once the catalog effect lands.
-    await screen.findByText('Claude Opus 5 (1M)')
+    await screen.findByText('Claude Opus 5')
     fireEvent.click(screen.getByLabelText('Hide Claude Haiku 4.5'))
     expect(window.argus.settings.patch).toHaveBeenCalledWith({
       agent: {
@@ -277,7 +277,7 @@ describe('ProviderModels runtime catalog (Claude instance)', () => {
     // fallback also has a row literally named "Claude Sonnet 5", which would let this
     // assertion pass by coincidence against the PRE-catalog render instead of actually
     // exercising translatePreferences against the alias-keyed row).
-    await screen.findByText('Claude Opus 5 (1M)')
+    await screen.findByText('Claude Opus 5')
     const row = screen.getByText('Claude Sonnet 5')
     expect(row.className).toMatch(/line-through/)
     expect(screen.getByText('hidden')).toBeTruthy()
@@ -289,7 +289,7 @@ describe('ProviderModels runtime catalog (Claude instance)', () => {
     // Settle on the loaded catalog first — see the earlier tests' comment on why a
     // catalog-only name (not "Claude Fable 5", which the static fallback also renders) is
     // the right thing to wait for here.
-    await screen.findByText('Claude Opus 5 (1M)')
+    await screen.findByText('Claude Opus 5')
     // the row's own slug is the alias `fable`; a user typing the wire slug this alias
     // resolves to must still be caught as a duplicate, not silently accepted then dropped
     fireEvent.change(screen.getByLabelText('Add custom model slug'), {

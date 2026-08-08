@@ -656,20 +656,69 @@ function prettifyModelSlug(id: string): string {
 }
 
 /**
+ * The static row a 1M-pinning catalog alias is the 1M variant OF, when we ship one.
+ *
+ * `opus[1m]` resolves to `claude-opus-5[1m]`; this returns the `claude-opus-5` row. Undefined
+ * for every other alias, and — critically — for a model we ship no static row for: there the
+ * bare wire slug is an ASSUMPTION, and {@link CLAUDE_MODEL_SPECS} is the only place that
+ * records a slug actually having been run. Opus 5's entry there carries the 2026-08-02
+ * measurement that the bare slug runs (`modelUsage: {"claude-opus-5"}`), which is the whole
+ * warrant for {@link pinSlugFor} handing it out.
+ *
+ * A custom row cannot reach this: `customModelRows` sets no `resolvedModel`, so a hand-added
+ * `claude-sonnet-5[1m]` stays exactly what the user typed. That is deliberate — the suffix
+ * there is a choice, not an artefact of how the CLI happens to key its catalog.
+ */
+function oneMillionAliasBase(resolvedModel: string | undefined): CatalogModel | undefined {
+  if (resolvedModel === undefined || !resolvedModel.endsWith('[1m]')) return undefined
+  const bareModel = resolvedModel.slice(0, -'[1m]'.length)
+  return CLAUDE_MODELS.find((m) => resolvesToId(bareModel, m.slug))
+}
+
+/**
+ * The slug to PIN when the user picks this row — which is NOT always the row's own `slug`.
+ *
+ * The CLI's only Opus 5 alias is `opus[1m]`, so picking that row used to pin the session at
+ * the `[1m]` suffix. `apiModelId` cannot take a suffix back off, so Context Window collapsed
+ * to a single inert "1M" position and every send went out at 1M — while the chip, matched
+ * back to the same row, read "Claude Opus 5 (1M)" whatever the session was really pinned to.
+ * A session pinned to the bare slug therefore showed a (1M) name over a 200k run.
+ *
+ * The cause was context window being represented TWICE: once inside the model's identity
+ * (the suffix, and the ` (1M)` name it earned) and once as a run option. This makes the run
+ * option the only representation — pin the bare slug, and let `apiModelId` add the suffix
+ * back when, and only when, the user asks for 1M.
+ *
+ * Row IDENTITY is untouched: `slug` stays the CLI alias and `resolvedModel` stays as reported,
+ * so a session already pinned to `opus[1m]` still matches this row (`modelMatches` compares
+ * against `value`) and still, correctly, reports 1M — it really is pinned there. Rewriting the
+ * row's own `slug` instead would have orphaned exactly those sessions, since neither `opus[1m]`
+ * nor its bare form `opus` matches `claude-opus-5`.
+ */
+export function pinSlugFor(m: CatalogModel): string {
+  return oneMillionAliasBase(m.resolvedModel)?.slug ?? m.slug
+}
+
+/**
  * The name to show for a runtime catalog row, derived from `resolvedModel` (the actual wire
  * slug) rather than the CLI's own `displayName` — the terse alias label ("Opus (1M context)",
  * "Fable", "Sonnet") is unrecognisable next to the model names everywhere else in the app.
  *
- * A trailing `[1m]` is stripped before matching (it names a context-window variant, not a
- * different model) and reapplied as a ` (1M)` suffix on the result — that distinction is real
- * and worth keeping visible, unlike the alias itself.
+ * A trailing `[1m]` is stripped before matching, since it names a context-window variant
+ * rather than a different model. It is reapplied as a ` (1M)` suffix ONLY when we ship no
+ * static row for the bare model — there the row genuinely does pin 1M (see {@link pinSlugFor},
+ * which can only hand out a slug it has evidence for) and the name must say so. Where the
+ * suffix is now dropped at pin time, keeping it in the name would restate a context window the
+ * Traits chip already reports, and restate it wrongly.
  */
 function displayNameForResolved(resolvedModel: string): string {
+  const base = oneMillionAliasBase(resolvedModel)
+  if (base) return base.name
   const isOneM = resolvedModel.endsWith('[1m]')
   const bareModel = isOneM ? resolvedModel.slice(0, -'[1m]'.length) : resolvedModel
   const known = CLAUDE_MODELS.find((m) => resolvesToId(bareModel, m.slug))
-  const base = known ? known.name : prettifyModelSlug(bareModel)
-  return isOneM ? `${base} (1M)` : base
+  const name = known ? known.name : prettifyModelSlug(bareModel)
+  return isOneM ? `${name} (1M)` : name
 }
 
 /**

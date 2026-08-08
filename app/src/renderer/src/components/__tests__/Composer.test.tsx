@@ -208,9 +208,9 @@ describe('Composer', () => {
         }}
       />
     )
-    // catalog-only row, not present in the static CLAUDE_MODELS list at all
-    expect(await screen.findByText('Claude Opus 5 (1M)')).toBeTruthy()
-    fireEvent.click(screen.getByText('Claude Opus 5 (1M)'))
+    // the alias row, named from its resolvedModel rather than the CLI's own displayName
+    expect(await screen.findByText('Claude Opus 5')).toBeTruthy()
+    fireEvent.click(screen.getByText('Claude Opus 5'))
     const menu = screen.getByRole('menu', { name: 'Model' })
     const items = within(menu)
       .getAllByRole('menuitem')
@@ -219,13 +219,15 @@ describe('Composer', () => {
     // against the real CLI: `supportedModels()` omits Opus 4.8/4.7 and Sonnet 4.6, yet each
     // completes a real turn, so a catalog that replaced this list deleted three usable models
     // from the picker a few seconds after launch. See `mergeBuiltinRows`.
-    expect(items[0]).toBe('Claude Opus 5 (1M)')
+    expect(items[0]).toBe('Claude Opus 5')
     expect(items).toContain('Claude Opus 4.7')
     expect(items).toContain('Claude Opus 4.8')
     expect(items).toContain('Claude Sonnet 4.6')
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Claude Opus 5 (1M)' }))
-    // and the catalog-only row still carries the SESSION's own instance identity
-    expect(onModelChange).toHaveBeenCalledWith('claude-default', 'opus[1m]')
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Claude Opus 5' }))
+    // The SESSION's own instance identity, and the BARE wire slug rather than the row's
+    // `opus[1m]` alias: pinning at the suffix froze Context Window on 1M, since `apiModelId`
+    // can add the suffix but never remove one the slug already carries. See `pinSlugFor`.
+    expect(onModelChange).toHaveBeenCalledWith('claude-default', 'claude-opus-5')
   })
 
   it('a loaded catalog for the session instance does not hide OTHER enabled providers (regression: catalog used to replace the whole picker)', async () => {
@@ -271,13 +273,13 @@ describe('Composer', () => {
         }}
       />
     )
-    fireEvent.click(await screen.findByText('Claude Opus 5 (1M) · Claude'))
+    fireEvent.click(await screen.findByText('Claude Opus 5 · Claude'))
     const menu = screen.getByRole('menu', { name: 'Model' })
     const items = within(menu)
       .getAllByRole('menuitem')
       .map((el) => el.textContent)
     // Claude's catalog substitutes its own rows...
-    expect(items).toContain('Claude Opus 5 (1M) · Claude')
+    expect(items).toContain('Claude Opus 5 · Claude')
     // ...but Copilot, a completely different enabled instance, must still be offered —
     // the model picker is how the user switches provider.
     expect(items).toContain('Auto · Copilot')
@@ -373,7 +375,7 @@ describe('Composer', () => {
     expect(items).not.toContain('Claude Sonnet 5')
     // ...without taking the rest of the catalog with it
     expect(items).toContain('Claude Fable 5')
-    expect(items).toContain('Claude Opus 5 (1M)')
+    expect(items).toContain('Claude Opus 5')
   })
 
   it('still offers a custom model for the instance once the runtime catalog loads', async () => {
