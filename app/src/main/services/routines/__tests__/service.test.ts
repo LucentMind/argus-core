@@ -783,6 +783,91 @@ describe('pending queue', () => {
   })
 })
 
+describe('stopForQuit', () => {
+  /** A runTurn that never settles on its own — stands in for a routine still executing when
+   *  the app quits. */
+  const hung = (): { runTurn: (p: BackgroundTurnParams) => Promise<never>; started: string[] } => {
+    const started: string[] = []
+    return {
+      started,
+      runTurn: (p) => {
+        started.push(p.caseSlug)
+        return new Promise<never>(() => {})
+      }
+    }
+  }
+
+  it('closes the running row as failed immediately, instead of leaving it running until the next launch reconciles it', async () => {
+    const h = hung()
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: h.runTurn,
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    expect(svc.payload().runningId).toBe('sweep')
+
+    svc.stopForQuit()
+
+    expect(listRoutineRuns(db)[0]).toMatchObject({ routineId: 'sweep', status: 'failed' })
+    expect(listRoutineRuns(db)[0].error).toMatch(/quit/i)
+    expect(svc.payload().runningId).toBeNull()
+  })
+
+  it('drops everything still waiting in the queue, without opening a run row for any of it', async () => {
+    store.upsert({ id: 'second', name: 'Second', prompt: 'also sweep', timeoutMs: 1000 })
+    const h = hung()
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: h.runTurn,
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    svc.startRun('second')
+    expect(svc.payload().queued).toEqual(['second'])
+
+    svc.stopForQuit()
+
+    expect(svc.payload().queued).toEqual([])
+    // Only sweep (the one actually running) ever opened a row; 'second' never started.
+    expect(listRoutineRuns(db).map((r) => r.routineId)).toEqual(['sweep'])
+  })
+
+  it('is a no-op when nothing is running or queued', () => {
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async () => ({ status: 'ok', text: '' })
+    })
+    expect(() => svc.stopForQuit()).not.toThrow()
+    expect(listRoutineRuns(db)).toEqual([])
+  })
+
+  it('never calls the injected runTurn again and never rejects whenIdle', async () => {
+    // The point of stopForQuit is that it does NOT wait for or interact with the live turn any
+    // further — before-quit must stay synchronous (see whenIdle's own docblock for why quit
+    // cannot block on a run in flight). This only proves stopForQuit itself returns without
+    // touching the promise runTurn already returned; it does not (and cannot) prove the real
+    // agent turn stops executing, because nothing in this engine can cancel one.
+    const h = hung()
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: h.runTurn,
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    expect(() => svc.stopForQuit()).not.toThrow()
+    expect(h.started).toEqual(['routine-sweep'])
+  })
+})
+
 describe('nextRunAt', () => {
   const HOUR = 3_600_000
   /** App boot. Everything below measures the gap between this and the comparison clock. */
