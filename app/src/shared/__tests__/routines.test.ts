@@ -6,7 +6,8 @@ import {
   MAX_TIMEOUT_MS,
   MAX_TIMEOUT_MINUTES,
   scheduleSchema,
-  MIN_INTERVAL_MINUTES
+  MIN_INTERVAL_MINUTES,
+  MAX_INTERVAL_MINUTES
 } from '../routines'
 
 describe('routine schema', () => {
@@ -79,6 +80,41 @@ describe('schedule schema', () => {
       kind: 'weekly',
       days: [1, 2, 3, 4, 5],
       at: '07:00'
+    })
+  })
+
+  /**
+   * Both ends of `everyMinutes`, and integrality.
+   *
+   * Neither bound is cosmetic and neither fails where it is set. The floor is what stops a
+   * routine whose turn outlives its own period from holding the single serial execution slot
+   * continuously and starving every other routine. The ceiling is the value that pairs with the
+   * persisted schedule anchor (anchors.ts): one week is the longest first fire the engine has to
+   * carry across restarts, and widening it silently widens that. A non-integer would reach
+   * `after.getTime() + everyMinutes * 60_000` and produce fires on fractional milliseconds.
+   */
+  describe('everyMinutes is bounded at both ends and whole', () => {
+    it('accepts exactly the floor and exactly the ceiling', () => {
+      expect(
+        scheduleSchema.parse({ kind: 'interval', everyMinutes: MIN_INTERVAL_MINUTES })
+      ).toEqual({ kind: 'interval', everyMinutes: MIN_INTERVAL_MINUTES })
+      expect(
+        scheduleSchema.parse({ kind: 'interval', everyMinutes: MAX_INTERVAL_MINUTES })
+      ).toEqual({ kind: 'interval', everyMinutes: MAX_INTERVAL_MINUTES })
+      // The ceiling is one week, asserted rather than described.
+      expect(MAX_INTERVAL_MINUTES).toBe(7 * 24 * 60)
+    })
+
+    it('rejects one minute past the ceiling', () => {
+      expect(() =>
+        scheduleSchema.parse({ kind: 'interval', everyMinutes: MAX_INTERVAL_MINUTES + 1 })
+      ).toThrow()
+    })
+
+    it('rejects a fractional interval that sits inside the range', () => {
+      // 4.5 is under the floor; 5.5 is not, so this is the case that only integrality rejects.
+      expect(() => scheduleSchema.parse({ kind: 'interval', everyMinutes: 4.5 })).toThrow()
+      expect(() => scheduleSchema.parse({ kind: 'interval', everyMinutes: 5.5 })).toThrow()
     })
   })
 
