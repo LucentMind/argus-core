@@ -44,6 +44,16 @@ describe('classifyToolCall — native and FS tools', () => {
     expect(v).toEqual({ action: 'allow', risk: 'LOW' })
   })
 
+  it('propose_case_triage is LOW allow (writes only to routine_run_items, inert until accepted)', () => {
+    // Regression for the dead-feature defect: without a NATIVE_RISK entry this name falls to
+    // CLAUDE_TOOL_TAXONOMY.fallback, which reads a name with neither a destructive verb nor a
+    // read-ish prefix as write-capable and returns {action:'ask', risk:'MEDIUM'} — and an
+    // unattended routine turn denies every ask (session.unattended.test.ts), so the one tool
+    // the item loop exists to call would be denied on every single item, always.
+    const v = classifyToolCall('mcp__argus__propose_case_triage', {}, ctx())
+    expect(v).toEqual({ action: 'allow', risk: 'LOW' })
+  })
+
   it('write_memory is MEDIUM ask with no session grant', () => {
     const v = classifyToolCall('mcp__argus__write_memory', { topic: 't', content: 'c' }, ctx())
     expect(v).toEqual({
