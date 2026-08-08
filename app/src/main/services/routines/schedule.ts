@@ -40,12 +40,7 @@ export function nextFireAfter(schedule: RoutineSchedule, after: Date): Date {
  * DST normalization that pushes the instant across midnight is still filtered against the day
  * it actually landed on.
  */
-function nextLocalTimeAfter(
-  after: Date,
-  hh: number,
-  mm: number,
-  days: Set<number> | null
-): Date {
+function nextLocalTimeAfter(after: Date, hh: number, mm: number, days: Set<number> | null): Date {
   for (let offset = 0; offset <= 7; offset++) {
     const candidate = new Date(
       after.getFullYear(),

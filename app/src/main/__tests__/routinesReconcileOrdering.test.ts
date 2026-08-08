@@ -73,7 +73,7 @@ describe('the scheduler starts after reconcile and after the IPC handlers', () =
       indexSrc.includes(reconcileMarker),
       `expected to find "${reconcileMarker}" in main/index.ts. If it was renamed or removed, ` +
         'this test can no longer verify that the scheduler starts after reconciling stranded ' +
-        'runs — a launch catch-up run\'s row could be blanket-marked failed by the reconcile ' +
+        "runs — a launch catch-up run's row could be blanket-marked failed by the reconcile " +
         'that follows. Update this test alongside whatever renamed it.'
     ).toBe(true)
     expect(

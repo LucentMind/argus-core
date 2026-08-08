@@ -87,8 +87,8 @@ describe('nextFireAfter', () => {
     // No cast needed: a zero or negative `everyMinutes` satisfies the TYPE (`number`) and is
     // rejected only by zod's `.min(MIN_INTERVAL_MINUTES)` — which is exactly the gap a
     // hand-edited routines.json slips through.
-    expect(() =>
-      nextFireAfter({ kind: 'interval', everyMinutes: 0 }, local(2026, 8, 8))
-    ).toThrow(/interval must be positive/i)
+    expect(() => nextFireAfter({ kind: 'interval', everyMinutes: 0 }, local(2026, 8, 8))).toThrow(
+      /interval must be positive/i
+    )
   })
 })

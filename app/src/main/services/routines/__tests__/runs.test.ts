@@ -194,8 +194,20 @@ describe('anchor and watermark', () => {
   })
 
   it('anchors on the latest attempt whatever its outcome', () => {
-    insertRoutineRun(db, 'sweep', 'routine-sweep', 'manual', () => new Date('2026-08-01T02:00:00.000Z'))
-    const second = insertRoutineRun(db, 'sweep', 'routine-sweep', 'scheduled', () => new Date('2026-08-02T02:00:00.000Z'))
+    insertRoutineRun(
+      db,
+      'sweep',
+      'routine-sweep',
+      'manual',
+      () => new Date('2026-08-01T02:00:00.000Z')
+    )
+    const second = insertRoutineRun(
+      db,
+      'sweep',
+      'routine-sweep',
+      'scheduled',
+      () => new Date('2026-08-02T02:00:00.000Z')
+    )
     finish(second, 'failed', '2026-08-02T02:05:00.000Z')
     // The failed run still moves the anchor. If it did not, the routine would be due again on
     // the very next tick and would retry every 30 seconds, unattended, forever.
@@ -203,9 +215,21 @@ describe('anchor and watermark', () => {
   })
 
   it('watermarks only on success', () => {
-    const ok = insertRoutineRun(db, 'sweep', 'routine-sweep', 'manual', () => new Date('2026-08-01T02:00:00.000Z'))
+    const ok = insertRoutineRun(
+      db,
+      'sweep',
+      'routine-sweep',
+      'manual',
+      () => new Date('2026-08-01T02:00:00.000Z')
+    )
     finish(ok, 'ok', '2026-08-01T02:10:00.000Z')
-    const bad = insertRoutineRun(db, 'sweep', 'routine-sweep', 'scheduled', () => new Date('2026-08-02T02:00:00.000Z'))
+    const bad = insertRoutineRun(
+      db,
+      'sweep',
+      'routine-sweep',
+      'scheduled',
+      () => new Date('2026-08-02T02:00:00.000Z')
+    )
     finish(bad, 'failed', '2026-08-02T02:05:00.000Z')
     // A failed run advanced nothing, so telling the next run "you last succeeded yesterday"
     // would make it skip work that was never done.
@@ -218,7 +242,13 @@ describe('anchor and watermark', () => {
   })
 
   it('ignores a still-running row for the watermark but not for the anchor', () => {
-    insertRoutineRun(db, 'sweep', 'routine-sweep', 'scheduled', () => new Date('2026-08-03T02:00:00.000Z'))
+    insertRoutineRun(
+      db,
+      'sweep',
+      'routine-sweep',
+      'scheduled',
+      () => new Date('2026-08-03T02:00:00.000Z')
+    )
     expect(lastAttemptAt(db, 'sweep')).toBe('2026-08-03T02:00:00.000Z')
     expect(lastSuccessAt(db, 'sweep')).toBeNull()
   })
@@ -240,9 +270,11 @@ describe('trigger_kind migration', () => {
       summary TEXT,
       error TEXT
     )`)
-    raw.prepare(
-      `INSERT INTO routine_runs (routine_id, case_slug, status, started_at) VALUES (?, ?, 'ok', ?)`
-    ).run('sweep', 'routine-sweep', '2026-08-01T00:00:00.000Z')
+    raw
+      .prepare(
+        `INSERT INTO routine_runs (routine_id, case_slug, status, started_at) VALUES (?, ?, 'ok', ?)`
+      )
+      .run('sweep', 'routine-sweep', '2026-08-01T00:00:00.000Z')
     raw.close()
 
     const migrated = openDb(older)
