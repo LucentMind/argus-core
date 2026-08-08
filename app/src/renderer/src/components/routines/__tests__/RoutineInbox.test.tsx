@@ -5,7 +5,12 @@ import '@testing-library/jest-dom/vitest'
 import { RoutineInbox } from '../RoutineInbox'
 import { routinesStore } from '../../../lib/routinesStore'
 import { chipStamp } from '../../../lib/time'
-import type { RoutineDef, RoutineRunSummary, RoutinesPayload } from '../../../../../shared/routines'
+import type {
+  RoutineDef,
+  RoutineRunItemSummary,
+  RoutineRunSummary,
+  RoutinesPayload
+} from '../../../../../shared/routines'
 
 const sweep: RoutineDef = {
   id: 'sweep',
@@ -38,6 +43,21 @@ function rowLabel(name: string, r: RoutineRunSummary): string {
   return `${name} · ${r.finishedAt ? chipStamp(r.finishedAt) : `run ${r.id}`}`
 }
 
+function item(over: Partial<RoutineRunItemSummary> = {}): RoutineRunItemSummary {
+  return {
+    id: 1,
+    runId: 1,
+    itemKey: 'ABC-1',
+    caseSlug: 'abc-1',
+    status: 'processed',
+    error: null,
+    suggestion: null,
+    startedAt: '2026-08-03T02:00:00.000Z',
+    finishedAt: '2026-08-03T02:05:00.000Z',
+    ...over
+  }
+}
+
 function payload(over: Partial<RoutinesPayload> = {}): RoutinesPayload {
   return {
     routines: [sweep],
@@ -57,6 +77,8 @@ let api: {
   onChanged: ReturnType<typeof vi.fn>
   markReviewed: ReturnType<typeof vi.fn>
   markAllReviewed: ReturnType<typeof vi.fn>
+  acceptItem: ReturnType<typeof vi.fn>
+  dismissItem: ReturnType<typeof vi.fn>
 }
 let listeners: Array<() => void>
 
@@ -70,7 +92,9 @@ beforeEach(() => {
       return () => {}
     }),
     markReviewed: vi.fn(async () => payload({ unreviewedCount: 0, runs: [] })),
-    markAllReviewed: vi.fn(async () => payload({ unreviewedCount: 0, runs: [] }))
+    markAllReviewed: vi.fn(async () => payload({ unreviewedCount: 0, runs: [] })),
+    acceptItem: vi.fn(async () => ({})),
+    dismissItem: vi.fn(async () => ({}))
   }
   window.argus = { routines: api } as never
 })
@@ -292,5 +316,56 @@ describe('RoutineInbox', () => {
     // Mark all reviewed must still be there — it is the only control that can clear a backlog
     // sitting outside the window.
     expect(screen.getByRole('button', { name: 'Mark all reviewed' })).toBeInTheDocument()
+  })
+
+  it("renders a no-items run's row with the exact pre-Task-13 element structure", async () => {
+    // Important 2: the restructure (outer div flex-col + inner flex row + RunItemRows) must be
+    // gated on the run actually having items. Every routine shipped in increments 1-3 has none —
+    // this asserts the DOM shape a jsdom test CAN see, not appearance.
+    render(<RoutineInbox onOpen={vi.fn()} />)
+    await screen.findByText('nothing new')
+    const chip = screen.getByTestId('run-status-1')
+    const row = chip.parentElement?.parentElement as HTMLElement
+    expect(row.className).toBe('flex items-start gap-3 px-4 py-2.5 text-xs')
+    // Exactly the pre-Task-13 children: status chip, trigger chip, the name/summary column, the
+    // actions column — no extra flex-col wrapper and no RunItemRows mount point.
+    expect(row.children).toHaveLength(4)
+  })
+
+  it("keeps one row's item-level mutation error stable across an unrelated row's re-render", async () => {
+    // Important 1: RunItemRows resets its own mutationError by comparing `items` by reference.
+    // That is only safe if `byRun` in RoutineInbox hands each run's RunItemRows the SAME array
+    // reference across a re-render that did not change the payload. A run-level action failing on
+    // a DIFFERENT row (markReviewed rejecting here) sets RoutineInbox's own mutationError, which
+    // re-renders RoutineInbox without touching `payload` — an unmemoized `byRun` would rebuild
+    // fresh arrays for every run on that re-render and wipe row 1's still-open item error.
+    const secondRun = run({ id: 2, finishedAt: '2026-08-04T02:05:00.000Z', summary: 'second run' })
+    api.list.mockResolvedValue(
+      payload({
+        unreviewedCount: 2,
+        runs: [run({ id: 1 }), secondRun],
+        runItems: [item({ id: 101, runId: 1, itemKey: 'ITEM-1' })]
+      })
+    )
+    api.acceptItem.mockRejectedValueOnce(new Error('case is gone'))
+    render(<RoutineInbox onOpen={vi.fn()} />)
+    await screen.findByText('second run')
+
+    fireEvent.click(screen.getByRole('button', { name: /Accept · ITEM-1/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('case is gone')
+
+    // An unrelated row's run-level action rejects — RoutineInbox re-renders on its own
+    // mutationError state, with `payload` untouched.
+    api.markReviewed.mockRejectedValueOnce(new Error('routine store is locked'))
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: `Mark reviewed · ${rowLabel('Nightly sweep', secondRun)}`
+      })
+    )
+    await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(2))
+
+    const alertTexts = screen.getAllByRole('alert').map((a) => a.textContent)
+    expect(alertTexts).toContain('case is gone')
+    expect(alertTexts).toContain('routine store is locked')
   })
 })
