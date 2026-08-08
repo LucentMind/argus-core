@@ -7,7 +7,7 @@ import { openDb } from '../../db'
 import { createCase, getCase } from '../../caseService'
 import { listRoutineRuns, insertRoutineRun, finishRoutineRun } from '../runs'
 import { RoutineStore } from '../store'
-import { RoutinesService } from '../service'
+import { RoutinesService, type RoutineRunFinished } from '../service'
 import type { BackgroundTurnParams } from '../../agent/background'
 import {
   MAX_INTERVAL_MINUTES,
@@ -329,6 +329,78 @@ describe('RoutinesService', () => {
     // The finish notification must already show the settled state, not a stale running one.
     expect(seen[3].runningId).toBeNull()
     expect(seen[3].runs[0]).toMatchObject({ status: 'ok', summary: 'swept', sessionId })
+  })
+
+  it('reports a finished run once, with the summary', async () => {
+    const finished: RoutineRunFinished[] = []
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async () => ({ status: 'ok', text: 'found 2 dupes' }),
+      onRunFinished: (info) => finished.push(info),
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    await svc.whenIdle()
+
+    expect(finished).toHaveLength(1)
+    expect(finished[0]).toMatchObject({
+      routineId: 'sweep',
+      routineName: 'Sweep',
+      status: 'ok',
+      summary: 'found 2 dupes'
+    })
+    expect(finished[0].runId).toBeGreaterThan(0)
+  })
+
+  // The failure path is the one a notification matters most on, and it reaches the finish through
+  // `execute`'s catch rather than a resolved result — a callback placed on the happy path only
+  // would go silent exactly when the user needs telling.
+  it('reports a failed run, carrying the error', async () => {
+    const finished: RoutineRunFinished[] = []
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async () => {
+        throw new Error('driver exploded')
+      },
+      onRunFinished: (info) => finished.push(info),
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    await svc.whenIdle()
+
+    expect(finished).toHaveLength(1)
+    expect(finished[0].status).toBe('failed')
+    expect(finished[0].error).toContain('driver exploded')
+  })
+
+  // Same hazard `safeNotify` exists for: this call sits in the queue's control flow, so a throw
+  // escaping it would skip the drain() continuation and stall every PENDING run, not just this
+  // one. Two routines queued, the first callback throws, the second must still run.
+  it('does not let a throwing callback stall the queue', async () => {
+    store.upsert({ id: 'second', name: 'Second', prompt: 'also sweep', timeoutMs: 1000 })
+    const ran: string[] = []
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async (p) => {
+        ran.push(p.caseSlug)
+        return { status: 'ok', text: '' }
+      },
+      onRunFinished: () => {
+        throw new Error('notification exploded')
+      },
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    svc.startRun('second')
+    await svc.whenIdle()
+
+    expect(ran).toEqual(['routine-sweep', 'routine-second'])
   })
 })
 
