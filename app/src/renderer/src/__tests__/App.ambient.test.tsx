@@ -54,6 +54,10 @@ beforeEach(() => {
     },
     // Settings' own surface — this file opens it to prove the chrome light does NOT follow.
     proposals: { list: vi.fn(async () => ({ proposals: [] })), onChanged: vi.fn(() => () => {}) },
+    // App subscribes to routines:changed unconditionally now, to refetch cases when a routine's
+    // first-ever run lands — this file never opens the Routines page, so only the subscribe stub
+    // is needed.
+    routines: { onChanged: vi.fn(() => () => {}) },
     access: {
       get: vi.fn(async () => ({ access: { skills: {}, memory: {} }, loadError: null })),
       onChanged: vi.fn(() => () => {})
