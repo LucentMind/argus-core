@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Btn } from '../ui'
+import { Btn, SkeletonDoc } from '../ui'
 import { ModalShell } from '../ModalShell'
 import { AuthorshipStrip } from './AuthorshipStrip'
 import { fmBlock } from '../../../../shared/frontmatter'
@@ -73,13 +73,17 @@ export function MarkdownViewer({
           {content != null ? (
             <Markdown remarkPlugins={[remarkGfm]}>{renderedBody(content)}</Markdown>
           ) : (
-            'Loading…'
+            <SkeletonDoc />
           )}
         </div>
-      ) : (
+      ) : content != null ? (
         <pre className="flex-1 overflow-auto p-3 font-mono text-xs leading-5 text-dim">
           {content}
         </pre>
+      ) : (
+        <div className="flex-1 overflow-auto p-3">
+          <SkeletonDoc />
+        </div>
       )}
     </ModalShell>
   )

@@ -1,6 +1,13 @@
 import { useEffect, useState, Fragment } from 'react'
 import { HandGrab, Pencil, Share2, Trash2, type LucideIcon } from 'lucide-react'
-import { SettingsSection, SettingRow, Switch, RowActions, RowToggle } from './settingsLayout'
+import {
+  SettingsSection,
+  SettingRow,
+  SettingsSkeleton,
+  Switch,
+  RowActions,
+  RowToggle
+} from './settingsLayout'
 import { Btn, Chip, IconBtn, MenuButton } from '../ui'
 import { ProposalsBanner } from './ProposalsBanner'
 import { ForkSkillDialog } from './ForkSkillDialog'
@@ -340,9 +347,9 @@ export function LibraryPage({
   }
 
   if (!skills || !refPayload) {
-    // a failed initial load would otherwise leave the page on "loading…" forever
+    // a failed initial load would otherwise leave the page skeletal forever
     if (error) return errorAlert(error)
-    return <div className="text-dim">loading…</div>
+    return <SettingsSkeleton rows={5} />
   }
   const references = refPayload.references
 

@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { FileText } from 'lucide-react'
 import { ModalShell } from './ModalShell'
 import { MessageView } from './MessageView'
-import { Btn, Chip } from './ui'
+import { Btn, Chip, SkeletonRows } from './ui'
 import { usePendingDisplay } from '../lib/usePendingDisplay'
 import { confirm as confirmDialog } from '../lib/confirmStore'
 import { panelsStore } from '../lib/panelsStore'
@@ -298,7 +298,9 @@ export function RcaPanel({
     >
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
         {payload === null ? (
-          <p className="text-xs text-mute">Loading…</p>
+          <div role="status" aria-label="Loading">
+            <SkeletonRows count={5} />
+          </div>
         ) : !job || job.state === 'failed' ? (
           <div className="flex flex-col items-center justify-center gap-3 py-16">
             {job?.state === 'failed' && (

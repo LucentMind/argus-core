@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Archive, ArchiveRestore, Check, Pencil, Trash2 } from 'lucide-react'
-import { SettingsSection, SettingRow, Switch, TEXTAREA_FIELD } from './settingsLayout'
+import {
+  SettingsSection,
+  SettingRow,
+  SettingsSkeleton,
+  Switch,
+  TEXTAREA_FIELD
+} from './settingsLayout'
 import { Btn, Chip, IconBtn } from '../ui'
 import { accessStore, useAccessPayload } from '../../lib/accessStore'
 import { confirm } from '../../lib/confirmStore'
@@ -218,7 +224,7 @@ export function MemorySettings(): React.JSX.Element {
     }
   }
 
-  if (!payload) return <div className="text-dim">loading…</div>
+  if (!payload) return <SettingsSkeleton />
 
   return (
     <div className="flex flex-col gap-6">

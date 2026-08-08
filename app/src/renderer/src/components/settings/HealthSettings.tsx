@@ -7,7 +7,7 @@ import {
   type HealthRow
 } from '../../../../shared/health'
 import { SettingsSection } from './settingsLayout'
-import { Btn, Chip, IconBtn } from '../ui'
+import { Btn, Chip, IconBtn, SkeletonRows } from '../ui'
 
 export function HealthSettings(): React.JSX.Element {
   const [rows, setRows] = useState<HealthRow[]>([])
@@ -102,10 +102,16 @@ export function HealthSettings(): React.JSX.Element {
           </SettingsSection>
         )
       })}
+      {/* `health.list()` always resolves non-empty in practice, so this branch IS the pre-load
+          state — a skeleton for the rows about to arrive rather than the word for it. */}
       {rows.length === 0 && (
-        <SettingsSection title="Health checks">
-          <div className="text-dim p-3 text-sm">loading…</div>
-        </SettingsSection>
+        <div role="status" aria-label="Loading" aria-busy="true">
+          <SettingsSection title="Health checks">
+            <div className="px-3 py-1">
+              <SkeletonRows count={3} />
+            </div>
+          </SettingsSection>
+        </div>
       )}
       <div>
         <Btn variant="outline" onClick={runAll} disabled={running}>

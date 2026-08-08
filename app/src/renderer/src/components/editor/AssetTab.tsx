@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AssetPane } from './AssetPane'
+import { SkeletonRows } from '../ui'
 import { readAsset } from './assetIo'
 import { skillTemplate, referenceTemplate } from '../library/assetTemplates'
 import { bannerOnOpen, type DraftBanner } from '../../lib/draftState'
@@ -188,7 +189,18 @@ export function AssetTab({
     )
   }
   if (!resolved) {
-    return <div className="flex flex-1 items-center justify-center text-sm text-dim">Loading…</div>
+    // Top-aligned, not centred: the editor pane fills from the top, so a centred word jumped to
+    // the top of the pane the instant the draft resolved.
+    //
+    // `aria-busy` and NOT `role="status"` (which the other skeletons carry): the read-only
+    // banner this pane renders a moment later is itself a `role="status"`, and a second live
+    // region in the same tab makes "the tab's status" ambiguous — for a screen reader and for
+    // every `getByRole('status')` in EditorApp.test.
+    return (
+      <div aria-busy="true" className="flex-1 p-4">
+        <SkeletonRows count={6} />
+      </div>
+    )
   }
   return (
     <AssetPane

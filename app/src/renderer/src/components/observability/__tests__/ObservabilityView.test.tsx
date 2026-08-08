@@ -114,7 +114,7 @@ describe('ObservabilityView', () => {
     fireEvent.change(select, { target: { value: 'c2' } })
     // Before c2's promise resolves, the view must show loading/nothing --
     // NOT the stale c1 value.
-    expect(await screen.findByText(/Loading metrics/i)).toBeInTheDocument()
+    expect(await screen.findByRole('status', { name: /loading metrics/i })).toBeInTheDocument()
     expect(screen.queryByText(/\$0\.50/)).not.toBeInTheDocument()
 
     resolveC2(bySlug.c2)

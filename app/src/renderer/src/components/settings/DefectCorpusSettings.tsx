@@ -9,7 +9,7 @@ import {
   Switch,
   SelectField
 } from './settingsLayout'
-import { Btn, Card, Chip, IconBtn } from '../ui'
+import { Btn, Card, Chip, IconBtn, SkeletonRows } from '../ui'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm, alert } from '../../lib/confirmStore'
 import { corpusTokenSecret } from '../../../../shared/defectCorpus'
@@ -372,7 +372,11 @@ function IngestionEditor({
 
   return (
     <SettingsSection title="Ingestion settings" collapsed={!expanded} onToggle={toggle}>
-      {load.status === 'loading' && <div className="px-3 py-2 text-xs text-mute">Loading…</div>}
+      {load.status === 'loading' && (
+        <div role="status" aria-label="Loading" className="px-3 py-1">
+          <SkeletonRows count={3} />
+        </div>
+      )}
       {load.status === 'error' && (
         <div role="alert" className="px-3 py-2 text-xs text-danger">
           {load.message}

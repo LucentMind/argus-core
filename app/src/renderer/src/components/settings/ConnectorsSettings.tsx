@@ -21,6 +21,7 @@ import {
   Switch,
   DraftInput,
   SelectField,
+  SettingsSkeleton,
   FIELD
 } from './settingsLayout'
 import { SourceControl } from './SourceControl'
@@ -234,7 +235,7 @@ export function ConnectorsSettings(): React.JSX.Element {
   const payload = useConnectorsPayload()
   const settingsPayload = useSettingsPayload()
   const [editing, setEditing] = useState<string | null>(null)
-  if (!payload) return <div className="text-dim">loading…</div>
+  if (!payload) return <SettingsSkeleton />
   const rca = settingsPayload?.settings.rca
 
   function addPreset(pid: string): void {
@@ -284,6 +285,10 @@ export function ConnectorsSettings(): React.JSX.Element {
           {payload.secretsLoadError})
         </div>
       )}
+      {/* GitHub first (user-directed, 2026-08-08). It is the one connection every case depends on
+          — PR lookup, pushes, HiveMind — and it was buried under the MCP list, the Add-connector
+          button and the RCA section, three scrolls down. */}
+      <SourceControl />
       {/* Untitled — same reason as GeneralSettings: the header masthead already names the page. */}
       <SettingsSection>
         {Object.entries(payload.connectors).map(([id, inst]) => (
@@ -358,7 +363,6 @@ export function ConnectorsSettings(): React.JSX.Element {
           )}
         </SettingsSection>
       )}
-      <SourceControl />
     </div>
   )
 }

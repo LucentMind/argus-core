@@ -6,7 +6,7 @@ import { blurOnEscape, useEscapeLayer } from '../../lib/escapeLayer'
 import { useAmbientAnchors } from '../../lib/ambientAnchors'
 import { useCaseMetrics, useGlobalMetrics } from '../../lib/metricsStore'
 import { useSettingsPayload } from '../../lib/settingsStore'
-import { StatCard, pct, usd } from './MetricCards'
+import { StatCard, StatCardsSkeleton, pct, usd } from './MetricCards'
 
 const RANGES = [
   { id: '7d', label: '7 days', days: 7 },
@@ -119,7 +119,7 @@ export function ObservabilityView({
       </div>
       {scope !== 'global' ? (
         !caseData ? (
-          <p className="text-sm text-mute">Loading metrics…</p>
+          <StatCardsSkeleton count={6} />
         ) : (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <StatCard
@@ -163,7 +163,7 @@ export function ObservabilityView({
           </div>
         )
       ) : !data ? (
-        <p className="text-sm text-mute">Loading metrics…</p>
+        <StatCardsSkeleton />
       ) : (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {!isHidden('cost') && (

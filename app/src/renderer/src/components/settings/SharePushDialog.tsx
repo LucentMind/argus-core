@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink } from 'lucide-react'
-import { Btn, Chip } from '../ui'
+import { Btn, Chip, Skeleton } from '../ui'
 import type { HivemindPushOutcome, PushReceipt, PushStatus } from '../../../../shared/hivemind'
 
 /**
@@ -159,9 +159,20 @@ export function SharePushDialog({
           onChange={(e) => setTitle(e.target.value)}
         />
       </div>
-      <pre className="max-h-64 overflow-auto whitespace-pre-wrap font-mono text-xs text-dim">
-        {preview ?? 'loading…'}
-      </pre>
+      {preview === null ? (
+        // The diff preview is the tallest thing in this dialog; bars hold its top few lines so
+        // the buttons below do not jump down the moment it resolves.
+        <div role="status" aria-label="Loading preview" className="flex flex-col gap-1.5 py-1">
+          <Skeleton className="h-2 w-[80%]" />
+          <Skeleton className="h-2 w-[65%]" />
+          <Skeleton className="h-2 w-[90%]" />
+          <Skeleton className="h-2 w-[45%]" />
+        </div>
+      ) : (
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap font-mono text-xs text-dim">
+          {preview}
+        </pre>
+      )}
       <div className="flex items-center gap-2">
         <Btn
           variant="primary"

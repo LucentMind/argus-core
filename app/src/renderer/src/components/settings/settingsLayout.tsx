@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { ChevronDown, Eraser } from 'lucide-react'
-import { Card, IconBtn, SectionLabel } from '../ui'
+import { Card, IconBtn, SectionLabel, SkeletonRows } from '../ui'
 import { pushEscapeLayer } from '../../lib/escapeLayer'
 import { uiStore } from '../../lib/uiStore'
 
@@ -133,6 +133,32 @@ export function SettingsSection({
         </Card>
       )}
     </section>
+  )
+}
+
+/**
+ * Page-level placeholder for a settings page whose payload has not arrived yet (user-directed,
+ * 2026-08-08).
+ *
+ * Replaces the bare `loading…` word that every page printed from its `if (!payload)` branch. A
+ * settings page is a stack of cards full of rows, so the honest placeholder is a card full of
+ * rows: it reserves roughly the space the content is about to take, which one short grey line
+ * never did — every page snapped from a nearly-empty screen to a full one. The rail already uses
+ * `SkeletonRows` for exactly this (see `ReposSection`), so this is the same material, not a new
+ * one.
+ *
+ * `role="status"` + `aria-label` carry what the word carried for screen readers: `SkeletonRows`
+ * is `aria-hidden`, so without a name here the loading state would be silent.
+ */
+export function SettingsSkeleton({ rows = 4 }: { rows?: number }): React.JSX.Element {
+  return (
+    <div role="status" aria-label="Loading" aria-busy="true">
+      <SettingsSection>
+        <div className="px-4 py-1">
+          <SkeletonRows count={rows} />
+        </div>
+      </SettingsSection>
+    </div>
   )
 }
 

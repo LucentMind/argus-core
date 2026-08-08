@@ -203,7 +203,12 @@ export function SettingsView({
             </div>
           )}
           <OverrideBanner devTools={devTools} />
-          {(page === 'library' || page === 'proposals') && <KnowledgeFlowStrip onNavigate={goTo} />}
+          {/* Team joins Library and Proposals now that the strip reports position rather than
+              explaining the pipeline: Team IS one of the three steps, and it was the one page
+              in the loop that never showed where it sat in it. */}
+          {(page === 'library' || page === 'proposals' || page === 'team') && (
+            <KnowledgeFlowStrip current={page} onNavigate={goTo} />
+          )}
           {payload && page === 'general' && <GeneralSettings payload={payload} />}
           {payload && page === 'agent' && <AgentSettings payload={payload} />}
           {page === 'health' && <HealthSettings />}

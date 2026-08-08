@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
-import { SettingsSection, SettingRow, FIELD, TEXTAREA_FIELD, SelectField } from './settingsLayout'
+import {
+  SettingsSection,
+  SettingRow,
+  SettingsSkeleton,
+  FIELD,
+  TEXTAREA_FIELD,
+  SelectField
+} from './settingsLayout'
 import { Btn, Checkbox, Chip, IconBtn } from '../ui'
 import { confirm } from '../../lib/confirmStore'
 import { chipStamp } from '../../lib/time'
@@ -573,7 +580,7 @@ export function RoutinesPage(): React.JSX.Element {
   }
 
   if (error) return <p className="p-3 text-xs text-danger">{error}</p>
-  if (!payload) return <p className="p-3 text-xs text-mute">Loading…</p>
+  if (!payload) return <SettingsSkeleton />
 
   const { routines, runs, runningId, queued, nextRunAt } = payload
   const nameOf = (routineId: string): string =>

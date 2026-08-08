@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Btn } from './ui'
+import { Btn, SkeletonDoc } from './ui'
 import { ModalShell } from './ModalShell'
 import { MARKDOWN_COMPONENTS } from '../lib/markdownLinks'
 import type { FileReadResult } from '../../../shared/types'
@@ -68,13 +68,17 @@ export function FileViewer({
               {doc.content}
             </Markdown>
           ) : (
-            'Loading…'
+            <SkeletonDoc />
           )}
         </div>
-      ) : (
+      ) : doc && 'content' in doc ? (
         <pre className="flex-1 overflow-auto p-3 font-mono text-xs leading-5 text-dim">
-          {doc && 'content' in doc ? doc.content : 'Loading…'}
+          {doc.content}
         </pre>
+      ) : (
+        <div className="flex-1 overflow-auto p-3">
+          <SkeletonDoc />
+        </div>
       )}
     </ModalShell>
   )

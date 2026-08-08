@@ -305,7 +305,14 @@ export function MenuButton({
     }
   }, [open, portal])
   return (
-    <div className="relative" ref={ref}>
+    // `inline-flex`, not the bare block this used to be: `ref` is the rect the panel anchors
+    // against (both the absolute `left-0`/`right-0` child and the portalled fixed panel), and a
+    // block div stretches to its PARENT's width. In a flex row that was invisible — flex items
+    // shrink to fit — but in a plain block container (Settings' `Add…`, `Add connector`) the
+    // anchor was the full row, so `align="right"` pinned the panel to the row's right edge,
+    // yards from the button that opened it. Flex items are blockified, so this changes nothing
+    // for the triggers that already sat in flex rows.
+    <div className="relative inline-flex" ref={ref}>
       <Btn
         variant={variant}
         size={size}
@@ -446,8 +453,17 @@ export function MenuButton({
  * `aria-hidden` because a skeleton conveys "not yet", which the absence of content already
  * conveys — announcing a row of grey boxes is noise.
  */
-export function Skeleton({ className = '' }: { className?: string }): React.JSX.Element {
-  return <span aria-hidden="true" className={`block argus-shimmer ${className}`} />
+export function Skeleton({
+  className = '',
+  style
+}: {
+  className?: string
+  /** Inline sizing for widths that vary per instance. Deliberately not a Tailwind arbitrary
+   *  class: `w-[95%]` has to appear literally in a scanned source file to get any CSS at all,
+   *  so a width computed from an array would silently render full-bleed. */
+  style?: CSSProperties
+}): React.JSX.Element {
+  return <span aria-hidden="true" style={style} className={`block argus-shimmer ${className}`} />
 }
 
 /** `count` chip-shaped placeholder stacks, for a list that has not loaded yet. */
@@ -458,6 +474,37 @@ export function SkeletonRows({ count = 3 }: { count?: number }): React.JSX.Eleme
         <div key={i} className="flex flex-col gap-1">
           <Skeleton className="h-2.5 w-[60%]" />
           <Skeleton className="h-2 w-[85%]" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Widths of the placeholder lines in {@link SkeletonDoc} — ragged on purpose, so the block
+ *  reads as prose rather than as a progress bar. */
+const DOC_SKELETON_PARAGRAPHS = [
+  ['95%', '88%', '92%', '61%'],
+  ['90%', '96%', '74%']
+]
+
+/**
+ * Paragraph-shaped placeholder for a document body that has not arrived yet: a heading bar over
+ * two ragged paragraphs.
+ *
+ * Replaces the bare `Loading…` the file and reference viewers printed into an otherwise empty
+ * modal (user-directed, 2026-08-08). Those modals are fixed-height, so the word sat alone in a
+ * large blank rectangle and told the reader nothing about what was coming; this occupies the
+ * shape the markdown is about to take.
+ */
+export function SkeletonDoc(): React.JSX.Element {
+  return (
+    <div role="status" aria-label="Loading" className="flex flex-col gap-5">
+      <Skeleton className="h-4 w-[42%]" />
+      {DOC_SKELETON_PARAGRAPHS.map((lines, p) => (
+        <div key={p} className="flex flex-col gap-2">
+          {lines.map((w, i) => (
+            <Skeleton key={i} className="h-2.5" style={{ width: w }} />
+          ))}
         </div>
       ))}
     </div>

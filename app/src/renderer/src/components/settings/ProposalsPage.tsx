@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { SettingsSection } from './settingsLayout'
+import { SettingsSection, SettingsSkeleton } from './settingsLayout'
 import { Btn, Chip } from '../ui'
 import { diffLines } from '../../lib/lineDiff'
 import { MessageView } from '../MessageView'
@@ -146,7 +146,7 @@ export function ProposalsPage({
     }
   }
 
-  if (!payload) return <div className="text-dim">loading…</div>
+  if (!payload) return <SettingsSkeleton />
 
   const typesPresent = Array.from(new Set(payload.proposals.map((p) => p.type)))
   // active may contain types no longer present (e.g. the last proposal of that type was just

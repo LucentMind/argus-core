@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Chip } from '../ui'
+import { Chip, Skeleton } from '../ui'
 import { pageSelected, type SpaceConfig, type TreeNodeVM } from '../../../../shared/referenceSync'
 
 export interface PageTreeProps {
@@ -96,7 +96,11 @@ export function PageTree({
           {node.outdated && <Chip tone="neutral">outdated?</Chip>}
         </div>
         {isExpanded && children === 'loading' && (
-          <div className="text-faint pl-8 text-xs">loading…</div>
+          // Indented to the depth the child rows will occupy, so the branch does not shift
+          // sideways when they arrive.
+          <div role="status" aria-label="Loading" className="py-1 pl-8">
+            <Skeleton className="h-2.5 w-40" />
+          </div>
         )}
         {isExpanded &&
           Array.isArray(children) &&

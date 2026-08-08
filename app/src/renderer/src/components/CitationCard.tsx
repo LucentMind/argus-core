@@ -4,7 +4,7 @@ import { langForPath } from '../../../shared/snippets'
 import { fetchSnippet, type AnySnippetResult, type CiteSource } from '../lib/snippetCache'
 import { displayName } from '../lib/evidenceDisplay'
 import { HighlightedLines } from './HighlightedLines'
-import { Chip } from './ui'
+import { Chip, Skeleton } from './ui'
 
 const CARD_BTN = 'rounded-r1 p-0.5 text-mute transition-colors hover:bg-hair hover:text-ink'
 
@@ -131,7 +131,14 @@ export function CitationCard({
             </button>
           </div>
           {snippet === null ? (
-            <div className="px-3 py-2 font-mono text-xs text-mute">Loading…</div>
+            // Ragged bars rather than the word: what lands here is a run of source lines, and
+            // the placeholder should hold roughly that much height so the card does not jump
+            // when the snippet arrives.
+            <div role="status" aria-label="Loading" className="flex flex-col gap-1.5 px-3 py-2">
+              <Skeleton className="h-2 w-[70%]" />
+              <Skeleton className="h-2 w-[88%]" />
+              <Skeleton className="h-2 w-[55%]" />
+            </div>
           ) : !snippet.ok ? (
             <div className="px-3 py-2 text-xs text-mute">
               {unavailableNote(source, snippet.reason)}

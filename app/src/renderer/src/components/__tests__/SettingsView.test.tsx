@@ -516,10 +516,23 @@ describe('SettingsView', () => {
     )
   })
 
-  it('knowledge strip shows on Library and Proposals and its terms navigate', async () => {
+  it('knowledge strip steps navigate, and the strip follows to Team', async () => {
     render(<SettingsView onClose={vi.fn()} initialPage={'library'} />)
-    await userEvent.click(await screen.findByRole('button', { name: 'share back to the team' }))
+    // The strip's own Team step — matched on its hint so this can never pick up the sidebar's
+    // Team nav item, whose accessible name is the bare word.
+    await userEvent.click(await screen.findByRole('button', { name: /share to the hive/ }))
     expect((await screen.findByRole('button', { name: 'Team' })).className).toContain('bg-hi')
+    // Team is a step, so the strip stays and now reports Team as the current one.
+    expect(await screen.findByRole('button', { name: /share to the hive/ })).toHaveAttribute(
+      'aria-current',
+      'step'
+    )
+  })
+
+  it('hides the knowledge strip on a page outside the loop', async () => {
+    render(<SettingsView onClose={vi.fn()} initialPage={'general'} />)
+    await screen.findByRole('button', { name: /General/ })
+    expect(screen.queryByRole('navigation', { name: 'Knowledge flow' })).not.toBeInTheDocument()
   })
 
   describe('masthead', () => {

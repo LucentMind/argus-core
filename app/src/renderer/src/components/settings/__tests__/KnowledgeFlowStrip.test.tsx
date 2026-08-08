@@ -28,21 +28,45 @@ beforeEach(() => {
 })
 
 describe('KnowledgeFlowStrip', () => {
-  it('renders the pipeline with four navigating terms', async () => {
+  it('renders the three steps and each navigates to its page', async () => {
     const onNavigate = vi.fn()
-    render(<KnowledgeFlowStrip onNavigate={onNavigate} />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Sources' }))
-    expect(onNavigate).toHaveBeenCalledWith('sources')
-    await userEvent.click(screen.getByRole('button', { name: 'Library' }))
-    expect(onNavigate).toHaveBeenCalledWith('library')
-    await userEvent.click(screen.getByRole('button', { name: 'Proposals' }))
+    render(<KnowledgeFlowStrip current="library" onNavigate={onNavigate} />)
+    await userEvent.click(await screen.findByRole('button', { name: /Proposals/ }))
     expect(onNavigate).toHaveBeenCalledWith('proposals')
-    await userEvent.click(screen.getByRole('button', { name: 'share back to the team' }))
+    await userEvent.click(screen.getByRole('button', { name: /Library/ }))
+    expect(onNavigate).toHaveBeenCalledWith('library')
+    await userEvent.click(screen.getByRole('button', { name: /Team/ }))
     expect(onNavigate).toHaveBeenCalledWith('team')
   })
 
+  // The whole point of the rework: the strip reports position, so exactly one step is current
+  // and it is the page being shown. The callback param is `page`, not `current` — the
+  // module-level `current` payload is what the settings mock reads, and shadowing it here would
+  // make this test look like it was changing that.
+  it.each([
+    ['proposals', /Proposals/],
+    ['library', /Library/],
+    ['team', /Team/]
+  ] as const)('marks %s as the current step', async (page, label) => {
+    render(<KnowledgeFlowStrip current={page} onNavigate={vi.fn()} />)
+    const step = await screen.findByRole('button', { name: label })
+    expect(step).toHaveAttribute('aria-current', 'step')
+    // ...and it is the ONLY one, so the strip never claims you are in two places at once.
+    expect(
+      screen.getAllByRole('button').filter((b) => b.getAttribute('aria-current') === 'step')
+    ).toHaveLength(1)
+  })
+
+  // The active step borrows the sidebar's own active treatment on purpose — if this drifts, the
+  // rail and the strip start highlighting the same page two different ways.
+  it('highlights the current step the way the settings nav does', async () => {
+    render(<KnowledgeFlowStrip current="team" onNavigate={vi.fn()} />)
+    expect((await screen.findByRole('button', { name: /Team/ })).className).toContain('bg-hi')
+    expect(screen.getByRole('button', { name: /Library/ }).className).not.toContain('bg-hi')
+  })
+
   it('dismiss persists the flag and removes the strip', async () => {
-    render(<KnowledgeFlowStrip onNavigate={vi.fn()} />)
+    render(<KnowledgeFlowStrip current="library" onNavigate={vi.fn()} />)
     await userEvent.click(
       await screen.findByRole('button', { name: 'Dismiss knowledge flow strip' })
     )
@@ -50,12 +74,12 @@ describe('KnowledgeFlowStrip', () => {
       ui: { knowledgeStripDismissed: true }
     })
     // patch resolves with the dismissed payload → strip unmounts
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Sources' })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Proposals/ })).toBeNull())
   })
 
   it('renders nothing when already dismissed', async () => {
     current = payload(true)
-    const { container } = render(<KnowledgeFlowStrip onNavigate={vi.fn()} />)
+    const { container } = render(<KnowledgeFlowStrip current="library" onNavigate={vi.fn()} />)
     // settings load async; the strip must stay empty once the payload arrives
     await waitFor(() => expect(window.argus.settings.get).toHaveBeenCalled())
     expect(container).toBeEmptyDOMElement()

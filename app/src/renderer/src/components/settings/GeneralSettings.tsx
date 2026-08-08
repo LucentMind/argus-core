@@ -63,7 +63,10 @@ function DefaultReposRow({ repos }: { repos: readonly string[] }): React.JSX.Ele
         />
       </div>
       {open && (
-        <div className="mt-2 flex flex-col gap-1 rounded-r2 border border-hair p-1.5">
+        // No box of its own (user-directed, 2026-08-08): the disclosed list already sits inside
+        // the settings section's card, so a second hairline rectangle around it was a border
+        // drawn 4px inside another border.
+        <div className="mt-2 flex flex-col gap-1">
           {repos.length === 0 && (
             <span className="px-1.5 py-1 text-xs text-mute">
               No default repositories yet — add one and every new case links it on creation.
@@ -101,7 +104,10 @@ function DefaultReposRow({ repos }: { repos: readonly string[] }): React.JSX.Ele
               </div>
             )
           })}
-          <div className="px-0.5 pt-1">
+          {/* `Add…` right-aligned (user-directed, 2026-08-08), under the chevron that opened the
+              list rather than off at the far left. It is also what makes the picker's
+              `align="right"` panel land beside the button instead of across the row. */}
+          <div className="flex justify-end pt-1">
             <RepoPickerMenu
               onPick={(p) => void settingsStore.patch({ general: { defaultRepos: [...repos, p] } })}
               exclude={repos}

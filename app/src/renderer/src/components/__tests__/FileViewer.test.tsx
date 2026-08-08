@@ -60,7 +60,9 @@ describe('FileViewer', () => {
         })
     ) as never
     render(<FileViewer slug="NAV-1" relPath="notes.md" onClose={vi.fn()} />)
-    expect(await screen.findByText(/loading/i)).toBeTruthy()
+    // The placeholder is a skeleton now, not the word "Loading…" — it is named through the
+    // live region rather than through visible text.
+    expect(await screen.findByRole('status', { name: 'Loading' })).toBeTruthy()
     resolveRead({ content: '# Title\n\nbody text' })
     expect(await screen.findByRole('heading', { name: 'Title' })).toBeTruthy()
   })

@@ -8,7 +8,7 @@ import type {
   RelatedDistilled,
   RelatedHit
 } from '../../../../shared/relatedHistory'
-import { Btn, Chip, SectionLabel } from '../ui'
+import { Btn, Chip, SectionLabel, SkeletonRows } from '../ui'
 import { isOpenableUrl } from '../../lib/openableUrl'
 import { MARKDOWN_COMPONENTS } from '../../lib/markdownLinks'
 import { composerDraft } from '../../lib/composerDraft'
@@ -376,7 +376,11 @@ export function HitDetail({
         <div className="flex flex-col gap-2">
           {hit.kind === 'local' && <SectionLabel>Also in the corpus</SectionLabel>}
           {error && <p className="text-xs text-danger">{error}</p>}
-          {!error && !record && <p className="text-xs text-dim">Loading…</p>}
+          {!error && !record && (
+            <div role="status" aria-label="Loading">
+              <SkeletonRows count={2} />
+            </div>
+          )}
           {record && <CorpusRecord record={record} />}
           {record && record.links.length > 0 && (
             <div className="flex flex-col gap-1">

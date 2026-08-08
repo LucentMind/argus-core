@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import semver from 'semver'
-import { SettingsSection, SettingRow, DisclosureBtn } from './settingsLayout'
+import { SettingsSection, SettingRow, SettingsSkeleton, DisclosureBtn } from './settingsLayout'
 import { Btn, Chip } from '../ui'
 import { confirm } from '../../lib/confirmStore'
 import { ToolRow, useToolProbes } from './ToolRow'
@@ -325,7 +325,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
     }
   }
 
-  if (!payload) return <div className="text-dim">loading…</div>
+  if (!payload) return <SettingsSkeleton />
 
   // Two sources, and neither is sufficient alone. `payload.relaunchRequired` is the durable one —
   // it survives leaving this page, a second window, and a renderer reload, and it is the half that

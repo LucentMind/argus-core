@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
 import { Download, ExternalLink, RefreshCw, Trash2, X } from 'lucide-react'
-import { SettingsSection, SettingRow, DraftInput, FIELD } from './settingsLayout'
+import { SettingsSection, SettingRow, SettingsSkeleton, DraftInput, FIELD } from './settingsLayout'
 import { ConfluenceSpaces, useConfluenceEnabled } from './ConfluenceSpaces'
 import { Btn, Chip, IconBtn } from '../ui'
 import { TierBadge } from './TierBadge'
@@ -68,15 +68,18 @@ function BrowseRow({
             Update
           </Btn>
         ) : it.installed ? null : (
+          // Icon-only (user-directed, 2026-08-08): a browse list is a column of identical
+          // "Download" buttons, and the word was repeated once per row to say what the arrow
+          // already says. `title` + `aria-label` keep it named for hover and for the a11y tree;
+          // the `w-28` block is gone with the text, so the glyph is not marooned in a wide box.
           <Btn
             variant="outline"
             aria-label={`Download ${it.name}`}
-            className="w-28 justify-center"
+            title={`Download ${it.name}`}
             disabled={busy}
             onClick={onInstall}
           >
             <Download size={13} aria-hidden="true" />
-            Download
           </Btn>
         )}
         {it.kind === 'reference' && it.localTier === 'hivemind' && (
@@ -487,7 +490,7 @@ export function HivemindSettings({
     return (
       <div className="flex flex-col gap-6">
         {upstreams}
-        <div className="text-dim">loading…</div>
+        <SettingsSkeleton />
       </div>
     )
   }

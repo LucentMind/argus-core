@@ -9,7 +9,7 @@ import {
   type PromptPreview
 } from '../../../../shared/promptsIpc'
 import type { DistillEvalExportResult } from '../../../../shared/distillEval'
-import { SettingsSection, SelectField, TEXTAREA_FIELD } from './settingsLayout'
+import { SettingsSection, SettingsSkeleton, SelectField, TEXTAREA_FIELD } from './settingsLayout'
 import { Chip } from '../ui'
 import { confirm } from '../../lib/confirmStore'
 
@@ -287,7 +287,7 @@ function CaptureTab(): React.JSX.Element {
   }, [openKey])
 
   if (error) return <p className="p-3 text-xs text-danger">{error}</p>
-  if (!list) return <p className="p-3 text-xs text-mute">Loading…</p>
+  if (!list) return <SettingsSkeleton rows={3} />
   const rows = list.rows
   if (rows.length === 0)
     return (
@@ -505,7 +505,7 @@ export function PromptsDevPage(): React.JSX.Element {
   }
 
   if (error) return <p className="p-3 text-xs text-danger">{error}</p>
-  if (!catalog) return <p className="p-3 text-xs text-mute">Loading…</p>
+  if (!catalog) return <SettingsSkeleton rows={3} />
 
   return (
     <div className="flex flex-col gap-3">
