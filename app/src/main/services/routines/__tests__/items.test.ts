@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { selectJqlItems, selectCaseItems } from '../items'
+import { selectJqlItems, selectCaseItems, type ResolvedItem, type CaseCandidate } from '../items'
 
-const item = (key: string, cursorValue: string) => ({ key, cursorValue })
+const item = (key: string, cursorValue: string): ResolvedItem => ({ key, cursorValue })
 
 describe('selectJqlItems', () => {
   it('takes everything when the cap is generous', () => {
@@ -56,7 +56,11 @@ describe('selectJqlItems', () => {
 })
 
 describe('selectCaseItems', () => {
-  const c = (slug: string, updatedAt: string, lastAttemptAt: string | null = null) => ({
+  const c = (
+    slug: string,
+    updatedAt: string,
+    lastAttemptAt: string | null = null
+  ): CaseCandidate => ({
     slug,
     updatedAt,
     lastAttemptAt
