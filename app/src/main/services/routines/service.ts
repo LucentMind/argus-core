@@ -107,6 +107,10 @@ export interface RoutinesServiceDeps {
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 
+/** The `error` text a run stopped by `stopForQuit` carries. Exported so a test asserts the real
+ *  string, same idiom as `INTERRUPTED_RUN_ERROR` (runs.ts) for the startup backstop. */
+export const STOPPED_FOR_QUIT_ERROR = 'Stopped: the app quit while this run was in progress.'
+
 /**
  * How many rows past the cap a `jira-jql` window asks for.
  *
@@ -178,6 +182,9 @@ interface ItemTarget {
  */
 export class RoutinesService {
   private running: RoutineDef | null = null
+  /** The `routine_runs` row id currently open, mirroring `running` — set the instant `execute`
+   *  opens it, cleared alongside `running`. What `stopForQuit` closes out. */
+  private runningRunId: number | null = null
   private queue: { routine: RoutineDef; trigger: RoutineTrigger }[] = []
   private current: Promise<void> = Promise.resolve()
 
@@ -364,6 +371,7 @@ export class RoutinesService {
       })
       .finally(() => {
         this.running = null
+        this.runningRunId = null
         this.safeNotify()
         // Serial continuation. Not stack recursion — this runs on a microtask.
         this.drain()
@@ -374,11 +382,13 @@ export class RoutinesService {
    * Resolves when nothing is running AND the queue is empty.
    *
    * NOTHING IN PRODUCTION CALLS THIS. The callers are the tests, and any future host that needs
-   * to wait for the queue to empty. `before-quit` deliberately does not: it stops the scheduler
-   * and closes the store, and a run still in flight is simply abandoned — its row is reconciled
-   * to `failed` at the next launch (reconcileInterruptedRuns, runs.ts). That is the intended
-   * behaviour, since a quit that blocked on an unattended turn could hang for up to
-   * MAX_TIMEOUT_MINUTES. Do not read the widening below as quit protecting a run in flight.
+   * to wait for the queue to empty. `before-quit` deliberately does not: it calls `stopForQuit`
+   * instead, which closes the running row's story right away WITHOUT awaiting anything — a run
+   * still in flight is simply abandoned, its underlying turn left to die with the rest of the
+   * process. That is the intended behaviour, since blocking quit on an unattended turn could hang
+   * for up to MAX_TIMEOUT_MINUTES. Do not read the widening below as quit protecting a run in
+   * flight, and do not read `stopForQuit` as this method's synchronous cousin — the two do not
+   * compose (see `stopForQuit`'s own docblock).
    *
    * The loop is required, not defensive. `drain` replaces `current` with the NEXT run's promise
    * from inside the previous one's `.finally()`, so awaiting a single snapshot would resolve
@@ -391,6 +401,44 @@ export class RoutinesService {
     while (this.running || this.queue.length) {
       await this.current
     }
+  }
+
+  /**
+   * Best-effort quit response: closes the CURRENTLY RUNNING row's story right now, instead of
+   * leaving it `running` — rendered as a routine executing since last week — until the next
+   * launch's `reconcileInterruptedRuns` backstop finally gets to it.
+   *
+   * DOES NOT INTERRUPT THE LIVE TURN, AND DOES NOT TRY TO. There is no cancel anywhere in this
+   * engine (see `enqueue`'s own docblock), and this is not the place to invent one on the way out
+   * the door. The unattended turn keeps executing until the process itself dies alongside it,
+   * exactly as before this method existed — only the DATABASE's account of it changes, from
+   * "still running" (already a lie the instant the process is gone) to "stopped for quit" (true
+   * immediately, rather than only after a future launch reconciles it).
+   *
+   * SYNCHRONOUS, AND NEVER AWAITS `this.current` — see `whenIdle`'s docblock for why the quit
+   * path must not block on a run in flight (up to MAX_TIMEOUT_MINUTES). The pending queue is
+   * simply dropped: nothing in it has opened a run row yet, so there is nothing there for this to
+   * close — starting or skipping each of those entries one by one is work the host is already in
+   * the middle of tearing down.
+   *
+   * MUST NEVER CALL `reconcileInterruptedRuns`. That helper is SAFE ONLY AT STARTUP (see its own
+   * docblock in runs.ts): its predicate is a blanket `status='running'`, which cannot distinguish
+   * a stranded row from one legitimately still executing — calling it mid-process would corrupt
+   * every OTHER live run a future headless host might have in flight. This instead closes exactly
+   * the one row this service itself already knows is the one running, by id.
+   */
+  stopForQuit(): void {
+    this.queue = []
+    if (this.runningRunId !== null) {
+      finishRoutineRun(
+        this.deps.db,
+        this.runningRunId,
+        { status: 'failed', error: STOPPED_FOR_QUIT_ERROR },
+        this.deps.now
+      )
+    }
+    this.running = null
+    this.runningRunId = null
   }
 
   private async execute(routine: RoutineDef, trigger: RoutineTrigger): Promise<void> {
@@ -411,6 +459,8 @@ export class RoutinesService {
       trigger,
       this.deps.now
     )
+    // Mirrors `running` (set by `drain` just before this call): what `stopForQuit` closes out.
+    this.runningRunId = runId
     this.safeNotify()
 
     // One decision, two consumers: the session row below and the turn request further down.

@@ -359,6 +359,10 @@ let trayService: TrayService | null = null
 // Published from registerIpc()'s local const (same idiom as routineStore): `window-all-closed`
 // out here has to read the keep-alive setting, and it fires after registerIpc has long returned.
 let appSettings: SettingsService | null = null
+// Same reason as routineStore/routineScheduler above: `before-quit` lives out here and has to
+// stop whatever routine is currently running, rather than leaving its row `running` — rendered
+// as a routine executing since last week — until the next launch's reconcile pass gets to it.
+let routinesServiceHandle: RoutinesService | null = null
 /**
  * The theme main believes the UI is on. Windows are constructed before any renderer can report
  * one, so the first main window opens on this default and self-corrects the instant uiStore's
@@ -2007,6 +2011,7 @@ function registerIpc(): void {
       n.show()
     }
   })
+  routinesServiceHandle = routinesService
   // File-level changes (an edit through the IPC handlers below, or someone editing
   // config/routines.json by hand) announce through the store's own watcher; run-level changes
   // announce through `notify`. Both land on the same channel, and listeners re-read rather than
@@ -3467,6 +3472,11 @@ app.on('before-quit', (event) => {
   // Before routineStore.close() below: the tick reads the store, and a tick landing on a closed
   // watcher is a needless error on the quit path.
   routineScheduler?.stop()
+  // A run left running at this instant would otherwise sit that way — rendered as still
+  // executing — until the next launch's reconcile pass finally closes it out. This does not
+  // (and cannot) interrupt the live turn; it only makes the DATABASE honest right away. See
+  // RoutinesService's own docblock for why this stays synchronous and never awaits.
+  routinesServiceHandle?.stopForQuit()
   // Holds an fs watcher on config/routines.json. Unlike caseWatch/proposals (which the exit
   // path deliberately leaves to process teardown), this one also drops the subscriber that
   // broadcasts to windows — and windows are being torn down right now.
