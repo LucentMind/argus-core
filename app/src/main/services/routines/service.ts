@@ -1,7 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { createCase, getCase } from '../caseService'
 import { createSession } from '../agent/sessionStore'
-import { insertRoutineRun, attachRunSession, finishRoutineRun, listRoutineRuns } from './runs'
+import {
+  insertRoutineRun,
+  attachRunSession,
+  finishRoutineRun,
+  listRoutineRuns,
+  lastSuccessAt
+} from './runs'
 import type { RoutineStore } from './store'
 import type { RoutineDef, RoutinesPayload } from '../../../shared/routines'
 import type { BackgroundTurnParams, BackgroundTurnResult } from '../agent/background'
@@ -128,10 +134,21 @@ export class RoutinesService {
       // the live agent session while it's actually running — exactly when that link matters.
       this.deps.notify?.()
 
+      /**
+       * Read here, not at enqueue time: a run that waits in the queue behind another must see
+       * the watermark as it stands when IT starts, not as it stood when it was queued.
+       */
+      const since = lastSuccessAt(db, routine.id)
+      const watermark = since
+        ? `Your last successful run of this routine finished at ${since}. Concentrate on what ` +
+          `has changed since then.`
+        : `This is the first run of this routine — there is no previous run to compare against.`
+
       const preamble =
         `You are running unattended as the routine "${routine.name}". No user is present: ` +
         `never ask questions, make reasonable assumptions, note anything that needs human ` +
-        `review, and end with a concise summary of what you did and found.\n\n`
+        `review, and end with a concise summary of what you did and found.\n\n` +
+        `${watermark}\n\n`
 
       result = await this.deps.runTurn({
         caseId: rec.id,

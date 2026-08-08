@@ -21,6 +21,11 @@ const PREAMBLE =
   `never ask questions, make reasonable assumptions, note anything that needs human ` +
   `review, and end with a concise summary of what you did and found.\n\n`
 
+// The watermark sentence for a routine with no prior successful run — this is what run 1 of any
+// fresh routine sees, appended to PREAMBLE above.
+const FIRST_RUN_WATERMARK =
+  `This is the first run of this routine — there is no previous run to compare against.\n\n`
+
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-rsvc-'))
   db = openDb(path.join(home, 'argus.db'))
@@ -66,8 +71,8 @@ describe('RoutinesService', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0].caseId).toBe(rec!.id)
     expect(calls[0].caseSlug).toBe('routine-sweep')
-    // Exact preamble, then the routine's own prompt.
-    expect(calls[0].prompt).toBe(PREAMBLE + 'sweep it')
+    // Exact preamble, then the first-run watermark sentence, then the routine's own prompt.
+    expect(calls[0].prompt).toBe(PREAMBLE + FIRST_RUN_WATERMARK + 'sweep it')
     expect(calls[0].timeoutMs).toBe(1000)
     expect(calls[0].model).toBeUndefined()
 
@@ -308,5 +313,70 @@ describe('RoutinesService', () => {
     // The finish notification must already show the settled state, not a stale running one.
     expect(seen[2].runningId).toBeNull()
     expect(seen[2].runs[0]).toMatchObject({ status: 'ok', summary: 'swept', sessionId })
+  })
+})
+
+describe('watermark', () => {
+  it('tells a first run that it is the first', async () => {
+    const calls: BackgroundTurnParams[] = []
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async (p) => {
+        calls.push(p)
+        return { status: 'ok', text: 'done' }
+      },
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    await svc.whenIdle()
+    expect(calls[0].prompt).toContain('This is the first run of this routine')
+    expect(calls[0].prompt).toContain('sweep it')
+  })
+
+  it('hands the next run the last SUCCESSFUL finish time', async () => {
+    const calls: BackgroundTurnParams[] = []
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async (p) => {
+        calls.push(p)
+        return { status: 'ok', text: 'done' }
+      },
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    await svc.whenIdle()
+    svc.startRun('sweep')
+    await svc.whenIdle()
+    expect(calls[1].prompt).toContain(NOW.toISOString())
+    expect(calls[1].prompt).toContain('changed since')
+    expect(calls[1].prompt).not.toContain('first run')
+  })
+
+  it('does not advance the watermark past a failed run', async () => {
+    const calls: BackgroundTurnParams[] = []
+    let outcome: 'ok' | 'failed' = 'failed'
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async (p) => {
+        calls.push(p)
+        return outcome === 'ok'
+          ? { status: 'ok', text: 'done' }
+          : { status: 'failed', text: '', error: 'boom' }
+      },
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    await svc.whenIdle()
+    outcome = 'ok'
+    svc.startRun('sweep')
+    await svc.whenIdle()
+    // Run 2 follows a FAILED run 1, so it is still the first run that matters.
+    expect(calls[1].prompt).toContain('This is the first run of this routine')
   })
 })
