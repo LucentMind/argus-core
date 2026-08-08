@@ -105,6 +105,21 @@ describe('GeneralSettings', () => {
     })
   })
 
+  it('patches the keep-alive setting from the toggle', () => {
+    render(<GeneralSettings payload={payload()} />)
+    const sw = screen.getByRole('switch', { name: 'Keep running in the background' })
+    expect(sw.getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(sw)
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      general: { keepAliveInBackground: true }
+    })
+  })
+
+  it('names macOS in the description, where the setting does not govern quitting', () => {
+    render(<GeneralSettings payload={payload()} />)
+    expect(screen.getByText(/macOS/)).toBeInTheDocument()
+  })
+
   it('shows the data root read-only with env badge and open-folder action', () => {
     render(<GeneralSettings payload={payload()} />)
     expect(screen.getByText('C:\\Users\\x\\Argus')).toBeTruthy()
