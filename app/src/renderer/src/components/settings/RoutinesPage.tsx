@@ -13,6 +13,7 @@ import { confirm } from '../../lib/confirmStore'
 import { chipStamp } from '../../lib/time'
 import { useRoutinesPayload } from '../../lib/routinesStore'
 import { settingsStore, useSettingsPayload } from '../../lib/settingsStore'
+import { isDarwin } from '../../lib/platform'
 import { RUN_TONE, TriggerChip, RunSummaryText } from '../routines/runDisplay'
 import {
   MAX_TIMEOUT_MINUTES,
@@ -328,7 +329,15 @@ function RoutineEditor({
         )}
       </div>
       {scheduled &&
-        (keepAlive ? (
+        (isDarwin() ? (
+          // RoutineScheduler.start() is unconditional on macOS and shouldKeepAlive() returns true
+          // for both values of the setting — the window-closed catch-up path this row's other two
+          // branches describe never applies here. One accurate sentence, no button: the setting
+          // has nothing to offer a macOS user who wants punctual firing, they already have it.
+          <p className="text-xs text-mute">
+            Argus always keeps running on macOS, so this fires on time even with the window closed.
+          </p>
+        ) : keepAlive ? (
           <p className="text-xs text-mute">
             Argus keeps running in the background, so this fires on time even with the window
             closed.
