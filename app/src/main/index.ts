@@ -1786,8 +1786,8 @@ function registerIpc(): void {
   //  - `notify` after `attachRunSession` is INSIDE that try, so a throw is recorded as a
   //    FAILED run: a perfectly good routine reported as broken because a window closed.
   //  - `notify` in the `.finally()` runs after `this.running = null`, so the flag is safe,
-  //    but the throw rejects the promise `whenIdle()` hands to shutdown and to every test,
-  //    and nothing follows the `.finally()` to catch it — an unhandled rejection.
+  //    but the throw rejects the promise `whenIdle()` hands to every test that awaits it, and
+  //    nothing follows the `.finally()` to catch it — an unhandled rejection.
   // `onEvent` is the first statement of runBackgroundTurn's `emit`, ahead of the switch that
   // decides the turn's outcome, so a throw would skip `settle()` for that event entirely: no
   // result, no teardown, and the turn only ends when its timeout eventually fires.

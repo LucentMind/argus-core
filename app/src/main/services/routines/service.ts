@@ -225,9 +225,9 @@ export class RoutinesService {
     this.running = live
     this.current = this.execute(live, next.trigger)
       // `execute` swallows its own failures into the run row, so this catch only fires if the
-      // recording itself failed (e.g. a closed DB). It must still not escape: `whenIdle` is
-      // awaited by shutdown and by every test, and a rejecting idle promise would turn one bad
-      // run into an unhandled rejection.
+      // recording itself failed (e.g. a closed DB). It must still not escape: `current` is
+      // handed out by `whenIdle`, which every test awaits, and a rejecting idle promise would
+      // turn one bad run into an unhandled rejection that fails a suite far from its cause.
       .catch((err: unknown) => {
         console.error('[routines] run bookkeeping failed:', message(err))
       })
@@ -240,13 +240,21 @@ export class RoutinesService {
   }
 
   /**
-   * Resolves when nothing is running AND the queue is empty — for tests and shutdown.
+   * Resolves when nothing is running AND the queue is empty.
+   *
+   * NOTHING IN PRODUCTION CALLS THIS. The callers are the tests, and any future host that needs
+   * to wait for the queue to empty. `before-quit` deliberately does not: it stops the scheduler
+   * and closes the store, and a run still in flight is simply abandoned — its row is reconciled
+   * to `failed` at the next launch (reconcileInterruptedRuns, runs.ts). That is the intended
+   * behaviour, since a quit that blocked on an unattended turn could hang for up to
+   * MAX_TIMEOUT_MINUTES. Do not read the widening below as quit protecting a run in flight.
    *
    * The loop is required, not defensive. `drain` replaces `current` with the NEXT run's promise
    * from inside the previous one's `.finally()`, so awaiting a single snapshot would resolve
-   * while the queue still held work — and shutdown awaits this. It terminates because the queue
-   * only shrinks here (each iteration consumes the run that was in flight when it started) and
-   * `drain` never leaves `running` set without either a queued successor or a settled `current`.
+   * while the queue still held work — which for a test means asserting against a database the
+   * next run is still writing to. It terminates because the queue only shrinks here (each
+   * iteration consumes the run that was in flight when it started) and `drain` never leaves
+   * `running` set without either a queued successor or a settled `current`.
    */
   async whenIdle(): Promise<void> {
     while (this.running || this.queue.length) {
