@@ -8,6 +8,7 @@ import { createCase, getCase } from '../../caseService'
 import { listRoutineRuns, insertRoutineRun, finishRoutineRun } from '../runs'
 import { RoutineStore } from '../store'
 import { RoutinesService, type RoutineRunFinished } from '../service'
+import { readRoutineCursor, writeRoutineCursor } from '../cursors'
 import type { BackgroundTurnParams } from '../../agent/background'
 import {
   MAX_INTERVAL_MINUTES,
@@ -891,6 +892,19 @@ describe('nextRunAt', () => {
     expect(build(() => later).nextRunAt(store.get('sweep')!)).toBe(
       new Date(later.getTime() + HOUR).toISOString()
     )
+  })
+
+  it('forgetRoutine drops the cursor as well as the anchor', () => {
+    writeRoutineCursor(db, 'nightly', 'x')
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async () => ({ status: 'ok', text: 'done' }),
+      now: () => NOW
+    })
+    svc.forgetRoutine('nightly')
+    expect(readRoutineCursor(db, 'nightly')).toBeNull()
   })
 
   it('anchors on the last attempt once one exists', async () => {
