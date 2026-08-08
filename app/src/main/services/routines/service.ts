@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { createCase, getCase } from '../caseService'
+import { createCase, ensureCaseOrigin, getCase } from '../caseService'
 import { createSession } from '../agent/sessionStore'
 import {
   insertRoutineRun,
@@ -300,6 +300,9 @@ export class RoutinesService {
     try {
       const rec =
         getCase(db, slug) ?? createCase(db, argusHome, { slug, title: `Routine: ${routine.name}` })
+      // After get-or-create, not inside createCase: this run may be ADOPTING a case an
+      // increment-1 run created before the column existed, in which case createCase never ran.
+      ensureCaseOrigin(db, slug, 'routine')
       const session = createSession(db, slug, {
         driverKind,
         model: routine.model ?? null

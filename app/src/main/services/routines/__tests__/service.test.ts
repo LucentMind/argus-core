@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
-import { getCase } from '../../caseService'
+import { createCase, getCase } from '../../caseService'
 import { listRoutineRuns, insertRoutineRun, finishRoutineRun } from '../runs'
 import { RoutineStore } from '../store'
 import { RoutinesService } from '../service'
@@ -329,6 +329,39 @@ describe('RoutinesService', () => {
     // The finish notification must already show the settled state, not a stale running one.
     expect(seen[3].runningId).toBeNull()
     expect(seen[3].runs[0]).toMatchObject({ status: 'ok', summary: 'swept', sessionId })
+  })
+})
+
+describe('case origin', () => {
+  it('marks the case it creates as routine-created', async () => {
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async () => ({ status: 'ok', text: 'nothing new' }),
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    await svc.whenIdle()
+    expect(getCase(db, 'routine-sweep')?.origin).toBe('routine')
+  })
+
+  it('marks a case it adopts rather than creates', async () => {
+    // An increment-1 run already created this case, before the column existed; or a human did.
+    // createCase never runs on this path, so a create-time parameter would miss it entirely.
+    createCase(db, home, { slug: 'routine-sweep', title: 'Routine: Nightly sweep' })
+    expect(getCase(db, 'routine-sweep')?.origin).toBe('user')
+
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async () => ({ status: 'ok', text: 'nothing new' }),
+      now: () => NOW
+    })
+    svc.startRun('sweep')
+    await svc.whenIdle()
+    expect(getCase(db, 'routine-sweep')?.origin).toBe('routine')
   })
 })
 
