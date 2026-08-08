@@ -84,6 +84,22 @@ describe('RunItemRows', () => {
     expect(screen.queryByRole('button', { name: /Accept/ })).not.toBeInTheDocument()
   })
 
+  it('offers no verbs for a processed item with no caseSlug', () => {
+    // Both existing gate tests vary `status` (the `failed` fixture also zeroes `caseSlug`, and
+    // `skipped` never touches it) — neither isolates the `caseSlug !== null` half of
+    // `canAct = item.status === 'processed' && caseSlug !== null`. Production cannot currently
+    // reach `processed` + `caseSlug: null` (a processed item always has a slug attached before
+    // `finishRunItem` writes 'processed'), but the type permits it and the gate claims to guard
+    // it, so the guard itself needs its own test independent of `status`.
+    render(
+      <RunItemRows items={[item({ status: 'processed', caseSlug: null })]} onOpen={() => {}} />
+    )
+    expect(screen.getByText('ABC-1')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Accept/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Open case/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Dismiss/ })).not.toBeInTheDocument()
+  })
+
   it('dismisses an item with the chosen resolution', async () => {
     // Not in the brief's own test list, but Dismiss is new surface area (Step 3's resolution
     // picker) with no other coverage in this suite — worth one pass through the real click path.
