@@ -409,6 +409,54 @@ describe('scoped runs', () => {
     expect(svc.payload().runs[0].caseSlug).toBe('routine-nightly')
   })
 
+  it('stopForQuit interrupts the item currently mid-turn, and the rest of the scope stays unattempted', async () => {
+    // The abort must reach a SCOPED run's per-item turn, not only the unscoped path's single
+    // turn — `runItemTurn` threads the same `runningAbort.signal` `execute` does.
+    const started: string[] = []
+    let capturedSignal: AbortSignal | undefined
+    const svc = new RoutinesService({
+      db,
+      argusHome: tmp,
+      store: storeOf(routine({ maxItemsPerRun: 5 })) as never,
+      scopeResolver: fakeResolver([
+        { key: 'ABC-1', created: '2026-08-01T00:00:00.000Z' },
+        { key: 'ABC-2', created: '2026-08-02T00:00:00.000Z' }
+      ]),
+      // Mirrors runBackgroundTurn's own contract (agent/background.ts): hangs until `signal`
+      // fires, then settles failed — the fake doubles as proof the signal it captured is the
+      // one `stopForQuit` actually aborts.
+      runTurn: (p) =>
+        new Promise((resolve) => {
+          started.push(p.caseSlug)
+          capturedSignal = p.signal
+          p.signal?.addEventListener(
+            'abort',
+            () =>
+              resolve({ status: 'failed', text: '', error: 'turn aborted: the app is quitting' }),
+            { once: true }
+          )
+        }),
+      now: () => new Date('2026-08-08T02:00:00.000Z')
+    })
+
+    svc.startRun('nightly')
+    // Let the resolver + first item's turn actually start before quitting — everything between
+    // `startRun` and the first `runTurn` call is async (scope resolution, ingest), so this must
+    // wait rather than assume it already happened.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(started).toEqual(['abc-1'])
+
+    svc.stopForQuit()
+    expect(capturedSignal?.aborted).toBe(true)
+    await svc.whenIdle()
+
+    // ABC-2 was never opened — no row, no turn — rather than started and then failed.
+    expect(started).toEqual(['abc-1'])
+    const run = svc.payload().runs[0]
+    expect(listRunItems(db, [run.id]).map((i) => i.itemKey)).toEqual(['ABC-1'])
+    expect(run.status).toBe('failed')
+  })
+
   it('records a failed run when the scope itself cannot be resolved', async () => {
     const svc = new RoutinesService({
       db,

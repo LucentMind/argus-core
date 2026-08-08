@@ -107,10 +107,6 @@ export interface RoutinesServiceDeps {
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 
-/** The `error` text a run stopped by `stopForQuit` carries. Exported so a test asserts the real
- *  string, same idiom as `INTERRUPTED_RUN_ERROR` (runs.ts) for the startup backstop. */
-export const STOPPED_FOR_QUIT_ERROR = 'Stopped: the app quit while this run was in progress.'
-
 /**
  * How many rows past the cap a `jira-jql` window asks for.
  *
@@ -182,9 +178,12 @@ interface ItemTarget {
  */
 export class RoutinesService {
   private running: RoutineDef | null = null
-  /** The `routine_runs` row id currently open, mirroring `running` — set the instant `execute`
-   *  opens it, cleared alongside `running`. What `stopForQuit` closes out. */
-  private runningRunId: number | null = null
+  /** Mirrors `running`: set the instant `execute` begins, cleared alongside it in `drain`'s
+   *  `.finally()`. Its `.signal` is threaded into every `runTurn` call this run makes (the main
+   *  turn, and each scoped item's turn) — `stopForQuit` calling `.abort()` is what actually
+   *  interrupts whichever one is live, via `runBackgroundTurn`'s own signal wiring
+   *  (agent/background.ts). Not just a database-relabel: see `stopForQuit`'s docblock. */
+  private runningAbort: AbortController | null = null
   private queue: { routine: RoutineDef; trigger: RoutineTrigger }[] = []
   private current: Promise<void> = Promise.resolve()
 
@@ -371,7 +370,7 @@ export class RoutinesService {
       })
       .finally(() => {
         this.running = null
-        this.runningRunId = null
+        this.runningAbort = null
         this.safeNotify()
         // Serial continuation. Not stack recursion — this runs on a microtask.
         this.drain()
@@ -382,13 +381,14 @@ export class RoutinesService {
    * Resolves when nothing is running AND the queue is empty.
    *
    * NOTHING IN PRODUCTION CALLS THIS. The callers are the tests, and any future host that needs
-   * to wait for the queue to empty. `before-quit` deliberately does not: it calls `stopForQuit`
-   * instead, which closes the running row's story right away WITHOUT awaiting anything — a run
-   * still in flight is simply abandoned, its underlying turn left to die with the rest of the
-   * process. That is the intended behaviour, since blocking quit on an unattended turn could hang
-   * for up to MAX_TIMEOUT_MINUTES. Do not read the widening below as quit protecting a run in
-   * flight, and do not read `stopForQuit` as this method's synchronous cousin — the two do not
-   * compose (see `stopForQuit`'s own docblock).
+   * to wait for the queue to empty. `before-quit` deliberately does not — it calls `stopForQuit`
+   * instead, which returns synchronously and never awaits `this.current`, even though
+   * `stopForQuit` DOES trigger the live turn's own teardown (see its docblock: it interrupts the
+   * driver via the same seam a timeout uses). Awaiting that teardown here would still block quit
+   * on however long the driver actually takes to exit — up to MAX_TIMEOUT_MINUTES in the worst
+   * case, the very hang this design has always avoided. Do not read the widening below as quit
+   * protecting a run in flight, and do not read `stopForQuit` as this method's synchronous
+   * cousin — the two do not compose.
    *
    * The loop is required, not defensive. `drain` replaces `current` with the NEXT run's promise
    * from inside the previous one's `.finally()`, so awaiting a single snapshot would resolve
@@ -404,41 +404,34 @@ export class RoutinesService {
   }
 
   /**
-   * Best-effort quit response: closes the CURRENTLY RUNNING row's story right now, instead of
-   * leaving it `running` — rendered as a routine executing since last week — until the next
-   * launch's `reconcileInterruptedRuns` backstop finally gets to it.
+   * Interrupts whatever routine is CURRENTLY RUNNING, and drops the pending queue.
    *
-   * DOES NOT INTERRUPT THE LIVE TURN, AND DOES NOT TRY TO. There is no cancel anywhere in this
-   * engine (see `enqueue`'s own docblock), and this is not the place to invent one on the way out
-   * the door. The unattended turn keeps executing until the process itself dies alongside it,
-   * exactly as before this method existed — only the DATABASE's account of it changes, from
-   * "still running" (already a lie the instant the process is gone) to "stopped for quit" (true
-   * immediately, rather than only after a future launch reconciles it).
+   * ACTUALLY INTERRUPTS THE LIVE TURN — `runningAbort.abort()` fires the `AbortSignal` threaded
+   * into every `runTurn` call this run makes (the main turn in `execute`, and each scoped item's
+   * turn in `runItemTurn`). `runBackgroundTurn` (agent/background.ts) reacts to it exactly the
+   * way it reacts to its OWN timeout: `settle()` still runs `session.stop('stopped')`, which
+   * interrupts the live driver and tears the session down. This is not a softer, database-only
+   * stop, and it is not new cancellation machinery either — it reuses the interrupt path a
+   * timeout already exercises on every routine run; see `enqueue`'s docblock for what is still
+   * genuinely absent (a user-facing cancel button while a run is mid-flight and healthy).
    *
-   * SYNCHRONOUS, AND NEVER AWAITS `this.current` — see `whenIdle`'s docblock for why the quit
-   * path must not block on a run in flight (up to MAX_TIMEOUT_MINUTES). The pending queue is
-   * simply dropped: nothing in it has opened a run row yet, so there is nothing there for this to
-   * close — starting or skipping each of those entries one by one is work the host is already in
-   * the middle of tearing down.
+   * SYNCHRONOUS ITSELF, AND NEVER AWAITS THE TEARDOWN IT STARTS. `AbortController.abort()` only
+   * flips the signal and invokes listeners synchronously; `session.stop()` is async, so the
+   * actual teardown — and the `finishRoutineRun` call that eventually closes the row, through the
+   * SAME path every other run finishes through (`execute`'s own, not a second writer here) —
+   * happens on its own time, after this method has already returned. See `whenIdle`'s docblock
+   * for why the quit path must never block on that.
    *
-   * MUST NEVER CALL `reconcileInterruptedRuns`. That helper is SAFE ONLY AT STARTUP (see its own
-   * docblock in runs.ts): its predicate is a blanket `status='running'`, which cannot distinguish
-   * a stranded row from one legitimately still executing — calling it mid-process would corrupt
-   * every OTHER live run a future headless host might have in flight. This instead closes exactly
-   * the one row this service itself already knows is the one running, by id.
+   * WRITES NOTHING TO THE DATABASE ITSELF, and does not need to. A row left `running` because
+   * the teardown above didn't finish before the process died is not a user-visible bug: the
+   * startup backstop in runs.ts reconciles it at the NEXT launch before the first routine-run IPC
+   * handler is even registered, so no renderer can ever observe the stranded state (see that
+   * function's own docblock). Writing here too would only race the SAME row against whichever of
+   * the two finishes last.
    */
   stopForQuit(): void {
     this.queue = []
-    if (this.runningRunId !== null) {
-      finishRoutineRun(
-        this.deps.db,
-        this.runningRunId,
-        { status: 'failed', error: STOPPED_FOR_QUIT_ERROR },
-        this.deps.now
-      )
-    }
-    this.running = null
-    this.runningRunId = null
+    this.runningAbort?.abort()
   }
 
   private async execute(routine: RoutineDef, trigger: RoutineTrigger): Promise<void> {
@@ -459,8 +452,10 @@ export class RoutinesService {
       trigger,
       this.deps.now
     )
-    // Mirrors `running` (set by `drain` just before this call): what `stopForQuit` closes out.
-    this.runningRunId = runId
+    // Mirrors `running` (set by `drain` just before this call). `.signal` is threaded into every
+    // `runTurn` call this run makes below — `stopForQuit` aborting it is what actually reaches
+    // and interrupts whichever turn is live.
+    this.runningAbort = new AbortController()
     this.safeNotify()
 
     // One decision, two consumers: the session row below and the turn request further down.
@@ -502,6 +497,10 @@ export class RoutinesService {
         driverKind,
         prompt: preamble + routine.prompt,
         timeoutMs: routine.timeoutMs,
+        // Present even though `stopForQuit` only ever aborts the CURRENT run's controller —
+        // `runningAbort` is reassigned fresh per run (above), so a signal captured here can
+        // never be fired by some LATER run's stop.
+        signal: this.runningAbort?.signal,
         ...(routine.model ? { model: routine.model } : {})
       })
     } catch (err) {
@@ -617,6 +616,13 @@ export class RoutinesService {
       const preamble = this.unattendedPreamble(routine)
 
       for (const target of targets.selected) {
+        // Checked BEFORE opening a row for this item, not after: an item this loop never
+        // reaches because quit already aborted the run stays fully unattempted (no row, cursor
+        // untouched), same as one this run's cap never got to — rather than opening a row just
+        // to immediately fail it. The item ALREADY mid-turn when `stopForQuit` fires is not
+        // caught by this guard; its own `runTurn` call sees the same signal and is what actually
+        // stops it (see `execute`/`runItemTurn`).
+        if (this.runningAbort?.signal.aborted) break
         const itemId = insertRunItem(db, runId, target.key, this.deps.now)
         this.safeNotify()
         try {
@@ -815,6 +821,9 @@ export class RoutinesService {
       driverKind,
       prompt: preamble + itemPreamble + routine.prompt,
       timeoutMs: routine.timeoutMs,
+      // Same seam as the unscoped turn in `execute` — one `runningAbort` per run, shared across
+      // every item's turn, so `stopForQuit` reaches whichever item is currently live.
+      signal: this.runningAbort?.signal,
       ...(routine.model ? { model: routine.model } : {})
     })
     if (result.status !== 'ok') {
