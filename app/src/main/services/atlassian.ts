@@ -666,6 +666,12 @@ export function jiraBrowseUrl(siteUrl: string, key: string): string {
  * silently, whenever more than one ticket lands in the same minute. items.ts removes the
  * resulting duplicate by key instead.
  *
+ * This truncation is also what widens the "boundary" `CURSOR_BOUNDARY_SLACK`
+ * (services/routines/service.ts) accepts a residual starvation risk on: that constant was sized
+ * when a shared boundary meant an identical timestamp, and this function's minute-rounding turns
+ * it into a whole-minute-wide bucket instead — roughly sixty times wider. See that docblock for
+ * the accepted (and deliberately un-fixed) consequence.
+ *
  * UTC, not the host machine's local zone: the cursor values this formats come straight from
  * Jira's own `created`/`updated` fields (ISO 8601 with an explicit offset), and formatting in
  * local time would make the bound query — and every test of it — depend on the machine's
