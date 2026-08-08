@@ -393,6 +393,9 @@ describe('scoped runs', () => {
     const run = svc.payload().runs[0]
     expect(run.status).toBe('failed')
     expect(run.error).toMatch(/JQL is invalid/)
+    // Nothing was ever attempted — no item row was even opened — so the inbox must not show a
+    // "0 processed" summary next to the error, which reads as if the run had actually run.
+    expect(run.summary).toBeNull()
   })
 
   it('records a failed run when no resolver is bound at all', async () => {
@@ -409,6 +412,7 @@ describe('scoped runs', () => {
     const run = svc.payload().runs[0]
     expect(run.status).toBe('failed')
     expect(run.error).toMatch(/scope resolver/i)
+    expect(run.summary).toBeNull()
   })
 })
 

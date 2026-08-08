@@ -503,12 +503,29 @@ export function openDb(file: string): DatabaseSync {
   // `routine-<id>` case it never creates (that case is what the UI's "Open case" button used to
   // point at for a routine that has only ever run scoped). SQLite cannot drop a column
   // constraint via ALTER, so this rebuilds the table once, gated on the constraint still being
-  // there — same idiom as the sessions UNIQUE(case_id) rebuild above. Runs AFTER the trigger_kind
-  // / reviewed_at migrations so every column already exists to copy across.
+  // there. Runs AFTER the trigger_kind / reviewed_at migrations so every column already exists
+  // to copy across.
+  //
+  // ORDERING CONSTRAINT: any future `ALTER TABLE routine_runs ADD COLUMN ...` must be placed
+  // BELOW this block, never above it. This rebuild only re-fires on a database that still has
+  // the old NOT NULL case_slug (the `runCaseSlugCol?.notnull === 1` guard below), and it copies
+  // across only the columns it names explicitly — a column added above this block would be
+  // silently dropped by the rebuild on exactly the databases that still need it.
+  //
+  // FK-CASCADE TRAP: `routine_run_items.run_id` REFERENCES routine_runs(id) ON DELETE CASCADE,
+  // and openDb runs `PRAGMA foreign_keys = ON` above. SQLite's DROP TABLE performs an implicit
+  // DELETE FROM, which fires FK actions — so DROP TABLE routine_runs below would cascade-delete
+  // every routine_run_items row for every run in the database, silently. PRAGMA foreign_keys is
+  // documented as a no-op while a transaction is active, so it MUST be toggled OFF before BEGIN
+  // and back ON after COMMIT, never inside the transaction (this is SQLite's documented
+  // table-rebuild procedure: https://sqlite.org/lang_altertable.html#otheralter). The
+  // foreign_key_check afterward turns a broken reference into a loud failure instead of a silent
+  // dangling row.
   const runCaseSlugCol = (
     db.prepare(`PRAGMA table_info(routine_runs)`).all() as { name: string; notnull: number }[]
   ).find((c) => c.name === 'case_slug')
   if (runCaseSlugCol?.notnull === 1) {
+    db.exec(`PRAGMA foreign_keys = OFF;`)
     db.exec(`BEGIN;
       CREATE TABLE routine_runs_new (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -530,8 +547,15 @@ export function openDb(file: string): DatabaseSync {
                error, trigger_kind, reviewed_at FROM routine_runs;
       DROP TABLE routine_runs;
       ALTER TABLE routine_runs_new RENAME TO routine_runs;
+      CREATE INDEX IF NOT EXISTS idx_routine_runs_routine ON routine_runs(routine_id);
     COMMIT;`)
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_routine_runs_routine ON routine_runs(routine_id);`)
+    db.exec(`PRAGMA foreign_keys = ON;`)
+    const fkViolations = db.prepare(`PRAGMA foreign_key_check`).all()
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `routine_runs rebuild left dangling foreign keys: ${JSON.stringify(fkViolations)}`
+      )
+    }
   }
 
   // Increment 3: case origin.
