@@ -30,7 +30,13 @@ afterEach(() => {
 })
 
 const newRun = (routineId = 'nightly'): number =>
-  insertRoutineRun(db, routineId, `routine-${routineId}`, 'scheduled', at('2026-08-08T02:00:00.000Z'))
+  insertRoutineRun(
+    db,
+    routineId,
+    `routine-${routineId}`,
+    'scheduled',
+    at('2026-08-08T02:00:00.000Z')
+  )
 
 describe('run items', () => {
   it('opens an item as running before any work happens', () => {
@@ -51,7 +57,12 @@ describe('run items', () => {
 
   it('records a failure with its text', () => {
     const id = insertRunItem(db, newRun(), 'ABC-1', at('2026-08-08T02:00:01.000Z'))
-    finishRunItem(db, id, { status: 'failed', error: 'attachment 404' }, at('2026-08-08T02:01:00.000Z'))
+    finishRunItem(
+      db,
+      id,
+      { status: 'failed', error: 'attachment 404' },
+      at('2026-08-08T02:01:00.000Z')
+    )
     const item = getRunItem(db, id)!
     expect(item.status).toBe('failed')
     expect(item.error).toBe('attachment 404')

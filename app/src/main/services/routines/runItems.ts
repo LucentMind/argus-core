@@ -44,12 +44,9 @@ export function finishRunItem(
   outcome: { status: Exclude<RoutineRunItemStatus, 'running'>; error?: string },
   now: () => Date = defaultNow
 ): void {
-  db.prepare(`UPDATE routine_run_items SET status = ?, error = ?, finished_at = ? WHERE id = ?`).run(
-    outcome.status,
-    outcome.error ?? null,
-    now().toISOString(),
-    itemId
-  )
+  db.prepare(
+    `UPDATE routine_run_items SET status = ?, error = ?, finished_at = ? WHERE id = ?`
+  ).run(outcome.status, outcome.error ?? null, now().toISOString(), itemId)
 }
 
 export function saveItemSuggestion(
@@ -104,8 +101,8 @@ const toSummary = (r: Row): RoutineRunItemSummary => ({
 })
 
 export function getRunItem(db: DatabaseSync, itemId: number): RoutineRunItemSummary | null {
-  const row = db.prepare(`SELECT * FROM routine_run_items WHERE id = ?`).get(itemId) as
-    | unknown as Row | undefined
+  const row = db.prepare(`SELECT * FROM routine_run_items WHERE id = ?`).get(itemId) as unknown as
+    Row | undefined
   return row ? toSummary(row) : null
 }
 

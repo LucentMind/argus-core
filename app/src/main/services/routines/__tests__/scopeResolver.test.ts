@@ -52,17 +52,33 @@ describe('resolveCaseCandidates', () => {
 
   it('carries THIS routine last look at each case, ignoring other routines', () => {
     addCase('alpha', '2026-08-05T00:00:00.000Z')
-    const mine = insertRoutineRun(db, 'sweep', 'routine-sweep', 'scheduled', at('2026-08-02T00:00:00.000Z'))
+    const mine = insertRoutineRun(
+      db,
+      'sweep',
+      'routine-sweep',
+      'scheduled',
+      at('2026-08-02T00:00:00.000Z')
+    )
     const mineItem = insertRunItem(db, mine, 'alpha', at('2026-08-02T00:00:00.000Z'))
     attachItemCase(db, mineItem, 'alpha')
-    const other = insertRoutineRun(db, 'nightly', 'routine-nightly', 'scheduled', at('2026-08-09T00:00:00.000Z'))
+    const other = insertRoutineRun(
+      db,
+      'nightly',
+      'routine-nightly',
+      'scheduled',
+      at('2026-08-09T00:00:00.000Z')
+    )
     const otherItem = insertRunItem(db, other, 'alpha', at('2026-08-09T00:00:00.000Z'))
     attachItemCase(db, otherItem, 'alpha')
 
     const out = resolveCaseCandidates(db, 'sweep', { kind: 'cases' })
     // If the other routine's newer look leaked in, this case would be wrongly skipped later.
     expect(out).toEqual([
-      { slug: 'alpha', updatedAt: '2026-08-05T00:00:00.000Z', lastAttemptAt: '2026-08-02T00:00:00.000Z' }
+      {
+        slug: 'alpha',
+        updatedAt: '2026-08-05T00:00:00.000Z',
+        lastAttemptAt: '2026-08-02T00:00:00.000Z'
+      }
     ])
   })
 
