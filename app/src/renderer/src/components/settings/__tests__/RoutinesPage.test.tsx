@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { RoutinesPage } from '../RoutinesPage'
@@ -945,7 +945,7 @@ describe('RoutinesPage — schedule status', () => {
     render(<RoutinesPage />)
     // chipStamp renders LOCAL time, so assert through it rather than a hardcoded string — this
     // suite runs under whatever timezone the machine or CI happens to have.
-    expect(await screen.findByTestId('next-run-sweep')).toHaveTextContent(
+    expect(await screen.findByTestId('routine-state-chip')).toHaveTextContent(
       chipStamp('2026-08-09T02:00:00.000Z')
     )
   })
@@ -953,13 +953,14 @@ describe('RoutinesPage — schedule status', () => {
   it('says manual only for a routine with no next run', async () => {
     stubApi(payload({ nextRunAt: { sweep: null } }))
     render(<RoutinesPage />)
-    expect(await screen.findByTestId('next-run-sweep')).toHaveTextContent(/manual only/i)
+    expect(await screen.findByTestId('routine-state-chip')).toHaveTextContent(/manual only/i)
   })
 
-  it('says paused, not manual only, for a disabled routine that does have a schedule', async () => {
-    // nextRunAt is null for BOTH "no schedule" and "disabled", so the chip cannot tell them
-    // apart from that field alone — and calling a scheduled routine "manual only" hides the
-    // reason it has stopped running.
+  it('shows one state chip, not both DISABLED and PAUSED, for a disabled routine that has a schedule', async () => {
+    // The bug this pins: a static `disabled` badge chip and a `paused` word inside a SEPARATE
+    // next-run chip used to render side by side for exactly this routine — two chips agreeing
+    // the routine won't run, in different words. Now there is one chip, and it says "disabled":
+    // that already covers "and therefore won't fire on its schedule" without a second word.
     stubApi(
       payload({
         routines: [{ ...sweep, enabled: false, schedule: { kind: 'daily', at: '02:00' } }],
@@ -967,13 +968,14 @@ describe('RoutinesPage — schedule status', () => {
       })
     )
     render(<RoutinesPage />)
-    expect(await screen.findByTestId('next-run-sweep')).toHaveTextContent(/paused/i)
+    expect(await screen.findByTestId('routine-state-chip')).toHaveTextContent(/disabled/i)
+    expect(screen.getAllByTestId('routine-state-chip')).toHaveLength(1)
   })
 
-  it('still says manual only for a disabled routine with no schedule', async () => {
+  it('also says disabled for a disabled routine with no schedule', async () => {
     stubApi(payload({ routines: [{ ...sweep, enabled: false }], nextRunAt: { sweep: null } }))
     render(<RoutinesPage />)
-    expect(await screen.findByTestId('next-run-sweep')).toHaveTextContent(/manual only/i)
+    expect(await screen.findByTestId('routine-state-chip')).toHaveTextContent(/disabled/i)
   })
 
   it('says due now rather than printing a next run that has already passed', async () => {
@@ -981,7 +983,7 @@ describe('RoutinesPage — schedule status', () => {
     // state a user can see — and "next <a time in the past>" reads as a broken schedule.
     stubApi(payload({ nextRunAt: { sweep: '2020-01-01T00:00:00.000Z' } }))
     render(<RoutinesPage />)
-    const chip = await screen.findByTestId('next-run-sweep')
+    const chip = await screen.findByTestId('routine-state-chip')
     expect(chip).toHaveTextContent(/due now/i)
     expect(chip).not.toHaveTextContent(/next/i)
   })
@@ -998,8 +1000,14 @@ describe('RoutinesPage — schedule status', () => {
       })
     )
     render(<RoutinesPage />)
-    expect(await screen.findByTestId('next-run-sweep')).toHaveTextContent(/running now/i)
-    expect(screen.getByTestId('next-run-digest')).toHaveTextContent(/queued/i)
+    // Scoped per row (all three rows share the `routine-state-chip` testid now that it is a
+    // single derived state rather than an id-suffixed one), via the row wrapper.
+    expect(
+      within(await screen.findByTestId('routine-row-sweep')).getByTestId('routine-state-chip')
+    ).toHaveTextContent(/running now/i)
+    expect(
+      within(screen.getByTestId('routine-row-digest')).getByTestId('routine-state-chip')
+    ).toHaveTextContent(/queued/i)
     // Increment 1 disabled EVERY Run now while any run was in flight, because a second click
     // could only throw. A click now joins the queue, so an idle routine's button is honestly
     // enabled — and a routine already queued still is not.

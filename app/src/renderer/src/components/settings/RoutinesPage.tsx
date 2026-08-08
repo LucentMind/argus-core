@@ -176,22 +176,42 @@ function duration(startedAt: string, finishedAt: string | null): string | null {
 }
 
 /**
- * What a routine will do next, in one phrase.
+ * The single visible state for a routine's row.
  *
- * `queued` and `running` beat the clock: a routine whose slot is already claimed has a more
- * useful answer than the time it was scheduled for. `paused` is next, because main's `nextRunAt`
- * folds "no schedule" and "disabled" into the same null — one rule in one place, which is right
- * for the scheduler and leaves this the only place that can tell a paused routine from a
- * manual-only one. That distinction is display of two stored fields, not a second opinion about
- * due-ness: nothing here recomputes WHEN a routine fires.
+ * Replaces two independently-computed booleans that used to render side by side: a static
+ * `disabled` badge chip, armed off `!enabled` alone, and a `paused` word buried inside the
+ * next-run chip, armed off `!enabled && schedule` — so a disabled routine that also had a
+ * schedule showed BOTH "disabled" and "paused" at once, two chips both saying "this will not
+ * run" in different words. One derivation, one chip: `disabled` now covers every disabled
+ * routine, scheduled or not, and is the only state that can say so — there is no separate
+ * `paused` any more.
  */
-function nextRunLabel(
-  nextRunAt: string | null | undefined,
-  state: 'running' | 'queued' | 'paused' | 'idle'
-): string {
+type RoutineDisplayState = 'running' | 'queued' | 'disabled' | 'idle'
+
+function routineDisplayState(
+  enabled: boolean,
+  running: boolean,
+  queued: boolean
+): RoutineDisplayState {
+  if (running) return 'running'
+  if (queued) return 'queued'
+  if (!enabled) return 'disabled'
+  return 'idle'
+}
+
+/**
+ * What the single state chip says, in one phrase.
+ *
+ * Only `idle` still defers to `nextRunAt` — display of a stored field, not a second opinion
+ * about due-ness: nothing here recomputes WHEN a routine fires (see `RoutinesService.nextRunAt`,
+ * the one place that does). `nextRunAt` is already null for both "no schedule" and "disabled"
+ * (main folds the two together, same source), which is exactly why `disabled` above is decided
+ * before this is ever consulted rather than by reading this field.
+ */
+function stateChipText(state: RoutineDisplayState, nextRunAt: string | null | undefined): string {
   if (state === 'running') return 'running now'
   if (state === 'queued') return 'queued'
-  if (state === 'paused') return 'paused'
+  if (state === 'disabled') return 'disabled'
   if (!nextRunAt) return 'manual only'
   // Overdue is a state the user really sees: the poll is 30 seconds wide and a launch catch-up
   // reports a fire from whenever the app was last closed. Printing "next <past time>" for it
@@ -746,27 +766,20 @@ export function RoutinesPage(): React.JSX.Element {
           const running = runningId === r.id
           const isQueued = queued.includes(r.id)
           return (
-            <div key={r.id}>
+            <div key={r.id} data-testid={`routine-row-${r.id}`}>
               <SettingRow
                 label={r.name}
                 description={r.prompt}
                 badge={
                   <>
-                    {!r.enabled && <Chip tone="neutral">disabled</Chip>}
                     {r.driverKind && <Chip tone="neutral">{r.driverKind}</Chip>}
                     {r.model && <Chip tone="neutral">{r.model}</Chip>}
                     <Chip tone="neutral">limit {Math.round(r.timeoutMs / 60_000)}m</Chip>
                     <Chip tone="neutral">
-                      <span data-testid={`next-run-${r.id}`}>
-                        {nextRunLabel(
-                          nextRunAt[r.id],
-                          running
-                            ? 'running'
-                            : isQueued
-                              ? 'queued'
-                              : !r.enabled && r.schedule
-                                ? 'paused'
-                                : 'idle'
+                      <span data-testid="routine-state-chip">
+                        {stateChipText(
+                          routineDisplayState(r.enabled, running, isQueued),
+                          nextRunAt[r.id]
                         )}
                       </span>
                     </Chip>
