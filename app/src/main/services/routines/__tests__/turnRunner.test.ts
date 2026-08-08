@@ -267,6 +267,18 @@ describe('createRoutineTurnRunner — session-shape deps (review fix 1)', () => 
     sdk.messages.push(RESULT_SUCCESS)
     await p
   })
+
+  it('threads defectCorpus through, so search_known_defects works unattended (task 8 fix)', async () => {
+    // The live defect: RoutineTurnRunnerDeps had no defectCorpus field, so it never reached
+    // background.ts, and search_known_defects took its no-sources fallback on every routine
+    // run — a plausible STRING, not an error. ctx.nativeToolDeps.defectCorpus is exactly where
+    // the tool handler reads it (nativeTools.ts), so asserting there proves the dep survives
+    // the whole chain: turnRunner.ts -> background.ts -> session.ts -> nativeToolDeps.
+    const corpus = { searchAll: async () => [] }
+    const { ctx, finish } = await contextOf({ defectCorpus: corpus })
+    expect(ctx.nativeToolDeps.defectCorpus).toBe(corpus)
+    await finish()
+  })
 })
 
 describe('createRoutineTurnRunner — pack CLIs keep their LOW-risk allowlist', () => {

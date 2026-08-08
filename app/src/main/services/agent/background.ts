@@ -5,6 +5,7 @@ import type { Detection } from '../packs/detection'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { AgentAccess } from '../../../shared/agentAccess'
 import type { RiskLevel } from '../../../shared/connectors'
+import type { NativeToolDeps } from './nativeTools'
 
 // Deliberately imports NO electron. The routines engine must stay pure Node so a future
 // headless server can host it; event forwarding is the injected `onEvent` callback only.
@@ -41,6 +42,11 @@ export interface BackgroundTurnDeps {
    *                           only decides anything for a pack CLI whose name collides with the
    *                           raw-text-tool list (grep/rg/cat/…) on an `evidence/` path — which
    *                           is MEDIUM-ask, and every ask is DENIED under `unattended`.
+   *  - no `defectCorpus`   -> `search_known_defects` takes its `no-sources` fallback branch and
+   *                           returns "no sources configured" — a plausible STRING, not an
+   *                           error. A routine that asks whether a defect has been seen before
+   *                           is told no, confidently, and continues. This was live in
+   *                           increments 1-4.
    *
    * DELIBERATELY NOT HERE: `personaFragments` / `personaFragmentIds`. A persona written to help
    * a human triage a defect and a persona for unattended automation are different things, so
@@ -58,6 +64,9 @@ export interface BackgroundTurnDeps {
   agentAccess?: () => AgentAccess
   /** Live tool-risk overrides; consulted per classification. */
   toolRisk?: () => Record<string, RiskLevel>
+  /** Known-defects corpus for `search_known_defects`. Absent = the tool's no-sources fallback —
+   *  see the SESSION-SHAPE DEPS note above. */
+  defectCorpus?: NativeToolDeps['defectCorpus']
   /** Forwarded every session event (e.g. index.ts broadcast) so an open window can watch live. */
   onEvent?: (e: AgentEvent) => void
   mirrorFactory?: (caseSlug: string, sessionId: number) => SessionMirrorLike
@@ -194,6 +203,7 @@ export function runBackgroundTurn(
       packCliNames: deps.packCliNames,
       agentAccess: deps.agentAccess,
       toolRisk: deps.toolRisk,
+      defectCorpus: deps.defectCorpus,
       emit,
       driver: deps.driver,
       resumeCursor: null,
