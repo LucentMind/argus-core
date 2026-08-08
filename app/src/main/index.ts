@@ -9,7 +9,8 @@ import {
   webContents,
   Tray,
   Menu,
-  nativeImage
+  nativeImage,
+  Notification
 } from 'electron'
 import fs from 'node:fs'
 import path, { join } from 'node:path'
@@ -1894,6 +1895,26 @@ function registerIpc(): void {
     notify: () => {
       routinesBroadcast(IPC.routinesChanged, null)
       trayService?.refresh()
+    },
+    onRunFinished: (info) => {
+      // The rule is one input: was there a window to see this? A scheduled run finishing while
+      // the user watches needs no notification — the inbox already updated through
+      // routines:changed. A MANUAL run whose window was closed mid-flight does need one, which
+      // is why this asks about the window rather than about info.trigger.
+      const visible = !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()
+      if (visible || !Notification.isSupported()) return
+      const n = new Notification({
+        title: info.routineName,
+        body:
+          info.status === 'ok'
+            ? (info.summary?.split('\n')[0] ?? 'Run finished')
+            : (info.error ?? `Run ${info.status}`)
+      })
+      n.on('click', () => {
+        showMainWindow()
+        routinesBroadcast(IPC.routinesFocusInbox, null)
+      })
+      n.show()
     }
   })
   // File-level changes (an edit through the IPC handlers below, or someone editing
@@ -3355,9 +3376,40 @@ app.on('window-all-closed', () => {
   // rather than an exception. On Windows and Linux the setting decides, and with it off this
   // behaves exactly as it did before: quit, and let increment 2's catch-up fire the overdue
   // routine once on the next launch.
-  if (shouldKeepAlive({ platform: process.platform, keepAlive: keepAliveEnabled() })) return
+  if (shouldKeepAlive({ platform: process.platform, keepAlive: keepAliveEnabled() })) {
+    // Only where keep-alive is what kept it — on macOS the app always survives this, so a notice
+    // there would be announcing the platform's own behaviour as if Argus had invented it.
+    if (process.platform !== 'darwin' && keepAliveEnabled()) notifyStillRunning()
+    return
+  }
   app.quit()
 })
+
+/**
+ * Told once per install, the first time a close does not close.
+ *
+ * Delivered as a Notification rather than `Tray.displayBalloon`, which exists only on Windows —
+ * the same surprise happens on Linux. Without it, the honest user report is "the app will not
+ * quit", and the feature reads as a bug.
+ */
+function notifyStillRunning(): void {
+  const settings = appSettings
+  if (!settings || settings.get().general.keepAliveNoticeShown) return
+  // Persisted BEFORE the notice is shown, not after. SettingsService.patch is synchronous and
+  // writes to disk; if that write throws, showing the notice anyway would mean re-showing it on
+  // every close forever. Bail instead — an unshown notice is a smaller failure than a nagging one.
+  try {
+    settings.patch({ general: { keepAliveNoticeShown: true } })
+  } catch (err) {
+    console.error('[routines] keep-alive notice flag write failed:', err)
+    return
+  }
+  if (!Notification.isSupported()) return
+  new Notification({
+    title: 'Argus is still running',
+    body: 'Scheduled routines keep firing in the background. Quit from the tray icon to stop.'
+  }).show()
+}
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and require them here.
