@@ -339,6 +339,12 @@ let editorWindowService: EditorWindowService | null = null
 // Module-scope for the same reason as draftStore below: registerIpc() constructs it, but
 // `before-quit` lives out here and has to close the config/routines.json directory watcher.
 let routineStore: RoutineStore | null = null
+// Set when the tray's "N runs to review" item or a run-finished notification click has to create
+// the main window: that window's webContents has no renderer listener yet, so a push broadcast
+// right then would be silently dropped (the race `routines:focus-inbox` used to lose against
+// App.tsx's `useEffect` subscription). Consumed once by `routines:consume-focus-inbox`, which
+// App.tsx calls on mount instead of main guessing when the renderer is ready to hear a push.
+let pendingFocusInbox = false
 // Same reason as routineStore above: `before-quit` lives out here and has to clear the poll
 // interval. A timer left running past quit keeps ticking against a closing database.
 let routineScheduler: RoutineScheduler | null = null
@@ -1856,27 +1862,27 @@ function registerIpc(): void {
       console.error(`[routines] broadcast on ${channel} failed:`, err)
     }
   }
-  // showMainWindow(), then push the run inbox into view — the tray's "N runs to review" item and
-  // a clicked run-finished notification both mean this (both wired further down, still inside
-  // this function).
+  // showMainWindow(), then land on the run inbox — the tray's "N runs to review" item and a
+  // clicked run-finished notification both mean this (both wired further down, still inside this
+  // function).
   //
   // The tray-resident case (no window open) is the PRIMARY case for both callers, and that is
   // exactly the case where a broadcast sent right after `showMainWindow()` returns would be sent
   // into a `webContents` that has only just started `loadFile`/`loadURL` — no renderer listener
-  // registered yet, message silently dropped (App.tsx subscribes to routines:focus-inbox from a
-  // `useEffect`, well after that point). Deferred to that window's own `did-finish-load` in that
-  // case, the same idiom `electronEditorWindow.ts` and `panels/electronPlatform.ts` use for
-  // "don't send until the page can hear it". When the window already existed, send immediately as
-  // before.
+  // registered yet, message silently dropped. A prior fix deferred the broadcast to that window's
+  // `did-finish-load`, but that traded one race for another: App.tsx subscribes to
+  // routines:focus-inbox from a `useEffect`, and React does not guarantee that effect has flushed
+  // by the time `did-finish-load` fires. Inverted instead — set `pendingFocusInbox` here and let
+  // the renderer ask for it on mount (`routines:consume-focus-inbox`, handled below), which has no
+  // timing question at all. When the window already existed, push immediately as before; that path
+  // has a live listener and no race.
   const showMainWindowAndFocusInbox = (): void => {
     const created = showMainWindow()
-    if (!created) {
-      routinesBroadcast(IPC.routinesFocusInbox, null)
+    if (created) {
+      pendingFocusInbox = true
       return
     }
-    mainWindow?.webContents.once('did-finish-load', () => {
-      routinesBroadcast(IPC.routinesFocusInbox, null)
-    })
+    routinesBroadcast(IPC.routinesFocusInbox, null)
   }
   // Local const published to the module-scope handle (same idiom as `flushTabs` above), so the
   // handlers below can use it without a non-null assertion on a `let` that quit-time sets aside.
@@ -1999,6 +2005,16 @@ function registerIpc(): void {
   ipcMain.handle(IPC.routinesMarkAllReviewed, (): RoutinesPayload => {
     routinesService.markAllReviewed()
     return routinesService.payload()
+  })
+
+  // Consume-once read: App.tsx calls this on every mount (including the very first, freshly
+  // created window) so it can land on the inbox without waiting on a push it might not be
+  // listening for yet. Clearing the flag on read means a second window, or a later remount of the
+  // same window, correctly sees nothing pending.
+  ipcMain.handle(IPC.routinesConsumeFocusInbox, (): boolean => {
+    const pending = pendingFocusInbox
+    pendingFocusInbox = false
+    return pending
   })
 
   // Scheduling, and this is the only correct moment to start it. `start()` runs its first tick

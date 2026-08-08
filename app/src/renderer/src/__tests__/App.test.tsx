@@ -171,7 +171,11 @@ beforeEach(() => {
         return () => {
           fireFocusInbox = null
         }
-      })
+      }),
+      // The consume-on-mount half of the race fix — false by default so the toolbar-toggle tests
+      // in this file don't unexpectedly land on Home. Individual tests override with
+      // mockResolvedValueOnce(true) to exercise the pending-window-creation path.
+      consumeFocusInbox: vi.fn(async () => false)
     },
     // OverrideBanner (Guard 3) subscribes on every Settings mount; the real preload exposes
     // this bridge unconditionally (main enforces the dev-tools gate), so the test stub must too.
@@ -393,5 +397,38 @@ describe('App: routines focus-inbox channel', () => {
     expect(fireFocusInbox).not.toBeNull()
     unmount()
     expect(fireFocusInbox).toBeNull()
+  })
+
+  // The window-had-to-be-created case: no `onFocusInbox` push can land yet, so main leaves a
+  // pending flag and App.tsx asks for it once on mount instead. Resolving the consume call after
+  // the renderer has already navigated elsewhere proves the mount-time ask, not the push, is what
+  // pulls it back to Home.
+  it('lands on Home when the consume-once handler reports a pending request', async () => {
+    let resolveConsume: (pending: boolean) => void = () => {}
+    ;(window.argus.routines.consumeFocusInbox as ReturnType<typeof vi.fn>).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveConsume = resolve
+      })
+    )
+    render(<App />)
+    await userEvent.click(screen.getByLabelText('Settings'))
+    expect(screen.getByLabelText('Settings sections')).toBeInTheDocument()
+
+    await act(async () => {
+      resolveConsume(true)
+    })
+
+    expect(screen.queryByLabelText('Settings sections')).not.toBeInTheDocument()
+  })
+
+  it('does not navigate when the consume-once handler reports nothing pending', async () => {
+    render(<App />)
+    await waitFor(() => {
+      expect(window.argus.routines.consumeFocusInbox).toHaveBeenCalled()
+    })
+
+    await userEvent.click(screen.getByLabelText('Settings'))
+
+    expect(screen.getByLabelText('Settings sections')).toBeInTheDocument()
   })
 })

@@ -92,14 +92,29 @@ function App(): React.JSX.Element {
   // Main asks for the inbox when the tray item or a run-finished notification is clicked. Both
   // name the runs explicitly, so merely raising the window is not enough — the view has to be
   // Home, where increment 3 put the inbox.
-  useEffect(
-    () =>
-      window.argus.routines.onFocusInbox(() => {
+  //
+  // Two mechanisms, one per case, deliberately not one: when the window already existed, main
+  // pushes `routines:focus-inbox` immediately and this effect's `onFocusInbox` subscription is
+  // live to hear it — no race. When main had to create the window for us, no listener exists yet
+  // at push time, so main leaves a pending flag instead and this effect consumes it once on mount
+  // (`consumeFocusInbox`) rather than main guessing when React has flushed this very effect.
+  useEffect(() => {
+    let cancelled = false
+    void window.argus.routines.consumeFocusInbox().then((pending) => {
+      if (pending && !cancelled) {
         setViewer(null)
         setView({ kind: 'home' })
-      }),
-    []
-  )
+      }
+    })
+    const unsubscribe = window.argus.routines.onFocusInbox(() => {
+      setViewer(null)
+      setView({ kind: 'home' })
+    })
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [])
 
   const openCase = useCallback((slug: string) => {
     uiStore.openTab(slug)

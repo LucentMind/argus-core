@@ -354,5 +354,11 @@ export const IPC = {
   /** Main → renderer: show Home's run inbox. Sent by the tray's "N runs to review" item and by
    *  a clicked run-finished notification, both of which name the inbox and would otherwise dump
    *  the user on whatever view they left open. Payload-free — it is a request to navigate. */
-  routinesFocusInbox: 'routines:focus-inbox'
+  routinesFocusInbox: 'routines:focus-inbox',
+  /** Renderer → main: consume-once read of "does a focus-inbox request exist that a freshly
+   *  created window hasn't been told about yet?" Called from App.tsx on mount, so there is no
+   *  race against `did-finish-load` versus the renderer's own `useEffect` flush — the renderer
+   *  asks instead of main guessing when to push. See `routinesFocusInbox` for the push path,
+   *  still used when a window already existed. */
+  routinesConsumeFocusInbox: 'routines:consume-focus-inbox'
 } as const
