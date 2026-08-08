@@ -306,6 +306,7 @@ import { createElectronSidecarSpawner } from './services/diagnostics/spawner'
 import { resolveSidecarBinary } from './services/diagnostics/sidecarBinary'
 import { defaultProcessLabels } from './services/diagnostics/processLabels'
 import { Terminator } from './services/diagnostics/terminate'
+import type { TerminateResult } from '../shared/diagnostics'
 import {
   stdioConnectorCommands,
   type ConnectorCommand,
@@ -2909,6 +2910,11 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.diagnosticsHistory,
     (_e, windowMs: number) => diagnostics?.history(windowMs) ?? null
+  )
+  ipcMain.handle(
+    IPC.diagnosticsTerminate,
+    async (_e, id: string): Promise<TerminateResult> =>
+      (await diagnostics?.terminate(id)) ?? { ok: false, reason: 'gone' }
   )
 
   // — jira case lifecycle (Part 3) —

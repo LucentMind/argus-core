@@ -113,6 +113,8 @@ export const IPC = {
   diagnosticsRetrySidecar: 'diagnostics:retry-sidecar',
   /** renderer → main: `{ windowMs }` → a bucketed DiagnosticsHistory. */
   diagnosticsHistory: 'diagnostics:history',
+  /** renderer → main: a row id → a TerminateResult. */
+  diagnosticsTerminate: 'diagnostics:terminate',
   /** main → renderer: a new DiagnosticsSnapshot. */
   diagnosticsSample: 'diagnostics:sample',
   sourceControlStatus: 'sourcecontrol:status',

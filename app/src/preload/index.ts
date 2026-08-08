@@ -28,7 +28,11 @@ import type { SettingsPayload, PermissionMode } from '../shared/settings'
 import type { RunOptionSelection, ModelOptionInfo } from '../shared/runOptions'
 import type { ConnectorsPayload } from '../shared/connectors'
 import type { HealthCheckResult } from '../shared/health'
-import type { DiagnosticsHistory, DiagnosticsSnapshot } from '../shared/diagnostics'
+import type {
+  DiagnosticsHistory,
+  DiagnosticsSnapshot,
+  TerminateResult
+} from '../shared/diagnostics'
 import type {
   CorpusAdminConfig,
   CorpusAdminResult,
@@ -866,6 +870,7 @@ const argus = {
     retrySidecar: (): Promise<void> => invoke(IPC.diagnosticsRetrySidecar),
     history: (windowMs: number): Promise<DiagnosticsHistory | null> =>
       invoke(IPC.diagnosticsHistory, windowMs),
+    terminate: (id: string): Promise<TerminateResult> => invoke(IPC.diagnosticsTerminate, id),
     onSample: (cb: (s: DiagnosticsSnapshot) => void): (() => void) => {
       const listener = (_e: unknown, s: DiagnosticsSnapshot): void => cb(s)
       ipcRenderer.on(IPC.diagnosticsSample, listener)
