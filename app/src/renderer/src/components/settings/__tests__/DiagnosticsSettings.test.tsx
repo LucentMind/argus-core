@@ -1,13 +1,43 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, act, within } from '@testing-library/react'
+import { render, screen, act, within, fireEvent } from '@testing-library/react'
 import DiagnosticsSettings from '../DiagnosticsSettings'
-import type { DiagnosticsHistory, DiagnosticsSnapshot } from '../../../../../shared/diagnostics'
+import type {
+  DiagnosticsHistory,
+  DiagnosticsObject,
+  DiagnosticsSnapshot
+} from '../../../../../shared/diagnostics'
+
+vi.mock('../../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
+import { confirm, alert } from '../../../lib/confirmStore'
 
 let onSampleCb: (s: DiagnosticsSnapshot) => void = () => {}
 let unsubscribeCalls = 0
 let historyCalls: number[] = []
+let terminateMock = vi.fn()
+let historyResult: DiagnosticsHistory = emptyHistory()
+
+function objectRow(over: Partial<DiagnosticsObject> = {}): DiagnosticsObject {
+  return {
+    id: '2:1000',
+    kind: 'mcp',
+    label: 'MCP: demo',
+    orphan: false,
+    inferred: false,
+    terminable: true,
+    busy: false,
+    rootPid: 2,
+    processCount: 1,
+    cpuPercent: 0.5,
+    rssBytes: 1_000,
+    uptimeMs: 60_000,
+    ...over
+  }
+}
 
 function emptyHistory(bucketCount = 4, over: Partial<DiagnosticsHistory> = {}): DiagnosticsHistory {
   return {
@@ -62,6 +92,13 @@ function snapshot(over: Partial<DiagnosticsSnapshot> = {}): DiagnosticsSnapshot 
 beforeEach(() => {
   unsubscribeCalls = 0
   historyCalls = []
+  historyResult = emptyHistory()
+  terminateMock = vi.fn().mockResolvedValue({ ok: true, route: 'signal', pids: [2] })
+  // `confirm`/`alert` come from a module-level vi.mock, so unlike `terminateMock` they are
+  // not freshly created each test — reset their call history explicitly, or a later test's
+  // `mock.calls[0]` picks up a call an earlier test made.
+  vi.mocked(confirm).mockReset().mockResolvedValue(true)
+  vi.mocked(alert).mockReset().mockResolvedValue(undefined)
   window.argus = {
     diagnostics: {
       latest: vi.fn().mockResolvedValue(null),
@@ -77,8 +114,9 @@ beforeEach(() => {
       }),
       history: vi.fn((windowMs: number) => {
         historyCalls.push(windowMs)
-        return Promise.resolve(emptyHistory())
-      })
+        return Promise.resolve(historyResult)
+      }),
+      terminate: terminateMock
     }
   } as never
 })
@@ -525,5 +563,116 @@ describe('DiagnosticsSettings object sparklines and ended rows', () => {
     await act(async () => onSampleCb(snapshot({ objects: [liveObject] })))
 
     expect(screen.queryByTestId('diag-object-row-ended')).toBeNull()
+  })
+})
+
+describe('stop', () => {
+  it('shows a Stop button only on terminable rows', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () =>
+      onSampleCb(
+        snapshot({
+          objects: [
+            objectRow(),
+            objectRow({
+              id: '1:1000',
+              kind: 'electron-internal',
+              label: 'Argus main process',
+              terminable: false
+            })
+          ]
+        })
+      )
+    )
+    expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Stop Argus main process' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('warns that the turn will fail when the row is busy', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () =>
+      onSampleCb(snapshot({ objects: [objectRow({ busy: true, label: 'Cursor' })] }))
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Stop Cursor' }))
+    })
+    expect(vi.mocked(confirm).mock.calls[0][0].message).toContain('working on a turn')
+  })
+
+  it('says the owner is already gone for an orphan', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot({ objects: [objectRow({ orphan: true })] })))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Stop MCP: demo' }))
+    })
+    expect(vi.mocked(confirm).mock.calls[0][0].message).toContain('already gone')
+  })
+
+  it('does not call terminate when the confirm is declined', async () => {
+    vi.mocked(confirm).mockResolvedValueOnce(false)
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot({ objects: [objectRow()] })))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Stop MCP: demo' }))
+    })
+    expect(terminateMock).not.toHaveBeenCalled()
+  })
+
+  it('shows the row as stopping until it leaves the snapshot', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot({ objects: [objectRow()] })))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Stop MCP: demo' }))
+    })
+    expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).toBeDisabled()
+    expect(screen.getByText('Stopping…')).toBeInTheDocument()
+
+    // The sample stream, not the terminate() return value, is what clears it.
+    await act(async () => onSampleCb(snapshot({ objects: [] })))
+    expect(screen.queryByText('Stopping…')).not.toBeInTheDocument()
+
+    // The row vanishing from the DOM when it drops out of the snapshot would make the
+    // assertion above pass even if the pending set were never actually cleared — the
+    // ObjectRow simply isn't rendered while its id is absent from snap.objects. Bring the
+    // same id back to prove the internal pending state itself was cleared, not just that
+    // the row was briefly gone: if `pending` still held '2:1000', this row would render
+    // disabled and "Stopping…" again.
+    await act(async () => onSampleCb(snapshot({ objects: [objectRow()] })))
+    expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).not.toBeDisabled()
+    expect(screen.queryByText('Stopping…')).not.toBeInTheDocument()
+  })
+
+  it('surfaces a failure and clears the pending state', async () => {
+    terminateMock.mockResolvedValueOnce({ ok: false, reason: 'failed', message: 'boom' })
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot({ objects: [objectRow()] })))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Stop MCP: demo' }))
+    })
+    expect(vi.mocked(alert).mock.calls[0][0]).toMatchObject({ message: 'boom' })
+    expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).not.toBeDisabled()
+  })
+
+  it('an ended row offers no Stop button — there is nothing left to stop', async () => {
+    historyResult = emptyHistory(4, {
+      objects: [
+        {
+          id: '9:1000',
+          label: 'MCP: dead',
+          kind: 'mcp',
+          inferred: false,
+          live: false,
+          cpuPercent: [1, 2, 3, 4],
+          rssBytes: [10, 10, 10, 10]
+        }
+      ]
+    })
+    render(<DiagnosticsSettings />)
+    await act(async () => onSampleCb(snapshot({ objects: [objectRow()] })))
+
+    expect(screen.getByTestId('diag-object-row-ended')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Stop MCP: dead' })).not.toBeInTheDocument()
   })
 })

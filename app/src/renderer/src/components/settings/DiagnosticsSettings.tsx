@@ -10,6 +10,7 @@ import {
   type SidecarHealth,
   type SidecarStatus
 } from '../../../../shared/diagnostics'
+import { alert, confirm } from '../../lib/confirmStore'
 import { bridgeBuckets, lastIndexWithData, niceMax } from '../../lib/timeline'
 import { Sparkline } from './diagnostics/Sparkline'
 import { TimelineChart } from './diagnostics/TimelineChart'
@@ -156,16 +157,47 @@ function splitRows(
   }
 }
 
+/**
+ * What is actually at stake, in the user's terms.
+ *
+ * Deliberately quotes no process count: the kill walks the whole process subtree,
+ * including nested rows, so `processCount` would be the wrong number and re-deriving
+ * the right one here would duplicate resolveTargets in the view.
+ */
+function stopCopy(o: DiagnosticsObject): { title: string; message: string } {
+  const detail = o.busy
+    ? 'This session is working on a turn right now. Stopping it will fail that turn.'
+    : o.orphan
+      ? 'The case or session that started this is already gone.'
+      : 'Stops this process and everything it started.'
+  return {
+    title: `Stop ${o.label}?`,
+    // No graceful path on Windows: process.kill maps to TerminateProcess, which is
+    // immediate. Promising a clean shutdown here would be a lie on half our platforms.
+    message: `${detail} The process is terminated immediately and gets no chance to save or clean up.`
+  }
+}
+
+const STOP_FAILURE: Record<'not-terminable' | 'gone' | 'failed', string> = {
+  'not-terminable': 'This row cannot be stopped from here.',
+  gone: 'It is no longer running.',
+  failed: 'The owner could not stop it.'
+}
+
 function ObjectRow({
   o,
   series,
   max,
-  bridge
+  bridge,
+  pending,
+  onStop
 }: {
   o: DiagnosticsObject
   series: DiagnosticsSeries | null
   max: number
   bridge: number
+  pending: boolean
+  onStop: (o: DiagnosticsObject) => void
 }): React.JSX.Element {
   const unattributed = o.kind === 'unattributed'
   return (
@@ -175,6 +207,7 @@ function ObjectRow({
       data-procs={o.processCount}
       data-orphan={o.orphan}
       data-inferred={o.inferred}
+      data-busy={o.busy}
       className={`border-t border-hair${unattributed ? ' text-mute' : ''}`}
     >
       <td className="px-3 py-1">
@@ -193,6 +226,11 @@ function ObjectRow({
             orphaned
           </span>
         ) : null}
+        {o.busy ? (
+          <span className="ml-2 text-xs text-mute" title="This session is mid-turn">
+            working
+          </span>
+        ) : null}
       </td>
       <td className="px-3 py-1">
         <Sparkline
@@ -208,6 +246,19 @@ function ObjectRow({
         {unattributed ? '—' : formatUptime(o.uptimeMs)}
       </td>
       <td className="px-3 py-1 text-right font-mono text-mute">{o.processCount}</td>
+      <td className="px-3 py-1 text-right">
+        {o.terminable ? (
+          <button
+            type="button"
+            aria-label={`Stop ${o.label}`}
+            disabled={pending}
+            onClick={() => onStop(o)}
+            className="rounded-r2 border border-hair2 px-2 py-0.5 text-xs text-dim transition-colors hover:border-danger/40 hover:text-danger disabled:cursor-default disabled:opacity-50"
+          >
+            {pending ? 'Stopping…' : 'Stop'}
+          </button>
+        ) : null}
+      </td>
     </tr>
   )
 }
@@ -247,6 +298,7 @@ function EndedObjectRow({
       <td className="px-3 py-1 text-right font-mono">—</td>
       <td className="px-3 py-1 text-right font-mono">—</td>
       <td className="px-3 py-1 text-right font-mono">—</td>
+      <td className="px-3 py-1" />
     </tr>
   )
 }
@@ -255,6 +307,7 @@ export default function DiagnosticsSettings(): React.JSX.Element {
   const [snap, setSnap] = useState<DiagnosticsSnapshot | null>(null)
   const [windowId, setWindowId] = useState<WindowId>(DEFAULT_WINDOW_ID)
   const [history, setHistory] = useState<DiagnosticsHistory | null>(null)
+  const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set())
 
   const healthy = snap?.sidecar.status === 'healthy'
   const windowMs = WINDOWS.find((w) => w.id === windowId)?.ms ?? DEFAULT_WINDOW_MS
@@ -281,7 +334,17 @@ export default function DiagnosticsSettings(): React.JSX.Element {
   useEffect(() => {
     let alive = true
     const off = window.argus.diagnostics.onSample((s) => {
-      if (alive) setSnap(s)
+      if (!alive) return
+      setSnap(s)
+      // The sample stream is the only proof a process died, so pending clears from
+      // the snapshot rather than from the terminate call's return value. Returning
+      // `prev` unchanged when nothing left keeps this off the 1Hz render path.
+      setPending((prev) => {
+        if (prev.size === 0) return prev
+        const live = new Set(s.objects.map((o) => o.id))
+        const next = new Set([...prev].filter((id) => live.has(id)))
+        return next.size === prev.size ? prev : next
+      })
     })
     void window.argus.diagnostics.latest().then((s) => {
       if (alive && s) setSnap(s)
@@ -309,6 +372,25 @@ export default function DiagnosticsSettings(): React.JSX.Element {
     // `healthy` is a boolean, so this only re-runs on a real transition — not on every
     // 1Hz snapshot push. A sidecar coming back up should refill the chart promptly.
   }, [windowMs, healthy])
+
+  const onStop = async (o: DiagnosticsObject): Promise<void> => {
+    const { title, message } = stopCopy(o)
+    if (!(await confirm({ title, message, confirmLabel: 'Stop', danger: true }))) return
+
+    setPending((p) => new Set(p).add(o.id))
+    const res = await window.argus.diagnostics.terminate(o.id)
+    if (!res.ok) {
+      setPending((p) => {
+        const next = new Set(p)
+        next.delete(o.id)
+        return next
+      })
+      await alert({
+        title: `Could not stop ${o.label}`,
+        message: res.message ?? STOP_FAILURE[res.reason]
+      })
+    }
+  }
 
   if (!snap) {
     return (
@@ -446,6 +528,9 @@ export default function DiagnosticsSettings(): React.JSX.Element {
                 <th className="px-3 py-1 text-right">Memory</th>
                 <th className="px-3 py-1 text-right">Uptime</th>
                 <th className="px-3 py-1 text-right">Procs</th>
+                <th className="px-3 py-1 text-right">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -456,11 +541,13 @@ export default function DiagnosticsSettings(): React.JSX.Element {
                   series={seriesById.get(o.id)?.cpuPercent ?? null}
                   max={sparkMax}
                   bridge={sparkBridge}
+                  pending={pending.has(o.id)}
+                  onStop={(row) => void onStop(row)}
                 />
               ))}
               {ended.length > 0 && (
                 <tr className="border-t border-hair">
-                  <td colSpan={6} className="px-3 py-1 text-xs uppercase tracking-wide text-mute">
+                  <td colSpan={7} className="px-3 py-1 text-xs uppercase tracking-wide text-mute">
                     Ended in the last {windowLabel}
                     {endedOverflow > 0 ? ` · ${endedOverflow} more not shown` : ''}
                   </td>
