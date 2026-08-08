@@ -113,10 +113,15 @@ export function CaseCard({
             c.jiraPriority && <Chip tone="neutral">{c.jiraPriority}</Chip>
           )}
         </span>
-        <span className={`flex shrink-0 items-center gap-1.5 text-xs ${PHASE_COLOR[c.phase]}`}>
-          <StatusDot color={PHASE_COLOR[c.phase]} />
-          {phaseLabel(c)}
-        </span>
+        {/* Triage-phase vocabulary (open/analyzing/etc.) never applied to a routine case — it was
+            never a defect under analysis, so "Analyzing" here would claim work no human started.
+            The Routine chip below already says what this card actually is. */}
+        {c.origin !== 'routine' && (
+          <span className={`flex shrink-0 items-center gap-1.5 text-xs ${PHASE_COLOR[c.phase]}`}>
+            <StatusDot color={PHASE_COLOR[c.phase]} />
+            {phaseLabel(c)}
+          </span>
+        )}
       </div>
       <h2
         data-testid="case-title"

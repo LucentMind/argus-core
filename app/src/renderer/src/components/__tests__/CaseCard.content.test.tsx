@@ -209,4 +209,17 @@ describe('routine origin', () => {
     )
     expect(screen.getByText('Draft')).toBeInTheDocument()
   })
+
+  it('does not claim a triage phase for a routine case', () => {
+    // A routine case is not a defect under analysis — the phase band (open/analyzing/etc.) is
+    // triage vocabulary that never applied to it. `analyzing` is the sharpest case: it renders
+    // as "Analyzing", a claim about work no human ever started.
+    renderCard(mkCase({ origin: 'routine', phase: 'analyzing' }))
+    expect(screen.queryByText(/analyzing/i)).not.toBeInTheDocument()
+  })
+
+  it('still shows the triage phase for an ordinary case', () => {
+    renderCard(mkCase({ origin: 'user', phase: 'analyzing' }))
+    expect(screen.getByText('Analyzing')).toBeInTheDocument()
+  })
 })
