@@ -30,8 +30,15 @@ export interface ScopeResolver {
     limit: number
   ): Promise<ResolvedItem[]>
 
-  /** Fetches the ticket into a case (creating or adopting) and returns its slug. */
-  ingestJiraItem(key: string): Promise<{ caseSlug: string }>
+  /**
+   * Fetches the ticket into a case (creating or adopting) and returns its slug.
+   *
+   * `created` distinguishes the two: true only when this call inserted a brand-new case. The
+   * caller (RoutinesService.materializeItem) uses it to gate `ensureCaseOrigin(..., 'routine')`
+   * — an ADOPTED case (one the user already opened by hand) must keep its own origin, or a
+   * human-created case gets permanently relabelled as routine-created (Task 11 review finding).
+   */
+  ingestJiraItem(key: string): Promise<{ caseSlug: string; created: boolean }>
 }
 
 const defaultNow = (): Date => new Date()

@@ -347,6 +347,10 @@ export const IPC = {
   routinesMarkReviewed: 'routines:mark-reviewed',
   /** Clear every finished unreviewed run, including any older than the 50 the payload carries. */
   routinesMarkAllReviewed: 'routines:mark-all-reviewed',
+  /** Promote one draft item: apply its suggestion, clear the draft. */
+  routinesAcceptItem: 'routines:accept-item',
+  /** Close one draft item's case with a resolution. Rejects with no resolution given. */
+  routinesDismissItem: 'routines:dismiss-item',
   /** main → all renderer windows broadcast: the routine list, the running routine, or the run
    *  history changed. Payload-free on purpose — every listener re-reads `routinesList`, so a
    *  window that missed an earlier broadcast still converges. */
