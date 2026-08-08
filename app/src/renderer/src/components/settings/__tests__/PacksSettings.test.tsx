@@ -333,10 +333,25 @@ describe('PacksSettings', () => {
     expect(screen.queryByText(/argus is up to date/i)).not.toBeInTheDocument()
   })
 
-  it('Check for pack updates calls through', async () => {
+  /**
+   * The page checks on arrival (user-directed, 2026-08-08) — as a button at the bottom of the
+   * page, "update available" only ever appeared for a user who already suspected there was one.
+   */
+  it('checks for pack updates on mount, and re-lists with the result', async () => {
     render(<PacksSettings settings={settingsPayload([])} />)
-    fireEvent.click(await screen.findByRole('button', { name: /check for pack updates/i }))
     await waitFor(() => expect(packs.checkUpdates).toHaveBeenCalledOnce())
+    // Not just the call: the check is worthless unless its result is pulled back into the list.
+    await waitFor(() => expect(packs.list.mock.calls.length).toBeGreaterThanOrEqual(2))
+  })
+
+  it('Check for updates calls through', async () => {
+    render(<PacksSettings settings={settingsPayload([])} />)
+    const btn = await screen.findByRole('button', { name: /check for pack updates/i })
+    // Disabled while the mount check is still in flight, so wait it out rather than clicking a
+    // dead button and asserting on the mount call by accident.
+    await waitFor(() => expect(btn).not.toBeDisabled())
+    fireEvent.click(btn)
+    await waitFor(() => expect(packs.checkUpdates).toHaveBeenCalledTimes(2))
   })
 
   it('renders a failure with the shared wording, not an invented sentence', async () => {
@@ -411,10 +426,13 @@ describe('PacksSettings', () => {
       code: 'origin-pin'
     })
     render(<PacksSettings settings={settingsPayload([])} />)
-    fireEvent.click(await screen.findByRole('button', { name: /update · sample/i }))
+    const btn = await screen.findByRole('button', { name: /update · sample/i })
+    fireEvent.click(btn)
     await waitFor(() => expect(packs.applyUpdate).toHaveBeenCalledWith('sample'))
-    // refresh() re-lists after applyUpdate settles; wait for it before asserting absence.
-    await waitFor(() => expect(packs.list).toHaveBeenCalledTimes(2))
+    // Wait for applyUpdate's whole chain (including its refresh) to settle before asserting an
+    // absence. Keyed on the button re-enabling — i.e. `busy` cleared in the `finally` — rather
+    // than on a `packs.list` call count, which the mount-time update check also contributes to.
+    await waitFor(() => expect(btn).not.toBeDisabled())
     expect(screen.queryByRole('button', { name: 'Relaunch now' })).not.toBeInTheDocument()
   })
 

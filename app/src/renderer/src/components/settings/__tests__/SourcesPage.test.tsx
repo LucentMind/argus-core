@@ -132,6 +132,8 @@ beforeEach(() => {
       install: vi.fn(),
       uninstall: vi.fn(),
       relaunch: vi.fn(),
+      // The page checks for pack updates on mount now (2026-08-08).
+      checkUpdates: vi.fn(async () => ({})),
       onChanged: vi.fn(() => () => undefined)
     },
     graph: { install: vi.fn(async () => ({ ok: true, log: 'installed' })) },

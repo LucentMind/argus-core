@@ -124,6 +124,10 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
   const [repoOpen, setRepoOpen] = useState(false)
   const [repoRef, setRepoRef] = useState('')
   const [repoResult, setRepoResult] = useState<{ ref: string; packs: RepoPackRow[] } | null>(null)
+  // Starts true rather than being flipped on inside the effect below: the check fires on mount
+  // unconditionally, so `true` is the accurate initial value and the effect has no synchronous
+  // setState in it.
+  const [autoChecking, setAutoChecking] = useState(true)
 
   const refresh = useCallback(async () => {
     setPayload(await window.argus.packs.list())
@@ -139,6 +143,35 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
     return () => {
       mounted = false
       off()
+    }
+  }, [refresh])
+
+  /**
+   * Checks for pack updates on entering the page (user-directed, 2026-08-08).
+   *
+   * The check used to be a button at the bottom of the page, which meant "update available" only
+   * ever appeared for a user who already suspected there was one. Opening Sources is exactly the
+   * moment the answer is wanted, so the page asks for it itself and the badges are simply there.
+   *
+   * Separate from `busy`: this fires without the user asking, and gating every install/uninstall
+   * control on a background network call the user did not start would make the page briefly
+   * unusable on arrival. `autoChecking` only drives the section header's own spinner.
+   *
+   * Errors are swallowed on purpose. A vendor feed being unreachable is not something the user
+   * did, and the per-pack rows already report their own update-check failures
+   * (`describeUpdate(pack.update)`) — the page-level red alert belongs to actions, not to this.
+   */
+  useEffect(() => {
+    let mounted = true
+    void window.argus.packs
+      .checkUpdates()
+      .then(() => (mounted ? refresh() : undefined))
+      .catch((e) => console.warn('[packs] update check failed', e))
+      .finally(() => {
+        if (mounted) setAutoChecking(false)
+      })
+    return () => {
+      mounted = false
     }
   }, [refresh])
 
@@ -337,7 +370,21 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
           </Btn>
         </div>
       )}
-      <SettingsSection title="Installed Packs">
+      {/* The update check belongs to this section, not to the install-actions row at the bottom of
+          the page: it acts on what is listed here, and it is the only control in that row that
+          does. Its "update available" badges land on these rows. */}
+      <SettingsSection
+        title="Installed Packs"
+        action={
+          <Btn
+            aria-label="Check for pack updates"
+            disabled={busy || autoChecking}
+            onClick={() => void checkUpdates()}
+          >
+            {autoChecking ? 'Checking…' : 'Check for updates'}
+          </Btn>
+        }
+      >
         {payload.packs.length === 0 && (
           <div className="px-3 py-2 text-xs text-dim">No packs installed.</div>
         )}
@@ -407,9 +454,6 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
         </Btn>
         <Btn disabled={running} onClick={runChecks}>
           {running ? 'Checking…' : 'Re-run checks'}
-        </Btn>
-        <Btn disabled={busy} onClick={() => void checkUpdates()}>
-          Check for pack updates
         </Btn>
       </div>
     </div>
