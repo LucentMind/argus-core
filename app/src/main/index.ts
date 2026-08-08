@@ -528,15 +528,17 @@ function registerIpc(): void {
           .map((s) => ownerKeyOf(s.caseSlug, s.sessionId)),
       terminator: new Terminator({
         kill: (pid, signal) => process.kill(pid, signal),
-        // process.kill(pid, 0) sends no signal; it throws ESRCH iff the pid is gone.
-        isAlive: (pid) => {
-          try {
-            process.kill(pid, 0)
-            return true
-          } catch {
-            return false
-          }
-        }
+        // NOT process.kill(pid, 0) — that only answers "does SOME process hold this
+        // pid", which is exactly what lets a SIGKILL escalation land on an unrelated
+        // process the OS recycled the pid to during the 5s grace window. Re-resolve
+        // identity against the CURRENT tree snapshot instead: the pid must still be
+        // reported, with the SAME startTimeMs. `diagnostics` is a forward ref for the
+        // same reason getLiveOwners below is — the Terminator is constructed before the
+        // DiagnosticsService whose deps embed it.
+        stillIs: (pid, startTimeMs) =>
+          (diagnostics?.latest()?.tree ?? []).some(
+            (p) => p.pid === pid && p.startTimeMs === startTimeMs
+          )
       })
     })
   })()

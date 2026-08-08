@@ -144,6 +144,8 @@ function makeService(
 }
 
 type FakeTerminator = DiagnosticsServiceDeps['terminator'] & {
+  /** pids only, in signalled order — the tests care that the right pids got signalled,
+   *  not that this fake correctly threads startTimeMs (terminate.test.ts covers that). */
   signalled: number[][]
   disposed: number
 }
@@ -152,8 +154,8 @@ function fakeTerminator(): FakeTerminator {
   const rec: FakeTerminator = {
     signalled: [],
     disposed: 0,
-    signal(pids: readonly number[]) {
-      rec.signalled.push([...pids])
+    signal(targets) {
+      rec.signalled.push(targets.map((t) => t.pid))
     },
     dispose() {
       rec.disposed += 1
@@ -807,6 +809,35 @@ describe('terminate', () => {
       pids: [2]
     })
     expect(term.signalled).toEqual([[2]])
+  })
+
+  it('refuses to act once the snapshot has gone stale, even though it still looks freshly read', async () => {
+    // publishHealth() republishes the LAST real tree with readAt refreshed on every
+    // health event — a dead sidecar can leave `current` looking freshly read while its
+    // contents are arbitrarily old. Only lastSampleAtMs (set exclusively by ingest())
+    // can tell the two apart; terminate() must consult it, not readAt.
+    const labels = new ProcessLabels()
+    labels.register(2, { kind: 'mcp', label: 'MCP: demo' }, 10_000)
+    const term = fakeTerminator()
+    let clock = 10_000
+    const { service, client } = makeService(fakeClient(), {
+      processLabels: labels,
+      terminator: term,
+      now: () => clock
+    })
+    service.start()
+    client.emit(snapshot({ processes: [...snapshot().processes, child(2)] }))
+
+    // The sidecar dies. publishHealth() keeps the same tree alive but stamps a fresh
+    // readAt — the exact staleness the check must see through.
+    client.emitHealth({ status: 'unavailable', version: null, restartCount: 1, lastError: 'x' })
+
+    // Advance past 3x the snapshot's own sampleIntervalMs (SLOW_INTERVAL_MS here, since
+    // nothing ever subscribed).
+    clock += 3 * SLOW_INTERVAL_MS + 1
+
+    expect(await service.terminate('2:10000')).toEqual({ ok: false, reason: 'gone' })
+    expect(term.signalled).toEqual([])
   })
 })
 

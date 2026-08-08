@@ -9,7 +9,7 @@ import {
 } from '../../../shared/diagnostics'
 import { buildSnapshot, type BuildResult, type ProcessState } from './model'
 import { DiagnosticsHistoryRing } from './history'
-import { resolveTargets } from './terminate'
+import { resolveTargets, type TerminatorTarget } from './terminate'
 import type { ConnectorCommand, WindowDescriptor } from './labels'
 import type { ProcessLabels } from './processLabels'
 
@@ -59,7 +59,7 @@ export type DiagnosticsServiceDeps = {
   getBusyOwners: () => string[]
   /** Sends the signals for the raw fallback path. Injected so the service tests
    *  never touch a real process. */
-  terminator: { signal(pids: readonly number[]): void; dispose(): void }
+  terminator: { signal(targets: readonly TerminatorTarget[]): void; dispose(): void }
   now?: () => number
 }
 
@@ -76,6 +76,11 @@ export class DiagnosticsService {
   private counters = { starts: 0, exits: 0 }
   private subscribers = new Set<number>()
   private current: DiagnosticsSnapshot | null = null
+  /** Set in ingest() only — NOT touched by publishHealth(), which deliberately keeps
+   *  `current.readAt` fresh while replaying a stale tree during a sidecar outage. This is
+   *  the honest "when did the tree we're about to act on last actually change" clock that
+   *  terminate() checks before signalling anything. */
+  private lastSampleAtMs: number | null = null
   private listeners: ((s: DiagnosticsSnapshot) => void)[] = []
   private unsubscribeClient: (() => void) | null = null
   private unsubscribeHealth: (() => void) | null = null
@@ -160,11 +165,26 @@ export class DiagnosticsService {
    *
    * Takes the row id rather than a pid: the id carries startTimeMs, so a renderer
    * holding a stale snapshot cannot address a reused pid, and it is resolved by
-   * lookup against the CURRENT snapshot rather than parsed.
+   * lookup against the CURRENT snapshot rather than parsed. That snapshot is itself
+   * refused if it is too old (see the lastSampleAtMs check below) — publishHealth()
+   * can keep replaying a frozen tree under a fresh-looking readAt while the sidecar is
+   * down, and this method must not act on it.
    */
   async terminate(id: string): Promise<TerminateResult> {
     const snap = this.current
     if (!snap) return { ok: false, reason: 'gone' }
+
+    // publishHealth() keeps replaying `objects`/`tree` untouched while stamping a fresh
+    // `readAt` on every health event — a dead sidecar can leave the page looking freshly
+    // read while its contents are arbitrarily old. `readAt` cannot detect that; only
+    // lastSampleAtMs (set exclusively in ingest()) can. Bound is 3x the snapshot's own
+    // sampleIntervalMs so it tracks the fast/slow tier rather than a fixed constant.
+    if (
+      this.lastSampleAtMs === null ||
+      this.now() - this.lastSampleAtMs > 3 * snap.sampleIntervalMs
+    ) {
+      return { ok: false, reason: 'gone' }
+    }
 
     const row = snap.objects.find((o) => o.id === id)
     if (!row) return { ok: false, reason: 'gone' }
@@ -192,11 +212,11 @@ export class DiagnosticsService {
     const denied = new Set<number>([this.deps.rootPid])
     if (sidecarPid !== null) denied.add(sidecarPid)
 
-    const targets = resolveTargets(snap, id, denied)
-    if (!targets.ok) return { ok: false, reason: targets.reason }
+    const resolved = resolveTargets(snap, id, denied)
+    if (!resolved.ok) return { ok: false, reason: resolved.reason }
 
-    this.deps.terminator.signal(targets.pids)
-    return { ok: true, route: 'signal', pids: targets.pids }
+    this.deps.terminator.signal(resolved.targets)
+    return { ok: true, route: 'signal', pids: resolved.targets.map((t) => t.pid) }
   }
 
   /**
@@ -305,6 +325,7 @@ export class DiagnosticsService {
     // current.readAt disagree about which 5s bucket "now" is, for one ingest() call in
     // roughly every BUCKET_MS worth of them.
     const nowMs = this.now()
+    this.lastSampleAtMs = nowMs
 
     // Recorded from the SERVICE clock — the same one history() reads with. Using the
     // sidecar's sampledAtUnixMs here instead would put record and read on two clocks that

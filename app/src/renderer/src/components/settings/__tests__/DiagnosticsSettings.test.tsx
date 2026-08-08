@@ -815,6 +815,42 @@ describe('stop', () => {
     }
   })
 
+  it('disables Stop when the sidecar is not healthy, even though the row still renders', async () => {
+    // Pins Finding 2's renderer half: `!healthy && hasTree` renders the warning banner
+    // AND the table (see "warns but keeps showing stale data..." above) — the table's
+    // rows are frozen by publishHealth() the instant the sidecar dies, so Stop must not
+    // stay clickable against them just because the row itself is still on screen.
+    render(<DiagnosticsSettings />)
+    await act(async () =>
+      onSampleCb(
+        snapshot({
+          sidecar: { status: 'unavailable', version: null, restartCount: 5, lastError: 'boom' },
+          objects: [objectRow()]
+        })
+      )
+    )
+    const button = screen.getByRole('button', { name: 'Stop MCP: demo' })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute('title')
+    expect(button.getAttribute('title')).toMatch(/stale|not reporting/i)
+  })
+
+  it('re-enables Stop once the sidecar reports healthy again', async () => {
+    render(<DiagnosticsSettings />)
+    await act(async () =>
+      onSampleCb(
+        snapshot({
+          sidecar: { status: 'unavailable', version: null, restartCount: 5, lastError: 'boom' },
+          objects: [objectRow()]
+        })
+      )
+    )
+    expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).toBeDisabled()
+
+    await act(async () => onSampleCb(snapshot({ objects: [objectRow()] })))
+    expect(screen.getByRole('button', { name: 'Stop MCP: demo' })).not.toBeDisabled()
+  })
+
   it('an ended row offers no Stop button — there is nothing left to stop', async () => {
     historyResult = emptyHistory(4, {
       objects: [

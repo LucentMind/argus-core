@@ -71,7 +71,14 @@ describe('resolveTargets', () => {
       ]
     })
     const r = resolveTargets(s, '2:1000', new Set())
-    expect(r).toEqual({ ok: true, pids: [4, 3, 2] })
+    expect(r).toEqual({
+      ok: true,
+      targets: [
+        { pid: 4, startTimeMs: 1_000 },
+        { pid: 3, startTimeMs: 1_000 },
+        { pid: 2, startTimeMs: 1_000 }
+      ]
+    })
   })
 
   it('descends through a nested row, so a labeled child is not stranded', () => {
@@ -84,7 +91,13 @@ describe('resolveTargets', () => {
       ]
     })
     const r = resolveTargets(s, '2:1000', new Set())
-    expect(r).toEqual({ ok: true, pids: [3, 2] })
+    expect(r).toEqual({
+      ok: true,
+      targets: [
+        { pid: 3, startTimeMs: 1_000 },
+        { pid: 2, startTimeMs: 1_000 }
+      ]
+    })
   })
 
   it('drops denied pids', () => {
@@ -96,7 +109,10 @@ describe('resolveTargets', () => {
         proc({ pid: 3, ppid: 2, depth: 2 })
       ]
     })
-    expect(resolveTargets(s, '2:1000', new Set([3]))).toEqual({ ok: true, pids: [2] })
+    expect(resolveTargets(s, '2:1000', new Set([3]))).toEqual({
+      ok: true,
+      targets: [{ pid: 2, startTimeMs: 1_000 }]
+    })
   })
 
   it('drops electron processes even inside a terminable subtree', () => {
@@ -108,7 +124,10 @@ describe('resolveTargets', () => {
         proc({ pid: 3, ppid: 2, depth: 2, electronType: 'Utility' })
       ]
     })
-    expect(resolveTargets(s, '2:1000', new Set())).toEqual({ ok: true, pids: [2] })
+    expect(resolveTargets(s, '2:1000', new Set())).toEqual({
+      ok: true,
+      targets: [{ pid: 2, startTimeMs: 1_000 }]
+    })
   })
 
   it('refuses a row that is not terminable', () => {
@@ -141,34 +160,62 @@ describe('Terminator', () => {
 
   it('sends SIGTERM to every target immediately', () => {
     const kill = vi.fn()
-    new Terminator({ kill, isAlive: () => false }).signal([3, 2])
+    new Terminator({ kill, stillIs: () => false }).signal([
+      { pid: 3, startTimeMs: 1_000 },
+      { pid: 2, startTimeMs: 1_000 }
+    ])
     expect(kill.mock.calls).toEqual([
       [3, 'SIGTERM'],
       [2, 'SIGTERM']
     ])
   })
 
-  it('escalates to SIGKILL only for pids still alive after the grace window', () => {
+  it('escalates to SIGKILL only for targets whose identity the current tree still confirms after the grace window', () => {
     const kill = vi.fn()
-    const alive = new Set([2])
-    new Terminator({ kill, isAlive: (pid) => alive.has(pid) }).signal([3, 2])
+    // Only pid 2, at exactly its original startTimeMs, is confirmed still alive by the
+    // (fake) current-tree lookup — pid 3 exited and is gone.
+    const stillIs = (pid: number, startTimeMs: number): boolean => pid === 2 && startTimeMs === 1_000
+    new Terminator({ kill, stillIs }).signal([
+      { pid: 3, startTimeMs: 1_000 },
+      { pid: 2, startTimeMs: 1_000 }
+    ])
     kill.mockClear()
     vi.advanceTimersByTime(KILL_GRACE_MS)
     expect(kill.mock.calls).toEqual([[2, 'SIGKILL']])
+  })
+
+  it('does NOT escalate to SIGKILL when a different process now holds the pid — the recycled-pid case', () => {
+    // This is the hazard the whole id-with-startTimeMs design exists to close: pid 2
+    // exited within the grace window and the OS handed the same pid to an unrelated
+    // process before the timer fired. `stillIs` reports the CURRENT process at pid 2 (a
+    // different startTimeMs), which must read as "not our target" — not as "still alive,
+    // escalate". A liveness-only check (process.kill(pid,0)) would wrongly say yes here.
+    const kill = vi.fn()
+    const stillIs = (pid: number, startTimeMs: number): boolean =>
+      pid === 2 && startTimeMs === 4_000 // the recycled process's own start time
+    new Terminator({ kill, stillIs }).signal([{ pid: 2, startTimeMs: 1_000 }])
+    kill.mockClear()
+    vi.advanceTimersByTime(KILL_GRACE_MS)
+    expect(kill).not.toHaveBeenCalled()
   })
 
   it('a throwing kill does not stop the remaining targets', () => {
     const kill = vi.fn((pid: number) => {
       if (pid === 3) throw new Error('ESRCH')
     })
-    expect(() => new Terminator({ kill, isAlive: () => false }).signal([3, 2])).not.toThrow()
+    expect(() =>
+      new Terminator({ kill, stillIs: () => false }).signal([
+        { pid: 3, startTimeMs: 1_000 },
+        { pid: 2, startTimeMs: 1_000 }
+      ])
+    ).not.toThrow()
     expect(kill).toHaveBeenCalledWith(2, 'SIGTERM')
   })
 
   it('dispose cancels a pending escalation', () => {
     const kill = vi.fn()
-    const t = new Terminator({ kill, isAlive: () => true })
-    t.signal([2])
+    const t = new Terminator({ kill, stillIs: () => true })
+    t.signal([{ pid: 2, startTimeMs: 1_000 }])
     kill.mockClear()
     t.dispose()
     vi.advanceTimersByTime(KILL_GRACE_MS)

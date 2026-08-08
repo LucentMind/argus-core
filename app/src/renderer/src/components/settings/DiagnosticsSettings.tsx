@@ -205,6 +205,7 @@ function ObjectRow({
   max,
   bridge,
   pending,
+  healthy,
   onStop
 }: {
   o: DiagnosticsObject
@@ -212,9 +213,15 @@ function ObjectRow({
   max: number
   bridge: number
   pending: boolean
+  /** The sidecar's CURRENT status, not the age of `o` itself — but that's exactly the
+   *  point: once the sidecar is down, every row on the page is displaying a frozen
+   *  snapshot (see publishHealth() in the service), and Stop must not offer an
+   *  irreversible action against data the page has already told the user is stale. */
+  healthy: boolean
   onStop: (o: DiagnosticsObject) => void
 }): React.JSX.Element {
   const unattributed = o.kind === 'unattributed'
+  const disabled = pending || !healthy
   return (
     <tr
       data-testid="diag-object-row"
@@ -266,7 +273,12 @@ function ObjectRow({
           <button
             type="button"
             aria-label={`Stop ${o.label}`}
-            disabled={pending}
+            disabled={disabled}
+            title={
+              !pending && !healthy
+                ? 'The sidecar is not reporting live samples right now, so this table may be stale. Stop is disabled until it recovers.'
+                : undefined
+            }
             onClick={() => onStop(o)}
             className="rounded-r2 border border-hair2 px-2 py-0.5 text-xs text-dim transition-colors hover:border-danger/40 hover:text-danger disabled:cursor-default disabled:opacity-50"
           >
@@ -642,6 +654,7 @@ export default function DiagnosticsSettings(): React.JSX.Element {
                   max={sparkMax}
                   bridge={sparkBridge}
                   pending={pending.has(o.id)}
+                  healthy={healthy}
                   onStop={(row) => void onStop(row)}
                 />
               ))}
