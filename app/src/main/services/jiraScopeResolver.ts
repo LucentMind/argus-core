@@ -106,7 +106,24 @@ export function buildJiraScopeResolver(deps: JiraScopeResolverDeps): ScopeResolv
       const page = await atlassian.searchIssues(`${bounded} ORDER BY ${cursorField} ASC`, {
         maxResults: limit
       })
-      return page.issues.map((i) => ({ key: i.key, cursorValue: i[cursorField] }))
+      // An issue whose `fields` block was missing arrives with an EMPTY cursor value
+      // (atlassian.ts). Skipping it here is the whole guard: attempting it would write '' as the
+      // routine's cursor, `readRoutineCursor` would hand that back, `cursor ? ... : base` above
+      // reads it as FALSY, and the next run would query the project unbounded from its very
+      // beginning — where every result is already in `attemptedItemKeys`, so the run selects
+      // nothing, reports `ok`, and the routine is stalled permanently and silently. One item is
+      // a far cheaper loss than the routine, and the reason is logged rather than swallowed.
+      // `writeRoutineCursor` (routines/cursors.ts) refuses a falsy value outright, so a future
+      // resolver that forgets this filter fails loudly instead of resetting the cursor.
+      const usable = page.issues.filter((i) => i[cursorField].trim() !== '')
+      if (usable.length !== page.issues.length) {
+        const dropped = page.issues.filter((i) => i[cursorField].trim() === '').map((i) => i.key)
+        console.warn(
+          `[routines] skipped ${dropped.length} issue(s) with no usable ${cursorField} value ` +
+            `(${dropped.join(', ')}) — they would reset this routine's cursor`
+        )
+      }
+      return usable.map((i) => ({ key: i.key, cursorValue: i[cursorField] }))
     },
     async ingestJiraItem(key) {
       // ADOPT first: a JQL result whose key already has a case must never get a second one.

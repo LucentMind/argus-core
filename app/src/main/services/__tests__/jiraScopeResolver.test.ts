@@ -211,6 +211,76 @@ describe('resolveJql', () => {
     expect(updatedResult).toEqual([{ key: 'ABC-1', cursorValue: '2026-08-05T00:00:00.000Z' }])
   })
 
+  /**
+   * `searchIssues` defaults a missing `fields` block to an empty string. That value passes
+   * service.ts's `cursorValue !== null` guard, gets written as the routine's cursor, and reads
+   * back FALSY — so the next run drops its bound and queries the project from the beginning,
+   * where every result is already in `attemptedItemKeys`: zero items selected, `ok` recorded,
+   * routine stalled forever. The item must not enter the run at all.
+   */
+  describe('an issue with no usable cursor value', () => {
+    it('is skipped, and the rest of the page survives', async () => {
+      const resolver = buildJiraScopeResolver({
+        db,
+        atlassian: fakeAtlassian({
+          issues: [
+            { key: 'ABC-1', created: '2026-08-01T00:00:00.000Z', updated: 'u1' },
+            { key: 'ABC-2', created: '', updated: 'u2' },
+            { key: 'ABC-3', created: '2026-08-03T00:00:00.000Z', updated: 'u3' }
+          ],
+          nextPageToken: null
+        }),
+        jiraCases: noCreate
+      })
+      const out = await resolver.resolveJql('project = ABC', 'created', null, 10)
+      expect(out).toEqual([
+        { key: 'ABC-1', cursorValue: '2026-08-01T00:00:00.000Z' },
+        { key: 'ABC-3', cursorValue: '2026-08-03T00:00:00.000Z' }
+      ])
+    })
+
+    it('is judged on the field the scope actually tracks, not on both', async () => {
+      // The same issue is fine for a `created` scope and unusable for an `updated` one.
+      const page: JiraSearchPage = {
+        issues: [{ key: 'ABC-1', created: '2026-08-01T00:00:00.000Z', updated: '' }],
+        nextPageToken: null
+      }
+      const byCreated = buildJiraScopeResolver({
+        db,
+        atlassian: fakeAtlassian(page),
+        jiraCases: noCreate
+      })
+      expect(await byCreated.resolveJql('project = ABC', 'created', null, 10)).toHaveLength(1)
+      const byUpdated = buildJiraScopeResolver({
+        db,
+        atlassian: fakeAtlassian(page),
+        jiraCases: noCreate
+      })
+      expect(await byUpdated.resolveJql('project = ABC', 'updated', null, 10)).toEqual([])
+    })
+
+    it('names the skipped keys in a warning rather than dropping them silently', async () => {
+      const warnings: string[] = []
+      const warn = console.warn
+      console.warn = (...args: unknown[]): void => void warnings.push(args.join(' '))
+      try {
+        const resolver = buildJiraScopeResolver({
+          db,
+          atlassian: fakeAtlassian({
+            issues: [{ key: 'ABC-2', created: '   ', updated: 'u' }],
+            nextPageToken: null
+          }),
+          jiraCases: noCreate
+        })
+        await resolver.resolveJql('project = ABC', 'created', null, 10)
+      } finally {
+        console.warn = warn
+      }
+      expect(warnings.join('\n')).toMatch(/ABC-2/)
+      expect(warnings.join('\n')).toMatch(/cursor/)
+    })
+  })
+
   it('passes limit through as maxResults', async () => {
     const capture: { opts?: { maxResults?: number } } = {}
     const resolver = buildJiraScopeResolver({
