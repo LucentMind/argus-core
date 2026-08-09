@@ -29,16 +29,29 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-/** Captures the exact JQL string (and options) the resolver hands to `searchIssues`. */
+/**
+ * Captures the exact JQL string (and options) the resolver hands to `searchIssues`.
+ *
+ * `zone` defaults to UTC so the composed-literal assertions elsewhere in this file read as
+ * plain UTC arithmetic; the timezone-specific tests pass their own (including `null`, the
+ * "could not be read" case). `zoneCalls` counts the lookups, because the whole point of the
+ * client-side cache is that this is not a per-query fetch.
+ */
 function fakeAtlassian(
   page: JiraSearchPage,
-  capture: { jql?: string; opts?: { maxResults?: number } } = {}
-): Pick<AtlassianClient, 'searchIssues'> {
+  capture: { jql?: string; opts?: { maxResults?: number }; zoneCalls?: number } = {},
+  zone: string | null = 'UTC'
+): Pick<AtlassianClient, 'searchIssues' | 'accountTimeZone'> {
+  capture.zoneCalls = 0
   return {
     searchIssues: async (jql: string, opts: { maxResults?: number; pageToken?: string }) => {
       capture.jql = jql
       capture.opts = opts
       return page
+    },
+    accountTimeZone: async () => {
+      capture.zoneCalls = (capture.zoneCalls ?? 0) + 1
+      return zone
     }
   }
 }
@@ -62,6 +75,89 @@ describe('resolveJql', () => {
     // string leaking through here means the JQL literal is malformed against a real Jira instance.
     expect(capture.jql).toContain('created >= "2026-08-08 02:15"')
     expect(capture.jql).not.toContain('2026-08-08T02:15:30.000Z')
+  })
+
+  /**
+   * JQL has no timezone syntax: Jira evaluates a bare date literal as wall-clock time in the
+   * SEARCHING ACCOUNT's zone. A cursor formatted in UTC is therefore a bound at the wrong
+   * instant by the account's whole offset — west of UTC the bound lands late and those tickets
+   * are skipped forever (the cursor only moves forward); east of UTC it lands early and the
+   * window fills with already-attempted keys until the routine stalls. Both report `ok`.
+   */
+  describe('the account timezone', () => {
+    it('formats the cursor literal in the account zone, west of UTC', async () => {
+      const capture: { jql?: string } = {}
+      const resolver = buildJiraScopeResolver({
+        db,
+        atlassian: fakeAtlassian(
+          { issues: [], nextPageToken: null },
+          capture,
+          'America/Los_Angeles'
+        ),
+        jiraCases: noCreate
+      })
+      await resolver.resolveJql('project = ABC', 'created', '2026-08-08T02:15:30.000Z', 10)
+      // 02:15Z is 19:15 the PREVIOUS day in Los Angeles (UTC-7 in August).
+      expect(capture.jql).toContain('created >= "2026-08-07 19:15"')
+      expect(capture.jql).not.toContain('2026-08-08 02:15')
+    })
+
+    it('formats the cursor literal in the account zone, east of UTC', async () => {
+      const capture: { jql?: string } = {}
+      const resolver = buildJiraScopeResolver({
+        db,
+        atlassian: fakeAtlassian({ issues: [], nextPageToken: null }, capture, 'Asia/Tokyo'),
+        jiraCases: noCreate
+      })
+      await resolver.resolveJql('project = ABC', 'created', '2026-08-08T02:15:30.000Z', 10)
+      expect(capture.jql).toContain('created >= "2026-08-08 11:15"')
+    })
+
+    it('falls back to a conservative earlier bound when the zone cannot be read', async () => {
+      const capture: { jql?: string } = {}
+      const resolver = buildJiraScopeResolver({
+        db,
+        atlassian: fakeAtlassian({ issues: [], nextPageToken: null }, capture, null),
+        jiraCases: noCreate
+      })
+      await resolver.resolveJql('project = ABC', 'created', '2026-08-08T02:15:30.000Z', 10)
+      // 12 hours earlier, in UTC — never LATER than intended for any account on earth, so the
+      // unknown-zone path can only re-examine, never skip. See the constant's docblock for what
+      // that widened window costs.
+      expect(capture.jql).toContain('created >= "2026-08-07 14:15"')
+    })
+
+    it('is not looked up at all for an unbounded first run', async () => {
+      const capture: { zoneCalls?: number } = {}
+      const resolver = buildJiraScopeResolver({
+        db,
+        atlassian: fakeAtlassian({ issues: [], nextPageToken: null }, capture, 'Asia/Tokyo'),
+        jiraCases: noCreate
+      })
+      await resolver.resolveJql('project = ABC', 'created', null, 10)
+      expect(capture.zoneCalls).toBe(0)
+    })
+
+    it('is asked for exactly once per bounded query, never per issue', async () => {
+      const capture: { zoneCalls?: number } = {}
+      const resolver = buildJiraScopeResolver({
+        db,
+        atlassian: fakeAtlassian(
+          {
+            issues: [
+              { key: 'ABC-1', created: '2026-08-08T03:00:00.000Z', updated: 'u' },
+              { key: 'ABC-2', created: '2026-08-08T04:00:00.000Z', updated: 'u' }
+            ],
+            nextPageToken: null
+          },
+          capture,
+          'Asia/Tokyo'
+        ),
+        jiraCases: noCreate
+      })
+      await resolver.resolveJql('project = ABC', 'created', '2026-08-08T02:15:30.000Z', 10)
+      expect(capture.zoneCalls).toBe(1)
+    })
   })
 
   it('uses an INCLUSIVE >= boundary, not a strict >', async () => {

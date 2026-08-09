@@ -10,6 +10,7 @@ import {
   rovoInstanceId,
   jiraBrowseUrl,
   jiraDate,
+  JIRA_CURSOR_UNKNOWN_ZONE_MARGIN_MS,
   resolveAtlassianCreds
 } from '../atlassian'
 import type { ConnectorMap } from '../../../shared/connectors'
@@ -526,8 +527,8 @@ describe('jiraBrowseUrl', () => {
 })
 
 describe('jiraDate', () => {
-  it('formats an ISO timestamp as JQL minute-resolution local-to-UTC', () => {
-    expect(jiraDate('2026-08-01T10:15:42.123Z')).toBe('2026-08-01 10:15')
+  it('formats an ISO timestamp as a JQL minute-resolution literal in the given zone', () => {
+    expect(jiraDate('2026-08-01T10:15:42.123Z', 'UTC')).toBe('2026-08-01 10:15')
   })
 
   it('drops seconds entirely, which is why the cursor boundary must be inclusive', () => {
@@ -535,11 +536,108 @@ describe('jiraDate', () => {
     // caller used a strict `>` cursor comparison, the second of the two would never be seen
     // again once the first advanced the cursor — see scopeResolver.ts's `>=` boundary and
     // items.ts's by-key de-duplication, which is what makes this precision loss safe.
-    expect(jiraDate('2026-08-01T10:15:30.000Z')).toBe(jiraDate('2026-08-01T10:15:59.999Z'))
+    expect(jiraDate('2026-08-01T10:15:30.000Z', 'UTC')).toBe(
+      jiraDate('2026-08-01T10:15:59.999Z', 'UTC')
+    )
   })
 
   it('pads single-digit month, day, hour and minute', () => {
-    expect(jiraDate('2026-01-02T03:04:00.000Z')).toBe('2026-01-02 03:04')
+    expect(jiraDate('2026-01-02T03:04:00.000Z', 'UTC')).toBe('2026-01-02 03:04')
+  })
+
+  /**
+   * The bug this argument exists for: JQL has no timezone syntax, so Jira reads the literal as
+   * wall-clock time in the ACCOUNT's zone. A literal formatted in UTC for a non-UTC account is a
+   * bound at the wrong instant — permanently skipped tickets west of UTC, a permanently stalled
+   * routine east of it, and `ok` on the run either way.
+   */
+  it('formats WEST of UTC in the account zone, not UTC', () => {
+    // 2026-08-01T10:15Z is 03:15 in Los Angeles (UTC-7 in August).
+    expect(jiraDate('2026-08-01T10:15:42.123Z', 'America/Los_Angeles')).toBe('2026-08-01 03:15')
+  })
+
+  it('formats EAST of UTC in the account zone, crossing the date boundary', () => {
+    // 2026-08-01T19:15Z is 04:15 the NEXT day in Tokyo (UTC+9).
+    expect(jiraDate('2026-08-01T19:15:00.000Z', 'Asia/Tokyo')).toBe('2026-08-02 04:15')
+  })
+
+  it('emits a 24-hour clock at midnight, never "12" or "24"', () => {
+    // h12 would produce "12:05" for midnight and h24 "24:05" — both unparseable as a JQL literal.
+    expect(jiraDate('2026-08-01T00:05:00.000Z', 'UTC')).toBe('2026-08-01 00:05')
+    expect(jiraDate('2026-08-01T12:05:00.000Z', 'UTC')).toBe('2026-08-01 12:05')
+  })
+
+  it('follows the zone across a DST change rather than using a fixed offset', () => {
+    // Same zone, either side of the US spring-forward: UTC-8 in January, UTC-7 in August.
+    expect(jiraDate('2026-01-01T10:15:00.000Z', 'America/Los_Angeles')).toBe('2026-01-01 02:15')
+    expect(jiraDate('2026-08-01T10:15:00.000Z', 'America/Los_Angeles')).toBe('2026-08-01 03:15')
+  })
+
+  it('falls back to a 12-hour-earlier UTC literal when the zone is unknown', () => {
+    // Never LATER than the cursor for any account (the westernmost real offset is -12:00), so
+    // the unknown-zone path can only re-examine already-attempted tickets, never skip new ones.
+    // The cost of that widened window is written down on JIRA_CURSOR_UNKNOWN_ZONE_MARGIN_MS.
+    expect(jiraDate('2026-08-01T10:15:42.123Z', null)).toBe('2026-07-31 22:15')
+    expect(JIRA_CURSOR_UNKNOWN_ZONE_MARGIN_MS).toBe(12 * 60 * 60 * 1000)
+  })
+
+  it('falls back the same way for a zone name this runtime cannot format in', () => {
+    expect(jiraDate('2026-08-01T10:15:42.123Z', 'Mars/Olympus_Mons')).toBe('2026-07-31 22:15')
+  })
+})
+
+describe('accountTimeZone', () => {
+  const ARES_JIRA = (): Response =>
+    new Response(
+      JSON.stringify([{ id: 'c1', url: 'https://x.atlassian.net', scopes: ['read:jira-work'] }]),
+      { status: 200 }
+    )
+
+  const myselfClient = (
+    status: number,
+    body: unknown
+  ): { client: AtlassianClient; myselfCalls: () => number } => {
+    let myselfCalls = 0
+    const fakeFetch = (async (url: string) => {
+      if (String(url).includes('accessible-resources')) return ARES_JIRA()
+      if (String(url).includes('/rest/api/3/myself')) {
+        myselfCalls++
+        return new Response(JSON.stringify(body), { status })
+      }
+      return new Response('{}', { status: 200 })
+    }) as unknown as typeof fetch
+    return { client: new AtlassianClient(oauthFixture, fakeFetch), myselfCalls: () => myselfCalls }
+  }
+
+  it('reads the IANA zone off /rest/api/3/myself', async () => {
+    const { client } = myselfClient(200, { timeZone: 'Asia/Tokyo' })
+    expect(await client.accountTimeZone()).toBe('Asia/Tokyo')
+  })
+
+  it('caches per instance so a sweep does not ask once per query', async () => {
+    const { client, myselfCalls } = myselfClient(200, { timeZone: 'Asia/Tokyo' })
+    expect(await client.accountTimeZone()).toBe('Asia/Tokyo')
+    expect(await client.accountTimeZone()).toBe('Asia/Tokyo')
+    expect(await client.accountTimeZone()).toBe('Asia/Tokyo')
+    expect(myselfCalls()).toBe(1)
+  })
+
+  it('returns null — never throws — when the request fails, and retries next time', async () => {
+    const { client, myselfCalls } = myselfClient(500, {})
+    expect(await client.accountTimeZone()).toBeNull()
+    // A failure must NOT be cached: pinning the conservative fallback for the life of the
+    // process because one nightly run hit a 500 is exactly the silent degradation this whole
+    // fix is about.
+    expect(await client.accountTimeZone()).toBeNull()
+    expect(myselfCalls()).toBe(2)
+  })
+
+  it('returns null when the field is absent or not a usable zone name', async () => {
+    expect(await myselfClient(200, {}).client.accountTimeZone()).toBeNull()
+    expect(await myselfClient(200, { timeZone: '' }).client.accountTimeZone()).toBeNull()
+    expect(
+      await myselfClient(200, { timeZone: 'Mars/Olympus_Mons' }).client.accountTimeZone()
+    ).toBeNull()
   })
 })
 
