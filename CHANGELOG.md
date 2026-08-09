@@ -1,5 +1,101 @@
 # Changelog
 
+## v2.0.11 — 2026-08-09
+
+59 commits since v2.0.10, 117 files changed (+7,023 / −1,554).
+
+### Added
+
+**Proposals is now a top-level view**
+
+- Proposals moves out of a Settings sub-page into its own standalone
+  master-detail surface, reachable from a badged TopBar entrypoint (Library
+  and strip entrypoints escalate to it too); the old Settings ProposalsPage
+  is deleted and its full test coverage ported onto the new view, a stale
+  `settings`→`proposals` deep link is intercepted and redirected, and the
+  product tour's Proposals step now targets the TopBar button.
+- The detail pane offers unified, split, and proposed diff view modes plus
+  inline edit and reject reasons, backed by a queue rail and an
+  accepted-rows pane; a new file (no `current` to diff against) renders as
+  formatted markdown instead of a diff toggle with nothing real to compare.
+  Proposal filters are three icon-family chips — Skill, Reference, Case
+  summary — each showing a summed count, rather than one chip per proposal
+  type.
+- View titles (Proposals, Related history, Settings) now publish into a
+  shared header store and render in the TopBar itself instead of each view
+  drawing its own title row, collapsing what used to be two stacked bars
+  into one 48px header.
+- A whole-branch review pass fixed real correctness gaps: sort order and
+  IPC-payload trust were restored by fixing test mocks rather than adding
+  production workarounds; pending now wins selection over a same-file
+  accepted row and accepted rows dedupe against a shadowing pending one;
+  the diff pane is clamped with `min-w-0` so long lines scroll instead of
+  clipping; Home's knowledge-pending count now reads live off
+  `proposalsStore` instead of a stale snapshot.
+
+**Routines: review tracking, a Home inbox, and staying alive for the schedule**
+
+- Every routine run now carries a reviewed/unreviewed state (existing
+  history is backfilled as reviewed on migration), with a per-run
+  mark-reviewed action wired through IPC and an unreviewed count computed
+  by a direct query so it stays correct past the existing 50-row
+  run-history cap.
+- A case created by a routine run is tagged with that origin (existing
+  routine cases are backfilled from the run table), shown on its case card
+  with a per-case unreviewed-run tally, and surfaced in a new "unreviewed
+  runs" inbox mounted above the case grid on Home — sharing one
+  subscribe-and-reload store with the Settings Routines page and rendering
+  run summaries as markdown.
+- A system tray icon backs the app with a single-instance lock: its
+  tooltip and context menu read "N runs to review" when there's a backlog
+  (clicking that item focuses the window and jumps to the inbox), plus
+  plain Open/Quit entries. A keep-alive setting toggle lets the app keep
+  running in the background after the last window closes so a schedule can
+  still fire, offered wherever a schedule is actually set; on macOS the app
+  already never quits on last-window-close, so the setting does nothing
+  there — a prior release worded it as if it did, and this one fixes the
+  copy rather than pretending to change platform behavior.
+- When an unattended run finishes with no window open, a system
+  notification fires (skipping a merely-minimized window, and never
+  showing a blank body when the summary's first line is empty); clicking
+  it focuses or creates a window and pushes the inbox into view. Getting
+  the click to reliably land on a freshly created window took two real
+  race fixes: notifications are now held in a module-scope set so their
+  click handlers survive garbage collection, and the focus-inbox delivery
+  no longer guesses a deferral point — main leaves a pending flag when it
+  has to create the window, and the renderer consumes it once on mount
+  instead of racing a push against its own effect subscription.
+
+**Settings polish**
+
+- The Connectors page now lists GitHub first, ahead of the MCP list — it's
+  the connection every case depends on for PR lookup, pushes, and
+  HiveMind.
+- The knowledge-flow sentence on Settings' host pages (Proposals, Library,
+  Team) becomes a status strip showing your current position across three
+  steps, with the active step sharing the same highlight treatment as the
+  settings sidebar's active nav item.
+- 16 of 20 `loading…` sites across Settings became reserved-space
+  skeletons; the remaining four stayed as words because they report an
+  in-progress action rather than standing in for content.
+- Theme and the Observability dashboard move out of the TopBar: theme now
+  lives in Settings only (with a System option that follows the OS live),
+  and Observability opens from a button on its own Settings page.
+
+### Fixed
+
+- `MenuButton`'s popover anchored against its wrapper `div`'s stretched
+  width rather than the trigger's own box, pinning `align="right"` panels
+  to the row's right edge instead of the button's whenever the trigger
+  wasn't already sitting in a flex row that shrinks to fit — most visibly,
+  Settings' `Add…` buttons.
+- A failed routines-store refresh no longer blanks a page that still has
+  data to show; stale inbox errors are retired and same-routine rows
+  disambiguated; mark-reviewed failures now surface instead of failing
+  silently.
+- A pending focus-inbox request is cleared if its target window is
+  destroyed before it's consumed.
+
 ## v2.0.10 — 2026-08-08
 
 135 commits since v2.0.9, 151 files changed (+16,669 / −452).
