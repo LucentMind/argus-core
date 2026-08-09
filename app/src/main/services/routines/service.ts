@@ -294,13 +294,18 @@ export class RoutinesService {
    *
    * Thin on purpose: the guard that a live run cannot be marked lives in the SQL (runs.ts), so
    * this stays a write plus an announcement and there is no second place for the rule to drift.
+   * The same holds for the refusal to hide un-actioned draft items — runs.ts throws, and the
+   * throw reaches the renderer through the IPC handler, which is how the inbox surfaces every
+   * other rejected mutation. Nothing is notified on that path because nothing was written.
    */
   markReviewed(runId: number): void {
     markRunReviewed(this.deps.db, runId, this.deps.now)
     this.safeNotify()
   }
 
-  /** Clears the whole inbox, including runs older than the 50 the payload carries. */
+  /** Clears the whole inbox, including runs older than the 50 the payload carries. Refuses
+   *  (throws, writing nothing) while any unreviewed run still has un-actioned drafts — same
+   *  rule, same SQL, as the single-run verb above. */
   markAllReviewed(): void {
     markAllRunsReviewed(this.deps.db, this.deps.now)
     this.safeNotify()

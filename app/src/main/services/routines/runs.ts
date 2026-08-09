@@ -162,6 +162,36 @@ export function finishRoutineRun(
 const UNREVIEWED = `status != 'running' AND reviewed_at IS NULL`
 
 /**
+ * How many of a run's items are still DRAFTS NOBODY HAS ACTED ON, as a correlated subquery.
+ *
+ * Written once and used by both mark verbs below, exactly like `UNREVIEWED` above, because the
+ * two must never disagree about what "still needs review" means — a single-run refusal that
+ * "Mark all reviewed" walks straight past would be worse than no rule at all.
+ *
+ * WHY THIS RULE EXISTS: the Home inbox is the ONLY accept/dismiss surface in the product, and it
+ * renders a run only while `${UNREVIEWED}` holds. Marking a run reviewed therefore does not just
+ * tidy a list — it removes the only place its draft items can ever be acted on. Those cases keep
+ * `review_state = 'draft'` forever: a permanent Draft badge, a suggestion that can never be
+ * applied, and permanent exclusion from every `cases`-scoped routine (routines/scopeResolver.ts
+ * treats a draft as output, not a candidate). `reviewed_at` lives on the RUN and nothing about
+ * writing it touches the cases, so nothing else can notice.
+ *
+ * ACTIONED means one of the two verbs has landed on the item's case:
+ *  - Accept clears `review_state` (service.ts's acceptItem → setCaseReviewState(null)).
+ *  - Dismiss CLOSES the case and deliberately leaves `review_state` set, so a dismissed draft
+ *    stays distinguishable from a case that was never one — hence `status != 'closed'` here
+ *    rather than a review_state check alone. A case a human closed by hand counts as actioned
+ *    for the same reason: it is out of the sweep and out of the user's way.
+ * An item with no case at all (`case_slug IS NULL` — ingest failed before a case existed) can
+ * never be actioned and must never block, which the JOIN handles by producing no row for it.
+ */
+const UNACTIONED_DRAFT_ITEMS = `(SELECT COUNT(*) FROM routine_run_items i
+     JOIN cases c ON c.slug = i.case_slug
+    WHERE i.run_id = routine_runs.id AND c.review_state = 'draft' AND c.status != 'closed')`
+
+const plural = (n: number, one: string): string => `${n} ${one}${n === 1 ? '' : 's'}`
+
+/**
  * Clears one run out of the inbox.
  *
  * `AND ${UNREVIEWED}` rather than a bare `WHERE id = ?`, for two reasons. A run can finish
@@ -169,12 +199,31 @@ const UNREVIEWED = `status != 'running' AND reviewed_at IS NULL`
  * must not be pre-reviewed by a click that raced it — putting the guard in the renderer would
  * mean putting it on the losing side of that race. And re-marking an already-reviewed run
  * would silently move its timestamp, which is the one fact the row records.
+ *
+ * THROWS rather than silently declining when the run still has un-actioned draft items (see
+ * `UNACTIONED_DRAFT_ITEMS`): a no-op would leave the row sitting in the inbox with nothing to
+ * explain why the click did nothing. The message names the count, and the inbox surfaces it the
+ * same way it surfaces every other rejected mutation. The count is read under `${UNREVIEWED}` so
+ * a run that is running or already reviewed keeps its existing silent no-op — this rule only
+ * governs marks that would otherwise take effect.
  */
 export function markRunReviewed(
   db: DatabaseSync,
   runId: number,
   now: () => Date = defaultNow
 ): void {
+  const row = db
+    .prepare(
+      `SELECT ${UNACTIONED_DRAFT_ITEMS} AS n FROM routine_runs WHERE id = ? AND ${UNREVIEWED}`
+    )
+    .get(runId) as { n: number } | undefined
+  const pending = Number(row?.n ?? 0)
+  if (pending > 0) {
+    throw new Error(
+      `This run still has ${plural(pending, 'draft item')} to accept or dismiss — ` +
+        `marking it reviewed would hide them for good.`
+    )
+  }
   db.prepare(`UPDATE routine_runs SET reviewed_at = ? WHERE id = ? AND ${UNREVIEWED}`).run(
     now().toISOString(),
     runId
@@ -187,9 +236,30 @@ export function markRunReviewed(
  * Operates in SQL over every row, not over the 50 `listRoutineRuns` hands the renderer — an
  * inbox deeper than the payload window must still be emptiable in one click.
  *
+ * ALL OR NOTHING when any unreviewed run still has un-actioned drafts: it throws BEFORE writing
+ * anything rather than clearing the clean runs and reporting the rest. Marking the clean ones
+ * would be a partial success that still has to reject, and a rejection is precisely the path on
+ * which main does NOT broadcast `routines:changed` — so the renderer would keep showing rows
+ * that had in fact just been cleared, in every window. Refusing outright leaves the inbox
+ * exactly as it looks.
+ *
  * @returns how many rows were cleared.
  */
 export function markAllRunsReviewed(db: DatabaseSync, now: () => Date = defaultNow): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS runs, COALESCE(SUM(${UNACTIONED_DRAFT_ITEMS}), 0) AS items
+         FROM routine_runs
+        WHERE ${UNREVIEWED} AND ${UNACTIONED_DRAFT_ITEMS} > 0`
+    )
+    .get() as { runs: number; items: number } | undefined
+  const items = Number(row?.items ?? 0)
+  if (items > 0) {
+    throw new Error(
+      `${plural(items, 'draft item')} in ${plural(Number(row?.runs ?? 0), 'run')} still ` +
+        `need accepting or dismissing — clearing the inbox would hide them for good.`
+    )
+  }
   const res = db
     .prepare(`UPDATE routine_runs SET reviewed_at = ? WHERE ${UNREVIEWED}`)
     .run(now().toISOString())

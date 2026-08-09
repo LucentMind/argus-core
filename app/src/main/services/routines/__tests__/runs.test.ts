@@ -18,7 +18,8 @@ import {
   markAllRunsReviewed,
   countUnreviewedRuns
 } from '../runs'
-import { insertRunItem, finishRunItem, getRunItem } from '../runItems'
+import { insertRunItem, finishRunItem, getRunItem, attachItemCase } from '../runItems'
+import { createCase } from '../../caseService'
 
 let home: string
 let db: DatabaseSync
@@ -464,5 +465,120 @@ describe('marking runs reviewed', () => {
     expect(listRoutineRuns(db)).toHaveLength(50)
     expect(countUnreviewedRuns(db)).toBe(55)
     expect(markAllRunsReviewed(db, () => NOW)).toBe(55)
+  })
+
+  /**
+   * Marking a run reviewed hides it from the Home inbox, which is the ONLY accept/dismiss
+   * surface there is. Before this guard, doing so left every one of that run's draft cases at
+   * `review_state = 'draft'` forever — permanent Draft badge, suggestion unappliable, and
+   * permanently excluded from every `cases`-scoped routine — with no surface left to fix it on.
+   */
+  describe('with items still awaiting accept or dismiss', () => {
+    /** A finished run with one item bound to a real case in the given review/lifecycle state. */
+    const runWithItem = (
+      routineId: string,
+      state: { reviewState: 'draft' | null; status?: 'open' | 'closed' }
+    ): number => {
+      const runId = finished(routineId)
+      const slug = `case-${routineId}`
+      createCase(db, home, { slug, title: slug })
+      db.prepare(`UPDATE cases SET review_state = ?, status = ? WHERE slug = ?`).run(
+        state.reviewState,
+        state.status ?? 'open',
+        slug
+      )
+      const itemId = insertRunItem(db, runId, `KEY-${routineId}`, () => NOW)
+      attachItemCase(db, itemId, slug)
+      finishRunItem(db, itemId, { status: 'processed' }, () => NOW)
+      return runId
+    }
+
+    it('refuses to mark the run reviewed, naming how many are left', () => {
+      const runId = runWithItem('drafty', { reviewState: 'draft' })
+      expect(() => markRunReviewed(db, runId, () => NOW)).toThrow(/1 draft item to accept/)
+      expect(listRoutineRuns(db)[0].reviewedAt).toBeNull()
+      expect(countUnreviewedRuns(db)).toBe(1)
+    })
+
+    it('pluralizes the count over several un-actioned items', () => {
+      const runId = finished('many')
+      for (const n of [1, 2, 3]) {
+        const slug = `many-${n}`
+        createCase(db, home, { slug, title: slug })
+        db.prepare(`UPDATE cases SET review_state = 'draft' WHERE slug = ?`).run(slug)
+        const itemId = insertRunItem(db, runId, `KEY-${n}`, () => NOW)
+        attachItemCase(db, itemId, slug)
+        finishRunItem(db, itemId, { status: 'processed' }, () => NOW)
+      }
+      expect(() => markRunReviewed(db, runId, () => NOW)).toThrow(/3 draft items to accept/)
+    })
+
+    it('marks fine once every item has been accepted', () => {
+      // Accept is `review_state -> null` (service.ts's acceptItem).
+      const runId = runWithItem('accepted', { reviewState: null })
+      markRunReviewed(db, runId, () => NOW)
+      expect(listRoutineRuns(db)[0].reviewedAt).toBe(NOW.toISOString())
+    })
+
+    it('marks fine once every item has been dismissed', () => {
+      // Dismiss CLOSES the case and deliberately leaves review_state set, so a review_state
+      // check on its own would keep refusing forever — the whole strand this guard prevents,
+      // reintroduced by the guard itself.
+      const runId = runWithItem('dismissed', { reviewState: 'draft', status: 'closed' })
+      markRunReviewed(db, runId, () => NOW)
+      expect(listRoutineRuns(db)[0].reviewedAt).toBe(NOW.toISOString())
+    })
+
+    it('leaves a run with no items at all completely unaffected', () => {
+      // Every routine shipped in increments 1-3 is this shape. A regression here would make the
+      // inbox unclearable for users who have no scoped routines at all.
+      const runId = finished('unscoped')
+      markRunReviewed(db, runId, () => NOW)
+      expect(listRoutineRuns(db)[0].reviewedAt).toBe(NOW.toISOString())
+    })
+
+    it('does not block on an item whose ingest never produced a case', () => {
+      // case_slug stays NULL when ingest threw. Nothing can ever action such an item, so
+      // blocking on it would be a permanent inbox lock.
+      const runId = finished('no-case')
+      const itemId = insertRunItem(db, runId, 'KEY-X', () => NOW)
+      finishRunItem(db, itemId, { status: 'failed', error: 'ingest failed' }, () => NOW)
+      markRunReviewed(db, runId, () => NOW)
+      expect(listRoutineRuns(db)[0].reviewedAt).toBe(NOW.toISOString())
+    })
+
+    it('refuses "mark all" for the same reason, and writes nothing at all', () => {
+      // All-or-nothing: main only broadcasts routines:changed after a SUCCESSFUL write, so
+      // clearing the clean runs and then throwing would leave every window rendering rows that
+      // had in fact just been cleared.
+      const clean = finished('clean')
+      runWithItem('drafty', { reviewState: 'draft' })
+      expect(() => markAllRunsReviewed(db, () => NOW)).toThrow(/1 draft item in 1 run still need/)
+      expect(listRoutineRuns(db).find((r) => r.id === clean)?.reviewedAt).toBeNull()
+      expect(countUnreviewedRuns(db)).toBe(2)
+    })
+
+    it('clears everything once the drafts are actioned', () => {
+      finished('clean')
+      const runId = runWithItem('drafty', { reviewState: 'draft' })
+      expect(() => markAllRunsReviewed(db, () => NOW)).toThrow()
+      db.prepare(`UPDATE cases SET review_state = NULL WHERE slug = 'case-drafty'`).run()
+      expect(markAllRunsReviewed(db, () => NOW)).toBe(2)
+      expect(countUnreviewedRuns(db)).toBe(0)
+      expect(runId).toBeGreaterThan(0)
+    })
+
+    it('ignores drafts belonging to a run that is already reviewed', () => {
+      // The rule governs marks that would otherwise take effect. A run already out of the inbox
+      // cannot be re-marked anyway, and counting it would lock the inbox on history.
+      const stale = runWithItem('stale', { reviewState: 'draft' })
+      db.prepare(`UPDATE routine_runs SET reviewed_at = ? WHERE id = ?`).run(
+        NOW.toISOString(),
+        stale
+      )
+      const clean = finished('clean')
+      expect(markAllRunsReviewed(db, () => NOW)).toBe(1)
+      expect(listRoutineRuns(db).find((r) => r.id === clean)?.reviewedAt).toBe(NOW.toISOString())
+    })
   })
 })
