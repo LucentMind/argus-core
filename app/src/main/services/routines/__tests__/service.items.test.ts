@@ -630,6 +630,71 @@ describe('cases-scoped runs', () => {
     expect(getCase(db, 'human-case')!.reviewState).toBe('draft')
     expect(runItemForCase(db, 'human-case')!.status).toBe('processed')
   })
+
+  /**
+   * The loop `setCaseReviewState`'s own docblock forbids, reached through the OTHER writer:
+   * `acceptItem` calls `setCaseTriage`, and a `setCaseTriage` that moved `updated_at` made the
+   * accepted case look freshly modified — so the next sweep re-drafted it, accepting that
+   * re-drafted it again, forever, consuming the item cap while genuinely new cases starved.
+   */
+  it('does not re-select a case just because its suggestion was accepted', async () => {
+    createCase(db, tmp, { slug: 'sweep-me', title: 'Stale case' })
+    // The ordinary state of a case a sweep is about to look at: last modified BEFORE the run.
+    // (The service clock is fixed at 2026-08-08T02:00Z; createCase stamps the real clock.)
+    db.prepare(`UPDATE cases SET updated_at = ? WHERE slug = ?`).run(
+      '2026-08-07T00:00:00.000Z',
+      'sweep-me'
+    )
+    const turns: string[] = []
+    const svc = build(casesRoutine(), fakeResolver([]), turns)
+
+    svc.startRun('nightly')
+    await svc.whenIdle()
+    expect(turns).toEqual(['sweep-me'])
+
+    const item = runItemForCase(db, 'sweep-me')!
+    db.prepare(`UPDATE routine_run_items SET suggestion = ? WHERE id = ?`).run(
+      JSON.stringify({ title: 'Retitled by the routine', tags: ['severity:high'], rationale: 'r' }),
+      item.id
+    )
+    svc.acceptItem(item.id)
+    const accepted = getCase(db, 'sweep-me')!
+    expect(accepted.title).toBe('Retitled by the routine')
+    // Accept cleared the draft flag, so the case is a candidate for the sweep again — the only
+    // thing keeping it out of the next run is that accepting was not activity on the case.
+    expect(accepted.reviewState).toBeNull()
+
+    // THE LOOP, asserted first so a regression fails on the consequence rather than on the
+    // timestamp that causes it: a second run must not touch the case again.
+    svc.startRun('nightly')
+    await svc.whenIdle()
+    expect(turns).toEqual(['sweep-me'])
+    expect(listRunItems(db, [svc.payload().runs[0].id])).toEqual([])
+    expect(getCase(db, 'sweep-me')!.updatedAt).toBe('2026-08-07T00:00:00.000Z')
+  })
+
+  it('still re-selects a case a HUMAN touched after the run', async () => {
+    // The other half of the rule: the sweep must keep working genuinely-modified cases. Without
+    // this, "never re-select" would be satisfiable by breaking the sweep outright.
+    createCase(db, tmp, { slug: 'sweep-me', title: 'Stale case' })
+    db.prepare(`UPDATE cases SET updated_at = ? WHERE slug = ?`).run(
+      '2026-08-07T00:00:00.000Z',
+      'sweep-me'
+    )
+    const turns: string[] = []
+    const svc = build(casesRoutine(), fakeResolver([]), turns)
+    svc.startRun('nightly')
+    await svc.whenIdle()
+    svc.acceptItem(runItemForCase(db, 'sweep-me')!.id)
+
+    db.prepare(`UPDATE cases SET updated_at = ? WHERE slug = ?`).run(
+      '2026-08-08T09:00:00.000Z',
+      'sweep-me'
+    )
+    svc.startRun('nightly')
+    await svc.whenIdle()
+    expect(turns).toEqual(['sweep-me', 'sweep-me'])
+  })
 })
 
 describe('accept and dismiss', () => {
