@@ -696,4 +696,37 @@ describe('accept and dismiss', () => {
     expect(() => svc.acceptItem(9999)).not.toThrow()
     expect(() => svc.dismissItem(9999, 'rejected')).not.toThrow()
   })
+
+  /**
+   * End to end over the real seam the finding describes: the inbox renders a run only while it
+   * is unreviewed, and it is the ONLY accept/dismiss surface. Marking a run reviewed while its
+   * drafts are un-actioned therefore stranded them permanently — the cases stayed `draft`, their
+   * suggestions became unappliable, and a `cases`-scoped routine could never see them again.
+   */
+  it('refuses to mark a run reviewed while its drafts are un-actioned, then allows it', async () => {
+    const svc = build(
+      routine(),
+      fakeResolver([
+        { key: 'ABC-1', created: '2026-08-01T00:00:00.000Z' },
+        { key: 'ABC-2', created: '2026-08-02T00:00:00.000Z' }
+      ])
+    )
+    svc.startRun('nightly')
+    await svc.whenIdle()
+    const runId = svc.payload().runs[0].id
+    expect(getCase(db, 'abc-1')!.reviewState).toBe('draft')
+    expect(getCase(db, 'abc-2')!.reviewState).toBe('draft')
+
+    expect(() => svc.markReviewed(runId)).toThrow(/2 draft items to accept/)
+    expect(() => svc.markAllReviewed()).toThrow(/2 draft items in 1 run/)
+    expect(svc.payload().unreviewedCount).toBe(1)
+
+    svc.acceptItem(runItemForCase(db, 'abc-1')!.id)
+    // One left, so it still refuses — and the message counts down.
+    expect(() => svc.markReviewed(runId)).toThrow(/1 draft item to accept/)
+
+    svc.dismissItem(runItemForCase(db, 'abc-2')!.id, 'rejected')
+    svc.markReviewed(runId)
+    expect(svc.payload().unreviewedCount).toBe(0)
+  })
 })
