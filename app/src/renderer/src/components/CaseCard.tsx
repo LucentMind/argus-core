@@ -150,7 +150,10 @@ export function CaseCard({
               <span data-testid="case-origin">Routine</span>
             </Chip>
           )}
-          {c.reviewState === 'draft' && <Chip tone="review">Draft</Chip>}
+          {/* `defect` (amber), not `review` (green): a draft is the one thing on this card
+              asking for attention, and green reads as done. Also keeps it distinct from the
+              `signal` (blue) review-count chip sitting immediately beside it. */}
+          {c.reviewState === 'draft' && <Chip tone="defect">Draft</Chip>}
           {c.origin === 'routine' && (reviewCount ?? 0) > 0 && (
             <Chip tone="signal">
               <span data-testid="case-review-count">{reviewCount} to review</span>
