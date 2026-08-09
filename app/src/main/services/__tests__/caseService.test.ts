@@ -785,6 +785,35 @@ describe('setCaseTriage', () => {
     expect(onDisk).not.toHaveProperty('actionItems')
   })
 
+  it('does NOT move updated_at, in the row or in case.json', async () => {
+    // A bumped timestamp makes the case look freshly modified to a `cases`-scoped sweep
+    // (routines/items.ts selects on `updatedAt > lastAttemptAt`), so accepting a suggestion
+    // would re-draft the very case that was just accepted, forever.
+    createCase(db, home, { slug: 'abc-1', title: 'ABC-1' })
+    const before = getCase(db, 'abc-1')!.updatedAt
+    await new Promise((r) => setTimeout(r, 5)) // any bump would land after this
+    setCaseTriage(db, home, 'abc-1', { title: 'Retitled', tags: ['severity:high'] })
+    expect(getCase(db, 'abc-1')!.updatedAt).toBe(before)
+    const onDisk = JSON.parse(
+      fs.readFileSync(path.join(home, 'cases', 'abc-1', 'case.json'), 'utf8')
+    )
+    expect(onDisk.updatedAt).toBe(before)
+    // The patch itself still applied — this is not "writes nothing".
+    expect(getCase(db, 'abc-1')!.title).toBe('Retitled')
+    expect(onDisk.title).toBe('Retitled')
+  })
+
+  it('mirrors the ROW timestamp into case.json even if the file had drifted', () => {
+    createCase(db, home, { slug: 'abc-1', title: 'ABC-1' })
+    const file = path.join(home, 'cases', 'abc-1', 'case.json')
+    const drifted = JSON.parse(fs.readFileSync(file, 'utf8'))
+    fs.writeFileSync(file, JSON.stringify({ ...drifted, updatedAt: '1999-01-01T00:00:00.000Z' }))
+    setCaseTriage(db, home, 'abc-1', { tags: ['x'] })
+    expect(JSON.parse(fs.readFileSync(file, 'utf8')).updatedAt).toBe(
+      getCase(db, 'abc-1')!.updatedAt
+    )
+  })
+
   it('sets and clears review state without touching updated_at', () => {
     createCase(db, home, { slug: 'abc-1', title: 'ABC-1' })
     const before = getCase(db, 'abc-1')!.updatedAt
