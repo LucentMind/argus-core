@@ -54,9 +54,11 @@ beforeEach(() => {
     },
     // Settings' own surface — this file opens it to prove the chrome light does NOT follow.
     proposals: { list: vi.fn(async () => ({ proposals: [] })), onChanged: vi.fn(() => () => {}) },
-    // Deliberately absent: App's routines:changed subscription is guarded (`window.argus?.routines
-    // ?.onChanged`), same idiom as the cite/draft subscriptions below, precisely so a stub bridge
-    // that never opens the Routines page — this file's — doesn't need to carry it.
+    // `routines.onChanged` deliberately absent below: App's routines:changed subscription is
+    // guarded (`window.argus?.routines?.onChanged`), same idiom as the cite/draft subscriptions
+    // below, precisely so a stub bridge that never opens the Routines page — this file's —
+    // doesn't need to carry it. `onFocusInbox`/`consumeFocusInbox` ARE required (see the
+    // `routines` block further down) — App's `consumeFocusInbox` call on Home is not guarded.
     access: {
       get: vi.fn(async () => ({ access: { skills: {}, memory: {} }, loadError: null })),
       onChanged: vi.fn(() => () => {})
