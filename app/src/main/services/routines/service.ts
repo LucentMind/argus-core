@@ -238,6 +238,42 @@ export class RoutinesService {
     }
   }
 
+  /**
+   * Closes out a run's row and announces it, together — the ONLY path either half may go
+   * through. `execute`'s unscoped finish and all four of `executeItems`'s finish sites (outer
+   * catch, quit-abort, saturated cursor, normal completion) call this instead of
+   * `finishRoutineRun` directly, so a scoped run reaches `onRunFinished` exactly the way an
+   * unscoped one always has, and a future fifth finish site cannot be added without announcing
+   * too.
+   *
+   * Announces with the SAME shape for every caller — `routineId`/`routineName` come from the
+   * `RoutineDef` every finish site already holds, not from a run-kind-specific read, so a scoped
+   * run's notification carries exactly what an unscoped one's does.
+   *
+   * Swallowed and logged for the reason `safeNotify` is (see its docblock): this sits in the
+   * queue's control flow — `execute` and `executeItems` both run inside `drain`'s promise chain
+   * — and an escaping throw would skip `drain()`'s continuation and stall every pending run.
+   */
+  private finishRun(
+    runId: number,
+    routine: RoutineDef,
+    outcome: { status: 'ok' | 'failed' | 'timeout'; summary?: string; error?: string }
+  ): void {
+    finishRoutineRun(this.deps.db, runId, outcome, this.deps.now)
+    try {
+      this.deps.onRunFinished?.({
+        runId,
+        routineId: routine.id,
+        routineName: routine.name,
+        status: outcome.status,
+        ...(outcome.summary ? { summary: outcome.summary } : {}),
+        ...(outcome.error ? { error: outcome.error } : {})
+      })
+    } catch (err) {
+      console.error('[routines] onRunFinished failed:', message(err))
+    }
+  }
+
   payload(): RoutinesPayload {
     const runs = listRoutineRuns(this.deps.db)
     const runIds = runs.map((r) => r.id)
@@ -543,33 +579,12 @@ export class RoutinesService {
       result = { status: 'failed', text: '', error: message(err) }
     }
 
-    finishRoutineRun(
-      db,
-      runId,
-      {
-        status: result.status,
-        // Partial text from a failed/timed-out turn is worth keeping as the summary.
-        ...(result.text ? { summary: result.text } : {}),
-        ...(result.error ? { error: result.error } : {})
-      },
-      this.deps.now
-    )
-
-    // Swallowed and logged for exactly the reason safeNotify is (see its contract above): this
-    // sits in the queue's control flow, and an escaping throw would skip drain()'s continuation
-    // and stall every pending run. Losing one notification beats stalling the engine.
-    try {
-      this.deps.onRunFinished?.({
-        runId,
-        routineId: routine.id,
-        routineName: routine.name,
-        status: result.status,
-        ...(result.text ? { summary: result.text } : {}),
-        ...(result.error ? { error: result.error } : {})
-      })
-    } catch (err) {
-      console.error('[routines] onRunFinished failed:', message(err))
-    }
+    this.finishRun(runId, routine, {
+      status: result.status,
+      // Partial text from a failed/timed-out turn is worth keeping as the summary.
+      ...(result.text ? { summary: result.text } : {}),
+      ...(result.error ? { error: result.error } : {})
+    })
   }
 
   /**
@@ -713,16 +728,11 @@ export class RoutinesService {
       // "0 processed", which reads as a run that did something rather than one that couldn't
       // start; omit it so the inbox shows the error alone.
       const attempted = processed > 0 || skipped > 0 || failed > 0
-      finishRoutineRun(
-        db,
-        runId,
-        {
-          status: 'failed',
-          error: message(err),
-          ...(attempted ? { summary: summarize() } : {})
-        },
-        this.deps.now
-      )
+      this.finishRun(runId, routine, {
+        status: 'failed',
+        error: message(err),
+        ...(attempted ? { summary: summarize() } : {})
+      })
       return
     }
 
@@ -738,19 +748,14 @@ export class RoutinesService {
     // in fact never happened — exactly what `lastSuccessAt`'s own docblock forbids.
     if (this.runningAbort?.signal.aborted) {
       const attempted = processed > 0 || skipped > 0 || failed > 0
-      finishRoutineRun(
-        db,
-        runId,
-        {
-          status: 'failed',
-          error: TURN_ABORTED_ERROR,
-          // Distinguishes "cut short by quit, but did real work first" from a run that failed
-          // outright — summarize() alone (e.g. "1 processed · 1 failed") reads as an ordinary
-          // mixed-outcome run with nothing to explain why item 3 is simply absent.
-          ...(attempted ? { summary: `${summarize()} · stopped: the app was quitting` } : {})
-        },
-        this.deps.now
-      )
+      this.finishRun(runId, routine, {
+        status: 'failed',
+        error: TURN_ABORTED_ERROR,
+        // Distinguishes "cut short by quit, but did real work first" from a run that failed
+        // outright — summarize() alone (e.g. "1 processed · 1 failed") reads as an ordinary
+        // mixed-outcome run with nothing to explain why item 3 is simply absent.
+        ...(attempted ? { summary: `${summarize()} · stopped: the app was quitting` } : {})
+      })
       return
     }
 
@@ -762,31 +767,24 @@ export class RoutinesService {
     // looked at. Paging past the window is the real fix and is deliberately not built yet; until
     // it is, this makes the stall loud instead of silent.
     if (saturated) {
-      finishRoutineRun(
-        db,
-        runId,
-        {
-          status: 'failed',
-          error:
-            `This routine's cursor cannot advance: every issue in a full query window had ` +
-            `already been attempted, so no new item can be selected — and no later run will do ` +
-            `any better on its own. Raise "items per run" to widen the window, narrow the ` +
-            `routine's JQL, or delete and recreate the routine to clear its cursor.`,
-          summary: summarize()
-        },
-        this.deps.now
-      )
+      this.finishRun(runId, routine, {
+        status: 'failed',
+        error:
+          `This routine's cursor cannot advance: every issue in a full query window had ` +
+          `already been attempted, so no new item can be selected — and no later run will do ` +
+          `any better on its own. Raise "items per run" to widen the window, narrow the ` +
+          `routine's JQL, or delete and recreate the routine to clear its cursor.`,
+        summary: summarize()
+      })
       return
     }
 
-    finishRoutineRun(
-      db,
-      runId,
-      // A run where every item failed is a failed run — no new rule needed for the inbox, which
-      // already shows failures.
-      { status: processed === 0 && failed > 0 ? 'failed' : 'ok', summary: summarize() },
-      this.deps.now
-    )
+    // A run where every item failed is a failed run — no new rule needed for the inbox, which
+    // already shows failures.
+    this.finishRun(runId, routine, {
+      status: processed === 0 && failed > 0 ? 'failed' : 'ok',
+      summary: summarize()
+    })
   }
 
   /**
