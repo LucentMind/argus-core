@@ -5,7 +5,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase, getCase, findCaseByJiraKey } from '../../caseService'
-import { RoutinesService, type RoutineTurnRequest } from '../service'
+import { RoutinesService, type RoutineTurnRequest, type RoutineRunFinished } from '../service'
 import { listRunItems, runItemForCase } from '../runItems'
 import { lastSuccessAt } from '../runs'
 import { readRoutineCursor } from '../cursors'
@@ -877,5 +877,154 @@ describe('a jira-jql window that yields nothing', () => {
     expect(quiet.status).toBe('ok')
     expect(quiet.error).toBeNull()
     expect(quiet.summary).toBe('0 processed')
+  })
+})
+
+/**
+ * The composition defect a rebase introduced: increment 4's `onRunFinished` announce and
+ * increment 5's item loop landed on either side of an early `return`, so a scoped run — and
+ * every one of `executeItems`'s four finish sites — could never reach it. service.test.ts's
+ * `onRunFinished` tests all predate scopes (they only ever drive the unscoped path), so this is
+ * the first coverage of the scoped side of that seam.
+ *
+ * Each test below pins a DIFFERENT one of the four finish sites in `executeItems`, plus the
+ * unscoped path stays covered by service.test.ts's own "reports a finished run once" tests —
+ * this file does not repeat those, it only adds what they structurally cannot reach.
+ */
+describe('onRunFinished reaches every finish site', () => {
+  it('announces a normally-finished scoped run exactly once, with the same shape an unscoped run gets', async () => {
+    const finished: RoutineRunFinished[] = []
+    const svc = new RoutinesService({
+      db,
+      argusHome: tmp,
+      store: storeOf(routine({ maxItemsPerRun: 2 })) as never,
+      scopeResolver: fakeResolver([
+        { key: 'ABC-1', created: '2026-08-01T00:00:00.000Z' },
+        { key: 'ABC-2', created: '2026-08-02T00:00:00.000Z' }
+      ]),
+      runTurn: async (p) => ({ status: 'ok', text: `did ${p.caseSlug}` }),
+      onRunFinished: (info) => finished.push(info),
+      now: () => new Date('2026-08-08T02:00:00.000Z')
+    })
+    svc.startRun('nightly')
+    await svc.whenIdle()
+
+    // Exactly the fields service.test.ts's unscoped "reports a finished run once" test asserts
+    // against — routineId/routineName/status/summary, sourced from the same RoutineDef either
+    // path holds, not a scoped-only shape.
+    expect(finished).toHaveLength(1)
+    expect(finished[0]).toMatchObject({
+      routineId: 'nightly',
+      routineName: 'Nightly',
+      status: 'ok',
+      summary: '2 processed'
+    })
+    expect(finished[0].runId).toBe(svc.payload().runs[0].id)
+    expect(finished[0].error).toBeUndefined()
+  })
+
+  it('announces the saturated / frozen-cursor branch — the shape this feature exists to make loud', async () => {
+    // Twelve issues at maxItemsPerRun:2 plus the ten-row CURSOR_BOUNDARY_SLACK is exactly one
+    // full window (mirrors the fixture in "a jira-jql window that yields nothing" above).
+    const twelve = Array.from({ length: 12 }, (_, n) => ({
+      key: `ABC-${n + 1}`,
+      created: `2026-08-03T15:${String(n + 30).padStart(2, '0')}:00.000+0200`
+    }))
+    const cursorBlindResolver: ScopeResolver = {
+      resolveJql: async (_jql, _f, _cursor, limit) =>
+        twelve.slice(0, limit).map((i) => ({ key: i.key, cursorValue: i.created })),
+      ingestJiraItem: async (key: string) => {
+        const existing = findCaseByJiraKey(db, key)
+        if (existing) return { caseSlug: existing.slug, created: false }
+        const slug = key.toLowerCase()
+        createCase(db, tmp, { slug, title: key, jiraKey: key })
+        return { caseSlug: slug, created: true }
+      }
+    }
+    const finished: RoutineRunFinished[] = []
+    const svc = new RoutinesService({
+      db,
+      argusHome: tmp,
+      store: storeOf(routine({ maxItemsPerRun: 2 })) as never,
+      scopeResolver: cursorBlindResolver,
+      runTurn: async (p) => ({ status: 'ok', text: `did ${p.caseSlug}` }),
+      onRunFinished: (info) => finished.push(info),
+      now: () => new Date('2026-08-08T02:00:00.000Z')
+    })
+    // Six runs at two items each attempt all twelve; the seventh saturates.
+    for (let i = 0; i < 6; i++) {
+      svc.startRun('nightly')
+      await svc.whenIdle()
+    }
+    finished.length = 0
+
+    svc.startRun('nightly')
+    await svc.whenIdle()
+
+    expect(finished).toHaveLength(1)
+    expect(finished[0]).toMatchObject({ routineId: 'nightly', status: 'failed' })
+    expect(finished[0].error).toMatch(/cursor cannot advance/)
+  })
+
+  it('announces a run cut short by quit mid-loop, not just ones that finish on their own terms', async () => {
+    const finished: RoutineRunFinished[] = []
+    const started: string[] = []
+    const svc = new RoutinesService({
+      db,
+      argusHome: tmp,
+      store: storeOf(routine({ maxItemsPerRun: 5 })) as never,
+      scopeResolver: fakeResolver([
+        { key: 'ABC-1', created: '2026-08-01T00:00:00.000Z' },
+        { key: 'ABC-2', created: '2026-08-02T00:00:00.000Z' }
+      ]),
+      runTurn: (p) =>
+        new Promise((resolve) => {
+          started.push(p.caseSlug)
+          p.signal?.addEventListener(
+            'abort',
+            () =>
+              resolve({ status: 'failed', text: '', error: 'turn aborted: the app is quitting' }),
+            { once: true }
+          )
+        }),
+      onRunFinished: (info) => finished.push(info),
+      now: () => new Date('2026-08-08T02:00:00.000Z')
+    })
+
+    svc.startRun('nightly')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(started).toEqual(['abc-1'])
+
+    svc.stopForQuit()
+    await svc.whenIdle()
+
+    expect(finished).toHaveLength(1)
+    expect(finished[0]).toMatchObject({ routineId: 'nightly', status: 'failed' })
+    expect(finished[0].error).toMatch(/quit/i)
+  })
+
+  it('announces a run that failed during scope resolution, before any item was ever opened', async () => {
+    const finished: RoutineRunFinished[] = []
+    const svc = new RoutinesService({
+      db,
+      argusHome: tmp,
+      store: storeOf(routine()) as never,
+      scopeResolver: {
+        resolveJql: async () => {
+          throw new Error('JQL is invalid')
+        },
+        ingestJiraItem: async () => ({ caseSlug: 'x', created: true })
+      },
+      runTurn: async () => ({ status: 'ok', text: '' }),
+      onRunFinished: (info) => finished.push(info),
+      now: () => new Date('2026-08-08T02:00:00.000Z')
+    })
+    svc.startRun('nightly')
+    await svc.whenIdle()
+
+    expect(finished).toHaveLength(1)
+    expect(finished[0]).toMatchObject({ routineId: 'nightly', status: 'failed' })
+    expect(finished[0].error).toContain('JQL is invalid')
+    expect(finished[0].summary).toBeUndefined()
   })
 })
