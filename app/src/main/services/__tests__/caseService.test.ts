@@ -15,7 +15,8 @@ import {
   setCaseSyncState,
   setReviewBaseline,
   setCaseTriage,
-  setCaseReviewState
+  setCaseReviewState,
+  mergeTags
 } from '../caseService'
 import { ingestContent } from '../ingest'
 import { createDetection } from '../packs/detection'
@@ -612,6 +613,77 @@ describe('case origin', () => {
   })
 })
 
+/**
+ * Pure, so it is tested without a database — the whole reason it is a separate export. Every
+ * rule here is one an accepted suggestion can destroy data by getting wrong.
+ */
+describe('mergeTags', () => {
+  it('replaces every existing tag sharing an incoming tag namespace', () => {
+    expect(mergeTags(['severity:low'], ['severity:high'])).toEqual(['severity:high'])
+  })
+
+  it('replaces ALL existing tags in that namespace, not just the first', () => {
+    expect(mergeTags(['severity:low', 'severity:medium'], ['severity:high'])).toEqual([
+      'severity:high'
+    ])
+  })
+
+  it('leaves other namespaces alone', () => {
+    expect(mergeTags(['component:auth', 'severity:low'], ['severity:high'])).toEqual([
+      'component:auth',
+      'severity:high'
+    ])
+  })
+
+  it('accumulates a bare tag instead of removing anything', () => {
+    expect(mergeTags(['flaky', 'severity:low'], ['urgent'])).toEqual([
+      'flaky',
+      'severity:low',
+      'urgent'
+    ])
+  })
+
+  it('never lets a bare incoming tag clear the namespaced tags', () => {
+    // A bare tag has no namespace, so there is nothing it could be said to replace.
+    expect(mergeTags(['severity:low'], ['flaky'])).toEqual(['severity:low', 'flaky'])
+  })
+
+  it('keeps BOTH incoming tags when one turn proposes two in one namespace', () => {
+    // The model contradicting itself must stay visible on the case, not be silently resolved.
+    expect(mergeTags(['severity:low'], ['severity:high', 'severity:medium'])).toEqual([
+      'severity:high',
+      'severity:medium'
+    ])
+  })
+
+  it('takes the namespace from the FIRST colon, not the last', () => {
+    expect(mergeTags(['owner:alice:smith'], ['owner:bob'])).toEqual(['owner:bob'])
+    expect(mergeTags(['owner:alice:smith'], ['owner:alice:jones'])).toEqual(['owner:alice:jones'])
+  })
+
+  it('deduplicates within the incoming set and against the existing one', () => {
+    expect(mergeTags(['a', 'b'], ['b', 'c', 'c'])).toEqual(['a', 'b', 'c'])
+  })
+
+  it('deduplicates tags the case already carried twice', () => {
+    expect(mergeTags(['a', 'a'], [])).toEqual(['a'])
+  })
+
+  it('orders survivors first in their existing order, then new incoming in the given order', () => {
+    expect(mergeTags(['z', 'y', 'severity:low'], ['b', 'a', 'severity:high'])).toEqual([
+      'z',
+      'y',
+      'b',
+      'a',
+      'severity:high'
+    ])
+  })
+
+  it('treats an empty incoming array as "proposed no tags", never as "clear them"', () => {
+    expect(mergeTags(['severity:low', 'flaky'], [])).toEqual(['severity:low', 'flaky'])
+  })
+})
+
 describe('setCaseTriage', () => {
   it('applies a title and tags and mirrors them into case.json', () => {
     createCase(db, home, { slug: 'abc-1', title: 'ABC-1' })
@@ -649,6 +721,38 @@ describe('setCaseTriage', () => {
     )
     expect(onDisk.title).toBe('Original Title')
     expect(onDisk.tags).toEqual(['severity:medium'])
+  })
+
+  it('MERGES the accepted tags into the case rather than replacing them, row and case.json', () => {
+    // The destructive shape the whole merge exists for: a case that already carries tags (a
+    // bundle import, or an earlier accepted suggestion from another routine) is triaged again.
+    // Every other test in this block starts from a case with NO tags, which is exactly why the
+    // replace-everything behaviour was invisible for the whole increment.
+    createCase(db, home, { slug: 'abc-1', title: 'ABC-1' })
+    db.prepare(`UPDATE cases SET tags = ? WHERE slug = ?`).run(
+      JSON.stringify(['component:auth', 'severity:low', 'flaky']),
+      'abc-1'
+    )
+    const out = setCaseTriage(db, home, 'abc-1', { tags: ['severity:high', 'regression'] })
+    expect(out.tags).toEqual(['component:auth', 'flaky', 'severity:high', 'regression'])
+    const onDisk = JSON.parse(
+      fs.readFileSync(path.join(home, 'cases', 'abc-1', 'case.json'), 'utf8')
+    )
+    expect(onDisk.tags).toEqual(['component:auth', 'flaky', 'severity:high', 'regression'])
+  })
+
+  it('leaves existing tags alone when the suggestion proposes an empty tag list', () => {
+    createCase(db, home, { slug: 'abc-1', title: 'ABC-1' })
+    db.prepare(`UPDATE cases SET tags = ? WHERE slug = ?`).run(
+      JSON.stringify(['severity:low']),
+      'abc-1'
+    )
+    const out = setCaseTriage(db, home, 'abc-1', { title: 'New title', tags: [] })
+    expect(out.tags).toEqual(['severity:low'])
+    const onDisk = JSON.parse(
+      fs.readFileSync(path.join(home, 'cases', 'abc-1', 'case.json'), 'utf8')
+    )
+    expect(onDisk.tags).toEqual(['severity:low'])
   })
 
   it('deduplicates tags, so accepting twice does not double them', () => {
