@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { RoutinesPage } from '../RoutinesPage'
 import { routinesStore } from '../../../lib/routinesStore'
@@ -940,7 +940,18 @@ describe('RoutinesPage — run history', () => {
 })
 
 describe('RoutinesPage — schedule status', () => {
+  // stateChipText compares nextRunAt against the real wall clock (Date.now()) to decide between
+  // "next <stamp>" and "due now" — a fixture date that was safely in the future when this test
+  // was written silently becomes a past one, and the branch under test flips from under it. Pin
+  // the clock instead of the fixture, same idea as SyncBadge.test.tsx's freezeAt — but
+  // setSystemTime ALONE, without vi.useFakeTimers(): this page loads its payload through a
+  // mocked async API and asserts via findByTestId/waitFor, which poll on real timers, so faking
+  // timers wholesale would hang them (proven empirically — it does, for 15s, until the test
+  // times out).
+  afterEach(() => vi.useRealTimers())
+
   it('shows the next run for a scheduled routine', async () => {
+    vi.setSystemTime(new Date('2026-08-01T00:00:00.000Z')) // well before the fixture below
     stubApi(payload({ nextRunAt: { sweep: '2026-08-09T02:00:00.000Z' } }))
     render(<RoutinesPage />)
     // chipStamp renders LOCAL time, so assert through it rather than a hardcoded string — this
@@ -1012,7 +1023,11 @@ describe('RoutinesPage — schedule status', () => {
 
   it('says due now rather than printing a next run that has already passed', async () => {
     // The scheduler polls every 30s and catches up on launch, so an overdue routine is a real
-    // state a user can see — and "next <a time in the past>" reads as a broken schedule.
+    // state a user can see — and "next <a time in the past>" reads as a broken schedule. Pin the
+    // clock to an instant after the fixture (rather than trusting the real wall clock, forever
+    // ahead of 2020) so this stays the deliberately-covered counterpart to the "due now" branch
+    // above, not an assertion that happens to hold today.
+    vi.setSystemTime(new Date('2026-08-09T12:00:00.000Z'))
     stubApi(payload({ nextRunAt: { sweep: '2020-01-01T00:00:00.000Z' } }))
     render(<RoutinesPage />)
     const chip = await screen.findByTestId('routine-state-chip')
