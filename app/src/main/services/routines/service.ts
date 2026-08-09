@@ -138,11 +138,14 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
  * (jiraScopeResolver.ts) formats the cursor through `jiraDate`, which truncates to JQL's own
  * minute resolution (see that function's docblock) — so "the boundary" is now a whole MINUTE-wide
  * bucket, and any tickets filed inside the same minute all share it. Filing more than ten tickets
- * in one minute against a `jira-jql` scope now stalls that routine permanently and silently — a
- * zero-item run is not itself an error, so nothing surfaces it. That is a real, ~60x-wider version
- * of the same accepted risk this constant already documents, not a new one; the mitigation is the
- * same (paging, still deliberately not built) and so is the workaround (a tighter JQL, or accept
- * the manual catch-up).
+ * in one minute against a `jira-jql` scope still stalls that routine permanently. That is a real,
+ * ~60x-wider version of the same accepted risk this constant already documents, not a new one, and
+ * the mitigation is the same (paging, still deliberately not built) as is the workaround (a
+ * tighter JQL, more items per run, or accept the manual catch-up).
+ *
+ * It is no longer SILENT, which was the worse half. `Targets.windowSaturated` detects exactly this
+ * shape — a full window of already-attempted keys — and the run is recorded `failed` with a reason
+ * instead of a clean `ok` nobody can tell apart from a quiet night.
  */
 const CURSOR_BOUNDARY_SLACK = 10
 
