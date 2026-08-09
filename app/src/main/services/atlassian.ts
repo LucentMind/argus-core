@@ -448,8 +448,15 @@ export class AtlassianClient {
     return {
       issues: (body.issues ?? []).map((i) => ({
         key: i.key,
-        // A missing fields block is not worth failing a whole nightly sweep over; the empty
-        // string sorts before every real timestamp, so such an item is simply processed first.
+        // A missing fields block is not worth failing a whole nightly sweep over, so it becomes
+        // an EMPTY cursor value here rather than an exception. It is NOT a usable value: the
+        // previous comment claimed the empty string "sorts before every real timestamp, so such
+        // an item is simply processed first", which reasoned about a local sort that never
+        // happens — JIRA does the ordering, and this string never reaches a comparison. What it
+        // reaches is the routine's cursor, where '' reads back as falsy and restarts the scope
+        // from the beginning of the project (a permanent, silent stall). Consumers must drop
+        // these: buildJiraScopeResolver (jiraScopeResolver.ts) skips them at resolution with a
+        // logged reason, and routines/cursors.ts refuses to persist a blank cursor at all.
         created: i.fields?.created ?? '',
         updated: i.fields?.updated ?? ''
       })),
