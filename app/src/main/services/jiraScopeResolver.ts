@@ -15,7 +15,12 @@ import type { ScopeResolver } from './routines/scopeResolver'
  */
 export interface JiraScopeResolverDeps {
   db: DatabaseSync
-  atlassian: Pick<AtlassianClient, 'searchIssues'>
+  /**
+   * `accountTimeZone` as well as `searchIssues`: the cursor bound is a JQL date literal, which
+   * Jira evaluates in the searching account's timezone, so composing the query needs both. The
+   * client caches the zone per instance — this resolver must not (see resolveJql).
+   */
+  atlassian: Pick<AtlassianClient, 'searchIssues' | 'accountTimeZone'>
   jiraCases: Pick<JiraCases, 'createFromTicket'>
 }
 
@@ -90,7 +95,14 @@ export function buildJiraScopeResolver(deps: JiraScopeResolverDeps): ScopeResolv
       // `>=` on the cursor is deliberate and items.ts depends on it: Jira timestamps are not
       // unique, so a strict `>` drops one of two tickets sharing a minute, permanently and
       // silently. The duplicate is removed by key, not by tightening this comparison.
-      const bounded = cursor ? `(${base}) AND ${cursorField} >= "${jiraDate(cursor)}"` : base
+      //
+      // The literal is formatted in the ACCOUNT's timezone, because that is the only zone JQL
+      // will read it in (see jiraDate). Asked for only when there IS a cursor — an unbounded
+      // first run needs no literal, so a brand-new routine costs no extra request — and answered
+      // from the client's per-instance cache on every run after the first, so this is not a
+      // per-query fetch.
+      const zone = cursor ? await atlassian.accountTimeZone() : null
+      const bounded = cursor ? `(${base}) AND ${cursorField} >= "${jiraDate(cursor, zone)}"` : base
       const page = await atlassian.searchIssues(`${bounded} ORDER BY ${cursorField} ASC`, {
         maxResults: limit
       })
