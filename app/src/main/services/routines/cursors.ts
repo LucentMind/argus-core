@@ -33,6 +33,21 @@ export function readRoutineCursor(db: DatabaseSync, routineId: string): string |
  * Called PER ITEM, immediately after that item is attempted, never once at the end of a run: a
  * run capped at 10 of 40 matches must resume at item 11, and a crash at item 7 must not replay
  * items 1-6 as duplicate work on the next launch.
+ *
+ * REFUSES A BLANK VALUE, LOUDLY. `readRoutineCursor` returns whatever is stored, and every
+ * consumer tests it for truthiness (`cursor ? bounded : unbounded`, jiraScopeResolver.ts) — so
+ * storing `''` does not mean "no cursor yet", it silently means "start from the beginning of the
+ * project again", where every result is already attempted and the routine stalls at zero items
+ * per run while every run still reports `ok`. A Jira issue whose `fields` block is missing
+ * produces exactly that empty value (the Jira REST client — NAMED INDIRECTLY ON PURPOSE: this
+ * directory is verified electron-free and client-free by a plain `grep -rn` over the whole
+ * folder, which cannot tell a prose mention from an import), and the resolver already drops such
+ * issues
+ * before they can be attempted; this throw is the second, independent gate, so a resolver that
+ * loses that filter fails its run visibly instead of resetting the routine. Deliberately a throw
+ * and not a silent skip: the caller (service.ts's item loop) writes the cursor OUTSIDE the
+ * per-item catch, so this fails the whole run with a recorded error — which is the correct,
+ * inspectable outcome for state nobody can reconstruct afterwards.
  */
 export function writeRoutineCursor(
   db: DatabaseSync,
@@ -40,6 +55,12 @@ export function writeRoutineCursor(
   cursor: string,
   now: () => Date = defaultNow
 ): void {
+  if (!cursor.trim()) {
+    throw new Error(
+      `Refusing to write an empty cursor for routine ${routineId}: an empty cursor reads back ` +
+        `as "never ran", which would restart the scope from the beginning and stall the routine.`
+    )
+  }
   db.prepare(
     `INSERT INTO routine_cursors (routine_id, cursor, updated_at) VALUES (?, ?, ?)
      ON CONFLICT(routine_id) DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at`
