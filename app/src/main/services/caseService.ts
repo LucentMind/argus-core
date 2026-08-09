@@ -797,6 +797,18 @@ export function mergeTags(existing: readonly string[], incoming: readonly string
  * the product asks a routine to remove tags, and reading an empty proposal as a wipe would make
  * the least specific suggestion the most destructive one. Non-empty tags are folded in by
  * `mergeTags` above rather than overwriting.
+ *
+ * DOES NOT MOVE `updated_at`, for exactly the reason `setCaseReviewState` below does not, and it
+ * is the same loop that docblock already forbids: a `cases`-scoped routine re-selects a case
+ * whenever `updated_at > lastAttemptAt` (routines/items.ts). Accepting is reached only from
+ * `RoutinesService.acceptItem`, which calls this and then clears the draft flag — so a bumped
+ * timestamp made every accepted case look freshly modified, the next sweep re-drafted it, and
+ * accepting THAT re-drafted it again, forever, burning the run's item cap while genuinely new
+ * cases starved. Applying a suggestion a routine wrote is not human activity on the case; the
+ * routine's own attempt is already recorded on `routine_run_items`, which is where that history
+ * belongs. `acceptItem` is the only production caller (verified by grep, whole repo), so no other
+ * contract changes here — a future human-facing triage path that DOES want to register activity
+ * must say so explicitly rather than inherit it.
  */
 export function setCaseTriage(
   db: DatabaseSync,
@@ -809,12 +821,13 @@ export function setCaseTriage(
 
   const title = patch.title ?? existing.title
   const tags = patch.tags ? mergeTags(existing.tags, patch.tags) : existing.tags
-  const now = new Date().toISOString()
+  // The row's own value, mirrored back into case.json below so the two cannot drift — NOT the
+  // file's, which a hand edit could have moved.
+  const updatedAt = existing.updatedAt
 
-  db.prepare(`UPDATE cases SET title = ?, tags = ?, updated_at = ? WHERE slug = ?`).run(
+  db.prepare(`UPDATE cases SET title = ?, tags = ? WHERE slug = ?`).run(
     title,
     JSON.stringify(tags),
-    now,
     slug
   )
 
@@ -828,7 +841,7 @@ export function setCaseTriage(
     // DERIVED — never stored (Finding 7, same as createCase's fix).
     onDisk = { ...existing, id: undefined, phase: undefined, actionItems: undefined }
   }
-  fs.writeFileSync(file, JSON.stringify({ ...onDisk, title, tags, updatedAt: now }, null, 2))
+  fs.writeFileSync(file, JSON.stringify({ ...onDisk, title, tags, updatedAt }, null, 2))
   return getCase(db, slug)!
 }
 
