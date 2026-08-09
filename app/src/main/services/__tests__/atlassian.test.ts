@@ -527,117 +527,107 @@ describe('jiraBrowseUrl', () => {
 })
 
 describe('jiraDate', () => {
-  it('formats an ISO timestamp as a JQL minute-resolution literal in the given zone', () => {
-    expect(jiraDate('2026-08-01T10:15:42.123Z', 'UTC')).toBe('2026-08-01 10:15')
+  it('formats a Jira timestamp as a JQL minute-resolution literal', () => {
+    expect(jiraDate('2026-08-01T10:15:42.123Z')).toBe('2026-08-01 10:15')
   })
 
   it('drops seconds entirely, which is why the cursor boundary must be inclusive', () => {
     // Two tickets at :30 and :59 seconds past the same minute format identically here. If the
     // caller used a strict `>` cursor comparison, the second of the two would never be seen
-    // again once the first advanced the cursor — see scopeResolver.ts's `>=` boundary and
+    // again once the first advanced the cursor — see jiraScopeResolver.ts's `>=` boundary and
     // items.ts's by-key de-duplication, which is what makes this precision loss safe.
-    expect(jiraDate('2026-08-01T10:15:30.000Z', 'UTC')).toBe(
-      jiraDate('2026-08-01T10:15:59.999Z', 'UTC')
-    )
+    expect(jiraDate('2026-08-01T10:15:30.000Z')).toBe(jiraDate('2026-08-01T10:15:59.999Z'))
   })
 
   it('pads single-digit month, day, hour and minute', () => {
-    expect(jiraDate('2026-01-02T03:04:00.000Z', 'UTC')).toBe('2026-01-02 03:04')
+    expect(jiraDate('2026-01-02T03:04:00.000Z')).toBe('2026-01-02 03:04')
   })
 
   /**
-   * The bug this argument exists for: JQL has no timezone syntax, so Jira reads the literal as
-   * wall-clock time in the ACCOUNT's zone. A literal formatted in UTC for a non-UTC account is a
-   * bound at the wrong instant — permanently skipped tickets west of UTC, a permanently stalled
-   * routine east of it, and `ok` on the run either way.
+   * THE BUG THIS FUNCTION EXISTS FOR, and it was measured, not reasoned about: JQL has no timezone
+   * syntax, so Jira reads a bare literal as wall-clock time in the ACCOUNT's zone. Two identical
+   * 34-minute windows shifted by two hours were issued against a real instance; only the
+   * account-local one returned the anchor issue.
+   *
+   * A literal formatted in UTC for a non-UTC account is a bound at the wrong instant —
+   * permanently skipped tickets west of UTC, a permanently stalled routine east of it, and `ok`
+   * on the run either way. The account's offset never has to be looked up, because Jira already
+   * stamped it on the very value the cursor was copied from.
    */
-  it('formats WEST of UTC in the account zone, not UTC', () => {
-    // 2026-08-01T10:15Z is 03:15 in Los Angeles (UTC-7 in August).
-    expect(jiraDate('2026-08-01T10:15:42.123Z', 'America/Los_Angeles')).toBe('2026-08-01 03:15')
+  it('formats EAST of UTC in the offset the timestamp carries, not UTC', () => {
+    // Verbatim from the live run: KAN-15's `created` on a UTC+2 account.
+    expect(jiraDate('2026-08-03T15:36:14.574+0200')).toBe('2026-08-03 15:36')
   })
 
-  it('formats EAST of UTC in the account zone, crossing the date boundary', () => {
-    // 2026-08-01T19:15Z is 04:15 the NEXT day in Tokyo (UTC+9).
-    expect(jiraDate('2026-08-01T19:15:00.000Z', 'Asia/Tokyo')).toBe('2026-08-02 04:15')
+  it('formats WEST of UTC in the offset the timestamp carries, not UTC', () => {
+    // 02:15-0700 is 09:15Z: a UTC literal would bound seven hours late and skip that window
+    // permanently, because the cursor only ever moves forward.
+    expect(jiraDate('2026-08-08T02:15:30.000-0700')).toBe('2026-08-08 02:15')
+  })
+
+  it('treats an explicit Z as the offset it is, and never shifts it', () => {
+    // Jira renders in the account's zone, so `Z` means the account IS at UTC+00:00.
+    expect(jiraDate('2026-08-01T19:15:00.000Z')).toBe('2026-08-01 19:15')
+  })
+
+  it('accepts the colon-separated offset form as well as the compact one', () => {
+    expect(jiraDate('2026-08-03T15:36:14.574+02:00')).toBe('2026-08-03 15:36')
+    expect(jiraDate('2026-08-08T02:15:30.000-07:00')).toBe('2026-08-08 02:15')
+  })
+
+  it('keeps the date the offset puts it on, never the UTC one', () => {
+    // 23:30+0200 is 21:30Z the same day; 00:30+0200 is 22:30Z the PREVIOUS day. Formatting in UTC
+    // would move the literal to a different calendar day in the second case.
+    expect(jiraDate('2026-08-03T23:30:00.000+0200')).toBe('2026-08-03 23:30')
+    expect(jiraDate('2026-08-04T00:30:00.000+0200')).toBe('2026-08-04 00:30')
   })
 
   it('emits a 24-hour clock at midnight, never "12" or "24"', () => {
-    // h12 would produce "12:05" for midnight and h24 "24:05" — both unparseable as a JQL literal.
-    expect(jiraDate('2026-08-01T00:05:00.000Z', 'UTC')).toBe('2026-08-01 00:05')
-    expect(jiraDate('2026-08-01T12:05:00.000Z', 'UTC')).toBe('2026-08-01 12:05')
+    // A 12-hour clock would produce "12:05" for midnight and a 24-hour-indexed one "24:05" —
+    // both unparseable as a JQL literal.
+    expect(jiraDate('2026-08-01T00:05:00.000Z')).toBe('2026-08-01 00:05')
+    expect(jiraDate('2026-08-01T12:05:00.000Z')).toBe('2026-08-01 12:05')
   })
 
-  it('follows the zone across a DST change rather than using a fixed offset', () => {
-    // Same zone, either side of the US spring-forward: UTC-8 in January, UTC-7 in August.
-    expect(jiraDate('2026-01-01T10:15:00.000Z', 'America/Los_Angeles')).toBe('2026-01-01 02:15')
-    expect(jiraDate('2026-08-01T10:15:00.000Z', 'America/Los_Angeles')).toBe('2026-08-01 03:15')
-  })
-
-  it('falls back to a 12-hour-earlier UTC literal when the zone is unknown', () => {
+  it('falls back to a 12-hour-earlier literal when the value carries NO offset', () => {
     // Never LATER than the cursor for any account (the westernmost real offset is -12:00), so
-    // the unknown-zone path can only re-examine already-attempted tickets, never skip new ones.
-    // The cost of that widened window is written down on JIRA_CURSOR_UNKNOWN_ZONE_MARGIN_MS.
-    expect(jiraDate('2026-08-01T10:15:42.123Z', null)).toBe('2026-07-31 22:15')
+    // this path can only re-examine already-attempted tickets, never skip new ones. The cost of
+    // that widened window is written down on JIRA_CURSOR_UNKNOWN_ZONE_MARGIN_MS — as is why no
+    // cursor Jira produced can reach it.
+    expect(jiraDate('2026-08-01T10:15:42.123')).toBe('2026-07-31 22:15')
     expect(JIRA_CURSOR_UNKNOWN_ZONE_MARGIN_MS).toBe(12 * 60 * 60 * 1000)
   })
 
-  it('falls back the same way for a zone name this runtime cannot format in', () => {
-    expect(jiraDate('2026-08-01T10:15:42.123Z', 'Mars/Olympus_Mons')).toBe('2026-07-31 22:15')
-  })
-})
-
-describe('accountTimeZone', () => {
-  const ARES_JIRA = (): Response =>
-    new Response(
-      JSON.stringify([{ id: 'c1', url: 'https://x.atlassian.net', scopes: ['read:jira-work'] }]),
-      { status: 200 }
-    )
-
-  const myselfClient = (
-    status: number,
-    body: unknown
-  ): { client: AtlassianClient; myselfCalls: () => number } => {
-    let myselfCalls = 0
-    const fakeFetch = (async (url: string) => {
-      if (String(url).includes('accessible-resources')) return ARES_JIRA()
-      if (String(url).includes('/rest/api/3/myself')) {
-        myselfCalls++
-        return new Response(JSON.stringify(body), { status })
-      }
-      return new Response('{}', { status: 200 })
-    }) as unknown as typeof fetch
-    return { client: new AtlassianClient(oauthFixture, fakeFetch), myselfCalls: () => myselfCalls }
-  }
-
-  it('reads the IANA zone off /rest/api/3/myself', async () => {
-    const { client } = myselfClient(200, { timeZone: 'Asia/Tokyo' })
-    expect(await client.accountTimeZone()).toBe('Asia/Tokyo')
+  it('does not read the host machine zone on the no-offset path', () => {
+    // The one input that already lost its offset must not pick up the laptop's. `new Date()` on
+    // an offset-less datetime is parsed as LOCAL time by the runtime, so a Date-based
+    // implementation would make this assertion depend on where the machine happens to be — and
+    // then on where CI happens to be.
+    const tz = process.env.TZ
+    try {
+      process.env.TZ = 'Asia/Tokyo'
+      const tokyo = jiraDate('2026-08-01T10:15:42.123')
+      const tokyoEpoch = new Date('2026-08-01T10:15:42.123').getTime()
+      process.env.TZ = 'America/Los_Angeles'
+      // Proves the two branches below are not the same environment — without this the whole test
+      // passes vacuously on a runtime that ignores a mid-process TZ change.
+      expect(new Date('2026-08-01T10:15:42.123').getTime()).not.toBe(tokyoEpoch)
+      expect(jiraDate('2026-08-01T10:15:42.123')).toBe(tokyo)
+      expect(tokyo).toBe('2026-07-31 22:15')
+    } finally {
+      if (tz === undefined) delete process.env.TZ
+      else process.env.TZ = tz
+    }
   })
 
-  it('caches per instance so a sweep does not ask once per query', async () => {
-    const { client, myselfCalls } = myselfClient(200, { timeZone: 'Asia/Tokyo' })
-    expect(await client.accountTimeZone()).toBe('Asia/Tokyo')
-    expect(await client.accountTimeZone()).toBe('Asia/Tokyo')
-    expect(await client.accountTimeZone()).toBe('Asia/Tokyo')
-    expect(myselfCalls()).toBe(1)
+  it('falls back the same way for a date with no time part', () => {
+    expect(jiraDate('2026-08-01')).toBe('2026-07-31 12:00')
   })
 
-  it('returns null — never throws — when the request fails, and retries next time', async () => {
-    const { client, myselfCalls } = myselfClient(500, {})
-    expect(await client.accountTimeZone()).toBeNull()
-    // A failure must NOT be cached: pinning the conservative fallback for the life of the
-    // process because one nightly run hit a 500 is exactly the silent degradation this whole
-    // fix is about.
-    expect(await client.accountTimeZone()).toBeNull()
-    expect(myselfCalls()).toBe(2)
-  })
-
-  it('returns null when the field is absent or not a usable zone name', async () => {
-    expect(await myselfClient(200, {}).client.accountTimeZone()).toBeNull()
-    expect(await myselfClient(200, { timeZone: '' }).client.accountTimeZone()).toBeNull()
-    expect(
-      await myselfClient(200, { timeZone: 'Mars/Olympus_Mons' }).client.accountTimeZone()
-    ).toBeNull()
+  it('throws rather than emitting NaN into a JQL string', () => {
+    // A garbage cursor produced `NaN-NaN-NaN NaN:NaN` before, which Jira answers with an opaque
+    // 400. Failing the run with a readable reason is the recoverable outcome.
+    expect(() => jiraDate('not a date')).toThrow(/not a timestamp/)
   })
 })
 
