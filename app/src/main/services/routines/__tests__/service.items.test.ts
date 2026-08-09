@@ -795,3 +795,87 @@ describe('accept and dismiss', () => {
     expect(svc.payload().unreviewedCount).toBe(0)
   })
 })
+
+/**
+ * D2 from the live run: a routine whose cursor can never advance again, reporting `ok` forever.
+ *
+ * Reached on a real Jira instance in seven runs. The cursor bound landed early enough that every
+ * window came back FULL of issues the routine had already attempted; run 7 fetched 12 rows,
+ * selected 0, and recorded `status: ok`, `0 processed`, `error: null` — while the response's own
+ * `isLast: false` and page token proved more matching issues existed just past the window. From
+ * the outside that run was identical to a quiet night.
+ *
+ * These two tests pin the distinction the service now makes, and they must be read as a pair: the
+ * SATURATED window is the stall, the PARTIAL one is a quiet night, and only the first is a defect.
+ */
+describe('a jira-jql window that yields nothing', () => {
+  /**
+   * A bound that lands before every issue: the cursor is ignored, so each run re-fetches the same
+   * rows. That is exactly what a cursor literal formatted in the wrong timezone did, and it is the
+   * only thing about the live failure worth reproducing here — the formatting itself is pinned in
+   * jiraDate's own tests.
+   */
+  const cursorBlindResolver = (issues: Array<{ key: string; created: string }>): ScopeResolver => ({
+    resolveJql: async (_jql, _f, _cursor, limit) =>
+      issues.slice(0, limit).map((i) => ({ key: i.key, cursorValue: i.created })),
+    ingestJiraItem: async (key: string) => {
+      const existing = findCaseByJiraKey(db, key)
+      if (existing) return { caseSlug: existing.slug, created: false }
+      const slug = key.toLowerCase()
+      createCase(db, tmp, { slug, title: key, jiraKey: key })
+      return { caseSlug: slug, created: true }
+    }
+  })
+
+  const itemRowCount = (): number =>
+    (db.prepare(`SELECT COUNT(*) AS c FROM routine_run_items`).get() as { c: number }).c
+
+  /** Twelve issues — `maxItemsPerRun: 2` plus `CURSOR_BOUNDARY_SLACK: 10`, so one full window. */
+  const twelve = Array.from({ length: 12 }, (_, n) => ({
+    key: `ABC-${n + 1}`,
+    created: `2026-08-03T15:${String(n + 30).padStart(2, '0')}:00.000+0200`
+  }))
+
+  it('refuses to report a clean ok once a FULL window is all already-attempted keys', async () => {
+    const svc = build(routine({ maxItemsPerRun: 2 }), cursorBlindResolver(twelve))
+    // Six runs at two items each attempt all twelve. The seventh is the live run's run 7.
+    for (let i = 0; i < 6; i++) {
+      svc.startRun('nightly')
+      await svc.whenIdle()
+    }
+    expect(itemRowCount()).toBe(12)
+    expect(svc.payload().runs.every((r) => r.status === 'ok')).toBe(true)
+
+    svc.startRun('nightly')
+    await svc.whenIdle()
+
+    const stalled = svc.payload().runs[0]
+    expect(stalled.summary).toBe('0 processed')
+    // The whole point: `0 processed` alone is what a quiet night looks like too, so the run must
+    // carry a signal of its own. Before this it was `status: ok`, `error: null`.
+    expect(stalled.status).not.toBe('ok')
+    expect(stalled.error).toMatch(/cursor cannot advance/)
+    // No new item row was opened — the stall is diagnosed at resolution, not by attempting
+    // anything.
+    expect(itemRowCount()).toBe(12)
+  })
+
+  it('still reports a clean ok when the window is merely quiet', async () => {
+    // The INCLUSIVE cursor boundary means the item that last moved the cursor comes back in every
+    // later window (items.ts), so a nightly routine with nothing new resolves exactly one
+    // already-attempted issue and selects nothing. That is healthy, self-correcting, and must not
+    // be reported as a failure — which is why the rule keys off a FULL window rather than off an
+    // empty selection.
+    const svc = build(routine({ maxItemsPerRun: 2 }), cursorBlindResolver(twelve.slice(0, 1)))
+    svc.startRun('nightly')
+    await svc.whenIdle()
+    expect(svc.payload().runs[0].summary).toBe('1 processed')
+
+    svc.startRun('nightly')
+    await svc.whenIdle()
+    const quiet = svc.payload().runs[0]
+    expect(quiet.status).toBe('ok')
+    expect(quiet.error).toBeNull()
+    expect(quiet.summary).toBe('0 processed')
+  })
+})
