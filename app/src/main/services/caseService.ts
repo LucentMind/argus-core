@@ -726,13 +726,77 @@ export function setCaseStatus(
 }
 
 /**
+ * The namespace of a tag: everything before its FIRST colon, or null for a bare tag.
+ *
+ * First colon, not last: `owner:alice:smith` is one owner value, not a nested namespace, so it
+ * competes with `owner:bob` and with nothing else.
+ */
+function tagNamespace(tag: string): string | null {
+  const i = tag.indexOf(':')
+  return i === -1 ? null : tag.slice(0, i)
+}
+
+/**
+ * Folds an accepted suggestion's tags into the tags a case already carries.
+ *
+ * MERGE, NOT REPLACE. Replacing was the shipped behaviour and it silently destroyed whatever was
+ * already on the case: two routines with overlapping scopes clobbered each other, the same
+ * routine re-drafting a case clobbered its own earlier accepted tags (last Accept wins, no
+ * trace), and bundle-imported tags vanished. Tags are not decoration — they feed the distill
+ * prompt (distill/contract.ts) and the RCA prompt (rca/contract.ts), and they drive the `cases`
+ * scope filter (routines/scopeResolver.ts), so a lost tag silently changes what future runs see.
+ *
+ * The rules, exactly:
+ *  - A NAMESPACED incoming tag (`severity:high`) replaces every existing tag sharing its
+ *    namespace, because a namespace is single-valued by construction: `severity:low` and
+ *    `severity:high` on one case describe nothing.
+ *  - A BARE incoming tag (`flaky`) accumulates. Nothing can say what it would replace, so it
+ *    removes nothing.
+ *  - Two incoming tags in ONE namespace (`severity:high` + `severity:low` from one model turn)
+ *    are BOTH kept. That is the model contradicting itself, and picking a winner here would hide
+ *    it; on the case both are visible and a human resolves it.
+ *  - Deduplicated, so accepting the same suggestion twice (two windows, a double click) is
+ *    idempotent in the data, not just in the UI.
+ *  - ORDER IS DETERMINISTIC AND PART OF THE CONTRACT: surviving existing tags first, in their
+ *    existing relative order, then incoming tags not already present, in the order given.
+ *
+ * A leading-colon tag (`:x`) has the empty string as its namespace and follows the namespaced
+ * rule against other empty-namespace tags — degenerate, but defined rather than special-cased.
+ */
+export function mergeTags(existing: readonly string[], incoming: readonly string[]): string[] {
+  const replaced = new Set<string>()
+  for (const tag of incoming) {
+    const ns = tagNamespace(tag)
+    if (ns !== null) replaced.add(ns)
+  }
+  const out: string[] = []
+  const seen = new Set<string>()
+  const push = (tag: string): void => {
+    if (seen.has(tag)) return
+    seen.add(tag)
+    out.push(tag)
+  }
+  for (const tag of existing) {
+    const ns = tagNamespace(tag)
+    if (ns !== null && replaced.has(ns)) continue
+    push(tag)
+  }
+  for (const tag of incoming) push(tag)
+  return out
+}
+
+/**
  * Applies an accepted routine suggestion to a case.
  *
  * Mirrors `setCaseStatus`'s shape — validate, update the row, write case.json — because these
  * are the only two writers of canonical case fields and they must not drift in how they mirror.
  *
  * A patch, not a replacement: an omitted key leaves its field alone, so accepting a suggestion
- * that proposed only tags cannot blank a title a human wrote.
+ * that proposed only tags cannot blank a title a human wrote. `tags: []` means the suggestion
+ * PROPOSED NO TAGS — identical to omitting the key, never "clear the case's tags": nothing in
+ * the product asks a routine to remove tags, and reading an empty proposal as a wipe would make
+ * the least specific suggestion the most destructive one. Non-empty tags are folded in by
+ * `mergeTags` above rather than overwriting.
  */
 export function setCaseTriage(
   db: DatabaseSync,
@@ -744,9 +808,7 @@ export function setCaseTriage(
   if (!existing) throw new Error(`Unknown case: ${slug}`)
 
   const title = patch.title ?? existing.title
-  // Deduplicated because accepting the same suggestion twice (two windows, a double click)
-  // must be idempotent in the data, not just in the UI.
-  const tags = patch.tags ? [...new Set(patch.tags)] : existing.tags
+  const tags = patch.tags ? mergeTags(existing.tags, patch.tags) : existing.tags
   const now = new Date().toISOString()
 
   db.prepare(`UPDATE cases SET title = ?, tags = ?, updated_at = ? WHERE slug = ?`).run(
