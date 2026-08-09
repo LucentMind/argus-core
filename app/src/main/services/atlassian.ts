@@ -197,8 +197,6 @@ const ISSUE_FIELDS =
 
 export class AtlassianClient {
   private cloudId = new Map<string, AtlassianCloud>()
-  /** IANA timezone of the authorized Jira user, per instance. See `accountTimeZone`. */
-  private timeZone = new Map<string, string>()
 
   constructor(
     private creds: () => AtlassianAuth,
@@ -367,10 +365,6 @@ export class AtlassianClient {
    */
   invalidateCloud(instanceId: string): void {
     this.cloudId.delete(instanceId)
-    // Re-authorizing can land on a different site AND a different user, and the timezone is the
-    // *user's* profile preference — keeping it would format every later cursor literal in the
-    // previous user's zone. Same reason the cloud id is dropped, one field over.
-    this.timeZone.delete(instanceId)
   }
 
   private async parseJson<T>(res: Response): Promise<T> {
@@ -461,60 +455,6 @@ export class AtlassianClient {
         updated: i.fields?.updated ?? ''
       })),
       nextPageToken: body.nextPageToken ?? null
-    }
-  }
-
-  /**
-   * The IANA timezone of the account this connector is authorized as, or null if it cannot be
-   * determined.
-   *
-   * WHY A ROUTINE NEEDS THIS AT ALL: JQL has no timezone syntax, and Jira evaluates a bare date
-   * literal (`created >= "2026-08-09 10:00"`) as wall-clock time in the *searching account's*
-   * timezone — not UTC. A cursor formatted in UTC therefore lands at the wrong instant by the
-   * account's whole offset, in whichever direction the account sits from UTC (see `jiraDate`).
-   * This is the value that makes the literal mean what the cursor meant.
-   *
-   * CACHED PER INSTANCE, exactly like `cloudId` above: a routine sweep composes one bounded
-   * query per run, and re-asking `/rest/api/3/myself` on every query would add a request to the
-   * hot path for a value that changes when a human edits a profile preference, not per query.
-   * Only SUCCESSES are cached — a transient network failure must not pin the conservative
-   * fallback for the rest of the process's life, so a failed lookup is simply retried by the
-   * next run. `invalidateCloud` (re-auth to a different site, possibly a different user) drops
-   * this alongside the cloud id.
-   *
-   * FAILS SOFT, ON PURPOSE: returns null rather than throwing, because the caller's fallback
-   * (a conservative margin, see `jiraDate`) is strictly better than failing every run of a
-   * nightly routine on one bad response. The null path is warned about rather than silent.
-   *
-   * DOCUMENTED, NOT OBSERVED — same caveat as `searchIssues` above: `/rest/api/3/myself` and its
-   * `timeZone` field are taken from Jira Cloud's published docs, and no Atlassian credentials
-   * exist in this environment to capture a real response. The zone name is validated by trying
-   * to build an `Intl.DateTimeFormat` with it, so a field that turns out to hold something other
-   * than an IANA name degrades to the fallback instead of corrupting every cursor literal.
-   */
-  async accountTimeZone(): Promise<string | null> {
-    const instanceId = this.creds().instanceId
-    const cached = this.timeZone.get(instanceId)
-    if (cached) return cached
-    try {
-      const res = await this.request('/rest/api/3/myself')
-      const body = await this.parseJson<{ timeZone?: string }>(res)
-      const zone = typeof body.timeZone === 'string' ? body.timeZone.trim() : ''
-      if (!zone || !isUsableTimeZone(zone)) {
-        console.warn(
-          `[atlassian] no usable timeZone on /myself for ${instanceId} ` +
-            `(${JSON.stringify(body.timeZone ?? null)}) — JQL cursors fall back to a margin`
-        )
-        return null
-      }
-      this.timeZone.set(instanceId, zone)
-      return zone
-    } catch (err) {
-      console.warn(
-        `[atlassian] could not read the account timezone for ${instanceId} ` +
-          `(${(err as Error).message}) — JQL cursors fall back to a margin`
-      )
-      return null
     }
   }
 
@@ -722,116 +662,135 @@ function nextCursorPath(next: string | undefined): string | null {
 export function jiraBrowseUrl(siteUrl: string, key: string): string {
   return `${siteUrl}/browse/${encodeURIComponent(key)}`
 }
-
-/** True if `zone` is a timezone name this runtime's Intl can actually format in. */
-function isUsableTimeZone(zone: string): boolean {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: zone })
-    return true
-  } catch {
-    return false
-  }
-}
+/**
+ * A Jira REST timestamp, split into the parts a JQL date literal is made of.
+ *
+ * Jira renders every `created`/`updated` value as ISO 8601 with an EXPLICIT offset —
+ * `2026-08-03T15:36:14.574+0200` — and that offset is the searching account's own, because Jira
+ * renders timestamps in the account's timezone. That is the single fact `jiraDate` is built on.
+ *
+ * Group 6 is the offset and is OPTIONAL on purpose: a value that carries none is the one input
+ * `jiraDate` cannot place on a clock exactly, and matching it here (rather than failing the match)
+ * is what lets that case take the documented fallback instead of the throw.
+ *
+ * Seconds and fractional seconds are matched but not captured — JQL has minute resolution and
+ * drops them itself.
+ */
+const JIRA_TIMESTAMP =
+  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::\d{2})?(?:\.\d+)?\s*(Z|z|[+-]\d{2}:?\d{2})?$/
 
 /**
- * How far back the cursor literal is nudged when the account's timezone is UNKNOWN.
+ * How far back the cursor literal is nudged when it carries NO timezone offset of its own.
  *
- * 12 hours because the westernmost real UTC offset is −12:00: Jira reads the literal as
- * wall-clock time in the account's zone, so the instant it actually means is
- * `cursor − 12h − offset`, and `offset ≥ −12h` makes that never LATER than the cursor for any
- * account on earth. Erring late would skip tickets permanently and invisibly; erring early only
- * re-examines tickets already attempted, which `attemptedItemKeys` filters out.
+ * WHEN THIS IS REACHED, AND WHY IT SHOULD BE NEVER: `jiraDate` formats the cursor in the offset
+ * the cursor itself carries, so a cursor that came from Jira never gets here. Only a value that is
+ * not a Jira timestamp does — a hand-edited `routine_cursors` row, a cursor migrated in from
+ * somewhere else, or a future Jira that stops emitting offsets. It is a safety net for data this
+ * app did not produce, not a normal path.
  *
- * WHAT IT COSTS, PRECISELY — this is not free, and the cost is the same failure this whole
- * mechanism exists to prevent, reached from the other side. The re-examined window is up to
- * `12h + offset` wide (26 hours for a UTC+14 account, zero for UTC−12). A `jira-jql` run fetches
- * `maxItemsPerRun + CURSOR_BOUNDARY_SLACK` rows ascending (services/routines/service.ts) and
- * filters already-attempted keys AFTER the query, so once that widened window contains
- * `maxItemsPerRun + CURSOR_BOUNDARY_SLACK` already-attempted items, every fetched row is one of
- * them, the run selects zero items, reports `ok`, and the routine STALLS PERMANENTLY. With the
- * default slack of 10 that means roughly: a routine stalls if it attempts more than
- * `maxItemsPerRun + 10` items inside one widened window — e.g. at `maxItemsPerRun: 5`, three
- * full runs within 26 hours. A routine that runs nightly and processes fewer than that is
- * unaffected.
+ * 12 hours because the westernmost real UTC offset is -12:00: Jira reads a bare literal as
+ * wall-clock time in the account's zone, so the instant it actually means is at worst
+ * `literal - offset`, and starting 12h before the cursor's own wall clock makes the bound never
+ * LATER than the cursor for any account on earth. Erring late would skip tickets permanently and
+ * invisibly; erring early only re-examines tickets already attempted, which `attemptedItemKeys`
+ * filters out.
  *
- * So the fallback is a real degradation, not a no-op, and it is deliberately NOT silent:
- * `AtlassianClient.accountTimeZone` warns on every lookup that fails or returns something
- * unusable. The fix for a stalled routine is to make the zone readable (re-authorize the
- * connector) — not to shrink this constant, which would trade a loud, recoverable stall for a
- * silent, permanent skip.
+ * WHAT IT COSTS, PRECISELY. A `jira-jql` run fetches `maxItemsPerRun + CURSOR_BOUNDARY_SLACK` rows
+ * ascending (services/routines/service.ts) and filters already-attempted keys AFTER the query, so
+ * once the widened window holds that many already-attempted items, every fetched row is one of
+ * them and the run selects zero. That is not theoretical: it was reached against a real Jira
+ * instance within seven runs while this margin was the only path.
+ *
+ * THE REMEDIATION IS NOT A RE-AUTHORIZATION. An earlier version of this fallback told the user to
+ * re-authorize the connector so the account's timezone could be read from `/rest/api/3/myself`.
+ * Measured against a live instance, that is false twice over: `/myself` needs the `read:jira-user`
+ * scope, which the connector's preset does not grant and re-consenting does not add, and the zone
+ * is no longer needed at all. If a routine does reach this fallback, the fix is to make its cursor
+ * a real Jira timestamp again — deleting and recreating the routine drops the cursor row
+ * (`forgetRoutineCursor`) and restarts it unbounded.
+ *
+ * `resolveTargets` (services/routines/service.ts) independently detects the saturated window this
+ * describes and refuses to report a clean `ok` for it, so the stall is loud wherever it comes from.
  */
 export const JIRA_CURSOR_UNKNOWN_ZONE_MARGIN_MS = 12 * 60 * 60 * 1000
 
 /**
- * Formats an ISO timestamp as a JQL date literal: `yyyy-MM-dd HH:mm`, IN THE JIRA ACCOUNT'S OWN
- * TIMEZONE.
+ * Formats a Jira timestamp as a JQL date literal — `yyyy-MM-dd HH:mm` — IN THE OFFSET THE
+ * TIMESTAMP ITSELF CARRIES.
  *
  * HOW JIRA READS THIS LITERAL IS THE WHOLE POINT, and getting it wrong is silent both ways. JQL
  * has no timezone syntax at all: `created >= "2026-08-09 10:00"` is wall-clock time in the
- * timezone of the account running the search (`/rest/api/3/myself`'s `timeZone`), so an instant
- * formatted in the wrong zone becomes a bound at the wrong moment, off by the offset:
- *   - account BEHIND UTC (say UTC−7) and the literal formatted in UTC → the bound lands 7 hours
+ * timezone of the ACCOUNT running the search — proven against a live instance with two identical
+ * 34-minute windows shifted by two hours, of which only the account-local one matched. An instant
+ * formatted in the wrong zone becomes a bound at the wrong moment, off by the whole offset:
+ *   - account BEHIND UTC (say UTC-7) and the literal formatted in UTC -> the bound lands 7 hours
  *     LATER than intended, and every ticket in that window is skipped PERMANENTLY, because the
  *     cursor only ever moves forward. The run reports `ok`.
- *   - account AHEAD of UTC (say UTC+9) → the bound lands 9 hours EARLIER, the
+ *   - account AHEAD of UTC (say UTC+2) -> the bound lands earlier, the
  *     `maxItemsPerRun + CURSOR_BOUNDARY_SLACK` window fills with already-attempted keys, zero
- *     items are selected, and the routine stalls. The run also reports `ok`.
- * `timeZone` is therefore a required argument, not an option: there is no correct default, and
- * the previous UTC-only version reasoned only about test determinism (below) and never about how
- * Jira parses what it produced, which is exactly how this was missed for a whole increment.
+ *     items are selected, and the routine stalls. The run also reports `ok`. This one was reached
+ *     live, on a real instance, in a day.
  *
- * `timeZone: null` means the account's zone could not be read, and falls back to
- * `JIRA_CURSOR_UNKNOWN_ZONE_MARGIN_MS` — a bound that is never late for any account, at a
- * documented cost. Read that constant's docblock before touching it; it is where the stall
- * threshold is written down.
+ * WHY NO ZONE ARGUMENT, AND NO LOOKUP. The only input is the cursor, and the cursor IS a Jira
+ * timestamp: Jira renders `created`/`updated` in the searching account's zone and stamps the
+ * offset on the value (`...+0200`). The wall clock Jira will read the literal as is therefore
+ * already written in the string — its date and time components, verbatim. No request, no OAuth
+ * scope and no DST reasoning, because the offset was computed by Jira for that very instant rather
+ * than inferred from a zone name and a rule table.
+ *
+ * The previous version asked `/rest/api/3/myself` for the account's IANA zone. That endpoint
+ * answers `401 "Unauthorized; scope does not match"` with the scopes this app's connector holds —
+ * on every call, permanently — so the lookup could never succeed in production, and every run paid
+ * a wasted token refresh for it. It is deleted rather than kept as an "optimisation": there is
+ * nothing left for it to optimise, and a dead path that looks live is worse than no path.
+ *
+ * A value carrying no offset at all cannot be placed on a clock exactly, and falls back to
+ * `JIRA_CURSOR_UNKNOWN_ZONE_MARGIN_MS` — a bound that is never late for any account, at the cost
+ * written down on that constant. Read it before touching this.
  *
  * JQL date/time comparisons have MINUTE resolution — seconds (and anything finer) are silently
  * dropped by Jira itself, not by this function. That loss is only safe because the scope
- * resolver's cursor boundary is INCLUSIVE (`>=`, scopeResolver.ts): a strict `>` combined with
+ * resolver's cursor boundary is INCLUSIVE (`>=`, jiraScopeResolver.ts): a strict `>` combined with
  * this precision loss would drop every ticket sharing the cursor's minute, permanently and
- * silently, whenever more than one ticket lands in the same minute. items.ts removes the
- * resulting duplicate by key instead.
+ * silently, whenever more than one ticket lands in the same minute. items.ts removes the resulting
+ * duplicate by key instead.
  *
  * This truncation is also what widens the "boundary" `CURSOR_BOUNDARY_SLACK`
  * (services/routines/service.ts) accepts a residual starvation risk on: that constant was sized
  * when a shared boundary meant an identical timestamp, and this function's minute-rounding turns
- * it into a whole-minute-wide bucket instead — roughly sixty times wider. See that docblock for
- * the accepted (and deliberately un-fixed) consequence.
+ * it into a whole-minute-wide bucket instead — roughly sixty times wider. See that docblock.
  *
- * NOT the host machine's local zone, in either branch: the cursor values this formats come
- * straight from Jira's own `created`/`updated` fields (ISO 8601 with an explicit offset), and
- * reading the machine's zone would make the bound query — and every test of it — depend on where
- * the laptop happens to be, which is unrelated to how Jira will evaluate the literal.
+ * NOT the host machine's local zone, in either branch: reading it would make the bound query — and
+ * every test of it — depend on where the laptop happens to be, which is unrelated to how Jira will
+ * evaluate the literal. The fallback branch composes its instant with `Date.UTC` for exactly that
+ * reason: `new Date('2026-08-03T15:34:00')` (no offset) is parsed by the JS runtime as LOCAL time,
+ * which would make the one input that already lost its offset depend on the laptop's.
+ *
+ * THROWS on a value that is not a timestamp at all. The alternative is emitting `NaN-NaN-NaN` into
+ * a JQL string, which produces an opaque Jira 400; a thrown error fails the same run with a
+ * readable reason. The cursor is refused empty at the write (routines/cursors.ts), so reaching
+ * this needs a stored value that never came from Jira.
  */
-export function jiraDate(iso: string, timeZone: string | null): string {
-  const d = new Date(iso)
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  if (timeZone) {
-    try {
-      const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        // h23, not the locale default: h12 would emit "12 AM" and h24 can emit hour "24" at
-        // midnight, and both produce a literal Jira cannot parse.
-        hourCycle: 'h23'
-      }).formatToParts(d)
-      const get = (type: Intl.DateTimeFormatPartTypes): string =>
-        parts.find((p) => p.type === type)?.value ?? ''
-      const [y, mo, da, h, mi] = [get('year'), get('month'), get('day'), get('hour'), get('minute')]
-      if (y && mo && da && h && mi) return `${y}-${mo}-${da} ${h}:${mi}`
-    } catch {
-      // Unknown zone name: fall through to the margin rather than throwing. `accountTimeZone`
-      // already validates, so reaching here means a caller passed a zone from somewhere else.
-    }
+export function jiraDate(iso: string): string {
+  const m = JIRA_TIMESTAMP.exec(iso.trim())
+  if (m?.[6]) {
+    // The components ARE the account's wall clock for this instant — that is what an explicit
+    // offset means. There is nothing to convert, and converting is precisely the bug.
+    const [, y, mo, da, h, mi] = m
+    return `${y}-${mo}-${da} ${h}:${mi}`
   }
-  const conservative = new Date(d.getTime() - JIRA_CURSOR_UNKNOWN_ZONE_MARGIN_MS)
+  const ms = m
+    ? Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]))
+    : new Date(iso).getTime()
+  if (!Number.isFinite(ms)) {
+    throw new Error(
+      `Cannot build a JQL date literal from ${JSON.stringify(iso)}: it is not a timestamp.`
+    )
+  }
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  const back = new Date(ms - JIRA_CURSOR_UNKNOWN_ZONE_MARGIN_MS)
   return (
-    `${conservative.getUTCFullYear()}-${pad(conservative.getUTCMonth() + 1)}-` +
-    `${pad(conservative.getUTCDate())} ` +
-    `${pad(conservative.getUTCHours())}:${pad(conservative.getUTCMinutes())}`
+    `${back.getUTCFullYear()}-${pad(back.getUTCMonth() + 1)}-${pad(back.getUTCDate())} ` +
+    `${pad(back.getUTCHours())}:${pad(back.getUTCMinutes())}`
   )
 }
