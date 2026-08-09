@@ -159,6 +159,28 @@ interface ItemTarget {
 }
 
 /**
+ * What resolution produced, plus the one thing a bare `Selection` cannot express: that this
+ * routine is STUCK rather than merely idle.
+ *
+ * ZERO ITEMS IS AMBIGUOUS, AND THE AMBIGUITY HID A CRITICAL. A `jira-jql` window is bounded by an
+ * INCLUSIVE cursor, so the item that last moved the cursor comes back in every subsequent window
+ * — a quiet routine therefore resolves one already-attempted issue, selects nothing, and reports
+ * `0 processed`. That is correct and healthy. A routine whose cursor can NEVER advance again
+ * reports exactly the same thing. On a real instance the second shape was reached in seven runs
+ * and was indistinguishable from the first: `status: ok`, `error: null`, `0 processed`, while
+ * `isLast: false` and a `nextPageToken` proved matching issues existed just past the window.
+ *
+ * `windowSaturated` is what separates them, and it is deliberately NOT "selected nothing":
+ * the window must have come back FULL. A full window of exclusively already-attempted keys means
+ * the bound is not moving past them and the over-fetch (`CURSOR_BOUNDARY_SLACK`) is exhausted, so
+ * no later run can select anything either — nothing about it self-corrects. A partial window that
+ * selects nothing is just a quiet period and stays a clean `ok`.
+ */
+interface Targets extends Selection<ItemTarget> {
+  windowSaturated: boolean
+}
+
+/**
  * Turns a stored routine definition into an unattended agent run and records what happened.
  *
  * SERIAL BY CONSTRUCTION (spec §5): only one routine ever executes at a time. A `startRun`
@@ -603,6 +625,9 @@ export class RoutinesService {
     let failed = 0
     let skipped = 0
     let deferred = 0
+    // Read after the try block, so it must be declared outside it. False until resolution says
+    // otherwise: a run that never got as far as resolving cannot be diagnosed as stuck.
+    let saturated = false
 
     // Closes over the counters above, read at whichever point the run finishes — the happy path
     // at the bottom of this function, or the outer catch when the loop aborts mid-run. One
@@ -622,6 +647,7 @@ export class RoutinesService {
 
       const targets = await this.resolveTargets(routine, scope, resolver, max)
       deferred = targets.deferred
+      saturated = targets.windowSaturated
       const preamble = this.unattendedPreamble(routine)
 
       for (const target of targets.selected) {
@@ -725,6 +751,31 @@ export class RoutinesService {
       return
     }
 
+    // A jira-jql run that could not select anything from a FULL window is not a quiet run — its
+    // cursor is frozen and every future run will report the same nothing (see `Targets`). It is
+    // recorded as `failed` for two reasons, neither cosmetic: the inbox surfaces failures, and
+    // `lastSuccessAt` (runs.ts) only advances on `ok` — letting it advance here would tell the
+    // next run "concentrate on what changed since" a moment at which, in fact, nothing was ever
+    // looked at. Paging past the window is the real fix and is deliberately not built yet; until
+    // it is, this makes the stall loud instead of silent.
+    if (saturated) {
+      finishRoutineRun(
+        db,
+        runId,
+        {
+          status: 'failed',
+          error:
+            `This routine's cursor cannot advance: every issue in a full query window had ` +
+            `already been attempted, so no new item can be selected — and no later run will do ` +
+            `any better on its own. Raise "items per run" to widen the window, narrow the ` +
+            `routine's JQL, or delete and recreate the routine to clear its cursor.`,
+          summary: summarize()
+        },
+        this.deps.now
+      )
+      return
+    }
+
     finishRoutineRun(
       db,
       runId,
@@ -747,24 +798,37 @@ export class RoutinesService {
     scope: RoutineScope,
     resolver: ScopeResolver,
     max: number
-  ): Promise<Selection<ItemTarget>> {
+  ): Promise<Targets> {
     const { db } = this.deps
 
     if (scope.kind === 'jira-jql') {
+      const limit = max + CURSOR_BOUNDARY_SLACK
       const resolved = await resolver.resolveJql(
         scope.jql,
         scope.cursorField,
         readRoutineCursor(db, routine.id),
-        max + CURSOR_BOUNDARY_SLACK
+        limit
       )
       const sel = selectJqlItems(resolved, attemptedItemKeys(db, routine.id), max)
+      // A FULL window that yields NOTHING is the frozen-cursor condition, and it is the one shape
+      // this feature could not previously tell apart from "nothing new". Both look identical from
+      // the outside: zero items, `ok`, `0 processed`. See `windowSaturated`.
+      const windowSaturated = resolved.length >= limit && sel.selected.length === 0
+      if (windowSaturated) {
+        console.warn(
+          `[routines] ${routine.id}: the cursor cannot advance — all ${resolved.length} issue(s) ` +
+            `in a FULL window were already attempted, so no new item can ever be selected. ` +
+            `Cursor: ${JSON.stringify(readRoutineCursor(db, routine.id))}`
+        )
+      }
       return {
         selected: sel.selected.map((i) => ({
           key: i.key,
           cursorValue: i.cursorValue,
           caseSlug: null
         })),
-        deferred: sel.deferred
+        deferred: sel.deferred,
+        windowSaturated
       }
     }
 
@@ -775,7 +839,10 @@ export class RoutinesService {
         cursorValue: null,
         caseSlug: c.slug
       })),
-      deferred: sel.deferred
+      deferred: sel.deferred,
+      // A `cases` sweep has no cursor to freeze (items.ts) — an empty selection there genuinely
+      // means "no case needs another look", which is a normal, self-correcting outcome.
+      windowSaturated: false
     }
   }
 
