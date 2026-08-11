@@ -84,10 +84,13 @@ describe('normalizeSdkMessage', () => {
   })
 
   // The org-policy-blocked case this field exists for: bypassPermissions requested,
-  // the CLI silently downgrades and reports it here instead.
-  it('carries whatever mode the CLI actually adopted, even if it differs from what was requested', () => {
-    const evs = normalizeSdkMessage({ ...REAL_INIT_MSG, permissionMode: 'default' }, ctx)
-    expect(evs[0]).toMatchObject({ payload: { effectivePermissionMode: 'default' } })
+  // the CLI silently downgrades and reports something else here instead. normalizeSdkMessage
+  // has no notion of what was "requested" — it only reads what the init message carries — so
+  // this only demonstrates that a non-default value passes through untouched, distinct from
+  // the 'default' value the happy-path test above already covers.
+  it('carries whatever mode the CLI actually adopted, distinct from the happy-path default', () => {
+    const evs = normalizeSdkMessage({ ...REAL_INIT_MSG, permissionMode: 'plan' }, ctx)
+    expect(evs[0]).toMatchObject({ payload: { effectivePermissionMode: 'plan' } })
   })
 
   it('yields a null effectivePermissionMode when the init message omits the field entirely — never a refusal, just nothing reported', () => {
