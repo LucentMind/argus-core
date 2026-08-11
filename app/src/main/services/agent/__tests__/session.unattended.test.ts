@@ -260,6 +260,34 @@ describe('unattended sessions', () => {
     await s.stop('stopped')
   })
 
+  it('never hands the driver auto permission mode when unattended', async () => {
+    // `auto` skips canUseTool entirely on the Claude CLI (measured: 0 canUseTool calls once
+    // permissionMode is 'auto', on both a policy-gated Mac and a clean Windows box) exactly
+    // like bypassPermissions does, so it must be downgraded the same way.
+    const sdk = fakeSdk()
+    const s = h.makeSession(sdk, {
+      unattended: true,
+      agentOptions: { permissionMode: 'auto' }
+    })
+    s.send('go')
+    await canUseToolOf(sdk)
+    // queryOptions.ts omits the field entirely for 'default'.
+    expect(sdk.captured.options!.permissionMode).not.toBe('auto')
+    expect(sdk.captured.options!.permissionMode).toBeUndefined()
+    await s.stop('stopped')
+  })
+
+  it('control: an interactive session DOES get auto', async () => {
+    // Proves the assertion above is load-bearing rather than a fixture structurally incapable
+    // of producing auto, and that the guard is scoped to unattended runs only.
+    const sdk = fakeSdk()
+    const s = h.makeSession(sdk, { agentOptions: { permissionMode: 'auto' } })
+    s.send('go')
+    await canUseToolOf(sdk)
+    expect(sdk.captured.options!.permissionMode).toBe('auto')
+    await s.stop('stopped')
+  })
+
   it('never hands the driver acceptEdits when unattended', async () => {
     // acceptEdits reaches classifyOnly on the three non-Claude drivers, but the Claude driver
     // has NO classifyOnly call site: it forwards the mode to the SDK, which auto-accepts
