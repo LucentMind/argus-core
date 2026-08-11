@@ -6,7 +6,8 @@ import type {
   RelatedSearchResult,
   SourceHealth
 } from '../../../shared/relatedHistory'
-import { Card, Chip, IconBtn, SectionLabel } from './ui'
+import { Chip, IconBtn, SectionLabel } from './ui'
+import { CollapsibleSection } from './CollapsibleSection'
 import { uiStore } from '../lib/uiStore'
 import { isOpenableUrl } from '../lib/openableUrl'
 
@@ -209,13 +210,22 @@ export function RelatedHistoryCard({
   }
 
   return (
-    <Card className={`flex flex-col gap-2 p-3 ${ui.dynamicTheme ? 'glass-panel' : ''}`}>
-      <div className="flex items-center justify-between gap-2">
-        <SectionLabel>Related history</SectionLabel>
-        <IconBtn aria-label="Dismiss" onClick={dismiss}>
-          <X size={14} strokeWidth={1.5} />
-        </IconBtn>
-      </div>
+    <CollapsibleSection
+      id="related"
+      name="Related history"
+      // The exact class set `Card` (default variant) produced for this section before it moved
+      // off that component — `Card`'s cursor/hover branch never applied here, since no onClick
+      // was ever passed.
+      className={`flex flex-col gap-2 rounded-r3 surface-card p-3 transition-colors ${ui.dynamicTheme ? 'glass-panel' : ''}`}
+      header={
+        <div className="flex items-center justify-between gap-2">
+          <SectionLabel>Related history</SectionLabel>
+          <IconBtn aria-label="Dismiss" onClick={dismiss}>
+            <X size={14} strokeWidth={1.5} />
+          </IconBtn>
+        </div>
+      }
+    >
       {degraded && <div className="text-[11px] text-mute">{degraded}</div>}
       <div className="flex flex-col gap-1.5">
         {result.hits.map((hit) => (
@@ -238,6 +248,6 @@ export function RelatedHistoryCard({
           Search all history →
         </button>
       )}
-    </Card>
+    </CollapsibleSection>
   )
 }
