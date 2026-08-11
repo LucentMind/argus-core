@@ -4,7 +4,11 @@ import {
   defaultSettings,
   deepMerge,
   stripDefaults,
-  SETTINGS_ATOMIC_PATHS
+  SETTINGS_ATOMIC_PATHS,
+  PERMISSION_MODES,
+  BASE_PERMISSION_MODES,
+  PERMISSION_MODE_LABELS,
+  MODE_BY_LABEL
 } from '../settings'
 
 describe('settings schema', () => {
@@ -249,5 +253,21 @@ describe('settings schema', () => {
     expect(s.general.keepAliveInBackground).toBe(true)
     // Untouched siblings keep their own defaults rather than being wiped by the partial parse.
     expect(s.general.confirmCaseDelete).toBe(true)
+  })
+
+  it('accepts "auto" as agent.defaultPermissionMode', () => {
+    const s = settingsSchema.parse({ agent: { defaultPermissionMode: 'auto' } })
+    expect(s.agent.defaultPermissionMode).toBe('auto')
+  })
+
+  it('MODE_BY_LABEL round-trips the auto label back to the auto mode', () => {
+    expect(PERMISSION_MODE_LABELS.auto).toBe('Auto — Claude decides')
+    expect(MODE_BY_LABEL['Auto — Claude decides']).toBe('auto')
+  })
+
+  it('BASE_PERMISSION_MODES excludes auto and is otherwise identical to PERMISSION_MODES', () => {
+    expect(BASE_PERMISSION_MODES).not.toContain('auto')
+    expect(PERMISSION_MODES).toContain('auto')
+    expect(BASE_PERMISSION_MODES).toEqual(PERMISSION_MODES.filter((m) => m !== 'auto'))
   })
 })

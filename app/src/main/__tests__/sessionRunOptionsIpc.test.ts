@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { assertPermissionMode } from '../services/agent/sessionStore'
+import { PERMISSION_MODES } from '../../shared/settings'
 
 describe('assertPermissionMode', () => {
   it('accepts every real mode', () => {
-    for (const m of ['default', 'acceptEdits', 'plan', 'bypassPermissions']) {
+    for (const m of PERMISSION_MODES) {
       expect(() => assertPermissionMode(m)).not.toThrow()
     }
   })
