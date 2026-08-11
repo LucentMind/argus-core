@@ -1144,9 +1144,11 @@ describe('CaseSession', () => {
   // The real SDK auto-allows `Skill` and sandboxed reads WITHOUT consulting canUseTool
   // (proven live 2026-07-20: a session's Skill launch and reference Read produced zero
   // tool_calls rows) — so those two classes are captured from the finished assistant
-  // message's tool_use blocks instead, as decision 'observed'. Everything else still
-  // logs through the approval pipeline; observing it too would double-count.
-  it('observes Skill and reference-read tool_use blocks; leaves permission-path tools alone', async () => {
+  // message's tool_use blocks instead, as decision 'observed'. Task 7 widens the same
+  // seam to every OTHER tool_use block too (decision 'auto') — a permission-mode 'auto'
+  // session (or a working bypassPermissions) never calls canUseTool at all, so this is
+  // the only capture point left for those calls' audit rows.
+  it('observes Skill/reference-read blocks as "observed", and every other unclaimed block as "auto"', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk, { skillsRoots: [path.join(argusHome, 'references')] })
     s.send('go')
@@ -1188,8 +1190,122 @@ describe('CaseSession', () => {
         tool: 'Read',
         detail: 'ref:triage-playbook.md',
         decision: 'observed'
+      }),
+      expect.objectContaining({ tool: 'Read', detail: null, decision: 'auto' }),
+      expect.objectContaining({
+        tool: 'mcp__argus__read_memory',
+        detail: 'nav-drift',
+        decision: 'auto'
       })
     ])
+    await s.stop('stopped')
+  })
+
+  // Task 7: a call that never reaches canUseTool (permissionMode 'auto', or a working
+  // bypassPermissions) still gets exactly one audit row, decision 'auto' — the classifier
+  // never ran, matching how other auto-allowed calls are recorded.
+  it('logs exactly one "auto" row for a tool call observed but never sent to canUseTool', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    s.send('go')
+    sdk.messages.push({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'auto-only-1',
+            name: 'mcp__argus__search_evidence',
+            input: { query: 'x' }
+          }
+        ]
+      }
+    })
+    await flush()
+    const rows = db
+      .prepare(`SELECT tool, decision FROM tool_calls WHERE tool = 'mcp__argus__search_evidence'`)
+      .all() as { tool: string; decision: string }[]
+    expect(rows).toEqual([
+      expect.objectContaining({ tool: 'mcp__argus__search_evidence', decision: 'auto' })
+    ])
+    await s.stop('stopped')
+  })
+
+  // Task 7, direction 1: the approval pipeline (canUseTool) claims the toolCallId first;
+  // the observation seam must recognize the claim and skip when the finished assistant
+  // message for the SAME toolCallId arrives afterward.
+  it('does not double-log when canUseTool runs before the matching tool_use block is observed', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    s.send('go')
+    await flush()
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      n: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal; toolUseID: string }
+    ) => Promise<{ behavior: string }>
+    await canUseTool(
+      'mcp__argus__search_evidence',
+      { query: 'x' },
+      { signal: new AbortController().signal, toolUseID: 'dup-approval-first' }
+    )
+    sdk.messages.push({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'dup-approval-first',
+            name: 'mcp__argus__search_evidence',
+            input: { query: 'x' }
+          }
+        ]
+      }
+    })
+    await flush()
+    const rows = db
+      .prepare(`SELECT tool FROM tool_calls WHERE tool = 'mcp__argus__search_evidence'`)
+      .all()
+    expect(rows).toHaveLength(1)
+    await s.stop('stopped')
+  })
+
+  // Task 7, direction 2: the same pair in the opposite order — the finished assistant
+  // message (and its onToolObserved write) arrives BEFORE canUseTool is ever invoked for
+  // the same toolCallId. Ordering between the two paths is not guaranteed either way.
+  it('does not double-log when the tool_use block is observed before canUseTool runs for the same toolCallId', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    s.send('go')
+    await flush()
+    sdk.messages.push({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'dup-observed-first',
+            name: 'mcp__argus__search_evidence',
+            input: { query: 'x' }
+          }
+        ]
+      }
+    })
+    await flush()
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      n: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal; toolUseID: string }
+    ) => Promise<{ behavior: string }>
+    await canUseTool(
+      'mcp__argus__search_evidence',
+      { query: 'x' },
+      { signal: new AbortController().signal, toolUseID: 'dup-observed-first' }
+    )
+    const rows = db
+      .prepare(`SELECT tool FROM tool_calls WHERE tool = 'mcp__argus__search_evidence'`)
+      .all()
+    expect(rows).toHaveLength(1)
     await s.stop('stopped')
   })
 
