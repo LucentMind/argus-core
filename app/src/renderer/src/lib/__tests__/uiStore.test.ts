@@ -327,3 +327,64 @@ describe('dynamicTheme', () => {
     expect(seen).toHaveBeenCalled()
   })
 })
+
+describe('UiStore rail section collapse', () => {
+  it('defaults every rail section to expanded', () => {
+    const store = new UiStore()
+    expect(store.get().railCollapsed).toEqual({
+      jira: false,
+      repos: false,
+      pr: false,
+      related: false
+    })
+  })
+
+  it('persists only the collapsed sections and rehydrates them', () => {
+    const store = new UiStore()
+    store.setRailSectionCollapsed('repos', true)
+
+    expect(JSON.parse(localStorage.getItem('argus.ui.railCollapsed')!)).toEqual({ repos: true })
+    expect(new UiStore().get().railCollapsed.repos).toBe(true)
+    expect(new UiStore().get().railCollapsed.jira).toBe(false)
+  })
+
+  it('drops a section from storage when it is expanded again', () => {
+    const store = new UiStore()
+    store.setRailSectionCollapsed('pr', true)
+    store.setRailSectionCollapsed('pr', false)
+
+    expect(JSON.parse(localStorage.getItem('argus.ui.railCollapsed')!)).toEqual({})
+    expect(new UiStore().get().railCollapsed.pr).toBe(false)
+  })
+
+  it('notifies subscribers so React re-renders on a toggle', () => {
+    const store = new UiStore()
+    const seen = vi.fn()
+    store.subscribe(seen)
+
+    store.setRailSectionCollapsed('jira', true)
+
+    expect(seen).toHaveBeenCalled()
+  })
+
+  // The constructor runs readPersisted(); a throw there takes the whole renderer down, so
+  // every malformed shape has to degrade to all-expanded instead.
+  it.each([
+    ['malformed JSON', '{not json'],
+    ['a non-object', '"repos"'],
+    ['null', 'null'],
+    ['an array', '["repos"]'],
+    ['an unknown panel id', '{"evidence":true}'],
+    ['a non-boolean member', '{"repos":"yes"}']
+  ])('degrades to all-expanded on %s', (_label, stored) => {
+    localStorage.setItem('argus.ui.railCollapsed', stored)
+
+    expect(() => new UiStore()).not.toThrow()
+    expect(new UiStore().get().railCollapsed).toEqual({
+      jira: false,
+      repos: false,
+      pr: false,
+      related: false
+    })
+  })
+})
