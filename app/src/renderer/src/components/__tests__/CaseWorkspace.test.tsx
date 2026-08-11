@@ -92,6 +92,12 @@ beforeEach(() => {
     models: {
       catalog: vi.fn(async () => [])
     },
+    // Composer also fetches per-instance refusal state on mount (Task 6). Empty by default —
+    // nothing refused — so this file's tests never have to think about it.
+    providers: {
+      statuses: vi.fn(async () => []),
+      onChanged: vi.fn(() => () => {})
+    },
     cases: {
       readFindings: vi.fn(async () => ''),
       setStatus: vi.fn(async () => undefined),

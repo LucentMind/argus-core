@@ -10,7 +10,7 @@ import { defaultSettings, settingsSchema } from '../../../../shared/settings'
 import { DRIVERS } from '../../../../shared/drivers'
 import { clearCatalogStore } from '../../lib/catalogStore'
 import type { ModelOptionInfo } from '../../../../shared/runOptions'
-import type { SessionSummary } from '../../../../shared/types'
+import type { ProviderStatus, SessionSummary } from '../../../../shared/types'
 // The REAL captured CLI catalog, not a hand-written approximation of it. Every stub in this
 // file used to invent full `claude-*` slugs as the row `value`, which the branch's own
 // captured evidence flatly contradicts — the CLI keys rows by ALIAS (`fable`, `sonnet`,
@@ -54,7 +54,14 @@ beforeEach(() => {
     // Empty by default: the picker falls back to the static list, which is what
     // every existing test here asserts against. Tests exercising the runtime
     // catalog itself override this per-case.
-    models: { catalog: vi.fn(async () => []) }
+    models: { catalog: vi.fn(async () => []) },
+    // Empty by default: nothing is refused, so the permission picker's own tests
+    // (which don't care about refusals) never have to think about this. Tests
+    // exercising refusal disable it per-case.
+    providers: {
+      statuses: vi.fn(async () => []),
+      onChanged: vi.fn(() => () => {})
+    }
   } as never
 })
 
@@ -774,6 +781,120 @@ describe('Composer option chips', () => {
     await userEvent.click(await screen.findByTitle('Permission mode'))
     await userEvent.click(screen.getByRole('menuitem', { name: 'Auto-approve edits' }))
     expect(onPermissionModeChange).toHaveBeenCalledWith('acceptEdits')
+  })
+
+  // Task 6: a Claude session offers `auto`, a Copilot one does not. This is expected to
+  // already hold — Task 3 made the Claude driver's capabilities advertise `auto` and every
+  // other driver advertise BASE_PERMISSION_MODES, and the Composer already reads
+  // capabilitiesFor(...).permissionModes (see the `permissionOptions` derivation above) — so
+  // this is a characterization test guarding that wiring, not new behaviour.
+  it('offers "Auto — Claude decides" for a Claude session', async () => {
+    render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+    await userEvent.click(await screen.findByTitle('Permission mode'))
+    expect(screen.getByRole('menuitem', { name: 'Auto — Claude decides' })).toBeInTheDocument()
+  })
+
+  it('does not offer Auto for a Copilot session', async () => {
+    window.argus.settings.get = vi.fn(async () => ({
+      settings: (() => {
+        const s = defaultSettings()
+        s.agent.providerInstances['claude-default'].driver = 'github-copilot'
+        return s
+      })(),
+      resolvedTools: [],
+      dataRoot: { path: 'C:\\x', fromEnv: false },
+      loadError: null
+    }))
+    render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+    await userEvent.click(await screen.findByTitle('Permission mode'))
+    expect(
+      screen.queryByRole('menuitem', { name: 'Auto — Claude decides' })
+    ).not.toBeInTheDocument()
+  })
+
+  // Task 6: the registry (Task 5) tracks, per instance, which modes the CLI has refused this
+  // app session — this is where the picker stops promising one of them.
+  const REFUSED_STATUS: ProviderStatus = {
+    instanceId: 'claude-default',
+    driverKind: 'claude-agent-sdk',
+    displayName: 'Claude',
+    state: 'ready',
+    detail: '',
+    checkedAt: null
+  }
+
+  it('disables a mode the CLI refused, with a visible reason, and blocks selecting it', async () => {
+    window.argus.providers.statuses = vi.fn(async (): Promise<ProviderStatus[]> => [
+      { ...REFUSED_STATUS, refusedPermissionModes: ['bypassPermissions'] }
+    ])
+    const onPermissionModeChange = vi.fn()
+    render(
+      <Composer
+        disabled={false}
+        onSend={() => {}}
+        session={SESSION}
+        onPermissionModeChange={onPermissionModeChange}
+      />
+    )
+    await userEvent.click(await screen.findByTitle('Permission mode'))
+    const option = await screen.findByRole('menuitem', { name: 'Bypass approvals' })
+    expect(option).toBeDisabled()
+    expect(within(option).getByText('Disabled by your organization')).toBeInTheDocument()
+    await userEvent.click(option)
+    expect(onPermissionModeChange).not.toHaveBeenCalled()
+  })
+
+  it('leaves every option selectable when nothing has been refused', async () => {
+    window.argus.providers.statuses = vi.fn(async () => [{ ...REFUSED_STATUS }])
+    const onPermissionModeChange = vi.fn()
+    render(
+      <Composer
+        disabled={false}
+        onSend={() => {}}
+        session={SESSION}
+        onPermissionModeChange={onPermissionModeChange}
+      />
+    )
+    await userEvent.click(await screen.findByTitle('Permission mode'))
+    const option = await screen.findByRole('menuitem', { name: 'Bypass approvals' })
+    expect(option).not.toBeDisabled()
+    await userEvent.click(option)
+    expect(onPermissionModeChange).toHaveBeenCalledWith('bypassPermissions')
+  })
+
+  it("leaves options selectable when the session's instance has no status entry", async () => {
+    window.argus.providers.statuses = vi.fn(async (): Promise<ProviderStatus[]> => [
+      {
+        ...REFUSED_STATUS,
+        instanceId: 'some-other-instance',
+        refusedPermissionModes: ['bypassPermissions']
+      }
+    ])
+    render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+    await userEvent.click(await screen.findByTitle('Permission mode'))
+    const option = await screen.findByRole('menuitem', { name: 'Bypass approvals' })
+    expect(option).not.toBeDisabled()
+  })
+
+  it('does not disable options before provider statuses have loaded', async () => {
+    // Never resolves — simulates the picker being opened in the window between mount and
+    // the statuses fetch settling. Absent must read as "nothing known to be refused", not
+    // as "everything refused".
+    window.argus.providers.statuses = vi.fn(() => new Promise<never>(() => {}))
+    const onPermissionModeChange = vi.fn()
+    render(
+      <Composer
+        disabled={false}
+        onSend={() => {}}
+        session={SESSION}
+        onPermissionModeChange={onPermissionModeChange}
+      />
+    )
+    await userEvent.click(await screen.findByTitle('Permission mode'))
+    const option = screen.getByRole('menuitem', { name: 'Bypass approvals' })
+    expect(option).not.toBeDisabled()
+    await userEvent.click(option)
+    expect(onPermissionModeChange).toHaveBeenCalledWith('bypassPermissions')
   })
 
   /**

@@ -39,9 +39,15 @@ import {
   type RunOptionSelection
 } from '../../../shared/runOptions'
 import type { SkillListItem } from '../../../shared/memoryIpc'
-import type { SessionSummary } from '../../../shared/types'
+import type { ProviderStatus, SessionSummary } from '../../../shared/types'
 import { useModelCatalog } from '../lib/catalogStore'
-import { TraitsChip, CollapsedMenu, type CollapsedSection } from './OptionsMenu'
+import {
+  TraitsChip,
+  CollapsedMenu,
+  PERMISSION_MODE_DISABLED_REASON,
+  PERMISSION_MODE_DISABLED_TITLE,
+  type CollapsedSection
+} from './OptionsMenu'
 
 /**
  * Session-option picker: model and permission mode. Reasoning, Context Window, Fast Mode and
@@ -54,13 +60,19 @@ function OptionChip({
   options,
   value,
   onChange,
-  menuLabel
+  menuLabel,
+  disabledOptions
 }: {
   icon: React.ReactNode
   options: string[]
   value: string
   onChange: (v: string) => void
   menuLabel: string
+  /** Options this picker must not let the user land on — used by the Permission mode chip
+   *  for a mode the CLI has refused this app session (see `refusedPermissionModes` below).
+   *  Keyed by the same label `options` uses, not by `PermissionMode`, so this generic chip
+   *  never has to know that vocabulary exists. */
+  disabledOptions?: Record<string, true>
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   return (
@@ -86,22 +98,37 @@ function OptionChip({
             aria-label={menuLabel}
             className="absolute bottom-full left-0 z-30 mb-1 min-w-40 rounded-r2 overlay-menu p-1"
           >
-            {options.map((opt) => (
-              <button
-                key={opt}
-                type="button"
-                role="menuitem"
-                className={`block w-full whitespace-nowrap rounded-r1 px-2 py-1 text-left text-xs transition-colors hover:bg-hi ${
-                  opt === value ? 'text-ink' : 'text-dim'
-                }`}
-                onClick={() => {
-                  onChange(opt)
-                  setOpen(false)
-                }}
-              >
-                {opt}
-              </button>
-            ))}
+            {options.map((opt) => {
+              const disabled = !!disabledOptions?.[opt]
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  role="menuitem"
+                  disabled={disabled}
+                  title={disabled ? PERMISSION_MODE_DISABLED_TITLE : undefined}
+                  className={`block w-full whitespace-nowrap rounded-r1 px-2 py-1 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:hover:text-dim ${
+                    disabled ? 'opacity-40' : 'hover:bg-hi'
+                  } ${opt === value ? 'text-ink' : 'text-dim'}`}
+                  onClick={() => {
+                    if (disabled) return
+                    onChange(opt)
+                    setOpen(false)
+                  }}
+                >
+                  <span className="block">{opt}</span>
+                  {disabled && (
+                    // aria-hidden: the accessible NAME must stay just the mode's own label
+                    // (`findByRole('menuitem', { name: ... })` and every other consumer keys
+                    // off it) — the reason is a visible sighted-user affordance, and reaches
+                    // assistive tech instead through `title`, same as the button's own tooltip.
+                    <span aria-hidden="true" className="block text-[10px] text-mute">
+                      {PERMISSION_MODE_DISABLED_REASON}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
           </div>
         </>
       )}
@@ -280,6 +307,27 @@ export function Composer({
     void window.argus.skills.list().then((p) => setSkills(p.skills))
   }, [])
 
+  // Per-instance refusal state (Task 5's registry, overlaid onto ProviderStatus by
+  // ProviderStatusService.list()) — pushed from the main process the same way
+  // AgentSettings.tsx already consumes it: load once, then re-load on IPC.providersChanged,
+  // so this never has to poll. Starts empty, which reads as "nothing known to be refused"
+  // rather than "everything refused" — see the permission-mode derivation below.
+  const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([])
+  useEffect(() => {
+    let alive = true
+    const load = (): void => {
+      void window.argus.providers.statuses().then((s) => {
+        if (alive) setProviderStatuses(s)
+      })
+    }
+    load()
+    const off = window.argus.providers.onChanged(load)
+    return () => {
+      alive = false
+      off()
+    }
+  }, [])
+
   const settingsPayload = useSettingsPayload()
 
   // The catalog describes ONE instance's CLI — the session's. It substitutes that single
@@ -416,10 +464,28 @@ export function Composer({
   // Permission modes come from THIS session's provider, not the global default — with two
   // providers enabled they can differ, and offering a mode the running driver drops would
   // be a false signal.
-  const permissionOptions = capabilitiesFor(
-    settingsPayload?.settings,
+  const permissionInstanceId =
     session?.instanceId ?? (settingsPayload ? defaultInstanceId(settingsPayload.settings) : null)
-  ).permissionModes.map((m) => PERMISSION_MODE_LABELS[m])
+  const permissionModes = capabilitiesFor(
+    settingsPayload?.settings,
+    permissionInstanceId
+  ).permissionModes
+  const permissionOptions = permissionModes.map((m) => PERMISSION_MODE_LABELS[m])
+
+  // Modes the CLI has refused, THIS app session, for the instance this chat is pinned to —
+  // Task 5's registry, overlaid onto ProviderStatus by ProviderStatusService.list(). Matched
+  // by instance id, not assumed to be the active one: two enabled instances can each have
+  // their own refusal history. No entry (statuses not loaded yet, or this instance never
+  // probed) reads as "nothing known to be refused" — never as "everything refused" — because
+  // there is nothing here to find a label for.
+  const refusedPermissionModes = new Set(
+    providerStatuses.find((s) => s.instanceId === permissionInstanceId)?.refusedPermissionModes ??
+      []
+  )
+  const disabledPermissionOptions: Record<string, true> = {}
+  for (const m of permissionModes) {
+    if (refusedPermissionModes.has(m)) disabledPermissionOptions[PERMISSION_MODE_LABELS[m]] = true
+  }
 
   // The session's own mode wins (it is what a send actually uses); the settings default is
   // only a fallback for a chat that has never had its permission mode set.
@@ -584,6 +650,7 @@ export function Composer({
           value={permission}
           onChange={(label) => onPermissionModeChange?.(MODE_BY_LABEL[label])}
           options={permissionOptions}
+          disabledOptions={disabledPermissionOptions}
         />
       )
     },
@@ -747,6 +814,7 @@ export function Composer({
                 permissionOptions={permissionOptions}
                 permission={permission}
                 onPermissionChange={(label) => onPermissionModeChange?.(MODE_BY_LABEL[label])}
+                permissionDisabled={disabledPermissionOptions}
                 showToolCalls={showToolCalls}
                 onToggleToolCalls={() => uiStore.toggleToolCalls()}
                 // Only when the Traits chip is the thing that got collapsed. The `…` carries

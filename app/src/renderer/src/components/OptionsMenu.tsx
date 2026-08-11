@@ -429,6 +429,19 @@ export function TraitsChip({
  *  controls it could not fit, so the menu is never a duplicate of what is already on screen. */
 export type CollapsedSection = 'traits' | 'access' | 'toolResults'
 
+/** Visible reason shown under a disabled permission-mode option, wired verbatim from
+ *  Claude Code's own phrasing — a user who has seen that CLI's refusal reads the same words
+ *  here. Shared by the wide `OptionChip` (Composer.tsx) and this file's own Access section so
+ *  the two densities can't drift apart. */
+export const PERMISSION_MODE_DISABLED_REASON = 'Disabled by your organization'
+
+/** Hover/`title` detail for a disabled permission-mode option — one sentence naming the
+ *  MECHANISM behind {@link PERMISSION_MODE_DISABLED_REASON}, since that reason alone doesn't
+ *  say Argus ever asked or that the CLI answered with something else. Shared for the same
+ *  reason as that constant. */
+export const PERMISSION_MODE_DISABLED_TITLE =
+  'Argus asked the CLI for this mode; the CLI reported a different one instead.'
+
 /** The controls the row could not fit, in one popup. Sections are the same `OptionSection`
  *  the wide chips use, so the two renderings cannot diverge.
  *
@@ -446,6 +459,7 @@ export function CollapsedMenu({
   permissionOptions,
   permission,
   onPermissionChange,
+  permissionDisabled,
   showToolCalls,
   onToggleToolCalls,
   ultracode
@@ -464,6 +478,12 @@ export function CollapsedMenu({
   permissionOptions: string[]
   permission: string
   onPermissionChange: (label: string) => void
+  /** Permission-mode labels the running CLI has refused this app session (Task 5's registry,
+   *  overlaid onto `ProviderStatus` by `ProviderStatusService.list()`) — keyed by the SAME
+   *  label `permissionOptions` uses, not by `PermissionMode`, so this component never needs
+   *  its own copy of `PERMISSION_MODE_LABELS`. Absent/missing entry means "not refused", same
+   *  reading `OptionChip` gives it. */
+  permissionDisabled?: Record<string, true>
   showToolCalls: boolean
   onToggleToolCalls: () => void
   /** Reasoning is on Ultracode — same treatment `TraitsChip` gives its own trigger, on the
@@ -516,24 +536,37 @@ export function CollapsedMenu({
               <div className="px-2 pb-1.5 pt-1.5">
                 <div className="pb-1 text-xs font-medium text-mute">Access</div>
                 <div className="flex flex-col gap-0.5 rounded-r2 bg-hair p-0.5">
-                  {permissionOptions.map((label) => (
-                    <button
-                      key={label}
-                      type="button"
-                      role="menuitem"
-                      className={`w-full whitespace-nowrap rounded-r1 px-2 py-0.5 text-left text-xs transition-colors ${
-                        label === permission
-                          ? 'bg-hi text-ink shadow-sm'
-                          : 'text-dim hover:text-ink'
-                      }`}
-                      onClick={() => {
-                        onPermissionChange(label)
-                        setOpen(false)
-                      }}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                  {permissionOptions.map((label) => {
+                    const disabled = !!permissionDisabled?.[label]
+                    return (
+                      <button
+                        key={label}
+                        type="button"
+                        role="menuitem"
+                        disabled={disabled}
+                        title={disabled ? PERMISSION_MODE_DISABLED_TITLE : undefined}
+                        className={`w-full whitespace-nowrap rounded-r1 px-2 py-0.5 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-dim ${
+                          label === permission
+                            ? 'bg-hi text-ink shadow-sm'
+                            : 'text-dim hover:text-ink'
+                        }`}
+                        onClick={() => {
+                          if (disabled) return
+                          onPermissionChange(label)
+                          setOpen(false)
+                        }}
+                      >
+                        <span className="block">{label}</span>
+                        {disabled && (
+                          // aria-hidden — see the matching note on the wide OptionChip
+                          // (Composer.tsx): the accessible name stays just the mode's label.
+                          <span aria-hidden="true" className="block text-[10px] text-mute">
+                            {PERMISSION_MODE_DISABLED_REASON}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             )}
