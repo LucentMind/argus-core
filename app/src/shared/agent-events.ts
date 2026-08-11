@@ -11,7 +11,21 @@ export interface AgentEventBase {
 
 export type AgentEvent = AgentEventBase &
   (
-    | { type: 'session.started'; payload: { model: string; resumed: boolean } }
+    | {
+        type: 'session.started'
+        payload: {
+          model: string
+          resumed: boolean
+          // The permission mode the CLI actually adopted for this session, straight from
+          // its own system/init message — NOT an echo of what Argus requested. Only the
+          // Claude driver reports it today; every other driver (and every session.started
+          // written before this field existed) has NOTHING to say about it here, and that
+          // silence is spelled `null`, never omitted. A future comparison against the
+          // requested mode treats a MISMATCH as a refusal signal — so `null` must stay
+          // unambiguously "no report", not something that reads as a refusal itself.
+          effectivePermissionMode: string | null
+        }
+      }
     | {
         type: 'session.exited'
         payload: { reason: 'stopped' | 'reaped' | 'crashed' | 'reconfigured' }

@@ -29,7 +29,18 @@ export function normalizeSdkMessage(msg: any, ctx: NormalizeCtx): AgentEvent[] {
         return [
           // `resumed` is a placeholder — corrected by the driver, which owns the cursor.
           // NormalizeCtx carries no resume cursor, so this cannot be decided here.
-          makeEvent(ctx, 'session.started', { model: String(msg.model ?? ''), resumed: false })
+          //
+          // `permissionMode` is the mode the CLI actually adopted (verified against SDK
+          // 0.3.220's real init message — values like 'default' | 'acceptEdits' | 'plan' |
+          // 'bypassPermissions' | 'auto'), which can silently differ from what Argus
+          // requested when org policy blocks the requested mode. Missing → null, which
+          // means "nothing reported", not a refusal.
+          makeEvent(ctx, 'session.started', {
+            model: String(msg.model ?? ''),
+            resumed: false,
+            effectivePermissionMode:
+              typeof msg.permissionMode === 'string' ? msg.permissionMode : null
+          })
         ]
       }
       return []

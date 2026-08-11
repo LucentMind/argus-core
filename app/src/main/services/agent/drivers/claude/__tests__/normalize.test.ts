@@ -44,19 +44,60 @@ describe('AsyncQueue', () => {
 })
 
 describe('normalizeSdkMessage', () => {
-  it('maps system/init to session.started', () => {
-    const evs = normalizeSdkMessage(
-      { type: 'system', subtype: 'init', session_id: 'abc', model: 'claude-sonnet-5' },
-      ctx
-    )
+  // Shaped like a real system/init message (see __fixtures__/subagent-tool-calls.jsonl
+  // line 3, captured against SDK 0.3.220 — normalize.ts must ignore the many fields it
+  // doesn't read, not just tolerate a hand-built two-key object).
+  const REAL_INIT_MSG = {
+    type: 'system',
+    subtype: 'init',
+    cwd: '<cwd>',
+    session_id: '27dd3b67-08a2-42b5-a9de-3f2efa294e98',
+    tools: ['Bash', 'Read'],
+    mcp_servers: [],
+    model: 'claude-sonnet-5',
+    permissionMode: 'default',
+    slash_commands: [],
+    apiKeySource: 'none',
+    claude_code_version: '2.1.205',
+    output_style: 'default',
+    agents: [],
+    skills: [],
+    plugins: [],
+    capabilities: ['interrupt_receipt_v1'],
+    analytics_disabled: false,
+    product_feedback_disabled: false,
+    uuid: '5c9a0736-67e6-4088-be31-66ef7812062f',
+    memory_paths: {},
+    fast_mode_state: 'off'
+  }
+
+  it('maps system/init to session.started, carrying the CLI-adopted permission mode', () => {
+    const evs = normalizeSdkMessage(REAL_INIT_MSG, ctx)
     expect(evs).toHaveLength(1)
     expect(evs[0]).toMatchObject({
       type: 'session.started',
       caseId: 1,
       sessionId: 7,
-      payload: { model: 'claude-sonnet-5' }
+      payload: { model: 'claude-sonnet-5', effectivePermissionMode: 'default' }
     })
     expect(evs[0].eventId).toBeTruthy()
+  })
+
+  // The org-policy-blocked case this field exists for: bypassPermissions requested,
+  // the CLI silently downgrades and reports it here instead.
+  it('carries whatever mode the CLI actually adopted, even if it differs from what was requested', () => {
+    const evs = normalizeSdkMessage({ ...REAL_INIT_MSG, permissionMode: 'default' }, ctx)
+    expect(evs[0]).toMatchObject({ payload: { effectivePermissionMode: 'default' } })
+  })
+
+  it('yields a null effectivePermissionMode when the init message omits the field entirely — never a refusal, just nothing reported', () => {
+    const withoutMode: Partial<typeof REAL_INIT_MSG> = { ...REAL_INIT_MSG }
+    delete withoutMode.permissionMode
+    const evs = normalizeSdkMessage(withoutMode, ctx)
+    expect(evs[0]).toMatchObject({
+      type: 'session.started',
+      payload: { effectivePermissionMode: null }
+    })
   })
 
   it('maps text deltas to content.delta', () => {
