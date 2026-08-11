@@ -91,8 +91,11 @@ export interface DriverSessionContext {
   /** The harness approval pipeline; the driver adapts its SDK callback onto this.
    *  `toolCallId`, when the driver's SDK exposes one (Claude's `toolUseID`), correlates
    *  this request against `onToolObserved` firing for the SAME finished tool_use block —
-   *  see the dedup note on `onToolObserved` below. Absent for drivers/tests that don't
-   *  thread one through; the harness then never dedupes that call (always logs it here). */
+   *  see the note on `onToolObserved` below (measured: that seam fires first, 7-8ms
+   *  ahead of this one, every time — the harness gates `onToolObserved`'s write on the
+   *  effective permission mode rather than racing the two). Absent for drivers/tests that
+   *  don't thread one through; the harness then never dedupes that call (always logs it
+   *  here). */
   onToolRequest: (
     toolName: string,
     input: Record<string, unknown>,
@@ -108,10 +111,23 @@ export interface DriverSessionContext {
    * subagent blocks (`parent_tool_use_id`). Usage-stats capture for those bypass classes
    * hangs off this seam; the harness decides what to record. `toolCallId` (Claude's
    * `block.id`, the same id `onToolRequest`'s `opts.toolCallId` carries for the SAME
-   * call) lets the harness dedupe a call that DID reach `onToolRequest` — the two seams
-   * fire independently and in no guaranteed order relative to each other, so the harness
-   * must correlate on this id from whichever side runs first. Optional so drivers/tests
-   * without it are unaffected.
+   * call) lets the harness correlate a call against `onToolRequest`.
+   *
+   * Ordering between the two seams is NOT unknown — it was originally assumed to be, and
+   * treated as a race with a "first claim wins" dedup. Measured against the real SDK
+   * (three runs, two tool classes, `includePartialMessages: true`, `permissionMode:
+   * 'default'`): the finished assistant message carrying a `tool_use` block reaches THIS
+   * seam 7-8ms BEFORE `canUseTool` fires for the same id, every time — structural, not
+   * luck, since `Query.readMessages()` preserves wire order and the CLI emits the
+   * completed assistant message before entering its tool-execution/permission phase. A
+   * "first claim wins" dedup therefore always picked this seam, silently discarding
+   * `onToolRequest`'s real decision (a DENIED call could be recorded as auto-approved).
+   * The harness now gates this seam's write on the CLI's reported effective permission
+   * mode instead: only 'auto' and a working 'bypassPermissions' structurally never invoke
+   * `onToolRequest` at all, so only in those two modes may this seam write the audit row;
+   * every other mode leaves `onToolRequest` as the sole writer. `toolCallId`-based dedup
+   * survives only as a belt-and-braces guard against a future mode/SDK change
+   * reintroducing a genuine race. Optional so drivers/tests without it are unaffected.
    */
   onToolObserved?: (toolName: string, input: Record<string, unknown>, toolCallId?: string) => void
   /** Per-turn accounting + auth verdict, extracted by the driver. */

@@ -215,7 +215,11 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
             },
             // toolUseID (CanUseTool's own correlation id) is the SAME id that shows up as
             // the tool_use block's `id` in the finished assistant message below — forward
-            // it as toolCallId so the harness can dedupe the two seams against each other.
+            // it as toolCallId so the harness can correlate the two seams. Measured: the
+            // finished assistant message (below) always reaches the harness BEFORE this
+            // callback fires for the same id, so the harness gates the observation seam's
+            // audit write on the effective permission mode rather than racing the two —
+            // see DriverSessionContext.onToolObserved's doc.
             canUseTool: (
               toolName: string,
               input: Record<string, unknown>,
