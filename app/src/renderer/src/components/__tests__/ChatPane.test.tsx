@@ -55,6 +55,10 @@ beforeEach(() => {
     evidence: {
       list: vi.fn(async () => []),
       onChanged: vi.fn(() => () => {})
+    },
+    providers: {
+      statuses: vi.fn(async () => []),
+      onChanged: vi.fn(() => () => {})
     }
   } as never
 })
