@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { ProviderStatusService } from '../providerStatus'
+import { ModeRefusalRegistry } from '../modeRefusals'
 import { createNpmVersionLookup } from '../npmVersion'
 import type { AgentSettings } from '../../../../shared/settings'
 import type { AgentDriver, ProbeAuthResult } from '../driver'
@@ -160,6 +161,55 @@ describe('ProviderStatusService', () => {
     } as never)
     svc.onSettingsChanged()
     expect(svc.list().map((s) => s.instanceId)).toEqual(['claude-default'])
+  })
+
+  it('copies recorded mode refusals for an instance onto its status', async () => {
+    const modeRefusals = new ModeRefusalRegistry()
+    modeRefusals.record('claude-default', 'bypassPermissions', 'default')
+    const svc = new ProviderStatusService({
+      settings: agentSettings,
+      driverFor: () => fakeDriver('claude-agent-sdk', async () => ({ ok: true, detail: 'ready' })),
+      notify: () => {},
+      modeRefusals
+    })
+    await svc.refreshOne('claude-default')
+    expect(
+      svc.list().find((s) => s.instanceId === 'claude-default')?.refusedPermissionModes
+    ).toEqual(['bypassPermissions'])
+  })
+
+  it('leaves refusedPermissionModes unset when the requested mode was actually adopted', async () => {
+    const modeRefusals = new ModeRefusalRegistry()
+    const svc = new ProviderStatusService({
+      settings: agentSettings,
+      driverFor: () => fakeDriver('claude-agent-sdk', async () => ({ ok: true, detail: 'ready' })),
+      notify: () => {},
+      modeRefusals
+    })
+    await svc.refreshOne('claude-default')
+    expect(
+      svc.list().find((s) => s.instanceId === 'claude-default')?.refusedPermissionModes
+    ).toBeUndefined()
+  })
+
+  it('refreshAll() clears the registry first, so a refreshed status loses a stale refusal', async () => {
+    const modeRefusals = new ModeRefusalRegistry()
+    modeRefusals.record('claude-default', 'bypassPermissions', 'default')
+    const svc = new ProviderStatusService({
+      settings: agentSettings,
+      driverFor: () => fakeDriver('claude-agent-sdk', async () => ({ ok: true, detail: 'ready' })),
+      notify: () => {},
+      modeRefusals
+    })
+    await svc.refreshOne('claude-default')
+    expect(
+      svc.list().find((s) => s.instanceId === 'claude-default')?.refusedPermissionModes
+    ).toEqual(['bypassPermissions'])
+
+    await svc.refreshAll()
+    expect(
+      svc.list().find((s) => s.instanceId === 'claude-default')?.refusedPermissionModes
+    ).toBeUndefined()
   })
 })
 

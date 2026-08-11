@@ -164,8 +164,11 @@ import {
   setSessionPermissionMode,
   assertPermissionMode,
   renameSession,
-  deleteSession
+  deleteSession,
+  sessionProvider,
+  sessionPermissionMode
 } from './services/agent/sessionStore'
+import { ModeRefusalRegistry } from './services/agent/modeRefusals'
 import { modeContextForCase, demoteIfModeUnavailable } from './services/modeContext'
 import { availableModes, MODES, type ModeId } from '../shared/modes'
 import type { EvidenceScope } from '../shared/evidenceScope'
@@ -1034,6 +1037,14 @@ function registerIpc(): void {
     () => broadcast(IPC.agentAuthChanged, undefined)
   )
 
+  // Per-instance record of permission modes the CLI has refused to adopt this app session
+  // (e.g. an org policy blocking bypassPermissions, so the CLI silently falls back to
+  // `default`). In-memory only, never persisted — a policy can change between launches, and
+  // a stale disable surviving a restart is worse than one that clears and gets re-observed.
+  // Recorded from the interactive agent event sink below; read here so the settings page can
+  // show it per instance.
+  const modeRefusals = new ModeRefusalRegistry()
+
   // Per-instance provider status for the settings page (every enabled provider at once),
   // as opposed to authCache's single default-provider verdict.
   const latestNpmVersion = createNpmVersionLookup()
@@ -1045,7 +1056,8 @@ function registerIpc(): void {
     latestVersion: async (driverKind) => {
       const pkg = getDriverByKind(driverKind).npmPackage
       return pkg ? latestNpmVersion(pkg) : null
-    }
+    },
+    modeRefusals
   })
   providerStatusService.start()
 
@@ -1646,6 +1658,26 @@ function registerIpc(): void {
       ? { recordPromptCapture: (c: SessionPromptCapture) => promptCaptures.record(c) }
       : {}),
     onEvent: (e) => {
+      // Compare what the CLI actually adopted against what Argus asked for, and record a
+      // mismatch as a refusal on the session's provider instance. Events carry no
+      // instanceId, only caseSlug/sessionId, so the lookup has to happen here rather than
+      // inside the registry. `sessionPermissionMode(...) ?? defaultPermissionMode` is the
+      // SAME fallback registry.ts uses to build the driver's options (registry.ts:381) — it
+      // has to match exactly, or a session that inherits the settings default gets
+      // mis-recorded as having requested something else.
+      //
+      // Deliberately NOT wired at the routines (unattended) sink below: an unattended run's
+      // mode is downgraded to `default` before it ever starts (Task 2), so it can never
+      // legitimately observe a refusal there — recording from it would only add noise.
+      if (e.type === 'session.started' && e.payload.effectivePermissionMode != null) {
+        const instanceId = sessionProvider(db, e.sessionId)?.instanceId
+        if (instanceId) {
+          const requested =
+            sessionPermissionMode(db, e.sessionId) ??
+            settingsService.get().agent.defaultPermissionMode
+          modeRefusals.record(instanceId, requested, e.payload.effectivePermissionMode)
+        }
+      }
       langfuseExporter?.handle(e)
       broadcast(IPC.agentEventChannel, e)
     },
@@ -1973,6 +2005,10 @@ function registerIpc(): void {
       defectCorpus,
       // Same channel as an interactive turn, so a routine's transcript streams into the
       // normal session UI while it runs; `mirrorFactory` is what makes it replayable after.
+      // Deliberately does NOT record mode refusals (contrast the interactive sink above,
+      // ~line 1648): an unattended run's permission mode is downgraded to `default` before
+      // it ever starts (Task 2), so it can never legitimately observe a refusal — wiring
+      // this sink to modeRefusals would only add noise.
       onEvent: (e) => routinesBroadcast(IPC.agentEventChannel, e),
       mirrorFactory
     }),
