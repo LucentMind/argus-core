@@ -14,6 +14,7 @@ import type { RawSdkEvent } from '../normalize'
 import type { AgentEvent } from '../../../../../../shared/agent-events'
 import type { DriverSessionContext, TurnResult } from '../../../driver'
 import type { NativeToolDeps } from '../../../nativeTools'
+import { BASE_PERMISSION_MODES } from '../../../../../../shared/settings'
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 10))
 const AUTH_MSG =
@@ -116,14 +117,14 @@ function makeCtx(overrides: Partial<DriverSessionContext> = {}): DriverSessionCo
 }
 
 describe('createCopilotDriver — capabilities + auth predicate', () => {
-  it('declares all permission modes, no editable approvals, no cost; MCP supported', () => {
+  it('declares base permission modes (no auto — Claude-only), no editable approvals, no cost; MCP supported', () => {
     const d = createCopilotDriver()
     expect(d.kind).toBe('github-copilot')
     expect(d.capabilities.editableApprovals).toBe(false)
     expect(d.capabilities.costReporting).toBe(false)
     // Absent = supported (EVIDENCE §6c: connectors forward with a tools:["*"] allowlist).
     expect(d.capabilities.mcpConnectors).toBeUndefined()
-    expect(d.capabilities.permissionModes.length).toBe(5)
+    expect(d.capabilities.permissionModes).toEqual(BASE_PERMISSION_MODES)
     // 9B taxonomy: write/read/shell/fetch entries, still fail-closed (no fallback).
     expect(Object.keys(d.toolTaxonomy.entries).sort()).toEqual(['fetch', 'read', 'shell', 'write'])
     expect(d.toolTaxonomy.fallback).toBeUndefined()

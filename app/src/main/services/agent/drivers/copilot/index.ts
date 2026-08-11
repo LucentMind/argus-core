@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { z } from 'zod'
 import type { AgentEvent } from '../../../../../shared/agent-events'
-import { PERMISSION_MODES } from '../../../../../shared/settings'
+import { BASE_PERMISSION_MODES } from '../../../../../shared/settings'
 import { AsyncQueue } from '../../asyncQueue'
 import { NATIVE_RISK } from '../../risk'
 import { resolveToolSpecs, argusToolHandlers } from '../../nativeTools'
@@ -285,7 +285,9 @@ export function createCopilotDriver(
     npmPackage: '@github/copilot',
     updateCommand: 'npm install -g @github/copilot@latest',
     capabilities: {
-      permissionModes: PERMISSION_MODES,
+      // 'auto' is Claude-only; Copilot offers the base set — see the bypassPermissions
+      // rationale below in onPermissionRequest.
+      permissionModes: BASE_PERMISSION_MODES,
       editableApprovals: false, // permission channel cannot carry edited input (EVIDENCE §2)
       costReporting: false, // free tier bills cost:0; costUsd is always null (§5, amendment 10)
       // mcpConnectors omitted (= supported): connector servers forward with a tools:["*"]
@@ -351,10 +353,13 @@ export function createCopilotDriver(
 
       const permissionHandler: CopilotSessionConfig['onPermissionRequest'] = async (request) => {
         const kind = String(request?.kind ?? 'unknown')
-        // Permission-mode short-circuits mirror the Claude SDK (canUseTool is NOT called for
-        // auto-approved requests): approve WITHOUT opening an Argus card so behavior parity holds.
-        // bypassPermissions → approve everything, genuinely: Claude's bypassPermissions bypasses
-        // at the SDK level (no classification at all), so for parity we do NOT run classifyOnly.
+        // Permission-mode short-circuits: approve WITHOUT opening an Argus card. canUseTool is
+        // NOT called for auto-approved requests here.
+        // bypassPermissions → approve everything, genuinely: no classification at all. This is
+        // Copilot honouring bypass locally, by choice — NOT parity with the Claude SDK. On a
+        // machine where an org policy blocks bypassPermissions, the Claude CLI silently
+        // downgrades the mode to `default` and calls canUseTool for every tool anyway (measured
+        // directly); Copilot has no such policy gate, so it can diverge from that behaviour.
         if (ctx.permissionMode === 'bypassPermissions') return { kind: 'approve-once' }
         // acceptEdits suppresses the *ask* for writes (parity with Claude's acceptEdits) but must
         // still honor a *deny*: a write to an out-of-sandbox or read-only-root path is rejected
