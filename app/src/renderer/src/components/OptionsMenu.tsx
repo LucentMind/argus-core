@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { ChevronDown, MoreHorizontal } from 'lucide-react'
 import {
   selectionLabel,
@@ -496,6 +496,10 @@ export function CollapsedMenu({
   ultracode?: boolean
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  // Prefixes the per-option reason id below so it can never collide with `OptionChip`'s own
+  // (Composer.tsx) — `aria-describedby` resolves by document-wide id, not by local scope, and
+  // both densities can be mounted at once (a wide chip's popup plus this collapsed menu).
+  const baseId = useId()
   return (
     <div className="relative">
       <button
@@ -536,8 +540,11 @@ export function CollapsedMenu({
               <div className="px-2 pb-1.5 pt-1.5">
                 <div className="pb-1 text-xs font-medium text-mute">Access</div>
                 <div className="flex flex-col gap-0.5 rounded-r2 bg-hair p-0.5">
-                  {permissionOptions.map((label) => {
+                  {permissionOptions.map((label, i) => {
                     const disabled = !!permissionDisabled?.[label]
+                    // Undefined (not just omitted) when enabled, so `aria-describedby` is
+                    // never pointed at an id with no matching element in the DOM.
+                    const reasonId = disabled ? `${baseId}-permission-reason-${i}` : undefined
                     return (
                       <button
                         key={label}
@@ -545,22 +552,29 @@ export function CollapsedMenu({
                         role="menuitem"
                         disabled={disabled}
                         title={disabled ? PERMISSION_MODE_DISABLED_TITLE : undefined}
+                        // See the matching note on the wide OptionChip (Composer.tsx): only
+                        // set when disabled, to pin the accessible name to just the label
+                        // once the reason span below adds a second text node — the enabled
+                        // case's default content-derived name already equals `label`.
+                        aria-label={disabled ? label : undefined}
+                        aria-describedby={reasonId}
                         className={`w-full whitespace-nowrap rounded-r1 px-2 py-0.5 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-dim ${
                           label === permission
                             ? 'bg-hi text-ink shadow-sm'
                             : 'text-dim hover:text-ink'
                         }`}
                         onClick={() => {
-                          if (disabled) return
                           onPermissionChange(label)
                           setOpen(false)
                         }}
                       >
                         <span className="block">{label}</span>
                         {disabled && (
-                          // aria-hidden — see the matching note on the wide OptionChip
-                          // (Composer.tsx): the accessible name stays just the mode's label.
-                          <span aria-hidden="true" className="block text-[10px] text-mute">
+                          // NOT aria-hidden — see the matching note on the wide OptionChip
+                          // (Composer.tsx): `aria-describedby` above wires this in as the
+                          // button's accessible DESCRIPTION, so it reaches assistive tech,
+                          // while the accessible NAME stays just the mode's own label.
+                          <span id={reasonId} className="block text-[10px] text-mute">
                             {PERMISSION_MODE_DISABLED_REASON}
                           </span>
                         )}

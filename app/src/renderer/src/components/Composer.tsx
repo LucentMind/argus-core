@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -75,6 +76,10 @@ function OptionChip({
   disabledOptions?: Record<string, true>
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  // Prefixes the per-option reason id below so two `OptionChip`s open at once (or two
+  // disabled options in the same one) never collide on the same `id` — `aria-describedby`
+  // resolves by document-wide id, not by local scope.
+  const baseId = useId()
   return (
     <div className="relative">
       <button
@@ -98,8 +103,11 @@ function OptionChip({
             aria-label={menuLabel}
             className="absolute bottom-full left-0 z-30 mb-1 min-w-40 rounded-r2 overlay-menu p-1"
           >
-            {options.map((opt) => {
+            {options.map((opt, i) => {
               const disabled = !!disabledOptions?.[opt]
+              // Undefined (not just omitted) when enabled, so `aria-describedby` is never
+              // pointed at an id that has no matching element in the DOM.
+              const reasonId = disabled ? `${baseId}-reason-${i}` : undefined
               return (
                 <button
                   key={opt}
@@ -107,22 +115,33 @@ function OptionChip({
                   role="menuitem"
                   disabled={disabled}
                   title={disabled ? PERMISSION_MODE_DISABLED_TITLE : undefined}
+                  // Only set when disabled: an explicit `aria-label` overrides the browser's
+                  // default name computation OUTRIGHT, which is what pins the accessible name
+                  // to just the label once the reason span below adds a second text node to
+                  // this button — without it, the name would concatenate both texts ("Bypass
+                  // approvals Disabled by your organization"), and `getByRole('menuitem',
+                  // { name: opt })` would stop matching. The enabled case has no second text
+                  // node, so its default (content-derived) name already equals `opt` — no
+                  // override needed.
+                  aria-label={disabled ? opt : undefined}
+                  aria-describedby={reasonId}
                   className={`block w-full whitespace-nowrap rounded-r1 px-2 py-1 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:hover:text-dim ${
                     disabled ? 'opacity-40' : 'hover:bg-hi'
                   } ${opt === value ? 'text-ink' : 'text-dim'}`}
                   onClick={() => {
-                    if (disabled) return
                     onChange(opt)
                     setOpen(false)
                   }}
                 >
                   <span className="block">{opt}</span>
                   {disabled && (
-                    // aria-hidden: the accessible NAME must stay just the mode's own label
-                    // (`findByRole('menuitem', { name: ... })` and every other consumer keys
-                    // off it) — the reason is a visible sighted-user affordance, and reaches
-                    // assistive tech instead through `title`, same as the button's own tooltip.
-                    <span aria-hidden="true" className="block text-[10px] text-mute">
+                    // NOT aria-hidden: `aria-describedby` above wires this text in as the
+                    // button's accessible DESCRIPTION, so a screen-reader user gets the reason
+                    // too — while the accessible NAME (what `getByRole('menuitem', { name: … })`
+                    // and every other consumer keys off) stays just the mode's own label, since
+                    // a description is announced separately from the name rather than folded
+                    // into it.
+                    <span id={reasonId} className="block text-[10px] text-mute">
                       {PERMISSION_MODE_DISABLED_REASON}
                     </span>
                   )}
