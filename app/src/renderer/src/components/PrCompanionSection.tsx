@@ -10,6 +10,7 @@ import { uiStore } from '../lib/uiStore'
 import { PrRollupDot } from './PrRollupDot'
 import { BUCKET_TONE } from './prCheckTone'
 import { Chip, IconBtn, MenuButton, SectionLabel, Skeleton } from './ui'
+import { CollapsibleSection } from './CollapsibleSection'
 
 /** Review mode refreshes fast because the user is watching this exact PR. */
 const REVIEW_POLL_MS = 20_000
@@ -396,60 +397,63 @@ export function PrCompanionSection({
   for (const c of status?.checks ?? []) counts[c.bucket]++
 
   return (
-    <div
+    <CollapsibleSection
+      id="pr"
+      name="Pull request"
       // Both themes get a pane — see the note on ReposSection's own container.
       // Tight py-2/gap-1.5 rather than p-2.5/gap-2 (user-directed, 2026-08-04, matching
       // JiraSection/ReposSection/CaseFiles): the rail's section headers were eating more
       // vertical space than their content needed, across every card, not just one.
       className={`flex flex-col gap-1.5 rounded-r3 px-2.5 py-2 ${dynamic ? 'glass-panel' : 'surface-card'}`}
-      data-tier={status?.rollup === 'failing' ? 'p1' : undefined}
-    >
-      <SectionLabel>
-        <span className="flex items-center gap-1.5">
-          <GitPullRequest size={12} />
-          Pull request
-          {status && <PrRollupDot rollup={status.rollup} />}
-          <span className="flex-1" />
-          <IconBtn
-            aria-label="Link PR"
-            title="Link a pull request"
-            size="xs"
-            disabled={busy}
-            onClick={() => setPrDraft((d) => (d === null ? '' : null))}
-          >
-            <GitPullRequest size={13} />
-          </IconBtn>
-          {onPrsFound && (
+      dataTier={status?.rollup === 'failing' ? 'p1' : undefined}
+      header={
+        <SectionLabel>
+          <span className="flex items-center gap-1.5">
+            <GitPullRequest size={12} />
+            Pull request
+            {status && <PrRollupDot rollup={status.rollup} />}
+            <span className="flex-1" />
             <IconBtn
-              aria-label="Find PRs"
-              title="Search linked repos for this ticket's pull requests"
+              aria-label="Link PR"
+              title="Link a pull request"
               size="xs"
               disabled={busy}
-              onClick={() => {
-                setSearching(true)
-                void window.argus.pr
-                  .search(slug)
-                  .then(onPrsFound)
-                  .finally(() => setSearching(false))
-              }}
+              onClick={() => setPrDraft((d) => (d === null ? '' : null))}
             >
-              <Search size={13} />
+              <GitPullRequest size={13} />
             </IconBtn>
-          )}
-          {/* Unlink is not here any more (user-directed, 2026-08-02): it acts on one specific
-              pull request, so it belongs on that pull request's row — which is also where the
-              Open-on-GitHub button used to sit doing nothing the PR title does not already do. */}
-          <IconBtn
-            aria-label="Refresh pull request status"
-            title="Refresh"
-            disabled={busy}
-            onClick={refreshStatus}
-          >
-            <RefreshCw size={12} />
-          </IconBtn>
-        </span>
-      </SectionLabel>
-
+            {onPrsFound && (
+              <IconBtn
+                aria-label="Find PRs"
+                title="Search linked repos for this ticket's pull requests"
+                size="xs"
+                disabled={busy}
+                onClick={() => {
+                  setSearching(true)
+                  void window.argus.pr
+                    .search(slug)
+                    .then(onPrsFound)
+                    .finally(() => setSearching(false))
+                }}
+              >
+                <Search size={13} />
+              </IconBtn>
+            )}
+            {/* Unlink is not here any more (user-directed, 2026-08-02): it acts on one specific
+                pull request, so it belongs on that pull request's row — which is also where the
+                Open-on-GitHub button used to sit doing nothing the PR title does not already do. */}
+            <IconBtn
+              aria-label="Refresh pull request status"
+              title="Refresh"
+              disabled={busy}
+              onClick={refreshStatus}
+            >
+              <RefreshCw size={12} />
+            </IconBtn>
+          </span>
+        </SectionLabel>
+      }
+    >
       {/* Closed for the duration of a link, rather than left open and disabled: the pending row
           below already restates the reference being linked, and the greyed box beside it read as
           a second, broken copy of the same thing. It reopens with the typed value still in it if
@@ -603,6 +607,6 @@ export function PrCompanionSection({
           )}
         </>
       )}
-    </div>
+    </CollapsibleSection>
   )
 }
