@@ -614,6 +614,25 @@ describe('PrCompanionSection', () => {
     expect(screen.queryByRole('button', { name: 'Unlink pull request' })).not.toBeInTheDocument()
   })
 
+  // Important finding: Link PR lives in the header, so it stays clickable while collapsed, but
+  // the form it opens (`prDraft`) is in the body, which unmounts while collapsed. Without
+  // re-expanding on click, the button silently toggles state with nothing visible on screen.
+  it('expands the section when Link PR is clicked while collapsed', async () => {
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    await screen.findByRole('button', { name: 'Link PR' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Pull request' }))
+    // Header (and Link PR within it) survives collapse; the body does not.
+    expect(screen.getByRole('button', { name: 'Link PR' })).toBeInTheDocument()
+    expect(screen.queryByText('build')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link PR' }))
+
+    // The section re-expanded, so the PR reference form it opens is actually visible.
+    expect(screen.queryByRole('button', { name: 'Expand Pull request' })).not.toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/pr url/i)).toBeInTheDocument()
+  })
+
   it('keeps the P1 tier attribute on the container while collapsed', async () => {
     // `rollup: 'failing'` in the fixture — the attribute drives the tier styling and must
     // survive the container moving into CollapsibleSection.

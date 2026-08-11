@@ -72,6 +72,11 @@ export function ReposSection({
   }, [slug, reload])
 
   async function link(p: string): Promise<void> {
+    // The whole feedback surface for this — the new row, the pending chip, and critically the
+    // failure chip below — lives in the body, which unmounts while collapsed. Expand before any
+    // async work starts so both the success row and a thrown error land somewhere visible,
+    // rather than rendering into an unmounted subtree the user has no reason to check.
+    uiStore.setRailSectionCollapsed('repos', false)
     // The basename is known the moment the path arrives, so the chip is on screen before the
     // git spawns start — linkWorkspace runs three, then describeWorkspace runs `git status`
     // over the whole repo, then reload() re-describes every linked repo.
