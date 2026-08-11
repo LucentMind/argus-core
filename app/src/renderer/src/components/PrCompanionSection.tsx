@@ -418,7 +418,13 @@ export function PrCompanionSection({
               title="Link a pull request"
               size="xs"
               disabled={busy}
-              onClick={() => setPrDraft((d) => (d === null ? '' : null))}
+              onClick={() => {
+                // The form this opens lives in the body, which unmounts while collapsed —
+                // without this the click is a no-op (or worse, silently toggles `prDraft`
+                // underneath a section the user can't see).
+                uiStore.setRailSectionCollapsed('pr', false)
+                setPrDraft((d) => (d === null ? '' : null))
+              }}
             >
               <GitPullRequest size={13} />
             </IconBtn>
