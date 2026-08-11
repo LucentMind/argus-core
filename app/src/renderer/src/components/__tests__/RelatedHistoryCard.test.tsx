@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { RelatedHistoryCard } from '../RelatedHistoryCard'
+import { uiStore } from '../../lib/uiStore'
 import type {
   CorpusDefectHit,
   LocalCaseHit,
@@ -51,6 +52,7 @@ function setArgus(result: Partial<RelatedSearchResult> | Error): void {
 }
 
 beforeEach(() => {
+  uiStore.setRailSectionCollapsed('related', false)
   localStorage.clear()
 })
 
@@ -289,5 +291,30 @@ describe('RelatedHistoryCard', () => {
     setArgus({ hits: [], sources: [] })
     render(<RelatedHistoryCard slug="new" onOpenExplorer={vi.fn()} />)
     await waitFor(() => expect(screen.queryByText(/Related history/i)).not.toBeInTheDocument())
+  })
+
+  it('collapses to its header, keeping the label and dropping the hits', async () => {
+    setArgus({ hits: [localHit(), corpusHit()] })
+    render(<RelatedHistoryCard slug="new" onOpenExplorer={() => {}} />)
+    expect(await screen.findByText('ECU reset drifts DLT')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Related history' }))
+
+    expect(screen.getByText(/Related history/i)).toBeInTheDocument()
+    expect(screen.queryByText('ECU reset drifts DLT')).not.toBeInTheDocument()
+    expect(screen.queryByText(/charge plan dropped/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Search all history' })).not.toBeInTheDocument()
+  })
+
+  // Collapse and dismiss are different things — collapsed is quiet, dismissed is gone — so the
+  // dismiss control has to stay reachable from the collapsed header.
+  it('keeps dismiss reachable while collapsed', async () => {
+    setArgus({ hits: [localHit()] })
+    render(<RelatedHistoryCard slug="new" />)
+    await screen.findByText('ECU reset drifts DLT')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Related history' }))
+
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeInTheDocument()
   })
 })
