@@ -163,11 +163,13 @@ describe('driver registry', () => {
     expect(activeCapabilities(s)).toBe(DRIVERS['github-copilot'].capabilities)
   })
 
-  it('activeCapabilities fallback (null settings / unknown driver) is conservative on editableApprovals only', () => {
+  it('activeCapabilities fallback (null settings / unknown driver) is conservative on editableApprovals AND permissionModes', () => {
     // The fallback covers both the pre-load window AND the settled state where
     // settings IPC failed (SettingsStore.start swallows the error and the payload
-    // stays null forever). Cosmetic fields stay permissive; the security-relevant
-    // edit affordance must not be offered when the driver is unknown.
+    // stays null forever) — reachable well beyond a flicker, e.g. a session pinned to an
+    // instance the user later deleted. `auto` is Claude-only, so offering it here would be
+    // exactly the "affordance the active driver might silently drop" the edit-affordance
+    // guard already avoids; permissionModes must stay BASE_PERMISSION_MODES, not the full set.
     for (const caps of [
       activeCapabilities(null),
       activeCapabilities(undefined),
@@ -177,7 +179,7 @@ describe('driver registry', () => {
         return activeCapabilities(s)
       })()
     ]) {
-      expect(caps.permissionModes).toEqual(PERMISSION_MODES)
+      expect(caps.permissionModes).toEqual(BASE_PERMISSION_MODES)
       expect(caps.editableApprovals).toBe(false)
       expect(caps.costReporting).toBe(true)
     }
