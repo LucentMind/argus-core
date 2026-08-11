@@ -67,10 +67,25 @@ export function createCopilotNormalizer(init: {
     const d = raw.data ?? {}
 
     switch (raw.type) {
+      // Copilot's transport never reports which permission mode it adopted, so this driver
+      // has nothing to say here — `null`, not an omitted field, so the type stays honest
+      // about "no report" vs. "reported and matched/mismatched" (see agent-events.ts).
       case 'session.start':
-        return [makeEvent(ctx, 'session.started', { model, resumed: init.resumed })]
+        return [
+          makeEvent(ctx, 'session.started', {
+            model,
+            resumed: init.resumed,
+            effectivePermissionMode: null
+          })
+        ]
       case 'session.resume':
-        return [makeEvent(ctx, 'session.started', { model, resumed: true })]
+        return [
+          makeEvent(ctx, 'session.started', {
+            model,
+            resumed: true,
+            effectivePermissionMode: null
+          })
+        ]
 
       // Router / model plumbing — carries the resolved model; update state, emit nothing.
       case 'session.model_change':
