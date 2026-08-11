@@ -233,15 +233,28 @@ export function CaseWorkspace({
     setSessionId(id)
   }
 
-  /** Re-pin the current chat to a provider instance + model. Applied optimistically so the
-   *  picker doesn't lag a round-trip; the main process rebuilds the live session on the
-   *  next send (AgentService compares the session's modelKey). */
+  /** Re-pin the current chat to a provider instance + model. instanceId/model are applied
+   *  optimistically so the picker doesn't lag a round-trip; the main process rebuilds the
+   *  live session on the next send (AgentService compares the session's modelKey).
+   *
+   *  permissionMode is NOT guessed optimistically — whether the re-pin resets it depends on
+   *  the new driver's capabilities, which is exactly the judgment
+   *  reconcilePermissionModeForDriver already makes server-side (main/index.ts's
+   *  sessionsSetModel handler). Duplicating that here would be a second place for "does this
+   *  driver support this mode" to drift from the real one. Instead the round trip's response
+   *  carries the reconciled value back and this patches it in once it resolves; until then the
+   *  chip still shows the pre-switch mode; a one-round-trip lag beats a wrong permanent value. */
   function handleModelChange(instanceId: string, model: string): void {
     if (sessionId === null) return
     sessionsStore.patch(slug, sessionId, { instanceId, model })
-    void window.argus.sessions.setModel(sessionId, instanceId, model).catch(() => {
-      setSessionsError('Could not switch model for this chat.')
-    })
+    void window.argus.sessions
+      .setModel(sessionId, instanceId, model)
+      .then(({ permissionMode }) => {
+        sessionsStore.patch(slug, sessionId, { permissionMode })
+      })
+      .catch(() => {
+        setSessionsError('Could not switch model for this chat.')
+      })
   }
 
   /** Same optimistic-then-persist shape as handleModelChange above: update the local

@@ -442,8 +442,16 @@ const argus = {
     create: (caseSlug: string): Promise<SessionSummary> => invoke(IPC.sessionsCreate, caseSlug),
     rename: (sessionId: number, title: string): Promise<void> =>
       invoke(IPC.sessionsRename, sessionId, title),
-    /** Re-pin a chat to a provider instance + model. Resolves true when it actually changed. */
-    setModel: (sessionId: number, instanceId: string, model: string): Promise<boolean> =>
+    /** Re-pin a chat to a provider instance + model. `changed` is true when the model pin
+     *  itself actually changed; `permissionMode` is the session's permission_mode AFTER any
+     *  reconciliation this re-pin triggered (see reconcilePermissionModeForDriver) — the
+     *  caller patches its cached session row with it so the composer's chip/menu don't keep
+     *  naming a mode the new driver just dropped. */
+    setModel: (
+      sessionId: number,
+      instanceId: string,
+      model: string
+    ): Promise<{ changed: boolean; permissionMode: PermissionMode | null }> =>
       invoke(IPC.sessionsSetModel, sessionId, instanceId, model),
     /** Replace this chat's option selections. Resolves true when it actually changed. */
     setRunOptions: (sessionId: number, sel: RunOptionSelection[]): Promise<boolean> =>

@@ -57,10 +57,10 @@ describe('ModeRefusalRegistry', () => {
     expect(reg.for('never-seen')).toEqual([])
   })
 
-  it('records nothing when requested is "default" — queryOptions.ts never actually sends that mode, so a CLI-configured non-default is not a refusal of anything Argus asked for', () => {
+  it('records a mismatch even when requested is "default" — the registry itself is dumb string-equality, no mode is special-cased here; the "default is never a real request" judgment is recordRefusalFor\'s job, not this class\'s (see the "regression (Finding 1)" test in the recordRefusalFor describe block below)', () => {
     const reg = new ModeRefusalRegistry()
     reg.record('claude-default', 'default', 'acceptEdits')
-    expect(reg.for('claude-default')).toEqual([])
+    expect(reg.for('claude-default')).toEqual(['default'])
   })
 
   it('does not add a duplicate when the same mode is refused twice', () => {

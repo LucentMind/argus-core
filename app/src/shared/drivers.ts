@@ -409,6 +409,17 @@ export function nextInstanceId(
  * deleted or renamed resolves here permanently. Offering `'auto'` with no driver resolved is
  * exactly the "affordance the active driver might silently drop" case the comment above warns
  * about, so this uses `BASE_PERMISSION_MODES`, not the full `PERMISSION_MODES`.
+ *
+ * Known divergence: for an instance naming an UNREGISTERED driver slug specifically (as
+ * opposed to a missing/disabled instance), the main process's `driverRegistry.ts`
+ * (`resolveInstanceDriver`/`resolveDriver`) falls back to the Claude driver itself — full
+ * `PERMISSION_MODES`, `auto` included — not to this constant. That is a real capability
+ * mismatch (the session actually runs on Claude and keeps `auto`; this picker hides it), but
+ * it is tolerated rather than unified: reaching it requires a hand-edited settings file naming
+ * a driver kind that was never registered, or a driver removed from `DRIVERS` after a session
+ * was already pinned to it — both rare enough that the safe-but-wrong direction (hiding an
+ * option that would actually work) beats matching main's fallback and repeating the
+ * `editableApprovals` false-signal risk this docblock opened with.
  */
 const DEFAULT_CAPABILITIES: DriverCapabilities = {
   permissionModes: BASE_PERMISSION_MODES,
