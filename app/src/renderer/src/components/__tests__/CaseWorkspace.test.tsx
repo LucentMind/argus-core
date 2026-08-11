@@ -51,8 +51,12 @@ beforeEach(() => {
   uiStore.setDynamicTheme(false)
   // uiStore is a module-level singleton that only reads localStorage in its constructor —
   // localStorage.clear() above does not reset railCollapsed, so a collapse in one test would
-  // otherwise leak into every later test in this file.
+  // otherwise leak into every later test in this file. All four rail sections render here
+  // (Ticket/Repos/Pull request/Related history), not just Repos, so all four ids are reset.
+  uiStore.setRailSectionCollapsed('jira', false)
   uiStore.setRailSectionCollapsed('repos', false)
+  uiStore.setRailSectionCollapsed('pr', false)
+  uiStore.setRailSectionCollapsed('related', false)
   caseBarStore.reset()
   // module-level singleton — a case slug reused across tests would otherwise see the previous
   // test's rows synchronously, before this test's sessions.list mock has resolved
@@ -1284,6 +1288,22 @@ describe('CaseWorkspace workspace pane', () => {
     expect(toggle.parentElement?.parentElement).toBe(aside)
     expect(aside.firstElementChild).toBe(toggle.parentElement)
     expect(toggle.closest('.overflow-y-auto')).toBeNull()
+  })
+
+  // Minor 4: half this branch's purpose is the max-h-[55%] cap on the rail's upper scroll box
+  // (see the arithmetic comment above that `<div>` in CaseWorkspace.tsx) — nothing else in this
+  // file guards its presence. jsdom cannot prove the cap actually bounds anything (no layout),
+  // but it CAN prove the class survived, which is what a "tidy the classes" refactor would
+  // silently undo without any layout test ever catching it.
+  it('caps the rail scroll box at max-h-[55%] so evidence keeps a share of the rail', async () => {
+    const { container } = renderWorkspace()
+    await screen.findByRole('button', { name: 'Collapse workspace' })
+    // The workspace/evidence aside, same element the toggle test above resolves via
+    // `container.querySelector('aside')` (it is first in document order).
+    const aside = container.querySelector('aside')!
+    const scrollBox = aside.querySelector('.overflow-y-auto')
+    expect(scrollBox).not.toBeNull()
+    expect(scrollBox!.className).toMatch(/(^|\s)max-h-\[55%\](\s|$)/)
   })
 
   // Task 3 dropped the hairline border from the two EXPANDED asides so the three columns
