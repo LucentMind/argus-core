@@ -9,8 +9,11 @@ import { confirmStore } from '../../lib/confirmStore'
 
 beforeEach(() => {
   uiStore.setDynamicTheme(false)
-  uiStore.setRailSectionCollapsed('repos', false)
   localStorage.clear()
+  // uiStore is a module-level singleton that only reads localStorage in its constructor —
+  // localStorage.clear() above does not reset railCollapsed, so a collapse in one test would
+  // otherwise leak into every later test in this file.
+  uiStore.setRailSectionCollapsed('repos', false)
   window.argus = {
     workspaces: {
       list: vi.fn(async () => [
@@ -397,5 +400,51 @@ describe('ReposSection collapse', () => {
     expect(screen.queryByText('hivemindtest')).not.toBeInTheDocument()
     expect(screen.getByText('Repos')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Link repo' })).toBeInTheDocument()
+  })
+
+  // Important finding: RepoPickerMenu (in the header) portals, so it keeps working while
+  // collapsed, but link()'s entire feedback surface — including the failure chip — is in the
+  // body, which unmounts while collapsed. Driving the real menu UI in jsdom is impractical here
+  // (RepoPickerMenu's trigger opens a portalled dropdown this file does not otherwise exercise
+  // beyond `fireEvent.click` on the trigger itself, as the existing "links a picked repo via the
+  // Link repo button" test above already does), so this asserts at the same seam that test
+  // uses: clicking the trigger drives `pick()` -> `link()` directly under the mocked
+  // `workspaces.pick`, and the honest thing to check is that the section is expanded once that
+  // resolves — the same observable state a real menu selection would produce.
+  it('expands the section once a repo is picked while collapsed', async () => {
+    window.argus.workspaces.pick = vi.fn(async () => 'C:\\code\\other')
+    render(<ReposSection slug="C-1" mode="investigation" />)
+    await screen.findByText('hivemindtest')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Repos' }))
+    expect(screen.getByRole('button', { name: 'Expand Repos' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link repo' }))
+
+    await waitFor(() =>
+      expect(window.argus.workspaces.link).toHaveBeenCalledWith('C-1', 'C:\\code\\other')
+    )
+    // Expanded as of the pick, not waiting on the link round trip to settle.
+    expect(screen.queryByRole('button', { name: 'Expand Repos' })).not.toBeInTheDocument()
+  })
+
+  // Same finding, the failure path: expand happens at the START of the pick handler (before
+  // the async link call), so it applies whether the link succeeds or throws — a locked
+  // worktree, missing path, or permissions error must not render into an unmounted subtree.
+  it('expands the section even when the pick fails, so the error chip is visible', async () => {
+    window.argus.workspaces.pick = vi.fn(async () => 'C:\\not-a-repo')
+    window.argus.workspaces.link = vi.fn(() =>
+      Promise.reject(new Error('Not a git repository: C:\\not-a-repo'))
+    )
+    render(<ReposSection slug="C-1" mode="investigation" />)
+    await screen.findByText('hivemindtest')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Repos' }))
+    expect(screen.queryByText('hivemindtest')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link repo' }))
+
+    expect(await screen.findByTitle('Not a git repository: C:\\not-a-repo')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Expand Repos' })).not.toBeInTheDocument()
   })
 })
