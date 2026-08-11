@@ -1037,13 +1037,21 @@ function registerIpc(): void {
     () => broadcast(IPC.agentAuthChanged, undefined)
   )
 
+  // Fired whenever the provider-status list changes, so the settings page re-reads without
+  // waiting for its own poll. Shared between ProviderStatusService (after a probe lands) and
+  // modeRefusals (after a NEW refusal is recorded) — same channel, same payload, so there's
+  // no second notion of "providers changed" to keep in sync.
+  const notifyProvidersChanged = (): void => broadcast(IPC.providersChanged, undefined)
+
   // Per-instance record of permission modes the CLI has refused to adopt this app session
   // (e.g. an org policy blocking bypassPermissions, so the CLI silently falls back to
   // `default`). In-memory only, never persisted — a policy can change between launches, and
   // a stale disable surviving a restart is worse than one that clears and gets re-observed.
   // Recorded from the interactive agent event sink below; read here so the settings page can
-  // show it per instance.
-  const modeRefusals = new ModeRefusalRegistry()
+  // show it per instance. Only cleared by the user-initiated IPC.providerRefresh handler
+  // below — never by a periodic or settings-triggered refreshAll(), which would make a still-
+  // true refusal evaporate on a timer.
+  const modeRefusals = new ModeRefusalRegistry({ notify: notifyProvidersChanged })
 
   // Per-instance provider status for the settings page (every enabled provider at once),
   // as opposed to authCache's single default-provider verdict.
@@ -1052,7 +1060,7 @@ function registerIpc(): void {
     settings: () => settingsService.get().agent,
     driverFor: (instanceId) =>
       resolveInstanceDriver(settingsService.get().agent, instanceId).driver,
-    notify: () => broadcast(IPC.providersChanged, undefined),
+    notify: notifyProvidersChanged,
     latestVersion: async (driverKind) => {
       const pkg = getDriverByKind(driverKind).npmPackage
       return pkg ? latestNpmVersion(pkg) : null
@@ -1741,6 +1749,11 @@ function registerIpc(): void {
   ipcMain.handle(IPC.agentAuthStatus, (_e, force?: boolean) => authCache.get(force ?? false))
   ipcMain.handle(IPC.providerStatuses, () => providerStatusService?.list() ?? [])
   ipcMain.handle(IPC.providerRefresh, async () => {
+    // The one user gesture the design treats as "policy may have changed, go find out": clear
+    // recorded refusals before probing, so a user who just had an org policy lifted gets the
+    // permission-mode option back without restarting. Contrast with the periodic/settings-
+    // triggered refreshAll() below, which deliberately leaves the registry alone.
+    modeRefusals.clear()
     await providerStatusService?.refreshAll()
     return providerStatusService?.list() ?? []
   })

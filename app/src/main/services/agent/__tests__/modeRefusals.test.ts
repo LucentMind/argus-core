@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { ModeRefusalRegistry } from '../modeRefusals'
 
 describe('ModeRefusalRegistry', () => {
@@ -55,5 +55,34 @@ describe('ModeRefusalRegistry', () => {
     reg.record('claude-default', 'bypassPermissions', 'default')
     reg.record('claude-default', 'bypassPermissions', 'default')
     expect(reg.for('claude-default')).toEqual(['bypassPermissions'])
+  })
+
+  it('fires notify() when a NEW refusal is recorded', () => {
+    const notify = vi.fn()
+    const reg = new ModeRefusalRegistry({ notify })
+    reg.record('claude-default', 'bypassPermissions', 'default')
+    expect(notify).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not fire notify() again for a repeat refusal of the same mode', () => {
+    const notify = vi.fn()
+    const reg = new ModeRefusalRegistry({ notify })
+    reg.record('claude-default', 'bypassPermissions', 'default')
+    reg.record('claude-default', 'bypassPermissions', 'default')
+    expect(notify).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not fire notify() on a no-op record (adopted mode matched, or effective null/undefined)', () => {
+    const notify = vi.fn()
+    const reg = new ModeRefusalRegistry({ notify })
+    reg.record('claude-default', 'auto', 'auto')
+    reg.record('claude-default', 'bypassPermissions', null)
+    reg.record('claude-default', 'bypassPermissions', undefined as unknown as null)
+    expect(notify).not.toHaveBeenCalled()
+  })
+
+  it('works without a notify dep supplied — optional, not required', () => {
+    const reg = new ModeRefusalRegistry()
+    expect(() => reg.record('claude-default', 'bypassPermissions', 'default')).not.toThrow()
   })
 })

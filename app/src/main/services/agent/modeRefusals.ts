@@ -1,5 +1,14 @@
 import type { PermissionMode } from '../../../shared/settings'
 
+export interface ModeRefusalRegistryDeps {
+  /** Fired synchronously whenever `record()` adds a NEW refusal (not on no-ops, and not on a
+   *  repeat refusal of a mode already recorded for that instance). This is the only way a
+   *  refusal reaches the renderer without waiting for the next periodic/settings-driven
+   *  `refreshAll()` — which can be up to five minutes away — or a user-initiated refresh.
+   *  Optional so tests that don't care about notification don't need to supply one. */
+  notify?: () => void
+}
+
 /**
  * In-memory record of "Argus asked this provider instance for permission mode X, the CLI
  * adopted something else instead". Never persisted: an org's Claude Code policy can change
@@ -15,6 +24,8 @@ import type { PermissionMode } from '../../../shared/settings'
 export class ModeRefusalRegistry {
   private refusals = new Map<string, Set<PermissionMode>>()
 
+  constructor(private deps: ModeRefusalRegistryDeps = {}) {}
+
   /**
    * `effective` is whatever the CLI's own init message reported adopting, or `null`/`undefined`
    * when the driver said nothing (untyped at the JSON boundary — see mirror.ts's bare
@@ -24,8 +35,10 @@ export class ModeRefusalRegistry {
     if (effective == null) return
     if (effective === requested) return
     const set = this.refusals.get(instanceId) ?? new Set<PermissionMode>()
+    const isNew = !set.has(requested)
     set.add(requested)
     this.refusals.set(instanceId, set)
+    if (isNew) this.deps.notify?.()
   }
 
   /** Refused modes for one instance, insertion order. Empty array, never omitted, when clean. */
