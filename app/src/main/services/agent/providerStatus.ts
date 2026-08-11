@@ -44,11 +44,18 @@ export class ProviderStatusService {
   }
 
   /** Cached statuses for every enabled instance, in settings order. Instances never yet
-   *  probed appear as `checking` rather than being omitted, so the list doesn't reflow. */
+   *  probed appear as `checking` rather than being omitted, so the list doesn't reflow.
+   *
+   *  Mode refusals are overlaid here, at read time, rather than baked into the cached status
+   *  at probe time: `probe()` runs on a 5-minute timer/settings-change cadence, but a refusal
+   *  can be recorded from a `session.started` event at any moment in between, so snapshotting
+   *  it into the cache would leave it invisible until the next probe. Reading it fresh on
+   *  every `list()` call also sidesteps any ordering question between when a probe runs and
+   *  when the registry is cleared — there is nothing to get out of order. */
   list(): ProviderStatus[] {
     return enabledInstances({ agent: this.deps.settings() } as never).map(
-      ({ id, instance, driver }) =>
-        this.cache.get(id) ?? {
+      ({ id, instance, driver }) => {
+        const status = this.cache.get(id) ?? {
           instanceId: id,
           driverKind: driver.kind,
           displayName: instance.displayName?.trim() || (driver.shortLabel ?? driver.label),
@@ -56,6 +63,13 @@ export class ProviderStatusService {
           detail: 'Checking provider status',
           checkedAt: null
         }
+        // Undefined (not []) when clean, so a status with nothing to report is byte-identical
+        // to before this field existed.
+        const refused = this.deps.modeRefusals?.for(id)
+        return refused && refused.length > 0
+          ? { ...status, refusedPermissionModes: refused }
+          : status
+      }
     )
   }
 
@@ -69,12 +83,15 @@ export class ProviderStatusService {
   }
 
   /** Probe every enabled instance concurrently — one provider being slow or wedged must not
-   *  delay the others' results, so each notifies as it lands. Clears the mode-refusal
-   *  registry first: a refusal is a live observation, not a fact to carry across refreshes,
-   *  so a status refreshed after a refusal comes back clean until the mode is asked for and
-   *  refused again. */
+   *  delay the others' results, so each notifies as it lands.
+   *
+   *  Does NOT clear the mode-refusal registry. This runs on a 5-minute timer and on every
+   *  settings write (`onSettingsChanged`), neither of which is evidence the underlying org
+   *  policy changed — clearing here would make a still-true refusal evaporate within five
+   *  minutes. Only a user-initiated refresh (the `IPC.providerRefresh` handler) clears the
+   *  registry, because that is the one gesture the design intends to mean "policy may have
+   *  changed, go find out." */
   async refreshAll(): Promise<void> {
-    this.deps.modeRefusals?.clear()
     const agent = this.deps.settings()
     await Promise.all(
       enabledInstances({ agent } as never).map(({ id }) => this.refreshOne(id).catch(() => {}))
@@ -92,10 +109,6 @@ export class ProviderStatusService {
     }
     const displayName = instance.displayName?.trim() || driver.kind
     const cfg = driverConfig<AgentDriverConfig>(instance.driver, instance.config)
-    // Undefined (not []) when clean, so a status with nothing to report renders identically
-    // to before this field existed.
-    const refused = this.deps.modeRefusals?.for(instanceId)
-    const refusedPermissionModes = refused && refused.length > 0 ? refused : undefined
     try {
       const r = await driver.probeAuth({
         timeoutMs: agent.probeTimeoutMs,
@@ -118,7 +131,6 @@ export class ProviderStatusService {
         latestVersion: latest && r.version && latest !== r.version ? latest : undefined,
         updateCommand: driver.updateCommand,
         ...(r.ok ? {} : { fixHint: driver.authFixHint }),
-        refusedPermissionModes,
         checkedAt: this.now().toISOString()
       })
     } catch (err) {
@@ -129,7 +141,6 @@ export class ProviderStatusService {
         state: 'error',
         detail: err instanceof Error ? err.message : String(err),
         fixHint: driver.authFixHint,
-        refusedPermissionModes,
         checkedAt: this.now().toISOString()
       })
     }
