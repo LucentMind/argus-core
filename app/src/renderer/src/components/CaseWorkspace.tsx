@@ -554,8 +554,19 @@ export function CaseWorkspace({
                 flex-1 (below) gives the card a floor it can't be squeezed under (flex
                 distributes negative space by scaled shrink factor, and a flex-basis:0%
                 child would otherwise absorb none of it, i.e. get squeezed to 0), which
-                is what forces this box to give up space first instead. */}
-              <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+                is what forces this box to give up space first instead.
+                max-h-[55%]: that floor alone is not enough. CaseFiles' flex-basis:0%
+                means its hypothetical size is 0 and the min-h-32 clamp is the only
+                thing keeping it on screen, so a tall upper box (a case with several
+                related-history hits, or a long repo list) leaves evidence at exactly
+                128px — header, search bar, about one row — and because CaseFiles sits
+                OUTSIDE this scroller there is no way to scroll the rest back into
+                view. Capping this box at 55% of the rail bounds it before evidence
+                hits its floor: past the cap this box scrolls internally and CaseFiles
+                keeps the remaining ~45%. It is a max, not a size, so a short rail
+                (no ticket, one repo) still collapses to its content and hands the
+                slack to evidence exactly as before. */}
+              <div className="flex max-h-[55%] min-h-0 flex-col gap-3 overflow-y-auto">
                 {/* The ticket, first: it is the case's origin, so it reads above the material the
                   case accumulated. key: reset the refresh phase on a case switch, exactly as the
                   top bar's copy did. Renders nothing when the case has no ticket. Prefixed
