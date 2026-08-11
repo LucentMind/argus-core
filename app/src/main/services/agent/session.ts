@@ -299,6 +299,12 @@ export class CaseSession {
   private grants = new SessionGrants()
   private riskCtx: RiskContext
   private detailCtx: ToolDetailCtx
+  /** Task 7: toolCallIds already claimed for the audit trail, by EITHER the approval
+   *  pipeline (`handleToolRequest`) or the observation seam (`onToolObserved`) — whichever
+   *  reaches `claimToolCallAudit` first for a given id. The two seams fire independently,
+   *  in no guaranteed order, for the same finished tool_use block once a call goes
+   *  through `canUseTool`; this set is what keeps that pair to exactly one audit row. */
+  private auditedToolCallIds = new Set<string>()
   private turnIndex = 0
   private currentTurnRow: number | null = null
   /** Pids this session registered with `deps.processLabels`, so `stop()` can unregister
@@ -497,15 +503,23 @@ export class CaseSession {
       eventCtx: () => this.ctx(),
       onToolRequest: this.handleToolRequest.bind(this),
       classifyOnly: this.classifyOnly.bind(this),
-      // Usage-stats capture for the two classes the Claude SDK auto-allows without ever
-      // consulting canUseTool (proven live 2026-07-20): `Skill` activations and sandboxed
-      // reference reads. Everything else still audits through the approval pipeline —
-      // observing those here too would double-count them. Copilot never fires this seam
-      // (its reads audit via classifyOnly), so the split stays disjoint per driver.
-      onToolObserved: (toolName, input) => {
+      // Usage-stats capture for `Skill` activations and sandboxed reference reads — the
+      // two classes the Claude SDK auto-allows without ever consulting canUseTool (proven
+      // live 2026-07-20) — PLUS (Task 7) the audit row for every OTHER tool call that
+      // skipped canUseTool too: permissionMode 'auto' (the CLI's own classifier decides
+      // and never calls back into Argus) and a working bypassPermissions. Anything that
+      // DID reach canUseTool already got its row from handleToolRequest;
+      // claimToolCallAudit dedupes the two seams against each other by toolCallId,
+      // whichever fires first for a given id. Copilot never fires this seam (its reads
+      // audit via classifyOnly), so this only ever runs for the Claude driver.
+      onToolObserved: (toolName, input, toolCallId) => {
         const detail = extractToolDetail(toolName, input, this.detailCtx)
-        if (toolName !== 'Skill' && !detail?.startsWith('ref:')) return
-        this.logToolCall(toolName, input, 'LOW', 'observed', 0)
+        if (toolName === 'Skill' || detail?.startsWith('ref:')) {
+          this.logToolCall(toolName, input, 'LOW', 'observed', 0)
+          return
+        }
+        if (this.claimToolCallAudit(toolCallId)) return
+        this.logToolCall(toolName, input, 'LOW', 'auto', 0)
       },
       // Tag the cursor with the driver that produced it — sessionCursor gates resume on
       // this match so a future Copilot driver can never resume a Claude session's cursor.
@@ -874,6 +888,20 @@ export class CaseSession {
       )
   }
 
+  /** Task 7: claim a toolCallId against the audit trail. The approval pipeline
+   *  (`handleToolRequest`) and the observation seam (`onToolObserved`) both see every
+   *  Claude tool call that goes through `canUseTool`, arriving in no guaranteed order
+   *  relative to each other. Whichever side calls this FIRST for a given id becomes the
+   *  one that writes the row; returns `true` to tell the other side to skip its own
+   *  write. A call with no toolCallId (a driver/test that doesn't thread one through) is
+   *  never deduped — always returns `false`, i.e. "write it". */
+  private claimToolCallAudit(toolCallId: string | undefined): boolean {
+    if (toolCallId == null) return false
+    if (this.auditedToolCallIds.has(toolCallId)) return true
+    this.auditedToolCallIds.add(toolCallId)
+    return false
+  }
+
   /** Classify a tool call WITHOUT opening an approval card (the driver's classifyOnly seam).
    *  A permission-mode short-circuit that suppresses the *ask* (Copilot acceptEdits) calls this
    *  so a *deny* verdict — an out-of-sandbox or read-only-root write — is still enforced. The
@@ -912,23 +940,34 @@ export class CaseSession {
   private async handleToolRequest(
     toolName: string,
     input: Record<string, unknown>,
-    opts: { signal: AbortSignal }
+    opts: { signal: AbortSignal; toolCallId?: string }
   ): Promise<
     | { behavior: 'allow'; updatedInput: Record<string, unknown> }
     | { behavior: 'deny'; message: string }
   > {
+    // Claimed synchronously, before any await — onToolObserved fires independently (from
+    // the finished assistant message on the stream, not this control-channel call) and in
+    // no guaranteed order relative to this invocation. Whichever side claims the
+    // toolCallId first writes the audit row; the other skips. See claimToolCallAudit.
+    const alreadyAudited = this.claimToolCallAudit(opts.toolCallId)
+
     // AskUserQuestion is answered THROUGH canUseTool (verified live 2026-07-22): open a
     // Question dialog and return allow + updatedInput.answers. Never reaches the classifier
     // /approval-card path below, so no JSON-dump card appears.
-    if (toolName === 'AskUserQuestion') return this.handleUserQuestion(input, opts)
+    if (toolName === 'AskUserQuestion') return this.handleUserQuestion(input, opts, alreadyAudited)
 
     const started = Date.now()
     const verdict = classifyToolCall(toolName, input, {
       ...this.riskCtx,
       toolRisk: this.deps.toolRisk?.()
     })
-    const log = (decision: string): void =>
+    const log = (decision: string): void => {
+      // The observation seam (onToolObserved) already claimed this toolCallId and wrote
+      // its own row (decision 'auto') — the real decision computed here is lost in that
+      // race, but a lost row beats a duplicated one (see claimToolCallAudit).
+      if (alreadyAudited) return
       this.logToolCall(toolName, input, verdict.risk, decision, Date.now() - started)
+    }
 
     if (verdict.action === 'deny') {
       log('denied')
@@ -1002,7 +1041,10 @@ export class CaseSession {
   // --- AskUserQuestion dialog: normalize → emit → await → allow(updatedInput.answers) ---
   private async handleUserQuestion(
     input: Record<string, unknown>,
-    opts: { signal: AbortSignal }
+    opts: { signal: AbortSignal },
+    // Task 7: set when handleToolRequest's claimToolCallAudit found the observation seam
+    // got there first — this call's own logToolCall writes below must all be skipped.
+    alreadyAudited: boolean
   ): Promise<
     | { behavior: 'allow'; updatedInput: Record<string, unknown> }
     | { behavior: 'deny'; message: string }
@@ -1013,7 +1055,7 @@ export class CaseSession {
     // dismissed path below does: a deny surfaces as an is_error tool_result and makes the
     // agent retry the question, which in a background run would loop.
     if (this.deps.unattended) {
-      this.logToolCall('AskUserQuestion', input, 'LOW', 'cancelled', 0)
+      if (!alreadyAudited) this.logToolCall('AskUserQuestion', input, 'LOW', 'cancelled', 0)
       return {
         behavior: 'allow',
         updatedInput: {
@@ -1031,7 +1073,8 @@ export class CaseSession {
     this.emit(makeEvent(this.ctx(), 'dialog.resolved', { dialogId, behavior: outcome.behavior }))
 
     if (outcome.behavior === 'completed') {
-      this.logToolCall('AskUserQuestion', input, 'LOW', 'answered', Date.now() - started)
+      if (!alreadyAudited)
+        this.logToolCall('AskUserQuestion', input, 'LOW', 'answered', Date.now() - started)
       const updatedInput: Record<string, unknown> = {
         questions: passthroughQuestions,
         answers: outcome.result.answers
@@ -1042,7 +1085,8 @@ export class CaseSession {
     // Skip / cancel / drain: return a CLEAN allow carrying a freeform response, not a deny.
     // A deny surfaces as an is_error tool_result and can make the agent retry the question;
     // an allow with `response` yields "The user responded: …" and the agent moves on.
-    this.logToolCall('AskUserQuestion', input, 'LOW', 'cancelled', Date.now() - started)
+    if (!alreadyAudited)
+      this.logToolCall('AskUserQuestion', input, 'LOW', 'cancelled', Date.now() - started)
     return {
       behavior: 'allow',
       updatedInput: {
