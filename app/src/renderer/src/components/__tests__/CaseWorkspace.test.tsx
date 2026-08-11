@@ -49,6 +49,10 @@ beforeEach(() => {
   uiStore.setEvidenceCollapsed(false)
   uiStore.setEvidenceWidth(320)
   uiStore.setDynamicTheme(false)
+  // uiStore is a module-level singleton that only reads localStorage in its constructor —
+  // localStorage.clear() above does not reset railCollapsed, so a collapse in one test would
+  // otherwise leak into every later test in this file.
+  uiStore.setRailSectionCollapsed('repos', false)
   caseBarStore.reset()
   // module-level singleton — a case slug reused across tests would otherwise see the previous
   // test's rows synchronously, before this test's sessions.list mock has resolved
@@ -1322,6 +1326,20 @@ describe('CaseWorkspace rail material', () => {
       expect(a.className).toContain('bg-void')
       expect(a.className).not.toContain('dyn-rail')
     })
+  })
+})
+
+describe('CaseWorkspace rail section collapse', () => {
+  it('keeps a rail section collapsed across a case switch', async () => {
+    const { rerender } = render(workspace('NAV-1'))
+    await screen.findByRole('main')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Repos' }))
+    rerender(workspace('OTHER-2'))
+
+    // The rail sections remount on `key={slug}`, so this passes only because the flag lives in
+    // uiStore rather than in component state.
+    expect(await screen.findByRole('button', { name: 'Expand Repos' })).toBeInTheDocument()
   })
 })
 
