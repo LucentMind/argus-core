@@ -375,3 +375,39 @@ export function setSessionPermissionMode(
   db.prepare(`UPDATE sessions SET permission_mode = ? WHERE id = ?`).run(mode, sessionId)
   return true
 }
+
+/**
+ * The permission mode Argus is actually asking the driver for: the session's own pin if it
+ * has one, else the settings default. This is the ONE fallback expression — registry.ts's
+ * query-options builder and modeRefusals.ts's `recordRefusalFor` both call this instead of
+ * each writing their own `sessionPerm ?? defaultPermissionMode`, so "what did Argus request"
+ * can't quietly diverge between the place that sends the request and the place that checks
+ * whether it was honoured.
+ */
+export function requestedPermissionMode(
+  sessionPerm: PermissionMode | null,
+  defaultPermissionMode: PermissionMode
+): PermissionMode {
+  return sessionPerm ?? defaultPermissionMode
+}
+
+/**
+ * Reset a session's pinned `permission_mode` to `'default'` when it no longer names a mode
+ * the session's driver supports — e.g. a session pinned to `'auto'` gets re-pinned onto a
+ * Copilot/Codex/ACP instance, whose `permissionModes` is `BASE_PERMISSION_MODES` (no
+ * `'auto'`). Without this, `sessions.permission_mode` is only ever validated against the
+ * global `PERMISSION_MODES` (`assertPermissionMode`), not the specific driver in play, so the
+ * stale value would sail through: the composer chip keeps a label the new driver has no menu
+ * entry for, and requests silently fall through to normal approval cards instead of honouring
+ * a mode that no longer exists on this driver. No-op (returns false) when the session has no
+ * pin yet (null already means "inherit the settings default") or its pin is still supported.
+ */
+export function reconcilePermissionModeForDriver(
+  db: DatabaseSync,
+  sessionId: number,
+  supportedModes: readonly PermissionMode[]
+): boolean {
+  const mode = sessionPermissionMode(db, sessionId)
+  if (mode === null || (supportedModes as readonly string[]).includes(mode)) return false
+  return setSessionPermissionMode(db, sessionId, 'default')
+}

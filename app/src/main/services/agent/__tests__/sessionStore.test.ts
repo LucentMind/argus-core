@@ -14,9 +14,14 @@ import {
   sessionCursor,
   sessionProvider,
   setSessionModel,
-  deleteSession
+  deleteSession,
+  setSessionPermissionMode,
+  sessionPermissionMode,
+  reconcilePermissionModeForDriver,
+  requestedPermissionMode
 } from '../sessionStore'
 import { readDeletionAudit } from '../../deletionAudit'
+import { BASE_PERMISSION_MODES, PERMISSION_MODES } from '../../../../shared/settings'
 
 let tmp: string, db: DatabaseSync
 
@@ -267,5 +272,75 @@ describe('sessionStore — per-session provider instance and model', () => {
     expect(
       setSessionModel(db, 9999, { driverKind: 'claude-agent-sdk', instanceId: 'x', model: 'y' })
     ).toBe(false)
+  })
+})
+
+describe('requestedPermissionMode', () => {
+  it('the session pin wins when it has one', () => {
+    expect(requestedPermissionMode('bypassPermissions', 'default')).toBe('bypassPermissions')
+  })
+
+  it('falls back to the settings default when the session has no pin', () => {
+    expect(requestedPermissionMode(null, 'acceptEdits')).toBe('acceptEdits')
+  })
+})
+
+describe('reconcilePermissionModeForDriver', () => {
+  it('resets a mode the new driver does not support (Finding 2: auto onto a non-Claude driver)', () => {
+    const s = createSession(db, 'NAV-1', {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-default',
+      model: 'claude-opus-4-8'
+    })
+    setSessionPermissionMode(db, s.id, 'auto')
+    expect(sessionPermissionMode(db, s.id)).toBe('auto')
+
+    const changed = reconcilePermissionModeForDriver(db, s.id, BASE_PERMISSION_MODES)
+
+    expect(changed).toBe(true)
+    expect(sessionPermissionMode(db, s.id)).toBe('default')
+  })
+
+  it('preserves a mode the new driver still supports', () => {
+    const s = createSession(db, 'NAV-1', {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-default',
+      model: 'claude-opus-4-8'
+    })
+    setSessionPermissionMode(db, s.id, 'plan')
+    expect(sessionPermissionMode(db, s.id)).toBe('plan')
+
+    const changed = reconcilePermissionModeForDriver(db, s.id, BASE_PERMISSION_MODES)
+
+    expect(changed).toBe(false)
+    expect(sessionPermissionMode(db, s.id)).toBe('plan')
+  })
+
+  it('is a no-op for a session that never pinned a mode', () => {
+    const s = createSession(db, 'NAV-1', {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-default',
+      model: 'claude-opus-4-8'
+    })
+    expect(sessionPermissionMode(db, s.id)).toBeNull()
+
+    const changed = reconcilePermissionModeForDriver(db, s.id, BASE_PERMISSION_MODES)
+
+    expect(changed).toBe(false)
+    expect(sessionPermissionMode(db, s.id)).toBeNull()
+  })
+
+  it('preserves auto when the new driver still supports it (the full PERMISSION_MODES set)', () => {
+    const s = createSession(db, 'NAV-1', {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-default',
+      model: 'claude-opus-4-8'
+    })
+    setSessionPermissionMode(db, s.id, 'auto')
+
+    const changed = reconcilePermissionModeForDriver(db, s.id, PERMISSION_MODES)
+
+    expect(changed).toBe(false)
+    expect(sessionPermissionMode(db, s.id)).toBe('auto')
   })
 })

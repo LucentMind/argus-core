@@ -23,7 +23,8 @@ import {
   sessionProvider,
   sessionMode,
   sessionRunOptions,
-  sessionPermissionMode
+  sessionPermissionMode,
+  requestedPermissionMode
 } from './sessionStore'
 import { getCase } from '../caseService'
 import { workspaceSandboxRoots } from '../workspaces'
@@ -377,8 +378,9 @@ export class AgentService {
                   : effectiveDefaultModel(parsed)),
               cliPath: cfg.cliPath,
               // The session's own mode wins; the settings default is the fallback for
-              // sessions that never set one.
-              permissionMode: sessionPerm ?? as.defaultPermissionMode,
+              // sessions that never set one. Shared with modeRefusals.ts's
+              // recordRefusalFor via requestedPermissionMode — see that function's doc.
+              permissionMode: requestedPermissionMode(sessionPerm, as.defaultPermissionMode),
               runOptions,
               personaAppend: as.personaAppend || undefined
             }

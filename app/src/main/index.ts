@@ -166,9 +166,9 @@ import {
   renameSession,
   deleteSession,
   sessionProvider,
-  sessionPermissionMode
+  reconcilePermissionModeForDriver
 } from './services/agent/sessionStore'
-import { ModeRefusalRegistry } from './services/agent/modeRefusals'
+import { ModeRefusalRegistry, recordRefusalFor } from './services/agent/modeRefusals'
 import { modeContextForCase, demoteIfModeUnavailable } from './services/modeContext'
 import { availableModes, MODES, type ModeId } from '../shared/modes'
 import type { EvidenceScope } from '../shared/evidenceScope'
@@ -1667,24 +1667,23 @@ function registerIpc(): void {
       : {}),
     onEvent: (e) => {
       // Compare what the CLI actually adopted against what Argus asked for, and record a
-      // mismatch as a refusal on the session's provider instance. Events carry no
-      // instanceId, only caseSlug/sessionId, so the lookup has to happen here rather than
-      // inside the registry. `sessionPermissionMode(...) ?? defaultPermissionMode` is the
-      // SAME fallback registry.ts uses to build the driver's options (registry.ts:381) — it
-      // has to match exactly, or a session that inherits the settings default gets
-      // mis-recorded as having requested something else.
+      // mismatch as a refusal on the session's provider instance. Extracted to
+      // modeRefusals.ts's recordRefusalFor (instance lookup + the requested-mode fallback
+      // shared with registry.ts, see that function's doc) so this comparison has a unit test
+      // reaching it directly rather than only through the whole app's event wiring.
       //
       // Deliberately NOT wired at the routines (unattended) sink below: an unattended run's
       // mode is downgraded to `default` before it ever starts (Task 2), so it can never
       // legitimately observe a refusal there — recording from it would only add noise.
       if (e.type === 'session.started' && e.payload.effectivePermissionMode != null) {
-        const instanceId = sessionProvider(db, e.sessionId)?.instanceId
-        if (instanceId) {
-          const requested =
-            sessionPermissionMode(db, e.sessionId) ??
-            settingsService.get().agent.defaultPermissionMode
-          modeRefusals.record(instanceId, requested, e.payload.effectivePermissionMode)
-        }
+        recordRefusalFor(
+          {
+            db,
+            registry: modeRefusals,
+            defaultPermissionMode: settingsService.get().agent.defaultPermissionMode
+          },
+          { sessionId: e.sessionId, effectivePermissionMode: e.payload.effectivePermissionMode }
+        )
       }
       langfuseExporter?.handle(e)
       broadcast(IPC.agentEventChannel, e)
@@ -1810,11 +1809,26 @@ function registerIpc(): void {
       // only ever offers enabled instances, so this is a malformed request, and pinning a
       // session to a provider that cannot run would strand the chat.
       if (!inst?.enabled) throw new Error(`Unknown or disabled provider instance: ${instanceId}`)
+      const previousInstanceId = sessionProvider(db, sessionId)?.instanceId ?? null
       const changed = setSessionModel(db, sessionId, {
         driverKind: resolveInstanceDriver(settings.agent, instanceId).driver.kind,
         instanceId,
         model
       })
+      // A session's permission_mode is only ever validated against the global PERMISSION_MODES
+      // (assertPermissionMode), not the driver actually in play — this branch is the first
+      // place a re-pin can move a session onto a driver whose own permissionModes doesn't
+      // include the mode it's already pinned to (e.g. 'auto' onto Copilot/Codex/ACP, none of
+      // which offer it). Reset to 'default' rather than leave the DB naming a mode the new
+      // driver has no menu entry for; see reconcilePermissionModeForDriver's doc for the full
+      // failure mode this avoids.
+      if (previousInstanceId !== instanceId) {
+        reconcilePermissionModeForDriver(
+          db,
+          sessionId,
+          resolveInstanceDriver(settings.agent, instanceId).driver.capabilities.permissionModes
+        )
+      }
       // The live CaseSession has the old model frozen at query() construction; AgentService
       // compares modelKey on the next send and rebuilds. Nothing to do here.
       return changed

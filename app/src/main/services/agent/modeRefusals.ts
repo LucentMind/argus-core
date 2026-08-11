@@ -1,4 +1,6 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { PermissionMode } from '../../../shared/settings'
+import { requestedPermissionMode, sessionPermissionMode, sessionProvider } from './sessionStore'
 
 export interface ModeRefusalRegistryDeps {
   /** Fired synchronously whenever `record()` adds a NEW refusal (not on no-ops, and not on a
@@ -33,6 +35,14 @@ export class ModeRefusalRegistry {
    */
   record(instanceId: string, requested: PermissionMode, effective: string | null): void {
     if (effective == null) return
+    // queryOptions.ts's buildRunOptionQueryFields deliberately OMITS `permissionMode` from the
+    // SDK options when it is 'default' — Argus asks the CLI for nothing and lets it use
+    // whatever it's configured for (including an enterprise `permissions.defaultMode`). So
+    // 'default' is never actually a REQUEST the CLI can refuse; recording it here would blame
+    // a mismatch on a request Argus never made, and disable "Ask approvals" — the safest mode
+    // and the one every unpinned session inherits. If queryOptions.ts's omission rule ever
+    // changes, this guard has to change with it.
+    if (requested === 'default') return
     if (effective === requested) return
     const set = this.refusals.get(instanceId) ?? new Set<PermissionMode>()
     const isNew = !set.has(requested)
@@ -49,4 +59,45 @@ export class ModeRefusalRegistry {
   clear(): void {
     this.refusals.clear()
   }
+}
+
+export interface RecordRefusalDeps {
+  db: DatabaseSync
+  registry: ModeRefusalRegistry
+  /** `settingsService.get().agent.defaultPermissionMode` at the moment the event fired —
+   *  resolved by the caller, not read here, so this function has no settings dependency. */
+  defaultPermissionMode: PermissionMode
+}
+
+export interface SessionStartedRefusalEvent {
+  sessionId: number
+  /** Whatever the CLI's own init message reported adopting; `null` means it said nothing. */
+  effectivePermissionMode: string | null
+}
+
+/**
+ * The one place "what Argus asked for" meets "what the CLI actually adopted" — extracted out
+ * of main/index.ts's `AgentService` `onEvent` sink so this comparison has a unit test reaching
+ * it directly, instead of depending on the whole app's IPC/event wiring to exercise it. Two
+ * things have to line up exactly for a genuine refusal to be recorded, and either one silently
+ * breaking would make the detector silently stop detecting:
+ *
+ * 1. The instance lookup (`sessionProvider` — events carry no `instanceId`, only
+ *    `caseSlug`/`sessionId`).
+ * 2. The requested-mode fallback (`requestedPermissionMode`), which MUST be the exact same
+ *    expression `registry.ts` uses to build the driver's options — sharing the function
+ *    (rather than each side hand-writing `sessionPerm ?? defaultPermissionMode`) is what makes
+ *    that guaranteed rather than merely intended.
+ *
+ * No-op when the session has no known instance (a row that predates multi-provider) — there is
+ * nothing to attribute a refusal to.
+ */
+export function recordRefusalFor(deps: RecordRefusalDeps, event: SessionStartedRefusalEvent): void {
+  const instanceId = sessionProvider(deps.db, event.sessionId)?.instanceId
+  if (!instanceId) return
+  const requested = requestedPermissionMode(
+    sessionPermissionMode(deps.db, event.sessionId),
+    deps.defaultPermissionMode
+  )
+  deps.registry.record(instanceId, requested, event.effectivePermissionMode)
 }
