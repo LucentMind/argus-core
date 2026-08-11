@@ -392,6 +392,11 @@ export interface ProviderStatus {
   fixHint?: string
   /** ISO timestamp of the last completed probe; null while never probed. */
   checkedAt: string | null
+  /** Permission modes Argus has asked this instance for, this app session, that the CLI
+   *  adopted something else instead of (e.g. an org policy blocking `bypassPermissions`).
+   *  Unset when nothing has been refused — never persisted, so a policy change or app
+   *  restart clears it rather than leaving a stale disable in place. */
+  refusedPermissionModes?: PermissionMode[]
 }
 
 export interface PreflightCheck {
