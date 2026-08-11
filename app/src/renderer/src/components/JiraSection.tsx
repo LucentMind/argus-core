@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { JiraAttachmentsDialog } from './JiraAttachmentsDialog'
+import { CollapsibleSection } from './CollapsibleSection'
 import { IconBtn, SectionLabel } from './ui'
 import { uiStore } from '../lib/uiStore'
 import { jiraSyncLine, resultDecayMs, type JiraSyncPhase } from '../lib/jiraSyncState'
@@ -99,8 +100,11 @@ export function JiraSection({
   }
 
   return (
-    <div
+    <CollapsibleSection
+      id="jira"
+      name="Ticket"
       className={`flex flex-col gap-1 rounded-r3 px-2.5 py-2 ${dynamic ? 'glass-panel' : 'surface-card'}`}
+      header={<SectionLabel>Ticket · {jiraKey}</SectionLabel>}
     >
       {/* Section label + ticket id, unlike Repos/Pull request's label-only header: this panel
           used to skip the label entirely on the theory that the title said what it was, but
@@ -109,7 +113,6 @@ export function JiraSection({
           rather than the p-2.5/gap-1.5 the other rail sections use: this box has one row of
           content beneath the header, so the extra breathing room those multi-row sections carry
           just reads as dead space here. */}
-      <SectionLabel>Ticket · {jiraKey}</SectionLabel>
       <div className="flex items-center gap-1">
         {/* The whole box is the trigger, not the text inside it: the box is what lights up on
             hover, so anything less than the box is a click target that does not match its own
@@ -152,6 +155,6 @@ export function JiraSection({
           onClose={() => setPending(null)}
         />
       )}
-    </div>
+    </CollapsibleSection>
   )
 }
