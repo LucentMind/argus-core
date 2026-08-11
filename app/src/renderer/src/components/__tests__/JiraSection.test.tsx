@@ -4,6 +4,7 @@ import { render, screen, act, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { JiraSection } from '../JiraSection'
+import { uiStore } from '../../lib/uiStore'
 import { chipStamp } from '../../lib/time'
 import { COUNTS_DECAY_MS, ACK_DECAY_MS } from '../../lib/jiraSyncState'
 import type { JiraRefreshSummary } from '../../../../shared/jira'
@@ -27,6 +28,8 @@ function summary(overrides?: Partial<JiraRefreshSummary>): JiraRefreshSummary {
 }
 
 beforeEach(() => {
+  localStorage.clear()
+  uiStore.setRailSectionCollapsed('jira', false)
   window.argus = {
     jira: {
       refreshCase: vi.fn(async () => ({ ok: true as const, value: summary() })),
@@ -113,6 +116,16 @@ describe('JiraSection', () => {
     render(<JiraSection slug="nn-5187" jiraKey="NAVPOR-10068" title={TITLE} syncedAt={SYNCED_AT} />)
     await user.click(screen.getByRole('button', { name: 'Refresh from Jira' }))
     expect(await screen.findByText('trace.log')).toBeTruthy()
+  })
+
+  it('collapses to its header, keeping the ticket key and dropping the body', () => {
+    render(<JiraSection slug="nn-5187" jiraKey="NAVPOR-10068" title={TITLE} syncedAt={SYNCED_AT} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Ticket' }))
+
+    expect(screen.getByText(/NAVPOR-10068/)).toBeInTheDocument()
+    expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('jira-sync-line')).not.toBeInTheDocument()
   })
 })
 
