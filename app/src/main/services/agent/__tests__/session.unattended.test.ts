@@ -192,12 +192,15 @@ describe('unattended sessions', () => {
     await s.stop('stopped')
   })
 
-  // --- the mode that would make BOTH seams unreachable ---------------------------------
+  // --- the modes that make BOTH seams unreachable on the Claude driver ------------------
   // Neither deny seam runs under `bypassPermissions`: the Copilot/ACP/Codex drivers return an
   // approve short-circuit before calling either one, and the Claude SDK skips canUseTool
-  // outright. So the session must refuse to run unattended in that mode no matter what the
-  // caller passed. Asserted on the options bag the DRIVER received — an internal field would
-  // not prove the mode never reached the agent.
+  // outright. `auto` reaches neither seam on the Claude driver either (it skips canUseTool
+  // without needing allowDangerouslySkipPermissions), even though the three non-Claude drivers
+  // have no dedicated `auto` branch and route it through canUseTool normally. So the session
+  // must refuse to run unattended in either mode no matter what the caller passed. Asserted on
+  // the options bag the DRIVER received — an internal field would not prove the mode never
+  // reached the agent.
 
   it('never hands the driver a bypassing permission mode when unattended', async () => {
     const sdk = fakeSdk()
@@ -285,6 +288,9 @@ describe('unattended sessions', () => {
     s.send('go')
     await canUseToolOf(sdk)
     expect(sdk.captured.options!.permissionMode).toBe('auto')
+    // queryOptions.ts only sets allowDangerouslySkipPermissions for 'bypassPermissions'; 'auto'
+    // never gets the companion flag.
+    expect(sdk.captured.options!.allowDangerouslySkipPermissions).toBeUndefined()
     await s.stop('stopped')
   })
 

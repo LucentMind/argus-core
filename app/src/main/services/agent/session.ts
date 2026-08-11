@@ -118,8 +118,8 @@ export interface SessionDeps {
    *  the turn forever. It is also the trust boundary: an unattended run must never take a risky
    *  action nobody approved.
    *  NOT a permission mode itself — `agentOptions.permissionMode` is otherwise honoured — but
-   *  it does force a downgrade: BOTH `bypassPermissions` and `acceptEdits` fall back to
-   *  'default', because either one would let some driver skip both deny seams entirely.
+   *  it does force a downgrade: `bypassPermissions`, `acceptEdits`, and `auto` all fall back to
+   *  'default', because each would let some driver skip both deny seams entirely.
    *  (classifyOnly's own acceptEdits handling is defense-in-depth only under unattended — this
    *  downgrade means that branch is never actually reached while it's on.) See the guard at the
    *  top of the constructor for the full per-driver reachability table. */
@@ -355,15 +355,20 @@ export class CaseSession {
     // are `handleToolRequest` (the canUseTool path) and `classifyOnly` (the seam the
     // permission-mode short-circuits consult). Which modes reach them is per-driver:
     //
-    //  - `bypassPermissions` and `auto` reach NEITHER seam on ANY driver. For
-    //    `bypassPermissions`, the three non-Claude drivers return an approve short-circuit
-    //    before calling either one (drivers/copilot/index.ts, drivers/acp/index.ts,
-    //    drivers/codex/index.ts, each at their `ctx.permissionMode === 'bypassPermissions'`
-    //    branch), and the Claude SDK skips canUseTool entirely once queryOptions.ts pairs the
-    //    mode with allowDangerouslySkipPermissions. `auto` skips canUseTool on the Claude CLI
-    //    the same way, without needing that flag at all (measured: permissionMode: 'auto'
+    //  - `bypassPermissions` reaches NEITHER seam on ANY driver. The three non-Claude drivers
+    //    return an approve short-circuit before calling either one (drivers/copilot/index.ts,
+    //    drivers/acp/index.ts, drivers/codex/index.ts, each at their
+    //    `ctx.permissionMode === 'bypassPermissions'` branch), and the Claude SDK skips
+    //    canUseTool entirely once queryOptions.ts pairs the mode with
+    //    allowDangerouslySkipPermissions.
+    //  - `auto` reaches NEITHER seam on the Claude driver only: the SDK skips canUseTool for it
+    //    without needing allowDangerouslySkipPermissions at all (measured: permissionMode: 'auto'
     //    reported at init, zero canUseTool invocations, tool executed regardless — on both a
-    //    policy-gated Mac and a clean Windows box).
+    //    policy-gated Mac and a clean Windows box). The three non-Claude drivers have no `auto`
+    //    branch at all, so on them it falls through to the normal `ctx.onToolRequest(...)` call
+    //    and reaches canUseTool exactly like `default`/`plan` — it is downgraded here anyway
+    //    because the boundary is evaluated per-mode, not per-driver, and Claude alone is enough
+    //    to make the mode unsafe under unattended.
     //  - `acceptEdits` reaches classifyOnly on the non-Claude drivers ONLY. Those three are the
     //    sole classifyOnly call sites in the repo; the Claude driver has no classifyOnly path at
     //    all — it forwards the mode to the SDK (queryOptions.ts), which auto-accepts edit/write
