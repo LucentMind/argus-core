@@ -91,3 +91,47 @@ numbering used above still refers to the lines in this file.
 No committed script — this was a throwaway. To recapture: call `query()` from the SDK
 with `includePartialMessages: true`, a prompt that forces a Task sub-agent to run tools,
 write each message to JSONL, and group by `parent_tool_use_id`.
+
+## `init-auto-mode.json`
+
+Captured 2026-08-11, against the exact SDK version this repo has installed
+(`@anthropic-ai/claude-agent-sdk@0.3.220` — see `node_modules/@anthropic-ai/claude-agent-sdk/package.json`).
+A single `system`/`init` message from a live `query({ options: { permissionMode: 'auto',
+includePartialMessages: true }, canUseTool: … } })` run, prompted to run one `Bash` tool
+call.
+
+### The question it answers
+
+Task 7's `onToolObserved` gate (`session.ts`) fires only when
+`effectivePermissionMode` (read from this message's `permissionMode` field by
+`normalize.ts`) is `'auto'` or a working `'bypassPermissions'` — the two modes where the
+CLI structurally never calls `canUseTool`. Before this capture, no fixture in this repo
+had ever seen a real `auto`-mode init message; every test that exercised the gate injected
+the string `'auto'` by hand, which is vacuous proof that the CLI actually reports that
+value at init.
+
+### What the capture shows
+
+The instrumented `canUseTool` callback in the capture script was invoked **zero** times
+across the whole run, while the `Bash` tool call it prompted for still executed (an
+`assistant` message carrying a `tool_use` block for `Bash`, followed by its `tool_result`)
+— confirming empirically, not just per `sdk.d.ts`, that `'auto'` mode bypasses the
+`canUseTool` callback entirely. The `system`/`init` message itself carries
+`"permissionMode": "auto"`, matching what `normalize.ts` reads.
+
+### Redactions
+
+Same policy as `subagent-tool-calls.jsonl` above: `cwd` and `memory_paths` replaced
+(this run's cwd was a scratch capture directory under the operator's home, not case
+data); the `tools` / `mcp_servers` / `slash_commands` / `skills` / `plugins` / `agents`
+inventories replaced (this operator's local plugin/skill set, not part of what the
+fixture demonstrates). `permissionMode`, `claude_code_version`, `capabilities`,
+`fast_mode_state`/`fast_mode_disabled_reason`, `session_id`, and `uuid` are untouched —
+real values from the capture.
+
+### Reproducing
+
+No committed script. To recapture: call `query()` from the SDK with
+`options: { permissionMode: 'auto', includePartialMessages: true }`, a `canUseTool`
+callback that counts its own invocations, and a prompt that forces one tool call; assert
+the counter stays zero after the run completes.

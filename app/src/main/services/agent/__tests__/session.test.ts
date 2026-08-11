@@ -20,6 +20,13 @@ import { REVIEW_LAYER_ORDER } from '../../../../shared/reviewLayers'
 import { PERMISSION_MODES } from '../../../../shared/settings'
 import { ProcessLabels } from '../../diagnostics/processLabels'
 import type { ProcessSample } from '../../../../shared/diagnostics'
+// Real system/init message from a live `auto`-mode SDK session — see
+// drivers/claude/__fixtures__/EVIDENCE.md's "init-auto-mode.json" section: captured
+// against the exact installed SDK version (0.3.220), canUseTool measured invoked zero
+// times across the run while the prompted tool call still executed. Used below so the
+// permission-mode gate is driven from a real reported value, not a hand-written 'auto'
+// string.
+import REAL_AUTO_INIT_MSG from '../drivers/claude/__fixtures__/init-auto-mode.json'
 
 function sample(over: Partial<ProcessSample> & { pid: number }): ProcessSample {
   return {
@@ -1262,17 +1269,19 @@ describe('CaseSession', () => {
   // Task 7: a call that never reaches canUseTool (permissionMode 'auto', or a working
   // bypassPermissions) still gets exactly one audit row, decision 'auto', risk from the
   // real classifier (Finding 3) — matching how other auto-allowed calls are recorded.
+  //
+  // Task 7 (fix round 2, Item 1): this is the core new-capability test for the gate, so it
+  // drives it from REAL_AUTO_INIT_MSG — a captured `auto`-mode init message (see the
+  // import comment above) — instead of a hand-written `{ permissionMode: 'auto' }` object.
+  // The other tests in this describe block still hand-write the init message where the
+  // point under test is the dedup/ordering machinery rather than the gate's string match
+  // itself; this one exists specifically to prove the gate reacts to what the CLI actually
+  // reports.
   it('logs exactly one "auto" row for a tool call observed but never sent to canUseTool', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk)
     s.send('go')
-    sdk.messages.push({
-      type: 'system',
-      subtype: 'init',
-      session_id: '11111111-1111-4111-8111-111111111111',
-      model: 'm',
-      permissionMode: 'auto'
-    })
+    sdk.messages.push(REAL_AUTO_INIT_MSG)
     sdk.messages.push({
       type: 'assistant',
       message: {
@@ -1459,11 +1468,15 @@ describe('CaseSession', () => {
       i: Record<string, unknown>,
       o: { signal: AbortSignal; toolUseID: string }
     ) => Promise<{ behavior: string; message?: string }>
-    await canUseTool(
+    const verdict = await canUseTool(
       'Write',
       { file_path: path.join(tmp, 'outside-sandbox.md'), content: 'x' },
       { signal: new AbortController().signal, toolUseID: 'realistic-order-1' }
     )
+    // The audit row is only half the claim this test makes in its title — "the real verdict
+    // survives" means the approval pipeline's own return value must still be a deny, not just
+    // its logged row. Assert both.
+    expect(verdict.behavior).toBe('deny')
     const rows = db
       .prepare(`SELECT tool, decision, risk FROM tool_calls WHERE tool = 'Write'`)
       .all() as { tool: string; decision: string; risk: string }[]

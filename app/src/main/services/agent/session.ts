@@ -245,6 +245,13 @@ function normalizeQuestions(input: Record<string, unknown>): Array<{
   })
 }
 
+/** Task 7 (fix round 2): cap on `auditedToolCallIds`. Comfortably larger than any realistic
+ *  number of tool calls genuinely in flight at once — the guard only needs to survive the
+ *  few milliseconds between the two seams observing the SAME still-in-flight call — so
+ *  evicting the oldest entry once this many *more recent* ids have been claimed never touches
+ *  an id the guard still needs; it only bounds memory for a session that runs many turns. */
+const AUDITED_TOOL_CALL_CAP = 500
+
 /** The single denial message both unattended seams return, so the agent sees the same
  *  explanation whichever path suppressed the ask. Phrased as guidance, not just a refusal:
  *  the turn continues, and the model should route around the tool rather than retry it. */
@@ -310,8 +317,17 @@ export class CaseSession {
    *  assistant message before entering its permission phase. A "first claim wins" set would
    *  therefore always pick the observation seam, discarding the approval pipeline's real
    *  decision. This set now only protects against a future mode change (or an SDK change)
-   *  reintroducing a double row; it is cleared per turn (see `send()`) so it cannot grow for
-   *  the life of the session. */
+   *  reintroducing a genuine race.
+   *
+   *  Task 7 (fix round 2): NOT cleared per turn. `registry.ts` can hand back this same live
+   *  session while a turn is still running (a user message sent mid-turn), so a per-turn
+   *  clear in `send()` used to reset this guard while calls from the turn already in flight
+   *  were still using it — the exact window it exists to cover. Instead, `claimToolCallAudit`
+   *  below caps the set's size and evicts the oldest entry once the cap is exceeded: the
+   *  guard only ever needs to survive the few milliseconds between the two seams observing
+   *  the SAME still-in-flight call, so an id that has aged out past `AUDITED_TOOL_CALL_CAP`
+   *  more recent claims is certain to be long past that window. The cap only bounds memory
+   *  for a long session with many tool calls; it never causes an incorrect skip. */
   private auditedToolCallIds = new Set<string>()
   /** Task 7 (fix round 1): the CLI's own reported effective permission mode, from
    *  `session.started`'s `effectivePermissionMode` (drivers/claude/normalize.ts, sourced
@@ -637,12 +653,12 @@ export class CaseSession {
     if (this.state === 'dead') throw new Error('session is dead')
     this.turnIndex++
     this.activeTurn = true
-    // Task 7 (Finding 4): bound the belt-and-braces dedup set to one turn's worth of
-    // toolCallIds instead of the whole session's lifetime. A toolCallId is never reused —
-    // once a turn ends, every id claimed during it is dead weight — and the guard only ever
-    // needs to catch the two seams racing for the SAME still-in-flight call, which resolves
-    // within milliseconds, well inside a single turn.
-    this.auditedToolCallIds.clear()
+    // Task 7 (fix round 2): deliberately NOT clearing `auditedToolCallIds` here. A turn
+    // boundary is not a safe place to reset this guard — `registry.ts` can hand back this
+    // same live session for a new `send()` while a previous turn's tool calls are still in
+    // flight, and clearing at that point would wipe the guard inside the exact window it
+    // exists to cover. See the size-capped eviction on `auditedToolCallIds`'s declaration and
+    // in `claimToolCallAudit` instead.
     const now = new Date().toISOString()
     const res = this.deps.db
       .prepare(
@@ -948,11 +964,18 @@ export class CaseSession {
    *  change) reintroducing a genuine race; whichever side calls it FIRST for a given id
    *  still wins, returning `true` to tell the other side to skip its own write. A call with
    *  no toolCallId (a driver/test that doesn't thread one through) is never deduped —
-   *  always returns `false`, i.e. "write it". */
+   *  always returns `false`, i.e. "write it". Not cleared per turn (see the field's doc
+   *  comment); instead capped at `AUDITED_TOOL_CALL_CAP` entries, evicting the oldest claim
+   *  once the cap is exceeded so the set cannot grow for the life of a long-running
+   *  session. */
   private claimToolCallAudit(toolCallId: string | undefined): boolean {
     if (toolCallId == null) return false
     if (this.auditedToolCallIds.has(toolCallId)) return true
     this.auditedToolCallIds.add(toolCallId)
+    if (this.auditedToolCallIds.size > AUDITED_TOOL_CALL_CAP) {
+      const oldest = this.auditedToolCallIds.values().next().value
+      if (oldest !== undefined) this.auditedToolCallIds.delete(oldest)
+    }
     return false
   }
 
@@ -1020,9 +1043,15 @@ export class CaseSession {
       toolRisk: this.deps.toolRisk?.()
     })
     const log = (decision: string): void => {
-      // The observation seam (onToolObserved) already claimed this toolCallId and wrote
-      // its own row (decision 'auto') — the real decision computed here is lost in that
-      // race, but a lost row beats a duplicated one (see claimToolCallAudit).
+      // `alreadyAudited` true here means the observation seam (onToolObserved) already
+      // claimed this toolCallId and wrote its own row. Under the effectivePermissionMode
+      // gate (see onToolObserved's call site, and the comment above `alreadyAudited`'s
+      // declaration at the top of this method) that seam only ever writes in 'auto'/a
+      // working 'bypassPermissions', and canUseTool structurally never fires in those modes
+      // — so this branch is unreachable in every shipping mode; it only guards a future mode
+      // change (or SDK change) reintroducing a genuine race. If it ever does trigger, the
+      // decision computed here is discarded rather than double-written — a lost row beats a
+      // duplicated one (see claimToolCallAudit).
       if (alreadyAudited) return
       this.logToolCall(toolName, input, verdict.risk, decision, Date.now() - started)
     }
