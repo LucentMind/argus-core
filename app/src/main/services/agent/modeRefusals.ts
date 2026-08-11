@@ -35,14 +35,6 @@ export class ModeRefusalRegistry {
    */
   record(instanceId: string, requested: PermissionMode, effective: string | null): void {
     if (effective == null) return
-    // queryOptions.ts's buildRunOptionQueryFields deliberately OMITS `permissionMode` from the
-    // SDK options when it is 'default' — Argus asks the CLI for nothing and lets it use
-    // whatever it's configured for (including an enterprise `permissions.defaultMode`). So
-    // 'default' is never actually a REQUEST the CLI can refuse; recording it here would blame
-    // a mismatch on a request Argus never made, and disable "Ask approvals" — the safest mode
-    // and the one every unpinned session inherits. If queryOptions.ts's omission rule ever
-    // changes, this guard has to change with it.
-    if (requested === 'default') return
     if (effective === requested) return
     const set = this.refusals.get(instanceId) ?? new Set<PermissionMode>()
     const isNew = !set.has(requested)
@@ -99,5 +91,16 @@ export function recordRefusalFor(deps: RecordRefusalDeps, event: SessionStartedR
     sessionPermissionMode(deps.db, event.sessionId),
     deps.defaultPermissionMode
   )
+  // queryOptions.ts's buildRunOptionQueryFields deliberately OMITS `permissionMode` from the
+  // SDK options when it is 'default' — Argus asks the CLI for nothing and lets it use
+  // whatever it's configured for (including an enterprise `permissions.defaultMode`). So
+  // 'default' is never actually a REQUEST the CLI can refuse; recording it here would blame a
+  // mismatch on a request Argus never made, and disable "Ask approvals" — the safest mode and
+  // the one every unpinned session inherits. If queryOptions.ts's omission rule ever changes,
+  // this guard has to change with it.
+  //
+  // Lives here, not in ModeRefusalRegistry.record(), because it is coupled to that one
+  // driver-specific rule — the registry itself is meant to stay dumb (see its class docblock).
+  if (requested === 'default') return
   deps.registry.record(instanceId, requested, event.effectivePermissionMode)
 }

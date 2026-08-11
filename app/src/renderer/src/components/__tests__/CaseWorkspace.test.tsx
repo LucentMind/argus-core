@@ -9,7 +9,7 @@ import { confirm } from '../../lib/confirmStore'
 import { caseBarStore } from '../../lib/caseBarStore'
 import { sessionsStore } from '../../lib/sessionsStore'
 import { clearCatalogStore } from '../../lib/catalogStore'
-import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
+import { defaultSettings, settingsSchema, type SettingsPayload } from '../../../../shared/settings'
 import type { SessionSummary } from '../../../../shared/types'
 import { DEFAULT_MODE, type ModeId } from '../../../../shared/modes'
 import type { FindingRow } from '../../../../shared/observability'
@@ -80,7 +80,7 @@ beforeEach(() => {
       create: vi.fn(async () => ({ id: 3, title: '', turnCount: 0, updatedAt: '' })),
       rename: vi.fn(async () => undefined),
       delete: vi.fn(async () => undefined),
-      setModel: vi.fn(async () => true),
+      setModel: vi.fn(async () => ({ changed: true, permissionMode: null })),
       setRunOptions: vi.fn(async () => true),
       setPermissionMode: vi.fn(async () => true)
     },
@@ -575,6 +575,69 @@ describe('CaseWorkspace new chat', () => {
       )
     )
     await waitFor(() => expect(screen.getByTitle('Model')).toHaveTextContent(picked))
+  })
+})
+
+// Regression (Finding 1, permission-mode-auto residual review): sessionsSetModel resets a
+// session's pinned permission_mode server-side when the new driver does not support it (e.g.
+// 'auto' onto Copilot), but handleModelChange used to patch only { instanceId, model }
+// optimistically and never learned the reconciled value. The permission-mode chip kept
+// rendering 'Auto — Claude decides' off the stale session.permissionMode while the menu it
+// opened was already built from the NEW instance's capabilities (no 'auto' entry) — a chip
+// naming a mode its own menu can't offer. window.argus.sessions.setModel now resolves
+// { changed, permissionMode }, and handleModelChange patches permissionMode from that once the
+// round trip lands.
+describe('CaseWorkspace permission-mode reconciliation on provider switch', () => {
+  it('updates the permission-mode chip to match the mode the main process reconciled it to', async () => {
+    window.argus.settings.get = vi.fn(async () => ({
+      settings: settingsSchema.parse({
+        agent: {
+          activeInstanceId: 'claude-default',
+          providerInstances: {
+            'claude-default': { driver: 'claude-agent-sdk', enabled: true, config: {} },
+            'copilot-1': { driver: 'github-copilot', enabled: true, config: {} }
+          }
+        }
+      }),
+      resolvedTools: [],
+      dataRoot: { path: 'C:\\x', fromEnv: false },
+      loadError: null
+    }))
+    window.argus.sessions.list = vi.fn(async () => [
+      sessionRow({ instanceId: 'claude-default', model: 'claude-opus-4-8', permissionMode: 'auto' })
+    ])
+    // What main/index.ts's sessionsSetModel handler actually returns for this re-pin:
+    // reconcilePermissionModeForDriver resets 'auto' to 'default' because Copilot's
+    // capabilities are BASE_PERMISSION_MODES (no 'auto').
+    window.argus.sessions.setModel = vi.fn(async () => ({
+      changed: true,
+      permissionMode: 'default' as const
+    }))
+
+    render(workspace('NAV-RECONCILE'))
+    await screen.findByRole('main')
+
+    expect(screen.getByTitle('Permission mode')).toHaveTextContent('Auto — Claude decides')
+
+    fireEvent.click(screen.getByTitle('Model'))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Auto/ }))
+
+    await waitFor(() =>
+      expect(window.argus.sessions.setModel).toHaveBeenCalledWith(1, 'copilot-1', 'auto')
+    )
+    // The chip must stop claiming 'auto' once the reconciled value comes back...
+    await waitFor(() =>
+      expect(screen.getByTitle('Permission mode')).toHaveTextContent('Ask approvals')
+    )
+    // ...and the menu the chip opens must actually contain the mode it now shows (this is
+    // what "invisible to the running UI" means: before the fix the chip kept saying 'Auto —
+    // Claude decides' while this exact menu, built off the NEW instance, had no such item).
+    fireEvent.click(screen.getByTitle('Permission mode'))
+    const items = within(screen.getByRole('menu', { name: 'Permission mode' }))
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent)
+    expect(items).toContain('Ask approvals')
+    expect(items).not.toContain('Auto — Claude decides')
   })
 })
 

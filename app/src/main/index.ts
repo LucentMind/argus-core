@@ -166,7 +166,8 @@ import {
   renameSession,
   deleteSession,
   sessionProvider,
-  reconcilePermissionModeForDriver
+  reconcilePermissionModeForDriver,
+  sessionPermissionMode
 } from './services/agent/sessionStore'
 import { ModeRefusalRegistry, recordRefusalFor } from './services/agent/modeRefusals'
 import { modeContextForCase, demoteIfModeUnavailable } from './services/modeContext'
@@ -1822,6 +1823,11 @@ function registerIpc(): void {
       // which offer it). Reset to 'default' rather than leave the DB naming a mode the new
       // driver has no menu entry for; see reconcilePermissionModeForDriver's doc for the full
       // failure mode this avoids.
+      //
+      // Gated on the instance actually changing, so a re-pin to the SAME instance whose driver
+      // was swapped out from under it in settings does NOT reconcile here — `previousInstanceId
+      // !== instanceId` is false in that case. That gap is real but out of scope for this pass;
+      // the session keeps a stale pin until it moves to a different instance.
       if (previousInstanceId !== instanceId) {
         reconcilePermissionModeForDriver(
           db,
@@ -1831,7 +1837,12 @@ function registerIpc(): void {
       }
       // The live CaseSession has the old model frozen at query() construction; AgentService
       // compares modelKey on the next send and rebuilds. Nothing to do here.
-      return changed
+      //
+      // permissionMode is read back (rather than derived by the caller) so the renderer learns
+      // the RECONCILED value in one round trip: reconcilePermissionModeForDriver may just have
+      // reset it server-side, and the renderer's cached session row has no way to know that on
+      // its own — see sessionsStore.patch in CaseWorkspace.tsx's handleModelChange.
+      return { changed, permissionMode: sessionPermissionMode(db, sessionId) }
     }
   )
   ipcMain.handle(
