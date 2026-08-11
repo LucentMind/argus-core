@@ -65,7 +65,12 @@ const BINDING: PrBinding = {
 }
 
 beforeEach(() => {
+  localStorage.clear()
   uiStore.setDynamicTheme(false)
+  // uiStore reads localStorage only in its constructor, so localStorage.clear() above does not
+  // reset railCollapsed between tests — a collapse in one test would otherwise leak into every
+  // later test in this file.
+  uiStore.setRailSectionCollapsed('pr', false)
   vi.mocked(confirm).mockReset().mockResolvedValue(true)
   prStatusStore.hydrate({ c1: status() })
   ;(window as unknown as { argus: unknown }).argus = {
@@ -593,6 +598,33 @@ describe('PrCompanionSection', () => {
       release({})
     })
     expect(await screen.findByText(/No pull request bound to this case yet/)).toBeInTheDocument()
+  })
+
+  it('collapses to its header, keeping the label and the refresh control', async () => {
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(await screen.findByText('build')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Pull request' }))
+
+    // Header survives, with its trailing controls.
+    expect(screen.getByText('Pull request')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Refresh pull request status' })).toBeInTheDocument()
+    // Body is gone: the check rows and the PR reference row.
+    expect(screen.queryByText('build')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Unlink pull request' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the P1 tier attribute on the container while collapsed', async () => {
+    // `rollup: 'failing'` in the fixture — the attribute drives the tier styling and must
+    // survive the container moving into CollapsibleSection.
+    const { container } = render(
+      <PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />
+    )
+    await screen.findByText('build')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Pull request' }))
+
+    expect(container.querySelector('[data-tier="p1"]')).not.toBeNull()
   })
 })
 
