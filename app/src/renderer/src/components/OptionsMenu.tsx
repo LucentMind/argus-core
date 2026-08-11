@@ -495,7 +495,7 @@ export function CollapsedMenu({
           <div
             role="menu"
             aria-label="Session options"
-            className="absolute bottom-full left-0 z-30 mb-1 min-w-56 rounded-r2 overlay-menu p-1"
+            className="absolute bottom-full right-0 z-30 mb-1 min-w-56 rounded-r2 overlay-menu p-1"
           >
             {sections.includes('traits') &&
               descriptors.map((d) => (

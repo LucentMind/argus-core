@@ -204,7 +204,7 @@ export function SessionChips({
           role="dialog"
           aria-label="Session status"
           data-testid="session-status-popover"
-          className="overlay-menu absolute left-0 top-full z-30 mt-1 w-64 rounded-r2 p-3 text-[11px] normal-case"
+          className="overlay-menu absolute right-0 top-full z-30 mt-1 w-64 rounded-r2 p-3 text-[11px] normal-case"
         >
           <dl className="flex flex-col gap-2">
             <div className="flex items-start justify-between gap-3">
