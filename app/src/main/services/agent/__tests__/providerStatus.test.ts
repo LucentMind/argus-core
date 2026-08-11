@@ -163,7 +163,7 @@ describe('ProviderStatusService', () => {
     expect(svc.list().map((s) => s.instanceId)).toEqual(['claude-default'])
   })
 
-  it('copies recorded mode refusals for an instance onto its status', async () => {
+  it('overlays recorded mode refusals for an instance onto its status at list() time', async () => {
     const modeRefusals = new ModeRefusalRegistry()
     modeRefusals.record('claude-default', 'bypassPermissions', 'default')
     const svc = new ProviderStatusService({
@@ -178,8 +178,34 @@ describe('ProviderStatusService', () => {
     ).toEqual(['bypassPermissions'])
   })
 
+  it('surfaces a refusal recorded AFTER the probe ran, with no re-probe needed', async () => {
+    // Guards the read-time-overlay design: a refusal observed from a mid-session
+    // session.started event must not wait for the next 5-minute probe to appear.
+    const modeRefusals = new ModeRefusalRegistry()
+    const svc = new ProviderStatusService({
+      settings: agentSettings,
+      driverFor: () => fakeDriver('claude-agent-sdk', async () => ({ ok: true, detail: 'ready' })),
+      notify: () => {},
+      modeRefusals
+    })
+    await svc.refreshOne('claude-default')
+    expect(
+      svc.list().find((s) => s.instanceId === 'claude-default')?.refusedPermissionModes
+    ).toBeUndefined()
+
+    // No further probe/refresh call in between — just a registry write.
+    modeRefusals.record('claude-default', 'bypassPermissions', 'default')
+    expect(
+      svc.list().find((s) => s.instanceId === 'claude-default')?.refusedPermissionModes
+    ).toEqual(['bypassPermissions'])
+  })
+
   it('leaves refusedPermissionModes unset when the requested mode was actually adopted', async () => {
     const modeRefusals = new ModeRefusalRegistry()
+    // Record an ADOPTED mode (matches what was requested) — record() is a documented no-op
+    // here, so this proves "an adoption is not mistaken for a refusal", not merely "nothing
+    // was ever recorded".
+    modeRefusals.record('claude-default', 'default', 'default')
     const svc = new ProviderStatusService({
       settings: agentSettings,
       driverFor: () => fakeDriver('claude-agent-sdk', async () => ({ ok: true, detail: 'ready' })),
@@ -192,7 +218,12 @@ describe('ProviderStatusService', () => {
     ).toBeUndefined()
   })
 
-  it('refreshAll() clears the registry first, so a refreshed status loses a stale refusal', async () => {
+  it('refreshAll() does NOT clear a recorded refusal — only a user-initiated refresh does', async () => {
+    // This is the production path: refreshAll() is what the 5-minute timer and
+    // onSettingsChanged() call. Neither is evidence the org policy changed, so a refusal
+    // recorded earlier in the session must survive it. (The real IPC.providerRefresh handler
+    // in index.ts calls modeRefusals.clear() itself before refreshAll() — that user-gesture
+    // clear is exercised directly below, since it lives outside this service.)
     const modeRefusals = new ModeRefusalRegistry()
     modeRefusals.record('claude-default', 'bypassPermissions', 'default')
     const svc = new ProviderStatusService({
@@ -201,11 +232,29 @@ describe('ProviderStatusService', () => {
       notify: () => {},
       modeRefusals
     })
-    await svc.refreshOne('claude-default')
+
+    await svc.refreshAll()
+    expect(
+      svc.list().find((s) => s.instanceId === 'claude-default')?.refusedPermissionModes
+    ).toEqual(['bypassPermissions'])
+  })
+
+  it('a user-initiated refresh (registry.clear() then refreshAll(), the IPC.providerRefresh shape) drops the refusal', async () => {
+    const modeRefusals = new ModeRefusalRegistry()
+    modeRefusals.record('claude-default', 'bypassPermissions', 'default')
+    const svc = new ProviderStatusService({
+      settings: agentSettings,
+      driverFor: () => fakeDriver('claude-agent-sdk', async () => ({ ok: true, detail: 'ready' })),
+      notify: () => {},
+      modeRefusals
+    })
+    await svc.refreshAll()
     expect(
       svc.list().find((s) => s.instanceId === 'claude-default')?.refusedPermissionModes
     ).toEqual(['bypassPermissions'])
 
+    // Mirrors index.ts's IPC.providerRefresh handler: clear the registry, THEN refreshAll().
+    modeRefusals.clear()
     await svc.refreshAll()
     expect(
       svc.list().find((s) => s.instanceId === 'claude-default')?.refusedPermissionModes
