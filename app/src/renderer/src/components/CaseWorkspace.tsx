@@ -562,10 +562,16 @@ export function CaseWorkspace({
                 128px — header, search bar, about one row — and because CaseFiles sits
                 OUTSIDE this scroller there is no way to scroll the rest back into
                 view. Capping this box at 55% of the rail bounds it before evidence
-                hits its floor: past the cap this box scrolls internally and CaseFiles
-                keeps the remaining ~45%. It is a max, not a size, so a short rail
-                (no ticket, one repo) still collapses to its content and hands the
-                slack to evidence exactly as before. */}
+                hits its floor — but 55% is 55% of THIS box's own content, not 55% of
+                the rail: the chrome row above (h-8, 32px) and the two gap-3 gaps
+                (12px each, 24px) sit outside it and are not part of the split. At an
+                800px rail: content box 776px (800 minus the aside's py-3), cap
+                776*0.55=426px, chrome+gaps 56px → evidence gets
+                776-32-12-426-12=294px, i.e. 37.9% of the rail, not ~45%. At 600px
+                it works out to roughly 33%. Past the cap this box scrolls internally
+                and CaseFiles keeps whatever is left over. It is a max, not a size,
+                so a short rail (no ticket, one repo) still collapses to its content
+                and hands the slack to evidence exactly as before. */}
               <div className="flex max-h-[55%] min-h-0 flex-col gap-3 overflow-y-auto">
                 {/* The ticket, first: it is the case's origin, so it reads above the material the
                   case accumulated. key: reset the refresh phase on a case switch, exactly as the
