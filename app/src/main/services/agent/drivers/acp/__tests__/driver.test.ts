@@ -13,6 +13,7 @@ import type { AcpAgentProfile } from '../profiles/types'
 import type { DriverSessionContext, TurnResult } from '../../../driver'
 import type { AgentEvent } from '../../../../../../shared/agent-events'
 import type { NativeToolDeps } from '../../../nativeTools'
+import { PERMISSION_MODES } from '../../../../../../shared/settings'
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 10))
 
@@ -137,7 +138,7 @@ describe('createAcpDriver — capabilities + auth predicate', () => {
     expect(d.kind).toBe('cursor')
     expect(d.authFixHint).toBe('Run `cursor-agent login`.')
     expect(d.capabilities).toEqual({
-      permissionModes: ['default', 'acceptEdits', 'plan', 'bypassPermissions'],
+      permissionModes: PERMISSION_MODES,
       editableApprovals: false,
       costReporting: false,
       planMode: true,

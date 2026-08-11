@@ -8,8 +8,8 @@ import {
   defaultSettings,
   deepMerge,
   settingsSchema,
-  type AppSettings,
-  type PermissionMode
+  PERMISSION_MODES,
+  type AppSettings
 } from '../../../shared/settings'
 
 /** DI stand-in for SettingsService: same `get`/`patch` contract, and `patch` runs the REAL
@@ -51,7 +51,7 @@ describe('migrateBypassDefault', () => {
   })
 
   it('leaves every other permission mode exactly as it was', () => {
-    for (const mode of ['default', 'acceptEdits', 'plan'] as PermissionMode[]) {
+    for (const mode of PERMISSION_MODES.filter((m) => m !== 'bypassPermissions')) {
       const s = fakeSettings((v) => {
         v.agent.defaultPermissionMode = mode
       })

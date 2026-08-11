@@ -167,12 +167,12 @@ function makeCtx(overrides: Partial<DriverSessionContext> = {}): DriverSessionCo
 }
 
 describe('createCodexDriver — capabilities', () => {
-  it('declares kind, taxonomy, and the four permission modes', () => {
+  it('declares kind, taxonomy, and all permission modes', () => {
     const d = createCodexDriver()
     expect(d.kind).toBe('codex')
     expect(Object.keys(d.toolTaxonomy.entries).sort()).toEqual(['read', 'shell', 'write'])
     expect(d.toolTaxonomy.fallback).toBeUndefined()
-    expect(d.capabilities.permissionModes.length).toBe(4)
+    expect(d.capabilities.permissionModes.length).toBe(5)
     expect(d.capabilities.editableApprovals).toBe(false)
   })
 })

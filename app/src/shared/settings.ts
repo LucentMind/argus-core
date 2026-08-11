@@ -1,15 +1,27 @@
 import { z } from './zodConfig'
 import { defectCorpusSchema } from './defectCorpus'
 
-export const PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'] as const
+export const PERMISSION_MODES = [
+  'default',
+  'acceptEdits',
+  'plan',
+  'bypassPermissions',
+  'auto'
+] as const
 export type PermissionMode = (typeof PERMISSION_MODES)[number]
+
+/** `PERMISSION_MODES` minus `auto`, derived (not hand-written) so the two cannot drift. */
+export const BASE_PERMISSION_MODES = PERMISSION_MODES.filter(
+  (m): m is Exclude<PermissionMode, 'auto'> => m !== 'auto'
+)
 
 /** Labels used by the Composer's permission chip and the Agent settings select. */
 export const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
   default: 'Ask approvals',
   acceptEdits: 'Auto-approve edits',
   plan: 'Plan mode',
-  bypassPermissions: 'Bypass approvals'
+  bypassPermissions: 'Bypass approvals',
+  auto: 'Auto — Claude decides'
 }
 
 /** Inverse of `PERMISSION_MODE_LABELS` — used to resolve a picker's chosen label back to

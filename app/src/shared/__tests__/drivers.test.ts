@@ -21,7 +21,7 @@ import {
   type CatalogModel,
   type ClaudeDriverConfig
 } from '../drivers'
-import { settingsSchema, type AppSettings } from '../settings'
+import { settingsSchema, type AppSettings, PERMISSION_MODES } from '../settings'
 import { descriptorsFor, type ModelOptionInfo } from '../runOptions'
 // The real captured CLI catalog — same fixture modelIdentity.test.ts pins the resolver
 // against, so this test proves the fix end-to-end against real data, not a hand-written
@@ -113,14 +113,9 @@ describe('driver registry', () => {
     expect(d.models.every((m) => !m.isCustom)).toBe(true)
   })
 
-  it('claude-agent-sdk capabilities: all four permission modes, editable approvals, cost reporting, no plan flag', () => {
+  it('claude-agent-sdk capabilities: all permission modes, editable approvals, cost reporting, no plan flag', () => {
     const d = getDriver('claude-agent-sdk')!
-    expect(d.capabilities.permissionModes).toEqual([
-      'default',
-      'acceptEdits',
-      'plan',
-      'bypassPermissions'
-    ])
+    expect(d.capabilities.permissionModes).toEqual(PERMISSION_MODES)
     expect(d.capabilities.editableApprovals).toBe(true)
     expect(d.capabilities.costReporting).toBe(true)
     expect(d.capabilities.planMode).toBeUndefined()
@@ -141,14 +136,9 @@ describe('driver registry', () => {
     expect(d.models).toEqual([{ slug: 'auto', name: 'Auto' }])
   })
 
-  it('github-copilot capabilities: all four permission modes, plan mode supported, no editable approvals/cost reporting', () => {
+  it('github-copilot capabilities: all permission modes, plan mode supported, no editable approvals/cost reporting', () => {
     const d = getDriver('github-copilot')!
-    expect(d.capabilities.permissionModes).toEqual([
-      'default',
-      'acceptEdits',
-      'plan',
-      'bypassPermissions'
-    ])
+    expect(d.capabilities.permissionModes).toEqual(PERMISSION_MODES)
     expect(d.capabilities.editableApprovals).toBe(false)
     expect(d.capabilities.costReporting).toBe(false)
     expect(d.capabilities.planMode).toBe(true)
@@ -182,7 +172,7 @@ describe('driver registry', () => {
         return activeCapabilities(s)
       })()
     ]) {
-      expect(caps.permissionModes).toEqual(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
+      expect(caps.permissionModes).toEqual(PERMISSION_MODES)
       expect(caps.editableApprovals).toBe(false)
       expect(caps.costReporting).toBe(true)
     }
@@ -777,14 +767,9 @@ describe('codex driver', () => {
     })
   })
 
-  it('codex capabilities: all four permission modes, plan mode, no editable approvals', () => {
+  it('codex capabilities: all permission modes, plan mode, no editable approvals', () => {
     const d = getDriver('codex')!
-    expect(d.capabilities.permissionModes).toEqual([
-      'default',
-      'acceptEdits',
-      'plan',
-      'bypassPermissions'
-    ])
+    expect(d.capabilities.permissionModes).toEqual(PERMISSION_MODES)
     expect(d.capabilities.planMode).toBe(true)
   })
 })
