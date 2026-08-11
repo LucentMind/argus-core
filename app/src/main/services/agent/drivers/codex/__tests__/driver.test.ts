@@ -5,6 +5,7 @@ import type { CodexClientFactory, CodexClientLike } from '../client'
 import type { AgentEvent } from '../../../../../../shared/agent-events'
 import type { DriverSessionContext, TurnResult } from '../../../driver'
 import type { NativeToolDeps } from '../../../nativeTools'
+import { BASE_PERMISSION_MODES } from '../../../../../../shared/settings'
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 10))
 
@@ -167,12 +168,12 @@ function makeCtx(overrides: Partial<DriverSessionContext> = {}): DriverSessionCo
 }
 
 describe('createCodexDriver — capabilities', () => {
-  it('declares kind, taxonomy, and all permission modes', () => {
+  it('declares kind, taxonomy, and base permission modes (no auto — Claude-only)', () => {
     const d = createCodexDriver()
     expect(d.kind).toBe('codex')
     expect(Object.keys(d.toolTaxonomy.entries).sort()).toEqual(['read', 'shell', 'write'])
     expect(d.toolTaxonomy.fallback).toBeUndefined()
-    expect(d.capabilities.permissionModes.length).toBe(5)
+    expect(d.capabilities.permissionModes).toEqual(BASE_PERMISSION_MODES)
     expect(d.capabilities.editableApprovals).toBe(false)
   })
 })

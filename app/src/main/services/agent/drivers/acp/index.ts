@@ -1,5 +1,5 @@
 import type { AgentEvent } from '../../../../../shared/agent-events'
-import { PERMISSION_MODES } from '../../../../../shared/settings'
+import { BASE_PERMISSION_MODES } from '../../../../../shared/settings'
 import { AsyncQueue } from '../../asyncQueue'
 import { makeEvent } from '../../events'
 import type {
@@ -106,7 +106,9 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
     // MUST stay byte-identical to the shared catalog entry (`shared/drivers.ts` cursor/grok) —
     // Task 2's contract.
     capabilities: {
-      permissionModes: PERMISSION_MODES,
+      // 'auto' is Claude-only; ACP drivers offer the base set — see the bypassPermissions
+      // rationale below in onPermission.
+      permissionModes: BASE_PERMISSION_MODES,
       editableApprovals: false,
       costReporting: false,
       planMode: true,
@@ -199,8 +201,13 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
       const onPermission = async (req: AcpPermissionRequest): Promise<AcpPermissionDecision> => {
         const kind = String(req.toolCall.kind ?? 'other')
 
-        // Permission-mode short-circuits mirror Copilot's (canUseTool is NOT called for
-        // auto-approved requests): decide WITHOUT opening an Argus card.
+        // Permission-mode short-circuits: decide WITHOUT opening an Argus card. onToolRequest
+        // (Argus's canUseTool-equivalent) is NOT called for auto-approved requests here.
+        // bypassPermissions → allow everything, genuinely: no classification at all. This ACP
+        // driver honours bypass locally, by choice — NOT parity with the Claude SDK. On a
+        // machine where an org policy blocks bypassPermissions, the Claude CLI silently
+        // downgrades the mode to `default` and calls canUseTool for every tool anyway (measured
+        // directly); this driver has no such policy gate, so it can diverge from that behaviour.
         if (ctx.permissionMode === 'bypassPermissions') {
           return decisionToOptionId({ behavior: 'allow', updatedInput: {} }, req.options)
         }
