@@ -9,6 +9,7 @@ import { confirmStore } from '../../lib/confirmStore'
 
 beforeEach(() => {
   uiStore.setDynamicTheme(false)
+  uiStore.setRailSectionCollapsed('repos', false)
   localStorage.clear()
   window.argus = {
     workspaces: {
@@ -383,5 +384,18 @@ describe('ReposSection promote-to-default prompt', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Link repo' }))
     expect(await screen.findByRole('menuitem', { name: 'alpha' })).toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'hivemindtest' })).not.toBeInTheDocument()
+  })
+})
+
+describe('ReposSection collapse', () => {
+  it('collapses to its header, keeping the Link repo control and dropping the repo rows', async () => {
+    render(<ReposSection slug="C-1" mode="investigation" />)
+    expect(await screen.findByText('hivemindtest')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Repos' }))
+
+    expect(screen.queryByText('hivemindtest')).not.toBeInTheDocument()
+    expect(screen.getByText('Repos')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Link repo' })).toBeInTheDocument()
   })
 })

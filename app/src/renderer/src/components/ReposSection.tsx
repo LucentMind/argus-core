@@ -5,6 +5,7 @@ import { FolderGit2, Unlink } from 'lucide-react'
 import { Chip, IconBtn, SectionLabel, Skeleton, SkeletonRows } from './ui'
 import { RepoGraphControl } from './RepoGraphControl'
 import { RepoPickerMenu } from './RepoPickerMenu'
+import { CollapsibleSection } from './CollapsibleSection'
 import { confirm } from '../lib/confirmStore'
 import { reposStore } from '../lib/reposStore'
 import { invalidateRepoSnippets } from '../lib/snippetCache'
@@ -127,19 +128,23 @@ export function ReposSection({
     // Tight py-2/gap-1 rather than p-2.5/gap-1.5 (user-directed, 2026-08-04, matching
     // JiraSection): the rail's section headers were eating more vertical space than their
     // content needed, across every card, not just this one.
-    <div
+    <CollapsibleSection
+      id="repos"
+      name="Repos"
       className={`flex flex-col gap-1 rounded-r3 px-2.5 py-2 ${dynamic ? 'glass-panel' : 'surface-card'}`}
-    >
-      <div className="flex items-center justify-between">
-        <SectionLabel>Repos</SectionLabel>
-        <div className="flex items-center gap-1">
-          <RepoPickerMenu
-            onPick={(p) => void link(p)}
-            exclude={workspaces.map((w) => w.path)}
-            trigger={{ icon: <FolderGit2 size={13} />, label: 'Link repo' }}
-          />
+      header={
+        <div className="flex items-center justify-between">
+          <SectionLabel>Repos</SectionLabel>
+          <div className="flex items-center gap-1">
+            <RepoPickerMenu
+              onPick={(p) => void link(p)}
+              exclude={workspaces.map((w) => w.path)}
+              trigger={{ icon: <FolderGit2 size={13} />, label: 'Link repo' }}
+            />
+          </div>
         </div>
-      </div>
+      }
+    >
       {workspaces.map((w) => (
         <div key={w.path} className="flex items-center gap-1">
           {/* Blue name, amber dot (user-directed, 2026-08-01) — the two were the wrong way
@@ -253,6 +258,6 @@ export function ReposSection({
           @ {r.commit?.slice(0, 7) ?? '?'} · unlinked
         </Chip>
       ))}
-    </div>
+    </CollapsibleSection>
   )
 }
