@@ -22,6 +22,10 @@ function resolveTheme(pref: ThemePreference): Theme {
   return pref === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : pref
 }
 
+export type RailPanelId = 'jira' | 'repos' | 'pr' | 'related'
+
+const RAIL_PANEL_IDS: readonly RailPanelId[] = ['jira', 'repos', 'pr', 'related']
+
 export interface UiState {
   /** Resolved — always `dark`/`light`, even while `themePreference` is `system`. */
   theme: Theme
@@ -31,6 +35,9 @@ export interface UiState {
   dynamicTheme: boolean
   findingsCollapsed: boolean
   evidenceCollapsed: boolean
+  /** Per-section collapse for the four upper left-rail panels. Global across cases — this is
+   *  a layout preference, like the pane widths, not case data. */
+  railCollapsed: Record<RailPanelId, boolean>
   findingsWidth: number
   evidenceWidth: number
   /** Recently opened cases shown as top-bar tabs. Intentionally not persisted — resets on app restart. */
@@ -46,6 +53,7 @@ const KEYS = {
   dynamicTheme: 'argus.ui.dynamicTheme',
   findingsCollapsed: 'argus.ui.findingsCollapsed',
   evidenceCollapsed: 'argus.ui.evidenceCollapsed',
+  railCollapsed: 'argus.ui.railCollapsed',
   findingsWidth: 'argus.ui.findingsWidth',
   evidenceWidth: 'argus.ui.evidenceWidth'
 } as const
@@ -61,6 +69,33 @@ export const EVIDENCE_MIN_WIDTH = 240
 export const EVIDENCE_MAX_WIDTH = 640
 /** Today's `w-80`, so nothing moves for an existing user on first run. */
 const EVIDENCE_DEFAULT_WIDTH = 320
+
+/**
+ * Unlike every other persisted key this one holds a JSON object, so it has more ways to be
+ * malformed than a `'true'`/`'false'` string does. It is read in the `UiStore` constructor,
+ * where a throw takes the whole renderer down with it — hand-edited storage, a half-written
+ * value, or a key left behind by a future version must all degrade to "nothing collapsed".
+ * Only the four known ids are honoured; anything else is dropped rather than carried.
+ */
+function readRailCollapsed(): Record<RailPanelId, boolean> {
+  const out = Object.fromEntries(RAIL_PANEL_IDS.map((id) => [id, false])) as Record<
+    RailPanelId,
+    boolean
+  >
+  const raw = localStorage.getItem(KEYS.railCollapsed)
+  if (!raw) return out
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return out
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return out
+  for (const id of RAIL_PANEL_IDS) {
+    if ((parsed as Record<string, unknown>)[id] === true) out[id] = true
+  }
+  return out
+}
 
 function readPersisted(): Omit<UiState, 'recentTabs' | 'activeSessions'> {
   const stored = localStorage.getItem(KEYS.theme)
@@ -79,6 +114,7 @@ function readPersisted(): Omit<UiState, 'recentTabs' | 'activeSessions'> {
     dynamicTheme: localStorage.getItem(KEYS.dynamicTheme) === 'true',
     findingsCollapsed: localStorage.getItem(KEYS.findingsCollapsed) === 'true',
     evidenceCollapsed: localStorage.getItem(KEYS.evidenceCollapsed) === 'true',
+    railCollapsed: readRailCollapsed(),
     findingsWidth:
       Number.isFinite(width) && width >= FINDINGS_MIN_WIDTH && width <= FINDINGS_MAX_WIDTH
         ? width
@@ -249,6 +285,18 @@ export class UiStore {
   setEvidenceCollapsed(collapsed: boolean): void {
     this.set({ evidenceCollapsed: collapsed })
     localStorage.setItem(KEYS.evidenceCollapsed, String(collapsed))
+  }
+
+  /** Deliberately not broadcast to other windows, exactly as the pane widths are not (see
+   *  `setEvidenceWidth`): each BrowserWindow runs its own UiStore, and the rail only exists in
+   *  the main window's case workspace. */
+  setRailSectionCollapsed(id: RailPanelId, collapsed: boolean): void {
+    const next = { ...this.state.railCollapsed, [id]: collapsed }
+    this.set({ railCollapsed: next })
+    // Only the collapsed entries are written, so the stored object stays a small positive
+    // record rather than a full snapshot that would pin future defaults to today's.
+    const stored = Object.fromEntries(RAIL_PANEL_IDS.filter((i) => next[i]).map((i) => [i, true]))
+    localStorage.setItem(KEYS.railCollapsed, JSON.stringify(stored))
   }
 
   setFindingsWidth(width: number): void {
