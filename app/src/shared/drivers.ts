@@ -402,9 +402,16 @@ export function nextInstanceId(
  * offering an edit affordance the active driver may silently drop (Copilot v1)
  * would be a false "your edit applied" signal, while withholding it merely costs
  * a convenience.
+ *
+ * `permissionModes` is likewise conservative, not permissive, despite reading like a cosmetic
+ * field: `'auto'` is Claude-only (its downgrade-detection is SDK-specific), and this fallback
+ * is reachable well beyond a pre-load flicker — a session pinned to an instance the user later
+ * deleted or renamed resolves here permanently. Offering `'auto'` with no driver resolved is
+ * exactly the "affordance the active driver might silently drop" case the comment above warns
+ * about, so this uses `BASE_PERMISSION_MODES`, not the full `PERMISSION_MODES`.
  */
 const DEFAULT_CAPABILITIES: DriverCapabilities = {
-  permissionModes: PERMISSION_MODES,
+  permissionModes: BASE_PERMISSION_MODES,
   editableApprovals: false,
   costReporting: true,
   headlessOneShot: false,
