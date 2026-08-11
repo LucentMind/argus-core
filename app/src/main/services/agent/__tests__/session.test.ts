@@ -1144,14 +1144,26 @@ describe('CaseSession', () => {
   // The real SDK auto-allows `Skill` and sandboxed reads WITHOUT consulting canUseTool
   // (proven live 2026-07-20: a session's Skill launch and reference Read produced zero
   // tool_calls rows) — so those two classes are captured from the finished assistant
-  // message's tool_use blocks instead, as decision 'observed'. Task 7 widens the same
-  // seam to every OTHER tool_use block too (decision 'auto') — a permission-mode 'auto'
-  // session (or a working bypassPermissions) never calls canUseTool at all, so this is
-  // the only capture point left for those calls' audit rows.
-  it('observes Skill/reference-read blocks as "observed", and every other unclaimed block as "auto"', async () => {
+  // message's tool_use blocks instead, as decision 'observed', UNCONDITIONALLY (canUseTool
+  // never runs for them regardless of permission mode). Task 7 widens the same seam to
+  // every OTHER tool_use block too (decision 'auto'), but — fix round 1 — only when the
+  // CLI's reported effective permission mode is 'auto' or a working 'bypassPermissions',
+  // the only two modes where canUseTool structurally never runs at all. The 'auto'-mode
+  // init message below is what makes those two extra rows appear; risk is now the real
+  // classifier verdict, not a hardcoded 'LOW' (Finding 3) — note the outside-sandbox Read
+  // classifies risk 'HIGH' even though its audited decision stays 'auto': enforcement is
+  // explicitly out of scope for this seam, only the risk COLUMN is populated for real.
+  it('observes Skill/reference-read blocks as "observed" always, and every other unclaimed block as "auto" under permissionMode auto', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk, { skillsRoots: [path.join(argusHome, 'references')] })
     s.send('go')
+    sdk.messages.push({
+      type: 'system',
+      subtype: 'init',
+      session_id: '11111111-1111-4111-8111-111111111111',
+      model: 'm',
+      permissionMode: 'auto'
+    })
     sdk.messages.push({
       type: 'assistant',
       message: {
@@ -1179,35 +1191,88 @@ describe('CaseSession', () => {
       }
     })
     await flush()
-    const rows = db.prepare(`SELECT tool, detail, decision FROM tool_calls ORDER BY id`).all() as {
+    const rows = db
+      .prepare(`SELECT tool, detail, decision, risk FROM tool_calls ORDER BY id`)
+      .all() as {
       tool: string
       detail: string | null
       decision: string
+      risk: string
     }[]
     expect(rows).toEqual([
-      expect.objectContaining({ tool: 'Skill', detail: 'contribute-back', decision: 'observed' }),
+      expect.objectContaining({
+        tool: 'Skill',
+        detail: 'contribute-back',
+        decision: 'observed',
+        risk: 'LOW'
+      }),
       expect.objectContaining({
         tool: 'Read',
         detail: 'ref:triage-playbook.md',
-        decision: 'observed'
+        decision: 'observed',
+        risk: 'LOW'
       }),
-      expect.objectContaining({ tool: 'Read', detail: null, decision: 'auto' }),
+      // Outside the sandbox (tmp, not caseDir/workspaceRoots/readonlyRoots): the real
+      // classifier verdict is deny/HIGH — only the risk value is taken here, never the
+      // enforcement action, so the row still lands as decision 'auto'.
+      expect.objectContaining({ tool: 'Read', detail: null, decision: 'auto', risk: 'HIGH' }),
       expect.objectContaining({
         tool: 'mcp__argus__read_memory',
         detail: 'nav-drift',
-        decision: 'auto'
+        decision: 'auto',
+        risk: 'LOW'
       })
     ])
     await s.stop('stopped')
   })
 
+  // Task 7 fix round 1 (Finding: "check, don't assume, what happens before the init
+  // message arrives"): a tool call observed before session.started ever fires — the
+  // effective mode is unknown — must NOT be written by the observation seam. The safe
+  // default is "let the approval pipeline write it", i.e. nothing at all here, since
+  // handleToolRequest is the one that will actually run in every mode except a report of
+  // 'auto'/'bypassPermissions' that never arrived. In practice the init message always
+  // precedes any tool_use block (see the ordering note on `consume()`), so this only
+  // covers the theoretical gap defensively.
+  it('writes nothing via the observation seam for a non-Skill/ref call before the effective permission mode is known', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    s.send('go')
+    sdk.messages.push({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'no-mode-yet',
+            name: 'mcp__argus__search_evidence',
+            input: { query: 'x' }
+          }
+        ]
+      }
+    })
+    await flush()
+    const rows = db
+      .prepare(`SELECT tool FROM tool_calls WHERE tool = 'mcp__argus__search_evidence'`)
+      .all()
+    expect(rows).toHaveLength(0)
+    await s.stop('stopped')
+  })
+
   // Task 7: a call that never reaches canUseTool (permissionMode 'auto', or a working
-  // bypassPermissions) still gets exactly one audit row, decision 'auto' — the classifier
-  // never ran, matching how other auto-allowed calls are recorded.
+  // bypassPermissions) still gets exactly one audit row, decision 'auto', risk from the
+  // real classifier (Finding 3) — matching how other auto-allowed calls are recorded.
   it('logs exactly one "auto" row for a tool call observed but never sent to canUseTool', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk)
     s.send('go')
+    sdk.messages.push({
+      type: 'system',
+      subtype: 'init',
+      session_id: '11111111-1111-4111-8111-111111111111',
+      model: 'm',
+      permissionMode: 'auto'
+    })
     sdk.messages.push({
       type: 'assistant',
       message: {
@@ -1223,21 +1288,42 @@ describe('CaseSession', () => {
     })
     await flush()
     const rows = db
-      .prepare(`SELECT tool, decision FROM tool_calls WHERE tool = 'mcp__argus__search_evidence'`)
-      .all() as { tool: string; decision: string }[]
+      .prepare(
+        `SELECT tool, decision, risk FROM tool_calls WHERE tool = 'mcp__argus__search_evidence'`
+      )
+      .all() as { tool: string; decision: string; risk: string }[]
     expect(rows).toEqual([
-      expect.objectContaining({ tool: 'mcp__argus__search_evidence', decision: 'auto' })
+      expect.objectContaining({
+        tool: 'mcp__argus__search_evidence',
+        decision: 'auto',
+        risk: 'LOW'
+      })
     ])
     await s.stop('stopped')
   })
 
-  // Task 7, direction 1: the approval pipeline (canUseTool) claims the toolCallId first;
-  // the observation seam must recognize the claim and skip when the finished assistant
-  // message for the SAME toolCallId arrives afterward.
+  // Task 7 fix round 1: the id-based dedup is now only a belt-and-braces guard — the real
+  // defense is the permission-mode gate above, which structurally keeps handleToolRequest
+  // and onToolObserved from ever both trying to write for the SAME call in a real session
+  // (onToolObserved only attempts a write under 'auto'/'bypassPermissions', and canUseTool
+  // never fires in those modes at all). This test forces `permissionMode: 'auto'` via the
+  // init message purely to make onToolObserved ATTEMPT its write, then drives canUseTool
+  // directly too (something the real SDK would never do together under 'auto') — proving
+  // the belt-and-braces guard still holds if that structural assumption is ever violated.
+  // Both writers agree on decision/risk here (`search_evidence` is a flat allow/LOW native
+  // verdict) — see the new "denied tool" test below for the case that actually
+  // distinguishes the two writers' outputs.
   it('does not double-log when canUseTool runs before the matching tool_use block is observed', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk)
     s.send('go')
+    sdk.messages.push({
+      type: 'system',
+      subtype: 'init',
+      session_id: '11111111-1111-4111-8111-111111111111',
+      model: 'm',
+      permissionMode: 'auto'
+    })
     await flush()
     const canUseTool = sdk.captured.options!.canUseTool as (
       n: string,
@@ -1264,19 +1350,36 @@ describe('CaseSession', () => {
     })
     await flush()
     const rows = db
-      .prepare(`SELECT tool FROM tool_calls WHERE tool = 'mcp__argus__search_evidence'`)
-      .all()
-    expect(rows).toHaveLength(1)
+      .prepare(
+        `SELECT tool, decision, risk FROM tool_calls WHERE tool = 'mcp__argus__search_evidence'`
+      )
+      .all() as { tool: string; decision: string; risk: string }[]
+    expect(rows).toEqual([
+      expect.objectContaining({
+        tool: 'mcp__argus__search_evidence',
+        decision: 'auto',
+        risk: 'LOW'
+      })
+    ])
     await s.stop('stopped')
   })
 
-  // Task 7, direction 2: the same pair in the opposite order — the finished assistant
-  // message (and its onToolObserved write) arrives BEFORE canUseTool is ever invoked for
-  // the same toolCallId. Ordering between the two paths is not guaranteed either way.
+  // Task 7 fix round 1, direction 2: the same forced-'auto' pair in the opposite order —
+  // the finished assistant message (and its onToolObserved write attempt) arrives BEFORE
+  // canUseTool is ever invoked for the same toolCallId. See the comment on the sibling test
+  // above: this is now purely a defensive guard test, not the primary correctness
+  // mechanism.
   it('does not double-log when the tool_use block is observed before canUseTool runs for the same toolCallId', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk)
     s.send('go')
+    sdk.messages.push({
+      type: 'system',
+      subtype: 'init',
+      session_id: '11111111-1111-4111-8111-111111111111',
+      model: 'm',
+      permissionMode: 'auto'
+    })
     await flush()
     sdk.messages.push({
       type: 'assistant',
@@ -1303,9 +1406,70 @@ describe('CaseSession', () => {
       { signal: new AbortController().signal, toolUseID: 'dup-observed-first' }
     )
     const rows = db
-      .prepare(`SELECT tool FROM tool_calls WHERE tool = 'mcp__argus__search_evidence'`)
-      .all()
-    expect(rows).toHaveLength(1)
+      .prepare(
+        `SELECT tool, decision, risk FROM tool_calls WHERE tool = 'mcp__argus__search_evidence'`
+      )
+      .all() as { tool: string; decision: string; risk: string }[]
+    expect(rows).toEqual([
+      expect.objectContaining({
+        tool: 'mcp__argus__search_evidence',
+        decision: 'auto',
+        risk: 'LOW'
+      })
+    ])
+    await s.stop('stopped')
+  })
+
+  // Task 7 fix round 1 — CRITICAL finding regression test. Real order: the finished
+  // assistant message (observation seam) reaches the harness BEFORE canUseTool is invoked
+  // for the same id, exactly as measured against the real SDK. Under the OLD "first claim
+  // wins" dedup, the observation seam would have won this race unconditionally and written
+  // decision 'auto'/risk 'LOW' — silently discarding the approval pipeline's real verdict.
+  // `Write` to a path outside the sandbox classifies deny/HIGH; the effective permission
+  // mode is 'default' (realistic — NOT auto/bypassPermissions), so onToolObserved must
+  // decline to write at all, leaving handleToolRequest as the sole writer with the REAL
+  // decision and risk.
+  it('persists the approval pipeline\'s real decision and risk, not "auto"/"LOW", when the observation seam sees the call first', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    s.send('go')
+    sdk.messages.push({
+      type: 'system',
+      subtype: 'init',
+      session_id: '11111111-1111-4111-8111-111111111111',
+      model: 'm',
+      permissionMode: 'default'
+    })
+    sdk.messages.push({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'realistic-order-1',
+            name: 'Write',
+            input: { file_path: path.join(tmp, 'outside-sandbox.md'), content: 'x' }
+          }
+        ]
+      }
+    })
+    await flush()
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      n: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal; toolUseID: string }
+    ) => Promise<{ behavior: string; message?: string }>
+    await canUseTool(
+      'Write',
+      { file_path: path.join(tmp, 'outside-sandbox.md'), content: 'x' },
+      { signal: new AbortController().signal, toolUseID: 'realistic-order-1' }
+    )
+    const rows = db
+      .prepare(`SELECT tool, decision, risk FROM tool_calls WHERE tool = 'Write'`)
+      .all() as { tool: string; decision: string; risk: string }[]
+    expect(rows).toEqual([
+      expect.objectContaining({ tool: 'Write', decision: 'denied', risk: 'HIGH' })
+    ])
     await s.stop('stopped')
   })
 

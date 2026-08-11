@@ -299,12 +299,29 @@ export class CaseSession {
   private grants = new SessionGrants()
   private riskCtx: RiskContext
   private detailCtx: ToolDetailCtx
-  /** Task 7: toolCallIds already claimed for the audit trail, by EITHER the approval
-   *  pipeline (`handleToolRequest`) or the observation seam (`onToolObserved`) — whichever
-   *  reaches `claimToolCallAudit` first for a given id. The two seams fire independently,
-   *  in no guaranteed order, for the same finished tool_use block once a call goes
-   *  through `canUseTool`; this set is what keeps that pair to exactly one audit row. */
+  /** Task 7 (fix round 1): toolCallIds already claimed for the audit trail. This is now a
+   *  belt-and-braces guard, NOT the mechanism that decides which writer wins — that job
+   *  moved to the `effectivePermissionMode` gate on `onToolObserved` below, because the
+   *  ordering between the two seams turned out NOT to be a race: measured against the real
+   *  SDK (three runs, two tool classes, `includePartialMessages: true`, `permissionMode:
+   *  'default'`), the finished assistant message carrying a `tool_use` block reaches
+   *  `onToolObserved` 7-8ms BEFORE `canUseTool` fires for the same id, every time — the
+   *  SDK's `Query.readMessages()` preserves wire order and the CLI emits the completed
+   *  assistant message before entering its permission phase. A "first claim wins" set would
+   *  therefore always pick the observation seam, discarding the approval pipeline's real
+   *  decision. This set now only protects against a future mode change (or an SDK change)
+   *  reintroducing a double row; it is cleared per turn (see `send()`) so it cannot grow for
+   *  the life of the session. */
   private auditedToolCallIds = new Set<string>()
+  /** Task 7 (fix round 1): the CLI's own reported effective permission mode, from
+   *  `session.started`'s `effectivePermissionMode` (drivers/claude/normalize.ts, sourced
+   *  from the SDK's init message). Null until the init message arrives — which is always
+   *  before any tool call, since it is the first message on the stream; see the ordering
+   *  proof in `consume()`/`onToolObserved` below. Drives the gate that decides whether
+   *  `onToolObserved` may write an audit row at all: only 'auto' and a working
+   *  'bypassPermissions' structurally never invoke `canUseTool`, so only those two modes
+   *  make the observation seam a safe sole writer. */
+  private effectivePermissionMode: string | null = null
   private turnIndex = 0
   private currentTurnRow: number | null = null
   /** Pids this session registered with `deps.processLabels`, so `stop()` can unregister
@@ -505,21 +522,45 @@ export class CaseSession {
       classifyOnly: this.classifyOnly.bind(this),
       // Usage-stats capture for `Skill` activations and sandboxed reference reads — the
       // two classes the Claude SDK auto-allows without ever consulting canUseTool (proven
-      // live 2026-07-20) — PLUS (Task 7) the audit row for every OTHER tool call that
-      // skipped canUseTool too: permissionMode 'auto' (the CLI's own classifier decides
-      // and never calls back into Argus) and a working bypassPermissions. Anything that
-      // DID reach canUseTool already got its row from handleToolRequest;
-      // claimToolCallAudit dedupes the two seams against each other by toolCallId,
-      // whichever fires first for a given id. Copilot never fires this seam (its reads
-      // audit via classifyOnly), so this only ever runs for the Claude driver.
+      // live 2026-07-20), unconditional on permission mode since canUseTool never runs for
+      // them regardless — PLUS (Task 7) the audit row for every OTHER tool call that
+      // skipped canUseTool too: permissionMode 'auto' (the CLI's own classifier decides and
+      // never calls back into Argus) and a working bypassPermissions.
+      //
+      // Task 7 fix round 1 (CRITICAL finding): that second class is gated on
+      // `effectivePermissionMode`, not raced against `handleToolRequest` via
+      // claimToolCallAudit. Measured against the real SDK: the finished assistant message
+      // reaches this seam 7-8ms BEFORE canUseTool fires for the same id, structurally
+      // (wire order), so a "first claim wins" dedup always picked THIS seam and silently
+      // discarded the approval pipeline's real decision — a call the user DENIED could be
+      // recorded as decision 'auto'. Only 'auto' and a working 'bypassPermissions'
+      // structurally never invoke canUseTool at all, so those are the only two modes in
+      // which writing here is safe; every other mode leaves `handleToolRequest` as the sole
+      // writer, exactly as before this task. `effectivePermissionMode` is null until the
+      // init message arrives, which is always before any tool call (see `consume()`) — the
+      // safe default for that window is the same "don't write" as any other non-auto mode.
+      // `claimToolCallAudit` stays as a belt-and-braces guard in case a future mode change
+      // (or SDK change) reintroduces a genuine race; it is no longer what decides the
+      // winner. Copilot never fires this seam (its reads audit via classifyOnly), so this
+      // only ever runs for the Claude driver.
       onToolObserved: (toolName, input, toolCallId) => {
         const detail = extractToolDetail(toolName, input, this.detailCtx)
         if (toolName === 'Skill' || detail?.startsWith('ref:')) {
           this.logToolCall(toolName, input, 'LOW', 'observed', 0)
           return
         }
+        if (
+          this.effectivePermissionMode !== 'auto' &&
+          this.effectivePermissionMode !== 'bypassPermissions'
+        ) {
+          return // handleToolRequest is the sole writer for this call in every other mode
+        }
         if (this.claimToolCallAudit(toolCallId)) return
-        this.logToolCall(toolName, input, 'LOW', 'auto', 0)
+        const risk = classifyToolCall(toolName, input, {
+          ...this.riskCtx,
+          toolRisk: this.deps.toolRisk?.()
+        }).risk
+        this.logToolCall(toolName, input, risk, 'auto', 0)
       },
       // Tag the cursor with the driver that produced it — sessionCursor gates resume on
       // this match so a future Copilot driver can never resume a Claude session's cursor.
@@ -596,6 +637,12 @@ export class CaseSession {
     if (this.state === 'dead') throw new Error('session is dead')
     this.turnIndex++
     this.activeTurn = true
+    // Task 7 (Finding 4): bound the belt-and-braces dedup set to one turn's worth of
+    // toolCallIds instead of the whole session's lifetime. A toolCallId is never reused —
+    // once a turn ends, every id claimed during it is dead weight — and the guard only ever
+    // needs to catch the two seams racing for the SAME still-in-flight call, which resolves
+    // within milliseconds, well inside a single turn.
+    this.auditedToolCallIds.clear()
     const now = new Date().toISOString()
     const res = this.deps.db
       .prepare(
@@ -888,13 +935,20 @@ export class CaseSession {
       )
   }
 
-  /** Task 7: claim a toolCallId against the audit trail. The approval pipeline
-   *  (`handleToolRequest`) and the observation seam (`onToolObserved`) both see every
-   *  Claude tool call that goes through `canUseTool`, arriving in no guaranteed order
-   *  relative to each other. Whichever side calls this FIRST for a given id becomes the
-   *  one that writes the row; returns `true` to tell the other side to skip its own
-   *  write. A call with no toolCallId (a driver/test that doesn't thread one through) is
-   *  never deduped — always returns `false`, i.e. "write it". */
+  /** Task 7 (fix round 1): claim a toolCallId against the audit trail. Originally the
+   *  primary "first writer wins" dedup between `handleToolRequest` and `onToolObserved`,
+   *  on the (wrong) assumption that their relative order was unknown. It is not: measured
+   *  against the real SDK, the finished assistant message reaches `onToolObserved` 7-8ms
+   *  BEFORE `canUseTool` fires for the same id, every time — so "first claim wins" always
+   *  picked the observation seam and silently discarded the approval pipeline's real
+   *  decision (a DENIED call could be recorded as 'auto'). The real fix is
+   *  `effectivePermissionMode` gating `onToolObserved` itself (see its call site), so the
+   *  two writers are now structurally mutually exclusive per mode rather than racing. This
+   *  method survives only as a belt-and-braces guard against a future mode change (or SDK
+   *  change) reintroducing a genuine race; whichever side calls it FIRST for a given id
+   *  still wins, returning `true` to tell the other side to skip its own write. A call with
+   *  no toolCallId (a driver/test that doesn't thread one through) is never deduped —
+   *  always returns `false`, i.e. "write it". */
   private claimToolCallAudit(toolCallId: string | undefined): boolean {
     if (toolCallId == null) return false
     if (this.auditedToolCallIds.has(toolCallId)) return true
@@ -945,10 +999,14 @@ export class CaseSession {
     | { behavior: 'allow'; updatedInput: Record<string, unknown> }
     | { behavior: 'deny'; message: string }
   > {
-    // Claimed synchronously, before any await — onToolObserved fires independently (from
-    // the finished assistant message on the stream, not this control-channel call) and in
-    // no guaranteed order relative to this invocation. Whichever side claims the
-    // toolCallId first writes the audit row; the other skips. See claimToolCallAudit.
+    // Claimed synchronously, before any await, as a belt-and-braces guard (see
+    // claimToolCallAudit) — not the primary defense against a double row. onToolObserved
+    // fires independently, from the finished assistant message on the stream rather than
+    // this control-channel call, and measured against the real SDK it reaches that seam
+    // 7-8ms BEFORE this method is even invoked for the same id. The primary defense is
+    // `effectivePermissionMode` gating onToolObserved's own write: in every mode where THIS
+    // method actually runs (canUseTool is invoked at all), onToolObserved has already
+    // declined to write, so `alreadyAudited` is expected to be `false` here in practice.
     const alreadyAudited = this.claimToolCallAudit(opts.toolCallId)
 
     // AskUserQuestion is answered THROUGH canUseTool (verified live 2026-07-22): open a
@@ -1154,6 +1212,15 @@ export class CaseSession {
         // CaseSession keeps only the mirror-index hook and the live/mirror broadcast.
         if (ev.type === 'assistant.message') {
           this.deps.mirror?.indexText('assistant', ev.payload.text, this.currentTurnRow)
+        }
+        // Task 7 fix round 1: captured here, ahead of the `emit` below, so it is set before
+        // this loop can even reach a later message. `session.started` normalizes from the
+        // SDK's init message, which is always the first message on the stream — no tool_use
+        // block (and therefore no onToolObserved call, which the driver fires synchronously
+        // while walking the SAME message-by-message loop this async generator drives) can
+        // arrive before it. See the field doc on `effectivePermissionMode` above.
+        if (ev.type === 'session.started') {
+          this.effectivePermissionMode = ev.payload.effectivePermissionMode
         }
         this.emit(ev)
       }
