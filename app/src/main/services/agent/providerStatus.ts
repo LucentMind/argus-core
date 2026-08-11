@@ -2,6 +2,7 @@ import type { AgentSettings } from '../../../shared/settings'
 import type { ProviderStatus } from '../../../shared/types'
 import { driverConfig, enabledInstances, type AgentDriverConfig } from '../../../shared/drivers'
 import type { AgentDriver } from './driver'
+import type { ModeRefusalRegistry } from './modeRefusals'
 
 export interface ProviderStatusDeps {
   settings: () => AgentSettings
@@ -14,6 +15,11 @@ export interface ProviderStatusDeps {
   now?: () => Date
   /** Latest published version for a driver, or null when unknown/offline. */
   latestVersion?: (driverKind: string) => Promise<string | null>
+  /** In-memory record of permission modes the CLI has refused to adopt this app session,
+   *  per instance — injected the same way as `driverFor`/`latestVersion` so tests can
+   *  observe it without wiring a real session sink. Optional so existing callers that
+   *  don't care about refusals need not construct one. */
+  modeRefusals?: ModeRefusalRegistry
 }
 
 /**
@@ -63,8 +69,12 @@ export class ProviderStatusService {
   }
 
   /** Probe every enabled instance concurrently — one provider being slow or wedged must not
-   *  delay the others' results, so each notifies as it lands. */
+   *  delay the others' results, so each notifies as it lands. Clears the mode-refusal
+   *  registry first: a refusal is a live observation, not a fact to carry across refreshes,
+   *  so a status refreshed after a refusal comes back clean until the mode is asked for and
+   *  refused again. */
   async refreshAll(): Promise<void> {
+    this.deps.modeRefusals?.clear()
     const agent = this.deps.settings()
     await Promise.all(
       enabledInstances({ agent } as never).map(({ id }) => this.refreshOne(id).catch(() => {}))
@@ -82,6 +92,10 @@ export class ProviderStatusService {
     }
     const displayName = instance.displayName?.trim() || driver.kind
     const cfg = driverConfig<AgentDriverConfig>(instance.driver, instance.config)
+    // Undefined (not []) when clean, so a status with nothing to report renders identically
+    // to before this field existed.
+    const refused = this.deps.modeRefusals?.for(instanceId)
+    const refusedPermissionModes = refused && refused.length > 0 ? refused : undefined
     try {
       const r = await driver.probeAuth({
         timeoutMs: agent.probeTimeoutMs,
@@ -104,6 +118,7 @@ export class ProviderStatusService {
         latestVersion: latest && r.version && latest !== r.version ? latest : undefined,
         updateCommand: driver.updateCommand,
         ...(r.ok ? {} : { fixHint: driver.authFixHint }),
+        refusedPermissionModes,
         checkedAt: this.now().toISOString()
       })
     } catch (err) {
@@ -114,6 +129,7 @@ export class ProviderStatusService {
         state: 'error',
         detail: err instanceof Error ? err.message : String(err),
         fixHint: driver.authFixHint,
+        refusedPermissionModes,
         checkedAt: this.now().toISOString()
       })
     }
