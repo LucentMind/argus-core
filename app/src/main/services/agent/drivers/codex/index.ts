@@ -1,5 +1,5 @@
 import { AsyncQueue } from '../../asyncQueue'
-import { PERMISSION_MODES } from '../../../../../shared/settings'
+import { BASE_PERMISSION_MODES } from '../../../../../shared/settings'
 import type { AgentEvent } from '../../../../../shared/agent-events'
 import type {
   AgentDriver,
@@ -113,7 +113,9 @@ export function createCodexDriver(
     npmPackage: '@openai/codex',
     updateCommand: 'npm install -g @openai/codex@latest',
     capabilities: {
-      permissionModes: PERMISSION_MODES,
+      // 'auto' is Claude-only; Codex offers the base set — see the bypassPermissions
+      // rationale below in onServerRequest.
+      permissionModes: BASE_PERMISSION_MODES,
       editableApprovals: false, // the approval decision reply carries no edited input
       costReporting: false, // no cost field anywhere on this wire (contract §7) — token counts only
       headlessOneShot: true, // runHeadless is present, below
@@ -202,6 +204,11 @@ export function createCodexDriver(
           return { decision: gen === 'current' ? 'cancel' : 'abort' }
         }
         const rawParams = (req.params as Record<string, unknown>) ?? {}
+        // bypassPermissions → auto-accept, genuinely: no classification at all. This driver
+        // honours bypass locally, by choice — NOT parity with the Claude SDK. On a machine
+        // where an org policy blocks bypassPermissions, the Claude CLI silently downgrades the
+        // mode to `default` and calls canUseTool for every tool anyway (measured directly);
+        // Codex has no such policy gate, so it can diverge from that behaviour.
         if (ctx.permissionMode === 'bypassPermissions') {
           return { decision: gen === 'current' ? 'accept' : 'approved' }
         }

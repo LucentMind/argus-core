@@ -21,7 +21,12 @@ import {
   type CatalogModel,
   type ClaudeDriverConfig
 } from '../drivers'
-import { settingsSchema, type AppSettings, PERMISSION_MODES } from '../settings'
+import {
+  settingsSchema,
+  type AppSettings,
+  PERMISSION_MODES,
+  BASE_PERMISSION_MODES
+} from '../settings'
 import { descriptorsFor, type ModelOptionInfo } from '../runOptions'
 // The real captured CLI catalog — same fixture modelIdentity.test.ts pins the resolver
 // against, so this test proves the fix end-to-end against real data, not a hand-written
@@ -136,9 +141,9 @@ describe('driver registry', () => {
     expect(d.models).toEqual([{ slug: 'auto', name: 'Auto' }])
   })
 
-  it('github-copilot capabilities: all permission modes, plan mode supported, no editable approvals/cost reporting', () => {
+  it('github-copilot capabilities: base permission modes (no auto — Claude-only), plan mode supported, no editable approvals/cost reporting', () => {
     const d = getDriver('github-copilot')!
-    expect(d.capabilities.permissionModes).toEqual(PERMISSION_MODES)
+    expect(d.capabilities.permissionModes).toEqual(BASE_PERMISSION_MODES)
     expect(d.capabilities.editableApprovals).toBe(false)
     expect(d.capabilities.costReporting).toBe(false)
     expect(d.capabilities.planMode).toBe(true)
@@ -190,10 +195,11 @@ describe('driver registry', () => {
     }
   })
 
-  it('registers cursor and grok ACP drivers with approval-parity capabilities', () => {
+  it('registers cursor and grok ACP drivers with approval-parity capabilities, base permission modes (no auto — Claude-only)', () => {
     for (const kind of ['cursor', 'grok'] as const) {
       const d = DRIVERS[kind]
       expect(d).toBeDefined()
+      expect(d.capabilities.permissionModes).toEqual(BASE_PERMISSION_MODES)
       expect(d.capabilities.editableApprovals).toBe(false)
       expect(d.capabilities.headlessOneShot).toBe(false)
       expect(d.capabilities.planMode).toBe(true)
@@ -767,9 +773,9 @@ describe('codex driver', () => {
     })
   })
 
-  it('codex capabilities: all permission modes, plan mode, no editable approvals', () => {
+  it('codex capabilities: base permission modes (no auto — Claude-only), plan mode, no editable approvals', () => {
     const d = getDriver('codex')!
-    expect(d.capabilities.permissionModes).toEqual(PERMISSION_MODES)
+    expect(d.capabilities.permissionModes).toEqual(BASE_PERMISSION_MODES)
     expect(d.capabilities.planMode).toBe(true)
   })
 })

@@ -1,6 +1,7 @@
 import { z } from './zodConfig'
 import {
   PERMISSION_MODES,
+  BASE_PERMISSION_MODES,
   type AppSettings,
   type ModelPreferences,
   type PermissionMode,
@@ -267,7 +268,9 @@ export const DRIVERS: Record<string, DriverDefinition> = {
     },
     models: COPILOT_MODELS,
     capabilities: {
-      permissionModes: PERMISSION_MODES,
+      // 'auto' is Claude-only (its permission-mode downgrade behaviour under org policy is
+      // SDK-specific — see the driver's onPermissionRequest comment); Copilot offers the base set.
+      permissionModes: BASE_PERMISSION_MODES,
       editableApprovals: false,
       costReporting: false,
       planMode: true,
@@ -302,7 +305,9 @@ export const DRIVERS: Record<string, DriverDefinition> = {
     },
     models: CODEX_MODELS,
     capabilities: {
-      permissionModes: PERMISSION_MODES,
+      // 'auto' is Claude-only; Codex offers the base set (see the driver's onServerRequest
+      // comment for why bypassPermissions is handled locally here rather than mirroring Claude).
+      permissionModes: BASE_PERMISSION_MODES,
       editableApprovals: false,
       costReporting: false, // no dollar cost on the wire (contract §7) — matches main's driver
       planMode: true,
@@ -327,7 +332,9 @@ export const DRIVERS: Record<string, DriverDefinition> = {
     },
     models: CURSOR_MODELS,
     capabilities: {
-      permissionModes: PERMISSION_MODES,
+      // 'auto' is Claude-only; the ACP driver offers the base set (see acp/index.ts's
+      // onPermission comment for why bypass is handled locally here rather than mirroring Claude).
+      permissionModes: BASE_PERMISSION_MODES,
       editableApprovals: false,
       costReporting: false,
       planMode: true,
@@ -352,7 +359,9 @@ export const DRIVERS: Record<string, DriverDefinition> = {
     },
     models: GROK_MODELS,
     capabilities: {
-      permissionModes: PERMISSION_MODES,
+      // 'auto' is Claude-only; the ACP driver offers the base set (see acp/index.ts's
+      // onPermission comment for why bypass is handled locally here rather than mirroring Claude).
+      permissionModes: BASE_PERMISSION_MODES,
       editableApprovals: false,
       costReporting: false,
       planMode: true,
