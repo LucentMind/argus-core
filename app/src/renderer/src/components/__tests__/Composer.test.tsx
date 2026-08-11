@@ -844,6 +844,39 @@ describe('Composer option chips', () => {
     expect(onPermissionModeChange).not.toHaveBeenCalled()
   })
 
+  // Finding 1 (Task 6 review round 1): the reason used to be visible-but-`aria-hidden`, with
+  // the explanation reaching assistive tech only through `title` — inconsistently announced by
+  // screen readers, and unreachable at all for a keyboard/AT user since a native `disabled`
+  // button is out of the tab order and never gets a hover. `aria-describedby` fixes that without
+  // touching the accessible NAME, which the test above still keys off via `{ name: … }`.
+  it('exposes the disabled reason as an accessible description, not just a title', async () => {
+    window.argus.providers.statuses = vi.fn(async (): Promise<ProviderStatus[]> => [
+      { ...REFUSED_STATUS, refusedPermissionModes: ['bypassPermissions'] }
+    ])
+    render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+    await userEvent.click(await screen.findByTitle('Permission mode'))
+    const option = await screen.findByRole('menuitem', { name: 'Bypass approvals' })
+    expect(option).toHaveAccessibleDescription('Disabled by your organization')
+  })
+
+  // Same requirement, collapsed density: the wide `OptionChip` and `CollapsedMenu`'s own
+  // Access section render the disabled reason from the same two exported constants, so this
+  // must not diverge from the wide-chip case above. Exercises `setRowWidth`, defined further
+  // down in this describe but available here via closure (see the `Composer ultrathink` tests
+  // for the same pattern).
+  it('exposes the disabled reason as an accessible description in the collapsed menu too', async () => {
+    window.argus.providers.statuses = vi.fn(async (): Promise<ProviderStatus[]> => [
+      { ...REFUSED_STATUS, refusedPermissionModes: ['bypassPermissions'] }
+    ])
+    render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+    await screen.findByTitle('Traits')
+    act(() => setRowWidth(360))
+    await userEvent.click(screen.getByLabelText('More options'))
+    const option = await screen.findByRole('menuitem', { name: 'Bypass approvals' })
+    expect(option).toBeDisabled()
+    expect(option).toHaveAccessibleDescription('Disabled by your organization')
+  })
+
   it('leaves every option selectable when nothing has been refused', async () => {
     window.argus.providers.statuses = vi.fn(async () => [{ ...REFUSED_STATUS }])
     const onPermissionModeChange = vi.fn()
