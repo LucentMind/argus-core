@@ -88,23 +88,32 @@ export interface DriverSessionContext {
   resumeCursor: string | null
   /** Live per-message event context (turnId moves between turns). */
   eventCtx: () => EventCtx
-  /** The harness approval pipeline; the driver adapts its SDK callback onto this. */
+  /** The harness approval pipeline; the driver adapts its SDK callback onto this.
+   *  `toolCallId`, when the driver's SDK exposes one (Claude's `toolUseID`), correlates
+   *  this request against `onToolObserved` firing for the SAME finished tool_use block —
+   *  see the dedup note on `onToolObserved` below. Absent for drivers/tests that don't
+   *  thread one through; the harness then never dedupes that call (always logs it here). */
   onToolRequest: (
     toolName: string,
     input: Record<string, unknown>,
-    opts: { signal: AbortSignal }
+    opts: { signal: AbortSignal; toolCallId?: string }
   ) => Promise<ToolDecision>
   /** Durable resume cursor observed on the stream. */
   onCursor: (cursor: string) => void
   /**
    * Fired for every finished tool_use block the driver sees on its stream, WITH the tool
    * input — including blocks the SDK executes without ever consulting onToolRequest (the
-   * Claude SDK auto-allows `Skill` and sandboxed file reads, proven live 2026-07-20) and
+   * Claude SDK auto-allows `Skill` and sandboxed file reads, proven live 2026-07-20, and
+   * EVERY tool call under permissionMode 'auto' or a working bypassPermissions) and
    * subagent blocks (`parent_tool_use_id`). Usage-stats capture for those bypass classes
-   * hangs off this seam; the harness decides what to record. Optional so drivers/tests
+   * hangs off this seam; the harness decides what to record. `toolCallId` (Claude's
+   * `block.id`, the same id `onToolRequest`'s `opts.toolCallId` carries for the SAME
+   * call) lets the harness dedupe a call that DID reach `onToolRequest` — the two seams
+   * fire independently and in no guaranteed order relative to each other, so the harness
+   * must correlate on this id from whichever side runs first. Optional so drivers/tests
    * without it are unaffected.
    */
-  onToolObserved?: (toolName: string, input: Record<string, unknown>) => void
+  onToolObserved?: (toolName: string, input: Record<string, unknown>, toolCallId?: string) => void
   /** Per-turn accounting + auth verdict, extracted by the driver. */
   onTurnResult: (r: TurnResult) => void
   /**

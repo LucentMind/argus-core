@@ -213,11 +213,18 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
                 : {}),
               argus: createArgusMcpServer(ctx.nativeToolDeps, ctx.resolvePrompt)
             },
+            // toolUseID (CanUseTool's own correlation id) is the SAME id that shows up as
+            // the tool_use block's `id` in the finished assistant message below — forward
+            // it as toolCallId so the harness can dedupe the two seams against each other.
             canUseTool: (
               toolName: string,
               input: Record<string, unknown>,
-              opts: { signal: AbortSignal }
-            ) => ctx.onToolRequest(toolName, input, opts),
+              opts: { signal: AbortSignal; toolUseID: string }
+            ) =>
+              ctx.onToolRequest(toolName, input, {
+                signal: opts.signal,
+                toolCallId: opts.toolUseID
+              }),
             ...(isResume ? { resume: ctx.resumeCursor } : {})
           }
         })
@@ -317,7 +324,8 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
               if (block?.type === 'tool_use') {
                 ctx.onToolObserved?.(
                   String(block.name),
-                  (block.input ?? {}) as Record<string, unknown>
+                  (block.input ?? {}) as Record<string, unknown>,
+                  block.id != null ? String(block.id) : undefined
                 )
               }
             }
