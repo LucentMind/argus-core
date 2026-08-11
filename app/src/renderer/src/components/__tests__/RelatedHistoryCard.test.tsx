@@ -52,8 +52,11 @@ function setArgus(result: Partial<RelatedSearchResult> | Error): void {
 }
 
 beforeEach(() => {
-  uiStore.setRailSectionCollapsed('related', false)
   localStorage.clear()
+  // uiStore is a module-level singleton that only reads localStorage in its constructor —
+  // localStorage.clear() above does not reset railCollapsed, so a collapse in one test would
+  // otherwise leak into every later test in this file.
+  uiStore.setRailSectionCollapsed('related', false)
 })
 
 describe('RelatedHistoryCard', () => {

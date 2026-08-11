@@ -104,15 +104,15 @@ export function JiraSection({
       id="jira"
       name="Ticket"
       className={`flex flex-col gap-1 rounded-r3 px-2.5 py-2 ${dynamic ? 'glass-panel' : 'surface-card'}`}
+      // Section label + ticket id, unlike Repos/Pull request's label-only header: this panel
+      // used to skip the label entirely on the theory that the title said what it was, but
+      // without "Jira" or the key anywhere the box read as an unlabeled title card, not
+      // obviously part of the same rail family (user-directed, 2026-08-04).
       header={<SectionLabel>Ticket · {jiraKey}</SectionLabel>}
     >
-      {/* Section label + ticket id, unlike Repos/Pull request's label-only header: this panel
-          used to skip the label entirely on the theory that the title said what it was, but
-          without "Jira" or the key anywhere the box read as an unlabeled title card, not
-          obviously part of the same rail family (user-directed, 2026-08-04). Tight py-2/gap-1
-          rather than the p-2.5/gap-1.5 the other rail sections use: this box has one row of
-          content beneath the header, so the extra breathing room those multi-row sections carry
-          just reads as dead space here. */}
+      {/* Tight py-2/gap-1 rather than the p-2.5/gap-1.5 the other rail sections use: this box has
+          one row of content beneath the header, so the extra breathing room those multi-row
+          sections carry just reads as dead space here. */}
       <div className="flex items-center gap-1">
         {/* The whole box is the trigger, not the text inside it: the box is what lights up on
             hover, so anything less than the box is a click target that does not match its own
