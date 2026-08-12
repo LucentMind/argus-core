@@ -2,7 +2,13 @@ import semver from 'semver'
 import { packFeedSchema, selectByRange } from './feed'
 import { listReleaseCandidates } from './githubFeed'
 import { isApiCompatible, platformMatchesHost } from './compat'
-import { MAX_FEED_BYTES, FEED_TIMEOUT_MS, type HttpClient } from './packUpdates'
+import {
+  MAX_FEED_BYTES,
+  FEED_TIMEOUT_MS,
+  MAX_PACK_BUNDLE_BYTES,
+  DOWNLOAD_TIMEOUT_MS,
+  type HttpClient
+} from './packUpdates'
 import type { GhClient } from './ghClient'
 import type { GhRef } from './githubRef'
 import type { DeclaredSource } from './dependencies'
@@ -98,4 +104,29 @@ async function resolveFromGithub(
     source,
     originLabel: `${source.host}/${source.owner}/${source.repo}`
   }
+}
+
+/** Fetch a resolved candidate's bytes. Feed URLs go through `HttpClient`; GitHub assets through
+ *  `gh`, which is the only path that can reach a private repo's asset. */
+export async function downloadCandidate(
+  candidate: ResolvedCandidate,
+  destPath: string,
+  gh: GhClient,
+  http: HttpClient
+): Promise<void> {
+  if (candidate.download.kind === 'url') {
+    const r = await http.getToFile(candidate.download.url, destPath, {
+      maxBytes: MAX_PACK_BUNDLE_BYTES,
+      timeoutMs: DOWNLOAD_TIMEOUT_MS
+    })
+    if (r.sha256 !== candidate.download.sha256) {
+      throw new Error(`sha256 mismatch for ${candidate.id} ${candidate.version}`)
+    }
+    return
+  }
+  const { ref, tag, assetName, size } = candidate.download
+  if (size > MAX_PACK_BUNDLE_BYTES) {
+    throw new Error(`asset is ${size} bytes, over the ${MAX_PACK_BUNDLE_BYTES} byte limit`)
+  }
+  await gh.downloadAsset(ref, tag, assetName, destPath)
 }
