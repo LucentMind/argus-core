@@ -415,13 +415,38 @@ A pack may require other packs by id and version range:
 { "dependencies": { "common": "^1.2" } }
 ```
 
-Declaring `dependencies` requires `"argusApi": "^1.1"` or later, so an older Core refuses the pack
-outright rather than loading it with its requirements ignored.
+A bare range string like that means exactly what it always has: Core enforces the requirement, but
+**will not fetch `common` on your behalf** — the user is told to install it first.
+
+To let Core resolve and fetch a missing dependency itself, declare it with its own source instead
+of a bare string:
+
+```jsonc
+{
+  "dependencies": {
+    "common": { "range": "^1.2", "updateUrl": "https://packs.example.com/common/feed.json" },
+    "extras": { "range": "^2.0", "updateRepo": "org/argus-extras" }
+  }
+}
+```
+
+`updateUrl` (an https feed, same shape as a pack's own update feed) and `updateRepo` (a GitHub
+`owner/repo`, or `host/owner/repo` for GitHub Enterprise) are mutually exclusive — declare one or
+neither, never both. A dependency entry with neither is equivalent to the bare-string form: Core
+still enforces the range, but treats it as **not auto-installable** and never contacts anything to
+satisfy it.
+
+Declaring `dependencies` (in either form) requires `"argusApi": "^1.1"` or later, so an older Core
+refuses the pack outright rather than loading it with its requirements ignored.
 
 Requirements are enforced in **both directions**, and always before anything is written to disk:
 
-- Installing a pack is refused (`code: 'dependency'`) when a dependency it declares is missing or
-  out of range. Core names what to install and never fetches a dependency on your behalf.
+- Installing a pack **resolves its dependency tree first** and shows the result as a plan before
+  anything is written — see [Install](#install) below. A dependency with no declared source (the
+  bare-string form) cannot appear in that plan; if one is missing or out of range, planning refuses
+  and names it (`code: 'unresolvable'`). The install step itself keeps its own dependency guard too
+  (`code: 'dependency'`), as defense in depth against a manifest that changed between planning and
+  writing. Either way, Core never fetches a non-auto-installable dependency on your behalf.
 - Installing or **updating a pack that others already depend on** is refused when the new version
   falls outside a dependent's range — the counterpart to uninstall, which likewise refuses to remove
   a depended-on pack. A vendor publishing a breaking major therefore cannot invalidate an installed
@@ -481,6 +506,15 @@ Core's Packs settings page installs from a bundle: it verifies `CHECKSUMS` (bidi
 `platform` matches the host and `argusApi` is compatible, then atomically swaps it into
 `ARGUS_HOME/packs/<id>/`. **Installing/uninstalling always requires an app relaunch** to take effect.
 A source manifest with no `platform` cannot be installed (only loaded in place for dev).
+
+Before any of that, picking a bundle **resolves its full dependency tree** — recursively, following
+every auto-installable (object-form) dependency to a source, cycle- and depth-guarded — into an
+ordered install plan. If the bundle needs nothing beyond itself, the plan is just that one pack and
+installs immediately, with the same downgrade confirmation as always. Otherwise Core shows the whole
+plan — every pack it will install or upgrade, the origin its bytes come from, and the version change
+— and waits for one approval before writing anything. Refusals (a version conflict, a dependency
+cycle, an unresolvable or non-auto-installable dependency, or an update that would break an installed
+dependent) are shown instead of a plan, and nothing is written.
 
 ### Update feeds
 
