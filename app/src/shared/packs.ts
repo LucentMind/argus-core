@@ -121,3 +121,11 @@ export type PlanErrorCode =
 
 export type PlanResult =
   { ok: true; packs: PlannedPack[] } | { ok: false; code: PlanErrorCode; error: string }
+
+/** Result of installing an approved plan in order. */
+export interface ApplyPlanResult {
+  installed: Array<{ id: string; version: string }>
+  /** Present when the run stopped early. Everything before it in the plan installed. */
+  failed: { id: string; error: string } | null
+  relaunchRequired: boolean
+}
