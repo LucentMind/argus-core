@@ -29,7 +29,8 @@ import {
   caseDir,
   settingsPath,
   configDir,
-  writeRootOverride
+  writeRootOverride,
+  reportsDir
 } from './services/paths'
 import { topicEnabled } from '../shared/agentAccess'
 import { openDb } from './services/db'
@@ -362,7 +363,7 @@ import { buildAutonomyPayload, type PayloadDeps } from './services/autonomy/payl
 import { generateAutonomyReport } from './services/autonomy/report'
 import { laneMetrics } from './services/autonomy/lanes'
 import { addEvent, ackEvent, currentTier } from './services/autonomy/ledger'
-import { barFor, clearsBar, type LaneId } from '../shared/autonomy'
+import { barFor, clearsBar, LANES, type LaneId } from '../shared/autonomy'
 
 let agentService: AgentService | null = null
 let providerStatusService: ProviderStatusService | null = null
@@ -2219,7 +2220,7 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.routinesAcceptItem, (_e, itemId: number): RoutinesPayload => {
     routinesService.acceptItem(itemId)
-    autonomyEvaluator.evaluateSoon()
+    autonomyOutcomeWritten()
     return routinesService.payload()
   })
   ipcMain.handle(
@@ -2233,7 +2234,7 @@ function registerIpc(): void {
         throw new Error('Dismissing a draft requires a resolution reason')
       }
       routinesService.dismissItem(itemId, resolution)
-      autonomyEvaluator.evaluateSoon()
+      autonomyOutcomeWritten()
       return routinesService.payload()
     }
   )
@@ -2415,8 +2416,17 @@ function registerIpc(): void {
     settings: () => settingsService.get(),
     onChanged: announceAutonomyChanged
   })
+  // Any handler that writes a supervised outcome (accept/reject/reviewed/confirmed/dismissed)
+  // must both re-evaluate the ladder AND tell every open Autonomy page to refresh — the page
+  // otherwise only updates on promote/demote/ack, so opening it after an outcome write (without
+  // the evaluator itself changing anything) shows boot-stale data.
+  const autonomyOutcomeWritten = (): void => {
+    announceAutonomyChanged()
+    autonomyEvaluator.evaluateSoon()
+  }
   ipcMain.handle(IPC.autonomyStatus, () => buildAutonomyPayload(autonomyDeps()))
   ipcMain.handle(IPC.autonomyPromote, (_e, lane: LaneId, note: string) => {
+    if (!LANES.includes(lane)) throw new Error(`Unknown lane: ${JSON.stringify(lane)}`)
     const deps = autonomyDeps()
     const auto = deps.settings().autonomy
     const m = laneMetrics(deps, lane, auto.windowDays)
@@ -2433,6 +2443,7 @@ function registerIpc(): void {
     return buildAutonomyPayload(deps)
   })
   ipcMain.handle(IPC.autonomyDemote, (_e, lane: LaneId, note: string) => {
+    if (!LANES.includes(lane)) throw new Error(`Unknown lane: ${JSON.stringify(lane)}`)
     const deps = autonomyDeps()
     const m = laneMetrics(deps, lane, deps.settings().autonomy.windowDays)
     addEvent(db, {
@@ -2446,6 +2457,9 @@ function registerIpc(): void {
     return buildAutonomyPayload(deps)
   })
   ipcMain.handle(IPC.autonomyAck, (_e, eventId: number) => {
+    if (typeof eventId !== 'number' || !Number.isFinite(eventId)) {
+      throw new Error(`Invalid event id: ${JSON.stringify(eventId)}`)
+    }
     ackEvent(db, eventId)
     announceAutonomyChanged()
     return buildAutonomyPayload(autonomyDeps())
@@ -2472,7 +2486,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.findingsReview, (_e, id: number, state: ReviewState) => {
     const row = reviewFinding(db, id, state)
     langfuseExporter?.scoreFinding(row)
-    autonomyEvaluator.evaluateSoon()
+    autonomyOutcomeWritten()
     return row
   })
   ipcMain.handle(IPC.findingsClear, (_e, caseSlug: string, mode?: ModeId) => {
@@ -2785,7 +2799,7 @@ function registerIpc(): void {
       // preview handler does, so a malformed value renders as "nothing dropped".
       const validated = validateRcaDraft(edited)
       const result = rcaJobs.confirm(slug, jobId, assignments, validated, dropped)
-      autonomyEvaluator.evaluateSoon()
+      autonomyOutcomeWritten()
       return result
     }
   )
@@ -2826,9 +2840,18 @@ function registerIpc(): void {
   ipcMain.handle(IPC.rcaPost, (_e, slug: string) =>
     postRcaReport({ db, argusHome, ...makeRovoDeps() }, slug)
   )
-  ipcMain.handle(IPC.autonomyReportPost, (_e, file: string) =>
-    postAutonomyReport(makeRovoDeps(), file)
-  )
+  ipcMain.handle(IPC.autonomyReportPost, (_e, file: string) => {
+    // IPC arg is untrusted input reaching a file read — constrain it to exactly the day-90
+    // report files this handler is meant to post, not an arbitrary path on disk.
+    const resolved = path.resolve(file)
+    if (
+      path.dirname(resolved) !== reportsDir(argusHome) ||
+      !/^autonomy-review-.*\.md$/.test(path.basename(resolved))
+    ) {
+      throw new Error(`Invalid autonomy report path: ${JSON.stringify(file)}`)
+    }
+    return postAutonomyReport(makeRovoDeps(), resolved)
+  })
   // Pure render, no persistence: the panel calls this on every draft edit to keep the
   // Exec/Tech preview tabs live before the user confirms anything. Mirrors the meta shape
   // `RcaJobs.confirm` builds from `getCase` (see jobs.ts) — kept in sync by hand since this
@@ -3065,12 +3088,12 @@ function registerIpc(): void {
     // gets into the library — but this handler never signalled it, so both the Library list and
     // INDEX.md stayed as they were until something else happened to fire.
     if (accepted.kind === 'reference') referencesChanged()
-    autonomyEvaluator.evaluateSoon()
+    autonomyOutcomeWritten()
     return { proposals: listProposals(argusHome), accepted }
   })
   ipcMain.handle(IPC.proposalsReject, (_e, file: string, reason?: RejectReason) => {
     rejectProposal(argusHome, file, reason)
-    autonomyEvaluator.evaluateSoon()
+    autonomyOutcomeWritten()
     return { proposals: listProposals(argusHome) }
   })
   const announceProposals = (): void => broadcast(IPC.proposalsChanged, proposalCounts(argusHome))

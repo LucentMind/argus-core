@@ -30,6 +30,19 @@ export class AutonomyStore {
     this.payload = null
   }
 
+  /** Re-fetches status() when already started. A decision write (accept/reject/reviewed/
+   *  confirmed/dismissed) elsewhere in the app now broadcasts `autonomy:changed`, so this is
+   *  mostly redundant with that — but it also covers the case where the page mounts after an
+   *  outcome was written in the same tick the broadcast fired, before this store's listener was
+   *  attached, so opening the page never shows boot-stale data. */
+  refresh(): void {
+    if (!this.started) return
+    void window.argus.autonomy
+      .status()
+      .then((p) => this.set(p))
+      .catch((e) => console.warn('autonomyStore: refresh() failed', e))
+  }
+
   private set(p: AutonomyPayload): void {
     this.payload = p
     for (const cb of this.listeners) cb()

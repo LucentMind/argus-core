@@ -112,4 +112,15 @@ describe('AutonomyStandalone', () => {
     expect(await screen.findByText(/2\.0 d/)).toBeInTheDocument() // triage median
     expect(screen.getByText(/\$4\.21/)).toBeInTheDocument()
   })
+
+  it('surfaces a reportPost rejection inline instead of swallowing it', async () => {
+    window.argus.autonomy.reportPost = vi
+      .fn()
+      .mockRejectedValue(new Error('Set a Confluence space key...'))
+    render(<AutonomyStandalone onClose={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /generate report/i }))
+    expect(await screen.findByText('# report')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /post to confluence/i }))
+    expect(await screen.findByText(/Set a Confluence space key/)).toBeInTheDocument()
+  })
 })

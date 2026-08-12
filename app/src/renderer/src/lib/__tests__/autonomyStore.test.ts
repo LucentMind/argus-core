@@ -45,4 +45,15 @@ describe('autonomyStore', () => {
     await vi.waitFor(() => expect(autonomyStore.get()).not.toBeNull())
     expect(window.argus.autonomy.status).toHaveBeenCalledTimes(1)
   })
+
+  it('refresh() re-fetches when started, and is a no-op otherwise', async () => {
+    autonomyStore.refresh() // not started yet — must not call status()
+    expect(window.argus.autonomy.status).not.toHaveBeenCalled()
+
+    autonomyStore.start()
+    await vi.waitFor(() => expect(autonomyStore.get()?.unackedDemotions).toBe(0))
+    ;(window.argus.autonomy.status as ReturnType<typeof vi.fn>).mockResolvedValue(payload(3))
+    autonomyStore.refresh()
+    await vi.waitFor(() => expect(autonomyStore.get()?.unackedDemotions).toBe(3))
+  })
 })
