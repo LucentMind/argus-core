@@ -1302,6 +1302,9 @@ function registerIpc(): void {
           downloadCandidate(candidate, destPath, nodeGhClient, nodeHttpClient),
         inspect: (bundlePath) => inspectBundleSource(bundlePath, { installed: packsState.list() }),
         installed: packsState.list(),
+        pins: Object.fromEntries(
+          Object.keys(packsState.list()).map((id) => [id, packsState.getSource(id)])
+        ),
         argusHome,
         cacheDir
       },

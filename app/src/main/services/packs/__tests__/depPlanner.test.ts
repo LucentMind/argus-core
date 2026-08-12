@@ -4,7 +4,9 @@ import path from 'node:path'
 import os from 'node:os'
 import { buildPlan, stagePlan, toPlannedRows, type PlannerDeps, type PlanRoot } from '../depPlanner'
 import type { ResolvedCandidate } from '../depSources'
+import type { DeclaredSource } from '../dependencies'
 import type { PackManifest } from '../manifest'
+import type { PackSource } from '../packsState'
 
 let home: string
 let cache: string
@@ -21,9 +23,14 @@ afterEach(() => {
 /** A world of publishable packs: id -> version -> its own declared dependencies. */
 type World = Record<string, Record<string, PackManifest['dependencies']>>
 
-function deps(world: World, installed: Record<string, string> = {}): PlannerDeps {
+function deps(
+  world: World,
+  installed: Record<string, string> = {},
+  pins: Record<string, PackSource | undefined> = {}
+): PlannerDeps {
   return {
     installed,
+    pins,
     argusHome: home,
     cacheDir: cache,
     resolver: {
@@ -256,5 +263,120 @@ describe('buildPlan refusals', () => {
     )
     expect(r.ok).toBe(true)
     expect(r.ok && r.packs.map((p) => p.id)).toEqual(['common', 'maps'])
+  })
+})
+
+describe('buildPlan dependency-confusion defence', () => {
+  const trustedFeed: PackSource = {
+    kind: 'feed',
+    origin: 'https://trusted.example',
+    updateUrl: 'https://trusted.example/f.json',
+    installedAt: 1
+  }
+  const trustedDeclared: DeclaredSource = {
+    kind: 'feed',
+    updateUrl: 'https://trusted.example/f.json',
+    origin: 'https://trusted.example'
+  }
+
+  function spyResolverDeps(
+    resolve: (
+      id: string,
+      range: string,
+      source: DeclaredSource
+    ) => Promise<ResolvedCandidate | null>,
+    pins: Record<string, PackSource | undefined>,
+    installed: Record<string, string>
+  ): PlannerDeps {
+    return {
+      installed,
+      pins,
+      argusHome: home,
+      cacheDir: cache,
+      resolver: { resolve },
+      async download(candidate, destPath) {
+        fs.writeFileSync(destPath, `${candidate.id}@${candidate.version}`)
+      },
+      async inspect(bundlePath) {
+        const [id, version] = fs.readFileSync(bundlePath, 'utf8').split('@')
+        return { id, version, rawDependencies: {} }
+      }
+    }
+  }
+
+  it("resolves an already-installed pinned dependency from its own pin, not the dependent's declared source", async () => {
+    const calls: Array<{ id: string; range: string; source: DeclaredSource }> = []
+    const d = spyResolverDeps(
+      async (id, range, source) => {
+        calls.push({ id, range, source })
+        return {
+          id,
+          version: '2.0.0',
+          download: {
+            kind: 'url',
+            url: 'https://trusted.example/common-2.0.0.zip',
+            sha256: 'a'.repeat(64)
+          },
+          source,
+          originLabel: 'trusted.example'
+        }
+      },
+      { common: trustedFeed },
+      { common: '1.2.0' }
+    )
+    const r = await buildPlan(
+      d,
+      // A hostile dependent declares an upgrade sourced from an attacker-controlled repo.
+      root('maps', '2.0.0', { common: { range: '^2', updateRepo: 'attacker/evil' } })
+    )
+    expect(r.ok).toBe(true)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].source).toEqual(trustedDeclared)
+  })
+
+  it("refuses rather than falling back to the dependent's declared source when the pin has nothing in range", async () => {
+    const calls: DeclaredSource[] = []
+    const d = spyResolverDeps(
+      async (_id, _range, source) => {
+        calls.push(source)
+        return null // trusted.example publishes nothing satisfying ^2
+      },
+      { common: trustedFeed },
+      { common: '1.2.0' }
+    )
+    const r = await buildPlan(
+      d,
+      root('maps', '2.0.0', { common: { range: '^2', updateRepo: 'attacker/evil' } })
+    )
+    expect(r).toMatchObject({ ok: false, code: 'unresolvable' })
+    expect(calls).toEqual([trustedDeclared])
+    const msg = r.ok ? '' : r.error
+    expect(msg).toContain('common')
+    expect(msg).toContain('trusted.example')
+    expect(msg).toContain('^2')
+  })
+
+  it('resolves a not-installed dependency from the declared source (ordinary path, unchanged)', async () => {
+    const calls: DeclaredSource[] = []
+    const d = spyResolverDeps(
+      async (id, _range, source) => {
+        calls.push(source)
+        return {
+          id,
+          version: '1.4.0',
+          download: { kind: 'url', url: 'https://x.example/common.zip', sha256: 'a'.repeat(64) },
+          source,
+          originLabel: 'x.example'
+        }
+      },
+      {},
+      {}
+    )
+    const r = await buildPlan(
+      d,
+      root('maps', '2.0.0', { common: { range: '^1', updateRepo: 'org/packs' } })
+    )
+    expect(r.ok).toBe(true)
+    expect(calls).toEqual([{ kind: 'github', host: 'github.com', owner: 'org', repo: 'packs' }])
   })
 })
