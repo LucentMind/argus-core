@@ -62,7 +62,8 @@ export const packBinarySchema = z
   })
   .passthrough()
   .refine((b) => b.bundled !== false || b.fixHint.trim() !== '', {
-    message: 'fixHint is required when bundled is false — it is the only guidance a user gets for an unresolved binary'
+    message:
+      'fixHint is required when bundled is false — it is the only guidance a user gets for an unresolved binary'
   })
 
 export type PackBinary = z.infer<typeof packBinarySchema>

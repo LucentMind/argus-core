@@ -188,7 +188,10 @@ describe('defaultAcpClientFactory child-exit hardening', () => {
     // spawn + 50ms exit + event round trip can exceed a fixed budget under load), while
     // vi.waitFor resolves the instant the update lands and only times out if something's
     // actually broken.
-    await vi.waitFor(() => expect(updates).toHaveLength(1))
+    // Explicit bound: vi.waitFor defaults to 1s, which is no safer than the fixed sleep it
+    // replaced once a real child spawn is on the critical path. 15s is a broken-code detector,
+    // not a budget — the poll resolves the instant the update lands.
+    await vi.waitFor(() => expect(updates).toHaveLength(1), { timeout: 15_000, interval: 25 })
 
     const item = updates[0] as { type: string; message: string }
     expect(item.type).toBe('error')
