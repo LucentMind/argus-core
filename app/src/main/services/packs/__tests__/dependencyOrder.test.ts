@@ -104,6 +104,49 @@ describe('missing dependencies', () => {
   })
 })
 
+describe('dependency version ranges', () => {
+  it('excludes a dependent whose dependency is installed outside the declared range', () => {
+    writePack(root, 'maps', { dependencies: { common: '^1.0.0' } })
+    writePack(root, 'common', { version: '2.0.0' })
+    const reg = PackRegistry.load(root)
+    // The dependency itself is healthy — only the pack whose requirement is violated drops out.
+    expect(reg.packs().map((p) => p.id)).toEqual(['common'])
+    expect(reg.errors()).toHaveLength(1)
+    const msg = reg.errors()[0].message
+    expect(msg).toContain('maps')
+    expect(msg).toContain('common')
+    expect(msg).toContain('^1.0.0')
+    expect(msg).toContain('2.0.0')
+    expect(reg.errors()[0].dir).toBe(path.join(root, 'maps'))
+  })
+
+  it('loads a dependent whose dependency version satisfies the range', () => {
+    writePack(root, 'maps', { dependencies: { common: '^1.2' } })
+    writePack(root, 'common', { version: '1.5.3' })
+    const reg = PackRegistry.load(root)
+    expect(reg.errors()).toEqual([])
+    expect(reg.packs().map((p) => p.id)).toEqual(['common', 'maps'])
+  })
+
+  it('treats a non-semver dependency version as unsatisfiable rather than ignoring the range', () => {
+    writePack(root, 'maps', { dependencies: { common: '^1.0.0' } })
+    writePack(root, 'common', { version: 'nightly' })
+    const reg = PackRegistry.load(root)
+    expect(reg.packs().map((p) => p.id)).toEqual(['common'])
+    expect(reg.errors()).toHaveLength(1)
+    expect(reg.errors()[0].message).toContain('nightly')
+  })
+
+  it('cascades to a pack depending on one excluded for a version mismatch', () => {
+    writePack(root, 'top', { dependencies: { maps: '^1' } })
+    writePack(root, 'maps', { dependencies: { common: '^1.0.0' } })
+    writePack(root, 'common', { version: '2.0.0' })
+    const reg = PackRegistry.load(root)
+    expect(reg.packs().map((p) => p.id)).toEqual(['common'])
+    expect(reg.errors()).toHaveLength(2)
+  })
+})
+
 describe('cross-pack id collisions', () => {
   it('errors both packs when two declare the same binary id', () => {
     writePack(root, 'navigation', { binaries: [binary('navnative-trace')] })
