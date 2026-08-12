@@ -55,38 +55,50 @@ export function registerPacksPlanIpc(handle: HandleFn, deps: PacksPlanIpcDeps): 
     // A new plan supersedes whatever the previous one staged — remove its cache dir too, not just
     // the in-memory reference, or a superseded plan's bytes would sit on disk forever.
     clearStaging()
-    const cacheDir = fs.mkdtempSync(path.join(deps.tempRoot, 'argus-pack-plan-'))
+    // Inspect the root BEFORE creating the staging dir: a malformed root bundle makes
+    // `inspectBundleSource` throw, and there is nothing yet to stage, so no dir should exist to
+    // leak.
     const inspected = await inspectBundleSource(source, { installed: deps.packsState.list() })
-    const result = await stagePlan(
-      {
-        resolver: deps.resolver,
-        download: deps.download,
-        inspect: (bundlePath) =>
-          inspectBundleSource(bundlePath, { installed: deps.packsState.list() }),
-        installed: deps.packsState.list(),
-        pins: Object.fromEntries(
-          Object.keys(deps.packsState.list()).map((id) => [id, deps.packsState.getSource(id)])
-        ),
-        argusHome: deps.argusHome,
-        cacheDir
-      },
-      {
-        id: inspected.id,
-        version: inspected.version,
-        bundlePath: source,
-        source: null,
-        dependencies: inspected.rawDependencies
-      }
-    )
-    if (!result.ok) {
-      // Refused — nothing to stage, so the cache dir this attempt created leaks unless removed here.
-      fs.rmSync(cacheDir, { recursive: true, force: true })
-      return result
+    const cacheDir = fs.mkdtempSync(path.join(deps.tempRoot, 'argus-pack-plan-'))
+    // `cacheDir`'s lifetime from here on: this attempt owns it until `stagePlan` succeeds and it
+    // is adopted into `stagedCacheDir` below — from that point `clearStaging`/`packsApplyPlan` own
+    // it instead. Every OTHER way out of this try (a refusal, or `stagePlan` throwing — e.g. a
+    // downloaded dependency bundle whose manifest fails to parse; `depPlanner.ts`'s
+    // `deps.inspect(bundlePath)` call is not itself try-wrapped) means adoption never happened, so
+    // the `finally` below removes it instead of leaving it, possibly still holding downloaded
+    // bytes, on disk forever.
+    let adopted = false
+    try {
+      const result = await stagePlan(
+        {
+          resolver: deps.resolver,
+          download: deps.download,
+          inspect: (bundlePath) =>
+            inspectBundleSource(bundlePath, { installed: deps.packsState.list() }),
+          installed: deps.packsState.list(),
+          pins: Object.fromEntries(
+            Object.keys(deps.packsState.list()).map((id) => [id, deps.packsState.getSource(id)])
+          ),
+          argusHome: deps.argusHome,
+          cacheDir
+        },
+        {
+          id: inspected.id,
+          version: inspected.version,
+          bundlePath: source,
+          source: null,
+          dependencies: inspected.rawDependencies
+        }
+      )
+      if (!result.ok) return result // refused — nothing to stage; cleaned up in `finally` below
+      stagedPlan = result.packs
+      stagedCacheDir = cacheDir
+      adopted = true
+      // Main keeps the staged packs (bundlePath, source); the renderer gets IPC-safe rows only.
+      return { ok: true, packs: toPlannedRows(result.packs) }
+    } finally {
+      if (!adopted) fs.rmSync(cacheDir, { recursive: true, force: true })
     }
-    stagedPlan = result.packs
-    stagedCacheDir = cacheDir
-    // Main keeps the staged packs (bundlePath, source); the renderer gets IPC-safe rows only.
-    return { ok: true, packs: toPlannedRows(result.packs) }
   })
 
   handle(IPC.packsApplyPlan, async (): Promise<ApplyPlanResult> => {
