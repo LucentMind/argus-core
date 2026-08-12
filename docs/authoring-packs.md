@@ -418,16 +418,31 @@ A pack may require other packs by id and version range:
 Declaring `dependencies` requires `"argusApi": "^1.1"` or later, so an older Core refuses the pack
 outright rather than loading it with its requirements ignored.
 
+Requirements are enforced in **both directions**, and always before anything is written to disk:
+
+- Installing a pack is refused (`code: 'dependency'`) when a dependency it declares is missing or
+  out of range. Core names what to install and never fetches a dependency on your behalf.
+- Installing or **updating a pack that others already depend on** is refused when the new version
+  falls outside a dependent's range — the counterpart to uninstall, which likewise refuses to remove
+  a depended-on pack. A vendor publishing a breaking major therefore cannot invalidate an installed
+  dependent behind your back; the current version stays active and the update is held.
+
 Packs load in **dependency order**: every pack is loaded after the packs it depends on, with
 **pack-id sort as the tiebreaker** among packs that don't depend on each other. That order is what
 persona fragments, detector evaluation, and every `*Decls()` flattening follow — so a pack can rely
 on its dependency's declarations already being in place.
 
-Three conditions make a pack **fail to load** (it is excluded from the registry and reported as a
+Four conditions make a pack **fail to load** (it is excluded from the registry and reported as a
 load error, while unaffected packs still load):
 
 - **Missing dependency** — a declared dependency is not installed, or itself failed to load. The
   failure cascades to anything depending on the failed pack.
+- **Dependency out of range** — the dependency is installed, but at a version the declared range
+  does not accept. Only the pack whose requirement is violated drops out; the dependency itself
+  still loads. A dependency whose `version` is not valid semver can satisfy no range at all.
+  The range is checked at load and not only at install because the two can drift: packs seeded on
+  disk never pass through the installer, and a hand-edited manifest or a restored `.bak` can put an
+  out-of-range pair in front of the loader.
 - **Dependency cycle** — every pack in (or blocked behind) the cycle errors.
 - **Duplicate id across packs** — two packs declaring the same `binaries[].id` or the same
   `detectors[].type`. **Both** packs error: neither silently shadows the other. Binary ids and

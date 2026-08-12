@@ -366,6 +366,76 @@ describe('pack dependencies', () => {
     expect(state.get('common')).toBe('0.1.2')
   })
 
+  /** Installs 'navigation', which requires common ^0.1.0. Assumes common is already present. */
+  async function installNavigation(): Promise<void> {
+    const r = await installPack(
+      makeBundleDir({
+        id: 'navigation',
+        displayName: 'Navigation',
+        argusApi: '^1.1',
+        dependencies: { common: '^0.1.0' }
+      }),
+      { argusHome: home, state, host: HOST }
+    )
+    expect(r.ok).toBe(true)
+  }
+
+  it('refuses to replace a pack with a version its installed dependent rejects', async () => {
+    await installCommon('0.1.2')
+    await installNavigation()
+
+    const r = await installPack(
+      makeBundleDir({ id: 'common', displayName: 'Common', version: '1.0.0' }),
+      { argusHome: home, state, host: HOST }
+    )
+    expect(r).toMatchObject({ ok: false, code: 'dependency' })
+    expect(r.ok ? '' : r.error).toContain('navigation')
+    expect(r.ok ? '' : r.error).toContain('^0.1.0')
+    expect(r.ok ? '' : r.error).toContain('1.0.0')
+
+    // The installed version must survive the refusal — the swap happens after this check.
+    expect(state.get('common')).toBe('0.1.2')
+    const onDisk = JSON.parse(
+      fs.readFileSync(path.join(packsDir(home), 'common', 'argus-pack.json'), 'utf8')
+    )
+    expect(onDisk.version).toBe('0.1.2')
+  })
+
+  it('allows replacing a pack with a version its dependent still accepts', async () => {
+    await installCommon('0.1.2')
+    await installNavigation()
+
+    const r = await installPack(
+      makeBundleDir({ id: 'common', displayName: 'Common', version: '0.1.9' }),
+      { argusHome: home, state, host: HOST }
+    )
+    expect(r).toMatchObject({ ok: true, id: 'common' })
+    expect(state.get('common')).toBe('0.1.9')
+  })
+
+  it('names every dependent a replacement would break', async () => {
+    await installCommon('0.1.2')
+    await installNavigation()
+    const maps = await installPack(
+      makeBundleDir({
+        id: 'maps',
+        displayName: 'Maps',
+        argusApi: '^1.1',
+        dependencies: { common: '~0.1.2' }
+      }),
+      { argusHome: home, state, host: HOST }
+    )
+    expect(maps.ok).toBe(true)
+
+    const r = await installPack(
+      makeBundleDir({ id: 'common', displayName: 'Common', version: '9.9.9' }),
+      { argusHome: home, state, host: HOST }
+    )
+    expect(r).toMatchObject({ ok: false, code: 'dependency' })
+    expect(r.ok ? '' : r.error).toContain('navigation')
+    expect(r.ok ? '' : r.error).toContain('maps')
+  })
+
   it('allows uninstalling the dependency once its dependent is gone', async () => {
     await installCommon('0.1.2')
     await installPack(

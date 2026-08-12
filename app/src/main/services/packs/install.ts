@@ -1,8 +1,8 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import semver from 'semver'
 import { extract } from 'zip-lib'
+import { checkDependency } from './dependencies'
 import { PACK_MANIFEST_FILE, packManifestSchema, type PackManifest } from './manifest'
 import { verifyBundleChecksums } from './verify'
 import { isApiCompatible, platformMatchesHost, describeHost } from './compat'
@@ -34,43 +34,26 @@ export function resolveDependencies(
 ): PackDependencyStatus[] {
   return Object.entries(manifest.dependencies ?? {}).map(([id, range]) => {
     const installedVersion = installed[id] ?? null
-    if (id === manifest.id) {
-      return {
-        id,
-        range,
-        installedVersion,
-        satisfied: false,
-        detail: `pack '${id}' declares a dependency on itself`
-      }
+    const unmet = (detail: string): PackDependencyStatus => ({
+      id,
+      range,
+      installedVersion,
+      satisfied: false,
+      detail
+    })
+    if (id === manifest.id) return unmet(`pack '${id}' declares a dependency on itself`)
+    switch (checkDependency(installedVersion, range)) {
+      case 'missing':
+        return unmet(`requires '${id}' ${range}, which is not installed`)
+      case 'invalid-version':
+        return unmet(
+          `requires '${id}' ${range}, but the installed version '${installedVersion}' is not valid semver`
+        )
+      case 'out-of-range':
+        return unmet(`requires '${id}' ${range}, but '${installedVersion}' is installed`)
+      default:
+        return { id, range, installedVersion, satisfied: true, detail: '' }
     }
-    if (installedVersion == null) {
-      return {
-        id,
-        range,
-        installedVersion,
-        satisfied: false,
-        detail: `requires '${id}' ${range}, which is not installed`
-      }
-    }
-    if (!semver.valid(installedVersion)) {
-      return {
-        id,
-        range,
-        installedVersion,
-        satisfied: false,
-        detail: `requires '${id}' ${range}, but the installed version '${installedVersion}' is not valid semver`
-      }
-    }
-    if (!semver.satisfies(installedVersion, range)) {
-      return {
-        id,
-        range,
-        installedVersion,
-        satisfied: false,
-        detail: `requires '${id}' ${range}, but '${installedVersion}' is installed`
-      }
-    }
-    return { id, range, installedVersion, satisfied: true, detail: '' }
   })
 }
 
@@ -81,17 +64,23 @@ export function describeUnsatisfied(packId: string, deps: PackDependencyStatus[]
   return `pack '${packId}' ${unmet.map((d) => d.detail).join('; ')}`
 }
 
-/** Ids of installed packs that declare a dependency on `id`, read from their on-disk manifests. */
-export function dependentsOf(id: string, argusHome: string): string[] {
+/**
+ * Installed packs that declare a dependency on `id`, with the range each one asks for, read from
+ * their on-disk manifests. Sorted by dependent id so messages are stable.
+ */
+export function dependentRangesOn(
+  id: string,
+  argusHome: string
+): Array<{ id: string; range: string }> {
   const dir = packsDir(argusHome)
   if (!fs.existsSync(dir)) return []
-  const dependents: string[] = []
+  const dependents: Array<{ id: string; range: string }> = []
   for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
     if (!ent.isDirectory() || ent.name === id) continue
     const p = path.join(dir, ent.name, PACK_MANIFEST_FILE)
     if (!fs.existsSync(p)) continue
     // A pack whose manifest no longer parses can't be trusted to declare anything — it will
-    // fail at load with its own error; it must not block an unrelated uninstall.
+    // fail at load with its own error; it must not block an unrelated uninstall or upgrade.
     const parsed = packManifestSchema.safeParse(
       (() => {
         try {
@@ -102,9 +91,37 @@ export function dependentsOf(id: string, argusHome: string): string[] {
       })()
     )
     if (!parsed.success) continue
-    if (Object.hasOwn(parsed.data.dependencies ?? {}, id)) dependents.push(parsed.data.id)
+    const range = (parsed.data.dependencies ?? {})[id]
+    if (range != null) dependents.push({ id: parsed.data.id, range })
   }
-  return dependents.sort()
+  return dependents.sort((a, b) => a.id.localeCompare(b.id))
+}
+
+/** Ids of installed packs that declare a dependency on `id`, read from their on-disk manifests. */
+export function dependentsOf(id: string, argusHome: string): string[] {
+  return dependentRangesOn(id, argusHome).map((d) => d.id)
+}
+
+/**
+ * The mirror of the `uninstallPack` guard, for replacing a pack in place: installing `id` at
+ * `version` must not strand a pack already depending on it. Without this, `uninstall` refuses to
+ * remove a depended-on pack while `install`/update happily swaps it across a breaking major —
+ * and load, which only checks that a dependency is *present*, would not notice afterwards.
+ *
+ * Returns one message naming every dependent that would break, or null when the swap is safe.
+ */
+export function describeBrokenDependents(
+  id: string,
+  version: string,
+  argusHome: string
+): string | null {
+  const broken = dependentRangesOn(id, argusHome).filter(
+    (d) => checkDependency(version, d.range) !== 'ok'
+  )
+  if (broken.length === 0) return null
+  return `installing '${id}' ${version} would break ${broken
+    .map((d) => `'${d.id}' (requires ${id} ${d.range})`)
+    .join(', ')} — update ${broken.length > 1 ? 'those packs' : 'that pack'} first`
 }
 
 /** Materialize a .zip or directory source into a fresh staging dir on the packs volume. */
@@ -230,6 +247,12 @@ export async function installPack(
       resolveDependencies(manifest, state.list())
     )
     if (unsatisfied) throw new InstallError('dependency', unsatisfied)
+
+    // Both directions, and both before the swap: what this pack needs (above) and what already
+    // needs this pack (below). The update-apply path routes through here too, so a vendor
+    // publishing a breaking major cannot quietly invalidate an installed dependent's range.
+    const breaks = describeBrokenDependents(manifest.id, manifest.version, argusHome)
+    if (breaks) throw new InstallError('dependency', breaks)
 
     stripQuarantine(staging)
 
