@@ -8,7 +8,7 @@ import type {
   PacksListPayload,
   InstalledPackRow,
   RepoPackRow,
-  InspectResult
+  PlannedPack
 } from '../../../../shared/packs'
 import type { SettingsPayload } from '../../../../shared/settings'
 import { describeUpdate } from '../../../../shared/updates'
@@ -123,20 +123,38 @@ function PackCard({
 }
 
 /**
- * What a picked bundle requires, shown before the install runs. Core refuses an unsatisfied
- * dependency rather than fetching it, so the user needs to see which pack to install first.
+ * The resolved install plan, shown before anything is written. Dependencies are listed with the
+ * origin their bytes come from: that visibility is what the single approval buys, and it is the
+ * user's only defence against a pack claiming a legitimate id from an unexpected host.
  */
-function BundleRequirements({ info }: { info: InspectResult }): React.JSX.Element {
+function InstallPlan({
+  packs,
+  busy,
+  onInstall
+}: {
+  packs: PlannedPack[]
+  busy: boolean
+  onInstall: () => void
+}): React.JSX.Element {
   return (
-    <SettingsSection title={`Requirements · ${info.id} ${info.version}`}>
-      {info.dependencies.map((d) => (
-        <SettingRow key={d.id} label={d.id} description={`requires ${d.range}`}>
-          <Chip tone={d.satisfied ? 'signal' : 'danger'}>
-            {d.satisfied
-              ? `satisfied · ${d.installedVersion}`
-              : d.installedVersion
-                ? `installed ${d.installedVersion}`
-                : 'not installed'}
+    <SettingsSection
+      title="Install plan"
+      action={
+        <Btn variant="primary" aria-label="Install all" disabled={busy} onClick={onInstall}>
+          {busy ? 'Installing…' : 'Install all'}
+        </Btn>
+      }
+    >
+      {packs.map((p) => (
+        <SettingRow
+          key={p.id}
+          label={p.id}
+          description={
+            p.isRoot ? `from ${p.originLabel} · the pack you chose` : `from ${p.originLabel}`
+          }
+        >
+          <Chip tone={p.action === 'upgrade' ? 'signal' : 'neutral'}>
+            {p.action === 'upgrade' ? `${p.previousVersion} → ${p.version}` : p.version}
           </Chip>
         </SettingRow>
       ))}
@@ -157,7 +175,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
   // unconditionally, so `true` is the accurate initial value and the effect has no synchronous
   // setState in it.
   const [autoChecking, setAutoChecking] = useState(true)
-  const [inspected, setInspected] = useState<InspectResult | null>(null)
+  const [plan, setPlan] = useState<PlannedPack[] | null>(null)
 
   const refresh = useCallback(async () => {
     setPayload(await window.argus.packs.list())
@@ -213,7 +231,6 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
     setBusy(true)
     try {
       const info = await window.argus.packs.inspect(source)
-      setInspected(info.dependencies.length > 0 ? info : null)
       if (!info.platformCompatible) {
         setError(
           `This bundle targets ${info.platform ?? 'an unknown platform'}, which does not match this machine.`
@@ -224,34 +241,70 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
         setError(`"${info.id}" ${info.version} isn't compatible with this version of Argus.`)
         return
       }
-      const unmet = info.dependencies.filter((d) => !d.satisfied)
-      if (unmet.length > 0) {
-        setError(
-          `"${info.id}" ${info.version} requires ${unmet.map((d) => `${d.id} ${d.range}`).join(', ')}. Install ${unmet.length > 1 ? 'those packs' : 'that pack'} first.`
+      const planned = await window.argus.packs.planBundle(source)
+      if (!planned.ok) {
+        setError(planned.error)
+        return
+      }
+      // A plan of exactly one pack (the root, no dependencies left to pull in) needs no approval
+      // step — that is the pre-existing single-pack install, unchanged: same downgrade guard, same
+      // rich per-code error rendering. Adding a confirmation to it would be new friction.
+      if (planned.packs.length === 1) {
+        const current = payload?.packs.find((p) => p.id === info.id)?.installedVersion ?? null
+        const bothSemver =
+          current != null && semver.valid(info.version) != null && semver.valid(current) != null
+        const notNewer = current != null && (bothSemver ? semver.lte(info.version, current) : true)
+        if (
+          notNewer &&
+          !(await confirm({
+            title: `Install "${info.id}" ${info.version} anyway?`,
+            message: `It is not newer than the installed version (${current}).`,
+            confirmLabel: 'Install'
+          }))
+        ) {
+          return
+        }
+        const res = await window.argus.packs.install(source)
+        if (!res.ok) {
+          setError(installErrorMessage(res.code, res.error))
+          return
+        }
+        setNeedsRelaunch(true)
+        await refresh()
+        return
+      }
+      setPlan(planned.packs)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * Installs a staged multi-pack plan in order. `applyPlan` takes no arguments by design — the
+   * plan being approved is the one main already staged during `planBundle`, so there is nothing
+   * for the renderer to pass except the approval itself.
+   */
+  async function runPlan(): Promise<void> {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await window.argus.packs.applyPlan()
+      if (res.failed) {
+        const parts: string[] = []
+        if (res.installed.length > 0) {
+          parts.push(`Installed ${res.installed.map((p) => `${p.id} ${p.version}`).join(', ')}.`)
+        }
+        // An empty id means main held no plan at all ("no plan staged") — that is a plain
+        // message, not a pack name, so it must not be interpolated as `'' failed: …`.
+        parts.push(
+          res.failed.id ? `'${res.failed.id}' failed: ${res.failed.error}` : res.failed.error
         )
-        return
+        setError(parts.join(' '))
       }
-      const current = payload?.packs.find((p) => p.id === info.id)?.installedVersion ?? null
-      const bothSemver =
-        current != null && semver.valid(info.version) != null && semver.valid(current) != null
-      const notNewer = current != null && (bothSemver ? semver.lte(info.version, current) : true)
-      if (
-        notNewer &&
-        !(await confirm({
-          title: `Install "${info.id}" ${info.version} anyway?`,
-          message: `It is not newer than the installed version (${current}).`,
-          confirmLabel: 'Install'
-        }))
-      ) {
-        return
-      }
-      const res = await window.argus.packs.install(source)
-      if (!res.ok) {
-        setError(installErrorMessage(res.code, res.error))
-        return
-      }
-      setInspected(null)
-      setNeedsRelaunch(true)
+      if (res.relaunchRequired) setNeedsRelaunch(true)
+      setPlan(null)
       await refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -409,7 +462,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
           </Btn>
         </div>
       )}
-      {inspected && <BundleRequirements info={inspected} />}
+      {plan && <InstallPlan packs={plan} busy={busy} onInstall={() => void runPlan()} />}
       {/* The update check belongs to this section, not to the install-actions row at the bottom of
           the page: it acts on what is listed here, and it is the only control in that row that
           does. Its "update available" badges land on these rows. */}
