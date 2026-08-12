@@ -1,5 +1,58 @@
 # Changelog
 
+## v2.1.0 — 2026-08-13
+
+20 commits since v2.0.12, 27 files changed (+2,828 / −133).
+
+### Added
+
+**Pack dependencies auto-install**
+
+- Installing a pack that declares dependencies (v2.0.12) no longer just
+  refuses on a missing one — Argus now resolves the whole transitive
+  dependency set (each dependency naming its own update source, a feed or
+  a GitHub repo) into a staging cache, without installing anything yet.
+- The resulting plan is validated for coherence before anything touches
+  disk: a chosen version must satisfy every requirement placed on it, not
+  just whichever requirement resolved it first, and a dependency cycle or
+  excessive depth is refused during planning rather than surfacing later
+  as a broken load.
+- PacksSettings shows the resolved plan — each dependency listed with the
+  source its bytes come from, and a downgrade called out with a warning
+  label instead of installing silently — and applies it in one action.
+  Installing a single pack with no dependencies is unchanged; a multi-pack
+  plan waits for "Install all". Applying installs dependencies before
+  dependents and keeps whatever already landed if a later step fails, so
+  the requesting pack is never left installed without what it needs.
+- `docs/authoring-packs.md` and the `authoring-argus-packs` skill document
+  dependency sources and the install-plan flow end to end.
+
+### Breaking
+
+- The object form of a dependency declaration (naming its own source) is
+  pack API **1.2**, not 1.1 as v2.0.12 shipped it hours earlier. Folding it
+  into 1.1 would have made that version number mean two incompatible
+  schemas — worse, a 1.1-only Core would have kept matching an object-form
+  pack during update selection, downloading it, and failing manifest
+  parsing on every check, forever. Every existing pack's `^1`/`1`/`1.x`/`>=1`
+  declaration still satisfies 1.2.0, so this costs nothing for packs
+  already on 1.1.
+
+### Fixed
+
+- An already-installed dependency now resolves from its own recorded pin,
+  not a dependent's declared source.
+- A GitHub-sourced bundle is verified and has its pack API hydrated before
+  planning, instead of being planned against stale or absent metadata.
+- A race in claiming the staged plan before its first `await` could apply
+  a superseded plan; a stale plan is now cleared as soon as a new install
+  starts, and only once the new plan is actually about to restage it.
+- A per-plan staging directory is now a real, owned temp directory —
+  created after the root bundle's inspection succeeds and removed on
+  supersession, refusal, or apply-completion — instead of one fixed,
+  never-cleaned path that could leak downloaded bytes if a later step
+  threw.
+
 ## v2.0.12 — 2026-08-12
 
 92 commits since v2.0.11, 142 files changed (+12,596 / −487).
