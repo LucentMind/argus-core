@@ -171,7 +171,8 @@ export async function inspectBundleSource(
       apiCompatible: isApiCompatible(m.argusApi),
       platformCompatible: platformMatchesHost(m.platform),
       updateRepo: m.updateRepo,
-      dependencies: resolveDependencies(m, opts.installed ?? {})
+      dependencies: resolveDependencies(m, opts.installed ?? {}),
+      rawDependencies: m.dependencies
     }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true })
