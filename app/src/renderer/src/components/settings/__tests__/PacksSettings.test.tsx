@@ -5,7 +5,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { PacksSettings } from '../PacksSettings'
 import { confirm } from '../../../lib/confirmStore'
-import type { InstallResult, InstalledPackRow, PacksListPayload } from '../../../../../shared/packs'
+import type {
+  InstallResult,
+  InstalledPackRow,
+  PacksListPayload,
+  PlannedPack
+} from '../../../../../shared/packs'
 
 vi.mock('../../../lib/confirmStore', () => ({
   confirm: vi.fn(() => Promise.resolve(true)),
@@ -118,6 +123,23 @@ function mockPacks(
       previousVersion: null,
       relaunchRequired: true
     }),
+    // Default plan: the root alone, satisfied — the single-pack path, which every pre-existing
+    // install test exercises without knowing planBundle/applyPlan exist. Tests that care about a
+    // multi-pack plan override this explicitly.
+    planBundle: vi.fn().mockResolvedValue({
+      ok: true,
+      packs: [
+        {
+          id: 'navigation',
+          version: '2.0.0',
+          action: 'install',
+          previousVersion: null,
+          originLabel: 'this bundle',
+          isRoot: true
+        }
+      ]
+    }),
+    applyPlan: vi.fn().mockResolvedValue({ installed: [], failed: null, relaunchRequired: false }),
     ...over
   }
 }
@@ -245,56 +267,6 @@ describe('PacksSettings', () => {
   })
 
   describe('bundle dependencies', () => {
-    /** An inspect fake for a bundle needing `common` ^0.1.0 (present) and `extras` ^2.0.0 (not). */
-    function inspectWithDeps(): ReturnType<typeof vi.fn> {
-      return vi.fn().mockResolvedValue({
-        id: 'navigation',
-        version: '2.0.0',
-        platform: 'win-x64',
-        apiCompatible: true,
-        platformCompatible: true,
-        dependencies: [
-          {
-            id: 'common',
-            range: '^0.1.0',
-            installedVersion: '0.1.2',
-            satisfied: true,
-            detail: ''
-          },
-          {
-            id: 'extras',
-            range: '^2.0.0',
-            installedVersion: null,
-            satisfied: false,
-            detail: "requires 'extras' ^2.0.0, which is not installed"
-          }
-        ]
-      })
-    }
-
-    it('lists each declared dependency with its satisfaction status before installing', async () => {
-      packs.inspect = inspectWithDeps()
-      render(<PacksSettings settings={settingsPayload()} />)
-      fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
-
-      expect(await screen.findByText('Requirements · navigation 2.0.0')).toBeInTheDocument()
-      expect(screen.getByText('common')).toBeInTheDocument()
-      expect(screen.getByText('requires ^0.1.0')).toBeInTheDocument()
-      expect(screen.getByText('satisfied · 0.1.2')).toBeInTheDocument()
-      expect(screen.getByText('extras')).toBeInTheDocument()
-      expect(screen.getByText('requires ^2.0.0')).toBeInTheDocument()
-      expect(screen.getByText('not installed')).toBeInTheDocument()
-    })
-
-    it('refuses to install while a dependency is unsatisfied, naming what to install first', async () => {
-      packs.inspect = inspectWithDeps()
-      render(<PacksSettings settings={settingsPayload()} />)
-      fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
-
-      expect(await screen.findByRole('alert')).toHaveTextContent('extras ^2.0.0')
-      expect(packs.install).not.toHaveBeenCalled()
-    })
-
     it("renders Core's dependency refusal verbatim rather than a generic install failure", async () => {
       packs.install = vi.fn().mockResolvedValue({
         ok: false,
@@ -719,5 +691,167 @@ describe('PacksSettings', () => {
     await user.click(screen.getByRole('button', { name: 'Install sample-bridge-playground' }))
 
     expect(installFromRepo.mock.calls[0][0]).toBe('owner/repoA')
+  })
+
+  describe('dependency install plan', () => {
+    function multiPackPlan(): PlannedPack[] {
+      return [
+        {
+          id: 'common',
+          version: '1.4.0',
+          action: 'install',
+          previousVersion: null,
+          originLabel: 'github.com/org/packs',
+          isRoot: false
+        },
+        {
+          id: 'maps',
+          version: '2.0.0',
+          action: 'upgrade',
+          previousVersion: '1.0.0',
+          originLabel: 'this bundle',
+          isRoot: true
+        }
+      ]
+    }
+
+    it('shows every pack in the plan with its origin and action, and waits for approval', async () => {
+      packs.planBundle = vi.fn().mockResolvedValue({ ok: true, packs: multiPackPlan() })
+      render(<PacksSettings settings={settingsPayload()} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+
+      expect(await screen.findByText('common')).toBeInTheDocument()
+      expect(screen.getByText(/github\.com\/org\/packs/)).toBeInTheDocument()
+      expect(screen.getByText('maps')).toBeInTheDocument()
+      expect(screen.getByText(/1\.0\.0 → 2\.0\.0/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /install all/i })).toBeInTheDocument()
+      // Approval gate: nothing runs until the user clicks Install all.
+      expect(packs.applyPlan).not.toHaveBeenCalled()
+    })
+
+    it('shows the refusal instead of a plan when the plan cannot be built', async () => {
+      packs.planBundle = vi.fn().mockResolvedValue({
+        ok: false,
+        code: 'unresolvable',
+        error: "no published version of 'common' satisfies ^2.0.0 for this machine"
+      })
+      render(<PacksSettings settings={settingsPayload()} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/common/)
+      expect(screen.queryByRole('button', { name: /install all/i })).not.toBeInTheDocument()
+      expect(packs.install).not.toHaveBeenCalled()
+    })
+
+    it('installs the approved plan on Install all and prompts relaunch', async () => {
+      packs.planBundle = vi.fn().mockResolvedValue({ ok: true, packs: multiPackPlan() })
+      packs.applyPlan = vi.fn().mockResolvedValue({
+        installed: [
+          { id: 'common', version: '1.4.0' },
+          { id: 'maps', version: '2.0.0' }
+        ],
+        failed: null,
+        relaunchRequired: true
+      })
+      render(<PacksSettings settings={settingsPayload()} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+      fireEvent.click(await screen.findByRole('button', { name: /install all/i }))
+
+      await waitFor(() => expect(packs.applyPlan).toHaveBeenCalled())
+      expect(await screen.findByRole('button', { name: 'Relaunch now' })).toBeInTheDocument()
+      // The plan is consumed once applied — it does not linger alongside the relaunch prompt.
+      expect(screen.queryByRole('button', { name: /install all/i })).not.toBeInTheDocument()
+    })
+
+    it('reports a partial failure, naming what landed and what did not', async () => {
+      packs.planBundle = vi.fn().mockResolvedValue({
+        ok: true,
+        packs: [
+          {
+            id: 'common',
+            version: '1.4.0',
+            action: 'install',
+            previousVersion: null,
+            originLabel: 'x',
+            isRoot: false
+          },
+          {
+            id: 'maps',
+            version: '2.0.0',
+            action: 'install',
+            previousVersion: null,
+            originLabel: 'x',
+            isRoot: true
+          }
+        ]
+      })
+      packs.applyPlan = vi.fn().mockResolvedValue({
+        installed: [{ id: 'common', version: '1.4.0' }],
+        failed: { id: 'maps', error: 'download corrupt' },
+        relaunchRequired: true
+      })
+      render(<PacksSettings settings={settingsPayload()} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+      fireEvent.click(await screen.findByRole('button', { name: /install all/i }))
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent(/common/)
+      expect(alert).toHaveTextContent(/maps/)
+      expect(alert).toHaveTextContent('download corrupt')
+    })
+
+    it('renders a plain message, not a blank pack name, when main held no plan at all', async () => {
+      // Main reports `failed: { id: '', error: 'no plan staged' }` with an empty id when it holds
+      // no staged plan (e.g. a stale approval click). The empty id must not be interpolated as a
+      // pack name — no `'' failed: …`.
+      packs.planBundle = vi.fn().mockResolvedValue({ ok: true, packs: multiPackPlan() })
+      packs.applyPlan = vi.fn().mockResolvedValue({
+        installed: [],
+        failed: { id: '', error: 'no plan staged' },
+        relaunchRequired: false
+      })
+      render(<PacksSettings settings={settingsPayload()} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+      fireEvent.click(await screen.findByRole('button', { name: /install all/i }))
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('no plan staged')
+      expect(alert).not.toHaveTextContent("''")
+    })
+
+    it('installs a single-pack plan directly, with no approval step', async () => {
+      // mockPacks()'s default planBundle already resolves to the root alone.
+      render(<PacksSettings settings={settingsPayload()} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+
+      await waitFor(() =>
+        expect(packs.install).toHaveBeenCalledWith('C:/dl/navigation-2.0.0-win-x64.zip')
+      )
+      expect(screen.queryByRole('button', { name: /install all/i })).not.toBeInTheDocument()
+      expect(packs.applyPlan).not.toHaveBeenCalled()
+    })
+
+    it('disables Install all while the plan is being installed, so it cannot be double-clicked', async () => {
+      packs.planBundle = vi.fn().mockResolvedValue({ ok: true, packs: multiPackPlan() })
+      let release!: (r: {
+        installed: Array<{ id: string; version: string }>
+        failed: null
+        relaunchRequired: boolean
+      }) => void
+      packs.applyPlan = vi.fn(
+        () =>
+          new Promise((resolve) => {
+            release = resolve
+          })
+      )
+      render(<PacksSettings settings={settingsPayload()} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+      const installAll = await screen.findByRole('button', { name: /install all/i })
+      fireEvent.click(installAll)
+
+      await waitFor(() => expect(installAll).toBeDisabled())
+      release({ installed: [], failed: null, relaunchRequired: false })
+      await waitFor(() => expect(installAll).not.toBeInTheDocument())
+    })
   })
 })
