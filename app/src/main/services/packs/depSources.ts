@@ -1,6 +1,6 @@
 import semver from 'semver'
 import { packFeedSchema, selectByRange } from './feed'
-import { listReleaseCandidates } from './githubFeed'
+import { listReleaseCandidates, readPackManifest } from './githubFeed'
 import { isApiCompatible, platformMatchesHost } from './compat'
 import {
   MAX_FEED_BYTES,
@@ -17,7 +17,7 @@ import type { DeclaredSource } from './dependencies'
  *  a feed gives a URL + expected digest, GitHub gives a release asset fetched through `gh`. */
 export type CandidateDownload =
   | { kind: 'url'; url: string; sha256: string }
-  | { kind: 'gh-asset'; ref: GhRef; tag: string; assetName: string; size: number }
+  | { kind: 'gh-asset'; ref: GhRef; tag: string; assetName: string; size: number; sha256: string }
 
 export interface ResolvedCandidate {
   id: string
@@ -84,26 +84,47 @@ async function resolveFromGithub(
 ): Promise<ResolvedCandidate | null> {
   const ref: GhRef = { host: source.host, owner: source.owner, repo: source.repo }
   const candidates = await listReleaseCandidates({ gh: deps.gh, host: deps.host }, ref, id)
-  const best = candidates
+  // `listReleaseCandidates` leaves `argusApi` empty — see its comment — so compatibility cannot
+  // be judged from it directly. Hydrate lazily, newest-first, stopping at the first release that
+  // is both in-range and compatible: paying a manifest read for every release on the repo would
+  // make planning proportional to release history instead of to the dependencies being resolved.
+  const inRange = candidates
     .filter((c) => semver.valid(c.entry.version) != null)
     .filter((c) => semver.satisfies(c.entry.version, range))
     .filter((c) => platformMatchesHost(c.entry.platform, deps.host))
-    .filter((c) => isApiCompatible(c.entry.argusApi))
-    .sort((a, b) => semver.rcompare(a.entry.version, b.entry.version))[0]
-  if (!best) return null
-  return {
-    id,
-    version: best.entry.version,
-    download: {
-      kind: 'gh-asset',
-      ref,
-      tag: best.tag,
-      assetName: best.assetName,
-      size: best.size
-    },
-    source,
-    originLabel: `${source.host}/${source.owner}/${source.repo}`
+    .sort((a, b) => semver.rcompare(a.entry.version, b.entry.version))
+
+  const pin = {
+    kind: 'github' as const,
+    host: source.host,
+    owner: source.owner,
+    repo: source.repo,
+    installedAt: 0
   }
+  for (const candidate of inRange) {
+    const manifest = await readPackManifest(
+      { gh: deps.gh, host: deps.host },
+      pin,
+      candidate.tag,
+      id
+    )
+    if (!manifest || !isApiCompatible(manifest.argusApi)) continue
+    return {
+      id,
+      version: candidate.entry.version,
+      download: {
+        kind: 'gh-asset',
+        ref,
+        tag: candidate.tag,
+        assetName: candidate.assetName,
+        size: candidate.size,
+        sha256: candidate.entry.sha256
+      },
+      source,
+      originLabel: `${source.host}/${source.owner}/${source.repo}`
+    }
+  }
+  return null
 }
 
 /** Fetch a resolved candidate's bytes. Feed URLs go through `HttpClient`; GitHub assets through
@@ -119,14 +140,31 @@ export async function downloadCandidate(
       maxBytes: MAX_PACK_BUNDLE_BYTES,
       timeoutMs: DOWNLOAD_TIMEOUT_MS
     })
+    // Check status before the digest: an empty `sha256` on a non-200 (`getToFile` writes
+    // nothing in that case) would otherwise be reported as a "mismatch", hiding the real HTTP
+    // failure (a 404, a refused redirect, ...) behind a misleading checksum error.
+    if (r.status !== 200) {
+      throw new Error(`download failed: HTTP ${r.status}`)
+    }
     if (r.sha256 !== candidate.download.sha256) {
       throw new Error(`sha256 mismatch for ${candidate.id} ${candidate.version}`)
     }
     return
   }
-  const { ref, tag, assetName, size } = candidate.download
+  const { ref, tag, assetName, size, sha256 } = candidate.download
   if (size > MAX_PACK_BUNDLE_BYTES) {
     throw new Error(`asset is ${size} bytes, over the ${MAX_PACK_BUNDLE_BYTES} byte limit`)
   }
-  await gh.downloadAsset(ref, tag, assetName, destPath)
+  const result = await gh.downloadAsset(ref, tag, assetName, destPath)
+  if (result.sha256 !== sha256) {
+    throw new Error(`sha256 mismatch for ${candidate.id} ${candidate.version}`)
+  }
+  // The pre-download check above only trusts the size the API advertised. The file has already
+  // been hashed by `downloadAsset` (see `hashFile`), so this check is free and catches an asset
+  // that grew between the API's listing and the actual download.
+  if (result.bytesWritten > MAX_PACK_BUNDLE_BYTES) {
+    throw new Error(
+      `asset is ${result.bytesWritten} bytes, over the ${MAX_PACK_BUNDLE_BYTES} byte limit`
+    )
+  }
 }
