@@ -30,9 +30,13 @@ describe('autonomy contract', () => {
 
   it('clearsBar requires both volume and rate', () => {
     const bar = { minDecisions: 10, minAcceptanceRate: 0.8 }
-    expect(clearsBar(metrics({ decisions: 12, accepted: 10, acceptanceRate: 10 / 12 }), bar)).toBe(true)
+    expect(clearsBar(metrics({ decisions: 12, accepted: 10, acceptanceRate: 10 / 12 }), bar)).toBe(
+      true
+    )
     expect(clearsBar(metrics({ decisions: 9, accepted: 9, acceptanceRate: 1 }), bar)).toBe(false)
-    expect(clearsBar(metrics({ decisions: 12, accepted: 9, acceptanceRate: 9 / 12 }), bar)).toBe(false)
+    expect(clearsBar(metrics({ decisions: 12, accepted: 9, acceptanceRate: 9 / 12 }), bar)).toBe(
+      false
+    )
     expect(clearsBar(metrics({ decisions: 0 }), bar)).toBe(false)
   })
 })

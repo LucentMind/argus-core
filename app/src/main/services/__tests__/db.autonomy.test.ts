@@ -16,8 +16,15 @@ describe('autonomy schema', () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-db-'))
     const db = openDb(path.join(dir, 'argus.db'))
     expect(cols(db, 'autonomy_events')).toEqual([
-      'id', 'lane', 'kind', 'from_tier', 'to_tier', 'note',
-      'metrics_snapshot', 'created_at', 'acknowledged_at'
+      'id',
+      'lane',
+      'kind',
+      'from_tier',
+      'to_tier',
+      'note',
+      'metrics_snapshot',
+      'created_at',
+      'acknowledged_at'
     ])
     expect(cols(db, 'findings')).toContain('posted_at')
     expect(cols(db, 'findings')).toContain('pushed_at')

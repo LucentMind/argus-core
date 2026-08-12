@@ -2789,7 +2789,21 @@ function registerIpc(): void {
       return result
     }
   )
-  const makeRovoDeps = () => ({
+  const makeRovoDeps = (): {
+    settings: () => ReturnType<typeof settingsService.get>
+    callTool: (
+      instanceId: string,
+      name: string,
+      args: Record<string, unknown>
+    ) => ReturnType<typeof mcpService.callTool>
+    uploadAttachment: (
+      key: string,
+      filename: string,
+      content: string
+    ) => ReturnType<typeof atlassian.uploadAttachment>
+    resolveRovoInstanceId: () => string
+    siteUrl: () => Promise<string | null>
+  } => ({
     settings: () => settingsService.get(),
     callTool: (instanceId: string, name: string, args: Record<string, unknown>) =>
       mcpService.callTool(instanceId, name, args),

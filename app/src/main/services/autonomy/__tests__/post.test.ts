@@ -8,7 +8,15 @@ import { defaultSettings } from '../../../../shared/settings'
 let dir: string
 let file: string
 
-function deps(callTool = vi.fn().mockResolvedValue('Created page at https://x.atlassian.net/wiki/p/1')) {
+function deps(
+  callTool = vi.fn().mockResolvedValue('Created page at https://x.atlassian.net/wiki/p/1')
+): {
+  settings: () => ReturnType<typeof defaultSettings>
+  callTool: typeof callTool
+  resolveRovoInstanceId: () => string
+  siteUrl: () => Promise<string>
+  now: () => Date
+} {
   const s = defaultSettings()
   s.rca.confluenceSpaceKey = 'ENG'
   return {
@@ -65,7 +73,13 @@ describe('postAutonomyReport', () => {
   it('demands a space key up front', async () => {
     const d = deps()
     d.settings().rca.confluenceSpaceKey = ''
-    const bare = { ...d, settings: () => { const s = defaultSettings(); return s } }
+    const bare = {
+      ...d,
+      settings: () => {
+        const s = defaultSettings()
+        return s
+      }
+    }
     await expect(postAutonomyReport(bare, file)).rejects.toThrow(/space key/i)
   })
 })

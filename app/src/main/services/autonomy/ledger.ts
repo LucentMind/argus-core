@@ -36,11 +36,9 @@ function toRow(r: Raw): AutonomyEventRow {
 }
 
 export function listEvents(db: DatabaseSync, lane?: LaneId): AutonomyEventRow[] {
-  const rows = (
-    lane
-      ? db.prepare(`SELECT * FROM autonomy_events WHERE lane = ? ORDER BY id DESC`).all(lane)
-      : db.prepare(`SELECT * FROM autonomy_events ORDER BY id DESC`).all()
-  ) as unknown as Raw[]
+  const rows = (lane
+    ? db.prepare(`SELECT * FROM autonomy_events WHERE lane = ? ORDER BY id DESC`).all(lane)
+    : db.prepare(`SELECT * FROM autonomy_events ORDER BY id DESC`).all()) as unknown as Raw[]
   return rows.map(toRow)
 }
 
@@ -72,7 +70,15 @@ export function addEvent(
       `INSERT INTO autonomy_events (lane, kind, from_tier, to_tier, note, metrics_snapshot, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(e.lane, e.kind, fromTier, toTier, e.note ?? null, JSON.stringify(e.metricsSnapshot), createdAt)
+    .run(
+      e.lane,
+      e.kind,
+      fromTier,
+      toTier,
+      e.note ?? null,
+      JSON.stringify(e.metricsSnapshot),
+      createdAt
+    )
   return {
     id: Number(res.lastInsertRowid),
     lane: e.lane,

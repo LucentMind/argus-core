@@ -10,8 +10,15 @@ import type { LaneMetrics } from '../../../../shared/autonomy'
 let dir: string
 let db: DatabaseSync
 const snap: LaneMetrics = {
-  lane: 'triage', windowDays: 30, decisions: 12, accepted: 11,
-  acceptanceRate: 11 / 12, costUsd: 1.25, rejectReasons: {}, depth: {}, dataStart: null
+  lane: 'triage',
+  windowDays: 30,
+  decisions: 12,
+  accepted: 11,
+  acceptanceRate: 11 / 12,
+  costUsd: 1.25,
+  rejectReasons: {},
+  depth: {},
+  dataStart: null
 }
 
 beforeEach(() => {
@@ -31,8 +38,12 @@ describe('autonomy ledger', () => {
 
   it('addEvent derives fromTier, persists the snapshot, and moves the tier', () => {
     const e = addEvent(db, {
-      lane: 'triage', kind: 'promote', toTier: 2, note: 'cleared bar Q3',
-      metricsSnapshot: snap, now: new Date('2026-08-12T10:00:00Z')
+      lane: 'triage',
+      kind: 'promote',
+      toTier: 2,
+      note: 'cleared bar Q3',
+      metricsSnapshot: snap,
+      now: new Date('2026-08-12T10:00:00Z')
     })
     expect(e.fromTier).toBe(1)
     expect(currentTier(db, 'triage')).toBe(2)
@@ -50,7 +61,12 @@ describe('autonomy ledger', () => {
 
   it('counts and acks unacknowledged auto-demotions', () => {
     addEvent(db, { lane: 'triage', kind: 'promote', toTier: 2, metricsSnapshot: snap })
-    const d = addEvent(db, { lane: 'triage', kind: 'auto-demote', toTier: 1, metricsSnapshot: snap })
+    const d = addEvent(db, {
+      lane: 'triage',
+      kind: 'auto-demote',
+      toTier: 1,
+      metricsSnapshot: snap
+    })
     expect(unackedDemotions(db)).toBe(1)
     ackEvent(db, d.id, new Date('2026-08-12T11:00:00Z'))
     expect(unackedDemotions(db)).toBe(0)
