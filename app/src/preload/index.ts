@@ -736,6 +736,7 @@ const argus = {
     ack: (eventId: number): Promise<AutonomyPayload> => invoke(IPC.autonomyAck, eventId),
     reportGenerate: (): Promise<{ file: string; markdown: string }> =>
       invoke(IPC.autonomyReportGenerate),
+    reportPost: (file: string): Promise<PostResults> => invoke(IPC.autonomyReportPost, file),
     onChanged: (cb: () => void): (() => void) => {
       const listener = (): void => cb()
       ipcRenderer.on(IPC.autonomyChanged, listener)

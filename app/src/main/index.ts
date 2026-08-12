@@ -299,6 +299,7 @@ import { searchCaseSummaries } from './services/distill/summaries'
 import { caseDistillPromptHash } from './services/distill/promptHash'
 import { RcaJobs } from './services/rca/jobs'
 import { postRcaReport } from './services/rca/post'
+import { postAutonomyReport } from './services/autonomy/post'
 import { assembleRcaInput } from './services/rca/input'
 import { caseRcaPromptHash } from './services/rca/promptHash'
 import {
@@ -2788,31 +2789,31 @@ function registerIpc(): void {
       return result
     }
   )
+  const makeRovoDeps = () => ({
+    settings: () => settingsService.get(),
+    callTool: (instanceId: string, name: string, args: Record<string, unknown>) =>
+      mcpService.callTool(instanceId, name, args),
+    uploadAttachment: (key: string, filename: string, content: string) =>
+      atlassian.uploadAttachment(key, filename, content),
+    resolveRovoInstanceId: () => {
+      const id = rovoInstanceId(connectorRegistry.get())
+      if (!id)
+        throw new AtlassianError(
+          'not-configured',
+          'No Atlassian connector configured — add the Atlassian Rovo preset in Settings → Connectors.'
+        )
+      return id
+    },
+    siteUrl: () => {
+      const id = rovoInstanceId(connectorRegistry.get())
+      return id ? atlassian.resolveSiteUrl(id) : Promise.resolve(null)
+    }
+  })
   ipcMain.handle(IPC.rcaPost, (_e, slug: string) =>
-    postRcaReport(
-      {
-        db,
-        argusHome,
-        settings: () => settingsService.get(),
-        callTool: (instanceId, name, args) => mcpService.callTool(instanceId, name, args),
-        uploadAttachment: (key, filename, content) =>
-          atlassian.uploadAttachment(key, filename, content),
-        resolveRovoInstanceId: () => {
-          const id = rovoInstanceId(connectorRegistry.get())
-          if (!id)
-            throw new AtlassianError(
-              'not-configured',
-              'No Atlassian connector configured — add the Atlassian Rovo preset in Settings → Connectors.'
-            )
-          return id
-        },
-        siteUrl: () => {
-          const id = rovoInstanceId(connectorRegistry.get())
-          return id ? atlassian.resolveSiteUrl(id) : Promise.resolve(null)
-        }
-      },
-      slug
-    )
+    postRcaReport({ db, argusHome, ...makeRovoDeps() }, slug)
+  )
+  ipcMain.handle(IPC.autonomyReportPost, (_e, file: string) =>
+    postAutonomyReport(makeRovoDeps(), file)
   )
   // Pure render, no persistence: the panel calls this on every draft edit to keep the
   // Exec/Tech preview tabs live before the user confirms anything. Mirrors the meta shape
