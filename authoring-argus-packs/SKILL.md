@@ -110,6 +110,20 @@ packs live at `ARGUS_HOME/packs/<id>/`. Publish per-platform bundles with
 it stamps `platform`, writes `CHECKSUMS`, zips `<id>-<version>-<platform>.zip`. Install verifies
 checksums + `platform` + `argusApi`, and **always requires an app relaunch**.
 
+## Depending on another pack
+
+```jsonc
+"dependencies": {
+  "common": "^1.2",                                        // enforced, NEVER fetched for you
+  "shared": { "range": "^1.2", "updateRepo": "org/packs" }  // resolved + installed with your pack
+}
+```
+
+A bare range is enforced but never fetched — the user installs it themselves. Give the dependency a
+source (`updateRepo`, or `updateUrl` for an https feed; one or the other, never both) and installing
+your pack resolves the whole tree and installs it after one approval. Bare strings need
+`"argusApi": "^1.1"`; the object form needs `"^1.2"`. Full detail in `docs/authoring-packs.md` §9.
+
 ## Common mistakes
 
 - Directory name ≠ manifest `id` → won't load.
@@ -119,7 +133,10 @@ checksums + `platform` + `argusApi`, and **always requires an app relaunch**.
 - Detector placeholders written as `{file}` (correct: `{input}`/`{output}`).
 - `extract.bin` not matching a declared binary `id`.
 - Vague/absent command `description` → agent can't tell when to call the tool.
-- Treating `argusApi` as a version (it's a semver **range**; use `"^1"`).
+- Treating `argusApi` as a version (it's a semver **range**; `"^1"` accepts any 1.x Core).
+- Using a dependency's object form while declaring `"^1"`/`"^1.1"` → older Cores repeatedly download
+  it as an update and fail to parse it. Declare `"^1.2"` when a dependency carries a source.
+- Expecting a bare-string dependency to be installed for you (it is enforced, never fetched).
 - Expecting to install a manifest with no `platform` (build a per-platform bundle first).
 
 ## Minimal valid pack
