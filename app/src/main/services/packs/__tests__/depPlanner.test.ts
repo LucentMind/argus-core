@@ -176,4 +176,19 @@ describe('buildPlan', () => {
     )
     expect(fs.existsSync(path.join(home, 'packs'))).toBe(false)
   })
+
+  it('omits staging fields from the IPC-facing plan', async () => {
+    const world: World = { common: { '1.4.0': {} } }
+    const r = await buildPlan(
+      deps(world),
+      root('maps', '2.0.0', {
+        common: { range: '^1.0.0', updateRepo: 'org/packs' }
+      })
+    )
+    expect(r.ok).toBe(true)
+    for (const p of r.ok ? r.packs : []) {
+      expect(Object.hasOwn(p, 'bundlePath')).toBe(false)
+      expect(Object.hasOwn(p, 'source')).toBe(false)
+    }
+  })
 })
