@@ -88,3 +88,26 @@ export function selectUpdate(feed: PackFeed, opts: SelectOptions): SelectUpdateR
   const entry = candidates.reduce((best, e) => (semver.gt(e.version, best.version) ? e : best))
   return { entry, excludedByOriginOnly: false }
 }
+
+/**
+ * The newest entry satisfying `range`, or null. The range counterpart to `selectUpdate`, which
+ * answers "is there anything NEWER than what is installed" — a dependency asks a different
+ * question and may legitimately resolve to an older version than the newest published.
+ *
+ * Applies the same three exclusions `selectUpdate` does, for the same reasons: platform, pack
+ * API, and the origin filter that keeps a migrated or compromised CDN entry from being chosen
+ * over an older on-origin one.
+ */
+export function selectByRange(
+  feed: PackFeed,
+  opts: { range: string; host?: { platform: string; arch: string }; origin?: string }
+): FeedEntry | null {
+  const eligible = feed.versions
+    .filter((e) => semver.valid(e.version) != null)
+    .filter((e) => semver.satisfies(e.version, opts.range))
+    .filter((e) => platformMatchesHost(e.platform, opts.host))
+    .filter((e) => isApiCompatible(e.argusApi))
+    .filter((e) => opts.origin == null || originOf(e.url) === opts.origin)
+    .sort((a, b) => semver.rcompare(a.version, b.version))
+  return eligible[0] ?? null
+}
