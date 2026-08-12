@@ -622,7 +622,12 @@ skipped rather than installed unverified.
 - **Bland command `description`** → the agent won't know when to call your tool. Describe *when and
   how*, and document each arg.
 - **Expecting `argusApi` to be a version** → it's a semver *range* that must include Core's API
-  version (`1`); use `"^1"`.
+  version (currently `1.2.0`); `"^1"` accepts any 1.x Core.
+- **Using the object form of a dependency while declaring `"argusApi": "^1"` or `"^1.1"`** → a Core
+  that predates the object form will offer your bundle as an update, download it, and fail to parse
+  it, on every check. Declare `"^1.2"` whenever a dependency carries `updateUrl`/`updateRepo`.
+- **Expecting a bare-string dependency to be installed for you** → it won't be. A range on its own
+  is enforced, never fetched; give the dependency a source if you want Core to resolve it.
 - **Expecting install without `platform`** → build a per-platform bundle; unstamped manifests are
   dev-only.
 - **Same-named skill as a user/hivemind skill** → yours (bundled tier) is shadowed. Namespace
