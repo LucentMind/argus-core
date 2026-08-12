@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { PACK_MANIFEST_FILE, packManifestSchema, type PackManifest } from './manifest'
 import { isApiCompatible } from './compat'
+import { checkDependency } from './dependencies'
 
 function subdirIfExists(dir: string, name: string): string | null {
   const p = path.join(dir, name)
@@ -144,12 +145,29 @@ function declaredIds(packs: LoadedPack[], of: (p: LoadedPack) => string[]): Map<
   return owners
 }
 
+/** Why a present dependency still does not satisfy `range`, or null when it does. */
+function versionReason(version: string, range: string): string | null {
+  switch (checkDependency(version, range)) {
+    case 'invalid-version':
+      return `but its version '${version}' is not valid semver`
+    case 'out-of-range':
+      return `but '${version}' is installed`
+    default:
+      return null
+  }
+}
+
 /**
  * Orders packs so every pack follows the packs it declares in `dependencies` (id sort as
- * tiebreaker), and turns the three ways a pack set can be incoherent into per-pack load errors:
+ * tiebreaker), and turns the ways a pack set can be incoherent into per-pack load errors:
  * a binary id / detector type declared by two packs, a declared dependency that is not installed
- * (or itself failed), and a dependency cycle. A failing pack is excluded so nothing it declares
- * silently shadows another pack's.
+ * (or itself failed), a dependency present at a version outside the declared range, and a
+ * dependency cycle. A failing pack is excluded so nothing it declares silently shadows another
+ * pack's.
+ *
+ * The range is re-checked here and not just at install because the two can drift apart: packs
+ * seeded on disk never pass through `installPack` at all, and a hand-edited manifest or a
+ * restored backup can put an out-of-range pair in front of the loader.
  */
 export function orderPacksByDependencies(input: LoadedPack[]): {
   packs: LoadedPack[]
@@ -181,14 +199,22 @@ export function orderPacksByDependencies(input: LoadedPack[]): {
     for (const p of input) {
       if (failed.has(p.id)) continue
       for (const [depId, range] of Object.entries(p.manifest.dependencies)) {
-        if (byId.has(depId) && !failed.has(depId)) continue
+        const dep = byId.get(depId)
+        // The version comes from the dependency's own manifest, not packs-state: seeded packs
+        // (the repo `packs/` dir in dev, or a packaged build's bundled dir) are never recorded
+        // in packs-state, so state would report every one of them as missing.
+        const reason =
+          dep == null
+            ? 'which is not installed'
+            : failed.has(depId)
+              ? 'which failed to load'
+              : versionReason(dep.manifest.version, range)
+        if (reason == null) continue
         failed.add(p.id)
         changed = true
         errors.push({
           dir: p.dir,
-          message: byId.has(depId)
-            ? `pack '${p.id}' requires pack '${depId}' ${range}, which failed to load`
-            : `pack '${p.id}' requires pack '${depId}' ${range}, which is not installed`
+          message: `pack '${p.id}' requires pack '${depId}' ${range}, ${reason}`
         })
         break
       }

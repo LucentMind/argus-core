@@ -68,13 +68,15 @@ function http(routes: Record<string, Buffer>): HttpClient {
   }
 }
 
-function feedBody(sha256: string): Buffer {
+function feedBody(
+  sha256: string,
+  over: { id?: string; version?: string; url?: string } = {}
+): Buffer {
+  const { id = 'navigation', version = '0.6.0', url = BUNDLE_URL } = over
   return Buffer.from(
     JSON.stringify({
-      id: 'navigation',
-      versions: [
-        { version: '0.6.0', argusApi: '^1.1', platform: PLATFORM, url: BUNDLE_URL, sha256 }
-      ]
+      id,
+      versions: [{ version, argusApi: '^1.1', platform: PLATFORM, url, sha256 }]
     })
   )
 }
@@ -131,5 +133,68 @@ describe('applying an update whose new version adds a dependency', () => {
 
     expect(await svc(client).apply('navigation')).toEqual({ phase: 'ready', version: '0.6.0' })
     expect(state.get('navigation')).toBe('0.6.0')
+  })
+})
+
+describe('applying an update to a pack other packs depend on', () => {
+  const COMMON_FEED = 'https://vendor.example/common-feed.json'
+  const COMMON_BUNDLE = 'https://vendor.example/common-1.0.0-win-x64.zip'
+
+  /**
+   * common 0.1.2 installed and feed-pinned, with navigation requiring it at ^0.1.0. The vendor
+   * then publishes common 1.0.0 — a major that navigation's range cannot accept.
+   */
+  async function seed(publishedVersion: string): Promise<HttpClient> {
+    const common = await installPack(
+      makeBundleDir({ id: 'common', version: '0.1.2', updateUrl: COMMON_FEED }),
+      { argusHome: home, state, host: HOST }
+    )
+    expect(common.ok).toBe(true)
+
+    const nav = await installPack(
+      makeBundleDir({ id: 'navigation', version: '0.5.0', dependencies: { common: '^0.1.0' } }),
+      { argusHome: home, state, host: HOST }
+    )
+    expect(nav.ok).toBe(true)
+
+    const zipPath = await zipOf(
+      makeBundleDir({ id: 'common', version: publishedVersion, updateUrl: COMMON_FEED })
+    )
+    const bytes = fs.readFileSync(zipPath)
+    return http({
+      [COMMON_FEED]: feedBody(crypto.createHash('sha256').update(bytes).digest('hex'), {
+        id: 'common',
+        version: publishedVersion,
+        url: COMMON_BUNDLE
+      }),
+      [COMMON_BUNDLE]: bytes
+    })
+  }
+
+  function svc(client: HttpClient): PackUpdatesService {
+    return new PackUpdatesService({ argusHome: home, state, http: client, host: HOST })
+  }
+
+  it('holds an update that would break an installed dependent, leaving the old version active', async () => {
+    const status = await svc(await seed('1.0.0')).apply('common')
+
+    expect(status).toMatchObject({ phase: 'error' })
+    const msg = status.phase === 'error' ? status.message : ''
+    expect(msg).toContain('navigation')
+    expect(msg).toContain('^0.1.0')
+
+    expect(state.get('common')).toBe('0.1.2')
+    const onDisk = JSON.parse(
+      fs.readFileSync(path.join(packsDir(home), 'common', 'argus-pack.json'), 'utf8')
+    )
+    expect(onDisk.version).toBe('0.1.2')
+  })
+
+  it('applies an update that stays inside every dependent range', async () => {
+    expect(await svc(await seed('0.1.9')).apply('common')).toEqual({
+      phase: 'ready',
+      version: '0.1.9'
+    })
+    expect(state.get('common')).toBe('0.1.9')
   })
 })
