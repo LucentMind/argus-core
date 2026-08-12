@@ -1327,7 +1327,12 @@ function registerIpc(): void {
   })
 
   ipcMain.handle(IPC.packsApplyPlan, async (): Promise<ApplyPlanResult> => {
-    if (!stagedPlan) {
+    // Claim the plan before the first await: capture-and-clear is atomic on a single-threaded
+    // event loop, so a second invocation (a double-clicked button) sees null and cannot
+    // double-install, and a plan staged WHILE this runs is not clobbered by a trailing reset.
+    const plan = stagedPlan
+    stagedPlan = null
+    if (!plan) {
       return { installed: [], failed: { id: '', error: 'no plan staged' }, relaunchRequired: false }
     }
     const res = await applyPlan(
@@ -1338,9 +1343,8 @@ function registerIpc(): void {
           Object.keys(packsState.list()).map((id) => [id, packsState.getSource(id)])
         )
       },
-      stagedPlan
+      plan
     )
-    stagedPlan = null
     for (const p of res.installed) packsTouched.add(p.id)
     if (res.installed.length > 0) {
       broadcast(IPC.packsChanged, undefined)
