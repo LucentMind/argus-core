@@ -56,12 +56,25 @@ rejected** — but Core ignores anything it doesn't recognize.
 ```
 
 - **`argusApi`** is a **semver range** that must include the pack API version Core implements
-  (currently **`1.1.0`**). Core checks `semver.satisfies(PACK_API_VERSION, argusApi)`. Use `"^1"` to
+  (currently **`1.2.0`**). Core checks `semver.satisfies(PACK_API_VERSION, argusApi)`. Use `"^1"` to
   accept any Core with pack API 1.x. A pack whose range excludes the running Core is skipped at load
   with an error (dev) / rejected at install (§9).
-  Note that the API version now carries a **minor**: ranges that pinned the old `1.0.0` exactly
-  (`"1.0.0"`, `"1.0.x"`, `"~1.0"`) no longer match and must widen to `"^1"`. `"1"`, `"^1"`, `"1.x"`
-  and `">=1"` are unaffected.
+
+  | Feature you use | Declare at least |
+  | --- | --- |
+  | nothing below | `"^1"` |
+  | `dependencies` as bare range strings | `"^1.1"` |
+  | a dependency carrying `updateUrl`/`updateRepo` | `"^1.2"` |
+
+  **Declare the minimum your manifest actually needs.** Understating it is not harmless: a Core that
+  implements only 1.1 filters update candidates by this range, so an object-form bundle claiming
+  `"^1.1"` passes that filter, gets downloaded, and then fails manifest parsing at install — on
+  every update check, indefinitely. Declaring `"^1.2"` makes that Core skip the bundle during
+  selection instead, which is the right answer for a pack it cannot run.
+
+  Note the API version carries a **minor**: ranges that pinned the old `1.0.0` exactly (`"1.0.0"`,
+  `"1.0.x"`, `"~1.0"`) no longer match and must widen to `"^1"`. `"1"`, `"^1"`, `"1.x"` and `">=1"`
+  are unaffected.
 - **`platform`** (`"<os>-<arch>"`, e.g. `"win-x64"`, `"mac-arm64"`, `"linux-x64"`) is **stamped by
   the build tool** into published bundles and must match the host at install time. Omit it in your
   source manifest — a manifest with no `platform` can be loaded in dev but **cannot be installed**.
@@ -436,8 +449,9 @@ neither, never both. A dependency entry with neither is equivalent to the bare-s
 still enforces the range, but treats it as **not auto-installable** and never contacts anything to
 satisfy it.
 
-Declaring `dependencies` (in either form) requires `"argusApi": "^1.1"` or later, so an older Core
-refuses the pack outright rather than loading it with its requirements ignored.
+Declaring `dependencies` as bare range strings requires `"argusApi": "^1.1"`; using the **object
+form** requires `"^1.2"`, because a Core implementing only 1.1 cannot parse it. See the `argusApi`
+table above for why understating this is worse than it looks.
 
 Requirements are enforced in **both directions**, and always before anything is written to disk:
 
