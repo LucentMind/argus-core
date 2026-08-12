@@ -113,11 +113,18 @@ export function dependentsOf(id: string, argusHome: string): string[] {
 export function describeBrokenDependents(
   id: string,
   version: string,
-  argusHome: string
+  argusHome: string,
+  /**
+   * Ids being installed in the same batch. Their on-disk manifests carry the ranges they are
+   * being upgraded AWAY from, so measuring against those would refuse a coordinated upgrade the
+   * planner has already validated as a whole set. Skipped, not trusted blindly: the planner's
+   * conflict check covers every requirement the new manifests place.
+   */
+  alsoInstalling: ReadonlySet<string> = new Set()
 ): string | null {
-  const broken = dependentRangesOn(id, argusHome).filter(
-    (d) => checkDependency(version, d.range) !== 'ok'
-  )
+  const broken = dependentRangesOn(id, argusHome)
+    .filter((d) => !alsoInstalling.has(d.id))
+    .filter((d) => checkDependency(version, d.range) !== 'ok')
   if (broken.length === 0) return null
   return `installing '${id}' ${version} would break ${broken
     .map((d) => `'${d.id}' (requires ${id} ${d.range})`)
@@ -214,6 +221,11 @@ export async function installPack(
      * manifest that names a feed. `null` pins nothing. Undefined (the default) derives.
      */
     pinOverride?: PackSource | null
+    /**
+     * Ids being installed alongside this one in the same batch, passed straight through to
+     * `describeBrokenDependents`. See that function's doc comment for why skipping them is safe.
+     */
+    alsoInstalling?: ReadonlySet<string>
   }
 ): Promise<InstallResult> {
   const { argusHome, state } = opts
@@ -252,7 +264,12 @@ export async function installPack(
     // Both directions, and both before the swap: what this pack needs (above) and what already
     // needs this pack (below). The update-apply path routes through here too, so a vendor
     // publishing a breaking major cannot quietly invalidate an installed dependent's range.
-    const breaks = describeBrokenDependents(manifest.id, manifest.version, argusHome)
+    const breaks = describeBrokenDependents(
+      manifest.id,
+      manifest.version,
+      argusHome,
+      opts.alsoInstalling
+    )
     if (breaks) throw new InstallError('dependency', breaks)
 
     stripQuarantine(staging)

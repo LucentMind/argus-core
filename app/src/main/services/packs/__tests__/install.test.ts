@@ -451,6 +451,43 @@ describe('pack dependencies', () => {
     expect(uninstallPack('common', { argusHome: home, state }).ok).toBe(true)
     expect(fs.existsSync(path.join(packsDir(home), 'common'))).toBe(false)
   })
+
+  it('still refuses a breaking replacement when no batch is declared', async () => {
+    await installCommon('0.1.2')
+    await installNavigation()
+    const r = await installPack(
+      makeBundleDir({ id: 'common', displayName: 'Common', version: '1.0.0' }),
+      { argusHome: home, state, host: HOST }
+    )
+    expect(r).toMatchObject({ ok: false, code: 'dependency' })
+  })
+
+  it('allows the same replacement when the dependent is part of the same batch', async () => {
+    await installCommon('0.1.2')
+    await installNavigation()
+    const r = await installPack(
+      makeBundleDir({ id: 'common', displayName: 'Common', version: '1.0.0' }),
+      {
+        argusHome: home,
+        state,
+        host: HOST,
+        alsoInstalling: new Set(['common', 'navigation'])
+      }
+    )
+    expect(r).toMatchObject({ ok: true, id: 'common', version: '1.0.0' })
+    expect(state.get('common')).toBe('1.0.0')
+  })
+
+  it('still refuses when the broken dependent is outside the batch', async () => {
+    await installCommon('0.1.2')
+    await installNavigation()
+    const r = await installPack(
+      makeBundleDir({ id: 'common', displayName: 'Common', version: '1.0.0' }),
+      { argusHome: home, state, host: HOST, alsoInstalling: new Set(['common']) }
+    )
+    expect(r).toMatchObject({ ok: false, code: 'dependency' })
+    expect(r.ok ? '' : r.error).toContain('navigation')
+  })
 })
 
 describe('origin pin recording', () => {
