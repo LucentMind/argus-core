@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { PACK_MANIFEST_FILE, packManifestSchema, type PackManifest } from './manifest'
 import { isApiCompatible } from './compat'
-import { checkDependency } from './dependencies'
+import { checkDependency, normalizeDependencies } from './dependencies'
 
 function subdirIfExists(dir: string, name: string): string | null {
   const p = path.join(dir, name)
@@ -198,7 +198,7 @@ export function orderPacksByDependencies(input: LoadedPack[]): {
     changed = false
     for (const p of input) {
       if (failed.has(p.id)) continue
-      for (const [depId, range] of Object.entries(p.manifest.dependencies)) {
+      for (const { id: depId, range } of normalizeDependencies(p.manifest.dependencies)) {
         const dep = byId.get(depId)
         // The version comes from the dependency's own manifest, not packs-state: seeded packs
         // (the repo `packs/` dir in dev, or a packaged build's bundled dir) are never recorded
@@ -223,11 +223,11 @@ export function orderPacksByDependencies(input: LoadedPack[]): {
 
   const remaining = input.filter((p) => !failed.has(p.id))
   const indegree = new Map(
-    remaining.map((p) => [p.id, Object.keys(p.manifest.dependencies).length])
+    remaining.map((p) => [p.id, normalizeDependencies(p.manifest.dependencies).length])
   )
   const dependents = new Map<string, string[]>()
   for (const p of remaining) {
-    for (const depId of Object.keys(p.manifest.dependencies)) {
+    for (const { id: depId } of normalizeDependencies(p.manifest.dependencies)) {
       dependents.set(depId, [...(dependents.get(depId) ?? []), p.id])
     }
   }

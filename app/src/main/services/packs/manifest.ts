@@ -167,14 +167,40 @@ export const packWindowSchema = z
 
 export type PackWindow = z.infer<typeof packWindowSchema>
 
-/** `{ "<packId>": "<semver-range>" }`. Keys must be kebab-case pack ids; values must be
- *  valid semver ranges. Validated with `superRefine` (rather than a keyed record schema)
- *  so a bad entry's error message names the offending key. */
+/** A dependency's own update source. Mirrors the manifest's top-level updateUrl/updateRepo,
+ *  including their mutual exclusion: two sources make the pin ambiguous. */
+export const packDependencySourceSchema = z
+  .object({
+    range: z.string(),
+    updateUrl: z
+      .string()
+      .url()
+      .refine((u) => {
+        try {
+          return new URL(u).protocol === 'https:'
+        } catch {
+          return false
+        }
+      }, 'updateUrl must be https')
+      .optional(),
+    updateRepo: z
+      .string()
+      .refine((r) => parseGhRef(r) != null, 'updateRepo must be owner/repo or host/owner/repo')
+      .optional()
+  })
+  .refine((d) => !(d.updateUrl != null && d.updateRepo != null), {
+    message: 'a dependency may declare updateUrl or updateRepo, not both'
+  })
+
+/** `{ "<packId>": "<semver-range>" | { range, updateUrl|updateRepo } }`. The bare string is the
+ *  original form and means "no source": such a dependency is enforced but never auto-installed.
+ *  Keys must be kebab-case pack ids and every range must be valid; validated with `superRefine`
+ *  (rather than a keyed record schema) so a bad entry's error message names the offending key. */
 export const packDependenciesSchema = z
-  .record(z.string(), z.string())
+  .record(z.string(), z.union([z.string(), packDependencySourceSchema]))
   .default({})
   .superRefine((deps, ctx) => {
-    for (const [depId, range] of Object.entries(deps)) {
+    for (const [depId, entry] of Object.entries(deps)) {
       if (!KEBAB.test(depId)) {
         ctx.addIssue({
           code: 'custom',
@@ -182,6 +208,7 @@ export const packDependenciesSchema = z
           path: [depId]
         })
       }
+      const range = typeof entry === 'string' ? entry : entry.range
       if (!semver.validRange(range)) {
         ctx.addIssue({
           code: 'custom',
