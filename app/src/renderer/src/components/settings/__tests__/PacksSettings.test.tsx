@@ -853,5 +853,65 @@ describe('PacksSettings', () => {
       release({ installed: [], failed: null, relaunchRequired: false })
       await waitFor(() => expect(installAll).not.toBeInTheDocument())
     })
+
+    it('drops a stale plan when a second, single-pack install starts before the first is approved', async () => {
+      // The renderer's `plan` and main's staged plan are two copies of one fact. Starting a new
+      // install (even a single-pack one that never shows its own approval UI) stages a NEW plan in
+      // main, silently invalidating whatever the renderer is still displaying. If the renderer kept
+      // showing the old plan, its still-live "Install all" would apply the NEW staged plan while
+      // the screen names the packs from the OLD one — approving something other than what is shown.
+      packs.planBundle = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, packs: multiPackPlan() })
+        .mockResolvedValueOnce({
+          ok: true,
+          packs: [
+            {
+              id: 'other',
+              version: '1.0.0',
+              action: 'install',
+              previousVersion: null,
+              originLabel: 'this bundle',
+              isRoot: true
+            }
+          ]
+        })
+      packs.inspect = vi
+        .fn()
+        .mockResolvedValueOnce({
+          id: 'maps',
+          version: '2.0.0',
+          platform: 'win-x64',
+          apiCompatible: true,
+          platformCompatible: true,
+          dependencies: []
+        })
+        .mockResolvedValueOnce({
+          id: 'other',
+          version: '1.0.0',
+          platform: 'win-x64',
+          apiCompatible: true,
+          platformCompatible: true,
+          dependencies: []
+        })
+      packs.pickBundle = vi
+        .fn()
+        .mockResolvedValueOnce('C:/dl/maps-bundle.zip')
+        .mockResolvedValueOnce('C:/dl/other-1.0.0-win-x64.zip')
+
+      render(<PacksSettings settings={settingsPayload()} />)
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+      expect(await screen.findByRole('button', { name: /install all/i })).toBeInTheDocument()
+
+      // Start a second install without ever clicking Install all on the first plan.
+      fireEvent.click(screen.getByRole('button', { name: 'Install from file' }))
+      await waitFor(() =>
+        expect(packs.install).toHaveBeenCalledWith('C:/dl/other-1.0.0-win-x64.zip')
+      )
+
+      expect(screen.queryByRole('button', { name: /install all/i })).not.toBeInTheDocument()
+      expect(packs.applyPlan).not.toHaveBeenCalled()
+    })
   })
 })
