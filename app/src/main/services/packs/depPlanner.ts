@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { checkDependency, normalizeDependencies, type DeclaredSource } from './dependencies'
 import type { CandidateResolver, ResolvedCandidate } from './depSources'
+import { describeBrokenDependents } from './install'
 import type { PackManifest } from './manifest'
 import type { PlannedPack, PlanResult } from '../../../shared/packs'
 
@@ -189,8 +190,45 @@ export async function stagePlan(
     }
   }
 
-  // Task 4 inserts the coherence checks here, between resolution and ordering.
+  const refused = refuse(deps, planned, requirements)
+  if (refused) return refused
   return { ok: true, packs: order(planned, edges) }
+}
+
+/**
+ * The two ways a resolved set can still be incoherent. Both are checked after resolution and
+ * before anything is installed, so a refusal writes nothing but the staging cache.
+ */
+function refuse(
+  deps: PlannerDeps,
+  planned: Map<string, StagedPack>,
+  requirements: Map<string, Requirement[]>
+): Extract<PlanResult, { ok: false }> | null {
+  // 1. Conflict: the chosen version must satisfy EVERY requirement placed on it, not just the
+  //    one that happened to resolve it first.
+  for (const [id, reqs] of requirements) {
+    const chosenVersion = planned.get(id)?.version ?? deps.installed[id] ?? null
+    if (chosenVersion == null) continue
+    const unmet = reqs.filter((r) => checkDependency(chosenVersion, r.range) !== 'ok')
+    if (unmet.length === 0) continue
+    const all = reqs.map((r) => `'${r.by}' requires ${r.range}`).join(', ')
+    return {
+      ok: false,
+      code: 'conflict',
+      error: `no single version of '${id}' satisfies every requirement: ${all}; best available is ${chosenVersion}`
+    }
+  }
+
+  // 2. Breaking an installed dependent OUTSIDE the plan. A dependent that is itself planned is
+  //    skipped: its new manifest's ranges are already covered by check 1 above, while the guard
+  //    would read its stale on-disk range and refuse a coordinated upgrade the user asked for.
+  const alsoInstalling = new Set(planned.keys())
+  for (const pack of planned.values()) {
+    const breaks = describeBrokenDependents(pack.id, pack.version, deps.argusHome, alsoInstalling)
+    if (breaks) return { ok: false, code: 'breaks-dependent', error: breaks }
+  }
+
+  return null
 }
 
 /** Dependencies before dependents; id sort among unrelated packs, so the plan reads stably. */

@@ -64,6 +64,21 @@ function root(id: string, version: string, dependencies: PackManifest['dependenc
   return { id, version, bundlePath: path.join(cache, 'root.zip'), source: null, dependencies }
 }
 
+/** Writes a pack dir under <home>/packs so `dependentRangesOn` can read it. */
+function writeInstalledPack(
+  argusHome: string,
+  id: string,
+  version: string,
+  dependencies: Record<string, unknown>
+): void {
+  const dir = path.join(argusHome, 'packs', id)
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(
+    path.join(dir, 'argus-pack.json'),
+    JSON.stringify({ id, displayName: id, version, argusApi: '^1.1', dependencies })
+  )
+}
+
 describe('buildPlan', () => {
   it('plans a single missing dependency before its dependent', async () => {
     const world: World = { common: { '1.4.0': {} } }
@@ -190,5 +205,54 @@ describe('buildPlan', () => {
       expect(Object.hasOwn(p, 'bundlePath')).toBe(false)
       expect(Object.hasOwn(p, 'source')).toBe(false)
     }
+  })
+})
+
+describe('buildPlan refusals', () => {
+  it('refuses two requesters whose ranges cannot both be met', async () => {
+    const world: World = {
+      base: { '1.0.0': {}, '2.0.0': {} },
+      a: { '1.0.0': { base: { range: '^1', updateRepo: 'org/packs' } } },
+      b: { '1.0.0': { base: { range: '^2', updateRepo: 'org/packs' } } }
+    }
+    const r = await buildPlan(
+      deps(world),
+      root('top', '1.0.0', {
+        a: { range: '^1', updateRepo: 'org/packs' },
+        b: { range: '^1', updateRepo: 'org/packs' }
+      })
+    )
+    expect(r).toMatchObject({ ok: false, code: 'conflict' })
+    const msg = r.ok ? '' : r.error
+    expect(msg).toContain('base')
+    expect(msg).toContain('^1')
+    expect(msg).toContain('^2')
+  })
+
+  it('refuses an upgrade that would strand an installed pack outside the plan', async () => {
+    // 'legacy' is installed, requires common ^1, and is NOT part of this plan.
+    writeInstalledPack(home, 'legacy', '1.0.0', { common: '^1.0.0' })
+    writeInstalledPack(home, 'common', '1.2.0', {})
+    const world: World = { common: { '2.0.0': {} } }
+    const r = await buildPlan(
+      deps(world, { common: '1.2.0', legacy: '1.0.0' }),
+      root('maps', '2.0.0', { common: { range: '^2.0.0', updateRepo: 'org/packs' } })
+    )
+    expect(r).toMatchObject({ ok: false, code: 'breaks-dependent' })
+    expect(r.ok ? '' : r.error).toContain('legacy')
+  })
+
+  it('allows a coordinated upgrade of a dependency and its dependent', async () => {
+    // 'maps' is installed at 1.0.0 requiring common ^1, and IS the root being upgraded to 2.0.0,
+    // whose manifest requires common ^2. The on-disk guard alone would refuse this.
+    writeInstalledPack(home, 'maps', '1.0.0', { common: '^1.0.0' })
+    writeInstalledPack(home, 'common', '1.2.0', {})
+    const world: World = { common: { '2.0.0': {} } }
+    const r = await buildPlan(
+      deps(world, { common: '1.2.0', maps: '1.0.0' }),
+      root('maps', '2.0.0', { common: { range: '^2.0.0', updateRepo: 'org/packs' } })
+    )
+    expect(r.ok).toBe(true)
+    expect(r.ok && r.packs.map((p) => p.id)).toEqual(['common', 'maps'])
   })
 })
