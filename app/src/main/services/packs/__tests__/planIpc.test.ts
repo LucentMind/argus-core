@@ -5,6 +5,7 @@ import os from 'node:os'
 import { registerPacksPlanIpc, type HandleFn } from '../planIpc'
 import { PacksStateStore } from '../packsState'
 import type { ResolvedCandidate } from '../depSources'
+import type { DeclaredSource } from '../dependencies'
 import type { InstallResult, PlanResult, ApplyPlanResult } from '../../../../shared/packs'
 
 let home: string
@@ -191,4 +192,95 @@ describe('registerPacksPlanIpc', () => {
     const after = fs.readdirSync(tempRoot).filter((n) => !before.includes(n))
     expect(after).toHaveLength(0)
   })
+
+  it(
+    'resolves an already-installed dependency from its own recorded pin, never from the ' +
+      "dependent bundle's declared source (the `pins` wiring planIpc.ts builds for stagePlan's " +
+      'security check — see the comment on `PlannerDeps.pins` in depPlanner.ts)',
+    async () => {
+      // 'common' is already installed and pinned to a trusted source.
+      const packsState = new PacksStateStore(home)
+      packsState.set('common', '1.2.0')
+      const trustedPin: DeclaredSource & { installedAt: number } = {
+        kind: 'feed',
+        updateUrl: 'https://trusted.example/feed.json',
+        origin: 'https://trusted.example',
+        installedAt: Date.now()
+      }
+      packsState.setSource('common', trustedPin)
+
+      // The root bundle declares a dependency on 'common' at a range the installed 1.2.0 does not
+      // satisfy (forcing a re-resolve), with a source pointing at a hostile origin. If `pins`
+      // wiring is dropped (e.g. `pins: {}`), that hostile source is what the resolver would see.
+      const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-planipc-root-'))
+      fs.writeFileSync(
+        path.join(rootDir, 'argus-pack.json'),
+        JSON.stringify({
+          id: 'root',
+          displayName: 'root',
+          version: '1.0.0',
+          argusApi: '^1',
+          dependencies: {
+            common: { range: '^2.0.0', updateUrl: 'https://attacker.example/evil-feed.json' }
+          }
+        })
+      )
+
+      const resolvedFrom: (DeclaredSource | null)[] = []
+      const handlers = new Map<string, (...args: never[]) => unknown>()
+      const handle: HandleFn = (channel, fn) => void handlers.set(channel, fn as never)
+
+      registerPacksPlanIpc(handle, {
+        resolver: {
+          async resolve(id, _range, source): Promise<ResolvedCandidate | null> {
+            resolvedFrom.push(source)
+            return {
+              id,
+              version: '2.0.0',
+              download: { kind: 'url', url: `https://x.example/${id}.zip`, sha256: 'a'.repeat(64) },
+              source,
+              originLabel: 'x.example'
+            }
+          }
+        },
+        download: async (candidate, destPath) => {
+          // A directory stands in for a downloaded bundle: `inspectBundleSource` (called next, via
+          // `deps.inspect`) accepts either a zip or a directory.
+          fs.mkdirSync(destPath, { recursive: true })
+          fs.writeFileSync(
+            path.join(destPath, 'argus-pack.json'),
+            JSON.stringify({
+              id: candidate.id,
+              displayName: candidate.id,
+              version: candidate.version,
+              argusApi: '^1'
+            })
+          )
+        },
+        packsState,
+        argusHome: home,
+        tempRoot,
+        onApplied: () => {}
+      })
+
+      const planFn = handlers.get('packs:plan-bundle') as (
+        e: unknown,
+        source: string
+      ) => Promise<PlanResult>
+      const planned = await planFn(undefined, rootDir)
+
+      expect(planned.ok).toBe(true)
+      // The resolver must have been asked to resolve 'common' from the trusted pin, never from the
+      // hostile source the root manifest declared.
+      expect(resolvedFrom).toEqual([
+        {
+          kind: 'feed',
+          updateUrl: 'https://trusted.example/feed.json',
+          origin: 'https://trusted.example'
+        }
+      ])
+
+      fs.rmSync(rootDir, { recursive: true, force: true })
+    }
+  )
 })
