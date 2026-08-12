@@ -358,6 +358,7 @@ import { ROUTINE_TEMPLATES } from './services/routines/templates'
 import type { RoutinesPayload, RoutineTemplate } from '../shared/routines'
 import { AutonomyEvaluator } from './services/autonomy/evaluator'
 import { buildAutonomyPayload, type PayloadDeps } from './services/autonomy/payload'
+import { generateAutonomyReport } from './services/autonomy/report'
 import { laneMetrics } from './services/autonomy/lanes'
 import { addEvent, ackEvent, currentTier } from './services/autonomy/ledger'
 import { barFor, clearsBar, type LaneId } from '../shared/autonomy'
@@ -2448,6 +2449,7 @@ function registerIpc(): void {
     announceAutonomyChanged()
     return buildAutonomyPayload(autonomyDeps())
   })
+  ipcMain.handle(IPC.autonomyReportGenerate, () => generateAutonomyReport(autonomyDeps()))
   // Boot pass: a quality dip that happened while the app was closed must not wait for the
   // next outcome write to be noticed.
   autonomyEvaluator.evaluateNow()

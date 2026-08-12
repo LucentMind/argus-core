@@ -155,3 +155,8 @@ export function artifactsDir(argusHome: string, slug: string): string {
 export function modeDir(argusHome: string, slug: string, mode: ModeId): string {
   return path.join(caseDir(argusHome, slug), dirForMode(mode))
 }
+
+/** Global (non-case) generated reports — the autonomy day-90 pack lives here. */
+export function reportsDir(argusHome: string): string {
+  return path.join(argusHome, 'reports')
+}
