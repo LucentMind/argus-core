@@ -86,12 +86,13 @@ describe('AutonomyEvaluator', () => {
     const { ev } = makeEvaluator()
     ev.evaluateNow()
     addEvent(db, { lane: 'triage', kind: 'promote', toTier: 2, metricsSnapshot: snap })
-    // one more dismissal, decided AFTER the auto-demote event (NOW-basis offsets are in the past,
-    // so stamp this one at NOW)
+    // one more dismissal, decided AFTER the auto-demote event: stamp triaged_at at NOW + 1s
+    // so the single-fire guard detects a fresh decision (decidedAt > auto-demote's createdAt)
+    const AFTER = new Date(NOW.getTime() + 1000).toISOString()
     db.prepare(
       `INSERT INTO cases (slug, title, status, origin, review_state, triaged_at, created_at, updated_at)
        VALUES ('fresh', 'fresh', 'open', 'routine', 'draft', ?, ?, ?)`
-    ).run(NOW.toISOString(), NOW.toISOString(), NOW.toISOString())
+    ).run(AFTER, NOW.toISOString(), NOW.toISOString())
     const events = ev.evaluateNow()
     expect(events).toHaveLength(1)
     expect(currentTier(db, 'triage')).toBe(1)

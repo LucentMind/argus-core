@@ -85,7 +85,8 @@ export class AutonomyEvaluator {
       kind: 'auto-demote',
       toTier: tier - 1,
       note: null,
-      metricsSnapshot: m
+      metricsSnapshot: m,
+      now: this.deps.now?.()
     })
   }
 }
