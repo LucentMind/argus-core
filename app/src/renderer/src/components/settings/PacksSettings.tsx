@@ -226,14 +226,8 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
   async function install(): Promise<void> {
     if (busy) return
     setError(null)
-    // The renderer's `plan` and main's staged plan are two copies of one fact. Starting a new
-    // install — even a single-pack one, which never shows its own approval UI — stages a NEW plan
-    // in main, silently invalidating whatever this still holds. Clear it now, before the picker
-    // even opens, so a stale "Install all" can never survive to be clicked against a plan it no
-    // longer describes.
-    setPlan(null)
     const source = await window.argus.packs.pickBundle()
-    if (!source) return
+    if (!source) return // cancelled — the displayed plan, if any, is untouched and still valid
     setBusy(true)
     try {
       const info = await window.argus.packs.inspect(source)
@@ -247,6 +241,13 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
         setError(`"${info.id}" ${info.version} isn't compatible with this version of Argus.`)
         return
       }
+      // The renderer's `plan` and main's staged plan are two copies of one fact. While the picker
+      // was open the two still agreed — main still held whatever plan is displayed, so approving
+      // it would have been correct. The desync begins right here: `planBundle` is about to
+      // overwrite main's staged plan, which is the moment the displayed plan (if any) stops
+      // matching what `applyPlan` would install. Clear it now, before that call, so a stale
+      // "Install all" can never survive to be clicked against a plan it no longer describes.
+      setPlan(null)
       const planned = await window.argus.packs.planBundle(source)
       if (!planned.ok) {
         setError(planned.error)

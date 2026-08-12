@@ -913,5 +913,32 @@ describe('PacksSettings', () => {
       expect(screen.queryByRole('button', { name: /install all/i })).not.toBeInTheDocument()
       expect(packs.applyPlan).not.toHaveBeenCalled()
     })
+
+    it('keeps a displayed plan when a second Install from file click is cancelled', async () => {
+      // Cancelling the OS picker never reaches `planBundle`, so main's staged plan is never
+      // touched — the plan still on screen is still the one main would apply. Clearing it anyway
+      // would force a needless re-plan round trip for a click that changed nothing.
+      const plan = multiPackPlan()
+      packs.planBundle = vi.fn().mockResolvedValue({ ok: true, packs: plan })
+      packs.pickBundle = vi
+        .fn()
+        .mockResolvedValueOnce('C:/dl/maps-bundle.zip')
+        .mockResolvedValueOnce(null)
+
+      render(<PacksSettings settings={settingsPayload()} />)
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+      expect(await screen.findByRole('button', { name: /install all/i })).toBeInTheDocument()
+      expect(packs.planBundle).toHaveBeenCalledTimes(1)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Install from file' }))
+      await waitFor(() => expect(packs.pickBundle).toHaveBeenCalledTimes(2))
+
+      // The original plan is still exactly what's shown — no second planBundle round trip.
+      expect(screen.getByRole('button', { name: /install all/i })).toBeInTheDocument()
+      expect(screen.getByText('common')).toBeInTheDocument()
+      expect(screen.getByText('maps')).toBeInTheDocument()
+      expect(packs.planBundle).toHaveBeenCalledTimes(1)
+    })
   })
 })
