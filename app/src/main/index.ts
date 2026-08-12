@@ -249,7 +249,7 @@ import { PackUpdatesService, nodeHttpClient } from './services/packs/packUpdates
 import { nodeGhClient } from './services/packs/ghClient'
 import { listRepoPacks, installFromRepo } from './services/packs/githubInstall'
 import { parseGhRef } from './services/packs/githubRef'
-import { stagePlan, type StagedPack } from './services/packs/depPlanner'
+import { stagePlan, toPlannedRows, type StagedPack } from './services/packs/depPlanner'
 import { applyPlan } from './services/packs/depInstall'
 import { makeCandidateResolver, downloadCandidate } from './services/packs/depSources'
 import type { InstallResult, RepoPackRow, PlanResult, ApplyPlanResult } from '../shared/packs'
@@ -1315,15 +1315,8 @@ function registerIpc(): void {
     )
     if (!result.ok) return result
     stagedPlan = result.packs
-    // Same strip as `buildPlan` — main keeps the staged packs, the renderer gets rows without
-    // `bundlePath`. Structured clone copies own properties, so this must remove them, not retype.
-    return {
-      ok: true,
-      packs: result.packs.map(
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured only to drop them
-        ({ bundlePath: _bundlePath, source: _source, ...row }) => row
-      )
-    }
+    // Main keeps the staged packs (bundlePath, source); the renderer gets IPC-safe rows only.
+    return { ok: true, packs: toPlannedRows(result.packs) }
   })
 
   ipcMain.handle(IPC.packsApplyPlan, async (): Promise<ApplyPlanResult> => {

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { buildPlan, type PlannerDeps, type PlanRoot } from '../depPlanner'
+import { buildPlan, stagePlan, toPlannedRows, type PlannerDeps, type PlanRoot } from '../depPlanner'
 import type { ResolvedCandidate } from '../depSources'
 import type { PackManifest } from '../manifest'
 
@@ -194,14 +194,16 @@ describe('buildPlan', () => {
 
   it('omits staging fields from the IPC-facing plan', async () => {
     const world: World = { common: { '1.4.0': {} } }
-    const r = await buildPlan(
+    const staged = await stagePlan(
       deps(world),
       root('maps', '2.0.0', {
         common: { range: '^1.0.0', updateRepo: 'org/packs' }
       })
     )
-    expect(r.ok).toBe(true)
-    for (const p of r.ok ? r.packs : []) {
+    expect(staged.ok).toBe(true)
+    const rows = toPlannedRows(staged.ok ? staged.packs : [])
+    expect(rows.length).toBeGreaterThan(0)
+    for (const p of rows) {
       expect(Object.hasOwn(p, 'bundlePath')).toBe(false)
       expect(Object.hasOwn(p, 'source')).toBe(false)
     }
