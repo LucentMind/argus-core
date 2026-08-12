@@ -56,9 +56,12 @@ rejected** — but Core ignores anything it doesn't recognize.
 ```
 
 - **`argusApi`** is a **semver range** that must include the pack API version Core implements
-  (currently **`1`**). Core checks `semver.satisfies("1.0.0", argusApi)`. Use `"^1"` to accept any
-  Core with pack API 1.x. A pack whose range excludes the running Core is skipped at load with an
-  error (dev) / rejected at install (§9).
+  (currently **`1.1.0`**). Core checks `semver.satisfies(PACK_API_VERSION, argusApi)`. Use `"^1"` to
+  accept any Core with pack API 1.x. A pack whose range excludes the running Core is skipped at load
+  with an error (dev) / rejected at install (§9).
+  Note that the API version now carries a **minor**: ranges that pinned the old `1.0.0` exactly
+  (`"1.0.0"`, `"1.0.x"`, `"~1.0"`) no longer match and must widen to `"^1"`. `"1"`, `"^1"`, `"1.x"`
+  and `">=1"` are unaffected.
 - **`platform`** (`"<os>-<arch>"`, e.g. `"win-x64"`, `"mac-arm64"`, `"linux-x64"`) is **stamped by
   the build tool** into published bundles and must match the host at install time. Omit it in your
   source manifest — a manifest with no `platform` can be loaded in dev but **cannot be installed**.
