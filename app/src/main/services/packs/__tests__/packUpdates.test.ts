@@ -113,7 +113,8 @@ beforeEach(() => {
     platform: 'win-x64',
     apiCompatible: true,
     platformCompatible: true,
-    dependencies: []
+    dependencies: [],
+    rawDependencies: {}
   }))
 })
 

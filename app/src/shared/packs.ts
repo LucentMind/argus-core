@@ -1,4 +1,5 @@
 import type { UpdateStatus } from './updates'
+import type { PackManifest } from '../main/services/packs/manifest'
 
 /** One declared pack dependency, resolved against what is currently installed. */
 export interface PackDependencyStatus {
@@ -26,6 +27,9 @@ export interface InspectResult {
   updateRepo?: string
   /** Declared dependencies with their satisfaction status against the installed set. */
   dependencies: PackDependencyStatus[]
+  /** The manifest's `dependencies` block verbatim, for the planner to recurse on. Distinct from
+   *  `dependencies` above, which is resolved satisfaction status for display. */
+  rawDependencies: PackManifest['dependencies']
 }
 
 /** Outcome of an install attempt (mirrors install.ts). */
@@ -98,3 +102,22 @@ export interface RepoPackRow {
   installable: boolean
   reason?: string
 }
+
+/** One pack in an install plan, in the order it will be installed. */
+export interface PlannedPack {
+  id: string
+  version: string
+  action: 'install' | 'upgrade'
+  previousVersion: string | null
+  /** Display label, e.g. 'github.com/org/argus-packs'. Deliberately NOT named `origin`:
+   *  `FeedPackSource.origin` is scheme+host+port and is a security control, not a caption. */
+  originLabel: string
+  /** True for the pack the user actually asked for; false for a pulled-in dependency. */
+  isRoot: boolean
+}
+
+export type PlanErrorCode =
+  'conflict' | 'breaks-dependent' | 'cycle' | 'unresolvable' | 'incompatible'
+
+export type PlanResult =
+  { ok: true; packs: PlannedPack[] } | { ok: false; code: PlanErrorCode; error: string }
