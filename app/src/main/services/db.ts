@@ -259,6 +259,17 @@ CREATE TABLE IF NOT EXISTS routine_cursors (
   cursor TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS autonomy_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lane TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  from_tier INTEGER NOT NULL,
+  to_tier INTEGER NOT NULL,
+  note TEXT,
+  metrics_snapshot TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  acknowledged_at TEXT
+);
 `
 
 export function openDb(file: string): DatabaseSync {
@@ -608,6 +619,23 @@ export function openDb(file: string): DatabaseSync {
   // at most a handful of rows per case. Deliberately NOT extended to repo_usage/routine_runs:
   // those two document their surviving-the-case behaviour as intentional.
   db.exec(`DELETE FROM rca_jobs WHERE case_slug NOT IN (SELECT slug FROM cases)`)
+
+  // Autonomy ledger (spec 2026-08-11-autonomy-ledger-design §2): forward-only outcome
+  // stamps. Nullable, NO backfill — old records count all-time but fall out of windowed
+  // views, and the report labels the data-start date instead of inventing history.
+  if (!caseCols.some((c) => c.name === 'triaged_at')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN triaged_at TEXT`)
+  }
+  {
+    const findingCols = db.prepare(`PRAGMA table_info(findings)`).all() as { name: string }[]
+    if (!findingCols.some((c) => c.name === 'posted_at')) {
+      db.exec(`ALTER TABLE findings ADD COLUMN posted_at TEXT`)
+    }
+    if (!findingCols.some((c) => c.name === 'pushed_at')) {
+      db.exec(`ALTER TABLE findings ADD COLUMN pushed_at TEXT`)
+    }
+  }
+
   // Populate the FTS map tables for DBs that already held FTS rows before the
   // side-table fix landed (one-time; gated on the maps being empty).
   backfillFtsMaps(db)
