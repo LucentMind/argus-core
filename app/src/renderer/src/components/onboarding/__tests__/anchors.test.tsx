@@ -23,6 +23,10 @@ beforeEach(() => {
       list: vi.fn(async () => ({ proposals: [] })),
       onChanged: vi.fn(() => () => {})
     },
+    autonomy: {
+      status: vi.fn().mockResolvedValue(null),
+      onChanged: vi.fn(() => () => undefined)
+    },
     // GeneralSettings' default-repositories row (Task 8) mounts RepoPickerMenu
     // unconditionally, which calls recent() on mount.
     workspaces: {

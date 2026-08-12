@@ -35,6 +35,10 @@ beforeEach(() => {
   uiStore.setDynamicTheme(false)
   window.argus = {
     modes: { available: vi.fn(async () => ['investigation', 'review']) },
+    autonomy: {
+      status: vi.fn().mockResolvedValue(null),
+      onChanged: vi.fn(() => () => undefined)
+    },
     distill: { status: vi.fn(async () => null), onChanged: vi.fn(() => () => {}) },
     proposals: {
       list: vi.fn(async () => ({ proposals: [] })),

@@ -92,3 +92,11 @@ describe('nextView: proposals', () => {
     })
   })
 })
+
+describe('nextView: autonomy', () => {
+  it('autonomy toggles like observability', () => {
+    const home = { kind: 'home' } as const
+    expect(nextView(home, home, { kind: 'autonomy' })).toEqual({ kind: 'autonomy' })
+    expect(nextView({ kind: 'autonomy' }, home, { kind: 'autonomy' })).toEqual(home)
+  })
+})

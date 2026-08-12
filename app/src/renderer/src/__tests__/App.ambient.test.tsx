@@ -41,6 +41,10 @@ beforeEach(() => {
       setStatus: vi.fn(async () => undefined),
       setMode: vi.fn(async () => ({ sessionId: 9 }))
     },
+    autonomy: {
+      status: vi.fn().mockResolvedValue(null),
+      onChanged: vi.fn(() => () => undefined)
+    },
     panels: {
       onCite: vi.fn(() => () => {}),
       onDraft: vi.fn(() => () => {}),

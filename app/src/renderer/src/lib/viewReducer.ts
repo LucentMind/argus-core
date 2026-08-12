@@ -8,12 +8,14 @@ export type View =
   | { kind: 'observability' }
   | { kind: 'relatedHistory' }
   | { kind: 'proposals'; types?: readonly ProposalType[] }
+  | { kind: 'autonomy' }
 
 export type ViewAction =
   | { kind: 'settings'; page?: SettingsDeepLink }
   | { kind: 'observability' }
   | { kind: 'relatedHistory' }
   | { kind: 'proposals'; types?: readonly ProposalType[] }
+  | { kind: 'autonomy' }
 
 /**
  * Pure view-transition logic shared by the Settings, Observability,
@@ -63,6 +65,11 @@ export function nextView(cur: View, prevView: View, action: ViewAction): View {
     // than slamming the view shut (the Library banner's deep link).
     if (cur.kind === 'proposals' && action.types === undefined) return prevView
     return { kind: 'proposals', types: action.types }
+  }
+  if (action.kind === 'autonomy') {
+    // Same toggle rule as Observability.
+    if (cur.kind === 'autonomy') return prevView
+    return { kind: 'autonomy' }
   }
   if (cur.kind === 'settings' && action.page === undefined) return prevView
   return { kind: 'settings', page: action.page }
