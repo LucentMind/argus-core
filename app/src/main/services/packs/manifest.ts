@@ -5,9 +5,18 @@ import semver from 'semver'
 export const PACK_MANIFEST_FILE = 'argus-pack.json'
 
 /** The pack-API contract version Core implements, as a full semver string.
- *  Packs declare a compatible range via `argusApi`; a pack that declares `dependencies`
- *  must require `^1.1` or later so an older Core refuses it outright. */
-export const PACK_API_VERSION = '1.1.0'
+ *  Packs declare a compatible range via `argusApi`.
+ *
+ *  - `^1.1` — bare-string `dependencies` (`{"common": "^1.2"}`). Shipped in v2.0.12.
+ *  - `^1.2` — a dependency may instead be an OBJECT carrying its own `updateUrl`/`updateRepo`,
+ *    which is what makes it auto-installable.
+ *
+ *  1.2 rather than folding the object form into 1.1: v2.0.12 shipped 1.1 understanding only the
+ *  string form. Its update selection filters feed candidates by `isApiCompatible(entry.argusApi)`,
+ *  so an object-form bundle still claiming `^1.1` would pass that filter, be downloaded, and then
+ *  fail manifest parsing at install — on every future update check, forever. Declaring `^1.2` makes
+ *  v2.0.12 skip it during selection instead, which is the correct answer for a pack it cannot run. */
+export const PACK_API_VERSION = '1.2.0'
 
 const KEBAB = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
@@ -255,7 +264,8 @@ export const packManifestSchema = z
       .optional(),
     persona: z.string().min(1).optional(),
     /** Other packs this one requires, by id, with a semver range on their `version`.
-     *  Enforced at install/uninstall/update and load ordering by Core (pack API 1.1). */
+     *  Enforced at install/uninstall/update and load ordering by Core. Bare-string entries are
+     *  pack API 1.1; the object form carrying a source is 1.2. */
     dependencies: packDependenciesSchema,
     binaries: z.array(packBinarySchema).default([]),
     detectors: z.array(packDetectorSchema).default([]),
