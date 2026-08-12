@@ -217,11 +217,14 @@ export function listProposals(argusHome: string): ProposalRecord[] {
 
 /** Type/target/title/status of every archived (accepted or rejected) proposal, across all cases. */
 export function listArchivedProposals(argusHome: string): {
+  file: string
   type: string
   target: string
   caseSlug: string
   title: string
   status: 'accepted' | 'rejected'
+  decided: string | null
+  rejectReason: string | null
 }[] {
   const dir = proposalsArchiveDir(argusHome)
   if (!fs.existsSync(dir)) return []
@@ -235,11 +238,14 @@ export function listArchivedProposals(argusHome: string): {
       if (status !== 'accepted' && status !== 'rejected') return []
       return [
         {
+          file: ent.name,
           type: fmField(block.fm, 'type'),
           target: fmField(block.fm, 'target'),
           caseSlug: fmField(block.fm, 'case'),
           title: fmField(block.fm, 'title'),
-          status
+          status,
+          decided: fmField(block.fm, 'decided') || null,
+          rejectReason: fmField(block.fm, 'reject_reason') || null
         }
       ]
     })
@@ -258,12 +264,14 @@ function archive(
   argusHome: string,
   file: string,
   status: 'accepted' | 'rejected',
-  extraFm: Record<string, string> = {}
+  extraFm: Record<string, string> = {},
+  now: Date = new Date()
 ): void {
   const src = path.join(proposalsDir(argusHome), file)
   const dir = proposalsArchiveDir(argusHome)
   fs.mkdirSync(dir, { recursive: true })
-  const extra = Object.entries(extraFm)
+  // `decided` is the ledger's decision timestamp (spec §2 gap-fix) — creation `date` is not it.
+  const extra = Object.entries({ decided: now.toISOString(), ...extraFm })
     .map(([k, v]) => `${k}: ${v}`)
     .join('\n')
   const updated = fs
@@ -365,12 +373,17 @@ export function acceptProposal(
     )
     accepted = { kind: 'reference', name: refFileName(p.target) }
   }
-  archive(argusHome, file, 'accepted')
+  archive(argusHome, file, 'accepted', {}, opts.now ?? new Date())
   announceChanged()
   return accepted
 }
 
-export function rejectProposal(argusHome: string, file: string, reason?: RejectReason): void {
+export function rejectProposal(
+  argusHome: string,
+  file: string,
+  reason?: RejectReason,
+  opts: { now?: Date } = {}
+): void {
   const p = listProposals(argusHome).find((x) => x.file === file)
   if (!p) throw new Error(`Unknown proposal: ${file}`)
   const extra: Record<string, string> = {}
@@ -387,6 +400,6 @@ export function rejectProposal(argusHome: string, file: string, reason?: RejectR
       .slice(0, 200)
     if (note) extra.reject_note = note
   }
-  archive(argusHome, p.file, 'rejected', extra)
+  archive(argusHome, p.file, 'rejected', extra, opts.now ?? new Date())
   announceChanged()
 }

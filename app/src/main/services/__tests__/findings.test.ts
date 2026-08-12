@@ -5,7 +5,7 @@ import path from 'node:path'
 import { openDb } from '../db'
 import { createCase, getCase } from '../caseService'
 import { caseDir } from '../paths'
-import { listFindings, reviewFinding, parseFindingBodies } from '../findings'
+import { listFindings, reviewFinding, parseFindingBodies, recordFindingWrite } from '../findings'
 
 function insertFinding(db: ReturnType<typeof openDb>, caseId: number, summary: string): number {
   const now = new Date().toISOString()
@@ -89,5 +89,28 @@ describe('findings service', () => {
     const db = openDb(':memory:')
     // @ts-expect-error invalid state
     expect(() => reviewFinding(db, 1, 'bogus')).toThrow()
+  })
+
+  it('stamps posted_at/pushed_at exactly once', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-findings-'))
+    const db = openDb(path.join(home, 'argus.db'))
+    createCase(db, home, { slug: 'c1', title: 'C1' })
+    const caseId = getCase(db, 'c1')!.id
+    const id = insertFinding(db, caseId, 'Root cause X')
+
+    const t0 = new Date('2026-08-12T10:00:00Z')
+    recordFindingWrite(db, id, { commentUrl: 'https://x/1' }, t0)
+    recordFindingWrite(db, id, { pushedSha: 'abc123' }, new Date('2026-08-12T11:00:00Z'))
+    // re-posting must not move the stamp
+    recordFindingWrite(db, id, { commentUrl: 'https://x/2' }, new Date('2026-08-12T12:00:00Z'))
+    const row = db.prepare(`SELECT posted_at, pushed_at FROM findings WHERE id = ?`).get(id) as {
+      posted_at: string
+      pushed_at: string
+    }
+    expect(row.posted_at).toBe('2026-08-12T10:00:00.000Z')
+    expect(row.pushed_at).toBe('2026-08-12T11:00:00.000Z')
+
+    db.close()
+    fs.rmSync(home, { recursive: true, force: true })
   })
 })
