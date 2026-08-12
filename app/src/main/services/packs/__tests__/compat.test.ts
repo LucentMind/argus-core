@@ -15,12 +15,18 @@ describe('isApiCompatible', () => {
     expect(isApiCompatible('not-a-range')).toBe(false)
   })
 
-  it('accepts ^1.1 now that the API is 1.1.0 (dependency-declaring packs)', () => {
+  it('accepts ^1.1, the API that introduced bare-string dependencies', () => {
     expect(isApiCompatible('^1.1')).toBe(true)
   })
 
-  it('rejects ^1.2, a future API a dependency-declaring pack might assume', () => {
-    expect(isApiCompatible('^1.2')).toBe(false)
+  it('accepts ^1.2, the API that introduced dependency sources', () => {
+    expect(isApiCompatible('^1.2')).toBe(true)
+  })
+
+  // The inverse of the reason for the 1.2 bump: v2.0.12 implements 1.1.0, so an object-form
+  // bundle declaring ^1.2 is excluded by ITS update selection rather than downloaded and failed.
+  it('rejects ^1.3, a future API this Core does not implement', () => {
+    expect(isApiCompatible('^1.3')).toBe(false)
   })
 })
 

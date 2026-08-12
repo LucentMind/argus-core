@@ -259,8 +259,8 @@ describe('platform field + PACK_API_VERSION', () => {
     expect(() => packManifestSchema.parse({ ...valid, platform: 'macOS' })).toThrow()
   })
 
-  it('exports PACK_API_VERSION = 1.1.0', () => {
-    expect(PACK_API_VERSION).toBe('1.1.0')
+  it('exports PACK_API_VERSION = 1.2.0', () => {
+    expect(PACK_API_VERSION).toBe('1.2.0')
   })
 })
 
@@ -589,11 +589,14 @@ describe('packWindowSchema · 3d-3 listCaseEvidence permission', () => {
 })
 
 describe('dependency source (object form)', () => {
+  // ^1.2, not ^1.1: v2.0.12 shipped API 1.1 understanding only the bare-string form, so a
+  // manifest using the object form while claiming ^1.1 would be offered to it by update
+  // selection and then fail to parse. The fixture models a manifest an author should write.
   const base = {
     id: 'maps',
     displayName: 'Maps',
     version: '1.0.0',
-    argusApi: '^1.1'
+    argusApi: '^1.2'
   }
 
   it('accepts an object entry carrying updateRepo', () => {

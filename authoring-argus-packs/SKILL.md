@@ -30,7 +30,9 @@ All ids kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`). Unknown keys are ignored (passt
   "id": "my-pack",            // MUST equal the directory name
   "displayName": "My Pack",
   "version": "1.0.0",
-  "argusApi": "^1",           // semver RANGE that must include Core's API version (1). Use "^1".
+  "argusApi": "^1",           // semver RANGE that must include Core's API version (now 1.2.0).
+                              // "^1" for a plain pack; "^1.1" if you declare `dependencies` as
+                              // range strings; "^1.2" if a dependency carries updateUrl/updateRepo.
   "persona": "persona.md",    // optional; concatenated into the agent system prompt
   "binaries": [ ... ],        // CLIs Core resolves + the agent runs via Bash (§below)
   "detectors": [ ... ],       // evidence typing + derived-text extraction
