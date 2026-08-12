@@ -1,5 +1,119 @@
 # Changelog
 
+## v2.0.12 — 2026-08-12
+
+92 commits since v2.0.11, 142 files changed (+12,596 / −487).
+
+### Added
+
+**Routines: scoped, per-item runs**
+
+- A routine can now be scoped to a query instead of just running once
+  unscoped: a `cases` scope sweeps your own cases (no cursor — it
+  deliberately revisits anything touched since it was last looked at), and
+  a `jira-jql` scope runs live JQL against Jira through a new JQL-search
+  capability on the Atlassian client. A scoped run loops one turn per
+  matched item, capped by `maxItemsPerRun` (default 10, hard cap 50), and
+  persists a per-routine cursor so whatever doesn't fit carries over to
+  the next run instead of being reprocessed or lost.
+- Each item gets its own case (fetched and created, or adopted in place if
+  one already exists for a Jira item) and its own turn, tracked in a new
+  `routine_run_items` table with a per-item outcome. A new
+  `propose_case_triage` tool lets the turn record a suggested title and
+  tags against the item — never applied directly — which surfaces on Home
+  as a per-item Accept/Dismiss action; the case carries a "Draft" badge
+  tied to review state rather than to whether a routine created it.
+- Marking a run reviewed now refuses while any of its drafts are still
+  un-actioned, since reviewing the run is what removes the only place
+  those drafts could ever be accepted or dismissed.
+- Settings → Routines ships a pre-triage template, adoptable through the
+  editor, as the reference example for the new scoped shape.
+- Hardening from the rollout: JQL cursor stripping is quote-aware and
+  formatted in the account's own timezone, a missing Jira `fields` block
+  no longer poisons the cursor forever, an accepted suggestion no longer
+  re-queues its own case, stranded item rows are reconciled after a crash,
+  a case-slug rebuild no longer cascade-deletes its item rows, and
+  quitting the app now genuinely interrupts a live item's turn instead of
+  abandoning or mislabeling it.
+
+**Evidence rail: collapsible sections**
+
+- The Ticket, Repos, Pull request, and Related history sections of a
+  case's evidence rail can now each collapse independently, with
+  per-section collapse state persisted so it survives switching cases.
+- Clicking something inside a collapsed section's body auto-expands the
+  section first, rather than silently doing nothing.
+- A layout fix stopped the upper rail box from squeezing the evidence
+  list down to its minimum floor height on a tall rail.
+
+**A new "auto" permission mode, with refusal handling**
+
+- A new `auto` permission mode — the Claude CLI's own classifier-driven
+  approval — joins the shared mode list, restricted to the Claude driver
+  only. Because the CLI skips `canUseTool` entirely under `auto` (the same
+  seam-skipping behavior as `bypassPermissions`), unattended and routine
+  runs downgrade it to the default mode, matching the existing
+  bypass/acceptEdits downgrade from an earlier release.
+- `session.started` now carries the CLI's actually-adopted permission
+  mode; Argus compares it against what was requested and records a
+  per-provider-instance refusal when an org policy silently downgrades a
+  session. The composer offers `auto` on Claude sessions and disables any
+  mode the CLI has refused this session, exposing the reason via
+  `aria-describedby` so it reaches screen readers, not just a hover
+  tooltip.
+- A tool-call audit path now records calls the Claude SDK auto-approves
+  without ever calling `canUseTool` (under `auto` or a working
+  `bypassPermissions`), gated on the CLI's reported effective permission
+  mode and backed by a fixture captured live against the installed SDK
+  rather than a guessed string match. Enforcement — denying calls under
+  those modes — is out of scope for this pass.
+- Several sync fixes keep the requested/adopted/reconciled permission mode
+  from drifting apart: `default` is never recorded as a refusal, a session
+  re-pinned to a provider that doesn't support its current mode resets to
+  `default` and the renderer reflects that instead of showing a stale
+  chip, and mode refusals clear on an explicit provider refresh rather
+  than evaporating on the next background poll.
+
+**Packs: dependency enforcement**
+
+- A pack manifest can now declare a `dependencies` field (id → semver
+  range), and the pack API version bumps to 1.1; a pack that declares
+  dependencies must require `argusApi: "^1.1"`, so an older Core refuses
+  it outright rather than silently ignoring the field.
+- Dependencies are enforced at install, uninstall, and update: install
+  refuses a bundle whose dependencies are missing or out of range,
+  uninstall refuses to remove a pack that an installed pack depends on,
+  and updating a pack now blocks a new version that would break an
+  already-installed dependent.
+- Packs load in dependency order (a topological sort, not folder order),
+  and a missing/failed dependency, a dependency cycle, or a duplicate
+  binary id/detector type across packs each become a load error naming
+  the offending packs, instead of the collision being silently resolved
+  first-wins.
+- `docs/authoring-packs.md` documents the full ten-permission panel
+  bridge and the new `dependencies` field.
+
+### Fixed
+
+- Accepting a suggested triage merges tags by namespace instead of
+  replacing the case's existing tags outright.
+- A disabled weekly routine's schedule summary separates its days
+  correctly, and the schedule stays visible inside one disabled-state
+  chip instead of splitting into two.
+- Popovers anchored near the right edge of the window (SessionChips'
+  status popover, the composer's collapsed "..." menu) now grow left
+  instead of clipping off-screen.
+- An already-aborted turn signal now settles synchronously instead of
+  arming a `timeoutMs` timer it will never need.
+
+### Internal
+
+- Fixed the pack-API version bump's fallout outside `app/` (the
+  `tools/pack-tools` scaffold fixture) and an `InspectResult` test
+  fixture for the new dependencies field.
+- Fixed a flaky ACP client-exit test and excluded the scratch e2e driver
+  from lint.
+
 ## v2.0.11 — 2026-08-09
 
 59 commits since v2.0.10, 117 files changed (+7,023 / −1,554).
