@@ -37,9 +37,7 @@ export function renderAutonomyReport(p: AutonomyPayload, now: Date = new Date())
   const lines: string[] = []
   lines.push(`# Autonomy review — ${now.toISOString().slice(0, 10)}`)
   lines.push('')
-  lines.push(
-    `Argus ${p.argusVersion} · instance \`${p.instanceId}\` · ${p.windowDays}-day window`
-  )
+  lines.push(`Argus ${p.argusVersion} · instance \`${p.instanceId}\` · ${p.windowDays}-day window`)
   lines.push('', '## Lanes', '')
   lines.push('| Lane | Tier | Decisions | Acceptance | Cost (USD) | Data since |')
   lines.push('|---|---|---|---|---|---|')

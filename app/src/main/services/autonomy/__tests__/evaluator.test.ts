@@ -13,8 +13,15 @@ let home: string
 let db: DatabaseSync
 const NOW = new Date('2026-08-12T12:00:00Z')
 const snap: LaneMetrics = {
-  lane: 'triage', windowDays: 30, decisions: 12, accepted: 12,
-  acceptanceRate: 1, costUsd: null, rejectReasons: {}, depth: {}, dataStart: null
+  lane: 'triage',
+  windowDays: 30,
+  decisions: 12,
+  accepted: 12,
+  acceptanceRate: 1,
+  costUsd: null,
+  rejectReasons: {},
+  depth: {},
+  dataStart: null
 }
 
 /** N routine-case decisions inside the window, `accepted` of them accepted. */
@@ -29,10 +36,17 @@ function seedTriage(n: number, accepted: number, dayOffset = 0): void {
   }
 }
 
-function makeEvaluator(onChanged = vi.fn()) {
+function makeEvaluator(onChanged = vi.fn()): {
+  ev: AutonomyEvaluator
+  onChanged: typeof onChanged
+} {
   return {
     ev: new AutonomyEvaluator({
-      db, argusHome: home, settings: () => defaultSettings(), onChanged, now: () => NOW
+      db,
+      argusHome: home,
+      settings: () => defaultSettings(),
+      onChanged,
+      now: () => NOW
     }),
     onChanged
   }
