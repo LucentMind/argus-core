@@ -97,6 +97,10 @@ beforeEach(() => {
     cases: {
       list: vi.fn(async () => [])
     },
+    autonomy: {
+      status: vi.fn().mockResolvedValue(null),
+      onChanged: vi.fn(() => () => undefined)
+    },
     panels: {
       onCite: vi.fn(() => () => {}),
       onDraft: vi.fn(() => () => {})
