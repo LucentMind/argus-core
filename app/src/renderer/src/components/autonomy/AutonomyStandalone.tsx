@@ -29,7 +29,7 @@ export default function AutonomyStandalone({
   const t = payload.timeInTriage
   return (
     <div className="mx-auto w-full max-w-5xl p-8">
-      <h1 className="text-xl font-semibold text-ink">Autonomy</h1>
+      <h1 className="text-lg font-semibold text-ink">Autonomy</h1>
       <p className="text-sm text-dim">
         A-tier per lane, earned on evidence · {payload.windowDays}-day window
       </p>
