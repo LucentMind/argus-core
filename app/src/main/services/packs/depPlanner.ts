@@ -44,20 +44,25 @@ interface Requirement {
   range: string
 }
 
+/**
+ * Strips the staging-only fields (`bundlePath`, `source`) so a plan is safe to send over IPC.
+ *
+ * Destructure rather than cast: StagedPack is structurally assignable to PlannedPack, so
+ * `packs: staged` would compile while leaving bundlePath/source as real own properties. IPC uses
+ * structured clone, not a type-directed filter, so a compile-time narrowing would still ship a
+ * local filesystem path to the renderer. Build fresh objects instead.
+ */
+export function toPlannedRows(staged: StagedPack[]): PlannedPack[] {
+  return staged.map(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured only to drop them
+    ({ bundlePath: _bundlePath, source: _source, ...row }) => row
+  )
+}
+
 export async function buildPlan(deps: PlannerDeps, root: PlanRoot): Promise<PlanResult> {
   const staged = await stagePlan(deps, root)
   if (!staged.ok) return staged
-  // Destructure rather than cast: StagedPack is structurally assignable to PlannedPack, so
-  // `packs: staged.packs` would compile while leaving bundlePath/source as real own properties.
-  // IPC uses structured clone, not a type-directed filter, so a compile-time narrowing would
-  // still ship a local filesystem path to the renderer. Build fresh objects instead.
-  return {
-    ok: true,
-    packs: staged.packs.map(
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured only to drop them
-      ({ bundlePath: _bundlePath, source: _source, ...row }) => row
-    )
-  }
+  return { ok: true, packs: toPlannedRows(staged.packs) }
 }
 
 /**
