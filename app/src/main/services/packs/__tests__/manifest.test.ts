@@ -587,3 +587,73 @@ describe('packWindowSchema · 3d-3 listCaseEvidence permission', () => {
     expect(parsed.permissions).toContain('listCaseEvidence')
   })
 })
+
+describe('dependency source (object form)', () => {
+  const base = {
+    id: 'maps',
+    displayName: 'Maps',
+    version: '1.0.0',
+    argusApi: '^1.1'
+  }
+
+  it('accepts an object entry carrying updateRepo', () => {
+    const m = packManifestSchema.parse({
+      ...base,
+      dependencies: { common: { range: '^1.2', updateRepo: 'org/argus-packs' } }
+    })
+    expect(m.dependencies).toEqual({
+      common: { range: '^1.2', updateRepo: 'org/argus-packs' }
+    })
+  })
+
+  it('accepts an object entry carrying updateUrl', () => {
+    const m = packManifestSchema.parse({
+      ...base,
+      dependencies: { tiles: { range: '~0.4', updateUrl: 'https://vendor.example/t.json' } }
+    })
+    expect(m.dependencies).toHaveProperty('tiles')
+  })
+
+  it('still accepts the bare range string', () => {
+    const m = packManifestSchema.parse({ ...base, dependencies: { legacy: '^3' } })
+    expect(m.dependencies).toEqual({ legacy: '^3' })
+  })
+
+  it('refuses an entry declaring both updateUrl and updateRepo', () => {
+    expect(() =>
+      packManifestSchema.parse({
+        ...base,
+        dependencies: {
+          common: { range: '^1', updateUrl: 'https://a.example/f.json', updateRepo: 'o/r' }
+        }
+      })
+    ).toThrow(/not both/)
+  })
+
+  it('refuses a non-https updateUrl', () => {
+    expect(() =>
+      packManifestSchema.parse({
+        ...base,
+        dependencies: { common: { range: '^1', updateUrl: 'http://a.example/f.json' } }
+      })
+    ).toThrow(/https/)
+  })
+
+  it('refuses an unparseable updateRepo', () => {
+    expect(() =>
+      packManifestSchema.parse({
+        ...base,
+        dependencies: { common: { range: '^1', updateRepo: 'not a repo ref' } }
+      })
+    ).toThrow(/owner\/repo/)
+  })
+
+  it('validates the range inside the object form, naming the key', () => {
+    expect(() =>
+      packManifestSchema.parse({
+        ...base,
+        dependencies: { common: { range: 'not-a-range', updateRepo: 'o/r' } }
+      })
+    ).toThrow(/common/)
+  })
+})

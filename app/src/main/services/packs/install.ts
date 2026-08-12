@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { extract } from 'zip-lib'
-import { checkDependency } from './dependencies'
+import { checkDependency, normalizeDependencies } from './dependencies'
 import { PACK_MANIFEST_FILE, packManifestSchema, type PackManifest } from './manifest'
 import { verifyBundleChecksums } from './verify'
 import { isApiCompatible, platformMatchesHost, describeHost } from './compat'
@@ -32,7 +32,7 @@ export function resolveDependencies(
   manifest: Pick<PackManifest, 'id' | 'dependencies'>,
   installed: Record<string, string>
 ): PackDependencyStatus[] {
-  return Object.entries(manifest.dependencies ?? {}).map(([id, range]) => {
+  return normalizeDependencies(manifest.dependencies).map(({ id, range }) => {
     const installedVersion = installed[id] ?? null
     const unmet = (detail: string): PackDependencyStatus => ({
       id,
@@ -91,8 +91,8 @@ export function dependentRangesOn(
       })()
     )
     if (!parsed.success) continue
-    const range = (parsed.data.dependencies ?? {})[id]
-    if (range != null) dependents.push({ id: parsed.data.id, range })
+    const declared = normalizeDependencies(parsed.data.dependencies).find((d) => d.id === id)
+    if (declared) dependents.push({ id: parsed.data.id, range: declared.range })
   }
   return dependents.sort((a, b) => a.id.localeCompare(b.id))
 }
