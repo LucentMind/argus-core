@@ -2,7 +2,14 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { buildPlan, stagePlan, toPlannedRows, type PlannerDeps, type PlanRoot } from '../depPlanner'
+import {
+  buildPlan,
+  stagePlan,
+  toPlannedRows,
+  MAX_DEPTH,
+  type PlannerDeps,
+  type PlanRoot
+} from '../depPlanner'
 import type { ResolvedCandidate } from '../depSources'
 import type { DeclaredSource } from '../dependencies'
 import type { PackManifest } from '../manifest'
@@ -126,6 +133,24 @@ describe('buildPlan', () => {
     })
   })
 
+  it('marks a resolved dependency version older than the installed one as a downgrade', async () => {
+    // common is installed at 3.0.0; the dependent requires ^1, which 3.0.0 doesn't satisfy, so the
+    // resolver is asked and returns the newest version actually in range: 1.4.0, older than what
+    // is installed. This must read as a downgrade, not an 'upgrade' (the two-member action union's
+    // fallback), even though it is genuinely resolving/replacing an installed version.
+    const world: World = { common: { '1.4.0': {} } }
+    const r = await buildPlan(
+      deps(world, { common: '3.0.0' }),
+      root('maps', '2.0.0', { common: { range: '^1', updateRepo: 'org/packs' } })
+    )
+    expect(r.ok && r.packs[0]).toMatchObject({
+      id: 'common',
+      version: '1.4.0',
+      action: 'downgrade',
+      previousVersion: '3.0.0'
+    })
+  })
+
   it('recurses into a transitive dependency', async () => {
     const world: World = {
       tiles: { '0.4.0': {} },
@@ -186,6 +211,25 @@ describe('buildPlan', () => {
       })
     )
     expect(r).toMatchObject({ ok: false, code: 'cycle' })
+  })
+
+  it('refuses a dependency chain deeper than MAX_DEPTH', async () => {
+    // A straight-line chain with no repeated ids (so the cycle check never fires): root -> p1 ->
+    // p2 -> ... -> p{MAX_DEPTH+1}. p1 sits at depth 1, so pN sits at depth N; the last link pushes
+    // a frame one past MAX_DEPTH, which must be refused even though nothing here ever cycles.
+    const chainLength = MAX_DEPTH + 1
+    const world: World = {}
+    for (let i = 1; i <= chainLength; i++) {
+      const next =
+        i < chainLength ? { [`p${i + 1}`]: { range: '^1', updateRepo: 'org/packs' } } : {}
+      world[`p${i}`] = { '1.0.0': next }
+    }
+    const r = await buildPlan(
+      deps(world),
+      root('root', '1.0.0', { p1: { range: '^1', updateRepo: 'org/packs' } })
+    )
+    expect(r).toMatchObject({ ok: false, code: 'cycle' })
+    expect(r.ok ? '' : r.error).toContain('deeper than')
   })
 
   it('writes nothing into the packs dir', async () => {

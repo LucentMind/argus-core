@@ -729,6 +729,38 @@ describe('PacksSettings', () => {
       expect(packs.applyPlan).not.toHaveBeenCalled()
     })
 
+    it('shows a downgraded dependency honestly, not mislabelled as an upgrade', async () => {
+      packs.planBundle = vi.fn().mockResolvedValue({
+        ok: true,
+        packs: [
+          {
+            id: 'common',
+            version: '1.4.0',
+            action: 'downgrade',
+            previousVersion: '3.0.0',
+            originLabel: 'github.com/org/packs',
+            isRoot: false
+          },
+          {
+            id: 'maps',
+            version: '2.0.0',
+            action: 'install',
+            previousVersion: null,
+            originLabel: 'this bundle',
+            isRoot: true
+          }
+        ]
+      })
+      render(<PacksSettings settings={settingsPayload()} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+
+      expect(await screen.findByText('common')).toBeInTheDocument()
+      // The version pair and the word "downgrade" must both be visible — not rendered as if it
+      // were an upgrade (the label this used to fall back to before a third action existed).
+      expect(screen.getByText(/3\.0\.0 → 1\.4\.0/)).toBeInTheDocument()
+      expect(screen.getByText(/downgrade/i)).toBeInTheDocument()
+    })
+
     it('shows the refusal instead of a plan when the plan cannot be built', async () => {
       packs.planBundle = vi.fn().mockResolvedValue({
         ok: false,
