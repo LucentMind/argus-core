@@ -734,6 +734,8 @@ const argus = {
     demote: (lane: LaneId, note: string): Promise<AutonomyPayload> =>
       invoke(IPC.autonomyDemote, lane, note),
     ack: (eventId: number): Promise<AutonomyPayload> => invoke(IPC.autonomyAck, eventId),
+    reportGenerate: (): Promise<{ file: string; markdown: string }> =>
+      invoke(IPC.autonomyReportGenerate),
     onChanged: (cb: () => void): (() => void) => {
       const listener = (): void => cb()
       ipcRenderer.on(IPC.autonomyChanged, listener)
