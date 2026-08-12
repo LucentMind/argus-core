@@ -4,6 +4,7 @@ import { checkDependency, normalizeDependencies, type DeclaredSource } from './d
 import type { CandidateResolver, ResolvedCandidate } from './depSources'
 import { describeBrokenDependents } from './install'
 import type { PackManifest } from './manifest'
+import type { PackSource } from './packsState'
 import type { PlannedPack, PlanResult } from '../../../shared/packs'
 
 /** Guards a pathological or hostile manifest chain. Eight is far past any real pack set. */
@@ -28,6 +29,13 @@ export interface PlannerDeps {
   ): Promise<{ id: string; version: string; rawDependencies: PackManifest['dependencies'] }>
   /** `PacksStateStore.list()` — id -> installed version. */
   installed: Record<string, string>
+  /**
+   * `PacksStateStore.getSource(id)` for every installed id. An already-installed pack is resolved
+   * from ITS OWN recorded pin, never from a dependent's declared source: a dependent naming an
+   * installed id as a dependency must not be able to redirect where that id's bytes come from.
+   * Absent for ids with no recorded update source (e.g. dev-seeded or manually-added packs).
+   */
+  pins: Record<string, PackSource | undefined>
   argusHome: string
   /** Staging cache. MUST NOT be inside packsDir: downloading is not installing. */
   cacheDir: string
@@ -42,6 +50,18 @@ export interface StagedPack extends PlannedPack {
 interface Requirement {
   by: string
   range: string
+}
+
+/** A recorded pin, read back as the declared-source shape the resolver takes. The pin carries
+ *  `installedAt`; the resolver's input never learns when a source was first pinned. */
+function pinToDeclaredSource(pin: PackSource): DeclaredSource {
+  return pin.kind === 'github'
+    ? { kind: 'github', host: pin.host, owner: pin.owner, repo: pin.repo }
+    : { kind: 'feed', updateUrl: pin.updateUrl, origin: pin.origin }
+}
+
+function describeSource(source: DeclaredSource): string {
+  return source.kind === 'feed' ? source.origin : `${source.host}/${source.owner}/${source.repo}`
 }
 
 /**
@@ -136,7 +156,14 @@ export async function stagePlan(
 
       if (checkDependency(deps.installed[dep.id] ?? null, dep.range) === 'ok') continue
 
-      if (dep.source == null) {
+      // An already-installed pack is resolved from ITS OWN recorded pin, never from a dependent's
+      // declared source: otherwise a hostile pack could name a legitimate installed id as a
+      // dependency with a source of its own choosing, and have Core fetch attacker bytes for it.
+      const installedPin = deps.installed[dep.id] != null ? deps.pins[dep.id] : undefined
+      const resolveFrom: DeclaredSource | null =
+        installedPin != null ? pinToDeclaredSource(installedPin) : dep.source
+
+      if (resolveFrom == null) {
         return {
           ok: false,
           code: 'unresolvable',
@@ -146,7 +173,7 @@ export async function stagePlan(
 
       let candidate: ResolvedCandidate | null
       try {
-        candidate = await deps.resolver.resolve(dep.id, dep.range, dep.source)
+        candidate = await deps.resolver.resolve(dep.id, dep.range, resolveFrom)
       } catch (err) {
         return {
           ok: false,
@@ -155,6 +182,18 @@ export async function stagePlan(
         }
       }
       if (!candidate) {
+        if (installedPin != null) {
+          return {
+            ok: false,
+            code: 'unresolvable',
+            error:
+              `'${dep.id}' is already installed and pinned to ${describeSource(resolveFrom)}, ` +
+              `which publishes nothing satisfying ${dep.range} (required by '${frame.id}'). ` +
+              `Refusing to fall back to '${frame.id}''s declared source` +
+              (dep.source ? ` (${describeSource(dep.source)})` : '') +
+              ` — install '${dep.id}' manually if you want it from there.`
+          }
+        }
         return {
           ok: false,
           code: 'unresolvable',
