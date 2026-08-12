@@ -249,7 +249,10 @@ import { PackUpdatesService, nodeHttpClient } from './services/packs/packUpdates
 import { nodeGhClient } from './services/packs/ghClient'
 import { listRepoPacks, installFromRepo } from './services/packs/githubInstall'
 import { parseGhRef } from './services/packs/githubRef'
-import type { InstallResult, RepoPackRow } from '../shared/packs'
+import { stagePlan, type StagedPack } from './services/packs/depPlanner'
+import { applyPlan } from './services/packs/depInstall'
+import { makeCandidateResolver, downloadCandidate } from './services/packs/depSources'
+import type { InstallResult, RepoPackRow, PlanResult, ApplyPlanResult } from '../shared/packs'
 import { autoUpdater } from 'electron-updater'
 import { CoreUpdaterService, noopBackend } from './services/update/coreUpdater'
 import { createElectronUpdaterBackend } from './services/update/electronUpdaterBackend'
@@ -1284,6 +1287,67 @@ function registerIpc(): void {
   ipcMain.handle(IPC.packsInspect, (_e, source: string) =>
     inspectBundleSource(source, { installed: packsState.list() })
   )
+  /** The last plan staged by `packsPlanBundle`. Held in main because `StagedPack` carries
+   *  `bundlePath`: letting the renderer supply one would be an arbitrary-file-install primitive. */
+  let stagedPlan: StagedPack[] | null = null
+
+  ipcMain.handle(IPC.packsPlanBundle, async (_e, source: string): Promise<PlanResult> => {
+    stagedPlan = null
+    const cacheDir = path.join(app.getPath('temp'), 'argus-pack-plan')
+    const inspected = await inspectBundleSource(source, { installed: packsState.list() })
+    const result = await stagePlan(
+      {
+        resolver: makeCandidateResolver({ http: nodeHttpClient, gh: nodeGhClient }),
+        download: (candidate, destPath) =>
+          downloadCandidate(candidate, destPath, nodeGhClient, nodeHttpClient),
+        inspect: (bundlePath) => inspectBundleSource(bundlePath, { installed: packsState.list() }),
+        installed: packsState.list(),
+        argusHome,
+        cacheDir
+      },
+      {
+        id: inspected.id,
+        version: inspected.version,
+        bundlePath: source,
+        source: null,
+        dependencies: inspected.rawDependencies
+      }
+    )
+    if (!result.ok) return result
+    stagedPlan = result.packs
+    // Same strip as `buildPlan` — main keeps the staged packs, the renderer gets rows without
+    // `bundlePath`. Structured clone copies own properties, so this must remove them, not retype.
+    return {
+      ok: true,
+      packs: result.packs.map(
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured only to drop them
+        ({ bundlePath: _bundlePath, source: _source, ...row }) => row
+      )
+    }
+  })
+
+  ipcMain.handle(IPC.packsApplyPlan, async (): Promise<ApplyPlanResult> => {
+    if (!stagedPlan) {
+      return { installed: [], failed: { id: '', error: 'no plan staged' }, relaunchRequired: false }
+    }
+    const res = await applyPlan(
+      {
+        argusHome,
+        state: packsState,
+        existingPins: Object.fromEntries(
+          Object.keys(packsState.list()).map((id) => [id, packsState.getSource(id)])
+        )
+      },
+      stagedPlan
+    )
+    stagedPlan = null
+    for (const p of res.installed) packsTouched.add(p.id)
+    if (res.installed.length > 0) {
+      broadcast(IPC.packsChanged, undefined)
+      referencesChanged()
+    }
+    return res
+  })
   ipcMain.handle(
     IPC.packsInspectRepo,
     async (
