@@ -5,7 +5,8 @@ import {
   getCase,
   setCaseReviewState,
   setCaseStatus,
-  setCaseTriage
+  setCaseTriage,
+  stampCaseTriaged
 } from '../caseService'
 import { createSession } from '../agent/sessionStore'
 import {
@@ -958,6 +959,7 @@ export class RoutinesService {
         ...(s.tags ? { tags: s.tags } : {})
       })
     }
+    stampCaseTriaged(this.deps.db, item.caseSlug)
     // Unconditional: an item whose turn proposed nothing is still a draft a human has now read,
     // and leaving it flagged would keep it in the inbox with no verb that can clear it.
     setCaseReviewState(this.deps.db, item.caseSlug, null)
@@ -975,6 +977,9 @@ export class RoutinesService {
     const item = getRunItem(this.deps.db, itemId)
     if (!item?.caseSlug) return
     const kase = getCase(this.deps.db, item.caseSlug)
+    // Stamped even when the case was already closed by another window: the human just
+    // decided, and COALESCE inside stampCaseTriaged keeps whichever decision landed first.
+    stampCaseTriaged(this.deps.db, item.caseSlug)
     if (kase && kase.status !== 'closed') {
       setCaseStatus(this.deps.db, this.deps.argusHome, item.caseSlug, 'closed', resolution)
     }

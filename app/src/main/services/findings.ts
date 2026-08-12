@@ -219,17 +219,19 @@ export function deleteFinding(db: DatabaseSync, argusHome: string, id: number): 
 export function recordFindingWrite(
   db: DatabaseSync,
   id: number,
-  patch: { commentUrl?: string; pushedSha?: string }
+  patch: { commentUrl?: string; pushedSha?: string },
+  now: Date = new Date()
 ): void {
   const sets: string[] = []
   const vals: string[] = []
+  const at = now.toISOString()
   if (patch.commentUrl !== undefined) {
-    sets.push('comment_url = ?')
-    vals.push(patch.commentUrl)
+    sets.push('comment_url = ?', 'posted_at = COALESCE(posted_at, ?)')
+    vals.push(patch.commentUrl, at)
   }
   if (patch.pushedSha !== undefined) {
-    sets.push('pushed_sha = ?')
-    vals.push(patch.pushedSha)
+    sets.push('pushed_sha = ?', 'pushed_at = COALESCE(pushed_at, ?)')
+    vals.push(patch.pushedSha, at)
   }
   if (sets.length === 0) return
   db.prepare(`UPDATE findings SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id)

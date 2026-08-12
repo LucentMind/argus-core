@@ -762,6 +762,28 @@ describe('accept and dismiss', () => {
     expect(() => svc.dismissItem(9999, 'rejected')).not.toThrow()
   })
 
+  it('stamps cases.triaged_at on accept and on dismiss, first decision wins', async () => {
+    const svc = build(
+      routine(),
+      fakeResolver([{ key: 'ABC-1', created: '2026-08-01T00:00:00.000Z' }])
+    )
+    svc.startRun('nightly')
+    await svc.whenIdle()
+    const itemId = runItemForCase(db, 'abc-1')!.id
+
+    svc.acceptItem(itemId)
+    const a = db.prepare(`SELECT triaged_at FROM cases WHERE slug = ?`).get('abc-1') as {
+      triaged_at: string | null
+    }
+    expect(a.triaged_at).not.toBeNull()
+
+    svc.dismissItem(itemId, 'rejected') // already-decided: stamp must not move
+    const b = db.prepare(`SELECT triaged_at FROM cases WHERE slug = ?`).get('abc-1') as {
+      triaged_at: string | null
+    }
+    expect(b.triaged_at).toBe(a.triaged_at)
+  })
+
   /**
    * End to end over the real seam the finding describes: the inbox renders a run only while it
    * is unreviewed, and it is the ONLY accept/dismiss surface. Marking a run reviewed while its
