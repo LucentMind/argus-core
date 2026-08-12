@@ -356,6 +356,11 @@ import { RoutineScheduler } from './services/routines/scheduler'
 import type { ScopeResolver } from './services/routines/scopeResolver'
 import { ROUTINE_TEMPLATES } from './services/routines/templates'
 import type { RoutinesPayload, RoutineTemplate } from '../shared/routines'
+import { AutonomyEvaluator } from './services/autonomy/evaluator'
+import { buildAutonomyPayload, type PayloadDeps } from './services/autonomy/payload'
+import { laneMetrics } from './services/autonomy/lanes'
+import { addEvent, ackEvent, currentTier } from './services/autonomy/ledger'
+import { barFor, clearsBar, type LaneId } from '../shared/autonomy'
 
 let agentService: AgentService | null = null
 let providerStatusService: ProviderStatusService | null = null
@@ -2212,6 +2217,7 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.routinesAcceptItem, (_e, itemId: number): RoutinesPayload => {
     routinesService.acceptItem(itemId)
+    autonomyEvaluator.evaluateSoon()
     return routinesService.payload()
   })
   ipcMain.handle(
@@ -2225,6 +2231,7 @@ function registerIpc(): void {
         throw new Error('Dismissing a draft requires a resolution reason')
       }
       routinesService.dismissItem(itemId, resolution)
+      autonomyEvaluator.evaluateSoon()
       return routinesService.payload()
     }
   )
@@ -2384,6 +2391,67 @@ function registerIpc(): void {
     return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : ''
   })
 
+  // — autonomy ledger —
+  const autonomyDeps = (): PayloadDeps => ({
+    db,
+    argusHome,
+    settings: () => settingsService.get(),
+    argusVersion: app.getVersion()
+  })
+  const announceAutonomyChanged = (): void => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      try {
+        w.webContents.send(IPC.autonomyChanged)
+      } catch {
+        /* a closing window must never break persistence */
+      }
+    }
+  }
+  const autonomyEvaluator = new AutonomyEvaluator({
+    db,
+    argusHome,
+    settings: () => settingsService.get(),
+    onChanged: announceAutonomyChanged
+  })
+  ipcMain.handle(IPC.autonomyStatus, () => buildAutonomyPayload(autonomyDeps()))
+  ipcMain.handle(IPC.autonomyPromote, (_e, lane: LaneId, note: string) => {
+    const deps = autonomyDeps()
+    const auto = deps.settings().autonomy
+    const m = laneMetrics(deps, lane, auto.windowDays)
+    if (!clearsBar(m, barFor(auto, lane)))
+      throw new Error('Lane does not clear its graduation bar.')
+    addEvent(db, {
+      lane,
+      kind: 'promote',
+      toTier: currentTier(db, lane) + 1,
+      note: note || null,
+      metricsSnapshot: m
+    })
+    announceAutonomyChanged()
+    return buildAutonomyPayload(deps)
+  })
+  ipcMain.handle(IPC.autonomyDemote, (_e, lane: LaneId, note: string) => {
+    const deps = autonomyDeps()
+    const m = laneMetrics(deps, lane, deps.settings().autonomy.windowDays)
+    addEvent(db, {
+      lane,
+      kind: 'demote',
+      toTier: currentTier(db, lane) - 1,
+      note: note || null,
+      metricsSnapshot: m
+    })
+    announceAutonomyChanged()
+    return buildAutonomyPayload(deps)
+  })
+  ipcMain.handle(IPC.autonomyAck, (_e, eventId: number) => {
+    ackEvent(db, eventId)
+    announceAutonomyChanged()
+    return buildAutonomyPayload(autonomyDeps())
+  })
+  // Boot pass: a quality dip that happened while the app was closed must not wait for the
+  // next outcome write to be noticed.
+  autonomyEvaluator.evaluateNow()
+
   // — observability: metrics + findings —
   ipcMain.handle(IPC.metricsGlobal, (_e, q?: MetricsQuery) => globalMetrics(db, q))
   ipcMain.handle(IPC.metricsCase, (_e, caseSlug: string, q?: MetricsQuery) =>
@@ -2401,6 +2469,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.findingsReview, (_e, id: number, state: ReviewState) => {
     const row = reviewFinding(db, id, state)
     langfuseExporter?.scoreFinding(row)
+    autonomyEvaluator.evaluateSoon()
     return row
   })
   ipcMain.handle(IPC.findingsClear, (_e, caseSlug: string, mode?: ModeId) => {
@@ -2712,7 +2781,9 @@ function registerIpc(): void {
       // no gate of its own: `confirm` coerces each report's list with `toIdSet`, exactly as the
       // preview handler does, so a malformed value renders as "nothing dropped".
       const validated = validateRcaDraft(edited)
-      return rcaJobs.confirm(slug, jobId, assignments, validated, dropped)
+      const result = rcaJobs.confirm(slug, jobId, assignments, validated, dropped)
+      autonomyEvaluator.evaluateSoon()
+      return result
     }
   )
   ipcMain.handle(IPC.rcaPost, (_e, slug: string) =>
@@ -2977,10 +3048,12 @@ function registerIpc(): void {
     // gets into the library — but this handler never signalled it, so both the Library list and
     // INDEX.md stayed as they were until something else happened to fire.
     if (accepted.kind === 'reference') referencesChanged()
+    autonomyEvaluator.evaluateSoon()
     return { proposals: listProposals(argusHome), accepted }
   })
   ipcMain.handle(IPC.proposalsReject, (_e, file: string, reason?: RejectReason) => {
     rejectProposal(argusHome, file, reason)
+    autonomyEvaluator.evaluateSoon()
     return { proposals: listProposals(argusHome) }
   })
   const announceProposals = (): void => broadcast(IPC.proposalsChanged, proposalCounts(argusHome))
