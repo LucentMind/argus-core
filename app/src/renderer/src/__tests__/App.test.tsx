@@ -10,6 +10,7 @@ import { accessStore } from '../lib/accessStore'
 import { updateStore } from '../lib/updateStore'
 import { uiStore } from '../lib/uiStore'
 import { proposalsStore } from '../lib/proposalsStore'
+import { autonomyStore } from '../lib/autonomyStore'
 import { __resetEscapeLayersForTest } from '../lib/escapeLayer'
 import { defaultSettings, type SettingsPayload } from '../../../shared/settings'
 
@@ -89,6 +90,7 @@ beforeEach(() => {
   accessStore.reset()
   updateStore.clearForTests()
   proposalsStore.reset()
+  autonomyStore.reset()
   uiStore.setDynamicTheme(false)
   lastAmbientCanvasProps = null
   lastOnboardingNavigate = null
@@ -404,6 +406,42 @@ describe('App: proposals view', () => {
     act(() => lastOnboardingNavigate!('proposals'))
     expect(await screen.findByText(/^· \d+ pending$/)).toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: 'Settings sections' })).not.toBeInTheDocument()
+  })
+})
+
+describe('App: autonomy view', () => {
+  // Same standing as Proposals and Related History: a top-level work surface with no close
+  // button of its own -- the TopBar toggle and Escape are how it shuts. AutonomyStandalone
+  // renders only its "Loading autonomy ledger…" placeholder until the payload resolves, so
+  // these tests need a real payload to reach the "Autonomy" heading.
+  beforeEach(() => {
+    ;(window.argus.autonomy.status as Mock).mockResolvedValue({
+      contractVersion: 1,
+      argusVersion: 't',
+      instanceId: 'i',
+      windowDays: 30,
+      lanes: [],
+      unackedDemotions: 0,
+      timeInTriage: { medianMs: null, p90Ms: null, cases: 0 },
+      costPerResolvedCaseUsd: null,
+      resolvedCases: 0
+    })
+  })
+
+  it('opens the autonomy view from the TopBar and toggles shut on second click', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByLabelText('Autonomy'))
+    expect(await screen.findByRole('heading', { name: 'Autonomy' })).toBeInTheDocument()
+    await userEvent.click(screen.getByLabelText('Autonomy'))
+    expect(screen.queryByRole('heading', { name: 'Autonomy' })).not.toBeInTheDocument()
+  })
+
+  it('closes the autonomy view on Escape back to the previous view', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByLabelText('Autonomy'))
+    expect(await screen.findByRole('heading', { name: 'Autonomy' })).toBeInTheDocument()
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('heading', { name: 'Autonomy' })).not.toBeInTheDocument()
   })
 })
 

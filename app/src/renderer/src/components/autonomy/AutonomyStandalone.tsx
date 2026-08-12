@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { PostResults } from '../../../../shared/rca'
 import { useAutonomy } from '../../lib/autonomyStore'
+import { useEscapeLayer } from '../../lib/escapeLayer'
 import { Btn, SectionLabel } from '../ui'
 import LaneCard from './LaneCard'
 
@@ -12,7 +13,12 @@ function human(ms: number): string {
 /** Full-page autonomy ledger (spec 2026-08-11-autonomy-ledger-design): global tiles, one
  *  LaneCard per lane, and the day-90 decision-review report. Mirrors ProposalsStandalone's
  *  standing as a top-level work surface reached from the top bar, not a Settings page. */
-export default function AutonomyStandalone(): React.JSX.Element {
+export default function AutonomyStandalone({
+  onClose
+}: {
+  onClose: () => void
+}): React.JSX.Element {
+  useEscapeLayer({ onEscape: onClose })
   const payload = useAutonomy()
   const [report, setReport] = useState<{ file: string; markdown: string } | null>(null)
   const [postResult, setPostResult] = useState<PostResults | null>(null)

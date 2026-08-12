@@ -53,7 +53,7 @@ beforeEach(() => {
 
 describe('AutonomyStandalone', () => {
   it('renders lanes with tier badges and gates promote on the bar', async () => {
-    render(<AutonomyStandalone />)
+    render(<AutonomyStandalone onClose={() => {}} />)
     expect(await screen.findByText('Triage suggestions')).toBeInTheDocument()
     const promotes = screen.getAllByRole('button', { name: /promote/i })
     expect(promotes[0]).toBeDisabled() // triage: below bar
@@ -61,7 +61,7 @@ describe('AutonomyStandalone', () => {
   })
 
   it('generates then posts the report', async () => {
-    render(<AutonomyStandalone />)
+    render(<AutonomyStandalone onClose={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /generate report/i }))
     expect(await screen.findByText('# report')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /post to confluence/i }))
@@ -74,7 +74,7 @@ describe('AutonomyStandalone', () => {
   })
 
   it('shows the global tiles', async () => {
-    render(<AutonomyStandalone />)
+    render(<AutonomyStandalone onClose={() => {}} />)
     expect(await screen.findByText(/2\.0 d/)).toBeInTheDocument() // triage median
     expect(screen.getByText(/\$4\.21/)).toBeInTheDocument()
   })

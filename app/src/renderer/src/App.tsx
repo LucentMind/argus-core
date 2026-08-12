@@ -324,7 +324,7 @@ function App(): React.JSX.Element {
             </DynamicScope>
           ) : view.kind === 'autonomy' ? (
             <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>
-              <AutonomyStandalone />
+              <AutonomyStandalone onClose={() => setView(prevView)} />
             </DynamicScope>
           ) : (
             <DynamicScope variant="case" light={ambientLight} cutoff={ambientCutoff}>
