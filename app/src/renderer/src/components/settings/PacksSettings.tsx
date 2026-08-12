@@ -226,6 +226,12 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
   async function install(): Promise<void> {
     if (busy) return
     setError(null)
+    // The renderer's `plan` and main's staged plan are two copies of one fact. Starting a new
+    // install — even a single-pack one, which never shows its own approval UI — stages a NEW plan
+    // in main, silently invalidating whatever this still holds. Clear it now, before the picker
+    // even opens, so a stale "Install all" can never survive to be clicked against a plan it no
+    // longer describes.
+    setPlan(null)
     const source = await window.argus.packs.pickBundle()
     if (!source) return
     setBusy(true)
