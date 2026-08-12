@@ -24,15 +24,27 @@ const snap: LaneMetrics = {
   dataStart: null
 }
 
-/** N routine-case decisions inside the window, `accepted` of them accepted. */
+/** N routine-case decisions inside the window, `accepted` of them accepted. Dismissed (rejected)
+ *  rows are seeded `status='closed'` to match the real dismiss flow (routines/service.ts) —
+ *  review_state='draft' alone, on a still-open case, is the "accepted then re-drafted" case that
+ *  lanes.ts's outcome mapping deliberately does NOT count as rejected. */
 function seedTriage(n: number, accepted: number, dayOffset = 0): void {
   for (let i = 0; i < n; i++) {
     const slug = `r-${dayOffset}-${i}`
     const decided = new Date(NOW.getTime() - (2 + dayOffset) * 24 * 3600 * 1000).toISOString()
+    const dismissed = i >= accepted
     db.prepare(
       `INSERT INTO cases (slug, title, status, origin, review_state, triaged_at, created_at, updated_at)
-       VALUES (?, ?, 'open', 'routine', ?, ?, ?, ?)`
-    ).run(slug, slug, i < accepted ? null : 'draft', decided, decided, decided)
+       VALUES (?, ?, ?, 'routine', ?, ?, ?, ?)`
+    ).run(
+      slug,
+      slug,
+      dismissed ? 'closed' : 'open',
+      dismissed ? 'draft' : null,
+      decided,
+      decided,
+      decided
+    )
   }
 }
 
@@ -105,7 +117,7 @@ describe('AutonomyEvaluator', () => {
     const AFTER = new Date(NOW.getTime() + 1000).toISOString()
     db.prepare(
       `INSERT INTO cases (slug, title, status, origin, review_state, triaged_at, created_at, updated_at)
-       VALUES ('fresh', 'fresh', 'open', 'routine', 'draft', ?, ?, ?)`
+       VALUES ('fresh', 'fresh', 'closed', 'routine', 'draft', ?, ?, ?)`
     ).run(AFTER, NOW.toISOString(), NOW.toISOString())
     const events = ev.evaluateNow()
     expect(events).toHaveLength(1)

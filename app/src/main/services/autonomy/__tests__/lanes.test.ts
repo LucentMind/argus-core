@@ -70,6 +70,21 @@ describe('triage lane', () => {
     expect(all.decisions).toBe(3)
     expect(all.dataStart).toBe('2026-05-01T00:00:00.000Z')
   })
+
+  it('does not retroactively reject an accepted case that a later routine run re-drafted', () => {
+    // Accepted once (triaged_at stamped, review_state cleared), then a subsequent routine run
+    // re-set review_state='draft' without going through dismiss — status stays 'open'. That
+    // must still count as accepted: rejection requires the case to actually be closed.
+    seedCase('r5', {
+      origin: 'routine',
+      triaged_at: '2026-08-10T00:00:00.000Z',
+      review_state: 'draft',
+      status: 'open'
+    })
+    const rows = listDecisions(deps(), 'triage', 30)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].outcome).toBe('accepted')
+  })
 })
 
 describe('distill lane', () => {

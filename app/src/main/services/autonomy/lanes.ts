@@ -33,7 +33,7 @@ function inWindow(decidedAt: string | null, since: string | null): boolean {
 function triageDecisions(deps: LaneDeps): DecisionRow[] {
   const rows = deps.db
     .prepare(
-      `SELECT c.slug, c.review_state, c.triaged_at,
+      `SELECT c.slug, c.review_state, c.status, c.triaged_at,
               (SELECT SUM(t.cost_usd) FROM routine_runs rr JOIN turns t ON t.session_id = rr.session_id
                WHERE rr.case_slug = c.slug) AS cost
        FROM cases c WHERE c.origin = 'routine' AND c.triaged_at IS NOT NULL`
@@ -41,6 +41,7 @@ function triageDecisions(deps: LaneDeps): DecisionRow[] {
     .all() as {
     slug: string
     review_state: string | null
+    status: string
     triaged_at: string
     cost: number | null
   }[]
@@ -49,9 +50,15 @@ function triageDecisions(deps: LaneDeps): DecisionRow[] {
     sourceId: r.slug,
     caseSlug: r.slug,
     decidedAt: r.triaged_at,
-    // dismiss deliberately leaves review_state='draft' (routines/service.ts) — that IS the
-    // rejected marker; accept clears it to NULL.
-    outcome: r.review_state === null ? ('accepted' as const) : ('rejected' as const),
+    // dismiss deliberately leaves review_state='draft' (routines/service.ts) AND closes the
+    // case — that pair IS the rejected marker. A stamped case can be re-drafted later by a
+    // subsequent routine run without going through dismiss (status stays 'open'/whatever it
+    // was) — that must NOT retroactively flip an already-accepted decision to rejected, or a
+    // routine re-run silently demotes the lane off a phantom reject.
+    outcome:
+      r.review_state !== null && r.status === 'closed'
+        ? ('rejected' as const)
+        : ('accepted' as const),
     detail: null,
     costUsd: r.cost
   }))

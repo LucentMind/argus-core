@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { TIER_MIN, type LaneStatus } from '../../../../shared/autonomy'
+import { TIER_MAX, TIER_MIN, type LaneStatus } from '../../../../shared/autonomy'
 import { Btn } from '../ui'
 
 function pct(rate: number | null): string {
@@ -14,13 +14,28 @@ function pct(rate: number | null): string {
 export default function LaneCard({ lane }: { lane: LaneStatus }): React.JSX.Element {
   const [verb, setVerb] = useState<'promote' | 'demote' | null>(null)
   const [note, setNote] = useState('')
+  const [error, setError] = useState<string | null>(null)
   const m = lane.metrics
 
   async function commit(): Promise<void> {
-    if (verb === 'promote') await window.argus.autonomy.promote(lane.lane, note.trim())
-    if (verb === 'demote') await window.argus.autonomy.demote(lane.lane, note.trim())
-    setVerb(null)
-    setNote('')
+    try {
+      if (verb === 'promote') await window.argus.autonomy.promote(lane.lane, note.trim())
+      if (verb === 'demote') await window.argus.autonomy.demote(lane.lane, note.trim())
+      setVerb(null)
+      setNote('')
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  async function ack(eventId: number): Promise<void> {
+    try {
+      await window.argus.autonomy.ack(eventId)
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
   }
 
   return (
@@ -67,8 +82,14 @@ export default function LaneCard({ lane }: { lane: LaneStatus }): React.JSX.Elem
       <div className="mt-2 flex gap-2">
         <Btn
           variant="outline"
-          disabled={!lane.clearsBar}
-          title={lane.clearsBar ? 'Record a promotion' : 'Lane must clear its bar first'}
+          disabled={!lane.clearsBar || lane.tier >= TIER_MAX}
+          title={
+            lane.tier >= TIER_MAX
+              ? 'Lane is already at the top tier'
+              : lane.clearsBar
+                ? 'Record a promotion'
+                : 'Lane must clear its bar first'
+          }
           onClick={() => setVerb('promote')}
         >
           Promote
@@ -77,6 +98,7 @@ export default function LaneCard({ lane }: { lane: LaneStatus }): React.JSX.Elem
           Demote
         </Btn>
       </div>
+      {error && <p className="mt-2 text-sm text-danger">{error}</p>}
       {verb && (
         <div className="mt-2">
           <textarea
@@ -105,11 +127,7 @@ export default function LaneCard({ lane }: { lane: LaneStatus }): React.JSX.Elem
               </span>
               {e.note && <span className="truncate text-mute">{e.note}</span>}
               {e.kind === 'auto-demote' && e.acknowledgedAt === null && (
-                <Btn
-                  variant="outline"
-                  className="ml-auto border-defect/40 text-defect hover:bg-defect/10"
-                  onClick={() => void window.argus.autonomy.ack(e.id)}
-                >
+                <Btn variant="danger" className="ml-auto" onClick={() => void ack(e.id)}>
                   Acknowledge
                 </Btn>
               )}

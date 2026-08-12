@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { PostResults } from '../../../../shared/rca'
-import { useAutonomy } from '../../lib/autonomyStore'
+import { autonomyStore, useAutonomy } from '../../lib/autonomyStore'
 import { useEscapeLayer } from '../../lib/escapeLayer'
+import { viewTitleStore } from '../../lib/viewTitleStore'
 import { Btn, SectionLabel } from '../ui'
 import LaneCard from './LaneCard'
 
@@ -23,6 +24,19 @@ export default function AutonomyStandalone({
   const [report, setReport] = useState<{ file: string; markdown: string } | null>(null)
   const [postResult, setPostResult] = useState<PostResults | null>(null)
   const [busy, setBusy] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  useEffect(() => {
+    viewTitleStore.publish({ label: 'Autonomy' })
+    return () => viewTitleStore.publish(null)
+  }, [])
+
+  // The store only refetches on its own `autonomy:changed` broadcast; an outcome written by
+  // another page just before this one mounted (accept/reject/reviewed/confirmed/dismissed) must
+  // not leave the ledger showing boot-stale numbers until the next write.
+  useEffect(() => {
+    autonomyStore.refresh()
+  }, [])
 
   if (!payload) return <div className="p-8 text-sm text-dim">Loading autonomy ledger…</div>
 
@@ -74,12 +88,14 @@ export default function AutonomyStandalone({
             disabled={busy}
             onClick={() => {
               setBusy(true)
+              setActionError(null)
               void window.argus.autonomy
                 .reportGenerate()
                 .then((r) => {
                   setReport(r)
                   setPostResult(null)
                 })
+                .catch((e: unknown) => setActionError(e instanceof Error ? e.message : String(e)))
                 .finally(() => setBusy(false))
             }}
           >
@@ -91,15 +107,18 @@ export default function AutonomyStandalone({
             onClick={() => {
               if (!report) return
               setBusy(true)
+              setActionError(null)
               void window.argus.autonomy
                 .reportPost(report.file)
                 .then(setPostResult)
+                .catch((e: unknown) => setActionError(e instanceof Error ? e.message : String(e)))
                 .finally(() => setBusy(false))
             }}
           >
             Post to Confluence
           </Btn>
         </div>
+        {actionError && <p className="mt-2 text-sm text-danger">{actionError}</p>}
         {postResult?.confluencePage && (
           <p className="mt-2 text-sm text-ink">
             {postResult.confluencePage.ok
