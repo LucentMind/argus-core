@@ -249,10 +249,9 @@ import { PackUpdatesService, nodeHttpClient } from './services/packs/packUpdates
 import { nodeGhClient } from './services/packs/ghClient'
 import { listRepoPacks, installFromRepo } from './services/packs/githubInstall'
 import { parseGhRef } from './services/packs/githubRef'
-import { stagePlan, toPlannedRows, type StagedPack } from './services/packs/depPlanner'
-import { applyPlan } from './services/packs/depInstall'
+import { registerPacksPlanIpc } from './services/packs/planIpc'
 import { makeCandidateResolver, downloadCandidate } from './services/packs/depSources'
-import type { InstallResult, RepoPackRow, PlanResult, ApplyPlanResult } from '../shared/packs'
+import type { InstallResult, RepoPackRow } from '../shared/packs'
 import { autoUpdater } from 'electron-updater'
 import { CoreUpdaterService, noopBackend } from './services/update/coreUpdater'
 import { createElectronUpdaterBackend } from './services/update/electronUpdaterBackend'
@@ -1287,66 +1286,23 @@ function registerIpc(): void {
   ipcMain.handle(IPC.packsInspect, (_e, source: string) =>
     inspectBundleSource(source, { installed: packsState.list() })
   )
-  /** The last plan staged by `packsPlanBundle`. Held in main because `StagedPack` carries
-   *  `bundlePath`: letting the renderer supply one would be an arbitrary-file-install primitive. */
-  let stagedPlan: StagedPack[] | null = null
-
-  ipcMain.handle(IPC.packsPlanBundle, async (_e, source: string): Promise<PlanResult> => {
-    stagedPlan = null
-    const cacheDir = path.join(app.getPath('temp'), 'argus-pack-plan')
-    const inspected = await inspectBundleSource(source, { installed: packsState.list() })
-    const result = await stagePlan(
-      {
-        resolver: makeCandidateResolver({ http: nodeHttpClient, gh: nodeGhClient }),
-        download: (candidate, destPath) =>
-          downloadCandidate(candidate, destPath, nodeGhClient, nodeHttpClient),
-        inspect: (bundlePath) => inspectBundleSource(bundlePath, { installed: packsState.list() }),
-        installed: packsState.list(),
-        pins: Object.fromEntries(
-          Object.keys(packsState.list()).map((id) => [id, packsState.getSource(id)])
-        ),
-        argusHome,
-        cacheDir
-      },
-      {
-        id: inspected.id,
-        version: inspected.version,
-        bundlePath: source,
-        source: null,
-        dependencies: inspected.rawDependencies
+  // `packsPlanBundle`/`packsApplyPlan` are registered by `registerPacksPlanIpc` rather than inline:
+  // `handle` is injected there so the apply handler's capture-and-clear race fix (see planIpc.ts)
+  // is directly testable without importing `electron`.
+  registerPacksPlanIpc((channel, fn) => ipcMain.handle(channel, (e, ...args) => fn(e, ...args)), {
+    resolver: makeCandidateResolver({ http: nodeHttpClient, gh: nodeGhClient }),
+    download: (candidate, destPath) =>
+      downloadCandidate(candidate, destPath, nodeGhClient, nodeHttpClient),
+    packsState,
+    argusHome,
+    tempRoot: app.getPath('temp'),
+    onApplied: (res) => {
+      for (const p of res.installed) packsTouched.add(p.id)
+      if (res.installed.length > 0) {
+        broadcast(IPC.packsChanged, undefined)
+        referencesChanged()
       }
-    )
-    if (!result.ok) return result
-    stagedPlan = result.packs
-    // Main keeps the staged packs (bundlePath, source); the renderer gets IPC-safe rows only.
-    return { ok: true, packs: toPlannedRows(result.packs) }
-  })
-
-  ipcMain.handle(IPC.packsApplyPlan, async (): Promise<ApplyPlanResult> => {
-    // Claim the plan before the first await: capture-and-clear is atomic on a single-threaded
-    // event loop, so a second invocation (a double-clicked button) sees null and cannot
-    // double-install, and a plan staged WHILE this runs is not clobbered by a trailing reset.
-    const plan = stagedPlan
-    stagedPlan = null
-    if (!plan) {
-      return { installed: [], failed: { id: '', error: 'no plan staged' }, relaunchRequired: false }
     }
-    const res = await applyPlan(
-      {
-        argusHome,
-        state: packsState,
-        existingPins: Object.fromEntries(
-          Object.keys(packsState.list()).map((id) => [id, packsState.getSource(id)])
-        )
-      },
-      plan
-    )
-    for (const p of res.installed) packsTouched.add(p.id)
-    if (res.installed.length > 0) {
-      broadcast(IPC.packsChanged, undefined)
-      referencesChanged()
-    }
-    return res
   })
   ipcMain.handle(
     IPC.packsInspectRepo,

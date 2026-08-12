@@ -107,7 +107,7 @@ export interface RepoPackRow {
 export interface PlannedPack {
   id: string
   version: string
-  action: 'install' | 'upgrade'
+  action: 'install' | 'upgrade' | 'downgrade'
   previousVersion: string | null
   /** Display label, e.g. 'github.com/org/argus-packs'. Deliberately NOT named `origin`:
    *  `FeedPackSource.origin` is scheme+host+port and is a security control, not a caption. */

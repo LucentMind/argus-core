@@ -153,8 +153,16 @@ function InstallPlan({
             p.isRoot ? `from ${p.originLabel} · the pack you chose` : `from ${p.originLabel}`
           }
         >
-          <Chip tone={p.action === 'upgrade' ? 'signal' : 'neutral'}>
-            {p.action === 'upgrade' ? `${p.previousVersion} → ${p.version}` : p.version}
+          <Chip
+            tone={
+              p.action === 'upgrade' ? 'signal' : p.action === 'downgrade' ? 'review' : 'neutral'
+            }
+          >
+            {p.action === 'downgrade'
+              ? `${p.previousVersion} → ${p.version} (downgrade)`
+              : p.action === 'upgrade'
+                ? `${p.previousVersion} → ${p.version}`
+                : p.version}
           </Chip>
         </SettingRow>
       ))}
@@ -294,6 +302,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
    * for the renderer to pass except the approval itself.
    */
   async function runPlan(): Promise<void> {
+    if (busy) return
     setBusy(true)
     setError(null)
     try {

@@ -1,5 +1,5 @@
-import fs from 'node:fs'
 import path from 'node:path'
+import semver from 'semver'
 import { checkDependency, normalizeDependencies, type DeclaredSource } from './dependencies'
 import type { CandidateResolver, ResolvedCandidate } from './depSources'
 import { describeBrokenDependents } from './install'
@@ -37,7 +37,8 @@ export interface PlannerDeps {
    */
   pins: Record<string, PackSource | undefined>
   argusHome: string
-  /** Staging cache. MUST NOT be inside packsDir: downloading is not installing. */
+  /** Staging cache. MUST NOT be inside packsDir: downloading is not installing. Created and
+   *  removed by the caller (see `planIpc.ts`) — the planner only writes into it. */
   cacheDir: string
 }
 
@@ -58,6 +59,25 @@ function pinToDeclaredSource(pin: PackSource): DeclaredSource {
   return pin.kind === 'github'
     ? { kind: 'github', host: pin.host, owner: pin.owner, repo: pin.repo }
     : { kind: 'feed', updateUrl: pin.updateUrl, origin: pin.origin }
+}
+
+/**
+ * `'install'` when nothing of this id is installed yet; otherwise `'downgrade'` when the resolved
+ * version is genuinely older than what's installed (semver.lt), and `'upgrade'` otherwise —
+ * including the two versions being equal (a same-version reinstall), which is closer to an
+ * upgrade in spirit ("apply these bytes") than to a downgrade. Not just `semver.lt` reversed:
+ * either version failing to parse as semver falls back to 'upgrade' too, matching the previous
+ * two-member union's behaviour for non-semver versions rather than silently mislabelling them.
+ */
+function actionFor(
+  resolvedVersion: string,
+  installedVersion: string | null
+): PlannedPack['action'] {
+  if (installedVersion == null) return 'install'
+  if (semver.valid(resolvedVersion) && semver.valid(installedVersion)) {
+    if (semver.lt(resolvedVersion, installedVersion)) return 'downgrade'
+  }
+  return 'upgrade'
 }
 
 function describeSource(source: DeclaredSource): string {
@@ -117,7 +137,7 @@ export async function stagePlan(
   planned.set(root.id, {
     id: root.id,
     version: root.version,
-    action: deps.installed[root.id] != null ? 'upgrade' : 'install',
+    action: actionFor(root.version, deps.installed[root.id] ?? null),
     previousVersion: deps.installed[root.id] ?? null,
     originLabel: 'this bundle',
     isRoot: true,
@@ -203,7 +223,11 @@ export async function stagePlan(
 
       const bundlePath = path.join(deps.cacheDir, `${dep.id}-${candidate.version}.zip`)
       try {
-        fs.mkdirSync(deps.cacheDir, { recursive: true })
+        // `deps.cacheDir` is created by the caller (a fresh `mkdtemp`'d directory per plan; see
+        // `planIpc.ts`) before `stagePlan` is ever invoked, and removed by the caller once the plan
+        // is applied or refused. The planner only writes into it — creating it per-download here
+        // was redundant now that ownership is the caller's, and this survives a plan with zero
+        // downloaded dependencies (nothing left to create it).
         await deps.download(candidate, bundlePath)
       } catch (err) {
         return {
@@ -217,7 +241,7 @@ export async function stagePlan(
       planned.set(dep.id, {
         id: dep.id,
         version: candidate.version,
-        action: deps.installed[dep.id] != null ? 'upgrade' : 'install',
+        action: actionFor(candidate.version, deps.installed[dep.id] ?? null),
         previousVersion: deps.installed[dep.id] ?? null,
         originLabel: candidate.originLabel,
         isRoot: false,
