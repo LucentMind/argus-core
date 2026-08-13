@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import type { CaseRcaInput, RcaDraft } from '../../../shared/rca'
 import { renderExecReport, renderTechReport } from '../rca/render'
+import { DEFAULT_RCA_TEMPLATE } from '../../../shared/rcaTemplate'
+import type { RcaTemplate } from '../../../shared/rcaTemplate'
 
 function meta(): CaseRcaInput['caseMeta'] {
   return {
@@ -103,67 +105,153 @@ function emptyDraft(): RcaDraft {
 
 describe('renderExecReport', () => {
   it('has no code refs, finding ids, or paths', () => {
-    const md = renderExecReport(draft(), meta())
+    const md = renderExecReport(draft(), meta(), { template: DEFAULT_RCA_TEMPLATE })
     expect(md).toContain('# RCA — ')
     expect(md).not.toMatch(/finding \d|`[^`]+\.(ts|py|md)|\//)
     expect(md).toContain(draft().execSummary.whatBroke)
   })
 
   it('includes the Jira key as the only allowed reference', () => {
-    const md = renderExecReport(draft(), meta())
+    const md = renderExecReport(draft(), meta(), { template: DEFAULT_RCA_TEMPLATE })
     expect(md).toContain('KAN-42')
   })
 
   it('omits the Jira line entirely when there is no Jira key', () => {
-    const md = renderExecReport(draft(), { ...meta(), jiraKey: null })
+    const md = renderExecReport(
+      draft(),
+      { ...meta(), jiraKey: null },
+      { template: DEFAULT_RCA_TEMPLATE }
+    )
     expect(md).not.toContain('Jira')
   })
 
   it('skips empty sections with no placeholder noise', () => {
-    const md = renderExecReport(emptyDraft(), meta())
+    const md = renderExecReport(emptyDraft(), meta(), { template: DEFAULT_RCA_TEMPLATE })
     expect(md).not.toMatch(/\(none\)/i)
   })
 })
 
 describe('renderTechReport', () => {
   it('includes ruled-out whys and flattened citations', () => {
-    const md = renderTechReport(draft(), meta())
+    const md = renderTechReport(draft(), meta(), { template: DEFAULT_RCA_TEMPLATE })
     expect(md).toContain('## Ruled out')
     expect(md).toContain('because the retry queue was empty')
     expect(md).toContain('`src/cache/key.ts:42`')
   })
 
   it('includes an evidence blockquote next to a citation with evidence text', () => {
-    const md = renderTechReport(draft(), meta())
+    const md = renderTechReport(draft(), meta(), { template: DEFAULT_RCA_TEMPLATE })
     expect(md).toContain('> cache hit returned data for the wrong tenant')
   })
 
   it('includes an Impact section sourced from the top-level impact field', () => {
-    const md = renderTechReport(draft(), meta())
+    const md = renderTechReport(draft(), meta(), { template: DEFAULT_RCA_TEMPLATE })
     expect(md).toContain('## Impact')
     expect(md).toContain(draft().impact)
   })
 
   it('omits the Impact section when impact is empty', () => {
-    const md = renderTechReport({ ...draft(), impact: '' }, meta())
+    const md = renderTechReport({ ...draft(), impact: '' }, meta(), {
+      template: DEFAULT_RCA_TEMPLATE
+    })
     expect(md).not.toContain('## Impact')
   })
 
   it('skips Contributing factors, Ruled out, and Narrative sections when empty, with no placeholder', () => {
-    const md = renderTechReport(emptyDraft(), meta())
+    const md = renderTechReport(emptyDraft(), meta(), { template: DEFAULT_RCA_TEMPLATE })
     expect(md).not.toContain('## Contributing factors')
     expect(md).not.toContain('## Ruled out')
     expect(md).not.toMatch(/\(none\)/i)
   })
 
   it('skips Symptoms & timeline entirely when both are empty', () => {
-    const md = renderTechReport(emptyDraft(), meta())
+    const md = renderTechReport(emptyDraft(), meta(), { template: DEFAULT_RCA_TEMPLATE })
     expect(md).not.toContain('Symptoms & timeline')
   })
 
   it('still renders the always-present Root cause and Remediation sections', () => {
-    const md = renderTechReport(emptyDraft(), meta())
+    const md = renderTechReport(emptyDraft(), meta(), { template: DEFAULT_RCA_TEMPLATE })
     expect(md).toContain('## Root cause')
     expect(md).toContain('## Remediation')
+  })
+})
+
+const DEFAULTS = { template: DEFAULT_RCA_TEMPLATE }
+
+function clone(t: RcaTemplate): RcaTemplate {
+  return JSON.parse(JSON.stringify(t)) as RcaTemplate
+}
+
+describe('template-driven rendering', () => {
+  it('renders exec sections in template order', () => {
+    const t = clone(DEFAULT_RCA_TEMPLATE)
+    t.exec = [t.exec[2], t.exec[0]] // Root cause, then What happened
+    const out = renderExecReport(draft(), meta(), { template: t })
+    expect(out.indexOf('## Root cause')).toBeLessThan(out.indexOf('## What happened'))
+    expect(out).not.toContain('## Impact')
+    expect(out).not.toContain('## Next steps')
+  })
+
+  it('uses the template heading, not the built-in one', () => {
+    const t = clone(DEFAULT_RCA_TEMPLATE)
+    t.exec[0].heading = 'Summary of the outage'
+    const out = renderExecReport(draft(), meta(), { template: t })
+    expect(out).toContain('## Summary of the outage')
+    expect(out).not.toContain('## What happened')
+    // the body still comes from the same draft field
+    expect(out).toContain('A caching bug briefly let some customers see another customer’s data.')
+  })
+
+  it('skips a disabled section', () => {
+    const t = clone(DEFAULT_RCA_TEMPLATE)
+    t.tech[4].enabled = false // Ruled out
+    const out = renderTechReport(draft(), meta(), { template: t })
+    expect(out).not.toContain('## Ruled out')
+    expect(out).toContain('## Remediation')
+  })
+
+  it('skips a section named in `dropped` without changing the template', () => {
+    const out = renderTechReport(draft(), meta(), {
+      template: DEFAULT_RCA_TEMPLATE,
+      dropped: new Set(['impact'])
+    })
+    expect(out).not.toContain('## Impact')
+    expect(out).toContain('## Root cause')
+  })
+
+  it('splits symptoms and timeline when the template gives timeline its own section', () => {
+    const t = clone(DEFAULT_RCA_TEMPLATE)
+    t.tech[3].heading = 'Symptoms'
+    t.tech.splice(4, 0, {
+      id: 'timeline',
+      heading: 'Timeline',
+      kind: 'claims',
+      slot: 'timeline',
+      enabled: true
+    })
+    const out = renderTechReport(draft(), meta(), { template: t })
+    expect(out).toContain('## Symptoms\n')
+    expect(out).toContain('## Timeline\n')
+    // the sub-heading form is only used when symptoms carries the timeline itself
+    expect(out).not.toContain('### Timeline')
+    expect(out.indexOf('## Symptoms')).toBeLessThan(out.indexOf('## Timeline'))
+  })
+
+  it('still emits the ### Timeline sub-block when symptoms owns it', () => {
+    const out = renderTechReport(draft(), meta(), DEFAULTS)
+    expect(out).toContain('### Timeline')
+  })
+
+  it('drops a section whose body is empty, as before', () => {
+    const d = draft()
+    d.impact = ''
+    expect(renderTechReport(d, meta(), DEFAULTS)).not.toContain('## Impact')
+  })
+
+  it('renders a legacy draft that predates template-authored sections', () => {
+    const d = draft() // no `sections` key at all
+    const out = renderExecReport(d, meta(), DEFAULTS)
+    expect(out).toContain('## What happened')
+    expect(out).toContain('## Next steps')
   })
 })
