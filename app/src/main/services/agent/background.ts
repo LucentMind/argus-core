@@ -6,6 +6,7 @@ import type { AgentEvent } from '../../../shared/agent-events'
 import type { AgentAccess } from '../../../shared/agentAccess'
 import type { RiskLevel } from '../../../shared/connectors'
 import type { NativeToolDeps } from './nativeTools'
+import type { WatermarkTarget } from '../../../shared/watermark'
 
 // Deliberately imports NO electron. The routines engine must stay pure Node so a future
 // headless server can host it; event forwarding is the injected `onEvent` callback only.
@@ -67,6 +68,11 @@ export interface BackgroundTurnDeps {
   /** Known-defects corpus for `search_known_defects`. Absent = the tool's no-sources fallback —
    *  see the SESSION-SHAPE DEPS note above. */
   defectCorpus?: NativeToolDeps['defectCorpus']
+  /** `settings.watermark.github`, forwarded to the background session's `post_review_comment`
+   *  handler. Absent-safe like the rest of this group: a background/routine turn's writes are
+   *  MEDIUM-risk asks, and every ask is DENIED under `unattended` (see risk.ts), so this getter
+   *  is never actually invoked today — defaulting it to disabled when absent costs nothing. */
+  githubWatermark?: () => WatermarkTarget
   /** Forwarded every session event (e.g. index.ts broadcast) so an open window can watch live. */
   onEvent?: (e: AgentEvent) => void
   mirrorFactory?: (caseSlug: string, sessionId: number) => SessionMirrorLike
@@ -232,6 +238,7 @@ export function runBackgroundTurn(
       agentAccess: deps.agentAccess,
       toolRisk: deps.toolRisk,
       defectCorpus: deps.defectCorpus,
+      githubWatermark: deps.githubWatermark ?? (() => ({ enabled: false, text: '' })),
       // Spread, not assigned: an ordinary background turn must carry NO thunk, because presence
       // alone is what advertises `propose_case_triage` to the model.
       ...(runItemId !== undefined ? { currentRunItemId: (): number | null => runItemId } : {}),

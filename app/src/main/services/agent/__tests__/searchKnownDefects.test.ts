@@ -123,7 +123,8 @@ describe('search_known_defects', () => {
       caseSlug: 'new-case',
       sessionId: 1,
       emitFinding,
-      defectCorpus: { searchAll }
+      defectCorpus: { searchAll },
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     const text = String(await handlers.search_known_defects({ query: 'widget crash' }))
 
@@ -150,7 +151,8 @@ describe('search_known_defects', () => {
       caseSlug: 'new-case',
       sessionId: 1,
       emitFinding,
-      defectCorpus: { searchAll }
+      defectCorpus: { searchAll },
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     await handlers.search_known_defects({ query: 'q', limit: 5 })
     expect(searchAll).toHaveBeenCalledWith({ query: 'q', limit: 5 })
@@ -164,7 +166,8 @@ describe('search_known_defects', () => {
       caseId: 1,
       caseSlug: 'new-case',
       sessionId: 1,
-      emitFinding
+      emitFinding,
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     const text = String(await handlers.search_known_defects({ query: 'q' }))
     expect(text).toBe(
@@ -182,7 +185,8 @@ describe('search_known_defects', () => {
       caseSlug: 'new-case',
       sessionId: 1,
       emitFinding,
-      defectCorpus: { searchAll }
+      defectCorpus: { searchAll },
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     const text = String(await handlers.search_known_defects({ query: 'q' }))
     expect(text).toBe(
@@ -204,7 +208,8 @@ describe('search_known_defects', () => {
       caseSlug: 'new-case',
       sessionId: 1,
       emitFinding,
-      defectCorpus: { searchAll }
+      defectCorpus: { searchAll },
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     const text = String(await handlers.search_known_defects({ query: 'q' }))
     expect(text).toBe('No similar known defects found.')
@@ -241,7 +246,8 @@ describe('search_known_defects', () => {
       caseSlug: 'new-case',
       sessionId: 1,
       emitFinding,
-      defectCorpus: { searchAll }
+      defectCorpus: { searchAll },
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     const text = String(await handlers.search_known_defects({ query: 'widget crash' }))
     expect(text.split('\n')).toContain('  fix: none recorded')
@@ -261,7 +267,8 @@ describe('search_known_defects', () => {
       caseSlug: 'new-case',
       sessionId: 1,
       emitFinding,
-      defectCorpus: { searchAll }
+      defectCorpus: { searchAll },
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     const text = String(await handlers.search_known_defects({ query: 'q' }))
     expect(text).toContain('## Beta Corpus: unavailable (unreachable)')

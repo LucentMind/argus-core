@@ -11,6 +11,7 @@ import type { AgentEvent } from '../../../shared/agent-events'
 import type { AgentAccess } from '../../../shared/agentAccess'
 import type { RiskLevel } from '../../../shared/connectors'
 import type { RoutineTurnRequest } from './service'
+import type { WatermarkTarget } from '../../../shared/watermark'
 
 // Deliberately imports NO electron (same rule as service.ts and agent/background.ts): every
 // host-owned value arrives as an injected thunk, so a future headless server can bind the same
@@ -35,6 +36,9 @@ export interface RoutineTurnRunnerDeps {
   /** Known-defects corpus, forwarded to the background session. Without it a routine's
    *  dup-check silently finds nothing — see background.ts's SESSION-SHAPE DEPS note. */
   defectCorpus?: NativeToolDeps['defectCorpus']
+  /** `settings.watermark.github`, forwarded to the background session. See background.ts's
+   *  `BackgroundTurnDeps.githubWatermark` doc for why this is absent-safe. */
+  githubWatermark?: () => WatermarkTarget
   resolvePrompt?: (id: string) => string
   onEvent?: (e: AgentEvent) => void
   mirrorFactory?: (caseSlug: string, sessionId: number) => SessionMirrorLike
@@ -105,6 +109,7 @@ export function createRoutineTurnRunner(
         agentAccess: deps.agentAccess,
         toolRisk: deps.toolRisk,
         defectCorpus: deps.defectCorpus,
+        githubWatermark: deps.githubWatermark,
         onEvent: deps.onEvent,
         mirrorFactory: deps.mirrorFactory
       },

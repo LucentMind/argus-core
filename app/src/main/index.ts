@@ -1723,6 +1723,9 @@ function registerIpc(): void {
     onAuthFailure: () => authCache.onAuthFailure(),
     onAuthVerified: () => authCache.onAuthVerified(),
     toolRisk: () => toolRiskStore.get(),
+    // Thunk, not a resolved value: editing the watermark in Settings takes effect on the next
+    // post without restarting the session.
+    githubWatermark: () => settingsService.get().watermark.github,
     openPanel: openPanelFor,
     capturePanel: capturePanelFor,
     panelCommandDecls: () => flattenPanelCommands(packRegistry.windowDecls()),
@@ -2063,6 +2066,7 @@ function registerIpc(): void {
       // Same value AgentService is given above (line ~1631) — not a second corpus service, so
       // both session shapes search the same configured sources.
       defectCorpus,
+      githubWatermark: () => settingsService.get().watermark.github,
       // Same channel as an interactive turn, so a routine's transcript streams into the
       // normal session UI while it runs; `mirrorFactory` is what makes it replayable after.
       // Deliberately does NOT record mode refusals (contrast the interactive sink above,

@@ -51,7 +51,8 @@ describe('workspace_checkout renderer notification', () => {
       caseSlug: 'NAV-1',
       sessionId: 1,
       emitFinding: vi.fn(),
-      onWorktreeChanged
+      onWorktreeChanged,
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     const out = await handlers.workspace_checkout({ repo_path: repo, ref: 'feature/x' })
     expect(out).toContain('feature/x')
@@ -68,7 +69,8 @@ describe('workspace_checkout renderer notification', () => {
       caseSlug: 'NAV-1',
       sessionId: 1,
       emitFinding: vi.fn(),
-      onWorktreeChanged
+      onWorktreeChanged,
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     await expect(
       handlers.workspace_checkout({ repo_path: repo, ref: 'no-such-ref' })

@@ -87,6 +87,7 @@ function makeSession(
     emit: (e) => events.push(e),
     driver: createClaudeDriver(sdk.createQuery),
     resumeCursor: null,
+    githubWatermark: () => ({ enabled: false, text: '' }),
     ...overrides
   })
 }
@@ -491,6 +492,7 @@ describe('CaseSession', () => {
       emit: (e) => events.push(e),
       driver: createClaudeDriver(sdk.createQuery),
       resumeCursor: null,
+      githubWatermark: () => ({ enabled: false, text: '' }),
       agentOptions: {
         model: 'claude-sonnet-5',
         cliPath: 'C:\\tools\\claude.exe',
@@ -535,6 +537,7 @@ describe('CaseSession', () => {
       emit: (e) => events.push(e),
       driver: createClaudeDriver(sdk2.createQuery),
       resumeCursor: null,
+      githubWatermark: () => ({ enabled: false, text: '' }),
       agentOptions: { permissionMode: 'default' }
     })
     await flush()
@@ -1574,7 +1577,8 @@ describe('CaseSession', () => {
       driver: cursorStubDriver,
       resumeCursor: null,
       processLabels: labels,
-      now: () => 1_100
+      now: () => 1_100,
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     expect(captured).toBeDefined()
 
@@ -1643,7 +1647,8 @@ describe('CaseSession', () => {
       driver: cursorStubDriver,
       resumeCursor: null,
       processLabels: labels,
-      now: () => 1_100
+      now: () => 1_100,
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     expect(captured).toBeDefined()
 
@@ -1711,7 +1716,8 @@ describe('CaseSession', () => {
       resumeCursor: null,
       processLabels: labels,
       stopSelf,
-      now: () => 1_000
+      now: () => 1_000,
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     expect(captured).toBeDefined()
 

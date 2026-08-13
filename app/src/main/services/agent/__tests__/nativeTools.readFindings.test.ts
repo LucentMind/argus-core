@@ -39,7 +39,8 @@ it('returns summary, meta and findings.md body per id', async () => {
     caseId,
     caseSlug: 'CASE-A',
     sessionId: 5,
-    emitFinding: () => {}
+    emitFinding: () => {},
+    githubWatermark: () => ({ enabled: false, text: '' })
   }
   const handlers = argusToolHandlers(toolDeps)
 
@@ -109,7 +110,8 @@ it('rejects an id from another case with the opaque unknown-finding error', asyn
     caseId,
     caseSlug: 'CASE-A',
     sessionId: 5,
-    emitFinding: () => {}
+    emitFinding: () => {},
+    githubWatermark: () => ({ enabled: false, text: '' })
   }
 
   const handlers = argusToolHandlers(toolDeps)
@@ -127,7 +129,8 @@ it('rejects an empty id list', async () => {
     caseId,
     caseSlug: 'CASE-A',
     sessionId: 5,
-    emitFinding: () => {}
+    emitFinding: () => {},
+    githubWatermark: () => ({ enabled: false, text: '' })
   }
 
   const handlers = argusToolHandlers(toolDeps)
@@ -145,7 +148,8 @@ it('rejects a non-integer id with the same at-least-one-finding-id error', async
     caseId,
     caseSlug: 'CASE-A',
     sessionId: 5,
-    emitFinding: () => {}
+    emitFinding: () => {},
+    githubWatermark: () => ({ enabled: false, text: '' })
   }
 
   const handlers = argusToolHandlers(toolDeps)

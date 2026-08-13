@@ -131,7 +131,8 @@ describe('append_finding via argusToolHandlers records comment_body and head_sha
       caseSlug: 'c1',
       sessionId: 1,
       emitFinding,
-      git
+      git,
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
   }
 

@@ -109,6 +109,7 @@ describe('CaseSession assembles the prompt capture', () => {
       emit: () => {},
       driver,
       resumeCursor: null,
+      githubWatermark: () => ({ enabled: false, text: '' }),
       ...over
     })
   }

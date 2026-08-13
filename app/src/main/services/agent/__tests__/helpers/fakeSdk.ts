@@ -127,6 +127,7 @@ export function createHarness(): SessionHarness {
         emit: (e) => events.push(e),
         driver: createClaudeDriver(sdk.createQuery),
         resumeCursor: null,
+        githubWatermark: () => ({ enabled: false, text: '' }),
         ...overrides
       })
     },

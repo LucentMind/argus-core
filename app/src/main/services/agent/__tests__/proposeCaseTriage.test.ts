@@ -37,7 +37,8 @@ const tools = (
     caseSlug: 'abc-1',
     sessionId: 1,
     emitFinding: () => {},
-    currentRunItemId
+    currentRunItemId,
+    githubWatermark: () => ({ enabled: false, text: '' })
   })
 
 describe('propose_case_triage', () => {
@@ -98,7 +99,14 @@ describe('propose_case_triage tool-list advertisement', () => {
   // session.
   const baseDeps: Pick<
     NativeToolDeps,
-    'db' | 'argusHome' | 'detection' | 'caseId' | 'caseSlug' | 'sessionId' | 'emitFinding'
+    | 'db'
+    | 'argusHome'
+    | 'detection'
+    | 'caseId'
+    | 'caseSlug'
+    | 'sessionId'
+    | 'emitFinding'
+    | 'githubWatermark'
   > = {
     db: undefined as unknown as NativeToolDeps['db'], // unused: resolveToolSpecs never touches deps.db
     argusHome: '',
@@ -106,7 +114,8 @@ describe('propose_case_triage tool-list advertisement', () => {
     caseId: 1,
     caseSlug: 'abc-1',
     sessionId: 1,
-    emitFinding: () => {}
+    emitFinding: () => {},
+    githubWatermark: () => ({ enabled: false, text: '' })
   }
 
   it('is NOT advertised to a session without an item context (ordinary case session)', () => {

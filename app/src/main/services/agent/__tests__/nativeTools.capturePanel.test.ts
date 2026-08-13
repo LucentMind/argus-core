@@ -21,7 +21,8 @@ function handlers(
     caseSlug: 'CASE-A',
     sessionId: 1,
     emitFinding: () => {},
-    capturePanel
+    capturePanel,
+    githubWatermark: () => ({ enabled: false, text: '' })
   })
   return {
     h,

@@ -63,6 +63,7 @@ describe('two concurrent case sessions', () => {
       skillsRoots: [],
       onEvent: (e) => events.push(e),
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       createQuery
     })
 
