@@ -190,3 +190,72 @@ export function indexEvidenceText(
 export function deleteEvidenceIndex(db: DatabaseSync, evidenceId: number): void {
   deleteEvidenceFtsForEvidence(db, evidenceId)
 }
+
+/** Thrown by indexEvidenceFileAsync when its shouldAbort predicate goes true.
+ *  Distinct from a real failure: the caller drops the job instead of marking
+ *  the evidence as errored. */
+export class IndexAbortedError extends Error {
+  constructor(evidenceId: number) {
+    super(`Indexing aborted for evidence ${evidenceId}`)
+    this.name = 'IndexAbortedError'
+  }
+}
+
+export interface IndexFileOptions {
+  onProgress?: (bytesDone: number, bytesTotal: number) => void
+  shouldAbort?: () => boolean
+}
+
+/**
+ * Async twin of indexEvidenceFile, shaped like lineIndex.buildIndex: one awaited
+ * FileHandle.read per 1MB chunk, so the main-process event loop breathes between
+ * chunks and IPC keeps flowing while a multi-hundred-megabyte trace is indexed.
+ *
+ * The FTS inserts themselves stay synchronous — each covers one 400-line chunk and
+ * completes in well under a millisecond. The freeze this exists to remove came from
+ * one uninterrupted multi-second read loop, not from the cost of an insert.
+ */
+export async function indexEvidenceFileAsync(
+  db: DatabaseSync,
+  evidenceId: number,
+  absPath: string,
+  chunkLines = 400,
+  argusHome?: string,
+  opts: IndexFileOptions = {}
+): Promise<number> {
+  const stat = fs.statSync(absPath)
+  const wantSidecar = argusHome !== undefined && stat.size > MAX_READ_BYTES
+  const writer = new FtsChunkWriter(db, evidenceId, chunkLines)
+  const cps = new CheckpointRecorder(wantSidecar)
+  let lineNo = 0
+
+  const onLine = (line: Buffer, n: number, byteStart: number): void => {
+    lineNo = n
+    writer.add(line.toString('utf8'), n)
+    cps.record(n, byteStart)
+  }
+
+  const fh = await fs.promises.open(absPath, 'r')
+  try {
+    const buf = Buffer.alloc(READ_CHUNK_BYTES)
+    const splitter = new LineSplitter()
+    let offset = 0
+    while (true) {
+      if (opts.shouldAbort?.()) throw new IndexAbortedError(evidenceId)
+      const { bytesRead } = await fh.read(buf, 0, READ_CHUNK_BYTES, offset)
+      if (bytesRead === 0) break
+      offset += bytesRead
+      splitter.push(buf.subarray(0, bytesRead), onLine)
+      opts.onProgress?.(offset, stat.size)
+    }
+    splitter.flush(onLine)
+    writer.flush()
+    if (wantSidecar) {
+      writePiggybackSidecar(argusHome as string, absPath, stat, lineNo, cps.checkpoints)
+    }
+    opts.onProgress?.(stat.size, stat.size)
+    return writer.chunkCount
+  } finally {
+    await fh.close()
+  }
+}
