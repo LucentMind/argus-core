@@ -5,6 +5,7 @@ import type { PostResults } from '../../../shared/rca'
 import type { AppSettings } from '../../../shared/settings'
 import { getCase } from '../caseService'
 import { artifactsDir } from '../paths'
+import { applyWatermark } from '../../../shared/watermark'
 
 export interface PostRcaDeps {
   db: DatabaseSync
@@ -145,7 +146,9 @@ export async function postRcaReport(deps: PostRcaDeps, slug: string): Promise<Po
       await deps.callTool(rovo, 'addCommentToJiraIssue', {
         cloudId,
         issueIdOrKey: kase.jiraKey,
-        commentBody: execMd + techNote,
+        // Watermark LAST, after techNote, so the disclosure is the comment's footer. Read via
+        // a fresh settings() access: the local `cfg` above is bound to `.rca`, not the root.
+        commentBody: applyWatermark(execMd + techNote, deps.settings().watermark.jira),
         contentFormat: 'markdown'
       })
       results.comment = { ok: true, at: nowIso() }

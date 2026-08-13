@@ -7,7 +7,7 @@ import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { artifactsDir } from '../paths'
 import { postRcaReport, type PostRcaDeps } from '../rca/post'
-import { defaultSettings, type AppSettings } from '../../../shared/settings'
+import { defaultSettings, type AppSettings, DEFAULT_WATERMARK_TEXT } from '../../../shared/settings'
 
 let home: string
 let db: DatabaseSync
@@ -49,9 +49,18 @@ function insertJob(
   return Number(r.lastInsertRowid)
 }
 
-function rcaSettings(patch: Partial<AppSettings['rca']> = {}): () => AppSettings {
+function stubSettings(
+  patch: {
+    rca?: Partial<AppSettings['rca']>
+    watermark?: Partial<AppSettings['watermark']>
+  } = {}
+): () => AppSettings {
   const base = defaultSettings()
-  return () => ({ ...base, rca: { ...base.rca, ...patch } })
+  return () => ({
+    ...base,
+    rca: { ...base.rca, ...patch.rca },
+    watermark: { ...base.watermark, ...patch.watermark }
+  })
 }
 
 interface FakeDepsOpts {
@@ -61,6 +70,7 @@ interface FakeDepsOpts {
   callTool?: PostRcaDeps['callTool']
   siteUrl?: PostRcaDeps['siteUrl']
   calls?: { tool: string; instanceId: string; args: Record<string, unknown> }[]
+  watermark?: Partial<AppSettings['watermark']>
 }
 
 function fakeDeps(opts: FakeDepsOpts = {}): PostRcaDeps {
@@ -68,9 +78,12 @@ function fakeDeps(opts: FakeDepsOpts = {}): PostRcaDeps {
   return {
     db,
     argusHome: home,
-    settings: rcaSettings({
-      techDestination: opts.techDestination ?? 'attachment',
-      confluenceSpaceKey: opts.confluenceSpaceKey ?? ''
+    settings: stubSettings({
+      rca: {
+        techDestination: opts.techDestination ?? 'attachment',
+        confluenceSpaceKey: opts.confluenceSpaceKey ?? ''
+      },
+      watermark: opts.watermark
     }),
     callTool:
       opts.callTool ??
@@ -354,5 +367,57 @@ describe('postRcaReport', () => {
 
     const persisted = JSON.parse(jobRow(jobId).post_results!)
     expect(persisted).toEqual(first)
+  })
+
+  it('appends the Jira watermark below the tech note by default', async () => {
+    createCase(db, home, { slug: 'case-w', title: 'Case W', jiraKey: 'PROJ-9' })
+    writeArtifacts('case-w', '# exec summary', '# tech detail')
+    insertJob('case-w')
+    const calls: { tool: string; instanceId: string; args: Record<string, unknown> }[] = []
+
+    await postRcaReport(fakeDeps({ techDestination: 'attachment', calls }), 'case-w')
+
+    const body = String(calls[0].args.commentBody)
+    expect(body.endsWith(`\n\n${DEFAULT_WATERMARK_TEXT}`)).toBe(true)
+    // The disclosure is a FOOTER: it must sit below the "Full technical RCA attached" note,
+    // not between the summary and the note.
+    expect(body.indexOf('rca-case-w.md')).toBeLessThan(body.indexOf(DEFAULT_WATERMARK_TEXT))
+  })
+
+  it('omits the watermark when the Jira target is disabled', async () => {
+    createCase(db, home, { slug: 'case-x', title: 'Case X', jiraKey: 'PROJ-10' })
+    writeArtifacts('case-x', '# exec summary', '# tech detail')
+    insertJob('case-x')
+    const calls: { tool: string; instanceId: string; args: Record<string, unknown> }[] = []
+
+    await postRcaReport(
+      fakeDeps({
+        techDestination: 'attachment',
+        calls,
+        watermark: { jira: { enabled: false, text: DEFAULT_WATERMARK_TEXT } }
+      }),
+      'case-x'
+    )
+
+    expect(String(calls[0].args.commentBody)).not.toContain(DEFAULT_WATERMARK_TEXT)
+  })
+
+  it('does not stack a second watermark when a failed comment is re-posted', async () => {
+    createCase(db, home, { slug: 'case-y', title: 'Case Y', jiraKey: 'PROJ-11' })
+    writeArtifacts('case-y', '# exec summary', '# tech detail')
+    const jobId = insertJob('case-y', {
+      postResults: {
+        attachment: { ok: true, id: 'att-1', at: '2026-01-02' },
+        comment: { ok: false, error: 'boom', at: '2026-01-02' }
+      }
+    })
+    const calls: { tool: string; instanceId: string; args: Record<string, unknown> }[] = []
+
+    const res = await postRcaReport(fakeDeps({ techDestination: 'attachment', calls }), 'case-y')
+
+    expect(res.comment!.ok).toBe(true)
+    const body = String(calls[0].args.commentBody)
+    expect(body.split(DEFAULT_WATERMARK_TEXT)).toHaveLength(2) // exactly one occurrence
+    expect(jobRow(jobId).post_results).toContain('"ok":true')
   })
 })
