@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { ConnectorsSettings } from '../settings/ConnectorsSettings'
 import { connectorsStore } from '../../lib/connectorsStore'
 import { settingsStore } from '../../lib/settingsStore'
@@ -56,11 +57,18 @@ let currentPayload: ConnectorsPayload
 let currentSettings: SettingsPayload
 
 const settingsPayload = (
-  over: Partial<SettingsPayload['settings']['rca']> = {}
+  over: {
+    rca?: Partial<SettingsPayload['settings']['rca']>
+    watermark?: Partial<SettingsPayload['settings']['watermark']>
+  } = {}
 ): SettingsPayload => {
   const s = defaultSettings()
   return {
-    settings: { ...s, rca: { ...s.rca, ...over } },
+    settings: {
+      ...s,
+      rca: { ...s.rca, ...over.rca },
+      watermark: { ...s.watermark, ...over.watermark }
+    },
     resolvedTools: [],
     dataRoot: { path: 'C:\\Users\\x\\Argus', fromEnv: false },
     loadError: null
@@ -83,13 +91,16 @@ beforeEach(() => {
     },
     settings: {
       get: vi.fn(() => Promise.resolve(currentSettings)),
-      patch: vi.fn((p: { rca?: Partial<SettingsPayload['settings']['rca']> }) => {
+      patch: vi.fn((p: Record<string, Record<string, unknown>>) => {
+        const merged = { ...currentSettings.settings } as Record<string, unknown>
+        // Shallow per-section merge — enough for the sections this suite exercises (rca,
+        // watermark), and it no longer silently drops every section but rca.
+        for (const [section, value] of Object.entries(p)) {
+          merged[section] = { ...(merged[section] as object), ...value }
+        }
         currentSettings = {
           ...currentSettings,
-          settings: {
-            ...currentSettings.settings,
-            rca: { ...currentSettings.settings.rca, ...p.rca }
-          }
+          settings: merged as SettingsPayload['settings']
         }
         return Promise.resolve(currentSettings)
       }),
@@ -326,7 +337,7 @@ describe('ConnectorsSettings', () => {
     })
 
     it('commits the Confluence space key on blur', async () => {
-      currentSettings = settingsPayload({ techDestination: 'confluence-page' })
+      currentSettings = settingsPayload({ rca: { techDestination: 'confluence-page' } })
       render(<ConnectorsSettings />)
       const input = await screen.findByLabelText('Confluence space key')
       fireEvent.change(input, { target: { value: 'ENG' } })
@@ -336,6 +347,33 @@ describe('ConnectorsSettings', () => {
           rca: { confluenceSpaceKey: 'ENG' }
         })
       )
+    })
+  })
+
+  describe('Comment watermark settings (task 5)', () => {
+    it('toggles the Jira watermark', async () => {
+      render(<ConnectorsSettings />)
+      await userEvent.click(await screen.findByLabelText('Watermark Jira comments'))
+      expect(window.argus.settings.patch).toHaveBeenCalledWith({
+        watermark: { jira: { enabled: false } }
+      })
+    })
+
+    it('disables the text field of a target that is off', async () => {
+      render(<ConnectorsSettings />) // github defaults to enabled:false
+      expect(await screen.findByLabelText('GitHub watermark text')).toBeDisabled()
+      expect(screen.getByLabelText('Jira watermark text')).not.toBeDisabled()
+    })
+
+    it('commits edited watermark text', async () => {
+      render(<ConnectorsSettings />)
+      const input = await screen.findByLabelText('Jira watermark text')
+      await userEvent.clear(input)
+      await userEvent.type(input, '_Drafted by a robot._')
+      await userEvent.tab() // DraftInput commits on blur
+      expect(window.argus.settings.patch).toHaveBeenCalledWith({
+        watermark: { jira: { text: '_Drafted by a robot._' } }
+      })
     })
   })
 })

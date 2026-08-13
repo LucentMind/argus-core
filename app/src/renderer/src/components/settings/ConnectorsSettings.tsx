@@ -26,6 +26,12 @@ import {
 } from './settingsLayout'
 import { SourceControl } from './SourceControl'
 import { Btn, Card, Chip, MenuButton } from '../ui'
+import { DEFAULT_WATERMARK_TEXT } from '../../../../shared/settings'
+
+const WATERMARK_TARGETS = [
+  { key: 'jira', label: 'Jira comments', hint: 'The RCA exec summary posted to the linked issue.' },
+  { key: 'github', label: 'GitHub PR comments', hint: 'Findings posted to a bound pull request.' }
+] as const
 
 /** Labels for `settings.rca.techDestination` — kept here rather than in shared/settings.ts
  *  since they're display strings for exactly this one SelectField, and `SelectField`'s
@@ -237,6 +243,7 @@ export function ConnectorsSettings(): React.JSX.Element {
   const [editing, setEditing] = useState<string | null>(null)
   if (!payload) return <SettingsSkeleton />
   const rca = settingsPayload?.settings.rca
+  const watermark = settingsPayload?.settings.watermark
 
   function addPreset(pid: string): void {
     if (!payload!.connectors[pid]) {
@@ -361,6 +368,40 @@ export function ConnectorsSettings(): React.JSX.Element {
               />
             </SettingRow>
           )}
+        </SettingsSection>
+      )}
+      {watermark && (
+        <SettingsSection title="Comment watermark">
+          {WATERMARK_TARGETS.map(({ key, label, hint }) => (
+            <div key={key}>
+              <SettingRow label={label} description={hint}>
+                <Switch
+                  checked={watermark[key].enabled}
+                  onChange={(v) =>
+                    void settingsStore.patch({ watermark: { [key]: { enabled: v } } })
+                  }
+                  aria-label={`Watermark ${label}`}
+                />
+              </SettingRow>
+              <SettingRow
+                label="Footer text"
+                description="Markdown, including links like [Argus](https://…). The default assumes a human approves the post — soften it if this workspace posts unattended."
+                isDefault={watermark[key].text === DEFAULT_WATERMARK_TEXT}
+                onReset={() => void settingsStore.patch({ watermark: { [key]: { text: null } } })}
+              >
+                <DraftInput
+                  value={watermark[key].text}
+                  onCommit={(v) =>
+                    void settingsStore.patch({ watermark: { [key]: { text: v.trim() } } })
+                  }
+                  aria-label={`${key === 'jira' ? 'Jira' : 'GitHub'} watermark text`}
+                  className={`${FIELD} w-96`}
+                  disabled={!watermark[key].enabled}
+                  placeholder={DEFAULT_WATERMARK_TEXT}
+                />
+              </SettingRow>
+            </div>
+          ))}
         </SettingsSection>
       )}
     </div>
