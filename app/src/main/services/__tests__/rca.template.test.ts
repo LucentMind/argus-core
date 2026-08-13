@@ -48,4 +48,44 @@ describe('rca template defaults', () => {
     const bad = { rca: { template: { exec: [], tech: [{ id: 'x', heading: 'X', kind: 'claims', enabled: true }] } } }
     expect(() => settingsSchema.parse(bad)).toThrow()
   })
+
+  it('rejects a narrative section with no instruction', () => {
+    const bad = {
+      rca: {
+        template: {
+          exec: [{ id: 'x', heading: 'X', kind: 'narrative', enabled: true }],
+          tech: []
+        }
+      }
+    }
+    expect(() => settingsSchema.parse(bad)).toThrow()
+  })
+
+  it('rejects a narrative section with a whitespace-only instruction', () => {
+    const bad = {
+      rca: {
+        template: {
+          exec: [{ id: 'x', heading: 'X', kind: 'narrative', instruction: '   ', enabled: true }],
+          tech: []
+        }
+      }
+    }
+    expect(() => settingsSchema.parse(bad)).toThrow()
+  })
+
+  it('the default template default is a fresh deep copy, not the shared DEFAULT_RCA_TEMPLATE object', () => {
+    const s1 = settingsSchema.parse({})
+    const s2 = settingsSchema.parse({})
+
+    expect(s1.rca.template).not.toBe(DEFAULT_RCA_TEMPLATE)
+    expect(s1.rca.template).not.toBe(s2.rca.template)
+    expect(s1.rca.template.exec).not.toBe(DEFAULT_RCA_TEMPLATE.exec)
+    expect(s1.rca.template.exec[0]).not.toBe(DEFAULT_RCA_TEMPLATE.exec[0])
+
+    // mutate one parse result's template in place — a second parse (and the module-level
+    // default) must be unaffected. toEqual would not catch aliasing; only this does.
+    s1.rca.template.exec[0].heading = 'MUTATED'
+    expect(s2.rca.template.exec[0].heading).not.toBe('MUTATED')
+    expect(DEFAULT_RCA_TEMPLATE.exec[0].heading).not.toBe('MUTATED')
+  })
 })
