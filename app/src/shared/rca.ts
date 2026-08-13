@@ -1,4 +1,5 @@
 import type { FindingRole } from './observability'
+import type { RcaTemplate } from './rcaTemplate'
 
 export interface Citation {
   path: string
@@ -50,6 +51,10 @@ export interface RcaStatusPayload {
   caseSlug: string
   job: RcaJobRow | null
   draft: RcaDraft | null
+  /** The template the job was generated under — its snapshot, or the default for a row that
+   *  predates the column. Rendering and the panel's section list both read this, never live
+   *  settings, so a template edit cannot retroactively blank a section of a pending draft. */
+  template: RcaTemplate
 }
 
 export interface RoleAssignment {
