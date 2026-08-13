@@ -295,6 +295,7 @@ import { caseRcaPromptHash } from './services/rca/promptHash'
 import { renderExecReport, renderTechReport } from './services/rca/render'
 import { validateRcaDraft } from './services/rca/parse'
 import type { RoleAssignment, RcaDraft, CaseRcaInput } from '../shared/rca'
+import { DEFAULT_RCA_TEMPLATE } from '../shared/rcaTemplate'
 import { draftAsset, improveAsset } from './services/authoring/service'
 import type { AuthoringRequest, AuthoringResult } from '../shared/authoringIpc'
 import { EditorWindowService } from './services/editorWindow'
@@ -2693,7 +2694,11 @@ function registerIpc(): void {
       tags: kase.tags,
       createdAt: kase.createdAt
     }
-    return { exec: renderExecReport(validated, meta), tech: renderTechReport(validated, meta) }
+    const opts = { template: DEFAULT_RCA_TEMPLATE }
+    return {
+      exec: renderExecReport(validated, meta, opts),
+      tech: renderTechReport(validated, meta, opts)
+    }
   })
 
   // — skills —
