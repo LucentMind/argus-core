@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS rca_jobs (
   error TEXT,
   confirmed_at TEXT,
   post_results TEXT,
+  template_snapshot TEXT,
   created_at TEXT NOT NULL,
   finished_at TEXT
 );
@@ -468,6 +469,10 @@ export function openDb(file: string): DatabaseSync {
   const distillCols = db.prepare(`PRAGMA table_info(distill_jobs)`).all() as { name: string }[]
   if (!distillCols.some((c) => c.name === 'prompt_hash')) {
     db.exec(`ALTER TABLE distill_jobs ADD COLUMN prompt_hash TEXT`)
+  }
+  const rcaJobCols = db.prepare(`PRAGMA table_info(rca_jobs)`).all() as { name: string }[]
+  if (!rcaJobCols.some((c) => c.name === 'template_snapshot')) {
+    db.exec(`ALTER TABLE rca_jobs ADD COLUMN template_snapshot TEXT`)
   }
   const sessionCols = db.prepare(`PRAGMA table_info(sessions)`).all() as { name: string }[]
   if (!sessionCols.some((c) => c.name === 'run_options')) {

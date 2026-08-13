@@ -15,6 +15,7 @@ import { confirm } from '../../lib/confirmStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { RcaDraft, RcaJobRow, RcaStatusPayload } from '../../../../shared/rca'
+import { DEFAULT_RCA_TEMPLATE } from '../../../../shared/rcaTemplate'
 // The REAL validator (not a mock) — this is exactly the seam the fix-7/fix-4 interaction bug
 // hid in: RcaPanel's own confirm mock always resolved, so nothing here previously exercised
 // what the main-process IPC boundary would actually do with the draft the panel builds.
@@ -75,7 +76,7 @@ function job(over: Partial<RcaJobRow> = {}): RcaJobRow {
 }
 
 function payloadFor(j: RcaJobRow | null, d: RcaDraft | null = null): RcaStatusPayload {
-  return { caseSlug: 'NAV-1', job: j, draft: d }
+  return { caseSlug: 'NAV-1', job: j, draft: d, template: DEFAULT_RCA_TEMPLATE }
 }
 
 const generate = vi.fn()

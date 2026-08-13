@@ -9,13 +9,17 @@ import { artifactsDir } from '../paths'
 import { RcaJobs, type RcaJobsDeps } from '../rca/jobs'
 import { RcaParseError } from '../rca/parse'
 import type { CaseRcaInput, RcaDraft } from '../../../shared/rca'
+import { DEFAULT_RCA_TEMPLATE, type RcaTemplate } from '../../../shared/rcaTemplate'
+import type { AppSettings } from '../../../shared/settings'
 
 let home: string
 let db: DatabaseSync
+let template: RcaTemplate = DEFAULT_RCA_TEMPLATE
 
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-rca-jobs-'))
   db = openDb(path.join(home, 'argus.db'))
+  template = DEFAULT_RCA_TEMPLATE
 })
 
 afterEach(() => {
@@ -86,6 +90,7 @@ function mkJobs(over: Partial<RcaJobsDeps> = {}): { jobs: RcaJobs; broadcasts: u
     }),
     run: async () => '```json\n' + JSON.stringify(validDraft()) + '\n```',
     broadcast: (p) => broadcasts.push(p),
+    settings: () => ({ rca: { template } }) as unknown as AppSettings,
     ...over
   })
   return { jobs, broadcasts }
@@ -392,5 +397,44 @@ describe('RcaJobs', () => {
       raw_output: string
     }
     expect(row.raw_output).toBe('RAW TEXT HERE')
+  })
+
+  it('snapshots the current template onto the job at generate time', () => {
+    createCase(db, home, { slug: 'case-a', title: 'Case A' })
+    const { jobs } = mkJobs()
+    const custom = JSON.parse(JSON.stringify(DEFAULT_RCA_TEMPLATE)) as RcaTemplate
+    custom.exec[0].heading = 'Overview'
+    template = custom // the `settings()` dep below reads this
+    const job = jobs.generate('case-a')
+    const row = db.prepare(`SELECT template_snapshot FROM rca_jobs WHERE id = ?`).get(job.id) as {
+      template_snapshot: string
+    }
+    expect(JSON.parse(row.template_snapshot).exec[0].heading).toBe('Overview')
+  })
+
+  it('reports the snapshot on status, and the default for a row that predates the column', () => {
+    createCase(db, home, { slug: 'case-a', title: 'Case A' })
+    const { jobs } = mkJobs()
+    const job = jobs.generate('case-a')
+    expect(jobs.statusFor('case-a').template.exec[0].id).toBe('what-happened')
+    db.prepare(`UPDATE rca_jobs SET template_snapshot = NULL WHERE id = ?`).run(job.id)
+    expect(jobs.statusFor('case-a').template).toEqual(DEFAULT_RCA_TEMPLATE)
+  })
+
+  it('confirms under the snapshot, not under changed live settings', async () => {
+    createCase(db, home, { slug: 'case-a', title: 'Case A' })
+    const { jobs } = mkJobs({
+      run: async () => '```json\n' + JSON.stringify(validDraft()) + '\n```'
+    })
+    const custom = JSON.parse(JSON.stringify(DEFAULT_RCA_TEMPLATE)) as RcaTemplate
+    custom.exec[0].heading = 'Overview'
+    template = custom
+    const job = jobs.generate('case-a')
+    await jobs.idle()
+    template = DEFAULT_RCA_TEMPLATE // user edits the template after generating
+    jobs.confirm('case-a', job.id, [], validDraft())
+    const exec = fs.readFileSync(path.join(artifactsDir(home, 'case-a'), 'rca-exec.md'), 'utf8')
+    expect(exec).toContain('## Overview')
+    expect(exec).not.toContain('## What happened')
   })
 })

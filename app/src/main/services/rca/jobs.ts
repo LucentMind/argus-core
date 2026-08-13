@@ -16,7 +16,8 @@ import { artifactsDir } from '../paths'
 import { buildCaseRcaPrompt } from './contract'
 import { parseRcaOutput, validateRcaDraft, RcaParseError } from './parse'
 import { renderExecReport, renderTechReport } from './render'
-import { DEFAULT_RCA_TEMPLATE } from '../../../shared/rcaTemplate'
+import { DEFAULT_RCA_TEMPLATE, type RcaTemplate } from '../../../shared/rcaTemplate'
+import type { AppSettings } from '../../../shared/settings'
 
 export interface RcaJobsDeps {
   db: DatabaseSync
@@ -28,6 +29,8 @@ export interface RcaJobsDeps {
   /** Version hash of the static RCA prompt parts, stamped at enqueue. Absent in tests. */
   promptHash?: () => string
   broadcast: (payload: RcaStatusPayload) => void
+  /** Live settings; read ONLY at generate time to snapshot `rca.template` onto the job. */
+  settings: () => AppSettings
 }
 
 interface JobDbRow {
@@ -40,6 +43,7 @@ interface JobDbRow {
   error: string | null
   confirmed_at: string | null
   post_results: string | null
+  template_snapshot: string | null
   created_at: string
   finished_at: string | null
 }
@@ -67,6 +71,19 @@ function toRow(r: JobDbRow): RcaJobRow {
     postResults: parsePostResults(r.post_results),
     createdAt: r.created_at,
     finishedAt: r.finished_at
+  }
+}
+
+/** A missing (pre-column row) or malformed snapshot degrades to the default template —
+ *  same posture as `parsePostResults`: a read must never fail on a row written by an older
+ *  build. The default renders byte-identically to the pre-template output, so an old job
+ *  confirms exactly as it would have before. */
+function parseTemplate(raw: string | null): RcaTemplate {
+  if (!raw) return DEFAULT_RCA_TEMPLATE
+  try {
+    return JSON.parse(raw) as RcaTemplate
+  } catch {
+    return DEFAULT_RCA_TEMPLATE
   }
 }
 
@@ -104,7 +121,7 @@ function toPayload(r: JobDbRow, argusHome: string): RcaStatusPayload {
       draft = parseRawOutput(r.raw_output)
     }
   }
-  return { caseSlug: job.caseSlug, job, draft }
+  return { caseSlug: job.caseSlug, job, draft, template: parseTemplate(r.template_snapshot) }
 }
 
 /**
@@ -184,9 +201,15 @@ export class RcaJobs {
     const snapshot = JSON.stringify(this.deps.assembleInput(slug, prior))
     const res = this.deps.db
       .prepare(
-        `INSERT INTO rca_jobs (case_slug, state, input_snapshot, prompt_hash, created_at) VALUES (?, 'queued', ?, ?, ?)`
+        `INSERT INTO rca_jobs (case_slug, state, input_snapshot, prompt_hash, template_snapshot, created_at) VALUES (?, 'queued', ?, ?, ?, ?)`
       )
-      .run(slug, snapshot, this.deps.promptHash?.() ?? null, new Date().toISOString())
+      .run(
+        slug,
+        snapshot,
+        this.deps.promptHash?.() ?? null,
+        JSON.stringify(this.deps.settings().rca.template),
+        new Date().toISOString()
+      )
     const job = this.get(Number(res.lastInsertRowid))!
     this.emit(slug)
     this.kick()
@@ -198,7 +221,7 @@ export class RcaJobs {
     const r = this.deps.db
       .prepare(`SELECT * FROM rca_jobs WHERE case_slug = ? ORDER BY id DESC LIMIT 1`)
       .get(slug) as JobDbRow | undefined
-    if (!r) return { caseSlug: slug, job: null, draft: null }
+    if (!r) return { caseSlug: slug, job: null, draft: null, template: DEFAULT_RCA_TEMPLATE }
     return toPayload(r, this.deps.argusHome)
   }
 
@@ -230,7 +253,10 @@ export class RcaJobs {
       createdAt: kase.createdAt
     }
     fs.writeFileSync(path.join(dir, 'rca-structure.json'), JSON.stringify(edited, null, 2))
-    const opts = { template: DEFAULT_RCA_TEMPLATE }
+    const snap = this.deps.db
+      .prepare(`SELECT template_snapshot FROM rca_jobs WHERE id = ?`)
+      .get(jobId) as { template_snapshot: string | null }
+    const opts = { template: parseTemplate(snap.template_snapshot) }
     fs.writeFileSync(path.join(dir, 'rca-exec.md'), renderExecReport(edited, meta, opts))
     fs.writeFileSync(path.join(dir, 'rca-tech.md'), renderTechReport(edited, meta, opts))
     this.deps.db

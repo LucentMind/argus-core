@@ -982,7 +982,8 @@ function registerIpc(): void {
     run: headlessRun,
     resolvePrompt,
     broadcast: (p) => broadcast(IPC.rcaChanged, p),
-    promptHash: () => caseRcaPromptHash(resolvePrompt)
+    promptHash: () => caseRcaPromptHash(resolvePrompt),
+    settings: () => settingsService.get()
   })
   rcaJobs.recoverOnBoot()
 
