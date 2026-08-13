@@ -39,7 +39,9 @@ function virtualLinesCommonProps(
   scrollTarget: { row: number; nonce: number } | null
 } {
   return {
-    className: 'flex-1 p-3',
+    // horizontal only — VirtualLines forces vertical padding off, since padding
+    // above the spacer shifts every row and clips the last one
+    className: 'flex-1 px-3',
     getLine,
     focusStart,
     focusEnd,

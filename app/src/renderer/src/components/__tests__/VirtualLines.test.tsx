@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { render, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { VirtualLines, ROW_H } from '../VirtualLines'
+import { __setMaxSpacerPxForTests } from '../../lib/spacerCap'
 
 function setup(over: Partial<Parameters<typeof VirtualLines>[0]> = {}): ReturnType<
   typeof render
@@ -110,5 +111,84 @@ describe('VirtualLines', () => {
     expect(active!.className).not.toContain('bg-defect/20')
     expect(container.querySelector('#line-1002')!.className).toContain('bg-defect/20')
     expect(container.querySelectorAll('[data-active-line]')).toHaveLength(1)
+  })
+})
+
+// Chromium clamps any layout box at ~33.5M device px, so a spacer sized
+// totalRows * ROW_H silently stops growing on very large files and every row
+// past the clamp becomes unreachable — a 200MB logcat at 220% display scaling
+// dead-ended around line 762,600. The spacer must stay under the engine's real
+// ceiling, with scroll position mapped through the resulting compression.
+describe('VirtualLines beyond the engine spacer clamp', () => {
+  const CAP = 1_000_000 // stand-in for the measured browser ceiling
+  const HUGE = 2_000_000 // rows; 40M px unclamped, 40x over CAP
+
+  afterEach(() => __setMaxSpacerPxForTests(null))
+
+  function huge(over: Partial<Parameters<typeof VirtualLines>[0]> = {}): {
+    scroller: HTMLElement
+    container: HTMLElement
+    rerender: ReturnType<typeof render>['rerender']
+    props: Parameters<typeof VirtualLines>[0]
+  } {
+    __setMaxSpacerPxForTests(CAP)
+    return setup({ totalRows: HUGE, getLine: (n: number) => `line ${n}`, ...over })
+  }
+
+  it('never sizes the spacer past the engine ceiling', () => {
+    const { scroller } = huge()
+    fireEvent.scroll(scroller)
+    const spacer = scroller.firstElementChild as HTMLElement
+    expect(parseFloat(spacer.style.height)).toBeLessThanOrEqual(CAP)
+  })
+
+  it('reaches the final row at maximum scroll', () => {
+    const { scroller, container } = huge()
+    scroller.scrollTop = CAP - 400 // maxScrollTop = spacer - clientHeight
+    fireEvent.scroll(scroller)
+    expect(container.querySelector(`#line-${HUGE}`)).toBeInTheDocument()
+  })
+
+  it('reports the true final row to onVisibleRows at maximum scroll', () => {
+    const onVisibleRows = vi.fn()
+    const { scroller } = huge({ onVisibleRows })
+    scroller.scrollTop = CAP - 400
+    fireEvent.scroll(scroller)
+    const [, last] = onVisibleRows.mock.calls.at(-1)!
+    expect(last).toBe(HUGE - 1)
+  })
+
+  it('scrolls to a scrollTarget row past the clamp', () => {
+    const { scroller, container, rerender, props } = huge()
+    rerender(<VirtualLines {...props} scrollTarget={{ row: 1_500_000, nonce: 1 }} />)
+    expect(scroller.scrollTop).toBeLessThanOrEqual(CAP)
+    expect(container.querySelector('#line-1500001')).toBeInTheDocument()
+  })
+
+  // Padding above the spacer pushes every absolutely-positioned row down by
+  // that amount while adding scrollable height the row arithmetic does not
+  // model — which left the final line clipped in half at maximum scroll.
+  it('leaves no vertical padding above the spacer', () => {
+    const { scroller } = huge()
+    expect(scroller.style.paddingTop).toBe('0px')
+    expect(scroller.style.paddingBottom).toBe('0px')
+  })
+
+  it('fits the final row fully inside the viewport at maximum scroll', () => {
+    const { scroller, container } = huge()
+    scroller.scrollTop = CAP - 400
+    fireEvent.scroll(scroller)
+    const last = container.querySelector(`#line-${HUGE}`) as HTMLElement
+    expect(last).toBeInTheDocument()
+    // spacer coords == scroll coords (no vertical padding), so the row's
+    // bottom edge must land at or above the viewport's bottom edge
+    expect(parseFloat(last.style.top) + ROW_H).toBeLessThanOrEqual(scroller.scrollTop + 400)
+  })
+
+  it('keeps the top of the file addressable', () => {
+    const { scroller, container } = huge()
+    scroller.scrollTop = 0
+    fireEvent.scroll(scroller)
+    expect(container.querySelector('#line-1')).toBeInTheDocument()
   })
 })
