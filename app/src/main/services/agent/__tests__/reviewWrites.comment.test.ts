@@ -11,6 +11,7 @@ import { listFindings } from '../../findings'
 import { appendFinding } from '../nativeTools'
 import { postReviewComment } from '../reviewWrites'
 import type { Runner } from '../../github'
+import type { WatermarkTarget } from '../../../../shared/watermark'
 
 let db: DatabaseSync
 let home: string
@@ -21,6 +22,10 @@ const HEAD_JSON = JSON.stringify({
   headRefOid: 'abc123',
   isCrossRepository: false
 })
+
+const MARK = '_AI-assisted — drafted by Argus, reviewed before posting._'
+const wmOn = (): WatermarkTarget => ({ enabled: true, text: MARK })
+const wmOff = (): WatermarkTarget => ({ enabled: false, text: MARK })
 
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-revcomment-'))
@@ -92,7 +97,7 @@ describe('postReviewComment', () => {
       return JSON.stringify({ html_url: 'https://github.com/acme/widget/pull/42#discussion_r1' })
     }
     const id = seedFinding()
-    const out = await postReviewComment({ db, argusHome: home, gh }, 'c1', {
+    const out = await postReviewComment({ db, argusHome: home, gh, githubWatermark: wmOff }, 'c1', {
       findingId: id,
       body: 'This guard is inverted.'
     })
@@ -123,7 +128,7 @@ describe('postReviewComment', () => {
       return JSON.stringify({ html_url: 'https://github.com/acme/widget/pull/42#issuecomment-9' })
     }
     const id = seedFinding()
-    const out = await postReviewComment({ db, argusHome: home, gh }, 'c1', {
+    const out = await postReviewComment({ db, argusHome: home, gh, githubWatermark: wmOff }, 'c1', {
       findingId: id,
       body: 'This guard is inverted.'
     })
@@ -144,7 +149,10 @@ describe('postReviewComment', () => {
     }
     const id = seedFinding()
     await expect(
-      postReviewComment({ db, argusHome: home, gh }, 'c1', { findingId: id, body: 'x' })
+      postReviewComment({ db, argusHome: home, gh, githubWatermark: wmOff }, 'c1', {
+        findingId: id,
+        body: 'x'
+      })
     ).rejects.toThrow(/403/)
     expect(listFindings(db, home, 'c1').find((f) => f.id === id)?.commentUrl).toBeNull()
   })
@@ -155,7 +163,10 @@ describe('postReviewComment', () => {
     }
     const id = seedFinding()
     await expect(
-      postReviewComment({ db, argusHome: home, gh }, 'c1', { findingId: id, body: '   ' })
+      postReviewComment({ db, argusHome: home, gh, githubWatermark: wmOff }, 'c1', {
+        findingId: id,
+        body: '   '
+      })
     ).rejects.toThrow(/empty/i)
   })
 
@@ -179,10 +190,11 @@ describe('postReviewComment', () => {
     // an actual duplicate post. It now resolves instead of throwing, so no second gh call
     // happens either way.
     const failingDb = dbThatFailsFindingUpdate(db, 'db write failed: part of the diff')
-    const out = await postReviewComment({ db: failingDb, argusHome: home, gh }, 'c1', {
-      findingId: id,
-      body: 'x'
-    })
+    const out = await postReviewComment(
+      { db: failingDb, argusHome: home, gh, githubWatermark: wmOff },
+      'c1',
+      { findingId: id, body: 'x' }
+    )
     expect(out).toContain('https://github.com/acme/widget/pull/42#discussion_r1')
     expect(out).toMatch(/could not be recorded locally/i)
     // Exactly the head lookup + the one inline post — no fallback issue-comment call.
@@ -210,10 +222,11 @@ describe('postReviewComment', () => {
     }
     const id = seedFinding()
     const failingDb = dbThatFailsFindingUpdate(db, 'db write failed')
-    const out = await postReviewComment({ db: failingDb, argusHome: home, gh }, 'c1', {
-      findingId: id,
-      body: 'This guard is inverted.'
-    })
+    const out = await postReviewComment(
+      { db: failingDb, argusHome: home, gh, githubWatermark: wmOff },
+      'c1',
+      { findingId: id, body: 'This guard is inverted.' }
+    )
     expect(out).toMatch(/not part of the diff/i)
     expect(out).toContain('#issuecomment-9')
     expect(out).toMatch(/could not be recorded locally/i)
@@ -234,10 +247,61 @@ describe('postReviewComment', () => {
       throw new Error('gh must not be called')
     }
     await expect(
-      postReviewComment({ db, argusHome: home, gh }, 'c1', {
+      postReviewComment({ db, argusHome: home, gh, githubWatermark: wmOff }, 'c1', {
         findingId: Number(foreign.lastInsertRowid),
         body: 'x'
       })
     ).rejects.toThrow(/unknown finding/i)
+  })
+
+  it('appends the watermark to an inline comment body', async () => {
+    const calls: string[][] = []
+    const gh: Runner = async (_cmd, args) => {
+      calls.push(args)
+      if (args[0] === 'pr') return HEAD_JSON
+      return JSON.stringify({ html_url: 'https://github.com/acme/widget/pull/42#discussion_r1' })
+    }
+    const id = seedFinding()
+    await postReviewComment({ db, argusHome: home, gh, githubWatermark: wmOn }, 'c1', {
+      findingId: id,
+      body: 'This guard is inverted.'
+    })
+    const body = calls[1].find((a) => a.startsWith('body='))!
+    expect(body).toBe(`body=This guard is inverted.\n\n${MARK}`)
+  })
+
+  it('watermarks the PR-level fallback exactly once, below the path prefix', async () => {
+    const calls: string[][] = []
+    const gh: Runner = async (_cmd, args) => {
+      calls.push(args)
+      if (args[0] === 'pr') return HEAD_JSON
+      if (args[3].includes('/pulls/')) {
+        throw Object.assign(new Error('Command failed'), {
+          stderr: 'gh: Validation Failed (HTTP 422)',
+          stdout:
+            '{"message":"Validation Failed","errors":[{"resource":"PullRequestReviewComment","code":"custom","field":"pull_request_review_thread.line","message":"could not be resolved"}],"status":"422"}'
+        })
+      }
+      return JSON.stringify({ html_url: 'https://github.com/acme/widget/pull/42#issuecomment-7' })
+    }
+    const id = seedFinding()
+    await postReviewComment({ db, argusHome: home, gh, githubWatermark: wmOn }, 'c1', {
+      findingId: id,
+      body: 'This guard is inverted.'
+    })
+    const body = calls[2].find((a) => a.startsWith('body='))!
+    expect(body.split(MARK)).toHaveLength(2) // the retry must not stack a second footer
+    expect(body).toBe(`body=**src/guard.ts:17**\n\nThis guard is inverted.\n\n${MARK}`)
+  })
+
+  it('still rejects an empty body when the watermark is enabled', async () => {
+    const gh: Runner = async () => HEAD_JSON
+    const id = seedFinding()
+    await expect(
+      postReviewComment({ db, argusHome: home, gh, githubWatermark: wmOn }, 'c1', {
+        findingId: id,
+        body: '   '
+      })
+    ).rejects.toThrow(/body/i)
   })
 })

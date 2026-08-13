@@ -789,13 +789,18 @@ export class CaseSession {
     }
     const edited = outcome.updatedInput as { body?: string; pr?: string } | undefined
     try {
-      await postReviewComment(wdeps, this.deps.caseSlug, {
-        findingId,
-        body: String(edited?.body ?? body),
-        // An edited pr is re-validated against the case's one binding, exactly as on the
-        // tool path (resolveBindingForFinding) — it cannot retarget the write.
-        expectPr: String(edited?.pr ?? input.pr)
-      })
+      await postReviewComment(
+        // TODO(task 4): wire the real settings-backed watermark getter here.
+        { ...wdeps, githubWatermark: () => ({ enabled: false, text: '' }) },
+        this.deps.caseSlug,
+        {
+          findingId,
+          body: String(edited?.body ?? body),
+          // An edited pr is re-validated against the case's one binding, exactly as on the
+          // tool path (resolveBindingForFinding) — it cannot retarget the write.
+          expectPr: String(edited?.pr ?? input.pr)
+        }
+      )
     } catch (err) {
       return { ok: false, reason: (err as Error).message }
     }
