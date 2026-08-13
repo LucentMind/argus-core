@@ -130,6 +130,11 @@ const rcaSectionSchema = z
       ctx.addIssue({ code: 'custom', message: `RCA section "${s.id}" is claims-kind but has no slot` })
     if (s.kind === 'narrative' && s.slot)
       ctx.addIssue({ code: 'custom', message: `RCA section "${s.id}" is narrative-kind but has a slot` })
+    if (s.kind === 'narrative' && !s.instruction?.trim())
+      ctx.addIssue({
+        code: 'custom',
+        message: `RCA section "${s.id}" is narrative-kind but has no instruction`
+      })
   })
 
 /** Where a confirmed RCA report's technical drill-down is posted (`main/services/rca/post.ts`).
@@ -146,7 +151,7 @@ const rcaSchema = z.looseObject({
       exec: z.array(rcaSectionSchema),
       tech: z.array(rcaSectionSchema)
     })
-    .default(() => DEFAULT_RCA_TEMPLATE as RcaTemplate)
+    .default(() => structuredClone(DEFAULT_RCA_TEMPLATE) as RcaTemplate)
 })
 
 /** The default footer for both destinations. The "reviewed before posting" clause is true
