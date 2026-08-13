@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ensureLanguage, highlightLine, isRegistered } from '../lib/highlight'
+import { maxSpacerPx } from '../lib/spacerCap'
 
 export const ROW_H = 20 // px, matches text-xs leading-5
 const OVERSCAN = 30
@@ -35,8 +36,42 @@ export function VirtualLines({
   className = ''
 }: VirtualLinesProps): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
-  const [range, setRange] = useState({ first: 0, last: 60 })
+  // `top` = absolute y within the spacer at which row `first` is painted. Under
+  // the clamp it is always first * ROW_H; above it the rendered window is
+  // pinned to the live scroll offset instead (see windowFor).
+  const [range, setRange] = useState({ first: 0, last: 60, top: 0 })
   const [, bump] = useState(0)
+
+  // Compressed only when the file is too tall for the engine; otherwise this is
+  // the identity mapping and every formula below reduces to scrollTop = row * ROW_H.
+  const spacerPx = Math.min(totalRows * ROW_H, maxSpacerPx())
+
+  /** Rows the viewport covers at `scrollTop`, plus the paint origin for the
+   *  first of them. Interpolates row-space against scroll-space so both ends
+   *  are exact: scrollTop 0 → row 0, max scrollTop → last row at the bottom. */
+  const windowFor = (
+    scrollTop: number,
+    clientHeight: number
+  ): { first: number; last: number; top: number } => {
+    const maxScroll = Math.max(0, spacerPx - clientHeight)
+    const maxTopRow = Math.max(0, totalRows - clientHeight / ROW_H)
+    const topRowExact = maxScroll > 0 ? Math.min(maxTopRow, (scrollTop / maxScroll) * maxTopRow) : 0
+    const topRow = Math.floor(topRowExact)
+    const first = Math.max(0, topRow - OVERSCAN)
+    const last = Math.min(totalRows - 1, topRow + Math.ceil(clientHeight / ROW_H) + OVERSCAN)
+    // keep the partially-scrolled row aligned with the viewport edge
+    const top = scrollTop - (topRowExact - topRow) * ROW_H - (topRow - first) * ROW_H
+    return { first, last, top }
+  }
+
+  /** Inverse of windowFor: the scrollTop that centres `row` in the viewport. */
+  const scrollTopFor = (row: number, clientHeight: number): number => {
+    const maxScroll = Math.max(0, spacerPx - clientHeight)
+    const maxTopRow = Math.max(0, totalRows - clientHeight / ROW_H)
+    if (maxScroll <= 0 || maxTopRow <= 0) return 0
+    const targetTopRow = row - clientHeight / (2 * ROW_H) + 0.5
+    return Math.max(0, Math.min(maxScroll, (targetTopRow / maxTopRow) * maxScroll))
+  }
 
   const canHighlight = lang !== null && isRegistered(lang)
   useEffect(() => {
@@ -53,12 +88,8 @@ export function VirtualLines({
   const measure = (): void => {
     const el = ref.current
     if (!el) return
-    const first = Math.max(0, Math.floor(el.scrollTop / ROW_H) - OVERSCAN)
-    const last = Math.min(
-      totalRows - 1,
-      Math.ceil((el.scrollTop + el.clientHeight) / ROW_H) + OVERSCAN
-    )
-    setRange({ first, last })
+    const { first, last, top } = windowFor(el.scrollTop, el.clientHeight)
+    setRange({ first, last, top })
     if (last >= first) onVisibleRows?.(first, last)
   }
 
@@ -75,7 +106,7 @@ export function VirtualLines({
   useEffect(() => {
     if (!scrollTarget || !ref.current) return
     const el = ref.current
-    el.scrollTop = Math.max(0, scrollTarget.row * ROW_H - el.clientHeight / 2 + ROW_H / 2)
+    el.scrollTop = scrollTopFor(scrollTarget.row, el.clientHeight)
     measure()
     suppressEchoTop.current = el.scrollTop
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -109,7 +140,7 @@ export function VirtualLines({
         className={`absolute left-0 right-0 whitespace-pre ${
           isActive ? 'bg-hair text-ink' : focused ? 'bg-defect/20 text-ink' : ''
         }${onRowClick ? ' cursor-pointer hover:bg-hair/40' : ''}`}
-        style={{ top: r * ROW_H, height: ROW_H }}
+        style={{ top: range.top + (r - range.first) * ROW_H, height: ROW_H }}
       >
         <span className="mr-3 inline-block w-14 select-none text-right text-mute">{n}</span>
         {line === undefined ? (
@@ -127,9 +158,15 @@ export function VirtualLines({
     <div
       ref={ref}
       onScroll={onScroll}
+      // Vertical padding is forced off, inline so it beats any caller class.
+      // Padding above the spacer offsets every absolutely-positioned row by
+      // that amount while contributing extra scrollable height the row
+      // arithmetic below does not model — which clipped the final row in half.
+      // Horizontal padding from `className` is unaffected.
+      style={{ paddingTop: 0, paddingBottom: 0 }}
       className={`relative overflow-auto font-mono text-xs leading-5 text-dim ${className}`}
     >
-      <div style={{ height: totalRows * ROW_H, position: 'relative' }}>{rows}</div>
+      <div style={{ height: spacerPx, position: 'relative' }}>{rows}</div>
     </div>
   )
 }
