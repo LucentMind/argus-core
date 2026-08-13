@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
 
 let home: string
@@ -23,5 +24,32 @@ describe('rca schema', () => {
     // re-open the same file: migration must not throw or duplicate
     db.close()
     expect(() => openDb(dbPath)).not.toThrow()
+  })
+
+  it('adds template_snapshot to an rca_jobs table that predates it', () => {
+    const file = path.join(home, 'legacy.db')
+    const legacy = new DatabaseSync(file)
+    legacy.exec(`CREATE TABLE rca_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      case_slug TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'queued',
+      input_snapshot TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )`)
+    legacy.exec(
+      `INSERT INTO rca_jobs (case_slug, input_snapshot, created_at) VALUES ('a','{}','x')`
+    )
+    legacy.close()
+
+    const db = openDb(file)
+    const cols = (db.prepare(`PRAGMA table_info(rca_jobs)`).all() as { name: string }[]).map(
+      (c) => c.name
+    )
+    expect(cols).toContain('template_snapshot')
+    const row = db.prepare(`SELECT template_snapshot FROM rca_jobs WHERE case_slug='a'`).get() as {
+      template_snapshot: string | null
+    }
+    expect(row.template_snapshot).toBeNull()
+    db.close()
   })
 })
