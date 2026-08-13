@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../db'
-import { indexEvidenceText, indexEvidenceFile, deleteEvidenceIndex } from '../indexer'
+import { indexEvidenceText, indexEvidenceFile, deleteEvidenceIndex, FtsChunkWriter, CheckpointRecorder } from '../indexer'
 import { sidecarPath, ensureIndex, __clearIndexCacheForTests } from '../lineIndex'
 import { MAX_READ_BYTES } from '../search'
 import type { DatabaseSync } from 'node:sqlite'
@@ -131,5 +131,63 @@ describe('indexEvidenceFile', () => {
     // ...and no rebuild happened: buildIndex only rewrites the sidecar on a
     // cache miss, so an unchanged mtime proves loadSidecar succeeded.
     expect(fs.statSync(side).mtimeMs).toBe(sideMtimeBefore)
+  })
+})
+
+describe('FtsChunkWriter', () => {
+  it('flushes a chunk every chunkLines and tracks line ranges', () => {
+    const db = freshDb()
+    const w = new FtsChunkWriter(db, 42, 3)
+    for (let i = 1; i <= 7; i++) w.add(`line ${i}`, i)
+    w.flush()
+    expect(w.chunkCount).toBe(3)
+    const rows = db
+      .prepare(
+        `SELECT chunk_index, start_line, end_line FROM evidence_fts WHERE evidence_id = 42 ORDER BY chunk_index`
+      )
+      .all() as { chunk_index: number; start_line: number; end_line: number }[]
+    expect(rows).toEqual([
+      { chunk_index: 0, start_line: 1, end_line: 3 },
+      { chunk_index: 1, start_line: 4, end_line: 6 },
+      { chunk_index: 2, start_line: 7, end_line: 7 }
+    ])
+  })
+
+  it('writes an evidence_fts_map row for every chunk', () => {
+    const db = freshDb()
+    const w = new FtsChunkWriter(db, 43, 2)
+    for (let i = 1; i <= 4; i++) w.add(`x${i}`, i)
+    w.flush()
+    const n = db
+      .prepare(`SELECT count(*) AS n FROM evidence_fts_map WHERE evidence_id = 43`)
+      .get() as { n: number }
+    expect(n.n).toBe(2)
+  })
+
+  it('flush on an empty writer inserts nothing', () => {
+    const db = freshDb()
+    const w = new FtsChunkWriter(db, 44, 400)
+    w.flush()
+    expect(w.chunkCount).toBe(0)
+  })
+})
+
+describe('CheckpointRecorder', () => {
+  it('always starts at line 1 byte 0 and adds one per CHECKPOINT_LINES', () => {
+    const r = new CheckpointRecorder(true)
+    for (let i = 1; i <= 100_000; i++) r.record(i, i * 10)
+    expect(r.checkpoints[0]).toEqual([1, 0])
+    expect(r.checkpoints.length).toBeGreaterThan(1)
+    // strictly increasing in both dimensions — lineIndex.loadSidecar rejects otherwise
+    for (let i = 1; i < r.checkpoints.length; i++) {
+      expect(r.checkpoints[i][0]).toBeGreaterThan(r.checkpoints[i - 1][0])
+      expect(r.checkpoints[i][1]).toBeGreaterThan(r.checkpoints[i - 1][1])
+    }
+  })
+
+  it('records nothing beyond the origin when disabled', () => {
+    const r = new CheckpointRecorder(false)
+    for (let i = 1; i <= 100_000; i++) r.record(i, i * 10)
+    expect(r.checkpoints).toEqual([[1, 0]])
   })
 })
