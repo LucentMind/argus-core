@@ -39,7 +39,41 @@ function insertEvidence(relPath: string, size: number): number {
   return Number(res.lastInsertRowid)
 }
 
-function harness(overrides: Partial<{ extract: (id: number) => Promise<boolean> }> = {}) {
+function countFts(evidenceId: number): number {
+  return (
+    db.prepare(`SELECT count(*) AS n FROM evidence_fts WHERE evidence_id = ?`).get(evidenceId) as {
+      n: number
+    }
+  ).n
+}
+
+function indexStateOf(evidenceId: number): string | undefined {
+  const meta = JSON.parse(
+    (db.prepare(`SELECT meta FROM evidence WHERE id = ?`).get(evidenceId) as { meta: string }).meta
+  )
+  return readIndexState(meta)
+}
+
+/** A promise plus its resolver, for parking a job inside `extract`. */
+function gate(): { promise: Promise<void>; open: () => void } {
+  let open!: () => void
+  const promise = new Promise<void>((r) => (open = r))
+  return { promise, open }
+}
+
+interface Harness {
+  queue: IngestQueue
+  items: EvidenceProgressEvent[]
+  queues: QueueProgressEvent[]
+  changed: string[]
+}
+
+function harness(
+  overrides: Partial<{
+    extract: (id: number) => Promise<boolean>
+    onItem: (e: EvidenceProgressEvent) => void
+  }> = {}
+): Harness {
   const items: EvidenceProgressEvent[] = []
   const queues: QueueProgressEvent[] = []
   const changed: string[] = []
@@ -48,7 +82,10 @@ function harness(overrides: Partial<{ extract: (id: number) => Promise<boolean> 
     db,
     argusHome,
     extract: overrides.extract ?? (async () => false),
-    onItemProgress: (e) => items.push(e),
+    onItemProgress: (e) => {
+      items.push(e)
+      overrides.onItem?.(e)
+    },
     onQueueProgress: (e) => queues.push(e),
     onEvidenceChanged: (s) => changed.push(s),
     // advance past both throttle windows on every read so tests see every event
@@ -142,19 +179,138 @@ describe('IngestQueue', () => {
     })
   })
 
-  it('drops an aborted job and leaves no FTS rows behind', async () => {
-    const { abs, size } = makeFile('gone.txt', 5000)
-    const id = insertEvidence('evidence/gone.txt', size)
-    const { queue } = harness()
+  it('deletes the partial index when an abort lands after a chunk was already flushed', async () => {
+    // >1MB (the indexer's read chunk) so at least one full read — and the 400-line
+    // FTS chunks it produced — completes before the abort is raised. Aborting
+    // before the first read proves nothing: there would be nothing to clean up.
+    const big = path.join(tmp, 'abort-mid.txt')
+    const line = 'z'.repeat(1023) + '\n'
+    const fd = fs.openSync(big, 'w')
+    for (let i = 0; i < 3000; i++) fs.writeSync(fd, line)
+    fs.closeSync(fd)
+    const size = fs.statSync(big).size
+    const id = insertEvidence('evidence/abort-mid.txt', size)
 
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: abs, size })
-    queue.abort(id)
+    let rowsWhenAborted = -1
+    const { queue } = harness({
+      onItem: (e) => {
+        if (rowsWhenAborted < 0 && e.phase === 'indexing' && e.fraction > 0) {
+          rowsWhenAborted = countFts(id)
+          queue.abort(id)
+        }
+      }
+    })
+
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: big, size })
     await queue.idle()
 
-    const n = db
-      .prepare(`SELECT count(*) AS n FROM evidence_fts WHERE evidence_id = ?`)
-      .get(id) as { n: number }
-    expect(n.n).toBe(0)
+    expect(rowsWhenAborted).toBeGreaterThan(0) // a partial index really existed
+    expect(countFts(id)).toBe(0) // ...and the abort path removed it
+    expect(indexStateOf(id)).toBe('pending') // not stranded at 'indexing'
+  })
+
+  it('undoes the index when the abort loses the race with the last chunk', async () => {
+    const { abs, size } = makeFile('late-abort.txt', 400)
+    const id = insertEvidence('evidence/late-abort.txt', size)
+
+    // The file is under one read chunk, so the loop emits progress once and the
+    // indexer emits a final completion progress after the loop has exited and the
+    // writer has flushed. Aborting on that second event lands too late for
+    // shouldAbort to ever be consulted again.
+    let fullProgress = 0
+    let extractCalls = 0
+    const { queue, items } = harness({
+      extract: async () => {
+        extractCalls++
+        return false
+      },
+      onItem: (e) => {
+        if (e.phase === 'indexing' && e.fraction === 1 && ++fullProgress === 2) queue.abort(id)
+      }
+    })
+
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: abs, size })
+    await queue.idle()
+
+    expect(fullProgress).toBeGreaterThanOrEqual(2) // the abort really did land late
+    expect(countFts(id)).toBe(0)
+    expect(indexStateOf(id)).toBe('pending')
+    expect(extractCalls).toBe(0)
+    expect(items.some((e) => e.phase === 'extracting' || e.phase === 'done')).toBe(false)
+  })
+
+  it('drops a job aborted while it is still queued behind a running one', async () => {
+    const a = makeFile('q-a.txt', 100)
+    const b = makeFile('q-b.txt', 100)
+    const idA = insertEvidence('evidence/q-a.txt', a.size)
+    const idB = insertEvidence('evidence/q-b.txt', b.size)
+
+    const g = gate()
+    const entered = gate()
+    const { queue, items } = harness({
+      extract: async (id) => {
+        if (id === idA) {
+          entered.open()
+          await g.promise
+        }
+        return false
+      }
+    })
+
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idA, absPath: a.abs, size: a.size })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size })
+    await entered.promise // A is parked in extract, so B is genuinely still queued
+    queue.abort(idB)
+    g.open()
+    await queue.idle()
+
+    expect(countFts(idB)).toBe(0)
+    expect(indexStateOf(idB)).toBe('pending') // the row was never touched
+    expect(items.some((e) => e.evidenceId === idB)).toBe(false)
+
+    // The flag is consumed by the job it belonged to, so it does not leak into a
+    // later enqueue of the same evidence id.
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size })
+    await queue.idle()
+    expect(countFts(idB)).toBeGreaterThan(0)
+  })
+
+  it('runs a job enqueued in the microtask window where a drain is settling', async () => {
+    const a = makeFile('kick-a.txt', 40)
+    const b = makeFile('kick-b.txt', 40)
+    const idA = insertEvidence('evidence/kick-a.txt', a.size)
+    const idB = insertEvidence('evidence/kick-b.txt', b.size)
+
+    const g = gate()
+    const entered = gate()
+    const { queue } = harness({
+      extract: async (id) => {
+        if (id === idA) {
+          entered.open()
+          await g.promise
+        }
+        return false
+      }
+    })
+
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idA, absPath: a.abs, size: a.size })
+    await entered.promise
+
+    // Two microtasks past the gate is the tick where drain() has already returned
+    // but the reaction that clears the running latch has not run yet. A real
+    // ingest loop (`await copy(f); queue.enqueue(...)`) lands in exactly this gap;
+    // if enqueue only trusts the latch, this job is stranded forever and idle()
+    // still resolves.
+    const late = g.promise
+      .then(() => {})
+      .then(() => {})
+      .then(() => queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size }))
+    g.open()
+    await late
+    await queue.idle()
+
+    expect(countFts(idB)).toBeGreaterThan(0)
+    expect(indexStateOf(idB)).toBe('indexed')
   })
 
   it('marks a file errored and keeps draining when indexing throws', async () => {
