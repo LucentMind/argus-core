@@ -331,6 +331,7 @@ interface DraftFieldProps {
   'aria-label': string
   className?: string
   placeholder?: string
+  disabled?: boolean
 }
 
 /**
@@ -346,6 +347,7 @@ export function DraftInput({
   'aria-label': ariaLabel,
   className,
   placeholder,
+  disabled,
   type
 }: DraftFieldProps & { type?: string }): React.JSX.Element {
   const [draft, setDraft] = useState(value)
@@ -361,6 +363,7 @@ export function DraftInput({
       aria-label={ariaLabel}
       className={className}
       placeholder={placeholder}
+      disabled={disabled}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onFocus={() => setFocused(true)}
