@@ -52,14 +52,14 @@ export interface RenderOptions {
   /** The template this draft was generated under — a job's snapshot, never live settings.
    *  Rendering under a template the model never saw would leave new sections blank. */
   template: RcaTemplate
-  /** Section ids the user dropped for THIS draft only (increment 3). Distinct from
-   *  `enabled: false`, which is a persistent template decision. */
+  /** Section ids the user dropped for THIS draft only (once the panel can drop sections
+   *  per draft). Distinct from `enabled: false`, which is a persistent template decision. */
   dropped?: ReadonlySet<string>
 }
 
 /** Section id → the pre-template field it rendered from. Keyed by the ids in
  *  `DEFAULT_RCA_TEMPLATE`; a user-added section has no entry and renders empty until
- *  increment 2 teaches the model to fill it. Declared before `narrativeBody` so the
+ *  the model authors its own sections. Declared before `narrativeBody` so the
  *  repo's `no-use-before-define` lint rule stays satisfied. */
 const LEGACY_NARRATIVE: Record<string, (d: RcaDraft) => string> = {
   'what-happened': (d) => d.execSummary.whatBroke,
@@ -70,10 +70,13 @@ const LEGACY_NARRATIVE: Record<string, (d: RcaDraft) => string> = {
 }
 
 /**
- * Body + citations for a narrative section. Increment 2 makes this read
- * `draft.sections[id]` first; today every default narrative section maps to the legacy
- * field it used to render from, so drafts generated before templates still render in full.
- * An unknown id yields an empty body, which `section()` then skips entirely.
+ * Body + citations for a narrative section. Once the model authors its own sections this
+ * should read `draft.sections[id]` first; today every default narrative section maps to the
+ * legacy field it used to render from, so drafts generated before templates still render in
+ * full. An unknown id yields an empty body, which `section()` then skips entirely.
+ *
+ * `citations` is always `[]` here — there is no source of per-narrative-section citations yet,
+ * so the tech renderer's `citationsBlock(citations)` call on the result is currently dead code.
  */
 function narrativeBody(draft: RcaDraft, id: string): { body: string; citations: Citation[] } {
   const legacy = LEGACY_NARRATIVE[id]
@@ -118,15 +121,17 @@ function claimsBody(draft: RcaDraft, slot: NonNullable<RcaSection['slot']>): str
         .map((n) => section(n.heading, joinSections([n.body, citationsBlock(n.citations)])))
         .filter((s) => s.length > 0)
         .join('\n\n')
+    default:
+      throw new Error(`unknown claim slot: ${slot}`)
   }
 }
 
-/** True when the template does not give `timeline` its own section, in which case the
- *  symptoms section carries it as a `### Timeline` sub-block — the pre-template layout. */
-function symptomsOwnsTimeline(sections: RcaSection[], dropped: ReadonlySet<string>): boolean {
-  return !sections.some(
-    (s) => s.enabled && !dropped.has(s.id) && s.kind === 'claims' && s.slot === 'timeline'
-  )
+/** True when the template does not DECLARE a `timeline` section at all, in which case the
+ *  symptoms section carries it as a `### Timeline` sub-block — the pre-template layout.
+ *  Declared, but disabled or dropped, means the user turned the timeline off; it must not
+ *  reappear under symptoms, so this checks declaration only, not enabled/dropped state. */
+function symptomsOwnsTimeline(sections: RcaSection[]): boolean {
+  return !sections.some((s) => s.kind === 'claims' && s.slot === 'timeline')
 }
 
 /** `tech-narrative` emits its own `##` headings, so it is spliced in raw rather than wrapped
@@ -174,7 +179,7 @@ export function renderTechReport(draft: RcaDraft, meta: CaseMeta, opts: RenderOp
   const metaLine = [meta.jiraKey ? `Jira: ${meta.jiraKey}` : '', `Case: ${meta.slug}`]
     .filter((s) => s.length > 0)
     .join(' · ')
-  const withTimeline = symptomsOwnsTimeline(opts.template.tech, dropped)
+  const withTimeline = symptomsOwnsTimeline(opts.template.tech)
   const bodies = renderSections(opts.template.tech, dropped, (s) => {
     if (s.kind === 'narrative') {
       const { body, citations } = narrativeBody(draft, s.id)

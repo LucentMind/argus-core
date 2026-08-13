@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { CaseRcaInput, RcaDraft } from '../../../shared/rca'
 import { renderExecReport, renderTechReport } from '../rca/render'
 import { DEFAULT_RCA_TEMPLATE } from '../../../shared/rcaTemplate'
-import type { RcaTemplate } from '../../../shared/rcaTemplate'
+import type { RcaTemplate, RcaSection } from '../../../shared/rcaTemplate'
 
 function meta(): CaseRcaInput['caseMeta'] {
   return {
@@ -129,6 +129,12 @@ describe('renderExecReport', () => {
     const md = renderExecReport(emptyDraft(), meta(), { template: DEFAULT_RCA_TEMPLATE })
     expect(md).not.toMatch(/\(none\)/i)
   })
+
+  it('reads execSummary.impact, not draft.impact, for the exec Impact section', () => {
+    const md = renderExecReport(draft(), meta(), { template: DEFAULT_RCA_TEMPLATE })
+    expect(md).toContain(draft().execSummary.impact)
+    expect(md).not.toContain(draft().impact)
+  })
 })
 
 describe('renderTechReport', () => {
@@ -148,6 +154,12 @@ describe('renderTechReport', () => {
     const md = renderTechReport(draft(), meta(), { template: DEFAULT_RCA_TEMPLATE })
     expect(md).toContain('## Impact')
     expect(md).toContain(draft().impact)
+  })
+
+  it('reads draft.impact, not execSummary.impact, for the tech Impact section', () => {
+    const md = renderTechReport(draft(), meta(), { template: DEFAULT_RCA_TEMPLATE })
+    expect(md).toContain(draft().impact)
+    expect(md).not.toContain(draft().execSummary.impact)
   })
 
   it('omits the Impact section when impact is empty', () => {
@@ -182,6 +194,94 @@ function clone(t: RcaTemplate): RcaTemplate {
   return JSON.parse(JSON.stringify(t)) as RcaTemplate
 }
 
+describe('golden snapshots (byte-identical guarantee)', () => {
+  it('renders the exec report exactly as before, under the default template', () => {
+    const md = renderExecReport(draft(), meta(), DEFAULTS)
+    expect(md).toMatchInlineSnapshot(`
+      "# RCA — Cross-tenant cache leak
+
+      Jira: KAN-42
+
+      ## What happened
+
+      A caching bug briefly let some customers see another customer’s data.
+
+      ## Impact
+
+      A small number of customers may have seen another customer’s cached information for about 40 minutes.
+
+      ## Root cause
+
+      The system that builds cache keys did not include which customer the data belonged to.
+
+      ## What we did
+
+      Invalidated the shared cache and rolled back the deploy.
+
+      ## Next steps
+
+      - We fixed the cache key and are adding a test to prevent this from happening again.
+      - Add the tenant id to the cache key composition.
+      - Add an integration test for cross-tenant cache isolation."
+    `)
+  })
+
+  it('renders the tech report exactly as before, under the default template', () => {
+    const md = renderTechReport(draft(), meta(), DEFAULTS)
+    expect(md).toMatchInlineSnapshot(`
+      "# RCA — Cross-tenant cache leak
+
+      Jira: KAN-42 · Case: case-a
+
+      ## Root cause
+
+      The cache key omitted the tenant id, causing collisions between tenants. (finding 7)
+
+      \`src/cache/key.ts:42\`
+      > cache hit returned data for the wrong tenant
+
+      ## Impact
+
+      Customers in the affected tenants received other tenants’ cached API responses for roughly 40 minutes.
+
+      ## Contributing factors
+
+      Retry logic multiplied writes under load, widening the collision window. (finding 3)
+
+      \`src/worker/retry.ts:10\`
+
+      ## Symptoms & timeline
+
+      - Tenants intermittently saw other tenants’ cached responses. (finding 7)
+
+      ### Timeline
+
+      - 2026-01-01T10:00:00Z — Cache key collision begins after deploy of v2.3.0
+      - 2026-01-01T10:40:00Z — Cache invalidated; incident resolved
+
+      ## Ruled out
+
+      - A stale connection pool was suspected. — because the retry queue was empty at the time of the incident
+
+      ## Remediation
+
+      Invalidated the shared cache and rolled back the deploy.
+
+      ### Follow-ups
+
+      - Add the tenant id to the cache key composition.
+      - Add an integration test for cross-tenant cache isolation.
+
+      ## Why the cache key collided
+
+      The key builder concatenated only the endpoint and query parameters, so two tenants requesting the same endpoint with the same parameters landed on the same cache entry.
+
+      \`src/cache/key.ts:42\`
+      > key = \`\${endpoint}:\${params}\`"
+    `)
+  })
+})
+
 describe('template-driven rendering', () => {
   it('renders exec sections in template order', () => {
     const t = clone(DEFAULT_RCA_TEMPLATE)
@@ -211,12 +311,20 @@ describe('template-driven rendering', () => {
   })
 
   it('skips a section named in `dropped` without changing the template', () => {
+    const templateIdsBefore = [
+      ...DEFAULT_RCA_TEMPLATE.exec.map((s) => s.id),
+      ...DEFAULT_RCA_TEMPLATE.tech.map((s) => s.id)
+    ]
     const out = renderTechReport(draft(), meta(), {
       template: DEFAULT_RCA_TEMPLATE,
       dropped: new Set(['impact'])
     })
     expect(out).not.toContain('## Impact')
     expect(out).toContain('## Root cause')
+    expect([
+      ...DEFAULT_RCA_TEMPLATE.exec.map((s) => s.id),
+      ...DEFAULT_RCA_TEMPLATE.tech.map((s) => s.id)
+    ]).toEqual(templateIdsBefore)
   })
 
   it('splits symptoms and timeline when the template gives timeline its own section', () => {
@@ -242,16 +350,52 @@ describe('template-driven rendering', () => {
     expect(out).toContain('### Timeline')
   })
 
-  it('drops a section whose body is empty, as before', () => {
-    const d = draft()
-    d.impact = ''
-    expect(renderTechReport(d, meta(), DEFAULTS)).not.toContain('## Impact')
+  it('does not relocate the timeline into symptoms when its own section is disabled', () => {
+    const t = clone(DEFAULT_RCA_TEMPLATE)
+    t.tech[3].heading = 'Symptoms'
+    t.tech.splice(4, 0, {
+      id: 'timeline',
+      heading: 'Timeline',
+      kind: 'claims',
+      slot: 'timeline',
+      enabled: false
+    })
+    const out = renderTechReport(draft(), meta(), { template: t })
+    expect(out).not.toContain('## Timeline')
+    expect(out).not.toContain('### Timeline')
+    expect(out).not.toContain('Cache key collision begins after deploy of v2.3.0')
   })
 
-  it('renders a legacy draft that predates template-authored sections', () => {
-    const d = draft() // no `sections` key at all
-    const out = renderExecReport(d, meta(), DEFAULTS)
-    expect(out).toContain('## What happened')
-    expect(out).toContain('## Next steps')
+  it('does not relocate the timeline into symptoms when its own section is dropped', () => {
+    const t = clone(DEFAULT_RCA_TEMPLATE)
+    t.tech[3].heading = 'Symptoms'
+    t.tech.splice(4, 0, {
+      id: 'timeline',
+      heading: 'Timeline',
+      kind: 'claims',
+      slot: 'timeline',
+      enabled: true
+    })
+    const out = renderTechReport(draft(), meta(), {
+      template: t,
+      dropped: new Set(['timeline'])
+    })
+    expect(out).not.toContain('## Timeline')
+    expect(out).not.toContain('### Timeline')
+    expect(out).not.toContain('Cache key collision begins after deploy of v2.3.0')
+  })
+
+  it('throws a clear error for a claims section with an unknown slot, instead of crashing later', () => {
+    const t = clone(DEFAULT_RCA_TEMPLATE)
+    t.tech[0] = {
+      id: 'root-cause',
+      heading: 'Root cause',
+      kind: 'claims',
+      slot: 'not-a-real-slot' as unknown as RcaSection['slot'],
+      enabled: true
+    }
+    expect(() => renderTechReport(draft(), meta(), { template: t })).toThrow(
+      /unknown claim slot: not-a-real-slot/
+    )
   })
 })
