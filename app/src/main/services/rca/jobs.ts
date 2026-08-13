@@ -16,6 +16,7 @@ import { artifactsDir } from '../paths'
 import { buildCaseRcaPrompt } from './contract'
 import { parseRcaOutput, validateRcaDraft, RcaParseError } from './parse'
 import { renderExecReport, renderTechReport } from './render'
+import { DEFAULT_RCA_TEMPLATE } from '../../../shared/rcaTemplate'
 
 export interface RcaJobsDeps {
   db: DatabaseSync
@@ -229,8 +230,9 @@ export class RcaJobs {
       createdAt: kase.createdAt
     }
     fs.writeFileSync(path.join(dir, 'rca-structure.json'), JSON.stringify(edited, null, 2))
-    fs.writeFileSync(path.join(dir, 'rca-exec.md'), renderExecReport(edited, meta))
-    fs.writeFileSync(path.join(dir, 'rca-tech.md'), renderTechReport(edited, meta))
+    const opts = { template: DEFAULT_RCA_TEMPLATE }
+    fs.writeFileSync(path.join(dir, 'rca-exec.md'), renderExecReport(edited, meta, opts))
+    fs.writeFileSync(path.join(dir, 'rca-tech.md'), renderTechReport(edited, meta, opts))
     this.deps.db
       .prepare(`UPDATE rca_jobs SET confirmed_at = ? WHERE id = ?`)
       .run(new Date().toISOString(), jobId)
