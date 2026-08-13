@@ -3,6 +3,7 @@ import { Btn, Chip } from './ui'
 import { ModalShell } from './ModalShell'
 import { transientFieldEscape } from '../lib/escapeLayer'
 import { parseJiraKeyInput } from '../lib/jiraKeyInput'
+import { sortAttachmentsByType } from '../lib/attachmentOrder'
 import type { NewCaseInput } from '../../../shared/types'
 import type { JiraAttachmentInfo, JiraIssuePreview } from '../../../shared/jira'
 
@@ -152,6 +153,15 @@ export function NewCaseDialog({
     void window.argus.jira.ingestAttachments(step.slug, [file.att])
   }
 
+  // Toggle-all math for the preview step's attachment list. Every attachment on a fresh
+  // preview is selectable (nothing is ingested yet), so this is simply the whole list.
+  const previewAttachments = useMemo(
+    () => (step.step === 'preview' ? sortAttachmentsByType(step.preview.attachments) : []),
+    [step]
+  )
+  const allSelected =
+    previewAttachments.length > 0 && previewAttachments.every((a) => checked.has(a.id))
+
   const settled = useMemo(
     () =>
       step.step === 'ingest'
@@ -257,33 +267,55 @@ export function NewCaseDialog({
               onChange={(e) => setCaseTitle(e.target.value)}
               onKeyDown={(e) => transientFieldEscape(e, caseTitle === '', () => setCaseTitle(''))}
             />
-            <div className="flex flex-col gap-1">
-              <span className="text-xs text-dim">
-                Attachments ({step.preview.attachments.length})
-              </span>
-              {step.preview.attachments.map((a) => (
-                <label
-                  key={a.id}
-                  className="flex items-center gap-2 rounded-r1 px-1 py-0.5 text-xs hover:bg-hi"
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked.has(a.id)}
-                    onChange={(e) => {
-                      const next = new Set(checked)
-                      if (e.target.checked) next.add(a.id)
-                      else next.delete(a.id)
-                      setChecked(next)
-                    }}
-                  />
-                  <span className="min-w-0 flex-1 truncate font-mono text-ink">{a.filename}</span>
-                  <span className="shrink-0 text-mute">{kb(a.size)}</span>
-                  <span className="shrink-0 text-mute">{a.mimeType}</span>
-                </label>
-              ))}
-              {step.preview.attachments.length === 0 && (
-                <span className="text-xs text-mute">none</span>
-              )}
+            <div className="flex min-h-0 flex-col gap-1">
+              {/* The toggle-all is a button, not a checkbox: a checkbox here would sit in the
+                  same column as the per-file boxes and read as just another file row. */}
+              <div className="flex items-center gap-2 border-b border-hair pb-1 text-xs">
+                <span className="uppercase tracking-wide text-dim">
+                  Attachments ({previewAttachments.length})
+                </span>
+                {previewAttachments.length > 0 && (
+                  <Btn
+                    // outline, not ghost: a borderless control beside a span of text read as
+                    // a second label rather than as something clickable.
+                    variant="outline"
+                    className="ml-auto"
+                    onClick={() =>
+                      setChecked(
+                        allSelected ? new Set() : new Set(previewAttachments.map((a) => a.id))
+                      )
+                    }
+                  >
+                    {allSelected ? 'Deselect all' : 'Select all'}
+                  </Btn>
+                )}
+              </div>
+              {/* A ticket can carry dozens of attachments; without a cap here the list pushed
+                  "Create case" off the bottom of the dialog and the user had to scroll the whole
+                  modal to reach it. The list gets its own scroll instead. */}
+              <div className="flex max-h-64 min-h-0 flex-col gap-1 overflow-y-auto">
+                {previewAttachments.map((a) => (
+                  <label
+                    key={a.id}
+                    className="flex items-center gap-2 rounded-r1 px-1 py-0.5 text-xs hover:bg-hi"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked.has(a.id)}
+                      onChange={(e) => {
+                        const next = new Set(checked)
+                        if (e.target.checked) next.add(a.id)
+                        else next.delete(a.id)
+                        setChecked(next)
+                      }}
+                    />
+                    <span className="min-w-0 flex-1 truncate font-mono text-ink">{a.filename}</span>
+                    <span className="shrink-0 text-mute">{kb(a.size)}</span>
+                    <span className="shrink-0 text-mute">{a.mimeType}</span>
+                  </label>
+                ))}
+                {previewAttachments.length === 0 && <span className="text-xs text-mute">none</span>}
+              </div>
             </div>
             <Btn
               variant="primary"

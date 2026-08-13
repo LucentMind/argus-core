@@ -85,10 +85,65 @@ describe('NewCaseDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
     expect(await screen.findByDisplayValue('PROJ-7')).toBeInTheDocument()
     expect(screen.getByDisplayValue('Route flickers')).toBeInTheDocument()
-    // attachments pre-checked
+    // attachments pre-checked — the toggle is a button, so these are the two files
     const boxes = screen.getAllByRole('checkbox')
     expect(boxes).toHaveLength(2)
     for (const b of boxes) expect(b).toBeChecked()
+  })
+
+  it('toggle-all clears every attachment, then re-selects them all', async () => {
+    render(<NewCaseDialog {...noop} />)
+    fireEvent.change(screen.getByPlaceholderText(/PROJ-1234/i), { target: { value: 'PROJ-7' } })
+    fireEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+    await screen.findByDisplayValue('Route flickers')
+
+    fireEvent.click(screen.getByRole('button', { name: /deselect all/i }))
+    expect(screen.getByRole('checkbox', { name: /trace\.binlog/ })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /log\.txt/ })).not.toBeChecked()
+
+    fireEvent.click(screen.getByRole('button', { name: /select all/i }))
+    expect(screen.getByRole('checkbox', { name: /trace\.binlog/ })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /log\.txt/ })).toBeChecked()
+
+    // partial selection still offers the completing action, not the clearing one
+    fireEvent.click(screen.getByRole('checkbox', { name: /log\.txt/ }))
+    expect(screen.getByRole('button', { name: /select all/i })).toBeInTheDocument()
+  })
+
+  it('lists attachments grouped by type, not in the order Jira returned them', async () => {
+    jira.preview.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        ...PREVIEW,
+        attachments: [
+          { id: '1', filename: 'b.txt', size: 1, mimeType: 'text/plain', createdAt: 'x' },
+          { id: '2', filename: 'dump.bin', size: 1, mimeType: 'application/octet-stream' },
+          { id: '3', filename: 'a.txt', size: 1, mimeType: 'text/plain', createdAt: 'x' }
+        ]
+      }
+    })
+    render(<NewCaseDialog {...noop} />)
+    fireEvent.change(screen.getByPlaceholderText(/PROJ-1234/i), { target: { value: 'PROJ-7' } })
+    fireEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+    await screen.findByDisplayValue('Route flickers')
+    // first span in each row is the filename cell
+    const names = screen
+      .getAllByRole('checkbox')
+      .map((b) => b.closest('label')?.querySelector('span')?.textContent ?? '')
+    expect(names).toEqual(['dump.bin', 'a.txt', 'b.txt'])
+  })
+
+  it('deselecting all then creating ingests nothing and persists every id', async () => {
+    render(<NewCaseDialog {...noop} />)
+    fireEvent.change(screen.getByPlaceholderText(/PROJ-1234/i), { target: { value: 'PROJ-7' } })
+    fireEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+    await screen.findByDisplayValue('Route flickers')
+    fireEvent.click(screen.getByRole('button', { name: /deselect all/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^create case$/i }))
+    await waitFor(() =>
+      expect(jira.setAttachmentSelection).toHaveBeenCalledWith('PROJ-7', ['10001', '10002'])
+    )
+    expect(jira.ingestAttachments).not.toHaveBeenCalled()
   })
 
   it('fetches a ticket from a pasted full Jira link', async () => {
@@ -149,7 +204,7 @@ describe('NewCaseDialog', () => {
     fireEvent.change(screen.getByPlaceholderText(/PROJ-1234/i), { target: { value: 'PROJ-7' } })
     fireEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
     await screen.findByDisplayValue('Route flickers')
-    fireEvent.click(screen.getAllByRole('checkbox')[1]) // uncheck log.txt
+    fireEvent.click(screen.getByRole('checkbox', { name: /log\.txt/ })) // uncheck log.txt
     fireEvent.click(screen.getByRole('button', { name: /^create case$/i }))
     await waitFor(() =>
       expect(jira.ingestAttachments).toHaveBeenCalledWith('PROJ-7', [PREVIEW.attachments[0]])
@@ -185,7 +240,7 @@ describe('NewCaseDialog', () => {
     fireEvent.change(screen.getByPlaceholderText(/PROJ-1234/i), { target: { value: 'PROJ-7' } })
     fireEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
     await screen.findByDisplayValue('Route flickers')
-    fireEvent.click(screen.getAllByRole('checkbox')[1]) // uncheck log.txt
+    fireEvent.click(screen.getByRole('checkbox', { name: /log\.txt/ })) // uncheck log.txt
     fireEvent.click(screen.getByRole('button', { name: /^create case$/i }))
     await waitFor(() =>
       expect(jira.setAttachmentSelection).toHaveBeenCalledWith('PROJ-7', ['10002'])
