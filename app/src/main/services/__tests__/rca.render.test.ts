@@ -311,20 +311,14 @@ describe('template-driven rendering', () => {
   })
 
   it('skips a section named in `dropped` without changing the template', () => {
-    const templateIdsBefore = [
-      ...DEFAULT_RCA_TEMPLATE.exec.map((s) => s.id),
-      ...DEFAULT_RCA_TEMPLATE.tech.map((s) => s.id)
-    ]
+    const templateBefore = structuredClone(DEFAULT_RCA_TEMPLATE)
     const out = renderTechReport(draft(), meta(), {
       template: DEFAULT_RCA_TEMPLATE,
       dropped: new Set(['impact'])
     })
     expect(out).not.toContain('## Impact')
     expect(out).toContain('## Root cause')
-    expect([
-      ...DEFAULT_RCA_TEMPLATE.exec.map((s) => s.id),
-      ...DEFAULT_RCA_TEMPLATE.tech.map((s) => s.id)
-    ]).toEqual(templateIdsBefore)
+    expect(DEFAULT_RCA_TEMPLATE).toEqual(templateBefore)
   })
 
   it('splits symptoms and timeline when the template gives timeline its own section', () => {

@@ -121,8 +121,10 @@ function claimsBody(draft: RcaDraft, slot: NonNullable<RcaSection['slot']>): str
         .map((n) => section(n.heading, joinSections([n.body, citationsBlock(n.citations)])))
         .filter((s) => s.length > 0)
         .join('\n\n')
-    default:
-      throw new Error(`unknown claim slot: ${slot}`)
+    default: {
+      const _exhaustive: never = slot
+      throw new Error(`unknown claim slot: ${String(_exhaustive)}`)
+    }
   }
 }
 
