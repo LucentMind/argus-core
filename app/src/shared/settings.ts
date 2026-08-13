@@ -111,6 +111,31 @@ const rcaSchema = z.looseObject({
   confluenceSpaceKey: z.string().default('')
 })
 
+/** The default footer for both destinations. The "reviewed before posting" clause is true
+ *  whenever the approval card is in play — the normal path for both seams — and overclaims
+ *  for an unattended/bypass run, which the settings UI says out loud. It stays in the
+ *  default rather than being weakened because the field is free text. */
+export const DEFAULT_WATERMARK_TEXT = '_AI-assisted — drafted by Argus, reviewed before posting._'
+
+const watermarkTargetSchema = z.looseObject({
+  enabled: z.boolean(),
+  text: z.string()
+})
+
+/**
+ * A Markdown footer appended to comments ARGUS composes (`rca/post.ts`,
+ * `agent/reviewWrites.ts`). Deliberately not applied to comments the model posts itself
+ * through the Rovo MCP connector — that body never passes through our code — nor to the RCA
+ * Confluence page or attachment, which are documents rather than comments.
+ *
+ * Jira defaults ON: a Jira comment reads as a human ticket update, so disclosure matters
+ * most there. GitHub defaults OFF so upgrading never silently changes what lands on a PR.
+ */
+const watermarkSchema = z.looseObject({
+  jira: watermarkTargetSchema.default(() => ({ enabled: true, text: DEFAULT_WATERMARK_TEXT })),
+  github: watermarkTargetSchema.default(() => ({ enabled: false, text: DEFAULT_WATERMARK_TEXT }))
+})
+
 const hivemindSchema = z.looseObject({
   /** GitHub 'org/name' of the shared HiveMind repo; '' keeps HiveMind features dormant. */
   repo: z.string().default('')
@@ -181,6 +206,7 @@ export const settingsSchema = z.looseObject({
   agent: agentSchema.default(() => agentSchema.parse({})),
   tools: toolsSchema.default(() => toolsSchema.parse({})),
   rca: rcaSchema.default(() => rcaSchema.parse({})),
+  watermark: watermarkSchema.default(() => watermarkSchema.parse({})),
   hivemind: hivemindSchema.default(() => hivemindSchema.parse({})),
   defectCorpus: defectCorpusSchema.default(() => defectCorpusSchema.parse({})),
   observability: observabilitySchema.default(() => observabilitySchema.parse({})),
