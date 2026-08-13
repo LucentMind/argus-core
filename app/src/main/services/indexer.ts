@@ -8,6 +8,103 @@ import { deleteEvidenceFtsForEvidence } from './ftsIndex'
 
 const READ_CHUNK_BYTES = 1024 * 1024
 
+/** Accumulates lines into fixed-size chunks and writes each to evidence_fts plus
+ *  the evidence_fts_map side table (see ftsIndex.ts — the map is what makes
+ *  per-evidence deletes O(deleted rows) instead of a full-table scan).
+ *  Shared by the sync and async indexers so the two cannot drift. */
+export class FtsChunkWriter {
+  private readonly ins
+  private readonly insMap
+  private pending: string[] = []
+  private chunkIndex = 0
+  private chunkStart = 1
+  private lastLineNo = 0
+
+  constructor(
+    db: DatabaseSync,
+    private readonly evidenceId: number,
+    private readonly chunkLines: number
+  ) {
+    this.ins = db.prepare(
+      `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    this.insMap = db.prepare(
+      `INSERT INTO evidence_fts_map (fts_rowid, evidence_id) VALUES (?, ?)`
+    )
+  }
+
+  add(line: string, lineNo: number): void {
+    this.lastLineNo = lineNo
+    this.pending.push(line)
+    if (this.pending.length >= this.chunkLines) this.flush()
+  }
+
+  flush(): void {
+    if (this.pending.length === 0) return
+    const rowid = this.ins.run(
+      this.pending.join('\n'),
+      this.evidenceId,
+      this.chunkIndex,
+      this.chunkStart,
+      this.chunkStart + this.pending.length - 1
+    ).lastInsertRowid
+    this.insMap.run(rowid, this.evidenceId)
+    this.chunkIndex++
+    this.chunkStart = this.lastLineNo + 1
+    this.pending = []
+  }
+
+  get chunkCount(): number {
+    return this.chunkIndex
+  }
+}
+
+/** Collects line-index checkpoints for the large-file viewer's sidecar. Disabled
+ *  instances still expose the mandatory origin checkpoint so callers need no branch. */
+export class CheckpointRecorder {
+  private readonly points: Array<[number, number]> = [[1, 0]]
+  private lastLine = 1
+  private lastByte = 0
+
+  constructor(private readonly enabled: boolean) {}
+
+  record(lineNo: number, byteStart: number): void {
+    if (!this.enabled) return
+    if (lineNo - this.lastLine >= CHECKPOINT_LINES || byteStart - this.lastByte >= CHECKPOINT_BYTES) {
+      this.points.push([lineNo, byteStart])
+      this.lastLine = lineNo
+      this.lastByte = byteStart
+    }
+  }
+
+  get checkpoints(): Array<[number, number]> {
+    return this.points
+  }
+}
+
+/** Write the piggybacked line-index sidecar produced during an FTS pass. */
+function writePiggybackSidecar(
+  argusHome: string,
+  absPath: string,
+  stat: fs.Stats,
+  totalLines: number,
+  checkpoints: Array<[number, number]>
+): void {
+  const side = sidecarPath(argusHome, absPath)
+  fs.mkdirSync(path.dirname(side), { recursive: true })
+  fs.writeFileSync(
+    side,
+    JSON.stringify({
+      version: 1,
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      totalLines,
+      checkpoints
+    })
+  )
+}
+
 // Indexes a file straight off disk in fixed-size byte chunks, splitting on raw
 // \n bytes so multi-byte UTF-8 characters are never decoded across a chunk
 // boundary. Never materializes the whole file as one JS string — required
@@ -26,56 +123,23 @@ export function indexEvidenceFile(
   chunkLines = 400,
   argusHome?: string
 ): number {
-  const ins = db.prepare(
-    `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
-     VALUES (?, ?, ?, ?, ?)`
-  )
-  // side table for O(deleted-rows) FTS deletes — see ftsIndex.ts
-  const insMap = db.prepare(`INSERT INTO evidence_fts_map (fts_rowid, evidence_id) VALUES (?, ?)`)
   const stat = fs.statSync(absPath)
   const wantSidecar = argusHome !== undefined && stat.size > MAX_READ_BYTES
-  const checkpoints: Array<[number, number]> = [[1, 0]]
-  let lastCpLine = 1
-  let lastCpByte = 0
+  const writer = new FtsChunkWriter(db, evidenceId, chunkLines)
+  const cps = new CheckpointRecorder(wantSidecar)
+  let lineNo = 0
+
+  const onLine = (line: Buffer, n: number, byteStart: number): void => {
+    lineNo = n
+    writer.add(line.toString('utf8'), n)
+    cps.record(n, byteStart)
+  }
 
   const fd = fs.openSync(absPath, 'r')
   try {
     const buf = Buffer.alloc(READ_CHUNK_BYTES)
-    let lineNo = 0
-    let chunkIndex = 0
-    let chunkStart = 1
-    let pending: string[] = []
-    let offset = 0
     const splitter = new LineSplitter()
-
-    const flush = (): void => {
-      if (pending.length === 0) return
-      const rowid = ins.run(
-        pending.join('\n'),
-        evidenceId,
-        chunkIndex,
-        chunkStart,
-        chunkStart + pending.length - 1
-      ).lastInsertRowid
-      insMap.run(rowid, evidenceId)
-      chunkIndex++
-      chunkStart = lineNo + 1
-      pending = []
-    }
-    const onLine = (line: Buffer, n: number, byteStart: number): void => {
-      lineNo = n
-      pending.push(line.toString('utf8'))
-      if (pending.length >= chunkLines) flush()
-      if (
-        wantSidecar &&
-        (n - lastCpLine >= CHECKPOINT_LINES || byteStart - lastCpByte >= CHECKPOINT_BYTES)
-      ) {
-        checkpoints.push([n, byteStart])
-        lastCpLine = n
-        lastCpByte = byteStart
-      }
-    }
-
+    let offset = 0
     while (true) {
       const n = fs.readSync(fd, buf, 0, READ_CHUNK_BYTES, offset)
       if (n === 0) break
@@ -83,23 +147,11 @@ export function indexEvidenceFile(
       splitter.push(buf.subarray(0, n), onLine)
     }
     splitter.flush(onLine)
-    flush()
-
+    writer.flush()
     if (wantSidecar) {
-      const side = sidecarPath(argusHome as string, absPath)
-      fs.mkdirSync(path.dirname(side), { recursive: true })
-      fs.writeFileSync(
-        side,
-        JSON.stringify({
-          version: 1,
-          mtimeMs: stat.mtimeMs,
-          size: stat.size,
-          totalLines: lineNo,
-          checkpoints
-        })
-      )
+      writePiggybackSidecar(argusHome as string, absPath, stat, lineNo, cps.checkpoints)
     }
-    return chunkIndex
+    return writer.chunkCount
   } finally {
     fs.closeSync(fd)
   }
