@@ -105,6 +105,72 @@ describe('JiraAttachmentsDialog', () => {
     expect(window.argus.jira.setAttachmentSelection).toHaveBeenCalledWith('NAV-7', ['2'])
   })
 
+  it('toggle-all selects every selectable row, then clears them all', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(
+      <JiraAttachmentsDialog
+        slug="NAV-7"
+        newAttachments={[att('1', 'new.txt')]}
+        deselectedAttachments={[att('2', 'old.txt')]}
+        ingestedAttachments={[att('9', 'synced.txt')]}
+        onClose={onClose}
+      />
+    )
+    // one of two selected, so the toggle offers the completing action
+    await user.click(screen.getByRole('button', { name: /select all/i }))
+    expect(screen.getByRole('checkbox', { name: /old\.txt/i })).toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: /deselect all/i }))
+    expect(screen.getByRole('checkbox', { name: /new\.txt/i })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /old\.txt/i })).not.toBeChecked()
+    // the synced row is not the toggle's to touch, and stays out of both payloads
+    expect(screen.getByRole('checkbox', { name: /synced\.txt/i })).toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: /download selected/i }))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(window.argus.jira.ingestAttachments).not.toHaveBeenCalled()
+    expect(window.argus.jira.setAttachmentSelection).toHaveBeenCalledWith('NAV-7', ['1', '2'])
+  })
+
+  it('hides the toggle when every row is already synced', () => {
+    render(
+      <JiraAttachmentsDialog
+        slug="NAV-7"
+        newAttachments={[]}
+        deselectedAttachments={[]}
+        ingestedAttachments={[att('9', 'synced.txt')]}
+        onClose={() => {}}
+      />
+    )
+    expect(screen.queryByRole('button', { name: /select all/i })).toBeNull()
+  })
+
+  it('sorts by type within each bucket, leaving the buckets themselves in order', () => {
+    const typed = (id: string, filename: string, mimeType: string): JiraAttachmentInfo => ({
+      ...att(id, filename),
+      mimeType
+    })
+    render(
+      <JiraAttachmentsDialog
+        slug="NAV-7"
+        newAttachments={[
+          typed('1', 'b.txt', 'text/plain'),
+          typed('2', 'dump.bin', 'application/octet-stream'),
+          typed('3', 'a.txt', 'text/plain')
+        ]}
+        deselectedAttachments={[typed('4', 'skipped.txt', 'text/plain')]}
+        ingestedAttachments={[typed('5', 'synced.txt', 'text/plain')]}
+        onClose={() => {}}
+      />
+    )
+    const names = screen
+      .getAllByRole('checkbox')
+      .map((b) => b.getAttribute('aria-label') ?? b.getAttribute('name') ?? '')
+    // new (by type, then name) → previously skipped → synced
+    expect(names).toEqual(['dump.bin', 'a.txt', 'b.txt', 'skipped.txt', 'synced.txt'])
+  })
+
   it('cancel calls neither API', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()

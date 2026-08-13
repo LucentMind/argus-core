@@ -3,6 +3,7 @@ import { Btn, Chip } from './ui'
 import { ModalShell } from './ModalShell'
 import type { JiraAttachmentInfo } from '../../../shared/jira'
 import { panelsStore } from '../lib/panelsStore'
+import { sortAttachmentsByType } from '../lib/attachmentOrder'
 
 const kb = (n: number): string => (n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`)
 
@@ -31,6 +32,17 @@ export function JiraAttachmentsDialog({
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Rows stay grouped by bucket (new / skipped / synced) — that grouping is the point of this
+  // dialog — and sort by type within each bucket.
+  const fresh = sortAttachmentsByType(newAttachments)
+  const skipped = sortAttachmentsByType(deselectedAttachments)
+  const synced = sortAttachmentsByType(ingestedAttachments)
+
+  // The rows the user can actually act on. Synced rows are fixed (checked+disabled) and are
+  // excluded from the confirm math entirely, so they must stay out of the toggle-all math too.
+  const selectable = [...newAttachments, ...deselectedAttachments]
+  const allSelected = selectable.length > 0 && selectable.every((a) => checked.has(a.id))
 
   // A docked panel is a native WebContentsView that paints above all DOM, so this modal must
   // register itself as an occlusion source (see panelsStore.registerModal) -- registering here
@@ -91,21 +103,45 @@ export function JiraAttachmentsDialog({
       onClose={busy ? () => {} : onClose}
       className="max-h-[85vh] w-[560px]"
     >
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-        {error && (
-          <div
-            role="alert"
-            className="rounded-r2 border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-ink"
-          >
-            {error}
-          </div>
-        )}
-        <div className="flex flex-col gap-1">
-          {newAttachments.map((a) => row(a, 'new'))}
-          {deselectedAttachments.map((a) => row(a, 'skipped'))}
-          {ingestedAttachments.map((a) => row(a, 'synced'))}
+      {/* Three bands rather than one scrolling column: a ticket can carry dozens of
+          attachments, and with everything in one `overflow-y-auto` the toggle-all row and the
+          confirm buttons scrolled off with the list. Only the list scrolls now. */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex flex-col gap-3 p-4 pb-2">
+          {error && (
+            <div
+              role="alert"
+              className="rounded-r2 border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-ink"
+            >
+              {error}
+            </div>
+          )}
+          {/* The toggle-all is a button, not a checkbox: a checkbox here would sit in the same
+              column as the per-file boxes and read as just another attachment row. */}
+          {selectable.length > 0 && (
+            <div className="flex items-center gap-2 border-b border-hair pb-2 text-xs">
+              <span className="uppercase tracking-wide text-dim">Attachments</span>
+              <Btn
+                // outline, not ghost: a borderless control beside a span of text read as
+                // a second label rather than as something clickable.
+                variant="outline"
+                className="ml-auto"
+                disabled={busy}
+                onClick={() =>
+                  setChecked(allSelected ? new Set() : new Set(selectable.map((a) => a.id)))
+                }
+              >
+                {allSelected ? 'Deselect all' : 'Select all'}
+              </Btn>
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4">
+          {fresh.map((a) => row(a, 'new'))}
+          {skipped.map((a) => row(a, 'skipped'))}
+          {synced.map((a) => row(a, 'synced'))}
+        </div>
+        <div className="flex items-center gap-2 p-4 pt-3">
           <Btn variant="primary" disabled={busy} onClick={() => void confirm()}>
             Download selected
           </Btn>
