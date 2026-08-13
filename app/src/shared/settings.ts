@@ -1,5 +1,6 @@
 import { z } from './zodConfig'
 import { defectCorpusSchema } from './defectCorpus'
+import { DEFAULT_RCA_TEMPLATE, type RcaTemplate } from './rcaTemplate'
 
 export const PERMISSION_MODES = [
   'default',
@@ -102,13 +103,50 @@ const toolsSchema = z.looseObject({
   parseBin: z.string().default('') // '' = auto-resolve
 })
 
+/** One section of a report template. `superRefine` enforces the kind/field pairing the
+ *  renderer relies on: a claims section without a slot has nothing to render, and a narrative
+ *  section without an instruction gives the model (increment 2) nothing to write. */
+const rcaSectionSchema = z
+  .object({
+    id: z.string().min(1),
+    heading: z.string(),
+    kind: z.enum(['claims', 'narrative']),
+    slot: z
+      .enum([
+        'root-cause',
+        'contributing',
+        'symptoms',
+        'ruled-out',
+        'timeline',
+        'remediation',
+        'tech-narrative'
+      ])
+      .optional(),
+    instruction: z.string().optional(),
+    enabled: z.boolean().default(true)
+  })
+  .superRefine((s, ctx) => {
+    if (s.kind === 'claims' && !s.slot)
+      ctx.addIssue({ code: 'custom', message: `RCA section "${s.id}" is claims-kind but has no slot` })
+    if (s.kind === 'narrative' && s.slot)
+      ctx.addIssue({ code: 'custom', message: `RCA section "${s.id}" is narrative-kind but has a slot` })
+  })
+
 /** Where a confirmed RCA report's technical drill-down is posted (`main/services/rca/post.ts`).
  *  The exec summary always goes as a Jira comment; this only controls the tech artifact's home. */
 const rcaSchema = z.looseObject({
   techDestination: z.enum(['attachment', 'confluence-page']).default('attachment'),
   /** A Confluence *space key* (e.g. "ENG"), despite feeding the `createConfluencePage` tool's
    *  `spaceId` argument — that tool resolves a key to its numeric space id automatically. */
-  confluenceSpaceKey: z.string().default('')
+  confluenceSpaceKey: z.string().default(''),
+  /** Ordered section lists per report. A settings file written before templates existed gets
+   *  `DEFAULT_RCA_TEMPLATE`, which renders byte-identically to the pre-template output. */
+  template: z
+    .object({
+      exec: z.array(rcaSectionSchema),
+      tech: z.array(rcaSectionSchema)
+    })
+    .default(() => DEFAULT_RCA_TEMPLATE as RcaTemplate)
 })
 
 const hivemindSchema = z.looseObject({
