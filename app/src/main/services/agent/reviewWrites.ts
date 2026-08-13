@@ -18,6 +18,7 @@ import {
   type Runner
 } from '../github'
 import { recordFindingWrite } from '../findings'
+import { applyWatermark, type WatermarkTarget } from '../../../shared/watermark'
 
 const execFileAsync = promisify(execFile)
 
@@ -41,6 +42,20 @@ export interface ReviewWriteDeps {
   git?: GitRunner
   /** Prompt-registry resolver for `REVIEW_WRITE_FEEDBACK`. */
   resolve?: (id: string) => string
+}
+
+/**
+ * Deps for the one function that PUBLISHES a comment. Deliberately narrower than
+ * `ReviewWriteDeps`: that interface is also consumed by `worktreeFor`, `findingForCase`,
+ * `resolveCommentTarget` and the compose helpers, none of which post anything, so a required
+ * watermark field there would churn every one of their fixtures for no safety gain.
+ *
+ * Required, not optional-with-a-default: an unwired construction site must fail typecheck
+ * rather than ship as a silently unwatermarked path that every test still passes. A getter,
+ * not a value, so toggling the setting mid-session takes effect on the next post.
+ */
+export interface PostCommentDeps extends ReviewWriteDeps {
+  githubWatermark: () => WatermarkTarget
 }
 
 /**
@@ -355,7 +370,7 @@ export function resolveCommentTarget(
  * failed, so the model neither retries nor believes nothing happened.
  */
 export async function postReviewComment(
-  deps: ReviewWriteDeps,
+  deps: PostCommentDeps,
   caseSlug: string,
   input: { findingId: number; body: string; expectPr?: string }
 ): Promise<string> {
@@ -364,6 +379,9 @@ export async function postReviewComment(
   const run = deps.gh ?? defaultGhRunner
   const repo = `${target.binding.owner}/${target.binding.repo}`
   const head = await prHead(run, repo, target.binding.number)
+  // Applied ONCE here, not per attempt: the 422 fallback below reuses this body, so a
+  // second application would stack two footers on one comment.
+  const body = applyWatermark(input.body, deps.githubWatermark())
 
   let url: string
   let inline = true
@@ -374,7 +392,7 @@ export async function postReviewComment(
       commitId: head.sha,
       path: target.repoRelPath,
       line: target.line,
-      body: input.body
+      body
     })
   } catch (err) {
     if (!isLineNotInDiff(err)) throw new Error(ghErrorText(err))
@@ -382,7 +400,7 @@ export async function postReviewComment(
     url = await postIssueComment(run, {
       repo,
       number: target.binding.number,
-      body: `**${target.repoRelPath}:${target.line}**\n\n${input.body}`
+      body: `**${target.repoRelPath}:${target.line}**\n\n${body}`
     })
   }
 

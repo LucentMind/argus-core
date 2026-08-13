@@ -565,7 +565,14 @@ export function argusToolHandlers(
     async post_review_comment(args) {
       const findingId = Number(args.finding_id)
       const out = await postReviewComment(
-        { db, argusHome, gh: deps.gh ?? defaultGhRunner, resolve: deps.resolve },
+        {
+          db,
+          argusHome,
+          gh: deps.gh ?? defaultGhRunner,
+          resolve: deps.resolve,
+          // TODO(task 4): wire the real settings-backed watermark getter here.
+          githubWatermark: () => ({ enabled: false, text: '' })
+        },
         caseSlug,
         {
           findingId,
