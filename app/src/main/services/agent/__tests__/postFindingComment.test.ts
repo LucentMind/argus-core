@@ -82,7 +82,8 @@ const mkService = (): AgentService =>
     agentAccess: () => defaultAgentAccess(),
     onEvent: (e) => events.push(e),
     createQuery: fakeCreateQuery(),
-    gh
+    gh,
+    githubWatermark: () => ({ enabled: false, text: '' })
   })
 
 function seedFinding(opts: { commentBody?: string | null; headSha?: string | null }): number {

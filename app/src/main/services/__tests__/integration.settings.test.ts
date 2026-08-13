@@ -82,6 +82,7 @@ describe('settings → consumers (wave-spec §8 integration)', () => {
       skillsRoots: [],
       onEvent: () => {},
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       createQuery,
       agentSettings: () => svc.get().agent
     })

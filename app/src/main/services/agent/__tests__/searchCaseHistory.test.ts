@@ -62,7 +62,8 @@ describe('search_case_history', () => {
       caseId: 1,
       caseSlug: 'new-case',
       sessionId: 1,
-      emitFinding
+      emitFinding,
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     const text = String(await handlers.search_case_history({ query: 'DLT drift' }))
     expect(text).toContain('old')

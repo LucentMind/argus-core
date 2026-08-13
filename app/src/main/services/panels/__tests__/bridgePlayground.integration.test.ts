@@ -72,6 +72,7 @@ describe('bridge playground — upstream verbs end to end', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery: fakeCreateQuery
     })

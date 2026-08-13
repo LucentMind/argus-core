@@ -69,7 +69,8 @@ describeOrSkip('ACP real-runtime smoke (ACP_SMOKE=1)', () => {
             caseId: 1,
             caseSlug: 'c',
             sessionId: 1,
-            emitFinding: () => {}
+            emitFinding: () => {},
+            githubWatermark: () => ({ enabled: false, text: '' })
           }
           const ctx: DriverSessionContext = {
             caseDir: tmp,

@@ -35,6 +35,7 @@ import type { SessionPromptCapture } from '../../../shared/promptsIpc'
 import { driverForSession } from './reviewFraming'
 import type { Runner } from '../github'
 import type { NativeToolDeps } from './nativeTools'
+import type { WatermarkTarget } from '../../../shared/watermark'
 
 /**
  * Cache key for everything that is frozen at `query()` construction besides the model:
@@ -129,6 +130,9 @@ export interface AgentServiceDeps {
   /** gh runner for the review write tools (nativeTools + postFindingComment). Injected in
    *  tests; production leaves it undefined so every call falls back to `defaultGhRunner`. */
   gh?: Runner
+  /** `settings.watermark.github` — the footer appended to composed PR comments. Required so a
+   *  missed wiring site fails typecheck instead of silently posting unwatermarked. */
+  githubWatermark: () => WatermarkTarget
   /** Multi-source known-defects search (DefectCorpusService.searchAll); threaded into every
    *  session's nativeToolDeps unchanged — the tool needs no per-case/session binding. */
   defectCorpus?: NativeToolDeps['defectCorpus']
@@ -334,6 +338,7 @@ export class AgentService {
       onAuthFailure: this.deps.onAuthFailure,
       onAuthVerified: this.deps.onAuthVerified,
       gh: this.deps.gh,
+      githubWatermark: this.deps.githubWatermark,
       openPanel: this.deps.openPanel
         ? (packId, windowId, evidenceId) =>
             this.deps.openPanel!(caseSlug, sessionId, packId, windowId, evidenceId)

@@ -55,7 +55,8 @@ function makeSession(sdk: ReturnType<typeof fakeSdk>): CaseSession {
     skillsRoots: [],
     emit: (e) => events.push(e),
     driver: createClaudeDriver(sdk.createQuery),
-    resumeCursor: null
+    resumeCursor: null,
+    githubWatermark: () => ({ enabled: false, text: '' })
   })
 }
 

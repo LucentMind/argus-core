@@ -68,6 +68,7 @@ function mkService(sdk: { createQuery: CreateQueryFn }): AgentService {
     detection,
     skillsRoots: [],
     agentAccess: () => defaultAgentAccess(),
+    githubWatermark: () => ({ enabled: false, text: '' }),
     onEvent: (e) => events.push(e),
     createQuery: sdk.createQuery,
     // Verbatim from index.ts.

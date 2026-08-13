@@ -23,7 +23,8 @@ it('open_panel forwards to the injected openPanel and returns its result', async
     openPanel: (packId, windowId, evidenceId) => {
       calls.push([packId, windowId, evidenceId])
       return { ok: true, panel: { packId, windowId } }
-    }
+    },
+    githubWatermark: () => ({ enabled: false, text: '' })
   })
   const out = await h.open_panel({
     pack_id: 'sample-bridge-playground',

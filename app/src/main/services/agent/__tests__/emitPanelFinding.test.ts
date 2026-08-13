@@ -43,6 +43,7 @@ const mkService = (): AgentService =>
     detection,
     skillsRoots: [],
     agentAccess: () => defaultAgentAccess(),
+    githubWatermark: () => ({ enabled: false, text: '' }),
     onEvent: (e) => events.push(e),
     createQuery: fakeCreateQuery()
   })

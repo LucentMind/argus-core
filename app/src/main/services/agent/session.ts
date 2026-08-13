@@ -38,11 +38,12 @@ import { REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
 import type { SubagentSupport } from '../../../shared/drivers'
 import { reviewSubagentSupport } from './reviewFraming'
 import { prHead, defaultGhRunner, type Runner } from '../github'
+import type { WatermarkTarget } from '../../../shared/watermark'
 import {
   findingForCase,
   resolveCommentTarget,
   postReviewComment,
-  type ReviewWriteDeps
+  type PostCommentDeps
 } from './reviewWrites'
 
 /**
@@ -155,6 +156,9 @@ export interface SessionDeps {
   /** gh runner for the review write tools. Injected in tests; production leaves it undefined
    *  and `nativeTools` falls back to `defaultGhRunner`. */
   gh?: Runner
+  /** `settings.watermark.github` — the footer appended to composed PR comments. Required so a
+   *  missed wiring site fails typecheck instead of silently posting unwatermarked. */
+  githubWatermark: () => WatermarkTarget
   /** Open/focus a panel in this session's case (3b-2); session-bound by AgentService. */
   openPanel?: NativeToolDeps['openPanel']
   /** Capture a panel to evidence in this session's case; session-bound by AgentService. */
@@ -522,6 +526,7 @@ export class CaseSession {
         emitFindingUpdated: (findingId) =>
           this.emit(makeEvent(this.ctx(), 'case.finding.updated', { findingId })),
         gh: deps.gh,
+        githubWatermark: deps.githubWatermark,
         agentAccess: () => deps.agentAccess?.() ?? defaultAgentAccess(),
         openPanel: deps.openPanel,
         capturePanel: deps.capturePanel,
@@ -734,11 +739,12 @@ export class CaseSession {
    *  path outside the repo) surface as { ok:false, reason } for the pane to display. */
   async postFindingComment(findingId: number): Promise<{ ok: boolean; reason?: string }> {
     if (this.state === 'dead') return { ok: false, reason: 'session-dead' }
-    const wdeps: ReviewWriteDeps = {
+    const wdeps: PostCommentDeps = {
       db: this.deps.db,
       argusHome: this.deps.argusHome,
       gh: this.deps.gh,
-      resolve: this.deps.resolvePrompt
+      resolve: this.deps.resolvePrompt,
+      githubWatermark: this.deps.githubWatermark
     }
     let input: Record<string, unknown>
     let body: string
@@ -789,18 +795,13 @@ export class CaseSession {
     }
     const edited = outcome.updatedInput as { body?: string; pr?: string } | undefined
     try {
-      await postReviewComment(
-        // TODO(task 4): wire the real settings-backed watermark getter here.
-        { ...wdeps, githubWatermark: () => ({ enabled: false, text: '' }) },
-        this.deps.caseSlug,
-        {
-          findingId,
-          body: String(edited?.body ?? body),
-          // An edited pr is re-validated against the case's one binding, exactly as on the
-          // tool path (resolveBindingForFinding) — it cannot retarget the write.
-          expectPr: String(edited?.pr ?? input.pr)
-        }
-      )
+      await postReviewComment(wdeps, this.deps.caseSlug, {
+        findingId,
+        body: String(edited?.body ?? body),
+        // An edited pr is re-validated against the case's one binding, exactly as on the
+        // tool path (resolveBindingForFinding) — it cannot retarget the write.
+        expectPr: String(edited?.pr ?? input.pr)
+      })
     } catch (err) {
       return { ok: false, reason: (err as Error).message }
     }

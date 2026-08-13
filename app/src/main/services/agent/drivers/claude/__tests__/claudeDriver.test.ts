@@ -36,7 +36,8 @@ function minimalNativeDeps(): NativeToolDeps {
     caseId: 1,
     caseSlug: 'c',
     sessionId: 1,
-    emitFinding: () => {}
+    emitFinding: () => {},
+    githubWatermark: () => ({ enabled: false, text: '' })
   }
 }
 

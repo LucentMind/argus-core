@@ -60,6 +60,7 @@ describe('AgentService — mode participates in the live-session rebuild decisio
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery
     })
@@ -98,6 +99,7 @@ describe('AgentService — mode participates in the live-session rebuild decisio
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery
     })
@@ -119,6 +121,7 @@ describe('AgentService — mode participates in the live-session rebuild decisio
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery
     })

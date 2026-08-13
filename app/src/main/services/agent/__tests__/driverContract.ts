@@ -85,7 +85,8 @@ export function runDriverContractSuite(
       caseId: 1,
       caseSlug: 'c',
       sessionId: 1,
-      emitFinding: () => {}
+      emitFinding: () => {},
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
 
     /** Every capturePrompt call the driver made during the most recent makeCtx() session. */

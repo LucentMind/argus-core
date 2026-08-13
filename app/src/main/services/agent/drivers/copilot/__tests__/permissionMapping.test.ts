@@ -212,7 +212,8 @@ describe('buildCopilotTools', () => {
     caseId: 1,
     caseSlug: 'c',
     sessionId: 1,
-    emitFinding: () => {}
+    emitFinding: () => {},
+    githubWatermark: () => ({ enabled: false, text: '' })
   })
 
   const panelDecls: PanelCommandDecl[] = [

@@ -35,7 +35,8 @@ beforeEach(() => {
     caseId: rec.id,
     caseSlug: 'NAV-1',
     sessionId: 1,
-    emitFinding
+    emitFinding,
+    githubWatermark: () => ({ enabled: false, text: '' })
   })
 })
 
@@ -86,7 +87,8 @@ describe('argus native tools', () => {
       caseSlug: 'NAV-1',
       sessionId: 1,
       emitFinding,
-      currentTurnId: () => 42
+      currentTurnId: () => 42,
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     await withTurn.append_finding({ title: 'Root cause X', markdown: 'details' })
     const row = db.prepare(`SELECT * FROM findings WHERE case_id = ?`).get(caseId) as {
@@ -163,7 +165,8 @@ describe('argus native tools', () => {
       caseSlug: 'NAV-1',
       sessionId: 1,
       emitFinding,
-      agentAccess: () => agentAccessSchema.parse({ memory: { 'binder-crashes': false } })
+      agentAccess: () => agentAccessSchema.parse({ memory: { 'binder-crashes': false } }),
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     await expect(gated.read_memory({ topic: 'binder-crashes' })).rejects.toThrow(/disabled/i)
   })
@@ -183,7 +186,8 @@ describe('argus native tools', () => {
       caseSlug: 'NAV-1',
       sessionId: 1,
       emitFinding,
-      agentAccess: () => agentAccessSchema.parse({ memory: { 'binder-crashes': false } })
+      agentAccess: () => agentAccessSchema.parse({ memory: { 'binder-crashes': false } }),
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     await expect(
       gated.write_memory({
@@ -256,7 +260,8 @@ describe('argus native tools', () => {
       caseId,
       caseSlug: 'NAV-1',
       sessionId: reviewSession.id,
-      emitFinding
+      emitFinding,
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     const out = JSON.parse(await reviewHandlers.list_evidence({})) as Array<{ relPath: string }>
     expect(out.map((e) => e.relPath)).toEqual(['artifacts/ci-5.log'])
@@ -278,7 +283,8 @@ describe('argus native tools', () => {
         caseId,
         caseSlug: 'NAV-1',
         sessionId: session.id,
-        emitFinding
+        emitFinding,
+        githubWatermark: () => ({ enabled: false, text: '' })
       })
     }
 
