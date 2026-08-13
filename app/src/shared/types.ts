@@ -191,6 +191,14 @@ export interface ScanSummary {
   errors: Array<{ relPath: string; error: string }>
 }
 
+/** Lifecycle of an evidence file's full-text index.
+ *  'skipped'  — not an indexable type; there will never be FTS rows.
+ *  'pending'  — queued, no FTS rows yet.
+ *  'indexing' — partially indexed; searches over this file are incomplete.
+ *  'indexed'  — complete.
+ *  'error'    — indexing failed; the file is present but unsearchable. */
+export type IndexState = 'skipped' | 'pending' | 'indexing' | 'indexed' | 'error'
+
 export interface EvidenceRecord {
   id: number
   caseId: number

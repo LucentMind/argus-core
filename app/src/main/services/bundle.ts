@@ -28,6 +28,7 @@ import { sha256File } from './ingest'
 import { SLUG_RE, scaffoldCaseLinks } from './caseService'
 import { indexEvidenceFile } from './indexer'
 import { deleteEvidenceFtsForCase } from './ftsIndex'
+import { readIndexState } from './indexState'
 import { ARTIFACTS_DIR, EVIDENCE_DIR } from '../../shared/evidenceScope'
 
 const execFileAsync = promisify(execFile)
@@ -274,7 +275,8 @@ function reindexImportedEvidence(
       const newId = Number(res.lastInsertRowid)
       idMap.set(rec.id, newId)
       const abs = path.join(dir, ...rec.relPath.split('/'))
-      if (meta.indexed && fs.existsSync(abs)) indexEvidenceFile(db, newId, abs, 400, argusHome)
+      if (readIndexState(meta) !== 'skipped' && fs.existsSync(abs))
+        indexEvidenceFile(db, newId, abs, 400, argusHome)
       fs.writeFileSync(sidecarAbs, JSON.stringify({ ...rec, id: newId, caseId, meta }, null, 2))
     }
   }
