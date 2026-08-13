@@ -51,6 +51,7 @@ import { sessionMode } from './sessionStore'
 import type { CorpusSearchInput, SourceSearchResult } from '../../../shared/defectCorpus'
 import { saveItemSuggestion } from '../routines/runItems'
 import type { TriageSuggestion } from '../../../shared/routines'
+import type { WatermarkTarget } from '../../../shared/watermark'
 
 export interface NativeToolDeps {
   db: DatabaseSync
@@ -82,6 +83,9 @@ export interface NativeToolDeps {
   onWorktreeChanged?: (caseSlug: string) => void
   /** gh runner for the review write tools. Injected in tests; production uses the default. */
   gh?: Runner
+  /** `settings.watermark.github` — the footer appended to composed PR comments. Required so a
+   *  missed wiring site fails typecheck instead of silently posting unwatermarked. */
+  githubWatermark: () => WatermarkTarget
   /** git runner for head_sha stamping at record time. Injected in tests; production default. */
   git?: GitRunner
   /** Fired after a write action mutates a finding row, so the findings pane refetches. */
@@ -570,8 +574,7 @@ export function argusToolHandlers(
           argusHome,
           gh: deps.gh ?? defaultGhRunner,
           resolve: deps.resolve,
-          // TODO(task 4): wire the real settings-backed watermark getter here.
-          githubWatermark: () => ({ enabled: false, text: '' })
+          githubWatermark: deps.githubWatermark
         },
         caseSlug,
         {

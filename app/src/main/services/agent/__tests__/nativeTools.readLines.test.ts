@@ -43,7 +43,8 @@ beforeEach(() => {
     caseId: rec.id,
     caseSlug: 'NAV-3',
     sessionId: 1,
-    emitFinding: vi.fn()
+    emitFinding: vi.fn(),
+    githubWatermark: () => ({ enabled: false, text: '' })
   })
 })
 afterEach(() => {

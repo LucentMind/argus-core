@@ -66,6 +66,7 @@ describe('AgentService — run options and permission mode participate in the li
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery
     })
@@ -98,6 +99,7 @@ describe('AgentService — run options and permission mode participate in the li
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery
     })
@@ -129,6 +131,7 @@ describe('AgentService — run options and permission mode participate in the li
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery
     })

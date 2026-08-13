@@ -24,7 +24,8 @@ beforeEach(() => {
     caseSlug: 'NAV-1',
     sessionId: 1,
     // Required by NativeToolDeps; no assertion here reaches a finding-writing tool.
-    emitFinding: () => {}
+    emitFinding: () => {},
+    githubWatermark: () => ({ enabled: false, text: '' })
   })
 })
 

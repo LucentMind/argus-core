@@ -82,6 +82,7 @@ const mkService = (): AgentService =>
     detection,
     skillsRoots: [],
     agentAccess: () => defaultAgentAccess(),
+    githubWatermark: () => ({ enabled: false, text: '' }),
     onEvent: (e) => events.push(e),
     createQuery: fakeCreateQuery().createQuery
   })
@@ -105,6 +106,7 @@ describe('AgentService', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery
     })
@@ -126,6 +128,7 @@ describe('AgentService', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery
     })
@@ -145,6 +148,7 @@ describe('AgentService', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery,
       maxSessions: 2
@@ -183,6 +187,7 @@ describe('AgentService', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery,
       composeMcp: async () => ({ servers, skipped: [], fingerprint: fingerprintServers(servers) })
@@ -216,6 +221,7 @@ describe('AgentService', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery,
       composeMcp: async () => ({ servers, skipped: [], fingerprint: fingerprintServers(servers) })
@@ -239,6 +245,7 @@ describe('AgentService', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery,
       composeMcp: async () => ({ servers, skipped: [], fingerprint: fingerprintServers(servers) })
@@ -260,6 +267,7 @@ describe('AgentService', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery
     })
@@ -281,6 +289,7 @@ describe('AgentService', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery,
       maxSessions: 2
@@ -317,6 +326,7 @@ describe('AgentService', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery,
       maxSessions: 1
@@ -338,6 +348,7 @@ describe('AgentService', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: () => undefined,
       createQuery
     })
@@ -382,6 +393,7 @@ describe('AgentService', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: () => {},
       createQuery,
       agentSettings: () => ({
@@ -444,6 +456,7 @@ describe('AgentService', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: () => {},
       createQuery,
       agentSettings: () => ({
@@ -481,6 +494,7 @@ describe('AgentService', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery,
       maxSessions: 10
@@ -512,6 +526,7 @@ describe('AgentService', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery,
       // real SessionMirror (write-behind, 250ms timer) — a mocked mirror would not
@@ -564,6 +579,7 @@ describe('AgentService', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => access,
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: () => {},
       createQuery
     })
@@ -629,6 +645,7 @@ describe('AgentService', () => {
         detection,
         skillsRoots: [],
         agentAccess: () => defaultAgentAccess(),
+        githubWatermark: () => ({ enabled: false, text: '' }),
         onEvent: (e) => events.push(e),
         createQuery,
         composeMcp: () => mcp.composeForSession()
@@ -701,6 +718,7 @@ describe('AgentService driver resolution (Phase 3 checkpoint item 5)', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       driver: () => active
     })
@@ -725,6 +743,7 @@ describe('AgentService driver resolution (Phase 3 checkpoint item 5)', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       driver: fixed
     })
@@ -744,6 +763,7 @@ describe('AgentService driver resolution (Phase 3 checkpoint item 5)', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery
     })
@@ -776,6 +796,7 @@ describe('AgentService — per-session provider and model', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery,
       agentSettings: () => AGENT_SETTINGS
@@ -801,6 +822,7 @@ describe('AgentService — per-session provider and model', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery,
       agentSettings: () => AGENT_SETTINGS
@@ -840,6 +862,7 @@ describe('AgentService — per-session provider and model', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery,
       agentSettings: () => AGENT_SETTINGS
@@ -867,6 +890,7 @@ describe('AgentService — per-session provider and model', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery,
       agentSettings: () => AGENT_SETTINGS
@@ -900,6 +924,7 @@ describe('AgentService — per-session provider and model', () => {
       detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
       onEvent: (e) => events.push(e),
       createQuery,
       agentSettings: () => AGENT_SETTINGS

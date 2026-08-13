@@ -125,7 +125,8 @@ describe('review write tools via argusToolHandlers', () => {
       sessionId: 1,
       emitFinding,
       gh,
-      emitFindingUpdated
+      emitFindingUpdated,
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     const id = seedFinding()
     // finding_id arrives as a string (as it would off the wire) to pin Number(args.finding_id);
@@ -144,6 +145,35 @@ describe('review write tools via argusToolHandlers', () => {
     expect(inlineCall?.some((arg) => arg.startsWith('body='))).toBe(true)
     const row = listFindings(db, home, 'c1').find((f) => f.id === id)
     expect(row?.commentUrl).toBe('https://github.com/acme/widget/pull/42#discussion_r1')
+  })
+
+  it('post_review_comment appends the injected watermark to the posted body', async () => {
+    const calls: string[][] = []
+    const gh: Runner = async (_cmd, args) => {
+      calls.push(args)
+      if (args[0] === 'pr')
+        return JSON.stringify({
+          headRefName: 'feature/guard',
+          headRefOid: 'abc123',
+          isCrossRepository: false
+        })
+      return JSON.stringify({ html_url: 'https://github.com/acme/widget/pull/42#discussion_r1' })
+    }
+    const handlers = argusToolHandlers({
+      db,
+      argusHome: home,
+      detection,
+      caseId: getCase(db, 'c1')!.id,
+      caseSlug: 'c1',
+      sessionId: 1,
+      emitFinding,
+      gh,
+      githubWatermark: () => ({ enabled: true, text: '_mark_' })
+    })
+    const id = seedFinding()
+    await handlers.post_review_comment({ finding_id: String(id), body: 'Inverted.' })
+    const inlineCall = calls.find((c) => c.includes('-F'))!
+    expect(inlineCall.find((a) => a.startsWith('body='))).toBe('body=Inverted.\n\n_mark_')
   })
 
   it('post_review_comment threads the pr argument through to the resolver, which checks it against the bound PR', async () => {
@@ -166,7 +196,8 @@ describe('review write tools via argusToolHandlers', () => {
       caseSlug: 'c1',
       sessionId: 1,
       emitFinding,
-      gh
+      gh,
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     const id = seedFinding()
     const out = await handlers.post_review_comment({
@@ -190,7 +221,8 @@ describe('review write tools via argusToolHandlers', () => {
       caseSlug: 'c1',
       sessionId: 1,
       emitFinding,
-      gh
+      gh,
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     const id = seedFinding()
     await expect(
@@ -235,7 +267,8 @@ describe('review write tools via argusToolHandlers', () => {
       sessionId: 1,
       emitFinding,
       gh,
-      emitFindingUpdated
+      emitFindingUpdated,
+      githubWatermark: () => ({ enabled: false, text: '' })
     })
     const idA = seedFinding()
     const idB = seedFinding()

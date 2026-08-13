@@ -72,6 +72,7 @@ describe('CaseSession persona wiring', () => {
       emit: () => undefined,
       driver: createClaudeDriver(fakeQuery),
       resumeCursor: null,
+      githubWatermark: () => ({ enabled: false, text: '' }),
       // Real sessions get their fragment order from assembleMode (mode identity, then
       // NEUTRAL_PERSONA, then packs); include NEUTRAL_PERSONA here to match that shape —
       // composePersona itself no longer injects it.
