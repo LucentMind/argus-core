@@ -53,7 +53,8 @@ const SAMPLE_DRAFT: RcaDraft = {
   timeline: [],
   remediation: { immediate: 'invalidate cache', followUps: [] },
   execSummary: { whatBroke: '', impact: '', why: '', nextSteps: '' },
-  techNarrative: []
+  techNarrative: [],
+  sections: {}
 }
 
 describe('prompt builder', () => {

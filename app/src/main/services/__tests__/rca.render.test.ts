@@ -75,7 +75,8 @@ function draft(): RcaDraft {
           { path: 'src/cache/key.ts', line: 42, evidence: 'key = `${endpoint}:${params}`' }
         ]
       }
-    ]
+    ],
+    sections: {}
   }
 }
 
@@ -99,7 +100,8 @@ function emptyDraft(): RcaDraft {
       why: 'The root cause has not been confirmed yet.',
       nextSteps: 'Continue the investigation.'
     },
-    techNarrative: []
+    techNarrative: [],
+    sections: {}
   }
 }
 

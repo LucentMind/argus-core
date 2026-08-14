@@ -37,7 +37,8 @@ function minimalInput(): CaseRcaInput {
       timeline: [],
       remediation: { immediate: '', followUps: [] },
       execSummary: { whatBroke: '', impact: '', why: '', nextSteps: '' },
-      techNarrative: []
+      techNarrative: [],
+      sections: {}
     }
   }
 }
@@ -62,7 +63,8 @@ function validDraft(): RcaDraft {
       why: 'the cache key omitted the tenant id',
       nextSteps: 'add tenant id to the cache key'
     },
-    techNarrative: []
+    techNarrative: [],
+    sections: {}
   }
 }
 

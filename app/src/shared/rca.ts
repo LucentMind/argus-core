@@ -18,6 +18,10 @@ export interface RcaDraft {
   remediation: { immediate: string; followUps: string[] }
   execSummary: { whatBroke: string; impact: string; why: string; nextSteps: string }
   techNarrative: { heading: string; body: string; citations: Citation[] }[]
+  /** Model-authored body per template narrative section, keyed by `RcaSection.id`. Empty on
+   *  drafts generated before the template drove the prompt — the renderer falls back to the
+   *  legacy field that section used to render from, so old confirmed reports still render. */
+  sections: Record<string, { body: string; citations: Citation[] }>
 }
 
 export type RcaJobState = 'queued' | 'running' | 'done' | 'failed'
