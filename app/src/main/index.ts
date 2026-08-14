@@ -308,6 +308,8 @@ import {
   toIdSet
 } from './services/rca/render'
 import { validateRcaDraft } from './services/rca/parse'
+import { readReportMarkdown, writeReportMarkdown } from './services/rca/artifacts'
+import { handEditedReports } from './services/rca/handEdited'
 import type { RoleAssignment, RcaDraft, CaseRcaInput, RcaDroppedSections } from '../shared/rca'
 import { draftAsset, improveAsset } from './services/authoring/service'
 import type { AuthoringRequest, AuthoringResult } from '../shared/authoringIpc'
@@ -2780,6 +2782,24 @@ function registerIpc(): void {
       }
     }
   )
+  ipcMain.handle(IPC.rcaReadMarkdown, (_e, slug: string) => {
+    if (!getCase(db, slug)) throw new Error(`Unknown case: ${slug}`)
+    return readReportMarkdown(argusHome, slug)
+  })
+
+  // `kind` is narrowed to the two literals before it reaches `artifacts.ts`, which maps them to
+  // a closed set of filenames — no value from the renderer can name a path.
+  ipcMain.handle(IPC.rcaSaveMarkdown, (_e, slug: string, kind: unknown, body: unknown) => {
+    if (!getCase(db, slug)) throw new Error(`Unknown case: ${slug}`)
+    if (kind !== 'exec' && kind !== 'tech') throw new Error(`invalid report kind: ${String(kind)}`)
+    if (typeof body !== 'string') throw new Error('report body must be a string')
+    writeReportMarkdown(argusHome, slug, kind, body)
+  })
+
+  ipcMain.handle(IPC.rcaHandEdited, (_e, slug: string) => {
+    if (!getCase(db, slug)) throw new Error(`Unknown case: ${slug}`)
+    return handEditedReports({ db, argusHome }, slug)
+  })
 
   // — skills —
   const skillsPayload = (): SkillsPayload => ({

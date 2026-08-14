@@ -431,7 +431,13 @@ const argus = {
       const listener = (_e: unknown, p: RcaStatusPayload): void => cb(p)
       ipcRenderer.on(IPC.rcaChanged, listener)
       return () => ipcRenderer.removeListener(IPC.rcaChanged, listener)
-    }
+    },
+    readMarkdown: (slug: string): Promise<{ exec: string; tech: string } | null> =>
+      invoke(IPC.rcaReadMarkdown, slug),
+    saveMarkdown: (slug: string, kind: 'exec' | 'tech', body: string): Promise<void> =>
+      invoke(IPC.rcaSaveMarkdown, slug, kind, body),
+    handEdited: (slug: string): Promise<{ exec: boolean; tech: boolean }> =>
+      invoke(IPC.rcaHandEdited, slug)
   },
   search: {
     query: (q: string, filters?: SearchFilters): Promise<UnifiedSearchResult> =>
