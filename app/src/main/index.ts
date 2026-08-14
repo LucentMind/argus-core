@@ -2650,11 +2650,20 @@ function registerIpc(): void {
   ipcMain.handle(IPC.rcaStatus, (_e, slug: string) => rcaJobs.statusFor(slug))
   ipcMain.handle(
     IPC.rcaConfirm,
-    (_e, slug: string, jobId: number, assignments: RoleAssignment[], edited: RcaDraft) => {
+    (
+      _e,
+      slug: string,
+      jobId: number,
+      assignments: RoleAssignment[],
+      edited: RcaDraft,
+      dropped?: RcaDroppedSections
+    ) => {
       // Validate BEFORE rcaJobs.confirm touches any state (role writes, artifact files) —
-      // a malformed/stale renderer payload must never reach applyReportRoles.
+      // a malformed/stale renderer payload must never reach applyReportRoles. `dropped` needs
+      // no gate of its own: `confirm` coerces each report's list with `toIdSet`, exactly as the
+      // preview handler does, so a malformed value renders as "nothing dropped".
       const validated = validateRcaDraft(edited)
-      return rcaJobs.confirm(slug, jobId, assignments, validated)
+      return rcaJobs.confirm(slug, jobId, assignments, validated, dropped)
     }
   )
   ipcMain.handle(IPC.rcaPost, (_e, slug: string) =>

@@ -55,6 +55,10 @@ export interface RcaStatusPayload {
    *  predates the column. Rendering and the panel's section list both read this, never live
    *  settings, so a template edit cannot retroactively blank a section of a pending draft. */
   template: RcaTemplate
+  /** Section ids dropped when this job was confirmed, per report; `{}` for an unconfirmed job,
+   *  a row that predates the column, or an unreadable cell. Persisted so a re-render after a
+   *  reload reproduces the confirmed bytes rather than silently restoring dropped sections. */
+  dropped: RcaDroppedSections
 }
 
 export interface RoleAssignment {

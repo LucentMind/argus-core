@@ -5,6 +5,7 @@ import type {
   CaseRcaInput,
   PostResults,
   RcaDraft,
+  RcaDroppedSections,
   RcaJobRow,
   RcaJobState,
   RcaStatusPayload,
@@ -15,7 +16,7 @@ import { applyReportRoles } from '../findings'
 import { artifactsDir } from '../paths'
 import { buildCaseRcaPrompt } from './contract'
 import { parseRcaOutput, validateRcaDraft, RcaParseError } from './parse'
-import { renderExecReport, renderTechReport, templateFromSnapshot } from './render'
+import { renderExecReport, renderTechReport, templateFromSnapshot, toIdSet } from './render'
 import type { AppSettings } from '../../../shared/settings'
 
 export interface RcaJobsDeps {
@@ -43,6 +44,7 @@ interface JobDbRow {
   confirmed_at: string | null
   post_results: string | null
   template_snapshot: string | null
+  dropped_sections: string | null
   created_at: string
   finished_at: string | null
 }
@@ -58,6 +60,26 @@ function parsePostResults(raw: string | null): PostResults | null {
   } catch {
     return null
   }
+}
+
+/** The section ids the user dropped when confirming, or `{}` for a NULL/garbage cell — same
+ *  posture as `templateFromSnapshot`: a read must never fail on a row an older build wrote.
+ *  Only the two known report keys are carried through, and each is coerced by `toIdSet` at the
+ *  render call, so a hand-edited value can never throw out of a status read. */
+function droppedFromSnapshot(raw: string | null): RcaDroppedSections {
+  if (!raw) return {}
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return {}
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {}
+  const v = parsed as RcaDroppedSections
+  const out: RcaDroppedSections = {}
+  if (Array.isArray(v.exec)) out.exec = [...toIdSet(v.exec)]
+  if (Array.isArray(v.tech)) out.tech = [...toIdSet(v.tech)]
+  return out
 }
 
 function toRow(r: JobDbRow): RcaJobRow {
@@ -107,7 +129,13 @@ function toPayload(r: JobDbRow, argusHome: string): RcaStatusPayload {
       draft = parseRawOutput(r.raw_output)
     }
   }
-  return { caseSlug: job.caseSlug, job, draft, template: templateFromSnapshot(r.template_snapshot) }
+  return {
+    caseSlug: job.caseSlug,
+    job,
+    draft,
+    template: templateFromSnapshot(r.template_snapshot),
+    dropped: droppedFromSnapshot(r.dropped_sections)
+  }
 }
 
 /**
@@ -212,7 +240,8 @@ export class RcaJobs {
         caseSlug: slug,
         job: null,
         draft: null,
-        template: templateFromSnapshot(null)
+        template: templateFromSnapshot(null),
+        dropped: {}
       }
     return toPayload(r, this.deps.argusHome)
   }
@@ -226,7 +255,13 @@ export class RcaJobs {
    * between the files and the flag, the files exist without the flag; re-confirming
    * rewrites them, which is idempotent.
    */
-  confirm(slug: string, jobId: number, assignments: RoleAssignment[], edited: RcaDraft): void {
+  confirm(
+    slug: string,
+    jobId: number,
+    assignments: RoleAssignment[],
+    edited: RcaDraft,
+    dropped?: RcaDroppedSections
+  ): void {
     validateRcaDraft(edited)
     const row = this.getRow(jobId)
     const job = row ? toRow(row) : null
@@ -246,12 +281,19 @@ export class RcaJobs {
       createdAt: kase.createdAt
     }
     fs.writeFileSync(path.join(dir, 'rca-structure.json'), JSON.stringify(edited, null, 2))
-    const opts = { template: templateFromSnapshot(row!.template_snapshot) }
-    fs.writeFileSync(path.join(dir, 'rca-exec.md'), renderExecReport(edited, meta, opts))
-    fs.writeFileSync(path.join(dir, 'rca-tech.md'), renderTechReport(edited, meta, opts))
+    // `toIdSet` (the same coercion the `rca:render-preview` handler uses) makes a malformed
+    // payload render as "nothing dropped" rather than throwing mid-confirm, after roles have
+    // already been written.
+    const template = templateFromSnapshot(row!.template_snapshot)
+    const execOpts = { template, dropped: toIdSet(dropped?.exec) }
+    const techOpts = { template, dropped: toIdSet(dropped?.tech) }
+    fs.writeFileSync(path.join(dir, 'rca-exec.md'), renderExecReport(edited, meta, execOpts))
+    fs.writeFileSync(path.join(dir, 'rca-tech.md'), renderTechReport(edited, meta, techOpts))
+    // Persisted so a later re-render (e.g. "has this report been hand-edited?") can reproduce
+    // the confirmed bytes after a window reload. Absent → NULL, i.e. byte-identical to before.
     this.deps.db
-      .prepare(`UPDATE rca_jobs SET confirmed_at = ? WHERE id = ?`)
-      .run(new Date().toISOString(), jobId)
+      .prepare(`UPDATE rca_jobs SET confirmed_at = ?, dropped_sections = ? WHERE id = ?`)
+      .run(new Date().toISOString(), dropped ? JSON.stringify(dropped) : null, jobId)
     this.emit(slug)
   }
 
