@@ -15,6 +15,41 @@ interface RowidRow {
   fts_rowid: number
 }
 
+/**
+ * Run `fn` as one atomic unit, whether or not a transaction is already open.
+ *
+ * An FTS row and its map row must be written together or not at all: a crash (or a
+ * throw) between the two statements leaves an FTS row no map row points at, which
+ * `deleteEvidenceFtsForEvidence` — which resolves rowids THROUGH the map — can never
+ * see. That residue survives crash-recovery's delete, duplicates the chunk on the
+ * re-index, and can never be reclaimed, not even when the evidence itself is deleted.
+ *
+ * SAVEPOINT, not BEGIN. Some callers already sit inside an explicit BEGIN (see
+ * ingest.ts deleteEvidence), and node:sqlite rejects a nested BEGIN outright
+ * ("cannot start a transaction within a transaction" — verified against the bundled
+ * node:sqlite, not assumed). SAVEPOINT nests, and when no outer transaction is
+ * active it opens one itself, so the outermost RELEASE commits. One name is reused
+ * because each savepoint is released before the next is opened.
+ *
+ * Keep the callable short and SYNCHRONOUS. Spanning an `await` would hold a write
+ * lock open across the async indexer's read loop and block every other main-process
+ * DB write for the length of a multi-hundred-megabyte file.
+ */
+export function withFtsSavepoint<T>(db: DatabaseSync, fn: () => T): T {
+  db.exec(`SAVEPOINT argus_fts`)
+  try {
+    const out = fn()
+    db.exec(`RELEASE argus_fts`)
+    return out
+  } catch (err) {
+    // ROLLBACK TO only rewinds the savepoint; the savepoint itself stays on the
+    // stack until it is released, so both statements are required.
+    db.exec(`ROLLBACK TO argus_fts`)
+    db.exec(`RELEASE argus_fts`)
+    throw err
+  }
+}
+
 // — evidence_fts —
 // (Inserts happen in indexer.ts, which hoists its prepared statements out of the
 //  chunk loop for large-file streaming; it writes the evidence_fts_map row inline
@@ -27,6 +62,27 @@ export function deleteEvidenceFtsForEvidence(db: DatabaseSync, evidenceId: numbe
     .all(evidenceId) as unknown as RowidRow[]
   const del = db.prepare(`DELETE FROM evidence_fts WHERE rowid = ?`)
   for (const r of rows) del.run(r.fts_rowid)
+  db.prepare(`DELETE FROM evidence_fts_map WHERE evidence_id = ?`).run(evidenceId)
+}
+
+/**
+ * Delete every evidence_fts row for one evidence id WITHOUT consulting the map.
+ *
+ * This is the slow path the comment at the top of this file exists to avoid: the FTS
+ * key columns are UNINDEXED, so this scans the entire index and its cost grows with
+ * the whole database rather than with the rows removed. DO NOT use it on any hot path
+ * (ingest, delete, re-index) — `deleteEvidenceFtsForEvidence` is the one for those.
+ *
+ * It is correct HERE, and only here, because crash recovery is the one caller that
+ * must clear rows the map cannot see. A pre-fix crash (before the FTS insert and its
+ * map insert were made atomic) could land between the two statements, leaving an FTS
+ * row no map row points at: invisible to the map-driven delete, so it survived boot's
+ * cleanup, duplicated its chunk_index on the re-index, and was unreclaimable forever.
+ * Boot runs this for the handful of rows an interrupted run left behind, once, so the
+ * scan cost is irrelevant against permanently corrupt search results.
+ */
+export function deleteEvidenceFtsThorough(db: DatabaseSync, evidenceId: number): void {
+  db.prepare(`DELETE FROM evidence_fts WHERE evidence_id = ?`).run(evidenceId)
   db.prepare(`DELETE FROM evidence_fts_map WHERE evidence_id = ?`).run(evidenceId)
 }
 

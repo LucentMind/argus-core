@@ -6,7 +6,12 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { caseDir } from '../paths'
-import { requeuePendingIndexes, type IngestJob, type IngestQueueLike } from '../ingestQueue'
+import {
+  requeuePendingIndexes,
+  createImmediateQueue,
+  type IngestJob,
+  type IngestQueueLike
+} from '../ingestQueue'
 
 let tmp: string, argusHome: string, db: DatabaseSync
 
@@ -86,6 +91,56 @@ describe('requeuePendingIndexes', () => {
     )
     // Back in the lifecycle, so countPendingIndex sees it and the bar has a denominator.
     expect(meta.indexState).toBe('pending')
+  })
+
+  // Healing pass for databases written before the FTS insert / map insert pair was
+  // made atomic. A crash between the two statements left an evidence_fts row no map
+  // row pointed at; boot's map-driven delete could not see it, so it survived, the
+  // re-index added the same chunk_index again (duplicate search hits), and nothing
+  // could ever reclaim it. Boot must delete without consulting the map.
+  it('clears an unmapped fts row left by a crash, so the re-index duplicates nothing', () => {
+    const id = insert('evidence/crashed.txt', 'indexing')
+    // residue: an fts row for chunk 0 with NO map row (the crash landed between the
+    // two inserts), plus a normal mapped row for chunk 1 from the same partial run
+    db.prepare(
+      `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
+       VALUES ('data', ?, 0, 1, 1)`
+    ).run(id)
+    const mapped = db
+      .prepare(
+        `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
+         VALUES ('data', ?, 1, 2, 2)`
+      )
+      .run(id).lastInsertRowid
+    db.prepare(`INSERT INTO evidence_fts_map (fts_rowid, evidence_id) VALUES (?, ?)`).run(
+      mapped,
+      id
+    )
+
+    // createImmediateQueue indexes inline, so this is boot's delete followed by the
+    // real re-index of the (one-line) file.
+    expect(requeuePendingIndexes(db, argusHome, createImmediateQueue(db, argusHome))).toBe(1)
+
+    const unmapped = db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM evidence_fts f
+         WHERE NOT EXISTS (SELECT 1 FROM evidence_fts_map m WHERE m.fts_rowid = f.rowid)`
+      )
+      .get() as { n: number }
+    expect(unmapped.n).toBe(0)
+
+    const dupes = db
+      .prepare(
+        `SELECT chunk_index, COUNT(*) AS n FROM evidence_fts
+         WHERE evidence_id = ? GROUP BY chunk_index HAVING n > 1`
+      )
+      .all(id)
+    expect(dupes).toEqual([])
+    // exactly the fresh index of a one-line file, nothing inherited from the crash
+    const total = db
+      .prepare(`SELECT COUNT(*) AS n FROM evidence_fts WHERE evidence_id = ?`)
+      .get(id) as { n: number }
+    expect(total.n).toBe(1)
   })
 
   it('leaves an errored row alone while its file is still missing', () => {

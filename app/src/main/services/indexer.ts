@@ -4,7 +4,11 @@ import type { DatabaseSync } from 'node:sqlite'
 import { LineSplitter } from './lineScan'
 import { sidecarPath, CHECKPOINT_LINES, CHECKPOINT_BYTES } from './lineIndex'
 import { MAX_READ_BYTES } from './search'
-import { deleteEvidenceFtsForEvidence } from './ftsIndex'
+import {
+  deleteEvidenceFtsForEvidence,
+  deleteEvidenceFtsThorough,
+  withFtsSavepoint
+} from './ftsIndex'
 
 const READ_CHUNK_BYTES = 1024 * 1024
 
@@ -13,6 +17,7 @@ const READ_CHUNK_BYTES = 1024 * 1024
  *  per-evidence deletes O(deleted rows) instead of a full-table scan).
  *  Shared by the sync and async indexers so the two cannot drift. */
 export class FtsChunkWriter {
+  private readonly db: DatabaseSync
   private readonly ins
   private readonly insMap
   private pending: string[] = []
@@ -25,6 +30,7 @@ export class FtsChunkWriter {
     private readonly evidenceId: number,
     private readonly chunkLines: number
   ) {
+    this.db = db
     this.ins = db.prepare(
       `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
        VALUES (?, ?, ?, ?, ?)`
@@ -38,16 +44,32 @@ export class FtsChunkWriter {
     if (this.pending.length >= this.chunkLines) this.flush()
   }
 
+  /**
+   * One chunk = one atomic write of the FTS row AND its map row (see
+   * withFtsSavepoint). An interruption between the two used to leave an FTS row the
+   * map-driven delete could never see: it survived crash recovery, duplicated its
+   * chunk_index on the re-index, and could never be reclaimed.
+   *
+   * Per-flush, deliberately. Batching many chunks into one transaction would be
+   * cheaper in fsyncs but would hold a write lock open across the async indexer's
+   * awaited reads, blocking every other main-process DB write for the whole file.
+   * flush() is synchronous and called from a synchronous line callback, so the
+   * savepoint opens and closes without ever spanning an await. Measured cost of the
+   * savepoint on a 199MB / 3945-chunk file: none (it replaces two implicit
+   * transactions with one).
+   */
   flush(): void {
     if (this.pending.length === 0) return
-    const rowid = this.ins.run(
-      this.pending.join('\n'),
-      this.evidenceId,
-      this.chunkIndex,
-      this.chunkStart,
-      this.chunkStart + this.pending.length - 1
-    ).lastInsertRowid
-    this.insMap.run(rowid, this.evidenceId)
+    withFtsSavepoint(this.db, () => {
+      const rowid = this.ins.run(
+        this.pending.join('\n'),
+        this.evidenceId,
+        this.chunkIndex,
+        this.chunkStart,
+        this.chunkStart + this.pending.length - 1
+      ).lastInsertRowid
+      this.insMap.run(rowid, this.evidenceId)
+    })
     this.chunkIndex++
     this.chunkStart = this.lastLineNo + 1
     this.pending = []
@@ -175,14 +197,18 @@ export function indexEvidenceText(
   let chunkIndex = 0
   for (let start = 0; start < lines.length; start += chunkLines) {
     const chunk = lines.slice(start, start + chunkLines)
-    const rowid = ins.run(
-      chunk.join('\n'),
-      evidenceId,
-      chunkIndex,
-      start + 1,
-      start + chunk.length
-    ).lastInsertRowid
-    insMap.run(rowid, evidenceId)
+    // Same atomicity requirement as FtsChunkWriter.flush: never leave an FTS row
+    // without the map row that is the only handle any delete has on it.
+    withFtsSavepoint(db, () => {
+      const rowid = ins.run(
+        chunk.join('\n'),
+        evidenceId,
+        chunkIndex,
+        start + 1,
+        start + chunk.length
+      ).lastInsertRowid
+      insMap.run(rowid, evidenceId)
+    })
     chunkIndex++
   }
   return chunkIndex
@@ -190,6 +216,15 @@ export function indexEvidenceText(
 
 export function deleteEvidenceIndex(db: DatabaseSync, evidenceId: number): void {
   deleteEvidenceFtsForEvidence(db, evidenceId)
+}
+
+/**
+ * Crash-recovery variant of deleteEvidenceIndex. Boot-only — see
+ * deleteEvidenceFtsThorough for why the deliberately slow, map-independent delete is
+ * the correct one on that one path and must not be used anywhere else.
+ */
+export function deleteEvidenceIndexThorough(db: DatabaseSync, evidenceId: number): void {
+  deleteEvidenceFtsThorough(db, evidenceId)
 }
 
 /** Thrown by indexEvidenceFileAsync when its shouldAbort predicate goes true.
