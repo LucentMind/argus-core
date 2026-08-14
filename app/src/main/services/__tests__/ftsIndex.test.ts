@@ -10,8 +10,10 @@ import {
   deleteMessagesFtsForCase,
   deleteEvidenceFtsForEvidence,
   deleteEvidenceFtsForCase,
+  deleteEvidenceFtsThorough,
   backfillFtsMaps
 } from '../ftsIndex'
+import { indexEvidenceText, indexEvidenceFile } from '../indexer'
 
 let tmp: string, db: DatabaseSync
 const n = (sql: string, ...p: SQLInputValue[]): number =>
@@ -125,6 +127,81 @@ describe('evidence_fts map', () => {
     deleteEvidenceFtsForCase(db, 1)
     expect(n(`SELECT COUNT(*) AS n FROM evidence_fts`)).toBe(4) // only case 2's chunks
     expect(n(`SELECT COUNT(*) AS n FROM evidence_fts_map`)).toBe(4)
+  })
+})
+
+// — the residue class: an evidence_fts row with no map row —
+//
+// The map is the ONLY handle deleteEvidenceFtsForEvidence has on an FTS row. A row
+// written without its map row is therefore invisible to every delete in the app: it
+// survives crash recovery, comes back as a duplicate chunk_index after the re-index,
+// and is never reclaimed, not even when the evidence itself is deleted. Reproduced
+// live by SIGKILLing the app mid-index of a 199MB file, landing between the FTS
+// insert and the map insert.
+describe('unmapped evidence_fts rows', () => {
+  const unmapped = (): number =>
+    n(`SELECT COUNT(*) AS n FROM evidence_fts f
+       WHERE NOT EXISTS (SELECT 1 FROM evidence_fts_map m WHERE m.fts_rowid = f.rowid)`)
+
+  /** Make the map insert fail, standing in for the crash that landed between the
+   *  two statements. Whatever interrupts it, the FTS row must not be left behind. */
+  function breakMapInserts(): void {
+    db.exec(
+      `CREATE TRIGGER argus_test_block_map BEFORE INSERT ON evidence_fts_map
+       BEGIN SELECT RAISE(ABORT, 'interrupted between the two inserts'); END`
+    )
+  }
+
+  it('indexEvidenceText leaves NO fts row behind when the map insert fails', () => {
+    breakMapInserts()
+    expect(() => indexEvidenceText(db, 77, 'alpha\nbravo\ncharlie\n', 2)).toThrow(/interrupted/)
+    // The whole pair rolled back: no orphan, so nothing the map-driven delete
+    // would miss. (Without the savepoint the fts row survives and is unreclaimable.)
+    expect(unmapped()).toBe(0)
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_fts WHERE evidence_id = ?`, 77)).toBe(0)
+  })
+
+  it('indexEvidenceFile leaves NO fts row behind when the map insert fails', () => {
+    const f = path.join(tmp, 'big.log')
+    fs.writeFileSync(f, Array.from({ length: 10 }, (_, i) => `line ${i} bearing`).join('\n') + '\n')
+    breakMapInserts()
+    expect(() => indexEvidenceFile(db, 78, f, 4)).toThrow(/interrupted/)
+    expect(unmapped()).toBe(0)
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_fts WHERE evidence_id = ?`, 78)).toBe(0)
+  })
+
+  it('a healthy write still produces one map row per fts row', () => {
+    indexEvidenceText(db, 79, 'alpha\nbravo\ncharlie\ndelta\n', 2)
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_fts WHERE evidence_id = ?`, 79)).toBe(2)
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_fts_map WHERE evidence_id = ?`, 79)).toBe(2)
+    expect(unmapped()).toBe(0)
+  })
+
+  it('the atomic write nests inside a caller-held transaction (deleteEvidence uses BEGIN)', () => {
+    // node:sqlite rejects a nested BEGIN outright, so the mechanism has to be a
+    // SAVEPOINT. This is the regression guard for that choice.
+    db.exec('BEGIN')
+    expect(() => indexEvidenceText(db, 80, 'alpha\nbravo\n', 1)).not.toThrow()
+    db.exec('COMMIT')
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_fts WHERE evidence_id = ?`, 80)).toBe(2)
+    expect(unmapped()).toBe(0)
+  })
+
+  it('deleteEvidenceFtsThorough clears residue the map-driven delete cannot see', () => {
+    indexEvidenceText(db, 81, 'alpha\nbravo\n', 1)
+    // pre-fix residue: an fts row with no map row
+    db.prepare(
+      `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
+       VALUES ('orphan bearing', 81, 0, 1, 1)`
+    ).run()
+    expect(unmapped()).toBe(1)
+
+    deleteEvidenceFtsForEvidence(db, 81) // map-driven: structurally blind to it
+    expect(unmapped()).toBe(1)
+
+    deleteEvidenceFtsThorough(db, 81)
+    expect(unmapped()).toBe(0)
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_fts WHERE evidence_id = ?`, 81)).toBe(0)
   })
 })
 
