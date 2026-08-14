@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { RcaTemplateSettings } from '../RcaTemplateSettings'
 import { DEFAULT_RCA_TEMPLATE } from '../../../../../shared/rcaTemplate'
@@ -205,5 +205,41 @@ describe('Reset to defaults repaints the fields', () => {
       const sent = call[0] as { rca: { template: RcaTemplate } }
       expect(sent.rca.template.exec[0].heading).not.toBe('Changed heading')
     }
+  })
+})
+
+describe('two edits inside a single tick', () => {
+  // `userEvent` awaits between actions, so React re-renders and every handler sees fresh state —
+  // which hides the whole bug class. A real double-click, or a programmatic set-value followed
+  // immediately by blur, fires both handlers before any render. Handlers must therefore compute
+  // from a synchronously-updated ref, not from the render closure.
+  it('mints distinct ids when two Add clicks land before a re-render', () => {
+    renderWith()
+    const add = screen.getByRole('button', { name: /add a section to the technical report/i })
+    act(() => {
+      add.click()
+      add.click()
+    })
+    const last = patch.mock.calls.at(-1)![0] as { rca: { template: RcaTemplate } }
+    const added = last.rca.template.tech.filter((s) => s.id.startsWith('tech-section-'))
+    expect(added).toHaveLength(2)
+    expect(new Set(added.map((s) => s.id)).size).toBe(2)
+  })
+
+  it('commits a heading typed and blurred before a re-render', () => {
+    renderWith()
+    const field = screen.getByLabelText(
+      'Heading for What happened in the executive summary'
+    ) as HTMLInputElement
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+      setter.call(field, 'Summary')
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+      field.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+    })
+    const last = patch.mock.calls.at(-1)![0] as { rca: { template: RcaTemplate } }
+    expect(last.rca.template.exec.find((s) => s.id === 'exec-what-happened')?.heading).toBe(
+      'Summary'
+    )
   })
 })

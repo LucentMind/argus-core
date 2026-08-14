@@ -28,6 +28,16 @@ function freshId(template: RcaTemplate, report: ReportKey): string {
   }
 }
 
+/** One section changed, both lists returned whole. */
+function withEdit(
+  t: RcaTemplate,
+  report: ReportKey,
+  id: string,
+  patch: Partial<RcaSection>
+): RcaTemplate {
+  return { ...t, [report]: t[report].map((s) => (s.id === id ? { ...s, ...patch } : s)) }
+}
+
 /** A new section's starting instruction. The exec text carries the non-technical prohibition
  *  because `RCA_CONTRACT` rule 6 enforces it whatever the instruction says — a new exec section
  *  should read the way the rule already behaves rather than inviting the user to write something
@@ -47,13 +57,30 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
    * won on disk — two quick "Add section" clicks minted the same id and lost a section.
    */
   const [draft, setDraft] = useState<RcaTemplate>(template)
+  /**
+   * The authoritative copy, and what every handler computes from. `draft` state exists only to
+   * render. React state does not update until the next render, so two handlers firing in ONE
+   * tick — a double-clicked "Add section", or a value-set immediately followed by blur — would
+   * both read the pre-first-edit value and the second would overwrite the first with identical
+   * content. A ref assigned synchronously in `save`/`editLocal` is visible to the very next
+   * handler in the same tick, which state is not.
+   */
+  const current = useRef<RcaTemplate>(template)
   /** Patches we have sent but not yet seen echoed back. While any are outstanding the prop is
    *  behind local state, so adopting it would undo the very edits still in flight. */
   const inflight = useRef(0)
 
   useEffect(() => {
-    if (inflight.current === 0) setDraft(template)
+    if (inflight.current !== 0) return
+    current.current = template
+    setDraft(template)
   }, [template])
+
+  /** Commit both representations at once: the ref for the next handler, state for the next paint. */
+  function land(next: RcaTemplate): void {
+    current.current = next
+    setDraft(next)
+  }
 
   /** Always sends BOTH lists. `settings.rca` is an atomic path for `stripDefaults`, so the
    *  template is persisted whole-or-absent: a patch carrying one list would drop the other. */
@@ -71,7 +98,7 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
       return
     }
     setError(null)
-    setDraft(next)
+    land(next)
     inflight.current++
     try {
       await settingsStore.patch({ rca: { template: next } })
@@ -82,25 +109,26 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
 
   /** Keystroke-level edit: local only, so typing never round-trips. Committed on blur. */
   function editLocal(report: ReportKey, id: string, patch: Partial<RcaSection>): void {
-    setDraft((d) => ({
-      ...d,
-      [report]: d[report].map((s) => (s.id === id ? { ...s, ...patch } : s))
-    }))
+    land(withEdit(current.current, report, id, patch))
+  }
+
+  /** Commit whatever the field now holds, applied on top of the latest known template. Taking
+   *  the value from the DOM rather than from state keeps this correct even when no re-render
+   *  has happened between the last keystroke and the blur. */
+  function commitField(report: ReportKey, id: string, patch: Partial<RcaSection>): void {
+    void save(withEdit(current.current, report, id, patch))
   }
 
   function replace(report: ReportKey, sections: RcaSection[]): void {
-    void save({ ...draft, [report]: sections })
+    void save({ ...current.current, [report]: sections })
   }
 
   function update(report: ReportKey, id: string, patch: Partial<RcaSection>): void {
-    replace(
-      report,
-      draft[report].map((s) => (s.id === id ? { ...s, ...patch } : s))
-    )
+    void save(withEdit(current.current, report, id, patch))
   }
 
   function move(report: ReportKey, index: number, delta: number): void {
-    const next = [...draft[report]]
+    const next = [...current.current[report]]
     const target = index + delta
     if (target < 0 || target >= next.length) return
     ;[next[index], next[target]] = [next[target], next[index]]
@@ -109,9 +137,9 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
 
   function add(report: ReportKey): void {
     replace(report, [
-      ...draft[report],
+      ...current.current[report],
       {
-        id: freshId(draft, report),
+        id: freshId(current.current, report),
         heading: 'New section',
         kind: 'narrative',
         enabled: true,
@@ -123,7 +151,7 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
   function remove(report: ReportKey, id: string): void {
     replace(
       report,
-      draft[report].filter((s) => s.id !== id)
+      current.current[report].filter((s) => s.id !== id)
     )
   }
 
@@ -152,7 +180,7 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
                   aria-label={`Heading for ${s.heading} in the ${label}`}
                   value={s.heading}
                   onChange={(e) => editLocal(report, s.id, { heading: e.target.value })}
-                  onBlur={() => void save(draft)}
+                  onBlur={(e) => commitField(report, s.id, { heading: e.target.value })}
                   onKeyDown={blurOnEscape}
                   className="min-w-0 flex-1 rounded-r1 border border-hair bg-overlay px-1.5 py-0.5 text-xs text-ink"
                 />
@@ -191,7 +219,7 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
                   value={s.instruction ?? ''}
                   rows={2}
                   onChange={(e) => editLocal(report, s.id, { instruction: e.target.value })}
-                  onBlur={() => void save(draft)}
+                  onBlur={(e) => commitField(report, s.id, { instruction: e.target.value })}
                   onKeyDown={blurOnEscape}
                   className="rounded-r1 border border-hair bg-overlay px-1.5 py-1 text-[11px] text-ink"
                 />
