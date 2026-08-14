@@ -79,11 +79,15 @@ async function remoteHeadSha(
  * Materialize a PR's head as a detached, case-scoped git worktree and return its path.
  *
  * Fetches only when it has to. An existing worktree whose HEAD already equals the remote's
- * `pull/N/head` is returned as-is, because re-entering review mode is a repeat operation and the
- * fetch is on the critical path of the mode switch (`setCaseMode` awaits it). Everything else —
- * a missing worktree, a moved head, any probe failure — takes the fetch path below, where the
- * refspec is explicit because `ensureWorktree` does not fetch on its happy path, so a
- * `pull/N/head` ref that was never fetched would simply not resolve.
+ * `pull/N/head` is returned as-is, because re-entering review mode is a repeat operation.
+ * Everything else — a missing worktree, a moved head, any probe failure — takes the fetch path
+ * below, where the refspec is explicit because `ensureWorktree` does not fetch on its happy
+ * path, so a `pull/N/head` ref that was never fetched would simply not resolve.
+ *
+ * Neither caller awaits this any more (`setCaseMode` and `linkPrForCase` both hand it back as
+ * a `materialized` promise), so nothing here blocks a mode switch or a picker confirm. The
+ * probe still earns its keep: it is what decides whether a re-entry costs a fetch at all, and
+ * the sooner this settles the sooner the repo chips get their second broadcast.
  */
 export async function ensurePrWorktree(
   argusHome: string,

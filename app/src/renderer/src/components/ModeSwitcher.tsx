@@ -5,18 +5,11 @@ import { DEFAULT_MODE, MODES, type ModeId } from '../../../shared/modes'
 export function ModeSwitcher({
   slug,
   activeMode,
-  busyMode = null,
-  statusText = null,
   onModeChanged,
   onError
 }: {
   slug: string
   activeMode: ModeId
-  /** Keeps a mode spinning after `cases.setMode` resolved — review's PR search runs in the
-   *  parent, so the control has to stay busy past the end of its own await. */
-  busyMode?: ModeId | null
-  /** What that work is, shown beside the control. Falls back to a generic switching note. */
-  statusText?: string | null
   /** The parent switches the active chat to `sessionId` — the mode's existing chat, or a
    *  freshly created one (`cases:set-mode`'s contract). */
   onModeChanged: (mode: ModeId, sessionId: number) => void
@@ -51,9 +44,12 @@ export function ModeSwitcher({
 
   async function pick(mode: ModeId): Promise<void> {
     if (mode === activeMode || pending) return
-    // Entering review fetches PR worktrees and then searches GitHub, so this is slow by
-    // nature. aria-pressed deliberately does NOT flip here (the parent owns the mode after
-    // it persists — see the no-optimistic-mirror contract); busy is the honest signal.
+    // `cases.setMode` is now a DB write and a `case.json` write for every mode — entering
+    // review no longer awaits the PR worktree checkout (see setCaseMode's `materialized`), and
+    // the GitHub search that follows reports in the Pull request rail, not here. So this
+    // pending state covers only the switch itself and should be brief in every mode.
+    // aria-pressed deliberately does NOT flip here (the parent owns the mode after it
+    // persists — see the no-optimistic-mirror contract); busy is the honest signal.
     setPending(mode)
     try {
       const result = await window.argus.cases.setMode(slug, mode)
@@ -74,11 +70,11 @@ export function ModeSwitcher({
     return <span className="text-xs text-mute">{MODES[activeMode].label}</span>
   }
 
-  const busy = pending ?? busyMode
+  const busy = pending
   // Rendered as the busy button's tooltip, never as a sibling: an inline status string is
   // a second telling of what the spinner already says, and it reflowed every control to
   // its right the moment a switch began.
-  const busyTitle = statusText ?? (busy ? `Switching to ${MODES[busy].label}…` : undefined)
+  const busyTitle = busy ? `Switching to ${MODES[busy].label}…` : undefined
 
   return (
     <div className="flex shrink-0 items-center">

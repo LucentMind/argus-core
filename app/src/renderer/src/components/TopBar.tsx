@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { Settings, Timeline, Home, Inbox } from 'lucide-react'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { uiStore } from '../lib/uiStore'
-import { caseBarStore, useCaseBar } from '../lib/caseBarStore'
+import { caseBarStore } from '../lib/caseBarStore'
 import { useViewTitle } from '../lib/viewTitleStore'
 import { useProposalCounts } from '../lib/proposalsStore'
 import { isDarwin } from '../lib/platform'
@@ -60,7 +60,6 @@ export function TopBar({
     (cb) => uiStore.subscribe(cb),
     () => uiStore.get()
   )
-  const bar = useCaseBar()
   const anchors = useAmbientAnchors()
   const proposalCounts = useProposalCounts()
   // Non-null exactly while one of the full-page views (Settings, Proposals, Related history) is
@@ -68,9 +67,6 @@ export function TopBar({
   // Doubles as the "am I on such a view" flag the anchor below keys off, so there is one source
   // of truth for it.
   const viewTitle = useViewTitle()
-  // Busy state is only this case's if it was published for this case: CaseWorkspace publishes
-  // on a case switch too, and the bar re-renders before that publish lands.
-  const busyForThisCase = activeSlug !== null && bar.slug === activeSlug
   const controls = !isDarwin()
 
   return (
@@ -217,10 +213,6 @@ export function TopBar({
               <ModeSwitcher
                 slug={activeSlug}
                 activeMode={activeCase?.activeMode ?? DEFAULT_MODE}
-                // Review's PR search outlives cases.setMode and runs in CaseWorkspace, so the
-                // only way the control knows to keep spinning is the store.
-                busyMode={busyForThisCase ? bar.busyMode : null}
-                statusText={busyForThisCase ? bar.statusText : null}
                 onModeChanged={(mode, sessionId) =>
                   caseBarStore.emit({ kind: 'mode-switched', slug: activeSlug, mode, sessionId })
                 }

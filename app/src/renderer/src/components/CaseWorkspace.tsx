@@ -393,21 +393,12 @@ export function CaseWorkspace({
     return caseBarStore.onEventFor(slug, (event) => onBarEvent.current(event))
   }, [slug])
 
-  // Down-channel: the bar cannot know review's PR search is still running, because the search
-  // runs here and outlives the cases.setMode the bar awaited.
-  useEffect(() => {
-    caseBarStore.publish({
-      slug,
-      busyMode: prSearching ? 'review' : null,
-      statusText: prSearching ? 'Searching for pull requests…' : null
-    })
-    // Navigating home (or away to another case) unmounts this workspace; without clearing the
-    // store here, the last-published busy state survives — e.g. `Searching…` from a review PR
-    // search that outlives the unmount — and reopening the case renders that stale state.
-    return () => {
-      caseBarStore.publish({ slug: null, busyMode: null, statusText: null })
-    }
-  }, [slug, prSearching])
+  // There is no down-channel to the bar any more. `prSearching` used to be published to
+  // `caseBarStore` so the bar's Review button could keep spinning past the end of the
+  // `cases.setMode` it awaited — but by then the switch is genuinely finished, and a spinner on
+  // the control that performs it says it is not. It goes to `PrCompanionSection` as a prop
+  // instead (see its `autoSearching`), which is both where the work's result lands and a plain
+  // parent→child pass rather than a store hop through a sibling subtree.
 
   /** Mirrors ReviewRunButton: compose in main (it owns the binding and worktree path), then
    *  send through the ordinary agent path so cancel/queue/mirror behave normally. A plain
@@ -630,6 +621,7 @@ export function CaseWorkspace({
                   mode={activeMode}
                   onAnalyze={(checkName) => void analyzeCheck(checkName)}
                   onPrsFound={handlePrsFound}
+                  autoSearching={prSearching}
                 />
                 {activeMode !== 'review' && (
                   <RelatedHistoryCard

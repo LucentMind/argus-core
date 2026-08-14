@@ -235,11 +235,19 @@ export function PrCompanionSection({
   slug,
   mode,
   onAnalyze,
-  onPrsFound
+  onPrsFound,
+  autoSearching = false
 }: {
   slug: string
   mode: string
   onAnalyze: (checkName: string) => void
+  /** The unrequested search CaseWorkspace runs on entering review with nothing bound. It used
+   *  to keep the bar's Review button spinning, which said the wrong thing: the mode HAS
+   *  switched by then — the chat is open and usable — and a spinner on the control that
+   *  performs the switch reads as "still switching", which is what made a ~5s `gh search`
+   *  feel like a ~5s mode switch. It belongs here, in the section whose content it is
+   *  fetching, rendered exactly like this section's other pending states. */
+  autoSearching?: boolean
   /** "Find PRs" result, handed up so the parent can open the picker over the chat. May
    *  return a promise (CaseWorkspace's handler does, so it can look up the case's current
    *  binding before opening the dialog) — `searching` below stays true until it settles, so
@@ -383,9 +391,13 @@ export function PrCompanionSection({
 
   if (mode !== 'review') return null
   const status = all[slug] ?? null
+  /** Either search — the one this section's own button starts, or the one review entry starts
+   *  on its behalf. They are the same operation against the same `gh`, so they render as one
+   *  thing; nothing downstream needs to tell them apart. */
+  const anySearching = searching || autoSearching
   /** One pending state for the whole section: while any PR round trip is in flight the header's
    *  actions grey out together, rather than each control policing only its own. */
-  const busy = linkingPr || searching || refreshingPr
+  const busy = linkingPr || anySearching || refreshingPr
 
   const counts: Record<CheckBucket, number> = {
     pass: 0,
@@ -493,14 +505,25 @@ export function PrCompanionSection({
         </div>
       )}
 
-      {!status && !linkingRef && showStatusSkeleton && (
+      {/* Above the skeleton and the empty state, and suppressing both: a search runs precisely
+          when nothing is bound, so without this the section would sit on "No pull request bound
+          to this case yet" for the whole ~5s — stating the one thing the search is busy trying
+          to disprove — and then jump to a picker. Same row shape as `linkingRef` above. */}
+      {!status && !linkingRef && anySearching && (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[11px] text-mute">Searching linked repos for pull requests…</span>
+          <Skeleton className="h-2 w-[40%]" />
+        </div>
+      )}
+
+      {!status && !linkingRef && !anySearching && showStatusSkeleton && (
         <div className="flex flex-col gap-1.5">
           <Skeleton className="h-3 w-[55%]" />
           <Skeleton className="h-2 w-[40%]" />
         </div>
       )}
 
-      {!status && !linkingRef && !showStatusSkeleton && statusLoaded && (
+      {!status && !linkingRef && !anySearching && !showStatusSkeleton && statusLoaded && (
         <p className="text-[11px] text-mute">
           No pull request bound to this case yet — use Find PRs above.
         </p>

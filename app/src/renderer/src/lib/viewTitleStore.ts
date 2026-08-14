@@ -46,8 +46,7 @@ class ViewTitleStore {
    *
    * No-ops when nothing changed. Publishers call this from an effect, and `useSyncExternalStore`
    * re-renders whenever `get()`'s identity changes — handing out a fresh object for an unchanged
-   * title would be an infinite render loop, not just wasted work. Same reasoning as
-   * `caseBarStore.publish`.
+   * title would be an infinite render loop, not just wasted work.
    */
   publish(next: ViewTitleState | null): void {
     const s = this.state

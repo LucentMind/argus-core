@@ -164,12 +164,18 @@ export function PrPickerDialog({
           })}
         </div>
         <div className="flex items-center gap-2">
+          {/* The label changes under `busy` because the buttons, the ✕, the backdrop and
+              Escape all go dead together for the duration (see `onClose` above) — leaving
+              "Link selected" sitting there said nothing was happening while the dialog held
+              the whole app behind it. `pr:link` no longer awaits the worktree checkout, so
+              this window is now a DB write rather than a `git fetch` + `worktree add`; the
+              label is what makes the difference legible if it is ever slow again. */}
           <Btn
             variant="primary"
             disabled={busy || selected === null}
             onClick={() => void confirm()}
           >
-            Link selected
+            {busy ? 'Linking…' : 'Link selected'}
           </Btn>
           <Btn variant="ghost" disabled={busy} onClick={onClose}>
             Cancel

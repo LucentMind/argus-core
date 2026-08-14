@@ -159,52 +159,37 @@ describe('ModeSwitcher', () => {
     await waitFor(() => expect(reviewBtn.getAttribute('aria-busy')).toBe('false'))
   })
 
-  // The work that makes review slow continues AFTER cases.setMode resolves (the PR search
-  // runs in the parent), so the parent has to be able to keep the control busy.
-  it('accepts an externally driven busy mode with its own status text', async () => {
+  /**
+   * Inverted deliberately. This used to assert the opposite — that the parent could drive
+   * `busyMode`/`statusText` to keep the control spinning past its own await, for review's PR
+   * search. Those props are gone: the switch is over once `cases.setMode` resolves (the
+   * worktree checkout no longer sits inside it either — see setCaseMode's `materialized`), and
+   * the search reports in the Pull request rail. Busy here now means, and only means, that a
+   * switch is genuinely in flight.
+   */
+  it('is not busy on a settled switch, whatever the parent is doing', async () => {
     available.mockResolvedValue(['investigation', 'review'])
-    const { rerender } = render(
-      <ModeSwitcher
-        slug="c1"
-        activeMode="review"
-        busyMode="review"
-        statusText="Searching for pull requests…"
-        onModeChanged={vi.fn()}
-        onError={vi.fn()}
-      />
-    )
+    render(<ModeSwitcher slug="c1" activeMode="review" onModeChanged={vi.fn()} onError={vi.fn()} />)
     const reviewBtn = await screen.findByRole('button', { name: /case mode · review/i })
-    expect(reviewBtn.getAttribute('aria-busy')).toBe('true')
-    expect(reviewBtn.getAttribute('title')).toBe('Searching for pull requests…')
-
-    rerender(
-      <ModeSwitcher
-        slug="c1"
-        activeMode="review"
-        busyMode={null}
-        statusText={null}
-        onModeChanged={vi.fn()}
-        onError={vi.fn()}
-      />
-    )
-    await waitFor(() => expect(reviewBtn.getAttribute('aria-busy')).toBe('false'))
+    expect(reviewBtn.getAttribute('aria-busy')).toBe('false')
     expect(reviewBtn.getAttribute('title')).toBeNull()
   })
 
   it('puts the switch status on the busy button title, not in a sibling element', async () => {
     available.mockResolvedValue(['investigation', 'review'])
+    setMode.mockReset().mockReturnValue(new Promise(() => {}))
+    const user = userEvent.setup()
     render(
       <ModeSwitcher
         slug="case-a"
         activeMode="investigation"
-        busyMode="review"
-        statusText="Searching for pull requests…"
         onModeChanged={() => {}}
         onError={() => {}}
       />
     )
     const review = await screen.findByRole('button', { name: 'Case mode · Review' })
-    expect(review.getAttribute('title')).toBe('Searching for pull requests…')
+    await user.click(review)
+    await waitFor(() => expect(review.getAttribute('title')).toBe('Switching to Review…'))
     // the free-floating status span is what shoved the rest of the bar sideways
     expect(screen.queryByRole('status')).toBeNull()
   })

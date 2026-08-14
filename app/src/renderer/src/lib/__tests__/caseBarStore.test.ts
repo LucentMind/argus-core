@@ -5,42 +5,10 @@ beforeEach(() => {
   caseBarStore.reset()
 })
 
-describe('caseBarStore state', () => {
-  it('publishes busy state to subscribers', () => {
-    const seen = vi.fn()
-    const off = caseBarStore.subscribe(seen)
-    caseBarStore.publish({ slug: 'case-a', busyMode: 'review', statusText: 'Searching…' })
-    expect(seen).toHaveBeenCalled()
-    expect(caseBarStore.get()).toEqual({
-      slug: 'case-a',
-      busyMode: 'review',
-      statusText: 'Searching…'
-    })
-    off()
-  })
-
-  it('keeps the same snapshot object when nothing changed', () => {
-    // useSyncExternalStore re-renders on every getSnapshot identity change, and
-    // CaseWorkspace publishes on every render — an unstable snapshot is an infinite loop.
-    caseBarStore.publish({ slug: 'case-a', busyMode: null, statusText: null })
-    const first = caseBarStore.get()
-    const seen = vi.fn()
-    const off = caseBarStore.subscribe(seen)
-    caseBarStore.publish({ slug: 'case-a', busyMode: null, statusText: null })
-    expect(caseBarStore.get()).toBe(first)
-    expect(seen).not.toHaveBeenCalled()
-    off()
-  })
-
-  it('stops notifying after unsubscribe', () => {
-    const seen = vi.fn()
-    const off = caseBarStore.subscribe(seen)
-    off()
-    caseBarStore.publish({ slug: 'case-b', busyMode: null, statusText: null })
-    expect(seen).not.toHaveBeenCalled()
-  })
-})
-
+// The `caseBarStore state` block that used to sit here is gone with the state channel itself:
+// `publish`/`subscribe`/`get` existed only to keep the bar's Review button spinning through
+// review's PR search, which now reports in the Pull request rail (PrCompanionSection's
+// `autoSearching`). What remains is the event channel, which is unchanged.
 describe('caseBarStore events', () => {
   it('delivers a mode switch to a consumer listening for that case', () => {
     const seen = vi.fn()
@@ -82,13 +50,11 @@ describe('caseBarStore events', () => {
     expect(seen).not.toHaveBeenCalled()
   })
 
-  it('reset drops both state and event listeners', () => {
+  it('reset drops event listeners', () => {
     const seen = vi.fn()
     caseBarStore.onEventFor('case-a', seen)
-    caseBarStore.publish({ slug: 'case-a', busyMode: 'review', statusText: 'x' })
     caseBarStore.reset()
     caseBarStore.emit({ kind: 'mode-error', slug: 'case-a', message: 'nope' })
     expect(seen).not.toHaveBeenCalled()
-    expect(caseBarStore.get()).toEqual({ slug: null, busyMode: null, statusText: null })
   })
 })
