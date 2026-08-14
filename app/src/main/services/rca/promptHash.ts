@@ -1,20 +1,32 @@
 import crypto from 'node:crypto'
 import { RCA_CONTRACT, RCA_SECTIONS } from './contract'
+import type { RcaTemplate } from '../../../shared/rcaTemplate'
 
 /**
- * Version hash of the case-RCA prompt's STATIC parts as resolved right now — the contract
- * plus every section header, in sorted key order. The dynamic case payload is deliberately
- * excluded: it lives in the job's input_snapshot. Together (prompt_hash, input_snapshot)
- * fully identify what the model saw, because buildCaseRcaPrompt is deterministic given both.
- * Stamped at enqueue (the moment the snapshot freezes) so a later Prompts-page override
- * change cannot desynchronize hash and snapshot.
+ * Version hash of the case-RCA prompt's STATIC parts as resolved right now — the contract,
+ * every section header, and the template's section briefs. The dynamic case payload is
+ * deliberately excluded: it lives in the job's input_snapshot. Together (prompt_hash,
+ * input_snapshot, template_snapshot) fully identify what the model saw, because
+ * buildCaseRcaPrompt is deterministic given all three. Stamped at enqueue (the moment the
+ * snapshots freeze) so a later Prompts-page or template edit cannot desynchronize them.
+ *
+ * Only what actually REACHES the model is hashed: enabled narrative sections' id, heading and
+ * instruction. A claims section's heading is a render-time label the model never sees, so
+ * renaming one must not invalidate the hash.
  */
-export function caseRcaPromptHash(resolve?: (id: string) => string): string {
+export function caseRcaPromptHash(
+  resolve: ((id: string) => string) | undefined,
+  template: RcaTemplate
+): string {
+  const briefs = [...template.exec, ...template.tech]
+    .filter((s) => s.enabled && s.kind === 'narrative')
+    .map((s) => `${s.id}${s.heading}${s.instruction ?? ''}`)
   const parts = [
     resolve ? resolve('headless.case-rca.contract') : RCA_CONTRACT,
     ...Object.keys(RCA_SECTIONS)
       .sort()
-      .map((k) => (resolve ? resolve(`headless.case-rca.section.${k}`) : RCA_SECTIONS[k].text))
+      .map((k) => (resolve ? resolve(`headless.case-rca.section.${k}`) : RCA_SECTIONS[k].text)),
+    ...briefs
   ]
   return crypto
     .createHash('sha256')
