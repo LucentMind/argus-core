@@ -132,6 +132,11 @@ export function RcaPanel({
   })
   const [saveError, setSaveError] = useState<string | null>(null)
   const [diskMarkdown, setDiskMarkdown] = useState<{ exec: string; tech: string } | null>(null)
+  // Explicit failure signal for the disk-fallback note below — set true only where a
+  // `readMarkdown` call actually rejects, never inferred from `diskMarkdown` being absent. That
+  // absence is equally true while the read is still in flight and for a legitimately empty
+  // on-disk file, neither of which is a failure.
+  const [diskReadFailed, setDiskReadFailed] = useState(false)
 
   const [investigationFindingsCount, setInvestigationFindingsCount] = useState<number | null>(null)
   const [generateError, setGenerateError] = useState<string | null>(null)
@@ -212,7 +217,10 @@ export function RcaPanel({
       // Deferred to a microtask, same idiom as the confirmedAt effect above — a bare setState
       // here would run synchronously in the effect body.
       void Promise.resolve().then(() => {
-        if (live) setDiskMarkdown(null)
+        if (live) {
+          setDiskMarkdown(null)
+          setDiskReadFailed(false)
+        }
       })
       return () => {
         live = false
@@ -221,11 +229,15 @@ export function RcaPanel({
     void window.argus.rca
       .readMarkdown(slug)
       .then((md) => {
-        if (live) setDiskMarkdown(md)
+        if (live) {
+          setDiskMarkdown(md)
+          setDiskReadFailed(false)
+        }
       })
       .catch((err) => {
         if (live) {
           setDiskMarkdown(null)
+          setDiskReadFailed(true)
           setSaveError((err as Error).message)
         }
       })
@@ -273,11 +285,14 @@ export function RcaPanel({
     handEdited[tab] && diskMarkdown ? diskMarkdown[tab] : (preview?.[tab] ?? null)
 
   // True whenever the active tab is showing the rendered preview *in place of* the on-disk text
-  // it should be showing — i.e. `post.ts` would send something the pane isn't displaying. Tied to
-  // state, not to `saveError`: that string is wiped on every tab click (correct for the editor's
-  // own errors), which would otherwise let this exact mismatch go silent the moment the user
-  // clicks away and back.
-  const showingUnreadableDiskFallback = handEdited[tab] && !diskMarkdown?.[tab]
+  // it should be showing — i.e. `post.ts` would send something the pane isn't displaying. Driven
+  // by `diskReadFailed`, an explicit signal set only where a `readMarkdown` call actually
+  // rejected — never inferred from `diskMarkdown` being absent, which is equally true while the
+  // read is still in flight (the entire IPC round trip, not just the `.catch` branch) and for a
+  // legitimately empty on-disk report (`''` is falsy). Tied to state, not to `saveError`: that
+  // string is wiped on every tab click (correct for the editor's own errors), which would
+  // otherwise let this exact mismatch go silent the moment the user clicks away and back.
+  const showingUnreadableDiskFallback = handEdited[tab] && diskReadFailed
 
   // No `else setPreview(null)` branch: a stale preview from a since-cleared draft is harmless —
   // the previews block below only renders inside the `done && draft` branch, so `editedDraft`
