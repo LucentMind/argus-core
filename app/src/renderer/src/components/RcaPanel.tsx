@@ -124,6 +124,14 @@ export function RcaPanel({
   const [tab, setTab] = useState<'exec' | 'tech'>('exec')
   const [preview, setPreview] = useState<{ exec: string; tech: string } | null>(null)
 
+  const [editing, setEditing] = useState(false)
+  const [editBody, setEditBody] = useState('')
+  const [handEdited, setHandEdited] = useState<{ exec: boolean; tech: boolean }>({
+    exec: false,
+    tech: false
+  })
+  const [saveError, setSaveError] = useState<string | null>(null)
+
   const [investigationFindingsCount, setInvestigationFindingsCount] = useState<number | null>(null)
   const [generateError, setGenerateError] = useState<string | null>(null)
   const [confirmBusy, setConfirmBusy] = useState(false)
@@ -159,6 +167,29 @@ export function RcaPanel({
 
   const job = payload?.job ?? null
   const draft = payload?.draft ?? null
+
+  // Derived in main by re-rendering the confirmed structure and comparing bytes, so it stays
+  // truthful even if the files were changed outside the app.
+  const confirmedAt = job?.confirmedAt ?? null
+  useEffect(() => {
+    let live = true
+    if (!confirmedAt) {
+      // Deferred to a microtask (the repo's usual set-state-in-effect idiom, see TextViewer's
+      // page cache) — a bare setState here would run synchronously in the effect body.
+      void Promise.resolve().then(() => {
+        if (live) setHandEdited({ exec: false, tech: false })
+      })
+      return () => {
+        live = false
+      }
+    }
+    void window.argus.rca.handEdited(slug).then((h) => {
+      if (live) setHandEdited(h)
+    })
+    return () => {
+      live = false
+    }
+  }, [slug, confirmedAt])
 
   // Seeds the editable claims copy from the draft exactly once per `done` job — re-running
   // this on every payload update (e.g. the broadcast `confirm()` triggers) would silently
@@ -233,6 +264,7 @@ export function RcaPanel({
   }
 
   async function onRegenerateClick(): Promise<void> {
+    if (!(await confirmDiscardEdits('Regenerate'))) return
     const ok = await confirmDialog({
       title: 'Regenerate the RCA report?',
       message:
@@ -240,6 +272,42 @@ export function RcaPanel({
     })
     if (!ok) return
     await onGenerate()
+  }
+
+  async function openEditor(): Promise<void> {
+    setSaveError(null)
+    const md = await window.argus.rca.readMarkdown(slug)
+    if (!md) return
+    setEditBody(md[tab])
+    setEditing(true)
+  }
+
+  async function saveEditor(): Promise<void> {
+    setSaveError(null)
+    try {
+      await window.argus.rca.saveMarkdown(slug, tab, editBody)
+      setEditing(false)
+      // The badge is derived from disk; re-derive rather than assuming what the save implies.
+      setHandEdited(await window.argus.rca.handEdited(slug))
+    } catch (err) {
+      setSaveError((err as Error).message)
+    }
+  }
+
+  /** Both Confirm & freeze and Regenerate rewrite the artifacts from the structure, so either
+   *  one silently destroys hand-edited text. Warn only when there IS text to lose. */
+  async function confirmDiscardEdits(action: string): Promise<boolean> {
+    const edited = [
+      handEdited.exec && 'the Jira comment',
+      handEdited.tech && 'the technical report'
+    ]
+      .filter(Boolean)
+      .join(' and ')
+    if (!edited) return true
+    return confirmDialog({
+      title: `${action} will discard your text edits`,
+      message: `Your text edits to ${edited} will be replaced by a freshly rendered report. This cannot be undone.`
+    })
   }
 
   // Re-fetches status on a confirm failure (in addition to showing the error) so the panel
@@ -256,6 +324,7 @@ export function RcaPanel({
 
   async function onConfirmFreeze(): Promise<void> {
     if (!job || !editedDraft) return
+    if (!(await confirmDiscardEdits('Confirm & freeze'))) return
     // Checked against `claims` (not `editedDraft.rootCause.statement`): `applyClaims` always
     // fills in a non-empty placeholder statement when no claim holds the root-cause role (see
     // `NO_ROOT_CAUSE_STATEMENT`), precisely so the schema-required non-empty statement doesn't
@@ -433,7 +502,10 @@ export function RcaPanel({
                     key={t}
                     type="button"
                     aria-pressed={tab === t}
-                    onClick={() => setTab(t)}
+                    onClick={() => {
+                      setTab(t)
+                      setEditing(false)
+                    }}
                     className={`rounded-r1 border px-2 py-0.5 text-[11px] transition-colors ${
                       tab === t
                         ? 'border-signal bg-signal/15 text-ink'
@@ -443,8 +515,29 @@ export function RcaPanel({
                     {t === 'exec' ? 'Exec summary' : 'Technical report'}
                   </button>
                 ))}
+                {job.confirmedAt && !editing && <Btn onClick={() => void openEditor()}>Edit</Btn>}
+                {handEdited[tab] && <Chip tone="review">edited</Chip>}
               </div>
-              {preview && <MessageView markdown={preview[tab]} onCite={() => {}} caseSlug={slug} />}
+              {editing ? (
+                <div className="flex flex-col gap-2">
+                  <textarea
+                    aria-label={`${tab === 'exec' ? 'Executive summary' : 'Technical report'} markdown`}
+                    value={editBody}
+                    onChange={(e) => setEditBody(e.target.value)}
+                    rows={20}
+                    className="w-full rounded-r1 border border-hair bg-overlay p-2 font-mono text-[11px] text-ink"
+                  />
+                  <div className="flex items-center gap-2">
+                    <Btn variant="primary" onClick={() => void saveEditor()}>
+                      Save
+                    </Btn>
+                    <Btn onClick={() => setEditing(false)}>Cancel</Btn>
+                    {saveError && <span className="text-xs text-danger">{saveError}</span>}
+                  </div>
+                </div>
+              ) : (
+                preview && <MessageView markdown={preview[tab]} onCite={() => {}} caseSlug={slug} />
+              )}
             </div>
 
             {/* — Actions — */}

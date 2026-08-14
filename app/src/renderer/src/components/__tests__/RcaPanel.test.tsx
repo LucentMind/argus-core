@@ -91,6 +91,9 @@ const confirmIpc = vi.fn()
 const post = vi.fn()
 const renderPreview = vi.fn()
 const findingsList = vi.fn()
+const readMarkdown = vi.fn()
+const saveMarkdown = vi.fn()
+const handEdited = vi.fn()
 let rcaChangedCb: ((p: RcaStatusPayload) => void) | null = null
 
 beforeEach(() => {
@@ -105,6 +108,9 @@ beforeEach(() => {
     { id: 2, mode: 'investigation' },
     { id: 3, mode: 'investigation' }
   ])
+  readMarkdown.mockReset().mockResolvedValue({ exec: '# exec', tech: '# tech' })
+  saveMarkdown.mockReset().mockResolvedValue(undefined)
+  handEdited.mockReset().mockResolvedValue({ exec: false, tech: false })
   vi.mocked(confirm).mockReset().mockResolvedValue(true)
 
   window.argus = {
@@ -119,7 +125,10 @@ beforeEach(() => {
         return () => {
           rcaChangedCb = null
         }
-      })
+      }),
+      readMarkdown,
+      saveMarkdown,
+      handEdited
     },
     findings: { list: findingsList },
     settings: { get: vi.fn(async () => settingsPayload()), onChanged: vi.fn(() => () => {}) }
@@ -131,14 +140,23 @@ beforeEach(() => {
 // brief's test snippets use.
 const confirmFn = confirmIpc
 
+// Alias used by the editor/discard-warning tests below — same mock as `confirm` from
+// confirmStore (already mocked above), just the name the brief's test snippets use.
+const confirmDialog = vi.mocked(confirm)
+
 /** Builds a `done`-state RcaStatusPayload for slug `case-a`, job id defaulting to 1 — the
  *  fixture the drop-toggle tests below share. */
 function doneStatusPayload(
-  over: { jobId?: number; template?: RcaTemplate; dropped?: RcaDroppedSections } = {}
+  over: {
+    jobId?: number
+    template?: RcaTemplate
+    dropped?: RcaDroppedSections
+    confirmedAt?: string | null
+  } = {}
 ): RcaStatusPayload {
   return {
     caseSlug: 'case-a',
-    job: job({ id: over.jobId ?? 1 }),
+    job: job({ id: over.jobId ?? 1, confirmedAt: over.confirmedAt ?? null }),
     draft: draft(),
     template: over.template ?? DEFAULT_RCA_TEMPLATE,
     dropped: over.dropped ?? {}
@@ -146,7 +164,11 @@ function doneStatusPayload(
 }
 
 async function renderDonePanel(
-  over: { template?: RcaTemplate; dropped?: RcaDroppedSections } = {}
+  over: {
+    template?: RcaTemplate
+    dropped?: RcaDroppedSections
+    confirmedAt?: string | null
+  } = {}
 ): Promise<void> {
   status.mockResolvedValue(doneStatusPayload(over))
   render(<RcaPanel slug="case-a" onClose={vi.fn()} />)
@@ -521,5 +543,101 @@ describe('RcaPanel', () => {
         true
       )
     )
+  })
+
+  it('offers no editor until the report is confirmed', async () => {
+    await renderDonePanel({ confirmedAt: null })
+    expect(screen.queryByRole('button', { name: /^edit$/i })).toBeNull()
+  })
+
+  it('opens the editor on the confirmed markdown for the active tab', async () => {
+    readMarkdown.mockResolvedValue({ exec: '# exec on disk', tech: '# tech on disk' })
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    expect(screen.getByRole('textbox', { name: /executive summary markdown/i })).toHaveProperty(
+      'value',
+      '# exec on disk'
+    )
+  })
+
+  it('saves the edited body for the active report only', async () => {
+    readMarkdown.mockResolvedValue({ exec: '# exec on disk', tech: '# tech on disk' })
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    const box = screen.getByRole('textbox', { name: /executive summary markdown/i })
+    await userEvent.clear(box)
+    await userEvent.type(box, '# edited')
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await vi.waitFor(() => expect(saveMarkdown).toHaveBeenCalledWith('case-a', 'exec', '# edited'))
+  })
+
+  it('discards editor changes on cancel without saving', async () => {
+    readMarkdown.mockResolvedValue({ exec: '# exec on disk', tech: '# tech on disk' })
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    await userEvent.type(screen.getByRole('textbox', { name: /executive summary markdown/i }), 'x')
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+    expect(saveMarkdown).not.toHaveBeenCalled()
+  })
+
+  it('shows an edited badge for a hand-edited report', async () => {
+    handEdited.mockResolvedValue({ exec: true, tech: false })
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    await vi.waitFor(() => expect(screen.getByText(/edited/i)).toBeTruthy())
+  })
+
+  it('warns before Confirm & freeze overwrites a hand-edited report, and aborts on cancel', async () => {
+    handEdited.mockResolvedValue({ exec: true, tech: false })
+    confirmDialog.mockResolvedValue(false)
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    await userEvent.click(screen.getByRole('button', { name: /confirm & freeze/i }))
+    await vi.waitFor(() =>
+      expect(confirmDialog).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringMatching(/text edits/i) })
+      )
+    )
+    expect(confirmFn).not.toHaveBeenCalled()
+  })
+
+  it('proceeds with Confirm & freeze when the warning is accepted', async () => {
+    handEdited.mockResolvedValue({ exec: true, tech: false })
+    confirmDialog.mockResolvedValue(true)
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    await userEvent.click(screen.getByRole('button', { name: /confirm & freeze/i }))
+    await vi.waitFor(() => expect(confirmFn).toHaveBeenCalled())
+  })
+
+  it('does not warn about text edits when neither report was hand-edited', async () => {
+    handEdited.mockResolvedValue({ exec: false, tech: false })
+    confirmDialog.mockResolvedValue(true)
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    await userEvent.click(screen.getByRole('button', { name: /confirm & freeze/i }))
+    await vi.waitFor(() => expect(confirmFn).toHaveBeenCalled())
+    for (const call of confirmDialog.mock.calls) {
+      expect(call[0].message).not.toMatch(/text edits/i)
+    }
+  })
+
+  it('warns before Regenerate discards a hand-edited report', async () => {
+    handEdited.mockResolvedValue({ exec: false, tech: true })
+    confirmDialog.mockResolvedValue(false)
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    await userEvent.click(screen.getByRole('button', { name: /regenerate/i }))
+    await vi.waitFor(() =>
+      expect(confirmDialog).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringMatching(/text edits/i) })
+      )
+    )
+    expect(generate).not.toHaveBeenCalled()
+  })
+
+  it('re-checks hand-edited state after a save, so the badge is not stale', async () => {
+    readMarkdown.mockResolvedValue({ exec: '# a', tech: '# b' })
+    handEdited.mockResolvedValue({ exec: false, tech: false })
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    handEdited.mockClear()
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await vi.waitFor(() => expect(handEdited).toHaveBeenCalled())
   })
 })
