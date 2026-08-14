@@ -44,7 +44,7 @@ export async function extractDerivedText(
       a.replaceAll('{input}', srcAbs).replaceAll('{output}', outAbs)
     )
     await run(extract.command, args)
-    return ingestDerived(db, argusHome, queue, slugRow.slug, outAbs, rec.id)
+    return await ingestDerived(db, argusHome, queue, slugRow.slug, outAbs, rec.id)
   } catch (err) {
     console.warn(`[extraction] failed for ${rec.relPath}: ${(err as Error).message}`)
     return null

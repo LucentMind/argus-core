@@ -29,18 +29,45 @@ export function setIndexState(db: DatabaseSync, evidenceId: number, state: Index
 
 const PENDING_PREDICATE = `json_extract(e.meta, '$.indexState') IN ('pending', 'indexing')`
 
+export interface IndexSweepRow {
+  id: number
+  caseSlug: string
+  relPath: string
+  size: number
+  state: IndexState
+}
+
 /** Every evidence row whose index never finished — the boot re-enqueue set. */
-export function listPendingIndexEvidence(
-  db: DatabaseSync
-): Array<{ id: number; caseSlug: string; relPath: string; size: number }> {
+export function listPendingIndexEvidence(db: DatabaseSync): IndexSweepRow[] {
+  return sweepRows(db, PENDING_PREDICATE)
+}
+
+/**
+ * Every row parked at 'error', for the boot sweep to reconsider.
+ *
+ * Separate from listPendingIndexEvidence, and deliberately NOT folded into
+ * PENDING_PREDICATE: countPendingIndex answers "will this resolve itself if I wait",
+ * and an errored row does not. Only the boot sweep wants both sets, and only it can
+ * tell the two apart afterwards — a retryable error (the file is back) from a
+ * still-hopeless one (the file is still gone). Without this, 'error' is a terminal
+ * sink: nothing else transitions a row out of it except updateEvidenceContent and
+ * rescanModified, and the latter only fires when the file's sha256 CHANGES, so an
+ * unchanged file that errored once is never retried.
+ */
+export function listErroredIndexEvidence(db: DatabaseSync): IndexSweepRow[] {
+  return sweepRows(db, ERROR_PREDICATE)
+}
+
+function sweepRows(db: DatabaseSync, predicate: string): IndexSweepRow[] {
   return db
     .prepare(
-      `SELECT e.id AS id, c.slug AS caseSlug, e.rel_path AS relPath, e.size AS size
+      `SELECT e.id AS id, c.slug AS caseSlug, e.rel_path AS relPath, e.size AS size,
+              json_extract(e.meta, '$.indexState') AS state
        FROM evidence e JOIN cases c ON c.id = e.case_id
-       WHERE ${PENDING_PREDICATE}
+       WHERE ${predicate}
        ORDER BY e.id`
     )
-    .all() as unknown as Array<{ id: number; caseSlug: string; relPath: string; size: number }>
+    .all() as unknown as IndexSweepRow[]
 }
 
 /** How many of a case's files are not yet fully searchable. `null` counts every case. */
