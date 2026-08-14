@@ -70,6 +70,14 @@ export interface IngestQueueLike {
   abort(evidenceId: number): void
 }
 
+/**
+ * bytesDone/bytesTotal count indexing work only: an index:false job (a binary
+ * artifact with nothing to index) never touches either. filesDone/filesTotal
+ * count every job, indexable or not -- every job is a real unit of work.
+ * A progress-bar consumer should therefore drive off bytes when
+ * bytesTotal > 0 and fall back to files otherwise (e.g. an all-binary batch,
+ * where bytesTotal stays 0 for the life of the drain).
+ */
 interface CaseCounters {
   filesDone: number
   filesTotal: number
@@ -109,7 +117,13 @@ export class IngestQueue implements IngestQueueLike {
       bytesTotal: 0
     }
     c.filesTotal++
-    c.bytesTotal += job.size
+    // Bytes are an indexing metric: indexing time scales with file size, but
+    // extraction time is a function of the extractor binary, not the file's
+    // size. Counting index:false bytes would let a batch of large non-indexed
+    // files (screenshots, binaries) dominate bytesTotal, so the bar jumps to
+    // near-100% instantly and then crawls through the one file that actually
+    // matters. Files still count every job -- every job is a real unit of work.
+    if (job.index) c.bytesTotal += job.size
     this.counters.set(job.caseSlug, c)
     this.emitQueue(job.caseSlug, true)
     this.kick()
@@ -179,7 +193,13 @@ export class IngestQueue implements IngestQueueLike {
       const c = this.counters.get(job.caseSlug)
       if (c) {
         c.filesDone++
-        c.bytesDone = Math.min(c.bytesTotal, baseBytes + job.size)
+        // Mirror the enqueue-side gate: an index:false job never contributed to
+        // bytesTotal, so it must not be credited to bytesDone either. Crediting
+        // it anyway (while enqueue correctly excludes it) is worse than the bug
+        // being fixed: bytesTotal would undercount, so a single completed
+        // non-indexed job could push bytesDone to (or past) 100% of a total
+        // that the real indexing work hasn't touched yet.
+        if (job.index) c.bytesDone = Math.min(c.bytesTotal, baseBytes + job.size)
         // Nothing left for this case: zero the counters and emit once more so the
         // renderer's bar hides instead of freezing at 100%.
         const others = this.jobs.some((j) => j.caseSlug === job.caseSlug)
