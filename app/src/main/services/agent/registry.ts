@@ -36,6 +36,7 @@ import { driverForSession } from './reviewFraming'
 import type { Runner } from '../github'
 import type { NativeToolDeps } from './nativeTools'
 import type { WatermarkTarget } from '../../../shared/watermark'
+import type { IngestQueueLike } from '../ingestQueue'
 
 /**
  * Cache key for everything that is frozen at `query()` construction besides the model:
@@ -54,6 +55,9 @@ export interface AgentServiceDeps {
   db: DatabaseSync
   argusHome: string
   detection: Detection
+  /** Background index/extract queue, forwarded to every session; absent means
+   *  `createImmediateQueue` (see NativeToolDeps.queue). */
+  queue?: IngestQueueLike
   skillsRoots: string[]
   /** Live pack persona fragments (PackRegistry); read at each session construction. */
   personaFragments?: () => string[]
@@ -309,6 +313,7 @@ export class AgentService {
       db: this.deps.db,
       argusHome: this.deps.argusHome,
       detection: this.deps.detection,
+      queue: this.deps.queue,
       caseId: rec.id,
       caseSlug,
       sessionId,

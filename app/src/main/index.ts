@@ -143,6 +143,7 @@ import {
 import { OnboardingService, resolveSampleAssetsDir } from './services/onboarding'
 import { ingestArtifact, ingestBytes, listEvidence, deleteEvidence } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
+import { createImmediateQueue, type IngestQueueLike } from './services/ingestQueue'
 import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
 import { createCaseWatchHub } from './services/caseWatch'
 import { createProposalsWatch } from './services/proposalsWatch'
@@ -270,6 +271,7 @@ import {
   type CaseResolution,
   type CaseStatus,
   type DialogAnswer,
+  type EvidenceRecord,
   type NewCaseInput,
   type SearchFilters,
   type UnifiedHit
@@ -782,6 +784,49 @@ function registerIpc(): void {
     broadcast(IPC.evidenceChanged, slug)
   }
 
+  // INTERIM WIRING (task 5 of the background-indexing plan) — REPLACE IN TASK 6.
+  //
+  // Task 6 constructs the real `new IngestQueue({ db, argusHome, extract, onItemProgress,
+  // onQueueProgress, onEvidenceChanged })` here and deletes this shim wholesale. Until then
+  // this preserves today's OBSERVABLE behaviour exactly: `createImmediateQueue` indexes
+  // synchronously (so ingest is still search-ready on return) and the wrapper below keeps the
+  // fire-and-forget extraction kick plus its `evidence:parsing` broadcasts, which used to live
+  // inline at each ingest call site and have now moved behind this seam.
+  const ingestQueue: IngestQueueLike = (() => {
+    const immediate = createImmediateQueue(db, argusHome)
+    return {
+      enqueue(job) {
+        immediate.enqueue(job)
+        const rec = listEvidence(db, job.caseSlug, 'all').find((e) => e.id === job.evidenceId)
+        if (!rec) return
+        broadcast(IPC.evidenceParsing, {
+          slug: job.caseSlug,
+          evidenceId: job.evidenceId,
+          active: true
+        })
+        // extractDerivedText CAN reject (its sync setup — db lookup, mkdirSync — runs
+        // outside its internal try/catch); swallow the fire-and-forget rejection explicitly.
+        void extractDerivedText(db, argusHome, immediate, rec, extractors)
+          .then((derived) => {
+            if (derived) evidenceChangedB(job.caseSlug)
+          })
+          .catch((err) =>
+            console.warn(`[ingest] extraction failed for ${rec.relPath}: ${(err as Error).message}`)
+          )
+          .finally(() =>
+            broadcast(IPC.evidenceParsing, {
+              slug: job.caseSlug,
+              evidenceId: job.evidenceId,
+              active: false
+            })
+          )
+      },
+      abort() {
+        // Nothing to cancel: `immediate.enqueue` finished indexing before it returned.
+      }
+    }
+  })()
+
   const secretStore = new SecretStore(argusHome, safeStorage)
 
   const defectCorpus = new DefectCorpusService({
@@ -1094,6 +1139,7 @@ function registerIpc(): void {
     db,
     argusHome,
     detection,
+    queue: ingestQueue,
     sampleAssetsDir,
     listCaseSlugs: () => listCases(db).map((c) => c.slug),
     resolvePrompt
@@ -1105,31 +1151,31 @@ function registerIpc(): void {
     (_e, slug: string, status: CaseStatus, resolution: CaseResolution | null, distill = true) =>
       setCaseStatus(db, argusHome, slug, status, resolution, distill ? onCaseClosed : undefined)
   )
-  ipcMain.handle(IPC.evidenceIngest, (_e, caseSlug: string, absPaths: string[]) => {
+  ipcMain.handle(IPC.evidenceIngest, async (_e, caseSlug: string, absPaths: string[]) => {
     caseWatch.suppress(caseSlug) // pre-write: our own copies must not light the staleness dot
     // A drop carries only a case slug, not a session — file it into the case's own mode.
     const kase = getCase(db, caseSlug)
     if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
-    const records = absPaths.map((p) =>
-      ingestArtifact(db, argusHome, detection, caseSlug, p, 'upload', {}, kase.activeMode)
-    )
-    // fire-and-forget: derived text appears via evidence:changed when ready
-    for (const rec of records) {
-      broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: rec.id, active: true })
-      // extractDerivedText CAN reject (its sync setup — db lookup, mkdirSync — runs
-      // outside its internal try/catch); swallow the fire-and-forget rejection explicitly.
-      void extractDerivedText(db, argusHome, rec, extractors)
-        .then((derived) => {
-          if (derived) evidenceChangedB(caseSlug)
-        })
-        .catch((err) =>
-          console.warn(`[ingest] extraction failed for ${rec.relPath}: ${(err as Error).message}`)
+    // Sequential, not Promise.all: collisionFreeName probes the destination directory, so two
+    // concurrent copies of same-named files could pick the same free name.
+    const records: EvidenceRecord[] = []
+    for (const p of absPaths) {
+      records.push(
+        await ingestArtifact(
+          db,
+          argusHome,
+          detection,
+          ingestQueue,
+          caseSlug,
+          p,
+          'upload',
+          {},
+          kase.activeMode
         )
-        .finally(() =>
-          broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: rec.id, active: false })
-        )
+      )
     }
-    // re-arm after the sync copies: a multi-GB drop can outlive the first window
+    // indexing + derived text are the queue's job now; it emits evidence:parsing itself
+    // re-arm after the copies: a multi-GB drop can outlive the first window
     caseWatch.suppress(caseSlug)
     return records
   })
@@ -1145,6 +1191,7 @@ function registerIpc(): void {
         db,
         argusHome,
         detection,
+        ingestQueue,
         caseSlug,
         path.basename(fileName), // defence in depth: no traversal out of the mode's directory
         Buffer.from(bytes),
@@ -1152,21 +1199,7 @@ function registerIpc(): void {
         {},
         kase.activeMode
       )
-      if (!deduped) {
-        broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: record.id, active: true })
-        void extractDerivedText(db, argusHome, record, extractors)
-          .then((derived) => {
-            if (derived) evidenceChangedB(caseSlug)
-          })
-          .catch((err) =>
-            console.warn(
-              `[paste] extraction failed for ${record.relPath}: ${(err as Error).message}`
-            )
-          )
-          .finally(() =>
-            broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: record.id, active: false })
-          )
-      }
+      // indexing + derived text are the queue's job now (a dedupe hit enqueues nothing)
       // no re-arm suppress() here: evidenceChangedB() below already suppresses
       // internally, and suppress() is monotonic — a second call here is a no-op
       evidenceChangedB(caseSlug)
@@ -1213,7 +1246,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.evidenceDelete, (_e, caseSlug: string, evidenceId: number) => {
     assertSlug(caseSlug)
     if (!Number.isInteger(evidenceId)) throw new Error(`Invalid evidence id: ${evidenceId}`)
-    const r = deleteEvidence(db, argusHome, caseSlug, evidenceId)
+    const r = deleteEvidence(db, argusHome, ingestQueue, caseSlug, evidenceId)
     evidenceChangedB(caseSlug)
     return r
   })
@@ -1226,12 +1259,7 @@ function registerIpc(): void {
       db,
       argusHome,
       detection,
-      extractors,
-      {
-        evidenceChanged: evidenceChangedB,
-        parsing: (slug, id, active) =>
-          broadcast(IPC.evidenceParsing, { slug, evidenceId: id, active })
-      },
+      { evidenceChanged: evidenceChangedB, queue: ingestQueue },
       caseSlug,
       mode
     )
@@ -1461,7 +1489,7 @@ function registerIpc(): void {
   ): Promise<CapturePanelEvidence> => {
     caseWatch.suppress(caseSlug) // pre-write: capture writes a screenshot into evidence/ or artifacts/, per mode
     return capturePanelToEvidence(
-      { panelHost: panelHost!, db, argusHome, detection, mode },
+      { panelHost: panelHost!, db, argusHome, detection, queue: ingestQueue, mode },
       caseSlug,
       packId,
       windowId
@@ -1677,6 +1705,7 @@ function registerIpc(): void {
     db,
     argusHome,
     detection,
+    queue: ingestQueue,
     skillsRoots,
     personaFragments: () => packRegistry.personaFragments(),
     referenceIndex: () =>
@@ -2027,10 +2056,9 @@ function registerIpc(): void {
     // discovery cache for this instance, so the sync cache read is safe here —
     // resolveSiteUrl's async discovery path is not needed on this hot path.
     site: () => atlassian.cachedSiteUrl(rovoInstanceId(connectorRegistry.get()) ?? '') ?? '',
-    extractors,
+    queue: ingestQueue,
     emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
     evidenceChanged: evidenceChangedB,
-    parsing: (slug, id, active) => broadcast(IPC.evidenceParsing, { slug, evidenceId: id, active }),
     resolvePrompt
   })
 
@@ -2054,6 +2082,7 @@ function registerIpc(): void {
       db,
       argusHome,
       detection,
+      queue: ingestQueue,
       skillsRoots,
       driverFor: getDriverByKind,
       // The same live sources AgentService is given above. Skipping any of them does not make
@@ -2629,7 +2658,7 @@ function registerIpc(): void {
       }
       caseWatch.suppress(caseSlug) // our own write must not light the staleness dot
       const res = await attachCorpusEvidence(
-        { db, argusHome, detection, defectCorpus },
+        { db, argusHome, detection, queue: ingestQueue, defectCorpus },
         caseSlug,
         sourceId,
         key

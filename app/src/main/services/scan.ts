@@ -11,14 +11,15 @@ import { DEFAULT_MODE, type ModeId } from '../../shared/modes'
 import { modeDir, caseDir } from './paths'
 import { getCase } from './caseService'
 import { listEvidence, sha256File, deleteEvidence } from './ingest'
-import { deleteEvidenceIndex, indexEvidenceFile } from './indexer'
-import { extractDerivedText } from './extraction'
+import { deleteEvidenceIndex } from './indexer'
+import type { IngestQueueLike } from './ingestQueue'
 import type { Detection } from './packs/detection'
-import type { Extractors } from './packs/extractors'
 
 export interface ScanDeps {
   evidenceChanged: (caseSlug: string) => void
-  parsing: (caseSlug: string, evidenceId: number, active: boolean) => void
+  /** Owns indexing AND extraction for everything this scan registers, including the
+   *  progress signal `parsing` used to carry. */
+  queue: IngestQueueLike
 }
 
 /** Evidence-relative file paths ('/'-joined), depth-first; dot-entries skipped. */
@@ -39,11 +40,12 @@ function writeSidecar(evidenceDir: string, rel: string, record: EvidenceRecord):
   fs.writeFileSync(path.join(evidenceDir, '.meta', `${rel}.json`), JSON.stringify(record, null, 2))
 }
 
-/** Register an untracked file in place — no copy (registerEvidenceFile pattern, nested-path aware). */
+/** Register an untracked file in place — no copy (registerEvidenceRow pattern, nested-path aware). */
 function registerScanned(
   db: DatabaseSync,
-  argusHome: string,
+  deps: ScanDeps,
   detection: Detection,
+  caseSlug: string,
   caseId: number,
   scanDir: string,
   topDir: CaseSubdir,
@@ -55,7 +57,10 @@ function registerScanned(
   const size = fs.statSync(absPath).size
   const now = new Date().toISOString()
   const indexable = detection.isText(artifactType)
-  const meta: Record<string, unknown> = { originalName: rel.split('/').pop(), indexed: indexable }
+  const meta: Record<string, unknown> = {
+    originalName: rel.split('/').pop(),
+    indexState: indexable ? 'pending' : 'skipped'
+  }
   const relPath = `${topDir}/${rel}`
   const res = db
     .prepare(
@@ -76,10 +81,12 @@ function registerScanned(
     createdAt: now
   }
   try {
-    if (indexable) indexEvidenceFile(db, id, absPath, 400, argusHome)
     writeSidecar(scanDir, rel, record)
+    if (indexable) deps.queue.enqueue({ caseSlug, evidenceId: id, absPath, size })
   } catch (err) {
-    // error isolation contract: a failed registration must not leave a ghost row
+    // error isolation contract: a failed registration must not leave a ghost row.
+    // abort first: the enqueue above may already have handed the job over.
+    deps.queue.abort(id)
     deleteEvidenceIndex(db, id)
     db.prepare(`DELETE FROM evidence WHERE id = ?`).run(id)
     throw err
@@ -91,6 +98,7 @@ function registerScanned(
 function rescanModified(
   db: DatabaseSync,
   argusHome: string,
+  deps: ScanDeps,
   detection: Detection,
   caseSlug: string,
   rec: EvidenceRecord,
@@ -102,9 +110,11 @@ function rescanModified(
   const indexable = detection.isText(artifactType)
   const meta: Record<string, unknown> = {
     ...rec.meta,
-    indexed: indexable,
+    indexState: indexable ? 'pending' : 'skipped',
     priorSha256: rec.sha256
   }
+  // never leave both representations on one row (see indexState.ts)
+  delete meta.indexed
   delete meta.missing
   const updated: EvidenceRecord = { ...rec, sha256, artifactType, size, meta }
   // sidecar first: if this throws, nothing has been committed; if the UPDATE below
@@ -121,7 +131,7 @@ function rescanModified(
     `UPDATE evidence SET sha256 = ?, artifact_type = ?, size = ?, meta = ? WHERE id = ?`
   ).run(sha256, artifactType, size, JSON.stringify(meta), rec.id)
   deleteEvidenceIndex(db, rec.id)
-  if (indexable) indexEvidenceFile(db, rec.id, absPath, 400, argusHome)
+  if (indexable) deps.queue.enqueue({ caseSlug, evidenceId: rec.id, absPath, size })
   return updated
 }
 
@@ -136,7 +146,6 @@ export function scanEvidence(
   db: DatabaseSync,
   argusHome: string,
   detection: Detection,
-  extractors: Extractors,
   deps: ScanDeps,
   caseSlug: string,
   mode: ModeId = DEFAULT_MODE
@@ -152,18 +161,6 @@ export function scanEvidence(
   const byRelPath = new Map(listEvidence(db, caseSlug, mode).map((e) => [e.relPath, e]))
   const onDisk = new Set<string>()
 
-  const kickExtraction = (rec: EvidenceRecord): void => {
-    deps.parsing(caseSlug, rec.id, true)
-    void extractDerivedText(db, argusHome, rec, extractors)
-      .then((derived) => {
-        if (derived) deps.evidenceChanged(caseSlug)
-      })
-      .catch((err) =>
-        console.warn(`[scan] extraction failed for ${rec.relPath}: ${(err as Error).message}`)
-      )
-      .finally(() => deps.parsing(caseSlug, rec.id, false))
-  }
-
   if (fs.existsSync(scanDir)) {
     for (const rel of walkFiles(scanDir)) {
       const relPath = `${topDir}/${rel}`
@@ -171,7 +168,7 @@ export function scanEvidence(
       try {
         const existing = byRelPath.get(relPath)
         if (!existing) {
-          kickExtraction(registerScanned(db, argusHome, detection, kase.id, scanDir, topDir, rel))
+          registerScanned(db, deps, detection, caseSlug, kase.id, scanDir, topDir, rel)
           summary.added.push(relPath)
           continue
         }
@@ -180,11 +177,10 @@ export function scanEvidence(
         if (sha256 !== existing.sha256) {
           // stale derived rows would duplicate on re-extraction — drop their closure first
           for (const e of byRelPath.values()) {
-            if (e.meta.derivedFrom === existing.id) deleteEvidence(db, argusHome, caseSlug, e.id)
+            if (e.meta.derivedFrom === existing.id)
+              deleteEvidence(db, argusHome, deps.queue, caseSlug, e.id)
           }
-          kickExtraction(
-            rescanModified(db, argusHome, detection, caseSlug, existing, absPath, sha256)
-          )
+          rescanModified(db, argusHome, deps, detection, caseSlug, existing, absPath, sha256)
           summary.modified.push(relPath)
         } else if (existing.meta.missing) {
           setMissing(db, existing, false)

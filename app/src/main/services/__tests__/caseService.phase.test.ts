@@ -158,22 +158,40 @@ describe('listCases phase derivation', () => {
   // makes) rather than a hand-written row, so the test exercises the actual meta shape
   // ('jira.attachmentId', no 'jira.role') and proves the filter keys off `origin` alone —
   // an attachment carries none of the ticket-mirror meta and must still stay open.
-  it('stays open when the only evidence is a Jira attachment', () => {
+  it('stays open when the only evidence is a Jira attachment', async () => {
     mkCase('JIRA-ATT-1')
-    ingestArtifact(db, home, detection, 'JIRA-ATT-1', FIXTURE, 'jira', {
-      jira: { key: 'NAV-1', attachmentId: 'a1', filename: 'sample-applog.txt' }
-    })
+    await ingestArtifact(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'JIRA-ATT-1',
+      FIXTURE,
+      'jira',
+      {
+        jira: { key: 'NAV-1', attachmentId: 'a1', filename: 'sample-applog.txt' }
+      }
+    )
     expect(listCases(db)[0].phase).toBe('open')
   })
 
   // Same shape for a file exploded out of a zip attachment (jiraCases.ts's
   // ingestArchiveContents): meta.extractedFrom, no `jira` key at all — still origin 'jira',
   // so still no signal.
-  it('stays open when the only evidence is a file extracted from a Jira zip attachment', () => {
+  it('stays open when the only evidence is a file extracted from a Jira zip attachment', async () => {
     mkCase('JIRA-ZIP-1')
-    ingestArtifact(db, home, detection, 'JIRA-ZIP-1', FIXTURE, 'jira', {
-      extractedFrom: { attachmentId: 'a1', archiveName: 'bundle.zip', innerPath: 'inner.txt' }
-    })
+    await ingestArtifact(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'JIRA-ZIP-1',
+      FIXTURE,
+      'jira',
+      {
+        extractedFrom: { attachmentId: 'a1', archiveName: 'bundle.zip', innerPath: 'inner.txt' }
+      }
+    )
     expect(listCases(db)[0].phase).toBe('open')
   })
 
@@ -194,11 +212,20 @@ describe('listCases phase derivation', () => {
   // Pins the reversal in both directions on one case: a Jira attachment alone leaves it
   // `open`, but a genuinely user-uploaded file landing afterward — same case, same evidence
   // table, distinguished only by origin — moves it to `analyzing`.
-  it('distinguishes a Jira attachment (no signal) from a user upload (signal) on the same case', () => {
+  it('distinguishes a Jira attachment (no signal) from a user upload (signal) on the same case', async () => {
     const id = mkCase('JIRA-ATT-VS-UPLOAD-1')
-    ingestArtifact(db, home, detection, 'JIRA-ATT-VS-UPLOAD-1', FIXTURE, 'jira', {
-      jira: { key: 'NAV-1', attachmentId: 'a1', filename: 'sample-applog.txt' }
-    })
+    await ingestArtifact(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'JIRA-ATT-VS-UPLOAD-1',
+      FIXTURE,
+      'jira',
+      {
+        jira: { key: 'NAV-1', attachmentId: 'a1', filename: 'sample-applog.txt' }
+      }
+    )
     expect(listCases(db)[0].phase).toBe('open')
     addEvidence(id, T(9), { origin: 'upload' })
     expect(listCases(db)[0].phase).toBe('analyzing')
@@ -246,6 +273,7 @@ describe('listCases phase derivation', () => {
 })
 
 import { pinCasePhase, setCaseStatus } from '../caseService'
+import { createImmediateQueue } from '../ingestQueue'
 
 describe('pinCasePhase', () => {
   it('stores the pin and shows it as the phase', () => {

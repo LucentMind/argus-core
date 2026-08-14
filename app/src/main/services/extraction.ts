@@ -6,6 +6,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { EvidenceRecord } from '../../shared/types'
 import type { Extractors } from './packs/extractors'
 import { ingestDerived } from './ingest'
+import type { IngestQueueLike } from './ingestQueue'
 import { caseDir } from './paths'
 import { dirForMode, scopeOfRelPath } from '../../shared/evidenceScope'
 
@@ -23,6 +24,7 @@ function run(bin: string, args: string[]): Promise<unknown> {
 export async function extractDerivedText(
   db: DatabaseSync,
   argusHome: string,
+  queue: IngestQueueLike,
   rec: EvidenceRecord,
   extractors: Extractors
 ): Promise<EvidenceRecord | null> {
@@ -42,7 +44,7 @@ export async function extractDerivedText(
       a.replaceAll('{input}', srcAbs).replaceAll('{output}', outAbs)
     )
     await run(extract.command, args)
-    return ingestDerived(db, argusHome, slugRow.slug, outAbs, rec.id)
+    return ingestDerived(db, argusHome, queue, slugRow.slug, outAbs, rec.id)
   } catch (err) {
     console.warn(`[extraction] failed for ${rec.relPath}: ${(err as Error).message}`)
     return null

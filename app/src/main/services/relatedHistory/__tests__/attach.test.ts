@@ -10,6 +10,7 @@ import { createDetection } from '../../packs/detection'
 import { attachCorpusEvidence, type AttachDeps } from '../attach'
 import type { CorpusDefectRecord } from '../../defectCorpus/client'
 import type { DefectCorpusService } from '../../defectCorpus/service'
+import { createImmediateQueue } from '../../ingestQueue'
 
 const record = (over: Partial<CorpusDefectRecord> = {}): CorpusDefectRecord =>
   ({
@@ -47,6 +48,7 @@ function deps(over: Partial<AttachDeps> = {}): AttachDeps {
     db,
     argusHome: home,
     detection,
+    queue: createImmediateQueue(db, home),
     defectCorpus: corpus,
     ...over
   }
