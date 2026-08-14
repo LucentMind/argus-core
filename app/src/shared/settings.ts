@@ -151,6 +151,21 @@ const rcaSchema = z.looseObject({
       exec: z.array(rcaSectionSchema),
       tech: z.array(rcaSectionSchema)
     })
+    /** The exec report is narrative-only by contract: it goes to a non-technical audience as a
+     *  Jira comment and may never show citations, finding ids, or file paths, which is exactly
+     *  what a `claims` section renders. `renderExecReport` therefore does not branch on `kind`,
+     *  so a claims row in the exec list would silently render the wrong body. Refuse it here —
+     *  the tech list still accepts both kinds. */
+    .superRefine((t, ctx) => {
+      for (const s of t.exec) {
+        if (s.kind === 'claims')
+          ctx.addIssue({
+            code: 'custom',
+            path: ['exec'],
+            message: `RCA section "${s.id}" is claims-kind and cannot go in the exec report, which never shows citations, finding ids, or file paths`
+          })
+      }
+    })
     .default(() => structuredClone(DEFAULT_RCA_TEMPLATE) as RcaTemplate)
 })
 
