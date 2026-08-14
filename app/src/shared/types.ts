@@ -156,6 +156,15 @@ export interface CaseRecord {
   updatedAt: string
   /** Derived triage cues, computed by listCases. Empty for records from getCase. */
   actionItems: ActionItem[]
+  /**
+   * Last agent activity — MAX(turns.created_at) across every mode's sessions. Distinct from
+   * `updatedAt`, which any metadata write moves (Jira sync, status/tag edits, mode switch);
+   * this only moves when a turn actually ran. Null when no turn ever has.
+   *
+   * Derived, computed by listCases. Null for records from getCase, same as `actionItems` is
+   * empty there. Never stored — see `stripDerived` in caseService.ts.
+   */
+  lastWorkedAt: string | null
 }
 
 export interface SessionSummary {

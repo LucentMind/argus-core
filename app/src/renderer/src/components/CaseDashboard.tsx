@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { CaseRecord, CasePhase } from '../../../shared/types'
 import { Btn, MenuButton, SectionLabel, Toggle, type MenuItem } from './ui'
-import { FolderInput, Plus, RefreshCw, Search } from 'lucide-react'
+import {
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
+  FolderInput,
+  Plus,
+  RefreshCw,
+  Search
+} from 'lucide-react'
 import { CaseCard } from './CaseCard'
 import { DeleteCaseDialog } from './DeleteCaseDialog'
 import { RoutineInbox } from './routines/RoutineInbox'
@@ -15,6 +22,7 @@ import { useGlassPointer } from '../lib/useGlassPointer'
 import { greetingFor } from '../lib/greeting'
 import { githubLogin } from '../lib/githubIdentity'
 import { PHASE_ORDER, PHASE_WORD } from '../lib/casePhase'
+import { CASE_SORT_FIELDS, CASE_SORT_LABEL, DIRECTION_LABEL, sortCases } from '../lib/caseSort'
 import { StatusDot } from './StatusDot'
 
 export function CaseDashboard({
@@ -144,7 +152,7 @@ export function CaseDashboard({
   )
 
   const q = filter.trim().toLowerCase()
-  const visible = cases.filter((c) => {
+  const matching = cases.filter((c) => {
     // An explicit Closed filter is a stronger statement of intent than the standing
     // hide-closed default, so it wins.
     if (!showClosed && statusFilter !== 'closed' && c.phase === 'closed') return false
@@ -157,6 +165,10 @@ export function CaseDashboard({
       (c.jiraKey?.toLowerCase().includes(q) ?? false)
     )
   })
+  // Sort AFTER filtering, not before: the two are independent, and re-ordering the rows that
+  // survive is strictly less work than ordering the ones that don't. `triage` returns the
+  // array untouched, so the default path costs nothing.
+  const visible = sortCases(matching, ui.caseSort, ui.caseSortDirection)
   // Per-case tally of unreviewed runs, from the payload the inbox already loaded. Same
   // predicate main counts with; capped at the payload's 50-run window, which only matters for
   // a case whose backlog is deeper than that and shows the count it can prove.
@@ -191,6 +203,16 @@ export function CaseDashboard({
     { label: 'All priorities', onSelect: () => setPriorityFilter('all') },
     ...priorities.map((p) => ({ label: p, onSelect: () => setPriorityFilter(p) }))
   ]
+  // Changing the field keeps the current direction, so toggling between "Recently worked on"
+  // and "Updated" doesn't silently flip the sense of the list under you.
+  const sortItems: MenuItem[] = CASE_SORT_FIELDS.map((f) => ({
+    label: CASE_SORT_LABEL[f],
+    onSelect: () => uiStore.setCaseSort(f, ui.caseSortDirection)
+  }))
+  const sortTrigger = ui.caseSort === 'triage' ? 'Sort' : `Sort: ${CASE_SORT_LABEL[ui.caseSort]}`
+  const flipDirection = (): void =>
+    uiStore.setCaseSort(ui.caseSort, ui.caseSortDirection === 'desc' ? 'asc' : 'desc')
+
   const statusTrigger =
     statusFilter === 'all'
       ? 'Status'
@@ -284,6 +306,33 @@ export function CaseDashboard({
             variant="outline"
             align="left"
           />
+          {/* Explicitly named: without it the accessible name is the trigger text, which is a
+              prefix of the direction button's ("Sort" vs "Sort direction: …") and makes the two
+              indistinguishable to a by-name query — and to a screen reader. */}
+          <MenuButton
+            label={sortTrigger}
+            items={sortItems}
+            variant="outline"
+            align="left"
+            aria-label="Sort cases by"
+          />
+          {/* Hidden, not disabled, under `triage`: that ordering has no direction to flip, and a
+              permanently greyed control next to the menu reads as broken rather than as
+              inapplicable. */}
+          {ui.caseSort !== 'triage' && (
+            <Btn
+              variant="outline"
+              onClick={flipDirection}
+              aria-label={`Sort direction: ${DIRECTION_LABEL[ui.caseSortDirection]}`}
+              title={DIRECTION_LABEL[ui.caseSortDirection]}
+            >
+              {ui.caseSortDirection === 'desc' ? (
+                <ArrowDownWideNarrow size={13} aria-hidden="true" />
+              ) : (
+                <ArrowUpNarrowWide size={13} aria-hidden="true" />
+              )}
+            </Btn>
+          )}
           {/* Left of the ml-auto on purpose: the note appears only after a sync finishes, and
               inside the right-hand group it would shove Sync all and Show closed sideways. */}
           {syncNote && <span className="text-xs text-dim">{syncNote}</span>}

@@ -467,6 +467,7 @@ export async function importCase(
             phasePinnedAt,
             phase: undefined,
             actionItems: undefined,
+            lastWorkedAt: undefined,
             updatedAt: now,
             workspaces: [],
             workspaceRefs: manifest.workspaces
