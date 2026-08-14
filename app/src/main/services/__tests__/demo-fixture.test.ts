@@ -8,16 +8,24 @@ import { ingestArtifact } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import { searchEvidence } from '../search'
+import { createImmediateQueue } from '../ingestQueue'
 
 const FIXTURE = path.resolve(__dirname, '../../../../../tests/fixtures/demo-applog.txt')
 
 describe('demo fixture (multi-chunk deep-link)', () => {
-  it('resolves exact match lines beyond the first FTS chunk', () => {
+  it('resolves exact match lines beyond the first FTS chunk', async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-demo-'))
     const db = openDb(path.join(home, 'argus.db'))
     const detection = createDetection(samplePackRegistry())
     createCase(db, home, { slug: 'DEMO-1', title: 'demo' })
-    const ev = ingestArtifact(db, home, detection, 'DEMO-1', FIXTURE)
+    const ev = await ingestArtifact(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'DEMO-1',
+      FIXTURE
+    )
     expect(ev.artifactType).toBe('applog')
 
     // marker planted at line 857 — inside the third 400-line chunk (801–1200)

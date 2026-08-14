@@ -8,17 +8,25 @@ import { ingestArtifact } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import { searchEvidence, readEvidenceText } from '../search'
+import { createImmediateQueue } from '../ingestQueue'
 
 const FIXTURE = path.resolve(__dirname, '../../../../../tests/fixtures/sample-applog.txt')
 
 describe('wave 0 exit criterion (service level)', () => {
-  it('create case → ingest applog → search string → read at line', () => {
+  it('create case → ingest applog → search string → read at line', async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-e2e-'))
     const db = openDb(path.join(home, 'argus.db'))
     const detection = createDetection(samplePackRegistry())
 
     createCase(db, home, { slug: 'NAVAPI-777', title: 'exit criterion' })
-    const ev = ingestArtifact(db, home, detection, 'NAVAPI-777', FIXTURE)
+    const ev = await ingestArtifact(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'NAVAPI-777',
+      FIXTURE
+    )
     expect(ev.artifactType).toBe('applog')
 
     const hits = searchEvidence(db, 'TileStore error', { caseSlug: 'NAVAPI-777' })

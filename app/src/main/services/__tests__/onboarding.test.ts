@@ -10,6 +10,7 @@ import { listEvidence } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import { SAMPLE_CASE_SLUG } from '../../../shared/onboarding'
+import { createImmediateQueue } from '../ingestQueue'
 
 let tmp: string
 let argusHome: string
@@ -38,22 +39,23 @@ function svc(): OnboardingService {
     db,
     argusHome,
     detection,
+    queue: createImmediateQueue(db, argusHome),
     sampleAssetsDir: assets,
     listCaseSlugs: () => listCases(db).map((c) => c.slug)
   })
 }
 
 describe('OnboardingService.seedSampleCase', () => {
-  it('creates the sample case and ingests bundled evidence', () => {
-    const r = svc().seedSampleCase()
+  it('creates the sample case and ingests bundled evidence', async () => {
+    const r = await svc().seedSampleCase()
     expect(r.slug).toBe(SAMPLE_CASE_SLUG)
     expect(r.evidenceIds.length).toBe(1)
     expect(listCases(db).some((c) => c.slug === SAMPLE_CASE_SLUG)).toBe(true)
   })
 
-  it('is idempotent: second call does not create a duplicate case or evidence', () => {
-    svc().seedSampleCase()
-    svc().seedSampleCase()
+  it('is idempotent: second call does not create a duplicate case or evidence', async () => {
+    await svc().seedSampleCase()
+    await svc().seedSampleCase()
     expect(listCases(db).filter((c) => c.slug === SAMPLE_CASE_SLUG).length).toBe(1)
     expect(listEvidence(db, SAMPLE_CASE_SLUG).length).toBe(1)
   })

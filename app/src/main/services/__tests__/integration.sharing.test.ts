@@ -43,7 +43,7 @@ afterEach(() => {
 
 describe('exit criterion: bundle round-trips with working search (spec Part 2 exit check)', () => {
   it('fixture case exported → imported into a fresh ARGUS_HOME → FTS finds the signature', async () => {
-    seedMemoryPair(dbA, homeA)
+    await seedMemoryPair(dbA, homeA)
     const bundle = path.join(homeA, 'NAV-100.arguscase')
     await exportCase(
       dbA,

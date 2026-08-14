@@ -15,6 +15,7 @@ import {
 import { searchEvidence } from '../search'
 import { searchCaseSummaries } from '../distill/summaries'
 import { ingestArtifact, listEvidence } from '../ingest'
+import { createImmediateQueue, type IngestQueueLike } from '../ingestQueue'
 import { ensureWorktree } from '../workspaces'
 import { caseDir } from '../paths'
 import { applyMemoryWrite, readTopic } from '../memory'
@@ -57,6 +58,9 @@ export interface NativeToolDeps {
   db: DatabaseSync
   argusHome: string
   detection: Detection
+  /** Background index/extract queue; absent means `createImmediateQueue`, i.e. today's
+   *  synchronous index-before-return behaviour (never "no indexing at all"). */
+  queue?: IngestQueueLike
   caseId: number
   caseSlug: string
   sessionId: number
@@ -320,6 +324,7 @@ export function argusToolHandlers(
   deps: NativeToolDeps
 ): Record<string, (args: Record<string, unknown>) => Promise<string>> {
   const { db, argusHome, detection, caseSlug, sessionId } = deps
+  const queue = deps.queue ?? createImmediateQueue(db, argusHome)
   const dir = caseDir(argusHome, caseSlug)
 
   /** Resolve one `tool-feedback.*` entry and fill its placeholders. No resolver = the default. */
@@ -487,10 +492,11 @@ export function argusToolHandlers(
       if (!p.startsWith(dir + path.sep)) {
         throw new Error(fb('ingest_artifact.outside-case-dir', { dir }))
       }
-      const rec = ingestArtifact(
+      const rec = await ingestArtifact(
         db,
         argusHome,
         detection,
+        queue,
         caseSlug,
         p,
         'agent',
@@ -618,6 +624,7 @@ export function argusToolHandlers(
           db,
           argusHome,
           detection: deps.detection,
+          queue,
           gh: deps.gh,
           resolve: deps.resolve
         },

@@ -16,6 +16,7 @@ import { listSessions } from '../agent/sessionStore'
 import { readSessionEvents } from '../agent/mirror'
 import type { DatabaseSync } from 'node:sqlite'
 import type { CaseRecord } from '../../../shared/types'
+import { createImmediateQueue } from '../ingestQueue'
 
 let homeA: string
 let homeB: string
@@ -34,6 +35,7 @@ beforeEach(async () => {
     dbA,
     homeA,
     detection,
+    createImmediateQueue(dbA, homeA),
     'NAV-100',
     'boot.txt',
     'ERROR BLOCKED_VERSION tile=42\n',
@@ -44,7 +46,14 @@ beforeEach(async () => {
   const derivedDir = path.join(homeA, 'cases', 'NAV-100', 'evidence', '.derived')
   fs.mkdirSync(derivedDir, { recursive: true })
   fs.writeFileSync(path.join(derivedDir, 'boot.derived.txt'), 'derived BLOCKED_VERSION text\n')
-  ingestDerived(dbA, homeA, 'NAV-100', path.join(derivedDir, 'boot.derived.txt'), parent.id)
+  ingestDerived(
+    dbA,
+    homeA,
+    createImmediateQueue(dbA, homeA),
+    'NAV-100',
+    path.join(derivedDir, 'boot.derived.txt'),
+    parent.id
+  )
   fs.appendFileSync(
     path.join(homeA, 'cases', 'NAV-100', 'findings.md'),
     '\n## F1\nBLOCKED_VERSION seen\n'
@@ -70,7 +79,16 @@ afterEach(() => {
 it('writes a line-index sidecar for large imported text evidence (ingest parity)', async () => {
   const line = 'y'.repeat(1024) + '\n'
   const count = Math.ceil(MAX_READ_BYTES / line.length) + 10
-  ingestContent(dbA, homeA, detection, 'NAV-100', 'big.log', line.repeat(count), 'upload')
+  ingestContent(
+    dbA,
+    homeA,
+    detection,
+    createImmediateQueue(dbA, homeA),
+    'NAV-100',
+    'big.log',
+    line.repeat(count),
+    'upload'
+  )
   const bigBundle = path.join(homeA, 'NAV-100-big.arguscase')
   await exportCase(
     dbA,
@@ -89,7 +107,18 @@ it('writes a line-index sidecar for large imported text evidence (ingest parity)
 })
 
 it('round-trips review artifacts alongside investigation evidence', async () => {
-  ingestContent(dbA, homeA, detection, 'NAV-100', 'ci-5.log', 'boom\n', 'ci', {}, 'review')
+  ingestContent(
+    dbA,
+    homeA,
+    detection,
+    createImmediateQueue(dbA, homeA),
+    'NAV-100',
+    'ci-5.log',
+    'boom\n',
+    'ci',
+    {},
+    'review'
+  )
   const bothBundle = path.join(homeA, 'NAV-100-both.arguscase')
   await exportCase(
     dbA,

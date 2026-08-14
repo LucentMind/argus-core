@@ -15,6 +15,7 @@ import {
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import type { DatabaseSync } from 'node:sqlite'
+import { createImmediateQueue } from '../ingestQueue'
 
 const FIXTURE = path.resolve(__dirname, '../../../../../tests/fixtures/sample-applog.txt')
 
@@ -29,8 +30,15 @@ beforeEach(() => {
 })
 
 describe('ingestArtifact', () => {
-  it('copies, hashes, types, and indexes a applog', () => {
-    const rec = ingestArtifact(db, home, detection, 'NAVAPI-1', FIXTURE)
+  it('copies, hashes, types, and indexes a applog', async () => {
+    const rec = await ingestArtifact(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'NAVAPI-1',
+      FIXTURE
+    )
     expect(rec.artifactType).toBe('applog')
     expect(rec.relPath).toBe('evidence/sample-applog.txt')
     expect(rec.sha256).toMatch(/^[0-9a-f]{64}$/)
@@ -44,42 +52,81 @@ describe('ingestArtifact', () => {
     expect(hit?.evidence_id).toBe(rec.id)
   })
 
-  it('suffixes filename collisions', () => {
-    const a = ingestArtifact(db, home, detection, 'NAVAPI-1', FIXTURE)
-    const b = ingestArtifact(db, home, detection, 'NAVAPI-1', FIXTURE)
+  it('suffixes filename collisions', async () => {
+    const a = await ingestArtifact(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'NAVAPI-1',
+      FIXTURE
+    )
+    const b = await ingestArtifact(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'NAVAPI-1',
+      FIXTURE
+    )
     expect(a.relPath).toBe('evidence/sample-applog.txt')
     expect(b.relPath).toBe('evidence/sample-applog-1.txt')
   })
 
-  it('preserves compound extensions on collision (.rec.gz stays archive-rec)', () => {
+  it('preserves compound extensions on collision (.rec.gz stays archive-rec)', async () => {
     const src = path.join(os.tmpdir(), `argus-fix-${Date.now()}`, 'trace.rec.gz')
     fs.mkdirSync(path.dirname(src), { recursive: true })
     fs.writeFileSync(src, zlib.gzipSync(Buffer.from('x')))
-    const a = ingestArtifact(db, home, detection, 'NAVAPI-1', src)
-    const b = ingestArtifact(db, home, detection, 'NAVAPI-1', src)
+    const a = await ingestArtifact(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'NAVAPI-1',
+      src
+    )
+    const b = await ingestArtifact(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'NAVAPI-1',
+      src
+    )
     expect(a.relPath).toBe('evidence/trace.rec.gz')
     expect(b.relPath).toBe('evidence/trace-1.rec.gz')
     expect(a.artifactType).toBe('archive-rec')
     expect(b.artifactType).toBe('archive-rec')
   })
 
-  it('throws for unknown case', () => {
-    expect(() => ingestArtifact(db, home, detection, 'NOPE-1', FIXTURE)).toThrow(/case/i)
+  it('throws for unknown case', async () => {
+    await expect(
+      ingestArtifact(db, home, detection, createImmediateQueue(db, home), 'NOPE-1', FIXTURE)
+    ).rejects.toThrow(/case/i)
   })
 
-  it('lists evidence for a case', () => {
-    ingestArtifact(db, home, detection, 'NAVAPI-1', FIXTURE)
+  it('lists evidence for a case', async () => {
+    await ingestArtifact(db, home, detection, createImmediateQueue(db, home), 'NAVAPI-1', FIXTURE)
     const all = listEvidence(db, 'NAVAPI-1')
     expect(all).toHaveLength(1)
     expect(all[0].artifactType).toBe('applog')
   })
 
-  it('ingestArtifact merges extraMeta into meta', () => {
+  it('ingestArtifact merges extraMeta into meta', async () => {
     const src = path.join(home, 'a.txt')
     fs.writeFileSync(src, 'hello')
-    const rec = ingestArtifact(db, home, detection, 'NAVAPI-1', src, 'jira', {
-      jira: { key: 'NAVAPI-1', attachmentId: '10001' }
-    })
+    const rec = await ingestArtifact(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'NAVAPI-1',
+      src,
+      'jira',
+      {
+        jira: { key: 'NAVAPI-1', attachmentId: '10001' }
+      }
+    )
     expect(rec.origin).toBe('jira')
     expect(rec.meta.jira).toEqual({ key: 'NAVAPI-1', attachmentId: '10001' })
     expect(rec.meta.originalName).toBe('a.txt')
@@ -90,6 +137,7 @@ describe('ingestArtifact', () => {
       db,
       home,
       detection,
+      createImmediateQueue(db, home),
       'NAVAPI-1',
       'NAVAPI-1.ticket.md',
       '# NAVAPI-1: crash\n\nsteering wheel fault text',
@@ -117,6 +165,7 @@ describe('ingestArtifact', () => {
       db,
       home,
       detection,
+      createImmediateQueue(db, home),
       'NAVAPI-1',
       'NAVAPI-1.ticket.md',
       'old body alpha',
@@ -125,9 +174,17 @@ describe('ingestArtifact', () => {
         jira: { key: 'NAVAPI-1', role: 'ticket', status: 'Open' }
       }
     )
-    const upd = updateEvidenceContent(db, home, detection, rec.id, 'new body omega', {
-      jira: { key: 'NAVAPI-1', role: 'ticket', status: 'Resolved' }
-    })
+    const upd = updateEvidenceContent(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      rec.id,
+      'new body omega',
+      {
+        jira: { key: 'NAVAPI-1', role: 'ticket', status: 'Resolved' }
+      }
+    )
     expect(upd.id).toBe(rec.id)
     expect(upd.relPath).toBe(rec.relPath) // same file, no new evidence row
     expect(upd.sha256).not.toBe(rec.sha256)
@@ -181,10 +238,20 @@ describe('listEvidence scoping', () => {
 })
 
 describe('ingest destination by mode', () => {
-  it('writes review material into artifacts/ with a matching sidecar', () => {
+  it('writes review material into artifacts/ with a matching sidecar', async () => {
     const src = path.join(home, 'ci.log')
     fs.writeFileSync(src, 'boom')
-    const rec = ingestArtifact(db, home, detection, 'NAVAPI-1', src, 'ci', {}, 'review')
+    const rec = await ingestArtifact(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'NAVAPI-1',
+      src,
+      'ci',
+      {},
+      'review'
+    )
 
     expect(rec.relPath).toBe('artifacts/ci.log')
     expect(fs.existsSync(path.join(home, 'cases', 'NAVAPI-1', 'artifacts', 'ci.log'))).toBe(true)
@@ -198,17 +265,30 @@ describe('ingest destination by mode', () => {
     ])
   })
 
-  it('defaults to evidence/ when no mode is given', () => {
+  it('defaults to evidence/ when no mode is given', async () => {
     const src = path.join(home, 'shot.png')
     fs.writeFileSync(src, 'x')
-    expect(ingestArtifact(db, home, detection, 'NAVAPI-1', src).relPath).toBe('evidence/shot.png')
+    expect(
+      (await ingestArtifact(db, home, detection, createImmediateQueue(db, home), 'NAVAPI-1', src))
+        .relPath
+    ).toBe('evidence/shot.png')
   })
 
-  it('deletes an artifact together with its sidecar', () => {
+  it('deletes an artifact together with its sidecar', async () => {
     const src = path.join(home, 'ci2.log')
     fs.writeFileSync(src, 'boom')
-    const rec = ingestArtifact(db, home, detection, 'NAVAPI-1', src, 'ci', {}, 'review')
-    deleteEvidence(db, home, 'NAVAPI-1', rec.id)
+    const rec = await ingestArtifact(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'NAVAPI-1',
+      src,
+      'ci',
+      {},
+      'review'
+    )
+    deleteEvidence(db, home, createImmediateQueue(db, home), 'NAVAPI-1', rec.id)
     expect(fs.existsSync(path.join(home, 'cases', 'NAVAPI-1', 'artifacts', 'ci2.log'))).toBe(false)
     expect(
       fs.existsSync(path.join(home, 'cases', 'NAVAPI-1', 'artifacts', '.meta', 'ci2.log.json'))

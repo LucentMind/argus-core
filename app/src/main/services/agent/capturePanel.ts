@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { PanelHost } from '../panels/panelHost'
 import type { Detection } from '../packs/detection'
 import { ingestContent } from '../ingest'
+import { createImmediateQueue, type IngestQueueLike } from '../ingestQueue'
 import type { ModeId } from '../../../shared/modes'
 
 const slug = (s: string): string =>
@@ -35,6 +36,10 @@ export interface CapturePanelDeps {
   /** The capturing session's mode — a review session's capture must land in artifacts/,
    *  an investigation session's in evidence/. */
   mode: ModeId
+  /** Background index/extract queue. Optional so the many callers that build these deps in
+   *  tests keep working: absent means `createImmediateQueue`, i.e. today's synchronous
+   *  index-before-return behaviour, never "no indexing at all". */
+  queue?: IngestQueueLike
   clock?: () => Date
 }
 
@@ -53,6 +58,7 @@ export async function capturePanelToEvidence(
     deps.db,
     deps.argusHome,
     deps.detection,
+    deps.queue ?? createImmediateQueue(deps.db, deps.argusHome),
     caseSlug,
     fileName,
     cap.png,

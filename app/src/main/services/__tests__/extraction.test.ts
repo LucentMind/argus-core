@@ -10,6 +10,7 @@ import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
 import { extractDerivedText } from '../extraction'
 import { searchEvidence } from '../search'
 import type { DatabaseSync } from 'node:sqlite'
+import { createImmediateQueue } from '../ingestQueue'
 
 let tmp: string, argusHome: string, db: DatabaseSync
 const detection = createDetection(samplePackRegistry())
@@ -55,14 +56,27 @@ describe('extraction pipeline', () => {
     const fakeBin = writeFakeArgusParse(tmp)
     const src = path.join(tmp, 'trace.binlog')
     fs.writeFileSync(src, Buffer.from('\x44\x4C\x54\x01binarybytes'))
-    const rec = ingestArtifact(db, argusHome, detection, 'NAV-1', src)
+    const rec = await ingestArtifact(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-1',
+      src
+    )
     expect(rec.artifactType).toBe('binlog')
 
     const extractors = stubExtractors('binlog', {
       binPath: fakeBin,
       args: ['binlog-to-text', '{input}', '--output', '{output}']
     })
-    const derived = await extractDerivedText(db, argusHome, rec, extractors)
+    const derived = await extractDerivedText(
+      db,
+      argusHome,
+      createImmediateQueue(db, argusHome),
+      rec,
+      extractors
+    )
     expect(derived).not.toBeNull()
     expect(derived!.relPath).toBe('evidence/.derived/trace.binlog.txt')
     expect(derived!.meta.derivedFrom).toBe(rec.id)
@@ -76,9 +90,22 @@ describe('extraction pipeline', () => {
   it('derives text via the node-stub extract command, exercising {input}/{output} substitution', async () => {
     const src = path.join(tmp, 'copy.binlog')
     fs.writeFileSync(src, '0 12:00 ECU1 NAVI CTX1 TunnelExit bearing jump detected\n')
-    const rec = ingestArtifact(db, argusHome, detection, 'NAV-1', src)
+    const rec = await ingestArtifact(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-1',
+      src
+    )
 
-    const derived = await extractDerivedText(db, argusHome, rec, stubExtractors('binlog'))
+    const derived = await extractDerivedText(
+      db,
+      argusHome,
+      createImmediateQueue(db, argusHome),
+      rec,
+      stubExtractors('binlog')
+    )
     expect(derived).not.toBeNull()
 
     const hits = searchEvidence(db, 'TunnelExit', { caseSlug: 'NAV-1' })
@@ -89,9 +116,22 @@ describe('extraction pipeline', () => {
   it('returns null instead of throwing when the binary is missing', async () => {
     const src = path.join(tmp, 'trace2.binlog')
     fs.writeFileSync(src, Buffer.from('\x44\x4C\x54\x01binarybytes'))
-    const rec = ingestArtifact(db, argusHome, detection, 'NAV-1', src)
+    const rec = await ingestArtifact(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-1',
+      src
+    )
     await expect(
-      extractDerivedText(db, argusHome, rec, stubExtractors('binlog', { resolves: false }))
+      extractDerivedText(
+        db,
+        argusHome,
+        createImmediateQueue(db, argusHome),
+        rec,
+        stubExtractors('binlog', { resolves: false })
+      )
     ).resolves.toBeNull()
     expect(listEvidence(db, 'NAV-1')).toHaveLength(1) // only trace2.binlog — no derived row appeared
   })
@@ -99,21 +139,51 @@ describe('extraction pipeline', () => {
   it('ignores non-extractable artifact types', async () => {
     const src = path.join(tmp, 'notes.txt')
     fs.writeFileSync(src, 'plain text\n')
-    const rec = ingestArtifact(db, argusHome, detection, 'NAV-1', src)
+    const rec = await ingestArtifact(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-1',
+      src
+    )
     await expect(
-      extractDerivedText(db, argusHome, rec, stubExtractors('binlog'))
+      extractDerivedText(
+        db,
+        argusHome,
+        createImmediateQueue(db, argusHome),
+        rec,
+        stubExtractors('binlog')
+      )
     ).resolves.toBeNull()
   })
 
-  it('files derived text beside its parent artifact, not under evidence/', () => {
+  it('files derived text beside its parent artifact, not under evidence/', async () => {
     const src = path.join(tmp, 'ci.log')
     fs.writeFileSync(src, 'stack trace here')
-    const parent = ingestArtifact(db, argusHome, detection, 'NAV-1', src, 'ci', {}, 'review')
+    const parent = await ingestArtifact(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-1',
+      src,
+      'ci',
+      {},
+      'review'
+    )
 
     const derivedAbs = path.join(argusHome, 'cases', 'NAV-1', 'artifacts', '.derived', 'ci.log.txt')
     fs.mkdirSync(path.dirname(derivedAbs), { recursive: true })
     fs.writeFileSync(derivedAbs, 'stack trace here')
-    const rec = ingestDerived(db, argusHome, 'NAV-1', derivedAbs, parent.id)
+    const rec = ingestDerived(
+      db,
+      argusHome,
+      createImmediateQueue(db, argusHome),
+      'NAV-1',
+      derivedAbs,
+      parent.id
+    )
 
     expect(rec.relPath).toBe('artifacts/.derived/ci.log.txt')
     expect(

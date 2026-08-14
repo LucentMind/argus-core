@@ -7,6 +7,7 @@ import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { ingestArtifact } from '../ingest'
 import { createDetection } from '../packs/detection'
+import { createImmediateQueue } from '../ingestQueue'
 import {
   listCaseFiles,
   readCaseFile,
@@ -81,10 +82,17 @@ describe('resolveCasePath', () => {
 })
 
 describe('listCaseFiles', () => {
-  it('returns the tree with evidence metadata merged and junctions skipped', () => {
+  it('returns the tree with evidence metadata merged and junctions skipped', async () => {
     const src = path.join(tmp, 'log.txt')
     fs.writeFileSync(src, 'hello\n')
-    const rec = ingestArtifact(db, argusHome, detection, 'NAV-1', src)
+    const rec = await ingestArtifact(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-1',
+      src
+    )
     const tree = listCaseFiles(db, argusHome, 'NAV-1')
     const names = tree.map((n) => n.name)
     expect(names).toContain('evidence')

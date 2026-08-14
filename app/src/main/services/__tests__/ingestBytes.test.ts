@@ -8,6 +8,7 @@ import { ingestBytes } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import type { DatabaseSync } from 'node:sqlite'
+import { createImmediateQueue } from '../ingestQueue'
 
 // 1x1 transparent PNG — real magic bytes so detection types it as `screenshot`
 const PNG = Buffer.from(
@@ -31,6 +32,7 @@ describe('ingestBytes', () => {
       db,
       home,
       detection,
+      createImmediateQueue(db, home),
       'NAVAPI-1',
       'screenshot-2026-07-20-143052.png',
       PNG,
@@ -45,8 +47,26 @@ describe('ingestBytes', () => {
   })
 
   it('returns the existing record for identical bytes and writes no second file', () => {
-    const first = ingestBytes(db, home, detection, 'NAVAPI-1', 'a.png', PNG, 'paste')
-    const second = ingestBytes(db, home, detection, 'NAVAPI-1', 'b.png', PNG, 'paste')
+    const first = ingestBytes(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'NAVAPI-1',
+      'a.png',
+      PNG,
+      'paste'
+    )
+    const second = ingestBytes(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'NAVAPI-1',
+      'b.png',
+      PNG,
+      'paste'
+    )
     expect(second.deduped).toBe(true)
     expect(second.record.id).toBe(first.record.id)
     expect(second.record.relPath).toBe('evidence/a.png')
@@ -56,8 +76,26 @@ describe('ingestBytes', () => {
 
   it('suffixes a colliding filename when the bytes differ', () => {
     const other = Buffer.concat([PNG, Buffer.from([0x00])])
-    const a = ingestBytes(db, home, detection, 'NAVAPI-1', 'shot.png', PNG, 'paste')
-    const b = ingestBytes(db, home, detection, 'NAVAPI-1', 'shot.png', other, 'paste')
+    const a = ingestBytes(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'NAVAPI-1',
+      'shot.png',
+      PNG,
+      'paste'
+    )
+    const b = ingestBytes(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'NAVAPI-1',
+      'shot.png',
+      other,
+      'paste'
+    )
     expect(a.record.relPath).toBe('evidence/shot.png')
     expect(b.record.relPath).toBe('evidence/shot-1.png')
     expect(b.deduped).toBe(false)
@@ -65,15 +103,42 @@ describe('ingestBytes', () => {
 
   it('dedupes per case, not globally', () => {
     createCase(db, home, { slug: 'NAVAPI-2', title: 'other' })
-    ingestBytes(db, home, detection, 'NAVAPI-1', 'shot.png', PNG, 'paste')
-    const second = ingestBytes(db, home, detection, 'NAVAPI-2', 'shot.png', PNG, 'paste')
+    ingestBytes(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'NAVAPI-1',
+      'shot.png',
+      PNG,
+      'paste'
+    )
+    const second = ingestBytes(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'NAVAPI-2',
+      'shot.png',
+      PNG,
+      'paste'
+    )
     expect(second.deduped).toBe(false)
     expect(fs.existsSync(path.join(home, 'cases/NAVAPI-2/evidence/shot.png'))).toBe(true)
   })
 
   it('throws for an unknown case', () => {
-    expect(() => ingestBytes(db, home, detection, 'NOPE-9', 'a.png', PNG, 'paste')).toThrow(
-      /Unknown case/
-    )
+    expect(() =>
+      ingestBytes(
+        db,
+        home,
+        detection,
+        createImmediateQueue(db, home),
+        'NOPE-9',
+        'a.png',
+        PNG,
+        'paste'
+      )
+    ).toThrow(/Unknown case/)
   })
 })

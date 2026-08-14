@@ -9,6 +9,7 @@ import { ingestArtifact } from '../../ingest'
 import { createDetection } from '../../packs/detection'
 import { argusToolHandlers } from '../nativeTools'
 import { __clearIndexCacheForTests } from '../../lineIndex'
+import { createImmediateQueue } from '../../ingestQueue'
 
 let tmp: string,
   argusHome: string,
@@ -18,7 +19,7 @@ let tmp: string,
 let handlers: ReturnType<typeof argusToolHandlers>
 const detection = createDetection()
 
-beforeEach(() => {
+beforeEach(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-rl-'))
   argusHome = path.join(tmp, 'home')
   db = openDb(path.join(argusHome, 'argus.db'))
@@ -28,12 +29,30 @@ beforeEach(() => {
     i % 1000 === 500 ? `ERROR at step ${i + 1}` : `trace ${i + 1}`
   )
   fs.writeFileSync(src, lines.join('\n') + '\n')
-  evidenceId = ingestArtifact(db, argusHome, detection, 'NAV-3', src).id
+  evidenceId = (
+    await ingestArtifact(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-3',
+      src
+    )
+  ).id
 
   createCase(db, argusHome, { slug: 'OTHER-1', title: 'other' })
   const otherSrc = path.join(tmp, 'other.log')
   fs.writeFileSync(otherSrc, 'secret line 1\nsecret line 2\n')
-  otherCaseEvidenceId = ingestArtifact(db, argusHome, detection, 'OTHER-1', otherSrc).id
+  otherCaseEvidenceId = (
+    await ingestArtifact(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'OTHER-1',
+      otherSrc
+    )
+  ).id
 
   __clearIndexCacheForTests()
   handlers = argusToolHandlers({

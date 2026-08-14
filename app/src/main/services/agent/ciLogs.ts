@@ -5,6 +5,7 @@ import type { Detection } from '../packs/detection'
 import { fillPrompt } from '../prompts/fill'
 import { getBinding } from '../prBindings'
 import { ingestContent } from '../ingest'
+import { createImmediateQueue, type IngestQueueLike } from '../ingestQueue'
 import { defaultGhRunner, fetchJobLog, fetchPrStatuses, prTargetKey, type Runner } from '../github'
 
 /** A build log is routinely megabytes. Past this we keep the TAIL — where a failure lands. */
@@ -41,6 +42,8 @@ export interface CiLogDeps {
   db: DatabaseSync
   argusHome: string
   detection: Detection
+  /** Background index/extract queue; absent means `createImmediateQueue` (see CapturePanelDeps). */
+  queue?: IngestQueueLike
   gh?: Runner
   resolve?: (id: string) => string
 }
@@ -138,6 +141,7 @@ export async function fetchCheckLogs(
     deps.db,
     deps.argusHome,
     deps.detection,
+    deps.queue ?? createImmediateQueue(deps.db, deps.argusHome),
     caseSlug,
     `ci-${binding.number}-${safeName}.log`,
     text,

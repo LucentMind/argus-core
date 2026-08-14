@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -8,19 +8,17 @@ import { caseDir } from '../paths'
 import { createCase, getCase } from '../caseService'
 import { ingestContent, listEvidence, updateEvidenceContent } from '../ingest'
 import { createDetection } from '../packs/detection'
-import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
+import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import { scanEvidence, type ScanDeps } from '../scan'
 import { sidecarPath } from '../lineIndex'
 import { MAX_READ_BYTES } from '../search'
+import { createImmediateQueue } from '../ingestQueue'
 
 let tmp: string, argusHome: string, db: DatabaseSync, changed: string[]
 const detection = createDetection(samplePackRegistry())
-// 'binlog' is not matched by any of our plain .txt/.log test fixtures — no
-// extractable types among them; extraction itself is covered by extraction.test.ts.
-const extractors = stubExtractors('binlog')
 const deps = (): ScanDeps => ({
   evidenceChanged: (s: string) => changed.push(s),
-  parsing: vi.fn()
+  queue: createImmediateQueue(db, argusHome)
 })
 const evDir = (slug: string): string => path.join(caseDir(argusHome, slug), 'evidence')
 
@@ -45,7 +43,7 @@ describe('scanEvidence', () => {
     const fd = fs.openSync(big, 'w')
     for (let i = 0; i < count; i++) fs.writeSync(fd, line)
     fs.closeSync(fd)
-    scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    scanEvidence(db, argusHome, detection, deps(), 'C1')
     expect(fs.existsSync(sidecarPath(argusHome, big))).toBe(true)
   })
 
@@ -53,7 +51,7 @@ describe('scanEvidence', () => {
     fs.writeFileSync(path.join(evDir('C1'), 'dropped.txt'), 'external file one')
     fs.mkdirSync(path.join(evDir('C1'), 'sub', 'deep'), { recursive: true })
     fs.writeFileSync(path.join(evDir('C1'), 'sub', 'deep', 'nested.log'), 'nested content')
-    const s = scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    const s = scanEvidence(db, argusHome, detection, deps(), 'C1')
     expect(s.added.sort()).toEqual(['evidence/dropped.txt', 'evidence/sub/deep/nested.log'])
     const ev = listEvidence(db, 'C1')
     const nested = ev.find((e) => e.relPath === 'evidence/sub/deep/nested.log')!
@@ -75,9 +73,18 @@ describe('scanEvidence', () => {
   })
 
   it('detects modified files: re-hash, priorSha256, re-index', () => {
-    const rec = ingestContent(db, argusHome, detection, 'C1', 'a.txt', 'original words', 'upload')
+    const rec = ingestContent(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'C1',
+      'a.txt',
+      'original words',
+      'upload'
+    )
     fs.writeFileSync(path.join(caseDir(argusHome, 'C1'), rec.relPath), 'replaced entirely zzqy')
-    const s = scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    const s = scanEvidence(db, argusHome, detection, deps(), 'C1')
     expect(s.modified).toEqual(['evidence/a.txt'])
     const after = listEvidence(db, 'C1').find((e) => e.id === rec.id)!
     expect(after.sha256).not.toBe(rec.sha256)
@@ -89,20 +96,38 @@ describe('scanEvidence', () => {
   })
 
   it('flags missing files without deleting rows, and clears the flag on return', () => {
-    const rec = ingestContent(db, argusHome, detection, 'C1', 'gone.txt', 'bye', 'upload')
+    const rec = ingestContent(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'C1',
+      'gone.txt',
+      'bye',
+      'upload'
+    )
     const abs = path.join(caseDir(argusHome, 'C1'), rec.relPath)
     fs.rmSync(abs)
-    let s = scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    let s = scanEvidence(db, argusHome, detection, deps(), 'C1')
     expect(s.missing).toEqual(['evidence/gone.txt'])
     expect(listEvidence(db, 'C1').find((e) => e.id === rec.id)!.meta.missing).toBe(true)
     fs.writeFileSync(abs, 'bye') // same content returns
-    s = scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    s = scanEvidence(db, argusHome, detection, deps(), 'C1')
     expect(s.missing).toEqual([])
     expect(listEvidence(db, 'C1').find((e) => e.id === rec.id)!.meta.missing).toBeUndefined()
   })
 
   it('skips dot-directories on disk and dot-path records in the missing check', () => {
-    ingestContent(db, argusHome, detection, 'C1', 'src.txt', 'source', 'upload')
+    ingestContent(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'C1',
+      'src.txt',
+      'source',
+      'upload'
+    )
     // simulate a derived record whose file lives under evidence/.derived (walk skips it)
     fs.mkdirSync(path.join(evDir('C1'), '.derived'), { recursive: true })
     fs.writeFileSync(path.join(evDir('C1'), '.derived', 'src.txt.txt'), 'derived text')
@@ -110,7 +135,7 @@ describe('scanEvidence', () => {
       `INSERT INTO evidence (case_id, rel_path, sha256, artifact_type, size, origin, meta, created_at)
        VALUES (1, 'evidence/.derived/src.txt.txt', 'x', 'text', 12, 'agent', '{}', 'now')`
     ).run()
-    const s = scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    const s = scanEvidence(db, argusHome, detection, deps(), 'C1')
     expect(s.added).toEqual([]) // .derived content not re-ingested
     expect(s.missing).toEqual([]) // .derived record not flagged missing
   })
@@ -128,16 +153,32 @@ describe('scanEvidence', () => {
        VALUES (?, 1, 0, 'done', 'now')`
     ).run(caseId)
     fs.writeFileSync(path.join(evDir('C1'), 'found.txt'), 'scanned in')
-    scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    scanEvidence(db, argusHome, detection, deps(), 'C1')
     expect(getCase(db, 'C1')!.phase).toBe('analyzing')
   })
 
   it('updateEvidenceContent clears a stale missing flag (file rewritten in place)', () => {
-    const rec = ingestContent(db, argusHome, detection, 'C1', 'ticket.md', 'v1 body', 'jira')
+    const rec = ingestContent(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'C1',
+      'ticket.md',
+      'v1 body',
+      'jira'
+    )
     fs.rmSync(path.join(caseDir(argusHome, 'C1'), rec.relPath))
-    scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    scanEvidence(db, argusHome, detection, deps(), 'C1')
     expect(listEvidence(db, 'C1').find((e) => e.id === rec.id)!.meta.missing).toBe(true)
-    updateEvidenceContent(db, argusHome, detection, rec.id, 'v2 rewritten in place')
+    updateEvidenceContent(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      rec.id,
+      'v2 rewritten in place'
+    )
     expect(listEvidence(db, 'C1').find((e) => e.id === rec.id)!.meta.missing).toBeUndefined()
   })
 
@@ -148,7 +189,7 @@ describe('scanEvidence', () => {
     fs.rmSync(path.join(evDir('C1'), '.meta'), { recursive: true, force: true })
     fs.writeFileSync(path.join(evDir('C1'), '.meta'), 'not a dir')
     fs.writeFileSync(path.join(evDir('C1'), 'ok.txt'), 'fine')
-    const s = scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    const s = scanEvidence(db, argusHome, detection, deps(), 'C1')
     expect(s.errors).toHaveLength(1)
     expect(s.errors[0].relPath).toBe('evidence/ok.txt')
     expect(s.added).toEqual([]) // the failed file is not reported as added
@@ -164,10 +205,10 @@ describe('scan is scoped to one mode', () => {
     fs.writeFileSync(path.join(caseRoot, 'evidence', 'inv.txt'), 'investigation')
     fs.writeFileSync(path.join(caseRoot, 'artifacts', 'rev.log'), 'review')
 
-    const inv = scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    const inv = scanEvidence(db, argusHome, detection, deps(), 'C1')
     expect(inv.added).toEqual(['evidence/inv.txt'])
 
-    const rev = scanEvidence(db, argusHome, detection, extractors, deps(), 'C1', 'review')
+    const rev = scanEvidence(db, argusHome, detection, deps(), 'C1', 'review')
     expect(rev.added).toEqual(['artifacts/rev.log'])
     expect(listEvidence(db, 'C1', 'review').map((e) => e.relPath)).toEqual(['artifacts/rev.log'])
   })
@@ -177,9 +218,9 @@ describe('scan is scoped to one mode', () => {
     const caseRoot = caseDir(argusHome, 'C1')
     fs.mkdirSync(path.join(caseRoot, 'artifacts'), { recursive: true })
     fs.writeFileSync(path.join(caseRoot, 'evidence', 'inv.txt'), 'investigation')
-    scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    scanEvidence(db, argusHome, detection, deps(), 'C1')
 
-    scanEvidence(db, argusHome, detection, extractors, deps(), 'C1', 'review')
+    scanEvidence(db, argusHome, detection, deps(), 'C1', 'review')
 
     const inv = listEvidence(db, 'C1').find((e) => e.relPath === 'evidence/inv.txt')
     expect(inv?.meta.missing).toBeUndefined()
@@ -193,6 +234,7 @@ describe('scan is scoped to one mode', () => {
       db,
       argusHome,
       detection,
+      createImmediateQueue(db, argusHome),
       'C1',
       'ci.log',
       'original words',
@@ -202,7 +244,7 @@ describe('scan is scoped to one mode', () => {
     )
     expect(rec.relPath).toBe('artifacts/ci.log')
     fs.writeFileSync(path.join(caseDir(argusHome, 'C1'), rec.relPath), 'replaced entirely zzqy')
-    const s = scanEvidence(db, argusHome, detection, extractors, deps(), 'C1', 'review')
+    const s = scanEvidence(db, argusHome, detection, deps(), 'C1', 'review')
     expect(s.modified).toEqual(['artifacts/ci.log'])
     expect(s.missing).toEqual([])
     const after = listEvidence(db, 'C1', 'review').find((e) => e.id === rec.id)!

@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { createCase } from './caseService'
 import { ingestArtifact, listEvidence } from './ingest'
+import type { IngestQueueLike } from './ingestQueue'
 import type { Detection } from './packs/detection'
 import {
   SAMPLE_CASE_SLUG,
@@ -33,6 +34,8 @@ export interface OnboardingDeps {
   db: DatabaseSync
   argusHome: string
   detection: Detection
+  /** Background index/extract queue for the seeded evidence. */
+  queue: IngestQueueLike
   /** Directory holding SAMPLE_EVIDENCE_FILES (packaged: <resources>/onboarding-sample). */
   sampleAssetsDir: string
   listCaseSlugs: () => string[]
@@ -50,8 +53,9 @@ export class OnboardingService {
    * writes a collision-free copy on every call rather than erroring on a
    * duplicate, so re-running the ingest loop would otherwise pile up copies).
    */
-  seedSampleCase(): SeedSampleResult {
-    const { db, argusHome, detection, sampleAssetsDir, listCaseSlugs, resolvePrompt } = this.deps
+  async seedSampleCase(): Promise<SeedSampleResult> {
+    const { db, argusHome, detection, queue, sampleAssetsDir, listCaseSlugs, resolvePrompt } =
+      this.deps
     const exists = listCaseSlugs().includes(SAMPLE_CASE_SLUG)
     if (exists) {
       return {
@@ -64,7 +68,7 @@ export class OnboardingService {
     const evidenceIds: number[] = []
     for (const file of SAMPLE_EVIDENCE_FILES) {
       const abs = path.join(sampleAssetsDir, file)
-      const rec = ingestArtifact(db, argusHome, detection, SAMPLE_CASE_SLUG, abs)
+      const rec = await ingestArtifact(db, argusHome, detection, queue, SAMPLE_CASE_SLUG, abs)
       evidenceIds.push(rec.id)
     }
     return { slug: SAMPLE_CASE_SLUG, evidenceIds }
