@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { CaseRcaInput, RcaDraft } from '../../../shared/rca'
-import { renderExecReport, renderTechReport, templateFromSnapshot } from '../rca/render'
+import { renderExecReport, renderTechReport, templateFromSnapshot, toIdSet } from '../rca/render'
 import { DEFAULT_RCA_TEMPLATE } from '../../../shared/rcaTemplate'
 import type { RcaTemplate, RcaSection } from '../../../shared/rcaTemplate'
 
@@ -430,5 +430,25 @@ describe('per-report dropped sections (no cross-report collision)', () => {
     const tech = renderTechReport(draft(), meta(), techOpts)
     expect(exec).not.toContain('## Impact')
     expect(tech).toContain('## Impact')
+  })
+})
+
+describe('toIdSet', () => {
+  it('passes through an array of strings', () => {
+    expect(toIdSet(['impact', 'root-cause'])).toEqual(new Set(['impact', 'root-cause']))
+  })
+
+  it('drops non-string entries from an otherwise valid array', () => {
+    expect(toIdSet(['impact', 42, null, {}, 'root-cause'])).toEqual(
+      new Set(['impact', 'root-cause'])
+    )
+  })
+
+  it('falls back to an empty set for undefined, null, and non-array values', () => {
+    expect(toIdSet(undefined)).toEqual(new Set())
+    expect(toIdSet(null)).toEqual(new Set())
+    expect(toIdSet('impact')).toEqual(new Set())
+    expect(toIdSet({ exec: ['impact'] })).toEqual(new Set())
+    expect(toIdSet(42)).toEqual(new Set())
   })
 })

@@ -87,6 +87,16 @@ export interface RenderOptions {
   dropped?: ReadonlySet<string>
 }
 
+/** Coerces an untrusted value to a `Set<string>`, dropping anything that isn't an array of
+ *  strings. Used at the `rca:render-preview` IPC boundary: `edited` is checked with
+ *  `validateRcaDraft`, but `dropped` has no such gate, and a malformed payload (e.g. `exec` sent
+ *  as a non-iterable) must not throw a raw TypeError out of the handler — it should just render
+ *  as if nothing were dropped. */
+export function toIdSet(v: unknown): Set<string> {
+  if (!Array.isArray(v)) return new Set()
+  return new Set(v.filter((id): id is string => typeof id === 'string'))
+}
+
 /** Section id → the pre-template field it rendered from. Keyed by the ids in
  *  `DEFAULT_RCA_TEMPLATE`; a user-added section has no entry and renders empty until
  *  the model authors its own sections. Declared before `narrativeBody` so the

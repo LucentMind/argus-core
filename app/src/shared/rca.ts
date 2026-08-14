@@ -62,6 +62,16 @@ export interface RoleAssignment {
   role: FindingRole | null
 }
 
+/** Per-report set of section ids to omit from a preview render. Keyed by report (`exec`/`tech`)
+ *  rather than one shared list of ids: section ids collide across the two templates (`impact`
+ *  and `root-cause` each exist in both the exec and tech reports), so a single shared set would
+ *  strip a section from one report because the user dropped its same-named counterpart in the
+ *  other. */
+export interface RcaDroppedSections {
+  exec?: string[]
+  tech?: string[]
+}
+
 export interface CaseRcaInput {
   caseMeta: {
     slug: string
