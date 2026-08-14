@@ -232,6 +232,9 @@ export function RcaPanel({
     return () => {
       live = false
     }
+    // Keyed on `handEdited` (the object) so a `true → true` re-save still re-triggers this — see
+    // the block comment above. That assumes `window.argus.rca.handEdited()` returns a fresh
+    // object per call; do not memoize/cache that IPC result upstream, or saves stop re-fetching.
   }, [slug, handEdited])
 
   // Seeds the editable claims copy from the draft exactly once per `done` job — re-running
@@ -268,6 +271,13 @@ export function RcaPanel({
   // the pane.
   const displayedMarkdown =
     handEdited[tab] && diskMarkdown ? diskMarkdown[tab] : (preview?.[tab] ?? null)
+
+  // True whenever the active tab is showing the rendered preview *in place of* the on-disk text
+  // it should be showing — i.e. `post.ts` would send something the pane isn't displaying. Tied to
+  // state, not to `saveError`: that string is wiped on every tab click (correct for the editor's
+  // own errors), which would otherwise let this exact mismatch go silent the moment the user
+  // clicks away and back.
+  const showingUnreadableDiskFallback = handEdited[tab] && !diskMarkdown?.[tab]
 
   // No `else setPreview(null)` branch: a stale preview from a since-cleared draft is harmless —
   // the previews block below only renders inside the `done && draft` branch, so `editedDraft`
@@ -587,6 +597,14 @@ export function RcaPanel({
                   saveEditor() already flips `editing` back to false — either way the message
                   must stay visible once `editing` is false. */}
               {saveError && <p className="text-xs text-danger">{saveError}</p>}
+              {/* Durable — unlike `saveError`, this does NOT get cleared by the tab-switch
+                  handler below, so leaving this tab and coming back cannot hide the mismatch. */}
+              {!editing && showingUnreadableDiskFallback && (
+                <p className="text-xs text-danger">
+                  Showing the rendered preview, not the on-disk report — the edited file could not
+                  be read. This is not the text that will post.
+                </p>
+              )}
               {editing ? (
                 <div className="flex flex-col gap-2">
                   <textarea
