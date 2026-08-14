@@ -105,7 +105,7 @@ beforeEach(() => {
       list: vi.fn(async () => []),
       ingest: vi.fn(async () => []),
       onChanged: vi.fn(() => () => {}),
-      onParsing: vi.fn(() => () => {}),
+      onProgress: vi.fn(() => () => {}),
       scan: vi.fn(async () => ({ added: [], modified: [], missing: [], errors: [] }))
     },
     textdoc: {
