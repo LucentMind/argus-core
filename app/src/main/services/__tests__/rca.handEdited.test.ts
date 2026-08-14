@@ -145,4 +145,14 @@ describe('handEditedReports', () => {
       tech: false
     })
   })
+
+  it('reports neither edited when the structure file is valid JSON but not a valid RcaDraft, rather than throwing', async () => {
+    await confirmCase('case-a')
+    fs.writeFileSync(path.join(artifactsDir(home, 'case-a'), 'rca-structure.json'), '{}')
+    expect(() => handEditedReports({ db, argusHome: home }, 'case-a')).not.toThrow()
+    expect(handEditedReports({ db, argusHome: home }, 'case-a')).toEqual({
+      exec: false,
+      tech: false
+    })
+  })
 })

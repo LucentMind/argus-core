@@ -61,31 +61,34 @@ export function handEditedReports(
   const onDisk = readReportMarkdown(deps.argusHome, slug)
   if (!onDisk) return none
 
-  let structure: RcaDraft
+  // Everything from parsing the structure file through rendering must degrade to "not edited":
+  // a structure file can be valid JSON yet not a valid RcaDraft (external/hand corruption), and
+  // the renderers assume a conforming draft — letting that throw here would break the documented
+  // contract that an unreadable/unusable structure file reports "not edited" rather than crashing.
   try {
-    structure = JSON.parse(
+    const structure = JSON.parse(
       fs.readFileSync(path.join(artifactsDir(deps.argusHome, slug), 'rca-structure.json'), 'utf8')
     ) as RcaDraft
+
+    const meta: CaseRcaInput['caseMeta'] = {
+      slug: kase.slug,
+      title: kase.title,
+      jiraKey: kase.jiraKey,
+      resolution: kase.resolution,
+      tags: kase.tags,
+      createdAt: kase.createdAt
+    }
+    const template = templateFromSnapshot(row.template_snapshot)
+    const dropped = storedDropped(row.dropped_sections)
+    return {
+      exec:
+        renderExecReport(structure, meta, { template, dropped: toIdSet(dropped.exec) }) !==
+        onDisk.exec,
+      tech:
+        renderTechReport(structure, meta, { template, dropped: toIdSet(dropped.tech) }) !==
+        onDisk.tech
+    }
   } catch {
     return none
-  }
-
-  const meta: CaseRcaInput['caseMeta'] = {
-    slug: kase.slug,
-    title: kase.title,
-    jiraKey: kase.jiraKey,
-    resolution: kase.resolution,
-    tags: kase.tags,
-    createdAt: kase.createdAt
-  }
-  const template = templateFromSnapshot(row.template_snapshot)
-  const dropped = storedDropped(row.dropped_sections)
-  return {
-    exec:
-      renderExecReport(structure, meta, { template, dropped: toIdSet(dropped.exec) }) !==
-      onDisk.exec,
-    tech:
-      renderTechReport(structure, meta, { template, dropped: toIdSet(dropped.tech) }) !==
-      onDisk.tech
   }
 }
