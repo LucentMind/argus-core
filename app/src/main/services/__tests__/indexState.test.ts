@@ -9,7 +9,8 @@ import {
   setIndexState,
   readIndexState,
   listPendingIndexEvidence,
-  countPendingIndex
+  countPendingIndex,
+  countFailedIndex
 } from '../indexState'
 
 let tmp: string, argusHome: string, db: DatabaseSync
@@ -88,5 +89,21 @@ describe('countPendingIndex', () => {
   it('counts across all cases when caseSlug is null', () => {
     insertEvidence({ indexState: 'pending' })
     expect(countPendingIndex(db, null)).toBe(1)
+  })
+})
+
+describe('countFailedIndex', () => {
+  it('counts only error rows for one case, distinct from pending/indexing', () => {
+    insertEvidence({ indexState: 'error' })
+    insertEvidence({ indexState: 'error' })
+    insertEvidence({ indexState: 'pending' })
+    insertEvidence({ indexState: 'indexed' })
+    expect(countFailedIndex(db, 'IS-1')).toBe(2)
+    expect(countFailedIndex(db, 'NOPE')).toBe(0)
+  })
+
+  it('counts across all cases when caseSlug is null', () => {
+    insertEvidence({ indexState: 'error' })
+    expect(countFailedIndex(db, null)).toBe(1)
   })
 })
