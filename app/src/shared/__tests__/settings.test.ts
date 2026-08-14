@@ -233,6 +233,28 @@ describe('settings schema', () => {
     })
   })
 
+  it('an rca.template edit survives stripDefaults + re-parse with both report lists intact', () => {
+    // The hazard: `rca.template.exec`/`tech` are REQUIRED with no schema default, so if
+    // stripDefaults recursed and dropped whichever list still equals the default, the file on
+    // disk would fail `settingsSchema.safeParse` on next launch and SettingsService.loadNow
+    // would fall back to defaults for the WHOLE file — losing every unrelated setting.
+    const patched = defaultSettings()
+    patched.rca.template.exec[0].heading = 'What went wrong'
+
+    const sparse = stripDefaults(patched, defaultSettings(), { atomicPaths: SETTINGS_ATOMIC_PATHS })
+    const reparsed = settingsSchema.safeParse(sparse)
+    expect(reparsed.success).toBe(true)
+    if (!reparsed.success) return
+
+    // the edit survived...
+    expect(reparsed.data.rca.template.exec[0].heading).toBe('What went wrong')
+    // ...and the untouched list came back whole, not missing
+    expect(reparsed.data.rca.template.tech).toEqual(defaultSettings().rca.template.tech)
+    expect(reparsed.data.rca.template.exec.length).toBe(defaultSettings().rca.template.exec.length)
+    // and nothing unrelated was lost by the fallback path
+    expect(reparsed.data).toEqual(patched)
+  })
+
   it('ui.knowledgeStripDismissed defaults false and survives strip + re-parse when set', () => {
     expect(defaultSettings().ui.knowledgeStripDismissed).toBe(false)
     const set = settingsSchema.parse({ ui: { knowledgeStripDismissed: true } })

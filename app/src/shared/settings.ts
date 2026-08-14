@@ -310,7 +310,15 @@ function deepEqual(a: unknown, b: unknown): boolean {
  */
 export const SETTINGS_ATOMIC_PATHS: readonly string[] = [
   'agent.providerInstances',
-  'defectCorpus.sources'
+  'defectCorpus.sources',
+  /** Listed as the PARENT `rca`, not `rca.template`: a path here makes that object's own
+   *  ENTRIES atomic, so `'rca.template'` would still compare `exec`/`tech` separately and drop
+   *  whichever list still equals the default. `template.exec`/`.tech` are required with no
+   *  schema default, so a file missing either one fails `settingsSchema.safeParse` on the next
+   *  launch and `SettingsService.loadNow` falls back to defaults for the WHOLE file. Listing
+   *  `rca` keeps `template` whole-or-absent; `rca`'s other keys are scalars, for which atomic
+   *  and leaf-by-leaf comparison are identical. */
+  'rca'
 ]
 
 function stripDefaultsAt(
