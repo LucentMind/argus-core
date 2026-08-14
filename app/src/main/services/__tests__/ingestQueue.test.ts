@@ -201,6 +201,75 @@ describe('IngestQueue', () => {
     })
   })
 
+  // Bytes are an indexing metric: extraction time is a function of the extractor
+  // binary, not the file's size, so a batch of non-indexable files (screenshots,
+  // binaries) must not move the byte counters at all -- not into bytesTotal, and
+  // not credited to bytesDone when they complete.
+  it('excludes index:false jobs from byte counters entirely', async () => {
+    const shot1 = makeFile('shot1.png', 5000)
+    const shot2 = makeFile('shot2.png', 5000)
+    const text = makeFile('notes.txt', 50)
+    const idShot1 = insertEvidence('evidence/shot1.png', shot1.size, 'skipped')
+    const idShot2 = insertEvidence('evidence/shot2.png', shot2.size, 'skipped')
+    const idText = insertEvidence('evidence/notes.txt', text.size)
+
+    // Collect only the queue-progress events emitted before real indexing of the
+    // one indexable file begins -- once indexing starts, bytesDone legitimately
+    // grows, so mixing those events in would hide a defect in the pre-indexing
+    // bookkeeping (enqueue's bytesTotal accumulation, and drain's post-job credit
+    // for the two completed index:false jobs).
+    const queues: QueueProgressEvent[] = []
+    let indexingStarted = false
+    let clock = 0
+    const queue = new IngestQueue({
+      db,
+      argusHome,
+      extract: async () => false,
+      onItemProgress: (e) => {
+        if (e.phase === 'indexing') indexingStarted = true
+      },
+      onQueueProgress: (e) => {
+        if (!indexingStarted) queues.push(e)
+      },
+      onEvidenceChanged: () => {},
+      now: () => (clock += 10_000)
+    })
+
+    queue.enqueue({
+      caseSlug: 'Q-1',
+      evidenceId: idShot1,
+      absPath: shot1.abs,
+      size: shot1.size,
+      index: false
+    })
+    queue.enqueue({
+      caseSlug: 'Q-1',
+      evidenceId: idShot2,
+      absPath: shot2.abs,
+      size: shot2.size,
+      index: false
+    })
+    queue.enqueue({
+      caseSlug: 'Q-1',
+      evidenceId: idText,
+      absPath: text.abs,
+      size: text.size,
+      index: true
+    })
+    await queue.idle()
+
+    expect(indexingStarted).toBe(true)
+    expect(queues.length).toBeGreaterThan(0)
+    // At every point before the indexable file starts indexing -- including
+    // right after each screenshot's job completes -- bytesTotal must never have
+    // counted a screenshot's size, and bytesDone must never have been credited
+    // for one either.
+    for (const q of queues) {
+      expect(q.bytesDone).toBe(0)
+      expect([0, text.size]).toContain(q.bytesTotal)
+    }
+  })
+
   it('deletes the partial index when an abort lands after a chunk was already flushed', async () => {
     // >1MB (the indexer's read chunk) so at least one full read — and the 400-line
     // FTS chunks it produced — completes before the abort is raised. Aborting
