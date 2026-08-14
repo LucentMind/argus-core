@@ -5,6 +5,7 @@ import {
   indexEvidenceFile,
   indexEvidenceFileAsync,
   deleteEvidenceIndex,
+  deleteEvidenceIndexThorough,
   IndexAbortedError
 } from './indexer'
 import { setIndexState, listPendingIndexEvidence, listErroredIndexEvidence } from './indexState'
@@ -396,8 +397,15 @@ export function requeuePendingIndexes(
     // Back in the lifecycle before it is queued, so countPendingIndex has it in the
     // denominator and countFailedIndex stops reporting a failure that is being retried.
     if (row.state === 'error') setIndexState(db, row.id, 'pending')
-    // a partial index from the interrupted run would duplicate chunks
-    deleteEvidenceIndex(db, row.id)
+    // A partial index from the interrupted run would duplicate chunks. Use the
+    // THOROUGH delete here, not the map-driven one: a crash from before the FTS
+    // insert and its map insert were made atomic could leave an evidence_fts row
+    // with no map row, which the map-driven delete cannot see. Such a row survived
+    // this cleanup, came back as a duplicate chunk_index after the re-index, and
+    // was thereafter unreclaimable by any code path. This runs once at boot for the
+    // few rows an interrupted run left behind, so the full-index scan it costs is
+    // irrelevant here — and only here (see ftsIndex.deleteEvidenceFtsThorough).
+    deleteEvidenceIndexThorough(db, row.id)
     queue.enqueue({
       caseSlug: row.caseSlug,
       evidenceId: row.id,
