@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { defaultSettings, DEFAULT_WATERMARK_TEXT } from '../settings'
+import { defaultSettings, settingsSchema, DEFAULT_WATERMARK_TEXT } from '../settings'
 import { applyWatermark } from '../watermark'
 
 const MARK = '_AI-assisted — drafted by Argus, reviewed before posting._'
@@ -45,7 +45,8 @@ describe('watermark settings defaults', () => {
   })
 
   it('fills in both targets when the section is absent (no migration needed)', () => {
-    const parsed = defaultSettings()
-    expect(parsed.watermark.jira.text).toBe(DEFAULT_WATERMARK_TEXT)
+    const parsed = settingsSchema.parse({ rca: {} })
+    expect(parsed.watermark.jira).toEqual({ enabled: true, text: DEFAULT_WATERMARK_TEXT })
+    expect(parsed.watermark.github).toEqual({ enabled: false, text: DEFAULT_WATERMARK_TEXT })
   })
 })

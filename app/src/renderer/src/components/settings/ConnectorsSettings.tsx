@@ -397,7 +397,7 @@ export function ConnectorsSettings(): React.JSX.Element {
                   aria-label={`${key === 'jira' ? 'Jira' : 'GitHub'} watermark text`}
                   className={`${FIELD} w-96`}
                   disabled={!watermark[key].enabled}
-                  placeholder={DEFAULT_WATERMARK_TEXT}
+                  placeholder="No footer"
                 />
               </SettingRow>
             </div>
