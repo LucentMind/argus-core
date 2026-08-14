@@ -663,6 +663,22 @@ export function RcaPanel({
                 )}
                 {job.confirmedAt && <Chip tone="review">confirmed</Chip>}
               </div>
+              {/* The comment target is never re-attempted once it has `ok: true` (post.ts) — a
+                  green "posted" chip below is easy to misread as "this post just sent it".
+                  These two notices state plainly what a click on Post will and will not do;
+                  they never disable the button, since other targets can still legitimately
+                  need a retry (that's the whole point of the skip-when-ok logic). */}
+              {postResults?.comment?.ok && (
+                <p className="text-xs text-mute">
+                  The Jira comment already posted — posting again will not re-send the Jira comment.
+                </p>
+              )}
+              {postResults?.comment?.ok && handEdited.exec && (
+                <p className="text-xs text-danger">
+                  Your text edits to the Jira comment will not reach the already-posted comment —
+                  Jira still shows the earlier text.
+                </p>
+              )}
               {confirmError && <p className="text-xs text-danger">{confirmError}</p>}
               {generateError && <p className="text-xs text-danger">{generateError}</p>}
               {postError && <p className="text-xs text-danger">{postError}</p>}
