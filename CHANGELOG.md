@@ -1,5 +1,96 @@
 # Changelog
 
+## v2.1.1 — 2026-08-14
+
+63 commits since v2.1.0, 157 files changed (+9,825 / −784).
+
+### Added
+
+**RCA report templates and pre-post editing**
+
+- Reports now render from a configurable template (separate exec/tech
+  section lists, each with an id, heading, and instruction) instead of
+  hardcoded sections, with shipped defaults editable in Settings;
+  rendering is enforced byte-identical against the template, and a
+  settings write to `rca.template` is atomic so a mid-write crash can't
+  corrupt `settings.json`.
+- Every RCA job snapshots the template it ran under at generation time,
+  and the model brief, live preview, drop-sections list, and final
+  confirm/render all resolve through that snapshot rather than whatever
+  the template currently says — editing the template mid-flight can no
+  longer retroactively change an in-progress job's structure.
+- The model is briefed on the snapshot's sections and asked to return one
+  entry per id; its output is validated against those expected keys, with
+  per-section fallback to the legacy hardcoded fields so old and new
+  reports keep rendering identically. The template editor supports
+  rename, reorder, enable/disable, add/remove per report, and reset to
+  defaults; section ids are globally unique across both reports, and a
+  claims-typed section is rejected from the exec list at the schema
+  level, since the exec report is contractually barred from showing
+  citations, finding ids, or file paths to a non-technical Jira audience.
+- A confirmed report's markdown can now be hand-edited before posting
+  (warning before discarding unsaved changes) and individual sections can
+  be dropped before confirming; hand-edited state is derived by
+  re-rendering the confirmed structure and diffing it against the on-disk
+  text, and the preview switches to the actual on-disk bytes once a
+  report has been edited.
+- Correctness fixes from the rollout: hand-edit detection now snapshots
+  case metadata at confirm time instead of re-reading the live case, so
+  linking Jira afterward no longer false-positives an "edited" state; a
+  malformed on-disk structure file degrades to "not edited" instead of
+  throwing; an in-flight disk read is now distinguishable from a
+  genuinely failed one so the UI doesn't flash a false error; and
+  re-posting a report whose comment already succeeded now tells the user
+  plainly it won't re-send.
+
+**Evidence ingest and indexing: no longer blocking or all-or-nothing**
+
+- A new serial `IngestQueue` throttles per-file ingest work with real
+  per-file and case-aggregate progress, and indexing itself now runs as
+  an async, yielding operation instead of blocking the main process —
+  both stages are abortable mid-file.
+- A new `indexState` lifecycle field (pending/indexing/done/error)
+  replaces the old binary indexed flag; the case file list shows a
+  determinate per-file progress bar while indexing, a persistent "index
+  failed" chip on error, and a bytes-weighted aggregate progress bar for
+  the whole drop.
+- Search results now carry a pending-index count alongside hits, so a
+  search run while indexing is still in flight is never silently
+  presented as complete. A boot sweep re-enqueues any incomplete ingest
+  work, so a crash mid-index no longer leaves evidence permanently
+  unsearchable.
+- Hardening: a queue drain race that could strand a job at "pending"
+  forever is closed and abort made unconditional; non-indexable rows
+  (e.g. binaries) are still enqueued so their pack-extraction step
+  actually runs, instead of being skipped entirely; and FTS index rows
+  and their side-table map rows are now written atomically together, so a
+  crash can no longer leave an orphaned, unreachable FTS row.
+
+**Comment watermark**
+
+- A new `applyWatermark` helper appends a configurable footer to
+  AI-composed comments before they post externally, with independent
+  enable/text settings per destination (Jira, GitHub) under a new
+  "Comment watermark" section in Connectors settings.
+- Wired into the RCA exec-summary Jira comment and into composed GitHub
+  finding comments — applied once, before the inline/PR-level fallback
+  split, so a 422 retry can't stack a second footer.
+
+### Fixed
+
+- Jira attachment picker (New case preview and the post-refresh selection
+  dialog) gets select/deselect-all controls, with attachments grouped by
+  type instead of raw upload order.
+- The large-file viewer now reaches every line of very large files:
+  Chromium's ~33.5M device-pixel layout ceiling was silently truncating
+  the scroll spacer (a 1.8M-line file dead-ended around line 762K on a
+  scaled display); the spacer is now capped at the measured real ceiling
+  with scroll position mapped through the compression.
+- Deleting a case now deletes its RCA job rows too — previously they were
+  orphaned permanently, including the report body of a case whose row and
+  on-disk directory were already gone — and existing orphaned rows are
+  purged on next launch.
+
 ## v2.1.0 — 2026-08-13
 
 20 commits since v2.0.12, 27 files changed (+2,828 / −133).
