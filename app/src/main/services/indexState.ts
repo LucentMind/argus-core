@@ -53,3 +53,23 @@ export function countPendingIndex(db: DatabaseSync, caseSlug: string | null): nu
     .get(caseSlug, caseSlug) as { n: number }
   return Number(row.n)
 }
+
+const ERROR_PREDICATE = `json_extract(e.meta, '$.indexState') = 'error'`
+
+/**
+ * How many of a case's files permanently failed to index. `null` counts every case.
+ *
+ * Deliberately a sibling of countPendingIndex, not a widened version of it: 'error' is
+ * not "not yet" — re-running the same search will never surface these files, so callers
+ * that mean "will this resolve itself if I wait" must keep asking countPendingIndex only,
+ * and a caller that wants the permanent-failure signal asks this one explicitly.
+ */
+export function countFailedIndex(db: DatabaseSync, caseSlug: string | null): number {
+  const row = db
+    .prepare(
+      `SELECT count(*) AS n FROM evidence e JOIN cases c ON c.id = e.case_id
+       WHERE ${ERROR_PREDICATE} AND (? IS NULL OR c.slug = ?)`
+    )
+    .get(caseSlug, caseSlug) as { n: number }
+  return Number(row.n)
+}

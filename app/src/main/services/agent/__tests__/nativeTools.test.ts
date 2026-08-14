@@ -13,6 +13,16 @@ import { agentAccessSchema } from '../../../../shared/agentAccess'
 import { MEMORY_SCOPES } from '../../../../shared/memoryScope'
 import type { DatabaseSync } from 'node:sqlite'
 import { createImmediateQueue } from '../../ingestQueue'
+import { setIndexState } from '../../indexState'
+
+/**
+ * search_evidence's result is JSON followed by an optional advisory line (see the
+ * handler's own comment). Splitting on the blank line that separates them keeps
+ * JSON.parse working regardless of whether a note is present.
+ */
+function hitsOf(out: string): unknown[] {
+  return JSON.parse(out.split('\n\n')[0])
+}
 
 let tmp: string, argusHome: string, db: DatabaseSync, caseId: number
 let handlers: ReturnType<typeof argusToolHandlers>
@@ -49,8 +59,72 @@ afterEach(() => {
 describe('argus native tools', () => {
   it('search_evidence returns citation-ready hits', async () => {
     const out = await handlers.search_evidence({ query: 'Navigator crashed' })
-    const hits = JSON.parse(out)
+    const hits = hitsOf(out)
     expect(hits[0]).toMatchObject({ relPath: 'evidence/log.txt', matchLine: 1 })
+  })
+
+  it('search_evidence warns the model on a zero-hit query when a file is still indexing', async () => {
+    // A second file, still 'pending': the query below matches nothing among the
+    // fully-indexed evidence, which is exactly the case an agent must not read as
+    // "the term is absent" — the whole point of this note.
+    const src2 = path.join(tmp, 'other.txt')
+    fs.writeFileSync(src2, 'unrelated content\n')
+    const rec2 = await ingestArtifact(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-1',
+      src2
+    )
+    setIndexState(db, rec2.id, 'pending')
+
+    const out = await handlers.search_evidence({ query: 'no_such_term_zzz' })
+    expect(hitsOf(out)).toEqual([])
+    expect(out).toContain(
+      '1 file(s) in this case are still being indexed. These results may be incomplete'
+    )
+  })
+
+  it("search_evidence's pending note says 'across all cases' when scope is 'all'", async () => {
+    const rec2 = createCase(db, argusHome, { slug: 'NAV-2', title: 'other' })
+    const src2 = path.join(tmp, 'nav2.txt')
+    fs.writeFileSync(src2, 'nav2 content\n')
+    await ingestArtifact(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-2',
+      src2
+    )
+    const nav2Evidence = db
+      .prepare(`SELECT e.id AS id FROM evidence e WHERE e.case_id = ?`)
+      .get(rec2.id) as { id: number }
+    setIndexState(db, nav2Evidence.id, 'pending')
+
+    const out = await handlers.search_evidence({ query: 'no_such_term_zzz', scope: 'all' })
+    expect(out).toContain('1 file(s) across all cases are still being indexed')
+    expect(out).not.toContain('in this case are still being indexed')
+  })
+
+  it('search_evidence separately notes permanently failed files, with different advice', async () => {
+    const src2 = path.join(tmp, 'broken.txt')
+    fs.writeFileSync(src2, 'broken content\n')
+    const rec2 = await ingestArtifact(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-1',
+      src2
+    )
+    setIndexState(db, rec2.id, 'error')
+
+    const out = await handlers.search_evidence({ query: 'no_such_term_zzz' })
+    expect(out).toContain('1 file(s) in this case failed to index')
+    expect(out).toContain('re-ingesting')
+    expect(out).not.toContain('still being indexed')
   })
 
   it('list_evidence inventories the case', async () => {
@@ -309,12 +383,12 @@ describe('argus native tools', () => {
       })
     }
 
-    const review = JSON.parse(
+    const review = hitsOf(
       await mk('review').search_evidence({ query: 'Navigator crashed' })
     ) as Array<{ relPath: string }>
     expect(review.map((h) => h.relPath)).toEqual(['artifacts/ci-5.log'])
 
-    const investigation = JSON.parse(
+    const investigation = hitsOf(
       await mk('investigation').search_evidence({ query: 'Navigator crashed' })
     ) as Array<{ relPath: string }>
     expect(investigation.map((h) => h.relPath)).toEqual(['evidence/log.txt'])
