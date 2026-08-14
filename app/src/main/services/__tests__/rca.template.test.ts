@@ -13,28 +13,36 @@ describe('rca template defaults', () => {
     expect(s.rca.techDestination).toBe('confluence-page')
     expect(s.rca.confluenceSpaceKey).toBe('ENG')
     expect(s.rca.template.exec.map((x) => x.id)).toEqual([
-      'what-happened',
-      'impact',
-      'root-cause',
-      'what-we-did',
-      'next-steps'
+      'exec-what-happened',
+      'exec-impact',
+      'exec-root-cause',
+      'exec-what-we-did',
+      'exec-next-steps'
     ])
   })
 
   it('ships tech sections bound to claim slots, and a narrative impact section', () => {
     const tech = DEFAULT_RCA_TEMPLATE.tech
     expect(tech.map((x) => x.id)).toEqual([
-      'root-cause',
-      'impact',
-      'contributing',
-      'symptoms',
-      'ruled-out',
-      'remediation',
+      'tech-root-cause',
+      'tech-impact',
+      'tech-contributing',
+      'tech-symptoms',
+      'tech-ruled-out',
+      'tech-remediation',
       'tech-narrative'
     ])
-    expect(tech.find((x) => x.id === 'impact')?.kind).toBe('narrative')
-    expect(tech.find((x) => x.id === 'symptoms')?.slot).toBe('symptoms')
+    expect(tech.find((x) => x.id === 'tech-impact')?.kind).toBe('narrative')
+    expect(tech.find((x) => x.id === 'tech-symptoms')?.slot).toBe('symptoms')
     expect(tech.every((x) => x.enabled)).toBe(true)
+  })
+
+  it('gives every default section a globally unique id across BOTH reports', () => {
+    // Increment 2 has the model return one flat `sections: Record<sectionId, …>` map, and the
+    // renderer resolves a body from the id alone with no report argument. Ids that repeat across
+    // exec and tech would collide in that map while needing different text.
+    const ids = [...DEFAULT_RCA_TEMPLATE.exec, ...DEFAULT_RCA_TEMPLATE.tech].map((s) => s.id)
+    expect(new Set(ids).size).toBe(ids.length)
   })
 
   it('gives every exec section a model instruction and every claims section a slot', () => {

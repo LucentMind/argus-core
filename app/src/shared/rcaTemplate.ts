@@ -19,7 +19,11 @@ export type ClaimSlot =
 
 export interface RcaSection {
   /** Stable slug. For narrative sections this is also the key the model returns content
-   *  under (increment 2) and the key `dropped` names (increment 3). Unique within a report. */
+   *  under (increment 2) and the key `dropped` names (increment 3). Unique GLOBALLY, not just
+   *  within a report: the model returns one flat `sections` map and `narrativeBody` resolves
+   *  from the id alone, so an id shared by an exec and a tech section would make two sections
+   *  that need different text collide on one key. The defaults are prefixed `exec-`/`tech-`
+   *  for exactly this reason. */
   id: string
   /** Rendered as `## <heading>`. */
   heading: string
@@ -49,7 +53,7 @@ export interface RcaTemplate {
 export const DEFAULT_RCA_TEMPLATE: RcaTemplate = {
   exec: [
     {
-      id: 'what-happened',
+      id: 'exec-what-happened',
       heading: 'What happened',
       kind: 'narrative',
       enabled: true,
@@ -57,7 +61,7 @@ export const DEFAULT_RCA_TEMPLATE: RcaTemplate = {
         'One short paragraph for a non-technical reader describing what broke, in plain language. No file paths, no code, no finding ids.'
     },
     {
-      id: 'impact',
+      id: 'exec-impact',
       heading: 'Impact',
       kind: 'narrative',
       enabled: true,
@@ -65,7 +69,7 @@ export const DEFAULT_RCA_TEMPLATE: RcaTemplate = {
         'Who was affected and how badly, in business terms: which users, for how long, what they experienced. No file paths, no code, no finding ids.'
     },
     {
-      id: 'root-cause',
+      id: 'exec-root-cause',
       heading: 'Root cause',
       kind: 'narrative',
       enabled: true,
@@ -73,7 +77,7 @@ export const DEFAULT_RCA_TEMPLATE: RcaTemplate = {
         'The root cause restated for a non-technical reader — the same conclusion as the technical report, without the mechanism. No file paths, no code, no finding ids.'
     },
     {
-      id: 'what-we-did',
+      id: 'exec-what-we-did',
       heading: 'What we did',
       kind: 'narrative',
       enabled: true,
@@ -81,7 +85,7 @@ export const DEFAULT_RCA_TEMPLATE: RcaTemplate = {
         'The immediate action taken to stop the impact. No file paths, no code, no finding ids.'
     },
     {
-      id: 'next-steps',
+      id: 'exec-next-steps',
       heading: 'Next steps',
       kind: 'narrative',
       enabled: true,
@@ -90,9 +94,9 @@ export const DEFAULT_RCA_TEMPLATE: RcaTemplate = {
     }
   ],
   tech: [
-    { id: 'root-cause', heading: 'Root cause', kind: 'claims', slot: 'root-cause', enabled: true },
+    { id: 'tech-root-cause', heading: 'Root cause', kind: 'claims', slot: 'root-cause', enabled: true },
     {
-      id: 'impact',
+      id: 'tech-impact',
       heading: 'Impact',
       kind: 'narrative',
       enabled: true,
@@ -100,22 +104,22 @@ export const DEFAULT_RCA_TEMPLATE: RcaTemplate = {
         'The technical blast radius: which systems, tenants, or requests were affected, and for how long. Cite evidence paths where they support the claim.'
     },
     {
-      id: 'contributing',
+      id: 'tech-contributing',
       heading: 'Contributing factors',
       kind: 'claims',
       slot: 'contributing',
       enabled: true
     },
     {
-      id: 'symptoms',
+      id: 'tech-symptoms',
       heading: 'Symptoms & timeline',
       kind: 'claims',
       slot: 'symptoms',
       enabled: true
     },
-    { id: 'ruled-out', heading: 'Ruled out', kind: 'claims', slot: 'ruled-out', enabled: true },
+    { id: 'tech-ruled-out', heading: 'Ruled out', kind: 'claims', slot: 'ruled-out', enabled: true },
     {
-      id: 'remediation',
+      id: 'tech-remediation',
       heading: 'Remediation',
       kind: 'claims',
       slot: 'remediation',

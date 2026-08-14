@@ -102,11 +102,15 @@ export function toIdSet(v: unknown): Set<string> {
  *  the model authors its own sections. Declared before `narrativeBody` so the
  *  repo's `no-use-before-define` lint rule stays satisfied. */
 const LEGACY_NARRATIVE: Record<string, (d: RcaDraft) => string> = {
-  'what-happened': (d) => d.execSummary.whatBroke,
-  'root-cause': (d) => d.execSummary.why,
-  'what-we-did': (d) => d.remediation.immediate,
-  'next-steps': (d) => bulletList([d.execSummary.nextSteps, ...d.remediation.followUps]),
-  impact: (d) => d.impact
+  'exec-what-happened': (d) => d.execSummary.whatBroke,
+  'exec-impact': (d) => d.execSummary.impact,
+  'exec-root-cause': (d) => d.execSummary.why,
+  'exec-what-we-did': (d) => d.remediation.immediate,
+  'exec-next-steps': (d) => bulletList([d.execSummary.nextSteps, ...d.remediation.followUps]),
+  /** The tech report's Impact reads `draft.impact` where the exec report's reads
+   *  `execSummary.impact` — a distinction the globally-unique ids now carry in the data,
+   *  so the renderer needs no per-report branch for it. */
+  'tech-impact': (d) => d.impact
 }
 
 /**
@@ -122,11 +126,6 @@ function narrativeBody(draft: RcaDraft, id: string): { body: string; citations: 
   const legacy = LEGACY_NARRATIVE[id]
   return { body: legacy ? legacy(draft) : '', citations: [] }
 }
-
-/** The exec report's `impact` section reads `execSummary.impact`, the tech report's reads
- *  `draft.impact` — same section id, different source, exactly as the two hardcoded
- *  renderers did before. Resolved by report rather than by id so the ids stay stable. */
-const LEGACY_EXEC_IMPACT = (d: RcaDraft): string => d.execSummary.impact
 
 function claimsBody(draft: RcaDraft, slot: NonNullable<RcaSection['slot']>): string {
   switch (slot) {
@@ -199,12 +198,16 @@ function renderSections(
  * One-page business report: what happened, impact, root cause in plain terms, what was done,
  * next steps. Sourced only from narrative sections — never from citations, finding ids, or
  * evidence paths. The only reference a reader sees is the Jira issue key.
+ *
+ * NARRATIVE-ONLY BY CONTRACT: unlike `renderTechReport` this deliberately does not branch on
+ * `RcaSection.kind`, because a `claims` section renders evidence paths and finding ids, and this
+ * report goes to a non-technical audience as a Jira comment where such references are forbidden.
+ * Do not "helpfully" add a claims branch here — `settingsSchema` rejects a claims section in the
+ * exec list so the case cannot arise, and that rejection is the fix, not a renderer branch.
  */
 export function renderExecReport(draft: RcaDraft, meta: CaseMeta, opts: RenderOptions): string {
   const dropped = opts.dropped ?? new Set<string>()
-  const bodies = renderSections(opts.template.exec, dropped, (s) =>
-    s.id === 'impact' ? LEGACY_EXEC_IMPACT(draft) : narrativeBody(draft, s.id).body
-  )
+  const bodies = renderSections(opts.template.exec, dropped, (s) => narrativeBody(draft, s.id).body)
   return joinSections([
     `# RCA — ${meta.title}`,
     meta.jiraKey ? `Jira: ${meta.jiraKey}` : '',

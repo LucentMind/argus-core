@@ -2696,10 +2696,10 @@ function registerIpc(): void {
   // Reading live settings here would make the preview disagree with the artifact whenever the
   // user edited the template after generating.
   //
-  // `dropped` is keyed per report ({ exec?, tech? }), not shared: section ids collide across
-  // the two reports (`impact` and `root-cause` each exist in both templates), so a single
-  // shared dropped-set would strip a section from one report because the user dropped its
-  // same-named counterpart in the other.
+  // `dropped` is keyed per report ({ exec?, tech? }), not shared. The default ids are globally
+  // unique (`exec-impact` vs `tech-impact`), but nothing stops a user template from reusing an
+  // id across the two lists, and a shared set would then strip a section from one report because
+  // the user dropped its same-named counterpart in the other.
   ipcMain.handle(
     IPC.rcaRenderPreview,
     (_e, slug: string, edited: RcaDraft, dropped?: RcaDroppedSections) => {
