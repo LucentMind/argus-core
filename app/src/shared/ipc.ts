@@ -341,6 +341,9 @@ export const IPC = {
   rcaRenderPreview: 'rca:render-preview',
   /** main → all renderer windows broadcast: a case's RCA job state changed. */
   rcaChanged: 'rca:changed',
+  rcaReadMarkdown: 'rca:read-markdown',
+  rcaSaveMarkdown: 'rca:save-markdown',
+  rcaHandEdited: 'rca:hand-edited',
   // — routines (saved prompt + trigger, run unattended) —
   routinesList: 'routines:list',
   /** Static data, not a payload field — see services/routines/templates.ts. Read once; there is
