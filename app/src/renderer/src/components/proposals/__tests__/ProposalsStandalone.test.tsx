@@ -165,6 +165,48 @@ describe('ProposalsStandalone', () => {
     expect(screen.getByRole('button', { name: 'Share to HiveMind: rca' })).toBeInTheDocument()
   })
 
+  // A distill run stages its proposals in a synchronous loop, so several land on the identical
+  // ISO-millisecond `date` — which the caseSlug+date comparator can't separate. Accepting used to
+  // throw the row to the bottom of that tie group (pending rows all precede accepted ones in the
+  // pre-sort array, and a stable sort keeps that order for equal keys). The row must not move.
+  it('accepting a row whose date ties with its neighbours leaves it in the same queue position', async () => {
+    const stamp = '2026-07-14T09:00:00.000Z'
+    const tied: ProposalsPayload = {
+      proposals: ['a', 'b', 'c'].map((n) => ({
+        file: `2026-07-14-NAV-200-${n}.md`,
+        type: 'recipe' as const,
+        target: `topic-${n}`,
+        caseSlug: 'NAV-200',
+        date: stamp,
+        title: `Tied ${n}`,
+        content: `# ${n}\nnew\n`,
+        current: `# ${n}\nold\n`
+      }))
+    }
+    ;(window as unknown as { argus: { proposals: Record<string, unknown> } }).argus.proposals = {
+      list: vi.fn().mockResolvedValue(tied),
+      accept: vi.fn((file: string) =>
+        Promise.resolve({
+          proposals: tied.proposals.filter((p) => p.file !== file),
+          accepted: { kind: 'reference', name: 'topic-b' }
+        })
+      ),
+      reject: vi.fn(),
+      onChanged: vi.fn(() => () => {})
+    }
+    const order = (): string[] =>
+      screen
+        .getAllByRole('button', { name: /^Select proposal / })
+        .map((b) => b.getAttribute('aria-label')!)
+    renderShell()
+    await screen.findByRole('button', { name: 'Select proposal Tied a' })
+    const before = order()
+    fireEvent.click(screen.getByRole('button', { name: 'Select proposal Tied b' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Accept Tied b' }))
+    expect(await screen.findByText(/accepted into your library/)).toBeInTheDocument()
+    expect(order()).toEqual(before)
+  })
+
   it('accept while editing sends the edited content', async () => {
     renderShell()
     fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
