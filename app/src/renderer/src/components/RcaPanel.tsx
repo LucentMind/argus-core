@@ -131,6 +131,7 @@ export function RcaPanel({
     tech: false
   })
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [diskMarkdown, setDiskMarkdown] = useState<{ exec: string; tech: string } | null>(null)
 
   const [investigationFindingsCount, setInvestigationFindingsCount] = useState<number | null>(null)
   const [generateError, setGenerateError] = useState<string | null>(null)
@@ -199,6 +200,40 @@ export function RcaPanel({
     }
   }, [slug, confirmedAt])
 
+  // Once a report has been hand-edited, the freshly-rendered preview is no longer what
+  // `post.ts` reads and sends — it's the on-disk markdown. Keyed on the `handEdited` object
+  // (not its booleans) so a post-save re-derive, which always produces a fresh object even when
+  // the booleans are unchanged, still re-fetches the just-saved text. A failed read falls back
+  // to the rendered preview (never leaves the pane blank) and surfaces via the same `saveError`
+  // the editor already uses, rather than an unhandled rejection.
+  useEffect(() => {
+    let live = true
+    if (!handEdited.exec && !handEdited.tech) {
+      // Deferred to a microtask, same idiom as the confirmedAt effect above — a bare setState
+      // here would run synchronously in the effect body.
+      void Promise.resolve().then(() => {
+        if (live) setDiskMarkdown(null)
+      })
+      return () => {
+        live = false
+      }
+    }
+    void window.argus.rca
+      .readMarkdown(slug)
+      .then((md) => {
+        if (live) setDiskMarkdown(md)
+      })
+      .catch((err) => {
+        if (live) {
+          setDiskMarkdown(null)
+          setSaveError((err as Error).message)
+        }
+      })
+    return () => {
+      live = false
+    }
+  }, [slug, handEdited])
+
   // Seeds the editable claims copy from the draft exactly once per `done` job — re-running
   // this on every payload update (e.g. the broadcast `confirm()` triggers) would silently
   // discard whatever the user had already re-classified in this session.
@@ -226,6 +261,13 @@ export function RcaPanel({
   const showRunning = usePendingDisplay(isRunning)
 
   const editedDraft = useMemo(() => (draft ? applyClaims(draft, claims) : null), [draft, claims])
+
+  // Once confirmed AND hand-edited, `post.ts` reads the on-disk file, not a re-render of the
+  // (possibly stale) draft — so that's what review must show. A missing/failed disk read (still
+  // loading, or the `catch` above ran) falls back to the rendered preview rather than blanking
+  // the pane.
+  const displayedMarkdown =
+    handEdited[tab] && diskMarkdown ? diskMarkdown[tab] : (preview?.[tab] ?? null)
 
   // No `else setPreview(null)` branch: a stale preview from a since-cleared draft is harmless —
   // the previews block below only renders inside the `done && draft` branch, so `editedDraft`
@@ -562,7 +604,9 @@ export function RcaPanel({
                   </div>
                 </div>
               ) : (
-                preview && <MessageView markdown={preview[tab]} onCite={() => {}} caseSlug={slug} />
+                displayedMarkdown !== null && (
+                  <MessageView markdown={displayedMarkdown} onCite={() => {}} caseSlug={slug} />
+                )
               )}
             </div>
 

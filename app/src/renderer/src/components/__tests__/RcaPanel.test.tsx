@@ -713,4 +713,74 @@ describe('RcaPanel', () => {
     expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^cancel$/i })).not.toBeInTheDocument()
   })
+
+  it('a confirmed, hand-edited exec report displays the on-disk exec markdown, not the rendered preview', async () => {
+    handEdited.mockResolvedValue({ exec: true, tech: false })
+    readMarkdown.mockResolvedValue({ exec: '# exec on disk text', tech: '# tech on disk text' })
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    expect(await screen.findByText('exec on disk text')).toBeInTheDocument()
+    expect(screen.queryByText('exec preview')).not.toBeInTheDocument()
+  })
+
+  it('a confirmed report that is NOT hand-edited still displays the rendered preview', async () => {
+    handEdited.mockResolvedValue({ exec: false, tech: false })
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    expect(await screen.findByText('exec preview')).toBeInTheDocument()
+    expect(readMarkdown).not.toHaveBeenCalled()
+  })
+
+  it('the two tabs are independent: exec hand-edited and tech not means exec shows disk and tech shows the render', async () => {
+    handEdited.mockResolvedValue({ exec: true, tech: false })
+    readMarkdown.mockResolvedValue({ exec: '# exec on disk text', tech: '# tech on disk text' })
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    expect(await screen.findByText('exec on disk text')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^technical report$/i }))
+    expect(await screen.findByText('tech preview')).toBeInTheDocument()
+    expect(screen.queryByText('tech on disk text')).not.toBeInTheDocument()
+  })
+
+  it('after a save, the pane shows the newly saved text', async () => {
+    handEdited.mockReset().mockResolvedValueOnce({ exec: false, tech: false })
+    readMarkdown
+      .mockReset()
+      .mockResolvedValueOnce({ exec: '# exec on disk', tech: '# tech on disk' })
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    expect(await screen.findByText('exec preview')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    const box = screen.getByRole('textbox', { name: /executive summary markdown/i })
+    await userEvent.clear(box)
+    await userEvent.type(box, '# freshly saved exec text')
+
+    handEdited.mockResolvedValueOnce({ exec: true, tech: false })
+    readMarkdown.mockResolvedValueOnce({
+      exec: '# freshly saved exec text',
+      tech: '# tech on disk'
+    })
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    expect(await screen.findByText('freshly saved exec text')).toBeInTheDocument()
+  })
+
+  it('a rejected readMarkdown falls back to the rendered preview and shows the error, with no unhandled rejection', async () => {
+    handEdited.mockResolvedValue({ exec: true, tech: false })
+    readMarkdown.mockReset().mockRejectedValue(new Error('disk read failed'))
+
+    const unhandledReasons: unknown[] = []
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandledReasons.push(reason)
+    }
+    process.on('unhandledRejection', onUnhandledRejection)
+
+    try {
+      await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+      expect(await screen.findByText('exec preview')).toBeInTheDocument()
+      expect(await screen.findByText('disk read failed')).toBeInTheDocument()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(unhandledReasons).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection)
+    }
+  })
 })
