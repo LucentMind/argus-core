@@ -22,7 +22,12 @@ import {
   type ClaimRole
 } from '../lib/rcaDraft'
 import type { FindingRole } from '../../../shared/observability'
-import type { PostResults, PostTargetResult, RcaStatusPayload } from '../../../shared/rca'
+import type {
+  PostResults,
+  PostTargetResult,
+  RcaDroppedSections,
+  RcaStatusPayload
+} from '../../../shared/rca'
 
 function ClaimCard({
   claim,
@@ -112,6 +117,7 @@ export function RcaPanel({
   const [payload, setPayload] = useState<RcaStatusPayload | null>(null)
   const [claims, setClaims] = useState<Claim[]>([])
   const [vetoed, setVetoed] = useState<Set<number>>(new Set())
+  const [dropped, setDropped] = useState<RcaDroppedSections>({})
   const [postResults, setPostResults] = useState<PostResults | null>(null)
   const initedJobId = useRef<number | null>(null)
 
@@ -165,8 +171,11 @@ export function RcaPanel({
       setPostResults(job.postResults)
       setConfirmError(null)
       setPostError(null)
+      // Normalised to always carry both keys (never just `{ exec: [...] }`) so the very first
+      // renderPreview/confirm call this draft sends is already well-formed for both reports.
+      setDropped({ exec: payload?.dropped.exec ?? [], tech: payload?.dropped.tech ?? [] })
     }
-  }, [job, draft])
+  }, [job, draft, payload])
 
   const isRunning = job?.state === 'queued' || job?.state === 'running'
   const showRunning = usePendingDisplay(isRunning)
@@ -179,13 +188,13 @@ export function RcaPanel({
   useEffect(() => {
     if (!editedDraft) return
     let live = true
-    void window.argus.rca.renderPreview(slug, editedDraft).then((p) => {
+    void window.argus.rca.renderPreview(slug, editedDraft, dropped).then((p) => {
       if (live) setPreview(p)
     })
     return () => {
       live = false
     }
-  }, [slug, editedDraft])
+  }, [slug, editedDraft, dropped])
 
   function setRole(key: string, role: ClaimRole): void {
     setClaims((prev) => reassign(prev, key, role))
@@ -201,6 +210,16 @@ export function RcaPanel({
       if (next.has(findingId)) next.delete(findingId)
       else next.add(findingId)
       return next
+    })
+  }
+
+  /** Per-draft, per-report. Distinct from a section's `enabled: false`, which is a persistent
+   *  template decision made in Settings and is not offered here. */
+  function toggleSection(report: 'exec' | 'tech', id: string): void {
+    setDropped((prev) => {
+      const cur = prev[report] ?? []
+      const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+      return { ...prev, [report]: next }
     })
   }
 
@@ -253,7 +272,7 @@ export function RcaPanel({
     setConfirmError(null)
     try {
       const assignments = buildAssignments(editedDraft, vetoed)
-      await window.argus.rca.confirm(slug, job.id, assignments, editedDraft)
+      await window.argus.rca.confirm(slug, job.id, assignments, editedDraft, dropped)
     } catch (err) {
       setConfirmError((err as Error).message)
       await refetchStatus()
@@ -381,6 +400,33 @@ export function RcaPanel({
 
             {/* — Previews — */}
             <div className="flex flex-col gap-2 border-t border-hair pt-3">
+              <div className="flex flex-col gap-1.5 border-t border-hair pt-3">
+                <h3 className="text-[10.5px] font-medium uppercase tracking-wide text-mute">
+                  Sections
+                </h3>
+                {(['exec', 'tech'] as const).map((report) => (
+                  <div key={report} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="text-[11px] text-mute">
+                      {report === 'exec' ? 'Exec summary' : 'Technical report'}
+                    </span>
+                    {(payload.template?.[report] ?? [])
+                      .filter((s) => s.enabled)
+                      .map((s) => (
+                        <label key={s.id} className="flex items-center gap-1 text-[11px] text-ink">
+                          <input
+                            type="checkbox"
+                            aria-label={`Include ${s.heading} in the ${
+                              report === 'exec' ? 'executive summary' : 'technical report'
+                            }`}
+                            checked={!(dropped[report] ?? []).includes(s.id)}
+                            onChange={() => toggleSection(report, s.id)}
+                          />
+                          {s.heading || 'Narrative'}
+                        </label>
+                      ))}
+                  </div>
+                ))}
+              </div>
               <div className="flex items-center gap-1">
                 {(['exec', 'tech'] as const).map((t) => (
                   <button
