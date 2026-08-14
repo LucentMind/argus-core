@@ -3,6 +3,7 @@ import type { CaseRcaInput, RcaDraft } from '../../../shared/rca'
 import { buildCaseRcaPrompt, RCA_SECTIONS } from '../rca/contract'
 import { parseRcaOutput, RcaParseError } from '../rca/parse'
 import { caseRcaPromptHash } from '../rca/promptHash'
+import { DEFAULT_RCA_TEMPLATE } from '../../../shared/rcaTemplate'
 
 function minimalInput(): CaseRcaInput {
   return {
@@ -70,7 +71,7 @@ function validDraft(): RcaDraft {
 
 describe('buildCaseRcaPrompt', () => {
   it('builds a prompt containing every section and the findings with ids', () => {
-    const p = buildCaseRcaPrompt(minimalInput())
+    const p = buildCaseRcaPrompt(minimalInput(), DEFAULT_RCA_TEMPLATE)
     for (const key of Object.keys(RCA_SECTIONS)) expect(p).toContain(RCA_SECTIONS[key].text)
     expect(p).toContain('[finding 7]')
   })
@@ -92,7 +93,81 @@ describe('parseRcaOutput', () => {
 
 describe('caseRcaPromptHash', () => {
   it('prompt hash is stable and override-sensitive', () => {
-    expect(caseRcaPromptHash()).toBe(caseRcaPromptHash())
-    expect(caseRcaPromptHash((id) => id + 'X')).not.toBe(caseRcaPromptHash())
+    expect(caseRcaPromptHash(undefined, DEFAULT_RCA_TEMPLATE)).toBe(
+      caseRcaPromptHash(undefined, DEFAULT_RCA_TEMPLATE)
+    )
+    expect(caseRcaPromptHash((id) => id + 'X', DEFAULT_RCA_TEMPLATE)).not.toBe(
+      caseRcaPromptHash(undefined, DEFAULT_RCA_TEMPLATE)
+    )
+  })
+})
+
+describe('template-driven prompt', () => {
+  it('briefs every enabled narrative section with its id, report, heading and instruction', () => {
+    const p = buildCaseRcaPrompt(minimalInput(), DEFAULT_RCA_TEMPLATE)
+    expect(p).toContain('exec-what-happened')
+    expect(p).toContain('One short paragraph for a non-technical reader')
+    expect(p).toContain('tech-impact')
+    // the id list the model must return
+    expect(p).toContain('"exec-what-happened"')
+    expect(p).toContain('"tech-impact"')
+  })
+
+  it('labels which report each section belongs to', () => {
+    const p = buildCaseRcaPrompt(minimalInput(), DEFAULT_RCA_TEMPLATE)
+    const execIdx = p.indexOf('exec-what-happened')
+    const techIdx = p.indexOf('tech-impact')
+    expect(p.slice(0, execIdx)).toMatch(/executive summary/i)
+    expect(p.slice(execIdx, techIdx)).toMatch(/technical report/i)
+  })
+
+  it('omits a disabled section entirely — the model is not asked to write it', () => {
+    const t = structuredClone(DEFAULT_RCA_TEMPLATE)
+    t.exec[0].enabled = false
+    const p = buildCaseRcaPrompt(minimalInput(), t)
+    expect(p).not.toContain('exec-what-happened')
+  })
+
+  it('never briefs a claims section', () => {
+    const p = buildCaseRcaPrompt(minimalInput(), DEFAULT_RCA_TEMPLATE)
+    expect(p).not.toContain('tech-root-cause')
+  })
+
+  it('includes a user-added section with its own instruction', () => {
+    const t = structuredClone(DEFAULT_RCA_TEMPLATE)
+    t.tech.push({
+      id: 'tech-detection',
+      heading: 'Detection',
+      kind: 'narrative',
+      enabled: true,
+      instruction: 'How the fault was noticed and how long detection took.'
+    })
+    const p = buildCaseRcaPrompt(minimalInput(), t)
+    expect(p).toContain('tech-detection')
+    expect(p).toContain('How the fault was noticed')
+  })
+})
+
+describe('caseRcaPromptHash covers the template', () => {
+  it('changes when the template changes', () => {
+    const t = structuredClone(DEFAULT_RCA_TEMPLATE)
+    const before = caseRcaPromptHash(undefined, t)
+    t.exec[0].instruction = 'Something else entirely.'
+    expect(caseRcaPromptHash(undefined, t)).not.toBe(before)
+  })
+
+  it('is stable for the same template', () => {
+    expect(caseRcaPromptHash(undefined, DEFAULT_RCA_TEMPLATE)).toBe(
+      caseRcaPromptHash(undefined, structuredClone(DEFAULT_RCA_TEMPLATE))
+    )
+  })
+
+  it('ignores a heading change that the model is never shown', () => {
+    const t = structuredClone(DEFAULT_RCA_TEMPLATE)
+    const before = caseRcaPromptHash(undefined, t)
+    // t.tech[0] is the CLAIMS section `tech-root-cause` — its heading is a render-time label
+    // the model never sees. A narrative heading IS briefed, so changing one must move the hash.
+    t.tech[0].heading = 'Cause'
+    expect(caseRcaPromptHash(undefined, t)).toBe(before)
   })
 })
