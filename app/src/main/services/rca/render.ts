@@ -114,15 +114,20 @@ const LEGACY_NARRATIVE: Record<string, (d: RcaDraft) => string> = {
 }
 
 /**
- * Body + citations for a narrative section. Once the model authors its own sections this
- * should read `draft.sections[id]` first; today every default narrative section maps to the
- * legacy field it used to render from, so drafts generated before templates still render in
- * full. An unknown id yields an empty body, which `section()` then skips entirely.
+ * Body + citations for a narrative section. The model's own text wins; the legacy field map
+ * is the fallback for drafts generated before the template drove the prompt, so old confirmed
+ * reports still render in full. A section present but blank also falls back — an empty body
+ * would otherwise silently erase content the legacy field still holds.
  *
- * `citations` is always `[]` here — there is no source of per-narrative-section citations yet,
- * so the tech renderer's `citationsBlock(citations)` call on the result is currently dead code.
+ * `draft.sections` is read defensively (`?.`): `readPriorDraft` casts `rca-structure.json`
+ * straight to `RcaDraft` without re-validating, so a report confirmed before this increment
+ * genuinely arrives here with the key absent, whatever the type says.
+ *
+ * An id with neither source yields an empty body, which `section()` then skips entirely.
  */
 function narrativeBody(draft: RcaDraft, id: string): { body: string; citations: Citation[] } {
+  const authored = draft.sections?.[id]
+  if (authored && authored.body.trim().length > 0) return authored
   const legacy = LEGACY_NARRATIVE[id]
   return { body: legacy ? legacy(draft) : '', citations: [] }
 }
