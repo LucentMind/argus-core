@@ -18,6 +18,7 @@ import {
 import type { AgentDriver, DriverSession, DriverSessionContext } from '../driver'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { SessionMirrorLike } from '../session'
+import { createImmediateQueue } from '../../ingestQueue'
 
 // runBackgroundTurn is the routines primitive: one unattended turn in a windowless
 // CaseSession, returning its outcome programmatically. It does NOT create the case or the
@@ -75,6 +76,7 @@ function deps(sdk: FakeSdk, over: Partial<BackgroundTurnDeps> = {}): BackgroundT
     db,
     argusHome,
     detection: createDetection(),
+    queue: createImmediateQueue(db, argusHome),
     skillsRoots: [],
     driver: createClaudeDriver(sdk.createQuery),
     onEvent: (e) => events.push(e),

@@ -55,9 +55,12 @@ export interface AgentServiceDeps {
   db: DatabaseSync
   argusHome: string
   detection: Detection
-  /** Background index/extract queue, forwarded to every session; absent means
-   *  `createImmediateQueue` (see NativeToolDeps.queue). */
-  queue?: IngestQueueLike
+  /** Background index/extract queue, forwarded to every session it constructs.
+   *  REQUIRED, unlike the per-session deps below: this is a top level, and a missing
+   *  queue here would propagate `undefined` down three levels to produce an app that
+   *  looks correct, type-checks, passes tests, logs nothing — and freezes the main
+   *  process on a large file. */
+  queue: IngestQueueLike
   skillsRoots: string[]
   /** Live pack persona fragments (PackRegistry); read at each session construction. */
   personaFragments?: () => string[]

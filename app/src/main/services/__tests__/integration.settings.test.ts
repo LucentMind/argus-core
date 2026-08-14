@@ -16,6 +16,7 @@ import { defaultAgentAccess } from '../../../shared/agentAccess'
 import type { CreateQueryFn } from '../agent/drivers/claude'
 import type { LoadedPack } from '../packs/loader'
 import type { DatabaseSync } from 'node:sqlite'
+import { createImmediateQueue } from '../ingestQueue'
 
 let tmp: string, argusHome: string
 let db: DatabaseSync, svc: SettingsService
@@ -76,6 +77,7 @@ describe('settings → consumers (wave-spec §8 integration)', () => {
       )
     }
     const agents = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection: createDetection(),

@@ -82,7 +82,7 @@ function registerScanned(
   }
   try {
     writeSidecar(scanDir, rel, record)
-    if (indexable) deps.queue.enqueue({ caseSlug, evidenceId: id, absPath, size })
+    deps.queue.enqueue({ caseSlug, evidenceId: id, absPath, size, index: indexable })
   } catch (err) {
     // error isolation contract: a failed registration must not leave a ghost row.
     // abort first: the enqueue above may already have handed the job over.
@@ -131,7 +131,7 @@ function rescanModified(
     `UPDATE evidence SET sha256 = ?, artifact_type = ?, size = ?, meta = ? WHERE id = ?`
   ).run(sha256, artifactType, size, JSON.stringify(meta), rec.id)
   deleteEvidenceIndex(db, rec.id)
-  if (indexable) deps.queue.enqueue({ caseSlug, evidenceId: rec.id, absPath, size })
+  deps.queue.enqueue({ caseSlug, evidenceId: rec.id, absPath, size, index: indexable })
   return updated
 }
 

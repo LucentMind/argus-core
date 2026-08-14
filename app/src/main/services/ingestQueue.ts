@@ -16,6 +16,16 @@ export interface IngestJob {
   evidenceId: number
   absPath: string
   size: number
+  /**
+   * Whether phase 1 (FTS indexing) applies to this row.
+   *
+   * False for a non-indexable artifact — but such a row is still enqueued, because
+   * phase 2 (extraction) exists FOR binary artifacts: a pack detector that declares
+   * an `extract` command is by definition handling something `isText` says no to.
+   * Gating the enqueue on indexability would silently kill derived text for exactly
+   * the files it was written for.
+   */
+  index: boolean
 }
 
 export type EvidencePhase = 'indexing' | 'extracting' | 'done' | 'error'
@@ -210,6 +220,14 @@ export class IngestQueue implements IngestQueueLike {
     // Aborted while it was still sitting in the queue: never touched the row.
     if (this.aborted.has(evidenceId)) return
 
+    // Nothing to index (a binary artifact): its index state is already 'skipped' and
+    // stays that way. Go straight to extraction, which is the whole reason this row
+    // was enqueued at all.
+    if (!job.index) {
+      await this.runExtraction(job)
+      return
+    }
+
     const baseBytes = this.counters.get(slug)?.bytesDone ?? 0
     try {
       setIndexState(db, evidenceId, 'indexing')
@@ -261,6 +279,12 @@ export class IngestQueue implements IngestQueueLike {
       return
     }
 
+    await this.runExtraction(job)
+  }
+
+  /** Phase 2. Reached by every job that was not aborted, indexable or not. */
+  private async runExtraction(job: IngestJob): Promise<void> {
+    const { caseSlug: slug, evidenceId } = job
     this.emitItem({ slug, evidenceId, phase: 'extracting', fraction: 1 }, true)
     try {
       const derived = await this.deps.extract(evidenceId)
@@ -282,6 +306,9 @@ export class IngestQueue implements IngestQueueLike {
 export function createImmediateQueue(db: DatabaseSync, argusHome: string): IngestQueueLike {
   return {
     enqueue(job: IngestJob): void {
+      // A non-indexable row is enqueued for its extraction only; this stand-in runs
+      // none, so there is nothing to do and its 'skipped' state is already correct.
+      if (!job.index) return
       if (!fs.existsSync(job.absPath)) return
       indexEvidenceFile(db, job.evidenceId, job.absPath, 400, argusHome)
       setIndexState(db, job.evidenceId, 'indexed')

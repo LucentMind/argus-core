@@ -24,8 +24,9 @@ export interface RoutineTurnRunnerDeps {
   db: DatabaseSync
   argusHome: string
   detection: Detection
-  /** Background index/extract queue, forwarded to the background session. */
-  queue?: IngestQueueLike
+  /** Background index/extract queue, forwarded to the background session. REQUIRED —
+   *  see the note on AgentServiceDeps.queue. */
+  queue: IngestQueueLike
   skillsRoots: string[]
   /** Driver lookup by kind. Production passes `getDriverByKind`, which FALLS BACK silently —
    *  see the mismatch guard below for why that fallback must not be allowed through. */

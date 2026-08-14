@@ -18,6 +18,7 @@ import {
 import { defaultAgentAccess } from '../../../../shared/agentAccess'
 import type { CreateQueryFn } from '../../agent/drivers/claude'
 import type { AgentEvent } from '../../../../shared/agent-events'
+import { createImmediateQueue } from '../../ingestQueue'
 
 /**
  * REVIEW FIX 5 — a routine's own session row must not accept a second, fully-permissioned
@@ -63,6 +64,7 @@ function fakeCreateQuery(): { createQuery: CreateQueryFn; built: number } {
 
 function mkService(sdk: { createQuery: CreateQueryFn }): AgentService {
   return new AgentService({
+    queue: createImmediateQueue(db, argusHome),
     db,
     argusHome,
     detection,

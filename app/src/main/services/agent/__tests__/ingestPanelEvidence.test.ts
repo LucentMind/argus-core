@@ -13,6 +13,7 @@ import { createDetection } from '../../packs/detection'
 import { caseDir } from '../../paths'
 import type { CreateQueryFn } from '../drivers/claude'
 import type { AgentEvent } from '../../../../shared/agent-events'
+import { createImmediateQueue } from '../../ingestQueue'
 
 const detection = createDetection()
 let home: string, db: DatabaseSync, events: AgentEvent[]
@@ -38,6 +39,7 @@ afterEach(() => {
 
 const mkService = (): AgentService =>
   new AgentService({
+    queue: createImmediateQueue(db, home),
     db,
     argusHome: home,
     detection,
