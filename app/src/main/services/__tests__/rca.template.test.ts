@@ -57,6 +57,37 @@ describe('rca template defaults', () => {
     expect(() => settingsSchema.parse(bad)).toThrow()
   })
 
+  it('rejects a claims section in the exec list, naming the offending section', () => {
+    // The exec report goes to a non-technical audience as a Jira comment and may never show
+    // citations, finding ids, or file paths. `renderExecReport` is narrative-only by contract,
+    // so a claims row moved into the exec list must be refused here rather than rendered wrong.
+    const bad = {
+      rca: {
+        template: {
+          exec: [
+            { id: 'exec-root-cause', heading: 'Root cause', kind: 'claims', slot: 'root-cause', enabled: true }
+          ],
+          tech: []
+        }
+      }
+    }
+    expect(() => settingsSchema.parse(bad)).toThrow(/exec-root-cause/)
+  })
+
+  it('still accepts claims sections in the tech list', () => {
+    const ok = {
+      rca: {
+        template: {
+          exec: [],
+          tech: [
+            { id: 'tech-root-cause', heading: 'Root cause', kind: 'claims', slot: 'root-cause', enabled: true }
+          ]
+        }
+      }
+    }
+    expect(settingsSchema.parse(ok).rca.template.tech[0].kind).toBe('claims')
+  })
+
   it('rejects a narrative section with no instruction', () => {
     const bad = {
       rca: {
