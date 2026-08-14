@@ -16,6 +16,7 @@ export interface HandEditedDeps {
 interface ConfirmedRow {
   template_snapshot: string | null
   dropped_sections: string | null
+  meta_snapshot: string | null
 }
 
 /** The drop set stored at confirm; a missing or malformed value means nothing was dropped —
@@ -28,6 +29,28 @@ function storedDropped(raw: string | null): RcaDroppedSections {
     return parsed as RcaDroppedSections
   } catch {
     return {}
+  }
+}
+
+/**
+ * The `caseMeta` snapshotted at confirm time, or `null` when the column is absent or malformed —
+ * same read posture as `templateFromSnapshot`/`storedDropped`: this must never throw on a row an
+ * older build wrote. Unlike those, there is no context-free default to fall back to here (there
+ * is no "default case"), so the caller falls back to the LIVE case row instead. That fallback is
+ * a DELIBERATE, bounded, self-healing wrong answer: it reproduces today's (pre-fix) behaviour,
+ * which is correct whenever the case meta has not changed since confirm — the common case — and
+ * wrong only for the specific defect this module exists to close. Reporting "not edited"
+ * unconditionally for these rows instead would be an unbounded wrong answer: it would silently
+ * lose real hand-edit detection for every case confirmed before this column shipped, forever.
+ */
+function metaFromSnapshot(raw: string | null): CaseRcaInput['caseMeta'] | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
+    return parsed as CaseRcaInput['caseMeta']
+  } catch {
+    return null
   }
 }
 
@@ -53,7 +76,7 @@ export function handEditedReports(
 
   const row = deps.db
     .prepare(
-      `SELECT template_snapshot, dropped_sections FROM rca_jobs
+      `SELECT template_snapshot, dropped_sections, meta_snapshot FROM rca_jobs
        WHERE case_slug = ? AND confirmed_at IS NOT NULL
        ORDER BY id DESC LIMIT 1`
     )
@@ -73,7 +96,10 @@ export function handEditedReports(
       fs.readFileSync(path.join(artifactsDir(deps.argusHome, slug), 'rca-structure.json'), 'utf8')
     ) as RcaDraft
 
-    const meta: CaseRcaInput['caseMeta'] = {
+    // The exact meta rendered at confirm — NOT the live case row, which may have moved since
+    // (a Jira link, a rename). A pre-column row (meta_snapshot NULL/malformed) falls back to
+    // live meta; see `metaFromSnapshot`'s doc for why that fallback is deliberate.
+    const meta: CaseRcaInput['caseMeta'] = metaFromSnapshot(row.meta_snapshot) ?? {
       slug: kase.slug,
       title: kase.title,
       jiraKey: kase.jiraKey,

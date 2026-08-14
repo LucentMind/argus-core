@@ -291,9 +291,21 @@ export class RcaJobs {
     fs.writeFileSync(path.join(dir, 'rca-tech.md'), renderTechReport(edited, meta, techOpts))
     // Persisted so a later re-render (e.g. "has this report been hand-edited?") can reproduce
     // the confirmed bytes after a window reload. Absent → NULL, i.e. byte-identical to before.
+    // `meta` is snapshotted alongside it, in the SAME write as the bytes it produced: `title`
+    // and `jiraKey` are both mutable after confirm (most commonly linking Jira, which is
+    // required before the report can be posted at all), so a later re-render must replay this
+    // exact meta rather than the live case row or an untouched report would falsely read as
+    // hand-edited.
     this.deps.db
-      .prepare(`UPDATE rca_jobs SET confirmed_at = ?, dropped_sections = ? WHERE id = ?`)
-      .run(new Date().toISOString(), dropped ? JSON.stringify(dropped) : null, jobId)
+      .prepare(
+        `UPDATE rca_jobs SET confirmed_at = ?, dropped_sections = ?, meta_snapshot = ? WHERE id = ?`
+      )
+      .run(
+        new Date().toISOString(),
+        dropped ? JSON.stringify(dropped) : null,
+        JSON.stringify(meta),
+        jobId
+      )
     this.emit(slug)
   }
 
