@@ -12,6 +12,20 @@ export interface LinkPrForCaseDeps {
   broadcast: (caseSlug: string) => void
 }
 
+export interface LinkPrForCaseResult {
+  binding: PrBinding
+  /**
+   * The checkout, still running. Resolves when the worktree (and the `argus:prs` region of
+   * CLAUDE.md) is on disk; never rejects — `materializePrBindings` swallows and logs every
+   * failure by design, and the `.catch` below covers anything it might ever stop swallowing.
+   *
+   * Callers that need the binding — every production caller — must NOT await this. It exists
+   * so tests can observe the deferred work, and so the IPC handler can hang its second
+   * broadcast off it.
+   */
+  materialized: Promise<void>
+}
+
 /**
  * The body of the `pr:link` IPC handler (main/index.ts), pulled out so the picker-vs-manual
  * parsing split is testable without booting Electron. Same DI-first posture as
@@ -29,12 +43,27 @@ export interface LinkPrForCaseDeps {
  * with no local clone is skipped, a git failure is logged and stepped over — see
  * materializePrBindings), so unifying costs the manual path exactly the fetch the picker path
  * already pays.
+ *
+ * That checkout is NOT awaited before returning. On a first link the worktree does not exist
+ * yet, so `ensurePrWorktree` takes its slow path — `git fetch pull/N/head` (60s budget) then
+ * `git worktree add`, a full working-tree write — which is unbounded in practice on a large
+ * repo. `addBinding` has already committed by then and materialization is best-effort, so
+ * nothing in the returned binding depends on it; awaiting only held the caller open. It held
+ * the PR picker open specifically: `PrPickerDialog` closes on this resolving, and locks its
+ * own Escape/✕/backdrop/buttons while it is in flight, so a cold fetch presented as a modal
+ * the whole app sat behind with no progress shown and no way out.
+ *
+ * `broadcast` therefore fires TWICE, and both are load-bearing: once here, because the
+ * binding is committed and the rail must stop showing the PR that is no longer bound, and
+ * again when the checkout lands, because repo chips read worktree state that did not exist
+ * at the first one. Both consumers treat it as "refetch what you own", so the repeat is a
+ * cheap second refresh rather than a state change.
  */
 export async function linkPrForCase(
   deps: LinkPrForCaseDeps,
   caseSlug: string,
   input: string | PrRef
-): Promise<PrBinding> {
+): Promise<LinkPrForCaseResult> {
   assertSlug(caseSlug)
   const stored = listStoredWorkspaces(deps.db, caseSlug) // throws `Unknown case` for a bad slug
   const manual = typeof input === 'string'
@@ -53,7 +82,13 @@ export async function linkPrForCase(
     repoPath,
     source: manual ? 'manual' : 'search'
   })
-  await materializePrBindings(deps.db, deps.argusHome, caseSlug, deps.materialize)
   deps.broadcast(caseSlug)
-  return binding
+  const materialized = materializePrBindings(deps.db, deps.argusHome, caseSlug, deps.materialize)
+    .catch((err) => {
+      console.warn(`[pr] materialize after link for ${caseSlug} failed: ${(err as Error).message}`)
+    })
+    .then(() => {
+      deps.broadcast(caseSlug)
+    })
+  return { binding, materialized }
 }

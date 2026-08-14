@@ -388,30 +388,13 @@ describe('TopBar', () => {
     off()
   })
 
-  it('reads busy state back off the store', async () => {
-    render(
-      <TopBar
-        activeSlug="NAV-1"
-        activeCase={CASE}
-        onHome={vi.fn()}
-        onSelect={vi.fn()}
-        onSettings={vi.fn()}
-        onStatusChanged={vi.fn()}
-      />
-    )
-    const review = await screen.findByRole('button', { name: 'Case mode · Review' })
-    expect(review.getAttribute('title')).toBeNull()
-    caseBarStore.publish({
-      slug: 'NAV-1',
-      busyMode: 'review',
-      statusText: 'Searching for pull requests…'
-    })
-    await vi.waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Case mode · Review' }).getAttribute('title')).toBe(
-        'Searching for pull requests…'
-      )
-    )
-  })
+  // "reads busy state back off the store" and "ignores busy state published for a different
+  // case" lived here. Both tested `caseBarStore`'s state channel, which is gone: it existed
+  // only so review's PR search could keep this button spinning, and that search now reports in
+  // the Pull request rail. The cross-case leak the second one guarded cannot recur — the
+  // replacement is a prop from CaseWorkspace to a `key={`pr:${slug}`}` PrCompanionSection, so
+  // it is per-case by construction rather than by a slug check. The event channel this file
+  // still covers above is untouched.
 
   // DistillChip is keyed on `activeSlug` (TopBar.tsx) specifically so a retry clicked on one
   // case cannot survive a switch to another — TopBar itself is not remounted on a case switch,
@@ -602,26 +585,6 @@ describe('TopBar', () => {
     // The bar renders on Home and Settings too, where an active case's Jira priority has no
     // business tinting the app chrome.
     expect(screen.getByRole('banner').hasAttribute('data-tier')).toBe(false)
-  })
-
-  it('ignores busy state published for a different case', async () => {
-    render(
-      <TopBar
-        activeSlug="NAV-1"
-        activeCase={CASE}
-        onHome={vi.fn()}
-        onSelect={vi.fn()}
-        onSettings={vi.fn()}
-        onStatusChanged={vi.fn()}
-      />
-    )
-    await screen.findByRole('button', { name: 'Case mode · Review' })
-    caseBarStore.publish({ slug: 'OTHER-9', busyMode: 'review', statusText: 'stale' })
-    await vi.waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Case mode · Review' }).getAttribute('title')
-      ).toBeNull()
-    )
   })
 
   it('carries the caption buttons on win32, flush into the corner', () => {

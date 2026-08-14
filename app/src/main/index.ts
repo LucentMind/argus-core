@@ -1971,16 +1971,30 @@ function registerIpc(): void {
     if (!available.includes(mode)) {
       throw new Error(`Mode not available for this case: ${mode}`)
     }
-    const r = await setCaseMode(db, argusHome, caseSlug, mode, newSessionProvider(), {
-      materialize: prMaterializer(argusHome, caseSlug)
-    })
+    const { sessionId, materialized } = await setCaseMode(
+      db,
+      argusHome,
+      caseSlug,
+      mode,
+      newSessionProvider(),
+      { materialize: prMaterializer(argusHome, caseSlug) }
+    )
     // Repo chips read worktree state, so a freshly checked-out PR must announce itself.
     // The session's own sandbox needs no refresh: workspaceSandboxRoots covers the whole
     // worktreesRoot and is computed once at session construction (agent/registry.ts:224),
     // and a mode switch always lands on a different session — do not "optimize" a mode
     // switch into reusing the live one.
-    if (mode === 'review') broadcast(IPC.workspacesChanged, caseSlug)
-    return r
+    //
+    // Twice, for the same reason as prLink's pair: once now, so the rail reacts to the mode
+    // it is actually in, and once when the checkout lands, because THAT is when the worktree
+    // the chips report on comes into existence. `materialized` never rejects, so the second
+    // one cannot become an unhandled rejection in main. Only `sessionId` is returned —
+    // `materialized` is a Promise and does not survive structured clone.
+    if (mode === 'review') {
+      broadcast(IPC.workspacesChanged, caseSlug)
+      void materialized.then(() => broadcast(IPC.workspacesChanged, caseSlug))
+    }
+    return { sessionId }
   })
 
   // — routines (saved prompt + trigger, run unattended) —
@@ -2468,8 +2482,13 @@ function registerIpc(): void {
   // The handler body lives in prLink.ts (thin wrapper here) so the picker/manual parsing
   // split and the shared materialize+broadcast side effect are testable without booting
   // Electron. (Both paths run the same side effect now — see linkPrForCase's doc comment.)
-  ipcMain.handle(IPC.prLink, async (_e, caseSlug: string, input: string | PrRef) =>
-    linkPrForCase(
+  //
+  // Only `binding` crosses the wire. `materialized` is a live Promise — not structured-
+  // cloneable — and deliberately un-awaited: the checkout it stands for is a `git fetch` +
+  // `worktree add` that the caller must not sit on. It re-broadcasts on its own (see
+  // linkPrForCase), so nothing here has to chain onto it.
+  ipcMain.handle(IPC.prLink, async (_e, caseSlug: string, input: string | PrRef) => {
+    const { binding } = await linkPrForCase(
       {
         db,
         argusHome,
@@ -2479,7 +2498,8 @@ function registerIpc(): void {
       caseSlug,
       input
     )
-  )
+    return binding
+  })
   ipcMain.handle(IPC.prList, (_e, caseSlug: string) => {
     assertSlug(caseSlug)
     return listBindings(db, caseSlug)

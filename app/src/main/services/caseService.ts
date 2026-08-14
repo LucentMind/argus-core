@@ -923,6 +923,16 @@ export function pinCasePhase(
  * a fake). It runs for already-bound PRs whose worktree may be absent — a fresh clone,
  * another machine, a pruned worktree — and shares `materializePrBindings` with the PR
  * picker's confirm path so the two cannot drift. Failures are logged, never fatal.
+ *
+ * That checkout is STARTED here but not awaited, and the returned `materialized` promise is
+ * the handle on it. Awaiting it put a network round trip on the critical path of every
+ * review-mode entry with a PR already bound: `ensurePrWorktree` probes `git ls-remote
+ * origin refs/pull/N/head` (~1.5s measured) before it can even decide whether a fetch is
+ * needed, and a moved head then costs the fetch too. The switch itself is a DB `UPDATE` and
+ * a `case.json` write — which is why investigation mode is instant and review was not — and
+ * none of what this function returns depends on the worktree existing. Callers that want to
+ * act on the checkout (main/index.ts broadcasts `workspacesChanged` again when it lands, so
+ * repo chips see the new worktree) chain onto `materialized`; it never rejects.
  */
 export async function setCaseMode(
   db: DatabaseSync,
@@ -931,7 +941,7 @@ export async function setCaseMode(
   mode: ModeId,
   provider: SessionProvider,
   opts?: { materialize?: PrMaterializer }
-): Promise<{ sessionId: number }> {
+): Promise<{ sessionId: number; materialized: Promise<void> }> {
   if (!(mode in MODES)) throw new Error(`Unknown mode: ${mode}`)
   const existing = getCase(db, slug)
   if (!existing) throw new Error(`Unknown case: ${slug}`)
@@ -949,14 +959,19 @@ export async function setCaseMode(
   }
   fs.writeFileSync(file, JSON.stringify({ ...onDisk, activeMode: mode, updatedAt: now }, null, 2))
 
-  if (mode === 'review' && opts?.materialize) {
-    await materializePrBindings(db, argusHome, slug, opts.materialize)
-  }
+  const materialized =
+    mode === 'review' && opts?.materialize
+      ? materializePrBindings(db, argusHome, slug, opts.materialize).catch((err) => {
+          console.warn(
+            `[pr] materialize on review entry for ${slug} failed: ${(err as Error).message}`
+          )
+        })
+      : Promise.resolve()
 
   const target = latestSessionForMode(db, slug, mode)
-  if (target) return { sessionId: target.id }
+  if (target) return { sessionId: target.id, materialized }
   const created = createSession(db, slug, { ...provider, mode })
-  return { sessionId: created.id }
+  return { sessionId: created.id, materialized }
 }
 
 /**
