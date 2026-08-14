@@ -414,10 +414,29 @@ describe('RcaJobs', () => {
 
   it('reports the snapshot on status, and the default for a row that predates the column', () => {
     createCase(db, home, { slug: 'case-a', title: 'Case A' })
+    const custom = JSON.parse(JSON.stringify(DEFAULT_RCA_TEMPLATE)) as RcaTemplate
+    custom.exec[0].heading = 'Overview'
+    template = custom
     const { jobs } = mkJobs()
     const job = jobs.generate('case-a')
-    expect(jobs.statusFor('case-a').template.exec[0].id).toBe('what-happened')
+    expect(jobs.statusFor('case-a').template.exec[0].heading).toBe('Overview')
     db.prepare(`UPDATE rca_jobs SET template_snapshot = NULL WHERE id = ?`).run(job.id)
+    expect(jobs.statusFor('case-a').template).toEqual(DEFAULT_RCA_TEMPLATE)
+  })
+
+  it('falls back to the default template when the snapshot column holds unparseable JSON', () => {
+    createCase(db, home, { slug: 'case-a', title: 'Case A' })
+    const { jobs } = mkJobs()
+    const job = jobs.generate('case-a')
+    db.prepare(`UPDATE rca_jobs SET template_snapshot = 'not json' WHERE id = ?`).run(job.id)
+    expect(jobs.statusFor('case-a').template).toEqual(DEFAULT_RCA_TEMPLATE)
+  })
+
+  it('falls back to the default template when the snapshot column holds valid JSON that is not a template', () => {
+    createCase(db, home, { slug: 'case-a', title: 'Case A' })
+    const { jobs } = mkJobs()
+    const job = jobs.generate('case-a')
+    db.prepare(`UPDATE rca_jobs SET template_snapshot = 'null' WHERE id = ?`).run(job.id)
     expect(jobs.statusFor('case-a').template).toEqual(DEFAULT_RCA_TEMPLATE)
   })
 

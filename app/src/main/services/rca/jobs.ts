@@ -74,17 +74,29 @@ function toRow(r: JobDbRow): RcaJobRow {
   }
 }
 
-/** A missing (pre-column row) or malformed snapshot degrades to the default template —
- *  same posture as `parsePostResults`: a read must never fail on a row written by an older
- *  build. The default renders byte-identically to the pre-template output, so an old job
- *  confirms exactly as it would have before. */
+/** A missing (pre-column row), malformed, or structurally invalid snapshot degrades to the
+ *  default template — same posture as `parsePostResults`: a read must never fail on a row
+ *  written by an older build. The default renders byte-identically to the pre-template
+ *  output, so an old job confirms exactly as it would have before. Both fallbacks return a
+ *  fresh `structuredClone` (matching `settings.ts`'s own default), never the shared
+ *  `DEFAULT_RCA_TEMPLATE` singleton, so no caller can mutate the process-wide constant. */
 function parseTemplate(raw: string | null): RcaTemplate {
-  if (!raw) return DEFAULT_RCA_TEMPLATE
+  if (!raw) return structuredClone(DEFAULT_RCA_TEMPLATE)
+  let parsed: unknown
   try {
-    return JSON.parse(raw) as RcaTemplate
+    parsed = JSON.parse(raw)
   } catch {
-    return DEFAULT_RCA_TEMPLATE
+    return structuredClone(DEFAULT_RCA_TEMPLATE)
   }
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    !Array.isArray((parsed as RcaTemplate).exec) ||
+    !Array.isArray((parsed as RcaTemplate).tech)
+  ) {
+    return structuredClone(DEFAULT_RCA_TEMPLATE)
+  }
+  return parsed as RcaTemplate
 }
 
 function parseRawOutput(raw: string | null): RcaDraft | null {
@@ -221,7 +233,13 @@ export class RcaJobs {
     const r = this.deps.db
       .prepare(`SELECT * FROM rca_jobs WHERE case_slug = ? ORDER BY id DESC LIMIT 1`)
       .get(slug) as JobDbRow | undefined
-    if (!r) return { caseSlug: slug, job: null, draft: null, template: DEFAULT_RCA_TEMPLATE }
+    if (!r)
+      return {
+        caseSlug: slug,
+        job: null,
+        draft: null,
+        template: structuredClone(DEFAULT_RCA_TEMPLATE)
+      }
     return toPayload(r, this.deps.argusHome)
   }
 
@@ -236,7 +254,8 @@ export class RcaJobs {
    */
   confirm(slug: string, jobId: number, assignments: RoleAssignment[], edited: RcaDraft): void {
     validateRcaDraft(edited)
-    const job = this.get(jobId)
+    const row = this.getRow(jobId)
+    const job = row ? toRow(row) : null
     if (!job || job.caseSlug !== slug || job.state !== 'done')
       throw new Error(`rca job ${jobId} is not a done job for ${slug}`)
     const kase = getCase(this.deps.db, slug)
@@ -253,10 +272,7 @@ export class RcaJobs {
       createdAt: kase.createdAt
     }
     fs.writeFileSync(path.join(dir, 'rca-structure.json'), JSON.stringify(edited, null, 2))
-    const snap = this.deps.db
-      .prepare(`SELECT template_snapshot FROM rca_jobs WHERE id = ?`)
-      .get(jobId) as { template_snapshot: string | null }
-    const opts = { template: parseTemplate(snap.template_snapshot) }
+    const opts = { template: parseTemplate(row!.template_snapshot) }
     fs.writeFileSync(path.join(dir, 'rca-exec.md'), renderExecReport(edited, meta, opts))
     fs.writeFileSync(path.join(dir, 'rca-tech.md'), renderTechReport(edited, meta, opts))
     this.deps.db
@@ -272,9 +288,14 @@ export class RcaJobs {
   }
 
   private get(id: number): RcaJobRow | null {
-    const r = this.deps.db.prepare(`SELECT * FROM rca_jobs WHERE id = ?`).get(id) as
-      JobDbRow | undefined
+    const r = this.getRow(id)
     return r ? toRow(r) : null
+  }
+
+  /** Raw row (including `template_snapshot`), or `undefined` if `id` doesn't exist. */
+  private getRow(id: number): JobDbRow | undefined {
+    return this.deps.db.prepare(`SELECT * FROM rca_jobs WHERE id = ?`).get(id) as
+      JobDbRow | undefined
   }
 
   private nextQueued(): JobDbRow | undefined {
