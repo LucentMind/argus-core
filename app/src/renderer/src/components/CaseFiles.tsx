@@ -17,6 +17,7 @@ import {
 import { panelHandlesType, type PanelDecl } from '../../../shared/panels'
 import { MAX_WHOLE_FILE_BYTES } from '../../../shared/textdoc'
 import type { ModeId } from '../../../shared/modes'
+import type { EvidencePhase } from '../../../shared/evidenceProgress'
 
 const TEXT_LIKE = /\.(md|txt|log|json|jsonl|yaml|yml|csv)$/i
 
@@ -65,6 +66,11 @@ function orderWithDerived(rows: EvidenceRecord[]): (EvidenceRecord & { derived?:
   return ordered
 }
 
+interface RowProgress {
+  phase: EvidencePhase
+  fraction: number
+}
+
 export function CaseFiles({
   caseSlug,
   label,
@@ -94,7 +100,7 @@ export function CaseFiles({
   onOpenInPanel?: (evidenceId: number, packId: string, windowId: string) => void
 }): React.JSX.Element {
   const [rows, setRows] = useState<EvidenceRecord[]>([])
-  const [parsing, setParsing] = useState<Set<number>>(new Set())
+  const [progress, setProgress] = useState<Map<number, RowProgress>>(new Map())
   const [dragOver, setDragOver] = useState(false)
   const [artifactMeta, setArtifactMeta] = useState<ArtifactTypeMeta[]>([])
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -146,15 +152,19 @@ export function CaseFiles({
     const offEvidence = window.argus.evidence.onChanged?.((slug) => {
       if (slug === caseSlug) void reload()
     })
-    // Interim shape: any non-terminal phase lights the existing `parsing…` hint and
-    // 'done'/'error' clears it. The determinate per-row bar this event can now drive
-    // is a separate change; this keeps today's behaviour on the new channel.
-    const offParsing = window.argus.evidence.onProgress((p) => {
+    // No terminal event is guaranteed: a job aborted mid-index (its evidence was
+    // deleted) emits 'indexing' and nothing further. Keying this map by evidenceId
+    // and relying on the row itself disappearing via evidence:changed handles that
+    // case without waiting on an event that may never arrive.
+    const offProgress = window.argus.evidence.onProgress((p) => {
       if (p.slug !== caseSlug) return
-      setParsing((prev) => {
-        const next = new Set(prev)
-        if (p.phase === 'done' || p.phase === 'error') next.delete(p.evidenceId)
-        else next.add(p.evidenceId)
+      setProgress((prev) => {
+        const next = new Map(prev)
+        // 'done' is terminal and carries no information worth keeping on screen;
+        // 'error' stays, because silently unsearchable evidence is the failure
+        // mode most worth being loud about.
+        if (p.phase === 'done') next.delete(p.evidenceId)
+        else next.set(p.evidenceId, { phase: p.phase, fraction: p.fraction })
         return next
       })
     })
@@ -163,7 +173,7 @@ export function CaseFiles({
     })
     return () => {
       offEvidence?.()
-      offParsing?.()
+      offProgress?.()
       offFiles()
     }
   }, [reload, caseSlug, mode])
@@ -277,7 +287,7 @@ export function CaseFiles({
 
   function renderRow(r: EvidenceRecord & { derived?: boolean }): React.JSX.Element {
     const skill = artifactMeta.find((m) => m.type === r.artifactType)?.analyzeSkill
-    const isParsing = parsing.has(r.id)
+    const prog = progress.get(r.id)
     const targets = panelHandlesType(panelDecls, r.artifactType)
     const name = displayName(r.relPath)
     return (
@@ -306,12 +316,24 @@ export function CaseFiles({
         <div className="flex items-center gap-3 text-xs text-mute">
           <span>{formatMb(r.size)}</span>
           <span>{chipStamp(r.createdAt)}</span>
-          {isParsing && (
+          {prog?.phase === 'indexing' && (
+            <span className="flex items-center gap-1.5 text-signal">
+              <span className="h-1 w-12 overflow-hidden rounded-r1 bg-well">
+                <span
+                  className="block h-full bg-signal transition-[width] duration-200"
+                  style={{ width: `${Math.round(prog.fraction * 100)}%` }}
+                />
+              </span>
+              indexing {Math.round(prog.fraction * 100)}%
+            </span>
+          )}
+          {prog?.phase === 'extracting' && (
             <span className="flex items-center gap-1 text-signal">
               <span className="h-2 w-2 animate-spin rounded-full border border-signal border-t-transparent" />
               parsing…
             </span>
           )}
+          {prog?.phase === 'error' && <Chip tone="danger">index failed</Chip>}
         </div>
         <div className="flex h-6 items-center justify-end gap-1.5">
           {skill && onSuggest && (

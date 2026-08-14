@@ -9,6 +9,16 @@ import {
 } from './indexer'
 import { setIndexState, listPendingIndexEvidence } from './indexState'
 import { caseDir } from './paths'
+import type {
+  EvidencePhase,
+  EvidenceProgressEvent,
+  QueueProgressEvent
+} from '../../shared/evidenceProgress'
+
+// Re-exported for existing importers (this module was the historical home of these
+// types); `../../shared/evidenceProgress` is now the canonical definition shared with
+// the preload bridge and the renderer.
+export type { EvidencePhase, EvidenceProgressEvent, QueueProgressEvent }
 
 const ITEM_THROTTLE_MS = 100
 const QUEUE_THROTTLE_MS = 250
@@ -28,23 +38,6 @@ export interface IngestJob {
    * the files it was written for.
    */
   index: boolean
-}
-
-export type EvidencePhase = 'indexing' | 'extracting' | 'done' | 'error'
-
-export interface EvidenceProgressEvent {
-  slug: string
-  evidenceId: number
-  phase: EvidencePhase
-  fraction: number
-}
-
-export interface QueueProgressEvent {
-  slug: string
-  filesDone: number
-  filesTotal: number
-  bytesDone: number
-  bytesTotal: number
 }
 
 export interface IngestQueueDeps {
