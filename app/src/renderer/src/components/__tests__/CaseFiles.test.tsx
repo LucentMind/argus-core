@@ -70,6 +70,7 @@ beforeEach(() => {
         parsingCb = cb
         return () => {}
       }),
+      onQueueProgress: vi.fn(() => () => {}),
       list: vi.fn(async () => evidenceFixture),
       delete: vi.fn(async () => ({ deleted: [] })),
       scan: vi.fn(async () => ({ added: [], modified: [], missing: [], errors: [] }))
@@ -697,7 +698,8 @@ describe('CaseFiles "Open in"', () => {
       evidence: {
         list: vi.fn(async () => openInFixture),
         onChanged: vi.fn(() => () => {}),
-        onProgress: vi.fn(() => () => {})
+        onProgress: vi.fn(() => () => {}),
+        onQueueProgress: vi.fn(() => () => {})
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any
