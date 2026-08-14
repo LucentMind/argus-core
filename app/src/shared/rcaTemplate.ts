@@ -94,7 +94,13 @@ export const DEFAULT_RCA_TEMPLATE: RcaTemplate = {
     }
   ],
   tech: [
-    { id: 'tech-root-cause', heading: 'Root cause', kind: 'claims', slot: 'root-cause', enabled: true },
+    {
+      id: 'tech-root-cause',
+      heading: 'Root cause',
+      kind: 'claims',
+      slot: 'root-cause',
+      enabled: true
+    },
     {
       id: 'tech-impact',
       heading: 'Impact',
@@ -117,7 +123,13 @@ export const DEFAULT_RCA_TEMPLATE: RcaTemplate = {
       slot: 'symptoms',
       enabled: true
     },
-    { id: 'tech-ruled-out', heading: 'Ruled out', kind: 'claims', slot: 'ruled-out', enabled: true },
+    {
+      id: 'tech-ruled-out',
+      heading: 'Ruled out',
+      kind: 'claims',
+      slot: 'ruled-out',
+      enabled: true
+    },
     {
       id: 'tech-remediation',
       heading: 'Remediation',
