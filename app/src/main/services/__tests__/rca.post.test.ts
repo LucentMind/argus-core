@@ -7,6 +7,7 @@ import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { artifactsDir } from '../paths'
 import { postRcaReport, type PostRcaDeps } from '../rca/post'
+import { writeReportMarkdown } from '../rca/artifacts'
 import { defaultSettings, type AppSettings, DEFAULT_WATERMARK_TEXT } from '../../../shared/settings'
 
 let home: string
@@ -198,6 +199,27 @@ describe('postRcaReport', () => {
     writeArtifacts('case-e')
     insertJob('case-e', { confirmed: false })
     await expect(postRcaReport(fakeDeps(), 'case-e')).rejects.toThrow(/no confirmed rca report/i)
+  })
+
+  it('an exec report written through writeReportMarkdown (the same function the hand-edit save path uses) reaches the Jira comment body verbatim', async () => {
+    createCase(db, home, { slug: 'case-k', title: 'Case K', jiraKey: 'PROJ-11' })
+    // writeArtifacts stands in for a real RcaJobs.confirm() having already produced the
+    // artifacts pair; writeReportMarkdown then overwrites the exec report exactly as the
+    // hand-edit save path (rca:save-markdown) does — proving THAT function's output, not a
+    // hand-written fs.writeFileSync, is what reaches the Jira comment body.
+    writeArtifacts('case-k')
+    writeReportMarkdown(home, 'case-k', 'exec', '# exec via writeReportMarkdown\n\nline two.')
+    insertJob('case-k')
+    const calls: { tool: string; instanceId: string; args: Record<string, unknown> }[] = []
+
+    const res = await postRcaReport(fakeDeps({ techDestination: 'attachment', calls }), 'case-k')
+
+    expect(res.comment!.ok).toBe(true)
+    const commentCall = calls.find((c) => c.tool === 'addCommentToJiraIssue')!
+    expect(String(commentCall.args.commentBody)).toBe(
+      '# exec via writeReportMarkdown\n\nline two.' +
+        '\n\n_Full technical RCA attached as **rca-case-k.md**._'
+    )
   })
 
   it('throws when unknown case', async () => {
