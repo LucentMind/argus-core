@@ -117,7 +117,32 @@ function rowToCase(r: CaseRow): CaseRecord {
     tags: JSON.parse(r.tags) as string[],
     createdAt: r.created_at,
     updatedAt: r.updated_at,
-    actionItems: []
+    actionItems: [],
+    // Derived like `phase` above; listCases overwrites it from the turn signals. A bare
+    // rowToCase caller gets the honest "unknown", not a guess at `updated_at`.
+    lastWorkedAt: null
+  }
+}
+
+/**
+ * Drop every DERIVED field before a record is written to `case.json`.
+ *
+ * `id`, `phase`, `actionItems` and `lastWorkedAt` are computed on read (shared/casePhase.ts,
+ * shared/triage.ts, listCases) and must never be persisted — a stored copy is a second
+ * representation of the same fact, free to drift from the computed one and then survive a
+ * bundle round-trip as a lie. JSON.stringify omits undefined-valued keys, so setting them
+ * here is the whole mechanism (Finding 7).
+ *
+ * Every case.json write goes through this. Adding a derived field to CaseRecord means adding
+ * it here, once, instead of to nine hand-written spreads.
+ */
+export function stripDerived(rec: Partial<CaseRecord>): Record<string, unknown> {
+  return {
+    ...rec,
+    id: undefined,
+    phase: undefined,
+    actionItems: undefined,
+    lastWorkedAt: undefined
   }
 }
 
@@ -187,14 +212,13 @@ export function createCase(
       tags: [],
       createdAt: now,
       updatedAt: now,
-      actionItems: []
+      actionItems: [],
+      lastWorkedAt: null
     }
     fs.writeFileSync(
       path.join(dir, 'case.json'),
-      // phase/actionItems are DERIVED (shared/casePhase.ts, shared/triage.ts) — never
-      // stored. Drop them the same way `id` already is: JSON.stringify omits an
-      // undefined-valued key (Finding 7).
-      JSON.stringify({ ...rec, id: undefined, phase: undefined, actionItems: undefined }, null, 2)
+      // Derived fields are never stored — see stripDerived.
+      JSON.stringify(stripDerived(rec), null, 2)
     )
     fs.writeFileSync(path.join(dir, 'CLAUDE.md'), claudeMdTemplate(input, now, resolvePrompt))
     scaffoldCaseLinks(argusHome, dir)
@@ -372,6 +396,23 @@ function readCaseSignals(db: DatabaseSync, caseId?: number): Map<number, CaseSig
   return out
 }
 
+/**
+ * Last agent activity, from the turn signals `readCaseSignals` already collects.
+ *
+ * Deliberately turns only — not evidence, not findings, not `pr_bindings`. Evidence lands from
+ * Jira ingest and CI log fetches, and findings are written BY a turn, so both would either
+ * report work the user did not do or report the same turn twice. It is also mode-blind on
+ * purpose: investigation and review are both work on the case.
+ *
+ * Both inputs are `MAX(turns.created_at)` per mode, so this is the max over all modes. It reads
+ * every field of CaseSignals that is a turn timestamp; a third mode (modes.ts anticipates one)
+ * adds a field here too.
+ */
+function lastWorkedFrom(sig: CaseSignals): string | null {
+  const seen = [sig.lastInvestigationAt, sig.lastReviewAt].filter((t): t is string => t !== null)
+  return seen.length === 0 ? null : seen.reduce((a, b) => (a > b ? a : b))
+}
+
 /** Marry a record to its signals and its stored pin. */
 function attachPhase(c: CaseRecord, row: CaseRow, sig: CaseSignals): CasePhase {
   const signals: PhaseSignals = {
@@ -416,7 +457,12 @@ export function listCases(db: DatabaseSync): CaseRecord[] {
       const weeks = Math.floor((now.getTime() - new Date(c.createdAt).getTime()) / (7 * 86_400_000))
       items.push({ kind: 'idle', severity: 'info', label: `open ${weeks}w, no evidence` })
     }
-    return { ...c, actionItems: items, phase: attachPhase(c, row, sig) }
+    return {
+      ...c,
+      actionItems: items,
+      phase: attachPhase(c, row, sig),
+      lastWorkedAt: lastWorkedFrom(sig)
+    }
   })
 
   return cases.sort((a, b) => {
@@ -508,7 +554,7 @@ export function setCaseJira(
     // case.json is corrupt/unreadable — rebuild the rewrite base from the DB record
     // (same on-disk shape as createCase: the full record minus `id`) so title/status/
     // tags survive instead of being dropped by an empty-object fallback.
-    onDisk = { ...existing, id: undefined, phase: undefined, actionItems: undefined }
+    onDisk = stripDerived(existing)
   }
   const jiraWithDeselected =
     existing.jiraDeselected.length > 0
@@ -550,7 +596,7 @@ export function setCaseJiraDeselected(
   try {
     onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
   } catch {
-    onDisk = { ...existing, id: undefined, phase: undefined, actionItems: undefined }
+    onDisk = stripDerived(existing)
   }
   const jira = { ...((onDisk.jira as object) ?? {}), deselectedAttachmentIds: deselected }
   fs.writeFileSync(file, JSON.stringify({ ...onDisk, updatedAt: now, jira }, null, 2))
@@ -617,7 +663,7 @@ export function setCaseSyncState(
     onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
   } catch {
     // phase/actionItems are DERIVED — never stored (Finding 7, same as createCase's fix).
-    onDisk = { ...updated, id: undefined, phase: undefined, actionItems: undefined }
+    onDisk = stripDerived(updated)
   }
   fs.writeFileSync(
     file,
@@ -657,7 +703,7 @@ export function setReviewBaseline(
     onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
   } catch {
     // phase/actionItems are DERIVED — never stored (Finding 7, same as createCase's fix).
-    onDisk = { ...existing, id: undefined, phase: undefined, actionItems: undefined }
+    onDisk = stripDerived(existing)
   }
   fs.writeFileSync(file, JSON.stringify({ ...onDisk, reviewBaseline: baseline }, null, 2))
   return getCase(db, slug)!
@@ -707,7 +753,7 @@ export function setCaseStatus(
     // corrupt/unreadable case.json — rebuild from the DB record (same shape as
     // createCase: full record minus id) so other fields survive. phase/actionItems are
     // DERIVED — never stored (Finding 7, same as createCase's fix).
-    onDisk = { ...existing, id: undefined, phase: undefined, actionItems: undefined }
+    onDisk = stripDerived(existing)
   }
   fs.writeFileSync(
     file,
@@ -839,7 +885,7 @@ export function setCaseTriage(
     // corrupt/unreadable case.json — rebuild from the DB record (same shape as
     // createCase: full record minus id) so other fields survive. phase/actionItems are
     // DERIVED — never stored (Finding 7, same as createCase's fix).
-    onDisk = { ...existing, id: undefined, phase: undefined, actionItems: undefined }
+    onDisk = stripDerived(existing)
   }
   fs.writeFileSync(file, JSON.stringify({ ...onDisk, title, tags, updatedAt }, null, 2))
   return getCase(db, slug)!
@@ -891,7 +937,7 @@ export function pinCasePhase(
   } catch {
     // corrupt/unreadable case.json — rebuild from the DB record, same as setCaseStatus.
     // phase/actionItems are DERIVED — never stored (Finding 7).
-    onDisk = { ...existing, id: undefined, phase: undefined, actionItems: undefined }
+    onDisk = stripDerived(existing)
   }
   fs.writeFileSync(
     file,
@@ -945,7 +991,7 @@ export async function setCaseMode(
   } catch {
     // corrupt/unreadable case.json — rebuild from the DB record (same shape as
     // createCase: full record minus id) so other fields survive.
-    onDisk = { ...existing, id: undefined, phase: undefined, actionItems: undefined }
+    onDisk = stripDerived(existing)
   }
   fs.writeFileSync(file, JSON.stringify({ ...onDisk, activeMode: mode, updatedAt: now }, null, 2))
 
