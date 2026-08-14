@@ -25,6 +25,7 @@ import {
   FIELD
 } from './settingsLayout'
 import { SourceControl } from './SourceControl'
+import { RcaTemplateSettings } from './RcaTemplateSettings'
 import { Btn, Card, Chip, MenuButton } from '../ui'
 import { DEFAULT_WATERMARK_TEXT } from '../../../../shared/settings'
 
@@ -368,6 +369,9 @@ export function ConnectorsSettings(): React.JSX.Element {
               />
             </SettingRow>
           )}
+          {/* Outside the confluence-page branch above: the template drives BOTH reports and
+              must stay reachable whatever the tech destination is. */}
+          <RcaTemplateSettings template={rca.template} />
         </SettingsSection>
       )}
       {watermark && (
