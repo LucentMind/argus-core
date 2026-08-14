@@ -155,4 +155,19 @@ describe('handEditedReports', () => {
       tech: false
     })
   })
+
+  it('reports neither edited when reading a report artifact fails with a non-ENOENT error, rather than throwing', async () => {
+    // readReportMarkdown only swallows ENOENT; EISDIR (routine here — the exec report path
+    // now names a directory instead of a file) must also degrade to "not edited", never escape.
+    await confirmCase('case-a')
+    fs.rmSync(reportFile(home, 'case-a', 'exec'))
+    fs.mkdirSync(reportFile(home, 'case-a', 'exec'))
+    // Confirm the fixture actually produces a non-ENOENT error before relying on it.
+    expect(() => fs.readFileSync(reportFile(home, 'case-a', 'exec'), 'utf8')).toThrow(/EISDIR/)
+    expect(() => handEditedReports({ db, argusHome: home }, 'case-a')).not.toThrow()
+    expect(handEditedReports({ db, argusHome: home }, 'case-a')).toEqual({
+      exec: false,
+      tech: false
+    })
+  })
 })
