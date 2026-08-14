@@ -57,42 +57,47 @@ describe('review working set', () => {
   it('materializes the bound PR when it has a repoPath', async () => {
     bind(42, '/tmp/widget')
     const seen: number[] = []
-    await setCaseMode(db, home, 'c1', 'review', PROVIDER, {
+    // `materialized`, not the setCaseMode await: the checkout is deliberately off the switch's
+    // critical path now, so the switch resolving says nothing about it having run yet.
+    const { materialized } = await setCaseMode(db, home, 'c1', 'review', PROVIDER, {
       materialize: async (b) => {
         seen.push(b.number)
         return `/wt/widget-c1-pr${b.number}`
       }
     })
+    await materialized
     expect(seen).toEqual([42])
   })
 
   it('never materializes a binding with repoPath: null', async () => {
     bind(43, null)
     const seen: number[] = []
-    await setCaseMode(db, home, 'c1', 'review', PROVIDER, {
+    const { materialized } = await setCaseMode(db, home, 'c1', 'review', PROVIDER, {
       materialize: async (b) => {
         seen.push(b.number)
         return `/wt/widget-c1-pr${b.number}`
       }
     })
+    await materialized
     expect(seen).toEqual([])
   })
 
   it('does not materialize when switching to investigation', async () => {
     bind(42, '/tmp/widget')
     let called = false
-    await setCaseMode(db, home, 'c1', 'investigation', PROVIDER, {
+    const { materialized } = await setCaseMode(db, home, 'c1', 'investigation', PROVIDER, {
       materialize: async () => {
         called = true
         return null
       }
     })
+    await materialized
     expect(called).toBe(false)
   })
 
   it('a failing materializer does not block the mode switch', async () => {
     bind(42, '/tmp/widget')
-    const { sessionId } = await setCaseMode(db, home, 'c1', 'review', PROVIDER, {
+    const { sessionId, materialized } = await setCaseMode(db, home, 'c1', 'review', PROVIDER, {
       materialize: async () => {
         throw new Error('git exploded')
       }
@@ -101,13 +106,38 @@ describe('review working set', () => {
     expect(
       (db.prepare(`SELECT active_mode AS m FROM cases WHERE slug = 'c1'`).get() as { m: string }).m
     ).toBe('review')
+    // main chains a broadcast onto this, so it must resolve rather than reject.
+    await expect(materialized).resolves.toBeUndefined()
+  })
+
+  /**
+   * The latency half of the fix: entering review with a PR bound used to await
+   * `ensurePrWorktree`, whose `git ls-remote` probe alone measured ~1.5s before any fetch —
+   * which is why review took seconds and investigation was instant. A never-settling
+   * materializer stands in for that network work; the switch must complete regardless.
+   */
+  it('does not wait for the checkout before switching', async () => {
+    bind(42, '/tmp/widget')
+    const { sessionId } = await Promise.race([
+      setCaseMode(db, home, 'c1', 'review', PROVIDER, {
+        materialize: () => new Promise<string>(() => {})
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('setCaseMode awaited the checkout')), 2000)
+      )
+    ])
+    expect(sessionId).toBeGreaterThan(0)
+    expect(
+      (db.prepare(`SELECT active_mode AS m FROM cases WHERE slug = 'c1'`).get() as { m: string }).m
+    ).toBe('review')
   })
 
   it("writes the bound PR into the case's CLAUDE.md, with the worktree path when materialized", async () => {
     bind(42, '/tmp/widget')
-    await setCaseMode(db, home, 'c1', 'review', PROVIDER, {
+    const { materialized } = await setCaseMode(db, home, 'c1', 'review', PROVIDER, {
       materialize: async (b) => `/wt/widget-c1-pr${b.number}`
     })
+    await materialized
     const md = claudeMd()
     expect(md).toContain('acme/widget#42')
     expect(md).toContain('/wt/widget-c1-pr42')
@@ -115,9 +145,10 @@ describe('review working set', () => {
 
   it("writes the bound PR into CLAUDE.md without a worktree path when it isn't materialized", async () => {
     bind(43, null)
-    await setCaseMode(db, home, 'c1', 'review', PROVIDER, {
+    const { materialized } = await setCaseMode(db, home, 'c1', 'review', PROVIDER, {
       materialize: async (b) => `/wt/widget-c1-pr${b.number}`
     })
+    await materialized
     const md = claudeMd()
     // an unmaterialized binding is still listed — the agent falls back to `gh pr diff`
     expect(md).toContain('acme/widget#43')

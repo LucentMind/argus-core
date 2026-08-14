@@ -330,22 +330,12 @@ describe('CaseWorkspace bar merge', () => {
     expect(window.argus.sessions.list).not.toHaveBeenCalled()
   })
 
-  it('publishes review PR-search busy state for the bar to render', async () => {
-    renderWorkspace()
-    await screen.findByRole('main')
-    expect(caseBarStore.get().slug).toBe('NAV-1')
-    expect(caseBarStore.get().busyMode).toBeNull()
-  })
-
-  // Navigating home while a review PR search is running must not leave the bar store showing
-  // this case's busy state forever — reopening the case would render a spinner for a commit.
-  it('clears the bar store on unmount', async () => {
-    const view = renderWorkspace()
-    await screen.findByRole('main')
-    expect(caseBarStore.get().slug).toBe('NAV-1')
-    view.unmount()
-    expect(caseBarStore.get().slug).toBeNull()
-  })
+  // "publishes review PR-search busy state for the bar to render" and "clears the bar store on
+  // unmount" lived here. Both pinned `caseBarStore`'s state channel, which no longer exists —
+  // the PR search reports in the Pull request rail now (see 'says it is searching…' below), so
+  // there is no cross-subtree publish to make, and therefore nothing that can outlive an
+  // unmount and need clearing. The event channel this describe block otherwise covers is
+  // unchanged.
 })
 
 describe('CaseWorkspace composer prefill', () => {
@@ -744,8 +734,15 @@ describe('CaseWorkspace mode switching', () => {
     )
   })
 
+  /**
+   * Rewritten with the indicator's new home. This used to assert the `caseBarStore` publish
+   * that kept the bar's Review button spinning; the search now reports in the Pull request
+   * rail, so the assertion is on rendered output in the real composition rather than on a
+   * store hop. Rendered in review mode deliberately — that is the only mode in which
+   * `PrCompanionSection` renders at all, and it is the mode this search happens in.
+   */
   it('says it is searching while the PR search is in flight, instead of showing nothing', async () => {
-    renderWorkspace()
+    render(workspace('NAV-1', { activeMode: 'review' }))
     await screen.findByRole('main')
     stubTwoModeSessions()
     let resolve!: (v: unknown) => void
@@ -755,14 +752,13 @@ describe('CaseWorkspace mode switching', () => {
 
     caseBarStore.emit({ kind: 'mode-switched', slug: 'NAV-1', mode: 'review', sessionId: 7 })
 
-    // the busy state this publishes is what the bar's ModeSwitcher renders as aria-busy/title
-    // (see TopBar.test.tsx 'reads busy state back off the store') — CaseWorkspace's own
-    // contract is just the publish.
-    await waitFor(() => expect(caseBarStore.get().busyMode).toBe('review'))
-    expect(caseBarStore.get().statusText).toMatch(/searching .* pull requests/i)
+    const searching = await screen.findByText(/searching linked repos for pull requests/i)
+    // The empty state must not be up at the same time — it states the one thing the search is
+    // running to disprove.
+    expect(screen.queryByText(/no pull request bound to this case yet/i)).toBeNull()
 
     resolve({ candidates: [], error: null, searchedRepos: ['x/y'] })
-    await waitFor(() => expect(caseBarStore.get().busyMode).toBeNull())
+    await waitFor(() => expect(searching).not.toBeInTheDocument())
   })
 
   it('offers the PR picker after switching to review with nothing bound yet', async () => {
@@ -807,7 +803,7 @@ describe('CaseWorkspace mode switching', () => {
     ['a search error', { candidates: [], error: 'gh could not search that repo.' }],
     ['no matching PRs', { candidates: [], error: null }]
   ])('does not interrupt the review switch with an empty picker: %s', async (_label, result) => {
-    renderWorkspace()
+    render(workspace('NAV-1', { activeMode: 'review' }))
     await screen.findByRole('main')
     stubTwoModeSessions()
     ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
@@ -815,10 +811,14 @@ describe('CaseWorkspace mode switching', () => {
     )
 
     caseBarStore.emit({ kind: 'mode-switched', slug: 'NAV-1', mode: 'review', sessionId: 7 })
+    // The rail's searching row going away is the signal the whole chain finished (it is driven
+    // by the same `prSearching` flag the picker decision hangs off), so this cannot pass merely
+    // by asserting before the dialog would have rendered. It replaces the bar-store busy state
+    // that used to serve as that signal.
     await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('NAV-1'))
-    // the busy state clearing is the signal the whole chain finished, so this cannot pass
-    // merely by asserting before the dialog would have rendered
-    await waitFor(() => expect(caseBarStore.get().busyMode).toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByText(/searching linked repos for pull requests/i)).toBeNull()
+    )
     expect(screen.queryByRole('dialog', { name: 'Link pull request' })).toBeNull()
   })
 
