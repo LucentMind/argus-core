@@ -3,11 +3,12 @@ import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
 import { CaseFiles } from '../CaseFiles'
+import type { EvidencePhase } from '../../../../shared/evidenceProgress'
 
 type ProgressCb = (p: {
   slug: string
   evidenceId: number
-  phase: 'indexing' | 'extracting' | 'done' | 'error'
+  phase: EvidencePhase
   fraction: number
 }) => void
 
@@ -66,10 +67,29 @@ describe('CaseFiles per-row progress', () => {
   })
 
   it('leaves a persistent chip on an index error', async () => {
+    const evidence = (
+      window as unknown as {
+        argus: { evidence: { onChanged: (cb: (slug: string) => void) => () => void } }
+      }
+    ).argus.evidence
+    let emitChanged: ((slug: string) => void) | undefined
+    evidence.onChanged = vi.fn((cb: (slug: string) => void) => {
+      emitChanged = cb
+      return () => {}
+    })
+
     render(<CaseFiles caseSlug="P-1" mode="investigation" onOpenFile={vi.fn()} label="Evidence" />)
     await screen.findByText('trace.txt')
 
     act(() => emitProgress({ slug: 'P-1', evidenceId: 7, phase: 'error', fraction: 1 }))
+    expect(screen.getByText('index failed')).toBeInTheDocument()
+
+    // A reload triggered by an unrelated evidence:changed event (e.g. another file added)
+    // must not clear the error chip -- only the row itself disappearing should. A regression
+    // that reset the progress map on every reload would still pass the assertion above but
+    // fail this one.
+    act(() => emitChanged?.('P-1'))
+    await screen.findByText('trace.txt')
     expect(screen.getByText('index failed')).toBeInTheDocument()
   })
 
