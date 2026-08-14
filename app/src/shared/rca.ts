@@ -63,10 +63,10 @@ export interface RoleAssignment {
 }
 
 /** Per-report set of section ids to omit from a preview render. Keyed by report (`exec`/`tech`)
- *  rather than one shared list of ids: section ids collide across the two templates (`impact`
- *  and `root-cause` each exist in both the exec and tech reports), so a single shared set would
- *  strip a section from one report because the user dropped its same-named counterpart in the
- *  other. */
+ *  rather than one shared list of ids: the DEFAULT ids are globally unique (`exec-impact` vs
+ *  `tech-impact`), but a user template may still reuse an id across the two lists, and a single
+ *  shared set would then strip a section from one report because the user dropped its same-named
+ *  counterpart in the other. */
 export interface RcaDroppedSections {
   exec?: string[]
   tech?: string[]
