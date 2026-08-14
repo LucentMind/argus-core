@@ -15,6 +15,7 @@ import { confirm } from '../../lib/confirmStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type {
+  PostResults,
   RcaDraft,
   RcaDroppedSections,
   RcaJobRow,
@@ -152,11 +153,16 @@ function doneStatusPayload(
     template?: RcaTemplate
     dropped?: RcaDroppedSections
     confirmedAt?: string | null
+    postResults?: PostResults | null
   } = {}
 ): RcaStatusPayload {
   return {
     caseSlug: 'case-a',
-    job: job({ id: over.jobId ?? 1, confirmedAt: over.confirmedAt ?? null }),
+    job: job({
+      id: over.jobId ?? 1,
+      confirmedAt: over.confirmedAt ?? null,
+      postResults: over.postResults ?? null
+    }),
     draft: draft(),
     template: over.template ?? DEFAULT_RCA_TEMPLATE,
     dropped: over.dropped ?? {}
@@ -168,6 +174,7 @@ async function renderDonePanel(
     template?: RcaTemplate
     dropped?: RcaDroppedSections
     confirmedAt?: string | null
+    postResults?: PostResults | null
   } = {}
 ): Promise<void> {
   status.mockResolvedValue(doneStatusPayload(over))
@@ -875,5 +882,47 @@ describe('RcaPanel', () => {
 
     expect(await screen.findByText('exec freshly saved')).toBeInTheDocument()
     expect(screen.queryByText(/could not be read/i)).not.toBeInTheDocument()
+  })
+
+  describe('re-posting an already-posted comment', () => {
+    it('says a hand-edited exec report will not reach the already-posted Jira comment', async () => {
+      handEdited.mockResolvedValue({ exec: true, tech: false })
+      await renderDonePanel({
+        confirmedAt: '2026-08-14T00:00:00Z',
+        postResults: { comment: { ok: true, at: '2026-08-14T00:00:05Z' } }
+      })
+      await vi.waitFor(() =>
+        expect(screen.getByText(/will not reach the already-posted comment/i)).toBeTruthy()
+      )
+      // The general repost notice is still there too.
+      expect(screen.getByText(/will not re-send the jira comment/i)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /post to jira/i })).toBeEnabled()
+    })
+
+    it('says a repeat post will not re-send the comment, without claiming edits are at stake, when nothing is hand-edited', async () => {
+      handEdited.mockResolvedValue({ exec: false, tech: false })
+      await renderDonePanel({
+        confirmedAt: '2026-08-14T00:00:00Z',
+        postResults: { comment: { ok: true, at: '2026-08-14T00:00:05Z' } }
+      })
+      await vi.waitFor(() =>
+        expect(screen.getByText(/will not re-send the jira comment/i)).toBeTruthy()
+      )
+      expect(
+        screen.queryByText(/will not reach the already-posted comment/i)
+      ).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /post to jira/i })).toBeEnabled()
+    })
+
+    it('shows neither repost notice when nothing has posted yet', async () => {
+      handEdited.mockResolvedValue({ exec: true, tech: false })
+      await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+      await vi.waitFor(() => expect(screen.getByText(/edited/i)).toBeTruthy())
+      expect(screen.queryByText(/will not re-send the jira comment/i)).not.toBeInTheDocument()
+      expect(
+        screen.queryByText(/will not reach the already-posted comment/i)
+      ).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /post to jira/i })).toBeEnabled()
+    })
   })
 })
