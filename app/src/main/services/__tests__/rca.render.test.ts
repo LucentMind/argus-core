@@ -314,7 +314,7 @@ describe('template-driven rendering', () => {
     const templateBefore = structuredClone(DEFAULT_RCA_TEMPLATE)
     const out = renderTechReport(draft(), meta(), {
       template: DEFAULT_RCA_TEMPLATE,
-      dropped: new Set(['impact'])
+      dropped: new Set(['tech-impact'])
     })
     expect(out).not.toContain('## Impact')
     expect(out).toContain('## Root cause')
@@ -382,7 +382,7 @@ describe('template-driven rendering', () => {
   it('throws a clear error for a claims section with an unknown slot, instead of crashing later', () => {
     const t = clone(DEFAULT_RCA_TEMPLATE)
     t.tech[0] = {
-      id: 'root-cause',
+      id: 'tech-root-cause',
       heading: 'Root cause',
       kind: 'claims',
       slot: 'not-a-real-slot' as unknown as RcaSection['slot'],
@@ -391,6 +391,20 @@ describe('template-driven rendering', () => {
     expect(() => renderTechReport(draft(), meta(), { template: t })).toThrow(
       /unknown claim slot: not-a-real-slot/
     )
+  })
+})
+
+describe('narrative bodies resolve from the section id alone', () => {
+  it('exec Impact and tech Impact read different draft fields with no report-specific branch', () => {
+    // Both Impact sections placed in the SAME list: nothing but the id can tell them apart, so
+    // this fails if the exec/tech distinction lives in a renderer branch instead of in the ids.
+    const t = clone(DEFAULT_RCA_TEMPLATE)
+    const execImpact = t.exec.find((s) => s.heading === 'Impact')!
+    const techImpact = t.tech.find((s) => s.heading === 'Impact')!
+    t.exec = [execImpact, { ...techImpact, heading: 'Technical impact' }]
+    const out = renderExecReport(draft(), meta(), { template: t })
+    expect(out).toContain(draft().execSummary.impact)
+    expect(out).toContain(draft().impact)
   })
 })
 
@@ -421,10 +435,10 @@ describe('templateFromSnapshot', () => {
 })
 
 describe('per-report dropped sections (no cross-report collision)', () => {
-  it('dropping "impact" for one report leaves it present in the other', () => {
+  it('dropping the exec Impact leaves the tech Impact present', () => {
     // Mirrors what the rca:render-preview handler does: one resolved template, two
     // independently-scoped `dropped` sets built from `{ exec?: string[]; tech?: string[] }`.
-    const execOpts = { template: DEFAULT_RCA_TEMPLATE, dropped: new Set<string>(['impact']) }
+    const execOpts = { template: DEFAULT_RCA_TEMPLATE, dropped: new Set<string>(['exec-impact']) }
     const techOpts = { template: DEFAULT_RCA_TEMPLATE, dropped: new Set<string>() }
     const exec = renderExecReport(draft(), meta(), execOpts)
     const tech = renderTechReport(draft(), meta(), techOpts)
