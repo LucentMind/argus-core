@@ -964,8 +964,8 @@ export async function setCaseMode(
  * evidence map lookup joins evidence rows, so clean it BEFORE the cascade destroys
  * those rows) → cases row (FK cascade takes evidence/sessions/turns/tool_calls/
  * findings; their case_id columns are now indexed) → distill
- * tables (case_summaries, case_summaries_fts, distill_jobs — keyed by
- * case_slug, not case_id, so the cascade above doesn't touch them) → audit →
+ * tables (case_summaries, case_summaries_fts, distill_jobs) and rca_jobs — all keyed by
+ * case_slug, not case_id, so the cascade above doesn't touch them → audit →
  * case directory → dev-tools prompt capture directory (best-effort; a captured
  * systemAppend includes the persona, pack fragments and the agent-access-filtered
  * memory index, so a deleted case's prompt text must not survive it). Callers must
@@ -1000,6 +1000,7 @@ export function deleteCase(db: DatabaseSync, argusHome: string, slug: string): v
     db.prepare(`DELETE FROM case_summaries WHERE case_slug = ?`).run(slug)
     db.prepare(`DELETE FROM case_summaries_fts WHERE case_slug = ?`).run(slug)
     db.prepare(`DELETE FROM distill_jobs WHERE case_slug = ?`).run(slug)
+    db.prepare(`DELETE FROM rca_jobs WHERE case_slug = ?`).run(slug)
     db.exec('COMMIT')
   } catch (err) {
     db.exec('ROLLBACK')

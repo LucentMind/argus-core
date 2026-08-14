@@ -589,6 +589,15 @@ export function openDb(file: string): DatabaseSync {
   if (!caseCols.some((c) => c.name === 'review_state')) {
     db.exec(`ALTER TABLE cases ADD COLUMN review_state TEXT`)
   }
+  // `rca_jobs.case_slug` carries no FK (see the SCHEMA above), and `deleteCase` did not clean
+  // the table until this migration's sibling fix — so existing databases hold job rows, report
+  // bodies (`raw_output`) and template snapshots for slugs whose case and case directory are
+  // both long gone. Nothing can read them: every rca_jobs read is keyed by a slug the user has
+  // to open a live case to reach. Purged unconditionally rather than one-time-gated, matching
+  // the pr_bindings repair above — once deleteCase does its job this is a no-op on a table with
+  // at most a handful of rows per case. Deliberately NOT extended to repo_usage/routine_runs:
+  // those two document their surviving-the-case behaviour as intentional.
+  db.exec(`DELETE FROM rca_jobs WHERE case_slug NOT IN (SELECT slug FROM cases)`)
   // Populate the FTS map tables for DBs that already held FTS rows before the
   // side-table fix landed (one-time; gated on the maps being empty).
   backfillFtsMaps(db)

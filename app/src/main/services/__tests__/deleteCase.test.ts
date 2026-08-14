@@ -172,6 +172,29 @@ describe('deleteCase', () => {
     expect(searchCaseSummaries(db, 'sig')).toEqual([])
   })
 
+  it('cleans up rca_jobs so a confirmed report leaves nothing orphaned on a dead slug', () => {
+    // rca_jobs.case_slug is plain TEXT with no FK, so the cases cascade never touches it —
+    // and its rows carry the report body (raw_output/template_snapshot), which must not
+    // outlive the case any more than the capture directory below does.
+    createCase(db, argusHome, { slug: 'NAV-1', title: 'Bearing jumps' })
+    const now = new Date().toISOString()
+    db.prepare(
+      `INSERT INTO rca_jobs (case_slug, state, input_snapshot, raw_output, template_snapshot, dropped_sections, confirmed_at, created_at)
+       VALUES ('NAV-1', 'done', '{}', 'model output', '{}', '{}', ?, ?)`
+    ).run(now, now)
+
+    deleteCase(db, argusHome, 'NAV-1')
+
+    const orphans = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM rca_jobs WHERE case_slug NOT IN (SELECT slug FROM cases)`
+        )
+        .get() as { n: number }
+    ).n
+    expect(orphans).toBe(0)
+  })
+
   it('removes the case capture directory (.dev-prompts/<slug>) along with the case', () => {
     // Captured systemAppend includes the persona, pack fragments and the agent-access-filtered
     // memory index — a deleted case's prompt text must not survive it on disk.
