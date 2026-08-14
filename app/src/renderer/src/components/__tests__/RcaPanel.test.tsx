@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { RcaPanel } from '../RcaPanel'
@@ -812,5 +812,68 @@ describe('RcaPanel', () => {
     expect(screen.getByText(/could not be read/i)).toBeInTheDocument()
     expect(screen.getByText('edited')).toBeInTheDocument() // the chip, exact match
     expect(screen.getByText('exec preview')).toBeInTheDocument()
+  })
+
+  it('an in-flight readMarkdown for a hand-edited report does not show the could-not-be-read note; once it resolves, the on-disk text is shown', async () => {
+    // Regression for the "inferring failure from absence" finding: the old condition
+    // (`handEdited[tab] && !diskMarkdown?.[tab]`) is true from the instant `handEdited` flips
+    // true until `diskMarkdown` arrives, which includes this entire in-flight window — not just
+    // a real failure. A mock that resolves immediately can never expose that window, so this
+    // resolves the promise manually, under our control.
+    handEdited.mockResolvedValue({ exec: true, tech: false })
+    let resolveRead: ((md: { exec: string; tech: string }) => void) | null = null
+    readMarkdown.mockReset().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRead = resolve
+        })
+    )
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    await waitFor(() => expect(readMarkdown).toHaveBeenCalled())
+
+    // Still in flight: the edited chip is already lit (it only depends on `handEdited`), but the
+    // read has neither succeeded nor failed yet, so the note must not appear.
+    expect(screen.getByText('edited')).toBeInTheDocument()
+    expect(screen.queryByText(/could not be read/i)).not.toBeInTheDocument()
+    expect(screen.getByText('exec preview')).toBeInTheDocument()
+
+    await act(async () => {
+      resolveRead?.({ exec: '# exec on disk text', tech: '# tech on disk' })
+    })
+
+    expect(await screen.findByText('exec on disk text')).toBeInTheDocument()
+    expect(screen.queryByText(/could not be read/i)).not.toBeInTheDocument()
+  })
+
+  it('a hand-edited report whose on-disk content is legitimately an empty string is not reported as unreadable', async () => {
+    handEdited.mockResolvedValue({ exec: true, tech: false })
+    readMarkdown.mockReset().mockResolvedValue({ exec: '', tech: '# tech on disk' })
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    await waitFor(() => expect(readMarkdown).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByText('edited')).toBeInTheDocument())
+
+    expect(screen.queryByText(/could not be read/i)).not.toBeInTheDocument()
+  })
+
+  it('after a failed read, a subsequent successful read (e.g. after saving) clears the could-not-be-read note', async () => {
+    handEdited.mockReset().mockResolvedValueOnce({ exec: true, tech: false })
+    readMarkdown
+      .mockReset()
+      // 1) the disk-fallback effect's own read, on initial mount — fails
+      .mockRejectedValueOnce(new Error('disk read failed'))
+      // 2) openEditor()'s read, to populate the textarea — succeeds
+      .mockResolvedValueOnce({ exec: '# exec on disk (editor)', tech: '# tech on disk' })
+      // 3) the disk-fallback effect's re-run after the post-save handEdited() re-check — succeeds
+      .mockResolvedValueOnce({ exec: '# exec freshly saved', tech: '# tech on disk' })
+
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    expect(await screen.findByText(/could not be read/i)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    handEdited.mockResolvedValueOnce({ exec: true, tech: false })
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    expect(await screen.findByText('exec freshly saved')).toBeInTheDocument()
+    expect(screen.queryByText(/could not be read/i)).not.toBeInTheDocument()
   })
 })
