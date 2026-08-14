@@ -12,6 +12,7 @@ import { createDetection } from '../../packs/detection'
 import type { CreateQueryFn } from '../drivers/claude'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
+import { createImmediateQueue } from '../../ingestQueue'
 
 let tmp: string, argusHome: string, db: DatabaseSync, events: AgentEvent[]
 const detection = createDetection()
@@ -55,6 +56,7 @@ describe('AgentService — mode participates in the live-session rebuild decisio
     // session must force a rebuild or the new mode's persona/skills never take effect.
     const { createQuery, queues, optionsLog } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -94,6 +96,7 @@ describe('AgentService — mode participates in the live-session rebuild decisio
   it('does not rebuild when the pinned mode is unchanged', async () => {
     const { createQuery, queues, optionsLog } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -116,6 +119,7 @@ describe('AgentService — mode participates in the live-session rebuild decisio
   it('never tears down a mid-turn session even when the mode was re-pinned', async () => {
     const { createQuery, optionsLog } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,

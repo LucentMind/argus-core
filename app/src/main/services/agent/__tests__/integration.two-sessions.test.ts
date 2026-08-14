@@ -58,6 +58,7 @@ describe('two concurrent case sessions', () => {
       )
     }
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,

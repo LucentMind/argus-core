@@ -21,6 +21,7 @@ import type { AgentDriver, DriverKind, DriverSession } from '../driver'
 import { CLAUDE_TOOL_TAXONOMY } from '../risk'
 import { PERMISSION_MODES } from '../../../../shared/settings'
 import { clearCatalogCache } from '../drivers/claude/catalog'
+import { createImmediateQueue } from '../../ingestQueue'
 
 let tmp: string, argusHome: string, db: DatabaseSync, events: AgentEvent[]
 const detection = createDetection()
@@ -77,6 +78,7 @@ afterEach(() => {
 
 const mkService = (): AgentService =>
   new AgentService({
+    queue: createImmediateQueue(db, argusHome),
     db,
     argusHome,
     detection,
@@ -101,6 +103,7 @@ describe('AgentService', () => {
   it('runs two live sessions of the same case independently', async () => {
     const { createQuery } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -123,6 +126,7 @@ describe('AgentService', () => {
   it('liveOwnerKeys reports the single-colon owner format session.ts registers, not the internal :: map key', async () => {
     const { createQuery } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -143,6 +147,7 @@ describe('AgentService', () => {
   it('rejects a bad sessionId without reaping any live session', async () => {
     const { createQuery, queues } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -182,6 +187,7 @@ describe('AgentService', () => {
     const { createQuery, queues, optionsLog } = fakeCreateQuery()
     let servers: Record<string, unknown> = {}
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -216,6 +222,7 @@ describe('AgentService', () => {
     const { createQuery, queues, optionsLog } = fakeCreateQuery()
     const servers = { rovo: { type: 'sse', url: 'https://x/y' } }
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -240,6 +247,7 @@ describe('AgentService', () => {
     const { createQuery, optionsLog } = fakeCreateQuery()
     let servers: Record<string, unknown> = {}
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -262,6 +270,7 @@ describe('AgentService', () => {
   it('keeps concurrent sessions per case and routes events with the right caseSlug', async () => {
     const { createQuery } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -284,6 +293,7 @@ describe('AgentService', () => {
   it('reaps the least-recently-used idle session beyond maxSessions', async () => {
     const { createQuery, queues } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -321,6 +331,7 @@ describe('AgentService', () => {
   it('a reaped case restarts with its resume cursor', async () => {
     const { createQuery, queues } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -343,6 +354,7 @@ describe('AgentService', () => {
     await svc.stopAll()
     // new service instance = app restart
     const svc2 = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -388,6 +400,7 @@ describe('AgentService', () => {
     }
     let maxSessions = 1
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -451,6 +464,7 @@ describe('AgentService', () => {
       )
     }
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -489,6 +503,7 @@ describe('AgentService', () => {
   it('stopSession evicts one live session; stopAllForCase evicts only that case (prefix-safe)', async () => {
     const { createQuery } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -521,6 +536,7 @@ describe('AgentService', () => {
   it('deleting a live session does not let the write-behind mirror resurrect the .jsonl file', async () => {
     const { createQuery } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -574,6 +590,7 @@ describe('AgentService', () => {
     }
     let access = defaultAgentAccess()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -640,6 +657,7 @@ describe('AgentService', () => {
       })
       const { createQuery, queues, optionsLog } = fakeCreateQuery()
       const svc = new AgentService({
+        queue: createImmediateQueue(db, argusHome),
         db,
         argusHome,
         detection,
@@ -713,6 +731,7 @@ describe('AgentService driver resolution (Phase 3 checkpoint item 5)', () => {
     const calls: DriverKind[] = []
     let active: AgentDriver = stubDriver('claude-agent-sdk', calls)
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -738,6 +757,7 @@ describe('AgentService driver resolution (Phase 3 checkpoint item 5)', () => {
     const calls: DriverKind[] = []
     const fixed = stubDriver('claude-agent-sdk', calls)
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -758,6 +778,7 @@ describe('AgentService driver resolution (Phase 3 checkpoint item 5)', () => {
   it('a plain-value `deps.createQuery` (no `driver`) still resolves to the Claude driver, once, as before', async () => {
     const { createQuery } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -791,6 +812,7 @@ describe('AgentService — per-session provider and model', () => {
   it('uses the model pinned on the session, not the global default', async () => {
     const { createQuery, optionsLog } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -817,6 +839,7 @@ describe('AgentService — per-session provider and model', () => {
     // must tear down and rebuild or the chat keeps answering on the old model.
     const { createQuery, queues, optionsLog } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -857,6 +880,7 @@ describe('AgentService — per-session provider and model', () => {
   it('does not rebuild when the pinned model is unchanged', async () => {
     const { createQuery, queues, optionsLog } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -885,6 +909,7 @@ describe('AgentService — per-session provider and model', () => {
   it('never tears down a mid-turn session even when the model was re-pinned', async () => {
     const { createQuery, optionsLog } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -919,6 +944,7 @@ describe('AgentService — per-session provider and model', () => {
   it('falls back to settings for an unpinned (legacy) session', async () => {
     const { createQuery, optionsLog } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,

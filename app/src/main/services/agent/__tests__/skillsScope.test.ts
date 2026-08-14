@@ -14,6 +14,7 @@ import { sharedSkillsDir } from '../../skillsDir'
 import { caseDir } from '../../paths'
 import { materializeSessionSkills, ARGUS_SKILL_PLUGIN } from '../skillsResolver'
 import type { CreateQueryFn } from '../drivers/claude'
+import { createImmediateQueue } from '../../ingestQueue'
 
 /**
  * A linked code workspace is an investigation ARTIFACT, not configuration. The Claude CLI
@@ -59,6 +60,7 @@ afterEach(() => {
 
 const mkService = (access = defaultAgentAccess()): AgentService =>
   new AgentService({
+    queue: createImmediateQueue(db, home),
     db,
     argusHome: home,
     detection,

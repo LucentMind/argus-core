@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -32,6 +32,45 @@ describe('copyAndHash', () => {
     const { sha256, size } = await copyAndHash(src, dest)
     expect(size).toBe(0)
     expect(sha256).toBe(crypto.createHash('sha256').update(Buffer.alloc(0)).digest('hex'))
+  })
+
+  it("gives the destination the source's mode, as copyFileSync did", async () => {
+    const src = path.join(tmp, 'mode.bin')
+    const dest = path.join(tmp, 'mode-out.bin')
+    fs.writeFileSync(src, 'x')
+    // 0o600 is the one change Windows also honours (it clears the read-only bit's
+    // complement), so this assertion is meaningful on every platform.
+    fs.chmodSync(src, 0o600)
+
+    await copyAndHash(src, dest)
+
+    expect(fs.statSync(dest).mode).toBe(fs.statSync(src).mode)
+  })
+
+  it('leaves no truncated destination behind when the copy fails part-way', async () => {
+    const src = path.join(tmp, 'doomed.bin')
+    const dest = path.join(tmp, 'doomed-out.bin')
+    fs.writeFileSync(src, crypto.randomBytes(64 * 1024))
+
+    // Fail the first write to the destination: the file has been created by then, so
+    // without cleanup a truncated orphan survives with no evidence row pointing at it.
+    const realOpen = fs.promises.open
+    const spy = vi.spyOn(fs.promises, 'open').mockImplementation(async (p, ...rest) => {
+      const h = await realOpen(p as string, ...(rest as [string, number?]))
+      if (p === dest) {
+        h.write = async () => {
+          throw new Error('disk full')
+        }
+      }
+      return h
+    })
+    try {
+      await expect(copyAndHash(src, dest)).rejects.toThrow(/disk full/)
+    } finally {
+      spy.mockRestore()
+    }
+
+    expect(fs.existsSync(dest)).toBe(false)
   })
 
   it('yields to the event loop while copying', async () => {

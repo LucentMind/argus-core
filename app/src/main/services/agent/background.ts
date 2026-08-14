@@ -16,9 +16,9 @@ export interface BackgroundTurnDeps {
   db: DatabaseSync
   argusHome: string
   detection: Detection
-  /** Background index/extract queue, forwarded to the session; absent means
-   *  `createImmediateQueue` (see NativeToolDeps.queue). */
-  queue?: IngestQueueLike
+  /** Background index/extract queue, forwarded to the session. REQUIRED — see the
+   *  note on AgentServiceDeps.queue. */
+  queue: IngestQueueLike
   skillsRoots: string[]
   driver: AgentDriver
   /**

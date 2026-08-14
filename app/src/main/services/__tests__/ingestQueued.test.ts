@@ -5,11 +5,12 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
-import { ingestArtifact, ingestContent, deleteEvidence } from '../ingest'
+import { ingestArtifact, ingestContent, deleteEvidence, listEvidence } from '../ingest'
+import { extractDerivedText } from '../extraction'
 import { readIndexState } from '../indexState'
-import type { IngestJob, IngestQueueLike } from '../ingestQueue'
+import { IngestQueue, type IngestJob, type IngestQueueLike } from '../ingestQueue'
 import { createDetection } from '../packs/detection'
-import { samplePackRegistry } from '../packs/__tests__/fixtures'
+import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
 
 const detection = createDetection(samplePackRegistry())
 
@@ -56,7 +57,7 @@ describe('ingest enqueues instead of indexing inline', () => {
     expect(fs.existsSync(q.jobs[0].absPath)).toBe(true)
   })
 
-  it('marks a non-indexable artifact skipped and enqueues nothing', async () => {
+  it('marks a non-indexable artifact skipped but still enqueues it for extraction', async () => {
     const q = recordingQueue()
     const src = path.join(tmp, 'shot.png')
     fs.writeFileSync(src, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
@@ -64,7 +65,45 @@ describe('ingest enqueues instead of indexing inline', () => {
     const rec = await ingestArtifact(db, argusHome, detection, q, 'IQ-1', src)
 
     expect(readIndexState(rec.meta)).toBe('skipped')
-    expect(q.jobs).toHaveLength(0)
+    // Enqueued anyway, with index:false — phase 2 (extraction) is the whole point for
+    // a binary artifact. Gating the enqueue on indexability would silently kill it.
+    expect(q.jobs).toHaveLength(1)
+    expect(q.jobs[0]).toMatchObject({ evidenceId: rec.id, index: false })
+  })
+
+  it('a non-indexable artifact with a declared extractor still produces a derived record', async () => {
+    // End-to-end through the REAL queue: ingest a .binlog (isText === false, so nothing
+    // to index) whose pack declares an extract command, and assert derived text lands.
+    const extractors = stubExtractors('binlog')
+    const changed: string[] = []
+    const queue = new IngestQueue({
+      db,
+      argusHome,
+      extract: async (evidenceId) => {
+        const rec = listEvidence(db, 'IQ-1', 'all').find((e) => e.id === evidenceId)
+        if (!rec) return false
+        return (await extractDerivedText(db, argusHome, queue, rec, extractors)) !== null
+      },
+      onItemProgress: () => {},
+      onQueueProgress: () => {},
+      onEvidenceChanged: (s) => changed.push(s)
+    })
+
+    const src = path.join(tmp, 'trace.binlog')
+    fs.writeFileSync(src, 'ECU1 TunnelExit bearing jump detected\n')
+    const rec = await ingestArtifact(db, argusHome, detection, queue, 'IQ-1', src)
+    expect(readIndexState(rec.meta)).toBe('skipped')
+
+    await queue.idle()
+
+    const derived = listEvidence(db, 'IQ-1', 'all').filter((e) => e.meta.derivedFrom === rec.id)
+    expect(derived).toHaveLength(1)
+    expect(changed).toContain('IQ-1')
+    // the derived text IS indexable, so the queue indexed it in its own job
+    const n = db
+      .prepare(`SELECT count(*) AS n FROM evidence_fts WHERE evidence_id = ?`)
+      .get(derived[0].id) as { n: number }
+    expect(n.n).toBeGreaterThan(0)
   })
 
   it('ingestContent enqueues the written file with its real size', () => {

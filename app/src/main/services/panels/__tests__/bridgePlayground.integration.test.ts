@@ -17,6 +17,7 @@ import { defaultAgentAccess } from '../../../../shared/agentAccess'
 import { createPanelBridge, type PanelWriteSink } from '../bridge'
 import type { CreateQueryFn } from '../../agent/drivers/claude'
 import type { AgentEvent } from '../../../../shared/agent-events'
+import { createImmediateQueue } from '../../ingestQueue'
 
 // panels/__tests__ → up 5 = app/ (seededPacksDir → <repo>/packs).
 const packsSrc = seededPacksDir(path.resolve(__dirname, '../../../../..'))
@@ -67,6 +68,7 @@ describe('bridge playground — upstream verbs end to end', () => {
 
   it('executes sendToAgent, emitFinding (approve) and cite against a seeded case', async () => {
     const agent = new AgentService({
+      queue: createImmediateQueue(db, home),
       db,
       argusHome: home,
       detection,

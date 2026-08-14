@@ -1165,24 +1165,36 @@ function registerIpc(): void {
     // Sequential, not Promise.all: collisionFreeName probes the destination directory, so two
     // concurrent copies of same-named files could pick the same free name.
     const records: EvidenceRecord[] = []
-    for (const p of absPaths) {
-      records.push(
-        await ingestArtifact(
-          db,
-          argusHome,
-          detection,
-          ingestQueue,
-          caseSlug,
-          p,
-          'upload',
-          {},
-          kase.activeMode
+    // The suppression window is 1500ms and the watcher debounce 300ms. While the copy
+    // was synchronous the blocked event loop could not deliver a watcher event at all,
+    // so one window plus a trailing re-arm covered the whole drop. copyAndHash yields,
+    // so the window can now expire mid-drop and the debounce fire on the user's own
+    // writes. Re-arm per file AND on a timer, because the file this project exists for
+    // is a single multi-GB one whose copy alone outlives any fixed window.
+    const rearm = setInterval(() => caseWatch.suppress(caseSlug), 1000)
+    try {
+      for (const p of absPaths) {
+        caseWatch.suppress(caseSlug)
+        records.push(
+          await ingestArtifact(
+            db,
+            argusHome,
+            detection,
+            ingestQueue,
+            caseSlug,
+            p,
+            'upload',
+            {},
+            kase.activeMode
+          )
         )
-      )
+      }
+    } finally {
+      clearInterval(rearm)
+      // final re-arm: the last file's sidecar writes land after its copy returns
+      caseWatch.suppress(caseSlug)
     }
     // indexing + derived text are the queue's job now; it emits evidence:parsing itself
-    // re-arm after the copies: a multi-GB drop can outlive the first window
-    caseWatch.suppress(caseSlug)
     return records
   })
   ipcMain.handle(
