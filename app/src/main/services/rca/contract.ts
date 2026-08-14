@@ -1,5 +1,6 @@
 import type { CaseRcaInput } from '../../../shared/rca'
 import type { PromptTextSpecs } from '../../../shared/promptSpec'
+import type { RcaSection, RcaTemplate } from '../../../shared/rcaTemplate'
 
 /**
  * The system contract handed to the headless case-RCA drafter. Mirrors
@@ -22,6 +23,7 @@ interface RcaDraft {
   remediation: { immediate: string; followUps: string[] }
   execSummary: { whatBroke: string; impact: string; why: string; nextSteps: string }
   techNarrative: { heading: string; body: string; citations: {...same}[] }[]
+  sections: Record<string, { body: string; citations: {...same}[] }>
 }
 
 Rules:
@@ -31,7 +33,9 @@ Rules:
    in the statement and set findingId null — do not invent certainty.
 3. ruledOut entries must say WHY each hypothesis was ruled out.
 4. duplicates: list finding pairs that state the same fact; ofFindingId is the one kept.
-5. execSummary is for a non-technical reader: no file paths, no code, no finding ids.
+5. sections: return one entry for EVERY id listed under "Report sections" below — no more are
+   required, none may be omitted. Write each section's body to its own instruction. Cite
+   evidence with \`citations\` only where the instruction allows it.
 6. Citations point at evidence files (relPath from the evidence inventory) or repo paths
    exactly as they appear in findings — never invent paths.
 7. Respect prior human edits: if a "previously confirmed structure" section is present,
@@ -39,6 +43,10 @@ Rules:
 `.trim()
 
 export const RCA_SECTIONS: PromptTextSpecs = {
+  sections: {
+    title: 'RCA section — report sections to write',
+    text: '# Report sections (write one `sections` entry per id)'
+  },
   case: { title: 'RCA section — case metadata', text: '# Case' },
   ticket: { title: 'RCA section — Jira ticket', text: '# Jira ticket (as ingested)' },
   comments: { title: 'RCA section — Jira comments', text: '# Jira comments (as ingested)' },
@@ -64,7 +72,30 @@ export const RCA_SECTIONS: PromptTextSpecs = {
   }
 }
 
-export function buildCaseRcaPrompt(input: CaseRcaInput, resolve?: (id: string) => string): string {
+/** One brief per enabled narrative section, grouped by the report it belongs to. Claims
+ *  sections are omitted: they render fixed draft structure the model already produces under
+ *  its own keys, so briefing them would invite duplicate content. */
+function sectionBriefs(template: RcaTemplate): string {
+  const group = (label: string, sections: RcaSection[]): string => {
+    const rows = sections
+      .filter((s) => s.enabled && s.kind === 'narrative')
+      .map((s) => `- "${s.id}" — heading "${s.heading}"\n  ${s.instruction ?? ''}`)
+      .join('\n')
+    return rows ? `## ${label}\n${rows}` : ''
+  }
+  return [
+    group('Executive summary (a non-technical reader)', template.exec),
+    group('Technical report', template.tech)
+  ]
+    .filter((s) => s.length > 0)
+    .join('\n\n')
+}
+
+export function buildCaseRcaPrompt(
+  input: CaseRcaInput,
+  template: RcaTemplate,
+  resolve?: (id: string) => string
+): string {
   const sec = (k: string): string =>
     resolve ? resolve(`headless.case-rca.section.${k}`) : RCA_SECTIONS[k].text
   const m = input.caseMeta
@@ -76,6 +107,7 @@ export function buildCaseRcaPrompt(input: CaseRcaInput, resolve?: (id: string) =
     .join('\n\n')
   const parts = [
     resolve ? resolve('headless.case-rca.contract') : RCA_CONTRACT,
+    `${sec('sections')}\n${sectionBriefs(template)}`,
     `${sec('case')}\nslug: ${m.slug}\ntitle: ${m.title}\njira: ${m.jiraKey ?? '—'}\nresolution: ${m.resolution ?? '—'}\ntags: ${m.tags.join(', ') || '—'}\nopened: ${m.createdAt}`,
     `${sec('ticket')}\n${input.jiraTicketMarkdown ?? '(none)'}`,
     `${sec('comments')}\n${input.jiraCommentsMarkdown ?? '(none)'}`,

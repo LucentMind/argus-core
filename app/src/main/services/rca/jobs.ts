@@ -15,7 +15,7 @@ import { getCase } from '../caseService'
 import { applyReportRoles } from '../findings'
 import { artifactsDir } from '../paths'
 import { buildCaseRcaPrompt } from './contract'
-import { parseRcaOutput, validateRcaDraft, RcaParseError } from './parse'
+import { expectedSectionIds, parseRcaOutput, validateRcaDraft, RcaParseError } from './parse'
 import { renderExecReport, renderTechReport, templateFromSnapshot, toIdSet } from './render'
 import type { AppSettings } from '../../../shared/settings'
 
@@ -365,11 +365,15 @@ export class RcaJobs {
     }
     try {
       const input = JSON.parse(r.input_snapshot) as CaseRcaInput
-      const prompt = buildCaseRcaPrompt(input, this.deps.resolvePrompt)
+      // The job's OWN template, not live settings: a template edited between enqueue and run
+      // must not change what this job is asked for, or its output would fail validation
+      // against keys the model was never briefed on.
+      const template = templateFromSnapshot(r.template_snapshot)
+      const prompt = buildCaseRcaPrompt(input, template, this.deps.resolvePrompt)
       const raw = await this.deps.run(prompt)
-      // Validates; the draft itself is stored only as raw_output — statusFor parses it
-      // back out on read.
-      parseRcaOutput(raw)
+      // Validates, including that every briefed section came back; the draft itself is stored
+      // only as raw_output — statusFor parses it back out on read.
+      parseRcaOutput(raw, expectedSectionIds(template))
       finish(`state='done', raw_output=?`, raw)
     } catch (err) {
       if (err instanceof RcaParseError) {
