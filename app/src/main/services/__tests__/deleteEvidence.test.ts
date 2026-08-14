@@ -69,7 +69,7 @@ describe('deleteEvidence', () => {
     ])
   })
 
-  it('cascades to derived children and grandchildren', () => {
+  it('cascades to derived children and grandchildren', async () => {
     const parent = ingestContent(
       db,
       argusHome,
@@ -83,7 +83,7 @@ describe('deleteEvidence', () => {
     const derivedDir = path.join(evDir('NAV-1'), '.derived')
     fs.mkdirSync(derivedDir, { recursive: true })
     fs.writeFileSync(path.join(derivedDir, 'trace.extracted.txt'), 'derived text\n')
-    const child = ingestDerived(
+    const child = await ingestDerived(
       db,
       argusHome,
       createImmediateQueue(db, argusHome),
@@ -92,7 +92,7 @@ describe('deleteEvidence', () => {
       parent.id
     )
     fs.writeFileSync(path.join(derivedDir, 'trace.summary.txt'), 'summary\n')
-    const grandchild = ingestDerived(
+    const grandchild = await ingestDerived(
       db,
       argusHome,
       createImmediateQueue(db, argusHome),
@@ -116,7 +116,7 @@ describe('deleteEvidence', () => {
     expect(ftsCount(grandchild.id)).toBe(0)
   })
 
-  it('deleting a derived child leaves the parent alone', () => {
+  it('deleting a derived child leaves the parent alone', async () => {
     const parent = ingestContent(
       db,
       argusHome,
@@ -130,7 +130,7 @@ describe('deleteEvidence', () => {
     const derivedDir = path.join(evDir('NAV-1'), '.derived')
     fs.mkdirSync(derivedDir, { recursive: true })
     fs.writeFileSync(path.join(derivedDir, 'trace.extracted.txt'), 'derived\n')
-    const child = ingestDerived(
+    const child = await ingestDerived(
       db,
       argusHome,
       createImmediateQueue(db, argusHome),

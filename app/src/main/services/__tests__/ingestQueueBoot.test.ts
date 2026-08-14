@@ -68,4 +68,36 @@ describe('requeuePendingIndexes', () => {
     )
     expect(meta.indexState).toBe('error')
   })
+
+  // 'error' is otherwise a terminal sink: nothing transitions a row out of it, the
+  // pending predicate does not match it, and rescanModified only fires when the file's
+  // sha256 CHANGES. A transiently absent file (unmounted share, external drive, sync
+  // client mid-restore) would therefore be permanently unsearchable after one unlucky
+  // restart. Boot is the natural place to reconsider.
+  it('re-enqueues an errored row whose file has reappeared', () => {
+    const id = insert('evidence/back.txt', 'error')
+    const q = recordingQueue()
+
+    expect(requeuePendingIndexes(db, argusHome, q)).toBe(1)
+    expect(q.jobs.map((j) => j.evidenceId)).toEqual([id])
+    expect(q.jobs[0].index).toBe(true)
+    const meta = JSON.parse(
+      (db.prepare(`SELECT meta FROM evidence WHERE id = ?`).get(id) as { meta: string }).meta
+    )
+    // Back in the lifecycle, so countPendingIndex sees it and the bar has a denominator.
+    expect(meta.indexState).toBe('pending')
+  })
+
+  it('leaves an errored row alone while its file is still missing', () => {
+    const id = insert('evidence/still-gone.txt', 'error')
+    fs.rmSync(path.join(caseDir(argusHome, 'B-1'), 'evidence', 'still-gone.txt'))
+    const q = recordingQueue()
+
+    expect(requeuePendingIndexes(db, argusHome, q)).toBe(0)
+    expect(q.jobs).toHaveLength(0)
+    const meta = JSON.parse(
+      (db.prepare(`SELECT meta FROM evidence WHERE id = ?`).get(id) as { meta: string }).meta
+    )
+    expect(meta.indexState).toBe('error')
+  })
 })
