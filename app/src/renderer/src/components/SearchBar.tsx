@@ -84,6 +84,7 @@ function HitItem({
 export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
   const [q, setQ] = useState('')
   const [hits, setHits] = useState<UnifiedHit[]>([])
+  const [pendingIndexCount, setPendingIndexCount] = useState(0)
   const [searched, setSearched] = useState(false)
 
   async function run(e: React.FormEvent): Promise<void> {
@@ -100,7 +101,9 @@ export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
     const filters: SearchFilters = caseSlug
       ? { ...base, caseSlug }
       : { ...base, sources: ['evidence', 'chat', 'summaries'] }
-    setHits(await window.argus.search.query(q, filters))
+    const res = await window.argus.search.query(q, filters)
+    setHits(res.hits)
+    setPendingIndexCount(res.pendingIndexCount)
     setSearched(true)
   }
 
@@ -142,6 +145,12 @@ export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
           </ul>
         ))}
       {searched && hits.length === 0 && <p className="text-xs text-mute">No matches.</p>}
+      {pendingIndexCount > 0 && (
+        <p className="px-2 py-1 text-xs text-mute">
+          {pendingIndexCount} file{pendingIndexCount === 1 ? '' : 's'} still indexing — results may
+          be incomplete
+        </p>
+      )}
     </div>
   )
 }
