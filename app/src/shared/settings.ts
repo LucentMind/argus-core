@@ -127,9 +127,15 @@ const rcaSectionSchema = z
   })
   .superRefine((s, ctx) => {
     if (s.kind === 'claims' && !s.slot)
-      ctx.addIssue({ code: 'custom', message: `RCA section "${s.id}" is claims-kind but has no slot` })
+      ctx.addIssue({
+        code: 'custom',
+        message: `RCA section "${s.id}" is claims-kind but has no slot`
+      })
     if (s.kind === 'narrative' && s.slot)
-      ctx.addIssue({ code: 'custom', message: `RCA section "${s.id}" is narrative-kind but has a slot` })
+      ctx.addIssue({
+        code: 'custom',
+        message: `RCA section "${s.id}" is narrative-kind but has a slot`
+      })
     if (s.kind === 'narrative' && !s.instruction?.trim())
       ctx.addIssue({
         code: 'custom',
