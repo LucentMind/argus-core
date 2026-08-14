@@ -171,3 +171,34 @@ describe('caseRcaPromptHash covers the template', () => {
     expect(caseRcaPromptHash(undefined, t)).toBe(before)
   })
 })
+
+describe('the exec report stays non-technical regardless of section instructions', () => {
+  // Rule 5 used to carry this globally ("execSummary is for a non-technical reader: no file
+  // paths, no code, no finding ids"). Increment 2 replaced rule 5 with the sections contract and
+  // left the constraint living only inside the five SHIPPED exec instructions — so a
+  // user-added exec section had nothing stopping the model, which has just read every finding
+  // path and id, from writing them into what posts to Jira as a customer-facing comment.
+  it('states the prohibition globally, not only inside the default instructions', () => {
+    const t = structuredClone(DEFAULT_RCA_TEMPLATE)
+    // Every shipped exec instruction loses its own prohibition: only a global rule can save it.
+    for (const s of t.exec) s.instruction = 'Say something.'
+    const p = buildCaseRcaPrompt(minimalInput(), t)
+    expect(p).toMatch(/no file paths/i)
+    expect(p).toMatch(/finding ids/i)
+  })
+
+  it('binds the rule to the exec report and overrides a section instruction that conflicts', () => {
+    const t = structuredClone(DEFAULT_RCA_TEMPLATE)
+    t.exec.push({
+      id: 'exec-comms',
+      heading: 'What we told customers',
+      kind: 'narrative',
+      enabled: true,
+      instruction: 'Summarise what we told customers.'
+    })
+    const p = buildCaseRcaPrompt(minimalInput(), t)
+    const rule = p.match(/^.*executive summary.*$/gim)?.join('\n') ?? ''
+    expect(rule).toMatch(/no file paths/i)
+    expect(rule).toMatch(/overrides?/i)
+  })
+})

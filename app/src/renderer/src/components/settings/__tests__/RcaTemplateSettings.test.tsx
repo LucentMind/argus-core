@@ -156,3 +156,54 @@ describe('RcaTemplateSettings', () => {
     expect(patch).toHaveBeenCalledWith({ rca: { template: DEFAULT_RCA_TEMPLATE } })
   })
 })
+
+describe('edits compose from the latest local state, not the last round-tripped prop', () => {
+  // `settingsStore.patch` is async with no optimistic update: the `template` prop only refreshes
+  // after main has round-tripped and written settings.json. Composing every payload from that
+  // stale prop means a second edit within the IPC window silently reverts the first, and
+  // `deepMerge` replaces arrays wholesale so the later stale write wins on disk.
+  it('mints a distinct id when Add is clicked twice before the prop updates', async () => {
+    renderWith()
+    const add = screen.getByRole('button', { name: /add a section to the technical report/i })
+    await userEvent.click(add)
+    await userEvent.click(add)
+    expect(patch).toHaveBeenCalledTimes(2)
+    const second = patch.mock.calls[1][0] as { rca: { template: RcaTemplate } }
+    const tech = second.rca.template.tech
+    expect(tech).toHaveLength(DEFAULT_RCA_TEMPLATE.tech.length + 2)
+    expect(new Set(tech.map((s) => s.id)).size).toBe(tech.length)
+  })
+
+  it('keeps a rename when a second control is touched before the prop updates', async () => {
+    renderWith()
+    const field = screen.getByLabelText('Heading for What happened in the executive summary')
+    await userEvent.clear(field)
+    await userEvent.type(field, 'Summary')
+    await userEvent.tab()
+    await userEvent.click(screen.getByLabelText('Enable Impact in the executive summary'))
+    const last = patch.mock.calls.at(-1)![0] as { rca: { template: RcaTemplate } }
+    const exec = last.rca.template.exec
+    expect(exec.find((s) => s.id === 'exec-what-happened')?.heading).toBe('Summary')
+    expect(exec.find((s) => s.id === 'exec-impact')?.enabled).toBe(false)
+  })
+})
+
+describe('Reset to defaults repaints the fields', () => {
+  it('shows the default heading after a reset, and blurring does not restore the old value', async () => {
+    const t = structuredClone(DEFAULT_RCA_TEMPLATE)
+    t.exec[0].heading = 'Changed heading'
+    renderWith(t)
+    await userEvent.click(screen.getByRole('button', { name: /reset to defaults/i }))
+    // The row must now READ as the default; an uncontrolled input would still show the old text.
+    const field = screen.getByLabelText('Heading for What happened in the executive summary')
+    expect((field as HTMLInputElement).value).toBe('What happened')
+    // ...and focusing/blurring it must not patch the discarded value back in.
+    patch.mockReset()
+    await userEvent.click(field)
+    await userEvent.tab()
+    for (const call of patch.mock.calls) {
+      const sent = call[0] as { rca: { template: RcaTemplate } }
+      expect(sent.rca.template.exec[0].heading).not.toBe('Changed heading')
+    }
+  })
+})

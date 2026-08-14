@@ -171,6 +171,21 @@ const rcaSchema = z.looseObject({
             message: `RCA section "${s.id}" is claims-kind and cannot go in the exec report, which never shows citations, finding ids, or file paths`
           })
       }
+      // Ids are one flat namespace across BOTH lists: the model returns a single `sections`
+      // record keyed by id and `narrativeBody` resolves from the id alone, so a duplicate makes
+      // one body serve both reports — which, since tech instructions invite evidence paths, puts
+      // technical prose in the non-technical exec comment. The UI cannot mint a duplicate, but
+      // settings.json is hand-editable and this schema is the documented enforcement point.
+      const seen = new Set<string>()
+      for (const s of [...t.exec, ...t.tech]) {
+        if (seen.has(s.id))
+          ctx.addIssue({
+            code: 'custom',
+            path: ['tech'],
+            message: `RCA section id "${s.id}" is used twice; ids must be unique across both reports because the model returns one flat sections map keyed by id`
+          })
+        seen.add(s.id)
+      }
     })
     .default(() => structuredClone(DEFAULT_RCA_TEMPLATE) as RcaTemplate)
 })
