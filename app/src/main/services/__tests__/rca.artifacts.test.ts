@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -9,6 +9,10 @@ let home: string
 
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
+})
+
+afterEach(() => {
+  fs.rmSync(home, { recursive: true, force: true })
 })
 
 function seed(slug: string, exec: string, tech: string): void {
