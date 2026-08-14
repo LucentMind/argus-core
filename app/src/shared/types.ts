@@ -237,6 +237,13 @@ export interface SearchFilters {
   evidenceScope?: EvidenceScope
 }
 
+/** A search plus the honesty signal: how many of the searched case's files are
+ *  not yet fully indexed, and so could still contain unseen matches. */
+export interface SearchResult {
+  hits: SearchHit[]
+  pendingIndexCount: number
+}
+
 export interface SearchHit {
   evidenceId: number
   caseSlug: string
@@ -271,6 +278,14 @@ export interface SummaryHit {
 }
 
 export type UnifiedHit = EvidenceHit | ChatHit | SummaryHit
+
+/** `search:query` IPC response: the merged hits plus how many of the case's evidence
+ *  files are still being indexed (see SearchResult). Zero when the query didn't
+ *  include 'evidence' in its sources, since only evidence has a background index. */
+export interface UnifiedSearchResult {
+  hits: UnifiedHit[]
+  pendingIndexCount: number
+}
 
 export interface ChatSearchHit {
   sessionId: number

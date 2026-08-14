@@ -18,7 +18,7 @@ const hit: EvidenceHit = {
 
 beforeEach(() => {
   window.argus = {
-    search: { query: vi.fn().mockResolvedValue([hit]) },
+    search: { query: vi.fn().mockResolvedValue({ hits: [hit], pendingIndexCount: 0 }) },
     cases: { create: vi.fn(), list: vi.fn() },
     evidence: { ingest: vi.fn(), list: vi.fn(), read: vi.fn() },
     pathForFile: vi.fn()
@@ -83,7 +83,10 @@ describe('SearchBar', () => {
       role: 'assistant',
       snippet: '«braking» dropout'
     }
-    window.argus.search.query = vi.fn(async () => [hit, chatHit]) as never
+    window.argus.search.query = vi.fn(async () => ({
+      hits: [hit, chatHit],
+      pendingIndexCount: 0
+    })) as never
     const onOpen = vi.fn()
     render(<SearchBar caseSlug={null} onOpen={onOpen} />)
     fireEvent.change(screen.getByPlaceholderText('Search evidence & chats…'), {
@@ -110,7 +113,10 @@ describe('SearchBar', () => {
       resolution: 'solved',
       snippet: '«braking» sensor intermittent'
     }
-    window.argus.search.query = vi.fn(async () => [summaryHit]) as never
+    window.argus.search.query = vi.fn(async () => ({
+      hits: [summaryHit],
+      pendingIndexCount: 0
+    })) as never
     const onOpen = vi.fn()
     render(<SearchBar caseSlug={null} onOpen={onOpen} />)
     fireEvent.change(screen.getByPlaceholderText('Search evidence & chats…'), {
@@ -129,22 +135,46 @@ describe('SearchBar', () => {
   })
 
   it('chat hits without a title fall back to the session id', async () => {
-    window.argus.search.query = vi.fn(async () => [
-      {
-        kind: 'chat',
-        caseSlug: 'NAV-2',
-        sessionId: 9,
-        sessionTitle: '',
-        turnId: null,
-        role: 'user',
-        snippet: 's'
-      }
-    ]) as never
+    window.argus.search.query = vi.fn(async () => ({
+      hits: [
+        {
+          kind: 'chat',
+          caseSlug: 'NAV-2',
+          sessionId: 9,
+          sessionTitle: '',
+          turnId: null,
+          role: 'user',
+          snippet: 's'
+        }
+      ],
+      pendingIndexCount: 0
+    })) as never
     render(<SearchBar caseSlug={null} onOpen={vi.fn()} />)
     fireEvent.change(screen.getByPlaceholderText('Search evidence & chats…'), {
       target: { value: 'x' }
     })
     fireEvent.submit(screen.getByRole('search'))
     expect(await screen.findByText(/session 9/)).toBeTruthy()
+  })
+
+  it('shows a pending-index note when files in the case are still indexing', async () => {
+    window.argus.search.query = vi.fn().mockResolvedValue({ hits: [hit], pendingIndexCount: 2 })
+    render(<SearchBar caseSlug="NAVAPI-1" onOpen={vi.fn()} />)
+    fireEvent.change(screen.getByPlaceholderText('Search evidence…'), {
+      target: { value: 'TileStore' }
+    })
+    fireEvent.submit(screen.getByRole('search'))
+    expect(await screen.findByText(/2 files still indexing/)).toBeTruthy()
+  })
+
+  it('shows no pending-index note once every file has finished indexing', async () => {
+    window.argus.search.query = vi.fn().mockResolvedValue({ hits: [hit], pendingIndexCount: 0 })
+    render(<SearchBar caseSlug="NAVAPI-1" onOpen={vi.fn()} />)
+    fireEvent.change(screen.getByPlaceholderText('Search evidence…'), {
+      target: { value: 'TileStore' }
+    })
+    fireEvent.submit(screen.getByRole('search'))
+    await waitFor(() => expect(screen.getByText(/evidence\/log\.txt/)).toBeTruthy())
+    expect(screen.queryByText(/still indexing/)).toBeNull()
   })
 })

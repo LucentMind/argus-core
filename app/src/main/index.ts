@@ -154,7 +154,7 @@ import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './serv
 import { createCaseWatchHub } from './services/caseWatch'
 import { createProposalsWatch } from './services/proposalsWatch'
 import { scanEvidence } from './services/scan'
-import { searchEvidence, readEvidenceText, readEvidenceSnippet } from './services/search'
+import { searchEvidenceWithStatus, readEvidenceText, readEvidenceSnippet } from './services/search'
 import { openTextDoc, readTextDocLines } from './services/textdoc'
 import { TextDocSearchHub, type TextDocSearchOpts } from './services/textdocSearch'
 import type { TextDocSource } from '../shared/textdoc'
@@ -280,7 +280,8 @@ import {
   type EvidenceRecord,
   type NewCaseInput,
   type SearchFilters,
-  type UnifiedHit
+  type UnifiedHit,
+  type UnifiedSearchResult
 } from '../shared/types'
 import { globalMetrics, caseMetrics } from './services/observability/metrics'
 import { LangfuseExporter } from './services/observability/langfuse'
@@ -1271,18 +1272,24 @@ function registerIpc(): void {
       mode
     )
   })
-  ipcMain.handle(IPC.searchQuery, (_e, q: string, filters?: SearchFilters) => {
+  ipcMain.handle(IPC.searchQuery, (_e, q: string, filters?: SearchFilters): UnifiedSearchResult => {
     const f = filters ?? {}
     const sources = f.sources ?? ['evidence']
     const hits: UnifiedHit[] = []
-    if (sources.includes('evidence'))
-      hits.push(...searchEvidence(db, q, f).map((h) => ({ kind: 'evidence' as const, ...h })))
+    // pendingIndexCount only ever comes from the evidence backend — chat/summary search
+    // have no background index — so it stays 0 when 'evidence' wasn't asked for.
+    let pendingIndexCount = 0
+    if (sources.includes('evidence')) {
+      const evidence = searchEvidenceWithStatus(db, q, f)
+      hits.push(...evidence.hits.map((h) => ({ kind: 'evidence' as const, ...h })))
+      pendingIndexCount = evidence.pendingIndexCount
+    }
     if (sources.includes('chat')) hits.push(...searchAllMessages(db, q, f.caseSlug))
     if (sources.includes('summaries'))
       hits.push(
         ...searchCaseSummaries(db, q, { limit: 5 }).map((h) => ({ kind: 'summary' as const, ...h }))
       )
-    return hits
+    return { hits, pendingIndexCount }
   })
   ipcMain.handle(IPC.chatSearch, (_e, caseSlug: string, q: string) =>
     searchMessages(db, caseSlug, q)
