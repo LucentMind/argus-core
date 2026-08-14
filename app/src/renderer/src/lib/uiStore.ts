@@ -22,6 +22,13 @@ function resolveTheme(pref: ThemePreference): Theme {
   return pref === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : pref
 }
 
+import {
+  isCaseSortField,
+  isSortDirection,
+  type CaseSortField,
+  type SortDirection
+} from './caseSort'
+
 export type RailPanelId = 'jira' | 'repos' | 'pr' | 'related'
 
 const RAIL_PANEL_IDS: readonly RailPanelId[] = ['jira', 'repos', 'pr', 'related']
@@ -40,6 +47,10 @@ export interface UiState {
   railCollapsed: Record<RailPanelId, boolean>
   findingsWidth: number
   evidenceWidth: number
+  /** Case-grid ordering. A workspace preference like the pane widths, not case data, so it is
+   *  global rather than per-case and persists across restarts. */
+  caseSort: CaseSortField
+  caseSortDirection: SortDirection
   /** Recently opened cases shown as top-bar tabs. Intentionally not persisted — resets on app restart. */
   recentTabs: string[]
   /** Last-viewed chat session per case, keyed by slug. Intentionally not persisted — resets on app restart. */
@@ -55,7 +66,9 @@ const KEYS = {
   evidenceCollapsed: 'argus.ui.evidenceCollapsed',
   railCollapsed: 'argus.ui.railCollapsed',
   findingsWidth: 'argus.ui.findingsWidth',
-  evidenceWidth: 'argus.ui.evidenceWidth'
+  evidenceWidth: 'argus.ui.evidenceWidth',
+  caseSort: 'argus.ui.caseSort',
+  caseSortDirection: 'argus.ui.caseSortDirection'
 } as const
 
 export const FINDINGS_MIN_WIDTH = 240
@@ -104,7 +117,13 @@ function readPersisted(): Omit<UiState, 'recentTabs' | 'activeSessions'> {
   const width = Number(localStorage.getItem(KEYS.findingsWidth))
   const evidenceWidth = Number(localStorage.getItem(KEYS.evidenceWidth))
   const scale = Number(localStorage.getItem(KEYS.uiScale))
+  // Validated rather than cast: an unknown value (hand-edited storage, a key left by a future
+  // build) must read as the default, or the dashboard renders an ordering nothing implements.
+  const caseSort = localStorage.getItem(KEYS.caseSort)
+  const caseSortDirection = localStorage.getItem(KEYS.caseSortDirection)
   return {
+    caseSort: isCaseSortField(caseSort) ? caseSort : 'triage',
+    caseSortDirection: isSortDirection(caseSortDirection) ? caseSortDirection : 'desc',
     themePreference,
     theme: resolveTheme(themePreference),
     uiScale: (UI_SCALES as readonly number[]).includes(scale)
@@ -311,6 +330,14 @@ export class UiStore {
     const clamped = Math.min(EVIDENCE_MAX_WIDTH, Math.max(EVIDENCE_MIN_WIDTH, Math.round(width)))
     this.set({ evidenceWidth: clamped })
     localStorage.setItem(KEYS.evidenceWidth, String(clamped))
+  }
+
+  /** Not broadcast to other windows, for the same reason the pane widths are not: only the
+   *  main window renders the case grid. */
+  setCaseSort(field: CaseSortField, direction: SortDirection): void {
+    this.set({ caseSort: field, caseSortDirection: direction })
+    localStorage.setItem(KEYS.caseSort, field)
+    localStorage.setItem(KEYS.caseSortDirection, direction)
   }
 
   openTab(slug: string): void {

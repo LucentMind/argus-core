@@ -31,7 +31,8 @@ function rec(mut?: (c: CaseRecord) => void): CaseRecord {
     tags: [],
     createdAt: '2026-07-01T00:00:00Z',
     updatedAt: '2026-07-08T00:00:00Z',
-    actionItems: attention
+    actionItems: attention,
+    lastWorkedAt: null
   }
   mut?.(c)
   return c

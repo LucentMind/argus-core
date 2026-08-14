@@ -45,6 +45,7 @@ function mkCase(overrides: Partial<CaseRecord> = {}): CaseRecord {
     // date here makes that string wander with the calendar (`29d ago` today, `30d ago` tomorrow).
     updatedAt: daysAgo(2),
     actionItems: [],
+    lastWorkedAt: null,
     ...overrides
   }
 }
