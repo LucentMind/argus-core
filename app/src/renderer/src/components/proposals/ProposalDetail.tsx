@@ -207,7 +207,9 @@ export function ProposalDetail({
       </div>
       {rejecting && (
         <div className="flex flex-wrap items-center gap-2 border-t border-hair px-5 py-3">
-          <span className="text-xs text-mute">Why? (labels the distill-eval corpus)</span>
+          <span className="text-xs text-mute">
+            Why? Pick a reason to reject (labels the distill-eval corpus)
+          </span>
           {REJECT_REASON_TAGS.map((tag: RejectReasonTag) => (
             <button
               key={tag}
@@ -223,19 +225,36 @@ export function ProposalDetail({
           ))}
           <input
             aria-label="Reject note"
-            placeholder="optional note"
+            placeholder="or write your own reason"
             value={rejectNote}
             onChange={(e) => setRejectNote(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !busy && rejectNote.trim()) {
+                e.preventDefault()
+                onReject({ tag: 'other', note: rejectNote.trim() })
+              }
+            }}
             className="min-w-40 rounded-r2 border border-hair bg-transparent px-2 py-0.5 text-xs text-ink"
           />
-          <Btn
-            variant="ghost"
-            aria-label="Reject without a reason"
-            disabled={busy}
-            onClick={() => onReject(undefined)}
-          >
-            Skip reason
-          </Btn>
+          {rejectNote.trim() ? (
+            <Btn
+              variant="dangerSolid"
+              aria-label="Reject with this note"
+              disabled={busy}
+              onClick={() => onReject({ tag: 'other', note: rejectNote.trim() })}
+            >
+              Reject
+            </Btn>
+          ) : (
+            <Btn
+              variant="ghost"
+              aria-label="Reject without a reason"
+              disabled={busy}
+              onClick={() => onReject(undefined)}
+            >
+              Skip reason
+            </Btn>
+          )}
         </div>
       )}
       <div className="flex items-center gap-2 border-t border-hair px-5 py-3">
