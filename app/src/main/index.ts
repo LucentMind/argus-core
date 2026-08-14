@@ -292,9 +292,14 @@ import { RcaJobs } from './services/rca/jobs'
 import { postRcaReport } from './services/rca/post'
 import { assembleRcaInput } from './services/rca/input'
 import { caseRcaPromptHash } from './services/rca/promptHash'
-import { renderExecReport, renderTechReport, templateFromSnapshot } from './services/rca/render'
+import {
+  renderExecReport,
+  renderTechReport,
+  templateFromSnapshot,
+  toIdSet
+} from './services/rca/render'
 import { validateRcaDraft } from './services/rca/parse'
-import type { RoleAssignment, RcaDraft, CaseRcaInput } from '../shared/rca'
+import type { RoleAssignment, RcaDraft, CaseRcaInput, RcaDroppedSections } from '../shared/rca'
 import { draftAsset, improveAsset } from './services/authoring/service'
 import type { AuthoringRequest, AuthoringResult } from '../shared/authoringIpc'
 import { EditorWindowService } from './services/editorWindow'
@@ -2693,7 +2698,7 @@ function registerIpc(): void {
   // same-named counterpart in the other.
   ipcMain.handle(
     IPC.rcaRenderPreview,
-    (_e, slug: string, edited: RcaDraft, dropped?: { exec?: string[]; tech?: string[] }) => {
+    (_e, slug: string, edited: RcaDraft, dropped?: RcaDroppedSections) => {
       const validated = validateRcaDraft(edited)
       const kase = getCase(db, slug)
       if (!kase) throw new Error(`Unknown case: ${slug}`)
@@ -2711,8 +2716,8 @@ function registerIpc(): void {
         )
         .get(slug) as { template_snapshot: string | null } | undefined
       const template = templateFromSnapshot(row?.template_snapshot)
-      const execOpts = { template, dropped: new Set(dropped?.exec ?? []) }
-      const techOpts = { template, dropped: new Set(dropped?.tech ?? []) }
+      const execOpts = { template, dropped: toIdSet(dropped?.exec) }
+      const techOpts = { template, dropped: toIdSet(dropped?.tech) }
       return {
         exec: renderExecReport(validated, meta, execOpts),
         tech: renderTechReport(validated, meta, techOpts)

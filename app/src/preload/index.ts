@@ -141,7 +141,8 @@ import type {
   RcaStatusPayload,
   RoleAssignment,
   RcaDraft,
-  PostResults
+  PostResults,
+  RcaDroppedSections
 } from '../shared/rca'
 import type { SnippetResult, RepoSnippetResult, RepoTextResult } from '../shared/snippets'
 import type { ModeId } from '../shared/modes'
@@ -409,7 +410,7 @@ const argus = {
     renderPreview: (
       slug: string,
       edited: RcaDraft,
-      dropped?: { exec?: string[]; tech?: string[] }
+      dropped?: RcaDroppedSections
     ): Promise<{ exec: string; tech: string }> =>
       invoke(IPC.rcaRenderPreview, slug, edited, dropped),
     onRcaChanged: (cb: (p: RcaStatusPayload) => void): (() => void) => {
