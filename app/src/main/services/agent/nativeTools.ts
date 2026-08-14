@@ -13,6 +13,7 @@ import {
   type CaseStatus
 } from '../../../shared/types'
 import { searchEvidenceWithStatus } from '../search'
+import { countFailedIndex } from '../indexState'
 import { searchCaseSummaries } from '../distill/summaries'
 import { ingestArtifact, listEvidence } from '../ingest'
 import { createImmediateQueue, type IngestQueueLike } from '../ingestQueue'
@@ -362,20 +363,43 @@ export function argusToolHandlers(
       // list_evidence does. Read at call time, not construction time, so a deps object
       // built without a real sessions row (a driver test double) doesn't pay for it here.
       const caseFilter = args.scope === 'all' ? undefined : caseSlug
+      const scopeAll = caseFilter === undefined
       const res = searchEvidenceWithStatus(db, String(args.query ?? ''), {
         caseSlug: caseFilter,
         artifactType: args.artifact_type as never,
         evidenceScope: sessionMode(db, deps.sessionId)
       })
+      // Contract: the return value is JSON (the hits array) optionally followed by one
+      // blank line and one or more advisory notes in plain prose — never folded into the
+      // JSON itself. Callers that need only the hits should split on the first blank line.
       let out = JSON.stringify(res.hits.slice(0, 25), null, 2)
+      const notes: string[] = []
       // Background indexing means these results can be incomplete. This note must survive
       // even on zero hits — "no matches" over a half-built index is the exact false
-      // negative that leads an agent to conclude a term is absent when it isn't.
+      // negative that leads an agent to conclude a term is absent when it isn't. countPendingIndex
+      // was asked with the same case/all-cases scope as the search itself, so the wording below
+      // must track that scope too — telling the model "in this case" while having actually
+      // counted every case would be a note that states a false fact.
       if (res.pendingIndexCount > 0) {
-        out +=
-          `\n\nNote: ${res.pendingIndexCount} file(s) in this case are still being indexed. ` +
-          `These results may be incomplete — re-run this search later before concluding a term is absent.`
+        const scope = scopeAll ? 'across all cases are' : 'in this case are'
+        notes.push(
+          `Note: ${res.pendingIndexCount} file(s) ${scope} still being indexed. ` +
+            `These results may be incomplete — re-run this search later before concluding a term is absent.`
+        )
       }
+      // A distinct, permanent failure mode: 'error' rows will never gain FTS rows, so no
+      // amount of re-running the search recovers them (unlike 'pending'/'indexing', which
+      // resolve on their own). Kept as its own count/note rather than folded into
+      // pendingIndexCount, whose "will resolve if you wait" meaning other callers rely on.
+      const failedCount = countFailedIndex(db, caseFilter ?? null)
+      if (failedCount > 0) {
+        const scope = scopeAll ? 'across all cases' : 'in this case'
+        notes.push(
+          `Note: ${failedCount} file(s) ${scope} failed to index and will never appear in ` +
+            `these results. Re-running this search will not help — the file needs re-ingesting.`
+        )
+      }
+      if (notes.length > 0) out += '\n\n' + notes.join('\n\n')
       return out
     },
 
