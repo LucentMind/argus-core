@@ -28,14 +28,14 @@ function makeFile(name: string, lines: number): { abs: string; size: number } {
   return { abs, size: fs.statSync(abs).size }
 }
 
-function insertEvidence(relPath: string, size: number): number {
+function insertEvidence(relPath: string, size: number, state = 'pending'): number {
   const caseId = (db.prepare(`SELECT id FROM cases WHERE slug = 'Q-1'`).get() as { id: number }).id
   const res = db
     .prepare(
       `INSERT INTO evidence (case_id, rel_path, sha256, artifact_type, size, origin, meta, created_at)
-       VALUES (?, ?, 'abc', 'text', ?, 'upload', '{"indexState":"pending"}', '2026-08-14T00:00:00.000Z')`
+       VALUES (?, ?, 'abc', 'text', ?, 'upload', ?, '2026-08-14T00:00:00.000Z')`
     )
-    .run(caseId, relPath, size)
+    .run(caseId, relPath, size, JSON.stringify({ indexState: state }))
   return Number(res.lastInsertRowid)
 }
 
@@ -100,7 +100,7 @@ describe('IngestQueue', () => {
     const id = insertEvidence('evidence/a.txt', size)
     const { queue } = harness()
 
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: abs, size })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: abs, size, index: true })
     await queue.idle()
 
     const n = db
@@ -111,6 +111,28 @@ describe('IngestQueue', () => {
       (db.prepare(`SELECT meta FROM evidence WHERE id = ?`).get(id) as { meta: string }).meta
     )
     expect(readIndexState(meta)).toBe('indexed')
+  })
+
+  // A binary artifact has nothing to index, but extraction is exactly what it was
+  // enqueued for — the queue must not treat index:false as "nothing to do".
+  it('skips indexing for an index:false job and goes straight to extraction', async () => {
+    const { abs, size } = makeFile('binary.bin', 100)
+    const id = insertEvidence('evidence/binary.bin', size, 'skipped')
+    const extracted: number[] = []
+    const { queue, items } = harness({
+      extract: async (i) => {
+        extracted.push(i)
+        return false
+      }
+    })
+
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: abs, size, index: false })
+    await queue.idle()
+
+    expect(extracted).toEqual([id]) // phase 2 ran
+    expect(countFts(id)).toBe(0) // phase 1 did not
+    expect(indexStateOf(id)).toBe('skipped') // and the row was never re-stated
+    expect(items.map((e) => e.phase)).toEqual(['extracting', 'done'])
   })
 
   it('runs jobs strictly one at a time', async () => {
@@ -130,8 +152,8 @@ describe('IngestQueue', () => {
       }
     })
 
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idA, absPath: a.abs, size: a.size })
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idA, absPath: a.abs, size: a.size, index: true })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size, index: true })
     await queue.idle()
     expect(maxConcurrent).toBe(1)
   })
@@ -141,7 +163,7 @@ describe('IngestQueue', () => {
     const id = insertEvidence('evidence/phases.txt', size)
     const { queue, items } = harness()
 
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: abs, size })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: abs, size, index: true })
     await queue.idle()
 
     const phases = items.map((e) => e.phase)
@@ -158,8 +180,8 @@ describe('IngestQueue', () => {
     const idB = insertEvidence('evidence/agg2.txt', b.size)
     const { queue, queues } = harness()
 
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idA, absPath: a.abs, size: a.size })
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idA, absPath: a.abs, size: a.size, index: true })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size, index: true })
     await queue.idle()
 
     expect(queues.some((q) => q.filesTotal === 2)).toBe(true)
@@ -201,7 +223,7 @@ describe('IngestQueue', () => {
       }
     })
 
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: big, size })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: big, size, index: true })
     await queue.idle()
 
     expect(rowsWhenAborted).toBeGreaterThan(0) // a partial index really existed
@@ -229,7 +251,7 @@ describe('IngestQueue', () => {
       }
     })
 
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: abs, size })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: abs, size, index: true })
     await queue.idle()
 
     expect(fullProgress).toBeGreaterThanOrEqual(2) // the abort really did land late
@@ -257,8 +279,8 @@ describe('IngestQueue', () => {
       }
     })
 
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idA, absPath: a.abs, size: a.size })
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idA, absPath: a.abs, size: a.size, index: true })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size, index: true })
     await entered.promise // A is parked in extract, so B is genuinely still queued
     queue.abort(idB)
     g.open()
@@ -270,7 +292,7 @@ describe('IngestQueue', () => {
 
     // The flag is consumed by the job it belonged to, so it does not leak into a
     // later enqueue of the same evidence id.
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size, index: true })
     await queue.idle()
     expect(countFts(idB)).toBeGreaterThan(0)
   })
@@ -279,7 +301,7 @@ describe('IngestQueue', () => {
     // There is a tick where drain() has already returned but the reaction that
     // clears the running latch has not run yet. A job enqueued exactly then sees
     // a truthy latch, starts no drain, and is stranded forever while idle()
-    // still resolves. A real ingest loop (`await copy(f); queue.enqueue(...)`)
+    // still resolves. A real ingest loop (`await copy(f); queue.enqueue(..., index: true)`)
     // lands in that gap.
     //
     // Which microtask it is depends on how many awaits the queue's own job path
@@ -307,13 +329,19 @@ describe('IngestQueue', () => {
         }
       })
 
-      queue.enqueue({ caseSlug: 'Q-1', evidenceId: idA, absPath: a.abs, size: a.size })
+      queue.enqueue({ caseSlug: 'Q-1', evidenceId: idA, absPath: a.abs, size: a.size, index: true })
       await entered.promise
 
       let chain: Promise<void> = g.promise
       for (let i = 0; i < depth; i++) chain = chain.then(() => {})
       const late = chain.then(() =>
-        queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size })
+        queue.enqueue({
+          caseSlug: 'Q-1',
+          evidenceId: idB,
+          absPath: b.abs,
+          size: b.size,
+          index: true
+        })
       )
       g.open()
       await late
@@ -333,7 +361,7 @@ describe('IngestQueue', () => {
     const { queue, items } = harness()
 
     queue.abort(id)
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: abs, size })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: abs, size, index: true })
     await queue.idle()
 
     expect(countFts(id)).toBe(0)
@@ -341,7 +369,7 @@ describe('IngestQueue', () => {
     expect(items.some((e) => e.evidenceId === id)).toBe(false)
 
     // ...and the flag does not outlive the drain that consumed it.
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: abs, size })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: abs, size, index: true })
     await queue.idle()
     expect(countFts(id)).toBeGreaterThan(0)
   })
@@ -353,8 +381,14 @@ describe('IngestQueue', () => {
     const idGood = insertEvidence('evidence/good.txt', good.size)
     const { queue, items } = harness()
 
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idBad, absPath: missing, size: 10 })
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idGood, absPath: good.abs, size: good.size })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idBad, absPath: missing, size: 10, index: true })
+    queue.enqueue({
+      caseSlug: 'Q-1',
+      evidenceId: idGood,
+      absPath: good.abs,
+      size: good.size,
+      index: true
+    })
     await queue.idle()
 
     const badMeta = JSON.parse(
@@ -376,8 +410,8 @@ describe('IngestQueue', () => {
     const idB = insertEvidence('evidence/d2.txt', b.size)
     const { queue, changed } = harness({ extract: async (id) => id === idA })
 
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idA, absPath: a.abs, size: a.size })
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idA, absPath: a.abs, size: a.size, index: true })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size, index: true })
     await queue.idle()
 
     expect(changed.filter((s) => s === 'Q-1').length).toBe(1)
@@ -402,7 +436,7 @@ describe('IngestQueue', () => {
       onEvidenceChanged: () => {},
       now: () => 0 // clock never advances: only unthrottleable events get through
     })
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: big, size })
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: big, size, index: true })
     await queue.idle()
 
     // phase changes and terminals only — no per-chunk flood

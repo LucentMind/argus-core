@@ -12,6 +12,7 @@ import { createDetection } from '../../packs/detection'
 import type { CreateQueryFn } from '../drivers/claude'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
+import { createImmediateQueue } from '../../ingestQueue'
 
 let tmp: string, argusHome: string, db: DatabaseSync, events: AgentEvent[]
 const detection = createDetection()
@@ -61,6 +62,7 @@ describe('AgentService — run options and permission mode participate in the li
   it('rebuilds a live idle session when its run_options change', async () => {
     const { createQuery, queues, optionsLog } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -94,6 +96,7 @@ describe('AgentService — run options and permission mode participate in the li
   it('rebuilds a live idle session when its permission_mode changes', async () => {
     const { createQuery, queues, optionsLog } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,
@@ -126,6 +129,7 @@ describe('AgentService — run options and permission mode participate in the li
   it('does not rebuild — and returns the SAME cached instance — when nothing changed', async () => {
     const { createQuery, queues, optionsLog } = fakeCreateQuery()
     const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
       db,
       argusHome,
       detection,

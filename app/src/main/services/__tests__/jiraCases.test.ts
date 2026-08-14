@@ -7,9 +7,10 @@ import { openDb } from '../db'
 import { caseDir } from '../paths'
 import { listEvidence } from '../ingest'
 import { createDetection } from '../packs/detection'
-import { samplePackRegistry } from '../packs/__tests__/fixtures'
+import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
 import { createImmediateQueue, type IngestJob } from '../ingestQueue'
 import { readIndexState } from '../indexState'
+import { extractDerivedText } from '../extraction'
 import { JiraCases, type AtlassianClientLike } from '../jiraCases'
 import { createCase, getCase, setCaseJiraDeselected } from '../caseService'
 import { deriveActionItems } from '../../../shared/triage'
@@ -25,6 +26,8 @@ import { Zip } from 'zip-lib'
 let tmp: string, argusHome: string, db: DatabaseSync
 let progress: JiraAttachmentProgress[]
 let changed: string[]
+/** Extraction promises the fake queue kicked off, so `settle()` can wait for them. */
+let extractions: Array<Promise<unknown>>
 const detection = createDetection(samplePackRegistry())
 
 const att = (id: string, filename: string): JiraIssuePreview['attachments'][number] => ({
@@ -97,9 +100,11 @@ function service(
   onEnqueue?: (job: IngestJob) => void,
   limitsOverride?: Partial<import('../archiveExtract').ArchiveLimits>
 ): JiraCases {
-  // Indexes inline (so FTS assertions below hold) while recording what was handed over —
+  // Stands in for the real IngestQueue: indexes inline when the job says to (so the FTS
+  // assertions below hold), then runs extraction for EVERY job — indexable or not.
   // JiraCases' contract is now "enqueue it", not "index and extract it".
   const immediate = createImmediateQueue(db, argusHome)
+  const extractors = stubExtractors('binlog')
   return new JiraCases({
     db,
     argusHome,
@@ -110,6 +115,8 @@ function service(
       enqueue: (job) => {
         immediate.enqueue(job)
         onEnqueue?.(job)
+        const rec = listEvidence(db, job.caseSlug, 'all').find((e) => e.id === job.evidenceId)
+        if (rec) extractions.push(extractDerivedText(db, argusHome, immediate, rec, extractors))
       },
       abort: (id) => immediate.abort(id)
     },
@@ -125,6 +132,7 @@ beforeEach(() => {
   db = openDb(path.join(argusHome, 'argus.db'))
   progress = []
   changed = []
+  extractions = []
 })
 
 afterEach(() => {
@@ -260,8 +268,11 @@ describe('JiraCases.ingestAttachments', () => {
     expect(client.downloadAttachment).toHaveBeenCalledTimes(1)
   })
 
-  // extraction is fire-and-forget: flush pending microtasks/timers before asserting
-  const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
+  // extraction is fire-and-forget: drain what the queue kicked off, then flush timers
+  const settle = async (): Promise<void> => {
+    await Promise.allSettled(extractions)
+    await new Promise((r) => setTimeout(r, 0))
+  }
 
   // Indexing + extraction (and the progress they report) moved behind IngestQueue; what
   // JiraCases still owns is handing every downloaded attachment to that queue.
@@ -281,7 +292,10 @@ describe('JiraCases.ingestAttachments', () => {
     expect(fs.existsSync(forAttachment[0].absPath)).toBe(true)
   })
 
-  it('enqueues nothing for a non-indexable attachment but still ingests it', async () => {
+  // A non-indexable attachment must STILL be enqueued: extraction is what a binary
+  // artifact is enqueued for. Gating the enqueue on indexability kills derived text for
+  // exactly the files pack extractors exist to handle.
+  it('enqueues a non-indexable attachment so it still gets extracted', async () => {
     const jobs: IngestJob[] = []
     const svc = service(
       fakeClient(() => issue()),
@@ -289,13 +303,22 @@ describe('JiraCases.ingestAttachments', () => {
     )
     await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
     const before = jobs.length
-    // .binlog is a binary pack type: nothing to index, so no job — the row is born 'skipped'.
     const [done] = await svc.ingestAttachments('NAV-7', [att('10004', 'trace.binlog')])
     await settle()
+
     expect(done.status).toBe('done')
-    expect(jobs.slice(before)).toHaveLength(0)
-    const rec = listEvidence(db, 'NAV-7').find((e) => e.id === done.evidenceId)!
-    expect(readIndexState(rec.meta)).toBe('skipped')
+    const rec = listEvidence(db, 'NAV-7', 'all').find((e) => e.id === done.evidenceId)!
+    expect(readIndexState(rec.meta)).toBe('skipped') // nothing to index...
+
+    const forAttachment = jobs.slice(before)
+    expect(forAttachment).toHaveLength(1) // ...but it was handed to the queue anyway
+    expect(forAttachment[0]).toMatchObject({ evidenceId: done.evidenceId, index: false })
+
+    // and phase 2 actually ran: a derived-text row exists for it
+    const derived = listEvidence(db, 'NAV-7', 'all').filter(
+      (e) => e.meta.derivedFrom === done.evidenceId
+    )
+    expect(derived).toHaveLength(1)
   })
 
   it('sanitizes hostile filenames into the evidence dir', async () => {

@@ -136,7 +136,9 @@ function registerEvidenceRow(
   fs.mkdirSync(metaDir, { recursive: true })
   fs.writeFileSync(path.join(metaDir, `${destName}.json`), JSON.stringify(record, null, 2))
 
-  if (indexable) queue.enqueue({ caseSlug, evidenceId: id, absPath: destPath, size })
+  // Enqueued unconditionally: a non-indexable row still needs phase 2, and extraction
+  // is precisely what binary artifacts are enqueued for (see IngestJob.index).
+  queue.enqueue({ caseSlug, evidenceId: id, absPath: destPath, size, index: indexable })
   return record
 }
 
@@ -181,7 +183,14 @@ export async function ingestArtifact(
   )
 }
 
-/** Ingest in-memory content (e.g. a fetched Jira ticket) as an evidence file. */
+/**
+ * Ingest in-memory content (e.g. a fetched Jira ticket) as an evidence file.
+ *
+ * @internal `knownSha256` — not part of the public shape. It exists only so
+ * `ingestBytes` can hand over the digest it already computed for dedupe. External
+ * callers must omit it; passing a digest that does not match `content` writes a
+ * wrong hash to the row.
+ */
 export function ingestContent(
   db: DatabaseSync,
   argusHome: string,
@@ -309,7 +318,7 @@ export function updateEvidenceContent(
   ).run(sha256, artifactType, size, JSON.stringify(meta), evidenceId)
   // the old index describes bytes that no longer exist; drop it before the re-index
   deleteEvidenceIndex(db, evidenceId)
-  if (indexable) queue.enqueue({ caseSlug: row.case_slug, evidenceId, absPath, size })
+  queue.enqueue({ caseSlug: row.case_slug, evidenceId, absPath, size, index: indexable })
 
   const updated: EvidenceRecord = { ...rec, sha256, artifactType, size, meta }
   const sidecarAbs = path.join(
@@ -359,7 +368,7 @@ export function ingestDerived(
     )
     .run(kase.id, relPath, sha256, size, JSON.stringify(meta), now)
   const id = Number(res.lastInsertRowid)
-  queue.enqueue({ caseSlug, evidenceId: id, absPath, size })
+  queue.enqueue({ caseSlug, evidenceId: id, absPath, size, index: true })
 
   const record: EvidenceRecord = {
     id,

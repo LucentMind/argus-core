@@ -9,6 +9,13 @@ const CHUNK_BYTES = 1024 * 1024
  * Replaces `fs.copyFileSync` + `sha256File`, which between them read the file
  * twice and blocked the main-process event loop for the whole duration — the
  * first half of the freeze this change exists to remove.
+ *
+ * Matches `copyFileSync`'s observable contract on the two points that are easy to
+ * lose when hand-rolling the loop: the destination inherits the source's mode
+ * rather than the process default, and a failure part-way through leaves no file
+ * behind. Without the second guarantee a mid-copy error would strand a truncated
+ * destination that has no evidence row and nothing to clean it up — and a later
+ * ingest of the same name would then collision-rename around the corpse.
  */
 export async function copyAndHash(
   srcPath: string,
@@ -17,7 +24,9 @@ export async function copyAndHash(
   const hash = crypto.createHash('sha256')
   const src = await fs.promises.open(srcPath, 'r')
   try {
-    const dest = await fs.promises.open(destPath, 'w')
+    const mode = (await src.stat()).mode
+    const dest = await fs.promises.open(destPath, 'w', mode)
+    let ok = false
     try {
       const buf = Buffer.alloc(CHUNK_BYTES)
       let size = 0
@@ -29,9 +38,16 @@ export async function copyAndHash(
         await dest.write(slice, 0, bytesRead, size)
         size += bytesRead
       }
+      // An existing destination opened with 'w' keeps its old mode, and umask can
+      // clear bits off the mode passed to open(); chmod after the fact is what
+      // actually makes the copy match the source, as copyFileSync does.
+      await dest.chmod(mode)
+      ok = true
       return { sha256: hash.digest('hex'), size }
     } finally {
       await dest.close()
+      // Close first: on Windows an open handle makes the unlink fail.
+      if (!ok) await fs.promises.rm(destPath, { force: true })
     }
   } finally {
     await src.close()

@@ -23,6 +23,7 @@ import { listRoutineRuns } from '../runs'
 import { agentAccessSchema, defaultAgentAccess } from '../../../../shared/agentAccess'
 import type { AgentDriver, DriverSessionContext } from '../../agent/driver'
 import type { RoutineTurnRequest } from '../service'
+import { createImmediateQueue } from '../../ingestQueue'
 
 /**
  * The production binding of `RoutinesService.runTurn`.
@@ -93,6 +94,7 @@ function runnerDeps(
     db,
     argusHome,
     detection: createDetection(),
+    queue: createImmediateQueue(db, argusHome),
     skillsRoots: [],
     driverFor: () => driver,
     agentAccess: () => defaultAgentAccess(),
