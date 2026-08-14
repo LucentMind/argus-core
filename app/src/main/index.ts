@@ -1181,7 +1181,9 @@ function registerIpc(): void {
       // final re-arm: the last file's sidecar writes land after its copy returns
       caseWatch.suppress(caseSlug)
     }
-    // indexing + derived text are the queue's job now; it emits evidence:parsing itself
+    // indexing + derived text are the queue's job now; progress reaches the renderer via the
+    // ingest queue's own onItemProgress/onQueueProgress broadcasts (IPC.evidenceProgress /
+    // IPC.evidenceQueueProgress), not through this handler
     return records
   })
   ipcMain.handle(
