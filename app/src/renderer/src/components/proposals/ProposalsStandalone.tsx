@@ -82,10 +82,20 @@ export function ProposalsStandalone({
 
   // Same comparator as the old ProposalsPage: caseSlug asc, then date desc (spec:
   // "sorted as today"). Newest proposal within a case leads the queue.
+  //
+  // The `file` tiebreak is what keeps a row STILL when it is accepted. One distill run stages its
+  // proposals in a synchronous loop, so several of them routinely carry the identical
+  // `new Date().toISOString()` stamp; with caseSlug+date alone the comparator returns 0 for those
+  // and the stable sort falls back to array order — where every pending row precedes every
+  // accepted one (see `entries` below). Accepting therefore threw the row to the bottom of its
+  // tie group. `file` is unique and unchanged by accept, so the row now holds its slot.
   const byCase = (
-    a: { caseSlug: string; date: string },
-    b: { caseSlug: string; date: string }
-  ): number => a.caseSlug.localeCompare(b.caseSlug) || b.date.localeCompare(a.date)
+    a: { caseSlug: string; date: string; file: string },
+    b: { caseSlug: string; date: string; file: string }
+  ): number =>
+    a.caseSlug.localeCompare(b.caseSlug) ||
+    b.date.localeCompare(a.date) ||
+    a.file.localeCompare(b.file)
 
   const pendingSorted = (payload?.proposals ?? []).filter((p) => matches(p.type)).sort(byCase)
   // A same-day re-distill can regenerate the identical proposals/ filename after accept
