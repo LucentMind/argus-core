@@ -9,6 +9,7 @@ import { artifactsDir } from '../paths'
 import { reportFile } from '../rca/artifacts'
 import { handEditedReports } from '../rca/handEdited'
 import { RcaJobs, type RcaJobsDeps } from '../rca/jobs'
+import { expectedSectionIds } from '../rca/parse'
 import type { CaseRcaInput, RcaDraft, RcaDroppedSections } from '../../../shared/rca'
 import { DEFAULT_RCA_TEMPLATE, type RcaTemplate } from '../../../shared/rcaTemplate'
 import type { AppSettings } from '../../../shared/settings'
@@ -48,7 +49,20 @@ function validDraft(): RcaDraft {
       why: 'the cache key omitted the tenant id',
       nextSteps: 'add tenant id to the cache key'
     },
-    techNarrative: []
+    techNarrative: [],
+    sections: {}
+  }
+}
+
+/** `validDraft()` carrying a body for every narrative section `t` briefs — what a well-behaved
+ *  model returns. `runJob` validates raw output against the JOB's template, so a fake `run`
+ *  whose job must reach `done` has to go through here. Mirrors `rca.jobs.test.ts`. */
+function wellFormedDraftFor(t: RcaTemplate): RcaDraft {
+  return {
+    ...validDraft(),
+    sections: Object.fromEntries(
+      expectedSectionIds(t).map((id) => [id, { body: `body of ${id}`, citations: [] }])
+    )
   }
 }
 
@@ -78,7 +92,7 @@ function mkJobs(): RcaJobs {
       caseMeta: { ...MINIMAL_INPUT.caseMeta, slug },
       priorDraft: prior
     }),
-    run: async () => '```json\n' + JSON.stringify(validDraft()) + '\n```',
+    run: async () => '```json\n' + JSON.stringify(wellFormedDraftFor(template)) + '\n```',
     broadcast: () => {},
     settings: () => ({ rca: { template } }) as unknown as AppSettings
   }
@@ -87,18 +101,33 @@ function mkJobs(): RcaJobs {
 
 /** Generates, waits for `done`, and confirms — leaving a real confirmed job with real
  *  artifacts and a real `rca-structure.json` on disk, exactly as the brief requires. */
-async function confirmCase(slug: string, dropped?: RcaDroppedSections): Promise<void> {
+async function confirmCase(
+  slug: string,
+  dropped?: RcaDroppedSections,
+  edited: RcaDraft = wellFormedDraftFor(template)
+): Promise<void> {
   createCase(db, home, { slug, title: slug })
   const jobs = mkJobs()
   const job = jobs.generate(slug)
   await jobs.idle()
-  jobs.confirm(slug, job.id, [], validDraft(), dropped)
+  jobs.confirm(slug, job.id, [], edited, dropped)
 }
 
 describe('handEditedReports', () => {
   it('reports neither report edited right after confirm', async () => {
     await confirmCase('case-a')
     expect(handEditedReports({ db, argusHome: home }, 'case-a')).toEqual({
+      exec: false,
+      tech: false
+    })
+  })
+
+  // A draft confirmed before the template drove the prompt has an empty `sections` map, so its
+  // narrative sections render through the legacy-field fallback. The re-render has to take the
+  // same path, or every such report would read as hand-edited the moment this shipped.
+  it('reports neither report edited for a legacy draft with no model-authored sections', async () => {
+    await confirmCase('case-legacy', undefined, validDraft())
+    expect(handEditedReports({ db, argusHome: home }, 'case-legacy')).toEqual({
       exec: false,
       tech: false
     })

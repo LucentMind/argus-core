@@ -218,7 +218,8 @@ describe('postRcaReport', () => {
     const commentCall = calls.find((c) => c.tool === 'addCommentToJiraIssue')!
     expect(String(commentCall.args.commentBody)).toBe(
       '# exec via writeReportMarkdown\n\nline two.' +
-        '\n\n_Full technical RCA attached as **rca-case-k.md**._'
+        '\n\n_Full technical RCA attached as **rca-case-k.md**._' +
+        `\n\n${DEFAULT_WATERMARK_TEXT}`
     )
   })
 
