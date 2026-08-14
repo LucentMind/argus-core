@@ -25,6 +25,7 @@ import { panelCommandRiskMap, type PanelCommandDecl } from './panelCommands'
 import type { Detection } from '../packs/detection'
 import { caseDir } from '../paths'
 import { ingestContent } from '../ingest'
+import { createImmediateQueue, type IngestQueueLike } from '../ingestQueue'
 import { isEditableTool } from '../../../shared/editableTools'
 import { composePersona } from './persona'
 import { filteredIndex } from '../memory'
@@ -80,6 +81,9 @@ export interface SessionDeps {
   db: DatabaseSync
   argusHome: string
   detection: Detection
+  /** Background index/extract queue, forwarded to nativeToolDeps and used by panel-evidence
+   *  ingest; absent means `createImmediateQueue` (see NativeToolDeps.queue). */
+  queue?: IngestQueueLike
   caseId: number
   caseSlug: string
   sessionId: number
@@ -516,6 +520,7 @@ export class CaseSession {
         db: deps.db,
         argusHome: deps.argusHome,
         detection: deps.detection,
+        queue: deps.queue,
         caseId: deps.caseId,
         caseSlug: deps.caseSlug,
         sessionId: this.sessionId,
@@ -875,6 +880,7 @@ export class CaseSession {
       this.deps.db,
       this.deps.argusHome,
       this.deps.detection,
+      this.deps.queue ?? createImmediateQueue(this.deps.db, this.deps.argusHome),
       this.deps.caseSlug,
       filename,
       content,

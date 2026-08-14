@@ -13,6 +13,7 @@ import { createDetection } from '../packs/detection'
 import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import { upsertCaseSummary, searchCaseSummaries } from '../distill/summaries'
 import { CAPTURE_DIR_REL } from '../prompts/capture'
+import { createImmediateQueue } from '../ingestQueue'
 
 let tmp: string, argusHome: string, db: DatabaseSync
 const detection = createDetection(samplePackRegistry())
@@ -48,6 +49,7 @@ describe('deleteCase', () => {
       db,
       argusHome,
       detection,
+      createImmediateQueue(db, argusHome),
       'NAV-1',
       'log.txt',
       'hello\nworld\n',
@@ -116,7 +118,16 @@ describe('deleteCase', () => {
   it('leaves other cases fully intact', () => {
     createCase(db, argusHome, { slug: 'NAV-1', title: 'a' })
     createCase(db, argusHome, { slug: 'NAV-2', title: 'b' })
-    ingestContent(db, argusHome, detection, 'NAV-2', 'x.txt', 'x\n', 'upload')
+    ingestContent(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-2',
+      'x.txt',
+      'x\n',
+      'upload'
+    )
 
     deleteCase(db, argusHome, 'NAV-1')
 

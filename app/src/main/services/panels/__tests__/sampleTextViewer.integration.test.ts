@@ -15,6 +15,7 @@ import { createPanelBridge } from '../bridge'
 import { makeFakePanelViewFactory } from './fixtures'
 import { PanelHost } from '../panelHost'
 import type { PanelPermission } from '../../../../shared/panels'
+import { createImmediateQueue } from '../../ingestQueue'
 
 // panels/__tests__ → up 5 = app/ (seededPacksDir → <repo>/packs); up 6 = <repo> (fixtures).
 const packsSrc = seededPacksDir(path.resolve(__dirname, '../../../../..'))
@@ -26,11 +27,18 @@ let db: DatabaseSync
 let registry: PackRegistry
 let evidenceId: number
 
-beforeEach(() => {
+beforeEach(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-3a4-'))
   db = openDb(path.join(home, 'argus.db'))
   createCase(db, home, { slug: 'CASE-A', title: 'A' })
-  const rec = ingestArtifact(db, home, detection, 'CASE-A', FIXTURE)
+  const rec = await ingestArtifact(
+    db,
+    home,
+    detection,
+    createImmediateQueue(db, home),
+    'CASE-A',
+    FIXTURE
+  )
   evidenceId = rec.id
   const { packs, errors } = loadPacks(packsSrc)
   expect(errors).toEqual([]) // the shipped pack set (incl. sample-text-viewer) loads clean

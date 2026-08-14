@@ -22,6 +22,7 @@ import { ingestContent } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { caseDir } from '../paths'
 import type { DatabaseSync } from 'node:sqlite'
+import { createImmediateQueue } from '../ingestQueue'
 
 let home: string
 let db: DatabaseSync
@@ -514,13 +515,33 @@ describe('evidence-scope phase signal (Finding I1)', () => {
 
   it('review-scoped evidence (artifacts/…) reads as reviewing, not analyzing', () => {
     createCase(db, home, { slug: 'REV-1', title: 'r' })
-    ingestContent(db, home, detection, 'REV-1', 'ci-9-build.log', 'boom\n', 'ci', {}, 'review')
+    ingestContent(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'REV-1',
+      'ci-9-build.log',
+      'boom\n',
+      'ci',
+      {},
+      'review'
+    )
     expect(getCase(db, 'REV-1')!.phase).toBe('reviewing')
   })
 
   it('investigation-scoped evidence still reads as analyzing (regression check)', () => {
     createCase(db, home, { slug: 'INV-1', title: 'i' })
-    ingestContent(db, home, detection, 'INV-1', 'app.log', 'boom\n', 'upload')
+    ingestContent(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'INV-1',
+      'app.log',
+      'boom\n',
+      'upload'
+    )
     expect(getCase(db, 'INV-1')!.phase).toBe('analyzing')
   })
 
@@ -529,7 +550,18 @@ describe('evidence-scope phase signal (Finding I1)', () => {
     db.prepare(`UPDATE cases SET created_at = ? WHERE slug = 'IDLE-SCOPE-1'`).run(
       new Date(Date.now() - 30 * 86_400_000).toISOString()
     )
-    ingestContent(db, home, detection, 'IDLE-SCOPE-1', 'ci-1.log', 'boom\n', 'ci', {}, 'review')
+    ingestContent(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'IDLE-SCOPE-1',
+      'ci-1.log',
+      'boom\n',
+      'ci',
+      {},
+      'review'
+    )
     // one evidence row exists (review-scoped), so idle must NOT fire — proving evidenceCount
     // still counts it, exactly like an investigation-scoped row would.
     const rec = listCases(db).find((c) => c.slug === 'IDLE-SCOPE-1')!

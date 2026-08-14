@@ -10,19 +10,20 @@ import { createDetection } from '../../packs/detection'
 import { readEvidenceText } from '../../search'
 import { createPanelBridge } from '../bridge'
 import { caseDir } from '../../paths'
+import { createImmediateQueue } from '../../ingestQueue'
 
 const FIXTURE = path.resolve(__dirname, '../../../../../../tests/fixtures/sample-applog.txt')
 const detection = createDetection()
 let home: string
 let db: DatabaseSync
 
-beforeEach(() => {
+beforeEach(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-panel-bridge-'))
   db = openDb(path.join(home, 'argus.db'))
   createCase(db, home, { slug: 'CASE-A', title: 'A' })
   createCase(db, home, { slug: 'CASE-B', title: 'B' })
-  ingestArtifact(db, home, detection, 'CASE-A', FIXTURE)
-  ingestArtifact(db, home, detection, 'CASE-B', FIXTURE)
+  await ingestArtifact(db, home, detection, createImmediateQueue(db, home), 'CASE-A', FIXTURE)
+  await ingestArtifact(db, home, detection, createImmediateQueue(db, home), 'CASE-B', FIXTURE)
 })
 
 const bind = (
@@ -61,10 +62,20 @@ describe('createPanelBridge', () => {
     expect(hits.every((h) => h.caseSlug === 'CASE-B')).toBe(true)
   })
 
-  it('requestEvidence excludes the review artifacts tree', () => {
+  it('requestEvidence excludes the review artifacts tree', async () => {
     const artifact = path.join(home, 'ci-verify.log')
     fs.writeFileSync(artifact, 'TileStore error inside a review artifact\n')
-    ingestArtifact(db, home, detection, 'CASE-A', artifact, 'upload', {}, 'review')
+    await ingestArtifact(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'CASE-A',
+      artifact,
+      'upload',
+      {},
+      'review'
+    )
     const hits = bind('CASE-A', ['requestEvidence']).requestEvidence!('TileStore')
     expect(hits.map((h) => h.relPath)).toEqual(['evidence/sample-applog.txt'])
   })
@@ -121,7 +132,14 @@ describe('listCaseEvidence (3d-3)', () => {
     fs.mkdirSync(derivedDir, { recursive: true })
     const abs = path.join(derivedDir, 'note.txt')
     fs.writeFileSync(abs, 'derived text')
-    const derivedRec = ingestDerived(db, home, 'CASE-A', abs, parent.evidenceId)
+    const derivedRec = ingestDerived(
+      db,
+      home,
+      createImmediateQueue(db, home),
+      'CASE-A',
+      abs,
+      parent.evidenceId
+    )
 
     const items = bind('CASE-A', ['listCaseEvidence']).listCaseEvidence!()
     const derived = items.find((e) => e.evidenceId === derivedRec.id)!

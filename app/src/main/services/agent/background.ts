@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { CaseSession, type SessionMirrorLike } from './session'
 import type { AgentDriver } from './driver'
 import type { Detection } from '../packs/detection'
+import type { IngestQueueLike } from '../ingestQueue'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { AgentAccess } from '../../../shared/agentAccess'
 import type { RiskLevel } from '../../../shared/connectors'
@@ -15,6 +16,9 @@ export interface BackgroundTurnDeps {
   db: DatabaseSync
   argusHome: string
   detection: Detection
+  /** Background index/extract queue, forwarded to the session; absent means
+   *  `createImmediateQueue` (see NativeToolDeps.queue). */
+  queue?: IngestQueueLike
   skillsRoots: string[]
   driver: AgentDriver
   /**
@@ -230,6 +234,7 @@ export function runBackgroundTurn(
       db: deps.db,
       argusHome: deps.argusHome,
       detection: deps.detection,
+      queue: deps.queue,
       caseId: params.caseId,
       caseSlug: params.caseSlug,
       sessionId: params.sessionId,

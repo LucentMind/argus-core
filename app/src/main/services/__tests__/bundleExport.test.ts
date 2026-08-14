@@ -10,6 +10,7 @@ import { createDetection } from '../packs/detection'
 import { collectCaseFiles, exportCase } from '../bundle'
 import { bundleManifestSchema } from '../../../shared/bundle'
 import type { DatabaseSync } from 'node:sqlite'
+import { createImmediateQueue } from '../ingestQueue'
 
 let home: string
 let db: DatabaseSync
@@ -22,6 +23,7 @@ beforeEach(() => {
     db,
     home,
     detection,
+    createImmediateQueue(db, home),
     'NAV-100',
     'boot.txt',
     'ERROR BLOCKED_VERSION tile=42\n',

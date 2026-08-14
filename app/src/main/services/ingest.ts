@@ -14,7 +14,9 @@ import { DEFAULT_MODE, type ModeId } from '../../shared/modes'
 import { caseDir, modeDir } from './paths'
 import { getCase } from './caseService'
 import type { Detection } from './packs/detection'
-import { deleteEvidenceIndex, indexEvidenceFile } from './indexer'
+import { deleteEvidenceIndex } from './indexer'
+import { copyAndHash } from './copyHash'
+import type { IngestQueueLike } from './ingestQueue'
 import { appendDeletionAudit } from './deletionAudit'
 import { scopeClause } from './evidenceScopeSql'
 
@@ -78,25 +80,37 @@ function rowToEvidence(r: EvidenceRow): EvidenceRecord {
   }
 }
 
-function registerEvidenceFile(
+/**
+ * Write the evidence row + .meta sidecar and enqueue indexing. Never indexes inline.
+ *
+ * Takes a precomputed `sha256`/`size` rather than re-reading the file it is
+ * registering: every caller already knows both — `ingestArtifact` from the
+ * copy pass, the in-memory callers from the buffer they just wrote.
+ */
+function registerEvidenceRow(
   db: DatabaseSync,
-  argusHome: string,
+  queue: IngestQueueLike,
   detection: Detection,
+  caseSlug: string,
   caseId: number,
   destDir: string,
   topDir: CaseSubdir,
   destName: string,
   originalName: string,
   origin: EvidenceOrigin,
+  sha256: string,
+  size: number,
   extraMeta: Record<string, unknown>
 ): EvidenceRecord {
   const destPath = path.join(destDir, destName)
-  const sha256 = sha256File(destPath)
   const artifactType: ArtifactType = detection.detectType(destPath)
-  const size = fs.statSync(destPath).size
   const now = new Date().toISOString()
   const indexable = detection.isText(artifactType)
-  const meta: Record<string, unknown> = { originalName, indexed: indexable, ...extraMeta }
+  const meta: Record<string, unknown> = {
+    originalName,
+    indexState: indexable ? 'pending' : 'skipped',
+    ...extraMeta
+  }
   const relPath = `${topDir}/${destName}`
 
   const res = db
@@ -106,7 +120,6 @@ function registerEvidenceFile(
     )
     .run(caseId, relPath, sha256, artifactType, size, origin, JSON.stringify(meta), now)
   const id = Number(res.lastInsertRowid)
-  if (indexable) indexEvidenceFile(db, id, destPath, 400, argusHome)
 
   const record: EvidenceRecord = {
     id,
@@ -122,38 +135,50 @@ function registerEvidenceFile(
   const metaDir = path.join(destDir, '.meta')
   fs.mkdirSync(metaDir, { recursive: true })
   fs.writeFileSync(path.join(metaDir, `${destName}.json`), JSON.stringify(record, null, 2))
+
+  if (indexable) queue.enqueue({ caseSlug, evidenceId: id, absPath: destPath, size })
   return record
 }
 
-export function ingestArtifact(
+/**
+ * Copy a file into the case tree as evidence.
+ *
+ * Async because the copy is the one genuinely large piece of work in ingest:
+ * `copyAndHash` streams it a chunk at a time so a multi-GB drop no longer pins
+ * the main-process event loop.
+ */
+export async function ingestArtifact(
   db: DatabaseSync,
   argusHome: string,
   detection: Detection,
+  queue: IngestQueueLike,
   caseSlug: string,
   sourcePath: string,
   origin: EvidenceOrigin = 'upload',
   extraMeta: Record<string, unknown> = {},
   mode: ModeId = DEFAULT_MODE
-): EvidenceRecord {
+): Promise<EvidenceRecord> {
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
   const destDir = modeDir(argusHome, caseSlug, mode)
   fs.mkdirSync(destDir, { recursive: true })
   const destName = collisionFreeName(destDir, path.basename(sourcePath), detection.compoundExts())
-  fs.copyFileSync(sourcePath, path.join(destDir, destName))
-  const rec = registerEvidenceFile(
+  const { sha256, size } = await copyAndHash(sourcePath, path.join(destDir, destName))
+  return registerEvidenceRow(
     db,
-    argusHome,
+    queue,
     detection,
+    caseSlug,
     kase.id,
     destDir,
     dirForMode(mode),
     destName,
     path.basename(sourcePath),
     origin,
+    sha256,
+    size,
     extraMeta
   )
-  return rec
 }
 
 /** Ingest in-memory content (e.g. a fetched Jira ticket) as an evidence file. */
@@ -161,46 +186,55 @@ export function ingestContent(
   db: DatabaseSync,
   argusHome: string,
   detection: Detection,
+  queue: IngestQueueLike,
   caseSlug: string,
   fileName: string,
   content: string | Buffer,
   origin: EvidenceOrigin,
   extraMeta: Record<string, unknown> = {},
-  mode: ModeId = DEFAULT_MODE
+  mode: ModeId = DEFAULT_MODE,
+  knownSha256?: string
 ): EvidenceRecord {
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
   const destDir = modeDir(argusHome, caseSlug, mode)
   fs.mkdirSync(destDir, { recursive: true })
   const destName = collisionFreeName(destDir, fileName, detection.compoundExts())
-  fs.writeFileSync(path.join(destDir, destName), content)
-  const rec = registerEvidenceFile(
+  const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8')
+  fs.writeFileSync(path.join(destDir, destName), buf)
+  // hash the buffer we already hold rather than re-reading the file we just wrote.
+  // `knownSha256` lets ingestBytes hand over the digest it computed for dedupe.
+  const sha256 = knownSha256 ?? crypto.createHash('sha256').update(buf).digest('hex')
+  return registerEvidenceRow(
     db,
-    argusHome,
+    queue,
     detection,
+    caseSlug,
     kase.id,
     destDir,
     dirForMode(mode),
     destName,
     fileName,
     origin,
+    sha256,
+    buf.length,
     extraMeta
   )
-  return rec
 }
 
 /**
  * Ingest raw bytes from the renderer (a pasted screenshot, a dropped file).
  *
- * Hashes BEFORE writing so identical content can be deduped — `registerEvidenceFile`
- * hashes the file only after it is already on disk, which is too late to avoid a
- * duplicate copy. Dedupe is scoped to the case, matching the `UNIQUE (case_id, rel_path)`
- * grain of the evidence table.
+ * Hashes BEFORE writing so identical content can be deduped, then hands that same
+ * digest to `ingestContent` rather than making it hash the buffer a second time.
+ * Dedupe is scoped to the case, matching the `UNIQUE (case_id, rel_path)` grain of
+ * the evidence table.
  */
 export function ingestBytes(
   db: DatabaseSync,
   argusHome: string,
   detection: Detection,
+  queue: IngestQueueLike,
   caseSlug: string,
   fileName: string,
   bytes: Buffer,
@@ -223,12 +257,14 @@ export function ingestBytes(
     db,
     argusHome,
     detection,
+    queue,
     caseSlug,
     fileName,
     bytes,
     origin,
     extraMeta,
-    mode
+    mode,
+    sha256
   )
   return { record, deduped: false }
 }
@@ -238,6 +274,7 @@ export function updateEvidenceContent(
   db: DatabaseSync,
   argusHome: string,
   detection: Detection,
+  queue: IngestQueueLike,
   evidenceId: number,
   content: string | Buffer,
   extraMeta: Record<string, unknown> = {}
@@ -250,20 +287,29 @@ export function updateEvidenceContent(
   if (!row) throw new Error(`Unknown evidence id: ${evidenceId}`)
   const rec = rowToEvidence(row)
   const absPath = path.join(caseDir(argusHome, row.case_slug), ...rec.relPath.split('/'))
-  fs.writeFileSync(absPath, content)
+  const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8')
+  fs.writeFileSync(absPath, buf)
 
-  const sha256 = sha256File(absPath)
+  // hash the buffer we already hold rather than re-reading the file we just wrote
+  const sha256 = crypto.createHash('sha256').update(buf).digest('hex')
   const artifactType: ArtifactType = detection.detectType(absPath)
-  const size = fs.statSync(absPath).size
+  const size = buf.length
   const indexable = detection.isText(artifactType)
-  const meta: Record<string, unknown> = { ...rec.meta, ...extraMeta, indexed: indexable }
+  const meta: Record<string, unknown> = {
+    ...rec.meta,
+    ...extraMeta,
+    indexState: indexable ? 'pending' : 'skipped'
+  }
+  // never leave both representations on one row (see indexState.ts)
+  delete meta.indexed
   // the file was just rewritten on disk — a stale scan-set missing flag would lie
   delete meta.missing
   db.prepare(
     `UPDATE evidence SET sha256 = ?, artifact_type = ?, size = ?, meta = ? WHERE id = ?`
   ).run(sha256, artifactType, size, JSON.stringify(meta), evidenceId)
+  // the old index describes bytes that no longer exist; drop it before the re-index
   deleteEvidenceIndex(db, evidenceId)
-  if (indexable) indexEvidenceFile(db, evidenceId, absPath, 400, argusHome)
+  if (indexable) queue.enqueue({ caseSlug: row.case_slug, evidenceId, absPath, size })
 
   const updated: EvidenceRecord = { ...rec, sha256, artifactType, size, meta }
   const sidecarAbs = path.join(
@@ -283,6 +329,7 @@ export function updateEvidenceContent(
 export function ingestDerived(
   db: DatabaseSync,
   argusHome: string,
+  queue: IngestQueueLike,
   caseSlug: string,
   absPath: string,
   derivedFromId: number
@@ -302,7 +349,7 @@ export function ingestDerived(
   const sha256 = sha256File(absPath)
   const size = fs.statSync(absPath).size
   const now = new Date().toISOString()
-  const meta = { derivedFrom: derivedFromId, indexed: true }
+  const meta = { derivedFrom: derivedFromId, indexState: 'pending' }
   const relPath = `${parentDir}/${rel.split(path.sep).join('/')}`
 
   const res = db
@@ -312,7 +359,7 @@ export function ingestDerived(
     )
     .run(kase.id, relPath, sha256, size, JSON.stringify(meta), now)
   const id = Number(res.lastInsertRowid)
-  indexEvidenceFile(db, id, absPath, 400, argusHome)
+  queue.enqueue({ caseSlug, evidenceId: id, absPath, size })
 
   const record: EvidenceRecord = {
     id,
@@ -364,6 +411,7 @@ export function listEvidence(
 export function deleteEvidence(
   db: DatabaseSync,
   argusHome: string,
+  queue: IngestQueueLike,
   caseSlug: string,
   evidenceId: number
 ): { deleted: Array<{ id: number; relPath: string; sha256: string }> } {
@@ -395,6 +443,12 @@ export function deleteEvidence(
       }
     }
   }
+
+  // Abort BEFORE anything is removed. Each doomed id was enqueued at ingest time,
+  // so the queue either still holds the job, is running it, or has finished it —
+  // in the first two cases the flag lands and the job stops instead of writing FTS
+  // chunks that point at a row this call is about to delete.
+  for (const r of doomed) queue.abort(r.id)
 
   const deleted: Array<{ id: number; relPath: string; sha256: string }> = []
   db.exec('BEGIN')

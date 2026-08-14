@@ -3,7 +3,13 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../db'
-import { indexEvidenceText, indexEvidenceFile, deleteEvidenceIndex, FtsChunkWriter, CheckpointRecorder } from '../indexer'
+import {
+  indexEvidenceText,
+  indexEvidenceFile,
+  deleteEvidenceIndex,
+  FtsChunkWriter,
+  CheckpointRecorder
+} from '../indexer'
 import { sidecarPath, ensureIndex, __clearIndexCacheForTests } from '../lineIndex'
 import { MAX_READ_BYTES } from '../search'
 import type { DatabaseSync } from 'node:sqlite'

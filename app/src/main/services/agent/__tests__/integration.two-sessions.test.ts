@@ -13,6 +13,7 @@ import { defaultAgentAccess } from '../../../../shared/agentAccess'
 import type { CreateQueryFn } from '../drivers/claude'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
+import { createImmediateQueue } from '../../ingestQueue'
 
 let tmp: string, argusHome: string, db: DatabaseSync, events: AgentEvent[]
 const detection = createDetection()
@@ -36,7 +37,7 @@ describe('two concurrent case sessions', () => {
       createCase(db, argusHome, { slug, title: slug })
       const src = path.join(tmp, `${slug}.txt`)
       fs.writeFileSync(src, `${slug} FATAL Navigator error\n`)
-      ingestArtifact(db, argusHome, detection, slug, src)
+      await ingestArtifact(db, argusHome, detection, createImmediateQueue(db, argusHome), slug, src)
     }
     const queues = new Map<number, AsyncQueue<unknown>>()
     const canUseTools: Array<

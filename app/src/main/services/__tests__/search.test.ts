@@ -9,6 +9,7 @@ import { createDetection } from '../packs/detection'
 import { searchEvidence, readEvidenceText, readEvidenceSnippet } from '../search'
 import { SNIPPET_BEFORE, SNIPPET_AFTER, MAX_SNIPPET_LINES } from '../../../shared/snippets'
 import type { DatabaseSync } from 'node:sqlite'
+import { createImmediateQueue } from '../ingestQueue'
 
 const FIXTURE = path.resolve(__dirname, '../../../../../tests/fixtures/sample-applog.txt')
 
@@ -16,13 +17,13 @@ let home: string
 let db: DatabaseSync
 const detection = createDetection()
 
-beforeEach(() => {
+beforeEach(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-search-'))
   db = openDb(path.join(home, 'argus.db'))
   createCase(db, home, { slug: 'NAVAPI-1', title: 'a' })
   createCase(db, home, { slug: 'NAVAPI-2', title: 'b' })
-  ingestArtifact(db, home, detection, 'NAVAPI-1', FIXTURE)
-  ingestArtifact(db, home, detection, 'NAVAPI-2', FIXTURE)
+  await ingestArtifact(db, home, detection, createImmediateQueue(db, home), 'NAVAPI-1', FIXTURE)
+  await ingestArtifact(db, home, detection, createImmediateQueue(db, home), 'NAVAPI-2', FIXTURE)
 })
 
 describe('searchEvidence', () => {
@@ -63,10 +64,20 @@ describe('searchEvidence', () => {
 })
 
 describe('searchEvidence evidence scope', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     const artifact = path.join(home, 'ci-verify.log')
     fs.writeFileSync(artifact, 'TileStore error inside a review artifact\n')
-    ingestArtifact(db, home, detection, 'NAVAPI-1', artifact, 'upload', {}, 'review')
+    await ingestArtifact(
+      db,
+      home,
+      detection,
+      createImmediateQueue(db, home),
+      'NAVAPI-1',
+      artifact,
+      'upload',
+      {},
+      'review'
+    )
   })
 
   it('excludes the review artifacts tree by default', () => {
@@ -133,10 +144,10 @@ describe('readEvidenceSnippet', () => {
     expect(r.relPath).toBe('evidence/sample-applog.txt')
   })
 
-  it('fills lang for code extensions', () => {
+  it('fills lang for code extensions', async () => {
     const src = path.join(home, 'util.ts')
     fs.writeFileSync(src, 'const a = 1\nconst b = 2\nconst c = 3\n')
-    ingestArtifact(db, home, detection, 'NAVAPI-1', src)
+    await ingestArtifact(db, home, detection, createImmediateQueue(db, home), 'NAVAPI-1', src)
     const r = readEvidenceSnippet(db, home, 'NAVAPI-1', 'evidence/util.ts', 2)
     expect(r.ok).toBe(true)
     if (!r.ok) return
@@ -163,10 +174,10 @@ describe('readEvidenceSnippet', () => {
     expect(r.eof).toBe(true)
   })
 
-  it('windows around a range: start-BEFORE to end+AFTER', () => {
+  it('windows around a range: start-BEFORE to end+AFTER', async () => {
     const src = path.join(home, 'range.ts')
     fs.writeFileSync(src, Array.from({ length: 60 }, (_, i) => `line ${i + 1}`).join('\n') + '\n')
-    ingestArtifact(db, home, detection, 'NAVAPI-1', src)
+    await ingestArtifact(db, home, detection, createImmediateQueue(db, home), 'NAVAPI-1', src)
     const r = readEvidenceSnippet(db, home, 'NAVAPI-1', 'evidence/range.ts', 20, 24)
     expect(r.ok).toBe(true)
     if (!r.ok) return
@@ -176,10 +187,10 @@ describe('readEvidenceSnippet', () => {
     expect(r.truncated).toBe(false)
   })
 
-  it('caps huge ranges at MAX_SNIPPET_LINES and flags truncated', () => {
+  it('caps huge ranges at MAX_SNIPPET_LINES and flags truncated', async () => {
     const src = path.join(home, 'big.ts')
     fs.writeFileSync(src, Array.from({ length: 200 }, (_, i) => `line ${i + 1}`).join('\n') + '\n')
-    ingestArtifact(db, home, detection, 'NAVAPI-1', src)
+    await ingestArtifact(db, home, detection, createImmediateQueue(db, home), 'NAVAPI-1', src)
     const r = readEvidenceSnippet(db, home, 'NAVAPI-1', 'evidence/big.ts', 10, 150)
     expect(r.ok).toBe(true)
     if (!r.ok) return

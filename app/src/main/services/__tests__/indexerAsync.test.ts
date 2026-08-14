@@ -4,11 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
-import {
-  indexEvidenceFile,
-  indexEvidenceFileAsync,
-  IndexAbortedError
-} from '../indexer'
+import { indexEvidenceFile, indexEvidenceFileAsync, IndexAbortedError } from '../indexer'
 import { sidecarPath, __clearIndexCacheForTests } from '../lineIndex'
 import { MAX_READ_BYTES } from '../search'
 
@@ -113,9 +109,9 @@ describe('indexEvidenceFileAsync', () => {
 
     // Partial rows may exist; the queue is responsible for clearing them (Task 4).
     // What matters here is that the read loop stopped early rather than finishing.
-    const n = db
-      .prepare(`SELECT count(*) AS n FROM evidence_fts WHERE evidence_id = 6`)
-      .get() as { n: number }
+    const n = db.prepare(`SELECT count(*) AS n FROM evidence_fts WHERE evidence_id = 6`).get() as {
+      n: number
+    }
     const full = await indexEvidenceFileAsync(db, 7, p, 400)
     expect(n.n).toBeLessThan(full)
   })

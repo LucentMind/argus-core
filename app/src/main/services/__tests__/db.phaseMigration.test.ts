@@ -48,9 +48,10 @@ describe('phase migration', () => {
 
   it('converts a stored analyzing row to open with no pin — it re-derives', () => {
     const db = seedLegacy([{ slug: 'AN-1', status: 'analyzing' }])
-    const row = db
-      .prepare(`SELECT status, phase_pin FROM cases WHERE slug = 'AN-1'`)
-      .get() as { status: string; phase_pin: string | null }
+    const row = db.prepare(`SELECT status, phase_pin FROM cases WHERE slug = 'AN-1'`).get() as {
+      status: string
+      phase_pin: string | null
+    }
     expect(row.status).toBe('open')
     expect(row.phase_pin).toBeNull()
   })
@@ -60,9 +61,11 @@ describe('phase migration', () => {
       { slug: 'OP-1', status: 'open' },
       { slug: 'CL-1', status: 'closed' }
     ])
-    const rows = db
-      .prepare(`SELECT slug, status, phase_pin FROM cases ORDER BY slug`)
-      .all() as { slug: string; status: string; phase_pin: string | null }[]
+    const rows = db.prepare(`SELECT slug, status, phase_pin FROM cases ORDER BY slug`).all() as {
+      slug: string
+      status: string
+      phase_pin: string | null
+    }[]
     expect(rows).toEqual([
       { slug: 'CL-1', status: 'closed', phase_pin: null },
       { slug: 'OP-1', status: 'open', phase_pin: null }

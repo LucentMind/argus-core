@@ -4,12 +4,15 @@ import type { Detection } from '../packs/detection'
 import type { DefectCorpusService } from '../defectCorpus/service'
 import { getCase } from '../caseService'
 import { ingestBytes } from '../ingest'
+import type { IngestQueueLike } from '../ingestQueue'
 import { evidenceFileNameFor, formatDefectSnapshot, isOpenableUrl } from './snapshot'
 
 export interface AttachDeps {
   db: DatabaseSync
   argusHome: string
   detection: Detection
+  /** Background index/extract queue for the frozen snapshot. */
+  queue: IngestQueueLike
   defectCorpus: DefectCorpusService
 }
 
@@ -61,6 +64,7 @@ export async function attachCorpusEvidence(
     deps.db,
     deps.argusHome,
     deps.detection,
+    deps.queue,
     caseSlug,
     fileName,
     Buffer.from(markdown, 'utf8'),

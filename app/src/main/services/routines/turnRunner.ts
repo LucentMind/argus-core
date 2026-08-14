@@ -7,6 +7,7 @@ import { materializeSessionSkills } from '../agent/skillsResolver'
 import { assembleMode } from '../agent/modeAssembly'
 import { sessionMode } from '../agent/sessionStore'
 import type { Detection } from '../packs/detection'
+import type { IngestQueueLike } from '../ingestQueue'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { AgentAccess } from '../../../shared/agentAccess'
 import type { RiskLevel } from '../../../shared/connectors'
@@ -23,6 +24,8 @@ export interface RoutineTurnRunnerDeps {
   db: DatabaseSync
   argusHome: string
   detection: Detection
+  /** Background index/extract queue, forwarded to the background session. */
+  queue?: IngestQueueLike
   skillsRoots: string[]
   /** Driver lookup by kind. Production passes `getDriverByKind`, which FALLS BACK silently —
    *  see the mismatch guard below for why that fallback must not be allowed through. */
@@ -101,6 +104,7 @@ export function createRoutineTurnRunner(
         db: deps.db,
         argusHome: deps.argusHome,
         detection: deps.detection,
+        queue: deps.queue,
         skillsRoots: deps.skillsRoots,
         driver,
         enabledSkills: assembled.enabledSkills,

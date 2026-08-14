@@ -8,7 +8,8 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
 import { createDetection } from '../packs/detection'
-import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
+import { samplePackRegistry } from '../packs/__tests__/fixtures'
+import { createImmediateQueue } from '../ingestQueue'
 import { JiraCases, type AtlassianClientLike } from '../jiraCases'
 import { createCase, getCase, listCases, setCaseStatus } from '../caseService'
 import { AtlassianError } from '../atlassian'
@@ -102,10 +103,9 @@ function service(client: AtlassianClientLike): JiraCases {
     detection,
     client,
     site: () => 'https://acme.atlassian.net',
-    extractors: stubExtractors('binlog'),
+    queue: createImmediateQueue(db, argusHome),
     emitProgress: () => {},
-    evidenceChanged: () => {},
-    parsing: () => {}
+    evidenceChanged: () => {}
   })
 }
 

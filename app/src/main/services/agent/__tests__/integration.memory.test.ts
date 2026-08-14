@@ -26,15 +26,15 @@ afterEach(() => {
 })
 
 describe('memory compounding mechanics (spec §1.6)', () => {
-  it('the fixture pair shares the defect signature across both cases (cross-case FTS)', () => {
-    seedMemoryPair(db, argusHome)
+  it('the fixture pair shares the defect signature across both cases (cross-case FTS)', async () => {
+    await seedMemoryPair(db, argusHome)
     const hits = searchEvidence(db, 'BLOCKED_VERSION')
     const slugs = new Set(hits.map((h) => h.caseSlug))
     expect(slugs).toEqual(new Set(['NAV-100', 'NAV-200']))
   })
 
   it('case A writes a lesson (MEDIUM-gated); case B sees it unless the topic is disabled', async () => {
-    seedMemoryPair(db, argusHome)
+    await seedMemoryPair(db, argusHome)
 
     // the write is classified MEDIUM ask
     const verdict = classifyToolCall(
@@ -68,8 +68,8 @@ describe('memory compounding mechanics (spec §1.6)', () => {
     expect(filteredIndex(argusHome, disabled)).not.toContain('(data-version-blocks.md)')
   })
 
-  it('disabled skills are not materialized into a case session', () => {
-    seedMemoryPair(db, argusHome)
+  it('disabled skills are not materialized into a case session', async () => {
+    await seedMemoryPair(db, argusHome)
     const skillRoot = path.join(argusHome, 'skills', 'analyze-applog')
     fs.mkdirSync(skillRoot, { recursive: true })
     fs.writeFileSync(

@@ -10,6 +10,7 @@ import { createDetection } from '../packs/detection'
 import { openTextDoc, readTextDocLines } from '../textdoc'
 import { __clearIndexCacheForTests } from '../lineIndex'
 import { MAX_READ_BYTES } from '../search'
+import { createImmediateQueue } from '../ingestQueue'
 
 let tmp: string, argusHome: string, db: DatabaseSync
 const detection = createDetection()
@@ -26,15 +27,24 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-function ingestFile(name: string, content: string): number {
+async function ingestFile(name: string, content: string): Promise<number> {
   const src = path.join(tmp, name)
   fs.writeFileSync(src, content)
-  return ingestArtifact(db, argusHome, detection, 'NAV-9', src).id
+  return (
+    await ingestArtifact(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-9',
+      src
+    )
+  ).id
 }
 
 describe('openTextDoc', () => {
   it('small evidence: returns whole content, totalLines, lang', async () => {
-    const id = ingestFile('small.log', 'one\ntwo\nthree\n')
+    const id = await ingestFile('small.log', 'one\ntwo\nthree\n')
     const r = await openTextDoc(db, argusHome, { kind: 'evidence', evidenceId: id })
     expect(r.ok).toBe(true)
     if (!r.ok) return
@@ -46,7 +56,7 @@ describe('openTextDoc', () => {
   it('large evidence: no whole, correct totalLines (index from ingest reused)', async () => {
     const line = 'y'.repeat(1024) + '\n'
     const count = Math.ceil(MAX_READ_BYTES / line.length) + 50
-    const id = ingestFile('big.log', line.repeat(count))
+    const id = await ingestFile('big.log', line.repeat(count))
     const r = await openTextDoc(db, argusHome, { kind: 'evidence', evidenceId: id })
     expect(r.ok).toBe(true)
     if (!r.ok) return
@@ -80,7 +90,7 @@ describe('readTextDocLines', () => {
     const count = Math.ceil(MAX_READ_BYTES / 11) + 500 // 11-byte lines
     const content =
       Array.from({ length: count }, (_, i) => String(i + 1).padStart(10, '0')).join('\n') + '\n'
-    const id = ingestFile('pages.log', content)
+    const id = await ingestFile('pages.log', content)
     const r = await readTextDocLines(
       db,
       argusHome,

@@ -24,9 +24,8 @@ import {
   setReviewBaseline
 } from './caseService'
 import { ingestArtifact, ingestContent, listEvidence, updateEvidenceContent } from './ingest'
-import { extractDerivedText } from './extraction'
+import type { IngestQueueLike } from './ingestQueue'
 import type { Detection } from './packs/detection'
-import type { Extractors } from './packs/extractors'
 import { extractZipToTemp, ArchiveLimitError, type ArchiveLimits } from './archiveExtract'
 import { JIRA_PROMPTS } from './jiraPrompts'
 
@@ -42,10 +41,11 @@ export interface JiraCasesDeps {
   detection: Detection
   client: AtlassianClientLike
   site: () => string
-  extractors: Extractors
+  /** Owns indexing AND extraction for everything this service ingests — it replaces the
+   *  `extractors`/`parsing` pair the inline extraction kick used to need. */
+  queue: IngestQueueLike
   emitProgress: (p: JiraAttachmentProgress) => void
   evidenceChanged: (caseSlug: string) => void
-  parsing: (caseSlug: string, evidenceId: number, active: boolean) => void
   /** Prompt-registry resolver, forwarded to createCase for the case's CLAUDE.md. */
   resolvePrompt?: (id: string) => string
   /** Overridable in tests; production uses ARCHIVE_LIMITS. */
@@ -131,7 +131,7 @@ export class JiraCases {
   }
 
   async createFromTicket(input: { slug: string; title: string; key: string }): Promise<CaseRecord> {
-    const { db, argusHome, detection } = this.deps
+    const { db, argusHome, detection, queue } = this.deps
     const { preview, descriptionMarkdown, raw } = await this.deps.client.getIssue(input.key)
     createCase(
       db,
@@ -144,6 +144,7 @@ export class JiraCases {
       db,
       argusHome,
       detection,
+      queue,
       input.slug,
       `${preview.key}.ticket.md`,
       ticketMarkdown(preview, descriptionMarkdown),
@@ -154,6 +155,7 @@ export class JiraCases {
       db,
       argusHome,
       detection,
+      queue,
       input.slug,
       `${preview.key}.ticket.json`,
       JSON.stringify(raw, null, 2),
@@ -172,6 +174,7 @@ export class JiraCases {
         db,
         argusHome,
         detection,
+        queue,
         input.slug,
         `${preview.key}.comments.md`,
         commentsMarkdown(preview.key, comments, this.deps.resolvePrompt),
@@ -207,7 +210,7 @@ export class JiraCases {
     caseSlug: string,
     attachments: JiraAttachmentInfo[]
   ): Promise<JiraAttachmentProgress[]> {
-    const { db, argusHome, detection } = this.deps
+    const { db, argusHome, detection, queue } = this.deps
     const kase = getCase(db, caseSlug)
     if (!kase) throw new AtlassianError('internal', `Unknown case: ${caseSlug}`)
     const key = kase.jiraKey ?? ''
@@ -233,22 +236,20 @@ export class JiraCases {
         try {
           const tmpFile = path.join(tmpDir, sanitizeFilename(a.filename))
           await this.deps.client.downloadAttachment(a.id, tmpFile)
-          const rec = ingestArtifact(db, argusHome, detection, caseSlug, tmpFile, 'jira', {
-            jira: { key, attachmentId: a.id, filename: a.filename }
-          })
-          // detector chain ran inside ingestArtifact; kick extraction like evidence:ingest does.
-          // extractDerivedText CAN reject (its sync setup — db lookup, mkdirSync — runs
-          // outside its internal try/catch), so parsing(false) must sit in .finally and
-          // the fire-and-forget rejection is swallowed explicitly.
-          this.deps.parsing(caseSlug, rec.id, true)
-          void extractDerivedText(db, argusHome, rec, this.deps.extractors)
-            .then((derived) => {
-              if (derived) this.deps.evidenceChanged(caseSlug)
-            })
-            .catch((err) =>
-              console.warn(`[jira] extraction failed for ${rec.relPath}: ${(err as Error).message}`)
-            )
-            .finally(() => this.deps.parsing(caseSlug, rec.id, false))
+          // ingestArtifact enqueues indexing + extraction; the queue emits its own
+          // progress, which is why no `parsing` broadcast is kicked off here any more.
+          const rec = await ingestArtifact(
+            db,
+            argusHome,
+            detection,
+            queue,
+            caseSlug,
+            tmpFile,
+            'jira',
+            {
+              jira: { key, attachmentId: a.id, filename: a.filename }
+            }
+          )
           this.deps.evidenceChanged(caseSlug)
           const done: JiraAttachmentProgress = { ...base, status: 'done', evidenceId: rec.id }
           // Explode ONLY genuine .zip archives, not merely zip-structured files:
@@ -303,7 +304,7 @@ export class JiraCases {
     zipPath: string,
     tmpDir: string
   ): Promise<number> {
-    const { db, argusHome, detection } = this.deps
+    const { db, argusHome, detection, queue } = this.deps
     const limits: ArchiveLimits = { ...ARCHIVE_LIMITS, ...(this.deps.archiveLimits ?? {}) }
     const stageDir = fs.mkdtempSync(path.join(tmpDir, 'x-'))
     try {
@@ -314,22 +315,13 @@ export class JiraCases {
         // Preserve the archive-relative name so collision-free naming + display read well.
         const named = path.join(stageDir, sanitizeFilename(path.basename(e.innerPath)))
         if (named !== e.tempPath) fs.renameSync(e.tempPath, named)
-        const rec = ingestArtifact(db, argusHome, detection, caseSlug, named, 'jira', {
+        await ingestArtifact(db, argusHome, detection, queue, caseSlug, named, 'jira', {
           extractedFrom: {
             attachmentId: attachment.id,
             archiveName: attachment.filename,
             innerPath: e.innerPath
           }
         })
-        this.deps.parsing(caseSlug, rec.id, true)
-        void extractDerivedText(db, argusHome, rec, this.deps.extractors)
-          .then((derived) => {
-            if (derived) this.deps.evidenceChanged(caseSlug)
-          })
-          .catch((err) =>
-            console.warn(`[jira] extraction failed for ${rec.relPath}: ${(err as Error).message}`)
-          )
-          .finally(() => this.deps.parsing(caseSlug, rec.id, false))
       }
       if (entries.length) this.deps.evidenceChanged(caseSlug)
       return entries.length
@@ -339,7 +331,7 @@ export class JiraCases {
   }
 
   async refresh(caseSlug: string): Promise<JiraRefreshSummary> {
-    const { db, argusHome, detection } = this.deps
+    const { db, argusHome, detection, queue } = this.deps
     const kase = getCase(db, caseSlug)
     if (!kase?.jiraKey)
       throw new AtlassianError('not-configured', `Case ${caseSlug} has no linked Jira ticket.`)
@@ -358,6 +350,7 @@ export class JiraCases {
         db,
         argusHome,
         detection,
+        queue,
         mdRec.id,
         ticketMarkdown(preview, descriptionMarkdown),
         mdMeta
@@ -367,6 +360,7 @@ export class JiraCases {
         db,
         argusHome,
         detection,
+        queue,
         caseSlug,
         `${preview.key}.ticket.md`,
         ticketMarkdown(preview, descriptionMarkdown),
@@ -380,6 +374,7 @@ export class JiraCases {
         db,
         argusHome,
         detection,
+        queue,
         rawRec.id,
         JSON.stringify(raw, null, 2),
         rawMeta
@@ -389,6 +384,7 @@ export class JiraCases {
         db,
         argusHome,
         detection,
+        queue,
         caseSlug,
         `${preview.key}.ticket.json`,
         JSON.stringify(raw, null, 2),
@@ -410,12 +406,13 @@ export class JiraCases {
         jira: { key: preview.key, role: 'comments', commentCount: comments.length, syncedAt: now }
       }
       const content = commentsMarkdown(preview.key, comments, this.deps.resolvePrompt)
-      if (cmRec) updateEvidenceContent(db, argusHome, detection, cmRec.id, content, cmMeta)
+      if (cmRec) updateEvidenceContent(db, argusHome, detection, queue, cmRec.id, content, cmMeta)
       else
         ingestContent(
           db,
           argusHome,
           detection,
+          queue,
           caseSlug,
           `${preview.key}.comments.md`,
           content,

@@ -12,13 +12,14 @@ import { argusToolHandlers, NATIVE_TOOL_SPECS } from '../nativeTools'
 import { agentAccessSchema } from '../../../../shared/agentAccess'
 import { MEMORY_SCOPES } from '../../../../shared/memoryScope'
 import type { DatabaseSync } from 'node:sqlite'
+import { createImmediateQueue } from '../../ingestQueue'
 
 let tmp: string, argusHome: string, db: DatabaseSync, caseId: number
 let handlers: ReturnType<typeof argusToolHandlers>
 const emitFinding = vi.fn()
 const detection = createDetection()
 
-beforeEach(() => {
+beforeEach(async () => {
   emitFinding.mockClear()
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-nt-'))
   argusHome = path.join(tmp, 'home')
@@ -27,7 +28,7 @@ beforeEach(() => {
   caseId = rec.id
   const src = path.join(tmp, 'log.txt')
   fs.writeFileSync(src, 'FATAL Navigator crashed at tile load\nline two\n')
-  ingestArtifact(db, argusHome, detection, 'NAV-1', src)
+  await ingestArtifact(db, argusHome, detection, createImmediateQueue(db, argusHome), 'NAV-1', src)
   handlers = argusToolHandlers({
     db,
     argusHome,
@@ -248,7 +249,17 @@ describe('argus native tools', () => {
   it('list_evidence shows a review session only artifacts', async () => {
     const src2 = path.join(tmp, 'ci-5.log')
     fs.writeFileSync(src2, 'log body\n')
-    ingestArtifact(db, argusHome, detection, 'NAV-1', src2, 'ci', {}, 'review')
+    await ingestArtifact(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-1',
+      src2,
+      'ci',
+      {},
+      'review'
+    )
     const reviewSession = createSession(db, 'NAV-1', {
       driverKind: 'claude-agent-sdk',
       mode: 'review'
@@ -270,7 +281,17 @@ describe('argus native tools', () => {
   it('search_evidence follows the session mode in both directions', async () => {
     const src2 = path.join(tmp, 'ci-5.log')
     fs.writeFileSync(src2, 'FATAL Navigator crashed inside the review artifact\n')
-    ingestArtifact(db, argusHome, detection, 'NAV-1', src2, 'ci', {}, 'review')
+    await ingestArtifact(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-1',
+      src2,
+      'ci',
+      {},
+      'review'
+    )
 
     // Both sessions are created explicitly: the beforeEach `handlers` uses a hardcoded
     // sessionId of 1 with no sessions row, and createSession would claim that id.
@@ -303,7 +324,17 @@ describe('argus native tools', () => {
     const src2 = path.join(tmp, 'ci-5.log')
     fs.writeFileSync(src2, 'log body\n')
     // ingested into the review tree, while `handlers` runs on the default investigation session
-    const rec = ingestArtifact(db, argusHome, detection, 'NAV-1', src2, 'ci', {}, 'review')
+    const rec = await ingestArtifact(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-1',
+      src2,
+      'ci',
+      {},
+      'review'
+    )
     const out = JSON.parse(await handlers.get_artifact_meta({ evidence_id: rec.id }))
     expect(out.relPath).toBe('artifacts/ci-5.log')
   })

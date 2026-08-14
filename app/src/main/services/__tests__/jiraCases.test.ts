@@ -7,7 +7,9 @@ import { openDb } from '../db'
 import { caseDir } from '../paths'
 import { listEvidence } from '../ingest'
 import { createDetection } from '../packs/detection'
-import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
+import { samplePackRegistry } from '../packs/__tests__/fixtures'
+import { createImmediateQueue, type IngestJob } from '../ingestQueue'
+import { readIndexState } from '../indexState'
 import { JiraCases, type AtlassianClientLike } from '../jiraCases'
 import { createCase, getCase, setCaseJiraDeselected } from '../caseService'
 import { deriveActionItems } from '../../../shared/triage'
@@ -92,21 +94,27 @@ function zipClient(
 
 function service(
   client: AtlassianClientLike,
-  onParsing?: (evidenceId: number, active: boolean) => void,
+  onEnqueue?: (job: IngestJob) => void,
   limitsOverride?: Partial<import('../archiveExtract').ArchiveLimits>
 ): JiraCases {
+  // Indexes inline (so FTS assertions below hold) while recording what was handed over —
+  // JiraCases' contract is now "enqueue it", not "index and extract it".
+  const immediate = createImmediateQueue(db, argusHome)
   return new JiraCases({
     db,
     argusHome,
     detection,
     client,
     site: () => 'https://acme.atlassian.net',
-    // resolvable so the mkdirSync-failure test below still reaches the extraction attempt;
-    // no test here asserts on successful derived text (see extraction.test.ts for that).
-    extractors: stubExtractors('binlog'),
+    queue: {
+      enqueue: (job) => {
+        immediate.enqueue(job)
+        onEnqueue?.(job)
+      },
+      abort: (id) => immediate.abort(id)
+    },
     emitProgress: (p) => progress.push(p),
     evidenceChanged: (slug) => changed.push(slug),
-    parsing: (_slug, evidenceId, active) => onParsing?.(evidenceId, active),
     archiveLimits: limitsOverride
   })
 }
@@ -179,6 +187,7 @@ describe('JiraCases.createFromTicket', () => {
       db,
       argusHome,
       detection,
+      createImmediateQueue(db, argusHome),
       'NAV-7',
       'notes.txt',
       Buffer.from('seen in prod'),
@@ -254,37 +263,39 @@ describe('JiraCases.ingestAttachments', () => {
   // extraction is fire-and-forget: flush pending microtasks/timers before asserting
   const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
 
-  it('emits parsing start/stop around extraction', async () => {
-    const parsing: Array<{ evidenceId: number; active: boolean }> = []
+  // Indexing + extraction (and the progress they report) moved behind IngestQueue; what
+  // JiraCases still owns is handing every downloaded attachment to that queue.
+  it('enqueues the downloaded attachment for background indexing', async () => {
+    const jobs: IngestJob[] = []
     const svc = service(
       fakeClient(() => issue()),
-      (evidenceId, active) => parsing.push({ evidenceId, active })
+      (job) => jobs.push(job)
     )
     await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
-    await svc.ingestAttachments('NAV-7', [att('10001', 'log.txt')])
+    const before = jobs.length
+    const [done] = await svc.ingestAttachments('NAV-7', [att('10001', 'log.txt')])
     await settle()
-    expect(parsing.length).toBe(2)
-    expect(parsing[0].active).toBe(true)
-    expect(parsing[1].active).toBe(false)
-    expect(parsing[0].evidenceId).toBe(parsing[1].evidenceId)
+    const forAttachment = jobs.slice(before)
+    expect(forAttachment).toHaveLength(1)
+    expect(forAttachment[0]).toMatchObject({ caseSlug: 'NAV-7', evidenceId: done.evidenceId })
+    expect(fs.existsSync(forAttachment[0].absPath)).toBe(true)
   })
 
-  it('emits parsing stop even when extraction rejects (sync setup failure)', async () => {
-    const parsing: Array<{ evidenceId: number; active: boolean }> = []
+  it('enqueues nothing for a non-indexable attachment but still ingests it', async () => {
+    const jobs: IngestJob[] = []
     const svc = service(
       fakeClient(() => issue()),
-      (evidenceId, active) => parsing.push({ evidenceId, active })
+      (job) => jobs.push(job)
     )
     await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
-    // extractDerivedText's fs.mkdirSync(evidence/.derived) sits OUTSIDE its try/catch;
-    // planting a file there makes the async fn reject before its internal error handling.
-    fs.writeFileSync(path.join(caseDir(argusHome, 'NAV-7'), 'evidence', '.derived'), 'not a dir')
-    // .binlog filename → artifactType 'binlog' → extraction actually runs (log.txt short-circuits)
-    await svc.ingestAttachments('NAV-7', [att('10004', 'trace.binlog')])
+    const before = jobs.length
+    // .binlog is a binary pack type: nothing to index, so no job — the row is born 'skipped'.
+    const [done] = await svc.ingestAttachments('NAV-7', [att('10004', 'trace.binlog')])
     await settle()
-    expect(parsing.length).toBe(2)
-    expect(parsing[0].active).toBe(true)
-    expect(parsing[1].active).toBe(false)
+    expect(done.status).toBe('done')
+    expect(jobs.slice(before)).toHaveLength(0)
+    const rec = listEvidence(db, 'NAV-7').find((e) => e.id === done.evidenceId)!
+    expect(readIndexState(rec.meta)).toBe('skipped')
   })
 
   it('sanitizes hostile filenames into the evidence dir', async () => {

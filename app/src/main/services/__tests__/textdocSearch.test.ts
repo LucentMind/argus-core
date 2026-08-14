@@ -10,11 +10,12 @@ import { createDetection } from '../packs/detection'
 import { TextDocSearchHub } from '../textdocSearch'
 import { __clearIndexCacheForTests, sidecarPath } from '../lineIndex'
 import type { TextDocSearchEvent } from '../../../shared/textdoc'
+import { createImmediateQueue } from '../ingestQueue'
 
 let tmp: string, argusHome: string, db: DatabaseSync, evidenceId: number
 const detection = createDetection()
 
-beforeEach(() => {
+beforeEach(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-th-'))
   argusHome = path.join(tmp, 'home')
   db = openDb(path.join(argusHome, 'argus.db'))
@@ -26,7 +27,16 @@ beforeEach(() => {
       '\n'
     ) + '\n'
   )
-  evidenceId = ingestArtifact(db, argusHome, detection, 'NAV-2', src).id
+  evidenceId = (
+    await ingestArtifact(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-2',
+      src
+    )
+  ).id
   __clearIndexCacheForTests()
 })
 afterEach(() => {
