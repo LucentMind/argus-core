@@ -54,7 +54,7 @@ describe("the ingest queue's extract callback skips derived rows", () => {
     ).toBeGreaterThan(extractIndex)
     expect(
       guardIndex,
-      "the derivedFrom guard appears AFTER the extract callback has already closed — it must " +
+      'the derivedFrom guard appears AFTER the extract callback has already closed — it must ' +
         'be inside the callback body, not after it.'
     ).toBeLessThan(nextFieldIndex)
   })

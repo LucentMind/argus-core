@@ -529,11 +529,22 @@ describe('IngestQueue', () => {
     expect(indexStateOf(idGhost)).toBe('indexed')
   })
 
-  // Regression pin for the abort guard runExtraction now carries. An extractor run
-  // costs up to EXTRACT_TIMEOUT_MS (10 minutes) and, for a row that is being deleted,
-  // ends by writing a derived file whose parent lookup then throws inside
-  // extractDerivedText -- an orphan under .derived/ that nothing cleans up.
-  it('never runs extraction for an aborted job (index:false, whose only phase is extraction)', async () => {
+  // Pins the PRE-ENQUEUE abort path only: this aborts before enqueue, so what makes it
+  // pass is runJobInner's opening check, NOT the abort guard at the top of runExtraction.
+  //
+  // That guard is unreachable today and this test does not cover it -- verified by
+  // deleting the guard outright and watching all 1460 main-process tests stay green.
+  // The queue is serial and there is no await between either abort check and the
+  // runExtraction call, so the flag cannot change value across the gap.
+  //
+  // The real leak the guard was aimed at is still OPEN: an abort landing while the
+  // extractor is ALREADY RUNNING lets it complete and write its output, and
+  // ingestDerived's parent lookup then throws inside extractDerivedText, leaving an
+  // orphan under .derived/. Closing it does not need an AbortSignal -- the throw
+  // happens BEFORE the INSERT, so scoping an unlink to the pre-INSERT failure paths
+  // covers it (and every other registration failure). Do not read this test as
+  // evidence that case is handled.
+  it('skips extraction for a job aborted before it was ever enqueued (index:false)', async () => {
     const bin = makeFile('bin.png', 50)
     const id = insertEvidence('evidence/bin.png', bin.size, 'skipped')
     const extracted: number[] = []

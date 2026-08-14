@@ -29,9 +29,7 @@ export class FtsChunkWriter {
       `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
        VALUES (?, ?, ?, ?, ?)`
     )
-    this.insMap = db.prepare(
-      `INSERT INTO evidence_fts_map (fts_rowid, evidence_id) VALUES (?, ?)`
-    )
+    this.insMap = db.prepare(`INSERT INTO evidence_fts_map (fts_rowid, evidence_id) VALUES (?, ?)`)
   }
 
   add(line: string, lineNo: number): void {
@@ -71,7 +69,10 @@ export class CheckpointRecorder {
 
   record(lineNo: number, byteStart: number): void {
     if (!this.enabled) return
-    if (lineNo - this.lastLine >= CHECKPOINT_LINES || byteStart - this.lastByte >= CHECKPOINT_BYTES) {
+    if (
+      lineNo - this.lastLine >= CHECKPOINT_LINES ||
+      byteStart - this.lastByte >= CHECKPOINT_BYTES
+    ) {
       this.points.push([lineNo, byteStart])
       this.lastLine = lineNo
       this.lastByte = byteStart
