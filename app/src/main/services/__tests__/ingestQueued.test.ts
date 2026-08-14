@@ -76,6 +76,14 @@ describe('ingest enqueues instead of indexing inline', () => {
     // to index) whose pack declares an extract command, and assert derived text lands.
     const extractors = stubExtractors('binlog')
     const changed: string[] = []
+    // NOTE: this test fixture's `extract` callback intentionally omits the
+    // `meta.derivedFrom` recursion guard that main/index.ts's real callback has (see the
+    // comment above `if (rec.meta.derivedFrom !== undefined) return false` there, and
+    // main/__tests__/extractDerivedFromGuard.test.ts which pins it). It is safe HERE only
+    // because `binlog` is the sole pack fixture with an extract command and derived text is
+    // never re-classified as `binlog`, so this fixture never recurses. Do not copy this
+    // shape into production code — production needs the guard because a pack declaring an
+    // extract command for the derived `text` artifact type would otherwise recurse forever.
     const queue = new IngestQueue({
       db,
       argusHome,
