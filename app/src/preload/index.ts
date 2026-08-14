@@ -240,15 +240,40 @@ const argus = {
       ipcRenderer.on(IPC.evidenceChanged, listener)
       return () => ipcRenderer.removeListener(IPC.evidenceChanged, listener)
     },
-    onParsing: (
-      cb: (p: { slug: string; evidenceId: number; active: boolean }) => void
+    /**
+     * Per-file ingest progress. Note there is NO guaranteed terminal event: a job
+     * aborted (evidence deleted mid-index) emits nothing further, so a consumer
+     * must key its state by evidenceId and drop rows that go away, not wait for a
+     * matching 'done'.
+     */
+    onProgress: (
+      cb: (p: {
+        slug: string
+        evidenceId: number
+        phase: 'indexing' | 'extracting' | 'done' | 'error'
+        fraction: number
+      }) => void
     ): (() => void) => {
-      const listener = (
-        _e: unknown,
-        p: { slug: string; evidenceId: number; active: boolean }
-      ): void => cb(p)
-      ipcRenderer.on(IPC.evidenceParsing, listener)
-      return () => ipcRenderer.removeListener(IPC.evidenceParsing, listener)
+      const listener = (_e: unknown, p: Parameters<typeof cb>[0]): void => cb(p)
+      ipcRenderer.on(IPC.evidenceProgress, listener)
+      return () => ipcRenderer.removeListener(IPC.evidenceProgress, listener)
+    },
+    /**
+     * Aggregate queue progress for one case. Drive a bar off bytes when
+     * bytesTotal > 0 and off files otherwise: bytes count indexable jobs only.
+     */
+    onQueueProgress: (
+      cb: (p: {
+        slug: string
+        filesDone: number
+        filesTotal: number
+        bytesDone: number
+        bytesTotal: number
+      }) => void
+    ): (() => void) => {
+      const listener = (_e: unknown, p: Parameters<typeof cb>[0]): void => cb(p)
+      ipcRenderer.on(IPC.evidenceQueueProgress, listener)
+      return () => ipcRenderer.removeListener(IPC.evidenceQueueProgress, listener)
     }
   },
   textdoc: {
