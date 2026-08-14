@@ -9,7 +9,9 @@ describe('rca template defaults', () => {
   })
 
   it('materializes the default template on an existing rca block that predates it', () => {
-    const s = settingsSchema.parse({ rca: { techDestination: 'confluence-page', confluenceSpaceKey: 'ENG' } })
+    const s = settingsSchema.parse({
+      rca: { techDestination: 'confluence-page', confluenceSpaceKey: 'ENG' }
+    })
     expect(s.rca.techDestination).toBe('confluence-page')
     expect(s.rca.confluenceSpaceKey).toBe('ENG')
     expect(s.rca.template.exec.map((x) => x.id)).toEqual([
@@ -53,7 +55,11 @@ describe('rca template defaults', () => {
   })
 
   it('rejects a claims section with no slot', () => {
-    const bad = { rca: { template: { exec: [], tech: [{ id: 'x', heading: 'X', kind: 'claims', enabled: true }] } } }
+    const bad = {
+      rca: {
+        template: { exec: [], tech: [{ id: 'x', heading: 'X', kind: 'claims', enabled: true }] }
+      }
+    }
     expect(() => settingsSchema.parse(bad)).toThrow()
   })
 
@@ -65,7 +71,13 @@ describe('rca template defaults', () => {
       rca: {
         template: {
           exec: [
-            { id: 'exec-root-cause', heading: 'Root cause', kind: 'claims', slot: 'root-cause', enabled: true }
+            {
+              id: 'exec-root-cause',
+              heading: 'Root cause',
+              kind: 'claims',
+              slot: 'root-cause',
+              enabled: true
+            }
           ],
           tech: []
         }
@@ -80,7 +92,13 @@ describe('rca template defaults', () => {
         template: {
           exec: [],
           tech: [
-            { id: 'tech-root-cause', heading: 'Root cause', kind: 'claims', slot: 'root-cause', enabled: true }
+            {
+              id: 'tech-root-cause',
+              heading: 'Root cause',
+              kind: 'claims',
+              slot: 'root-cause',
+              enabled: true
+            }
           ]
         }
       }
