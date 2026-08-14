@@ -110,7 +110,8 @@ describe('assembleDistillInput', () => {
       timeline: [],
       remediation: { immediate: '', followUps: [] },
       execSummary: { whatBroke: '', impact: '', why: '', nextSteps: '' },
-      techNarrative: []
+      techNarrative: [],
+      sections: {}
     }
     const dir = artifactsDir(home, 'case-a')
     fs.mkdirSync(dir, { recursive: true })

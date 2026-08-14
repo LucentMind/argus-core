@@ -46,7 +46,8 @@ const SAMPLE_DRAFT: RcaDraft = {
   timeline: [],
   remediation: { immediate: '', followUps: [] },
   execSummary: { whatBroke: '', impact: '', why: '', nextSteps: '' },
-  techNarrative: []
+  techNarrative: [],
+  sections: {}
 }
 
 describe('tool descriptions honour an injected resolver', () => {

@@ -129,7 +129,8 @@ describe('assembleRcaInput', () => {
       timeline: [],
       remediation: { immediate: 'now', followUps: [] },
       execSummary: { whatBroke: 'a', impact: 'b', why: 'c', nextSteps: 'd' },
-      techNarrative: []
+      techNarrative: [],
+      sections: {}
     }
     const input = assembleRcaInput(db, home, 'case-d', prior)
     expect(input.priorDraft).toBe(prior)
