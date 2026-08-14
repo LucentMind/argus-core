@@ -18,6 +18,7 @@ import { panelHandlesType, type PanelDecl } from '../../../shared/panels'
 import { MAX_WHOLE_FILE_BYTES } from '../../../shared/textdoc'
 import type { ModeId } from '../../../shared/modes'
 import type { EvidencePhase } from '../../../shared/evidenceProgress'
+import { IngestProgressBar } from './IngestProgressBar'
 
 const TEXT_LIKE = /\.(md|txt|log|json|jsonl|yaml|yml|csv)$/i
 
@@ -454,6 +455,7 @@ export function CaseFiles({
           dragOver ? 'border-signal/60 bg-signal/10' : 'border-hair'
         }`}
       >
+        <IngestProgressBar caseSlug={caseSlug} />
         <ul className="min-h-0 flex-1 overflow-y-auto p-2 text-xs">
           {/* Outside the skeleton gate: a drop in flight (or its error) is real content, not a
               placeholder, and must never be hidden behind usePendingDisplay's delay/min-hold —
