@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS rca_jobs (
   post_results TEXT,
   template_snapshot TEXT,
   dropped_sections TEXT,
+  meta_snapshot TEXT,
   created_at TEXT NOT NULL,
   finished_at TEXT
 );
@@ -480,6 +481,15 @@ export function openDb(file: string): DatabaseSync {
     // `{"exec":[…],"tech":[…]}`. NULL means "nothing dropped", which is what lets a row
     // written before this column still re-render its confirmed bytes.
     db.exec(`ALTER TABLE rca_jobs ADD COLUMN dropped_sections TEXT`)
+  }
+  if (!rcaJobCols.some((c) => c.name === 'meta_snapshot')) {
+    // The exact `caseMeta` (title/jiraKey/slug/…) used to render the two confirmed report
+    // files, as JSON. Both fields are mutable after confirm — most commonly linking Jira,
+    // which is required before the report can be posted at all — so re-rendering under LIVE
+    // case meta would make an untouched report falsely read as hand-edited. NULL means a row
+    // confirmed before this column existed; handEditedReports falls back to live case meta
+    // for those, which reproduces today's behaviour rather than a new one.
+    db.exec(`ALTER TABLE rca_jobs ADD COLUMN meta_snapshot TEXT`)
   }
   const sessionCols = db.prepare(`PRAGMA table_info(sessions)`).all() as { name: string }[]
   if (!sessionCols.some((c) => c.name === 'run_options')) {

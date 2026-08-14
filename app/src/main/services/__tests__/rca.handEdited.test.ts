@@ -4,7 +4,7 @@ import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
-import { createCase } from '../caseService'
+import { createCase, setCaseJira, setCaseTriage } from '../caseService'
 import { artifactsDir } from '../paths'
 import { reportFile } from '../rca/artifacts'
 import { handEditedReports } from '../rca/handEdited'
@@ -193,6 +193,71 @@ describe('handEditedReports', () => {
     fs.mkdirSync(reportFile(home, 'case-a', 'exec'))
     // Confirm the fixture actually produces a non-ENOENT error before relying on it.
     expect(() => fs.readFileSync(reportFile(home, 'case-a', 'exec'), 'utf8')).toThrow(/EISDIR/)
+    expect(() => handEditedReports({ db, argusHome: home }, 'case-a')).not.toThrow()
+    expect(handEditedReports({ db, argusHome: home }, 'case-a')).toEqual({
+      exec: false,
+      tech: false
+    })
+  })
+
+  // Regression: caseMeta must be snapshotted at confirm and replayed from that snapshot, not
+  // rebuilt from the live case row. Both rendered reports embed meta (title/jiraKey/slug), and
+  // both are mutable after confirm — most commonly linking Jira, which is required before the
+  // report can be posted at all. Re-rendering under LIVE meta after that link makes an untouched
+  // report falsely read as hand-edited.
+  it('reports neither edited after the case gains a Jira link post-confirm', async () => {
+    await confirmCase('case-a')
+    setCaseJira(db, home, 'case-a', {
+      key: 'ARGUS-123',
+      site: 'example.atlassian.net',
+      lastSyncedAt: '2026-01-02'
+    })
+    expect(handEditedReports({ db, argusHome: home }, 'case-a')).toEqual({
+      exec: false,
+      tech: false
+    })
+  })
+
+  it('reports neither edited after the case title changes post-confirm', async () => {
+    await confirmCase('case-a')
+    setCaseTriage(db, home, 'case-a', { title: 'A renamed title' })
+    expect(handEditedReports({ db, argusHome: home }, 'case-a')).toEqual({
+      exec: false,
+      tech: false
+    })
+  })
+
+  it('still detects a genuine hand-edit after the case meta changes post-confirm', async () => {
+    await confirmCase('case-a')
+    setCaseJira(db, home, 'case-a', {
+      key: 'ARGUS-123',
+      site: 'example.atlassian.net',
+      lastSyncedAt: '2026-01-02'
+    })
+    fs.writeFileSync(reportFile(home, 'case-a', 'exec'), '# hand written')
+    expect(handEditedReports({ db, argusHome: home }, 'case-a')).toEqual({
+      exec: true,
+      tech: false
+    })
+  })
+
+  it("falls back to live case meta (today's behaviour) when meta_snapshot is NULL, rather than reporting a false result", async () => {
+    await confirmCase('case-a')
+    db.prepare(`UPDATE rca_jobs SET meta_snapshot = NULL WHERE case_slug = ?`).run('case-a')
+    // Meta unchanged from confirm — the live row and the (missing) snapshot agree either way,
+    // so the NULL-fallback path still reports "not edited".
+    expect(handEditedReports({ db, argusHome: home }, 'case-a')).toEqual({
+      exec: false,
+      tech: false
+    })
+    // And the fallback still catches a genuine hand-edit.
+    fs.writeFileSync(reportFile(home, 'case-a', 'tech'), '# hand written')
+    expect(handEditedReports({ db, argusHome: home }, 'case-a').tech).toBe(true)
+  })
+
+  it('degrades a malformed meta_snapshot to the live-meta fallback rather than throwing', async () => {
+    await confirmCase('case-a')
+    db.prepare(`UPDATE rca_jobs SET meta_snapshot = 'not json' WHERE case_slug = ?`).run('case-a')
     expect(() => handEditedReports({ db, argusHome: home }, 'case-a')).not.toThrow()
     expect(handEditedReports({ db, argusHome: home }, 'case-a')).toEqual({
       exec: false,
