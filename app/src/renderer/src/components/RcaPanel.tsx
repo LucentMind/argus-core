@@ -276,10 +276,14 @@ export function RcaPanel({
 
   async function openEditor(): Promise<void> {
     setSaveError(null)
-    const md = await window.argus.rca.readMarkdown(slug)
-    if (!md) return
-    setEditBody(md[tab])
-    setEditing(true)
+    try {
+      const md = await window.argus.rca.readMarkdown(slug)
+      if (!md) return
+      setEditBody(md[tab])
+      setEditing(true)
+    } catch (err) {
+      setSaveError((err as Error).message)
+    }
   }
 
   async function saveEditor(): Promise<void> {
@@ -518,6 +522,11 @@ export function RcaPanel({
                 {job.confirmedAt && !editing && <Btn onClick={() => void openEditor()}>Edit</Btn>}
                 {handEdited[tab] && <Chip tone="review">edited</Chip>}
               </div>
+              {/* Rendered outside the `editing` branch: a failed openEditor() read never flips
+                  `editing` to true, and a failed post-save handEdited() re-check runs after
+                  saveEditor() already flips `editing` back to false — either way the message
+                  must stay visible once `editing` is false. */}
+              {saveError && <p className="text-xs text-danger">{saveError}</p>}
               {editing ? (
                 <div className="flex flex-col gap-2">
                   <textarea
@@ -532,7 +541,6 @@ export function RcaPanel({
                       Save
                     </Btn>
                     <Btn onClick={() => setEditing(false)}>Cancel</Btn>
-                    {saveError && <span className="text-xs text-danger">{saveError}</span>}
                   </div>
                 </div>
               ) : (
