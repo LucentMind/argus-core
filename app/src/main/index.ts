@@ -141,9 +141,15 @@ import {
   getCase
 } from './services/caseService'
 import { OnboardingService, resolveSampleAssetsDir } from './services/onboarding'
-import { ingestArtifact, ingestBytes, listEvidence, deleteEvidence } from './services/ingest'
+import {
+  ingestArtifact,
+  ingestBytes,
+  listEvidence,
+  deleteEvidence,
+  getEvidenceRecord
+} from './services/ingest'
 import { extractDerivedText } from './services/extraction'
-import { createImmediateQueue, type IngestQueueLike } from './services/ingestQueue'
+import { IngestQueue, requeuePendingIndexes } from './services/ingestQueue'
 import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
 import { createCaseWatchHub } from './services/caseWatch'
 import { createProposalsWatch } from './services/proposalsWatch'
@@ -789,48 +795,35 @@ function registerIpc(): void {
     broadcast(IPC.evidenceChanged, slug)
   }
 
-  // INTERIM WIRING (task 5 of the background-indexing plan) — REPLACE IN TASK 6.
+  // The one ingest queue. Every path that registers evidence enqueues here, and this is
+  // the only place FTS indexing and pack extraction run — off the ingest call's critical
+  // path, one job at a time, with progress published to the renderer.
   //
-  // Task 6 constructs the real `new IngestQueue({ db, argusHome, extract, onItemProgress,
-  // onQueueProgress, onEvidenceChanged })` here and deletes this shim wholesale. Until then
-  // this preserves today's OBSERVABLE behaviour exactly: `createImmediateQueue` indexes
-  // synchronously (so ingest is still search-ready on return) and the wrapper below keeps the
-  // fire-and-forget extraction kick plus its `evidence:parsing` broadcasts, which used to live
-  // inline at each ingest call site and have now moved behind this seam.
-  const ingestQueue: IngestQueueLike = (() => {
-    const immediate = createImmediateQueue(db, argusHome)
-    return {
-      enqueue(job) {
-        immediate.enqueue(job)
-        const rec = listEvidence(db, job.caseSlug, 'all').find((e) => e.id === job.evidenceId)
-        if (!rec) return
-        broadcast(IPC.evidenceParsing, {
-          slug: job.caseSlug,
-          evidenceId: job.evidenceId,
-          active: true
-        })
-        // extractDerivedText CAN reject (its sync setup — db lookup, mkdirSync — runs
-        // outside its internal try/catch); swallow the fire-and-forget rejection explicitly.
-        void extractDerivedText(db, argusHome, immediate, rec, extractors)
-          .then((derived) => {
-            if (derived) evidenceChangedB(job.caseSlug)
-          })
-          .catch((err) =>
-            console.warn(`[ingest] extraction failed for ${rec.relPath}: ${(err as Error).message}`)
-          )
-          .finally(() =>
-            broadcast(IPC.evidenceParsing, {
-              slug: job.caseSlug,
-              evidenceId: job.evidenceId,
-              active: false
-            })
-          )
-      },
-      abort() {
-        // Nothing to cancel: `immediate.enqueue` finished indexing before it returned.
-      }
-    }
-  })()
+  // Constructed before jiraService, onboardingService and the evidence IPC handlers,
+  // because they all take it as a dependency.
+  const ingestQueue: IngestQueue = new IngestQueue({
+    db,
+    argusHome,
+    // Re-reads the row by id rather than closing over a record: by the time the queue
+    // reaches this job the row may have been rewritten (or deleted) since it was enqueued.
+    extract: async (evidenceId) => {
+      const rec = getEvidenceRecord(db, evidenceId)
+      if (!rec) return false
+      // A derived row is extraction's OUTPUT, so it is never its input. Skipping it is
+      // not just an optimisation: ingestDerived enqueues the row it writes, so a pack
+      // declaring an extract command for the derived type would otherwise recurse
+      // forever, each run producing one more derived file.
+      if (rec.meta.derivedFrom !== undefined) return false
+      const derived = await extractDerivedText(db, argusHome, ingestQueue, rec, extractors)
+      return derived !== null
+    },
+    onItemProgress: (p) => broadcast(IPC.evidenceProgress, p),
+    onQueueProgress: (p) => broadcast(IPC.evidenceQueueProgress, p),
+    onEvidenceChanged: (slug) => evidenceChangedB(slug)
+  })
+  // A crash mid-index leaves rows stuck at 'pending'/'indexing' and silently unsearchable.
+  const requeued = requeuePendingIndexes(db, argusHome, ingestQueue)
+  if (requeued > 0) console.log(`[ingest] re-queued ${requeued} unfinished index(es) after restart`)
 
   const secretStore = new SecretStore(argusHome, safeStorage)
 

@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import {
   indexEvidenceFile,
@@ -6,7 +7,8 @@ import {
   deleteEvidenceIndex,
   IndexAbortedError
 } from './indexer'
-import { setIndexState } from './indexState'
+import { setIndexState, listPendingIndexEvidence } from './indexState'
+import { caseDir } from './paths'
 
 const ITEM_THROTTLE_MS = 100
 const QUEUE_THROTTLE_MS = 250
@@ -316,6 +318,43 @@ export class IngestQueue implements IngestQueueLike {
     }
     this.emitItem({ slug, evidenceId, phase: 'done', fraction: 1 }, true)
   }
+}
+
+/**
+ * Re-enqueue every evidence row whose index never finished.
+ *
+ * Called once at boot. Without it, a crash mid-index leaves that evidence
+ * permanently unsearchable with nothing on screen saying so. A row whose file
+ * has since vanished is marked 'error' instead of queued — a job that cannot
+ * succeed should not sit in the bar's denominator.
+ *
+ * Every row it returns was left at 'pending'/'indexing', which only an indexable
+ * row is ever set to, so each job is enqueued with index: true.
+ */
+export function requeuePendingIndexes(
+  db: DatabaseSync,
+  argusHome: string,
+  queue: IngestQueueLike
+): number {
+  let queued = 0
+  for (const row of listPendingIndexEvidence(db)) {
+    const absPath = path.join(caseDir(argusHome, row.caseSlug), ...row.relPath.split('/'))
+    if (!fs.existsSync(absPath)) {
+      setIndexState(db, row.id, 'error')
+      continue
+    }
+    // a partial index from the interrupted run would duplicate chunks
+    deleteEvidenceIndex(db, row.id)
+    queue.enqueue({
+      caseSlug: row.caseSlug,
+      evidenceId: row.id,
+      absPath,
+      size: row.size,
+      index: true
+    })
+    queued++
+  }
+  return queued
 }
 
 /**

@@ -44,7 +44,12 @@ const artifactMetaFixture: ArtifactTypeMeta[] = [
   { type: 'unknown', displayName: 'Unknown', analyzeSkill: null, isText: false }
 ]
 
-let parsingCb: (p: { slug: string; evidenceId: number; active: boolean }) => void
+let parsingCb: (p: {
+  slug: string
+  evidenceId: number
+  phase: 'indexing' | 'extracting' | 'done' | 'error'
+  fraction: number
+}) => void
 
 // the props every render needs beyond caseSlug/label/mode, which each test sets explicitly
 const requiredProps = { onOpenFile: vi.fn() }
@@ -61,7 +66,7 @@ beforeEach(() => {
     evidence: {
       ingest: vi.fn(async () => []),
       onChanged: vi.fn(() => () => {}),
-      onParsing: vi.fn((cb) => {
+      onProgress: vi.fn((cb) => {
         parsingCb = cb
         return () => {}
       }),
@@ -197,9 +202,9 @@ describe('CaseFiles', () => {
       <CaseFiles caseSlug="NAV-1" label="Evidence" mode="investigation" onOpenFile={vi.fn()} />
     )
     await screen.findByText('trace.binlog')
-    act(() => parsingCb({ slug: 'NAV-1', evidenceId: 1, active: true }))
+    act(() => parsingCb({ slug: 'NAV-1', evidenceId: 1, phase: 'extracting', fraction: 1 }))
     expect(screen.getByText('parsing…')).toBeTruthy()
-    act(() => parsingCb({ slug: 'NAV-1', evidenceId: 1, active: false }))
+    act(() => parsingCb({ slug: 'NAV-1', evidenceId: 1, phase: 'done', fraction: 1 }))
     expect(screen.queryByText('parsing…')).toBeNull()
   })
 
@@ -692,7 +697,7 @@ describe('CaseFiles "Open in"', () => {
       evidence: {
         list: vi.fn(async () => openInFixture),
         onChanged: vi.fn(() => () => {}),
-        onParsing: vi.fn(() => () => {})
+        onProgress: vi.fn(() => () => {})
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any

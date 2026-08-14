@@ -146,12 +146,15 @@ export function CaseFiles({
     const offEvidence = window.argus.evidence.onChanged?.((slug) => {
       if (slug === caseSlug) void reload()
     })
-    const offParsing = window.argus.evidence.onParsing((p) => {
+    // Interim shape: any non-terminal phase lights the existing `parsing…` hint and
+    // 'done'/'error' clears it. The determinate per-row bar this event can now drive
+    // is a separate change; this keeps today's behaviour on the new channel.
+    const offParsing = window.argus.evidence.onProgress((p) => {
       if (p.slug !== caseSlug) return
       setParsing((prev) => {
         const next = new Set(prev)
-        if (p.active) next.add(p.evidenceId)
-        else next.delete(p.evidenceId)
+        if (p.phase === 'done' || p.phase === 'error') next.delete(p.evidenceId)
+        else next.add(p.evidenceId)
         return next
       })
     })

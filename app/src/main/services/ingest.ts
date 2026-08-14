@@ -81,6 +81,19 @@ function rowToEvidence(r: EvidenceRow): EvidenceRecord {
 }
 
 /**
+ * One evidence row by id, or null if it is gone.
+ *
+ * Exists for deferred work (the ingest queue's extraction phase): a caller that
+ * runs later than the ingest that queued it must re-read the row rather than hold
+ * a record captured at enqueue time, since the row can be rewritten or deleted in
+ * between.
+ */
+export function getEvidenceRecord(db: DatabaseSync, evidenceId: number): EvidenceRecord | null {
+  const row = db.prepare(`SELECT * FROM evidence WHERE id = ?`).get(evidenceId)
+  return row ? rowToEvidence(row as unknown as EvidenceRow) : null
+}
+
+/**
  * Write the evidence row + .meta sidecar and enqueue indexing. Never indexes inline.
  *
  * Takes a precomputed `sha256`/`size` rather than re-reading the file it is

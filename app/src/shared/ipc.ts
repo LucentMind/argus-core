@@ -178,7 +178,10 @@ export const IPC = {
   filesOpen: 'files:open',
   filesReveal: 'files:reveal',
   filesChanged: 'files:changed',
-  evidenceParsing: 'evidence:parsing',
+  /** main → renderer: one evidence file's index/extract progress. */
+  evidenceProgress: 'evidence:progress',
+  /** main → renderer: a case's aggregate ingest-queue progress. */
+  evidenceQueueProgress: 'evidence:queue-progress',
   packsArtifactMeta: 'packs:artifact-meta',
   packsReferenceRouting: 'packs:reference-routing',
   packsList: 'packs:list',
