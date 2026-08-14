@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Plus, Trash2, ChevronUp, ChevronDown } from 'lucide-react'
 import { Btn } from '../ui'
 import { settingsStore } from '../../lib/settingsStore'
@@ -28,29 +28,79 @@ function freshId(template: RcaTemplate, report: ReportKey): string {
   }
 }
 
+/** A new section's starting instruction. The exec text carries the non-technical prohibition
+ *  because `RCA_CONTRACT` rule 6 enforces it whatever the instruction says — a new exec section
+ *  should read the way the rule already behaves rather than inviting the user to write something
+ *  the model will refuse. */
+const NEW_INSTRUCTION: Record<ReportKey, string> = {
+  exec: 'Describe what the model should write here, for a non-technical reader: no file paths, no code, no finding ids.',
+  tech: 'Describe what the model should write here.'
+}
+
 export function RcaTemplateSettings({ template }: { template: RcaTemplate }): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
+  /**
+   * The edit-in-progress template. `settingsStore.patch` is async with no optimistic update, so
+   * the `template` prop only refreshes once main has round-tripped and written settings.json.
+   * Composing each payload from the prop meant a second edit inside that window rebuilt from
+   * pre-first-edit state, and since `deepMerge` replaces arrays wholesale the later stale write
+   * won on disk — two quick "Add section" clicks minted the same id and lost a section.
+   */
+  const [draft, setDraft] = useState<RcaTemplate>(template)
+  /** Patches we have sent but not yet seen echoed back. While any are outstanding the prop is
+   *  behind local state, so adopting it would undo the very edits still in flight. */
+  const inflight = useRef(0)
+
+  useEffect(() => {
+    if (inflight.current === 0) setDraft(template)
+  }, [template])
 
   /** Always sends BOTH lists. `settings.rca` is an atomic path for `stripDefaults`, so the
    *  template is persisted whole-or-absent: a patch carrying one list would drop the other. */
-  function save(next: RcaTemplate): void {
+  async function save(next: RcaTemplate): Promise<void> {
+    // The schema rejects a narrative section with a blank instruction, and a rejected parse
+    // round-trips into `loadError`. Guard here rather than at the one field that can blank it:
+    // local state means a LATER unrelated edit would otherwise carry the blank along.
+    const blank = [...next.exec, ...next.tech].find(
+      (s) => s.kind === 'narrative' && !(s.instruction ?? '').trim()
+    )
+    if (blank) {
+      setError(
+        `"${blank.heading || blank.id}" needs an instruction — it tells the model what to write there.`
+      )
+      return
+    }
     setError(null)
-    void settingsStore.patch({ rca: { template: next } })
+    setDraft(next)
+    inflight.current++
+    try {
+      await settingsStore.patch({ rca: { template: next } })
+    } finally {
+      inflight.current--
+    }
+  }
+
+  /** Keystroke-level edit: local only, so typing never round-trips. Committed on blur. */
+  function editLocal(report: ReportKey, id: string, patch: Partial<RcaSection>): void {
+    setDraft((d) => ({
+      ...d,
+      [report]: d[report].map((s) => (s.id === id ? { ...s, ...patch } : s))
+    }))
   }
 
   function replace(report: ReportKey, sections: RcaSection[]): void {
-    save({ ...template, [report]: sections })
+    void save({ ...draft, [report]: sections })
   }
 
   function update(report: ReportKey, id: string, patch: Partial<RcaSection>): void {
     replace(
       report,
-      template[report].map((s) => (s.id === id ? { ...s, ...patch } : s))
+      draft[report].map((s) => (s.id === id ? { ...s, ...patch } : s))
     )
   }
 
   function move(report: ReportKey, index: number, delta: number): void {
-    const next = [...template[report]]
+    const next = [...draft[report]]
     const target = index + delta
     if (target < 0 || target >= next.length) return
     ;[next[index], next[target]] = [next[target], next[index]]
@@ -59,13 +109,13 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
 
   function add(report: ReportKey): void {
     replace(report, [
-      ...template[report],
+      ...draft[report],
       {
-        id: freshId(template, report),
+        id: freshId(draft, report),
         heading: 'New section',
         kind: 'narrative',
         enabled: true,
-        instruction: 'Describe what the model should write here.'
+        instruction: NEW_INSTRUCTION[report]
       }
     ])
   }
@@ -73,19 +123,8 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
   function remove(report: ReportKey, id: string): void {
     replace(
       report,
-      template[report].filter((s) => s.id !== id)
+      draft[report].filter((s) => s.id !== id)
     )
-  }
-
-  /** The settings schema rejects a narrative section with a blank instruction, so saving one
-   *  would round-trip into `loadError` and leave the field looking accepted. Block it here and
-   *  say why instead. */
-  function commitInstruction(report: ReportKey, s: RcaSection, value: string): void {
-    if (!value.trim()) {
-      setError(`"${s.heading}" needs an instruction — it tells the model what to write there.`)
-      return
-    }
-    update(report, s.id, { instruction: value })
   }
 
   function renderList(report: ReportKey): React.JSX.Element {
@@ -100,7 +139,7 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
           </Btn>
         </div>
         <ul aria-label={`${label} sections`} className="flex flex-col gap-1.5">
-          {template[report].map((s, i) => (
+          {draft[report].map((s, i) => (
             <li key={s.id} className="flex flex-col gap-1 rounded-r2 border border-hair p-2">
               <div className="flex items-center gap-2">
                 <input
@@ -111,8 +150,9 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
                 />
                 <input
                   aria-label={`Heading for ${s.heading} in the ${label}`}
-                  defaultValue={s.heading}
-                  onBlur={(e) => update(report, s.id, { heading: e.target.value })}
+                  value={s.heading}
+                  onChange={(e) => editLocal(report, s.id, { heading: e.target.value })}
+                  onBlur={() => void save(draft)}
                   onKeyDown={blurOnEscape}
                   className="min-w-0 flex-1 rounded-r1 border border-hair bg-overlay px-1.5 py-0.5 text-xs text-ink"
                 />
@@ -128,7 +168,7 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
                 <button
                   type="button"
                   aria-label={`Move ${s.heading} down in the ${label}`}
-                  disabled={i === template[report].length - 1}
+                  disabled={i === draft[report].length - 1}
                   onClick={() => move(report, i, 1)}
                   className="text-mute hover:text-ink disabled:opacity-40"
                 >
@@ -148,9 +188,10 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
               {s.kind === 'narrative' ? (
                 <textarea
                   aria-label={`Instruction for ${s.heading} in the ${label}`}
-                  defaultValue={s.instruction ?? ''}
+                  value={s.instruction ?? ''}
                   rows={2}
-                  onBlur={(e) => commitInstruction(report, s, e.target.value)}
+                  onChange={(e) => editLocal(report, s.id, { instruction: e.target.value })}
+                  onBlur={() => void save(draft)}
                   onKeyDown={blurOnEscape}
                   className="rounded-r1 border border-hair bg-overlay px-1.5 py-1 text-[11px] text-ink"
                 />
@@ -174,7 +215,9 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
           The sections each report is built from. Changes apply to reports generated from now on — a
           draft already generated keeps the template it was generated under.
         </p>
-        <Btn onClick={() => save(structuredClone(DEFAULT_RCA_TEMPLATE))}>Reset to defaults</Btn>
+        <Btn onClick={() => void save(structuredClone(DEFAULT_RCA_TEMPLATE))}>
+          Reset to defaults
+        </Btn>
       </div>
       {error && (
         <p role="alert" className="text-xs text-danger">

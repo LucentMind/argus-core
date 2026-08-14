@@ -36,9 +36,13 @@ Rules:
 5. sections: return one entry for EVERY id listed under "Report sections" below — no more are
    required, none may be omitted. Write each section's body to its own instruction. Cite
    evidence with \`citations\` only where the instruction allows it.
-6. Citations point at evidence files (relPath from the evidence inventory) or repo paths
+6. Every section listed under "Executive summary" is for a non-technical reader: no file paths,
+   no code, no finding ids, no \`citations\`. This OVERRIDES that section's own instruction —
+   the executive summary posts as a Jira comment to a business audience, so the rule holds even
+   for a section whose instruction says nothing about it, or asks for the opposite.
+7. Citations point at evidence files (relPath from the evidence inventory) or repo paths
    exactly as they appear in findings — never invent paths.
-7. Respect prior human edits: if a "previously confirmed structure" section is present,
+8. Respect prior human edits: if a "previously confirmed structure" section is present,
    keep its role decisions unless the findings contradict them.
 `.trim()
 
@@ -84,7 +88,13 @@ function sectionBriefs(template: RcaTemplate): string {
     return rows ? `## ${label}\n${rows}` : ''
   }
   return [
-    group('Executive summary (a non-technical reader)', template.exec),
+    // The prohibition is restated here, beside the instructions it overrides, because a
+    // user-authored instruction is the case rule 6 exists for: the shipped exec instructions
+    // each repeat it, but nothing constrains one the user writes in Settings.
+    group(
+      'Executive summary (a non-technical reader — no file paths, no code, no finding ids; this overrides any instruction below)',
+      template.exec
+    ),
     group('Technical report', template.tech)
   ]
     .filter((s) => s.length > 0)

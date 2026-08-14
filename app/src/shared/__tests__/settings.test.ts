@@ -256,6 +256,30 @@ describe('settings schema', () => {
     expect(reparsed.data).toEqual(patched)
   })
 
+  it('rejects a section id reused across the two report lists', () => {
+    // The model returns ONE flat `sections` record keyed by id and `narrativeBody` resolves from
+    // the id alone, so a duplicate makes the same body serve both reports — and since the tech
+    // instructions invite evidence paths, that is a direct route for technical prose into the
+    // non-technical exec Jira comment. The UI cannot mint a duplicate, but settings.json is
+    // hand-editable and the schema is the documented enforcement point.
+    const t = defaultSettings()
+    t.rca.template.tech.push({
+      id: 'exec-impact',
+      heading: 'Impact',
+      kind: 'narrative',
+      enabled: true,
+      instruction: 'Anything.'
+    })
+    const res = settingsSchema.safeParse(t)
+    expect(res.success).toBe(false)
+    if (res.success) return
+    expect(res.error.issues.some((i) => /exec-impact/.test(i.message))).toBe(true)
+  })
+
+  it('accepts the shipped default template, whose ids are all distinct', () => {
+    expect(settingsSchema.safeParse(defaultSettings()).success).toBe(true)
+  })
+
   it('ui.knowledgeStripDismissed defaults false and survives strip + re-parse when set', () => {
     expect(defaultSettings().ui.knowledgeStripDismissed).toBe(false)
     const set = settingsSchema.parse({ ui: { knowledgeStripDismissed: true } })
