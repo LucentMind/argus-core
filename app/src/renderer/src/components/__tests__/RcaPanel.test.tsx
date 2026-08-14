@@ -722,7 +722,11 @@ describe('RcaPanel', () => {
     expect(screen.queryByText('exec preview')).not.toBeInTheDocument()
   })
 
-  it('a confirmed report that is NOT hand-edited still displays the rendered preview', async () => {
+  it('regression guard: a confirmed report that is NOT hand-edited never triggers the on-disk read at all', async () => {
+    // This does NOT prove the hand-edited branch reads/shows disk text correctly — the other
+    // tests above cover that. It only proves the disk-read effect stays a no-op (and the pane
+    // keeps rendering the preview) when nothing is hand-edited, which is exactly the check that
+    // would have caught a version of the effect that read from disk unconditionally.
     handEdited.mockResolvedValue({ exec: false, tech: false })
     await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
     expect(await screen.findByText('exec preview')).toBeInTheDocument()
@@ -782,5 +786,31 @@ describe('RcaPanel', () => {
     } finally {
       process.off('unhandledRejection', onUnhandledRejection)
     }
+  })
+
+  it('switching tabs away and back does not hide that the exec pane is showing the rendered preview because the on-disk text could not be read', async () => {
+    // Regression for the fix-8 finding: the tab-switch handler unconditionally clears
+    // `saveError`, which used to be the ONLY signal that a hand-edited report's on-disk read had
+    // failed. An ordinary "click Technical report, click back to Exec summary" used to wipe that
+    // signal while `diskMarkdown` stayed null and the `edited` chip stayed lit — the user would
+    // read the rendered preview believing it was the text that posts, with no warning at all.
+    handEdited.mockResolvedValue({ exec: true, tech: false })
+    readMarkdown.mockReset().mockRejectedValue(new Error('disk read failed'))
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    expect(await screen.findByText('exec preview')).toBeInTheDocument()
+    expect(await screen.findByText('disk read failed')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^technical report$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^exec summary$/i }))
+
+    // saveError itself IS expected to be cleared by the tab-switch handler (unchanged, correct
+    // behaviour for the editor's own errors) ...
+    expect(screen.queryByText('disk read failed')).not.toBeInTheDocument()
+    // ... but a durable signal tied to the actual state (hand-edited with no disk text) must
+    // still tell the user the exec pane is not what will post, and the `edited` chip must not be
+    // left implying the opposite.
+    expect(screen.getByText(/could not be read/i)).toBeInTheDocument()
+    expect(screen.getByText('edited')).toBeInTheDocument() // the chip, exact match
+    expect(screen.getByText('exec preview')).toBeInTheDocument()
   })
 })
