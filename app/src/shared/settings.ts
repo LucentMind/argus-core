@@ -117,10 +117,8 @@ const rcaSchema = z.looseObject({
  *  default rather than being weakened because the field is free text. */
 export const DEFAULT_WATERMARK_TEXT = '_AI-assisted — drafted by Argus, reviewed before posting._'
 
-const watermarkTargetSchema = z.looseObject({
-  enabled: z.boolean(),
-  text: z.string()
-})
+const JIRA_WATERMARK = { enabled: true, text: DEFAULT_WATERMARK_TEXT }
+const GITHUB_WATERMARK = { enabled: false, text: DEFAULT_WATERMARK_TEXT }
 
 /**
  * A Markdown footer appended to comments ARGUS composes (`rca/post.ts`,
@@ -130,10 +128,31 @@ const watermarkTargetSchema = z.looseObject({
  *
  * Jira defaults ON: a Jira comment reads as a human ticket update, so disclosure matters
  * most there. GitHub defaults OFF so upgrading never silently changes what lands on a PR.
+ *
+ * Leaf `.default()`s are load-bearing, not decorative: `stripDefaults` recurses into
+ * `watermark.jira`/`watermark.github` (they are not in `SETTINGS_ATOMIC_PATHS`), so a single
+ * customized leaf is written to disk as a PARTIAL target — `{ text: '...' }` with no `enabled`.
+ * Without a default on `enabled` here, re-parsing that partial target on the next launch throws,
+ * which upstream falls back to `defaultSettings()` and then rewrites settings.json from
+ * scratch on the next `patch()` — silently discarding unrelated settings. A parent-level
+ * `.default()` alone (the previous shape) only fires when the whole key is absent; it does not
+ * help a partial target. Do NOT "fix" this by adding these paths to `SETTINGS_ATOMIC_PATHS`
+ * instead — that would round-trip the disk write but leave the reset-button idiom
+ * (`{ text: null }` → `deepMerge` deletes the key → re-parse) throwing instead of re-seeding.
  */
 const watermarkSchema = z.looseObject({
-  jira: watermarkTargetSchema.default(() => ({ enabled: true, text: DEFAULT_WATERMARK_TEXT })),
-  github: watermarkTargetSchema.default(() => ({ enabled: false, text: DEFAULT_WATERMARK_TEXT }))
+  jira: z
+    .looseObject({
+      enabled: z.boolean().default(JIRA_WATERMARK.enabled),
+      text: z.string().default(JIRA_WATERMARK.text)
+    })
+    .default(() => ({ ...JIRA_WATERMARK })),
+  github: z
+    .looseObject({
+      enabled: z.boolean().default(GITHUB_WATERMARK.enabled),
+      text: z.string().default(GITHUB_WATERMARK.text)
+    })
+    .default(() => ({ ...GITHUB_WATERMARK }))
 })
 
 const hivemindSchema = z.looseObject({

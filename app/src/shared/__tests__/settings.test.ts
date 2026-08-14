@@ -8,7 +8,8 @@ import {
   PERMISSION_MODES,
   BASE_PERMISSION_MODES,
   PERMISSION_MODE_LABELS,
-  MODE_BY_LABEL
+  MODE_BY_LABEL,
+  DEFAULT_WATERMARK_TEXT
 } from '../settings'
 
 describe('settings schema', () => {
@@ -269,5 +270,43 @@ describe('settings schema', () => {
     expect(BASE_PERMISSION_MODES).not.toContain('auto')
     expect(PERMISSION_MODES).toContain('auto')
     expect(BASE_PERMISSION_MODES).toEqual(PERMISSION_MODES.filter((m) => m !== 'auto'))
+  })
+
+  // Task 6 Critical: watermark.jira / watermark.github leaves had no leaf `.default()`, only
+  // the parent object did (fires only when the whole key is absent). A partial target — the
+  // normal shape after stripDefaults strips ONE customized leaf back to disk — failed re-parse
+  // entirely, which in production discarded unrelated settings on the next `patch()`. See
+  // DEFAULT_WATERMARK_TEXT / watermarkSchema in settings.ts for the fix.
+  it('fills a missing leaf on a partial watermark target instead of failing to parse', () => {
+    const jiraPartial = settingsSchema.parse({ watermark: { jira: { text: 'x' } } })
+    expect(jiraPartial.watermark.jira).toEqual({ enabled: true, text: 'x' })
+
+    const githubPartial = settingsSchema.parse({ watermark: { github: { enabled: true } } })
+    expect(githubPartial.watermark.github).toEqual({
+      enabled: true,
+      text: DEFAULT_WATERMARK_TEXT
+    })
+  })
+
+  it('round-trips a single customized watermark leaf through stripDefaults + parse', () => {
+    const patched = settingsSchema.parse(
+      deepMerge(defaultSettings(), { watermark: { jira: { text: 'Custom footer' } } })
+    )
+    const sparse = stripDefaults(patched, defaultSettings()) as Record<string, unknown>
+    // Only the customized leaf survives — this is exactly the partial-target shape that used to
+    // fail re-parse (the other target isn't even present as a key).
+    expect(sparse).toEqual({ watermark: { jira: { text: 'Custom footer' } } })
+    expect(settingsSchema.parse(sparse)).toEqual(patched)
+  })
+
+  it('re-seeds the default watermark text when the reset patch deletes the leaf', () => {
+    const patched = settingsSchema.parse(
+      deepMerge(defaultSettings(), { watermark: { jira: { text: 'Custom footer' } } })
+    )
+    // Mirrors ConnectorsSettings.tsx's reset idiom: patch with `{ text: null }` to delete the key.
+    const reset = deepMerge(patched, { watermark: { jira: { text: null } } })
+    // Must not throw — the pre-fix schema (no leaf default) rejected `enabled` alone as a target.
+    const reparsed = settingsSchema.parse(reset)
+    expect(reparsed.watermark.jira).toEqual({ enabled: true, text: DEFAULT_WATERMARK_TEXT })
   })
 })

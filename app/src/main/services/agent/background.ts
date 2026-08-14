@@ -71,7 +71,12 @@ export interface BackgroundTurnDeps {
   /** `settings.watermark.github`, forwarded to the background session's `post_review_comment`
    *  handler. Absent-safe like the rest of this group: a background/routine turn's writes are
    *  MEDIUM-risk asks, and every ask is DENIED under `unattended` (see risk.ts), so this getter
-   *  is never actually invoked today — defaulting it to disabled when absent costs nothing. */
+   *  is never actually invoked today — defaulting it to disabled when absent costs nothing.
+   *  Load-bearing facts a future editor must re-check before relying on that: `NATIVE_RISK`
+   *  pins `post_review_comment` to `ask`/MEDIUM ahead of the `toolRisk` override branch, and
+   *  `unattended` denies `ask` at both the native-tool and MCP-approval seams. If
+   *  `post_review_comment` ever stops being `ask` under `unattended`, make this field REQUIRED
+   *  instead of widening the disabled fallback. */
   githubWatermark?: () => WatermarkTarget
   /** Forwarded every session event (e.g. index.ts broadcast) so an open window can watch live. */
   onEvent?: (e: AgentEvent) => void

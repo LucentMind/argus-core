@@ -294,6 +294,32 @@ describe('postReviewComment', () => {
     expect(body).toBe(`body=**src/guard.ts:17**\n\nThis guard is inverted.\n\n${MARK}`)
   })
 
+  it('reads the watermark getter fresh on every post (late binding, no restart needed)', async () => {
+    const calls: string[][] = []
+    const gh: Runner = async (_cmd, args) => {
+      calls.push(args)
+      if (args[0] === 'pr') return HEAD_JSON
+      return JSON.stringify({ html_url: 'https://github.com/acme/widget/pull/42#discussion_r1' })
+    }
+    let text = 'first footer'
+    const githubWatermark = (): WatermarkTarget => ({ enabled: true, text })
+    const id1 = seedFinding()
+    await postReviewComment({ db, argusHome: home, gh, githubWatermark }, 'c1', {
+      findingId: id1,
+      body: 'body one'
+    })
+    text = 'second footer' // simulates the user editing the setting mid-session
+    const id2 = seedFinding()
+    await postReviewComment({ db, argusHome: home, gh, githubWatermark }, 'c1', {
+      findingId: id2,
+      body: 'body two'
+    })
+    const firstBody = calls[1].find((a) => a.startsWith('body='))!
+    const secondBody = calls[3].find((a) => a.startsWith('body='))!
+    expect(firstBody).toContain('first footer')
+    expect(secondBody).toContain('second footer')
+  })
+
   it('still rejects an empty body when the watermark is enabled', async () => {
     const gh: Runner = async () => HEAD_JSON
     const id = seedFinding()
