@@ -15,8 +15,7 @@ import { applyReportRoles } from '../findings'
 import { artifactsDir } from '../paths'
 import { buildCaseRcaPrompt } from './contract'
 import { parseRcaOutput, validateRcaDraft, RcaParseError } from './parse'
-import { renderExecReport, renderTechReport } from './render'
-import { DEFAULT_RCA_TEMPLATE, type RcaTemplate } from '../../../shared/rcaTemplate'
+import { renderExecReport, renderTechReport, templateFromSnapshot } from './render'
 import type { AppSettings } from '../../../shared/settings'
 
 export interface RcaJobsDeps {
@@ -74,31 +73,6 @@ function toRow(r: JobDbRow): RcaJobRow {
   }
 }
 
-/** A missing (pre-column row), malformed, or structurally invalid snapshot degrades to the
- *  default template — same posture as `parsePostResults`: a read must never fail on a row
- *  written by an older build. The default renders byte-identically to the pre-template
- *  output, so an old job confirms exactly as it would have before. Both fallbacks return a
- *  fresh `structuredClone` (matching `settings.ts`'s own default), never the shared
- *  `DEFAULT_RCA_TEMPLATE` singleton, so no caller can mutate the process-wide constant. */
-function parseTemplate(raw: string | null): RcaTemplate {
-  if (!raw) return structuredClone(DEFAULT_RCA_TEMPLATE)
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    return structuredClone(DEFAULT_RCA_TEMPLATE)
-  }
-  if (
-    typeof parsed !== 'object' ||
-    parsed === null ||
-    !Array.isArray((parsed as RcaTemplate).exec) ||
-    !Array.isArray((parsed as RcaTemplate).tech)
-  ) {
-    return structuredClone(DEFAULT_RCA_TEMPLATE)
-  }
-  return parsed as RcaTemplate
-}
-
 function parseRawOutput(raw: string | null): RcaDraft | null {
   if (!raw) return null
   try {
@@ -133,7 +107,7 @@ function toPayload(r: JobDbRow, argusHome: string): RcaStatusPayload {
       draft = parseRawOutput(r.raw_output)
     }
   }
-  return { caseSlug: job.caseSlug, job, draft, template: parseTemplate(r.template_snapshot) }
+  return { caseSlug: job.caseSlug, job, draft, template: templateFromSnapshot(r.template_snapshot) }
 }
 
 /**
@@ -238,7 +212,7 @@ export class RcaJobs {
         caseSlug: slug,
         job: null,
         draft: null,
-        template: structuredClone(DEFAULT_RCA_TEMPLATE)
+        template: templateFromSnapshot(null)
       }
     return toPayload(r, this.deps.argusHome)
   }
@@ -272,7 +246,7 @@ export class RcaJobs {
       createdAt: kase.createdAt
     }
     fs.writeFileSync(path.join(dir, 'rca-structure.json'), JSON.stringify(edited, null, 2))
-    const opts = { template: parseTemplate(row!.template_snapshot) }
+    const opts = { template: templateFromSnapshot(row!.template_snapshot) }
     fs.writeFileSync(path.join(dir, 'rca-exec.md'), renderExecReport(edited, meta, opts))
     fs.writeFileSync(path.join(dir, 'rca-tech.md'), renderTechReport(edited, meta, opts))
     this.deps.db
