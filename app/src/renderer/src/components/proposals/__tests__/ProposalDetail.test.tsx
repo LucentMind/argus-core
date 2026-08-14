@@ -90,6 +90,26 @@ describe('ProposalDetail: pending', () => {
     expect(onReject).toHaveBeenCalledWith({ tag: 'wrong', note: 'too narrow' })
   })
 
+  it('a typed note can be confirmed on its own — Enter or the confirm button, tagged other', () => {
+    const { onReject } = renderDetail()
+    fireEvent.click(screen.getByRole('button', { name: 'Reject Sharpen step 4' }))
+    fireEvent.change(screen.getByLabelText('Reject note'), { target: { value: 'my own words' } })
+    fireEvent.keyDown(screen.getByLabelText('Reject note'), { key: 'Enter' })
+    expect(onReject).toHaveBeenCalledWith({ tag: 'other', note: 'my own words' })
+
+    onReject.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Reject with this note' }))
+    expect(onReject).toHaveBeenCalledWith({ tag: 'other', note: 'my own words' })
+  })
+
+  it('with no note typed the confirm button rejects without a reason', () => {
+    const { onReject } = renderDetail()
+    fireEvent.click(screen.getByRole('button', { name: 'Reject Sharpen step 4' }))
+    expect(screen.queryByRole('button', { name: 'Reject with this note' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Reject without a reason' }))
+    expect(onReject).toHaveBeenCalledWith(undefined)
+  })
+
   it('locked proposal disables Accept and explains why', () => {
     renderDetail({ proposal: { ...pending, locked: true } })
     expect(screen.getByRole('button', { name: 'Accept Sharpen step 4' })).toBeDisabled()
