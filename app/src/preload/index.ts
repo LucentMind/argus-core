@@ -406,8 +406,12 @@ const argus = {
       edited: RcaDraft
     ): Promise<void> => invoke(IPC.rcaConfirm, slug, jobId, assignments, edited),
     post: (slug: string): Promise<PostResults> => invoke(IPC.rcaPost, slug),
-    renderPreview: (slug: string, edited: RcaDraft): Promise<{ exec: string; tech: string }> =>
-      invoke(IPC.rcaRenderPreview, slug, edited),
+    renderPreview: (
+      slug: string,
+      edited: RcaDraft,
+      dropped?: { exec?: string[]; tech?: string[] }
+    ): Promise<{ exec: string; tech: string }> =>
+      invoke(IPC.rcaRenderPreview, slug, edited, dropped),
     onRcaChanged: (cb: (p: RcaStatusPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: RcaStatusPayload): void => cb(p)
       ipcRenderer.on(IPC.rcaChanged, listener)

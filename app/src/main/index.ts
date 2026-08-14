@@ -292,10 +292,9 @@ import { RcaJobs } from './services/rca/jobs'
 import { postRcaReport } from './services/rca/post'
 import { assembleRcaInput } from './services/rca/input'
 import { caseRcaPromptHash } from './services/rca/promptHash'
-import { renderExecReport, renderTechReport } from './services/rca/render'
+import { renderExecReport, renderTechReport, templateFromSnapshot } from './services/rca/render'
 import { validateRcaDraft } from './services/rca/parse'
 import type { RoleAssignment, RcaDraft, CaseRcaInput } from '../shared/rca'
-import { DEFAULT_RCA_TEMPLATE } from '../shared/rcaTemplate'
 import { draftAsset, improveAsset } from './services/authoring/service'
 import type { AuthoringRequest, AuthoringResult } from '../shared/authoringIpc'
 import { EditorWindowService } from './services/editorWindow'
@@ -2687,24 +2686,43 @@ function registerIpc(): void {
   // Exec/Tech preview tabs live before the user confirms anything. Mirrors the meta shape
   // `RcaJobs.confirm` builds from `getCase` (see jobs.ts) — kept in sync by hand since this
   // is the one other call site that needs it.
-  ipcMain.handle(IPC.rcaRenderPreview, (_e, slug: string, edited: RcaDraft) => {
-    const validated = validateRcaDraft(edited)
-    const kase = getCase(db, slug)
-    if (!kase) throw new Error(`Unknown case: ${slug}`)
-    const meta: CaseRcaInput['caseMeta'] = {
-      slug: kase.slug,
-      title: kase.title,
-      jiraKey: kase.jiraKey,
-      resolution: kase.resolution,
-      tags: kase.tags,
-      createdAt: kase.createdAt
+  //
+  // Renders under the newest job's SNAPSHOTTED template, matching what `confirm` will write.
+  // Reading live settings here would make the preview disagree with the artifact whenever the
+  // user edited the template after generating.
+  //
+  // `dropped` is keyed per report ({ exec?, tech? }), not shared: section ids collide across
+  // the two reports (`impact` and `root-cause` each exist in both templates), so a single
+  // shared dropped-set would strip a section from one report because the user dropped its
+  // same-named counterpart in the other.
+  ipcMain.handle(
+    IPC.rcaRenderPreview,
+    (_e, slug: string, edited: RcaDraft, dropped?: { exec?: string[]; tech?: string[] }) => {
+      const validated = validateRcaDraft(edited)
+      const kase = getCase(db, slug)
+      if (!kase) throw new Error(`Unknown case: ${slug}`)
+      const meta: CaseRcaInput['caseMeta'] = {
+        slug: kase.slug,
+        title: kase.title,
+        jiraKey: kase.jiraKey,
+        resolution: kase.resolution,
+        tags: kase.tags,
+        createdAt: kase.createdAt
+      }
+      const row = db
+        .prepare(
+          `SELECT template_snapshot FROM rca_jobs WHERE case_slug = ? ORDER BY id DESC LIMIT 1`
+        )
+        .get(slug) as { template_snapshot: string | null } | undefined
+      const template = templateFromSnapshot(row?.template_snapshot)
+      const execOpts = { template, dropped: new Set(dropped?.exec ?? []) }
+      const techOpts = { template, dropped: new Set(dropped?.tech ?? []) }
+      return {
+        exec: renderExecReport(validated, meta, execOpts),
+        tech: renderTechReport(validated, meta, techOpts)
+      }
     }
-    const opts = { template: DEFAULT_RCA_TEMPLATE }
-    return {
-      exec: renderExecReport(validated, meta, opts),
-      tech: renderTechReport(validated, meta, opts)
-    }
-  })
+  )
 
   // — skills —
   const skillsPayload = (): SkillsPayload => ({

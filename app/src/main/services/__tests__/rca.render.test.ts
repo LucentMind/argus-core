@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { CaseRcaInput, RcaDraft } from '../../../shared/rca'
-import { renderExecReport, renderTechReport } from '../rca/render'
+import { renderExecReport, renderTechReport, templateFromSnapshot } from '../rca/render'
 import { DEFAULT_RCA_TEMPLATE } from '../../../shared/rcaTemplate'
 import type { RcaTemplate, RcaSection } from '../../../shared/rcaTemplate'
 
@@ -391,5 +391,44 @@ describe('template-driven rendering', () => {
     expect(() => renderTechReport(draft(), meta(), { template: t })).toThrow(
       /unknown claim slot: not-a-real-slot/
     )
+  })
+})
+
+describe('templateFromSnapshot', () => {
+  it('returns the default for null, undefined, and malformed json', () => {
+    expect(templateFromSnapshot(null)).toEqual(DEFAULT_RCA_TEMPLATE)
+    expect(templateFromSnapshot(undefined)).toEqual(DEFAULT_RCA_TEMPLATE)
+    expect(templateFromSnapshot('{not json')).toEqual(DEFAULT_RCA_TEMPLATE)
+  })
+
+  it('returns the default for a structurally invalid snapshot (e.g. JSON null)', () => {
+    expect(templateFromSnapshot('null')).toEqual(DEFAULT_RCA_TEMPLATE)
+    expect(templateFromSnapshot('42')).toEqual(DEFAULT_RCA_TEMPLATE)
+    expect(templateFromSnapshot('{"exec": []}')).toEqual(DEFAULT_RCA_TEMPLATE)
+  })
+
+  it('returns the snapshotted template', () => {
+    const t = clone(DEFAULT_RCA_TEMPLATE)
+    t.exec[0].heading = 'Overview'
+    expect(templateFromSnapshot(JSON.stringify(t)).exec[0].heading).toBe('Overview')
+  })
+
+  it('never returns the shared DEFAULT_RCA_TEMPLATE singleton on a fallback path', () => {
+    const result = templateFromSnapshot(null)
+    result.exec[0].heading = 'mutated'
+    expect(DEFAULT_RCA_TEMPLATE.exec[0].heading).not.toBe('mutated')
+  })
+})
+
+describe('per-report dropped sections (no cross-report collision)', () => {
+  it('dropping "impact" for one report leaves it present in the other', () => {
+    // Mirrors what the rca:render-preview handler does: one resolved template, two
+    // independently-scoped `dropped` sets built from `{ exec?: string[]; tech?: string[] }`.
+    const execOpts = { template: DEFAULT_RCA_TEMPLATE, dropped: new Set<string>(['impact']) }
+    const techOpts = { template: DEFAULT_RCA_TEMPLATE, dropped: new Set<string>() }
+    const exec = renderExecReport(draft(), meta(), execOpts)
+    const tech = renderTechReport(draft(), meta(), techOpts)
+    expect(exec).not.toContain('## Impact')
+    expect(tech).toContain('## Impact')
   })
 })
