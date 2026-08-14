@@ -585,6 +585,15 @@ describe('RcaJobs.confirm with dropped sections', () => {
     expect(jobs.statusFor('case-d3').dropped).toEqual({ exec: ['exec-impact'] })
   })
 
+  it('persists the exact rendered caseMeta on the job row as JSON', async () => {
+    const { jobs, jobId } = await doneJob('case-d3b')
+    jobs.confirm('case-d3b', jobId, [], validDraft())
+    const row = db.prepare(`SELECT meta_snapshot FROM rca_jobs WHERE id = ?`).get(jobId) as {
+      meta_snapshot: string | null
+    }
+    expect(JSON.parse(row.meta_snapshot!)).toMatchObject({ slug: 'case-d3b', title: 'case-d3b' })
+  })
+
   it('confirming without the argument produces the current bytes and leaves the column NULL', async () => {
     const { jobs, jobId } = await doneJob('case-d4')
     jobs.confirm('case-d4', jobId, [], validDraft())
