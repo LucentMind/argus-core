@@ -183,9 +183,17 @@ export function RcaPanel({
         live = false
       }
     }
-    void window.argus.rca.handEdited(slug).then((h) => {
-      if (live) setHandEdited(h)
-    })
+    void window.argus.rca
+      .handEdited(slug)
+      .then((h) => {
+        if (live) setHandEdited(h)
+      })
+      .catch(() => {
+        // handEditedReports is documented to never throw, but the IPC round-trip can still
+        // reject (e.g. a main-process error escaping despite that contract). Fall back to the
+        // same "not edited" posture rather than leaving an unhandled rejection and a stale badge.
+        if (live) setHandEdited({ exec: false, tech: false })
+      })
     return () => {
       live = false
     }
@@ -202,6 +210,12 @@ export function RcaPanel({
       setPostResults(job.postResults)
       setConfirmError(null)
       setPostError(null)
+      // Per-draft editor state must reset with the draft: without this, an editor left open
+      // across a regenerate (the previews block unmounts while queued/running but `editing`
+      // survives) would remount showing the OLD editor and OLD editBody over the NEW job.
+      setEditing(false)
+      setEditBody('')
+      setSaveError(null)
       // Normalised to always carry both keys (never just `{ exec: [...] }`) so the very first
       // renderPreview/confirm call this draft sends is already well-formed for both reports.
       setDropped({ exec: payload?.dropped.exec ?? [], tech: payload?.dropped.tech ?? [] })
@@ -278,7 +292,10 @@ export function RcaPanel({
     setSaveError(null)
     try {
       const md = await window.argus.rca.readMarkdown(slug)
-      if (!md) return
+      if (!md) {
+        setSaveError('no confirmed report on disk')
+        return
+      }
       setEditBody(md[tab])
       setEditing(true)
     } catch (err) {
@@ -473,7 +490,7 @@ export function RcaPanel({
 
             {/* — Previews — */}
             <div className="flex flex-col gap-2 border-t border-hair pt-3">
-              <div className="flex flex-col gap-1.5 border-t border-hair pt-3">
+              <div className="flex flex-col gap-1.5">
                 <h3 className="text-[10.5px] font-medium uppercase tracking-wide text-mute">
                   Sections
                 </h3>
@@ -488,7 +505,7 @@ export function RcaPanel({
                         <label key={s.id} className="flex items-center gap-1 text-[11px] text-ink">
                           <input
                             type="checkbox"
-                            aria-label={`Include ${s.heading} in the ${
+                            aria-label={`Include ${s.heading || 'Narrative'} in the ${
                               report === 'exec' ? 'executive summary' : 'technical report'
                             }`}
                             checked={!(dropped[report] ?? []).includes(s.id)}
@@ -509,6 +526,7 @@ export function RcaPanel({
                     onClick={() => {
                       setTab(t)
                       setEditing(false)
+                      setSaveError(null)
                     }}
                     className={`rounded-r1 border px-2 py-0.5 text-[11px] transition-colors ${
                       tab === t

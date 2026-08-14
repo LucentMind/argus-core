@@ -37,9 +37,11 @@ function storedDropped(raw: string | null): RcaDroppedSections {
  * under live settings, or without the drops, would make an untouched report read as edited.
  *
  * Anything that makes the comparison impossible — no confirmed job, missing artifacts, an
- * unreadable structure file — reports "not edited". This drives a warning dialog, and warning
- * about edits that may not exist is worse than staying quiet; the destructive path (Confirm &
- * freeze) rewrites the files from the structure either way.
+ * artifact read error other than ENOENT (EACCES/EBUSY/EISDIR — a file open in another editor is
+ * routine on Windows), a structure file that is missing, unreadable, or valid JSON that is not a
+ * conforming `RcaDraft` — reports "not edited" rather than throwing. This drives a warning
+ * dialog, and warning about edits that may not exist is worse than staying quiet; the destructive
+ * path (Confirm & freeze) rewrites the files from the structure either way.
  */
 export function handEditedReports(
   deps: HandEditedDeps,
@@ -58,14 +60,15 @@ export function handEditedReports(
     .get(slug) as ConfirmedRow | undefined
   if (!row) return none
 
-  const onDisk = readReportMarkdown(deps.argusHome, slug)
-  if (!onDisk) return none
-
-  // Everything from parsing the structure file through rendering must degrade to "not edited":
-  // a structure file can be valid JSON yet not a valid RcaDraft (external/hand corruption), and
-  // the renderers assume a conforming draft — letting that throw here would break the documented
-  // contract that an unreadable/unusable structure file reports "not edited" rather than crashing.
+  // Everything from reading the artifacts through parsing the structure file and rendering must
+  // degrade to "not edited": readReportMarkdown only swallows ENOENT itself, a structure file
+  // can be valid JSON yet not a valid RcaDraft (external/hand corruption), and the renderers
+  // assume a conforming draft — letting any of that throw here would break the documented
+  // contract that an unreadable/unusable input reports "not edited" rather than crashing.
   try {
+    const onDisk = readReportMarkdown(deps.argusHome, slug)
+    if (!onDisk) return none
+
     const structure = JSON.parse(
       fs.readFileSync(path.join(artifactsDir(deps.argusHome, slug), 'rca-structure.json'), 'utf8')
     ) as RcaDraft
