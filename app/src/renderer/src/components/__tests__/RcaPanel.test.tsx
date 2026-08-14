@@ -580,6 +580,31 @@ describe('RcaPanel', () => {
     expect(saveMarkdown).not.toHaveBeenCalled()
   })
 
+  it('a rejected handEdited() cannot become an unhandled rejection; the panel still renders normally', async () => {
+    // handEdited.ts's readReportMarkdown call can throw a non-ENOENT error (EACCES/EBUSY on
+    // Windows, an editor has the file open) which used to escape all the way out to this
+    // `.then()` with no `.catch` — an unhandled rejection and a badge silently stuck.
+    handEdited.mockReset().mockRejectedValue(new Error('EBUSY: resource busy or locked'))
+
+    const unhandledReasons: unknown[] = []
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandledReasons.push(reason)
+    }
+    process.on('unhandledRejection', onUnhandledRejection)
+
+    try {
+      await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+      await waitFor(() => expect(handEdited).toHaveBeenCalled())
+      // Flush the microtask queue so a rejection left unhandled has a chance to be reported.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(unhandledReasons).toEqual([])
+      // still renders normally, no badge stuck on
+      expect(screen.queryByText(/edited/i)).not.toBeInTheDocument()
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection)
+    }
+  })
+
   it('shows an edited badge for a hand-edited report', async () => {
     handEdited.mockResolvedValue({ exec: true, tech: false })
     await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
@@ -664,5 +689,28 @@ describe('RcaPanel', () => {
     expect(
       screen.queryByRole('textbox', { name: /executive summary markdown/i })
     ).not.toBeInTheDocument()
+  })
+
+  it('resets editor state (editing/body/saveError) when a new job payload lands, so a stale editor cannot survive onto a different draft', async () => {
+    readMarkdown.mockResolvedValue({ exec: '# job 1 exec on disk', tech: '# job 1 tech on disk' })
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    expect(screen.getByRole('textbox', { name: /executive summary markdown/i })).toBeInTheDocument()
+
+    // Job 2 (e.g. a regenerate) lands via the broadcast — the previews block would have
+    // unmounted while job 2 was queued/running and remounts here on the new `done` payload.
+    // (doneStatusPayload defaults confirmedAt to null, matching job 2's real not-yet-confirmed
+    // state, which is exactly why the Edit button being hidden alone wasn't enough protection.)
+    await emitPayload({ jobId: 2 })
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('textbox', { name: /executive summary markdown/i })
+      ).not.toBeInTheDocument()
+    )
+    // the preview is showing again, not a stale editor
+    expect(await screen.findByText('exec preview')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^cancel$/i })).not.toBeInTheDocument()
   })
 })
