@@ -15,7 +15,7 @@ import type {
   EvidenceRecord,
   SessionSummary,
   ChatSearchResult,
-  UnifiedHit,
+  UnifiedSearchResult,
   ArtifactTypeMeta,
   GraphStatusRow,
   GraphProgress,
@@ -448,7 +448,7 @@ const argus = {
     }
   },
   search: {
-    query: (q: string, filters?: SearchFilters): Promise<UnifiedHit[]> =>
+    query: (q: string, filters?: SearchFilters): Promise<UnifiedSearchResult> =>
       invoke(IPC.searchQuery, q, filters)
   },
   chat: {

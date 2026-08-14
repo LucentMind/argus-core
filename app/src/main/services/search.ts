@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import type { ArtifactType, SearchFilters, SearchHit } from '../../shared/types'
+import type { ArtifactType, SearchFilters, SearchHit, SearchResult } from '../../shared/types'
 import {
   SNIPPET_BEFORE,
   SNIPPET_AFTER,
@@ -12,6 +12,7 @@ import type { SnippetResult } from '../../shared/snippets'
 import { MAX_WHOLE_FILE_BYTES } from '../../shared/textdoc'
 import { caseDir } from './paths'
 import { scopeClause } from './evidenceScopeSql'
+import { countPendingIndex } from './indexState'
 
 export const MAX_READ_BYTES = MAX_WHOLE_FILE_BYTES
 // window around a citation's target line, for files too big to load whole
@@ -110,6 +111,24 @@ export function searchEvidence(
     endLine: Number(r.endLine),
     matchLine: findMatchLine(r.chunkContent, Number(r.startLine), query)
   }))
+}
+
+/**
+ * searchEvidence plus the count of files still being indexed.
+ *
+ * Background indexing means a search can run over a partially built index. Any
+ * surface that shows results to a human or an agent must carry this count, or an
+ * empty result reads as "there is nothing here" when it actually means "not yet".
+ */
+export function searchEvidenceWithStatus(
+  db: DatabaseSync,
+  query: string,
+  filters: SearchFilters = {}
+): SearchResult {
+  return {
+    hits: searchEvidence(db, query, filters),
+    pendingIndexCount: countPendingIndex(db, filters.caseSlug ?? null)
+  }
 }
 
 // Scans a file from the start counting newlines (never loading it whole),

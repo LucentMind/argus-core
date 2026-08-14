@@ -12,7 +12,7 @@ import {
   type CaseResolution,
   type CaseStatus
 } from '../../../shared/types'
-import { searchEvidence } from '../search'
+import { searchEvidenceWithStatus } from '../search'
 import { searchCaseSummaries } from '../distill/summaries'
 import { ingestArtifact, listEvidence } from '../ingest'
 import { createImmediateQueue, type IngestQueueLike } from '../ingestQueue'
@@ -362,12 +362,21 @@ export function argusToolHandlers(
       // list_evidence does. Read at call time, not construction time, so a deps object
       // built without a real sessions row (a driver test double) doesn't pay for it here.
       const caseFilter = args.scope === 'all' ? undefined : caseSlug
-      const hits = searchEvidence(db, String(args.query ?? ''), {
+      const res = searchEvidenceWithStatus(db, String(args.query ?? ''), {
         caseSlug: caseFilter,
         artifactType: args.artifact_type as never,
         evidenceScope: sessionMode(db, deps.sessionId)
       })
-      return JSON.stringify(hits.slice(0, 25), null, 2)
+      let out = JSON.stringify(res.hits.slice(0, 25), null, 2)
+      // Background indexing means these results can be incomplete. This note must survive
+      // even on zero hits — "no matches" over a half-built index is the exact false
+      // negative that leads an agent to conclude a term is absent when it isn't.
+      if (res.pendingIndexCount > 0) {
+        out +=
+          `\n\nNote: ${res.pendingIndexCount} file(s) in this case are still being indexed. ` +
+          `These results may be incomplete — re-run this search later before concluding a term is absent.`
+      }
+      return out
     },
 
     async list_evidence() {
