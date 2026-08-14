@@ -57,7 +57,8 @@ function validDraft(findingId: number | null = null): RcaDraft {
       why: 'the cache key omitted the tenant id',
       nextSteps: 'add tenant id to the cache key'
     },
-    techNarrative: []
+    techNarrative: [],
+    sections: {}
   }
 }
 

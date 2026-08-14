@@ -57,6 +57,7 @@ function draft(over: Partial<RcaDraft> = {}): RcaDraft {
       nextSteps: 'add tenant id to the cache key'
     },
     techNarrative: [],
+    sections: {},
     ...over
   }
 }
