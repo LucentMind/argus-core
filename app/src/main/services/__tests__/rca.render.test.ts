@@ -410,6 +410,57 @@ describe('narrative bodies resolve from the section id alone', () => {
   })
 })
 
+describe('model-authored sections', () => {
+  it('prefers draft.sections over the legacy field for the same id', () => {
+    const d = draft()
+    d.sections = { 'exec-what-happened': { body: 'Model-authored text.', citations: [] } }
+    const out = renderExecReport(d, meta(), DEFAULTS)
+    expect(out).toContain('Model-authored text.')
+    expect(out).not.toContain(d.execSummary.whatBroke)
+  })
+
+  it('falls back to the legacy field when the id is absent from sections', () => {
+    const d = draft()
+    d.sections = {}
+    expect(renderExecReport(d, meta(), DEFAULTS)).toContain(d.execSummary.whatBroke)
+  })
+
+  it('falls back when the section is present but its body is empty', () => {
+    const d = draft()
+    d.sections = { 'exec-what-happened': { body: '   ', citations: [] } }
+    expect(renderExecReport(d, meta(), DEFAULTS)).toContain(d.execSummary.whatBroke)
+  })
+
+  it('renders a user-added section that has no legacy field', () => {
+    const t = clone(DEFAULT_RCA_TEMPLATE)
+    t.tech.push({
+      id: 'tech-detection',
+      heading: 'Detection',
+      kind: 'narrative',
+      enabled: true,
+      instruction: 'x'
+    })
+    const d = draft()
+    d.sections = {
+      'tech-detection': { body: 'Alerted by the p99 latency monitor.', citations: [] }
+    }
+    const out = renderTechReport(d, meta(), { template: t })
+    expect(out).toContain('## Detection')
+    expect(out).toContain('Alerted by the p99 latency monitor.')
+  })
+
+  it('renders a tech section citation but never an exec one', () => {
+    const t = clone(DEFAULT_RCA_TEMPLATE)
+    const d = draft()
+    d.sections = {
+      'tech-impact': { body: 'Blast radius.', citations: [{ path: 'src/a.ts', line: 3 }] },
+      'exec-impact': { body: 'Business impact.', citations: [{ path: 'src/a.ts', line: 3 }] }
+    }
+    expect(renderTechReport(d, meta(), { template: t })).toContain('`src/a.ts:3`')
+    expect(renderExecReport(d, meta(), { template: t })).not.toContain('src/a.ts')
+  })
+})
+
 describe('templateFromSnapshot', () => {
   it('returns the default for null, undefined, and malformed json', () => {
     expect(templateFromSnapshot(null)).toEqual(DEFAULT_RCA_TEMPLATE)
