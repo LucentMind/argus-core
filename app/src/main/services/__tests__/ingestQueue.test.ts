@@ -276,41 +276,74 @@ describe('IngestQueue', () => {
   })
 
   it('runs a job enqueued in the microtask window where a drain is settling', async () => {
-    const a = makeFile('kick-a.txt', 40)
-    const b = makeFile('kick-b.txt', 40)
-    const idA = insertEvidence('evidence/kick-a.txt', a.size)
-    const idB = insertEvidence('evidence/kick-b.txt', b.size)
+    // There is a tick where drain() has already returned but the reaction that
+    // clears the running latch has not run yet. A job enqueued exactly then sees
+    // a truthy latch, starts no drain, and is stranded forever while idle()
+    // still resolves. A real ingest loop (`await copy(f); queue.enqueue(...)`)
+    // lands in that gap.
+    //
+    // Which microtask it is depends on how many awaits the queue's own job path
+    // contains, so it moves whenever that path changes — pinning a single depth
+    // is how this test silently stopped detecting the defect once. Sweep instead:
+    // every depth in the range must end up indexed, so the window is caught
+    // wherever it currently sits.
+    const settled: Array<{ depth: number; indexed: boolean }> = []
 
-    const g = gate()
-    const entered = gate()
-    const { queue } = harness({
-      extract: async (id) => {
-        if (id === idA) {
-          entered.open()
-          await g.promise
+    for (let depth = 0; depth <= 6; depth++) {
+      const a = makeFile(`kick-${depth}a.txt`, 40)
+      const b = makeFile(`kick-${depth}b.txt`, 40)
+      const idA = insertEvidence(`evidence/kick-${depth}a.txt`, a.size)
+      const idB = insertEvidence(`evidence/kick-${depth}b.txt`, b.size)
+
+      const g = gate()
+      const entered = gate()
+      const { queue } = harness({
+        extract: async (id) => {
+          if (id === idA) {
+            entered.open()
+            await g.promise
+          }
+          return false
         }
-        return false
-      }
-    })
+      })
 
-    queue.enqueue({ caseSlug: 'Q-1', evidenceId: idA, absPath: a.abs, size: a.size })
-    await entered.promise
+      queue.enqueue({ caseSlug: 'Q-1', evidenceId: idA, absPath: a.abs, size: a.size })
+      await entered.promise
 
-    // Two microtasks past the gate is the tick where drain() has already returned
-    // but the reaction that clears the running latch has not run yet. A real
-    // ingest loop (`await copy(f); queue.enqueue(...)`) lands in exactly this gap;
-    // if enqueue only trusts the latch, this job is stranded forever and idle()
-    // still resolves.
-    const late = g.promise
-      .then(() => {})
-      .then(() => {})
-      .then(() => queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size }))
-    g.open()
-    await late
+      let chain: Promise<void> = g.promise
+      for (let i = 0; i < depth; i++) chain = chain.then(() => {})
+      const late = chain.then(() =>
+        queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size })
+      )
+      g.open()
+      await late
+      await queue.idle()
+
+      settled.push({ depth, indexed: countFts(idB) > 0 && indexStateOf(idB) === 'indexed' })
+    }
+
+    expect(settled.filter((s) => !s.indexed)).toEqual([])
+  })
+
+  it('honours an abort that arrives before the job is enqueued', async () => {
+    // Ingest inserts the evidence row and only then enqueues, so a delete can
+    // land in between and abort an id the queue has never seen.
+    const { abs, size } = makeFile('pre-abort.txt', 200)
+    const id = insertEvidence('evidence/pre-abort.txt', size)
+    const { queue, items } = harness()
+
+    queue.abort(id)
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: abs, size })
     await queue.idle()
 
-    expect(countFts(idB)).toBeGreaterThan(0)
-    expect(indexStateOf(idB)).toBe('indexed')
+    expect(countFts(id)).toBe(0)
+    expect(indexStateOf(id)).toBe('pending')
+    expect(items.some((e) => e.evidenceId === id)).toBe(false)
+
+    // ...and the flag does not outlive the drain that consumed it.
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: id, absPath: abs, size })
+    await queue.idle()
+    expect(countFts(id)).toBeGreaterThan(0)
   })
 
   it('marks a file errored and keeps draining when indexing throws', async () => {

@@ -50,6 +50,13 @@ export interface IngestQueueDeps {
 /** The seam ingest.ts depends on, so tests can pass a synchronous double. */
 export interface IngestQueueLike {
   enqueue(job: IngestJob): void
+  /**
+   * Stop indexing this evidence id. Honoured whether the job is queued, in
+   * flight, or not yet enqueued — ingest inserts the evidence row before it
+   * enqueues, so a delete can legitimately arrive first; the flag is recorded
+   * and consumed by the job whenever it turns up. An in-flight job stops at its
+   * next chunk boundary and any partial index is removed.
+   */
   abort(evidenceId: number): void
 }
 
@@ -75,7 +82,6 @@ export class IngestQueue implements IngestQueueLike {
   private readonly aborted = new Set<number>()
   private readonly counters = new Map<string, CaseCounters>()
   private running: Promise<void> | null = null
-  private inFlight: number | null = null
   private lastItemEmit = 0
   private lastQueueEmit = 0
   private readonly now: () => number
@@ -121,16 +127,10 @@ export class IngestQueue implements IngestQueueLike {
     })
   }
 
-  /**
-   * Stop indexing this evidence id, whether queued or in flight.
-   *
-   * Ignored for an id the queue does not know about: the flag is only ever
-   * cleared by the job that consumes it, so recording one for a job that will
-   * never run would retain it for the life of the process.
-   */
+  /** See IngestQueueLike.abort. Recorded unconditionally, including for an id
+   *  that has not been enqueued yet; drain() drops the flags once there is
+   *  nothing left they could apply to. */
   abort(evidenceId: number): void {
-    const known = this.inFlight === evidenceId || this.jobs.some((j) => j.evidenceId === evidenceId)
-    if (!known) return
     this.aborted.add(evidenceId)
   }
 
@@ -184,17 +184,21 @@ export class IngestQueue implements IngestQueueLike {
         this.emitQueue(job.caseSlug, true)
       }
     }
+    // Nothing queued and nothing in flight, so no abort flag can still apply to
+    // anything. Bounds the Set without narrowing abort(): a flag raised for an
+    // id that is never enqueued would otherwise be retained for the life of the
+    // process.
+    this.aborted.clear()
   }
 
   private async runJob(job: IngestJob): Promise<void> {
-    this.inFlight = job.evidenceId
     try {
       await this.runJobInner(job)
     } finally {
       // Single cleanup point for every terminal path through a job — normal
       // completion, error, and all three abort paths — so no abort flag can
-      // outlive the job it was raised against.
-      this.inFlight = null
+      // outlive the job it was raised against, even while other jobs keep the
+      // drain alive.
       this.aborted.delete(job.evidenceId)
     }
   }
