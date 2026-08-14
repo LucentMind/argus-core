@@ -404,8 +404,11 @@ const argus = {
       slug: string,
       jobId: number,
       assignments: RoleAssignment[],
-      edited: RcaDraft
-    ): Promise<void> => invoke(IPC.rcaConfirm, slug, jobId, assignments, edited),
+      edited: RcaDraft,
+      /** Per-report section ids to omit from the written artifacts (and from what posts to
+       *  Jira). Omitted → nothing dropped, byte-identical to a confirm without it. */
+      dropped?: RcaDroppedSections
+    ): Promise<void> => invoke(IPC.rcaConfirm, slug, jobId, assignments, edited, dropped),
     post: (slug: string): Promise<PostResults> => invoke(IPC.rcaPost, slug),
     renderPreview: (
       slug: string,

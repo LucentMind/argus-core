@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS rca_jobs (
   confirmed_at TEXT,
   post_results TEXT,
   template_snapshot TEXT,
+  dropped_sections TEXT,
   created_at TEXT NOT NULL,
   finished_at TEXT
 );
@@ -473,6 +474,12 @@ export function openDb(file: string): DatabaseSync {
   const rcaJobCols = db.prepare(`PRAGMA table_info(rca_jobs)`).all() as { name: string }[]
   if (!rcaJobCols.some((c) => c.name === 'template_snapshot')) {
     db.exec(`ALTER TABLE rca_jobs ADD COLUMN template_snapshot TEXT`)
+  }
+  if (!rcaJobCols.some((c) => c.name === 'dropped_sections')) {
+    // The per-report section ids the user dropped at confirm time, as
+    // `{"exec":[…],"tech":[…]}`. NULL means "nothing dropped", which is what lets a row
+    // written before this column still re-render its confirmed bytes.
+    db.exec(`ALTER TABLE rca_jobs ADD COLUMN dropped_sections TEXT`)
   }
   const sessionCols = db.prepare(`PRAGMA table_info(sessions)`).all() as { name: string }[]
   if (!sessionCols.some((c) => c.name === 'run_options')) {

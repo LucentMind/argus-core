@@ -76,7 +76,7 @@ function job(over: Partial<RcaJobRow> = {}): RcaJobRow {
 }
 
 function payloadFor(j: RcaJobRow | null, d: RcaDraft | null = null): RcaStatusPayload {
-  return { caseSlug: 'NAV-1', job: j, draft: d, template: DEFAULT_RCA_TEMPLATE }
+  return { caseSlug: 'NAV-1', job: j, draft: d, template: DEFAULT_RCA_TEMPLATE, dropped: {} }
 }
 
 const generate = vi.fn()

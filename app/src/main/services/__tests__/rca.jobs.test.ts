@@ -8,7 +8,7 @@ import { createCase, getCase } from '../caseService'
 import { artifactsDir } from '../paths'
 import { RcaJobs, type RcaJobsDeps } from '../rca/jobs'
 import { RcaParseError } from '../rca/parse'
-import type { CaseRcaInput, RcaDraft } from '../../../shared/rca'
+import type { CaseRcaInput, RcaDraft, RcaDroppedSections } from '../../../shared/rca'
 import { DEFAULT_RCA_TEMPLATE, type RcaTemplate } from '../../../shared/rcaTemplate'
 import type { AppSettings } from '../../../shared/settings'
 
@@ -455,5 +455,84 @@ describe('RcaJobs', () => {
     const exec = fs.readFileSync(path.join(artifactsDir(home, 'case-a'), 'rca-exec.md'), 'utf8')
     expect(exec).toContain('## Overview')
     expect(exec).not.toContain('## What happened')
+  })
+})
+
+describe('RcaJobs.confirm with dropped sections', () => {
+  async function doneJob(slug: string): Promise<{ jobs: RcaJobs; jobId: number }> {
+    createCase(db, home, { slug, title: slug })
+    const { jobs } = mkJobs({
+      run: async () => '```json\n' + JSON.stringify(validDraft()) + '\n```'
+    })
+    const job = jobs.generate(slug)
+    await jobs.idle()
+    return { jobs, jobId: job.id }
+  }
+
+  function artifacts(slug: string): { exec: string; tech: string } {
+    const dir = artifactsDir(home, slug)
+    return {
+      exec: fs.readFileSync(path.join(dir, 'rca-exec.md'), 'utf8'),
+      tech: fs.readFileSync(path.join(dir, 'rca-tech.md'), 'utf8')
+    }
+  }
+
+  it('omits a dropped exec section from rca-exec.md while the tech counterpart stays', async () => {
+    const { jobs, jobId } = await doneJob('case-d1')
+    jobs.confirm('case-d1', jobId, [], validDraft(), { exec: ['exec-impact'] })
+    const { exec, tech } = artifacts('case-d1')
+    expect(exec).not.toContain('## Impact')
+    expect(exec).toContain('## What happened')
+    expect(tech).toContain('## Impact')
+  })
+
+  it('omits a dropped tech section from rca-tech.md only', async () => {
+    const { jobs, jobId } = await doneJob('case-d2')
+    jobs.confirm('case-d2', jobId, [], validDraft(), { tech: ['tech-impact'] })
+    const { exec, tech } = artifacts('case-d2')
+    expect(tech).not.toContain('## Impact')
+    expect(exec).toContain('## Impact')
+  })
+
+  it('persists the dropped set on the job row as JSON', async () => {
+    const { jobs, jobId } = await doneJob('case-d3')
+    jobs.confirm('case-d3', jobId, [], validDraft(), { exec: ['exec-impact'] })
+    const row = db.prepare(`SELECT dropped_sections FROM rca_jobs WHERE id = ?`).get(jobId) as {
+      dropped_sections: string | null
+    }
+    expect(JSON.parse(row.dropped_sections!)).toEqual({ exec: ['exec-impact'] })
+    // and it is readable back on status, so a reload re-renders the confirmed bytes
+    expect(jobs.statusFor('case-d3').dropped).toEqual({ exec: ['exec-impact'] })
+  })
+
+  it('confirming without the argument produces the current bytes and leaves the column NULL', async () => {
+    const { jobs, jobId } = await doneJob('case-d4')
+    jobs.confirm('case-d4', jobId, [], validDraft())
+    const { exec, tech } = artifacts('case-d4')
+    expect(exec).toContain('## Impact')
+    expect(tech).toContain('## Impact')
+    const row = db.prepare(`SELECT dropped_sections FROM rca_jobs WHERE id = ?`).get(jobId) as {
+      dropped_sections: string | null
+    }
+    expect(row.dropped_sections).toBeNull()
+    expect(jobs.statusFor('case-d4').dropped).toEqual({})
+  })
+
+  it('degrades a NULL or malformed dropped_sections column to "nothing dropped"', async () => {
+    const { jobs, jobId } = await doneJob('case-d5')
+    db.prepare(`UPDATE rca_jobs SET dropped_sections = 'not json' WHERE id = ?`).run(jobId)
+    expect(jobs.statusFor('case-d5').dropped).toEqual({})
+    db.prepare(`UPDATE rca_jobs SET dropped_sections = '42' WHERE id = ?`).run(jobId)
+    expect(jobs.statusFor('case-d5').dropped).toEqual({})
+    db.prepare(`UPDATE rca_jobs SET dropped_sections = NULL WHERE id = ?`).run(jobId)
+    expect(jobs.statusFor('case-d5').dropped).toEqual({})
+  })
+
+  it('coerces a malformed dropped payload to "nothing dropped" instead of throwing', async () => {
+    const { jobs, jobId } = await doneJob('case-d6')
+    jobs.confirm('case-d6', jobId, [], validDraft(), {
+      exec: 'exec-impact'
+    } as unknown as RcaDroppedSections)
+    expect(artifacts('case-d6').exec).toContain('## Impact')
   })
 })
