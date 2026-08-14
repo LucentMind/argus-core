@@ -1,4 +1,5 @@
 import type { RcaDraft, CaseRcaInput, Citation } from '../../../shared/rca'
+import { DEFAULT_RCA_TEMPLATE } from '../../../shared/rcaTemplate'
 import type { RcaSection, RcaTemplate } from '../../../shared/rcaTemplate'
 
 /**
@@ -46,6 +47,35 @@ function bulletList(items: string[]): string {
 function section(heading: string, body: string): string {
   const trimmed = body.trim()
   return trimmed ? `## ${heading}\n\n${trimmed}` : ''
+}
+
+/** The template a preview or confirm should render under: the job's snapshot when it has one,
+ *  else the default. Exported so the `rca:render-preview` handler and `RcaJobs.confirm` cannot
+ *  drift apart on the fallback rule.
+ *
+ *  A missing (pre-column row), malformed, or structurally invalid snapshot degrades to the
+ *  default template — a read must never fail on a row written by an older build. The default
+ *  renders byte-identically to the pre-template output, so an old job confirms/previews exactly
+ *  as it would have before. Every fallback path returns a fresh `structuredClone` (matching
+ *  `settings.ts`'s own default), never the shared `DEFAULT_RCA_TEMPLATE` singleton, so no caller
+ *  can mutate the process-wide constant. */
+export function templateFromSnapshot(raw: string | null | undefined): RcaTemplate {
+  if (!raw) return structuredClone(DEFAULT_RCA_TEMPLATE)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return structuredClone(DEFAULT_RCA_TEMPLATE)
+  }
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    !Array.isArray((parsed as RcaTemplate).exec) ||
+    !Array.isArray((parsed as RcaTemplate).tech)
+  ) {
+    return structuredClone(DEFAULT_RCA_TEMPLATE)
+  }
+  return parsed as RcaTemplate
 }
 
 export interface RenderOptions {
