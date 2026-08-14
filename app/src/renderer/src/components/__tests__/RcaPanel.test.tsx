@@ -640,4 +640,29 @@ describe('RcaPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
     await vi.waitFor(() => expect(handEdited).toHaveBeenCalled())
   })
+
+  it('surfaces a failed post-save hand-edited re-check even though the editor already closed', async () => {
+    // saveMarkdown succeeds (so `editing` flips to false) but the follow-up handEdited() re-fetch
+    // rejects — the error used to be set into state and rendered nowhere, since saveError only
+    // rendered inside the now-closed `editing` branch.
+    readMarkdown.mockResolvedValue({ exec: '# exec on disk', tech: '# tech on disk' })
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    handEdited.mockRejectedValueOnce(new Error('disk read failed'))
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText('disk read failed')).toBeInTheDocument()
+    // the save itself still succeeded — the editor is closed, not stuck open
+    expect(screen.getByRole('button', { name: /^edit$/i })).toBeInTheDocument()
+  })
+
+  it('surfaces a failed report read when opening the editor, with no unhandled rejection', async () => {
+    readMarkdown.mockRejectedValueOnce(new Error('report read failed'))
+    await renderDonePanel({ confirmedAt: '2026-08-14T00:00:00Z' })
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    expect(await screen.findByText('report read failed')).toBeInTheDocument()
+    // the editor never opened
+    expect(
+      screen.queryByRole('textbox', { name: /executive summary markdown/i })
+    ).not.toBeInTheDocument()
+  })
 })
