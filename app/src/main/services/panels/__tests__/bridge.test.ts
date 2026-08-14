@@ -126,13 +126,13 @@ describe('listCaseEvidence (3d-3)', () => {
     expect(item.relPath).toMatch(/^evidence\//)
   })
 
-  it('lifts meta.derivedFrom into a top-level derivedFrom', () => {
+  it('lifts meta.derivedFrom into a top-level derivedFrom', async () => {
     const parent = bind('CASE-A', ['listCaseEvidence']).listCaseEvidence!()[0]
     const derivedDir = path.join(caseDir(home, 'CASE-A'), 'evidence', '.derived')
     fs.mkdirSync(derivedDir, { recursive: true })
     const abs = path.join(derivedDir, 'note.txt')
     fs.writeFileSync(abs, 'derived text')
-    const derivedRec = ingestDerived(
+    const derivedRec = await ingestDerived(
       db,
       home,
       createImmediateQueue(db, home),

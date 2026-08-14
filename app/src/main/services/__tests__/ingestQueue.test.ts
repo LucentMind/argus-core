@@ -419,7 +419,143 @@ describe('IngestQueue', () => {
       settled.push({ depth, indexed: countFts(idB) > 0 && indexStateOf(idB) === 'indexed' })
     }
 
+    // Both assertions are load-bearing: the filter below is vacuously satisfied by an
+    // empty array, so a sweep that silently ran zero iterations would "pass".
+    expect(settled).toHaveLength(7)
     expect(settled.filter((s) => !s.indexed)).toEqual([])
+  })
+
+  // A dead renderer is not the queue's problem. `broadcast()` calls webContents.send,
+  // which throws 'Object has been destroyed' once a window is torn down mid-ingest --
+  // Argus is multi-window, so this is a normal event, not a corrupt state. If the throw
+  // escapes, drain() rejects (nothing awaits `running` in production, so it becomes an
+  // unhandled rejection in the main process) and the post-job bookkeeping never runs,
+  // stranding the aggregate bar below 100% forever.
+  it('keeps draining when a progress emitter throws, and strands no counters', async () => {
+    const a = makeFile('emit-a.txt', 100)
+    const b = makeFile('emit-b.txt', 100)
+    const idA = insertEvidence('evidence/emit-a.txt', a.size)
+    const idB = insertEvidence('evidence/emit-b.txt', b.size)
+
+    const rejections: unknown[] = []
+    const onRejection = (r: unknown): void => {
+      rejections.push(r)
+    }
+    process.on('unhandledRejection', onRejection)
+    try {
+      const queues: QueueProgressEvent[] = []
+      const items: EvidenceProgressEvent[] = []
+      let clock = 0
+      const queue = new IngestQueue({
+        db,
+        argusHome,
+        extract: async () => false,
+        onItemProgress: (e) => {
+          items.push(e)
+          throw new Error('Object has been destroyed')
+        },
+        onQueueProgress: (e) => {
+          queues.push(e)
+          throw new Error('Object has been destroyed')
+        },
+        onEvidenceChanged: () => {
+          throw new Error('Object has been destroyed')
+        },
+        now: () => (clock += 10_000)
+      })
+
+      queue.enqueue({ caseSlug: 'Q-1', evidenceId: idA, absPath: a.abs, size: a.size, index: true })
+      queue.enqueue({ caseSlug: 'Q-1', evidenceId: idB, absPath: b.abs, size: b.size, index: true })
+      await queue.idle()
+
+      // Both jobs really ran to completion despite every emitter throwing.
+      expect(countFts(idA)).toBeGreaterThan(0)
+      expect(countFts(idB)).toBeGreaterThan(0)
+      expect(indexStateOf(idA)).toBe('indexed')
+      expect(indexStateOf(idB)).toBe('indexed')
+      expect(items.map((e) => e.phase)).toContain('done')
+
+      // The post-job block in drain() still ran: the counters settled back to zero
+      // instead of freezing part-way.
+      expect(queues[queues.length - 1]).toEqual({
+        slug: 'Q-1',
+        filesDone: 0,
+        filesTotal: 0,
+        bytesDone: 0,
+        bytesTotal: 0
+      })
+
+      // ...and nothing escaped as an unhandled rejection (production never awaits
+      // `running`, and the main process installs no global handler).
+      await new Promise((r) => setTimeout(r, 20))
+      expect(rejections).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onRejection)
+    }
+  })
+
+  // drain() clears the abort set once nothing is queued or in flight. Without that,
+  // a flag raised for an id that never reaches a job is retained for the life of the
+  // process, and silently kills a legitimate later job for the same id.
+  it('drops an abort flag that never matched a job, so a later job for that id runs', async () => {
+    const ghost = makeFile('ghost.txt', 100)
+    const other = makeFile('other.txt', 100)
+    const idGhost = insertEvidence('evidence/ghost.txt', ghost.size)
+    const idOther = insertEvidence('evidence/other.txt', other.size)
+    const { queue } = harness()
+
+    // Raised before any job for this id exists, and no job for it runs during the drain,
+    // so runJob's per-job cleanup can never consume it.
+    queue.abort(idGhost)
+    queue.enqueue({
+      caseSlug: 'Q-1',
+      evidenceId: idOther,
+      absPath: other.abs,
+      size: other.size,
+      index: true
+    })
+    await queue.idle()
+
+    queue.enqueue({
+      caseSlug: 'Q-1',
+      evidenceId: idGhost,
+      absPath: ghost.abs,
+      size: ghost.size,
+      index: true
+    })
+    await queue.idle()
+
+    expect(countFts(idGhost)).toBeGreaterThan(0)
+    expect(indexStateOf(idGhost)).toBe('indexed')
+  })
+
+  // Regression pin for the abort guard runExtraction now carries. An extractor run
+  // costs up to EXTRACT_TIMEOUT_MS (10 minutes) and, for a row that is being deleted,
+  // ends by writing a derived file whose parent lookup then throws inside
+  // extractDerivedText -- an orphan under .derived/ that nothing cleans up.
+  it('never runs extraction for an aborted job (index:false, whose only phase is extraction)', async () => {
+    const bin = makeFile('bin.png', 50)
+    const id = insertEvidence('evidence/bin.png', bin.size, 'skipped')
+    const extracted: number[] = []
+    const { queue, items } = harness({
+      extract: async (i) => {
+        extracted.push(i)
+        return false
+      }
+    })
+
+    queue.abort(id)
+    queue.enqueue({
+      caseSlug: 'Q-1',
+      evidenceId: id,
+      absPath: bin.abs,
+      size: bin.size,
+      index: false
+    })
+    await queue.idle()
+
+    expect(extracted).toEqual([])
+    expect(items).toEqual([])
   })
 
   it('honours an abort that arrives before the job is enqueued', async () => {

@@ -46,7 +46,7 @@ beforeEach(async () => {
   const derivedDir = path.join(homeA, 'cases', 'NAV-100', 'evidence', '.derived')
   fs.mkdirSync(derivedDir, { recursive: true })
   fs.writeFileSync(path.join(derivedDir, 'boot.derived.txt'), 'derived BLOCKED_VERSION text\n')
-  ingestDerived(
+  await ingestDerived(
     dbA,
     homeA,
     createImmediateQueue(dbA, homeA),

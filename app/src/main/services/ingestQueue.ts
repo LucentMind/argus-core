@@ -7,7 +7,7 @@ import {
   deleteEvidenceIndex,
   IndexAbortedError
 } from './indexer'
-import { setIndexState, listPendingIndexEvidence } from './indexState'
+import { setIndexState, listPendingIndexEvidence, listErroredIndexEvidence } from './indexState'
 import { caseDir } from './paths'
 import type {
   EvidencePhase,
@@ -140,10 +140,19 @@ export class IngestQueue implements IngestQueueLike {
    */
   private kick(): void {
     if (this.running) return
-    this.running = this.drain().finally(() => {
-      this.running = null
-      if (this.jobs.length > 0) this.kick()
-    })
+    // Deferred by one microtask on purpose: `this.running` must be assigned BEFORE any
+    // of drain's body runs. Called as `this.drain().finally(...)`, drain's synchronous
+    // prefix (which reaches deps.onItemProgress and the synchronous prologue of
+    // deps.extract) executes while `running` is still null, so a re-entrant emitter
+    // that called enqueue() would see no latch and start a second, concurrent drain.
+    // No emitter does that today; this makes the serial invariant structural instead
+    // of a property of the current callers.
+    this.running = Promise.resolve()
+      .then(() => this.drain())
+      .finally(() => {
+        this.running = null
+        if (this.jobs.length > 0) this.kick()
+      })
   }
 
   /** See IngestQueueLike.abort. Recorded unconditionally, including for an id
@@ -158,11 +167,31 @@ export class IngestQueue implements IngestQueueLike {
     while (this.running) await this.running
   }
 
+  /**
+   * A failed emit is never the queue's problem.
+   *
+   * Both emitters end up in `broadcast()` -> `webContents.send`, which throws
+   * 'Object has been destroyed' against a torn-down renderer. Argus is multi-window,
+   * so closing a window mid-ingest is a routine event, not a corrupt state. Letting
+   * that throw escape costs two things at once: drain() rejects, and nothing awaits
+   * `running` in production, so it surfaces as an unhandled rejection in the Electron
+   * main process (which installs no global handler); and the throw skips drain's
+   * post-job bookkeeping, so on the last job of a batch the counters strand and the
+   * aggregate bar sticks below 100% forever.
+   */
+  private safeEmit(what: string, fn: () => void): void {
+    try {
+      fn()
+    } catch (err) {
+      console.warn(`[ingestQueue] ${what} listener threw: ${(err as Error).message}`)
+    }
+  }
+
   private emitItem(e: EvidenceProgressEvent, force: boolean): void {
     const t = this.now()
     if (!force && t - this.lastItemEmit < ITEM_THROTTLE_MS) return
     this.lastItemEmit = t
-    this.deps.onItemProgress(e)
+    this.safeEmit('item progress', () => this.deps.onItemProgress(e))
   }
 
   private emitQueue(slug: string, force: boolean): void {
@@ -173,7 +202,7 @@ export class IngestQueue implements IngestQueueLike {
     const t = this.now()
     if (!force && t - this.lastQueueEmit < QUEUE_THROTTLE_MS) return
     this.lastQueueEmit = t
-    this.deps.onQueueProgress({ slug, ...c })
+    this.safeEmit('queue progress', () => this.deps.onQueueProgress({ slug, ...c }))
   }
 
   private async drain(): Promise<void> {
@@ -184,7 +213,17 @@ export class IngestQueue implements IngestQueueLike {
       // completion, so finishing the job here must SET (not add to) that same
       // total — adding again would double-count every successfully indexed file.
       const baseBytes = this.counters.get(job.caseSlug)?.bytesDone ?? 0
-      await this.runJob(job)
+      // Belt to the emitters' braces. runJob already handles every failure it knows
+      // about, but anything that does escape it must not skip the bookkeeping below:
+      // a throw on the LAST job of a batch strands the counters (the bar sticks below
+      // 100% for the life of the process) and skips the aborted.clear() at the end.
+      try {
+        await this.runJob(job)
+      } catch (err) {
+        console.warn(
+          `[ingestQueue] job for evidence ${job.evidenceId} threw: ${(err as Error).message}`
+        )
+      }
       const c = this.counters.get(job.caseSlug)
       if (c) {
         c.filesDone++
@@ -300,6 +339,13 @@ export class IngestQueue implements IngestQueueLike {
   /** Phase 2. Reached by every job that was not aborted, indexable or not. */
   private async runExtraction(job: IngestJob): Promise<void> {
     const { caseSlug: slug, evidenceId } = job
+    // The abort flag is checked once more here rather than trusted from the callers.
+    // An extractor run costs up to 10 minutes, and for a row that is going away it ends
+    // by writing a derived file whose parent lookup then throws inside
+    // extractDerivedText -- which swallows it, leaving an orphan under .derived/ that
+    // nothing ever cleans up. Both callers happen to check first today; this makes the
+    // guard belong to the phase that pays for it.
+    if (this.aborted.has(evidenceId)) return
     this.emitItem({ slug, evidenceId, phase: 'extracting', fraction: 1 }, true)
     try {
       const derived = await this.deps.extract(evidenceId)
@@ -314,15 +360,25 @@ export class IngestQueue implements IngestQueueLike {
 }
 
 /**
- * Re-enqueue every evidence row whose index never finished.
+ * Re-enqueue every evidence row whose index never finished, and retry the ones a
+ * previous run gave up on.
  *
  * Called once at boot. Without it, a crash mid-index leaves that evidence
  * permanently unsearchable with nothing on screen saying so. A row whose file
  * has since vanished is marked 'error' instead of queued — a job that cannot
  * succeed should not sit in the bar's denominator.
  *
- * Every row it returns was left at 'pending'/'indexing', which only an indexable
- * row is ever set to, so each job is enqueued with index: true.
+ * 'error' rows are swept too, because otherwise the state is a terminal sink: nothing
+ * transitions a row out of it, the pending predicate does not match it, and the only
+ * other escapes (updateEvidenceContent, rescanModified) need the file's sha256 to
+ * CHANGE. The sharpest case is a file that was merely absent at one boot — an
+ * unmounted network share, an external drive, a sync client mid-restore — which would
+ * otherwise be permanently unsearchable after one unlucky restart, with no later boot
+ * reconsidering it. An errored row whose file is back is put back to 'pending' and
+ * queued; one whose file is still missing is left exactly as it was.
+ *
+ * Every row it queues was left at 'pending'/'indexing'/'error', which only an
+ * indexable row is ever set to, so each job is enqueued with index: true.
  */
 export function requeuePendingIndexes(
   db: DatabaseSync,
@@ -330,12 +386,16 @@ export function requeuePendingIndexes(
   queue: IngestQueueLike
 ): number {
   let queued = 0
-  for (const row of listPendingIndexEvidence(db)) {
+  for (const row of [...listPendingIndexEvidence(db), ...listErroredIndexEvidence(db)]) {
     const absPath = path.join(caseDir(argusHome, row.caseSlug), ...row.relPath.split('/'))
     if (!fs.existsSync(absPath)) {
-      setIndexState(db, row.id, 'error')
+      // Already 'error' and still gone: leave it, rather than rewriting the same state.
+      if (row.state !== 'error') setIndexState(db, row.id, 'error')
       continue
     }
+    // Back in the lifecycle before it is queued, so countPendingIndex has it in the
+    // denominator and countFailedIndex stops reporting a failure that is being retried.
+    if (row.state === 'error') setIndexState(db, row.id, 'pending')
     // a partial index from the interrupted run would duplicate chunks
     deleteEvidenceIndex(db, row.id)
     queue.enqueue({

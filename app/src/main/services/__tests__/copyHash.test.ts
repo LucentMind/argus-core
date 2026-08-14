@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { copyAndHash } from '../copyHash'
+import { copyAndHash, hashFile } from '../copyHash'
 
 let tmp: string
 beforeEach(() => {
@@ -84,6 +84,39 @@ describe('copyAndHash', () => {
       tickRan = true
     }, 0)
     await copying
+    expect(tickRan).toBe(true)
+  })
+})
+
+describe('hashFile', () => {
+  it('returns the same digest as a whole-buffer hash', async () => {
+    const src = path.join(tmp, 'h.bin')
+    const bytes = crypto.randomBytes(3 * 1024 * 1024 + 17)
+    fs.writeFileSync(src, bytes)
+    expect(await hashFile(src)).toBe(crypto.createHash('sha256').update(bytes).digest('hex'))
+  })
+
+  it('handles an empty file', async () => {
+    const src = path.join(tmp, 'h-empty.bin')
+    fs.writeFileSync(src, '')
+    expect(await hashFile(src)).toBe(
+      crypto.createHash('sha256').update(Buffer.alloc(0)).digest('hex')
+    )
+  })
+
+  // The whole point: ingestDerived runs ON the ingest queue, over the extractor's
+  // output, which for a multi-GB trace is exactly the freeze this branch removed one
+  // step earlier. A synchronous hash there reintroduces it.
+  it('yields to the event loop while hashing', async () => {
+    const src = path.join(tmp, 'h-big.bin')
+    fs.writeFileSync(src, crypto.randomBytes(8 * 1024 * 1024))
+
+    let tickRan = false
+    const hashing = hashFile(src)
+    setTimeout(() => {
+      tickRan = true
+    }, 0)
+    await hashing
     expect(tickRan).toBe(true)
   })
 })

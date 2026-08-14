@@ -176,7 +176,7 @@ describe('extraction pipeline', () => {
     const derivedAbs = path.join(argusHome, 'cases', 'NAV-1', 'artifacts', '.derived', 'ci.log.txt')
     fs.mkdirSync(path.dirname(derivedAbs), { recursive: true })
     fs.writeFileSync(derivedAbs, 'stack trace here')
-    const rec = ingestDerived(
+    const rec = await ingestDerived(
       db,
       argusHome,
       createImmediateQueue(db, argusHome),

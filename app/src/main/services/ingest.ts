@@ -15,7 +15,7 @@ import { caseDir, modeDir } from './paths'
 import { getCase } from './caseService'
 import type { Detection } from './packs/detection'
 import { deleteEvidenceIndex } from './indexer'
-import { copyAndHash } from './copyHash'
+import { copyAndHash, hashFile } from './copyHash'
 import type { IngestQueueLike } from './ingestQueue'
 import { appendDeletionAudit } from './deletionAudit'
 import { scopeClause } from './evidenceScopeSql'
@@ -348,14 +348,14 @@ export function updateEvidenceContent(
  * artifacts/.derived/<name>) in place — no copy. Used by the extraction pipeline for
  * derived text.
  */
-export function ingestDerived(
+export async function ingestDerived(
   db: DatabaseSync,
   argusHome: string,
   queue: IngestQueueLike,
   caseSlug: string,
   absPath: string,
   derivedFromId: number
-): EvidenceRecord {
+): Promise<EvidenceRecord> {
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
   // The derived file belongs to whichever tree its parent lives in — a CI log's extracted
@@ -368,7 +368,10 @@ export function ingestDerived(
   if (rel.startsWith('..'))
     throw new Error(`Derived file must live under ${parentDir}/: ${absPath}`)
 
-  const sha256 = sha256File(absPath)
+  // Async, not sha256File: this runs ON the ingest queue, over the extractor's output.
+  // A synchronous whole-file hash of a multi-GB trace's extracted text would freeze the
+  // main process exactly as the pre-queue ingest did, one step later in the pipeline.
+  const sha256 = await hashFile(absPath)
   const size = fs.statSync(absPath).size
   const now = new Date().toISOString()
   const meta = { derivedFrom: derivedFromId, indexState: 'pending' }
