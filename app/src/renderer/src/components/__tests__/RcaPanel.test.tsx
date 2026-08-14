@@ -14,8 +14,13 @@ import {
 import { confirm } from '../../lib/confirmStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
-import type { RcaDraft, RcaJobRow, RcaStatusPayload } from '../../../../shared/rca'
-import { DEFAULT_RCA_TEMPLATE } from '../../../../shared/rcaTemplate'
+import type {
+  RcaDraft,
+  RcaDroppedSections,
+  RcaJobRow,
+  RcaStatusPayload
+} from '../../../../shared/rca'
+import { DEFAULT_RCA_TEMPLATE, type RcaTemplate } from '../../../../shared/rcaTemplate'
 // The REAL validator (not a mock) — this is exactly the seam the fix-7/fix-4 interaction bug
 // hid in: RcaPanel's own confirm mock always resolved, so nothing here previously exercised
 // what the main-process IPC boundary would actually do with the draft the panel builds.
@@ -122,6 +127,40 @@ beforeEach(() => {
   settingsStore.reset()
 })
 
+// Alias used by the drop-toggle tests below — same mock as `confirmIpc`, just the name the
+// brief's test snippets use.
+const confirmFn = confirmIpc
+
+/** Builds a `done`-state RcaStatusPayload for slug `case-a`, job id defaulting to 1 — the
+ *  fixture the drop-toggle tests below share. */
+function doneStatusPayload(
+  over: { jobId?: number; template?: RcaTemplate; dropped?: RcaDroppedSections } = {}
+): RcaStatusPayload {
+  return {
+    caseSlug: 'case-a',
+    job: job({ id: over.jobId ?? 1 }),
+    draft: draft(),
+    template: over.template ?? DEFAULT_RCA_TEMPLATE,
+    dropped: over.dropped ?? {}
+  }
+}
+
+async function renderDonePanel(
+  over: { template?: RcaTemplate; dropped?: RcaDroppedSections } = {}
+): Promise<void> {
+  status.mockResolvedValue(doneStatusPayload(over))
+  render(<RcaPanel slug="case-a" onClose={vi.fn()} />)
+  await screen.findByText('the cache key omitted the tenant id')
+}
+
+/** Simulates an `onRcaChanged` broadcast for a new job (e.g. a regenerate) landing while the
+ *  panel is open. */
+async function emitPayload(
+  over: { jobId?: number; template?: RcaTemplate; dropped?: RcaDroppedSections } = {}
+): Promise<void> {
+  rcaChangedCb?.(doneStatusPayload(over))
+}
+
 describe('buildAssignments (pure)', () => {
   it('assigns every non-null findingId to its section role', () => {
     const d = draft()
@@ -226,7 +265,8 @@ describe('RcaPanel', () => {
       'NAV-1',
       7,
       expect.arrayContaining([{ findingId: 2, role: 'ruled-out' }]),
-      expect.objectContaining({ rootCause: expect.anything() })
+      expect.objectContaining({ rootCause: expect.anything() }),
+      { exec: [], tech: [] }
     )
   })
 
@@ -422,5 +462,64 @@ describe('RcaPanel', () => {
     expect(() => validateRcaDraft(editedDraft)).not.toThrow()
     expect(editedDraft.rootCause.statement).toBe('No confirmed root cause.')
     expect(editedDraft.rootCause.findingId).toBeNull()
+  })
+
+  it("lists the snapshot template's sections as drop toggles, per report", async () => {
+    await renderDonePanel()
+    expect(screen.getByLabelText('Include What happened in the executive summary')).toBeTruthy()
+    expect(screen.getByLabelText('Include Root cause in the technical report')).toBeTruthy()
+  })
+
+  it('omits a disabled section from the toggles — it is a template decision, not a per-draft one', async () => {
+    const t = structuredClone(DEFAULT_RCA_TEMPLATE)
+    t.exec[0].enabled = false
+    await renderDonePanel({ template: t })
+    expect(screen.queryByLabelText('Include What happened in the executive summary')).toBeNull()
+  })
+
+  it('re-renders the preview with the dropped id when a section is switched off', async () => {
+    await renderDonePanel()
+    await userEvent.click(screen.getByLabelText('Include Impact in the executive summary'))
+    await vi.waitFor(() =>
+      expect(renderPreview).toHaveBeenLastCalledWith('case-a', expect.anything(), {
+        exec: ['exec-impact'],
+        tech: []
+      })
+    )
+  })
+
+  it('keeps the two reports independent', async () => {
+    await renderDonePanel()
+    await userEvent.click(screen.getByLabelText('Include Impact in the technical report'))
+    await vi.waitFor(() =>
+      expect(renderPreview).toHaveBeenLastCalledWith('case-a', expect.anything(), {
+        exec: [],
+        tech: ['tech-impact']
+      })
+    )
+  })
+
+  it('passes the drop set to confirm', async () => {
+    await renderDonePanel()
+    await userEvent.click(screen.getByLabelText('Include Impact in the executive summary'))
+    await userEvent.click(screen.getByRole('button', { name: /confirm & freeze/i }))
+    await vi.waitFor(() =>
+      expect(confirmFn).toHaveBeenCalledWith('case-a', 1, expect.anything(), expect.anything(), {
+        exec: ['exec-impact'],
+        tech: []
+      })
+    )
+  })
+
+  it('re-seeds the drop set from the payload when a new job lands', async () => {
+    await renderDonePanel()
+    await userEvent.click(screen.getByLabelText('Include Impact in the executive summary'))
+    await emitPayload({ jobId: 2, dropped: {} }) // a regenerate
+    await vi.waitFor(() =>
+      expect(screen.getByLabelText('Include Impact in the executive summary')).toHaveProperty(
+        'checked',
+        true
+      )
+    )
   })
 })
