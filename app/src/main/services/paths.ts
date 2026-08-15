@@ -133,6 +133,12 @@ export function routinesPath(argusHome: string): string {
   return path.join(configDir(argusHome), 'routines.json')
 }
 
+/** Stable per-install random id for autonomy telemetry payloads (spec: identity fields
+ *  reserved). Not a secret and not user data — safe to regenerate if lost. */
+export function instanceIdPath(argusHome: string): string {
+  return path.join(configDir(argusHome), 'instance-id.json')
+}
+
 export function deletionAuditPath(argusHome: string): string {
   return path.join(argusHome, '.audit', 'deletions.jsonl')
 }
@@ -148,4 +154,9 @@ export function artifactsDir(argusHome: string, slug: string): string {
 /** Where material ingested in `mode` is stored. */
 export function modeDir(argusHome: string, slug: string, mode: ModeId): string {
   return path.join(caseDir(argusHome, slug), dirForMode(mode))
+}
+
+/** Global (non-case) generated reports — the autonomy day-90 pack lives here. */
+export function reportsDir(argusHome: string): string {
+  return path.join(argusHome, 'reports')
 }

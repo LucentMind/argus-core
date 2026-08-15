@@ -902,6 +902,15 @@ export function setCaseReviewState(db: DatabaseSync, slug: string, state: CaseRe
   db.prepare(`UPDATE cases SET review_state = ? WHERE slug = ?`).run(state, slug)
 }
 
+/** First triage decision wins: accept and dismiss both stamp, a second verb on the same
+ *  case (another window) must not move the ledger's decision time. */
+export function stampCaseTriaged(db: DatabaseSync, slug: string, now: Date = new Date()): void {
+  db.prepare(`UPDATE cases SET triaged_at = COALESCE(triaged_at, ?) WHERE slug = ?`).run(
+    now.toISOString(),
+    slug
+  )
+}
+
 /**
  * Declare a phase that cannot be derived from any artifact — today only `rca-drafted`, which
  * no file, table or rule produces. Mirrors setCaseStatus's shape: validate, update the row,

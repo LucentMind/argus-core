@@ -9,6 +9,7 @@ import { NewCaseDialog } from './components/NewCaseDialog'
 import { OnboardingProvider } from './components/onboarding/OnboardingProvider'
 import { ObservabilityView } from './components/observability/ObservabilityView'
 import { ProposalsStandalone } from './components/proposals/ProposalsStandalone'
+import AutonomyStandalone from './components/autonomy/AutonomyStandalone'
 import { RelatedHistoryStandalone } from './components/related/RelatedHistoryExplorer'
 import { SearchBar } from './components/SearchBar'
 import { SettingsView, type SettingsDeepLink } from './components/settings/SettingsView'
@@ -248,6 +249,11 @@ function App(): React.JSX.Element {
     setView(nextView(view, prevView, { kind: 'relatedHistory' }))
   }
 
+  function openAutonomyView(): void {
+    recordPrevView()
+    setView(nextView(view, prevView, { kind: 'autonomy' }))
+  }
+
   // A native panel view paints above the DOM, so hide docked panels whenever a
   // modal/dialog is up or the front view is not the active case.
   const occluded = viewer !== null || newCaseOpen || importDialog !== null || view.kind !== 'case'
@@ -269,6 +275,7 @@ function App(): React.JSX.Element {
           onStatusChanged={() => void reload()}
           onRelatedHistory={openRelatedHistory}
           onProposals={() => openProposalsView()}
+          onAutonomy={openAutonomyView}
         />
         <UpdateBanner />
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -314,6 +321,10 @@ function App(): React.JSX.Element {
                 onClose={() => setView(prevView)}
                 onNavigateSettings={(page) => gotoSettings(page)}
               />
+            </DynamicScope>
+          ) : view.kind === 'autonomy' ? (
+            <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>
+              <AutonomyStandalone onClose={() => setView(prevView)} />
             </DynamicScope>
           ) : (
             <DynamicScope variant="case" light={ambientLight} cutoff={ambientCutoff}>

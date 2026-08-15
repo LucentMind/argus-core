@@ -162,6 +162,7 @@ import {
   type FindReferencesRequest
 } from '../shared/editorIpc'
 import type { CorpusItem, ReferenceHit } from '../shared/corpusSearch'
+import type { AutonomyPayload, LaneId } from '../shared/autonomy'
 import type {
   TextDocSource,
   TextDocOpenResult,
@@ -725,6 +726,22 @@ const argus = {
       const listener = (_e: unknown, c: ProposalCounts): void => cb(c)
       ipcRenderer.on(IPC.proposalsChanged, listener)
       return () => ipcRenderer.removeListener(IPC.proposalsChanged, listener)
+    }
+  },
+  autonomy: {
+    status: (): Promise<AutonomyPayload> => invoke(IPC.autonomyStatus),
+    promote: (lane: LaneId, note: string): Promise<AutonomyPayload> =>
+      invoke(IPC.autonomyPromote, lane, note),
+    demote: (lane: LaneId, note: string): Promise<AutonomyPayload> =>
+      invoke(IPC.autonomyDemote, lane, note),
+    ack: (eventId: number): Promise<AutonomyPayload> => invoke(IPC.autonomyAck, eventId),
+    reportGenerate: (): Promise<{ file: string; markdown: string }> =>
+      invoke(IPC.autonomyReportGenerate),
+    reportPost: (file: string): Promise<PostResults> => invoke(IPC.autonomyReportPost, file),
+    onChanged: (cb: () => void): (() => void) => {
+      const listener = (): void => cb()
+      ipcRenderer.on(IPC.autonomyChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.autonomyChanged, listener)
     }
   },
   access: {

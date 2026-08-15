@@ -91,9 +91,18 @@ describe('distill proposal types', () => {
       content: 'b'
     })
     rejectProposal(home, f1)
-    expect(listArchivedProposals(home)).toEqual([
-      { type: 'recipe', target: 't1', caseSlug: 'case-a', title: 'a', status: 'rejected' }
-    ])
+    const archived1 = listArchivedProposals(home)
+    expect(archived1).toHaveLength(1)
+    expect(archived1[0]).toMatchObject({
+      file: f1,
+      type: 'recipe',
+      target: 't1',
+      caseSlug: 'case-a',
+      title: 'a',
+      status: 'rejected',
+      rejectReason: null
+    })
+    expect(typeof archived1[0].decided).toBe('string')
     const f2 = writeProposal(home, 'case-a', {
       type: 'recipe',
       target: 't2',
@@ -103,5 +112,21 @@ describe('distill proposal types', () => {
     removePendingProposal(home, f2)
     expect(listProposals(home)).toEqual([])
     expect(listArchivedProposals(home)).toHaveLength(1) // f2 not archived
+  })
+
+  it('stamps decided on accept and reject, readable via listArchivedProposals', () => {
+    const now = new Date('2026-08-12T09:00:00Z')
+    const file = writeProposal(home, 'case-a', {
+      type: 'recipe',
+      target: 't3',
+      title: 'a',
+      content: 'b'
+    })
+    rejectProposal(home, file, { tag: 'duplicate' }, { now })
+    const archived = listArchivedProposals(home)
+    const row = archived.find((r) => r.file === file)!
+    expect(row.decided).toBe('2026-08-12T09:00:00.000Z')
+    expect(row.rejectReason).toBe('duplicate')
+    expect(row.status).toBe('rejected')
   })
 })

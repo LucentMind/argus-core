@@ -262,6 +262,19 @@ const memoryHygieneSchema = z.looseObject({
   trackingStartedAt: z.string().default('')
 })
 
+const laneBarSchema = z.looseObject({
+  minDecisions: z.number().int().min(1).default(10),
+  minAcceptanceRate: z.number().min(0).max(1).default(0.8)
+})
+
+/** Graduation bars for the autonomy ledger (shared/autonomy.ts). `bars` is keyed by LaneId;
+ *  an absent lane falls back to laneBarSchema defaults via `barFor` — an empty record equals
+ *  its default, so stripDefaults dropping it from disk is the correct round-trip. */
+const autonomySchema = z.looseObject({
+  windowDays: z.number().int().min(1).default(30),
+  bars: z.record(z.string(), laneBarSchema).default(() => ({}))
+})
+
 /**
  * Stamps for one-time settings upgrades (`main/services/settingsMigrations.ts`). Each key is
  * an ISO timestamp, `''` meaning "has not run". They live in their own section rather than
@@ -310,6 +323,7 @@ export const settingsSchema = z.looseObject({
   observability: observabilitySchema.default(() => observabilitySchema.parse({})),
   onboarding: onboardingSchema.default(() => onboardingSchema.parse({})),
   memoryHygiene: memoryHygieneSchema.default(() => memoryHygieneSchema.parse({})),
+  autonomy: autonomySchema.default(() => autonomySchema.parse({})),
   ui: uiSchema.default(() => uiSchema.parse({})),
   migrations: migrationsSchema.default(() => migrationsSchema.parse({}))
 })

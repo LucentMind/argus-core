@@ -1,10 +1,11 @@
 import { useSyncExternalStore } from 'react'
-import { Settings, Timeline, Home, Inbox } from 'lucide-react'
+import { Settings, Timeline, Home, Inbox, Gauge } from 'lucide-react'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { uiStore } from '../lib/uiStore'
 import { caseBarStore } from '../lib/caseBarStore'
 import { useViewTitle } from '../lib/viewTitleStore'
 import { useProposalCounts } from '../lib/proposalsStore'
+import { useAutonomy } from '../lib/autonomyStore'
 import { isDarwin } from '../lib/platform'
 import { WindowControls } from './WindowControls'
 import { CaseAnchor } from './CaseAnchor'
@@ -41,7 +42,8 @@ export function TopBar({
   onSettings,
   onStatusChanged,
   onRelatedHistory,
-  onProposals
+  onProposals,
+  onAutonomy
 }: {
   activeSlug: string | null
   /** The active case's record, or null while `cases` is still loading. `activeSlug` comes
@@ -55,6 +57,7 @@ export function TopBar({
   onStatusChanged: () => void
   onRelatedHistory?: () => void
   onProposals?: () => void
+  onAutonomy?: () => void
 }): React.JSX.Element {
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -62,6 +65,7 @@ export function TopBar({
   )
   const anchors = useAmbientAnchors()
   const proposalCounts = useProposalCounts()
+  const autonomy = useAutonomy()
   // Non-null exactly while one of the full-page views (Settings, Proposals, Related history) is
   // up — each publishes its own title here because this bar is its SIBLING, not its ancestor.
   // Doubles as the "am I on such a view" flag the anchor below keys off, so there is one source
@@ -284,6 +288,24 @@ export function TopBar({
                 className="absolute -right-0.5 -top-0.5 rounded-full bg-signal/15 px-1 font-mono text-[10px] leading-4 text-signal"
               >
                 {proposalCounts!.pendingCount}
+              </span>
+            )}
+          </button>
+        )}
+        {onAutonomy && (
+          <button
+            className={`${ACTION_BTN} relative`}
+            aria-label="Autonomy"
+            title="Autonomy"
+            onClick={onAutonomy}
+          >
+            <Gauge size={19} strokeWidth={1.5} />
+            {(autonomy?.unackedDemotions ?? 0) > 0 && (
+              <span
+                aria-hidden="true"
+                className="absolute -right-0.5 -top-0.5 rounded-full bg-signal/15 px-1 font-mono text-[10px] leading-4 text-signal"
+              >
+                {autonomy!.unackedDemotions}
               </span>
             )}
           </button>
