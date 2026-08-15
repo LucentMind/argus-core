@@ -163,4 +163,77 @@ describe('applyPlan', () => {
     )
     expect(pin).toEqual(existing)
   })
+
+  /**
+   * The root is the pack the user explicitly chose, and choosing it FROM a repository is how a
+   * pack installed from a zip or a feed gets re-pointed at that repo (`installFromRepo`'s own
+   * comment). The existing-pin precedence above exists to stop a *dependent* redirecting somebody
+   * else's bytes; applying it to the root would silently discard the re-point the user asked for.
+   */
+  it('lets the root pack pin override an existing pin', async () => {
+    const existing = {
+      kind: 'feed' as const,
+      origin: 'https://old.example',
+      updateUrl: 'https://old.example/f.json',
+      installedAt: 1
+    }
+    const chosen = {
+      kind: 'github' as const,
+      host: 'github.com',
+      owner: 'org',
+      repo: 'packs',
+      installedAt: 5,
+      manifestPath: 'packs/maps/argus-pack.json'
+    }
+    let pin: unknown
+    await applyPlan(
+      {
+        argusHome: home,
+        state: {} as PacksStateStore,
+        existingPins: { maps: existing },
+        install: async (_s, opts): Promise<InstallResult> => {
+          pin = opts.pinOverride
+          return {
+            ok: true,
+            id: 'maps',
+            version: '1.0.0',
+            previousVersion: null,
+            relaunchRequired: true
+          }
+        }
+      },
+      [pack('maps', { isRoot: true, pinOverride: chosen })]
+    )
+    expect(pin).toEqual(chosen)
+  })
+
+  /** A dependency must never carry one — only a main-side root staging call can set it. */
+  it('still prefers an existing pin for a non-root pack that carries no override', async () => {
+    const existing = {
+      kind: 'feed' as const,
+      origin: 'https://trusted.example',
+      updateUrl: 'https://trusted.example/f.json',
+      installedAt: 1
+    }
+    let pin: unknown
+    await applyPlan(
+      {
+        argusHome: home,
+        state: {} as PacksStateStore,
+        existingPins: { common: existing },
+        install: async (_s, opts): Promise<InstallResult> => {
+          pin = opts.pinOverride
+          return {
+            ok: true,
+            id: 'common',
+            version: '1.0.0',
+            previousVersion: null,
+            relaunchRequired: true
+          }
+        }
+      },
+      [pack('common', { pinOverride: undefined })]
+    )
+    expect(pin).toEqual(existing)
+  })
 })

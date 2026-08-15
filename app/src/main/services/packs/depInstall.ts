@@ -66,13 +66,18 @@ export async function applyPlan(
   for (const pack of packs) {
     // An existing pin outranks a dependent's declared source: without this, a hostile pack
     // declaring a dependency on a legitimate id could re-point it at another host.
+    //
+    // `pack.pinOverride` outranks BOTH, and is only ever set on the root by a main-side entry
+    // point (never by a manifest, never over IPC). That precedence is the point: choosing a pack
+    // from a repository is how a zip- or feed-installed pack gets deliberately re-pointed at that
+    // repo, and the rule above would otherwise discard the re-point the user just asked for.
     const existing = deps.existingPins?.[pack.id]
     const res = await install(pack.bundlePath, {
       argusHome: deps.argusHome,
       state: deps.state,
       host: deps.host,
       alsoInstalling,
-      pinOverride: existing ?? pinFor(pack, now)
+      pinOverride: pack.pinOverride ?? existing ?? pinFor(pack, now)
     })
     if (!res.ok) {
       return {

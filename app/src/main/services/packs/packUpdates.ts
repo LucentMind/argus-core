@@ -16,7 +16,9 @@ import {
   type GithubPackSource
 } from './packsState'
 import { installPack, inspectBundleSource, describeUnsatisfied } from './install'
+import type { PackManifest } from './manifest'
 import type { UpdateStatus, UpdateErrorCode } from '../../../shared/updates'
+import type { PlanResult } from '../../../shared/packs'
 
 /** A feed is a small JSON document; anything larger is a misconfiguration or hostile. */
 export const MAX_FEED_BYTES = 1024 * 1024
@@ -231,6 +233,26 @@ export interface PackUpdatesDeps {
 }
 
 /**
+ * Per-call wiring for `apply`. Kept off `PackUpdatesDeps` deliberately: whether a plan may be
+ * staged is a property of the CALLER (a user watching a button, versus an unattended check), not
+ * of the service, and one service instance serves both.
+ */
+export interface ApplyHooks {
+  /**
+   * Stage an install plan for a downloaded update whose dependencies are not satisfied, and
+   * report whether the resulting set is coherent. Nothing is installed by this call; the plan
+   * waits for the user's approval. Supplied by `planIpc.ts`'s `PlanStager.stageFromBundle`.
+   */
+  planUnsatisfied?: (root: {
+    id: string
+    version: string
+    bundlePath: string
+    pinOverride?: PackSource
+    dependencies: PackManifest['dependencies']
+  }) => Promise<PlanResult>
+}
+
+/**
  * What `findUpdate` resolves to. `entry` is what the user is offered; `download` is how to fetch
  * it, and is the ONLY part that differs between a vendor feed and a GitHub release.
  */
@@ -280,8 +302,13 @@ export class PackUpdatesService {
   /**
    * Re-fetches the feed rather than trusting a selection cached by `checkAll` — the feed may
    * have moved on, and a stale selection would download something the user never saw offered.
+   *
+   * `hooks.planUnsatisfied` is what the manual Update button supplies (see `planIpc.ts`'s
+   * `PlanStager`): a new version declaring a dependency that is not installed is PLANNED instead
+   * of refused. Absent — which is every unattended caller — the refusal stands, because a plan
+   * needs someone to approve it.
    */
-  async apply(id: string): Promise<UpdateStatus> {
+  async apply(id: string, hooks: ApplyHooks = {}): Promise<UpdateStatus> {
     let tmp: string | null = null
     try {
       const found = await this.findUpdate(id)
@@ -393,12 +420,6 @@ export class PackUpdatesService {
         )
       }
 
-      // A new version may declare a dependency the current one didn't. Refuse here, before the
-      // swap, so the installed version stays active and the user is told what to install first —
-      // Core never fetches a dependency on the user's behalf.
-      const unsatisfied = describeUnsatisfied(inspected.id, inspected.dependencies)
-      if (unsatisfied) throw new UpdateError('install', unsatisfied)
-
       // A github-pinned pack must stay pinned to the repo the bytes came from. Without this,
       // installPack re-derives the pin from the new bundle's manifest: a manifest naming a feed
       // would silently re-arm the feed path, and a manifest naming nothing at all would DELETE
@@ -413,6 +434,32 @@ export class PackUpdatesService {
             ? undefined
             : { ...download.pin, manifestPath: download.manifestPath }
       }
+
+      // A new version may declare a dependency the current one didn't. Either way the swap has
+      // not happened yet, so the installed version stays active: with a planner wired in the
+      // dependency is resolved and offered for approval, and without one it is refused by name.
+      //
+      // Runs AFTER `pinOverride` is computed because the plan must record the same pin this
+      // install would have — a planned update that re-derived its pin from the manifest would
+      // re-arm a feed on a github-pinned pack, the exact defect the block above exists to stop.
+      const unsatisfied = describeUnsatisfied(inspected.id, inspected.dependencies)
+      if (unsatisfied) {
+        if (!hooks.planUnsatisfied) throw new UpdateError('install', unsatisfied)
+        // The planner copies the bundle into its own cache before this method's `finally` removes
+        // `tmp`, so the approved plan installs these very bytes rather than re-downloading them.
+        const plan = await hooks.planUnsatisfied({
+          id: inspected.id,
+          version: inspected.version,
+          bundlePath: zipPath,
+          pinOverride,
+          dependencies: inspected.rawDependencies
+        })
+        if (!plan.ok) throw new UpdateError('install', plan.error)
+        // Staged, not installed. 'available' is the honest phase: the update is still pending,
+        // now waiting on the user's approval of the plan rather than on a download.
+        return { phase: 'available', version: entry.version }
+      }
+
       const result = await this.install(zipPath, {
         argusHome: this.deps.argusHome,
         state: this.deps.state,

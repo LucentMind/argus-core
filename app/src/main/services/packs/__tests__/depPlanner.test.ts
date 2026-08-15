@@ -257,7 +257,33 @@ describe('buildPlan', () => {
     for (const p of rows) {
       expect(Object.hasOwn(p, 'bundlePath')).toBe(false)
       expect(Object.hasOwn(p, 'source')).toBe(false)
+      expect(Object.hasOwn(p, 'pinOverride')).toBe(false)
     }
+  })
+
+  /**
+   * The GitHub and update entry points know a richer pin than a `DeclaredSource` can carry
+   * (`manifestPath`), and it must reach the executor attached to the ROOT only — a dependency
+   * carrying one would be a way to redirect an installed pack's update home.
+   */
+  it('carries a root pin override to the staged root and to no dependency', async () => {
+    const world: World = { common: { '1.4.0': {} } }
+    const pin: PackSource = {
+      kind: 'github',
+      host: 'github.com',
+      owner: 'org',
+      repo: 'packs',
+      installedAt: 7,
+      manifestPath: 'packs/maps/argus-pack.json'
+    }
+    const staged = await stagePlan(deps(world), {
+      ...root('maps', '2.0.0', { common: { range: '^1.0.0', updateRepo: 'org/packs' } }),
+      pinOverride: pin
+    })
+    expect(staged.ok).toBe(true)
+    if (!staged.ok) return
+    expect(staged.packs.find((p) => p.id === 'maps')?.pinOverride).toEqual(pin)
+    expect(staged.packs.find((p) => p.id === 'common')?.pinOverride).toBeUndefined()
   })
 })
 

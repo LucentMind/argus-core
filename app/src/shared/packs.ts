@@ -117,10 +117,29 @@ export interface PlannedPack {
 }
 
 export type PlanErrorCode =
-  'conflict' | 'breaks-dependent' | 'cycle' | 'unresolvable' | 'incompatible'
+  | 'conflict'
+  | 'breaks-dependent'
+  | 'cycle'
+  | 'unresolvable'
+  | 'incompatible'
+  /**
+   * The ROOT bundle could not be obtained or verified at all — an unusable repository reference,
+   * a checksum mismatch, a manifest naming another repo as its update home. Distinct from the
+   * codes above, which are all about a resolved set being incoherent: nothing was ever planned.
+   */
+  | 'bundle'
 
 export type PlanResult =
   { ok: true; packs: PlannedPack[] } | { ok: false; code: PlanErrorCode; error: string }
+
+/**
+ * What applying an update reports back. An update whose new version needs a dependency does not
+ * install anything — it stages a plan for approval — so the two outcomes are distinguished here
+ * rather than squeezed into `UpdateStatus`, which has no vocabulary for "waiting on approval of
+ * these N packs".
+ */
+export type ApplyUpdateOutcome =
+  { planned: false; status: UpdateStatus } | { planned: true; plan: PlanResult }
 
 /** Result of installing an approved plan in order. */
 export interface ApplyPlanResult {

@@ -122,6 +122,48 @@ describe('applying an update whose new version adds a dependency', () => {
     expect(onDisk.version).toBe('0.5.0')
   })
 
+  /**
+   * The wiring the manual Update button supplies. Without the hook the refusal above still
+   * stands, which is what an unattended run keeps: nothing gets installed with no one to approve
+   * it. With it, the missing dependency is planned rather than reported as a dead end.
+   */
+  it('stages a plan for the missing dependency when a planner is wired in', async () => {
+    const roots: Array<{ id: string; version: string; bundleReadable: boolean }> = []
+    const status = await svc(await seed()).apply('navigation', {
+      planUnsatisfied: async (root) => {
+        // Readable AT HOOK TIME is the requirement: `apply`'s `finally` removes its temp
+        // directory on the way out, so a planner that deferred the copy would find nothing.
+        roots.push({
+          id: root.id,
+          version: root.version,
+          bundleReadable: fs.existsSync(root.bundlePath)
+        })
+        return { ok: true, packs: [] }
+      }
+    })
+
+    // The root handed to the planner is the DOWNLOADED 0.6.0 bundle — the version that declares
+    // the dependency — not the 0.5.0 still on disk.
+    expect(roots).toEqual([{ id: 'navigation', version: '0.6.0', bundleReadable: true }])
+
+    // Nothing installed: the plan awaits approval, and 0.5.0 stays active until it is given.
+    expect(status).toEqual({ phase: 'available', version: '0.6.0' })
+    expect(state.get('navigation')).toBe('0.5.0')
+  })
+
+  it('reports a refused plan as the failure, still leaving the old version active', async () => {
+    const status = await svc(await seed()).apply('navigation', {
+      planUnsatisfied: async () => ({
+        ok: false,
+        code: 'unresolvable',
+        error: "no published version of 'common' satisfies ^0.1.0 for this machine"
+      })
+    })
+    expect(status).toMatchObject({ phase: 'error', code: 'install' })
+    expect(status.phase === 'error' ? status.message : '').toContain('common')
+    expect(state.get('navigation')).toBe('0.5.0')
+  })
+
   it('applies the same update once the dependency is installed', async () => {
     const client = await seed()
     const common = await installPack(makeBundleDir({ id: 'common', version: '0.1.2' }), {

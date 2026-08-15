@@ -456,11 +456,18 @@ table above for why understating this is worse than it looks.
 Requirements are enforced in **both directions**, and always before anything is written to disk:
 
 - Installing a pack **resolves its dependency tree first** and shows the result as a plan before
-  anything is written — see [Install](#install) below. A dependency with no declared source (the
-  bare-string form) cannot appear in that plan; if one is missing or out of range, planning refuses
-  and names it (`code: 'unresolvable'`). The install step itself keeps its own dependency guard too
-  (`code: 'dependency'`), as defense in depth against a manifest that changed between planning and
-  writing. Either way, Core never fetches a non-auto-installable dependency on your behalf.
+  anything is written — see [Install](#install) below. This is true of **every** way a pack is
+  installed: a bundle picked from disk, and *Install from GitHub…*. A dependency with no declared
+  source (the bare-string form) cannot appear in that plan; if one is missing or out of range,
+  planning refuses and names it (`code: 'unresolvable'`). The install step itself keeps its own
+  dependency guard too (`code: 'dependency'`), as defense in depth against a manifest that changed
+  between planning and writing. Either way, Core never fetches a non-auto-installable dependency on
+  your behalf.
+- A new version that adds a dependency is **planned, not refused**, when you press Update yourself:
+  the bundle is downloaded and verified, the missing dependency is resolved from its declared
+  source, and the whole set is shown for one approval. Nothing is installed until you give it, so
+  the current version stays active if you decline. An **unattended** check has no one to approve a
+  plan, so it keeps the old behaviour — the update is held and the missing dependency is named.
 - Installing or **updating a pack that others already depend on** is refused when the new version
   falls outside a dependent's range — the counterpart to uninstall, which likewise refuses to remove
   a depended-on pack. A vendor publishing a breaking major therefore cannot invalidate an installed

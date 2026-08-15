@@ -254,11 +254,11 @@ import { installPack, uninstallPack, inspectBundleSource } from './services/pack
 import { listInstalledPacks } from './services/packs/packsService'
 import { PackUpdatesService, nodeHttpClient } from './services/packs/packUpdates'
 import { nodeGhClient } from './services/packs/ghClient'
-import { listRepoPacks, installFromRepo } from './services/packs/githubInstall'
+import { listRepoPacks } from './services/packs/githubInstall'
 import { parseGhRef } from './services/packs/githubRef'
 import { registerPacksPlanIpc } from './services/packs/planIpc'
 import { makeCandidateResolver, downloadCandidate } from './services/packs/depSources'
-import type { InstallResult, RepoPackRow } from '../shared/packs'
+import type { ApplyUpdateOutcome, PlanResult, RepoPackRow } from '../shared/packs'
 import { autoUpdater } from 'electron-updater'
 import { CoreUpdaterService, noopBackend } from './services/update/coreUpdater'
 import { createElectronUpdaterBackend } from './services/update/electronUpdaterBackend'
@@ -1339,21 +1339,25 @@ function registerIpc(): void {
   // `packsPlanBundle`/`packsApplyPlan` are registered by `registerPacksPlanIpc` rather than inline:
   // `handle` is injected there so the apply handler's capture-and-clear race fix (see planIpc.ts)
   // is directly testable without importing `electron`.
-  registerPacksPlanIpc((channel, fn) => ipcMain.handle(channel, (e, ...args) => fn(e, ...args)), {
-    resolver: makeCandidateResolver({ http: nodeHttpClient, gh: nodeGhClient }),
-    download: (candidate, destPath) =>
-      downloadCandidate(candidate, destPath, nodeGhClient, nodeHttpClient),
-    packsState,
-    argusHome,
-    tempRoot: app.getPath('temp'),
-    onApplied: (res) => {
-      for (const p of res.installed) packsTouched.add(p.id)
-      if (res.installed.length > 0) {
-        broadcast(IPC.packsChanged, undefined)
-        referencesChanged()
+  const planStager = registerPacksPlanIpc(
+    (channel, fn) => ipcMain.handle(channel, (e, ...args) => fn(e, ...args)),
+    {
+      resolver: makeCandidateResolver({ http: nodeHttpClient, gh: nodeGhClient }),
+      download: (candidate, destPath) =>
+        downloadCandidate(candidate, destPath, nodeGhClient, nodeHttpClient),
+      gh: nodeGhClient,
+      packsState,
+      argusHome,
+      tempRoot: app.getPath('temp'),
+      onApplied: (res) => {
+        for (const p of res.installed) packsTouched.add(p.id)
+        if (res.installed.length > 0) {
+          broadcast(IPC.packsChanged, undefined)
+          referencesChanged()
+        }
       }
     }
-  })
+  )
   ipcMain.handle(
     IPC.packsInspectRepo,
     async (
@@ -1374,27 +1378,6 @@ function registerIpc(): void {
             : (err as Error).message
         return { ok: false, error: message }
       }
-    }
-  )
-  ipcMain.handle(
-    IPC.packsInstallFromRepo,
-    async (_e, ref: string, packId: string): Promise<InstallResult> => {
-      const parsed = parseGhRef(ref)
-      if (!parsed)
-        return { ok: false, code: 'manifest', error: 'Enter a repository as owner/repo.' }
-      const res = await installFromRepo(
-        { gh: nodeGhClient, argusHome, state: packsState },
-        parsed,
-        packId
-      )
-      if (res.ok) {
-        packsTouched.add(res.id)
-        broadcast(IPC.packsChanged, undefined)
-        // A pack seeds (and on uninstall reaps) reference files, so its install is a reference
-        // mutation too — packsChanged alone left the Library list and INDEX.md behind.
-        referencesChanged()
-      }
-      return res
     }
   )
   ipcMain.handle(IPC.packsInstall, async (_e, source: string) => {
@@ -1424,13 +1407,22 @@ function registerIpc(): void {
     broadcast(IPC.packsChanged, undefined)
     return packUpdateStatuses
   })
-  ipcMain.handle(IPC.packsApplyUpdate, async (_e, id: string) => {
-    const status = await packUpdates.apply(id)
+  ipcMain.handle(IPC.packsApplyUpdate, async (_e, id: string): Promise<ApplyUpdateOutcome> => {
+    // The manual Update button has a user to approve a plan, so an update needing a new
+    // dependency stages one instead of being refused. `plan` stays null on every other path,
+    // which is what keeps this handler's answer a plain status.
+    let plan: PlanResult | null = null
+    const status = await packUpdates.apply(id, {
+      planUnsatisfied: async (root) => {
+        plan = await planStager.stageFromBundle(root)
+        return plan
+      }
+    })
     // 'ready' is the only phase that got as far as installPack — see packUpdates.apply.
     if (status.phase === 'ready') packsTouched.add(id)
     packUpdateStatuses = { ...packUpdateStatuses, [id]: status }
     broadcast(IPC.packsChanged, undefined)
-    return status
+    return plan ? { planned: true, plan } : { planned: false, status }
   })
 
   // — app auto-update (notify first; spec §3) —
