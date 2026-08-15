@@ -1,5 +1,38 @@
 # Changelog
 
+## v2.1.2 — 2026-08-15
+
+5 commits since v2.1.1, 55 files changed (+1,911 / −551).
+
+### Added
+
+- The case grid gets a Sort menu beside the existing filters: alongside
+  the default triage ranking, it can now sort by recently worked (a new
+  `lastWorkedAt`, the latest turn actually run in any mode — not
+  `updatedAt`, which also moves on a Jira sync or a tag edit) or by last
+  update, either direction. Cases with no timestamp for the chosen field
+  sink to the bottom rather than scattering to the top.
+
+### Fixed
+
+- Linking a PR from the picker, and switching into review mode, each
+  blocked the UI on a `git fetch`/`worktree add` that was already
+  best-effort by the time it started — the picker dialog locked itself
+  with no progress shown, and review mode's few-second delay was actually
+  an unrequested `gh search prs` call miscasting itself as a slow mode
+  switch. Both checkouts now happen off the awaited path.
+- Accepting a proposal could throw its row to the bottom of a group of
+  same-timestamp proposals instead of leaving it in place, since the
+  queue's sort wasn't a total order for ties from the same distill run.
+- A hand-written reject reason can now actually be confirmed — typing one
+  and pressing Enter (or a "Reject" button that appears once there's
+  text) submits it; previously only the preset reason chips would submit,
+  and the only remaining plain button silently discarded a typed reason.
+- Pack dependency auto-install now runs on every path a pack's bytes can
+  arrive by, not just the zip picker — installing from a GitHub repo, or
+  applying an update that adds a new dependency, no longer refuses with
+  "requires \<id\>" while silently skipping the dependency plan.
+
 ## v2.1.1 — 2026-08-14
 
 63 commits since v2.1.0, 157 files changed (+9,825 / −784).
