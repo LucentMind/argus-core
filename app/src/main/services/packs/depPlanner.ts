@@ -17,6 +17,13 @@ export interface PlanRoot {
   bundlePath: string
   source: DeclaredSource | null
   dependencies: PackManifest['dependencies']
+  /**
+   * The exact pin to record for the root, when the caller knows one a `DeclaredSource` cannot
+   * express — `manifestPath`, which the GitHub install and update paths resolve and which their
+   * later update checks need. Set only by main-side entry points, never derived from a manifest,
+   * and never present on a dependency: see `applyPlan`, where it outranks the existing pin.
+   */
+  pinOverride?: PackSource
 }
 
 export interface PlannerDeps {
@@ -46,6 +53,8 @@ export interface PlannerDeps {
 export interface StagedPack extends PlannedPack {
   bundlePath: string
   source: DeclaredSource | null
+  /** Only ever set on the root — see `PlanRoot.pinOverride`. */
+  pinOverride?: PackSource
 }
 
 interface Requirement {
@@ -95,7 +104,7 @@ function describeSource(source: DeclaredSource): string {
 export function toPlannedRows(staged: StagedPack[]): PlannedPack[] {
   return staged.map(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured only to drop them
-    ({ bundlePath: _bundlePath, source: _source, ...row }) => row
+    ({ bundlePath: _bundlePath, source: _source, pinOverride: _pinOverride, ...row }) => row
   )
 }
 
@@ -142,7 +151,8 @@ export async function stagePlan(
     originLabel: 'this bundle',
     isRoot: true,
     bundlePath: root.bundlePath,
-    source: root.source
+    source: root.source,
+    pinOverride: root.pinOverride
   })
 
   while (queue.length > 0) {

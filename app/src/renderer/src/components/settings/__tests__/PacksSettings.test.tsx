@@ -6,10 +6,11 @@ import '@testing-library/jest-dom/vitest'
 import { PacksSettings } from '../PacksSettings'
 import { confirm } from '../../../lib/confirmStore'
 import type {
-  InstallResult,
+  ApplyPlanResult,
   InstalledPackRow,
   PacksListPayload,
-  PlannedPack
+  PlannedPack,
+  PlanResult
 } from '../../../../../shared/packs'
 
 vi.mock('../../../lib/confirmStore', () => ({
@@ -114,14 +115,20 @@ function mockPacks(
     relaunch: vi.fn().mockResolvedValue(undefined),
     onChanged: vi.fn().mockReturnValue(() => {}),
     checkUpdates: vi.fn().mockResolvedValue({}),
-    applyUpdate: vi.fn().mockResolvedValue({ phase: 'idle' }),
+    applyUpdate: vi.fn().mockResolvedValue({ planned: false, status: { phase: 'idle' } }),
     inspectRepo: vi.fn().mockResolvedValue({ ok: true, packs: [] }),
-    installFromRepo: vi.fn().mockResolvedValue({
+    planRepo: vi.fn().mockResolvedValue({
       ok: true,
-      id: 'sample',
-      version: '1.0.0',
-      previousVersion: null,
-      relaunchRequired: true
+      packs: [
+        {
+          id: 'sample',
+          version: '1.0.0',
+          action: 'install',
+          previousVersion: null,
+          originLabel: 'github.com/owner/repo',
+          isRoot: true
+        }
+      ]
     }),
     // Default plan: the root alone, satisfied — the single-pack path, which every pre-existing
     // install test exercises without knowing planBundle/applyPlan exist. Tests that care about a
@@ -450,7 +457,9 @@ describe('PacksSettings', () => {
       error: null,
       packs: [row({ id: 'sample', update: { phase: 'available', version: '1.1.0' } })]
     })
-    packs.applyUpdate = vi.fn().mockResolvedValue({ phase: 'ready', version: '1.1.0' })
+    packs.applyUpdate = vi
+      .fn()
+      .mockResolvedValue({ planned: false, status: { phase: 'ready', version: '1.1.0' } })
     render(<PacksSettings settings={settingsPayload([])} />)
     fireEvent.click(await screen.findByRole('button', { name: /update · sample/i }))
     await waitFor(() => expect(packs.applyUpdate).toHaveBeenCalledWith('sample'))
@@ -463,10 +472,8 @@ describe('PacksSettings', () => {
       packs: [row({ id: 'sample', update: { phase: 'available', version: '1.1.0' } })]
     })
     packs.applyUpdate = vi.fn().mockResolvedValue({
-      phase: 'error',
-      message: 'origin mismatch',
-      at: 1,
-      code: 'origin-pin'
+      planned: false,
+      status: { phase: 'error', message: 'origin mismatch', at: 1, code: 'origin-pin' }
     })
     render(<PacksSettings settings={settingsPayload([])} />)
     const btn = await screen.findByRole('button', { name: /update · sample/i })
@@ -535,11 +542,24 @@ describe('PacksSettings', () => {
         }
       ]
     })
-    packs.installFromRepo = vi.fn().mockResolvedValue({
+    packs.planRepo = vi.fn().mockResolvedValue({
       ok: true,
-      id: 'sample-bridge-playground',
-      version: '0.1.0',
-      previousVersion: null,
+      packs: [
+        {
+          id: 'sample-bridge-playground',
+          version: '0.1.0',
+          action: 'install',
+          previousVersion: null,
+          originLabel: 'github.com/owner/repo',
+          isRoot: true
+        }
+      ]
+    })
+    // A one-pack plan is applied without an approval step, so the relaunch prompt below comes
+    // from the apply, not from the plan.
+    packs.applyPlan = vi.fn().mockResolvedValue({
+      installed: [{ id: 'sample-bridge-playground', version: '0.1.0' }],
+      failed: null,
       relaunchRequired: true
     })
 
@@ -555,10 +575,7 @@ describe('PacksSettings', () => {
     expect(screen.getByRole('button', { name: 'Install sample-external-app' })).toBeDisabled()
 
     await user.click(screen.getByRole('button', { name: 'Install sample-bridge-playground' }))
-    expect(packs.installFromRepo).toHaveBeenCalledWith(
-      'LucentMind/demo_pack',
-      'sample-bridge-playground'
-    )
+    expect(packs.planRepo).toHaveBeenCalledWith('LucentMind/demo_pack', 'sample-bridge-playground')
     expect(await screen.findByText(/Relaunch Argus/)).toBeInTheDocument()
   })
 
@@ -627,11 +644,24 @@ describe('PacksSettings', () => {
   it('keeps Relaunch clickable while a pack operation is still in flight', async () => {
     // `busy` gating this button meant an install that never settled left the one control that
     // fixes a stale-pack state permanently disabled.
-    let release!: (r: InstallResult) => void
+    let release!: (r: ApplyPlanResult) => void
     packs.list = vi.fn().mockResolvedValue({ ...listed, relaunchRequired: true })
-    packs.installFromRepo = vi.fn(
+    packs.planRepo = vi.fn().mockResolvedValue({
+      ok: true,
+      packs: [
+        {
+          id: 'sample',
+          version: '1.0.0',
+          action: 'install',
+          previousVersion: null,
+          originLabel: 'github.com/owner/repo',
+          isRoot: true
+        }
+      ]
+    })
+    packs.applyPlan = vi.fn(
       () =>
-        new Promise<InstallResult>((resolve) => {
+        new Promise<ApplyPlanResult>((resolve) => {
           release = resolve
         })
     )
@@ -646,17 +676,15 @@ describe('PacksSettings', () => {
     await user.type(screen.getByLabelText('GitHub repository'), 'owner/repo')
     await user.click(screen.getByRole('button', { name: 'Find packs' }))
     await user.click(await screen.findByRole('button', { name: 'Install sample' }))
-    await waitFor(() => expect(packs.installFromRepo).toHaveBeenCalled())
+    await waitFor(() => expect(packs.applyPlan).toHaveBeenCalled())
 
     const relaunch = screen.getByRole('button', { name: 'Relaunch now' })
     expect(relaunch).toBeEnabled()
     fireEvent.click(relaunch)
     expect(packs.relaunch).toHaveBeenCalled()
     release({
-      ok: true,
-      id: 'sample',
-      version: '1.0.0',
-      previousVersion: null,
+      installed: [{ id: 'sample', version: '1.0.0' }],
+      failed: null,
       relaunchRequired: true
     })
   })
@@ -670,16 +698,20 @@ describe('PacksSettings', () => {
         { id: 'sample-bridge-playground', version: '0.1.0', tag: 'v0.1.0', installable: true }
       ]
     })
-    const installFromRepo = vi.fn<(ref: string, packId: string) => Promise<InstallResult>>(
-      async () => ({
-        ok: true,
-        id: 'sample-bridge-playground',
-        version: '0.1.0',
-        previousVersion: null,
-        relaunchRequired: true
-      })
-    )
-    packs.installFromRepo = installFromRepo
+    const planRepo = vi.fn<(ref: string, packId: string) => Promise<PlanResult>>(async () => ({
+      ok: true,
+      packs: [
+        {
+          id: 'sample-bridge-playground',
+          version: '0.1.0',
+          action: 'install',
+          previousVersion: null,
+          originLabel: 'github.com/owner/repo',
+          isRoot: true
+        }
+      ]
+    }))
+    packs.planRepo = planRepo
 
     render(<PacksSettings settings={settingsPayload([])} />)
 
@@ -690,7 +722,7 @@ describe('PacksSettings', () => {
 
     await user.click(screen.getByRole('button', { name: 'Install sample-bridge-playground' }))
 
-    expect(installFromRepo.mock.calls[0][0]).toBe('owner/repoA')
+    expect(planRepo.mock.calls[0][0]).toBe('owner/repoA')
   })
 
   describe('dependency install plan', () => {

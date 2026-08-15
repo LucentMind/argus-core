@@ -306,27 +306,36 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
     setBusy(true)
     setError(null)
     try {
-      const res = await window.argus.packs.applyPlan()
-      if (res.failed) {
-        const parts: string[] = []
-        if (res.installed.length > 0) {
-          parts.push(`Installed ${res.installed.map((p) => `${p.id} ${p.version}`).join(', ')}.`)
-        }
-        // An empty id means main held no plan at all ("no plan staged") — that is a plain
-        // message, not a pack name, so it must not be interpolated as `'' failed: …`.
-        parts.push(
-          res.failed.id ? `'${res.failed.id}' failed: ${res.failed.error}` : res.failed.error
-        )
-        setError(parts.join(' '))
-      }
-      if (res.relaunchRequired) setNeedsRelaunch(true)
-      setPlan(null)
-      await refresh()
+      await applyStagedPlan()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
     }
+  }
+
+  /**
+   * The approval itself, without the `busy` bookkeeping — callers that are already busy (the
+   * one-pack repo install, which plans and applies in a single click) call this directly, so
+   * the guard at the top of `runPlan` cannot lock them out of their own apply.
+   */
+  async function applyStagedPlan(): Promise<void> {
+    const res = await window.argus.packs.applyPlan()
+    if (res.failed) {
+      const parts: string[] = []
+      if (res.installed.length > 0) {
+        parts.push(`Installed ${res.installed.map((p) => `${p.id} ${p.version}`).join(', ')}.`)
+      }
+      // An empty id means main held no plan at all ("no plan staged") — that is a plain
+      // message, not a pack name, so it must not be interpolated as `'' failed: …`.
+      parts.push(
+        res.failed.id ? `'${res.failed.id}' failed: ${res.failed.error}` : res.failed.error
+      )
+      setError(parts.join(' '))
+    }
+    if (res.relaunchRequired) setNeedsRelaunch(true)
+    setPlan(null)
+    await refresh()
   }
 
   async function uninstall(row: InstalledPackRow): Promise<void> {
@@ -362,8 +371,21 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
     setError(null)
     setBusy(true)
     try {
-      const status = await window.argus.packs.applyUpdate(id)
-      if (status.phase === 'ready') {
+      // Same desync rule as the two install paths: main is about to restage, so a displayed plan
+      // stops describing what "Install all" would install from here on.
+      setPlan(null)
+      const outcome = await window.argus.packs.applyUpdate(id)
+      // The new version needs a dependency, so nothing was installed — the resolved set is
+      // offered for approval instead of the update being refused by name.
+      if (outcome.planned) {
+        if (!outcome.plan.ok) {
+          setError(outcome.plan.error)
+          return
+        }
+        setPlan(outcome.plan.packs)
+        return
+      }
+      if (outcome.status.phase === 'ready') {
         setNeedsRelaunch(true)
       }
       await refresh()
@@ -412,20 +434,35 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
     }
   }
 
+  /**
+   * Installs a pack from a GitHub repository through the planner, so a pack whose manifest
+   * declares dependencies pulls them in rather than being refused with "requires <id>".
+   *
+   * A one-pack plan (the root, nothing else to pull in) is applied straight away: that is the
+   * pre-existing single-click repo install, and adding an approval step to it would be new
+   * friction. Anything larger is shown for approval first. Either way the picker closes — the
+   * plan, not the repo listing, is now what the user is acting on.
+   */
   async function installFromRepo(packId: string): Promise<void> {
     if (busy || !repoResult) return
     setError(null)
     setBusy(true)
     try {
-      const res = await window.argus.packs.installFromRepo(repoResult.ref, packId)
-      if (!res.ok) {
-        setError(installErrorMessage(res.code, res.error))
+      // Same desync rule as `install()`: main's staged plan is about to be overwritten, so the
+      // displayed one stops being approvable at exactly this point.
+      setPlan(null)
+      const planned = await window.argus.packs.planRepo(repoResult.ref, packId)
+      if (!planned.ok) {
+        setError(planned.error)
         return
       }
-      setNeedsRelaunch(true)
       setRepoOpen(false)
       setRepoResult(null)
-      await refresh()
+      if (planned.packs.length === 1) {
+        await applyStagedPlan()
+        return
+      }
+      setPlan(planned.packs)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {

@@ -1,22 +1,18 @@
-import fs from 'node:fs'
 import path from 'node:path'
 import { z, ZodError } from 'zod'
-import { installPack, inspectBundleSource } from './install'
+import { inspectBundleSource } from './install'
 import { isApiCompatible, platformMatchesHost } from './compat'
 import { listReleaseCandidates, findGithubUpdate, MAX_RELEASES } from './githubFeed'
 import { MAX_PACK_BUNDLE_BYTES } from './packUpdates'
 import { GhError, type GhClient } from './ghClient'
 import { parseGhRef, sameGhRef, type GhRef } from './githubRef'
 import { PACK_MANIFEST_FILE } from './manifest'
-import type { PacksStateStore } from './packsState'
-import type { InstallResult, RepoPackRow } from '../../../shared/packs'
+import type { GithubPackSource } from './packsState'
+import type { InspectResult, RepoPackRow } from '../../../shared/packs'
 
 export interface GithubInstallDeps {
   gh: GhClient
-  argusHome: string
-  state: PacksStateStore
   host?: { platform: string; arch: string }
-  install?: typeof installPack
   inspectBundleSource?: typeof inspectBundleSource
 }
 
@@ -127,24 +123,32 @@ export async function listRepoPacks(
   return rows
 }
 
+/** A verified root bundle sitting in the caller's directory, ready to be planned from. */
+export type RepoBundleResult =
+  | { ok: true; zipPath: string; pin: GithubPackSource; inspected: InspectResult }
+  | { ok: false; code: 'manifest' | 'checksum' | 'io'; error: string }
+
 /**
- * Downloads the newest compatible release of `packId` from `ref` and installs it, pinning the
- * pack to `ref`.
+ * Downloads the newest compatible release of `packId` from `ref` into `destDir` and verifies it,
+ * stopping short of installing: the caller plans from the result, so a pack whose manifest
+ * declares dependencies gets them resolved instead of being refused (see `planIpc.ts`).
  *
  * The pin is the repository the bytes ACTUALLY came from, which overrides whatever the manifest
  * declares — the user chose a repo, and `demo_pack`'s packs declare a Pages feed they should not
  * be silently re-armed onto. The one exception is a manifest naming a DIFFERENT repo: a bundle
  * nominating another update home than its own source is the takeover shape `packUpdates.apply`
  * already refuses, so it is refused here too rather than resolved by precedence.
+ *
+ * `destDir` is created and removed by the caller. Staging into the plan's own cache directory is
+ * what lets the bytes survive until the user approves the plan, without a second download.
  */
-export async function installFromRepo(
+export async function stageRepoBundle(
   deps: GithubInstallDeps,
   typedRef: GhRef,
-  packId: string
-): Promise<InstallResult> {
-  const install = deps.install ?? installPack
+  packId: string,
+  destDir: string
+): Promise<RepoBundleResult> {
   const inspect = deps.inspectBundleSource ?? inspectBundleSource
-  let tmp: string | null = null
   try {
     // Pin what GitHub says the repo IS, not what the user typed — see `resolveCanonicalRef`.
     const ref = await resolveCanonicalRef(deps.gh, typedRef)
@@ -170,8 +174,7 @@ export async function installFromRepo(
       }
     }
 
-    tmp = fs.mkdtempSync(path.join(deps.argusHome, '.pack-install-gh-'))
-    const zipPath = path.join(tmp, `${packId}.zip`)
+    const zipPath = path.join(destDir, `${packId}.zip`)
     const { sha256 } = await deps.gh.downloadAsset(
       ref,
       found.candidate.tag,
@@ -205,12 +208,12 @@ export async function installFromRepo(
       }
     }
 
-    return await install(zipPath, {
-      argusHome: deps.argusHome,
-      state: deps.state,
-      host: deps.host,
-      pinOverride: { ...pin, manifestPath: found.manifestPath }
-    })
+    return {
+      ok: true,
+      zipPath,
+      pin: { ...pin, manifestPath: found.manifestPath },
+      inspected
+    }
   } catch (err) {
     if (err instanceof GhError) return { ok: false, code: 'io', error: err.message }
     // ZodError#message is a multi-line JSON blob — fine for a log, not a settings alert. The
@@ -224,13 +227,5 @@ export async function installFromRepo(
       }
     }
     return { ok: false, code: 'io', error: (err as Error).message }
-  } finally {
-    if (tmp) {
-      try {
-        fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
-      } catch (err) {
-        console.error(`pack install: failed to remove temp dir '${tmp}'`, err)
-      }
-    }
   }
 }
