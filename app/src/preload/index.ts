@@ -120,7 +120,8 @@ import type {
   InstallResult,
   RepoPackRow,
   PlanResult,
-  ApplyPlanResult
+  ApplyPlanResult,
+  ApplyUpdateOutcome
 } from '../shared/packs'
 import type { CoreUpdatePayload, UpdateStatus } from '../shared/updates'
 import type { SeedSampleResult } from '../shared/onboarding'
@@ -316,14 +317,14 @@ const argus = {
       ref: string
     ): Promise<{ ok: true; packs: RepoPackRow[] } | { ok: false; error: string }> =>
       invoke(IPC.packsInspectRepo, ref),
-    installFromRepo: (ref: string, packId: string): Promise<InstallResult> =>
-      invoke(IPC.packsInstallFromRepo, ref, packId),
+    planRepo: (ref: string, packId: string): Promise<PlanResult> =>
+      invoke(IPC.packsPlanRepo, ref, packId),
     install: (source: string): Promise<InstallResult> => invoke(IPC.packsInstall, source),
     uninstall: (id: string): Promise<{ ok: boolean; error?: string }> =>
       invoke(IPC.packsUninstall, id),
     relaunch: (): Promise<void> => invoke(IPC.packsRelaunch),
     checkUpdates: (): Promise<Record<string, UpdateStatus>> => invoke(IPC.packsCheckUpdates),
-    applyUpdate: (id: string): Promise<UpdateStatus> => invoke(IPC.packsApplyUpdate, id),
+    applyUpdate: (id: string): Promise<ApplyUpdateOutcome> => invoke(IPC.packsApplyUpdate, id),
     onChanged: (cb: () => void): (() => void) => {
       const listener = (): void => cb()
       ipcRenderer.on(IPC.packsChanged, listener)

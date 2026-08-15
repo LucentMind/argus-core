@@ -1,11 +1,10 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { listRepoPacks, installFromRepo } from '../githubInstall'
-import type { installPack } from '../install'
+import { listRepoPacks, stageRepoBundle } from '../githubInstall'
 import { GhError, type GhClient } from '../ghClient'
-import type { InspectResult, InstallResult } from '../../../../shared/packs'
+import type { InspectResult } from '../../../../shared/packs'
 
 const WIN = { platform: 'win32', arch: 'x64' }
 const REF = { host: 'github.com', owner: 'LucentMind', repo: 'demo_pack' }
@@ -117,26 +116,16 @@ describe('listRepoPacks', () => {
   })
 })
 
-describe('installFromRepo', () => {
-  it('installs and pins to the repo the bytes came from, overriding a manifest feed URL', async () => {
-    const argusHome = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-ghinstall-'))
-    const install = vi.fn<typeof installPack>(
-      async () =>
-        ({
-          ok: true,
-          id: 'sample-bridge-playground',
-          version: '0.1.0',
-          previousVersion: null,
-          relaunchRequired: true
-        }) as InstallResult
-    )
-    const res = await installFromRepo(
+describe('stageRepoBundle', () => {
+  function dest(): string {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'argus-ghstage-'))
+  }
+
+  it('stages the bytes and pins the repo they came from, overriding a manifest feed URL', async () => {
+    const res = await stageRepoBundle(
       {
         gh: gh(),
         host: WIN,
-        argusHome,
-        state: { get: () => undefined } as never,
-        install,
         inspectBundleSource: async () =>
           ({
             id: 'sample-bridge-playground',
@@ -149,16 +138,19 @@ describe('installFromRepo', () => {
           }) as InspectResult
       },
       REF,
-      'sample-bridge-playground'
+      'sample-bridge-playground',
+      dest()
     )
     expect(res.ok).toBe(true)
-    const pin = install.mock.calls[0][1].pinOverride
-    expect(pin).toMatchObject({ kind: 'github', owner: 'LucentMind', repo: 'demo_pack' })
-    expect(pin).toHaveProperty('manifestPath', 'packs/sample-bridge-playground/argus-pack.json')
+    if (!res.ok) return
+    expect(res.pin).toMatchObject({ kind: 'github', owner: 'LucentMind', repo: 'demo_pack' })
+    expect(res.pin).toHaveProperty('manifestPath', 'packs/sample-bridge-playground/argus-pack.json')
+    // The bytes must be on disk in the caller's directory: the planner installs from this path.
+    expect(fs.existsSync(res.zipPath)).toBe(true)
+    expect(path.dirname(res.zipPath)).toMatch(/argus-ghstage-/)
   })
 
   it('pins the canonical repo name, not the one the user typed', async () => {
-    const argusHome = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-ghinstall-'))
     const client = gh()
     const original = client.api
     // The user types an OLD name; GitHub answers, and reports the new one.
@@ -166,23 +158,10 @@ describe('installFromRepo', () => {
       p === 'repos/OldOrg/demo_pack'
         ? { full_name: 'LucentMind/demo_pack' }
         : original(ref, p.replace('OldOrg', 'LucentMind'))
-    const install = vi.fn<typeof installPack>(
-      async () =>
-        ({
-          ok: true,
-          id: 'sample-bridge-playground',
-          version: '0.1.0',
-          previousVersion: null,
-          relaunchRequired: true
-        }) as InstallResult
-    )
-    await installFromRepo(
+    const res = await stageRepoBundle(
       {
         gh: client,
         host: WIN,
-        argusHome,
-        state: { get: () => undefined } as never,
-        install,
         inspectBundleSource: async () =>
           ({
             id: 'sample-bridge-playground',
@@ -192,22 +171,19 @@ describe('installFromRepo', () => {
           }) as InspectResult
       },
       { host: 'github.com', owner: 'OldOrg', repo: 'demo_pack' },
-      'sample-bridge-playground'
+      'sample-bridge-playground',
+      dest()
     )
+    expect(res.ok).toBe(true)
     // Pinning the typed name would make the very next check report the pack as "moved".
-    expect(install.mock.calls[0][1].pinOverride).toMatchObject({ owner: 'LucentMind' })
+    if (res.ok) expect(res.pin).toMatchObject({ owner: 'LucentMind' })
   })
 
   it('refuses a bundle that names a different repo as its update home', async () => {
-    const argusHome = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-ghinstall-'))
-    const install = vi.fn()
-    const res = await installFromRepo(
+    const res = await stageRepoBundle(
       {
         gh: gh(),
         host: WIN,
-        argusHome,
-        state: { get: () => undefined } as never,
-        install: install as never,
         inspectBundleSource: async () =>
           ({
             id: 'sample-bridge-playground',
@@ -218,49 +194,61 @@ describe('installFromRepo', () => {
           }) as InspectResult
       },
       REF,
-      'sample-bridge-playground'
+      'sample-bridge-playground',
+      dest()
     )
     expect(res).toMatchObject({ ok: false, code: 'manifest' })
-    expect(install).not.toHaveBeenCalled()
   })
 
   it('refuses when the downloaded bytes do not match the published digest', async () => {
-    const argusHome = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-ghinstall-'))
     const client = gh()
-    client.downloadAsset = async (_r, _t, _n, dest) => {
-      fs.writeFileSync(dest, Buffer.from('tampered'))
+    client.downloadAsset = async (_r, _t, _n, d) => {
+      fs.writeFileSync(d, Buffer.from('tampered'))
       return { sha256: 'b'.repeat(64), bytesWritten: 8 }
     }
-    const res = await installFromRepo(
-      { gh: client, host: WIN, argusHome, state: { get: () => undefined } as never },
+    const res = await stageRepoBundle(
+      { gh: client, host: WIN },
       REF,
-      'sample-bridge-playground'
+      'sample-bridge-playground',
+      dest()
     )
     expect(res).toMatchObject({ ok: false, code: 'checksum' })
   })
 
-  it('refuses to install when the canonical repo name cannot be resolved', async () => {
-    const argusHome = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-ghinstall-'))
+  it('refuses when the canonical repo name cannot be resolved', async () => {
     const client = gh()
     const original = client.api
     client.api = async (ref, p) =>
       p === 'repos/LucentMind/demo_pack'
         ? { full_name: 'this is not a repo name' }
         : original(ref, p)
-    const install = vi.fn()
-    const res = await installFromRepo(
+    const res = await stageRepoBundle(
+      { gh: client, host: WIN },
+      REF,
+      'sample-bridge-playground',
+      dest()
+    )
+    // Falling back to the typed ref here would pin a name GitHub never confirmed.
+    expect(res.ok).toBe(false)
+  })
+
+  it('refuses a bundle declaring a different pack id than the one asked for', async () => {
+    const res = await stageRepoBundle(
       {
-        gh: client,
+        gh: gh(),
         host: WIN,
-        argusHome,
-        state: { get: () => undefined } as never,
-        install: install as never
+        inspectBundleSource: async () =>
+          ({
+            id: 'something-else',
+            version: '0.1.0',
+            apiCompatible: true,
+            platformCompatible: true
+          }) as InspectResult
       },
       REF,
-      'sample-bridge-playground'
+      'sample-bridge-playground',
+      dest()
     )
-    expect(res.ok).toBe(false)
-    // Falling back to the typed ref here would pin a name GitHub never confirmed.
-    expect(install).not.toHaveBeenCalled()
+    expect(res).toMatchObject({ ok: false, code: 'manifest' })
   })
 })

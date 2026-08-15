@@ -189,8 +189,9 @@ export const IPC = {
   packsInspect: 'packs:inspect',
   packsInspectRepo: 'packs:inspect-repo',
   packsPlanBundle: 'packs:plan-bundle',
+  /** Plan an install whose root comes from a GitHub release, so its dependencies resolve too. */
+  packsPlanRepo: 'packs:plan-repo',
   packsApplyPlan: 'packs:apply-plan',
-  packsInstallFromRepo: 'packs:install-from-repo',
   packsInstall: 'packs:install',
   packsUninstall: 'packs:uninstall',
   packsRelaunch: 'packs:relaunch',
