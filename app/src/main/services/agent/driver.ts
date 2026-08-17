@@ -268,6 +268,12 @@ export interface HeadlessAgentResult {
    * exactly the spec sentence above.
    */
   capHit?: 'iterations' | 'timeout'
+  /** The SDK's own `result.subtype` when `capHit === 'iterations'` (e.g. `'error_max_turns'`,
+   *  `'error_during_execution'`, `'error_max_budget_usd'`, `'error_max_structured_output_retries'`
+   *  — sdk.d.ts's `SDKResultError`). `capHit` alone cannot tell a budget cap apart from a
+   *  genuine crash mid-run; this is the raw subtype so the caller/logs can. Absent when
+   *  `capHit` is absent or `'timeout'` (Task 11's own wall-clock cutoff has no SDK subtype). */
+  capSubtype?: string
 }
 
 /** A racer that rejects when `signal` aborts, and immediately if it already has. Returns a

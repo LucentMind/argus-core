@@ -350,6 +350,9 @@ describe('claude runHeadlessAgent', () => {
     const d = createClaudeDriver(q.fn)
     const result = await d.runHeadlessAgent!('prompt', baseAgentOpts)
     expect(result.capHit).toBe('iterations')
+    // M3: the raw SDK subtype is recorded alongside capHit — capHit alone can't tell this
+    // (an actual budget cap) apart from a genuine crash like error_during_execution.
+    expect(result.capSubtype).toBe('error_max_turns')
     // No FINAL fenced-json block ever arrived, but the harvest is the last non-empty
     // assistant text seen — proves the state isn't thrown away just because the SDK cut
     // the run off. (An empty `text` alongside `capHit` is also a valid, deliberate return
@@ -388,6 +391,17 @@ describe('claude runHeadlessAgent', () => {
     expect(result.toolCallCount).toBe(1)
   })
 
+  it('records capSubtype as error_during_execution — distinguishable in the recorded data from an actual budget cap', async () => {
+    const q = scriptedAgentQuery([
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'crashed mid-thought' }] } },
+      { type: 'result', subtype: 'error_during_execution' }
+    ])
+    const d = createClaudeDriver(q.fn)
+    const result = await d.runHeadlessAgent!('prompt', baseAgentOpts)
+    expect(result.capHit).toBe('iterations')
+    expect(result.capSubtype).toBe('error_during_execution')
+  })
+
   it('resolves with the harvested partial and capHit "timeout" when the wall-clock timeout elapses, instead of throwing', async () => {
     vi.useFakeTimers()
     const fn: CreateQueryFn = () => ({
@@ -402,8 +416,85 @@ describe('claude runHeadlessAgent', () => {
     await vi.advanceTimersByTimeAsync(1001)
     const result = await p
     expect(result.capHit).toBe('timeout')
+    expect(result.capSubtype).toBeUndefined()
     expect(result.text).toBe('still going')
     expect(result.turnCount).toBe(1)
+    // M2: no `result` message ever arrived (so no reported tokens/cost), but durationMs — the
+    // one figure always knowable — is still synthesized rather than lost on exactly the
+    // long-running distill jobs a timeout is most likely to hit.
+    expect(result.usage).toEqual({ durationMs: expect.any(Number) })
+    vi.useRealTimers()
+  })
+
+  it('prefers a real usage figure over the synthesized duration-only fallback when a result DID land moments before the timeout fired', async () => {
+    // Regression guard for the `??` in `state.usage ?? { durationMs: ... }`: if a genuine
+    // result somehow raced the timer (belt-and-braces — not expected in practice, since a
+    // `result` message ends the collector's race outright), the real usage must win, not be
+    // clobbered by the synthesized fallback.
+    vi.useFakeTimers()
+    const fn: CreateQueryFn = () => ({
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'answered' }] }
+        }
+        yield {
+          type: 'result',
+          subtype: 'success',
+          usage: { input_tokens: 9, output_tokens: 3 },
+          total_cost_usd: 0.001
+        }
+      },
+      interrupt: async () => undefined
+    })
+    const d = createClaudeDriver(fn)
+    const result = await d.runHeadlessAgent!('prompt', { ...baseAgentOpts, timeoutMs: 1000 })
+    expect(result.capHit).toBeUndefined()
+    expect(result.usage).toMatchObject({ inputTokens: 9, outputTokens: 3, costUsd: 0.001 })
+    vi.useRealTimers()
+  })
+
+  it('returns a defensive COPY of the trajectory — a collector still running after the timeout race must not mutate an already-returned result', async () => {
+    vi.useFakeTimers()
+    let continueSecondTurn: () => void = () => undefined
+    const fn: CreateQueryFn = () => ({
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: 'assistant',
+          message: {
+            content: [
+              { type: 'tool_use', id: 'tc-1', name: 'mcp__argus__read_transcript', input: { a: 1 } }
+            ]
+          }
+        }
+        // Parks here — simulates the gap between the timeout race winning and this
+        // (abandoned but not yet interrupted) collector actually stopping.
+        await new Promise<void>((resolve) => {
+          continueSecondTurn = resolve
+        })
+        yield {
+          type: 'assistant',
+          message: {
+            content: [
+              { type: 'tool_use', id: 'tc-2', name: 'mcp__argus__read_transcript', input: { b: 2 } }
+            ]
+          }
+        }
+      },
+      interrupt: async () => undefined
+    })
+    const d = createClaudeDriver(fn)
+    const p = d.runHeadlessAgent!('prompt', { ...baseAgentOpts, timeoutMs: 1000 })
+    await vi.advanceTimersByTimeAsync(1001)
+    const result = await p
+    expect(result.trajectory).toHaveLength(1)
+    // Let the abandoned collector push a SECOND tool_use into its internal state, after the
+    // result above was already handed back.
+    continueSecondTurn()
+    await vi.advanceTimersByTimeAsync(0)
+    // The already-returned array must be untouched by that late push — proves toResult
+    // copied rather than handed out the live array.
+    expect(result.trajectory).toHaveLength(1)
     vi.useRealTimers()
   })
 
