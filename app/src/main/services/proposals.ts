@@ -222,6 +222,9 @@ export function listArchivedProposals(argusHome: string): {
   caseSlug: string
   title: string
   status: 'accepted' | 'rejected'
+  date: string
+  rejectReason?: string
+  rejectNote?: string
 }[] {
   const dir = proposalsArchiveDir(argusHome)
   if (!fs.existsSync(dir)) return []
@@ -233,13 +236,18 @@ export function listArchivedProposals(argusHome: string): {
       if (!block) return []
       const status = fmField(block.fm, 'status')
       if (status !== 'accepted' && status !== 'rejected') return []
+      const rejectReason = fmField(block.fm, 'reject_reason')
+      const rejectNote = fmField(block.fm, 'reject_note')
       return [
         {
           type: fmField(block.fm, 'type'),
           target: fmField(block.fm, 'target'),
           caseSlug: fmField(block.fm, 'case'),
           title: fmField(block.fm, 'title'),
-          status
+          date: fmField(block.fm, 'date'),
+          status,
+          ...(rejectReason ? { rejectReason } : {}),
+          ...(rejectNote ? { rejectNote } : {})
         }
       ]
     })
