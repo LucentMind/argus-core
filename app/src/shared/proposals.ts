@@ -1,3 +1,14 @@
+/**
+ * Boundary `proposals.ts`'s `archive()` appends after an edited accept's original draft body,
+ * and `evalExport.ts` splits on to recover the human's accepted text. Both modules import this
+ * one constant rather than each hard-coding the string, so the two can never drift apart (this
+ * repo has a documented defect class for exactly that: a fact written in two places that only
+ * one side gets updated). The literal bytes on disk are `\n\n` + this constant + accepted text —
+ * the leading blank line is spacing appended alongside the constant at the call site, not part
+ * of the delimiter itself.
+ */
+export const ACCEPTED_CONTENT_DELIMITER = '\n<!-- accepted-content -->\n'
+
 export const PROPOSAL_TYPES = [
   'skill-new',
   'skill-edit',
