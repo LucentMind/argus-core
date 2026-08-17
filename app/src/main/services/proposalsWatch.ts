@@ -5,6 +5,7 @@
 // discipline, but there's only one directory here, so no per-slug maps.
 import fs from 'node:fs'
 import { proposalsDir } from './paths'
+import { DIGEST_FILE } from './distill/rejectDigest'
 
 const DEBOUNCE_MS = 300
 
@@ -36,6 +37,10 @@ export function createProposalsWatch(argusHome: string, onChanged: () => void): 
       if (filename != null) {
         const name = String(filename)
         if (name === 'archive') return
+        // reject-patterns.md (Task 13) lives in this same dir but is standing guidance for the
+        // distiller, never a reviewable proposal — a digest rebuild must not trigger an
+        // app-wide proposals:changed refetch every time it writes this file.
+        if (name === DIGEST_FILE) return
         if (!name.endsWith('.md')) return
       }
       if (timer) clearTimeout(timer)

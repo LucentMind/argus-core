@@ -54,10 +54,12 @@ export interface DistillQueueDeps {
    *  and again at digest-job run time (the two calls can see different counts if rejects landed
    *  in between; that is fine, the run-time count is what actually gets persisted). */
   listArchivedProposalsFn: () => ReturnType<typeof listArchivedProposals>
-  /** One-shot (non-agentic) headless runner — Task 10's `headlessRun`, widened. The digest LLM
-   *  step is a single batch prompt, not a tool-using agent run, so this is deliberately NOT
-   *  `distill` (the case-job agentic runner). */
-  runOneShot: (prompt: string) => Promise<HeadlessResult>
+  /** One-shot (non-agentic) headless runner — Task 10's `headlessRun` as-is (its real signature
+   *  already accepts an optional `{ signal }`, so cancelling a digest job's `AbortController`
+   *  can actually reach the in-flight LLM call). The digest LLM step is a single batch prompt,
+   *  not a tool-using agent run, so this is deliberately NOT `distill` (the case-job agentic
+   *  runner). */
+  runOneShot: (prompt: string, opts?: { signal?: AbortSignal }) => Promise<HeadlessResult>
 }
 
 interface JobDbRow {
@@ -175,14 +177,19 @@ export class DistillQueue {
    * F4 regression test).
    */
   enqueue(slug: string): DistillJobRow {
-    // Pre-check BEFORE the case snapshot: a digest job, if inserted, must land with a LOWER id
-    // than the case row below so the FIFO loop (ORDER BY id ASC) runs it first — the case job's
-    // own run-start merge (see runJob) picks up whatever the digest wrote. This is deliberately
-    // independent bookkeeping, not part of the "one job per case" invariant `assembleInput`
-    // guards below: a digest job for the sentinel slug never competes with, or gets cancelled
-    // by, a case job's `cancelOtherInFlight` (different case_slug).
-    this.maybeEnqueueDigest()
     const snapshot = JSON.stringify(this.deps.assembleInput(slug))
+    // Pre-check AFTER the snapshot succeeds, BEFORE the case row's own INSERT: a digest job, if
+    // inserted, must land with a LOWER id than the case row below so the FIFO loop (ORDER BY id
+    // ASC) runs it first — the case job's own run-start merge (see runJob) picks up whatever the
+    // digest wrote. Deliberately kept AFTER `assembleInput` so a snapshot failure preserves this
+    // method's own documented throw contract ("throws only on snapshot failure... nothing has
+    // been touched yet") — running this pre-check first would leave an orphaned queued digest
+    // row behind a throw, with no case row to `kick()` it and no way to re-trigger it (the
+    // duplicate guard below would then suppress every retry attempt as "already queued"). This
+    // is deliberately independent bookkeeping, not part of the "one job per case" invariant the
+    // rest of this method guards: a digest job for the sentinel slug never competes with, or
+    // gets cancelled by, a case job's `cancelOtherInFlight` (different case_slug).
+    this.maybeEnqueueDigest()
     const res = this.deps.db
       .prepare(
         `INSERT INTO distill_jobs (case_slug, state, input_snapshot, prompt_hash, created_at) VALUES (?, 'queued', ?, ?, ?)`
@@ -212,12 +219,15 @@ export class DistillQueue {
       )
       .get()
     if (pending) return
-    const res = this.deps.db
+    // No emit() here (deliberate, not an oversight): emit() already no-ops for any
+    // kind !== 'case' row, so calling it on this freshly-inserted digest row would be dead
+    // code — every state transition this row ever goes through (this insert, runJob's
+    // running/done/failed writes) is silently swallowed by emit()'s own kind check.
+    this.deps.db
       .prepare(
         `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at, kind) VALUES (?, 'queued', '{}', ?, 'reject-digest')`
       )
       .run(DIGEST_CASE_SLUG, new Date().toISOString())
-    this.emit(this.getRaw(Number(res.lastInsertRowid))!)
   }
 
   /**
@@ -468,7 +478,9 @@ export class DistillQueue {
       // the previous, staler file, or nothing) at their own run-start merge below.
       if (r.kind === 'reject-digest') {
         const rejects = this.deps.listArchivedProposalsFn().filter((p) => p.status === 'rejected')
-        await rebuildRejectDigest(this.deps.argusHome, this.deps.runOneShot, rejects.length, r.id)
+        await rebuildRejectDigest(this.deps.argusHome, this.deps.runOneShot, rejects.length, r.id, {
+          signal: ac.signal
+        })
         // Same "a result can land after cancel()" race the case path guards against below —
         // cancel() may have already flipped this row to 'cancelled' (and synchronously aborted
         // `ac`) while `runOneShot` was still in flight. Must not clobber that with 'done'.
