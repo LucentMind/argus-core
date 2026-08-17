@@ -92,7 +92,14 @@ describe('distill proposal types', () => {
     })
     rejectProposal(home, f1)
     expect(listArchivedProposals(home)).toEqual([
-      { type: 'recipe', target: 't1', caseSlug: 'case-a', title: 'a', status: 'rejected' }
+      {
+        type: 'recipe',
+        target: 't1',
+        caseSlug: 'case-a',
+        title: 'a',
+        status: 'rejected',
+        date: expect.any(String)
+      }
     ])
     const f2 = writeProposal(home, 'case-a', {
       type: 'recipe',
