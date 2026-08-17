@@ -70,6 +70,26 @@ describe('buildMaterializePrompt', () => {
     expect(p).not.toContain('# Target file')
     expect(p).toContain('# R1\nfact')
   })
+  it('a skill and a reference sharing a name are both rendered, by kind, not one shadowing the other', () => {
+    const collisionInput = {
+      ...INPUT,
+      skillsIndex: [
+        ...INPUT.skillsIndex,
+        { name: 'shared-name', description: 'shared skill', content: 'SKILL BODY shared' }
+      ],
+      referencesIndex: [
+        ...INPUT.referencesIndex,
+        { name: 'shared-name', summary: 's', content: 'REFERENCE BODY shared', tier: null }
+      ]
+    } as unknown as CaseDistillInput
+    const p = buildMaterializePrompt(collisionInput, D, cand({ related: ['shared-name'] }))
+    expect(p).toContain('## shared-name (skill)')
+    expect(p).toContain('## shared-name (reference)')
+    const skillIdx = p.indexOf('## shared-name (skill)')
+    const refIdx = p.indexOf('## shared-name (reference)')
+    expect(p.indexOf('SKILL BODY shared', skillIdx)).toBeGreaterThan(skillIdx)
+    expect(p.indexOf('REFERENCE BODY shared', refIdx)).toBeGreaterThan(refIdx)
+  })
 })
 
 describe('parseMaterializeOutput', () => {
@@ -99,6 +119,14 @@ describe('parseMaterializeOutput', () => {
         'skill-edit'
       )
     ).toThrow(DistillParseError)
+  })
+  it('a description-only change (frontmatter, no ops, no whole_file) parses without throwing', () => {
+    const o = parseMaterializeOutput(
+      '```json\n{"frontmatter":{"description":"d2"},"basis":"twenty characters basis"}\n```',
+      'skill-edit'
+    )
+    expect(o.ops).toEqual([])
+    expect(o.frontmatter?.description).toBe('d2')
   })
 })
 
@@ -143,6 +171,19 @@ describe('materializeToProposal', () => {
       basis: 'twenty characters basis'
     })
     expect(r.ok).toBe(false)
+  })
+  it('a description-only edit changes just the frontmatter line, body untouched', () => {
+    const r = materializeToProposal(INPUT, D, cand({}), {
+      ops: [],
+      frontmatter: { description: 'd2' },
+      basis: 'twenty characters basis'
+    })
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      const lines = r.proposal.content.split('\n')
+      expect(lines).toContain('description: d2')
+      expect(r.proposal.content).toContain('# diagnose-x\n\n## Steps\n1. a\n')
+    }
   })
 })
 
