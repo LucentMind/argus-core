@@ -166,14 +166,19 @@ describe('prompt builder', () => {
     expect(openBullet.toLowerCase()).toMatch(/fix.*must state.*no fix (is )?confirmed/)
   })
 
-  it("F3: rule 8 no longer contradicts the open: bullet's own return {} instruction", () => {
-    const rule8 = CASE_DISTILL_CONTRACT.split('\n').find((l) => /^8\./.test(l.trim()))!
-    expect(rule8.toLowerCase()).toContain('open')
+  // These three locate their rule by its own text rather than by number. They used to index
+  // rules 8 and 11 directly, which made them break on any insertion above — the numbering is
+  // already guarded by the "rule structure" suite below, so pinning it twice bought nothing.
+  const ruleContaining = (needle: string): string =>
+    CASE_DISTILL_CONTRACT.split('\n').find((l) => l.includes(needle))!
+
+  it("F3: the empty-result rule no longer contradicts the open: bullet's own return {} instruction", () => {
+    expect(ruleContaining('AN EMPTY RESULT IS A VALID RESULT').toLowerCase()).toContain('open')
   })
 
   it('contract v2 carries the preference-order, never-capture, basis, caps, and tools rules', () => {
     const c = CASE_DISTILL_CONTRACT.toLowerCase()
-    expect(c).toContain('prefer a skill-edit')
+    expect(c).toContain('prefer the skill-edit')
     expect(c).toContain('never capture')
     expect(c).toContain('basis')
     expect(c).toContain('final assistant message')
@@ -181,9 +186,8 @@ describe('prompt builder', () => {
     expect(c).toMatch(/caps:.*at most n proposals/)
   })
 
-  it('rule 11 requires a basis on every proposal', () => {
-    const rule11 = CASE_DISTILL_CONTRACT.split('\n').find((l) => /^11\./.test(l.trim()))!
-    expect(rule11).toContain('content, basis')
+  it('the output rule requires a basis on every proposal', () => {
+    expect(ruleContaining('OUTPUT: exactly one fenced')).toContain('content, basis')
   })
 
   it('renders user messages after the sessions section, grouped by session title', () => {
@@ -321,5 +325,44 @@ describe('parseCaseDistillOutput', () => {
       '{"proposals":[{"type":"recipe","target":"dlt-cmds","title":"Cmds","content":"body","basis":42}]}'
     )
     expect(() => parseCaseDistillOutput(text)).toThrow(DistillParseError)
+  })
+})
+
+/**
+ * Structural guards on the rule list itself. The contract is a hand-numbered prose block with
+ * internal "see rule N" cross-references, so inserting or removing a rule silently desynchronises
+ * every reference below it — a class of defect no consumer of the string can detect. These assert
+ * the numbering, not the wording, so ordinary rule edits do not churn them.
+ */
+describe('CASE_DISTILL_CONTRACT rule structure', () => {
+  const ruleNumbers = (): number[] =>
+    [...CASE_DISTILL_CONTRACT.matchAll(/^(\d+)\. /gm)].map((m) => Number(m[1]))
+
+  it('numbers its rules 1..N with no gaps or duplicates', () => {
+    const nums = ruleNumbers()
+    expect(nums.length).toBeGreaterThan(0)
+    expect(nums).toEqual(Array.from({ length: nums.length }, (_, i) => i + 1))
+  })
+
+  it('has no dangling rule cross-reference', () => {
+    const max = Math.max(...ruleNumbers())
+    const refs = [...CASE_DISTILL_CONTRACT.matchAll(/rule (\d+)/g)].map((m) => Number(m[1]))
+    expect(refs.length).toBeGreaterThan(0)
+    for (const r of refs) expect(r).toBeLessThanOrEqual(max)
+  })
+
+  it('no longer offers the retired recipe type', () => {
+    expect(CASE_DISTILL_CONTRACT).not.toContain('recipe')
+  })
+
+  it('still requires basis in the output shape', () => {
+    expect(CASE_DISTILL_CONTRACT).toMatch(/"proposals".*basis/)
+  })
+
+  it('routes by retrieval mode before applying the preference order', () => {
+    const routing = CASE_DISTILL_CONTRACT.indexOf('CHOOSE THE TYPE BY HOW THE KNOWLEDGE')
+    const preference = CASE_DISTILL_CONTRACT.indexOf('WHEN TWO TYPES BOTH FIT')
+    expect(routing).toBeGreaterThan(-1)
+    expect(preference).toBeGreaterThan(routing)
   })
 })

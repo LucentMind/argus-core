@@ -1011,7 +1011,7 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'write_proposal',
     description:
-      'Draft a contribute-back proposal (new/edited skill, reference edit, or recipe) as an inert file the user reviews on the Settings → Proposals page. reference-edit CREATES the reference when the target does not exist — it is how durable knowledge a teammate would want gets written down; it is not edit-only. Provide the FULL proposed file content, not a diff.',
+      'Draft a contribute-back proposal (new/edited skill, or reference edit) as an inert file the user reviews on the Settings → Proposals page. Choose by how the knowledge will be found again: a symptom-triggered procedure ("when X, do Y") is a skill, and skill-new CREATES it; durable facts consulted while executing some other procedure are a reference, and reference-edit CREATES the reference when the target does not exist. If your content has numbered steps, it is not a reference. Provide the FULL proposed file content, not a diff.',
     schema: {
       type: z.enum(['skill-new', 'skill-edit', 'reference-edit', 'recipe']),
       target: z.string(),

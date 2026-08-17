@@ -28,7 +28,7 @@ export const CASE_DISTILL_SECTIONS: PromptTextSpecs = {
   },
   references: {
     title: 'Case-distill section — references',
-    text: '# References (full current content — a reference-edit must return the whole file with its change merged in; NEVER edit a [tier: confluence] reference — see rule 7)'
+    text: '# References (full current content — a reference-edit must return the whole file with its change merged in; NEVER edit a [tier: confluence] reference — see rule 8)'
   },
   rca: {
     title: 'Case-distill section — confirmed RCA structure',
