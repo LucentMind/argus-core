@@ -1,5 +1,6 @@
 import type { CaseDistillInput, CaseDistillOutput } from '../../../shared/distill'
 import { buildCaseDistillPrompt, parseCaseDistillOutput } from './contract'
+import type { HeadlessResult } from '../agent/driver'
 
 export interface CaseDistillRun {
   raw: string
@@ -14,10 +15,13 @@ export interface CaseDistillRun {
  */
 export async function runCaseDistill(
   input: CaseDistillInput,
-  run: (prompt: string, opts?: { signal?: AbortSignal }) => Promise<string>,
+  // Widened for Task 10 (usage reporting); usage is dropped here for now (temporarily,
+  // per plan) — `raw` stays the text so the parse/stage pipeline below is unaffected.
+  run: (prompt: string, opts?: { signal?: AbortSignal }) => Promise<HeadlessResult>,
   resolve?: (id: string) => string,
   signal?: AbortSignal
 ): Promise<CaseDistillRun> {
-  const raw = await run(buildCaseDistillPrompt(input, resolve), signal ? { signal } : undefined)
+  const result = await run(buildCaseDistillPrompt(input, resolve), signal ? { signal } : undefined)
+  const raw = result.text
   return { raw, output: parseCaseDistillOutput(raw) }
 }

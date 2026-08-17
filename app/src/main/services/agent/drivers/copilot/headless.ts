@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { abortRacer, type HeadlessOpts } from '../../driver'
+import { abortRacer, type HeadlessOpts, type HeadlessResult } from '../../driver'
 import { acquireAuthRejectionTrap } from './authTrap'
 import {
   copilotHome,
@@ -67,10 +67,11 @@ export async function runCopilotHeadless(
   opts: HeadlessOpts,
   clientFactory: CopilotClientFactory,
   cliPath?: string
-): Promise<string> {
+): Promise<HeadlessResult> {
   const scratch = headlessScratchDir(opts.argusHome)
   fs.mkdirSync(scratch, { recursive: true })
   const timeoutMs = opts.timeoutMs ?? 180_000
+  const started = Date.now()
   const releaseTrap = acquireAuthRejectionTrap()
   let client: CopilotClientLike | null = null
   let timer: NodeJS.Timeout | null = null
@@ -125,7 +126,7 @@ export async function runCopilotHeadless(
       abortRacer(opts.signal)
     ])
     if (!text.trim()) throw new Error('headless run returned no text')
-    return text
+    return { text, usage: { durationMs: Date.now() - started } }
   } finally {
     if (timer) clearTimeout(timer)
     unsubscribe()

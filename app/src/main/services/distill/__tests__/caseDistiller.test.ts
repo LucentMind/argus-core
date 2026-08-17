@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { runCaseDistill } from '../caseDistiller'
 import { DistillParseError } from '../contract'
 import type { CaseDistillInput } from '../../../../shared/distill'
+import type { HeadlessResult } from '../../agent/driver'
 
 const INPUT: CaseDistillInput = {
   caseMeta: {
@@ -25,22 +26,24 @@ const INPUT: CaseDistillInput = {
 
 describe('runCaseDistill', () => {
   it('returns parsed output on valid JSON', async () => {
-    const run = await runCaseDistill(INPUT, async () => '```json\n{}\n```')
+    const run = await runCaseDistill(INPUT, async () => ({ text: '```json\n{}\n```' }))
     expect(run.output).toEqual({})
     expect(run.raw).toContain('```json')
   })
 
   it('throws DistillParseError with raw preserved on invalid output', async () => {
-    await expect(runCaseDistill(INPUT, async () => 'no json here')).rejects.toThrow(
+    await expect(runCaseDistill(INPUT, async () => ({ text: 'no json here' }))).rejects.toThrow(
       DistillParseError
     )
   })
 
   it('passes the built prompt to the injected runner and parses its text', async () => {
     let seen = ''
-    const run = async (prompt: string): Promise<string> => {
+    const run = async (prompt: string): Promise<HeadlessResult> => {
       seen = prompt
-      return '```json\n{"proposals":[{"type":"recipe","target":"a-topic","title":"t","content":"c"}]}\n```'
+      return {
+        text: '```json\n{"proposals":[{"type":"recipe","target":"a-topic","title":"t","content":"c"}]}\n```'
+      }
     }
     const result = await runCaseDistill(INPUT, run)
     expect(seen).toContain('# Case')
@@ -55,7 +58,7 @@ describe('runCaseDistill', () => {
       INPUT,
       async (_p, o) => {
         seen.push(o?.signal)
-        return '```json\n{}\n```'
+        return { text: '```json\n{}\n```' }
       },
       undefined,
       ac.signal

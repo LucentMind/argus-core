@@ -1,4 +1,9 @@
-import { abortRacer, type HeadlessOpts } from '../../driver'
+import {
+  abortRacer,
+  type HeadlessOpts,
+  type HeadlessResult,
+  type HeadlessUsage
+} from '../../driver'
 import type { CreateQueryFn } from '.'
 import { claudeSpawnEnv, resolveClaudeCliPath } from './cliPath'
 import { agentScratchCwd } from '../../scratchCwd'
@@ -15,8 +20,14 @@ async function* oneMessage(text: string): AsyncGenerator<unknown> {
   await new Promise(() => undefined)
 }
 
-async function collectAssistantText(q: AsyncIterable<unknown>): Promise<string> {
+/** Accumulates assistant text and, on the terminal `result` message, the run's token/cost
+ *  usage. Fields the SDK didn't report on `result` stay absent — never a fabricated `0`. */
+async function collectAssistant(
+  q: AsyncIterable<unknown>,
+  started: number
+): Promise<{ text: string; usage?: HeadlessUsage }> {
   let last = ''
+  let usage: HeadlessUsage | undefined
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for await (const msg of q as AsyncIterable<any>) {
     if (msg?.type === 'assistant' && Array.isArray(msg.message?.content)) {
@@ -30,10 +41,20 @@ async function collectAssistantText(q: AsyncIterable<unknown>): Promise<string> 
       if (msg.subtype && msg.subtype !== 'success') {
         throw new Error(`headless run failed: ${String(msg.subtype)}`)
       }
+      usage = {
+        ...(typeof msg.usage?.input_tokens === 'number'
+          ? { inputTokens: msg.usage.input_tokens }
+          : {}),
+        ...(typeof msg.usage?.output_tokens === 'number'
+          ? { outputTokens: msg.usage.output_tokens }
+          : {}),
+        ...(typeof msg.total_cost_usd === 'number' ? { costUsd: msg.total_cost_usd } : {}),
+        durationMs: Date.now() - started
+      }
       break
     }
   }
-  return last
+  return { text: last, usage }
 }
 
 /**
@@ -50,8 +71,9 @@ export async function runClaudeHeadless(
   opts: HeadlessOpts,
   createQuery: CreateQueryFn,
   resolveCliPath: () => string | null = resolveClaudeCliPath
-): Promise<string> {
+): Promise<HeadlessResult> {
   const timeoutMs = opts.timeoutMs ?? 180_000
+  const started = Date.now()
   let q: ReturnType<CreateQueryFn> | null = null
   let timer: NodeJS.Timeout | null = null
   try {
@@ -73,8 +95,8 @@ export async function runClaudeHeadless(
         ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {})
       }
     })
-    const text = await Promise.race([
-      collectAssistantText(q),
+    const result = await Promise.race([
+      collectAssistant(q, started),
       new Promise<never>((_, rej) => {
         timer = setTimeout(
           () => rej(new Error(`headless run timed out after ${timeoutMs}ms`)),
@@ -83,8 +105,8 @@ export async function runClaudeHeadless(
       }),
       abortRacer(opts.signal)
     ])
-    if (!text.trim()) throw new Error('headless run returned no text')
-    return text
+    if (!result.text.trim()) throw new Error('headless run returned no text')
+    return result
   } finally {
     if (timer) clearTimeout(timer)
     await q?.interrupt().catch(() => undefined)

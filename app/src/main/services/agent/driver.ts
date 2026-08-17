@@ -194,6 +194,23 @@ export interface HeadlessOpts {
   signal?: AbortSignal
 }
 
+/** Per-run cost/token accounting for a headless one-shot. Every field but `durationMs` is
+ *  optional and MUST stay `undefined` (never a fabricated `0`) when the driver's protocol
+ *  didn't report it for that run — an absent field means "unknown", not "zero". */
+export interface HeadlessUsage {
+  inputTokens?: number
+  outputTokens?: number
+  costUsd?: number
+  durationMs: number
+}
+
+export interface HeadlessResult {
+  text: string
+  /** Absent only if a driver implementation has no way to measure even wall-clock duration,
+   *  which none of the current drivers hit — in practice always present. */
+  usage?: HeadlessUsage
+}
+
 /** A racer that rejects when `signal` aborts, and immediately if it already has. Returns a
  *  never-settling promise when there is no signal, so `Promise.race` ignores it. Each headless
  *  driver adds this alongside its timeout; teardown stays in the driver's own `finally`. */
@@ -236,7 +253,7 @@ export interface AgentDriver {
    * Optional: a driver may legitimately not support it. Presence MUST match
    * `capabilities.headlessOneShot`.
    */
-  runHeadless?(prompt: string, opts: HeadlessOpts): Promise<string>
+  runHeadless?(prompt: string, opts: HeadlessOpts): Promise<HeadlessResult>
   probeAuth(config: { cliPath?: string; timeoutMs?: number }): Promise<ProbeAuthResult>
   /**
    * Optional driver-specific classifier for whether a thrown/consumed error message is an

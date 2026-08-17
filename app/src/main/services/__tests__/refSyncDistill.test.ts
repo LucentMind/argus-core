@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { distillTarget, buildDistillPrompt, type DistillInput } from '../refSync/distill'
+import type { HeadlessResult } from '../agent/driver'
 
 const input: DistillInput = {
   target: 'routing-flow.md',
@@ -22,7 +23,7 @@ describe('distillTarget', () => {
       { target: 'kafka.md', currentBody: null, pages: [] },
       async (prompt) => {
         seen = prompt
-        return '# Kafka\n\nOverview.'
+        return { text: '# Kafka\n\nOverview.' }
       }
     )
     expect(seen).toContain('# Target file: kafka.md')
@@ -30,9 +31,9 @@ describe('distillTarget', () => {
   })
 
   it('isolates a per-target failure: one target failing leaves the others intact', async () => {
-    const run = async (prompt: string): Promise<string> => {
+    const run = async (prompt: string): Promise<HeadlessResult> => {
       if (prompt.includes('broken.md')) throw new Error('no provider configured for distillation')
-      return '# Ok\n\nBody.'
+      return { text: '# Ok\n\nBody.' }
     }
     await expect(
       distillTarget({ target: 'broken.md', currentBody: null, pages: [] }, run)

@@ -37,7 +37,7 @@ it('close → enqueue → distill → stage → accept lands the summary', async
   const queue = new DistillQueue({
     db,
     assembleInput: (slug) => assembleDistillInput(db, home, slug),
-    distill: (input) => runCaseDistill(input, async () => RESPONSE),
+    distill: (input) => runCaseDistill(input, async () => ({ text: RESPONSE })),
     stage: (slug, jobId, output) => stageDistillOutput(db, home, slug, jobId, output),
     broadcast: () => undefined
   })

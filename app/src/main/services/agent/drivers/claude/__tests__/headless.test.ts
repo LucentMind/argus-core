@@ -4,8 +4,14 @@ import { createClaudeDriver, type CreateQueryFn } from '..'
 import { runClaudeHeadless } from '../headless'
 import { agentScratchCwd } from '../../../scratchCwd'
 
-/** A scripted query handle: yields the given SDK messages, then a success result. */
-function scriptedQuery(texts: string[]): {
+/** A scripted query handle: yields the given SDK messages, then a success result. `result`
+ *  lets a test control what the terminal `result` message itself carries (usage, cost) —
+ *  omitted means a bare `{ type: 'result', subtype: 'success' }`, mirroring a real result
+ *  message with no usage field. */
+function scriptedQuery(
+  texts: string[],
+  result: Record<string, unknown> = {}
+): {
   fn: CreateQueryFn
   interrupts: number
   opts: () => Record<string, unknown>
@@ -19,7 +25,7 @@ function scriptedQuery(texts: string[]): {
         for (const t of texts) {
           yield { type: 'assistant', message: { content: [{ type: 'text', text: t }] } }
         }
-        yield { type: 'result', subtype: 'success' }
+        yield { type: 'result', subtype: 'success', ...result }
       },
       interrupt: async () => {
         interrupts++
@@ -61,12 +67,36 @@ describe('claude runHeadless', () => {
   it('returns the last assistant text and passes the model through', async () => {
     const q = scriptedQuery(['first', 'final answer'])
     const d = createClaudeDriver(q.fn)
-    const text = await d.runHeadless!('prompt', {
+    const result = await d.runHeadless!('prompt', {
       argusHome: '/tmp/argus',
       model: 'claude-sonnet-5'
     })
-    expect(text).toBe('final answer')
+    expect(result.text).toBe('final answer')
     expect(q.opts()).toMatchObject({ model: 'claude-sonnet-5', maxTurns: 1, allowedTools: [] })
+  })
+
+  it('extracts usage (tokens, cost, duration) from a result message that reports them', async () => {
+    const q = scriptedQuery(['final answer'], {
+      usage: { input_tokens: 123, output_tokens: 45 },
+      total_cost_usd: 0.0067
+    })
+    const d = createClaudeDriver(q.fn)
+    const result = await d.runHeadless!('prompt', { argusHome: '/tmp/argus' })
+    expect(result.usage).toMatchObject({ inputTokens: 123, outputTokens: 45, costUsd: 0.0067 })
+    expect(result.usage?.durationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('leaves token/cost fields undefined (never a fabricated 0) when the result message carries no usage', async () => {
+    const q = scriptedQuery(['final answer']) // bare { type: 'result', subtype: 'success' }
+    const d = createClaudeDriver(q.fn)
+    const result = await d.runHeadless!('prompt', { argusHome: '/tmp/argus' })
+    expect(result.usage?.inputTokens).toBeUndefined()
+    expect(result.usage?.outputTokens).toBeUndefined()
+    expect(result.usage?.costUsd).toBeUndefined()
+    expect(result.usage).not.toHaveProperty('inputTokens')
+    expect(result.usage).not.toHaveProperty('outputTokens')
+    expect(result.usage).not.toHaveProperty('costUsd')
+    expect(typeof result.usage?.durationMs).toBe('number')
   })
 
   it('omits model and cliPath when not supplied', async () => {
@@ -89,13 +119,13 @@ describe('claude runHeadless', () => {
   it('falls back to resolveCliPath when opts.cliPath is absent (packaged-build escape)', async () => {
     const q = scriptedQuery(['ok'])
     const resolveCliPath = vi.fn(() => '/asar-unpacked/claude.exe')
-    const text = await runClaudeHeadless(
+    const result = await runClaudeHeadless(
       'prompt',
       { argusHome: '/tmp/argus' },
       q.fn,
       resolveCliPath
     )
-    expect(text).toBe('ok')
+    expect(result.text).toBe('ok')
     expect(resolveCliPath).toHaveBeenCalledTimes(1)
     expect(q.opts()).toMatchObject({ pathToClaudeCodeExecutable: '/asar-unpacked/claude.exe' })
   })

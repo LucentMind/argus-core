@@ -1,6 +1,6 @@
 import { resolveDistillProvider } from '../../../shared/drivers'
 import type { AppSettings } from '../../../shared/settings'
-import type { AgentDriver } from './driver'
+import type { AgentDriver, HeadlessResult } from './driver'
 import { getDriverByKind } from './driverRegistry'
 
 export interface HeadlessRunnerDeps {
@@ -22,7 +22,7 @@ export interface HeadlessRunnerDeps {
  */
 export function createHeadlessRunner(
   deps: HeadlessRunnerDeps
-): (prompt: string, opts?: { signal?: AbortSignal }) => Promise<string> {
+): (prompt: string, opts?: { signal?: AbortSignal }) => Promise<HeadlessResult> {
   const forKind = deps.driverForKind ?? getDriverByKind
   return async (prompt: string, opts?: { signal?: AbortSignal }) => {
     const r = resolveDistillProvider(deps.settings())

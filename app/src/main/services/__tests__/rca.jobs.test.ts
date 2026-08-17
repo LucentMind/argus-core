@@ -105,7 +105,7 @@ function mkJobs(over: Partial<RcaJobsDeps> = {}): { jobs: RcaJobs; broadcasts: u
       caseMeta: { ...MINIMAL_INPUT.caseMeta, slug },
       priorDraft: prior
     }),
-    run: async () => wellFormedRawFor(DEFAULT_RCA_TEMPLATE),
+    run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE) }),
     broadcast: (p) => broadcasts.push(p),
     settings: () => ({ rca: { template } }) as unknown as AppSettings,
     ...over
@@ -117,7 +117,7 @@ describe('RcaJobs', () => {
   it('generate → done stores raw output; status carries the parsed draft', async () => {
     createCase(db, home, { slug: 'case-a', title: 'Case A' })
     const { jobs } = mkJobs({
-      run: async () => wellFormedRawFor(DEFAULT_RCA_TEMPLATE)
+      run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE) })
     })
     jobs.generate('case-a')
     await jobs.idle()
@@ -128,7 +128,7 @@ describe('RcaJobs', () => {
 
   it('parse failure → failed with raw retained', async () => {
     createCase(db, home, { slug: 'case-b', title: 'Case B' })
-    const { jobs } = mkJobs({ run: async () => 'not json' })
+    const { jobs } = mkJobs({ run: async () => ({ text: 'not json' }) })
     jobs.generate('case-b')
     await jobs.idle()
     const st = jobs.statusFor('case-b')
@@ -146,7 +146,7 @@ describe('RcaJobs', () => {
     const findingId = insertFinding(caseId, 'root cause finding')
 
     const { jobs } = mkJobs({
-      run: async () => wellFormedRawFor(DEFAULT_RCA_TEMPLATE, validDraft(findingId))
+      run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE, validDraft(findingId)) })
     })
     const job = jobs.generate('case-c')
     await jobs.idle()
@@ -171,7 +171,7 @@ describe('RcaJobs', () => {
     createCase(db, home, { slug: 'case-d', title: 'Case D' })
     createCase(db, home, { slug: 'case-d2', title: 'Case D2' })
 
-    const { jobs: notDoneJobs } = mkJobs({ run: async () => 'not json' })
+    const { jobs: notDoneJobs } = mkJobs({ run: async () => ({ text: 'not json' }) })
     const notDoneJob = notDoneJobs.generate('case-d')
     await notDoneJobs.idle() // ends up failed, not done
     expect(() => notDoneJobs.confirm('case-d', notDoneJob.id, [], validDraft())).toThrow(
@@ -179,7 +179,7 @@ describe('RcaJobs', () => {
     )
 
     const { jobs: doneJobs } = mkJobs({
-      run: async () => wellFormedRawFor(DEFAULT_RCA_TEMPLATE)
+      run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE) })
     })
     const doneJob = doneJobs.generate('case-d')
     await doneJobs.idle()
@@ -201,7 +201,7 @@ describe('RcaJobs', () => {
           priorDraft: prior
         }
       },
-      run: async () => wellFormedRawFor(DEFAULT_RCA_TEMPLATE)
+      run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE) })
     })
 
     const job1 = jobs.generate('case-e')
@@ -252,7 +252,7 @@ describe('RcaJobs', () => {
       broadcast: () => {
         throw new Error('renderer gone')
       },
-      run: async () => wellFormedRawFor(DEFAULT_RCA_TEMPLATE)
+      run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE) })
     })
     expect(() => jobs.generate('case-g')).not.toThrow()
     await jobs.idle()
@@ -284,7 +284,9 @@ describe('RcaJobs', () => {
 
     const rawDraft = validDraft(findingId)
     rawDraft.rootCause.statement = 'raw model statement'
-    const { jobs } = mkJobs({ run: async () => wellFormedRawFor(DEFAULT_RCA_TEMPLATE, rawDraft) })
+    const { jobs } = mkJobs({
+      run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE, rawDraft) })
+    })
     const job = jobs.generate('case-i')
     await jobs.idle()
 
@@ -300,7 +302,9 @@ describe('RcaJobs', () => {
     createCase(db, home, { slug: 'case-i2', title: 'Case I2' })
     const rawDraft = validDraft()
     rawDraft.rootCause.statement = 'raw model statement, structure file missing'
-    const { jobs } = mkJobs({ run: async () => wellFormedRawFor(DEFAULT_RCA_TEMPLATE, rawDraft) })
+    const { jobs } = mkJobs({
+      run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE, rawDraft) })
+    })
     const job = jobs.generate('case-i2')
     await jobs.idle()
     // Confirm the row directly (bypassing jobs.confirm's own file writes) to simulate a
@@ -316,7 +320,7 @@ describe('RcaJobs', () => {
   it('statusFor never throws even when the confirmed structure file is corrupted JSON', async () => {
     createCase(db, home, { slug: 'case-i3', title: 'Case I3' })
     const { jobs } = mkJobs({
-      run: async () => wellFormedRawFor(DEFAULT_RCA_TEMPLATE)
+      run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE) })
     })
     const job = jobs.generate('case-i3')
     await jobs.idle()
@@ -337,7 +341,7 @@ describe('RcaJobs', () => {
     const caseId = getCase(db, 'case-l')!.id
     const findingId = insertFinding(caseId, 'root cause finding')
     const { jobs } = mkJobs({
-      run: async () => wellFormedRawFor(DEFAULT_RCA_TEMPLATE, validDraft(findingId))
+      run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE, validDraft(findingId)) })
     })
     const job = jobs.generate('case-l')
     await jobs.idle()
@@ -359,7 +363,7 @@ describe('RcaJobs', () => {
   it('confirm rejects an empty techNarrative heading', async () => {
     createCase(db, home, { slug: 'case-m', title: 'Case M' })
     const { jobs } = mkJobs({
-      run: async () => wellFormedRawFor(DEFAULT_RCA_TEMPLATE)
+      run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE) })
     })
     const job = jobs.generate('case-m')
     await jobs.idle()
@@ -376,7 +380,7 @@ describe('RcaJobs', () => {
     // proves the service side accepts it end to end (validate → applyReportRoles → artifacts).
     createCase(db, home, { slug: 'case-n', title: 'Case N' })
     const { jobs } = mkJobs({
-      run: async () => wellFormedRawFor(DEFAULT_RCA_TEMPLATE)
+      run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE) })
     })
     const job = jobs.generate('case-n')
     await jobs.idle()
@@ -460,7 +464,7 @@ describe('RcaJobs', () => {
   it('fails the job with a named-key error when the model omits a template section', async () => {
     createCase(db, home, { slug: 'case-a', title: 'Case A' })
     const { jobs } = mkJobs({
-      run: async () => '```json\n' + JSON.stringify(draftWithoutSections()) + '\n```'
+      run: async () => ({ text: '```json\n' + JSON.stringify(draftWithoutSections()) + '\n```' })
     })
     const job = jobs.generate('case-a')
     await jobs.idle()
@@ -501,7 +505,7 @@ describe('RcaJobs', () => {
     // Fails if runJob validates against live settings (or a hardcoded default) instead.
     queueJobUnder('case-a', templateWithDetection())
     template = DEFAULT_RCA_TEMPLATE
-    const { jobs } = mkJobs({ run: async () => wellFormedRawFor(DEFAULT_RCA_TEMPLATE) })
+    const { jobs } = mkJobs({ run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE) }) })
     jobs.recoverOnBoot()
     await jobs.idle()
     const row = jobs.statusFor('case-a').job!
@@ -514,7 +518,7 @@ describe('RcaJobs', () => {
     // run whose model was never briefed on the new id.
     queueJobUnder('case-a', DEFAULT_RCA_TEMPLATE)
     template = templateWithDetection()
-    const { jobs } = mkJobs({ run: async () => wellFormedRawFor(DEFAULT_RCA_TEMPLATE) })
+    const { jobs } = mkJobs({ run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE) }) })
     jobs.recoverOnBoot()
     await jobs.idle()
     expect(jobs.statusFor('case-a').job!.state).toBe('done')
@@ -523,7 +527,7 @@ describe('RcaJobs', () => {
   it('confirms under the snapshot, not under changed live settings', async () => {
     createCase(db, home, { slug: 'case-a', title: 'Case A' })
     const { jobs } = mkJobs({
-      run: async () => wellFormedRawFor(DEFAULT_RCA_TEMPLATE)
+      run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE) })
     })
     const custom = JSON.parse(JSON.stringify(DEFAULT_RCA_TEMPLATE)) as RcaTemplate
     custom.exec[0].heading = 'Overview'
@@ -542,7 +546,7 @@ describe('RcaJobs.confirm with dropped sections', () => {
   async function doneJob(slug: string): Promise<{ jobs: RcaJobs; jobId: number }> {
     createCase(db, home, { slug, title: slug })
     const { jobs } = mkJobs({
-      run: async () => wellFormedRawFor(DEFAULT_RCA_TEMPLATE)
+      run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE) })
     })
     const job = jobs.generate(slug)
     await jobs.idle()

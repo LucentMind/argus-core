@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildDraftPrompt, buildImprovePrompt } from '../prompts'
 import { draftAsset, improveAsset } from '../service'
+import type { HeadlessResult } from '../../agent/driver'
 
 describe('buildDraftPrompt', () => {
   it('names the target so generated frontmatter can match the folder', () => {
@@ -39,9 +40,9 @@ describe('buildImprovePrompt', () => {
 describe('draftAsset / improveAsset', () => {
   it('passes the built prompt to the runner and returns its raw output verbatim', async () => {
     const seen: string[] = []
-    const run = async (prompt: string): Promise<string> => {
+    const run = async (prompt: string): Promise<HeadlessResult> => {
       seen.push(prompt)
-      return '---\nname: x\n---\nout'
+      return { text: '---\nname: x\n---\nout' }
     }
     await expect(draftAsset({ kind: 'skill', name: 'x', text: 'y' }, run)).resolves.toBe(
       '---\nname: x\n---\nout'
