@@ -22,6 +22,30 @@ describe('validateSkill', () => {
     expect(issues[0].message).toMatch(/frontmatter/i)
   })
 
+  it('accepts a folded (>) description', () => {
+    const content = [
+      '---',
+      'name: rca',
+      'description: >',
+      '  Use when a finding needs a root cause.',
+      '---',
+      '',
+      '# rca',
+      'Body.'
+    ].join('\n')
+    expect(validateSkill({ name: 'rca', content })).toEqual([])
+  })
+
+  it('rejects a block indicator with no body, and says so specifically', () => {
+    // Reads as empty, so the untriggerable-skill error must fire — but the author sees a
+    // `description:` line right there, so the generic "must not be empty" wording sends them
+    // looking in the wrong place. Name the actual fault.
+    const content = ['---', 'name: rca', 'description: >', '---', '', '# rca', 'Body.'].join('\n')
+    const issues = validateSkill({ name: 'rca', content })
+    expect(hasErrors(issues)).toBe(true)
+    expect(issues.some((i) => /block scalar|indented|empty block/i.test(i.message))).toBe(true)
+  })
+
   it('rejects an empty description', () => {
     const content = good.replace(
       'description: Use when a finding needs a root cause.',
