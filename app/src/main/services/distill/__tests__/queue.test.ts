@@ -32,7 +32,7 @@ function makeQueue(over: Partial<ConstructorParameters<typeof DistillQueue>[0]> 
     db,
     assembleInput: () => INPUT,
     distill: async () => ({ raw: '```json\n{}\n```', output: {} }),
-    stage: () => ({ staged: 0, droppedDuplicates: 0, supersededRemoved: 0 }),
+    stage: () => ({ staged: 0, droppedDuplicates: 0, supersededRemoved: 0, dropped: [] }),
     broadcast: (p) => broadcasts.push(p),
     argusHome: home,
     // Empty by default (no reject archive on disk in a fresh temp home) so no existing test's
@@ -431,7 +431,7 @@ describe('DistillQueue', () => {
         }),
       stage: () => {
         staged++
-        return { staged: 1, droppedDuplicates: 0, supersededRemoved: 0 }
+        return { staged: 1, droppedDuplicates: 0, supersededRemoved: 0, dropped: [] }
       }
     })
     const job = q.enqueue('case-a')
@@ -584,7 +584,7 @@ describe('DistillQueue', () => {
       },
       stage: (_slug, jobId) => {
         stageCalls.push(jobId as number)
-        return { staged: 1, droppedDuplicates: 0, supersededRemoved: 0 }
+        return { staged: 1, droppedDuplicates: 0, supersededRemoved: 0, dropped: [] }
       }
     })
     const jobA = q.enqueue('case-a')
@@ -767,7 +767,7 @@ describe('DistillQueue', () => {
     expect(row.prompt_chars).toBe(1234)
     expect(row.turn_count).toBe(4)
     expect(row.tool_call_count).toBe(7)
-    expect(row.dropped_json).toBeNull() // Task 14 fills this; null until then
+    expect(row.dropped_json).toBe('[]') // the mock's stage() returned an empty dropped list
     expect(JSON.parse(row.trajectory_json as string)).toEqual(trajectory)
     // The broadcast payload (what the renderer actually receives) carries the same four fields.
     const doneBroadcast = broadcasts.find(
@@ -779,6 +779,24 @@ describe('DistillQueue', () => {
       toolCallCount: 7,
       promptChars: 1234
     })
+  })
+
+  it("(d) persists dropped_json on a done job, matching stage()'s dropped array exactly", async () => {
+    const dropped = [
+      { type: 'recipe', target: 'topic-4', title: 'T4', reason: 'cap' as const },
+      { type: 'recipe', target: 'short-basis', title: 'Short', reason: 'basis' as const }
+    ]
+    const { q } = makeQueue({
+      stage: () => ({ staged: 3, droppedDuplicates: 0, supersededRemoved: 0, dropped })
+    })
+    q.enqueue('case-a')
+    await q.idle()
+    const job = q.statusFor('case-a')!
+    expect(job.state).toBe('done')
+    const row = db.prepare(`SELECT dropped_json FROM distill_jobs WHERE id = ?`).get(job.id) as {
+      dropped_json: string | null
+    }
+    expect(JSON.parse(row.dropped_json!)).toEqual(dropped)
   })
 
   it('truncates trajectory_json to the FIRST entries that fit under the 32KB cap (loop-start context matters most)', async () => {
