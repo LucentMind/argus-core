@@ -30,6 +30,7 @@ interface JobDbRow {
   item_count: number | null
   created_at: string
   finished_at: string | null
+  kind: string
 }
 
 function toRow(r: JobDbRow): DistillJobRow {
@@ -228,10 +229,14 @@ export class DistillQueue {
     return fresh
   }
 
-  /** Latest job (highest id) for slug, or null. */
+  /** Latest CASE job (highest id) for slug, or null. Blind to other kinds (e.g. reject-digest)
+   *  sharing this table — every renderer/close-flow read of "the case's distill status" must
+   *  see only case jobs, never a digest row that happens to have a higher id. */
   statusFor(slug: string): DistillJobRow | null {
     const r = this.deps.db
-      .prepare(`SELECT * FROM distill_jobs WHERE case_slug = ? ORDER BY id DESC LIMIT 1`)
+      .prepare(
+        `SELECT * FROM distill_jobs WHERE case_slug = ? AND kind='case' ORDER BY id DESC LIMIT 1`
+      )
       .get(slug) as JobDbRow | undefined
     return r ? toRow(r) : null
   }
