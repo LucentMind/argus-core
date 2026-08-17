@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { distillMenuLabel, isDistillInFlight, useDistillJob } from '../distillJob'
+import { distillCostLine, distillMenuLabel, isDistillInFlight, useDistillJob } from '../distillJob'
 import type { DistillJobRow, DistillStatusPayload } from '../../../../shared/distill'
 
 const job = (over: Partial<DistillJobRow>): DistillJobRow => ({
@@ -39,6 +39,28 @@ describe('distillMenuLabel', () => {
   it('reads plain Re-distill after a failure or a cancel', () => {
     expect(distillMenuLabel(job({ state: 'failed' }))).toBe('Re-distill')
     expect(distillMenuLabel(job({ state: 'cancelled' }))).toBe('Re-distill')
+  })
+})
+
+describe('distillCostLine', () => {
+  it('joins all three segments when every field is recorded', () => {
+    expect(
+      distillCostLine(job({ state: 'failed', turnCount: 5, toolCallCount: 12, costUsd: 0.4321 }))
+    ).toBe('5 turns · 12 tool calls · $0.43')
+  })
+
+  it('omits a null segment rather than fabricating a 0/$0.00', () => {
+    expect(
+      distillCostLine(job({ state: 'failed', turnCount: 5, toolCallCount: null, costUsd: 1 }))
+    ).toBe('5 turns · $1.00')
+  })
+
+  it('returns an empty string when every field is null (pre-v2 row, or still queued/running)', () => {
+    expect(distillCostLine(job({ state: 'queued' }))).toBe('')
+  })
+
+  it('returns an empty string for a null job', () => {
+    expect(distillCostLine(null)).toBe('')
   })
 })
 

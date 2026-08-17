@@ -48,6 +48,35 @@ function logCall(
 const HYG = { staleDays: 45, minRecalls: 3, trackingStartedAt: '2026-01-01T00:00:00.000Z' }
 const NOW = (): Date => new Date('2026-07-20T00:00:00.000Z')
 
+function seedDistillJob(
+  db: ReturnType<typeof openDb>,
+  caseSlug: string,
+  over: {
+    kind?: string
+    state?: string
+    costUsd?: number | null
+    turnCount?: number | null
+    toolCallCount?: number | null
+    promptChars?: number | null
+  } = {}
+): void {
+  db.prepare(
+    `INSERT INTO distill_jobs
+       (case_slug, state, input_snapshot, kind, cost_usd, turn_count, tool_call_count,
+        prompt_chars, created_at)
+     VALUES (?, ?, '{}', ?, ?, ?, ?, ?, ?)`
+  ).run(
+    caseSlug,
+    over.state ?? 'done',
+    over.kind ?? 'case',
+    over.costUsd ?? null,
+    over.turnCount ?? null,
+    over.toolCallCount ?? null,
+    over.promptChars ?? null,
+    '2026-07-01T00:00:00.000Z'
+  )
+}
+
 describe('usageStats', () => {
   it('aggregates skills by name with zero-count rows for never-activated resolved skills', () => {
     const db = openDb(':memory:')
@@ -159,5 +188,102 @@ describe('usageStats', () => {
     expect(s.archived.map((a) => a.topic)).toEqual(['bye'])
     expect(s.memory.some((m) => m.topic === 'bye')).toBe(false)
     expect(s.hygiene).toEqual(HYG)
+  })
+
+  describe('distillation', () => {
+    it('averages usage columns over done case jobs, ignoring NULL fields rather than coercing to 0', () => {
+      const db = openDb(':memory:')
+      seedCase(db)
+      seedDistillJob(db, 'c', {
+        costUsd: 0.5,
+        turnCount: 10,
+        toolCallCount: 4,
+        promptChars: 2000
+      })
+      seedDistillJob(db, 'c', {
+        costUsd: 1.5,
+        turnCount: 20,
+        toolCallCount: 8,
+        promptChars: 4000
+      })
+      // pre-v2 done row: every usage column NULL — must not be coerced into a $0.00/0-turn entry
+      seedDistillJob(db, 'c')
+      const s = usageStats({
+        db,
+        argusHome: tmp,
+        access: defaultAgentAccess(),
+        hygiene: HYG,
+        now: NOW
+      })
+      expect(s.distillation).toEqual({
+        jobCount: 3,
+        totalCostUsd: 2,
+        avgCostUsd: 1,
+        avgPromptChars: 3000,
+        avgTurnCount: 15
+      })
+    })
+
+    it('excludes queued/running/failed/cancelled rows and non-case kinds', () => {
+      const db = openDb(':memory:')
+      seedCase(db)
+      seedDistillJob(db, 'c', { costUsd: 1, turnCount: 5, toolCallCount: 2, promptChars: 100 })
+      seedDistillJob(db, 'c', { state: 'queued', costUsd: null })
+      seedDistillJob(db, 'c', { state: 'failed', costUsd: 9, turnCount: 99, toolCallCount: 99 })
+      seedDistillJob(db, 'c', { kind: 'reject-digest', state: 'done', costUsd: 9 })
+      const s = usageStats({
+        db,
+        argusHome: tmp,
+        access: defaultAgentAccess(),
+        hygiene: HYG,
+        now: NOW
+      })
+      expect(s.distillation).toEqual({
+        jobCount: 1,
+        totalCostUsd: 1,
+        avgCostUsd: 1,
+        avgPromptChars: 100,
+        avgTurnCount: 5
+      })
+    })
+
+    it('reports jobCount with every average null when no done case job has ever recorded usage', () => {
+      const db = openDb(':memory:')
+      seedCase(db)
+      seedDistillJob(db, 'c') // done, but every usage column NULL (pre-v2 row)
+      const s = usageStats({
+        db,
+        argusHome: tmp,
+        access: defaultAgentAccess(),
+        hygiene: HYG,
+        now: NOW
+      })
+      expect(s.distillation).toEqual({
+        jobCount: 1,
+        totalCostUsd: null,
+        avgCostUsd: null,
+        avgPromptChars: null,
+        avgTurnCount: null
+      })
+    })
+
+    it('reports an all-null, zero-count row when no done case job exists at all', () => {
+      const db = openDb(':memory:')
+      seedCase(db)
+      const s = usageStats({
+        db,
+        argusHome: tmp,
+        access: defaultAgentAccess(),
+        hygiene: HYG,
+        now: NOW
+      })
+      expect(s.distillation).toEqual({
+        jobCount: 0,
+        totalCostUsd: null,
+        avgCostUsd: null,
+        avgPromptChars: null,
+        avgTurnCount: null
+      })
+    })
   })
 })

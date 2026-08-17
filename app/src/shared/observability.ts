@@ -116,10 +116,24 @@ export interface ArchivedTopicRow {
   archivedAt: string | null
   sizeBytes: number
 }
+/** Distillation cost/usage rollup over completed case runs (`kind='case' AND state='done'`),
+ *  Task 12's widened `distill_jobs` columns. `AVG`/`SUM` are SQL-level and ignore NULL rows
+ *  (pre-v2 done jobs recorded no usage), so the averages are never diluted by fabricated zeros —
+ *  `jobCount` alone tells you how many done runs exist, independent of how many of them have
+ *  usage data. */
+export interface DistillationUsageStats {
+  jobCount: number
+  totalCostUsd: number | null
+  avgCostUsd: number | null
+  avgPromptChars: number | null
+  avgTurnCount: number | null
+}
+
 export interface UsageStatsPayload {
   hygiene: { staleDays: number; minRecalls: number; trackingStartedAt: string }
   skills: SkillUsageRow[]
   memory: MemoryUsageRow[]
   references: ReferenceUsageRow[]
   archived: ArchivedTopicRow[]
+  distillation: DistillationUsageStats
 }

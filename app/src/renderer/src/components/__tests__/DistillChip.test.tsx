@@ -53,6 +53,28 @@ describe('DistillChip', () => {
     fireEvent.click(await screen.findByRole('button', { name: /retry/i }))
     await waitFor(() => expect(retry).toHaveBeenCalledWith(1))
   })
+
+  it('a failed capHit job shows the turns/tool-calls/cost readout beside retry', async () => {
+    setup(
+      job({
+        state: 'failed',
+        error: 'cap hit',
+        itemCount: null,
+        turnCount: 8,
+        toolCallCount: 20,
+        costUsd: 1.5
+      })
+    )
+    await screen.findByRole('button', { name: /retry/i })
+    expect(screen.getByText('8 turns · 20 tool calls · $1.50')).toBeInTheDocument()
+  })
+
+  it('a failed job with no recorded usage (pre-v2, or failed before any tokens spent) shows no readout', async () => {
+    setup(job({ state: 'failed', error: 'boom', itemCount: null }))
+    await screen.findByRole('button', { name: /retry/i })
+    expect(screen.queryByText(/turns/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/tool calls/)).not.toBeInTheDocument()
+  })
   it('renders nothing when no job exists', async () => {
     setup(null)
     await waitFor(() =>

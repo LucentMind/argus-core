@@ -69,7 +69,14 @@ beforeEach(() => {
         skills: [],
         memory: [],
         references: [],
-        archived: []
+        archived: [],
+        distillation: {
+          jobCount: 0,
+          totalCostUsd: null,
+          avgCostUsd: null,
+          avgPromptChars: null,
+          avgTurnCount: null
+        }
       }))
     }
   } as never
