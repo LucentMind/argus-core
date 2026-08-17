@@ -18,13 +18,16 @@ import { buildCaseRcaPrompt } from './contract'
 import { expectedSectionIds, parseRcaOutput, validateRcaDraft, RcaParseError } from './parse'
 import { renderExecReport, renderTechReport, templateFromSnapshot, toIdSet } from './render'
 import type { AppSettings } from '../../../shared/settings'
+import type { HeadlessResult } from '../agent/driver'
 
 export interface RcaJobsDeps {
   db: DatabaseSync
   argusHome: string
   /** Throws → caller sees the throw; nothing is enqueued (guarded by callers). */
   assembleInput: (slug: string, prior: RcaDraft | null) => CaseRcaInput
-  run: (prompt: string) => Promise<string>
+  // Widened for Task 10 (usage reporting); usage is dropped for now — `generate` below
+  // unwraps `.text`, same as refSync/distill.ts and caseDistiller.ts.
+  run: (prompt: string) => Promise<HeadlessResult>
   resolvePrompt?: (id: string) => string
   /** Version hash of the static RCA prompt parts, stamped at enqueue. Absent in tests. */
   promptHash?: () => string
@@ -382,7 +385,7 @@ export class RcaJobs {
       // against keys the model was never briefed on.
       const template = templateFromSnapshot(r.template_snapshot)
       const prompt = buildCaseRcaPrompt(input, template, this.deps.resolvePrompt)
-      const raw = await this.deps.run(prompt)
+      const raw = (await this.deps.run(prompt)).text
       // Validates, including that every briefed section came back; the draft itself is stored
       // only as raw_output — statusFor parses it back out on read.
       parseRcaOutput(raw, expectedSectionIds(template))

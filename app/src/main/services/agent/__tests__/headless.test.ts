@@ -21,7 +21,7 @@ function stubDriver(record: { prompt?: string; opts?: HeadlessOpts }): AgentDriv
     runHeadless: async (prompt, opts) => {
       record.prompt = prompt
       record.opts = opts
-      return 'distilled'
+      return { text: 'distilled', usage: { durationMs: 1 } }
     }
   }
 }
@@ -46,7 +46,7 @@ describe('createHeadlessRunner', () => {
       argusHome: '/tmp/argus',
       driverForKind: () => stubDriver(rec)
     })
-    expect(await run('the prompt')).toBe('distilled')
+    expect((await run('the prompt')).text).toBe('distilled')
     expect(rec.prompt).toBe('the prompt')
     expect(rec.opts?.model).not.toBe('auto')
     expect(rec.opts?.model?.startsWith('claude-')).toBe(true)

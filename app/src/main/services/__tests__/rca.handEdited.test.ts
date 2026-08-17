@@ -92,7 +92,9 @@ function mkJobs(): RcaJobs {
       caseMeta: { ...MINIMAL_INPUT.caseMeta, slug },
       priorDraft: prior
     }),
-    run: async () => '```json\n' + JSON.stringify(wellFormedDraftFor(template)) + '\n```',
+    run: async () => ({
+      text: '```json\n' + JSON.stringify(wellFormedDraftFor(template)) + '\n```'
+    }),
     broadcast: () => {},
     settings: () => ({ rca: { template } }) as unknown as AppSettings
   }

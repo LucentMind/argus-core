@@ -17,6 +17,7 @@ import {
 } from './engine'
 import { listReferenceFiles, resolveReferencePath } from './referenceFiles'
 import { distillTarget } from './distill'
+import type { HeadlessResult } from '../agent/driver'
 import {
   refBody,
   refTier,
@@ -49,7 +50,7 @@ export interface RefSyncServiceDeps {
   store: ReferenceSyncStore
   reader: ConfluenceReader
   /** Headless one-shot runner; resolves its own provider. Injectable for tests. */
-  run?: (prompt: string) => Promise<string>
+  run?: (prompt: string) => Promise<HeadlessResult>
   /** Injectable for tests; defaults to the headless distiller. */
   distill?: typeof distillTarget
   /** Prompt-registry resolver, forwarded to the distiller. */
