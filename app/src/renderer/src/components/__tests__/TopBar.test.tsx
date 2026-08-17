@@ -411,7 +411,11 @@ describe('TopBar', () => {
       error: 'boom',
       itemCount: null,
       createdAt: '',
-      finishedAt: null
+      finishedAt: null,
+      costUsd: null,
+      turnCount: null,
+      toolCallCount: null,
+      promptChars: null
     }
     const runningJob: DistillJobRow = { ...failedJob, state: 'running' }
     window.argus.distill.status = vi.fn(async (slug: string) =>
@@ -523,7 +527,11 @@ describe('TopBar', () => {
         error: null,
         itemCount: null,
         createdAt: '',
-        finishedAt: null
+        finishedAt: null,
+        costUsd: null,
+        turnCount: null,
+        toolCallCount: null,
+        promptChars: null
       })
     })
 
