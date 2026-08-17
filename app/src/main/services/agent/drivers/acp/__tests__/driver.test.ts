@@ -144,11 +144,13 @@ describe('createAcpDriver — capabilities + auth predicate', () => {
       planMode: true,
       mcpConnectors: false,
       headlessOneShot: false,
+      headlessAgent: false,
       systemPromptTransport: 'none',
       subagents: 'promptable'
     })
     expect(Object.keys(d.toolTaxonomy.entries).sort()).toEqual(['fetch', 'read', 'shell', 'write'])
     expect(d.runHeadless).toBeUndefined()
+    expect(d.runHeadlessAgent).toBeUndefined()
   })
 
   it('isAuthErrorMessage matches an auth-shaped message only', () => {

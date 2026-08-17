@@ -91,6 +91,13 @@ export interface DriverCapabilities {
   /** Whether this driver can run a tool-less one-shot prompt with no case and no session.
    *  Explicit and required — unlike `mcpConnectors`, absence here means nothing. */
   headlessOneShot: boolean
+  /** Whether this driver can run `runHeadlessAgent` — a multi-turn AGENTIC one-shot with
+   *  tools/MCP (distillation v2's world-model builder). Mirrors
+   *  `main/services/agent/driver.ts` `DriverCapabilities.headlessAgent`. **Scope decision
+   *  (v2):** Claude only — every other driver declares `false` explicitly rather than
+   *  omitting the field, and `resolveDistillAgentProvider` checks THIS flag (not a
+   *  hardcoded driver list). */
+  headlessAgent?: boolean
   /** Which wire field carries the composed system prompt. Explicit and required — like
    *  `headlessOneShot` and unlike `mcpConnectors`, absence here would mean nothing, and the
    *  point of this field is that a new driver cannot skip the question. */
@@ -247,6 +254,8 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       editableApprovals: true,
       costReporting: true,
       headlessOneShot: true,
+      // v2 scope: Claude only — see DriverCapabilities.headlessAgent's doc comment.
+      headlessAgent: true,
       // options.systemPrompt = { type:'preset', preset:'claude_code', append: ctx.systemAppend }
       systemPromptTransport: 'systemPrompt.append',
       subagents: 'configurable'
@@ -276,6 +285,8 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       planMode: true,
       // mcpConnectors omitted (= supported): resolved by the tools:["*"] allowlist (EVIDENCE §6c)
       headlessOneShot: true,
+      // v2 scope: Claude only (recorded follow-up) — see DriverCapabilities.headlessAgent.
+      headlessAgent: false,
       // sessionConfig.systemMessage = { mode:'append', content: ctx.systemAppend }
       systemPromptTransport: 'systemMessage.append',
       subagents: 'configurable'
@@ -312,6 +323,8 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       costReporting: false, // no dollar cost on the wire (contract §7) — matches main's driver
       planMode: true,
       headlessOneShot: true,
+      // v2 scope: Claude only (recorded follow-up) — see DriverCapabilities.headlessAgent.
+      headlessAgent: false,
       // startParams.developerInstructions, omitted entirely when systemAppend is empty
       systemPromptTransport: 'developerInstructions',
       subagents: 'promptable'
@@ -341,6 +354,8 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       // connectors not yet forwarded — toAcpMcpServers drops them; see session.mcp.skipped
       mcpConnectors: false,
       headlessOneShot: false,
+      // v2 scope: Claude only (recorded follow-up) — see DriverCapabilities.headlessAgent.
+      headlessAgent: false,
       // KNOWN GAP, declared rather than hidden: ACP `newSession` takes no system prompt and the
       // driver never reads ctx.systemAppend, so persona / citation rules / mode identity / skill
       // index / memory index all go nowhere. Fixing it (a first-turn preamble) is its own plan;
@@ -368,6 +383,8 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       // connectors not yet forwarded — toAcpMcpServers drops them; see session.mcp.skipped
       mcpConnectors: false,
       headlessOneShot: false,
+      // v2 scope: Claude only (recorded follow-up) — see DriverCapabilities.headlessAgent.
+      headlessAgent: false,
       // KNOWN GAP, declared rather than hidden: ACP `newSession` takes no system prompt and the
       // driver never reads ctx.systemAppend, so persona / citation rules / mode identity / skill
       // index / memory index all go nowhere. Fixing it (a first-turn preamble) is its own plan;
@@ -1027,5 +1044,39 @@ export function resolveDistillProvider(s: AppSettings): DistillProviderResolutio
       getDriver(instances[id].driver)?.capabilities.headlessOneShot
   )
   if (!fallback) return { ok: false, reason: 'no provider configured for distillation' }
+  return distillOk(s, fallback)
+}
+
+/**
+ * The provider instance AGENTIC distillation (distillation v2's world-model builder) runs
+ * on. Same shape as {@link resolveDistillProvider} — explicit `agent.distillProvider` wins;
+ * otherwise the first enabled claude-agent-sdk instance — but gated on the `headlessAgent`
+ * capability instead of `headlessOneShot`. Deliberately a SEPARATE function rather than a
+ * parameterized one: `resolveDistillProvider` still backs refSync/digest, which run one-shot
+ * and must keep doing so even after `headlessAgent` widens past Claude. Never consults
+ * activeInstanceId.
+ */
+export function resolveDistillAgentProvider(s: AppSettings): DistillProviderResolution {
+  const instances = s.agent.providerInstances
+  const explicit = s.agent.distillProvider
+  if (explicit?.instanceId) {
+    const id = explicit.instanceId
+    const inst = instances[id]
+    if (!inst || !inst.enabled)
+      return { ok: false, reason: `distillation provider "${id}" is unknown or disabled` }
+    if (!getDriver(inst.driver)?.capabilities.headlessAgent)
+      return {
+        ok: false,
+        reason: `provider "${id}" (${inst.driver}) cannot run agent-based distillation`
+      }
+    return distillOk(s, id, explicit.model)
+  }
+  const fallback = Object.keys(instances).find(
+    (id) =>
+      instances[id].enabled &&
+      instances[id].driver === 'claude-agent-sdk' &&
+      getDriver(instances[id].driver)?.capabilities.headlessAgent
+  )
+  if (!fallback) return { ok: false, reason: 'no provider configured for agent-based distillation' }
   return distillOk(s, fallback)
 }

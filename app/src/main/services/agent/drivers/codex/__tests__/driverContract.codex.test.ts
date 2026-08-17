@@ -155,3 +155,18 @@ it('shared DRIVERS headlessOneShot agrees with the main-process driver flag and 
   expect(DRIVERS[d.kind].capabilities.headlessOneShot).toBe(d.capabilities.headlessOneShot)
   expect(DRIVERS[d.kind].capabilities.headlessOneShot).toBe(typeof d.runHeadless === 'function')
 })
+
+// v2 scope: agentic distillation ships on Claude only. Codex declares headlessAgent false
+// explicitly (not omitted) and exposes no runHeadlessAgent — see the driver's capabilities
+// comment and shared/drivers.ts's DriverCapabilities.headlessAgent.
+it('declared headlessAgent matches runHeadlessAgent presence (false, v2 scope)', () => {
+  const d = createCodexDriver()
+  expect(d.capabilities.headlessAgent).toBe(false)
+  expect(d.runHeadlessAgent).toBeUndefined()
+})
+
+it('shared DRIVERS headlessAgent agrees with the main-process driver flag and method', () => {
+  const d = createCodexDriver()
+  expect(DRIVERS[d.kind].capabilities.headlessAgent).toBe(d.capabilities.headlessAgent)
+  expect(DRIVERS[d.kind].capabilities.headlessAgent).toBe(typeof d.runHeadlessAgent === 'function')
+})
