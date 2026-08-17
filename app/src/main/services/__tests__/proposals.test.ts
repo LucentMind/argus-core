@@ -2,7 +2,13 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { writeProposal, listProposals, acceptProposal, rejectProposal } from '../proposals'
+import {
+  writeProposal,
+  listProposals,
+  acceptProposal,
+  rejectProposal,
+  listArchivedProposals
+} from '../proposals'
 import { parseAuthorship } from '../../../shared/authorship'
 
 let home: string
@@ -260,6 +266,84 @@ describe('rejectProposal reasons', () => {
   it('throws on an invalid tag (IPC args are untyped at runtime)', () => {
     const f = writeOne()
     expect(() => rejectProposal(home, f, { tag: 'meh' as never })).toThrow(/Invalid reject reason/)
+  })
+})
+
+describe('listArchivedProposals', () => {
+  it('carries reject metadata and date from archived proposals', () => {
+    // Write and accept a proposal
+    const f1 = writeProposal(home, 'NAV-100', {
+      type: 'skill-edit',
+      target: 'rca',
+      title: 'Accepted proposal',
+      content: '---\nname: rca\ndescription: An RCA skill\n---\n# rca v2\n'
+    })
+    fs.mkdirSync(path.join(home, 'skills-user', 'rca'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'skills-user', 'rca', 'SKILL.md'), '# rca v1\n')
+    acceptProposal(home, f1)
+
+    // Write and reject a proposal with reason and note
+    const f2 = writeProposal(home, 'NAV-200', {
+      type: 'skill-new',
+      target: 'brand-new',
+      title: 'Rejected proposal',
+      content: '---\nname: brand-new\ndescription: Too vague\n---\n# new\n'
+    })
+    rejectProposal(home, f2, { tag: 'overgeneric', note: 'too vague' })
+
+    // Write and reject another proposal without reason
+    const f3 = writeProposal(home, 'NAV-300', {
+      type: 'skill-new',
+      target: 'another',
+      title: 'Rejected without reason',
+      content: '---\nname: another\ndescription: Something\n---\n# another\n'
+    })
+    rejectProposal(home, f3)
+
+    const archived = listArchivedProposals(home)
+    expect(archived).toHaveLength(3)
+
+    // Check accepted proposal has no reject fields
+    const accepted = archived.find((p) => p.status === 'accepted')
+    expect(accepted).toBeDefined()
+    expect(accepted).toEqual({
+      type: 'skill-edit',
+      target: 'rca',
+      caseSlug: 'NAV-100',
+      title: 'Accepted proposal',
+      status: 'accepted',
+      date: expect.any(String)
+    })
+
+    // Check rejected proposal with reason has reject metadata
+    const rejectedWithReason = archived.find(
+      (p) => p.status === 'rejected' && p.caseSlug === 'NAV-200'
+    )
+    expect(rejectedWithReason).toBeDefined()
+    expect(rejectedWithReason).toEqual({
+      type: 'skill-new',
+      target: 'brand-new',
+      caseSlug: 'NAV-200',
+      title: 'Rejected proposal',
+      status: 'rejected',
+      rejectReason: 'overgeneric',
+      rejectNote: 'too vague',
+      date: expect.any(String)
+    })
+
+    // Check rejected proposal without reason has no reject fields
+    const rejectedWithoutReason = archived.find(
+      (p) => p.status === 'rejected' && p.caseSlug === 'NAV-300'
+    )
+    expect(rejectedWithoutReason).toBeDefined()
+    expect(rejectedWithoutReason).toEqual({
+      type: 'skill-new',
+      target: 'another',
+      caseSlug: 'NAV-300',
+      title: 'Rejected without reason',
+      status: 'rejected',
+      date: expect.any(String)
+    })
   })
 })
 
