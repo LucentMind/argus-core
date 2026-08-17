@@ -174,9 +174,13 @@ export interface DriverCapabilities {
    *  single-turn tool-less prompt. Mirrors the shared DriverDefinition flag; each driver's
    *  contract test file asserts this flag, the shared flag, and `runHeadlessAgent` method
    *  presence all agree. **Scope decision (v2):** Claude only — Copilot/Codex/ACP declare
-   *  `false` explicitly rather than omitting the field, and `resolveDistillAgentProvider`
-   *  checks THIS capability flag (not a hardcoded driver list), so widening it later is a
-   *  per-driver flag flip, not a resolver change. */
+   *  `false` explicitly rather than omitting the field. `resolveDistillAgentProvider`'s
+   *  EXPLICIT-instance path (an `agent.distillProvider` the user picked) checks THIS flag,
+   *  not a hardcoded driver name, so an explicit non-Claude selection is rejected/accepted
+   *  purely on capability. The no-explicit-selection FALLBACK stays hardcoded to
+   *  `claude-agent-sdk` by design (same as `resolveDistillProvider`'s), so widening past
+   *  Claude only changes which explicit selections succeed until the fallback itself is
+   *  revisited. */
   headlessAgent?: boolean
   /** Mirrors the shared DriverDefinition flag (`shared/drivers.ts`): whether the driver
    *  supports a plan-then-approve mode. Optional/absent where irrelevant (Claude enforces
@@ -230,21 +234,40 @@ export interface HeadlessAgentOpts extends HeadlessOpts {
 }
 
 /** One tool call the agent made, in call order. `argsSummary` is a truncated JSON dump of
- *  the tool's input — enough to audit/debug a run without unbounded log growth. */
+ *  the tool's input — enough to audit/debug a run without unbounded log growth.
+ *  `resultBytes`, when the matching `tool_result` block arrived before the run ended, is the
+ *  UTF-8 byte length of that result's content — absent for a call whose result never came
+ *  back (budget/timeout cut the run off first). */
 export interface TrajectoryEntry {
   turn: number
   tool: string
   argsSummary: string
+  resultBytes?: number
 }
 
 export interface HeadlessAgentResult {
   /** The LAST non-empty assistant text — the parsed surface (e.g. the closing JSON-fenced
-   *  summary a distillation prompt asks for), not a concatenation of every turn's text. */
+   *  summary a distillation prompt asks for), not a concatenation of every turn's text. May
+   *  be empty when `capHit` is set — see its doc. */
   text: string
   usage?: HeadlessUsage
   turnCount: number
   toolCallCount: number
   trajectory: TrajectoryEntry[]
+  /**
+   * Set when the run was cut off by one of the two budgets Task 11's design spec defines
+   * ("on either limit the session is asked for its final answer; no block in the final
+   * message = failed job with raw output preserved") rather than reaching a clean
+   * `result: success`: `'iterations'` when the SDK itself terminated the run short (a
+   * non-success `result` subtype — most commonly `error_max_turns`, after the
+   * budget-exhaustion nudge failed to produce one), `'timeout'` when Task 11's own
+   * wall-clock `timeoutMs` elapsed first. Absent on a clean success. `text`/`trajectory`/
+   * `usage` still carry whatever was collected before the cutoff — this is a HARVEST, not a
+   * failure signal on its own; an empty `text` alongside `capHit` is what lets the caller
+   * (Task 12's parser) fail the job while preserving that raw (possibly empty) output,
+   * exactly the spec sentence above.
+   */
+  capHit?: 'iterations' | 'timeout'
 }
 
 /** A racer that rejects when `signal` aborts, and immediately if it already has. Returns a
