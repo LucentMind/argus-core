@@ -7,7 +7,7 @@ import { caseDistillPromptHash } from '../../../app/src/main/services/distill/pr
 import type { CaseDistillOutput } from '../../../app/src/shared/distill'
 import type { DistillEvalBundleLine } from '../../../app/src/shared/distillEval'
 import type { OneShotRunner } from './runner'
-import type { AgentRunner } from './agentRunner'
+import type { AgentReplayResult, AgentRunner } from './agentRunner'
 
 /**
  * The harness's runner set, passed around whole so replay and judge share one pair. `agent` runs
@@ -32,6 +32,14 @@ export interface ReplayResult {
    * reused line, where no replay happened at all.
    */
   degradedReplay: boolean
+  /**
+   * The agent run was cut off by a budget rather than ending cleanly — the SDK's terminal
+   * non-success `result.subtype`. Its text is NOT a fair sample of the candidate contract: the app
+   * fails a capped distill job instead of parsing it, so `runEval` refuses to grade these too
+   * (`parseOutcome: 'budget-exhausted'`) and the report names them. Undefined on a clean or reused
+   * replay.
+   */
+  capSubtype?: string
   raw: string
   parsed: CaseDistillOutput | null
   parseError: string | null
@@ -55,15 +63,17 @@ export async function replayCase(
 ): Promise<ReplayResult> {
   const reused = line.job.promptHash === caseDistillPromptHash(resolve)
   const world = line.job.inputSnapshot.world ?? null
+  const outcome: AgentReplayResult = reused
+    ? { text: line.job.rawOutput }
+    : await runners.agent(buildCaseDistillPrompt(line.job.inputSnapshot, resolve), world)
+  const raw = outcome.text
   const base = {
     jobId: line.job.id,
     caseSlug: line.job.caseSlug,
     reused,
-    degradedReplay: !reused && world === null
+    degradedReplay: !reused && world === null,
+    ...(outcome.capSubtype ? { capSubtype: outcome.capSubtype } : {})
   }
-  const raw = reused
-    ? line.job.rawOutput
-    : await runners.agent(buildCaseDistillPrompt(line.job.inputSnapshot, resolve), world)
   try {
     return { ...base, raw, parsed: parseCaseDistillOutput(raw), parseError: null }
   } catch (e) {

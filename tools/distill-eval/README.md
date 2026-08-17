@@ -134,8 +134,27 @@ server** (`createReplayMcpServer`) serving `list_sessions` / `read_transcript` /
 same tool answers out. Its SDK options deliberately mirror the app's `runClaudeHeadlessAgent`:
 `maxTurns: DISTILL_MAX_ITERATIONS`, `tools: []` (no built-ins), `allowedTools:
 DISTILL_ALLOWED_TOOLS` (auto-approve only the `mcp__argus__` surface) plus a `canUseTool`
-deny-gate, and an empty scratch `cwd`. If you need a different backend, implement `AgentRunner`
-/ `OneShotRunner` and wire it in where `cli.ts` builds the runner bag.
+deny-gate, an empty scratch `cwd`, and `env: claudeSpawnEnv()` — which is what turns Claude
+Code's **own** auto-memory off. That last one is a fidelity requirement, not hygiene: auto-memory
+also *reads*, so leaving it on would splice unrelated `~/.claude` memories into the replay,
+grading the candidate contract on an input the live job never saw.
+
+Two deliberate differences from the app's loop: the harness passes `maxTurns:
+DISTILL_MAX_ITERATIONS` (50) where the app passes `maxIterations + 1` (51), because the app spends
+that extra turn on a budget-exhausted **nudge** ("return your final json now") that the harness
+does not send — its prompt is a plain string, not a pushable queue. A replay therefore has one
+fewer turn of headroom than the live run, and a candidate contract that loops near the cap is
+likelier to be cut off here than in the app.
+
+If you need a different backend, implement `AgentRunner` / `OneShotRunner` and wire it in where
+`cli.ts` builds the runner bag.
+
+**Budget-exhausted replays are not graded.** If the SDK ends a run with a non-success subtype
+(`error_max_turns`, `error_during_execution`, `error_max_budget_usd`, …), that subtype rides out of
+the runner as `capSubtype`, the case is classified `budget-exhausted` (never `ok`), its items are
+skipped, and `report.md` names it. Rationale: the app *fails* a capped distill job rather than
+parsing its text, so grading that text here would score a candidate on output the product would
+have thrown away.
 
 **Agent replay: the two things it does not reproduce**
 
@@ -188,7 +207,9 @@ parallelism):
 
 `report.md` (written by `src/report.ts`) leads with the aggregate numbers — including a
 **degraded-replay count and the case list** (pre-v2 lines replayed with no world; read their
-verdicts with the caveat above, or re-export the corpus) — then a **"Needs
+verdicts with the caveat above, or re-export the corpus) and a **budget-exhausted count with each
+case's cap subtype** (runs the SDK cut off; ungraded, so they explain any shortfall between case
+count and graded cases) — then a **"Needs
 human review" list first** (every `needs-human` verdict, prompt-changed or not — since
 these are exactly the calls the judge couldn't make confidently), then a per-reject-tag
 improved/total breakdown so you can see e.g. "overfit: 6/9 improved, overgeneric: 1/4
@@ -240,6 +261,14 @@ semantics.
   discovery from a plain node process, auth, extraction) is only ever exercised by actually
   running the harness against a corpus. If a replay produces nothing, check that `claude` works
   on your machine before suspecting the harness.
+- **Replay fidelity is version-sensitive.** `@anthropic-ai/claude-agent-sdk` and
+  `@modelcontextprotocol/sdk` are pinned **exact** here to the versions in `app/package.json`
+  (0.3.220 / 1.29.0) so a replay drives the same SDK the live distiller does. They will drift the
+  moment `app/` bumps and this package doesn't — bump them together, and treat a version mismatch
+  as a reason to distrust a surprising report, since SDK changes to turn accounting or tool
+  plumbing move replay results without any prompt change.
+- **The harness is one turn shorter than the app** and sends no budget nudge (see Step 3). Cap
+  behaviour is therefore not identical for a contract that runs long.
 - **No wall-clock cap on a replay.** `maxTurns` bounds the loop, but neither runner has a
   timeout (the app's own distill path does); a wedged provider call hangs the run until you
   interrupt it.
@@ -254,7 +283,8 @@ semantics.
 
 `npm test` (vitest) covers the pure logic with fakes — **no live model calls, no CLI spawn**:
 corpus parsing/validation (`__tests__/corpus.test.ts`), skip-if-unchanged + parse
-classification + world/degraded replay (`__tests__/replay.test.ts`), judge prompt/verdict
+classification + world/degraded/budget-exhausted replay (`__tests__/replay.test.ts`), judge
+prompt/verdict
 round-tripping including a byte-identity inline snapshot of the unedited-accepted wording
 (`__tests__/judge.test.ts`), the agent runner's SDK option assembly and the replay MCP server's
 answers with and without a world (`__tests__/agentRunner.test.ts`), and the full `runEval`
@@ -262,8 +292,11 @@ pipeline wiring (`__tests__/run.test.ts`).
 
 The agent runner takes its `query()` as an injected `CreateQueryFn` (defaulting to the SDK's
 `query`), which is the seam the tests fake: they assert the assembled
-`mcpServers`/`allowedTools`/`maxTurns`/`tools: []`/`canUseTool` wiring and drive a scripted
-message stream, so the SDK's bundled CLI is never spawned. The MCP-server tests connect a real
+`mcpServers`/`allowedTools`/`maxTurns`/`tools: []`/`canUseTool`/`env` wiring and drive a scripted
+message stream, so the SDK's bundled CLI is never spawned. The assembly test does **not** stop at
+"an `argus` server was passed": it connects a client to the server the runner actually built and
+calls `list_sessions` on it, because a runner that wired up a world-*less* server would otherwise
+pass every assertion while silently degrading every replay. The MCP-server tests use a real
 `@modelcontextprotocol/sdk` client over `InMemoryTransport` (same idiom as the app's
 `distill/__tests__/mcp.test.ts`) and call the tools for real against a fixture world.
 

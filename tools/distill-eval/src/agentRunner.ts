@@ -8,6 +8,9 @@ import {
 } from '@anthropic-ai/claude-agent-sdk'
 import type { DistillWorld } from '../../../app/src/shared/distill'
 import { agentScratchCwd } from '../../../app/src/main/services/agent/scratchCwd'
+// Harness-safe: cliPath.ts imports only node:path and drivers/asar.ts (which imports nothing) —
+// no electron, no asar runtime. `claudeSpawnEnv` is the same env the app's three spawn sites use.
+import { claudeSpawnEnv } from '../../../app/src/main/services/agent/drivers/claude/cliPath'
 import {
   listSessionsTool,
   readTranscript,
@@ -26,7 +29,22 @@ import {
  * stay REGISTERED (their descriptions are hashed prompt surface, and the contract's tool guidance
  * must parse identically either way) but every call answers `REPLAY_WORLD_UNAVAILABLE`.
  */
-export type AgentRunner = (prompt: string, world: DistillWorld | null) => Promise<string>
+export type AgentRunner = (
+  prompt: string,
+  world: DistillWorld | null
+) => Promise<AgentReplayResult>
+
+/**
+ * What one agent replay produced. `capSubtype` is the SDK's terminal non-success `result.subtype`
+ * (`error_max_turns`, `error_during_execution`, `error_max_budget_usd`, …) when the run was cut
+ * off instead of ending cleanly. It must ride out of the runner, not be swallowed: the app FAILS
+ * a capped distill job rather than parsing its text (queue.ts's capHit handling), so a harness
+ * that graded the same text would score a candidate on output the product would have rejected.
+ */
+export interface AgentReplayResult {
+  text: string
+  capSubtype?: string
+}
 
 /** The distinguished answer every world tool gives when there is no world to serve. */
 export const REPLAY_WORLD_UNAVAILABLE =
@@ -96,6 +114,7 @@ export interface ReplayQueryOptions {
   allowedTools: string[]
   canUseTool: (toolName: string, input: Record<string, unknown>) => Promise<PermissionResult>
   mcpServers: { argus: McpSdkServerConfigWithInstance }
+  env: NodeJS.ProcessEnv
   model?: string
 }
 
@@ -114,12 +133,16 @@ const defaultCreateQuery: CreateQueryFn = (args) =>
  * Walks an agentic run and keeps the last non-empty assistant text — the same idiom as the app's
  * `collectAgentRun` (headlessAgent.ts), minus the trajectory/usage bookkeeping and the
  * budget-exhaustion nudge: the harness grades final items, and its prompt is a plain string
- * rather than a pushable queue. A non-success terminal subtype with nothing collected throws;
- * with something collected the partial answer is harvested (a capped run that still produced a
- * fenced block is a usable replay — `parseCaseDistillOutput` is the real gate downstream).
+ * rather than a pushable queue.
+ *
+ * A non-success terminal subtype is HARVESTED, never swallowed and never thrown: it comes back as
+ * `capSubtype` so `replayCase` can mark the case and the report can name it. Only a clean
+ * (success) run that produced no text at all is an outright error — that is a broken replay, not
+ * a capped one.
  */
-async function collectLastAssistantText(q: ReplayQuery): Promise<string> {
+async function collectRun(q: ReplayQuery): Promise<AgentReplayResult> {
   let last = ''
+  let capSubtype: string | undefined
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for await (const msg of q as AsyncIterable<any>) {
     if (msg?.type === 'assistant' && Array.isArray(msg.message?.content)) {
@@ -130,14 +153,12 @@ async function collectLastAssistantText(q: ReplayQuery): Promise<string> {
       if (text.trim()) last = text
     }
     if (msg?.type === 'result') {
-      if (msg.subtype && msg.subtype !== 'success' && !last.trim()) {
-        throw new Error(`agent replay failed: ${String(msg.subtype)}`)
-      }
+      if (msg.subtype && msg.subtype !== 'success') capSubtype = String(msg.subtype)
       break
     }
   }
-  if (!last.trim()) throw new Error('agent replay returned no text')
-  return last
+  if (!last.trim() && !capSubtype) throw new Error('agent replay returned no text')
+  return { text: last, ...(capSubtype ? { capSubtype } : {}) }
 }
 
 /**
@@ -163,11 +184,17 @@ export function claudeAgentRunner(
           ? { behavior: 'allow', updatedInput: input }
           : { behavior: 'deny', message: 'not available in distillation replay' },
       mcpServers: { argus: createReplayMcpServer(world) },
+      // Same env as every app-side Claude spawn: auto-memory OFF. The CLI's own memory subsystem
+      // defaults ON and both READS and writes under ~/.claude/projects/<cwd>/memory — in a replay
+      // that would inject unrelated memories into the distill prompt, i.e. the candidate contract
+      // would be graded on an input the live job never had. See claudeSpawnEnv's doc (cliPath.ts);
+      // the process.env spread is load-bearing (the SDK REPLACES the subprocess env).
+      env: claudeSpawnEnv(),
       ...(model ? { model } : {})
     }
     const q = createQuery({ prompt, options })
     try {
-      return await collectLastAssistantText(q)
+      return await collectRun(q)
     } finally {
       await q.interrupt?.().catch(() => undefined)
     }
