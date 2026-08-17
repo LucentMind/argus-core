@@ -54,12 +54,14 @@ describe('assembleDistillInput', () => {
     expect(input.caseMeta).toMatchObject({ slug: 'case-a', jiraKey: 'AB-1', resolution: 'solved' })
     expect(input.findings).toEqual([
       {
+        id: expect.any(Number),
         summary: 'Root cause found',
         reviewState: 'accepted',
         role: null,
         body: expect.stringContaining('Clock resync.')
       }
     ])
+    expect(input.findings.every((f) => typeof f.id === 'number')).toBe(true)
     expect(input.skillsIndex).toEqual([
       {
         name: 'analyze-dlt',

@@ -185,6 +185,7 @@ export function assembleDistillInput(
       closedAt: c.updatedAt
     },
     findings: listFindings(db, argusHome, slug).map((f) => ({
+      id: f.id,
       summary: f.summary,
       reviewState: f.reviewState,
       role: f.role,

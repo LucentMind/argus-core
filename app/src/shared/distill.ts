@@ -54,7 +54,14 @@ export interface CaseDistillInput {
     createdAt: string
     closedAt: string
   }
-  findings: { summary: string; reviewState: ReviewState; role: string | null; body: string }[]
+  findings: {
+    /** DB id — v3 dossier cites findings by id. Absent on pre-v3 snapshots. */
+    id?: number
+    summary: string
+    reviewState: ReviewState
+    role: string | null
+    body: string
+  }[]
   evidence: { relPath: string; artifactType: string; size: number }[]
   sessionTitles: string[]
   /** `content` is the full current SKILL.md (frontmatter + body) — a skill-edit must
@@ -108,6 +115,8 @@ export interface CaseDistillOutput {
     title: string
     content: string
     basis?: string
+    /** v3: JSON-encoded `DossierCite[]` resolved from the candidate's evidence paths. */
+    evidence?: string
   }[]
 }
 
