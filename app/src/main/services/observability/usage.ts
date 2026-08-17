@@ -44,30 +44,37 @@ interface DistillationRow {
   avg_cost: number | null
   avg_prompt: number | null
   avg_turn: number | null
+  failed_cost: number | null
 }
 
-/** Rollup over completed case distill jobs. `COUNT(*)` counts every done `kind='case'` row
- *  regardless of whether it recorded usage (pre-v2 rows didn't); `SUM`/`AVG` are SQLite
- *  aggregates, which skip NULL inputs on their own — so a pre-v2 done row lowers no average, and
- *  an all-pre-v2 history reports a real jobCount with every average staying null rather than 0. */
+/** Rollup over case distill jobs. `n`/`total_cost`/`avg_*` stay scoped to `done` rows exactly as
+ *  before (via the `CASE WHEN` guards, not the outer `WHERE`) — `COUNT`/`SUM`/`AVG` skip NULL
+ *  inputs on their own, so a pre-v2 done row (every usage column NULL) lowers no average, and an
+ *  all-pre-v2 history reports a real jobCount with every average staying null rather than 0.
+ *  `failed_cost` is the one column that also sees `failed` rows: a failed capHit run still ran
+ *  the whole agent loop before refusing to parse, so its spend is real and must not vanish just
+ *  because the job never became `done`. The outer `WHERE` widens to `state IN ('done','failed')`
+ *  only so `failed_cost` has failed rows to sum — it changes nothing for the done-only columns. */
 function distillationStats(db: DatabaseSync): DistillationUsageStats {
   const row = db
     .prepare(
-      `SELECT COUNT(*) AS n,
-              SUM(cost_usd) AS total_cost,
-              AVG(cost_usd) AS avg_cost,
-              AVG(prompt_chars) AS avg_prompt,
-              AVG(turn_count) AS avg_turn
+      `SELECT SUM(CASE WHEN state = 'done' THEN 1 ELSE 0 END) AS n,
+              SUM(CASE WHEN state = 'done' THEN cost_usd END) AS total_cost,
+              AVG(CASE WHEN state = 'done' THEN cost_usd END) AS avg_cost,
+              AVG(CASE WHEN state = 'done' THEN prompt_chars END) AS avg_prompt,
+              AVG(CASE WHEN state = 'done' THEN turn_count END) AS avg_turn,
+              SUM(CASE WHEN state = 'failed' THEN cost_usd END) AS failed_cost
        FROM distill_jobs
-       WHERE kind = 'case' AND state = 'done'`
+       WHERE kind = 'case' AND state IN ('done', 'failed')`
     )
     .get() as unknown as DistillationRow
   return {
-    jobCount: row.n,
+    jobCount: row.n ?? 0,
     totalCostUsd: row.total_cost,
     avgCostUsd: row.avg_cost,
     avgPromptChars: row.avg_prompt,
-    avgTurnCount: row.avg_turn
+    avgTurnCount: row.avg_turn,
+    failedCostUsd: row.failed_cost
   }
 }
 

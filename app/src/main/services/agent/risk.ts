@@ -80,9 +80,13 @@ export const NATIVE_RISK: Record<string, RiskVerdict> = {
   mcp__argus__ingest_artifact: { action: 'allow', risk: 'LOW' },
   mcp__argus__append_finding: { action: 'allow', risk: 'LOW' },
   mcp__argus__read_memory: { action: 'allow', risk: 'LOW' },
-  // Inner calls are individually risk-checked via their own handlers when dispatched (the PTC
-  // server allowlist further restricts scripts to the read-only PTC_FOREGROUND_TOOLS set); the
-  // wrapper itself only spawns a sandboxed child and captures stdout — read-only.
+  // NOT sandboxed: the PTC child is a plain ELECTRON_RUN_AS_NODE process (env-scrubbed, but
+  // otherwise full user-level fs/network access) — the script's own code runs unsandboxed as
+  // the user. What IS restricted are the inner TOOL calls the script can make: the PTC server
+  // allowlist limits it to the read-only PTC_FOREGROUND_TOOLS set, and each such call is
+  // individually risk-checked via its own handler when dispatched. LOW/allow here is therefore
+  // a deliberate product decision — trusting the script body itself, not sandboxing it — made
+  // pending a real sandboxing follow-up, not a claim that the child process is contained.
   mcp__argus__run_tool_script: { action: 'allow', risk: 'LOW' },
   // Inert until accepted on the Proposals page (spec §2.4) — writing a proposal steers nothing.
   mcp__argus__write_proposal: { action: 'allow', risk: 'LOW' },

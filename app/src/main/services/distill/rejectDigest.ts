@@ -4,6 +4,7 @@ import { proposalsDir } from '../paths'
 import { listArchivedProposals } from '../proposals'
 import { fmBlock, fmField, withFrontmatter } from '../../../shared/frontmatter'
 import type { HeadlessResult } from '../agent/driver'
+import type { RejectDigest } from '../../../shared/distill'
 
 /** Most recent rejected proposals fed into one digest rebuild — bounds prompt size regardless
  *  of how large the reject archive grows. */
@@ -88,9 +89,7 @@ function truncateDigestText(raw: string): string {
 }
 
 /** Reads `<ARGUS_HOME>/proposals/reject-patterns.md`. `null` when it has never been built. */
-export function readRejectDigest(
-  argusHome: string
-): { builtAt: string; rejectCount: number; text: string } | null {
+export function readRejectDigest(argusHome: string): RejectDigest | null {
   const p = path.join(proposalsDir(argusHome), DIGEST_FILE)
   if (!fs.existsSync(p)) return null
   const block = fmBlock(fs.readFileSync(p, 'utf8'))

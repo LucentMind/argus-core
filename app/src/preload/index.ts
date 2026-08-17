@@ -136,7 +136,7 @@ import type {
   PanelRect,
   ExternalAppInfo
 } from '../shared/panels'
-import type { DistillJobRow, DistillStatusPayload } from '../shared/distill'
+import type { DistillJobRow, DistillStatusPayload, RejectDigest } from '../shared/distill'
 import type {
   RcaJobRow,
   RcaStatusPayload,
@@ -725,7 +725,8 @@ const argus = {
       const listener = (_e: unknown, c: ProposalCounts): void => cb(c)
       ipcRenderer.on(IPC.proposalsChanged, listener)
       return () => ipcRenderer.removeListener(IPC.proposalsChanged, listener)
-    }
+    },
+    rejectDigest: (): Promise<RejectDigest | null> => invoke(IPC.proposalsRejectDigest)
   },
   access: {
     get: (): Promise<AgentAccessPayload> => invoke(IPC.accessGet),

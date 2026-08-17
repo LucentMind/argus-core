@@ -22,6 +22,12 @@ export function writeReport(
   const needsHuman = verdicts.filter((v) => v.verdict.verdict === 'needs-human')
   const degraded = results.filter((r) => r.degradedReplay)
   const capped = results.filter((r) => r.capSubtype)
+  // `error_max_turns` is the one subtype that is actually a budget cap (the app's own
+  // DISTILL_MAX_ITERATIONS bound); every other terminal subtype (`error_during_execution`,
+  // `error_max_budget_usd` reached mid-turn, …) is a genuine agent error, not exhaustion — calling
+  // all of them "budget-exhausted" would misdescribe a crash as a limit working as intended.
+  const capLabel = (subtype: string): string =>
+    subtype === 'error_max_turns' ? 'budget-exhausted' : `agent-error (${subtype})`
   const md = [
     '# Distill-eval report',
     '',
@@ -29,10 +35,11 @@ export function writeReport(
     // A degraded replay compared a candidate that could not read transcripts against a baseline
     // that could; it is not a like-for-like verdict. Named, never averaged in silently.
     `Degraded replays (pre-v2 line, no world — tools answered "unavailable"): ${degraded.length}${degraded.length ? ` — ${degraded.map((r) => `${r.caseSlug} #${r.jobId}`).join(', ')}` : ''}`,
-    // A capped run's output is not a candidate sample — the app fails such jobs rather than
-    // parsing them, so these are neither graded nor counted ok. Named so a big "ungraded" gap in
-    // the numbers has a visible cause (usually: the candidate contract loops).
-    `Budget-exhausted replays (agent cut off, NOT graded): ${capped.length}${capped.length ? ` — ${capped.map((r) => `${r.caseSlug} #${r.jobId} (${r.capSubtype})`).join(', ')}` : ''}`,
+    // A capped/errored run's output is not a candidate sample — the app fails such jobs rather
+    // than parsing them, so these are neither graded nor counted ok. Named so a big "ungraded"
+    // gap in the numbers has a visible cause (usually: the candidate contract loops, or a real
+    // agent error — see each case's label for which).
+    `Capped or errored replays (agent did not finish, NOT graded): ${capped.length}${capped.length ? ` — ${capped.map((r) => `${r.caseSlug} #${r.jobId} (${capLabel(r.capSubtype!)})`).join(', ')}` : ''}`,
     `Parse: ok ${parse('ok')} · improved ${parse('parse-improved')} · REGRESSED ${parse('parse-regressed')} · still-failing ${parse('still-failing')}`,
     `Item verdicts: improved ${count('improved')} · unchanged ${count('unchanged')} · regressed ${count('regressed')} · needs-human ${count('needs-human')}`,
     '',

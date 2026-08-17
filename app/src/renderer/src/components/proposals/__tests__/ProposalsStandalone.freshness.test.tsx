@@ -63,6 +63,7 @@ beforeEach(() => {
         .fn()
         .mockResolvedValue({ proposals: [], accepted: { kind: 'skill', name: 'rca' } }),
       reject: vi.fn().mockResolvedValue({ proposals: [] }),
+      rejectDigest: vi.fn().mockResolvedValue(null),
       onChanged: vi.fn((cb: (c: ProposalCounts) => void) => {
         fireChanged = cb
         return () => {}

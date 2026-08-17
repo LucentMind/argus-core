@@ -133,3 +133,11 @@ export interface DistillStatusPayload {
   caseSlug: string
   job: DistillJobRow | null
 }
+
+/** Shape of `readRejectDigest`'s result (`distill/rejectDigest.ts`), shared so the renderer's
+ *  read-only digest viewer doesn't need its own parallel type. */
+export interface RejectDigest {
+  builtAt: string
+  rejectCount: number
+  text: string
+}

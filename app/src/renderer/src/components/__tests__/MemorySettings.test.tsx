@@ -75,7 +75,8 @@ beforeEach(() => {
           totalCostUsd: null,
           avgCostUsd: null,
           avgPromptChars: null,
-          avgTurnCount: null
+          avgTurnCount: null,
+          failedCostUsd: null
         }
       }))
     }

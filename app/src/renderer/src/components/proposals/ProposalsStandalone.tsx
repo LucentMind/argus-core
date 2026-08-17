@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ProposalQueue, type QueueEntry } from './ProposalQueue'
 import { ProposalDetail, type AcceptedEntry } from './ProposalDetail'
+import { RejectDigestPanel } from './RejectDigestPanel'
 import type { DiffViewMode } from './DiffViews'
 import { KnowledgeFlowStrip } from '../settings/KnowledgeFlowStrip'
 import { SettingsSkeleton } from '../settings/settingsLayout'
@@ -287,6 +288,7 @@ export function ProposalsStandalone({
             {error}
           </div>
         )}
+        <RejectDigestPanel />
       </div>
       <div className="m-4 flex min-h-0 flex-1 overflow-hidden rounded-r3 border border-hair surface-card">
         <ProposalQueue

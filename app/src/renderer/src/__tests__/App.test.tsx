@@ -103,6 +103,7 @@ beforeEach(() => {
     },
     proposals: {
       list: vi.fn(async () => ({ proposals: [] })),
+      rejectDigest: vi.fn(async () => null),
       onChanged: vi.fn(() => () => {})
     },
     settings: {
@@ -146,7 +147,8 @@ beforeEach(() => {
           totalCostUsd: null,
           avgCostUsd: null,
           avgPromptChars: null,
-          avgTurnCount: null
+          avgTurnCount: null,
+          failedCostUsd: null
         }
       }))
     },
