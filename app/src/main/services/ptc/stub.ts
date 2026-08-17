@@ -41,7 +41,7 @@ function call(tool, args) {
   return p
 }
 function jsonParse(text) {
-  return JSON.parse(String(text).replace(/^FEFF»¿/, ''))
+  return JSON.parse(String(text).replace(/^\uFEFF/, ''))
 }
 async function retry(fn, attempts = 3) {
   let last
