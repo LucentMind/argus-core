@@ -328,7 +328,8 @@ describe('listArchivedProposals', () => {
       status: 'rejected',
       rejectReason: 'overgeneric',
       rejectNote: 'too vague',
-      date: expect.any(String)
+      date: expect.any(String),
+      rejectedAt: expect.any(String)
     })
 
     // Check rejected proposal without reason has no reject fields
@@ -342,7 +343,8 @@ describe('listArchivedProposals', () => {
       caseSlug: 'NAV-300',
       title: 'Rejected without reason',
       status: 'rejected',
-      date: expect.any(String)
+      date: expect.any(String),
+      rejectedAt: expect.any(String)
     })
   })
 })

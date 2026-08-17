@@ -8,7 +8,7 @@ import { createCase, setCaseStatus } from '../../caseService'
 import { writeProposal, rejectProposal, acceptProposal } from '../../proposals'
 import { assembleDistillInput, buildReferencesIndex, USER_MSG_CLAMP } from '../input'
 import { sharedReferencesDir } from '../../skillsDir'
-import { artifactsDir } from '../../paths'
+import { artifactsDir, proposalsArchiveDir } from '../../paths'
 import type { RcaDraft } from '../../../../shared/rca'
 
 let home: string
@@ -152,6 +152,17 @@ describe('assembleDistillInput — v2 (user messages, reject annotations, operat
       `INSERT INTO messages_fts (content, case_id, session_id, turn_id, role) VALUES (?,?,?,?,?)`
     ).run(content, caseId(slug), sessionId, turnId, role)
   }
+  /** Overwrites an archived proposal's `date:` (CREATION time) frontmatter line directly on
+   *  disk, so a tie-break test can pin creation order deterministically instead of relying on
+   *  real wall-clock timestamps -- two writeProposal calls in the same test tick can land in the
+   *  same millisecond, which would make the scenario non-deterministic otherwise. */
+  function setArchivedDate(file: string, iso: string): void {
+    const p = path.join(proposalsArchiveDir(home), file)
+    const raw = fs.readFileSync(p, 'utf8')
+    const patched = raw.replace(/^date: .*$/m, `date: ${iso}`)
+    expect(patched).not.toBe(raw) // guard: fail loudly if the regex ever stops matching
+    fs.writeFileSync(p, patched)
+  }
 
   it('(a) keeps the last 25 user messages per session, newest session first, dropping zero-user-turn sessions', () => {
     // sessions 1-3: 30 user turns each. session 4: assistant-only, must be absent entirely.
@@ -174,6 +185,31 @@ describe('assembleDistillInput — v2 (user messages, reject annotations, operat
     expect(groups[0].messages[24]).toBe('s3-msg-30')
     const total = groups.reduce((n, g) => n + g.messages.length, 0)
     expect(total).toBeLessThanOrEqual(100)
+  })
+
+  it('enforces the 100-message total budget mid-session, not just per-session (take shrinks below 25)', () => {
+    // s5 (newest): only 10 available -- contributes all 10, total=10.
+    insertSession(5, 'case-a', 's5')
+    for (let i = 1; i <= 10; i++) indexMsg(5, 'case-a', i, 'user', `s5-msg-${i}`)
+    // s4, s3, s2: 30 available each -- per-session cap of 25 applies, total=35,60,85.
+    for (const sid of [4, 3, 2]) {
+      insertSession(sid, 'case-a', `s${sid}`)
+      for (let i = 1; i <= 30; i++) indexMsg(sid, 'case-a', i, 'user', `s${sid}-msg-${i}`)
+    }
+    // s1 (oldest): 30 available, but only 15 REMAIN in the total budget (100-85) -- the
+    // USER_MSGS_TOTAL - total term, not the per-session cap, must be what limits this session.
+    insertSession(1, 'case-a', 's1')
+    for (let i = 1; i <= 30; i++) indexMsg(1, 'case-a', i, 'user', `s1-msg-${i}`)
+
+    const input = assembleDistillInput(db, home, 'case-a')
+    const groups = input.userMessages!
+
+    expect(groups.map((g) => g.sessionTitle)).toEqual(['s5', 's4', 's3', 's2', 's1'])
+    expect(groups.map((g) => g.messages.length)).toEqual([10, 25, 25, 25, 15])
+    expect(groups.reduce((n, g) => n + g.messages.length, 0)).toBe(100)
+    // s1 has 30 available, but only the LAST 15 survive the shrunk budget
+    expect(groups[4].messages[0]).toBe('s1-msg-16')
+    expect(groups[4].messages[14]).toBe('s1-msg-30')
   })
 
   it('(b) clamps a 12 000-char user message to head 3 000 + marker + tail 1 000', () => {
@@ -244,6 +280,55 @@ describe('assembleDistillInput — v2 (user messages, reject annotations, operat
     expect(clutch?.note).toBeUndefined()
     expect(input.skillsIndex[0].note).toBe(
       'a proposed edit here was rejected as wrong (case other-case): incorrect steps'
+    )
+  })
+
+  it('tie-break: annotates with the note from the MOST RECENTLY REJECTED proposal, not the most recently CREATED one', () => {
+    const dir = sharedReferencesDir(home)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, 'brake-lore.md'),
+      '---\ntitle: Brake Lore\ntrust_tier: team-knowledge\n---\n\nBrakes.\n'
+    )
+
+    const fileA = writeProposal(home, 'other-case', {
+      type: 'reference-edit',
+      target: 'brake-lore',
+      title: 'A',
+      content: 'A body'
+    })
+    const fileB = writeProposal(home, 'other-case', {
+      type: 'reference-edit',
+      target: 'brake-lore',
+      title: 'B',
+      content: 'B body'
+    })
+    // A is rejected LAST (latest rejectedAt) and B is rejected FIRST (earliest rejectedAt).
+    rejectProposal(
+      home,
+      fileA,
+      { tag: 'wrong', note: 'A note (rejected last, must win)' },
+      new Date('2026-01-10T00:00:00.000Z')
+    )
+    rejectProposal(
+      home,
+      fileB,
+      { tag: 'overfit', note: 'B note (rejected first, must lose)' },
+      new Date('2026-01-03T00:00:00.000Z')
+    )
+    // A was created FIRST (earlier "date") and B created SECOND (later "date") -- pinned
+    // directly on disk rather than relying on real timing, which can tie at 1ms resolution.
+    // A sort keyed on creation date would process A(day1) then B(day2) ascending, so B's
+    // Map.set happens last and wins (WRONG). A sort keyed on rejectedAt processes B(day3) then
+    // A(day10) ascending, so A's Map.set happens last and wins -- correct, since A is the more
+    // recently REJECTED proposal, which is the only thing that should matter.
+    setArchivedDate(fileA, '2026-01-01T00:00:00.000Z')
+    setArchivedDate(fileB, '2026-01-02T00:00:00.000Z')
+
+    const input = assembleDistillInput(db, home, 'case-a')
+    const brake = input.referencesIndex.find((r) => r.name === 'brake-lore')
+    expect(brake?.note).toBe(
+      'a proposed edit here was rejected as wrong (case other-case): A note (rejected last, must win)'
     )
   })
 

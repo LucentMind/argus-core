@@ -225,6 +225,10 @@ export function listArchivedProposals(argusHome: string): {
   date: string
   rejectReason?: string
   rejectNote?: string
+  /** When the REJECT happened (stamped by rejectProposal), distinct from `date` (proposal
+   *  CREATION time, stamped once by writeProposal and never touched again). Absent on rows
+   *  archived before this field existed — callers that need recency must fall back to `date`. */
+  rejectedAt?: string
 }[] {
   const dir = proposalsArchiveDir(argusHome)
   if (!fs.existsSync(dir)) return []
@@ -238,6 +242,7 @@ export function listArchivedProposals(argusHome: string): {
       if (status !== 'accepted' && status !== 'rejected') return []
       const rejectReason = fmField(block.fm, 'reject_reason')
       const rejectNote = fmField(block.fm, 'reject_note')
+      const rejectedAt = fmField(block.fm, 'rejected_at')
       return [
         {
           type: fmField(block.fm, 'type'),
@@ -247,7 +252,8 @@ export function listArchivedProposals(argusHome: string): {
           date: fmField(block.fm, 'date'),
           status,
           ...(rejectReason ? { rejectReason } : {}),
-          ...(rejectNote ? { rejectNote } : {})
+          ...(rejectNote ? { rejectNote } : {}),
+          ...(rejectedAt ? { rejectedAt } : {})
         }
       ]
     })
@@ -378,10 +384,18 @@ export function acceptProposal(
   return accepted
 }
 
-export function rejectProposal(argusHome: string, file: string, reason?: RejectReason): void {
+export function rejectProposal(
+  argusHome: string,
+  file: string,
+  reason?: RejectReason,
+  /** Injectable for deterministic tests (e.g. proving a recency-ordered tie-break). */
+  now: Date = new Date()
+): void {
   const p = listProposals(argusHome).find((x) => x.file === file)
   if (!p) throw new Error(`Unknown proposal: ${file}`)
-  const extra: Record<string, string> = {}
+  // Distinct from the proposal's `date` (creation time, stamped once by writeProposal): this is
+  // when the REJECTION happened, which is what a "most recent rejection wins" tie-break needs.
+  const extra: Record<string, string> = { rejected_at: now.toISOString() }
   if (reason) {
     // IPC arguments are untyped at runtime — validate before the tag joins frontmatter.
     if (!REJECT_REASON_TAGS.includes(reason.tag)) {
