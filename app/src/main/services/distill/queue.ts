@@ -7,9 +7,16 @@ import type {
 } from '../../../shared/distill'
 import type { CaseDistillRun } from './caseDistiller'
 import { DistillAgentRunError } from './caseDistiller'
-import type { TrajectoryEntry } from '../agent/driver'
+import type { HeadlessResult, TrajectoryEntry } from '../agent/driver'
 import type { StageResult } from './staging'
 import { DistillParseError } from './contract'
+import {
+  DIGEST_CASE_SLUG,
+  digestStale,
+  readRejectDigest,
+  rebuildRejectDigest
+} from './rejectDigest'
+import type { listArchivedProposals } from '../proposals'
 
 /** Cap on the `trajectory_json` column, in JSON-serialized characters. A run that hits its
  *  iteration/timeout budget can accumulate a long trajectory; keeping the FIRST entries (not
@@ -41,6 +48,16 @@ export interface DistillQueueDeps {
   broadcast: (payload: DistillStatusPayload) => void
   /** Version hash of the static distill prompt parts, stamped at enqueue. Absent in tests. */
   promptHash?: () => string
+  /** Home dir passed straight to rejectDigest's file I/O (reads/writes reject-patterns.md). */
+  argusHome: string
+  /** Archived proposals, freshest read each call — used both by `enqueue`'s stale pre-check
+   *  and again at digest-job run time (the two calls can see different counts if rejects landed
+   *  in between; that is fine, the run-time count is what actually gets persisted). */
+  listArchivedProposalsFn: () => ReturnType<typeof listArchivedProposals>
+  /** One-shot (non-agentic) headless runner — Task 10's `headlessRun`, widened. The digest LLM
+   *  step is a single batch prompt, not a tool-using agent run, so this is deliberately NOT
+   *  `distill` (the case-job agentic runner). */
+  runOneShot: (prompt: string) => Promise<HeadlessResult>
 }
 
 interface JobDbRow {
@@ -158,6 +175,13 @@ export class DistillQueue {
    * F4 regression test).
    */
   enqueue(slug: string): DistillJobRow {
+    // Pre-check BEFORE the case snapshot: a digest job, if inserted, must land with a LOWER id
+    // than the case row below so the FIFO loop (ORDER BY id ASC) runs it first — the case job's
+    // own run-start merge (see runJob) picks up whatever the digest wrote. This is deliberately
+    // independent bookkeeping, not part of the "one job per case" invariant `assembleInput`
+    // guards below: a digest job for the sentinel slug never competes with, or gets cancelled
+    // by, a case job's `cancelOtherInFlight` (different case_slug).
+    this.maybeEnqueueDigest()
     const snapshot = JSON.stringify(this.deps.assembleInput(slug))
     const res = this.deps.db
       .prepare(
@@ -165,10 +189,35 @@ export class DistillQueue {
       )
       .run(slug, snapshot, this.deps.promptHash?.() ?? null, new Date().toISOString())
     const job = this.get(Number(res.lastInsertRowid))!
-    this.emit(job)
+    this.emit(this.getRaw(job.id)!)
     this.cancelOtherInFlight(slug, job.id)
     this.kick()
     return job
+  }
+
+  /**
+   * Inserts a `kind='reject-digest'` row when the digest is stale AND none is already
+   * queued/running — the second check keeps a burst of case enqueues (e.g. several cases closed
+   * in quick succession, all seeing the same stale digest before the first rebuild lands) from
+   * piling up redundant digest jobs for the shared sentinel slug. Never calls `kick()` itself;
+   * the case-row insert immediately after it does, and `nextQueued()`'s `ORDER BY id ASC` picks
+   * up this lower-id row first regardless of which call triggers the loop.
+   */
+  private maybeEnqueueDigest(): void {
+    const rejects = this.deps.listArchivedProposalsFn().filter((p) => p.status === 'rejected')
+    if (!digestStale(this.deps.argusHome, rejects.length)) return
+    const pending = this.deps.db
+      .prepare(
+        `SELECT id FROM distill_jobs WHERE kind='reject-digest' AND state IN ('queued','running')`
+      )
+      .get()
+    if (pending) return
+    const res = this.deps.db
+      .prepare(
+        `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at, kind) VALUES (?, 'queued', '{}', ?, 'reject-digest')`
+      )
+      .run(DIGEST_CASE_SLUG, new Date().toISOString())
+    this.emit(this.getRaw(Number(res.lastInsertRowid))!)
   }
 
   /**
@@ -189,8 +238,16 @@ export class DistillQueue {
    * regression test.
    */
   retry(jobId: number): DistillJobRow {
-    const job = this.get(jobId)
-    if (!job || job.state !== 'failed') throw new Error(`distill job ${jobId} is not failed`)
+    const raw = this.getRaw(jobId)
+    if (!raw || raw.state !== 'failed') throw new Error(`distill job ${jobId} is not failed`)
+    // Digest jobs are never manually retried: there is no UI surface for it (the case-retry
+    // button only ever reads/writes case_slug rows), and a stale digest already self-heals — the
+    // next case enqueue's `maybeEnqueueDigest` pre-check sees the same stale reject_count and
+    // queues a fresh rebuild on its own. Refusing here keeps `retry`'s in-flight guard below
+    // (keyed on case_slug) from ever having to reason about the shared sentinel slug.
+    if (raw.kind !== 'case')
+      throw new Error(`distill job ${jobId} has kind='${raw.kind}', not retryable`)
+    const job = this.get(jobId)!
     const inFlight = this.deps.db
       .prepare(`SELECT id FROM distill_jobs WHERE case_slug=? AND state IN ('queued','running')`)
       .get(job.caseSlug) as { id: number } | undefined
@@ -210,7 +267,7 @@ export class DistillQueue {
       )
       .run(jobId)
     const fresh = this.get(jobId)!
-    this.emit(fresh)
+    this.emit(this.getRaw(jobId)!)
     this.kick()
     return fresh
   }
@@ -252,7 +309,7 @@ export class DistillQueue {
       .prepare(`UPDATE distill_jobs SET state='cancelled', finished_at=? WHERE id=?`)
       .run(new Date().toISOString(), jobId)
     const fresh = this.get(jobId)!
-    this.emit(fresh)
+    this.emit(this.getRaw(jobId)!)
     if (wasRunning) {
       // Under this design a running row always has a live controller — runJob sets it before
       // flipping state to 'running', and cancel() is the only place that flips state away from
@@ -290,9 +347,13 @@ export class DistillQueue {
   }
 
   private get(id: number): DistillJobRow | null {
-    const r = this.deps.db.prepare(`SELECT * FROM distill_jobs WHERE id = ?`).get(id) as
-      JobDbRow | undefined
+    const r = this.getRaw(id)
     return r ? toRow(r) : null
+  }
+
+  private getRaw(id: number): JobDbRow | undefined {
+    return this.deps.db.prepare(`SELECT * FROM distill_jobs WHERE id = ?`).get(id) as
+      JobDbRow | undefined
   }
 
   private nextQueued(): JobDbRow | undefined {
@@ -324,10 +385,19 @@ export class DistillQueue {
    * depend on renderer liveness (e.g. webContents.send throwing after the
    * renderer has been destroyed). Any broadcast failure is logged and swallowed
    * so callers (enqueue/retry/runJob) keep their own throw contracts intact.
+   *
+   * Takes the RAW db row (not `DistillJobRow`) so it can see `kind` and skip broadcasting
+   * entirely for anything but a case job. `useDistillJob` (renderer) adopts ANY payload for its
+   * subscribed slug with no kind filter of its own — a digest row broadcasting under the
+   * sentinel slug would only ever matter to a window that happened to be showing a case actually
+   * named `__reject-digest__`, which can't exist, but "can't happen today" is not a reason to
+   * leave a kind-blind broadcast lying around for a future caller to trip over. Every call site
+   * in this file passes a fresh `getRaw()` read, never the `DistillJobRow` already in hand.
    */
-  private emit(job: DistillJobRow): void {
+  private emit(raw: JobDbRow): void {
+    if (raw.kind !== 'case') return
     try {
-      this.deps.broadcast({ caseSlug: job.caseSlug, job })
+      this.deps.broadcast({ caseSlug: raw.case_slug, job: toRow(raw) })
     } catch (err) {
       console.error('[distill] broadcast failed', err)
     }
@@ -359,7 +429,7 @@ export class DistillQueue {
         new Date().toISOString(),
         r.id
       )
-      this.emit(this.get(r.id)!)
+      this.emit(this.getRaw(r.id)!)
     }
     // cancel() already persists state='cancelled' (with finished_at) synchronously, before it
     // ever aborts this job's controller — see DistillQueue.cancel. Both aborted-branches below
@@ -375,7 +445,7 @@ export class DistillQueue {
       db.prepare(
         `UPDATE distill_jobs SET state='cancelled', finished_at=COALESCE(finished_at, ?) WHERE id=?`
       ).run(new Date().toISOString(), r.id)
-      this.emit(this.get(r.id)!)
+      this.emit(this.getRaw(r.id)!)
     }
     try {
       // Prologue (controller registration + the running-state write) now lives inside this try:
@@ -386,14 +456,48 @@ export class DistillQueue {
       // `finish(state='failed', ...)`, same as any other mid-run failure.
       this.controllers.set(r.id, ac)
       db.prepare(`UPDATE distill_jobs SET state='running' WHERE id=?`).run(r.id)
-      this.emit(this.get(r.id)!)
-      const input = JSON.parse(r.input_snapshot) as CaseDistillInput
-      // Task 13 adds the digest-kind runner; until then, a non-'case' row (e.g. 'reject-digest')
-      // must never reach the agentic case runner — its input shape doesn't match what that
-      // runner expects. Fail cleanly instead of calling `deps.distill` on it.
+      this.emit(this.getRaw(r.id)!)
+      // Reject-digest rows never reach the agentic case runner below — their input shape (`{}`)
+      // doesn't match what it expects, and rebuilding the digest is a single one-shot LLM call,
+      // not a tool-using agent run. No staging: a digest job produces a standing-guidance file,
+      // never proposals. On failure this falls through to the generic `catch` below and the row
+      // ends up `state='failed'` — deliberately NOT retried automatically here: the digest stays
+      // stale, and the next case enqueue's `maybeEnqueueDigest` pre-check (still seeing the same
+      // stale reject_count) queues a fresh rebuild on its own. The case job(s) already queued
+      // behind it are unaffected — they read whatever `readRejectDigest` finds (possibly still
+      // the previous, staler file, or nothing) at their own run-start merge below.
+      if (r.kind === 'reject-digest') {
+        const rejects = this.deps.listArchivedProposalsFn().filter((p) => p.status === 'rejected')
+        await rebuildRejectDigest(this.deps.argusHome, this.deps.runOneShot, rejects.length, r.id)
+        // Same "a result can land after cancel()" race the case path guards against below —
+        // cancel() may have already flipped this row to 'cancelled' (and synchronously aborted
+        // `ac`) while `runOneShot` was still in flight. Must not clobber that with 'done'.
+        if (ac.signal.aborted) {
+          finishCancelled()
+          return
+        }
+        finish(`state='done', item_count=?`, 0)
+        return
+      }
       if (r.kind !== 'case') {
         throw new Error(
           `distill job ${r.id} has kind='${r.kind}', not runnable by the case distiller (yet)`
+        )
+      }
+      const input = JSON.parse(r.input_snapshot) as CaseDistillInput
+      // Run-start merge (Task 13): read whatever the digest currently says — NOT whatever it
+      // said at enqueue time, since a digest job queued ahead of this one (or one that landed
+      // later, e.g. another case's close raced this one) may have rewritten the file since this
+      // row's snapshot was taken — and patch it into the input BEFORE the prompt is built, then
+      // persist the merged snapshot back to this row. The row alone must be able to reconstruct
+      // the exact prompt on replay (recoverOnBoot / a future re-run), so the merge has to be
+      // written to disk here, not just held in the in-memory `input` local.
+      const digest = readRejectDigest(this.deps.argusHome)
+      if (digest) {
+        input.rejectDigest = digest.text
+        db.prepare(`UPDATE distill_jobs SET input_snapshot=? WHERE id=?`).run(
+          JSON.stringify(input),
+          r.id
         )
       }
       const run = await this.deps.distill(input, ac.signal)
