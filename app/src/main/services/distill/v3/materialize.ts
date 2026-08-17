@@ -16,7 +16,7 @@ import { applyPatch } from './patch'
 export const MATERIALIZE_CONTRACT = `You are writing one knowledge asset for a root-cause-analysis toolkit from a candidate a previous pass selected. A human reviews the result. Write only what the candidate and its evidence establish.
 
 Rules:
-1. CONTENT IS COMPLETE AND READY: for skill-new return the entire SKILL.md (frontmatter with "name:" equal to the target and a "description:" that names the SYMPTOM in the words someone would report it — that description is all a future agent matches on; then the body). For skill-edit / reference-edit return PATCH OPS against the target file shown below — never a rewritten copy: {op: append-section | replace-section | insert-after, heading: "<exact heading line>", content} or {op: append-file, content}; and optionally {"frontmatter": {"description": "..."}} when the description must change. Only when the change cannot be expressed as ops (a structural rewrite) return "whole_file" with the complete file — this is flagged for the reviewer.
+1. CONTENT IS COMPLETE AND READY: for skill-new return the entire SKILL.md (frontmatter with "name:" equal to the target and a "description:" that names the SYMPTOM in the words someone would report it — that description is all a future agent matches on; then the body). For skill-edit / reference-edit return PATCH OPS against the target file shown below — never a rewritten copy: {op: append-section | replace-section | insert-after, heading: "<exact heading line>", content} or {op: append-file, content}; and optionally {"frontmatter": {"description": "..."}} when the description must change — a description-only change may send frontmatter alone with no ops. Only when the change cannot be expressed as ops (a structural rewrite) return "whole_file" with the complete file — this is flagged for the reviewer.
 2. A reference-edit whose target does not exist yet CREATES it: use append-file ops with a "# Title" line first; references have no frontmatter and NO numbered steps. A skill's body has ordered steps; a reference has facts.
 3. GENERALIZE THE INCIDENT, KEEP THE SCOPE: no ticket numbers, customer names, secrets, case slugs or paths; keep every version / mode / flag / component qualifier the candidate carries — dropping one may make a true statement false.
 4. RELATED ASSETS: when a related file shown below conflicts with the candidate, express the change as an edit or as a scoped statement that names the condition under which each holds; never leave two contradicting facts. List anything this candidate supersedes in "supersedes" [{asset, note}].
@@ -53,11 +53,18 @@ export function findTargetContent(
   return input.skillsIndex.find((s) => s.name === name)?.content
 }
 
-function findAnyContent(input: CaseDistillInput, name: string): string | undefined {
-  return (
-    input.skillsIndex.find((s) => s.name === name)?.content ??
-    input.referencesIndex.find((r) => r.name === name)?.content
-  )
+/** A skill and a reference may share a name — return every match with its kind so callers can
+ *  render each distinctly instead of one silently shadowing the other. */
+function findAllContent(
+  input: CaseDistillInput,
+  name: string
+): { kind: 'skill' | 'reference'; body: string }[] {
+  const matches: { kind: 'skill' | 'reference'; body: string }[] = []
+  const skill = input.skillsIndex.find((s) => s.name === name)
+  if (skill) matches.push({ kind: 'skill', body: skill.content })
+  const ref = input.referencesIndex.find((r) => r.name === name)
+  if (ref) matches.push({ kind: 'reference', body: ref.content })
+  return matches
 }
 
 export function buildMaterializePrompt(
@@ -86,11 +93,10 @@ export function buildMaterializePrompt(
   }
   const related = c.related
     .filter((n) => n !== c.target)
-    .map((n) => ({ n, body: findAnyContent(input, n) }))
-    .filter((r) => r.body !== undefined)
+    .flatMap((n) => findAllContent(input, n).map((m) => ({ n, ...m })))
   if (related.length)
     parts.push(
-      `${sec('related')}\n${related.map((r) => `## ${r.n}\n\n${r.body}`).join('\n\n---\n\n')}`
+      `${sec('related')}\n${related.map((r) => `## ${r.n} (${r.kind})\n\n${r.body}`).join('\n\n---\n\n')}`
     )
   parts.push(sec('output-nudge'))
   return parts.join('\n\n')
@@ -140,7 +146,6 @@ export function parseMaterializeOutput(
     }
   }
   const whole = isStr(o.whole_file) ? o.whole_file : null
-  if (ops.length === 0 && !whole) throw new DistillParseError('edit needs ops or whole_file', text)
   const fmIn = o.frontmatter
   const frontmatter =
     typeof fmIn === 'object' &&
@@ -148,6 +153,8 @@ export function parseMaterializeOutput(
     isStr((fmIn as Record<string, unknown>).description)
       ? { description: (fmIn as Record<string, string>).description }
       : null
+  if (ops.length === 0 && !whole && !frontmatter)
+    throw new DistillParseError('edit needs ops, whole_file, or frontmatter', text)
   const supersedes = Array.isArray(o.supersedes)
     ? (o.supersedes as Record<string, unknown>[])
         .filter((s) => isStr(s?.asset))
