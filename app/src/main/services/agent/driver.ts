@@ -169,6 +169,15 @@ export interface DriverCapabilities {
   /** Mirrors the shared DriverDefinition flag; each driver's contract test file asserts
    *  this flag, the shared flag, and `runHeadless` method presence all agree. */
   headlessOneShot: boolean
+  /** Whether the driver can run `runHeadlessAgent` — a multi-turn AGENTIC one-shot with
+   *  tools/MCP (distillation v2's world-model builder), as opposed to `runHeadless`'s
+   *  single-turn tool-less prompt. Mirrors the shared DriverDefinition flag; each driver's
+   *  contract test file asserts this flag, the shared flag, and `runHeadlessAgent` method
+   *  presence all agree. **Scope decision (v2):** Claude only — Copilot/Codex/ACP declare
+   *  `false` explicitly rather than omitting the field, and `resolveDistillAgentProvider`
+   *  checks THIS capability flag (not a hardcoded driver list), so widening it later is a
+   *  per-driver flag flip, not a resolver change. */
+  headlessAgent?: boolean
   /** Mirrors the shared DriverDefinition flag (`shared/drivers.ts`): whether the driver
    *  supports a plan-then-approve mode. Optional/absent where irrelevant (Claude enforces
    *  `acceptEdits`/`plan` internally without a distinct capability flag). */
@@ -209,6 +218,33 @@ export interface HeadlessResult {
   /** Absent only if a driver implementation has no way to measure even wall-clock duration,
    *  which none of the current drivers hit — in practice always present. */
   usage?: HeadlessUsage
+}
+
+/** Inputs for a multi-turn agentic one-shot with tools/MCP (distillation v2's world-model
+ *  builder) — `HeadlessOpts` plus the tool surface the run is allowed to use. */
+export interface HeadlessAgentOpts extends HeadlessOpts {
+  /** A `createSdkMcpServer(...)` instance (opaque here — the driver forwards it as-is). */
+  mcpServer: unknown
+  allowedTools: string[]
+  maxIterations: number
+}
+
+/** One tool call the agent made, in call order. `argsSummary` is a truncated JSON dump of
+ *  the tool's input — enough to audit/debug a run without unbounded log growth. */
+export interface TrajectoryEntry {
+  turn: number
+  tool: string
+  argsSummary: string
+}
+
+export interface HeadlessAgentResult {
+  /** The LAST non-empty assistant text — the parsed surface (e.g. the closing JSON-fenced
+   *  summary a distillation prompt asks for), not a concatenation of every turn's text. */
+  text: string
+  usage?: HeadlessUsage
+  turnCount: number
+  toolCallCount: number
+  trajectory: TrajectoryEntry[]
 }
 
 /** A racer that rejects when `signal` aborts, and immediately if it already has. Returns a
@@ -254,6 +290,12 @@ export interface AgentDriver {
    * `capabilities.headlessOneShot`.
    */
   runHeadless?(prompt: string, opts: HeadlessOpts): Promise<HeadlessResult>
+  /**
+   * Run a multi-turn AGENTIC one-shot with tools/MCP — distillation v2's world-model
+   * builder. Optional: presence MUST match `capabilities.headlessAgent`. v2 ships this on
+   * Claude only.
+   */
+  runHeadlessAgent?(prompt: string, opts: HeadlessAgentOpts): Promise<HeadlessAgentResult>
   probeAuth(config: { cliPath?: string; timeoutMs?: number }): Promise<ProbeAuthResult>
   /**
    * Optional driver-specific classifier for whether a thrown/consumed error message is an

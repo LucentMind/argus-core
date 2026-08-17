@@ -103,3 +103,17 @@ it('shared DRIVERS headlessOneShot agrees with the main-process driver flag and 
   expect(DRIVERS[d.kind].capabilities.headlessOneShot).toBe(d.capabilities.headlessOneShot)
   expect(DRIVERS[d.kind].capabilities.headlessOneShot).toBe(typeof d.runHeadless === 'function')
 })
+
+it('declared headlessAgent matches runHeadlessAgent presence', () => {
+  const d = createClaudeDriver()
+  expect(d.capabilities.headlessAgent).toBe(true)
+  expect(typeof d.runHeadlessAgent).toBe('function')
+})
+
+// Same three-way agreement as headlessOneShot above, for the agentic distillation seam
+// (Task 11): shared flag, main-side flag, main-side method must never disagree.
+it('shared DRIVERS headlessAgent agrees with the main-process driver flag and method', () => {
+  const d = createClaudeDriver()
+  expect(DRIVERS[d.kind].capabilities.headlessAgent).toBe(d.capabilities.headlessAgent)
+  expect(DRIVERS[d.kind].capabilities.headlessAgent).toBe(typeof d.runHeadlessAgent === 'function')
+})
