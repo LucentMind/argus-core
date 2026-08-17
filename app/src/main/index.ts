@@ -1000,7 +1000,10 @@ function registerIpc(): void {
   })
   const distillQueue = new DistillQueue({
     db,
-    assembleInput: (slug) => assembleDistillInput(db, argusHome, slug, skillsIndexForDistill()),
+    assembleInput: (slug) =>
+      assembleDistillInput(db, argusHome, slug, skillsIndexForDistill(), {
+        operatorGuidance: settingsService.get().distill.guidance
+      }),
     distill: (input, signal) => runCaseDistill(input, headlessRun, resolvePrompt, signal),
     stage: (slug, jobId, output) => stageDistillOutput(db, argusHome, slug, jobId, output),
     broadcast: (p) => broadcast(IPC.distillChanged, p),
