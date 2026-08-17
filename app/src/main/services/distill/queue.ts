@@ -522,8 +522,6 @@ export class DistillQueue {
         return
       }
       const res = this.deps.stage(r.case_slug, r.id, run.output)
-      // dropped_json is Task 14's stage-result field; `stage()` doesn't produce it yet, so it's
-      // unconditionally null until then.
       finish(
         `state='done', raw_output=?, item_count=?, input_tokens=?, output_tokens=?, cost_usd=?, duration_ms=?, prompt_chars=?, turn_count=?, tool_call_count=?, trajectory_json=?, dropped_json=?`,
         run.raw,
@@ -536,7 +534,7 @@ export class DistillQueue {
         run.turnCount ?? null,
         run.toolCallCount ?? null,
         trajectoryJson(run.trajectory),
-        null
+        JSON.stringify(res.dropped)
       )
     } catch (err) {
       if (ac.signal.aborted) {
