@@ -5,21 +5,53 @@ export type PatchResult = { ok: true; text: string } | { ok: false; error: strin
 
 const headingLevel = (line: string): number => line.match(/^(#{1,6})\s/)?.[1].length ?? 0
 
+/** A line starting with ``` or ~~~ toggles fence state. `#`-prefixed lines inside a fence are
+ *  never headings (e.g. a `# comment` inside a ```bash block). */
+const isFenceDelim = (line: string): boolean => {
+  const t = line.trimStart()
+  return t.startsWith('```') || t.startsWith('~~~')
+}
+
 /** [start, end) line range of the section opened by the exact `heading` line: from the heading
- *  through the line before the next heading of the same or higher level (or EOF). */
+ *  through the line before the next heading of the same or higher level (or EOF).
+ *  Only the FIRST matching heading line is targeted; duplicate headings are ambiguous by
+ *  design and callers must disambiguate before patching. Lines inside a fenced code block
+ *  are skipped entirely — they can never match the heading, nor end the section. */
 function sectionRange(lines: string[], heading: string): [number, number] | null {
-  const start = lines.findIndex((l) => l.trimEnd() === heading.trim())
-  if (start === -1) return null
-  const level = headingLevel(lines[start])
+  const target = heading.trim()
+  let inFence = false
+  let start = -1
+  let level = 0
   let end = lines.length
-  for (let i = start + 1; i < lines.length; i++) {
+  for (let i = 0; i < lines.length; i++) {
+    if (isFenceDelim(lines[i])) {
+      inFence = !inFence
+      continue
+    }
+    if (inFence) continue
+    if (start === -1) {
+      if (lines[i].trimEnd() === target) {
+        start = i
+        level = headingLevel(lines[i])
+      }
+      continue
+    }
     const lv = headingLevel(lines[i])
     if (lv > 0 && lv <= level) {
       end = i
       break
     }
   }
+  if (start === -1) return null
   return [start, end]
+}
+
+/** If the line at `idx` exists and is a heading, splice in a blank line ahead of it so an
+ *  inserted block never abuts the next heading. */
+function ensureBlankBeforeHeading(lines: string[], idx: number): void {
+  if (idx < lines.length && headingLevel(lines[idx]) > 0) {
+    lines.splice(idx, 0, '')
+  }
 }
 
 /** Trailing blank lines of a range are kept AFTER the inserted content so section spacing survives. */
@@ -59,10 +91,13 @@ export function applyPatch(
     const bodyEnd = splitTrailingBlank(lines, start, end)
     if (op.op === 'append-section') {
       lines.splice(bodyEnd, 0, content)
+      ensureBlankBeforeHeading(lines, bodyEnd + 1)
     } else if (op.op === 'replace-section') {
       lines.splice(start + 1, bodyEnd - (start + 1), content)
+      ensureBlankBeforeHeading(lines, start + 2)
     } else if (op.op === 'insert-after') {
       lines.splice(bodyEnd, 0, '', content)
+      ensureBlankBeforeHeading(lines, bodyEnd + 2)
     } else {
       return { ok: false, error: `unknown op ${String((op as { op: string }).op)}` }
     }

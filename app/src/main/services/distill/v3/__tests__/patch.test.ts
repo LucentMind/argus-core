@@ -55,4 +55,44 @@ describe('applyPatch', () => {
     ])
     expect(r.ok && r.text).toContain('## Notes\nn\nm')
   })
+
+  it('does not treat a "#"-prefixed line inside a fenced code block as a heading', () => {
+    const SKILL_FENCE = `---
+name: diagnose-x
+description: when X freezes
+---
+# diagnose-x
+
+## Steps
+1. look
+\`\`\`bash
+# comment
+echo hi
+\`\`\`
+2. poke
+
+## Notes
+n
+`
+    const r = applyPatch(SKILL_FENCE, [
+      { op: 'append-section', heading: '## Steps', content: '3. done' }
+    ])
+    expect(r.ok).toBe(true)
+    expect(r.ok && r.text).toContain('```bash\n# comment\necho hi\n```')
+    expect(r.ok && r.text).toContain('2. poke\n3. done\n\n## Notes')
+  })
+
+  it('append-section inserts a blank line before an immediately-following heading', () => {
+    const r = applyPatch('## Steps\n## Notes\nn\n', [
+      { op: 'append-section', heading: '## Steps', content: 'X' }
+    ])
+    expect(r.ok && r.text).toContain('## Steps\nX\n\n## Notes')
+  })
+
+  it('insert-after adds one blank line on each side even with no trailing blank before the next heading', () => {
+    const r = applyPatch('## Trigger\nfreeze\n## Steps\n1. look\n', [
+      { op: 'insert-after', heading: '## Trigger', content: '## Also\nx' }
+    ])
+    expect(r.ok && r.text).toContain('freeze\n\n## Also\nx\n\n## Steps')
+  })
 })
