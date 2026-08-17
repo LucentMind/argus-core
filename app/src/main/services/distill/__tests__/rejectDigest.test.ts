@@ -129,6 +129,30 @@ describe('rebuildRejectDigest', () => {
     expect(raw).not.toContain('job:')
   })
 
+  it('a bullet-free model response throws instead of writing an empty digest, and leaves an existing file untouched', async () => {
+    archiveReject(home, 'a', { type: 'reference-edit', target: 'foo', tag: 'overgeneric' })
+    // Seed a real, good digest first.
+    await rebuildRejectDigest(home, async () => ({ text: '- a good bullet' }), 1)
+    const before = readRejectDigest(home)!
+    expect(before.text).toBe('- a good bullet')
+
+    const noBullets = async (): Promise<HeadlessResult> => ({
+      text: 'sure, here is my analysis: nothing structured, no dashes at all'
+    })
+    await expect(rebuildRejectDigest(home, noBullets, 99)).rejects.toThrow(/no usable bullets/)
+
+    const after = readRejectDigest(home)!
+    expect(after.text).toBe('- a good bullet') // untouched
+    expect(after.rejectCount).toBe(before.rejectCount) // NOT advanced to 99 by the failed rebuild
+  })
+
+  it('a first bullet alone over DIGEST_MAX_CHARS also throws (truncation would otherwise silently produce empty text)', async () => {
+    const hugeBullet = `- ${'x'.repeat(DIGEST_MAX_CHARS + 10)}`
+    const run = async (): Promise<HeadlessResult> => ({ text: hugeBullet })
+    await expect(rebuildRejectDigest(home, run, 0)).rejects.toThrow(/no usable bullets/)
+    expect(readRejectDigest(home)).toBeNull() // never built in the first place — still null
+  })
+
   it('bounds the reject window to the most recent DIGEST_REJECT_WINDOW rejects', async () => {
     for (let i = 0; i < 55; i++) {
       archiveReject(home, `r${i}`, {
@@ -173,5 +197,33 @@ describe('digestStale', () => {
 describe('readRejectDigest', () => {
   it('null when the file has never been built', () => {
     expect(readRejectDigest(home)).toBeNull()
+  })
+
+  it('a missing/malformed reject_count parses as 0, not NaN (NaN would make digestStale permanently false)', () => {
+    fs.mkdirSync(path.join(home, 'proposals'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'proposals', 'reject-patterns.md'),
+      ['---', 'built_at: 2026-01-01T00:00:00.000Z', '---', '- some bullet\n'].join('\n')
+    )
+    const digest = readRejectDigest(home)!
+    expect(digest.rejectCount).toBe(0)
+    expect(Number.isFinite(digest.rejectCount)).toBe(true)
+    expect(digestStale(home, DIGEST_TRIGGER_NEW_REJECTS)).toBe(true) // still triggers, not stuck
+  })
+})
+
+describe('rebuildRejectDigest cancellation', () => {
+  it('forwards opts (including signal) through to run(), so a digest job cancel can reach the in-flight LLM call', async () => {
+    const ac = new AbortController()
+    let seenSignal: AbortSignal | undefined
+    const run = async (
+      _prompt: string,
+      opts?: { signal?: AbortSignal }
+    ): Promise<HeadlessResult> => {
+      seenSignal = opts?.signal
+      return { text: '- x' }
+    }
+    await rebuildRejectDigest(home, run, 0, undefined, { signal: ac.signal })
+    expect(seenSignal).toBe(ac.signal)
   })
 })

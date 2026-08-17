@@ -12,7 +12,7 @@ import { DIGEST_CASE_SLUG, readRejectDigest } from '../rejectDigest'
 import { proposalsArchiveDir } from '../../paths'
 import type { CaseDistillInput, DistillStatusPayload } from '../../../../shared/distill'
 import type { TrajectoryEntry } from '../../agent/driver'
-import type { listArchivedProposals } from '../../proposals'
+import { listArchivedProposals } from '../../proposals'
 
 const INPUT = { caseMeta: { slug: 'x' } } as unknown as CaseDistillInput
 
@@ -48,20 +48,25 @@ function makeQueue(over: Partial<ConstructorParameters<typeof DistillQueue>[0]> 
 /** Writes an archived-reject file directly under `<home>/proposals/archive`, matching the shape
  *  `listArchivedProposals` parses. Used to make a real `listArchivedProposalsFn`/`digestStale`
  *  pairing exercise the actual file-backed staleness check rather than a hand-rolled fake list. */
-function archiveReject(home: string, name: string): void {
+function archiveReject(
+  home: string,
+  name: string,
+  fields: { type?: string; tag?: string; note?: string } = {}
+): void {
   const dir = proposalsArchiveDir(home)
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(
     path.join(dir, `${name}.md`),
     [
       '---',
-      'type: reference-edit',
+      `type: ${fields.type ?? 'reference-edit'}`,
       `target: ${name}`,
       'case: case-a',
       'date: 2026-01-01T00:00:00.000Z',
       'title: T',
       'status: rejected',
-      'reject_reason: overgeneric',
+      `reject_reason: ${fields.tag ?? 'overgeneric'}`,
+      ...(fields.note ? [`reject_note: ${fields.note}`] : []),
       '---',
       'body'
     ].join('\n')
@@ -921,7 +926,126 @@ describe('DistillQueue', () => {
     expect(agentCalled).toBe(0)
   })
 
+  it('a bullet-free model response fails the digest job and leaves the PREVIOUS file + reject_count untouched (never a silent self-disable)', async () => {
+    // Build a real, good digest first — this is what must survive the bad rebuild below.
+    const { q: q1 } = makeQueue({ runOneShot: async () => ({ text: '- keep this good digest' }) })
+    db.prepare(
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at, kind)
+       VALUES (?, 'queued', '{}', ?, 'reject-digest')`
+    ).run(DIGEST_CASE_SLUG, new Date().toISOString())
+    q1.recoverOnBoot()
+    await q1.idle()
+    const goodDigest = readRejectDigest(home)!
+    expect(goodDigest.text).toBe('- keep this good digest')
+
+    const { q: q2 } = makeQueue({ runOneShot: async () => ({ text: 'no bullets here at all' }) })
+    db.prepare(
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at, kind)
+       VALUES (?, 'queued', '{}', ?, 'reject-digest')`
+    ).run(DIGEST_CASE_SLUG, new Date().toISOString())
+    q2.recoverOnBoot()
+    await q2.idle()
+
+    const row = db
+      .prepare(
+        `SELECT state, error FROM distill_jobs WHERE kind='reject-digest' AND case_slug=? ORDER BY id DESC LIMIT 1`
+      )
+      .get(DIGEST_CASE_SLUG) as { state: string; error: string }
+    expect(row.state).toBe('failed')
+    expect(row.error).toMatch(/no usable bullets/)
+    const stillGood = readRejectDigest(home)!
+    expect(stillGood.text).toBe('- keep this good digest') // NOT overwritten with an empty digest
+    expect(stillGood.rejectCount).toBe(goodDigest.rejectCount) // NOT advanced either
+  })
+
+  it('cancelling a running digest job aborts the signal the fake runner observes, lands cancelled (not failed), and the queue proceeds to the next job', async () => {
+    let seenSignal: AbortSignal | null = null
+    const { q } = makeQueue({
+      runOneShot: (_prompt, opts) =>
+        new Promise((_res, rej) => {
+          seenSignal = opts?.signal ?? null
+          opts?.signal?.addEventListener('abort', () => rej(new Error('digest run cancelled')), {
+            once: true
+          })
+        })
+    })
+    const res = db
+      .prepare(
+        `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at, kind)
+         VALUES (?, 'queued', '{}', ?, 'reject-digest')`
+      )
+      .run(DIGEST_CASE_SLUG, new Date().toISOString())
+    const digestId = Number(res.lastInsertRowid)
+    q.recoverOnBoot()
+    await vi.waitFor(
+      () => {
+        const r = db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(digestId) as {
+          state: string
+        }
+        expect(r.state).toBe('running')
+      },
+      { timeout: 5000 }
+    )
+    expect(seenSignal).not.toBeNull() // runOneShot was actually given a signal to observe
+
+    q.cancel(digestId)
+    expect(seenSignal!.aborted).toBe(true) // cancel() reached the in-flight digest runner
+
+    // The next job in the queue must still run — cancelling the digest must not stall the loop.
+    q.enqueue('case-a')
+    await q.idle()
+
+    const digestRow = db
+      .prepare(`SELECT state, error FROM distill_jobs WHERE id=?`)
+      .get(digestId) as { state: string; error: string | null }
+    expect(digestRow.state).toBe('cancelled')
+    expect(digestRow.error).toBeNull()
+    expect(q.statusFor('case-a')!.state).toBe('done')
+  })
+
+  it('end-to-end with the REAL listArchivedProposals (no fake): a real archived rejected proposal on disk drives enqueue → stale check → digest prompt, tag and note intact', async () => {
+    archiveReject(home, 'real-1', {
+      type: 'skill-new',
+      tag: 'overfit',
+      note: 'baked in a case-specific hostname'
+    })
+    for (let i = 0; i < 4; i++) archiveReject(home, `filler-${i}`) // 5 total → stale
+    let seenPrompt = ''
+    const { q } = makeQueue({
+      listArchivedProposalsFn: () => listArchivedProposals(home), // the real function, not a fake
+      runOneShot: async (prompt) => {
+        seenPrompt = prompt
+        return { text: '- avoid hardcoding hostnames' }
+      }
+    })
+    q.enqueue('case-a')
+    await q.idle()
+    expect(seenPrompt).toContain('- overfit: 1')
+    expect(seenPrompt).toContain('overfit skill-new: baked in a case-specific hostname')
+    expect(readRejectDigest(home)?.text).toBe('- avoid hardcoding hostnames')
+  })
+
   describe('reject-digest: enqueue trigger + run-start merge', () => {
+    it("a throwing assembleInput leaves NO orphaned digest row — enqueue's documented throw contract ('nothing has been touched yet') extends to the digest pre-check", async () => {
+      archiveReject(home, 'r1')
+      archiveReject(home, 'r2')
+      archiveReject(home, 'r3')
+      archiveReject(home, 'r4')
+      archiveReject(home, 'r5') // stale, would otherwise trigger a digest insert
+      const { q } = makeQueue({
+        listArchivedProposalsFn: () =>
+          [1, 2, 3, 4, 5].map(() => ({ status: 'rejected' })) as unknown as ReturnType<
+            typeof listArchivedProposals
+          >,
+        assembleInput: () => {
+          throw new Error('snapshot boom')
+        }
+      })
+      expect(() => q.enqueue('case-a')).toThrow('snapshot boom')
+      const rows = db.prepare(`SELECT id FROM distill_jobs`).all()
+      expect(rows.length).toBe(0) // no digest row, no case row — truly nothing touched
+    })
+
     it('(d) enqueue(slug) on a stale digest inserts a reject-digest row BEFORE the case row (lower id), and FIFO runs it first', async () => {
       archiveReject(home, 'r1')
       archiveReject(home, 'r2')

@@ -19,7 +19,10 @@ export const DIGEST_TRIGGER_NEW_REJECTS = 5
  *  ASSET_NAME_RE-validated user input / Jira keys, never a `__`-wrapped literal). */
 export const DIGEST_CASE_SLUG = '__reject-digest__'
 
-const DIGEST_FILE = 'reject-patterns.md'
+/** Exported so other readers of `proposals/` (e.g. `proposalsWatch.ts`, which must NOT treat a
+ *  digest rebuild as a reviewable-proposal change) can name this file without duplicating the
+ *  string. */
+export const DIGEST_FILE = 'reject-patterns.md'
 
 /** Shape returned by `listArchivedProposals`, referenced by name so this module doesn't need
  *  its own parallel type that could drift from the real one. */
@@ -92,9 +95,15 @@ export function readRejectDigest(
   if (!fs.existsSync(p)) return null
   const block = fmBlock(fs.readFileSync(p, 'utf8'))
   if (!block) return null
+  // A missing/malformed `reject_count` (hand-edited file, future format change, corruption)
+  // must not turn into NaN — every arithmetic use of this field (`digestStale`'s subtraction)
+  // would silently propagate NaN, and `NaN >= DIGEST_TRIGGER_NEW_REJECTS` is always false,
+  // permanently wedging the digest as "never stale". Treat it as 0 (never built) instead, which
+  // fails toward rebuilding rather than toward silently going stale forever.
+  const parsedCount = Number(fmField(block.fm, 'reject_count'))
   return {
     builtAt: fmField(block.fm, 'built_at'),
-    rejectCount: Number(fmField(block.fm, 'reject_count')),
+    rejectCount: Number.isFinite(parsedCount) ? parsedCount : 0,
     text: block.body.replace(/\r?\n+$/, '')
   }
 }
@@ -119,21 +128,38 @@ export function digestStale(argusHome: string, totalRejects: number): boolean {
  * computed (matching whatever triggered this rebuild) and becomes the file's `reject_count`,
  * against which the NEXT staleness check is measured. `jobId`, when given, is stamped as `job`
  * — the digest job that produced this file, the same convention `writeProposal`'s `job` extraFm
- * uses for case proposals.
+ * uses for case proposals. `opts.signal`, when given, is forwarded to `run` so a cancelled
+ * digest job can actually abort the in-flight LLM call, not just get its result discarded.
+ *
+ * Throws — writes NOTHING — if the model's response truncates to an EMPTY digest (no line
+ * started `- `, or even the first bullet alone busts `DIGEST_MAX_CHARS`). Without this guard the
+ * write below is unconditional: a bad/empty model response would silently clobber a perfectly
+ * good previous digest with an empty one, AND still advance `reject_count` to `totalRejects` —
+ * which makes `digestStale` go false, permanently hiding the failure until 5 more rejects land.
+ * Treating an empty result as a thrown error instead means the queue records the job `failed`
+ * (Task 13's `runJob` digest branch) and the previous file — and its `reject_count` — survives
+ * untouched, so the very next stale-triggering enqueue retries the rebuild.
  */
 export async function rebuildRejectDigest(
   argusHome: string,
-  run: (prompt: string) => Promise<HeadlessResult>,
+  run: (prompt: string, opts?: { signal?: AbortSignal }) => Promise<HeadlessResult>,
   totalRejects: number,
-  jobId?: number
+  jobId?: number,
+  opts?: { signal?: AbortSignal }
 ): Promise<void> {
   const rejects = listArchivedProposals(argusHome)
     .filter((p) => p.status === 'rejected')
     .sort((a, b) => (b.rejectedAt ?? b.date).localeCompare(a.rejectedAt ?? a.date))
     .slice(0, DIGEST_REJECT_WINDOW)
   const stats = buildRejectStats(rejects)
-  const result = await run(`${DIGEST_PROMPT}\n\n${stats}`)
+  const result = await run(`${DIGEST_PROMPT}\n\n${stats}`, opts)
   const text = truncateDigestText(result.text)
+  if (!text) {
+    throw new Error(
+      'reject-digest rebuild produced no usable bullets (model response had no "- " line ' +
+        'under the char cap) — refusing to overwrite the existing digest with an empty one'
+    )
+  }
   const dir = proposalsDir(argusHome)
   fs.mkdirSync(dir, { recursive: true })
   const fm = withFrontmatter('', {

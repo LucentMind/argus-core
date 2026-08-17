@@ -88,6 +88,22 @@ describe('proposalsWatch', () => {
     }
   })
 
+  it('ignores writes to reject-patterns.md (Task 13 digest rebuilds must not trigger a proposals refetch)', async () => {
+    const watcher = createProposalsWatch(argusHome, onChanged)
+    try {
+      await armWatch()
+      fs.writeFileSync(path.join(proposalsDir(argusHome), 'reject-patterns.md'), '---\n---\nx')
+      // No event should ever fire for this file — wait past the debounce window, then prove the
+      // watcher is still alive by writing a real proposal that DOES fire.
+      await new Promise((r) => setTimeout(r, 800))
+      expect(onChanged).not.toHaveBeenCalled()
+      fs.writeFileSync(path.join(proposalsDir(argusHome), 'foo.md'), '---\n---\nhi')
+      await vi.waitFor(() => expect(onChanged).toHaveBeenCalled(), { timeout: FS_WATCH_TIMEOUT })
+    } finally {
+      watcher.close()
+    }
+  })
+
   it('stops firing after close()', async () => {
     const watcher = createProposalsWatch(argusHome, onChanged)
     await armWatch()
