@@ -9,10 +9,14 @@ export function line(over: Partial<DistillEvalBundleLine['job']> = {}): DistillE
       createdAt: 'x',
       state: 'done',
       inputSnapshot: {
-        caseMeta: { slug: 'nav-1', title: 't', jiraKey: null, resolution: null, tags: [], createdAt: 'x', closedAt: 'x' },
-        findings: [], evidence: [], sessionTitles: [], memoryIndex: '',
+        caseMeta: {
+          slug: 'nav-1', title: 't', jiraKey: null, status: 'closed', resolution: null,
+          tags: [], createdAt: 'x', closedAt: 'x'
+        },
+        findings: [], evidence: [], sessionTitles: [],
         skillsIndex: [], referencesIndex: [],
-        alreadyCaptured: { proposals: [], memoryWrites: [] }
+        alreadyCaptured: { proposals: [] },
+        rcaStructure: null
       },
       rawOutput: '```json\n{"summary": {"signature": "s", "symptoms": "s", "rootCause": "r", "fix": "f", "keywords": ["k"]}}\n```',
       error: null,

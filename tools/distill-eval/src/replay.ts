@@ -7,12 +7,31 @@ import { caseDistillPromptHash } from '../../../app/src/main/services/distill/pr
 import type { CaseDistillOutput } from '../../../app/src/shared/distill'
 import type { DistillEvalBundleLine } from '../../../app/src/shared/distillEval'
 import type { OneShotRunner } from './runner'
+import type { AgentRunner } from './agentRunner'
+
+/**
+ * The harness's runner set, passed around whole so replay and judge share one pair. `agent` runs
+ * the candidate distill loop over the frozen world; `oneShot` is the plain prompt-in/text-out
+ * runner the judge uses (`runEval`). Replay itself only calls `agent` — a v2 distill run is
+ * agentic by definition.
+ */
+export interface EvalRunners {
+  oneShot: OneShotRunner
+  agent: AgentRunner
+}
 
 export interface ReplayResult {
   jobId: number
   caseSlug: string
   /** candidate static-part hash equals the job's stored promptHash — stored raw reused, no model call */
   reused: boolean
+  /**
+   * The replay ran agentically but with NO world to serve (a pre-v2 corpus line): every tool call
+   * answered the distinguished "unavailable" error, so the candidate saw a strictly poorer
+   * environment than the live run did. Reported rather than silently compared. Always false for a
+   * reused line, where no replay happened at all.
+   */
+  degradedReplay: boolean
   raw: string
   parsed: CaseDistillOutput | null
   parseError: string | null
@@ -31,17 +50,23 @@ export function contractResolver(contractText: string | null): ((id: string) => 
 
 export async function replayCase(
   line: DistillEvalBundleLine,
-  run: OneShotRunner,
+  runners: EvalRunners,
   resolve?: (id: string) => string
 ): Promise<ReplayResult> {
-  const base = { jobId: line.job.id, caseSlug: line.job.caseSlug }
   const reused = line.job.promptHash === caseDistillPromptHash(resolve)
+  const world = line.job.inputSnapshot.world ?? null
+  const base = {
+    jobId: line.job.id,
+    caseSlug: line.job.caseSlug,
+    reused,
+    degradedReplay: !reused && world === null
+  }
   const raw = reused
     ? line.job.rawOutput
-    : await run(buildCaseDistillPrompt(line.job.inputSnapshot, resolve))
+    : await runners.agent(buildCaseDistillPrompt(line.job.inputSnapshot, resolve), world)
   try {
-    return { ...base, reused, raw, parsed: parseCaseDistillOutput(raw), parseError: null }
+    return { ...base, raw, parsed: parseCaseDistillOutput(raw), parseError: null }
   } catch (e) {
-    return { ...base, reused, raw, parsed: null, parseError: (e as Error).message }
+    return { ...base, raw, parsed: null, parseError: (e as Error).message }
   }
 }

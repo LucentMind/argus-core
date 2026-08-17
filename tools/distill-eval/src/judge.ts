@@ -26,11 +26,21 @@ export function buildJudgePrompt(
         ]
           .filter(Boolean)
           .join('\n')
-      : [
-          `In the OLD output, the item "${item.title}" (${item.type} → ${item.target}) was ACCEPTED by a human reviewer — it is a positive control.`,
-          `Question: does the NEW output still contain an equivalent item (same target or clearly the same knowledge, comparable or better quality)?`,
-          `improved = equivalent and clearly better; unchanged = equivalent; regressed = lost or clearly degraded; needs-human = you cannot tell.`
-        ].join('\n')
+      : item.editedContent
+        ? // Accepted-but-edited: the human's text is the gold standard, not the agent's draft.
+          // Grading against the draft would score a candidate DOWN for producing exactly what
+          // the reviewer had to hand-write.
+          [
+            `In the OLD output, the item "${item.title}" (${item.type} → ${item.target}) was accepted, but the human reviewer EDITED it before accepting. The human's accepted version is the gold standard:`,
+            '```\n' + item.editedContent + '\n```',
+            `Question: does the NEW output's equivalent item move CLOSER to the human's accepted version than the old draft did (or match it)?`,
+            `improved = closer to the human version; unchanged = same distance; regressed = further away or item lost; needs-human = you cannot tell.`
+          ].join('\n')
+        : [
+            `In the OLD output, the item "${item.title}" (${item.type} → ${item.target}) was ACCEPTED by a human reviewer — it is a positive control.`,
+            `Question: does the NEW output still contain an equivalent item (same target or clearly the same knowledge, comparable or better quality)?`,
+            `improved = equivalent and clearly better; unchanged = equivalent; regressed = lost or clearly degraded; needs-human = you cannot tell.`
+          ].join('\n')
   return [
     'You are judging whether a revised knowledge-distillation prompt improved one specific output item. Be strict; when in doubt answer needs-human.',
     question,

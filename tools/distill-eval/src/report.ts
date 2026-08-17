@@ -20,10 +20,14 @@ export function writeReport(
     byTag.set(tag, e)
   }
   const needsHuman = verdicts.filter((v) => v.verdict.verdict === 'needs-human')
+  const degraded = results.filter((r) => r.degradedReplay)
   const md = [
     '# Distill-eval report',
     '',
     `Cases: ${results.length} (${results.filter((r) => r.reused).length} reused baseline output — prompt unchanged for them)`,
+    // A degraded replay compared a candidate that could not read transcripts against a baseline
+    // that could; it is not a like-for-like verdict. Named, never averaged in silently.
+    `Degraded replays (pre-v2 line, no world — tools answered "unavailable"): ${degraded.length}${degraded.length ? ` — ${degraded.map((r) => `${r.caseSlug} #${r.jobId}`).join(', ')}` : ''}`,
     `Parse: ok ${parse('ok')} · improved ${parse('parse-improved')} · REGRESSED ${parse('parse-regressed')} · still-failing ${parse('still-failing')}`,
     `Item verdicts: improved ${count('improved')} · unchanged ${count('unchanged')} · regressed ${count('regressed')} · needs-human ${count('needs-human')}`,
     '',

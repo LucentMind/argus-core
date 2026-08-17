@@ -1,26 +1,30 @@
-import { replayCase } from './replay'
+import { replayCase, type EvalRunners } from './replay'
 import { buildJudgePrompt, parseJudgeVerdict, type JudgeVerdict } from './judge'
-import type { OneShotRunner } from './runner'
 import type { DistillEvalBundleLine, DistillEvalItem } from '../../../app/src/shared/distillEval'
 
 export interface EvalCaseResult {
   jobId: number
   caseSlug: string
   reused: boolean
+  /** replayed with no world to serve — see `ReplayResult.degradedReplay` */
+  degradedReplay: boolean
   parseOutcome: 'ok' | 'parse-regressed' | 'parse-improved' | 'still-failing'
   itemVerdicts: { item: DistillEvalItem; verdict: JudgeVerdict }[]
 }
 
-/** Sequential on purpose — provider rate limits; a corpus is tens of cases, not thousands. */
+/**
+ * Sequential on purpose — provider rate limits; a corpus is tens of cases, not thousands.
+ * `runners.agent` replays the distill loop; `runners.oneShot` runs the judge (a single
+ * prompt-in/verdict-out call, no tools).
+ */
 export async function runEval(
   lines: DistillEvalBundleLine[],
-  run: OneShotRunner,
-  judgeRun: OneShotRunner,
+  runners: EvalRunners,
   resolve?: (id: string) => string
 ): Promise<EvalCaseResult[]> {
   const out: EvalCaseResult[] = []
   for (const line of lines) {
-    const r = await replayCase(line, run, resolve)
+    const r = await replayCase(line, runners, resolve)
     const wasFailed = line.job.state === 'failed'
     const parseOutcome = r.parseError
       ? wasFailed
@@ -37,7 +41,9 @@ export async function runEval(
           verdict = { verdict: 'unchanged', reason: 'prompt unchanged — baseline output reused' }
         } else {
           try {
-            verdict = parseJudgeVerdict(await judgeRun(buildJudgePrompt(item, line.job.rawOutput, r.raw)))
+            verdict = parseJudgeVerdict(
+              await runners.oneShot(buildJudgePrompt(item, line.job.rawOutput, r.raw))
+            )
           } catch (e) {
             verdict = { verdict: 'needs-human', reason: `judge output unusable: ${(e as Error).message}` }
           }
@@ -45,7 +51,14 @@ export async function runEval(
         itemVerdicts.push({ item, verdict })
       }
     }
-    out.push({ jobId: r.jobId, caseSlug: r.caseSlug, reused: r.reused, parseOutcome, itemVerdicts })
+    out.push({
+      jobId: r.jobId,
+      caseSlug: r.caseSlug,
+      reused: r.reused,
+      degradedReplay: r.degradedReplay,
+      parseOutcome,
+      itemVerdicts
+    })
   }
   return out
 }
