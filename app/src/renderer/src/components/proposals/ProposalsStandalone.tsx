@@ -190,7 +190,7 @@ export function ProposalsStandalone({
     )
   }
 
-  // One chip covers a whole icon family (Skill = new + edit, Reference = reference + recipe), so
+  // One chip covers a whole icon family (Skill = new + edit), so
   // a click sets or clears every type behind it at once — half-on has no chip that can express it.
   function toggleTypes(types: readonly ProposalType[], on: boolean): void {
     setActive((prev) => {

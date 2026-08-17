@@ -783,8 +783,8 @@ describe('DistillQueue', () => {
 
   it("(d) persists dropped_json on a done job, matching stage()'s dropped array exactly", async () => {
     const dropped = [
-      { type: 'recipe', target: 'topic-4', title: 'T4', reason: 'cap' as const },
-      { type: 'recipe', target: 'short-basis', title: 'Short', reason: 'basis' as const }
+      { type: 'reference-edit', target: 'topic-4', title: 'T4', reason: 'cap' as const },
+      { type: 'reference-edit', target: 'short-basis', title: 'Short', reason: 'basis' as const }
     ]
     const { q } = makeQueue({
       stage: () => ({ staged: 3, droppedDuplicates: 0, supersededRemoved: 0, dropped })

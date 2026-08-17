@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The case distiller now picks a knowledge type by how the knowledge will
+  be found again rather than by how large it is: a symptom-triggered
+  procedure ("when X, do Y") becomes a skill, and durable facts consulted
+  while executing some other procedure become a reference. Creating a new
+  skill is now an expected outcome for a symptom class no installed skill
+  claims, instead of a last resort — previously every new procedure landed
+  in `references/`, because that was the only type whose creation path the
+  contract spelled out. The old preference order still applies, but only as
+  a tiebreaker when two types genuinely fit the same knowledge.
+- The `recipe` proposal type is retired. It routed identically to
+  `reference-edit` and had gone unused since 2026-07-23. Recipes already
+  accepted stay on disk and keep feeding the distiller's
+  already-captured list; the type is simply no longer offered or accepted.
+
+This rolls the case-distill prompt hash. Distill-eval rows recorded before
+this release sit under the old hash and must be bucketed separately from
+later ones, or the shift in proposal-type mix will read as model drift
+rather than as the prompt change it is.
+
 ## v2.1.2 — 2026-08-15
 
 5 commits since v2.1.1, 55 files changed (+1,911 / −551).

@@ -103,7 +103,7 @@ export interface CaseDistillSummary {
 export interface CaseDistillOutput {
   summary?: CaseDistillSummary
   proposals?: {
-    type: 'skill-new' | 'skill-edit' | 'reference-edit' | 'recipe'
+    type: 'skill-new' | 'skill-edit' | 'reference-edit'
     target: string
     title: string
     content: string

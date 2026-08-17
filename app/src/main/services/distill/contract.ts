@@ -134,7 +134,7 @@ export class DistillParseError extends Error {
   }
 }
 
-const PROPOSAL_OUT_TYPES = new Set(['skill-new', 'skill-edit', 'reference-edit', 'recipe'])
+const PROPOSAL_OUT_TYPES = new Set(['skill-new', 'skill-edit', 'reference-edit'])
 const isStr = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0
 
 export function parseCaseDistillOutput(text: string): CaseDistillOutput {

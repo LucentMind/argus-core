@@ -23,9 +23,9 @@ describe('acceptProposal return value', () => {
     expect(acceptProposal(home, f)).toEqual({ kind: 'reference', name: 'notes.md' })
   })
 
-  it('recipe with .md-suffixed target does not double the extension', () => {
+  it('a reference-edit with an .md-suffixed target does not double the extension', () => {
     const f = writeProposal(home, 'c', {
-      type: 'recipe',
+      type: 'reference-edit',
       target: 'howto.md',
       title: 'T',
       content: 'b'

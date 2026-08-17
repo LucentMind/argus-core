@@ -54,7 +54,7 @@ describe('writeProposal', () => {
     ).toThrow(/Invalid proposal target/)
     expect(() =>
       writeProposal(home, 'NAV-100', {
-        type: 'recipe',
+        type: 'reference-edit',
         target: 'recipes.md',
         title: '',
         content: '  '
@@ -97,7 +97,7 @@ describe('listProposals', () => {
     writeProposal(
       home,
       'NAV-100',
-      { type: 'recipe', target: 'dlt-cmds', title: 'Cmds', content: '# cmds\n' },
+      { type: 'reference-edit', target: 'dlt-cmds', title: 'Cmds', content: '# cmds\n' },
       {
         basis: 'transcript at msg 12: user confirmed the fix worked',
         prior_reject_case: 'other-case',
@@ -118,7 +118,7 @@ describe('listProposals', () => {
     writeProposal(
       home,
       'NAV-100',
-      { type: 'recipe', target: 'dlt-cmds', title: 'Cmds', content: '# cmds\n' },
+      { type: 'reference-edit', target: 'dlt-cmds', title: 'Cmds', content: '# cmds\n' },
       { prior_reject_case: 'other-case' }
     )
     const p = listProposals(home)[0]
@@ -129,7 +129,7 @@ describe('listProposals', () => {
 
   it('omits basis and priorReject entirely when the frontmatter carries neither', () => {
     writeProposal(home, 'NAV-100', {
-      type: 'recipe',
+      type: 'reference-edit',
       target: 'dlt-cmds',
       title: 'Cmds',
       content: '# cmds\n'
@@ -187,7 +187,7 @@ describe('accept / reject', () => {
       '---\ntrust_tier: bundled\n---\n\n## Recipe v1\n'
     )
     const f = writeProposal(home, 'NAV-100', {
-      type: 'recipe',
+      type: 'reference-edit',
       target: 'recipes.md',
       title: 'binlog triage recipe',
       content: '## Recipe v2\n'
@@ -201,7 +201,7 @@ describe('accept / reject', () => {
 
   it('accept stamps reference proposals team-knowledge in the references dir', () => {
     const f = writeProposal(home, 'NAV-100', {
-      type: 'recipe',
+      type: 'reference-edit',
       target: 'recipes.md',
       title: 'binlog triage recipe',
       content: '## Recipe\nsteps\n'
@@ -608,7 +608,7 @@ describe('accept-time edit capture', () => {
 
   it('an unedited accept archives byte-identically to today (no delimiter, no edited fm)', () => {
     const f = writeProposal(home, 'NAV-100', {
-      type: 'recipe',
+      type: 'reference-edit',
       target: 'recipes.md',
       title: 'x',
       content: '## Recipe\nsteps\n'
@@ -623,7 +623,7 @@ describe('accept-time edit capture', () => {
 
   it('editedContent that only round-trips the draft (after trim) is not treated as edited', () => {
     const f = writeProposal(home, 'NAV-100', {
-      type: 'recipe',
+      type: 'reference-edit',
       target: 'recipes.md',
       title: 'x',
       content: '## Recipe\nsteps\n'

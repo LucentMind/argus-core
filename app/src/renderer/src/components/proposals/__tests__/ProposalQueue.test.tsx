@@ -120,8 +120,8 @@ describe('ProposalQueue', () => {
   // not come back.
   it('renders exactly the three family chips, and only those present', () => {
     renderQueue({
-      typesPresent: ['skill-edit', 'skill-new', 'recipe', 'case-summary'],
-      countByType: { 'skill-edit': 1, 'skill-new': 1, recipe: 3, 'case-summary': 1 }
+      typesPresent: ['skill-edit', 'skill-new', 'reference-edit', 'case-summary'],
+      countByType: { 'skill-edit': 1, 'skill-new': 1, 'reference-edit': 3, 'case-summary': 1 }
     })
     // Recipe rides in the Reference family, so its count lands on that chip.
     expect(screen.getByRole('button', { name: 'Filter Reference' })).toHaveTextContent(

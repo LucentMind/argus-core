@@ -9,27 +9,20 @@
  */
 export const ACCEPTED_CONTENT_DELIMITER = '\n<!-- accepted-content -->\n'
 
-export const PROPOSAL_TYPES = [
-  'skill-new',
-  'skill-edit',
-  'reference-edit',
-  'recipe',
-  'case-summary'
-] as const
+export const PROPOSAL_TYPES = ['skill-new', 'skill-edit', 'reference-edit', 'case-summary'] as const
 export type ProposalType = (typeof PROPOSAL_TYPES)[number]
 
 export const PROPOSAL_TYPE_LABELS: Record<ProposalType, string> = {
   'skill-new': 'Skill · new',
   'skill-edit': 'Skill · edit',
   'reference-edit': 'Reference',
-  recipe: 'Recipe',
   'case-summary': 'Case summary'
 }
 
 export interface ProposalRecord {
   file: string // file name inside proposals/
   type: ProposalType
-  target: string // skill name, or reference file name (recipes name their target reference)
+  target: string // skill name, or reference file name
   caseSlug: string
   date: string
   title: string

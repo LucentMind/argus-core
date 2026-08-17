@@ -36,7 +36,7 @@ describe('assembleDistillInput', () => {
     )
     // in-case knowledge: one rejected proposal
     const pf = writeProposal(home, 'case-a', {
-      type: 'recipe',
+      type: 'reference-edit',
       target: 'dlt-cmds',
       title: 'Cmds',
       content: 'x'
@@ -68,7 +68,7 @@ describe('assembleDistillInput', () => {
       }
     ])
     expect(input.alreadyCaptured.proposals).toEqual([
-      { type: 'recipe', target: 'dlt-cmds', title: 'Cmds', state: 'rejected' }
+      { type: 'reference-edit', target: 'dlt-cmds', title: 'Cmds', state: 'rejected' }
     ])
   })
 

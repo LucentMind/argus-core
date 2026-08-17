@@ -167,7 +167,7 @@ function targetLocked(argusHome: string, type: ProposalType, target: string): bo
     const destFile = path.join(userSkillsDir(argusHome), target, 'SKILL.md')
     return !fs.existsSync(destFile) && isBundledSkillName(argusHome, target)
   }
-  if (type === 'reference-edit' || type === 'recipe') {
+  if (type === 'reference-edit') {
     const destFile = path.join(sharedReferencesDir(argusHome), refFileName(target))
     if (!fs.existsSync(destFile)) return false
     return !isHandOwnedReferenceTier(refTier(fs.readFileSync(destFile, 'utf8')))
@@ -376,7 +376,7 @@ export function acceptProposal(
     fs.writeFileSync(destFile, stamped)
     accepted = { kind: 'skill', name: p.target }
   } else {
-    // reference-edit + recipe land in the references dir; accepting = human curation
+    // reference-edit lands in the references dir; accepting = human curation
     const dir = sharedReferencesDir(argusHome)
     const destFile = path.join(dir, refFileName(p.target))
     // as above: an edit to an existing reference keeps its author, and the accepter joins the

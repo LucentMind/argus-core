@@ -34,7 +34,7 @@ const recA: ProposalRecord = {
 // the user has it open, not because of where it happens to sort.
 const recB: ProposalRecord = {
   file: '2026-07-09-NAV-050-lesson.md',
-  type: 'recipe',
+  type: 'reference-edit',
   target: 'dlt-timing',
   caseSlug: 'NAV-050',
   date: '2026-07-09T12:00:00.000Z',
@@ -100,7 +100,7 @@ describe('ProposalsStandalone freshness', () => {
 
     // distill staging lands a new proposal in the background
     setList({ proposals: [recA, recB] })
-    broadcast({ pendingCount: 2, byType: { 'skill-edit': 1, recipe: 1 } })
+    broadcast({ pendingCount: 2, byType: { 'skill-edit': 1, 'reference-edit': 1 } })
 
     expect(
       await screen.findByRole('button', { name: 'Select proposal Distilled lesson' })
@@ -121,7 +121,7 @@ describe('ProposalsStandalone freshness', () => {
     // recB (NAV-050) sorts BEFORE recA (NAV-100) — without the fallback pin, entries[0] would
     // flip to recB and silently remount the detail pane on a proposal the user never selected.
     setList({ proposals: [recA, recB] })
-    broadcast({ pendingCount: 2, byType: { 'skill-edit': 1, recipe: 1 } })
+    broadcast({ pendingCount: 2, byType: { 'skill-edit': 1, 'reference-edit': 1 } })
 
     await screen.findByRole('button', { name: 'Select proposal Distilled lesson' })
     // The detail pane must still be the ORIGINAL proposal — title and in-flight draft both —

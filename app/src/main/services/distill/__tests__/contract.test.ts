@@ -156,7 +156,7 @@ describe('prompt builder', () => {
   })
 
   it('F3: the open: bullet leaves a compliant path for a summary with a confirmed root cause but no fix', () => {
-    // Rule 11 declares "fix" required inside "summary", and the parser hard-rejects a summary
+    // The output rule declares "fix" required inside "summary", and the parser hard-rejects one
     // with a missing/empty fix — so for "confirmed root cause, no fix yet" the open: bullet
     // must prescribe wording (like wont-fix already does), not leave "omit the summary" as the
     // model's only compliant move.
@@ -286,9 +286,24 @@ describe('parseCaseDistillOutput', () => {
     }
   })
 
+  it('rejects the retired recipe type', () => {
+    // The type is gone from PROPOSAL_OUT_TYPES, so a model still emitting it (an override, or a
+    // replayed pre-retirement eval world) fails the parse rather than staging an unroutable
+    // proposal. Archived recipes are unaffected — listArchivedProposals does not validate.
+    expect(() =>
+      parseCaseDistillOutput(
+        fence(
+          '{"proposals":[{"type":"recipe","target":"dlt-cmds","title":"Cmds","content":"body"}]}'
+        )
+      )
+    ).toThrow(DistillParseError)
+  })
+
   it('accepts an output with only summary and proposals', () => {
     const out = parseCaseDistillOutput(
-      fence('{"proposals":[{"type":"recipe","target":"dlt-cmds","title":"Cmds","content":"body"}]}')
+      fence(
+        '{"proposals":[{"type":"reference-edit","target":"dlt-cmds","title":"Cmds","content":"body"}]}'
+      )
     )
     expect(out.proposals).toHaveLength(1)
     expect('memoryAppends' in out).toBe(false)
@@ -315,14 +330,16 @@ describe('parseCaseDistillOutput', () => {
 
   it('accepts a proposal with no basis (basis stays undefined)', () => {
     const out = parseCaseDistillOutput(
-      fence('{"proposals":[{"type":"recipe","target":"dlt-cmds","title":"Cmds","content":"body"}]}')
+      fence(
+        '{"proposals":[{"type":"reference-edit","target":"dlt-cmds","title":"Cmds","content":"body"}]}'
+      )
     )
     expect(out.proposals?.[0].basis).toBeUndefined()
   })
 
   it('rejects a non-string basis with DistillParseError', () => {
     const text = fence(
-      '{"proposals":[{"type":"recipe","target":"dlt-cmds","title":"Cmds","content":"body","basis":42}]}'
+      '{"proposals":[{"type":"reference-edit","target":"dlt-cmds","title":"Cmds","content":"body","basis":42}]}'
     )
     expect(() => parseCaseDistillOutput(text)).toThrow(DistillParseError)
   })

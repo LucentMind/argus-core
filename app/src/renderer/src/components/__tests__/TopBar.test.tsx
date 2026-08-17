@@ -217,7 +217,7 @@ describe('TopBar', () => {
 
   it('shows the pending-count pill only when counts are positive', async () => {
     window.argus.proposals.list = vi.fn(async () => ({
-      proposals: [{ type: 'recipe' }, { type: 'recipe' }, { type: 'skill-new' }]
+      proposals: [{ type: 'reference-edit' }, { type: 'reference-edit' }, { type: 'skill-new' }]
     })) as never
     render(
       <TopBar
