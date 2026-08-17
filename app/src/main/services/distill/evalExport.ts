@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { proposalsDir, proposalsArchiveDir } from '../paths'
 import { fmBlock, fmField } from '../../../shared/frontmatter'
+import { ACCEPTED_CONTENT_DELIMITER } from '../../../shared/proposals'
 import type { CaseDistillInput } from '../../../shared/distill'
 import type {
   DistillEvalBundleLine,
@@ -36,9 +37,6 @@ function scanJobStamped(dir: string): Map<string, { fm: string; body: string }[]
   }
   return out
 }
-
-/** Marks the boundary acceptProposal appends after an edited accept's original draft body. */
-const ACCEPTED_CONTENT_DELIMITER = '\n<!-- accepted-content -->\n'
 
 /**
  * The human-edited accept text, when present. `archive()` appends the delimiter + accepted text

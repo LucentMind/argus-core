@@ -14,6 +14,7 @@ import { ASSET_NAME_RE, validateSkill, hasErrors } from '../../shared/assetValid
 import { fmBlock, fmField, withFrontmatter } from '../../shared/frontmatter'
 import { mergeAuthorship, stampAuthorship, type Identity } from '../../shared/authorship'
 import {
+  ACCEPTED_CONTENT_DELIMITER,
   PROPOSAL_TYPES,
   REJECT_REASON_TAGS,
   type AcceptedTarget,
@@ -393,7 +394,10 @@ export function acceptProposal(
     file,
     'accepted',
     edited ? { edited: 'true' } : {},
-    edited ? `\n\n<!-- accepted-content -->\n${body}` : undefined
+    // The leading '\n' is spacing (blank line before the delimiter comment); the delimiter
+    // itself — the load-bearing bytes evalExport.ts's lastIndexOf split matches on — comes
+    // verbatim from the shared constant so the two sides can never drift apart.
+    edited ? `\n${ACCEPTED_CONTENT_DELIMITER}${body}` : undefined
   )
   announceChanged()
   return accepted

@@ -186,6 +186,28 @@ describe('buildEvalBundle', () => {
     expect('editedContent' in unedited).toBe(false)
   })
 
+  it('an accepted item with basis but no edit carries basis and no editedContent key at all', () => {
+    const id = insertJob()
+    const f = writeProposal(
+      home,
+      'nav-1',
+      {
+        type: 'skill-new',
+        target: `s-${id}-basis-only`,
+        title: 't',
+        content: '---\ndescription: Use when exercising the eval-bundle export.\n---\n\n# draft\n'
+      },
+      { job: String(id), basis: 'evidence-456' }
+    )
+    acceptProposal(home, f) // no editedContent — an unedited accept
+
+    const { lines } = buildEvalBundle(db, home, '1.0.0')
+    const item = lines[0].items.find((i) => i.target === `s-${id}-basis-only`)!
+    expect(item.basis).toBe('evidence-456')
+    expect(item.editedContent).toBeUndefined()
+    expect('editedContent' in item).toBe(false)
+  })
+
   it('splits on the LAST delimiter occurrence, so a draft that itself contains the literal delimiter cannot smuggle a fake split point', () => {
     const id = insertJob()
     // The draft body itself contains the literal accepted-content delimiter (adversarial or
