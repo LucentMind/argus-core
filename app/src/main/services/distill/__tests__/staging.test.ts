@@ -272,6 +272,64 @@ describe('stageDistillOutput — resolution caps, basis gate, prior-reject stamp
     expect(raw).toContain('basis: a well-supported claim goes here')
   })
 
+  it('(b2) a basis drop never counts against the cap even at cap=1: the good-basis proposal survives, no cap drop appears', () => {
+    setCaseStatus(db, home, 'case-a', 'closed', 'forwarded') // cap = 1
+    const res = stageDistillOutput(db, home, 'case-a', 28, {
+      proposals: [
+        { type: 'recipe', target: 'short-basis', title: 'Short', content: 'c', basis: 'x' },
+        {
+          type: 'recipe',
+          target: 'good-basis',
+          title: 'Good',
+          content: 'c',
+          basis: 'a well-supported claim goes here'
+        }
+      ]
+    })
+    expect(res.dropped).toEqual([
+      { type: 'recipe', target: 'short-basis', title: 'Short', reason: 'basis' }
+    ])
+    expect(res.staged).toBe(1)
+    expect(listProposals(home).some((p) => p.target === 'good-basis')).toBe(true)
+  })
+
+  it('dedup runs BEFORE the cap slice: a duplicate frees its slot for a later distinct proposal instead of evicting it', () => {
+    setCaseStatus(db, home, 'case-a', 'closed', 'wont-fix') // cap = 2
+    const res = stageDistillOutput(db, home, 'case-a', 29, {
+      proposals: [
+        {
+          type: 'recipe',
+          target: 'dup-target',
+          title: 'A1',
+          content: 'c1',
+          basis: 'evidence supporting dup-target once'
+        },
+        {
+          type: 'recipe',
+          target: 'dup-target',
+          title: 'A2',
+          content: 'c2',
+          basis: 'evidence supporting dup-target twice'
+        },
+        {
+          type: 'recipe',
+          target: 'distinct-target',
+          title: 'B',
+          content: 'c3',
+          basis: 'evidence supporting the distinct target'
+        }
+      ]
+    })
+    expect(res.dropped).toEqual([]) // the duplicate must never register as a 'cap' drop
+    expect(res.droppedDuplicates).toBe(1)
+    expect(res.staged).toBe(2)
+    expect(
+      listProposals(home)
+        .map((p) => p.target)
+        .sort()
+    ).toEqual(['distinct-target', 'dup-target'])
+  })
+
   it('(c) stamps a cross-case rejected-target match onto proposal frontmatter, never dropping it', () => {
     createCase(db, home, { slug: 'other-case', title: 'Other' })
     const f = writeProposal(home, 'other-case', {
