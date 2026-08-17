@@ -282,6 +282,12 @@ const uiSchema = z.looseObject({
   knowledgeStripDismissed: z.boolean().default(false)
 })
 
+/** Free-text operator guidance folded into every case distillation's input (v2) — a standing
+ *  steer ("prefer recipes over new skills", "watch for X") rather than a per-run instruction. */
+const distillSchema = z.looseObject({
+  guidance: z.string().default('')
+})
+
 const onboardingSchema = z.looseObject({
   /** ISO time onboarding finished/was dismissed; null = never → treat as first-run. */
   completedAt: z.string().nullable().default(null),
@@ -311,7 +317,8 @@ export const settingsSchema = z.looseObject({
   onboarding: onboardingSchema.default(() => onboardingSchema.parse({})),
   memoryHygiene: memoryHygieneSchema.default(() => memoryHygieneSchema.parse({})),
   ui: uiSchema.default(() => uiSchema.parse({})),
-  migrations: migrationsSchema.default(() => migrationsSchema.parse({}))
+  migrations: migrationsSchema.default(() => migrationsSchema.parse({})),
+  distill: distillSchema.default(() => distillSchema.parse({}))
 })
 
 export type AppSettings = z.infer<typeof settingsSchema>

@@ -5,8 +5,8 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase, setCaseStatus } from '../../caseService'
-import { writeProposal, rejectProposal } from '../../proposals'
-import { assembleDistillInput, buildReferencesIndex } from '../input'
+import { writeProposal, rejectProposal, acceptProposal } from '../../proposals'
+import { assembleDistillInput, buildReferencesIndex, USER_MSG_CLAMP } from '../input'
 import { sharedReferencesDir } from '../../skillsDir'
 import { artifactsDir } from '../../paths'
 import type { RcaDraft } from '../../../../shared/rca'
@@ -128,6 +128,144 @@ describe('assembleDistillInput', () => {
 
     const input = assembleDistillInput(db, home, 'case-a')
     expect(input.rcaStructure).toBeNull()
+  })
+})
+
+describe('assembleDistillInput — v2 (user messages, reject annotations, operator guidance)', () => {
+  function caseId(slug: string): number {
+    return (db.prepare(`SELECT id FROM cases WHERE slug=?`).get(slug) as { id: number }).id
+  }
+  function insertSession(id: number, slug: string, title: string): void {
+    db.prepare(
+      `INSERT INTO sessions (id, case_id, title, turn_count, created_at, updated_at)
+       VALUES (?, ?, ?, 0, '2026-01-01', '2026-01-01')`
+    ).run(id, caseId(slug), title)
+  }
+  function indexMsg(
+    sessionId: number,
+    slug: string,
+    turnId: number,
+    role: string,
+    content: string
+  ): void {
+    db.prepare(
+      `INSERT INTO messages_fts (content, case_id, session_id, turn_id, role) VALUES (?,?,?,?,?)`
+    ).run(content, caseId(slug), sessionId, turnId, role)
+  }
+
+  it('(a) keeps the last 25 user messages per session, newest session first, dropping zero-user-turn sessions', () => {
+    // sessions 1-3: 30 user turns each. session 4: assistant-only, must be absent entirely.
+    for (const sid of [1, 2, 3]) {
+      insertSession(sid, 'case-a', `s${sid}`)
+      for (let i = 1; i <= 30; i++) indexMsg(sid, 'case-a', i, 'user', `s${sid}-msg-${i}`)
+    }
+    insertSession(4, 'case-a', 's4')
+    indexMsg(4, 'case-a', 1, 'assistant', 'no user turns here')
+
+    const input = assembleDistillInput(db, home, 'case-a')
+
+    expect(input.userMessages).toBeDefined()
+    const groups = input.userMessages!
+    // newest session first (id desc); the zero-user-turn session is absent, not an empty group
+    expect(groups.map((g) => g.sessionTitle)).toEqual(['s3', 's2', 's1'])
+    for (const g of groups) expect(g.messages).toHaveLength(25)
+    // last 25 of 30 -> messages 6..30, in original order
+    expect(groups[0].messages[0]).toBe('s3-msg-6')
+    expect(groups[0].messages[24]).toBe('s3-msg-30')
+    const total = groups.reduce((n, g) => n + g.messages.length, 0)
+    expect(total).toBeLessThanOrEqual(100)
+  })
+
+  it('(b) clamps a 12 000-char user message to head 3 000 + marker + tail 1 000', () => {
+    insertSession(1, 'case-a', 's1')
+    const big = 'x'.repeat(12_000)
+    indexMsg(1, 'case-a', 1, 'user', big)
+
+    const input = assembleDistillInput(db, home, 'case-a')
+
+    const msg = input.userMessages![0].messages[0]
+    const expectedOmitted = big.length - USER_MSG_CLAMP // 8_000
+    const marker = `[… ${expectedOmitted} chars omitted]`
+    expect(msg).toBe('x'.repeat(3_000) + marker + 'x'.repeat(1_000))
+    // byte-check: real U+2026 ellipsis, no U+FFFD replacement char
+    expect(msg.includes('…')).toBe(true)
+    expect(msg.includes('�')).toBe(false)
+    expect(msg.includes('...')).toBe(false)
+  })
+
+  it('(c) annotates a skill/reference entry whose latest proposal was rejected, cross-case; an accepted archive adds no note', () => {
+    const dir = sharedReferencesDir(home)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, 'brake-lore.md'),
+      '---\ntitle: Brake Lore\ntrust_tier: team-knowledge\n---\n\nBrakes.\n'
+    )
+    fs.writeFileSync(
+      path.join(dir, 'clutch-notes.md'),
+      '---\ntitle: Clutch Notes\ntrust_tier: team-knowledge\n---\n\nClutch.\n'
+    )
+
+    // rejected reference-edit against brake-lore, filed under a DIFFERENT case
+    const rejectedRef = writeProposal(home, 'other-case', {
+      type: 'reference-edit',
+      target: 'brake-lore',
+      title: 'Widen brake note',
+      content: 'Brakes, revised.\n'
+    })
+    rejectProposal(home, rejectedRef, { tag: 'overgeneric', note: 'too vague' })
+
+    // accepted reference-edit against clutch-notes -- must NOT get a note
+    const acceptedRef = writeProposal(home, 'case-a', {
+      type: 'reference-edit',
+      target: 'clutch-notes',
+      title: 'Clutch tweak',
+      content: 'Clutch, revised.\n'
+    })
+    acceptProposal(home, acceptedRef)
+
+    // rejected skill-edit against analyze-dlt, same mechanism for skillsIndex
+    const rejectedSkill = writeProposal(home, 'other-case', {
+      type: 'skill-edit',
+      target: 'analyze-dlt',
+      title: 'Widen skill',
+      content: 'body'
+    })
+    rejectProposal(home, rejectedSkill, { tag: 'wrong', note: 'incorrect steps' })
+
+    const input = assembleDistillInput(db, home, 'case-a', [
+      { name: 'analyze-dlt', description: 'DLT skill', content: 'body' }
+    ])
+
+    const brake = input.referencesIndex.find((r) => r.name === 'brake-lore')
+    const clutch = input.referencesIndex.find((r) => r.name === 'clutch-notes')
+    expect(brake?.note).toBe(
+      'a proposed edit here was rejected as overgeneric (case other-case): too vague'
+    )
+    expect(clutch?.note).toBeUndefined()
+    expect(input.skillsIndex[0].note).toBe(
+      'a proposed edit here was rejected as wrong (case other-case): incorrect steps'
+    )
+  })
+
+  it('(d) passes operatorGuidance through verbatim, omitting it when not supplied', () => {
+    const withGuidance = assembleDistillInput(db, home, 'case-a', [], {
+      operatorGuidance: 'Focus on timing bugs.'
+    })
+    expect(withGuidance.operatorGuidance).toBe('Focus on timing bugs.')
+
+    const withoutGuidance = assembleDistillInput(db, home, 'case-a')
+    expect(withoutGuidance.operatorGuidance).toBeUndefined()
+  })
+
+  it('(e) includes a world snapshot that JSON round-trips', () => {
+    insertSession(1, 'case-a', 's1')
+    indexMsg(1, 'case-a', 1, 'user', 'hello')
+
+    const input = assembleDistillInput(db, home, 'case-a')
+
+    expect(input.world).toBeDefined()
+    expect(JSON.parse(JSON.stringify(input.world))).toEqual(input.world)
+    expect(input.world!.sessions[0].messages).toEqual([{ role: 'user', content: 'hello' }])
   })
 })
 
