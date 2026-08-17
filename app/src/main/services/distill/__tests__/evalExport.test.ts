@@ -23,8 +23,8 @@ const SNAPSHOT = JSON.stringify({ caseMeta: { slug: 'nav-1' } })
 function insertJob(over: Partial<Record<string, unknown>> = {}): number {
   const r = db
     .prepare(
-      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, raw_output, error, prompt_hash, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, raw_output, error, prompt_hash, created_at, kind)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       (over.case_slug as string) ?? 'nav-1',
@@ -33,7 +33,8 @@ function insertJob(over: Partial<Record<string, unknown>> = {}): number {
       (over.raw_output as string | null) ?? '```json\n{}\n```',
       (over.error as string | null) ?? null,
       (over.prompt_hash as string | null) ?? 'abc123def456',
-      (over.created_at as string) ?? '2026-07-29T00:00:00.000Z'
+      (over.created_at as string) ?? '2026-07-29T00:00:00.000Z',
+      (over.kind as string) ?? 'case'
     )
   return Number(r.lastInsertRowid)
 }
@@ -133,6 +134,22 @@ describe('buildEvalBundle', () => {
     const { lines, skipped } = buildEvalBundle(db, home, '1.0.0')
     expect(lines).toEqual([])
     expect(skipped).toEqual([{ jobId: id, caseSlug: 'nav-1', reason: 'not finished' }])
+  })
+
+  it('a reject-digest row does not shadow the case job as MAX(id), and is not itself exported', () => {
+    const doneId = insertJob({ created_at: '2026-07-29T00:00:00.000Z' })
+    reviewedItem(doneId, 'accepted')
+    // Higher id, same slug, kind='reject-digest' — must be invisible to the MAX(id) subselect.
+    insertJob({
+      kind: 'reject-digest',
+      created_at: '2026-07-30T00:00:00.000Z',
+      raw_output: null,
+      prompt_hash: null
+    })
+    const { lines, skipped } = buildEvalBundle(db, home, '1.0.0')
+    expect(lines.map((l) => l.job.id)).toEqual([doneId])
+    expect(lines[0].items.map((i) => i.outcome)).toEqual(['accepted'])
+    expect(skipped).toEqual([])
   })
 
   it('ignores contribute-back archives (no job stamp)', () => {

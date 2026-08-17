@@ -48,11 +48,14 @@ export function buildEvalBundle(
   // runJob's aborted-path guards), so it never ran the supersede step above — the case's earlier
   // `done` job's archived outcome set is still structurally complete and must not be shadowed by
   // a cancelled re-distill becoming the "latest" row and getting skipped as 'not finished'.
+  // The eval bundle is a case's distillation history — a non-case kind (e.g. 'reject-digest')
+  // sharing this table must neither shadow a case job in the MAX(id) pool nor be exported
+  // itself.
   const rows = db
     .prepare(
       `SELECT * FROM distill_jobs
        WHERE id IN (
-         SELECT MAX(id) FROM distill_jobs WHERE state <> 'cancelled' GROUP BY case_slug
+         SELECT MAX(id) FROM distill_jobs WHERE state <> 'cancelled' AND kind='case' GROUP BY case_slug
        )
        ORDER BY id ASC`
     )
