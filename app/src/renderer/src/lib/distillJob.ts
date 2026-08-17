@@ -62,9 +62,15 @@ export function distillMenuLabel(job: DistillJobRow | null): string {
   if (isDistillInFlight(job)) return 'Cancel distillation'
   if (!job) return 'Distill'
   if (job.state !== 'done') return 'Re-distill'
-  return job.itemCount && job.itemCount > 0
-    ? `Re-distill · ${job.itemCount} items`
-    : 'Re-distill · nothing to distill'
+  const base =
+    job.itemCount && job.itemCount > 0
+      ? `Re-distill · ${job.itemCount} items`
+      : 'Re-distill · nothing to distill'
+  // Cost visibility matters on successful runs too (spec's tuning-budgets purpose), not just the
+  // failed capHit case DistillChip already surfaces — same NULL-omitting segments, reused rather
+  // than re-derived, so pre-v2/no-usage done jobs keep today's label unchanged.
+  const cost = distillCostLine(job)
+  return cost ? `${base} · ${cost}` : base
 }
 
 /**
