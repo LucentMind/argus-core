@@ -49,8 +49,8 @@ timeline; wrap node labels containing punctuation in double quotes; keep a diagr
  * on the Skills page silences the nudge too.
  */
 export const CONTRIBUTE_BACK_NUDGE = `
-When an investigation produces a reusable lesson — a repeatable procedure, a reference
-correction, a proven recipe — draft it as a proposal with mcp__argus__write_proposal (see the
+When an investigation produces a reusable lesson — a repeatable diagnostic procedure or a
+reference correction — draft it as a proposal with mcp__argus__write_proposal (see the
 contribute-back skill). Proposals are inert until the user accepts them on the Settings → Proposals page;
 never apply such changes yourself.
 `.trim()
