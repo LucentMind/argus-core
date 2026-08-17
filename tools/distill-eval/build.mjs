@@ -23,5 +23,12 @@ await build({
   format: 'cjs',
   outfile: path.join(dir, 'dist/cli.js'),
   banner: { js: '#!/usr/bin/env node' },
-  nodePaths: [path.join(dir, 'node_modules')]
+  nodePaths: [path.join(dir, 'node_modules')],
+  // The Claude Agent SDK must NOT be bundled. It is ESM that calls
+  // `createRequire(import.meta.url)` at module scope and locates its own bundled CLI relative
+  // to its own file; inlining it into a CJS bundle rewrites `import.meta.url` to undefined and
+  // the built CLI dies on load with ERR_INVALID_ARG_VALUE before printing usage (verified).
+  // Left external, `require()` loads the real package from node_modules — Node >= 22.12
+  // supports require() of ESM, which this repo's toolchain already requires.
+  external: ['@anthropic-ai/claude-agent-sdk']
 })

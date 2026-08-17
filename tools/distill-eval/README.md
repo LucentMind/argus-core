@@ -115,15 +115,45 @@ working-tree prompt** — `CASE_DISTILL_CONTRACT` / `CASE_DISTILL_SECTIONS` in
 in your working tree, run the harness, read the report, iterate. `--contract` exists for
 comparing an alternate draft without committing it, e.g. A/B-ing two candidate rewrites.
 
-**Runner**: the default runner (`src/runner.ts`, `claudeRunner`) shells out to `claude -p
---output-format text` (adding `--model` if passed), piping the prompt over stdin — not argv
-and not `execFile` (whose default `maxBuffer` silently truncates at 1MB; these prompts carry
-full skill/reference bodies so that limit is a real risk, not a theoretical one). Same
-one-shot `(prompt: string) => Promise<string>` interface is used for both the replay run and
-the judge run — the CLI passes `claudeRunner(model)` for both. There's no other runner
-implementation checked in yet; if you need a different backend (a different CLI, an API
-call, a fake for scripting), implement `OneShotRunner` and wire it in where `cli.ts`
-constructs `claudeRunner`.
+**Runners**: there are two, passed around together as `EvalRunners` (`src/replay.ts`):
+
+| runner | type | used for |
+|---|---|---|
+| `agent` (`src/agentRunner.ts`, `claudeAgentRunner`) | `(prompt, world) => Promise<string>` | the distill replay itself — agentic, tools over the frozen world |
+| `oneShot` (`src/runner.ts`, `claudeRunner`) | `(prompt) => Promise<string>` | the judge — one prompt in, one verdict out, no tools |
+
+`claudeRunner` shells out to `claude -p --output-format text` (adding `--model` if passed),
+piping the prompt over stdin — not argv and not `execFile` (whose default `maxBuffer` silently
+truncates at 1MB; these prompts carry full skill/reference bodies so that limit is a real risk,
+not a theoretical one).
+
+`claudeAgentRunner` drives the Claude Agent SDK's `query()` headless with an **in-process MCP
+server** (`createReplayMcpServer`) serving `list_sessions` / `read_transcript` /
+`search_transcript` out of the exported `inputSnapshot.world` through the *same*
+`app/src/main/services/distill/worldTools.ts` functions the live run used — same snapshot in,
+same tool answers out. Its SDK options deliberately mirror the app's `runClaudeHeadlessAgent`:
+`maxTurns: DISTILL_MAX_ITERATIONS`, `tools: []` (no built-ins), `allowedTools:
+DISTILL_ALLOWED_TOOLS` (auto-approve only the `mcp__argus__` surface) plus a `canUseTool`
+deny-gate, and an empty scratch `cwd`. If you need a different backend, implement `AgentRunner`
+/ `OneShotRunner` and wire it in where `cli.ts` builds the runner bag.
+
+**Agent replay: the two things it does not reproduce**
+
+1. **`run_tool_script` (PTC) is stubbed.** The tool stays *registered* — its description is
+   hashed prompt surface, so removing it would change the prompt being evaluated — but every
+   call answers `REPLAY_PTC_UNAVAILABLE`, telling the agent to sweep with the direct tools
+   instead. Real script execution needs the Electron-side PTC service
+   (`app/src/main/services/ptc/run.ts`), which the harness cannot host. A replay of a job that
+   used scripts therefore *approximates* its trajectory; since the judge grades final items and
+   never trajectories, that is an accepted approximation, not a silent one.
+2. **Pre-v2 corpus lines have no world → degraded replay.** Lines exported before the agentic
+   distiller carry no `inputSnapshot.world`. They still replay (their `promptHash` never matches
+   a v2 hash, so they always re-run), with all four tools registered and every world tool
+   answering the distinguished error `transcripts unavailable for this replay (pre-v2 corpus
+   line)`. `ReplayResult.degradedReplay` is set, `report.md` names those cases (see Step 4), and
+   their verdicts should be read as "candidate could not read transcripts, baseline could" —
+   never averaged in as a like-for-like comparison. Re-export the corpus from a current Argus to
+   get worlds.
 
 **What happens per corpus line** (`src/run.ts` → `runEval`, sequential — a corpus is tens of
 cases, not thousands, and this shells out to a real model with real rate limits, so no
@@ -144,14 +174,21 @@ parallelism):
    those are automatically `unchanged`, "prompt unchanged — baseline output reused"):
    `buildJudgePrompt` (`src/judge.ts`) asks the same model to compare old vs. new output for
    that one item and return `improved` / `unchanged` / `regressed` / `needs-human` with a
-   one-sentence reason. Rejected items get failure-direction-aware phrasing (fixing overfit
-   without going overgeneric, and vice versa); accepted items get "is there still an
-   equivalent item, comparable or better" — they're positive controls, so silently dropping
-   a previously-good item is a regression too.
+   one-sentence reason. Three phrasings, by item outcome:
+   - **rejected** → failure-direction-aware (fix overfit without going overgeneric, and vice
+     versa);
+   - **accepted, unedited** → "is there still an equivalent item, comparable or better" —
+     positive controls, so silently dropping a previously-good item is a regression too;
+   - **accepted after a human edit** (`editedContent`, exported when the accepter changed the
+     draft) → the gold standard shifts to *the human's text*: "does the NEW item move closer to
+     the human's accepted version than the old draft did?". Grading these against the draft
+     would penalize a candidate for producing exactly what the reviewer had to hand-write.
 
 ## Step 4 — read the report
 
-`report.md` (written by `src/report.ts`) leads with the aggregate numbers, then a **"Needs
+`report.md` (written by `src/report.ts`) leads with the aggregate numbers — including a
+**degraded-replay count and the case list** (pre-v2 lines replayed with no world; read their
+verdicts with the caveat above, or re-export the corpus) — then a **"Needs
 human review" list first** (every `needs-human` verdict, prompt-changed or not — since
 these are exactly the calls the judge couldn't make confidently), then a per-reject-tag
 improved/total breakdown so you can see e.g. "overfit: 6/9 improved, overgeneric: 1/4
@@ -198,16 +235,43 @@ semantics.
   (see Step 1), but only job-stamped ones feed this harness. Mid-case contribute-back reject
   labels accumulate for a future project that judges proposal text directly without replay
   (no deterministic input exists for those) — nothing consumes them yet.
+- **No PTC inside replays** and **no live coverage of the agent path.** The stub above is the
+  first gap; the second is that the tests fake `query()`, so the real SDK call (bundled-CLI
+  discovery from a plain node process, auth, extraction) is only ever exercised by actually
+  running the harness against a corpus. If a replay produces nothing, check that `claude` works
+  on your machine before suspecting the harness.
+- **No wall-clock cap on a replay.** `maxTurns` bounds the loop, but neither runner has a
+  timeout (the app's own distill path does); a wedged provider call hangs the run until you
+  interrupt it.
 - **No corpus-repo tooling.** Merging/deduping bundles across multiple developers' exports,
   or a retention policy for old lines, doesn't exist — start manual, revisit if the corpus
   repo grows enough to make hand-merging painful.
 
 ## Tests
 
-`npm test` (vitest) covers the pure logic with a fake `OneShotRunner` — no live model calls:
+**These tests do not run in CI** — the workflow only runs from `app/`. Run them locally
+(`npm test`) whenever you touch this package; nothing else will catch a break.
+
+`npm test` (vitest) covers the pure logic with fakes — **no live model calls, no CLI spawn**:
 corpus parsing/validation (`__tests__/corpus.test.ts`), skip-if-unchanged + parse
-classification (`__tests__/replay.test.ts`), judge prompt/verdict round-tripping
-(`__tests__/judge.test.ts`), and the full `runEval` pipeline wiring
-(`__tests__/run.test.ts`). `npm run typecheck` type-checks this package on its own
-`tsconfig.json` (it imports app source directly, relative-pathed — see the `../../../app/src`
-imports in `src/replay.ts` and `src/corpus.ts` — rather than depending on a built package).
+classification + world/degraded replay (`__tests__/replay.test.ts`), judge prompt/verdict
+round-tripping including a byte-identity inline snapshot of the unedited-accepted wording
+(`__tests__/judge.test.ts`), the agent runner's SDK option assembly and the replay MCP server's
+answers with and without a world (`__tests__/agentRunner.test.ts`), and the full `runEval`
+pipeline wiring (`__tests__/run.test.ts`).
+
+The agent runner takes its `query()` as an injected `CreateQueryFn` (defaulting to the SDK's
+`query`), which is the seam the tests fake: they assert the assembled
+`mcpServers`/`allowedTools`/`maxTurns`/`tools: []`/`canUseTool` wiring and drive a scripted
+message stream, so the SDK's bundled CLI is never spawned. The MCP-server tests connect a real
+`@modelcontextprotocol/sdk` client over `InMemoryTransport` (same idiom as the app's
+`distill/__tests__/mcp.test.ts`) and call the tools for real against a fixture world.
+
+`npm run typecheck` type-checks this package on its own `tsconfig.json` (it imports app source
+directly, relative-pathed — see the `../../../app/src` imports in `src/replay.ts`,
+`src/agentRunner.ts` and `src/corpus.ts` — rather than depending on a built package).
+
+`npm run build` keeps `@anthropic-ai/claude-agent-sdk` **external** on purpose: it is ESM that
+calls `createRequire(import.meta.url)` at module scope and finds its own bundled CLI relative to
+its own file, so inlining it into the CJS bundle makes `dist/cli.js` throw on load. Leave that
+`external` entry in `build.mjs` alone.
