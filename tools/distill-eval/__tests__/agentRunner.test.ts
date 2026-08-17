@@ -96,7 +96,10 @@ describe('claudeAgentRunner', () => {
     const o = captured[0].options
     expect(o.maxTurns).toBe(DISTILL_MAX_ITERATIONS)
     expect(o.tools).toEqual([])
-    expect(o.allowedTools).toEqual(DISTILL_ALLOWED_TOOLS)
+    // EMPTY on purpose, matching the app: bare allowedTools entries shadow canUseTool
+    // (CLAUDE_SDK_CAN_USE_TOOL_SHADOWED, live 2026-08-17); the whitelist lives in the callback.
+    expect(o.allowedTools).toEqual([])
+    expect(o.allowedTools).not.toEqual(DISTILL_ALLOWED_TOOLS)
     expect(o.mcpServers.argus.name).toBe('argus')
     expect(typeof o.cwd).toBe('string')
     expect(o.cwd.length).toBeGreaterThan(0)

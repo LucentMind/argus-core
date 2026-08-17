@@ -157,7 +157,7 @@ describe('claude runHeadlessAgent', () => {
     expect(result.usage).toMatchObject({ inputTokens: 100, outputTokens: 50, costUsd: 0.01 })
   })
 
-  it('passes maxIterations+1 as maxTurns (headroom for the budget nudge), plus allowedTools and mcpServers, to createQuery', async () => {
+  it('passes maxIterations+1 as maxTurns (headroom for the budget nudge) and mcpServers to createQuery', async () => {
     const q = scriptedAgentQuery([
       { type: 'assistant', message: { content: [{ type: 'text', text: 'ok' }] } },
       { type: 'result', subtype: 'success' }
@@ -166,9 +166,21 @@ describe('claude runHeadlessAgent', () => {
     await d.runHeadlessAgent!('prompt', { ...baseAgentOpts, maxIterations: 37 })
     expect(q.opts()).toMatchObject({
       maxTurns: 38,
-      allowedTools: baseAgentOpts.allowedTools,
       mcpServers: { argus: baseAgentOpts.mcpServer }
     })
+  })
+
+  it('leaves the SDK allowedTools EMPTY so every MCP call falls through to canUseTool (live finding 2026-08-17: bare allowedTools entries shadow the callback — CLAUDE_SDK_CAN_USE_TOOL_SHADOWED)', async () => {
+    const q = scriptedAgentQuery([
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'ok' }] } },
+      { type: 'result', subtype: 'success' }
+    ])
+    const d = createClaudeDriver(q.fn)
+    await d.runHeadlessAgent!('prompt', baseAgentOpts)
+    // The whitelist is an input to the callback, NOT echoed into the SDK's auto-approve list:
+    // echoing it there is exactly what made the deny branch dead code on the live SDK.
+    expect(q.opts().allowedTools).toEqual([])
+    expect(q.opts().allowedTools).not.toContain('mcp__argus__read_transcript')
   })
 
   it('disables built-in tools (tools: []) and installs a canUseTool gate', async () => {
@@ -182,7 +194,7 @@ describe('claude runHeadlessAgent', () => {
     expect(typeof q.opts().canUseTool).toBe('function')
   })
 
-  it('canUseTool allows a whitelisted tool and denies everything else — allowedTools only auto-approves, it does not restrict', async () => {
+  it('canUseTool is the single MCP permission decision: allows the whitelist (no human to answer a prompt) and denies everything else', async () => {
     const q = scriptedAgentQuery([
       { type: 'assistant', message: { content: [{ type: 'text', text: 'ok' }] } },
       { type: 'result', subtype: 'success' }

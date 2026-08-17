@@ -165,8 +165,11 @@ async function collectRun(q: ReplayQuery): Promise<AgentReplayResult> {
 /**
  * Default agent runner: drives the Claude Agent SDK headless over the frozen world. Option
  * shapes mirror the app's `runClaudeHeadlessAgent` deliberately — `tools: []` locks out the
- * built-ins, `allowedTools` auto-approves only the mcp__argus__ surface, and `canUseTool` is the
- * actual gate (allowedTools only auto-approves, it does not restrict).
+ * built-ins, and `canUseTool` ALONE gates the mcp__argus__ surface with `allowedTools` kept
+ * EMPTY. Live finding 2026-08-17 (app side): bare `allowedTools` entries auto-approve before the
+ * callback runs (`CLAUDE_SDK_CAN_USE_TOOL_SHADOWED`), which made the deny branch dead code —
+ * the SDK's remedy is to remove the bare names so calls fall through to `canUseTool`. Replay
+ * must make the same choice or it drifts from the live environment it exists to reproduce.
  */
 export function claudeAgentRunner(
   model?: string,
@@ -179,7 +182,7 @@ export function claudeAgentRunner(
       cwd: agentScratchCwd(),
       maxTurns: DISTILL_MAX_ITERATIONS,
       tools: [],
-      allowedTools: DISTILL_ALLOWED_TOOLS,
+      allowedTools: [],
       canUseTool: async (toolName, input) =>
         DISTILL_ALLOWED_TOOLS.includes(toolName)
           ? { behavior: 'allow', updatedInput: input }

@@ -232,22 +232,24 @@ export async function runClaudeHeadlessAgent(
         // is the built-ins half of the whitelist; `allowedTools`/`canUseTool` below are the
         // MCP-tool half.
         tools: [],
-        // Auto-approves the whitelist so the run doesn't stall on a permission prompt with no
-        // human to answer it — but `allowedTools` ONLY auto-approves, it does not restrict
-        // (sdk.d.ts: "To restrict which tools are available, use the `tools` option instead" —
-        // which, per the comment above, only reaches built-ins, not MCP tools). `canUseTool`
-        // below is the actual gate for the MCP surface. CAVEAT (sdk.d.ts:1428-9): on native
-        // builds, listing a dedicated built-in like Grep/Glob in `allowedTools` can GRANT it
-        // even under `tools: []` ("List Grep/Glob here or in `allowedTools` to get them") — so
-        // `tools: []`'s built-in lockout only actually holds because the caller's
-        // `DISTILL_ALLOWED_TOOLS` (worldTools.ts) is mcp__argus__-only. If that list ever grows
-        // a bare built-in name, this comment's "no built-ins" claim above stops being true.
-        allowedTools: opts.allowedTools,
-        // Defense in depth: without this, a model emitting a tool_use for an MCP tool outside
-        // `allowedTools` would still execute (canUseTool defaults to allow when absent). Same
+        // The MCP-tool half of the whitelist is `canUseTool` ALONE — deliberately NOT
+        // `allowedTools`. Verified live 2026-08-17: with the whitelist also listed as bare
+        // `allowedTools` entries the SDK emits `CLAUDE_SDK_CAN_USE_TOOL_SHADOWED` — "bare
+        // allowedTools entries auto-approve the whole tool before the callback is consulted"
+        // — so the deny branch below was dead code and any non-whitelisted MCP tool would
+        // have executed unchecked. The SDK's own remedy is to "remove the bare names from
+        // allowedTools so they fall through to canUseTool", which is what this does:
+        // `allowedTools` stays EMPTY and the callback is the single permission decision for
+        // every MCP call — allow the whitelist (no human is present to answer a prompt, so
+        // this is also what keeps the run from stalling), deny everything else. Same
         // signature/shape claude/index.ts's own canUseTool uses (toolName, input, { toolUseID
         // }) => Promise<PermissionResult>; `updatedInput` echoes the input back unchanged,
-        // matching the SDK's own PermissionResult contract for an 'allow' decision.
+        // matching the SDK's PermissionResult contract for an 'allow' decision.
+        //
+        // Side benefit: with nothing in `allowedTools`, the sdk.d.ts:1428-9 caveat (a bare
+        // built-in name like Grep/Glob listed in `allowedTools` can be GRANTED even under
+        // `tools: []`) cannot bite regardless of what `opts.allowedTools` contains.
+        allowedTools: [],
         canUseTool: async (toolName: string, input: Record<string, unknown>) =>
           opts.allowedTools.includes(toolName)
             ? { behavior: 'allow', updatedInput: input }
