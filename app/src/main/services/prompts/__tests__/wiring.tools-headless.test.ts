@@ -13,8 +13,13 @@ const stub = (id: string): string => `<<${id}>>`
 
 /** `rcaStructure` defaults to null (no confirmed report) — the common case, and the one the
  *  byte-identical-without-a-report tests below rely on. Pass a draft explicitly for tests that
- *  need the conditional `rca` section to render. */
-function distillInput(rcaStructure: RcaDraft | null = null): CaseDistillInput {
+ *  need the conditional `rca` section to render. `extra` carries Task 9's other conditional
+ *  fields (userMessages / rejectDigest / operatorGuidance) — also absent by default, same
+ *  byte-identical-legacy-prompt reasoning as rcaStructure, opted into per test as needed. */
+function distillInput(
+  rcaStructure: RcaDraft | null = null,
+  extra: Partial<Pick<CaseDistillInput, 'userMessages' | 'rejectDigest' | 'operatorGuidance'>> = {}
+): CaseDistillInput {
   return {
     caseMeta: {
       slug: 'c-1',
@@ -32,8 +37,17 @@ function distillInput(rcaStructure: RcaDraft | null = null): CaseDistillInput {
     skillsIndex: [],
     referencesIndex: [],
     rcaStructure,
-    alreadyCaptured: { proposals: [] }
+    alreadyCaptured: { proposals: [] },
+    ...extra
   }
+}
+
+/** All three of Task 9's conditional fields populated — paired with SAMPLE_DRAFT below, this is
+ *  the fixture that makes every CASE_DISTILL_SECTIONS key render at once. */
+const ALL_OPTIONAL_SECTIONS = {
+  userMessages: [{ sessionTitle: 't', messages: ['m'] }],
+  rejectDigest: 'digest text',
+  operatorGuidance: 'guidance text'
 }
 
 const SAMPLE_DRAFT: RcaDraft = {
@@ -144,9 +158,10 @@ describe('distill scaffolding honours an injected resolver', () => {
   })
 
   it('every case-distill section header is resolved, not just the contract', () => {
-    // rcaStructure is populated so the conditional `rca` section renders too — otherwise this
-    // exhaustive loop over CASE_DISTILL_SECTIONS would fail on a section that never appears.
-    const out = buildCaseDistillPrompt(distillInput(SAMPLE_DRAFT), stub)
+    // rcaStructure AND every Task 9 optional field are populated so every conditional section
+    // renders — otherwise this exhaustive loop over CASE_DISTILL_SECTIONS would fail on a
+    // section that never appears for this fixture.
+    const out = buildCaseDistillPrompt(distillInput(SAMPLE_DRAFT, ALL_OPTIONAL_SECTIONS), stub)
     for (const key of Object.keys(CASE_DISTILL_SECTIONS)) {
       expect(out, key).toContain(`<<headless.case-distill.section.${key}>>`)
     }
@@ -184,10 +199,17 @@ describe('distill scaffolding honours an injected resolver', () => {
     expect(out.startsWith(CASE_DISTILL_CONTRACT)).toBe(true)
 
     let cursor = 0
-    // 'rca' is excluded: this fixed input has no confirmed RCA structure (rcaStructure: null),
-    // so the whole section — header included — is deliberately omitted, not rendered as "(none)".
-    // Covered separately by the RCA-present assertion above and the byte-identical test below.
-    for (const key of Object.keys(CASE_DISTILL_SECTIONS).filter((k) => k !== 'rca')) {
+    // This fixed input (distillInput() with every Task 9 optional field left unset) is the
+    // legacy shape — deliberately so, to pin the byte-identical-to-pre-v2 structure. Every
+    // conditional section is therefore skipped here, header included, not rendered as "(none)":
+    // 'rca' (no confirmed RCA structure), 'user-messages' (no userMessages), 'reject-digest'
+    // (no rejectDigest), 'guidance' (no operatorGuidance). Each is covered by its own
+    // present-and-rendered assertion elsewhere (the exhaustive test above, and the
+    // per-field contract.test.ts coverage).
+    const CONDITIONAL_SECTIONS = new Set(['rca', 'user-messages', 'reject-digest', 'guidance'])
+    for (const key of Object.keys(CASE_DISTILL_SECTIONS).filter(
+      (k) => !CONDITIONAL_SECTIONS.has(k)
+    )) {
       const header = CASE_DISTILL_SECTIONS[key].text
       const idx = parts.findIndex((p, i) => i >= cursor && p.startsWith(header))
       expect(
