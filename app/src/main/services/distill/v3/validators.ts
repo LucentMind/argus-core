@@ -20,10 +20,25 @@ export type ValidateResult =
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /** Coarse locality measure: number of changed hunks + deleted-line ratio, on a line LCS-free
- *  diff (set-difference by line). Good enough to catch a rewrite; not a real diff. */
+ *  diff (set-difference by line). Good enough to catch a rewrite; not a real diff. Scattered
+ *  small edits (>2 hunks) are flagged by design — a coarse heuristic, this false-positive shape
+ *  (many tiny, genuinely-local edits) is an accepted tradeoff, not a bug.
+ *  Blank lines and bare `---`/`***` separators are filtered out of both sides before comparing:
+ *  otherwise they match for free in the multiset and dilute deletedRatio, letting a full rewrite
+ *  of a short substantive block inside a filler-heavy file slip under the threshold. */
 function editLocality(original: string, edited: string): { hunks: number; deletedRatio: number } {
-  const a = original.replace(/\r\n/g, '\n').split('\n')
-  const b = edited.replace(/\r\n/g, '\n').split('\n')
+  const isFiller = (l: string): boolean => {
+    const t = l.trim()
+    return t === '' || t === '---' || t === '***'
+  }
+  const a = original
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .filter((l) => !isFiller(l))
+  const b = edited
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .filter((l) => !isFiller(l))
   const bSet = new Map<string, number>()
   for (const l of b) bSet.set(l, (bSet.get(l) ?? 0) + 1)
   let deleted = 0
@@ -59,7 +74,8 @@ export function validateMaterialized(
   }
   const body = fm ? fm.body : p.content
   const idRe = new RegExp(
-    `\\b(${[escapeRe(caseIds.slug), ...(caseIds.jiraKey ? [escapeRe(caseIds.jiraKey)] : [])].join('|')})\\b`
+    `\\b(${[escapeRe(caseIds.slug), ...(caseIds.jiraKey ? [escapeRe(caseIds.jiraKey)] : [])].join('|')})\\b`,
+    'i'
   )
   if (idRe.test(body)) return { ok: false, reason: 'case-identifiers' }
   if (p.type === 'reference-edit' && (body.match(/^\s*\d+\.\s/gm)?.length ?? 0) >= 3)
