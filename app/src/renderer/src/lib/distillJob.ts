@@ -66,3 +66,19 @@ export function distillMenuLabel(job: DistillJobRow | null): string {
     ? `Re-distill · ${job.itemCount} items`
     : 'Re-distill · nothing to distill'
 }
+
+/**
+ * `{turnCount} turns · {toolCallCount} tool calls · $cost` — the v2 agentic-run usage readout
+ * (Task 12's widened DistillJobRow). Each segment is independently optional: the columns are
+ * null until a job records them (pre-v2 rows, or one still queued/running), so a segment with a
+ * null field is omitted rather than fabricated as "0 turns"/"$0.00". Returns '' (never shown)
+ * when every field is null.
+ */
+export function distillCostLine(job: DistillJobRow | null): string {
+  if (!job) return ''
+  const parts: string[] = []
+  if (job.turnCount !== null) parts.push(`${job.turnCount} turns`)
+  if (job.toolCallCount !== null) parts.push(`${job.toolCallCount} tool calls`)
+  if (job.costUsd !== null) parts.push(`$${job.costUsd.toFixed(2)}`)
+  return parts.join(' · ')
+}

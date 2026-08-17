@@ -71,7 +71,14 @@ const usage: UsageStatsPayload = {
     }
   ],
   references: [],
-  archived: [{ topic: 'old-lesson', archivedAt: '2026-06-01T00:00:00.000Z', sizeBytes: 512 }]
+  archived: [{ topic: 'old-lesson', archivedAt: '2026-06-01T00:00:00.000Z', sizeBytes: 512 }],
+  distillation: {
+    jobCount: 0,
+    totalCostUsd: null,
+    avgCostUsd: null,
+    avgPromptChars: null,
+    avgTurnCount: null
+  }
 }
 
 function mockArgus(): {
@@ -141,6 +148,48 @@ describe('MemorySettings usage + hygiene', () => {
     // legitimate chips are the byte-size chip and the over-cap flag — a scope chip appearing
     // here would be a third entry, changing this array.
     expect(chipTexts).toEqual(['9000 B', 'over cap'])
+  })
+
+  it('shows no Distillation section when no case job has ever completed', async () => {
+    render(<MemorySettings />)
+    await screen.findByText('hot-topic')
+    expect(screen.queryByText(/completed run/)).not.toBeInTheDocument()
+  })
+
+  it('surfaces the distillation section with totals and averages once runs exist', async () => {
+    argus.usage.stats.mockResolvedValue({
+      ...usage,
+      distillation: {
+        jobCount: 2,
+        totalCostUsd: 2,
+        avgCostUsd: 1,
+        avgPromptChars: 3000,
+        avgTurnCount: 15
+      }
+    })
+    render(<MemorySettings />)
+    expect(await screen.findByText('2 completed runs')).toBeInTheDocument()
+    expect(screen.getByText('$2.00 total')).toBeInTheDocument()
+    expect(screen.getByText(/avg \$1\.00/)).toBeInTheDocument()
+    expect(screen.getByText(/avg 15\.0 turns/)).toBeInTheDocument()
+    expect(screen.getByText(/avg 3000 prompt chars/)).toBeInTheDocument()
+  })
+
+  it('shows a jobCount-only Distillation section when no run has ever recorded usage (pre-v2 rows)', async () => {
+    argus.usage.stats.mockResolvedValue({
+      ...usage,
+      distillation: {
+        jobCount: 1,
+        totalCostUsd: null,
+        avgCostUsd: null,
+        avgPromptChars: null,
+        avgTurnCount: null
+      }
+    })
+    render(<MemorySettings />)
+    expect(await screen.findByText('1 completed run')).toBeInTheDocument()
+    expect(screen.getByText(/no usage recorded/)).toBeInTheDocument()
+    expect(screen.queryByText(/total$/)).not.toBeInTheDocument()
   })
 
   it('archive asks for confirmation then calls memory.archive', async () => {

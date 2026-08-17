@@ -42,6 +42,14 @@ export interface ProposalRecord {
   previouslyReviewed?: boolean
   /** distill job id that produced this proposal; absent for user-authored proposals */
   jobId?: string
+  /** Evidence/reasoning the distiller cited for this proposal (staging's basis gate) — absent
+   *  for user-authored proposals and pre-Task-14 distilled ones. */
+  basis?: string
+  /** A cross-case match: some OTHER case already rejected the same type+target. Absent when no
+   *  such reject exists. `tag`/`note` mirror the matched reject's reason, when it recorded one —
+   *  a "skip reason" reject stamps a bare `prior_reject_case` with neither, so `tag` stays
+   *  optional rather than fabricated. */
+  priorReject?: { tag?: string; caseSlug: string; note?: string }
 }
 export interface ProposalsPayload {
   proposals: ProposalRecord[]

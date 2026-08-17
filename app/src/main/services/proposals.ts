@@ -199,6 +199,10 @@ export function listProposals(argusHome: string): ProposalRecord[] {
       const target = fmField(fm, 'target')
       const previouslyReviewed = fmField(fm, 'previously_reviewed') === 'true'
       const job = fmField(fm, 'job')
+      const basis = fmField(fm, 'basis')
+      const priorRejectCase = fmField(fm, 'prior_reject_case')
+      const priorRejectTag = fmField(fm, 'prior_reject_tag')
+      const priorRejectNote = fmField(fm, 'prior_reject_note')
       return {
         file,
         type,
@@ -210,7 +214,17 @@ export function listProposals(argusHome: string): ProposalRecord[] {
         current: currentContent(argusHome, type, target),
         ...(targetLocked(argusHome, type, target) ? { locked: true } : {}),
         ...(previouslyReviewed ? { previouslyReviewed: true } : {}),
-        ...(job ? { jobId: job } : {})
+        ...(job ? { jobId: job } : {}),
+        ...(basis ? { basis } : {}),
+        ...(priorRejectCase
+          ? {
+              priorReject: {
+                caseSlug: priorRejectCase,
+                ...(priorRejectTag ? { tag: priorRejectTag } : {}),
+                ...(priorRejectNote ? { note: priorRejectNote } : {})
+              }
+            }
+          : {})
       }
     })
     .sort((a, b) => b.date.localeCompare(a.date))

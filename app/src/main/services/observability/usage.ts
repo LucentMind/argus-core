@@ -1,7 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { AppSettings } from '../../../shared/settings'
 import type { AgentAccess } from '../../../shared/agentAccess'
-import type { UsageStatsPayload, SkillUsageRow } from '../../../shared/observability'
+import type {
+  UsageStatsPayload,
+  SkillUsageRow,
+  DistillationUsageStats
+} from '../../../shared/observability'
 import { listReferenceFiles } from '../refSync/referenceFiles'
 import { resolveSkills } from '../agent/skillsResolver'
 import { listTopics } from '../memory'
@@ -32,6 +36,39 @@ interface CountRow {
   detail: string
   n: number
   last: string
+}
+
+interface DistillationRow {
+  n: number
+  total_cost: number | null
+  avg_cost: number | null
+  avg_prompt: number | null
+  avg_turn: number | null
+}
+
+/** Rollup over completed case distill jobs. `COUNT(*)` counts every done `kind='case'` row
+ *  regardless of whether it recorded usage (pre-v2 rows didn't); `SUM`/`AVG` are SQLite
+ *  aggregates, which skip NULL inputs on their own — so a pre-v2 done row lowers no average, and
+ *  an all-pre-v2 history reports a real jobCount with every average staying null rather than 0. */
+function distillationStats(db: DatabaseSync): DistillationUsageStats {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n,
+              SUM(cost_usd) AS total_cost,
+              AVG(cost_usd) AS avg_cost,
+              AVG(prompt_chars) AS avg_prompt,
+              AVG(turn_count) AS avg_turn
+       FROM distill_jobs
+       WHERE kind = 'case' AND state = 'done'`
+    )
+    .get() as unknown as DistillationRow
+  return {
+    jobCount: row.n,
+    totalCostUsd: row.total_cost,
+    avgCostUsd: row.avg_cost,
+    avgPromptChars: row.avg_prompt,
+    avgTurnCount: row.avg_turn
+  }
 }
 
 /** GROUP BY detail for one tool (or prefix), effective calls only (denied/cancelled excluded). */
@@ -100,6 +137,7 @@ export function usageStats(deps: UsageStatsDeps): UsageStatsPayload {
     skills: skills.sort((a, b) => a.name.localeCompare(b.name)),
     memory,
     references,
-    archived: listArchivedTopics(deps.argusHome)
+    archived: listArchivedTopics(deps.argusHome),
+    distillation: distillationStats(deps.db)
   }
 }

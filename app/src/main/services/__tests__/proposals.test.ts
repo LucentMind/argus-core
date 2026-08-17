@@ -92,6 +92,52 @@ describe('listProposals', () => {
     })
     expect(listProposals(home)[0].current).toBeNull()
   })
+
+  it('reads basis and a full prior-reject stamp (tag + note) from frontmatter', () => {
+    writeProposal(
+      home,
+      'NAV-100',
+      { type: 'recipe', target: 'dlt-cmds', title: 'Cmds', content: '# cmds\n' },
+      {
+        basis: 'transcript at msg 12: user confirmed the fix worked',
+        prior_reject_case: 'other-case',
+        prior_reject_tag: 'overgeneric',
+        prior_reject_note: 'too broad a claim'
+      }
+    )
+    const p = listProposals(home)[0]
+    expect(p.basis).toBe('transcript at msg 12: user confirmed the fix worked')
+    expect(p.priorReject).toEqual({
+      caseSlug: 'other-case',
+      tag: 'overgeneric',
+      note: 'too broad a claim'
+    })
+  })
+
+  it('reads a bare prior-reject case with no tag/note ("skip reason" reject), and fabricates neither', () => {
+    writeProposal(
+      home,
+      'NAV-100',
+      { type: 'recipe', target: 'dlt-cmds', title: 'Cmds', content: '# cmds\n' },
+      { prior_reject_case: 'other-case' }
+    )
+    const p = listProposals(home)[0]
+    expect(p.priorReject).toEqual({ caseSlug: 'other-case' })
+    expect('tag' in p.priorReject!).toBe(false)
+    expect('note' in p.priorReject!).toBe(false)
+  })
+
+  it('omits basis and priorReject entirely when the frontmatter carries neither', () => {
+    writeProposal(home, 'NAV-100', {
+      type: 'recipe',
+      target: 'dlt-cmds',
+      title: 'Cmds',
+      content: '# cmds\n'
+    })
+    const p = listProposals(home)[0]
+    expect('basis' in p).toBe(false)
+    expect('priorReject' in p).toBe(false)
+  })
 })
 
 describe('accept / reject', () => {
