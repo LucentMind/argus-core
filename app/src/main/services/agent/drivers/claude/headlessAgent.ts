@@ -50,14 +50,23 @@ function newState(): CollectorState {
   return { last: '', turnCount: 0, toolCallCount: 0, trajectory: [] }
 }
 
-function toResult(state: CollectorState, capHit?: 'iterations' | 'timeout'): HeadlessAgentResult {
+function toResult(
+  state: CollectorState,
+  capHit?: 'iterations' | 'timeout',
+  capSubtype?: string
+): HeadlessAgentResult {
   return {
     text: state.last,
     usage: state.usage,
     turnCount: state.turnCount,
     toolCallCount: state.toolCallCount,
-    trajectory: state.trajectory,
-    ...(capHit ? { capHit } : {})
+    // Copied, not the live array: `state` is still mutable after this returns (the timeout
+    // race can win while the abandoned collector is mid-interrupt, still writing to
+    // `state.trajectory` for a stream event or two before teardown lands), so handing out
+    // the reference itself would let the caller observe it change after the fact.
+    trajectory: [...state.trajectory],
+    ...(capHit ? { capHit } : {}),
+    ...(capSubtype ? { capSubtype } : {})
   }
 }
 
@@ -92,10 +101,13 @@ function extractUsage(msg: any, started: number): HeadlessUsage {
  * non-success subtype (`SDKResultError` — `error_max_turns`, `error_during_execution`,
  * `error_max_budget_usd`, `error_max_structured_output_retries`) means the SDK cut the run off
  * before a clean end; if anything was collected, that is harvested and returned with
- * `capHit: 'iterations'` (the design spec's "either limit" bucket — Task 11 has no way to
- * distinguish which specific SDK-side cap fired, and none of them are Task 11's own
- * wall-clock `timeoutMs`, so they all land under the same label). Only a plain error subtype
- * with NOTHING collected still throws, matching `runHeadless`'s existing failure behavior.
+ * `capHit: 'iterations'` (the design spec's "either limit" bucket, as opposed to Task 11's own
+ * wall-clock `timeoutMs`, which is `capHit: 'timeout'`) AND `capSubtype` set to the raw
+ * `msg.subtype` — `capHit` alone cannot tell a genuine crash (`error_during_execution`) apart
+ * from an actual budget cap (`error_max_turns`, `error_max_budget_usd`,
+ * `error_max_structured_output_retries`); the subtype is in hand on this message, so it is
+ * recorded rather than discarded. Only a plain error subtype with NOTHING collected still
+ * throws, matching `runHeadless`'s existing failure behavior.
  */
 async function collectAgentRun(
   q: AsyncIterable<unknown>,
@@ -166,7 +178,7 @@ async function collectAgentRun(
       if (typeof msg.num_turns === 'number') state.turnCount = msg.num_turns
       if (msg.subtype && msg.subtype !== 'success') {
         if (!hadAnyContent) throw new Error(`headless agent run failed: ${String(msg.subtype)}`)
-        return toResult(state, 'iterations')
+        return toResult(state, 'iterations', String(msg.subtype))
       }
       return toResult(state)
     }
@@ -224,7 +236,12 @@ export async function runClaudeHeadlessAgent(
         // human to answer it — but `allowedTools` ONLY auto-approves, it does not restrict
         // (sdk.d.ts: "To restrict which tools are available, use the `tools` option instead" —
         // which, per the comment above, only reaches built-ins, not MCP tools). `canUseTool`
-        // below is the actual gate for the MCP surface.
+        // below is the actual gate for the MCP surface. CAVEAT (sdk.d.ts:1428-9): on native
+        // builds, listing a dedicated built-in like Grep/Glob in `allowedTools` can GRANT it
+        // even under `tools: []` ("List Grep/Glob here or in `allowedTools` to get them") — so
+        // `tools: []`'s built-in lockout only actually holds because the caller's
+        // `DISTILL_ALLOWED_TOOLS` (worldTools.ts) is mcp__argus__-only. If that list ever grows
+        // a bare built-in name, this comment's "no built-ins" claim above stops being true.
         allowedTools: opts.allowedTools,
         // Defense in depth: without this, a model emitting a tool_use for an MCP tool outside
         // `allowedTools` would still execute (canUseTool defaults to allow when absent). Same
@@ -244,8 +261,15 @@ export async function runClaudeHeadlessAgent(
     const result = await Promise.race([
       collectAgentRun(q, promptQueue, state, opts.maxIterations, started),
       new Promise<HeadlessAgentResult>((resolve) => {
-        // Harvest, don't throw — see the doc comment above and HeadlessAgentResult.capHit.
-        timer = setTimeout(() => resolve(toResult(state, 'timeout')), timeoutMs)
+        // Harvest, don't throw — see the doc comment above and HeadlessAgentResult.capHit. A
+        // timeout means no `result` message ever arrived, so `state.usage` is normally still
+        // undefined — but durationMs (unlike token/cost figures) is always knowable here, and
+        // it's exactly the figure worth having on the long-running distill jobs a timeout is
+        // most likely to hit. Only synthesize it when nothing already landed in state.usage.
+        timer = setTimeout(() => {
+          state.usage = state.usage ?? { durationMs: Date.now() - started }
+          resolve(toResult(state, 'timeout'))
+        }, timeoutMs)
       }),
       abortRacer(opts.signal)
     ])
