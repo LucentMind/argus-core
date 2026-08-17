@@ -46,6 +46,9 @@ export function startPtcServer(opts: PtcServerOpts): Promise<PtcServer> {
     } catch {
       return reply({ ok: false, error: 'invalid JSON' })
     }
+    if (typeof msg !== 'object' || msg === null || Array.isArray(msg)) {
+      return reply({ ok: false, error: 'invalid JSON' })
+    }
     const supplied = Buffer.from(String(msg.token ?? ''))
     if (supplied.length !== tokenBuf.length || !crypto.timingSafeEqual(supplied, tokenBuf)) {
       return reply({ ok: false, error: 'invalid token' })

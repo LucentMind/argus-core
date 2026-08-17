@@ -1,5 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import net from 'node:net'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import module from 'node:module'
 import { startPtcServer, type PtcServer } from '../server'
 import { generateStubModule, PTC_STUB_VERSION } from '../stub'
 
@@ -16,6 +20,29 @@ function call(
   return new Promise((resolve, reject) => {
     const s = net.connect({ host: '127.0.0.1', port }, () => {
       s.write(JSON.stringify(payload) + '\n')
+    })
+    let acc = ''
+    s.setEncoding('utf8')
+    s.on('data', (d) => {
+      acc += d
+      const nl = acc.indexOf('\n')
+      if (nl !== -1) {
+        s.destroy()
+        resolve(JSON.parse(acc.slice(0, nl)))
+      }
+    })
+    s.on('error', reject)
+  })
+}
+
+/** Sends a raw line (not JSON.stringify'd from an object) — for probing malformed input. */
+function sendRaw(
+  port: number,
+  rawLine: string
+): Promise<{ ok: boolean; result?: unknown; error?: string }> {
+  return new Promise((resolve, reject) => {
+    const s = net.connect({ host: '127.0.0.1', port }, () => {
+      s.write(rawLine + '\n')
     })
     let acc = ''
     s.setEncoding('utf8')
@@ -86,6 +113,34 @@ describe('startPtcServer', () => {
     const res = await call(srv.port, { tool: 't', args: {}, token: srv.token })
     expect(res).toEqual({ ok: false, error: 'boom' })
   })
+
+  it('rejects non-object JSON payloads (null, primitives, arrays) instead of crashing', async () => {
+    srv = await startPtcServer({
+      dispatch: async (tool, args) => ({ echoed: tool, args }),
+      allowedTools: ['search_evidence'],
+      maxCalls: 5
+    })
+    const nullRes = await sendRaw(srv.port, 'null')
+    expect(nullRes).toEqual({ ok: false, error: 'invalid JSON' })
+
+    const strRes = await sendRaw(srv.port, '"hi"')
+    expect(strRes).toEqual({ ok: false, error: 'invalid JSON' })
+
+    const boolRes = await sendRaw(srv.port, 'true')
+    expect(boolRes).toEqual({ ok: false, error: 'invalid JSON' })
+
+    const arrRes = await sendRaw(srv.port, '[]')
+    expect(arrRes).toEqual({ ok: false, error: 'invalid JSON' })
+
+    // Server must stay alive: a subsequent valid call still works.
+    const ok = await call(srv.port, {
+      tool: 'search_evidence',
+      args: { query: 'x' },
+      token: srv.token
+    })
+    expect(ok.ok).toBe(true)
+    expect(ok.result).toEqual({ echoed: 'search_evidence', args: { query: 'x' } })
+  })
 })
 
 describe('generateStubModule', () => {
@@ -96,5 +151,21 @@ describe('generateStubModule', () => {
     expect(src).toContain('jsonParse')
     expect(src).toContain('retry')
     expect(PTC_STUB_VERSION).toMatch(/^\d+$/)
+  })
+
+  it('generates a module that is valid, loadable JS whose jsonParse strips a real BOM', () => {
+    const src = generateStubModule(['search_evidence'])
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptc-stub-'))
+    const file = path.join(dir, 'stub.js')
+    fs.writeFileSync(file, src, 'utf8')
+    try {
+      const require = module.createRequire(import.meta.url)
+      const mod = require(file) as { jsonParse: (text: string) => unknown }
+      // Requiring successfully already proves the generated source is syntactically valid JS.
+      expect(mod.jsonParse('﻿{"a":1}')).toEqual({ a: 1 })
+      expect(mod.jsonParse('{"a":2}')).toEqual({ a: 2 })
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
