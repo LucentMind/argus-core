@@ -54,6 +54,12 @@ import type { CorpusSearchInput, SourceSearchResult } from '../../../shared/defe
 import { saveItemSuggestion } from '../routines/runItems'
 import type { TriageSuggestion } from '../../../shared/routines'
 import type { WatermarkTarget } from '../../../shared/watermark'
+import {
+  runToolScript,
+  PTC_FOREGROUND_MAX_CALLS,
+  PTC_FOREGROUND_STDOUT_CAP,
+  PTC_FOREGROUND_TIMEOUT_MS
+} from '../ptc/run'
 
 export interface NativeToolDeps {
   db: DatabaseSync
@@ -105,7 +111,24 @@ export interface NativeToolDeps {
   /** The `routine_run_items` row this session is processing, or null for an ordinary session.
    *  Read per call, because one routine run reuses nothing across items. */
   currentRunItemId?: () => number | null
+  /** Fired once per successful inner call dispatched from inside a `run_tool_script` script,
+   *  before the sibling handler runs — so the audit trail records every script-originated tool
+   *  call even though only the script's own stdout ever reaches the model. Absent in tests that
+   *  don't need the audit trail. */
+  onScriptToolCall?: (tool: string, args: Record<string, unknown>) => void
 }
+
+/** Tools callable from inside a `run_tool_script` script via `require('./argus_tools')`
+ *  (foreground/interactive sessions — Task 9's background distiller uses its own, wider list).
+ *  Read-only by construction: none of these can mutate the case, so no per-call risk gate is
+ *  needed beyond the PTC server's allowlist check itself. */
+export const PTC_FOREGROUND_TOOLS = [
+  'search_evidence',
+  'list_evidence',
+  'search_case_history',
+  'search_known_defects',
+  'read_memory'
+] as const
 
 // What the tool ACCEPTS, not what it stores: `closed`/`open` are written to the lifecycle,
 // `rca-drafted` becomes a pin, and the derived phases are rejected with an explanation.
@@ -356,7 +379,7 @@ export function argusToolHandlers(
     return { abs: res.abs, index }
   }
 
-  return {
+  const h: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
     async search_evidence(args) {
       // Two independent axes. `args.scope` is case breadth (this case vs all cases);
       // evidenceScope is the mode axis, and follows this session's own mode exactly as
@@ -787,6 +810,41 @@ export function argusToolHandlers(
       return JSON.stringify({ ok: false, reason: res.reason, hint: res.hint }, null, 2)
     }
   }
+
+  // Assigned after `h` is built, not inline above, so its dispatch closure can call the
+  // sibling handlers by name — a script's inner calls reuse the exact same handlers (and
+  // the exact same per-session gating, e.g. read_memory's agent-access check) as a direct
+  // tool call would.
+  h.run_tool_script = async (a) => {
+    const res = await runToolScript({
+      script: String(a.script ?? ''),
+      allowedTools: [...PTC_FOREGROUND_TOOLS],
+      dispatch: async (tool, args) => {
+        deps.onScriptToolCall?.(tool, args)
+        return h[tool as keyof typeof h](args)
+      },
+      maxCalls: PTC_FOREGROUND_MAX_CALLS,
+      stdoutCapBytes: PTC_FOREGROUND_STDOUT_CAP,
+      timeoutMs: PTC_FOREGROUND_TIMEOUT_MS
+    })
+    // JSON, like every other structured-result handler (get_artifact_meta, open_panel,
+    // capture_panel) — the explicit byte fields must survive as real JSON, not prose, or a
+    // downstream truncation layer could re-mangle the very metadata that describes truncation.
+    return JSON.stringify(
+      {
+        stdout: res.stdout,
+        stdout_bytes_total: res.stdoutBytesTotal,
+        stdout_bytes_omitted: res.stdoutBytesOmitted,
+        exit_code: res.exitCode,
+        timed_out: res.timedOut,
+        tool_calls: res.calls
+      },
+      null,
+      2
+    )
+  }
+
+  return h
 }
 
 function asText(text: string): { content: [{ type: 'text'; text: string }] } {
@@ -978,6 +1036,16 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
     description:
       'Screenshot an OPEN pack panel into case evidence, then use Read on the returned rel_path to view it. The panel must already be open — call open_panel first if it may be closed. Returns {ok, evidence_id, rel_path, artifact_type} — use the Read tool on rel_path to view the capture — or {ok:false, reason}.',
     schema: { pack_id: z.string(), window_id: z.string() }
+  },
+  {
+    name: 'run_tool_script',
+    description:
+      'Run a short Node script that calls Argus read-tools programmatically via require("./argus_tools") ' +
+      '(search_evidence, list_evidence, search_case_history, search_known_defects, read_memory — each returns a Promise). ' +
+      'Use for multi-step sweeps (search → read → correlate across many results): only the script stdout ' +
+      'returns to you, so a 12-call pipeline costs one result. console.log your findings. ' +
+      'Write tools are not callable from scripts.',
+    schema: { script: z.string() }
   }
 ]
 
