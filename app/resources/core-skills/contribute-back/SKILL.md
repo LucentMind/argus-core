@@ -52,3 +52,11 @@ true for the whole team → a proposal (this page); true only for this case → 
   path, and they are inert until the user accepts them.
 - Do not re-draft a proposal the user already rejected in this session.
 - After drafting, tell the user what you proposed and why, in one or two lines.
+
+## Sweep before you draft
+
+Before drafting a proposal, check whether the pattern is genuinely reusable: run one
+`run_tool_script` sweep over case history and evidence (e.g. search_case_history +
+search_evidence for the error signature) and cite the result in the proposal ("seen in
+2 prior cases: X, Y" or "no prior occurrence found"). Keep write_proposal itself a
+direct tool call — one call per proposal, never from inside a script.

@@ -29,6 +29,22 @@ let handlers: ReturnType<typeof argusToolHandlers>
 const emitFinding = vi.fn()
 const detection = createDetection()
 
+/** The shared per-test deps object every case in this file builds on — a real db/case pair
+ *  with the defaults every handler needs (githubWatermark, emitFinding). Callers spread this
+ *  and override/add fields (e.g. onScriptToolCall) rather than repeating the whole literal. */
+function fakeDeps(): Parameters<typeof argusToolHandlers>[0] {
+  return {
+    db,
+    argusHome,
+    detection,
+    caseId,
+    caseSlug: 'NAV-1',
+    sessionId: 1,
+    emitFinding,
+    githubWatermark: () => ({ enabled: false, text: '' })
+  }
+}
+
 beforeEach(async () => {
   emitFinding.mockClear()
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-nt-'))
@@ -39,16 +55,7 @@ beforeEach(async () => {
   const src = path.join(tmp, 'log.txt')
   fs.writeFileSync(src, 'FATAL Navigator crashed at tile load\nline two\n')
   await ingestArtifact(db, argusHome, detection, createImmediateQueue(db, argusHome), 'NAV-1', src)
-  handlers = argusToolHandlers({
-    db,
-    argusHome,
-    detection,
-    caseId: rec.id,
-    caseSlug: 'NAV-1',
-    sessionId: 1,
-    emitFinding,
-    githubWatermark: () => ({ enabled: false, text: '' })
-  })
+  handlers = argusToolHandlers(fakeDeps())
 })
 
 afterEach(() => {
@@ -417,5 +424,30 @@ describe('argus native tools', () => {
     const specNames = NATIVE_TOOL_SPECS.map((s) => s.name).sort()
     const handlerNames = Object.keys(handlers).sort()
     expect(specNames).toEqual(handlerNames)
+  })
+
+  describe('run_tool_script', () => {
+    it('runs a script whose inner calls hit sibling handlers and are audit-notified', async () => {
+      const seen: string[] = []
+      const h = argusToolHandlers({ ...fakeDeps(), onScriptToolCall: (t) => seen.push(t) })
+      const out = await h.run_tool_script({
+        script: `const t = require('./argus_tools')
+t.search_case_history({ query: 'brakes' }).then((r) => console.log(JSON.stringify(r)))`
+      })
+      // result text carries stdout + explicit byte metadata, as JSON like every other
+      // structured-result handler (get_artifact_meta, open_panel, capture_panel).
+      const res = JSON.parse(out)
+      expect(res).toMatchObject({ stdout_bytes_omitted: 0 })
+      expect(seen).toEqual(['search_case_history'])
+    }, 30_000)
+
+    it('denies write tools inside scripts', async () => {
+      const h = argusToolHandlers(fakeDeps())
+      const out = await h.run_tool_script({
+        script: `require('./argus_tools').call('write_memory', {}).catch((e) => console.log('ERR ' + e.message))`
+      })
+      const res = JSON.parse(out)
+      expect(String(res.stdout)).toContain('not allowed')
+    }, 30_000)
   })
 })

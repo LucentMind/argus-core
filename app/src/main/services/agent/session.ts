@@ -538,7 +538,12 @@ export class CaseSession {
         onCaseClosed: deps.onCaseClosed,
         onWorktreeChanged: deps.onWorktreeChanged,
         defectCorpus: deps.defectCorpus,
-        currentRunItemId: deps.currentRunItemId
+        currentRunItemId: deps.currentRunItemId,
+        // A script's inner calls never pass through canUseTool/classifyOnly — the PTC server
+        // dispatches them directly — so without this the audit trail would show one
+        // run_tool_script row and nothing for what it actually did. 'script' is the `via:
+        // script` marker; 0 duration because run.ts already timed the whole child process.
+        onScriptToolCall: (tool, args) => this.logToolCall(tool, args, 'LOW', 'script', 0)
       },
       panelCommandDecls: deps.panelCommandDecls ?? [],
       dispatchPanelCommand: deps.dispatchPanelCommand,
