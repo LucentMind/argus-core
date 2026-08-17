@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import { loadCorpus } from './corpus'
 import { claudeRunner } from './runner'
+import { claudeAgentRunner } from './agentRunner'
 import { contractResolver } from './replay'
 import { runEval } from './run'
 import { writeReport } from './report'
@@ -30,7 +31,12 @@ async function main(): Promise<void> {
   if (limit) lines = lines.slice(0, Number(limit))
   const model = arg('model') ?? undefined
   console.error(`replaying ${lines.length} case(s)…`)
-  const results = await runEval(lines, claudeRunner(model), claudeRunner(model), resolve)
+  const results = await runEval(
+    lines,
+    // agent: the distill replay itself (tools over the frozen world). oneShot: the judge.
+    { agent: claudeAgentRunner(model), oneShot: claudeRunner(model) },
+    resolve
+  )
   const { reportPath } = writeReport(out, results)
   console.error(`report: ${reportPath}`)
 }
