@@ -98,7 +98,8 @@ describe('distill proposal types', () => {
         caseSlug: 'case-a',
         title: 'a',
         status: 'rejected',
-        date: expect.any(String)
+        date: expect.any(String),
+        rejectedAt: expect.any(String)
       }
     ])
     const f2 = writeProposal(home, 'case-a', {
