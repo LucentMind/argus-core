@@ -148,6 +148,48 @@ describe('ProposalDetail: pending', () => {
     expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument()
   })
 
+  it('renders a basis line when the proposal carries one', () => {
+    renderDetail({
+      proposal: { ...pending, basis: 'transcript at msg 12: user confirmed the fix' }
+    })
+    expect(
+      screen.getByText(/Basis: transcript at msg 12: user confirmed the fix/)
+    ).toBeInTheDocument()
+  })
+
+  it('renders no basis line when the proposal carries none', () => {
+    renderDetail()
+    expect(screen.queryByText(/^Basis:/)).not.toBeInTheDocument()
+  })
+
+  it('renders a prior-reject warning banner with tag, case, and note', () => {
+    renderDetail({
+      proposal: {
+        ...pending,
+        priorReject: { tag: 'overgeneric', caseSlug: 'NAV-42', note: 'too broad a claim' }
+      }
+    })
+    const banner = screen.getByText(/Previously rejected/).closest('div')!
+    expect(banner).toHaveTextContent(
+      'Previously rejected as overgeneric (case NAV-42): too broad a claim'
+    )
+    expect(screen.getByText('overgeneric')).toBeInTheDocument()
+  })
+
+  it('renders the prior-reject banner without a note when none was recorded', () => {
+    renderDetail({
+      proposal: { ...pending, priorReject: { tag: 'wrong', caseSlug: 'NAV-42' } }
+    })
+    const banner = screen.getByText(/Previously rejected/).closest('div')!
+    expect(banner).toHaveTextContent('Previously rejected as wrong (case NAV-42)')
+    expect(banner.textContent).not.toContain(':')
+  })
+
+  it('renders no prior-reject banner when the proposal carries none', () => {
+    renderDetail()
+    expect(screen.queryByText(/previously rejected/i)).not.toBeInTheDocument()
+  })
+
   it('case summary renders markdown, no view bar, no target chip', () => {
     renderDetail({
       proposal: { ...pending, type: 'case-summary', content: '## Summary\nBody text\n' }

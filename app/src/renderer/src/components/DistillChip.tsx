@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { DistillJobRow } from '../../../shared/distill'
 import { Chip } from './ui'
-import { useDistillJob } from '../lib/distillJob'
+import { useDistillJob, distillCostLine } from '../lib/distillJob'
 
 /**
  * Distillation, but only while it needs the bar's attention. The resting `done` states
@@ -87,31 +87,35 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
   }
 
   if (job.state === 'failed') {
+    const costLine = distillCostLine(job)
     return (
-      <button
-        className="font-mono text-[10.5px] uppercase tracking-wide text-danger"
-        disabled={retrying}
-        onClick={() => {
-          setRetrying(true)
-          const epoch = cancelEpochRef.current
-          void window.argus.distill
-            .retry(job.id)
-            .then((row) => {
-              if (cancelEpochRef.current === epoch) setOverride(row)
-            })
-            .catch(() =>
-              window.argus.distill
-                .status(slug)
-                .then((j) => {
-                  if (j && cancelEpochRef.current === epoch) setOverride(j)
-                })
-                .catch(() => undefined)
-            )
-            .finally(() => setRetrying(false))
-        }}
-      >
-        distill failed — retry
-      </button>
+      <span className="flex items-center gap-1.5">
+        <button
+          className="font-mono text-[10.5px] uppercase tracking-wide text-danger"
+          disabled={retrying}
+          onClick={() => {
+            setRetrying(true)
+            const epoch = cancelEpochRef.current
+            void window.argus.distill
+              .retry(job.id)
+              .then((row) => {
+                if (cancelEpochRef.current === epoch) setOverride(row)
+              })
+              .catch(() =>
+                window.argus.distill
+                  .status(slug)
+                  .then((j) => {
+                    if (j && cancelEpochRef.current === epoch) setOverride(j)
+                  })
+                  .catch(() => undefined)
+              )
+              .finally(() => setRetrying(false))
+          }}
+        >
+          distill failed — retry
+        </button>
+        {costLine && <span className="font-mono text-[10.5px] text-dim">{costLine}</span>}
+      </span>
     )
   }
 

@@ -153,6 +153,24 @@ export function ProposalDetail({
             change this.
           </div>
         )}
+        {p.basis && (
+          <p className="mt-2 border-l-2 border-hair pl-2 text-xs italic text-dim">
+            Basis: {p.basis}
+          </p>
+        )}
+        {p.priorReject && (
+          <div className="mt-2 rounded-r2 border border-review/40 bg-review/10 px-2 py-1 text-xs text-ink">
+            {'Previously rejected'}
+            {p.priorReject.tag ? (
+              <>
+                {' as '}
+                <b>{p.priorReject.tag}</b>
+              </>
+            ) : null}
+            {` (case ${p.priorReject.caseSlug})`}
+            {p.priorReject.note ? `: ${p.priorReject.note}` : ''}
+          </div>
+        )}
       </div>
       {showViewBar && (
         <div className="flex items-center gap-2 border-b border-hair px-5 py-2">
