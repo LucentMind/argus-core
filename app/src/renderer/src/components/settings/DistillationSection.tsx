@@ -1,6 +1,11 @@
 import { settingsStore } from '../../lib/settingsStore'
-import { SettingsSection, SettingRow, SelectField } from './settingsLayout'
-import { getDriver, orderedVisibleModels, resolveDistillProvider } from '../../../../shared/drivers'
+import { SettingsSection, SettingRow, SelectField, DraftTextarea } from './settingsLayout'
+import {
+  getDriver,
+  orderedVisibleModels,
+  resolveDistillProvider,
+  resolveDistillAgentProvider
+} from '../../../../shared/drivers'
 import type { SettingsPayload } from '../../../../shared/settings'
 
 const AUTO = 'Automatic'
@@ -21,6 +26,12 @@ export function DistillationSection({ payload }: { payload: SettingsPayload }): 
   const a = s.agent
   const stored = a.distillProvider
   const resolved = resolveDistillProvider(s)
+  // Agent-based distillation (the v2 world-model builder) needs a native-tool-capable driver
+  // — a strict SUBSET of what one-shot distillation (refSync, the reject digest) accepts. When
+  // the resolved one-shot provider can't also serve the agent path, the case-close distiller
+  // silently falls back to reference-sync-only behavior elsewhere; this row is what tells the
+  // operator why, instead of leaving them to infer it from a job outcome.
+  const agentResolved = resolveDistillAgentProvider(s)
 
   // Same gate resolveDistillProvider applies, so the UI can never offer something the
   // resolver would refuse.
@@ -139,6 +150,26 @@ export function DistillationSection({ payload }: { payload: SettingsPayload }): 
           options={withValue(modelOptions, modelValue)}
           onChange={selectModel}
           disabled={!resolved.ok}
+        />
+      </SettingRow>
+      {resolved.ok && !agentResolved.ok && (
+        <div className="px-4 pb-3 text-xs text-danger">
+          Agent-based distillation requires a provider with agent support (currently Claude). This
+          provider can only run reference sync.
+        </div>
+      )}
+      <SettingRow
+        label="Distillation guidance"
+        description="Folded into every case distillation's prompt, under an Operator guidance header"
+        isDefault={s.distill.guidance === ''}
+        onReset={() => void settingsStore.patch({ distill: { guidance: null } })}
+      >
+        <DraftTextarea
+          aria-label="Distillation guidance"
+          placeholder='Standing instructions for the distiller — e.g. "never propose skills about internal tooling"'
+          className="w-72 rounded-r2 border border-hair bg-well p-2 font-mono text-xs text-ink placeholder:text-mute focus:border-hair2 focus:outline-none"
+          value={s.distill.guidance}
+          onCommit={(v) => void settingsStore.patch({ distill: { guidance: v || null } })}
         />
       </SettingRow>
     </SettingsSection>

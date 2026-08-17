@@ -38,8 +38,9 @@ export type AgentRunner = (
  * What one agent replay produced. `capSubtype` is the SDK's terminal non-success `result.subtype`
  * (`error_max_turns`, `error_during_execution`, `error_max_budget_usd`, …) when the run was cut
  * off instead of ending cleanly. It must ride out of the runner, not be swallowed: the app FAILS
- * a capped distill job rather than parsing its text (queue.ts's capHit handling), so a harness
- * that graded the same text would score a candidate on output the product would have rejected.
+ * a capped distill job rather than parsing its text (caseDistiller.ts's capHit handling — the
+ * refusal to parse happens there, not in queue.ts), so a harness that graded the same text would
+ * score a candidate on output the product would have rejected.
  */
 export interface AgentReplayResult {
   text: string

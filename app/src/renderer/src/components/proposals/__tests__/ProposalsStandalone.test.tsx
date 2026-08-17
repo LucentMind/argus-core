@@ -82,6 +82,7 @@ beforeEach(() => {
       list: vi.fn().mockResolvedValue(payload),
       accept: acceptMock,
       reject: rejectMock,
+      rejectDigest: vi.fn().mockResolvedValue(null),
       onChanged: vi.fn(() => () => {})
     },
     settings: {
@@ -192,6 +193,7 @@ describe('ProposalsStandalone', () => {
         })
       ),
       reject: vi.fn(),
+      rejectDigest: vi.fn().mockResolvedValue(null),
       onChanged: vi.fn(() => () => {})
     }
     const order = (): string[] =>
@@ -380,6 +382,7 @@ describe('ProposalsStandalone', () => {
         list: vi.fn().mockRejectedValue(new Error('ipc dead')),
         accept: vi.fn().mockResolvedValue({ proposals: [] }),
         reject: vi.fn().mockResolvedValue({ proposals: [] }),
+        rejectDigest: vi.fn().mockResolvedValue(null),
         onChanged: vi.fn(() => () => {})
       },
       settings: {

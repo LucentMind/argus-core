@@ -220,15 +220,19 @@ describe('usageStats', () => {
         totalCostUsd: 2,
         avgCostUsd: 1,
         avgPromptChars: 3000,
-        avgTurnCount: 15
+        avgTurnCount: 15,
+        failedCostUsd: null
       })
     })
 
-    it('excludes queued/running/failed/cancelled rows and non-case kinds', () => {
+    it('jobCount/averages exclude queued/running/failed/cancelled rows and non-case kinds, but failedCostUsd counts failed spend', () => {
       const db = openDb(':memory:')
       seedCase(db)
       seedDistillJob(db, 'c', { costUsd: 1, turnCount: 5, toolCallCount: 2, promptChars: 100 })
       seedDistillJob(db, 'c', { state: 'queued', costUsd: null })
+      // Failed capHit runs are the expensive ones (they ran the whole agent loop and still
+      // refused to parse) — their spend must not vanish from the rollup even though they never
+      // become a `done` job. jobCount/averages stay done-only; only failedCostUsd sees this row.
       seedDistillJob(db, 'c', { state: 'failed', costUsd: 9, turnCount: 99, toolCallCount: 99 })
       seedDistillJob(db, 'c', { kind: 'reject-digest', state: 'done', costUsd: 9 })
       const s = usageStats({
@@ -243,7 +247,8 @@ describe('usageStats', () => {
         totalCostUsd: 1,
         avgCostUsd: 1,
         avgPromptChars: 100,
-        avgTurnCount: 5
+        avgTurnCount: 5,
+        failedCostUsd: 9
       })
     })
 
@@ -263,7 +268,8 @@ describe('usageStats', () => {
         totalCostUsd: null,
         avgCostUsd: null,
         avgPromptChars: null,
-        avgTurnCount: null
+        avgTurnCount: null,
+        failedCostUsd: null
       })
     })
 
@@ -282,8 +288,25 @@ describe('usageStats', () => {
         totalCostUsd: null,
         avgCostUsd: null,
         avgPromptChars: null,
-        avgTurnCount: null
+        avgTurnCount: null,
+        failedCostUsd: null
       })
+    })
+
+    it('sums cost across multiple failed runs, independent of the done-only jobCount', () => {
+      const db = openDb(':memory:')
+      seedCase(db)
+      seedDistillJob(db, 'c', { state: 'failed', costUsd: 2 })
+      seedDistillJob(db, 'c', { state: 'failed', costUsd: 3 })
+      const s = usageStats({
+        db,
+        argusHome: tmp,
+        access: defaultAgentAccess(),
+        hygiene: HYG,
+        now: NOW
+      })
+      expect(s.distillation.jobCount).toBe(0)
+      expect(s.distillation.failedCostUsd).toBe(5)
     })
   })
 })
