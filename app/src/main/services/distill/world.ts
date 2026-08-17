@@ -30,6 +30,12 @@ export function clampText(s: string, cap: number): { text: string; truncated: bo
   }
 }
 
+/** Byte budgets are enforced in true UTF-8 bytes, not UTF-16 code units --
+ *  `.length` undercounts any multi-byte (e.g. CJK) content. */
+function byteLen(s: string): number {
+  return Buffer.byteLength(s, 'utf8')
+}
+
 /** Deliberately NOT listSessions(): that helper CREATES a session when none exist —
  *  a snapshot must never mutate the case it snapshots. */
 export function buildWorld(
@@ -55,30 +61,40 @@ export function buildWorld(
       dropped = kept.length - clamps.sessionMaxMsgs
       kept = kept.slice(-clamps.sessionMaxMsgs) // late messages carry conclusions
     }
-    const messages: WorldMessage[] = []
-    let bytes = 0
-    for (const r of kept) {
+    // clamp each message's text, then apply the byte budget from the END backwards:
+    // keep the suffix that fits (late messages carry conclusions), drop the earliest
+    // messages in the window first. Chronological order is preserved in the output.
+    const clamped = kept.map((r) => {
       const { text, truncated } = clampText(r.content, clamps.msgClamp)
-      bytes += text.length
-      if (bytes > clamps.sessionMaxBytes) {
-        dropped++
-        continue
-      }
-      messages.push({
-        role: r.role,
-        content: text,
-        ...(truncated ? { truncated: true as const } : {})
-      })
+      return { role: r.role, content: text, truncated, bytes: byteLen(text) }
+    })
+    let bytes = 0
+    let keepFrom = clamped.length
+    for (let i = clamped.length - 1; i >= 0; i--) {
+      if (bytes + clamped[i].bytes > clamps.sessionMaxBytes) break
+      bytes += clamped[i].bytes
+      keepFrom = i
     }
+    dropped += keepFrom
+    const messages: WorldMessage[] = clamped
+      .slice(keepFrom)
+      .map(({ role, content, truncated }) => ({
+        role,
+        content,
+        ...(truncated ? { truncated: true as const } : {})
+      }))
     return { id: s.id, title: s.title, messages, ...(dropped ? { droppedMessages: dropped } : {}) }
   })
-  // total cap: drop OLDEST sessions first, count what fell
-  let total = sessions.reduce((n, s) => n + s.messages.reduce((m, x) => m + x.content.length, 0), 0)
+  // total cap: drop OLDEST sessions first, count what fell (true UTF-8 bytes)
+  let total = sessions.reduce(
+    (n, s) => n + s.messages.reduce((m, x) => m + byteLen(x.content), 0),
+    0
+  )
   let droppedSessions = 0
   const survivors = [...sessions]
   while (total > clamps.totalMaxBytes && survivors.length > 1) {
     const gone = survivors.shift()!
-    total -= gone.messages.reduce((m, x) => m + x.content.length, 0)
+    total -= gone.messages.reduce((m, x) => m + byteLen(x.content), 0)
     droppedSessions++
   }
   return { sessions: survivors, ...(droppedSessions ? { droppedSessions } : {}) }
