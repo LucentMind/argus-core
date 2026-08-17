@@ -95,6 +95,7 @@ import { scanClaudeSkills, importSkills } from './services/agent/skillsImport'
 import { HivemindService } from './services/hivemind'
 import {
   listProposals,
+  listArchivedProposals,
   acceptProposal,
   rejectProposal,
   setProposalsChangedNotifier,
@@ -1018,7 +1019,12 @@ function registerIpc(): void {
     distill: (input, signal) => runCaseDistillAgent(input, distillAgentRun, resolvePrompt, signal),
     stage: (slug, jobId, output) => stageDistillOutput(db, argusHome, slug, jobId, output),
     broadcast: (p) => broadcast(IPC.distillChanged, p),
-    promptHash: () => caseDistillPromptHash(resolvePrompt)
+    promptHash: () => caseDistillPromptHash(resolvePrompt),
+    argusHome,
+    listArchivedProposalsFn: () => listArchivedProposals(argusHome),
+    // The digest LLM step is one batch prompt, not a tool-using agent run — Task 10's one-shot
+    // runner (same one refSync uses), deliberately NOT `distillAgentRun` above.
+    runOneShot: headlessRun
   })
   distillQueue.recoverOnBoot()
   const onCaseClosed = (rec: CaseRecord): void => {
