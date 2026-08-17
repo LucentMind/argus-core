@@ -289,6 +289,16 @@ describe('settings schema', () => {
     expect(settingsSchema.parse(stripped).ui.knowledgeStripDismissed).toBe(true)
   })
 
+  it('distill.guidance defaults to empty and survives strip + re-parse when set', () => {
+    expect(defaultSettings().distill.guidance).toBe('')
+    expect(settingsSchema.parse({}).distill.guidance).toBe('')
+    const set = settingsSchema.parse({ distill: { guidance: 'Prefer recipes over new skills.' } })
+    expect(set.distill.guidance).toBe('Prefer recipes over new skills.')
+    const stripped = stripDefaults(set, defaultSettings())
+    expect(stripped).toEqual({ distill: { guidance: 'Prefer recipes over new skills.' } })
+    expect(settingsSchema.parse(stripped).distill.guidance).toBe('Prefer recipes over new skills.')
+  })
+
   it('defaults both keep-alive keys off', () => {
     const s = settingsSchema.parse({})
     expect(s.general.keepAliveInBackground).toBe(false)
