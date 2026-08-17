@@ -224,13 +224,13 @@ describe.skipIf(!SMOKE)('codex driver — real runtime smoke (e2e)', () => {
             opts.onSpawn?.(pid)
           }
         })
-      const text = await runCodexHeadless(
+      const result = await runCodexHeadless(
         'Reply with exactly one short sentence confirming you received this message.',
         { argusHome: root, timeoutMs: 60000 },
         wrappedFactory
       )
-      console.log('[SMOKE b] headless text:', JSON.stringify(text.slice(0, 300)))
-      expect(text.length).toBeGreaterThan(0)
+      console.log('[SMOKE b] headless text:', JSON.stringify(result.text.slice(0, 300)))
+      expect(result.text.length).toBeGreaterThan(0)
       expect(seenPids).toHaveLength(1)
       expect(seenPids[0]).toBeGreaterThan(0)
     } finally {

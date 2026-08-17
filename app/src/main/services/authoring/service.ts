@@ -1,5 +1,6 @@
 import { buildDraftPrompt, buildImprovePrompt } from './prompts'
 import type { AuthoringRequest } from '../../../shared/authoringIpc'
+import type { HeadlessResult } from '../agent/driver'
 
 /**
  * One tool-less headless prompt per call. Provider-blind by design: it receives a runner and
@@ -11,16 +12,20 @@ import type { AuthoringRequest } from '../../../shared/authoringIpc'
  */
 export async function draftAsset(
   input: AuthoringRequest,
-  run: (prompt: string) => Promise<string>,
+  // Widened for Task 10 (usage reporting); usage is dropped here for now, same as the other
+  // headless consumers (refSync/distill.ts, caseDistiller.ts, rca/jobs.ts).
+  run: (prompt: string) => Promise<HeadlessResult>,
   resolve?: (id: string) => string
 ): Promise<string> {
-  return run(buildDraftPrompt(input, resolve))
+  const result = await run(buildDraftPrompt(input, resolve))
+  return result.text
 }
 
 export async function improveAsset(
   input: AuthoringRequest,
-  run: (prompt: string) => Promise<string>,
+  run: (prompt: string) => Promise<HeadlessResult>,
   resolve?: (id: string) => string
 ): Promise<string> {
-  return run(buildImprovePrompt(input, resolve))
+  const result = await run(buildImprovePrompt(input, resolve))
+  return result.text
 }

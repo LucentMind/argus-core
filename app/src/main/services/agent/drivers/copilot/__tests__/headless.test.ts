@@ -127,9 +127,19 @@ function hangOnStartFactory(): {
 describe('runCopilotHeadless', () => {
   it('returns the final assistant message and stops the client', async () => {
     const { factory, calls } = fakeFactory([msg('partial'), msg('final answer'), turnEnd])
-    const text = await runCopilotHeadless('prompt', { argusHome: '/tmp/argus' }, factory)
-    expect(text).toBe('final answer')
+    const result = await runCopilotHeadless('prompt', { argusHome: '/tmp/argus' }, factory)
+    expect(result.text).toBe('final answer')
     expect(calls.stops).toBe(1)
+  })
+
+  it('sets usage.durationMs and leaves token/cost fields undefined (protocol reports no usage)', async () => {
+    const { factory } = fakeFactory([msg('final answer'), turnEnd])
+    const result = await runCopilotHeadless('prompt', { argusHome: '/tmp/argus' }, factory)
+    expect(typeof result.usage?.durationMs).toBe('number')
+    expect(result.usage?.durationMs).toBeGreaterThanOrEqual(0)
+    expect(result.usage).not.toHaveProperty('inputTokens')
+    expect(result.usage).not.toHaveProperty('outputTokens')
+    expect(result.usage).not.toHaveProperty('costUsd')
   })
 
   it('roots the run in the scratch dir, never a case dir', async () => {

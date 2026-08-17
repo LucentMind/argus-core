@@ -1,4 +1,4 @@
-import { abortRacer, type HeadlessOpts } from '../../driver'
+import { abortRacer, type HeadlessOpts, type HeadlessResult } from '../../driver'
 import { codexHome } from './home'
 import type { CodexClientFactory, CodexClientLike } from './client'
 import { codexApprovalGen, mapCodexDecision } from './mapping'
@@ -93,8 +93,9 @@ export async function runCodexHeadless(
   opts: HeadlessOpts,
   clientFactory: CodexClientFactory,
   cliPath?: string
-): Promise<string> {
+): Promise<HeadlessResult> {
   const timeoutMs = opts.timeoutMs ?? 180_000
+  const started = Date.now()
   let client: CodexClientLike | null = null
   let timer: NodeJS.Timeout | null = null
   let hardStop = false
@@ -160,7 +161,7 @@ export async function runCodexHeadless(
       })
     ])
     if (!text.trim()) throw new Error('headless run returned no text')
-    return text
+    return { text, usage: { durationMs: Date.now() - started } }
   } finally {
     if (timer) clearTimeout(timer)
     if (hardStop) {

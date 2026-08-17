@@ -1,5 +1,6 @@
 import { fillPrompt } from '../prompts/fill'
 import type { PromptTextSpecs } from '../../../shared/promptSpec'
+import type { HeadlessResult } from '../agent/driver'
 
 export interface DistillPage {
   title: string
@@ -66,8 +67,11 @@ export function buildDistillPrompt(input: DistillInput, resolve?: (id: string) =
  *  records a per-file failure and other files stay unaffected. Provider-blind by design. */
 export async function distillTarget(
   input: DistillInput,
-  run: (prompt: string) => Promise<string>,
+  // Widened for Task 10 (usage reporting); usage is dropped here for now — refSync has no
+  // place to surface it yet. See caseDistiller.ts's runCaseDistill for the sibling shape.
+  run: (prompt: string) => Promise<HeadlessResult>,
   resolve?: (id: string) => string
 ): Promise<string> {
-  return run(buildDistillPrompt(input, resolve))
+  const result = await run(buildDistillPrompt(input, resolve))
+  return result.text
 }

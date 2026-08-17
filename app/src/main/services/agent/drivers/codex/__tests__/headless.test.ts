@@ -78,10 +78,21 @@ describe('codex runCodexHeadless', () => {
   it('concatenates agentMessage deltas and resolves on turn/completed', async () => {
     const c = scriptedClient()
     driveHappyPath(c, ['Hello', ' world'])
-    const text = await runCodexHeadless('prompt', { argusHome: '/tmp/argus' }, c.factory)
-    expect(text).toBe('Hello world')
+    const result = await runCodexHeadless('prompt', { argusHome: '/tmp/argus' }, c.factory)
+    expect(result.text).toBe('Hello world')
     expect(c.stop).toHaveBeenCalledTimes(1)
     expect(c.forceStop).not.toHaveBeenCalled()
+  })
+
+  it('sets usage.durationMs and leaves token/cost fields undefined (protocol reports no usage)', async () => {
+    const c = scriptedClient()
+    driveHappyPath(c, ['ok'])
+    const result = await runCodexHeadless('prompt', { argusHome: '/tmp/argus' }, c.factory)
+    expect(typeof result.usage?.durationMs).toBe('number')
+    expect(result.usage?.durationMs).toBeGreaterThanOrEqual(0)
+    expect(result.usage).not.toHaveProperty('inputTokens')
+    expect(result.usage).not.toHaveProperty('outputTokens')
+    expect(result.usage).not.toHaveProperty('costUsd')
   })
 
   it("spawns codex app-server with CODEX_HOME left unset (falls back to codex's own ~/.codex default), and declines current-gen server requests", async () => {
@@ -192,8 +203,8 @@ describe('codex runCodexHeadless', () => {
         params: { turn: { id: 'turn-1', status: 'completed' } }
       })
     })
-    const text = await runCodexHeadless('prompt', { argusHome: '/tmp/argus' }, c.factory)
-    expect(text).toBe('ok')
+    const result = await runCodexHeadless('prompt', { argusHome: '/tmp/argus' }, c.factory)
+    expect(result.text).toBe('ok')
   })
 
   it('throws when turn/completed carries no assistant text', async () => {
@@ -221,8 +232,8 @@ describe('codex runCodexHeadless', () => {
         params: { turn: { id: 'turn-1', status: 'completed' } }
       })
     })
-    const text = await runCodexHeadless('prompt', { argusHome: '/tmp/argus' }, c.factory)
-    expect(text).toBe('final text')
+    const result = await runCodexHeadless('prompt', { argusHome: '/tmp/argus' }, c.factory)
+    expect(result.text).toBe('final text')
   })
 
   it('rejects and force-stops when the signal aborts', async () => {
