@@ -170,6 +170,72 @@ describe('prompt builder', () => {
     const rule8 = CASE_DISTILL_CONTRACT.split('\n').find((l) => /^8\./.test(l.trim()))!
     expect(rule8.toLowerCase()).toContain('open')
   })
+
+  it('contract v2 carries the preference-order, never-capture, basis, caps, and tools rules', () => {
+    const c = CASE_DISTILL_CONTRACT.toLowerCase()
+    expect(c).toContain('prefer a skill-edit')
+    expect(c).toContain('never capture')
+    expect(c).toContain('basis')
+    expect(c).toContain('final assistant message')
+    expect(c).toContain('class-level')
+    expect(c).toMatch(/caps:.*at most n proposals/)
+  })
+
+  it('rule 11 requires a basis on every proposal', () => {
+    const rule11 = CASE_DISTILL_CONTRACT.split('\n').find((l) => /^11\./.test(l.trim()))!
+    expect(rule11).toContain('content, basis')
+  })
+
+  it('renders user messages after the sessions section, grouped by session title', () => {
+    const p = buildCaseDistillPrompt({
+      ...INPUT,
+      userMessages: [
+        { sessionTitle: 'First look', messages: ['it broke again', 'try the other tenant'] }
+      ]
+    })
+    expect(p).toContain('# User messages')
+    expect(p).toContain('## First look')
+    expect(p).toContain('- it broke again')
+    expect(p).toContain('- try the other tenant')
+    const sessionsIdx = p.indexOf('# Chat sessions')
+    const userMsgIdx = p.indexOf('# User messages')
+    expect(userMsgIdx).toBeGreaterThan(sessionsIdx)
+  })
+
+  it('renders the reject digest and operator guidance sections after captured, when present', () => {
+    const p = buildCaseDistillPrompt({
+      ...INPUT,
+      rejectDigest: 'do not propose retry-with-backoff again',
+      operatorGuidance: 'focus on the auth flow'
+    })
+    expect(p).toContain('# Observed proposal failure patterns')
+    expect(p).toContain('do not propose retry-with-backoff again')
+    expect(p).toContain('# Operator guidance')
+    expect(p).toContain('focus on the auth flow')
+    const capturedIdx = p.indexOf('Knowledge already captured')
+    const digestIdx = p.indexOf('# Observed proposal failure patterns')
+    const guidanceIdx = p.indexOf('# Operator guidance')
+    expect(digestIdx).toBeGreaterThan(capturedIdx)
+    expect(guidanceIdx).toBeGreaterThan(digestIdx)
+  })
+
+  it('renders a note annotation on a skill/reference entry line when present', () => {
+    const p = buildCaseDistillPrompt({
+      ...INPUT,
+      skillsIndex: [{ ...INPUT.skillsIndex[0], note: 'stale — superseded by X' }],
+      referencesIndex: [{ ...INPUT.referencesIndex[0], note: 'partially applies' }]
+    })
+    expect(p).toContain('note: stale — superseded by X')
+    expect(p).toContain('note: partially applies')
+  })
+
+  it('legacy input (no userMessages/rejectDigest/operatorGuidance/note) renders byte-identical to pre-v2', () => {
+    const p = buildCaseDistillPrompt(INPUT)
+    expect(p).not.toContain('# User messages')
+    expect(p).not.toContain('# Observed proposal failure patterns')
+    expect(p).not.toContain('# Operator guidance')
+    expect(p).not.toContain('note: ')
+  })
 })
 
 describe('parseCaseDistillOutput', () => {
@@ -222,5 +288,38 @@ describe('parseCaseDistillOutput', () => {
     )
     expect(out.proposals).toHaveLength(1)
     expect('memoryAppends' in out).toBe(false)
+  })
+
+  it('accepts and passes through an optional string basis', () => {
+    const out = parseCaseDistillOutput(
+      fence(
+        JSON.stringify({
+          proposals: [
+            {
+              type: 'skill-edit',
+              target: 'analyze-dlt',
+              title: 't',
+              content: 'c',
+              basis: 'transcript at msg 12: user confirmed the fix worked'
+            }
+          ]
+        })
+      )
+    )
+    expect(out.proposals?.[0].basis).toBe('transcript at msg 12: user confirmed the fix worked')
+  })
+
+  it('accepts a proposal with no basis (basis stays undefined)', () => {
+    const out = parseCaseDistillOutput(
+      fence('{"proposals":[{"type":"recipe","target":"dlt-cmds","title":"Cmds","content":"body"}]}')
+    )
+    expect(out.proposals?.[0].basis).toBeUndefined()
+  })
+
+  it('rejects a non-string basis with DistillParseError', () => {
+    const text = fence(
+      '{"proposals":[{"type":"recipe","target":"dlt-cmds","title":"Cmds","content":"body","basis":42}]}'
+    )
+    expect(() => parseCaseDistillOutput(text)).toThrow(DistillParseError)
   })
 })

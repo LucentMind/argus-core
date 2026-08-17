@@ -18,6 +18,10 @@ export const CASE_DISTILL_SECTIONS: PromptTextSpecs = {
   },
   evidence: { title: 'Case-distill section — evidence', text: '# Evidence inventory' },
   sessions: { title: 'Case-distill section — chat sessions', text: '# Chat sessions' },
+  'user-messages': {
+    title: 'Case-distill section — user messages',
+    text: '# User messages (newest sessions first; corrections and steering live here)'
+  },
   skills: {
     title: 'Case-distill section — installed skills',
     text: '# Installed skills (full current content — a skill-edit must return the whole file with its change merged in)'
@@ -33,6 +37,14 @@ export const CASE_DISTILL_SECTIONS: PromptTextSpecs = {
   captured: {
     title: 'Case-distill section — already captured',
     text: '# Knowledge already captured from this case (do NOT repeat)'
+  },
+  'reject-digest': {
+    title: 'Case-distill section — reject digest',
+    text: '# Observed proposal failure patterns (do NOT propose in a direction named here)'
+  },
+  guidance: {
+    title: 'Case-distill section — operator guidance',
+    text: '# Operator guidance'
   },
   'output-nudge': {
     title: 'Case-distill — closing output instruction',
@@ -65,20 +77,36 @@ export function buildCaseDistillPrompt(
     `${sec('case')}\nslug: ${m.slug}\ntitle: ${m.title}\njira: ${m.jiraKey ?? '—'}\nstatus: ${m.status ?? 'closed'}\nresolution: ${m.resolution ?? '—'}\ntags: ${m.tags.join(', ') || '—'}\nopened: ${m.createdAt}${m.status !== 'open' ? `\nclosed: ${m.closedAt}` : ''}`,
     `${sec('findings')}\n\n${findings || '(none)'}`,
     `${sec('evidence')}\n${input.evidence.map((e) => `- ${e.relPath} (${e.artifactType}, ${e.size} bytes)`).join('\n') || '(none)'}`,
-    `${sec('sessions')}\n${input.sessionTitles.map((t) => `- ${t}`).join('\n') || '(none)'}`,
+    `${sec('sessions')}\n${input.sessionTitles.map((t) => `- ${t}`).join('\n') || '(none)'}`
+  ]
+  // Task 9: the agentic distiller's raw-quote source. Omitted entirely (not "(none)") when
+  // absent — same byte-identity discipline as `rcaStructure` below — because most snapshots
+  // (everything pre-v2, and any v2 case with no user turns) have no value for this field.
+  if (input.userMessages && input.userMessages.length > 0) {
+    parts.push(
+      `${sec('user-messages')}\n${input.userMessages
+        .map((s) => `## ${s.sessionTitle}\n${s.messages.map((m) => `- ${m}`).join('\n')}`)
+        .join('\n\n')}`
+    )
+  }
+  parts.push(
     `${sec('skills')}\n${
       input.skillsIndex
-        .map((s) => `## ${s.name} — ${s.description}\n\n${s.content}`)
+        .map(
+          (s) =>
+            `## ${s.name} — ${s.description}${s.note ? `\nnote: ${s.note}` : ''}\n\n${s.content}`
+        )
         .join('\n\n---\n\n') || '(none)'
     }`,
     `${sec('references')}\n${
       input.referencesIndex
         .map(
-          (r) => `## ${r.name} [tier: ${r.tier ?? 'team-knowledge'}] — ${r.summary}\n\n${r.content}`
+          (r) =>
+            `## ${r.name} [tier: ${r.tier ?? 'team-knowledge'}] — ${r.summary}${r.note ? `\nnote: ${r.note}` : ''}\n\n${r.content}`
         )
         .join('\n\n---\n\n') || '(none)'
     }`
-  ]
+  )
   // Only when a report was confirmed for this case — omitting the section entirely (rather than
   // rendering "(none)") keeps the prompt byte-identical to before this field existed for the
   // common case of a case with no confirmed RCA.
@@ -86,6 +114,13 @@ export function buildCaseDistillPrompt(
     parts.push(`${sec('rca')}\n${JSON.stringify(input.rcaStructure, null, 2)}`)
   }
   parts.push(`${sec('captured')}\n${captured}`)
+  // Same omit-when-absent discipline as userMessages/rcaStructure above.
+  if (input.rejectDigest) {
+    parts.push(`${sec('reject-digest')}\n${input.rejectDigest}`)
+  }
+  if (input.operatorGuidance) {
+    parts.push(`${sec('guidance')}\n${input.operatorGuidance}`)
+  }
   parts.push(sec('output-nudge'))
   return parts.join('\n\n')
 }
@@ -145,6 +180,8 @@ export function parseCaseDistillOutput(text: string): CaseDistillOutput {
         throw new DistillParseError(`bad proposal type "${String(p.type)}"`, text)
       if (!isStr(p.target) || !isStr(p.title) || !isStr(p.content))
         throw new DistillParseError('proposal fields invalid', text)
+      if (p.basis !== undefined && typeof p.basis !== 'string')
+        throw new DistillParseError('proposal basis must be a string', text)
     }
     out.proposals = o.proposals as CaseDistillOutput['proposals']
   }
