@@ -39,7 +39,10 @@ it('close → enqueue → distill → stage → accept lands the summary', async
     assembleInput: (slug) => assembleDistillInput(db, home, slug),
     distill: (input) => runCaseDistill(input, async () => ({ text: RESPONSE })),
     stage: (slug, jobId, output) => stageDistillOutput(db, home, slug, jobId, output),
-    broadcast: () => undefined
+    broadcast: () => undefined,
+    argusHome: home,
+    listArchivedProposalsFn: () => [],
+    runOneShot: async () => ({ text: '' })
   })
   setCaseStatus(db, home, 'case-a', 'closed', 'solved', (rec) => queue.enqueue(rec.slug))
   await queue.idle()
