@@ -95,8 +95,9 @@ export interface DriverCapabilities {
    *  tools/MCP (distillation v2's world-model builder). Mirrors
    *  `main/services/agent/driver.ts` `DriverCapabilities.headlessAgent`. **Scope decision
    *  (v2):** Claude only — every other driver declares `false` explicitly rather than
-   *  omitting the field, and `resolveDistillAgentProvider` checks THIS flag (not a
-   *  hardcoded driver list). */
+   *  omitting the field. `resolveDistillAgentProvider`'s EXPLICIT-instance path checks
+   *  THIS flag, not a hardcoded driver name; its no-explicit-selection FALLBACK stays
+   *  hardcoded to `claude-agent-sdk` by design, same as `resolveDistillProvider`'s. */
   headlessAgent?: boolean
   /** Which wire field carries the composed system prompt. Explicit and required — like
    *  `headlessOneShot` and unlike `mcpConnectors`, absence here would mean nothing, and the
