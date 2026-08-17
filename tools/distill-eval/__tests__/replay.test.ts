@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { replayCase, contractResolver } from '../src/replay'
-import { REPLAY_WORLD_UNAVAILABLE } from '../src/agentRunner'
+import { REPLAY_WORLD_UNAVAILABLE, type AgentRunner } from '../src/agentRunner'
 import { caseDistillPromptHash } from '../../../app/src/main/services/distill/promptHash'
 import type { DistillWorld } from '../../../app/src/shared/distill'
 import { line } from './fixtures'
@@ -11,7 +11,7 @@ const WORLD: DistillWorld = {
 
 /** A fake agent runner that records what it was handed and answers a parseable output. */
 function recordingAgent(): {
-  agent: (prompt: string, world: DistillWorld | null) => Promise<string>
+  agent: AgentRunner
   seen: { prompt: string; world: DistillWorld | null }[]
 } {
   const seen: { prompt: string; world: DistillWorld | null }[] = []
@@ -19,7 +19,9 @@ function recordingAgent(): {
     seen,
     agent: async (prompt, world) => {
       seen.push({ prompt, world })
-      return '```json\n{"summary": {"signature": "s", "symptoms": "s", "rootCause": "r", "fix": "f", "keywords": ["k"]}}\n```'
+      return {
+        text: '```json\n{"summary": {"signature": "s", "symptoms": "s", "rootCause": "r", "fix": "f", "keywords": ["k"]}}\n```'
+      }
     }
   }
 }
@@ -37,10 +39,25 @@ describe('replayCase', () => {
   })
 
   it('runs the candidate prompt when hashes differ and reports a parse failure', async () => {
-    const r = await replayCase(line(), { oneShot: async () => '', agent: async () => 'no fence here' })
+    const r = await replayCase(line(), {
+      oneShot: async () => '',
+      agent: async () => ({ text: 'no fence here' })
+    })
     expect(r.reused).toBe(false)
     expect(r.parsed).toBeNull()
     expect(r.parseError).toMatch(/json fence/)
+    expect(r.capSubtype).toBeUndefined()
+  })
+
+  it('surfaces a budget-exhausted agent run as capSubtype on the result', async () => {
+    const r = await replayCase(line(), {
+      oneShot: async () => '',
+      agent: async () => ({ text: '```json\n{}\n```', capSubtype: 'error_max_turns' })
+    })
+    expect(r.capSubtype).toBe('error_max_turns')
+    // the text still parses — which is exactly why the flag has to travel: nothing downstream
+    // could otherwise tell this apart from a clean run
+    expect(r.parseError).toBeNull()
   })
 
   it('agent-replays a v2 line over its frozen world — not degraded, never the one-shot runner', async () => {

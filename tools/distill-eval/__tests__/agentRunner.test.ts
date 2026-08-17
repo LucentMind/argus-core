@@ -59,7 +59,14 @@ function fakeCreateQuery(
 }
 
 async function connected(w: DistillWorld | null): Promise<{ client: Client; close: () => Promise<void> }> {
-  const server = createReplayMcpServer(w)
+  return connectServer(createReplayMcpServer(w))
+}
+
+/** Connect a client to an already-built server — used to inspect the server the RUNNER assembled,
+ *  not just one the test built itself. */
+async function connectServer(
+  server: ReplayQueryOptions['mcpServers']['argus']
+): Promise<{ client: Client; close: () => Promise<void> }> {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   const client = new Client({ name: 'replay-test-client', version: '1.0.0' })
   await Promise.all([client.connect(clientTransport), server.instance.connect(serverTransport)])
@@ -81,9 +88,9 @@ describe('claudeAgentRunner', () => {
       interrupts
     ))
 
-    const text = await run('THE PROMPT', WORLD)
+    const outcome = await run('THE PROMPT', WORLD)
 
-    expect(text).toBe('```json\n{}\n```')
+    expect(outcome).toEqual({ text: '```json\n{}\n```' })
     expect(captured).toHaveLength(1)
     expect(captured[0].prompt).toBe('THE PROMPT')
     const o = captured[0].options
@@ -94,8 +101,57 @@ describe('claudeAgentRunner', () => {
     expect(typeof o.cwd).toBe('string')
     expect(o.cwd.length).toBeGreaterThan(0)
     expect('model' in o).toBe(false)
+    // Claude Code's own auto-memory must be OFF, exactly as at the app's spawn sites: it READS
+    // too, and injected memories would make the replay a different prompt than the live job's.
+    expect(o.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe('1')
+    expect(o.env.PATH ?? o.env.Path).toBeTruthy() // the process.env spread is load-bearing
     // the query is always torn down, exactly like the app's runClaudeHeadlessAgent
     expect(interrupts.count).toBe(1)
+
+    // THE WIRING THAT MATTERS: the server handed to the SDK must serve THIS run's world.
+    // Asserting only that `mcpServers.argus` exists passes even if the runner wires up a
+    // world-less server, which is exactly the silent-degradation bug this pins.
+    const { client, close } = await connectServer(o.mcpServers.argus)
+    try {
+      expect(JSON.parse(await callText(client, 'list_sessions', {}))).toEqual([
+        { id: 1, title: 'only session', messageCount: 2, droppedMessages: 0 }
+      ])
+      expect(
+        JSON.parse(await callText(client, 'search_transcript', { query: 'needle' })).hits
+      ).toHaveLength(1)
+    } finally {
+      await close()
+    }
+  })
+
+  it('wires a world-LESS server (every tool unavailable) when replaying a pre-v2 line', async () => {
+    const captured: Captured[] = []
+    const run = claudeAgentRunner(undefined, fakeCreateQuery([assistant('ok'), resultMsg()], captured))
+    await run('p', null)
+    const { client, close } = await connectServer(captured[0].options.mcpServers.argus)
+    try {
+      expect(await callText(client, 'list_sessions', {})).toBe(REPLAY_WORLD_UNAVAILABLE)
+      expect(await callText(client, 'read_transcript', { session_id: 1 })).toBe(REPLAY_WORLD_UNAVAILABLE)
+    } finally {
+      await close()
+    }
+  })
+
+  it('harvests a budget-exhausted run as capSubtype instead of grading it silently', async () => {
+    const captured: Captured[] = []
+    // partial text collected, then the SDK cuts the run off:
+    const partial = await claudeAgentRunner(
+      undefined,
+      fakeCreateQuery([assistant('```json\n{}\n```'), resultMsg('error_max_turns')], captured)
+    )('p', WORLD)
+    expect(partial).toEqual({ text: '```json\n{}\n```', capSubtype: 'error_max_turns' })
+
+    // nothing collected at all: still a harvested cap, not a throw — the case must be reportable
+    const empty = await claudeAgentRunner(
+      undefined,
+      fakeCreateQuery([resultMsg('error_during_execution')], captured)
+    )('p', WORLD)
+    expect(empty).toEqual({ text: '', capSubtype: 'error_during_execution' })
   })
 
   it('passes an explicit model through and gates tools with canUseTool', async () => {
@@ -113,11 +169,8 @@ describe('claudeAgentRunner', () => {
     })
   })
 
-  it('throws when the run ends without usable text', async () => {
+  it('throws only when a CLEAN run produced no text at all (a broken replay, not a capped one)', async () => {
     const captured: Captured[] = []
-    await expect(
-      claudeAgentRunner(undefined, fakeCreateQuery([resultMsg('error_max_turns')], captured))('p', WORLD)
-    ).rejects.toThrow(/error_max_turns/)
     await expect(
       claudeAgentRunner(undefined, fakeCreateQuery([resultMsg()], captured))('p', WORLD)
     ).rejects.toThrow(/no text/)

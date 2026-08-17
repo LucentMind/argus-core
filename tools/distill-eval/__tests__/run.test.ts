@@ -16,7 +16,7 @@ describe('runEval', () => {
       line({ id: 2, state: 'failed', promptHash: 'ffffffffffff', rawOutput: 'NOT JSON', error: 'expected exactly 1 json fence, got 0' })
     ]
     const results = await runEval(cases, {
-      agent: async () => '```json\n{}\n```', // candidate agent output (parses)
+      agent: async () => ({ text: '```json\n{}\n```' }), // candidate agent output (parses)
       oneShot: async () => '```json\n{"verdict": "improved", "reason": "r"}\n```' // judge
     })
     expect(results[0].parseOutcome).toBe('ok')
@@ -30,15 +30,45 @@ describe('runEval', () => {
     const cases = [
       { ...line(), items: [{ type: 'skill-new', target: 's', title: 't', outcome: 'accepted' as const }] }
     ]
-    const regressed = await runEval(cases, { agent: async () => 'garbage', oneShot: async () => '' })
+    const regressed = await runEval(cases, {
+      agent: async () => ({ text: 'garbage' }),
+      oneShot: async () => ''
+    })
     expect(regressed[0].parseOutcome).toBe('parse-regressed')
     expect(regressed[0].itemVerdicts).toEqual([]) // nothing to judge against garbage
 
     const flaky = await runEval(cases, {
-      agent: async () => '```json\n{}\n```',
+      agent: async () => ({ text: '```json\n{}\n```' }),
       oneShot: async () => 'not a verdict'
     })
     expect(flaky[0].itemVerdicts[0].verdict.verdict).toBe('needs-human')
+  })
+
+  it('a budget-exhausted replay is never counted ok and is never graded, even when its text parses', async () => {
+    const cases = [
+      {
+        ...line(),
+        items: [{ type: 'skill-new', target: 's', title: 't', outcome: 'rejected' as const, rejectReason: 'overfit' }]
+      }
+    ]
+    const judgeRun = vi.fn(async () => '```json\n{"verdict": "improved", "reason": "r"}\n```')
+    const results = await runEval(cases, {
+      // parseable text, but the SDK cut the run off — the app fails such jobs rather than
+      // parsing them, so a verdict here would credit the candidate for a run that never finished
+      agent: async () => ({ text: '```json\n{}\n```', capSubtype: 'error_max_turns' }),
+      oneShot: judgeRun
+    })
+    expect(results[0].parseOutcome).toBe('budget-exhausted')
+    expect(results[0].capSubtype).toBe('error_max_turns')
+    expect(results[0].itemVerdicts).toEqual([])
+    expect(judgeRun).not.toHaveBeenCalled()
+
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'distill-eval-out-'))
+    const md = fs.readFileSync(writeReport(out, results).reportPath, 'utf8')
+    expect(md).toContain(
+      'Budget-exhausted replays (agent cut off, NOT graded): 1 — nav-1 #1 (error_max_turns)'
+    )
+    expect(md).toContain('Parse: ok 0') // and it did NOT sneak into the ok column
   })
 
   it('short-circuits to unchanged without calling the judge when the prompt hash is unchanged (reused baseline)', async () => {
@@ -50,7 +80,7 @@ describe('runEval', () => {
     ]
     const judgeRun = vi.fn(async () => '```json\n{"verdict": "improved", "reason": "r"}\n```')
     const results = await runEval(cases, {
-      agent: async () => 'unused — reused replay skips the candidate run too',
+      agent: async () => ({ text: 'unused — reused replay skips the candidate run too' }),
       oneShot: judgeRun
     })
     expect(judgeRun).not.toHaveBeenCalled()
@@ -67,7 +97,7 @@ describe('writeReport', () => {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'distill-eval-out-'))
     const results = await runEval(
       [{ ...line(), items: [{ type: 'skill-new', target: 's', title: 't', outcome: 'rejected' as const, rejectReason: 'overfit' }] }],
-      { agent: async () => '```json\n{}\n```', oneShot: async () => 'malformed judge' }
+      { agent: async () => ({ text: '```json\n{}\n```' }), oneShot: async () => 'malformed judge' }
     )
     const { reportPath, detailsPath } = writeReport(out, results)
     const md = fs.readFileSync(reportPath, 'utf8')
@@ -80,7 +110,7 @@ describe('writeReport', () => {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'distill-eval-out-'))
     // the fixture line has no `world` key → its replay is degraded
     const degraded = await runEval([line()], {
-      agent: async () => '```json\n{}\n```',
+      agent: async () => ({ text: '```json\n{}\n```' }),
       oneShot: async () => '```json\n{"verdict": "improved", "reason": "r"}\n```'
     })
     expect(degraded[0].degradedReplay).toBe(true)
@@ -91,7 +121,7 @@ describe('writeReport', () => {
     const withWorld = line()
     withWorld.job.inputSnapshot.world = { sessions: [] }
     const clean = await runEval([withWorld], {
-      agent: async () => '```json\n{}\n```',
+      agent: async () => ({ text: '```json\n{}\n```' }),
       oneShot: async () => '```json\n{"verdict": "improved", "reason": "r"}\n```'
     })
     expect(clean[0].degradedReplay).toBe(false)
