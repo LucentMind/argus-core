@@ -100,8 +100,8 @@ beforeEach(() => {
   ;(window as never as { argus: Record<string, unknown> }).argus.proposals = {
     list: vi.fn().mockResolvedValue({
       proposals: [
-        { file: 'a.md', type: 'recipe' },
-        { file: 'b.md', type: 'recipe' }
+        { file: 'a.md', type: 'reference-edit' },
+        { file: 'b.md', type: 'reference-edit' }
       ]
     }),
     onChanged: vi.fn((cb: (c: ProposalCounts) => void) => {
@@ -122,7 +122,7 @@ describe('knowledge pending line', () => {
     expect(await screen.findByText(/Knowledge review pending: 2/)).toBeInTheDocument()
 
     act(() => {
-      onChangedCb?.({ pendingCount: 5, byType: { recipe: 5 } })
+      onChangedCb?.({ pendingCount: 5, byType: { 'reference-edit': 5 } })
     })
     expect(await screen.findByText(/Knowledge review pending: 5/)).toBeInTheDocument()
 

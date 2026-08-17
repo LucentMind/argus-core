@@ -38,7 +38,7 @@ describe('proposals changed notifier', () => {
     expect(cb).toHaveBeenCalledTimes(2)
 
     const f2 = writeProposal(home, 'case-a', {
-      type: 'recipe',
+      type: 'reference-edit',
       target: 'bar',
       title: 'T2',
       content: 'body2'
@@ -47,7 +47,7 @@ describe('proposals changed notifier', () => {
     expect(cb).toHaveBeenCalledTimes(4)
 
     const f3 = writeProposal(home, 'case-a', {
-      type: 'recipe',
+      type: 'reference-edit',
       target: 'baz',
       title: 'T3',
       content: 'body3'
@@ -60,9 +60,14 @@ describe('proposals changed notifier', () => {
     const cb = vi.fn()
     setProposalsChangedNotifier(cb)
     const result = batchProposalChanges(() => {
-      writeProposal(home, 'c', { type: 'recipe', target: 'a', title: 't', content: 'x' })
-      writeProposal(home, 'c', { type: 'recipe', target: 'b', title: 't', content: 'x' })
-      const f = writeProposal(home, 'c', { type: 'recipe', target: 'd', title: 't', content: 'x' })
+      writeProposal(home, 'c', { type: 'reference-edit', target: 'a', title: 't', content: 'x' })
+      writeProposal(home, 'c', { type: 'reference-edit', target: 'b', title: 't', content: 'x' })
+      const f = writeProposal(home, 'c', {
+        type: 'reference-edit',
+        target: 'd',
+        title: 't',
+        content: 'x'
+      })
       removePendingProposal(home, f)
       expect(cb).not.toHaveBeenCalled()
       return 'done'
@@ -83,7 +88,7 @@ describe('proposals changed notifier', () => {
     setProposalsChangedNotifier(cb)
     expect(() =>
       batchProposalChanges(() => {
-        writeProposal(home, 'c', { type: 'recipe', target: 'a', title: 't', content: 'x' })
+        writeProposal(home, 'c', { type: 'reference-edit', target: 'a', title: 't', content: 'x' })
         throw new Error('boom')
       })
     ).toThrow('boom')
@@ -92,12 +97,14 @@ describe('proposals changed notifier', () => {
   })
 
   it('proposalCounts aggregates pending by type', () => {
+    // two distinct types on purpose — a single-type fixture cannot tell "aggregates by type"
+    // apart from "counts everything under one key"
     writeProposal(home, 'c', { type: 'reference-edit', target: 'a', title: 't', content: 'x' })
-    writeProposal(home, 'c', { type: 'recipe', target: 'b', title: 't', content: 'x' })
-    writeProposal(home, 'c', { type: 'recipe', target: 'd', title: 't', content: 'x' })
+    writeProposal(home, 'c', { type: 'skill-edit', target: 'b', title: 't', content: 'x' })
+    writeProposal(home, 'c', { type: 'skill-edit', target: 'd', title: 't', content: 'x' })
     expect(proposalCounts(home)).toEqual({
       pendingCount: 3,
-      byType: { 'reference-edit': 1, recipe: 2 }
+      byType: { 'reference-edit': 1, 'skill-edit': 2 }
     })
   })
 })

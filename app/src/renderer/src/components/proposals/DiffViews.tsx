@@ -81,7 +81,7 @@ export function ProposedView({ content }: { content: string }): React.JSX.Elemen
 }
 
 /** Leading YAML frontmatter, split off a markdown document. `front` is null when there is none —
- *  references and recipes have no frontmatter at all, so that is half the assets. */
+ *  references have no frontmatter at all, so that is half the assets. */
 function splitFrontmatter(content: string): { front: string | null; body: string } {
   const m = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(\r?\n|$)/.exec(content)
   return m ? { front: m[1], body: content.slice(m[0].length) } : { front: null, body: content }

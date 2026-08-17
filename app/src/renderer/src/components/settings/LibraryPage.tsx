@@ -35,12 +35,7 @@ import type { EditorOpenRequest } from '../../../../shared/editorIpc'
 
 /** Proposal types that land in the library — union of the old Skills + References banners (spec §3.5). */
 // eslint-disable-next-line react-refresh/only-export-components -- constant co-located with the component it configures; see MetricCards.tsx for the same pattern
-export const LIBRARY_TYPES: readonly ProposalType[] = [
-  'skill-new',
-  'skill-edit',
-  'reference-edit',
-  'recipe'
-]
+export const LIBRARY_TYPES: readonly ProposalType[] = ['skill-new', 'skill-edit', 'reference-edit']
 
 export type LibraryKind = 'skill' | 'reference'
 

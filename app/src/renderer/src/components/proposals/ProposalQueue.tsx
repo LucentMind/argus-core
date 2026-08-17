@@ -18,7 +18,7 @@ export interface QueueEntry {
 
 /**
  * The three kinds of thing a proposal can be, as the rows already draw them: skill = signal,
- * reference/recipe = analytics, summary = review — the accent families the rest of the app uses
+ * reference = analytics, summary = review — the accent families the rest of the app uses
  * for these asset kinds.
  *
  * This is also the filter set (user-directed, 2026-08-08). It used to be one chip per
@@ -62,7 +62,6 @@ const GROUP_OF: Record<ProposalType, GroupKey> = {
   'skill-new': 'skill',
   'skill-edit': 'skill',
   'reference-edit': 'reference',
-  recipe: 'reference',
   'case-summary': 'summary'
 }
 

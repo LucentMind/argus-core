@@ -18,7 +18,7 @@ describe('ProposalsBanner', () => {
   beforeEach(() => proposalsStore.reset())
 
   it('shows the count for its types and navigates on Review', async () => {
-    stubArgus([{ type: 'skill-new' }, { type: 'skill-edit' }, { type: 'recipe' }])
+    stubArgus([{ type: 'skill-new' }, { type: 'skill-edit' }, { type: 'reference-edit' }])
     const onReview = vi.fn()
     render(
       <ProposalsBanner types={['skill-new', 'skill-edit']} noun="skills" onReview={onReview} />
@@ -32,7 +32,7 @@ describe('ProposalsBanner', () => {
     // Deliberately disjoint from the banner's watched type — see task-2-report.md for why.
     stubArgus([{ type: 'skill-edit' }])
     const { container } = render(
-      <ProposalsBanner types={['recipe']} noun="recipe" onReview={vi.fn()} />
+      <ProposalsBanner types={['reference-edit']} noun="reference" onReview={vi.fn()} />
     )
     // allow the store prime to settle, then assert absence
     await Promise.resolve()
