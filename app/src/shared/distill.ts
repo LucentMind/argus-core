@@ -100,6 +100,7 @@ export interface CaseDistillOutput {
     target: string
     title: string
     content: string
+    basis?: string
   }[]
 }
 

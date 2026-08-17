@@ -1,5 +1,7 @@
 import crypto from 'node:crypto'
 import { CASE_DISTILL_CONTRACT, CASE_DISTILL_SECTIONS } from './contract'
+import { DISTILL_TOOL_DESCRIPTORS } from './worldTools'
+import { PTC_STUB_VERSION } from '../ptc/stub'
 
 /**
  * Version hash of the case-distill prompt's STATIC parts as resolved right now — the
@@ -18,6 +20,10 @@ export function caseDistillPromptHash(resolve?: (id: string) => string): string 
         resolve ? resolve(`headless.case-distill.section.${k}`) : CASE_DISTILL_SECTIONS[k].text
       )
   ]
+  // v2 (Task 9): the agentic distiller's tool surface and PTC stub contract are as much a part
+  // of "what the model saw" as the text prompt — a description-string edit or a stub-version
+  // bump must widen the hash the same way a contract edit does.
+  parts.push(JSON.stringify(DISTILL_TOOL_DESCRIPTORS), `ptc-stub:${PTC_STUB_VERSION}`)
   return crypto
     .createHash('sha256')
     .update(parts.join('\n' + String.fromCharCode(0) + '\n'))
