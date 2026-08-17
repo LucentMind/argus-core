@@ -60,25 +60,47 @@ interface PriorReject {
   recency: string
 }
 
-/** Cross-case "this exact target was already rejected elsewhere" lookup, built once per staging
- *  call from the full archive. Keyed by `type target`; when more than one OTHER case rejected the
- *  same target, the most recently rejected one wins — by `rejectedAt`, falling back to the
- *  archived row's own creation `date` for pre-Task-8 rows with no `rejectedAt` (same recency rule
- *  Task 8 established). Same-case rejects are excluded on purpose: that ground is already covered
- *  by the sibling `previously_reviewed` mechanism in `stage()` below, and stamping a case's own
- *  reject back onto itself as `prior_reject_case: <itself>` would be misleading noise rather than
- *  a cross-case warning. */
-function buildPriorRejectMap(argusHome: string, caseSlug: string): Map<string, PriorReject> {
-  const map = new Map<string, PriorReject>()
+interface ArchiveLookups {
+  /** `type target` keys of every archived (accepted OR rejected) item for THIS case — feeds the
+   *  existing same-case `previously_reviewed` badge. */
+  reviewedKeys: Set<string>
+  /** Cross-case "this exact target was already rejected elsewhere" map — see `priorRejectFm`. */
+  priorRejectMap: Map<string, PriorReject>
+}
+
+/** One pass over the full archive, not two: `reviewedKeys` (same-case, accepted-or-rejected) and
+ *  the cross-case prior-reject map used to be built from independent `listArchivedProposals`
+ *  scans; every archived row is relevant to at most one of them (same-case vs cross-case is
+ *  mutually exclusive per row), so a single scan can feed both.
+ *
+ *  Prior-reject matching: keyed by `type target`; when more than one OTHER case rejected the same
+ *  target, the most recently rejected one wins — by `rejectedAt`, falling back to the archived
+ *  row's own creation `date` for pre-Task-8 rows with no `rejectedAt` (same recency rule Task 8
+ *  established). Same-case rejects are excluded from this map on purpose: that ground is already
+ *  covered by `reviewedKeys`/`previously_reviewed`, and stamping a case's own reject back onto
+ *  itself as `prior_reject_case: <itself>` would be misleading noise rather than a cross-case
+ *  warning. */
+function buildArchiveLookups(argusHome: string, caseSlug: string): ArchiveLookups {
+  const reviewedKeys = new Set<string>()
+  const priorRejectMap = new Map<string, PriorReject>()
   for (const p of listArchivedProposals(argusHome)) {
-    if (p.status !== 'rejected' || p.caseSlug === caseSlug) continue
     const k = key(p.type, p.target)
+    if (p.caseSlug === caseSlug) {
+      reviewedKeys.add(k)
+      continue
+    }
+    if (p.status !== 'rejected') continue
     const recency = p.rejectedAt ?? p.date
-    const existing = map.get(k)
+    const existing = priorRejectMap.get(k)
     if (existing && existing.recency >= recency) continue
-    map.set(k, { tag: p.rejectReason, note: p.rejectNote, caseSlug: p.caseSlug, recency })
+    priorRejectMap.set(k, {
+      tag: p.rejectReason,
+      note: p.rejectNote,
+      caseSlug: p.caseSlug,
+      recency
+    })
   }
-  return map
+  return { reviewedKeys, priorRejectMap }
 }
 
 /** Frontmatter for a cross-case prior-reject match, or `{}` when there is none. Three single-line
@@ -148,11 +170,7 @@ export function stageDistillOutput(
         .filter((p) => p.caseSlug === caseSlug)
         .map((p) => key(p.type, p.target))
     )
-    const reviewedKeys = new Set(
-      listArchivedProposals(argusHome)
-        .filter((p) => p.caseSlug === caseSlug)
-        .map((p) => key(p.type, p.target))
-    )
+    const { reviewedKeys, priorRejectMap } = buildArchiveLookups(argusHome, caseSlug)
 
     let staged = 0
     let droppedDuplicates = 0
@@ -195,12 +213,31 @@ export function stageDistillOutput(
       dropped.push({ type: p.type, target: p.target, title: p.title, reason: 'basis' })
       return false
     })
-    const kept = withBasis.slice(0, cap)
-    for (const p of withBasis.slice(cap)) {
+    // Dedup runs BEFORE the cap slice, not after: a duplicate must free its slot for a later,
+    // distinct proposal rather than consuming one and evicting it (cap=2, batch [A, A, B] must
+    // stage A and B, not A twice-attempted-then-drop-B). `seen` starts as a snapshot of
+    // `pendingKeys` (existing on-disk pending items for this case) so a batch item duplicating
+    // one of THOSE is caught here too, not just an intra-batch repeat. `stage()`'s own
+    // `pendingKeys.has` check further down stays as a final safety net, but with this dedup in
+    // place it should never actually fire for anything in `kept`. Deduped items keep the
+    // existing `droppedDuplicates` counting semantics — they are not `dropped` entries (that
+    // field is reserved for basis/cap gate outcomes).
+    const seen = new Set(pendingKeys)
+    const deduped: typeof withBasis = []
+    for (const p of withBasis) {
+      const k = key(p.type, p.target)
+      if (seen.has(k)) {
+        droppedDuplicates++
+        continue
+      }
+      seen.add(k)
+      deduped.push(p)
+    }
+    const kept = deduped.slice(0, cap)
+    for (const p of deduped.slice(cap)) {
       dropped.push({ type: p.type, target: p.target, title: p.title, reason: 'cap' })
     }
 
-    const priorRejectMap = buildPriorRejectMap(argusHome, caseSlug)
     for (const p of kept) {
       stage(p.type, p.target, p.title, p.content, {
         basis: p
