@@ -225,6 +225,80 @@ describe('openDb', () => {
       )
     })
 
+    it('adds v2 columns to a pre-existing distill_jobs table via guarded ALTER, preserving the legacy row', () => {
+      const file = path.join(tmp, 'legacy-distill.db')
+      const legacy = new DatabaseSync(file)
+      // Only the original (pre-v2) columns — no kind, no usage/trajectory/dropped columns.
+      legacy.exec(`CREATE TABLE distill_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        case_slug TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'queued',
+        input_snapshot TEXT NOT NULL,
+        prompt_hash TEXT,
+        raw_output TEXT,
+        error TEXT,
+        item_count INTEGER,
+        created_at TEXT NOT NULL,
+        finished_at TEXT
+      );`)
+      legacy.exec(
+        `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at) VALUES ('legacy-slug','done','{}','x')`
+      )
+      legacy.close()
+
+      const upgraded = openDb(file)
+      const cols = (
+        upgraded.prepare(`PRAGMA table_info(distill_jobs)`).all() as { name: string }[]
+      ).map((c) => c.name)
+      for (const c of [
+        'kind',
+        'input_tokens',
+        'output_tokens',
+        'cost_usd',
+        'duration_ms',
+        'prompt_chars',
+        'turn_count',
+        'tool_call_count',
+        'trajectory_json',
+        'dropped_json'
+      ]) {
+        expect(cols).toContain(c)
+      }
+      const row = upgraded
+        .prepare(`SELECT * FROM distill_jobs WHERE case_slug='legacy-slug'`)
+        .get() as {
+        kind: string
+        input_tokens: number | null
+        output_tokens: number | null
+        cost_usd: number | null
+        duration_ms: number | null
+        prompt_chars: number | null
+        turn_count: number | null
+        tool_call_count: number | null
+        trajectory_json: string | null
+        dropped_json: string | null
+      }
+      expect(row.kind).toBe('case')
+      expect(row.input_tokens).toBeNull()
+      expect(row.output_tokens).toBeNull()
+      expect(row.cost_usd).toBeNull()
+      expect(row.duration_ms).toBeNull()
+      expect(row.prompt_chars).toBeNull()
+      expect(row.turn_count).toBeNull()
+      expect(row.tool_call_count).toBeNull()
+      expect(row.trajectory_json).toBeNull()
+      expect(row.dropped_json).toBeNull()
+      // statusFor-style read (see DistillQueue.statusFor): the legacy row must still surface
+      // through the kind='case' filter after the migration, not get silently dropped.
+      const latest = upgraded
+        .prepare(
+          `SELECT * FROM distill_jobs WHERE case_slug = ? AND kind='case' ORDER BY id DESC LIMIT 1`
+        )
+        .get('legacy-slug') as { case_slug: string } | undefined
+      expect(latest?.case_slug).toBe('legacy-slug')
+      upgraded.close()
+    })
+
     describe('increment 5 schema', () => {
       it('creates routine_run_items with a cascading FK to routine_runs', () => {
         const db = openDb(path.join(tmp, 'a.sqlite'))
