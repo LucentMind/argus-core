@@ -6,7 +6,7 @@ import type {
   DistillStatusPayload
 } from '../../../shared/distill'
 import type { CaseDistillRun } from './caseDistiller'
-import { DistillCapHitError } from './caseDistiller'
+import { DistillAgentRunError } from './caseDistiller'
 import type { TrajectoryEntry } from '../agent/driver'
 import type { StageResult } from './staging'
 import { DistillParseError } from './contract'
@@ -198,9 +198,15 @@ export class DistillQueue {
       throw new Error(
         `distill job ${jobId} cannot be retried: case ${job.caseSlug} already has an in-flight job (${inFlight.id})`
       )
+    // Resets every v2 column too — a retried job must start with a clean slate, not the
+    // previous attempt's cost/turns/trajectory sitting on a row that reads state='queued'
+    // (contradicting toRow's/DistillJobRow's own "null until a job records them" contract).
     this.deps.db
       .prepare(
-        `UPDATE distill_jobs SET state='queued', error=NULL, raw_output=NULL, item_count=NULL, finished_at=NULL WHERE id=?`
+        `UPDATE distill_jobs SET state='queued', error=NULL, raw_output=NULL, item_count=NULL,
+         finished_at=NULL, input_tokens=NULL, output_tokens=NULL, cost_usd=NULL, duration_ms=NULL,
+         prompt_chars=NULL, turn_count=NULL, tool_call_count=NULL, trajectory_json=NULL,
+         dropped_json=NULL WHERE id=?`
       )
       .run(jobId)
     const fresh = this.get(jobId)!
@@ -422,11 +428,13 @@ export class DistillQueue {
         // rather than a driver-shaped error the user would read as a fault. Already persisted
         // by cancel() itself; finishCancelled() above documents why this rewrite is idempotent.
         finishCancelled()
-      } else if (err instanceof DistillCapHitError) {
-        // Task 12's handoff decision: a capHit run's text is never parsed as a success, but it
-        // still burned real tokens/turns — persist the usage/trajectory columns alongside
-        // raw_output on this FAILED row, same fields the success path records (minus
-        // item_count/dropped_json, which only make sense once staging actually ran).
+      } else if (err instanceof DistillAgentRunError) {
+        // Every agentic-run failure — a capHit cutoff OR an ordinary clean-but-unparseable
+        // run (the more common of the two) — carries agentMeta: it still burned real
+        // tokens/turns, and §8's "record cost on every job" applies to a failed job the same
+        // as a done one. Persist the usage/trajectory columns alongside raw_output on this
+        // FAILED row, same fields the success path records (minus item_count/dropped_json,
+        // which only make sense once staging actually ran).
         const m = err.agentMeta
         finish(
           `state='failed', error=?, raw_output=?, input_tokens=?, output_tokens=?, cost_usd=?, duration_ms=?, prompt_chars=?, turn_count=?, tool_call_count=?, trajectory_json=?`,
