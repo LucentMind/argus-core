@@ -1,4 +1,10 @@
-import { frontmatterOf, parseDescription, parseRoles, hasRolesKey } from './skillFrontmatter'
+import {
+  frontmatterOf,
+  parseDescription,
+  parseRoles,
+  hasRolesKey,
+  hasEmptyDescriptionBlock
+} from './skillFrontmatter'
 import { MODES } from './modes'
 import { REF_TARGET_RE, REFERENCES_INDEX } from './referenceSync'
 
@@ -71,8 +77,12 @@ export function validateSkill(input: { name: string; content: string }): Validat
   if (!parseDescription(fm)) {
     issues.push({
       severity: 'error',
-      message:
-        'description must not be empty — an empty description makes the skill untriggerable.',
+      // A block scalar with nothing indented under it reads as empty, but the author sees a
+      // `description:` line sitting right there — the generic wording sends them hunting for a
+      // key that is not missing. Name the actual fault instead.
+      message: hasEmptyDescriptionBlock(fm)
+        ? 'description opens a block scalar (> or |) with no indented text under it, so it reads as empty and makes the skill untriggerable. Indent the description text beneath it, or put it on the same line.'
+        : 'description must not be empty — an empty description makes the skill untriggerable.',
       line: lineOfKey(content, 'description') ?? 1
     })
   }
