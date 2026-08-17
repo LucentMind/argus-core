@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { settingsSchema, type AppSettings } from '../settings'
-import { resolveDistillProvider } from '../drivers'
+import { resolveDistillProvider, resolveDistillAgentProvider } from '../drivers'
 
 /** Settings with a Copilot instance active and a Claude instance also enabled — the exact
  *  shape that produced the `model (auto)` distill failure on 2026-07-19. */
@@ -95,6 +95,65 @@ describe('resolveDistillProvider', () => {
       ok: true,
       model: 'claude-opus-4-8',
       cliPath: '/custom/claude'
+    })
+  })
+})
+
+describe('resolveDistillAgentProvider', () => {
+  it('resolves the enabled Claude instance, ignoring an active Copilot instance', () => {
+    const r = resolveDistillAgentProvider(copilotActive())
+    expect(r).toMatchObject({ ok: true, instanceId: 'claude-agent-sdk-1' })
+    if (!r.ok) throw new Error('unreachable')
+    expect(r.model?.startsWith('claude-')).toBe(true)
+  })
+
+  it('fails with a specific reason when no enabled instance supports headlessAgent', () => {
+    const s = settingsSchema.parse({
+      agent: {
+        activeInstanceId: 'github-copilot-1',
+        providerInstances: {
+          'github-copilot-1': { driver: 'github-copilot', enabled: true, config: {} }
+        }
+      }
+    })
+    expect(resolveDistillAgentProvider(s)).toEqual({
+      ok: false,
+      reason: 'no provider configured for agent-based distillation'
+    })
+  })
+
+  it('rejects an explicit instance whose driver lacks headlessAgent, even though it supports headlessOneShot', () => {
+    // github-copilot: headlessOneShot true, headlessAgent false — proves the resolver checks
+    // the AGENT capability specifically, not just "can this driver run headless at all".
+    const s = copilotActive({ distillProvider: { instanceId: 'github-copilot-1' } })
+    expect(resolveDistillAgentProvider(s)).toEqual({
+      ok: false,
+      reason: 'provider "github-copilot-1" (github-copilot) cannot run agent-based distillation'
+    })
+  })
+
+  it('honors an explicit distillProvider, including its model', () => {
+    const s = copilotActive({
+      distillProvider: { instanceId: 'claude-agent-sdk-1', model: 'claude-haiku-4-5' }
+    })
+    expect(resolveDistillAgentProvider(s)).toMatchObject({
+      ok: true,
+      instanceId: 'claude-agent-sdk-1',
+      model: 'claude-haiku-4-5'
+    })
+  })
+
+  it('rejects an explicit instance that is disabled', () => {
+    const s = copilotActive({
+      providerInstances: {
+        'github-copilot-1': { driver: 'github-copilot', enabled: true, config: {} },
+        'claude-agent-sdk-1': { driver: 'claude-agent-sdk', enabled: false, config: {} }
+      },
+      distillProvider: { instanceId: 'claude-agent-sdk-1' }
+    })
+    expect(resolveDistillAgentProvider(s)).toEqual({
+      ok: false,
+      reason: 'distillation provider "claude-agent-sdk-1" is unknown or disabled'
     })
   })
 })

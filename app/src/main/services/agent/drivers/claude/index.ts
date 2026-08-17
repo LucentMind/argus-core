@@ -20,6 +20,7 @@ import type {
 } from '../../driver'
 import { normalizeSdkMessage } from './normalize'
 import { runClaudeHeadless } from './headless'
+import { runClaudeHeadlessAgent } from './headlessAgent'
 
 // Relocated from session.ts (Task 4 removed the copies there); registry.ts and existing
 // tests import these from the driver module.
@@ -71,11 +72,14 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       editableApprovals: true,
       costReporting: true,
       headlessOneShot: true,
+      // v2 scope: Claude only — see DriverCapabilities.headlessAgent's doc comment.
+      headlessAgent: true,
       systemPromptTransport: 'systemPrompt.append',
       subagents: 'configurable'
     },
 
     runHeadless: (prompt, opts) => runClaudeHeadless(prompt, opts, createQuery),
+    runHeadlessAgent: (prompt, opts) => runClaudeHeadlessAgent(prompt, opts, createQuery),
 
     createSession(ctx: DriverSessionContext): DriverSession {
       const promptQueue = new AsyncQueue<unknown>()
