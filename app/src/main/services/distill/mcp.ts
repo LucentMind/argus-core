@@ -34,9 +34,9 @@ export interface PtcDistillCaps {
  *  but every handler reads the SAME frozen `world` snapshot instead of the live DB. */
 export function createDistillMcpServer(
   world: DistillWorld,
-  ptcCaps?: PtcDistillCaps
+  ptcDispatchless?: PtcDistillCaps
 ): ReturnType<typeof createSdkMcpServer> {
-  const caps: PtcDistillCaps = ptcCaps ?? {
+  const caps: PtcDistillCaps = ptcDispatchless ?? {
     maxCalls: PTC_DISTILL_MAX_CALLS,
     stdoutCapBytes: PTC_DISTILL_STDOUT_CAP,
     timeoutMs: PTC_DISTILL_TIMEOUT_MS
@@ -47,9 +47,9 @@ export function createDistillMcpServer(
       case 'list_sessions':
         return listSessionsTool(world)
       case 'read_transcript':
-        return readTranscript(world, args as never)
+        return readTranscript(world, args as unknown as Parameters<typeof readTranscript>[1])
       case 'search_transcript':
-        return searchTranscript(world, args as never)
+        return searchTranscript(world, args as unknown as Parameters<typeof searchTranscript>[1])
       default:
         throw new Error(`tool "${toolName}" is not allowed in scripts`)
     }
