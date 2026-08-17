@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+import fs from 'node:fs'
+import net from 'node:net'
+import * as serverModule from '../server'
 import { runToolScript, type PtcRunOpts } from '../run'
 
 const opts = (over: Partial<PtcRunOpts> & Pick<PtcRunOpts, 'script'>): PtcRunOpts => ({
@@ -54,5 +57,49 @@ t.echo({ v: 41 }).then((r) => console.log('got', r.v + 1))`
     } finally {
       delete process.env.ARGUS_SECRET_TEST
     }
+  })
+
+  it('closes the PTC server if temp-dir creation throws, and leaves no lingering state for the next call', async () => {
+    const startSpy = vi.spyOn(serverModule, 'startPtcServer')
+    const mkdtempSpy = vi.spyOn(fs, 'mkdtempSync').mockImplementationOnce(() => {
+      throw new Error('ENOSPC: no space left on device')
+    })
+    let leakedPort: number
+    try {
+      await expect(
+        runToolScript(opts({ script: `console.log('should never run')` }))
+      ).rejects.toThrow('ENOSPC')
+      // The server was created (real startPtcServer call-through) before the throw;
+      // capture its port so we can prove below that it was actually closed, not leaked.
+      expect(startSpy.mock.results).toHaveLength(1)
+      leakedPort = (await startSpy.mock.results[0].value).port
+    } finally {
+      mkdtempSpy.mockRestore()
+      startSpy.mockRestore()
+    }
+
+    // A listening server would still accept this connection; a closed one refuses it.
+    // This is the real regression check — a follow-up call succeeding on its own proves
+    // nothing, since every call gets an independent OS-assigned port either way.
+    await expect(
+      new Promise((resolve, reject) => {
+        const sock = net.connect({ host: '127.0.0.1', port: leakedPort }, () => {
+          sock.destroy()
+          resolve(undefined)
+        })
+        sock.on('error', reject)
+      })
+    ).rejects.toThrow(/ECONNREFUSED/)
+
+    // A normal call right after the failed one must still succeed too: no lingering
+    // state (e.g. a stuck listener/handle) from the failed attempt should affect it.
+    const res = await runToolScript(
+      opts({
+        script: `const t = require('./argus_tools')
+t.echo({ v: 1 }).then((r) => console.log('ok', r.v))`
+      })
+    )
+    expect(res.stdout.trim()).toBe('ok 1')
+    expect(res.exitCode).toBe(0)
   })
 })
