@@ -4,6 +4,25 @@ import type { RcaDraft } from './rca'
 
 export type DistillJobState = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
 
+export interface WorldMessage {
+  role: string
+  content: string
+  truncated?: true
+}
+
+export interface WorldSession {
+  id: number
+  title: string
+  messages: WorldMessage[]
+  /** honest-elision counters — served tool results repeat them */
+  droppedMessages?: number
+}
+
+export interface DistillWorld {
+  sessions: WorldSession[]
+  droppedSessions?: number
+}
+
 export interface DistillJobRow {
   id: number
   caseSlug: string
@@ -33,11 +52,17 @@ export interface CaseDistillInput {
   sessionTitles: string[]
   /** `content` is the full current SKILL.md (frontmatter + body) — a skill-edit must
    *  return the whole file with its change merged in, so the distiller needs it verbatim. */
-  skillsIndex: { name: string; description: string; content: string }[]
+  skillsIndex: { name: string; description: string; content: string; note?: string }[]
   /** `content` is the full current reference file (frontmatter + body), for the same reason.
    *  `tier` is the reference's trust_tier ('confluence' = auto-synced/overwritten, so never an
    *  edit target; 'team-knowledge'/null = hand-owned). null when the file has no frontmatter. */
-  referencesIndex: { name: string; summary: string; content: string; tier: string | null }[]
+  referencesIndex: {
+    name: string
+    summary: string
+    content: string
+    tier: string | null
+    note?: string
+  }[]
   alreadyCaptured: {
     proposals: {
       type: string
@@ -49,6 +74,15 @@ export interface CaseDistillInput {
   /** `artifacts/rca-structure.json` — the confirmed, human-reviewed RCA structure for this case,
    *  if a report was ever confirmed. null when no such file exists (most cases). */
   rcaStructure: RcaDraft | null
+  /** Frozen world snapshot for the agentic distiller's tools (v2). Built once at enqueue,
+   *  never re-read from the live DB. Absent for pre-v2 snapshots. */
+  world?: DistillWorld
+  /** Verbatim user turns, grouped by session — the agentic distiller's raw-quote source. */
+  userMessages?: { sessionTitle: string; messages: string[] }[]
+  /** Digest of prior reject reasons for this case's proposals, if any were rejected. */
+  rejectDigest?: string
+  /** Free-text operator guidance supplied at enqueue time, if any. */
+  operatorGuidance?: string
 }
 
 export interface CaseDistillSummary {
