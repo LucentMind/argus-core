@@ -159,7 +159,10 @@ export function ProposalDetail({
           </p>
         )}
         {p.priorReject && (
-          <div className="mt-2 rounded-r2 border border-review/40 bg-review/10 px-2 py-1 text-xs text-ink">
+          <div
+            role="status"
+            className="mt-2 rounded-r2 border border-review/40 bg-review/10 px-2 py-1 text-xs text-ink"
+          >
             {'Previously rejected'}
             {p.priorReject.tag ? (
               <>

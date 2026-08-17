@@ -162,14 +162,14 @@ describe('ProposalDetail: pending', () => {
     expect(screen.queryByText(/^Basis:/)).not.toBeInTheDocument()
   })
 
-  it('renders a prior-reject warning banner with tag, case, and note', () => {
+  it('renders a prior-reject warning banner with tag, case, and note, exposed as an a11y status region', () => {
     renderDetail({
       proposal: {
         ...pending,
         priorReject: { tag: 'overgeneric', caseSlug: 'NAV-42', note: 'too broad a claim' }
       }
     })
-    const banner = screen.getByText(/Previously rejected/).closest('div')!
+    const banner = screen.getByRole('status')
     expect(banner).toHaveTextContent(
       'Previously rejected as overgeneric (case NAV-42): too broad a claim'
     )
