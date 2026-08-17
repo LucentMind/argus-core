@@ -199,7 +199,25 @@ describe('readRejectDigest', () => {
     expect(readRejectDigest(home)).toBeNull()
   })
 
-  it('a missing/malformed reject_count parses as 0, not NaN (NaN would make digestStale permanently false)', () => {
+  it('a non-numeric reject_count (Number("many") is NaN) parses as 0, not NaN (NaN would make digestStale permanently false)', () => {
+    fs.mkdirSync(path.join(home, 'proposals'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'proposals', 'reject-patterns.md'),
+      [
+        '---',
+        'built_at: 2026-01-01T00:00:00.000Z',
+        'reject_count: many',
+        '---',
+        '- some bullet\n'
+      ].join('\n')
+    )
+    const digest = readRejectDigest(home)!
+    expect(digest.rejectCount).toBe(0)
+    expect(Number.isFinite(digest.rejectCount)).toBe(true)
+    expect(digestStale(home, DIGEST_TRIGGER_NEW_REJECTS)).toBe(true) // still triggers, not stuck
+  })
+
+  it('a missing reject_count also parses as 0 (Number("") is 0, already finite — a separate, non-discriminating case from the NaN one above)', () => {
     fs.mkdirSync(path.join(home, 'proposals'), { recursive: true })
     fs.writeFileSync(
       path.join(home, 'proposals', 'reject-patterns.md'),
@@ -207,8 +225,6 @@ describe('readRejectDigest', () => {
     )
     const digest = readRejectDigest(home)!
     expect(digest.rejectCount).toBe(0)
-    expect(Number.isFinite(digest.rejectCount)).toBe(true)
-    expect(digestStale(home, DIGEST_TRIGGER_NEW_REJECTS)).toBe(true) // still triggers, not stuck
   })
 })
 
