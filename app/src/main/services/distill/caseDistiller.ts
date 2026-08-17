@@ -40,8 +40,9 @@ export async function runCaseDistill(
   return { raw, output: parseCaseDistillOutput(raw) }
 }
 
-/** Metadata captured off an agentic run so it can still be persisted when the run is thrown
- *  away as a parse failure (a `capHit` run in particular — see `DistillCapHitError`). */
+/** Metadata captured off an agentic run so it can still be persisted whenever the run is
+ *  thrown away as a failure — a `capHit` run AND an ordinary clean-but-unparseable run both
+ *  spent real tokens/turns worth recording (see `DistillAgentRunError`). */
 export interface DistillAgentRunMeta {
   usage?: HeadlessUsage
   turnCount?: number
@@ -51,24 +52,33 @@ export interface DistillAgentRunMeta {
 }
 
 /**
- * Thrown instead of ever calling `parseCaseDistillOutput` when the driver reports `capHit` —
- * per Task 11's reviewer/owner-confirmed handoff decision, a budget-exhausted run's `text` can
- * be stale mid-run content (e.g. a fenced block from an earlier, superseded turn) and must
- * NEVER be parsed as a success. Extending `DistillParseError` (rather than a sibling type)
- * means `queue.ts`'s existing `catch (err) { ... instanceof DistillParseError }` branch keeps
- * working unmodified for the "generic parse failure" case — this class only adds the extra
- * agent-run metadata queue.ts needs to persist the usage/trajectory columns on a FAILED job.
- * That's the seam this task picked over a `{ok:false, ...}` result-object return: throwing
- * keeps `runCaseDistillAgent`'s success return type unchanged (`CaseDistillRun`, no `ok` flag
- * to check everywhere it's consumed — the eval harness's `replay.ts` included) and keeps the
- * "parse errors are exceptions" contract `contract.ts`/`queue.ts` already share; the metadata
- * rides along on the error object instead of forcing a second, parallel return channel.
+ * Thrown by `runCaseDistillAgent` for EVERY way an agentic run fails to produce usable output —
+ * both a `capHit` cutoff (Task 11's reviewer/owner-confirmed handoff decision: a budget-
+ * exhausted run's `text` can be stale mid-run content and must NEVER be parsed as a success)
+ * and an ordinary clean run whose final text just doesn't parse (§8's "record cost on every
+ * job" applies identically here — a clean run that burned tokens and still got the JSON wrong
+ * is, if anything, the MORE common failure mode, not a corner case). Extending
+ * `DistillParseError` (rather than a sibling type) means `queue.ts` only needs ONE extra
+ * `instanceof` branch, checked before the generic `DistillParseError` branch (this is a
+ * subclass): every agentic failure — capHit or plain parse failure — carries `agentMeta` so the
+ * queue can persist usage/turn/tool/trajectory columns on the FAILED row, not just a done one.
+ * `capHit`/`capSubtype` ride along too, for the message text and for callers that want to tell
+ * a budget cutoff apart from a parse failure without string-matching `message`.
+ *
+ * This is the seam this task picked over a `{ok:false, ...}` result-object return:
+ * throwing keeps `runCaseDistillAgent`'s success return type unchanged (`CaseDistillRun`, no
+ * `ok` flag to check everywhere it's consumed — the eval harness's `replay.ts` included) and
+ * keeps the "parse errors are exceptions" contract `contract.ts`/`queue.ts` already share; the
+ * metadata rides along on the error object instead of forcing a second, parallel return
+ * channel.
  */
-export class DistillCapHitError extends DistillParseError {
+export class DistillAgentRunError extends DistillParseError {
   constructor(
     message: string,
     raw: string,
-    public agentMeta?: DistillAgentRunMeta
+    public agentMeta?: DistillAgentRunMeta,
+    public capHit?: 'iterations' | 'timeout',
+    public capSubtype?: string
   ) {
     super(message, raw)
   }
@@ -87,11 +97,15 @@ export type HeadlessAgentRunnerFn = (
  * Same provider-blind split as `runCaseDistill` — owns the prompt, the MCP server, and the
  * parse; WHICH provider runs it is `createHeadlessAgentRunner`'s job.
  *
- * A `capHit` result (the driver's budget — iterations or wall-clock timeout — ran out before a
- * clean `result: success`) is NEVER handed to `parseCaseDistillOutput`: its `text` may be stale
- * mid-run content, not a final answer. Throw `DistillCapHitError` instead, carrying the raw
- * text and whatever usage/trajectory the run collected before the cutoff, so the caller can
- * record state='failed' with `raw_output` AND the cost columns preserved.
+ * Every way this can fail to produce usable output throws `DistillAgentRunError` carrying
+ * `agentMeta` (usage/turn/tool/trajectory), never a bare `DistillParseError` with no metadata:
+ * - A `capHit` result (the driver's budget — iterations or wall-clock timeout — ran out before
+ *   a clean `result: success`) is NEVER handed to `parseCaseDistillOutput`: its `text` may be
+ *   stale mid-run content, not a final answer.
+ * - A clean run (no `capHit`) whose `text` still doesn't parse is caught and rethrown with the
+ *   same `agentMeta` attached — this is the MORE likely failure mode of the two (an agent that
+ *   ran to completion but got the closing JSON wrong), so it must record cost too, not just the
+ *   capHit corner case.
  */
 export async function runCaseDistillAgent(
   input: CaseDistillInput,
@@ -108,23 +122,39 @@ export async function runCaseDistillAgent(
     maxIterations: DISTILL_MAX_ITERATIONS,
     ...(signal ? { signal } : {})
   })
+  const agentMeta: DistillAgentRunMeta = {
+    usage: res.usage,
+    turnCount: res.turnCount,
+    toolCallCount: res.toolCallCount,
+    trajectory: res.trajectory,
+    promptChars
+  }
   if (res.capHit) {
     const subtype = res.capSubtype ? `/${res.capSubtype}` : ''
-    throw new DistillCapHitError(
+    throw new DistillAgentRunError(
       `budget exhausted (${res.capHit}${subtype}) before a final answer`,
       res.text,
-      {
-        usage: res.usage,
-        turnCount: res.turnCount,
-        toolCallCount: res.toolCallCount,
-        trajectory: res.trajectory,
-        promptChars
-      }
+      agentMeta,
+      res.capHit,
+      res.capSubtype
     )
+  }
+  let output: CaseDistillOutput
+  try {
+    output = parseCaseDistillOutput(res.text)
+  } catch (err) {
+    // A clean run whose text just doesn't parse — the common case, not a corner case. Rethrow
+    // carrying the same agentMeta the capHit branch above attaches, so queue.ts's single
+    // metadata-persisting catch branch (keyed on `instanceof DistillAgentRunError`) handles
+    // both without the caller needing to tell them apart.
+    if (err instanceof DistillParseError) {
+      throw new DistillAgentRunError(err.message, err.raw, agentMeta)
+    }
+    throw err
   }
   return {
     raw: res.text,
-    output: parseCaseDistillOutput(res.text),
+    output,
     promptChars,
     usage: res.usage,
     turnCount: res.turnCount,

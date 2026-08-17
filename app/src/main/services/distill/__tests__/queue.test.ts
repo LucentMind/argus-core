@@ -7,7 +7,7 @@ import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { DistillQueue, reconcileAndEnqueue, needsDistillRun, TRAJECTORY_JSON_CAP } from '../queue'
 import { DistillParseError } from '../contract'
-import { DistillCapHitError } from '../caseDistiller'
+import { DistillAgentRunError } from '../caseDistiller'
 import type { CaseDistillInput, DistillStatusPayload } from '../../../../shared/distill'
 import type { TrajectoryEntry } from '../../agent/driver'
 
@@ -68,6 +68,114 @@ describe('DistillQueue', () => {
     q.retry(failed.id)
     await q.idle()
     expect(q.statusFor('case-a')!.state).toBe('done')
+  })
+
+  it("retry() resets every v2 column to NULL, not just the v1 fields — a retried job must not carry the previous attempt's cost/turns/trajectory", async () => {
+    const trajectory: TrajectoryEntry[] = [{ turn: 1, tool: 'x', argsSummary: '{}' }]
+    const { q } = makeQueue({
+      assembleInput: (slug) => ({ caseMeta: { slug } }) as unknown as CaseDistillInput,
+      distill: async (input) => {
+        const slug = (input as CaseDistillInput).caseMeta.slug
+        if (slug === 'case-a') {
+          throw new DistillAgentRunError(
+            'budget exhausted (timeout) before a final answer',
+            'STALE',
+            {
+              usage: { inputTokens: 9, outputTokens: 9, costUsd: 0.09, durationMs: 999 },
+              turnCount: 12,
+              toolCallCount: 11,
+              trajectory,
+              promptChars: 777
+            }
+          )
+        }
+        return new Promise(() => {}) // case-b (below) occupies the single in-flight slot forever
+      }
+    })
+    q.enqueue('case-a')
+    await q.idle()
+    const failed = q.statusFor('case-a')!
+    expect(failed.state).toBe('failed')
+    expect(failed.costUsd).toBe(0.09) // sanity: the columns really were recorded pre-retry
+    const preRetryRow = db
+      .prepare(`SELECT trajectory_json FROM distill_jobs WHERE id = ?`)
+      .get(failed.id) as { trajectory_json: string | null }
+    expect(preRetryRow.trajectory_json).not.toBeNull()
+
+    // Occupy the queue's single in-flight slot with an unrelated, never-resolving job BEFORE
+    // retrying — this queue processes one job at a time regardless of slug (see the class doc
+    // comment), so with the slot held, retry()'s kick() call no-ops and the retried row is
+    // guaranteed to still read state='queued' below, rather than racing kick()'s own loop
+    // (which runs synchronously far enough to flip state to 'running' before retry() returns).
+    q.enqueue('case-b')
+    await vi.waitFor(() => expect(q.statusFor('case-b')!.state).toBe('running'), {
+      timeout: 5000
+    })
+
+    q.retry(failed.id)
+    const row = db.prepare(`SELECT * FROM distill_jobs WHERE id = ?`).get(failed.id) as Record<
+      string,
+      unknown
+    >
+    expect(row.state).toBe('queued')
+    expect(row.error).toBeNull()
+    expect(row.raw_output).toBeNull()
+    expect(row.item_count).toBeNull()
+    expect(row.finished_at).toBeNull()
+    expect(row.input_tokens).toBeNull()
+    expect(row.output_tokens).toBeNull()
+    expect(row.cost_usd).toBeNull()
+    expect(row.duration_ms).toBeNull()
+    expect(row.prompt_chars).toBeNull()
+    expect(row.turn_count).toBeNull()
+    expect(row.tool_call_count).toBeNull()
+    expect(row.trajectory_json).toBeNull()
+    expect(row.dropped_json).toBeNull()
+  })
+
+  it('abort precedence: a run that aborts and then throws the metadata-carrying error still lands cancelled — no v2 columns, raw_output stays NULL', async () => {
+    const { q } = makeQueue({
+      distill: (_input, signal) =>
+        new Promise((_res, rej) => {
+          signal.addEventListener(
+            'abort',
+            () =>
+              rej(
+                new DistillAgentRunError(
+                  'budget exhausted (timeout) before a final answer',
+                  'STALE RAW THAT MUST NOT LAND',
+                  {
+                    usage: { inputTokens: 5, outputTokens: 5, costUsd: 0.05, durationMs: 100 },
+                    turnCount: 10,
+                    toolCallCount: 8,
+                    trajectory: [{ turn: 1, tool: 'x', argsSummary: '{}' }],
+                    promptChars: 100
+                  }
+                )
+              ),
+            { once: true }
+          )
+        })
+    })
+    const job = q.enqueue('case-a')
+    await vi.waitFor(() => expect(q.statusFor('case-a')!.state).toBe('running'), { timeout: 5000 })
+    q.cancel(job.id)
+    await q.idle()
+    const row = db.prepare(`SELECT * FROM distill_jobs WHERE id = ?`).get(job.id) as Record<
+      string,
+      unknown
+    >
+    expect(row.state).toBe('cancelled')
+    expect(row.raw_output).toBeNull()
+    expect(row.error).toBeNull()
+    expect(row.input_tokens).toBeNull()
+    expect(row.output_tokens).toBeNull()
+    expect(row.cost_usd).toBeNull()
+    expect(row.duration_ms).toBeNull()
+    expect(row.prompt_chars).toBeNull()
+    expect(row.turn_count).toBeNull()
+    expect(row.tool_call_count).toBeNull()
+    expect(row.trajectory_json).toBeNull()
   })
 
   it('FIFO: three enqueues run one at a time in order', async () => {
@@ -663,7 +771,7 @@ describe('DistillQueue', () => {
     const trajectory: TrajectoryEntry[] = [{ turn: 1, tool: 'x', argsSummary: '{}' }]
     const { q } = makeQueue({
       distill: async () => {
-        throw new DistillCapHitError(
+        throw new DistillAgentRunError(
           'budget exhausted (iterations/error_max_turns) before a final answer',
           'STALE RAW TEXT',
           {
@@ -708,7 +816,7 @@ describe('DistillQueue', () => {
   it('a capHit error with no agentMeta at all still fails cleanly with raw_output preserved (defensive: usage columns null, not a crash)', async () => {
     const { q } = makeQueue({
       distill: async () => {
-        throw new DistillCapHitError('budget exhausted (timeout) before a final answer', 'RAW')
+        throw new DistillAgentRunError('budget exhausted (timeout) before a final answer', 'RAW')
       }
     })
     q.enqueue('case-a')

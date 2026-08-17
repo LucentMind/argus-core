@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { runCaseDistill, runCaseDistillAgent, DistillCapHitError } from '../caseDistiller'
+import { runCaseDistill, runCaseDistillAgent, DistillAgentRunError } from '../caseDistiller'
 import { DistillParseError } from '../contract'
 import { DISTILL_ALLOWED_TOOLS, DISTILL_MAX_ITERATIONS } from '../worldTools'
 import type { CaseDistillInput, DistillWorld } from '../../../../shared/distill'
@@ -156,7 +156,7 @@ describe('runCaseDistillAgent', () => {
     ])
   })
 
-  it('throws DistillCapHitError — never parses text as success — when the run reports capHit, carrying raw text + usage/turn/tool/trajectory', async () => {
+  it('throws DistillAgentRunError — never parses text as success — when the run reports capHit, carrying raw text + usage/turn/tool/trajectory', async () => {
     const traj = [{ turn: 1, tool: 'x', argsSummary: '{}' }]
     const runAgent = async (): Promise<HeadlessAgentResult> =>
       agentResult({
@@ -174,9 +174,9 @@ describe('runCaseDistillAgent', () => {
     } catch (err) {
       caught = err
     }
-    expect(caught).toBeInstanceOf(DistillCapHitError)
+    expect(caught).toBeInstanceOf(DistillAgentRunError)
     expect(caught).toBeInstanceOf(DistillParseError)
-    const err = caught as DistillCapHitError
+    const err = caught as DistillAgentRunError
     expect(err.message).toContain('iterations')
     expect(err.message).toContain('error_max_turns')
     expect(err.raw).toContain('STALE')
@@ -190,6 +190,37 @@ describe('runCaseDistillAgent', () => {
     expect(err.agentMeta?.toolCallCount).toBe(40)
     expect(err.agentMeta?.trajectory).toEqual(traj)
     expect(err.agentMeta?.promptChars).toBeGreaterThan(0)
+  })
+
+  it('a CLEAN run (no capHit) whose text still fails to parse also throws DistillAgentRunError carrying agentMeta — not a bare DistillParseError with no cost', async () => {
+    const traj = [{ turn: 1, tool: 'mcp__argus__search_transcript', argsSummary: '{}' }]
+    const runAgent = async (): Promise<HeadlessAgentResult> =>
+      agentResult({
+        text: 'the agent forgot to fence its answer',
+        usage: { inputTokens: 20, outputTokens: 30, costUsd: 0.03, durationMs: 1200 },
+        turnCount: 6,
+        toolCallCount: 3,
+        trajectory: traj
+      })
+    let caught: unknown
+    try {
+      await runCaseDistillAgent(INPUT, runAgent)
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(DistillAgentRunError)
+    const err = caught as DistillAgentRunError
+    expect(err.capHit).toBeUndefined() // this was a clean run, not a budget cutoff
+    expect(err.raw).toBe('the agent forgot to fence its answer')
+    expect(err.agentMeta?.usage).toEqual({
+      inputTokens: 20,
+      outputTokens: 30,
+      costUsd: 0.03,
+      durationMs: 1200
+    })
+    expect(err.agentMeta?.turnCount).toBe(6)
+    expect(err.agentMeta?.toolCallCount).toBe(3)
+    expect(err.agentMeta?.trajectory).toEqual(traj)
   })
 
   it('capHit with no capSubtype (a wall-clock timeout) still produces a clear message', async () => {
