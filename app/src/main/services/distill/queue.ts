@@ -6,8 +6,31 @@ import type {
   DistillStatusPayload
 } from '../../../shared/distill'
 import type { CaseDistillRun } from './caseDistiller'
+import { DistillCapHitError } from './caseDistiller'
+import type { TrajectoryEntry } from '../agent/driver'
 import type { StageResult } from './staging'
 import { DistillParseError } from './contract'
+
+/** Cap on the `trajectory_json` column, in JSON-serialized characters. A run that hits its
+ *  iteration/timeout budget can accumulate a long trajectory; keeping the FIRST entries (not
+ *  the last) matters because loop-start context — what the agent tried first, before it got
+ *  stuck repeating itself — is what a human diagnosing a runaway actually needs. */
+export const TRAJECTORY_JSON_CAP = 32_768
+
+/** Serializes `trajectory` for the `trajectory_json` column, truncated to the first entries
+ *  that fit under `TRAJECTORY_JSON_CAP`. `undefined` (no trajectory collected, e.g. a v1 run)
+ *  maps to `null`; an empty array still round-trips as `'[]'`. */
+function trajectoryJson(trajectory: TrajectoryEntry[] | undefined): string | null {
+  if (!trajectory) return null
+  const full = JSON.stringify(trajectory)
+  if (full.length <= TRAJECTORY_JSON_CAP) return full
+  const kept: TrajectoryEntry[] = []
+  for (const entry of trajectory) {
+    if (JSON.stringify([...kept, entry]).length > TRAJECTORY_JSON_CAP) break
+    kept.push(entry)
+  }
+  return JSON.stringify(kept)
+}
 
 export interface DistillQueueDeps {
   db: DatabaseSync
@@ -31,6 +54,15 @@ interface JobDbRow {
   created_at: string
   finished_at: string | null
   kind: string
+  input_tokens: number | null
+  output_tokens: number | null
+  cost_usd: number | null
+  duration_ms: number | null
+  prompt_chars: number | null
+  turn_count: number | null
+  tool_call_count: number | null
+  trajectory_json: string | null
+  dropped_json: string | null
 }
 
 function toRow(r: JobDbRow): DistillJobRow {
@@ -41,7 +73,11 @@ function toRow(r: JobDbRow): DistillJobRow {
     error: r.error,
     itemCount: r.item_count,
     createdAt: r.created_at,
-    finishedAt: r.finished_at
+    finishedAt: r.finished_at,
+    costUsd: r.cost_usd,
+    turnCount: r.turn_count,
+    toolCallCount: r.tool_call_count,
+    promptChars: r.prompt_chars
   }
 }
 
@@ -346,6 +382,14 @@ export class DistillQueue {
       db.prepare(`UPDATE distill_jobs SET state='running' WHERE id=?`).run(r.id)
       this.emit(this.get(r.id)!)
       const input = JSON.parse(r.input_snapshot) as CaseDistillInput
+      // Task 13 adds the digest-kind runner; until then, a non-'case' row (e.g. 'reject-digest')
+      // must never reach the agentic case runner — its input shape doesn't match what that
+      // runner expects. Fail cleanly instead of calling `deps.distill` on it.
+      if (r.kind !== 'case') {
+        throw new Error(
+          `distill job ${r.id} has kind='${r.kind}', not runnable by the case distiller (yet)`
+        )
+      }
       const run = await this.deps.distill(input, ac.signal)
       // A driver can resolve normally even though its signal was already aborted — it lost or
       // ignored the abort race (e.g. its CLI process happened to finish right as cancel() fired).
@@ -356,13 +400,47 @@ export class DistillQueue {
         return
       }
       const res = this.deps.stage(r.case_slug, r.id, run.output)
-      finish(`state='done', raw_output=?, item_count=?`, run.raw, res.staged)
+      // dropped_json is Task 14's stage-result field; `stage()` doesn't produce it yet, so it's
+      // unconditionally null until then.
+      finish(
+        `state='done', raw_output=?, item_count=?, input_tokens=?, output_tokens=?, cost_usd=?, duration_ms=?, prompt_chars=?, turn_count=?, tool_call_count=?, trajectory_json=?, dropped_json=?`,
+        run.raw,
+        res.staged,
+        run.usage?.inputTokens ?? null,
+        run.usage?.outputTokens ?? null,
+        run.usage?.costUsd ?? null,
+        run.usage?.durationMs ?? null,
+        run.promptChars ?? null,
+        run.turnCount ?? null,
+        run.toolCallCount ?? null,
+        trajectoryJson(run.trajectory),
+        null
+      )
     } catch (err) {
       if (ac.signal.aborted) {
         // However the run failed, the user's cancel is the reason it stopped — record that
         // rather than a driver-shaped error the user would read as a fault. Already persisted
         // by cancel() itself; finishCancelled() above documents why this rewrite is idempotent.
         finishCancelled()
+      } else if (err instanceof DistillCapHitError) {
+        // Task 12's handoff decision: a capHit run's text is never parsed as a success, but it
+        // still burned real tokens/turns — persist the usage/trajectory columns alongside
+        // raw_output on this FAILED row, same fields the success path records (minus
+        // item_count/dropped_json, which only make sense once staging actually ran).
+        const m = err.agentMeta
+        finish(
+          `state='failed', error=?, raw_output=?, input_tokens=?, output_tokens=?, cost_usd=?, duration_ms=?, prompt_chars=?, turn_count=?, tool_call_count=?, trajectory_json=?`,
+          err.message,
+          err.raw,
+          m?.usage?.inputTokens ?? null,
+          m?.usage?.outputTokens ?? null,
+          m?.usage?.costUsd ?? null,
+          m?.usage?.durationMs ?? null,
+          m?.promptChars ?? null,
+          m?.turnCount ?? null,
+          m?.toolCallCount ?? null,
+          trajectoryJson(m?.trajectory)
+        )
       } else if (err instanceof DistillParseError) {
         finish(`state='failed', error=?, raw_output=?`, err.message, err.raw)
       } else {

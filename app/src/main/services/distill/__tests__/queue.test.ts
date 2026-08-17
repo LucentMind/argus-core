@@ -5,9 +5,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
-import { DistillQueue, reconcileAndEnqueue, needsDistillRun } from '../queue'
+import { DistillQueue, reconcileAndEnqueue, needsDistillRun, TRAJECTORY_JSON_CAP } from '../queue'
 import { DistillParseError } from '../contract'
+import { DistillCapHitError } from '../caseDistiller'
 import type { CaseDistillInput, DistillStatusPayload } from '../../../../shared/distill'
+import type { TrajectoryEntry } from '../../agent/driver'
 
 const INPUT = { caseMeta: { slug: 'x' } } as unknown as CaseDistillInput
 
@@ -581,6 +583,168 @@ describe('DistillQueue', () => {
     expect(q.statusFor('case-a')!.id).toBe(caseJob.id)
     expect(q.statusFor('case-a')!.state).toBe('done')
     expect(needsDistillRun(db, q, 'case-a')).toBe(false) // digest row must not be read as "needs a run"
+  })
+
+  it('records every v2 usage/trajectory column on a done job, and trajectory_json parses back', async () => {
+    const trajectory: TrajectoryEntry[] = [
+      { turn: 1, tool: 'mcp__argus__list_sessions', argsSummary: '{}', resultBytes: 42 },
+      { turn: 2, tool: 'mcp__argus__read_transcript', argsSummary: '{"session_id":1}' }
+    ]
+    const { q, broadcasts } = makeQueue({
+      distill: async () => ({
+        raw: '```json\n{}\n```',
+        output: {},
+        promptChars: 1234,
+        usage: { inputTokens: 10, outputTokens: 5, costUsd: 0.02, durationMs: 900 },
+        turnCount: 4,
+        toolCallCount: 7,
+        trajectory
+      })
+    })
+    q.enqueue('case-a')
+    await q.idle()
+    const job = q.statusFor('case-a')!
+    expect(job.state).toBe('done')
+    // IPC row (toRow) carries the four Task-16-facing columns.
+    expect(job.costUsd).toBe(0.02)
+    expect(job.turnCount).toBe(4)
+    expect(job.toolCallCount).toBe(7)
+    expect(job.promptChars).toBe(1234)
+    // Full DB row carries every v2 column, and trajectory_json round-trips.
+    const row = db.prepare(`SELECT * FROM distill_jobs WHERE id = ?`).get(job.id) as Record<
+      string,
+      unknown
+    >
+    expect(row.input_tokens).toBe(10)
+    expect(row.output_tokens).toBe(5)
+    expect(row.cost_usd).toBe(0.02)
+    expect(row.duration_ms).toBe(900)
+    expect(row.prompt_chars).toBe(1234)
+    expect(row.turn_count).toBe(4)
+    expect(row.tool_call_count).toBe(7)
+    expect(row.dropped_json).toBeNull() // Task 14 fills this; null until then
+    expect(JSON.parse(row.trajectory_json as string)).toEqual(trajectory)
+    // The broadcast payload (what the renderer actually receives) carries the same four fields.
+    const doneBroadcast = broadcasts.find(
+      (b) => (b as DistillStatusPayload).job?.state === 'done'
+    ) as DistillStatusPayload
+    expect(doneBroadcast.job).toMatchObject({
+      costUsd: 0.02,
+      turnCount: 4,
+      toolCallCount: 7,
+      promptChars: 1234
+    })
+  })
+
+  it('truncates trajectory_json to the FIRST entries that fit under the 32KB cap (loop-start context matters most)', async () => {
+    const trajectory: TrajectoryEntry[] = Array.from({ length: 2000 }, (_, i) => ({
+      turn: i,
+      tool: 'mcp__argus__search_transcript',
+      argsSummary: JSON.stringify({ query: `q${i}`.padEnd(30, 'x') })
+    }))
+    expect(JSON.stringify(trajectory).length).toBeGreaterThan(TRAJECTORY_JSON_CAP) // sanity: fixture exceeds the cap
+    const { q } = makeQueue({
+      distill: async () => ({ raw: '```json\n{}\n```', output: {}, trajectory })
+    })
+    q.enqueue('case-a')
+    await q.idle()
+    const job = q.statusFor('case-a')!
+    const row = db.prepare(`SELECT trajectory_json FROM distill_jobs WHERE id = ?`).get(job.id) as {
+      trajectory_json: string
+    }
+    expect(row.trajectory_json.length).toBeLessThanOrEqual(TRAJECTORY_JSON_CAP)
+    const kept = JSON.parse(row.trajectory_json) as { turn: number }[]
+    expect(kept.length).toBeGreaterThan(0)
+    expect(kept.length).toBeLessThan(trajectory.length)
+    expect(kept.map((e) => e.turn)).toEqual(trajectory.slice(0, kept.length).map((e) => e.turn))
+  })
+
+  it('a capHit run fails the job but persists raw_output + usage/turn/tool/trajectory columns (Task 12 handoff decision)', async () => {
+    const trajectory: TrajectoryEntry[] = [{ turn: 1, tool: 'x', argsSummary: '{}' }]
+    const { q } = makeQueue({
+      distill: async () => {
+        throw new DistillCapHitError(
+          'budget exhausted (iterations/error_max_turns) before a final answer',
+          'STALE RAW TEXT',
+          {
+            usage: { inputTokens: 1, outputTokens: 2, costUsd: 0.01, durationMs: 500 },
+            turnCount: 50,
+            toolCallCount: 40,
+            trajectory,
+            promptChars: 999
+          }
+        )
+      }
+    })
+    q.enqueue('case-a')
+    await q.idle()
+    const job = q.statusFor('case-a')!
+    expect(job.state).toBe('failed')
+    expect(job.error).toContain('budget exhausted')
+    expect(job.costUsd).toBe(0.01)
+    expect(job.turnCount).toBe(50)
+    expect(job.toolCallCount).toBe(40)
+    expect(job.promptChars).toBe(999)
+    const row = db
+      .prepare(
+        `SELECT raw_output, input_tokens, output_tokens, duration_ms, trajectory_json, item_count FROM distill_jobs WHERE id = ?`
+      )
+      .get(job.id) as {
+      raw_output: string
+      input_tokens: number
+      output_tokens: number
+      duration_ms: number
+      trajectory_json: string
+      item_count: number | null
+    }
+    expect(row.raw_output).toBe('STALE RAW TEXT')
+    expect(row.input_tokens).toBe(1)
+    expect(row.output_tokens).toBe(2)
+    expect(row.duration_ms).toBe(500)
+    expect(JSON.parse(row.trajectory_json)).toEqual(trajectory)
+    expect(row.item_count).toBeNull() // staging never ran on a failed job
+  })
+
+  it('a capHit error with no agentMeta at all still fails cleanly with raw_output preserved (defensive: usage columns null, not a crash)', async () => {
+    const { q } = makeQueue({
+      distill: async () => {
+        throw new DistillCapHitError('budget exhausted (timeout) before a final answer', 'RAW')
+      }
+    })
+    q.enqueue('case-a')
+    await q.idle()
+    const job = q.statusFor('case-a')!
+    expect(job.state).toBe('failed')
+    expect(job.costUsd).toBeNull()
+    expect(job.turnCount).toBeNull()
+    const row = db.prepare(`SELECT raw_output FROM distill_jobs WHERE id = ?`).get(job.id) as {
+      raw_output: string
+    }
+    expect(row.raw_output).toBe('RAW')
+  })
+
+  it('a kind=reject-digest row fails cleanly without ever calling the agent runner (Task 13 adds its own runner)', async () => {
+    let called = 0
+    const { q } = makeQueue({
+      distill: async () => {
+        called++
+        return { raw: '```json\n{}\n```', output: {} }
+      }
+    })
+    db.prepare(
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at, kind)
+       VALUES ('case-a', 'queued', '{"caseMeta":{"slug":"case-a"}}', ?, 'reject-digest')`
+    ).run(new Date().toISOString())
+    q.recoverOnBoot()
+    await q.idle()
+    const row = db
+      .prepare(
+        `SELECT state, error FROM distill_jobs WHERE case_slug='case-a' AND kind='reject-digest'`
+      )
+      .get() as { state: string; error: string }
+    expect(row.state).toBe('failed')
+    expect(row.error).toMatch(/reject-digest/)
+    expect(called).toBe(0) // the guard must trip BEFORE the agent runner is ever invoked
   })
 })
 

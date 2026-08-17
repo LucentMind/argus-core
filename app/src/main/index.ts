@@ -235,6 +235,7 @@ import { prWorktreeHead } from './services/agent/reviewWrites'
 import { ReferenceSyncStore } from './services/referenceSyncStore'
 import { RefSyncService } from './services/refSync/service'
 import { createHeadlessRunner } from './services/agent/headless'
+import { createHeadlessAgentRunner } from './services/agent/headlessAgent'
 import {
   seedSharedAssets,
   sharedSkillsDir,
@@ -293,7 +294,8 @@ import { listFindings, reviewFinding, clearFindings, deleteFinding } from './ser
 import type { MetricsQuery, ReviewState } from '../shared/observability'
 import { DistillQueue, reconcileAndEnqueue, needsDistillRun } from './services/distill/queue'
 import { assembleDistillInput } from './services/distill/input'
-import { runCaseDistill } from './services/distill/caseDistiller'
+import { runCaseDistillAgent } from './services/distill/caseDistiller'
+import { DISTILL_AGENT_TIMEOUT_MS } from './services/distill/worldTools'
 import { stageDistillOutput } from './services/distill/staging'
 import { searchCaseSummaries } from './services/distill/summaries'
 import { caseDistillPromptHash } from './services/distill/promptHash'
@@ -943,6 +945,15 @@ function registerIpc(): void {
     // 180s driver default is too tight. Give background jobs a 10-minute budget.
     timeoutMs: 600_000
   })
+  // — agentic headless runner for distillation v2's case distiller (Task 12). Same provider
+  // resolution as `headlessRun` (settings.distillProvider), but threads MCP/tools/iterations
+  // through to `runHeadlessAgent` and gets its own, much longer timeout — a tool-using run
+  // that reads a whole case's transcripts is not comparable to a single batch prompt.
+  const distillAgentRun = createHeadlessAgentRunner({
+    settings: () => settingsService.get(),
+    argusHome,
+    timeoutMs: DISTILL_AGENT_TIMEOUT_MS // 30 min — quality-first backstop, tuned later from §8 data
+  })
   const refSync = new RefSyncService({
     argusHome,
     store: refSyncStore,
@@ -1004,7 +1015,7 @@ function registerIpc(): void {
       assembleDistillInput(db, argusHome, slug, skillsIndexForDistill(), {
         operatorGuidance: settingsService.get().distill.guidance
       }),
-    distill: (input, signal) => runCaseDistill(input, headlessRun, resolvePrompt, signal),
+    distill: (input, signal) => runCaseDistillAgent(input, distillAgentRun, resolvePrompt, signal),
     stage: (slug, jobId, output) => stageDistillOutput(db, argusHome, slug, jobId, output),
     broadcast: (p) => broadcast(IPC.distillChanged, p),
     promptHash: () => caseDistillPromptHash(resolvePrompt)

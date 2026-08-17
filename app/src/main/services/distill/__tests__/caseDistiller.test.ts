@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { runCaseDistill } from '../caseDistiller'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { runCaseDistill, runCaseDistillAgent, DistillCapHitError } from '../caseDistiller'
 import { DistillParseError } from '../contract'
-import type { CaseDistillInput } from '../../../../shared/distill'
-import type { HeadlessResult } from '../../agent/driver'
+import { DISTILL_ALLOWED_TOOLS, DISTILL_MAX_ITERATIONS } from '../worldTools'
+import type { CaseDistillInput, DistillWorld } from '../../../../shared/distill'
+import type { HeadlessAgentResult, HeadlessResult } from '../../agent/driver'
 
 const INPUT: CaseDistillInput = {
   caseMeta: {
@@ -59,6 +62,152 @@ describe('runCaseDistill', () => {
       async (_p, o) => {
         seen.push(o?.signal)
         return { text: '```json\n{}\n```' }
+      },
+      undefined,
+      ac.signal
+    )
+    expect(seen[0]).toBe(ac.signal)
+  })
+})
+
+function agentResult(over: Partial<HeadlessAgentResult> = {}): HeadlessAgentResult {
+  return {
+    text: '```json\n{}\n```',
+    turnCount: 3,
+    toolCallCount: 2,
+    trajectory: [],
+    ...over
+  }
+}
+
+/** Connects an in-memory MCP client to the captured server and calls `list_sessions`, so a
+ *  test can assert on the SNAPSHOT it was built over without reaching into private state. */
+async function listSessionsViaServer(server: unknown): Promise<unknown> {
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+  const client = new Client({ name: 'test-distill-agent-client', version: '1.0.0' })
+  const instance = (server as { instance: { connect: (t: unknown) => Promise<void> } }).instance
+  await Promise.all([client.connect(clientTransport), instance.connect(serverTransport)])
+  try {
+    const res = await client.callTool({ name: 'list_sessions', arguments: {} })
+    const content = res.content as { type: string; text: string }[]
+    return JSON.parse(content[0].text)
+  } finally {
+    await client.close()
+  }
+}
+
+describe('runCaseDistillAgent', () => {
+  it('builds the prompt, wires DISTILL_ALLOWED_TOOLS/DISTILL_MAX_ITERATIONS, and parses the runner text', async () => {
+    let seenPrompt = ''
+    let seenOpts: { mcpServer: unknown; allowedTools: string[]; maxIterations: number } | null =
+      null
+    const runAgent = async (
+      prompt: string,
+      opts: { mcpServer: unknown; allowedTools: string[]; maxIterations: number }
+    ): Promise<HeadlessAgentResult> => {
+      seenPrompt = prompt
+      seenOpts = opts
+      return agentResult({
+        text: '```json\n{"proposals":[{"type":"recipe","target":"a-topic","title":"t","content":"c"}]}\n```',
+        usage: { inputTokens: 10, outputTokens: 5, costUsd: 0.02, durationMs: 900 },
+        turnCount: 4,
+        toolCallCount: 7,
+        trajectory: [{ turn: 1, tool: 'mcp__argus__list_sessions', argsSummary: '{}' }]
+      })
+    }
+    const result = await runCaseDistillAgent(INPUT, runAgent)
+    expect(seenPrompt).toContain('# Case')
+    expect(seenOpts!.allowedTools).toBe(DISTILL_ALLOWED_TOOLS)
+    expect(seenOpts!.maxIterations).toBe(DISTILL_MAX_ITERATIONS)
+    expect(seenOpts!.mcpServer).toBeTruthy()
+    expect(result.promptChars).toBe(seenPrompt.length)
+    expect(result.output.proposals).toHaveLength(1)
+    expect(result.usage).toEqual({
+      inputTokens: 10,
+      outputTokens: 5,
+      costUsd: 0.02,
+      durationMs: 900
+    })
+    expect(result.turnCount).toBe(4)
+    expect(result.toolCallCount).toBe(7)
+    expect(result.trajectory).toHaveLength(1)
+  })
+
+  it('defaults the MCP world to {sessions: []} when input.world is absent', async () => {
+    let mcpServer: unknown
+    await runCaseDistillAgent(INPUT, async (_p, opts) => {
+      mcpServer = opts.mcpServer
+      return agentResult()
+    })
+    expect(await listSessionsViaServer(mcpServer)).toEqual([])
+  })
+
+  it('creates the MCP server over input.world when present', async () => {
+    const world: DistillWorld = {
+      sessions: [{ id: 1, title: 'S', messages: [{ role: 'user', content: 'hi' }] }]
+    }
+    let mcpServer: unknown
+    await runCaseDistillAgent({ ...INPUT, world }, async (_p, opts) => {
+      mcpServer = opts.mcpServer
+      return agentResult()
+    })
+    expect(await listSessionsViaServer(mcpServer)).toEqual([
+      { id: 1, title: 'S', messageCount: 1, droppedMessages: 0 }
+    ])
+  })
+
+  it('throws DistillCapHitError — never parses text as success — when the run reports capHit, carrying raw text + usage/turn/tool/trajectory', async () => {
+    const traj = [{ turn: 1, tool: 'x', argsSummary: '{}' }]
+    const runAgent = async (): Promise<HeadlessAgentResult> =>
+      agentResult({
+        text: 'STALE ```json\n{"garbage":true}\n```',
+        capHit: 'iterations',
+        capSubtype: 'error_max_turns',
+        usage: { inputTokens: 1, outputTokens: 2, costUsd: 0.01, durationMs: 500 },
+        turnCount: 50,
+        toolCallCount: 40,
+        trajectory: traj
+      })
+    let caught: unknown
+    try {
+      await runCaseDistillAgent(INPUT, runAgent)
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(DistillCapHitError)
+    expect(caught).toBeInstanceOf(DistillParseError)
+    const err = caught as DistillCapHitError
+    expect(err.message).toContain('iterations')
+    expect(err.message).toContain('error_max_turns')
+    expect(err.raw).toContain('STALE')
+    expect(err.agentMeta?.usage).toEqual({
+      inputTokens: 1,
+      outputTokens: 2,
+      costUsd: 0.01,
+      durationMs: 500
+    })
+    expect(err.agentMeta?.turnCount).toBe(50)
+    expect(err.agentMeta?.toolCallCount).toBe(40)
+    expect(err.agentMeta?.trajectory).toEqual(traj)
+    expect(err.agentMeta?.promptChars).toBeGreaterThan(0)
+  })
+
+  it('capHit with no capSubtype (a wall-clock timeout) still produces a clear message', async () => {
+    const runAgent = async (): Promise<HeadlessAgentResult> =>
+      agentResult({ text: '', capHit: 'timeout' })
+    await expect(runCaseDistillAgent(INPUT, runAgent)).rejects.toMatchObject({
+      message: expect.stringContaining('timeout')
+    })
+  })
+
+  it('forwards the abort signal to the runner', async () => {
+    const seen: (AbortSignal | undefined)[] = []
+    const ac = new AbortController()
+    await runCaseDistillAgent(
+      INPUT,
+      async (_p, o) => {
+        seen.push(o.signal)
+        return agentResult()
       },
       undefined,
       ac.signal

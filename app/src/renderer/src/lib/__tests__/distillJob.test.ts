@@ -12,6 +12,10 @@ const job = (over: Partial<DistillJobRow>): DistillJobRow => ({
   itemCount: null,
   createdAt: 't',
   finishedAt: null,
+  costUsd: null,
+  turnCount: null,
+  toolCallCount: null,
+  promptChars: null,
   ...over
 })
 

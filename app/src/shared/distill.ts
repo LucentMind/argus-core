@@ -32,6 +32,13 @@ export interface DistillJobRow {
   itemCount: number | null
   createdAt: string
   finishedAt: string | null
+  /** v2 agentic-run cost/usage columns — null until a job records them (pre-v2 rows, or a
+   *  job still queued/running). Populated on BOTH a done job and a failed capHit job (Task 12):
+   *  a run that burned its budget still spent real tokens worth showing the operator. */
+  costUsd: number | null
+  turnCount: number | null
+  toolCallCount: number | null
+  promptChars: number | null
 }
 
 export interface CaseDistillInput {
