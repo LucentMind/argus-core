@@ -259,4 +259,53 @@ describe('DistillationSection', () => {
     // The orphaned id must remain visible rather than silently reading as something else.
     expect(select('Distillation provider').value).toBe('nope')
   })
+
+  it('does not warn when the resolved provider supports agent-based distillation', () => {
+    render(<DistillationSection payload={payload()} />)
+    expect(
+      screen.queryByText(/Agent-based distillation requires a provider with agent support/)
+    ).toBeNull()
+  })
+
+  it('warns when the selected provider lacks agent support', () => {
+    // github-copilot-1 declares headlessOneShot but not headlessAgent — a valid one-shot
+    // pick (reference sync, the digest) that cannot run the case-close agent loop.
+    render(
+      <DistillationSection
+        payload={payload((p) => {
+          p.settings.agent.distillProvider = { instanceId: 'github-copilot-1' }
+        })}
+      />
+    )
+    screen.getByText(
+      'Agent-based distillation requires a provider with agent support (currently Claude). ' +
+        'This provider can only run reference sync.'
+    )
+  })
+
+  it('shows the guidance textarea and commits an edit', () => {
+    render(<DistillationSection payload={payload()} />)
+    const field = screen.getByLabelText('Distillation guidance') as HTMLTextAreaElement
+    expect(field.value).toBe('')
+    expect(field.placeholder).toBe(
+      'Standing instructions for the distiller — e.g. "never propose skills about internal tooling"'
+    )
+    fireEvent.change(field, { target: { value: 'never propose skills about internal tooling' } })
+    fireEvent.blur(field)
+    expect(patchSpy).toHaveBeenCalledWith({
+      distill: { guidance: 'never propose skills about internal tooling' }
+    })
+  })
+
+  it('resetting the guidance row clears it', () => {
+    render(
+      <DistillationSection
+        payload={payload((p) => {
+          p.settings.distill.guidance = 'watch for X'
+        })}
+      />
+    )
+    fireEvent.click(screen.getByLabelText('Reset Distillation guidance'))
+    expect(patchSpy).toHaveBeenCalledWith({ distill: { guidance: null } })
+  })
 })

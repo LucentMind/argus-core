@@ -119,7 +119,7 @@ comparing an alternate draft without committing it, e.g. A/B-ing two candidate r
 
 | runner | type | used for |
 |---|---|---|
-| `agent` (`src/agentRunner.ts`, `claudeAgentRunner`) | `(prompt, world) => Promise<string>` | the distill replay itself — agentic, tools over the frozen world |
+| `agent` (`src/agentRunner.ts`, `claudeAgentRunner`) | `(prompt, world) => Promise<AgentReplayResult>` | the distill replay itself — agentic, tools over the frozen world |
 | `oneShot` (`src/runner.ts`, `claudeRunner`) | `(prompt) => Promise<string>` | the judge — one prompt in, one verdict out, no tools |
 
 `claudeRunner` shells out to `claude -p --output-format text` (adding `--model` if passed),

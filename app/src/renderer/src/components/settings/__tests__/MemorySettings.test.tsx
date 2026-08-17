@@ -77,7 +77,8 @@ const usage: UsageStatsPayload = {
     totalCostUsd: null,
     avgCostUsd: null,
     avgPromptChars: null,
-    avgTurnCount: null
+    avgTurnCount: null,
+    failedCostUsd: null
   }
 }
 
@@ -164,7 +165,8 @@ describe('MemorySettings usage + hygiene', () => {
         totalCostUsd: 2,
         avgCostUsd: 1,
         avgPromptChars: 3000,
-        avgTurnCount: 15
+        avgTurnCount: 15,
+        failedCostUsd: null
       }
     })
     render(<MemorySettings />)
@@ -173,6 +175,8 @@ describe('MemorySettings usage + hygiene', () => {
     expect(screen.getByText(/avg \$1\.00/)).toBeInTheDocument()
     expect(screen.getByText(/avg 15\.0 turns/)).toBeInTheDocument()
     expect(screen.getByText(/avg 3000 prompt chars/)).toBeInTheDocument()
+    // No failed spend recorded — the chip must not appear at all, not render "$0.00".
+    expect(screen.queryByText(/on failed runs/)).not.toBeInTheDocument()
   })
 
   it('shows a jobCount-only Distillation section when no run has ever recorded usage (pre-v2 rows)', async () => {
@@ -183,13 +187,31 @@ describe('MemorySettings usage + hygiene', () => {
         totalCostUsd: null,
         avgCostUsd: null,
         avgPromptChars: null,
-        avgTurnCount: null
+        avgTurnCount: null,
+        failedCostUsd: null
       }
     })
     render(<MemorySettings />)
     expect(await screen.findByText('1 completed run')).toBeInTheDocument()
     expect(screen.getByText(/no usage recorded/)).toBeInTheDocument()
     expect(screen.queryByText(/total$/)).not.toBeInTheDocument()
+  })
+
+  it('shows a failed-runs chip when failed capHit spend was recorded', async () => {
+    argus.usage.stats.mockResolvedValue({
+      ...usage,
+      distillation: {
+        jobCount: 2,
+        totalCostUsd: 2,
+        avgCostUsd: 1,
+        avgPromptChars: 3000,
+        avgTurnCount: 15,
+        failedCostUsd: 4.5
+      }
+    })
+    render(<MemorySettings />)
+    expect(await screen.findByText('2 completed runs')).toBeInTheDocument()
+    expect(screen.getByText('+$4.50 on failed runs')).toBeInTheDocument()
   })
 
   it('archive asks for confirmation then calls memory.archive', async () => {

@@ -300,6 +300,7 @@ import { DISTILL_AGENT_TIMEOUT_MS } from './services/distill/worldTools'
 import { stageDistillOutput } from './services/distill/staging'
 import { searchCaseSummaries } from './services/distill/summaries'
 import { caseDistillPromptHash } from './services/distill/promptHash'
+import { readRejectDigest } from './services/distill/rejectDigest'
 import { RcaJobs } from './services/rca/jobs'
 import { postRcaReport } from './services/rca/post'
 import { assembleRcaInput } from './services/rca/input'
@@ -3015,6 +3016,9 @@ function registerIpc(): void {
     rejectProposal(argusHome, file, reason)
     return { proposals: listProposals(argusHome) }
   })
+  // Read-only digest viewer (spec §5): `null` when no digest has ever been built, which the
+  // renderer treats as "hide the section entirely" rather than an empty state to explain.
+  ipcMain.handle(IPC.proposalsRejectDigest, () => readRejectDigest(argusHome))
   const announceProposals = (): void => broadcast(IPC.proposalsChanged, proposalCounts(argusHome))
   setProposalsChangedNotifier(announceProposals)
   // Files dropped into proposals/ externally (manual seeding, external tools) never

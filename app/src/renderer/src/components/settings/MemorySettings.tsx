@@ -384,6 +384,15 @@ export function MemorySettings(): React.JSX.Element {
                 {usage.distillation.totalCostUsd !== null && (
                   <Chip tone="neutral">${usage.distillation.totalCostUsd.toFixed(2)} total</Chip>
                 )}
+                {/* Failed capHit runs ran the whole agent loop before refusing to parse — often
+                    the most expensive outcome, not a free one — so their spend gets its own chip
+                    rather than vanishing into a done-only total. */}
+                {usage.distillation.failedCostUsd !== null &&
+                  usage.distillation.failedCostUsd > 0 && (
+                    <Chip tone="danger">
+                      +${usage.distillation.failedCostUsd.toFixed(2)} on failed runs
+                    </Chip>
+                  )}
               </SettingRow>
             </SettingsSection>
           )}

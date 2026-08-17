@@ -66,9 +66,28 @@ describe('runEval', () => {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'distill-eval-out-'))
     const md = fs.readFileSync(writeReport(out, results).reportPath, 'utf8')
     expect(md).toContain(
-      'Budget-exhausted replays (agent cut off, NOT graded): 1 — nav-1 #1 (error_max_turns)'
+      'Capped or errored replays (agent did not finish, NOT graded): 1 — nav-1 #1 (budget-exhausted)'
     )
     expect(md).toContain('Parse: ok 0') // and it did NOT sneak into the ok column
+  })
+
+  it('labels a non-budget terminal subtype as an agent error, not budget-exhausted', async () => {
+    const cases = [
+      { ...line(), items: [{ type: 'skill-new', target: 's', title: 't', outcome: 'accepted' as const }] }
+    ]
+    const results = await runEval(cases, {
+      // `error_during_execution` is a real crash mid-run, not the app's turn-count cap —
+      // calling it "budget-exhausted" would misdescribe it as a limit working as intended.
+      agent: async () => ({ text: '```json\n{}\n```', capSubtype: 'error_during_execution' }),
+      oneShot: async () => '```json\n{"verdict": "improved", "reason": "r"}\n```'
+    })
+    expect(results[0].capSubtype).toBe('error_during_execution')
+
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'distill-eval-out-'))
+    const md = fs.readFileSync(writeReport(out, results).reportPath, 'utf8')
+    expect(md).toContain(
+      'Capped or errored replays (agent did not finish, NOT graded): 1 — nav-1 #1 (agent-error (error_during_execution))'
+    )
   })
 
   it('short-circuits to unchanged without calling the judge when the prompt hash is unchanged (reused baseline)', async () => {

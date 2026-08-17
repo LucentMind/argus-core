@@ -16,6 +16,28 @@ import {
 
 const descByName = Object.fromEntries(DISTILL_TOOL_DESCRIPTORS.map((d) => [d.name, d.description]))
 
+/** Zod param shapes, named so `createDistillMcpServer`'s `tool(...)` calls and the exported
+ *  schema map below share exactly one definition each — never two copies that could drift. */
+const listSessionsSchema = {}
+const readTranscriptSchema = {
+  session_id: z.number(),
+  offset: z.number().optional(),
+  limit: z.number().optional(),
+  roles: z.array(z.string()).optional()
+}
+const searchTranscriptSchema = { query: z.string(), roles: z.array(z.string()).optional() }
+const runToolScriptSchema = { script: z.string() }
+
+/** Tool name -> zod param shape, for `DISTILL_TOOL_DESCRIPTORS`' `params` arrays (worldTools.ts)
+ *  to be tested against — the descriptor list and the zod schemas are two representations of
+ *  the same prompt-facing tool surface, and nothing else pins them together. */
+export const DISTILL_TOOL_SCHEMAS: Record<string, Record<string, z.ZodTypeAny>> = {
+  list_sessions: listSessionsSchema,
+  read_transcript: readTranscriptSchema,
+  search_transcript: searchTranscriptSchema,
+  run_tool_script: runToolScriptSchema
+}
+
 /** Tools callable from inside a distiller `run_tool_script` script via `require('./argus_tools')` --
  *  unprefixed names, matching the PTC wire protocol (server.ts's allowlist check, stub.ts's wrappers). */
 const PTC_DISTILL_TOOLS = ['list_sessions', 'read_transcript', 'search_transcript'] as const
@@ -59,27 +81,16 @@ export function createDistillMcpServer(
     name: 'argus',
     version: '1.0.0',
     tools: [
-      tool('list_sessions', descByName.list_sessions, {}, async () =>
+      tool('list_sessions', descByName.list_sessions, listSessionsSchema, async () =>
         asText(JSON.stringify(listSessionsTool(world)))
       ),
-      tool(
-        'read_transcript',
-        descByName.read_transcript,
-        {
-          session_id: z.number(),
-          offset: z.number().optional(),
-          limit: z.number().optional(),
-          roles: z.array(z.string()).optional()
-        },
-        async (a) => asText(JSON.stringify(readTranscript(world, a)))
+      tool('read_transcript', descByName.read_transcript, readTranscriptSchema, async (a) =>
+        asText(JSON.stringify(readTranscript(world, a)))
       ),
-      tool(
-        'search_transcript',
-        descByName.search_transcript,
-        { query: z.string(), roles: z.array(z.string()).optional() },
-        async (a) => asText(JSON.stringify(searchTranscript(world, a)))
+      tool('search_transcript', descByName.search_transcript, searchTranscriptSchema, async (a) =>
+        asText(JSON.stringify(searchTranscript(world, a)))
       ),
-      tool('run_tool_script', descByName.run_tool_script, { script: z.string() }, async (a) => {
+      tool('run_tool_script', descByName.run_tool_script, runToolScriptSchema, async (a) => {
         const res = await runToolScript({
           script: a.script,
           allowedTools: [...PTC_DISTILL_TOOLS],

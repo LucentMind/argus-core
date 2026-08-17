@@ -127,6 +127,11 @@ export interface DistillationUsageStats {
   avgCostUsd: number | null
   avgPromptChars: number | null
   avgTurnCount: number | null
+  /** Cost spent on `failed` case-distill jobs — a failed capHit run still ran the whole agent
+   *  loop before refusing to parse, so it is often the MOST expensive outcome, not a free one.
+   *  Separate from `totalCostUsd` (done-only): `jobCount`/every average above stay scoped to
+   *  completed jobs, this is the one field that also sees failed spend. */
+  failedCostUsd: number | null
 }
 
 export interface UsageStatsPayload {
