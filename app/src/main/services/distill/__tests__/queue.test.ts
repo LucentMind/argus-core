@@ -565,6 +565,23 @@ describe('DistillQueue', () => {
     expect(cur.id).toBe(jobA.id)
     expect(cur.state).toBe('running')
   })
+
+  it('statusFor and needsDistillRun are blind to a reject-digest row for the same slug', async () => {
+    const { q } = makeQueue()
+    createCase(db, home, { slug: 'case-a', title: 'T' })
+    q.enqueue('case-a')
+    await q.idle()
+    const caseJob = q.statusFor('case-a')!
+    expect(caseJob.state).toBe('done')
+    // A later reject-digest row for the same slug, with a HIGHER id than the case job.
+    db.prepare(
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at, kind)
+       VALUES ('case-a', 'done', '{}', ?, 'reject-digest')`
+    ).run(new Date().toISOString())
+    expect(q.statusFor('case-a')!.id).toBe(caseJob.id)
+    expect(q.statusFor('case-a')!.state).toBe('done')
+    expect(needsDistillRun(db, q, 'case-a')).toBe(false) // digest row must not be read as "needs a run"
+  })
 })
 
 describe('needsDistillRun', () => {

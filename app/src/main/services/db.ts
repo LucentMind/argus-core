@@ -101,7 +101,21 @@ CREATE TABLE IF NOT EXISTS distill_jobs (
   error TEXT,
   item_count INTEGER,
   created_at TEXT NOT NULL,
-  finished_at TEXT
+  finished_at TEXT,
+  -- v2: what this row distills. Every read path that must only ever see a case's own
+  -- distill history filters on kind='case' (queue.statusFor, needsDistillRun via
+  -- statusFor, evalExport's MAX(id) subselect) so a later kind (e.g. 'reject-digest')
+  -- can share this table without being mistaken for a case job.
+  kind TEXT NOT NULL DEFAULT 'case',
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  cost_usd REAL,
+  duration_ms INTEGER,
+  prompt_chars INTEGER,
+  turn_count INTEGER,
+  tool_call_count INTEGER,
+  trajectory_json TEXT,
+  dropped_json TEXT
 );
 CREATE TABLE IF NOT EXISTS rca_jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -472,6 +486,21 @@ export function openDb(file: string): DatabaseSync {
   if (!distillCols.some((c) => c.name === 'prompt_hash')) {
     db.exec(`ALTER TABLE distill_jobs ADD COLUMN prompt_hash TEXT`)
   }
+  // v2 job columns (kind, usage, trajectory, dropped) — see the CREATE TABLE comment above.
+  const addDistill = (name: string, ddl: string): void => {
+    if (!distillCols.some((c) => c.name === name))
+      db.exec(`ALTER TABLE distill_jobs ADD COLUMN ${ddl}`)
+  }
+  addDistill('kind', `kind TEXT NOT NULL DEFAULT 'case'`)
+  addDistill('input_tokens', `input_tokens INTEGER`)
+  addDistill('output_tokens', `output_tokens INTEGER`)
+  addDistill('cost_usd', `cost_usd REAL`)
+  addDistill('duration_ms', `duration_ms INTEGER`)
+  addDistill('prompt_chars', `prompt_chars INTEGER`)
+  addDistill('turn_count', `turn_count INTEGER`)
+  addDistill('tool_call_count', `tool_call_count INTEGER`)
+  addDistill('trajectory_json', `trajectory_json TEXT`)
+  addDistill('dropped_json', `dropped_json TEXT`)
   const rcaJobCols = db.prepare(`PRAGMA table_info(rca_jobs)`).all() as { name: string }[]
   if (!rcaJobCols.some((c) => c.name === 'template_snapshot')) {
     db.exec(`ALTER TABLE rca_jobs ADD COLUMN template_snapshot TEXT`)

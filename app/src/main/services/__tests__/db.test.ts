@@ -198,6 +198,33 @@ describe('openDb', () => {
       expect(row.detail).toBeNull()
     })
 
+    it('distill_jobs carries v2 columns; legacy rows read as kind=case', () => {
+      const db = openDb(':memory:')
+      const cols = (db.prepare(`PRAGMA table_info(distill_jobs)`).all() as { name: string }[]).map(
+        (c) => c.name
+      )
+      for (const c of [
+        'kind',
+        'input_tokens',
+        'output_tokens',
+        'cost_usd',
+        'duration_ms',
+        'prompt_chars',
+        'turn_count',
+        'tool_call_count',
+        'trajectory_json',
+        'dropped_json'
+      ]) {
+        expect(cols).toContain(c)
+      }
+      db.prepare(
+        `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at) VALUES ('c','done','{}','x')`
+      ).run()
+      expect((db.prepare(`SELECT kind FROM distill_jobs`).get() as { kind: string }).kind).toBe(
+        'case'
+      )
+    })
+
     describe('increment 5 schema', () => {
       it('creates routine_run_items with a cascading FK to routine_runs', () => {
         const db = openDb(path.join(tmp, 'a.sqlite'))
