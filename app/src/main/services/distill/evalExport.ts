@@ -21,9 +21,10 @@ interface JobRow {
   created_at: string
 }
 
-/** Frontmatter of every .md in dir, keyed job-id → entries; files without a job stamp are skipped. */
-function scanJobStamped(dir: string): Map<string, { fm: string }[]> {
-  const out = new Map<string, { fm: string }[]>()
+/** Frontmatter + body of every .md in dir, keyed job-id → entries; files without a job stamp
+ *  are skipped. */
+function scanJobStamped(dir: string): Map<string, { fm: string; body: string }[]> {
+  const out = new Map<string, { fm: string; body: string }[]>()
   if (!fs.existsSync(dir)) return out
   for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
     if (!ent.isFile() || !ent.name.endsWith('.md')) continue
@@ -31,9 +32,27 @@ function scanJobStamped(dir: string): Map<string, { fm: string }[]> {
     if (!block) continue
     const job = fmField(block.fm, 'job')
     if (!job) continue
-    out.set(job, [...(out.get(job) ?? []), { fm: block.fm }])
+    out.set(job, [...(out.get(job) ?? []), { fm: block.fm, body: block.body }])
   }
   return out
+}
+
+/** Marks the boundary acceptProposal appends after an edited accept's original draft body. */
+const ACCEPTED_CONTENT_DELIMITER = '\n<!-- accepted-content -->\n'
+
+/**
+ * The human-edited accept text, when present. `archive()` appends the delimiter + accepted text
+ * verbatim after the draft body — it never sanitizes the draft, so a draft that itself contains
+ * the literal delimiter text (adversarial or just coincidental) would make `.split(...)[1]` grab
+ * the wrong half. The delimiter `archive()` appends is always the LAST occurrence in the file
+ * (nothing is ever written after it), so `lastIndexOf` is the only split that is correct
+ * regardless of what the draft body contains.
+ */
+function editedContentFrom(fm: string, body: string): string | undefined {
+  if (fmField(fm, 'edited') !== 'true') return undefined
+  const i = body.lastIndexOf(ACCEPTED_CONTENT_DELIMITER)
+  if (i === -1) return undefined
+  return body.slice(i + ACCEPTED_CONTENT_DELIMITER.length)
 }
 
 export function buildEvalBundle(
@@ -85,17 +104,21 @@ export function buildEvalBundle(
     const items: DistillEvalItem[] =
       r.state === 'failed'
         ? []
-        : (archived.get(String(r.id)) ?? []).map(({ fm }) => {
+        : (archived.get(String(r.id)) ?? []).map(({ fm, body }) => {
             const outcome = fmField(fm, 'status') as 'accepted' | 'rejected'
             const rejectReason = fmField(fm, 'reject_reason')
             const rejectNote = fmField(fm, 'reject_note')
+            const basis = fmField(fm, 'basis')
+            const editedContent = editedContentFrom(fm, body)
             return {
               type: fmField(fm, 'type'),
               target: fmField(fm, 'target'),
               title: fmField(fm, 'title'),
               outcome,
               ...(rejectReason ? { rejectReason } : {}),
-              ...(rejectNote ? { rejectNote } : {})
+              ...(rejectNote ? { rejectNote } : {}),
+              ...(basis ? { basis } : {}),
+              ...(editedContent !== undefined ? { editedContent } : {})
             }
           })
     lines.push({

@@ -7,6 +7,12 @@ export interface DistillEvalItem {
   outcome: 'accepted' | 'rejected'
   rejectReason?: string
   rejectNote?: string
+  /** The evidence/reasoning the agent cited for proposing this item (staging's `basis`
+   *  frontmatter), when present. */
+  basis?: string
+  /** The human-edited accept text, when the accepter changed it from the agent's draft
+   *  (proposals.ts stamps `edited: true` and appends the accepted text after a delimiter). */
+  editedContent?: string
 }
 
 /** One NDJSON line of the exported corpus. */

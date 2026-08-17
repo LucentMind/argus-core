@@ -535,6 +535,60 @@ describe('accept stamps authorship', () => {
   })
 })
 
+describe('accept-time edit capture', () => {
+  it('an edited accept keeps the draft body, appends the delimiter + accepted text, and stamps edited: true', () => {
+    const f = writeProposal(home, 'NAV-100', {
+      type: 'reference-edit',
+      target: 'topic',
+      title: 't',
+      content: '# topic\n\ndraft body\n'
+    })
+    acceptProposal(home, f, { editedContent: '# topic\n\nedited body\n' })
+
+    const archived = fs.readFileSync(path.join(home, 'proposals', 'archive', f), 'utf8')
+    expect(archived).toContain('edited: true')
+    const delimIdx = archived.indexOf('<!-- accepted-content -->')
+    expect(delimIdx).toBeGreaterThan(-1)
+    expect(archived.indexOf('draft body')).toBeGreaterThan(-1)
+    expect(archived.indexOf('draft body')).toBeLessThan(delimIdx)
+    expect(archived.indexOf('edited body')).toBeGreaterThan(delimIdx)
+
+    // listArchivedProposals's fmBlock parse only reads the frontmatter block — the appendix
+    // living below the body must not confuse it.
+    const rows = listArchivedProposals(home)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ status: 'accepted', target: 'topic', caseSlug: 'NAV-100' })
+  })
+
+  it('an unedited accept archives byte-identically to today (no delimiter, no edited fm)', () => {
+    const f = writeProposal(home, 'NAV-100', {
+      type: 'recipe',
+      target: 'recipes.md',
+      title: 'x',
+      content: '## Recipe\nsteps\n'
+    })
+    const before = fs.readFileSync(path.join(home, 'proposals', f), 'utf8')
+    acceptProposal(home, f)
+    const archived = fs.readFileSync(path.join(home, 'proposals', 'archive', f), 'utf8')
+    expect(archived).toBe(before.replace(/^status: pending\r?$/m, 'status: accepted'))
+    expect(archived).not.toContain('accepted-content')
+    expect(archived).not.toContain('edited:')
+  })
+
+  it('editedContent that only round-trips the draft (after trim) is not treated as edited', () => {
+    const f = writeProposal(home, 'NAV-100', {
+      type: 'recipe',
+      target: 'recipes.md',
+      title: 'x',
+      content: '## Recipe\nsteps\n'
+    })
+    const before = fs.readFileSync(path.join(home, 'proposals', f), 'utf8')
+    acceptProposal(home, f, { editedContent: '## Recipe\nsteps\n  ' })
+    const archived = fs.readFileSync(path.join(home, 'proposals', 'archive', f), 'utf8')
+    expect(archived).toBe(before.replace(/^status: pending\r?$/m, 'status: accepted'))
+  })
+})
+
 describe('locked proposals', () => {
   it('marks a skill-edit against a bundled target as locked; unmarks once a user copy exists', () => {
     fs.mkdirSync(path.join(home, 'skills', 'rca'), { recursive: true })

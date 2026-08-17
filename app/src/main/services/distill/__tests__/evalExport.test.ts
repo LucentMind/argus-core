@@ -152,6 +152,66 @@ describe('buildEvalBundle', () => {
     expect(skipped).toEqual([])
   })
 
+  it('carries editedContent (the post-delimiter accepted text) and basis when present, and fabricates neither when absent', () => {
+    const id = insertJob()
+    // basis via staging-shaped extraFm; accept with edits so the item gains editedContent too.
+    const f = writeProposal(
+      home,
+      'nav-1',
+      {
+        type: 'skill-new',
+        target: `s-${id}-edited`,
+        title: 't',
+        content: '---\ndescription: Use when exercising the eval-bundle export.\n---\n\n# draft\n'
+      },
+      { job: String(id), basis: 'evidence-123' }
+    )
+    acceptProposal(home, f, {
+      editedContent:
+        '---\ndescription: Use when exercising the eval-bundle export.\n---\n\n# edited\n'
+    })
+    reviewedItem(id, 'rejected', { tag: 'overgeneric' }) // unedited sibling — no basis, no editedContent
+
+    const { lines } = buildEvalBundle(db, home, '1.0.0')
+    expect(lines).toHaveLength(1)
+    const edited = lines[0].items.find((i) => i.target === `s-${id}-edited`)!
+    expect(edited.basis).toBe('evidence-123')
+    expect(edited.editedContent).toContain('# edited')
+    expect(edited.editedContent).not.toContain('# draft')
+
+    const unedited = lines[0].items.find((i) => i.outcome === 'rejected')!
+    expect(unedited.basis).toBeUndefined()
+    expect(unedited.editedContent).toBeUndefined()
+    expect('basis' in unedited).toBe(false)
+    expect('editedContent' in unedited).toBe(false)
+  })
+
+  it('splits on the LAST delimiter occurrence, so a draft that itself contains the literal delimiter cannot smuggle a fake split point', () => {
+    const id = insertJob()
+    // The draft body itself contains the literal accepted-content delimiter (adversarial or
+    // just coincidental) followed by decoy text — a naive first-occurrence split would treat
+    // that decoy as the "accepted" half. archive() always appends the REAL delimiter after this
+    // whole draft, so the real one is provably the LAST occurrence in the archived file.
+    const poisonedDraft =
+      '---\ndescription: Use when exercising the eval-bundle export.\n---\n\n' +
+      '# draft\nsome text\n<!-- accepted-content -->\nDECOY TEXT THAT SHOULD NOT WIN\n'
+    const f = writeProposal(
+      home,
+      'nav-1',
+      { type: 'skill-new', target: `s-${id}-poisoned`, title: 't', content: poisonedDraft },
+      { job: String(id) }
+    )
+    acceptProposal(home, f, {
+      editedContent:
+        '---\ndescription: Use when exercising the eval-bundle export.\n---\n\n# real edited content\n'
+    })
+
+    const { lines } = buildEvalBundle(db, home, '1.0.0')
+    const item = lines[0].items.find((i) => i.target === `s-${id}-poisoned`)!
+    expect(item.editedContent).toContain('# real edited content')
+    expect(item.editedContent).not.toContain('DECOY TEXT')
+  })
+
   it('ignores contribute-back archives (no job stamp)', () => {
     insertJob()
     const f = writeProposal(home, 'nav-1', {

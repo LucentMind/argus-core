@@ -272,7 +272,10 @@ function archive(
   argusHome: string,
   file: string,
   status: 'accepted' | 'rejected',
-  extraFm: Record<string, string> = {}
+  extraFm: Record<string, string> = {},
+  /** Appended verbatim after the frontmatter/status rewrite — used to preserve the original
+   *  draft body while also recording the human's edited accept text (see acceptProposal). */
+  appendix?: string
 ): void {
   const src = path.join(proposalsDir(argusHome), file)
   const dir = proposalsArchiveDir(argusHome)
@@ -283,7 +286,7 @@ function archive(
   const updated = fs
     .readFileSync(src, 'utf8')
     .replace(/^status: pending\r?$/m, `status: ${status}${extra ? `\n${extra}` : ''}`)
-  fs.writeFileSync(path.join(dir, file), updated)
+  fs.writeFileSync(path.join(dir, file), updated + (appendix ?? ''))
   fs.rmSync(src)
 }
 
@@ -379,7 +382,19 @@ export function acceptProposal(
     )
     accepted = { kind: 'reference', name: refFileName(p.target) }
   }
-  archive(argusHome, file, 'accepted')
+  // "Edited" means the human's accept text differs from the agent's draft — an accept whose
+  // editedContent merely round-trips the draft (e.g. the UI always sends the textarea value)
+  // must not gain an `edited: true` stamp it doesn't deserve, and the archived byte content
+  // must not diverge from an unedited accept's for change-detection tooling and existing tests.
+  const edited =
+    Boolean(opts.editedContent?.trim()) && opts.editedContent!.trim() !== p.content.trim()
+  archive(
+    argusHome,
+    file,
+    'accepted',
+    edited ? { edited: 'true' } : {},
+    edited ? `\n\n<!-- accepted-content -->\n${body}` : undefined
+  )
   announceChanged()
   return accepted
 }
