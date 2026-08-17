@@ -45,7 +45,7 @@ describe('runCaseDistill', () => {
     const run = async (prompt: string): Promise<HeadlessResult> => {
       seen = prompt
       return {
-        text: '```json\n{"proposals":[{"type":"recipe","target":"a-topic","title":"t","content":"c"}]}\n```'
+        text: '```json\n{"proposals":[{"type":"reference-edit","target":"a-topic","title":"t","content":"c"}]}\n```'
       }
     }
     const result = await runCaseDistill(INPUT, run)
@@ -108,7 +108,7 @@ describe('runCaseDistillAgent', () => {
       seenPrompt = prompt
       seenOpts = opts
       return agentResult({
-        text: '```json\n{"proposals":[{"type":"recipe","target":"a-topic","title":"t","content":"c"}]}\n```',
+        text: '```json\n{"proposals":[{"type":"reference-edit","target":"a-topic","title":"t","content":"c"}]}\n```',
         usage: { inputTokens: 10, outputTokens: 5, costUsd: 0.02, durationMs: 900 },
         turnCount: 4,
         toolCallCount: 7,

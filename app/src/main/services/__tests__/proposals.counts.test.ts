@@ -39,14 +39,14 @@ describe('proposalCounts cheap path', () => {
   })
 
   it('skips non-proposal files exactly like listProposals', () => {
-    writeProposal(home, 'c', { type: 'recipe', target: 'a', title: 't', content: 'x' })
+    writeProposal(home, 'c', { type: 'reference-edit', target: 'a', title: 't', content: 'x' })
     fs.writeFileSync(path.join(home, 'proposals', 'stray.txt'), 'not md')
     fs.writeFileSync(path.join(home, 'proposals', 'no-fm.md'), 'no frontmatter here')
     fs.writeFileSync(
       path.join(home, 'proposals', 'bad-type.md'),
       '---\ntype: bogus\ntarget: t\n---\nbody'
     )
-    expect(proposalCounts(home)).toEqual({ pendingCount: 1, byType: { recipe: 1 } })
+    expect(proposalCounts(home)).toEqual({ pendingCount: 1, byType: { 'reference-edit': 1 } })
     expect(listProposals(home)).toHaveLength(1)
   })
 

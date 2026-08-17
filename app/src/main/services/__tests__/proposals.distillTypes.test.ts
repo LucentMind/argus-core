@@ -9,6 +9,7 @@ import {
   removePendingProposal,
   rejectProposal
 } from '../proposals'
+import type { ProposalType } from '../../../shared/proposals'
 
 let home: string
 beforeEach(() => {
@@ -16,22 +17,42 @@ beforeEach(() => {
 })
 
 describe('distill proposal types', () => {
-  it('writes and lists a recipe proposal with extra frontmatter', () => {
+  it('writes and lists a reference-edit proposal with extra frontmatter', () => {
     const file = writeProposal(
       home,
       'case-a',
       {
-        type: 'recipe',
+        type: 'reference-edit',
         target: 'dlt-cmds',
-        title: 'Recipe: drift',
+        title: 'DLT timestamp drift',
         content: 'ECU resets drift DLT timestamps.'
       },
       { job: '7' }
     )
     const p = listProposals(home).find((x) => x.file === file)!
-    expect(p.type).toBe('recipe')
+    expect(p.type).toBe('reference-edit')
     expect(p.previouslyReviewed).toBeUndefined()
     expect(fs.readFileSync(path.join(home, 'proposals', file), 'utf8')).toContain('job: 7')
+  })
+
+  it('refuses to write a recipe proposal, and hides one already on disk', () => {
+    expect(() =>
+      writeProposal(home, 'case-a', {
+        type: 'recipe' as unknown as ProposalType,
+        target: 'dlt-cmds',
+        title: 'Recipe: drift',
+        content: 'body'
+      })
+    ).toThrow(/Invalid proposal type/)
+    // Recipes accepted before the type was retired stay on disk but drop out of the pending
+    // set — pendingProposalFiles skips any type not in PROPOSAL_TYPES, same as memory-append.
+    fs.mkdirSync(path.join(home, 'proposals'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'proposals', 'legacy-recipe.md'),
+      '---\ntype: recipe\ntarget: dlt-cmds\ncase: case-a\ndate: 2026-07-20\ntitle: Recipe\nstatus: pending\n---\nbody'
+    )
+    expect(listProposals(home).map((p) => p.file)).not.toContain('legacy-recipe.md')
+    expect(fs.existsSync(path.join(home, 'proposals', 'legacy-recipe.md'))).toBe(true)
   })
 
   it('refuses to write a memory-append proposal, and hides one already on disk', () => {
@@ -69,7 +90,7 @@ describe('distill proposal types', () => {
       writeProposal(
         home,
         'c',
-        { type: 'recipe', target: 't', title: 'x', content: 'y' },
+        { type: 'reference-edit', target: 't', title: 'x', content: 'y' },
         { type: 'evil' }
       )
     ).toThrow(/reserved/i)
@@ -77,7 +98,7 @@ describe('distill proposal types', () => {
       writeProposal(
         home,
         'c',
-        { type: 'recipe', target: 't', title: 'x', content: 'y' },
+        { type: 'reference-edit', target: 't', title: 'x', content: 'y' },
         { 'Bad-Key': 'v' }
       )
     ).toThrow(/key/i)
@@ -85,7 +106,7 @@ describe('distill proposal types', () => {
 
   it('listArchivedProposals sees rejected items; removePendingProposal deletes without archiving', () => {
     const f1 = writeProposal(home, 'case-a', {
-      type: 'recipe',
+      type: 'reference-edit',
       target: 't1',
       title: 'a',
       content: 'b'
@@ -93,7 +114,7 @@ describe('distill proposal types', () => {
     rejectProposal(home, f1)
     expect(listArchivedProposals(home)).toEqual([
       {
-        type: 'recipe',
+        type: 'reference-edit',
         target: 't1',
         caseSlug: 'case-a',
         title: 'a',
@@ -103,7 +124,7 @@ describe('distill proposal types', () => {
       }
     ])
     const f2 = writeProposal(home, 'case-a', {
-      type: 'recipe',
+      type: 'reference-edit',
       target: 't2',
       title: 'a',
       content: 'b'

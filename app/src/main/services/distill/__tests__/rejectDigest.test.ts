@@ -78,7 +78,7 @@ describe('buildRejectStats', () => {
   })
 
   it('no notes → no "Reviewer notes" section at all', () => {
-    const rejects = [{ type: 'recipe', rejectReason: 'wrong' }] as unknown as ReturnType<
+    const rejects = [{ type: 'reference-edit', rejectReason: 'wrong' }] as unknown as ReturnType<
       typeof listArchivedProposals
     >
     expect(buildRejectStats(rejects)).not.toContain('Reviewer notes')
@@ -156,7 +156,7 @@ describe('rebuildRejectDigest', () => {
   it('bounds the reject window to the most recent DIGEST_REJECT_WINDOW rejects', async () => {
     for (let i = 0; i < 55; i++) {
       archiveReject(home, `r${i}`, {
-        type: 'recipe',
+        type: 'reference-edit',
         target: `t${i}`,
         tag: 'other',
         date: `2026-01-01T00:00:${String(i).padStart(2, '0')}.000Z`

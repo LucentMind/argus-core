@@ -19,17 +19,17 @@ beforeEach(() => {
 describe('accept routing for distill types', () => {
   it('editedContent overrides the staged body', () => {
     const file = writeProposal(home, 'case-a', {
-      type: 'recipe',
-      target: 'edited-recipe',
+      type: 'reference-edit',
+      target: 'edited-reference',
       title: 'Recipe',
       content: 'original'
     })
-    // recipe + reference-edit both land in <argusHome>/references (proposals.ts:333-350)
+    // reference-edit lands in <argusHome>/references
     expect(acceptProposal(home, file, { db, editedContent: 'edited text' })).toEqual({
       kind: 'reference',
-      name: 'edited-recipe.md'
+      name: 'edited-reference.md'
     })
-    const written = fs.readFileSync(path.join(home, 'references', 'edited-recipe.md'), 'utf8')
+    const written = fs.readFileSync(path.join(home, 'references', 'edited-reference.md'), 'utf8')
     expect(written).toContain('edited text')
     expect(written).not.toContain('original')
   })

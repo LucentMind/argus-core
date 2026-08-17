@@ -175,7 +175,7 @@ describe('ProposalsStandalone', () => {
     const tied: ProposalsPayload = {
       proposals: ['a', 'b', 'c'].map((n) => ({
         file: `2026-07-14-NAV-200-${n}.md`,
-        type: 'recipe' as const,
+        type: 'reference-edit' as const,
         target: `topic-${n}`,
         caseSlug: 'NAV-200',
         date: stamp,
