@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { generateStubModule } from './stub'
-import { startPtcServer } from './server'
+import { startPtcServer, type PtcServer } from './server'
 
 export const PTC_FOREGROUND_MAX_CALLS = 50
 export const PTC_FOREGROUND_STDOUT_CAP = 50_000
@@ -70,13 +70,18 @@ function scrubbedEnv(port: number, token: string): NodeJS.ProcessEnv {
 }
 
 export async function runToolScript(opts: PtcRunOpts): Promise<PtcRunResult> {
-  const srv = await startPtcServer({
-    dispatch: opts.dispatch,
-    allowedTools: opts.allowedTools,
-    maxCalls: opts.maxCalls
-  })
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-ptc-'))
+  // srv/dir are created INSIDE the try so a throw between them (e.g. mkdtempSync on a full
+  // disk) still hits the finally below and closes the already-listening server — otherwise
+  // it leaks for the life of the Electron main process.
+  let srv: PtcServer | undefined
+  let dir: string | undefined
   try {
+    srv = await startPtcServer({
+      dispatch: opts.dispatch,
+      allowedTools: opts.allowedTools,
+      maxCalls: opts.maxCalls
+    })
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-ptc-'))
     fs.writeFileSync(path.join(dir, 'argus_tools.js'), generateStubModule(opts.allowedTools))
     const scriptPath = path.join(dir, 'script.js')
     fs.writeFileSync(scriptPath, opts.script)
@@ -114,7 +119,7 @@ export async function runToolScript(opts: PtcRunOpts): Promise<PtcRunResult> {
       calls: srv.calls
     }
   } finally {
-    srv.close()
-    fs.rmSync(dir, { recursive: true, force: true })
+    srv?.close()
+    if (dir) fs.rmSync(dir, { recursive: true, force: true })
   }
 }
