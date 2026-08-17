@@ -41,6 +41,16 @@ describe('validateMaterialized', () => {
       reason: 'case-identifiers'
     })
   })
+  it('case-identifiers: matches regardless of case', () => {
+    expect(ok({ content: SKILL + '\nsee Nav-Freeze-2026' })).toEqual({
+      ok: false,
+      reason: 'case-identifiers'
+    })
+    expect(ok({ content: SKILL + '\ncase ab-123' })).toEqual({
+      ok: false,
+      reason: 'case-identifiers'
+    })
+  })
   it('steps-in-reference: ≥3 numbered lines in a reference', () => {
     expect(ok({ type: 'reference-edit', target: 'r', content: '# R\n1. a\n2. b\n3. c\n' })).toEqual(
       { ok: false, reason: 'steps-in-reference' }
@@ -76,5 +86,17 @@ describe('validateMaterialized', () => {
     expect(
       ok({ type: 'skill-edit', content: original.replace('x\n', 'x\nx2\n'), original })
     ).toEqual({ ok: true, flags: [] })
+  })
+  it('broad-edit: a full rewrite of the substantive prose is not diluted by filler lines', () => {
+    const fm = `---\nname: diagnose-y\ndescription: d\n---\n`
+    const filler = Array.from({ length: 50 }, (_, i) => (i % 2 === 0 ? '' : '---')).join('\n')
+    const prose = ['one', 'two', 'three', 'four', 'five'].join('\n')
+    const newProse = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'].join('\n')
+    const original = `${fm}${filler}\n${prose}\n`
+    const edited = `${fm}${filler}\n${newProse}\n`
+    expect(ok({ type: 'skill-edit', content: edited, original })).toEqual({
+      ok: false,
+      reason: 'broad-edit'
+    })
   })
 })
