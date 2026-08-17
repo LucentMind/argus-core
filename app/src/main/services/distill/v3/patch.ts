@@ -12,6 +12,17 @@ const isFenceDelim = (line: string): boolean => {
   return t.startsWith('```') || t.startsWith('~~~')
 }
 
+/** True if the text's ``` / ~~~ fence delimiters are unbalanced, i.e. the last fence opened
+ *  never closes. An unterminated fence would otherwise make `sectionRange` skip every
+ *  subsequent line (including the real next heading), silently corrupting the patch. */
+function hasUnterminatedFence(text: string): boolean {
+  let inFence = false
+  for (const line of text.split('\n')) {
+    if (isFenceDelim(line)) inFence = !inFence
+  }
+  return inFence
+}
+
 /** [start, end) line range of the section opened by the exact `heading` line: from the heading
  *  through the line before the next heading of the same or higher level (or EOF).
  *  Only the FIRST matching heading line is targeted; duplicate headings are ambiguous by
@@ -67,6 +78,7 @@ export function applyPatch(
   frontmatter?: { description?: string } | null
 ): PatchResult {
   let text = original.replace(/\r\n/g, '\n')
+  if (hasUnterminatedFence(text)) return { ok: false, error: 'unterminated code fence in target' }
   if (frontmatter && frontmatter.description !== undefined) {
     const b = fmBlock(text)
     if (!b) return { ok: false, error: 'frontmatter change on a file with no frontmatter' }
@@ -80,6 +92,9 @@ export function applyPatch(
   for (const op of ops) {
     const lines = text.split('\n')
     const content = op.content.replace(/\r\n/g, '\n').replace(/\n+$/, '')
+    if (hasUnterminatedFence(content)) {
+      return { ok: false, error: 'unterminated code fence in op content' }
+    }
     if (op.op === 'append-file') {
       text = text.replace(/\n*$/, '\n\n') + content + '\n'
       continue

@@ -95,4 +95,20 @@ n
     ])
     expect(r.ok && r.text).toContain('freeze\n\n## Also\nx\n\n## Steps')
   })
+
+  it('an unterminated fence in the document fails instead of silently deleting later sections', () => {
+    const r = applyPatch('## A\n```\ntext\n## B\ncontent-b\n', [
+      { op: 'replace-section', heading: '## A', content: 'new body' }
+    ])
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.error).toMatch(/fence/)
+  })
+
+  it('an unterminated fence in op content fails instead of corrupting the file', () => {
+    const r = applyPatch(SKILL, [
+      { op: 'append-section', heading: '## Steps', content: '```bash\necho hi' }
+    ])
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.error).toMatch(/fence/)
+  })
 })
