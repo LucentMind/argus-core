@@ -5,7 +5,14 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
-import { buildWorld, WORLD_MSG_CLAMP, WORLD_SESSION_MAX_MSGS, type WorldClamps } from '../world'
+import {
+  buildWorld,
+  clampText,
+  WORLD_MSG_CLAMP,
+  WORLD_SESSION_MAX_MSGS,
+  WORLD_TOTAL_MAX_BYTES,
+  type WorldClamps
+} from '../world'
 
 let tmp: string
 let db: DatabaseSync
@@ -151,5 +158,57 @@ describe('buildWorld', () => {
     // must not spin forever, and must not drop down to zero sessions
     expect(world.sessions.map((s) => s.id)).toEqual([2])
     expect(world.droppedSessions).toBe(1)
+  })
+
+  it('keeps the LATEST messages under a tight sessionMaxBytes, drops the earliest', () => {
+    insertSession(1, 's1')
+    const mk = (label: string): string => label.repeat(50) // 100 bytes/chars each (ASCII)
+    for (let i = 1; i <= 5; i++) {
+      indexMsg(1, i, 'user', mk(`m${i}`))
+    }
+    const clamps: WorldClamps = {
+      msgClamp: WORLD_MSG_CLAMP,
+      sessionMaxMsgs: WORLD_SESSION_MAX_MSGS,
+      sessionMaxBytes: 250, // only the last two 100-byte messages fit
+      totalMaxBytes: WORLD_TOTAL_MAX_BYTES
+    }
+
+    const world = buildWorld(db, 'NAV-1', clamps)
+
+    // chronological order preserved among survivors; earliest ones are the ones dropped
+    expect(world.sessions[0].messages.map((m) => m.content)).toEqual([mk('m4'), mk('m5')])
+    expect(world.sessions[0].droppedMessages).toBe(3)
+  })
+
+  it('enforces sessionMaxBytes in true UTF-8 bytes, not UTF-16 length units', () => {
+    insertSession(1, 's1')
+    // 100 CJK characters: .length === 100, but each encodes to 3 bytes in UTF-8 -> 300 bytes
+    const cjk = '雪'.repeat(100)
+    indexMsg(1, 10, 'user', cjk)
+    const clamps: WorldClamps = {
+      msgClamp: WORLD_MSG_CLAMP,
+      sessionMaxMsgs: WORLD_SESSION_MAX_MSGS,
+      sessionMaxBytes: 200, // a .length-based cap would pass this (100 <= 200); true UTF-8 bytes (300) must not
+      totalMaxBytes: WORLD_TOTAL_MAX_BYTES
+    }
+
+    const world = buildWorld(db, 'NAV-1', clamps)
+
+    expect(world.sessions[0].messages).toEqual([])
+    expect(world.sessions[0].droppedMessages).toBe(1)
+  })
+})
+
+describe('clampText', () => {
+  it('scales head/tail proportionally for a non-default cap', () => {
+    const cap = 100 // 6000/8000 ratio -> head 75, tail 25
+    const s = 'z'.repeat(500)
+
+    const { text, truncated } = clampText(s, cap)
+
+    expect(truncated).toBe(true)
+    const expectedOmitted = s.length - cap
+    const marker = `[… ${expectedOmitted} chars omitted]`
+    expect(text).toBe('z'.repeat(75) + marker + 'z'.repeat(25))
   })
 })
