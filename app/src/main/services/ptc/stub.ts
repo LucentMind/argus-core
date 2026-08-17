@@ -1,6 +1,6 @@
 /** Bump on ANY change to the generated stub text — the stub is prompt-adjacent surface
  *  (the model reads errors it produces) and Task 9 folds this into the distill prompt hash. */
-export const PTC_STUB_VERSION = '1'
+export const PTC_STUB_VERSION = '2'
 
 const BASE = String.raw`'use strict'
 // argus_tools — generated. Call Argus tools from this script; only stdout returns to the model.
@@ -13,10 +13,14 @@ function connect() {
   if (sock) return sock
   sock = net.connect({ host: '127.0.0.1', port: PORT })
   sock.setEncoding('utf8')
+  // Idle connection must not keep the script's process alive — a one-shot script has
+  // to exit on its own once it is done, not wait to be SIGKILLed by the run.ts timeout.
+  sock.unref()
   return sock
 }
 function callRaw(tool, args) {
   const s = connect()
+  s.ref()
   return new Promise((resolve, reject) => {
     let acc = ''
     const onData = (d) => {
@@ -24,11 +28,12 @@ function callRaw(tool, args) {
       const nl = acc.indexOf('\n')
       if (nl === -1) return
       s.off('data', onData); s.off('error', onError)
+      s.unref()
       let res
       try { res = JSON.parse(acc.slice(0, nl)) } catch (e) { return reject(e) }
       res.ok ? resolve(res.result) : reject(new Error(res.error))
     }
-    const onError = (e) => { s.off('data', onData); reject(e) }
+    const onError = (e) => { s.off('data', onData); s.unref(); reject(e) }
     s.on('data', onData); s.on('error', onError)
     s.write(JSON.stringify({ tool, args, token: TOKEN }) + '\n')
   })
