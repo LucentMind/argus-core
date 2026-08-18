@@ -880,4 +880,76 @@ describe('JiraCases source tickets', () => {
     ).toContain('v2')
     expect(listCaseJiraLinks(db, 'NAV-7')).toHaveLength(1)
   })
+
+  it('reports new source attachments without downloading them, and contains a source failure', async () => {
+    let custThrows = false
+    const cust = (atts: JiraIssuePreview['attachments']): JiraIssueData =>
+      issue({ key: 'CUST-9', summary: 'Customer report', attachments: atts })
+    let custAtts = [att('20001', 'first.log')]
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async (k: string) => {
+        if (k === 'CUST-9') {
+          if (custThrows) throw new Error('403 no access')
+          return cust(custAtts)
+        }
+        return issue()
+      }),
+      downloadAttachment: vi.fn(async (id: string, dest: string) => {
+        fs.writeFileSync(dest, `bytes-of-${id}`)
+      }),
+      getComments: vi.fn(async () => [])
+    }
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await svc.importSourceTicket('NAV-7', 'CUST-9')
+    await settle()
+
+    // First refresh sees CUST-9's existing attachment as new and reports it.
+    const r1 = await svc.refresh('NAV-7')
+    await settle()
+    expect(r1.sources).toHaveLength(1)
+    expect(r1.sources[0].key).toBe('CUST-9')
+    expect(r1.sources[0].newAttachments.map((a) => a.id)).toEqual(['20001'])
+    // Reported, NOT downloaded.
+    expect(client.downloadAttachment).not.toHaveBeenCalled()
+
+    // Second refresh: same attachment is no longer new (the baseline advanced).
+    const r2 = await svc.refresh('NAV-7')
+    await settle()
+    expect(r2.sources[0].newAttachments).toEqual([])
+
+    // A third one appears upstream.
+    custAtts = [att('20001', 'first.log'), att('20002', 'second.log')]
+    const r3 = await svc.refresh('NAV-7')
+    await settle()
+    expect(r3.sources[0].newAttachments.map((a) => a.id)).toEqual(['20002'])
+
+    // The source goes unreadable: the primary's refresh still succeeds.
+    custThrows = true
+    const r4 = await svc.refresh('NAV-7')
+    await settle()
+    expect(r4.key).toBe('NAV-7')
+    expect(r4.sources[0]).toMatchObject({ key: 'CUST-9', error: '403 no access' })
+    expect(getCase(db, 'NAV-7')!.lastSyncError).toBeNull()
+  })
+
+  it("keeps both tickets' evidence across a refresh", async () => {
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async (k: string) =>
+        k === 'CUST-9' ? issue({ key: 'CUST-9', summary: 'Customer', attachments: [] }) : issue()
+      ),
+      downloadAttachment: vi.fn(async () => {}),
+      getComments: vi.fn(async () => [])
+    }
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await svc.importSourceTicket('NAV-7', 'CUST-9')
+    await settle()
+    await svc.refresh('NAV-7')
+    await settle()
+
+    const paths = listEvidence(db, 'NAV-7').map((e) => e.relPath)
+    expect(paths).toContain('evidence/NAV-7.ticket.md')
+    expect(paths).toContain('evidence/CUST-9.ticket.md')
+  })
 })

@@ -20,6 +20,7 @@ function summary(overrides?: Partial<JiraRefreshSummary>): JiraRefreshSummary {
     ingestedAttachments: [],
     deletedOnJira: [],
     newComments: 0,
+    sources: [],
     syncedAt: SYNCED_AT,
     ...overrides
   }

@@ -12,6 +12,7 @@ import type {
   JiraCommentInfo,
   JiraIssuePreview,
   JiraRefreshSummary,
+  JiraSourceRefresh,
   JiraSyncAllSummary
 } from '../../shared/jira'
 import { AtlassianError, type JiraIssueData } from './atlassian'
@@ -20,7 +21,9 @@ import {
   createCase,
   getCase,
   listCases,
+  listCaseJiraLinks,
   setCaseJira,
+  setCaseJiraLinkAttachmentIds,
   setCaseSyncState,
   setReviewBaseline
 } from './caseService'
@@ -538,6 +541,47 @@ export class JiraCases {
       site: this.deps.site(),
       lastSyncedAt: now
     })
+
+    // Source tickets refresh AFTER the primary and each is fully contained: a source may be
+    // archived, restricted or deleted upstream, and none of that may fail the refresh of the
+    // ticket the user is actually working. Same posture as the comments fetch above.
+    const sources: JiraSourceRefresh[] = []
+    for (const link of listCaseJiraLinks(db, caseSlug)) {
+      try {
+        const before = findJiraEvidence(listEvidence(db, caseSlug), 'source-comments', link.key)
+        const oldComments = before ? (jiraMeta(before.meta).commentCount ?? 0) : 0
+        const sourcePreview = await this.importSourceTicket(caseSlug, link.key)
+        const after = findJiraEvidence(listEvidence(db, caseSlug), 'source-comments', link.key)
+        const newCount = after ? (jiraMeta(after.meta).commentCount ?? 0) : 0
+
+        // Diff against THIS link's baseline, not the case-level list (which is the primary's).
+        // Attachments already ingested from this source are excluded too, so a re-import never
+        // re-offers a file the user already has.
+        const baseline = new Set(link.attachmentIds)
+        const ingested = knownAttachments(listEvidence(db, caseSlug), link.key)
+        sources.push({
+          key: link.key,
+          newComments: Math.max(0, newCount - oldComments),
+          newAttachments: sourcePreview.attachments.filter(
+            (a) => !baseline.has(a.id) && !ingested.has(a.id)
+          )
+        })
+        setCaseJiraLinkAttachmentIds(
+          db,
+          caseSlug,
+          link.key,
+          sourcePreview.attachments.map((a) => a.id)
+        )
+      } catch (err) {
+        sources.push({
+          key: link.key,
+          newComments: 0,
+          newAttachments: [],
+          error: (err as Error).message
+        })
+      }
+    }
+
     return {
       key: preview.key,
       statusChange:
@@ -547,6 +591,7 @@ export class JiraCases {
       ingestedAttachments,
       deletedOnJira,
       newComments,
+      sources,
       ...(commentsError ? { commentsError } : {}),
       syncedAt: now
     }
