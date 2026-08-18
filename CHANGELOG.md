@@ -28,6 +28,30 @@
   in `references/`, because that was the only type whose creation path the
   contract spelled out. The old preference order still applies, but only as
   a tiebreaker when two types genuinely fit the same knowledge.
+- Case distillation is now agentic. Instead of being handed a fixed
+  digest, the distiller reads the case's own transcripts through its own
+  tools (`list_sessions`, `search_transcript`, `read_transcript`) against
+  a frozen snapshot of the case, and every proposal carries the `basis`
+  it was drawn from. Its contract gained a preference order, a negative
+  list, per-resolution caps, and free-text operator guidance you can set
+  in Settings. Rejections now feed back in: a reject reason, note and
+  date are kept, prior rejects are stamped onto later proposals, and a
+  digest of reject patterns is built before each case job.
+- Distill runs report what they cost. A successful run shows its token
+  usage, cost and duration, and the same numbers are recorded per job
+  alongside the model's trajectory and anything dropped.
+- `tools/distill-eval` replays distillation against frozen worlds and
+  judges the result against human accept-time edits, which are now
+  archived as they happen to build that corpus.
+- Packs can ship tool scripts. A new `run_tool_script` agent tool runs a
+  generated stub against a loopback RPC server, so a pack's own tooling
+  is callable from a session. The child is spawned with a scrubbed
+  environment, a timeout and capped stdout, and the tools a script can
+  call back into Argus are read-only. The script body itself is ordinary
+  code running as you, so it is approval-gated like a shell command, and
+  approving one script never approves the next — every script body is a
+  different program. Background distillation, which has no one to ask,
+  reaches the tool through its own whitelist instead.
 - The `recipe` proposal type is retired. It routed identically to
   `reference-edit` and had gone unused since 2026-07-23. Recipes already
   accepted stay on disk and keep feeding the distiller's

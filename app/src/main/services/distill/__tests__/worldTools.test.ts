@@ -11,6 +11,7 @@ import {
   readTranscript,
   searchTranscript
 } from '../worldTools'
+import { NATIVE_RISK } from '../../agent/risk'
 
 function world(): DistillWorld {
   return {
@@ -193,5 +194,21 @@ describe('determinism', () => {
     const c1 = JSON.stringify(listSessionsTool(w))
     const c2 = JSON.stringify(listSessionsTool(w))
     expect(c1).toBe(c2)
+  })
+})
+
+describe('DISTILL_ALLOWED_TOOLS vs the interactive risk table', () => {
+  it('keeps run_tool_script available to the headless distiller', () => {
+    // Deliberate divergence, not an oversight. Interactively, run_tool_script is `ask`/HIGH
+    // (risk.ts) because the script body is unsandboxed code the model wrote. The distiller
+    // has no human to answer a prompt, and reaches the tool through this whitelist, which
+    // never consults that table — its containment is the whitelist plus the read-only world
+    // tools the script can call back into.
+    //
+    // The failure this guards: a later "make permissions consistent" refactor routes the
+    // headless gate through NATIVE_RISK, every distill run stalls on an approval nobody can
+    // give, and background distillation silently stops producing proposals.
+    expect(DISTILL_ALLOWED_TOOLS).toContain('mcp__argus__run_tool_script')
+    expect(NATIVE_RISK['mcp__argus__run_tool_script'].action).toBe('ask')
   })
 })

@@ -372,6 +372,25 @@ describe('classifyToolCall · panel commands + open_panel', () => {
   })
 })
 
+describe('run_tool_script', () => {
+  it('asks before running a model-authored script', () => {
+    // The script body is arbitrary JS executed by an ELECTRON_RUN_AS_NODE child that is
+    // env-scrubbed but NOT sandboxed — measured against a packaged build: it can read and
+    // write the user's home directory and open arbitrary sockets. Argus classifies `Bash`
+    // per command; a script with the same reach must not be quieter than that.
+    expect(
+      classifyToolCall('mcp__argus__run_tool_script', { script: 'console.log(1)' }, ctx())
+    ).toMatchObject({ action: 'ask', risk: 'HIGH' })
+  })
+
+  it('offers no session grant — every script body is a different program', () => {
+    // A grantKey here would mean approving one script silently approves every later one,
+    // which is the entire gate.
+    const v = classifyToolCall('mcp__argus__run_tool_script', { script: 'x' }, ctx())
+    expect(v).toMatchObject({ grantKey: null })
+  })
+})
+
 describe('tool taxonomy', () => {
   // Reuses the file's top-level ctx() helper, whose default `taxonomy` is already
   // CLAUDE_TOOL_TAXONOMY (see above) — equivalent to the brief's standalone ctx().
