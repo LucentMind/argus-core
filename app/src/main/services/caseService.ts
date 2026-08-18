@@ -627,7 +627,13 @@ export function listCaseJiraLinks(db: DatabaseSync, slug: string): CaseJiraLink[
   }))
 }
 
-/** Idempotent: re-adding an existing link leaves its attachment_ids baseline intact. */
+/** Idempotent: re-adding an existing link leaves its attachment_ids baseline intact.
+ *
+ * A ticket cannot be both the case's own ticket AND one of its sources — enforced here,
+ * at the data layer, so it holds for every caller (jiraCases.ts's importSourceTicket
+ * pre-checks it too, for a fail-fast error before the network round trip; this is the
+ * guarantee that catches everyone else, e.g. bundle import restoring links from a
+ * malformed/hand-edited case.json). */
 export function addCaseJiraLink(
   db: DatabaseSync,
   argusHome: string,
@@ -636,6 +642,9 @@ export function addCaseJiraLink(
 ): CaseJiraLink {
   const kase = getCase(db, slug)
   if (!kase) throw new Error(`Unknown case: ${slug}`)
+  if (key === kase.jiraKey) {
+    throw new Error(`${key} is already this case's ticket; it cannot also be a source.`)
+  }
   db.prepare(
     `INSERT INTO case_jira_links (case_id, jira_key, role, added_at, attachment_ids)
      VALUES (?, ?, 'source', ?, '[]')
