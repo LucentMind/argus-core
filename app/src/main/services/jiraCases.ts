@@ -257,7 +257,10 @@ export class JiraCases {
    * attachment list unchecked and then calls ingestAttachments(slug, key, chosen) — nothing
    * arrives that the user did not pick.
    */
-  async importSourceTicket(caseSlug: string, key: string): Promise<JiraIssuePreview> {
+  async importSourceTicket(
+    caseSlug: string,
+    key: string
+  ): Promise<JiraIssuePreview & { commentsError?: string }> {
     const { db, argusHome, detection, queue } = this.deps
     const kase = getCase(db, caseSlug)
     if (!kase) throw new AtlassianError('internal', `Unknown case: ${caseSlug}`)
@@ -269,7 +272,11 @@ export class JiraCases {
 
     const { preview, descriptionMarkdown, raw } = await this.deps.client.getIssue(key)
     const now = new Date().toISOString()
-    addCaseJiraLink(db, argusHome, caseSlug, key)
+    // Link by preview.key — the CANONICAL key Jira returned — not the requested `key`.
+    // Every attachment/evidence write below is stamped with preview.key (see `write`
+    // below); linking under the pre-fetch key would leave the link row and the evidence
+    // disagreeing forever whenever Jira resolves a moved/renamed issue to a different key.
+    addCaseJiraLink(db, argusHome, caseSlug, preview.key)
 
     const evidence = listEvidence(db, caseSlug)
     const write = (role: string, relPath: string, content: string, extra: object = {}): void => {
@@ -288,7 +295,10 @@ export class JiraCases {
     write('source-ticket-raw', `${preview.key}.ticket.json`, JSON.stringify(raw, null, 2))
 
     // Best-effort, exactly like createFromTicket's comments fetch: a source whose comments
-    // are unreadable must not cost the user the ticket text they came for.
+    // are unreadable must not cost the user the ticket text they came for. Unlike
+    // createFromTicket, the failure IS surfaced (as commentsError) so refresh's per-source
+    // summary can report it — see JiraSourceRefresh.commentsError.
+    let commentsError: string | undefined
     try {
       const comments = await this.deps.client.getComments(key)
       write(
@@ -298,11 +308,12 @@ export class JiraCases {
         { commentCount: comments.length }
       )
     } catch (err) {
-      console.warn(`[jira] source comments fetch failed for ${key}: ${(err as Error).message}`)
+      commentsError = (err as Error).message
+      console.warn(`[jira] source comments fetch failed for ${key}: ${commentsError}`)
     }
 
     this.deps.evidenceChanged(caseSlug)
-    return preview
+    return commentsError === undefined ? preview : { ...preview, commentsError }
   }
 
   /** Sequential per-file download+ingest; failures are per-file and never abort the batch.
@@ -570,17 +581,19 @@ export class JiraCases {
         const after = findJiraEvidence(listEvidence(db, caseSlug), 'source-comments', link.key)
         const newCount = after ? (jiraMeta(after.meta).commentCount ?? 0) : 0
 
-        // Diff against THIS link's baseline, not the case-level list (which is the primary's).
-        // Attachments already ingested from this source are excluded too, so a re-import never
-        // re-offers a file the user already has.
-        const baseline = new Set(link.attachmentIds)
+        // Exclude only what is genuinely INGESTED — mirrors the primary's own diff above
+        // (`known`/`deselected` against `preview.attachments`, no "seen once" auto-advance).
+        // link.attachmentIds is deliberately NOT consulted here: it used to double as a
+        // "reported once" baseline, which meant an attachment the user never acted on
+        // silently stopped being reported after its first appearance. It stays useful as a
+        // record of what the ticket last carried (increment 2 adds a per-source declined
+        // set), which is why it is still written below — just no longer read for this diff.
         const ingested = knownAttachments(listEvidence(db, caseSlug), link.key)
         sources.push({
           key: link.key,
           newComments: Math.max(0, newCount - oldComments),
-          newAttachments: sourcePreview.attachments.filter(
-            (a) => !baseline.has(a.id) && !ingested.has(a.id)
-          )
+          newAttachments: sourcePreview.attachments.filter((a) => !ingested.has(a.id)),
+          ...(sourcePreview.commentsError ? { commentsError: sourcePreview.commentsError } : {})
         })
         setCaseJiraLinkAttachmentIds(
           db,

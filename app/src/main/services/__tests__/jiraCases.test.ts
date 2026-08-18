@@ -913,10 +913,20 @@ describe('JiraCases source tickets', () => {
     // Reported, NOT downloaded.
     expect(client.downloadAttachment).not.toHaveBeenCalled()
 
-    // Second refresh: same attachment is no longer new (the baseline advanced).
+    // Second refresh: the attachment has NOT been ingested (or declined) by the user,
+    // so it must keep being reported — refresh's baseline-advance must not silently
+    // suppress it. This is the crux of Fix 3: an un-acted-on attachment reappears
+    // on every refresh until the user actually ingests (or declines) it.
     const r2 = await svc.refresh('NAV-7')
     await settle()
-    expect(r2.sources[0].newAttachments).toEqual([])
+    expect(r2.sources[0].newAttachments.map((a) => a.id)).toEqual(['20001'])
+
+    // Once the attachment IS ingested, it stops being reported as new.
+    await svc.ingestAttachments('NAV-7', 'CUST-9', [att('20001', 'first.log')])
+    await settle()
+    const r2b = await svc.refresh('NAV-7')
+    await settle()
+    expect(r2b.sources[0].newAttachments).toEqual([])
 
     // A third one appears upstream.
     custAtts = [att('20001', 'first.log'), att('20002', 'second.log')]
@@ -988,6 +998,30 @@ describe('JiraCases source tickets', () => {
     expect(r2.sources[0].newComments).toBe(3)
   })
 
+  it('reports a source comments-fetch failure via commentsError, not silently', async () => {
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async (k: string) =>
+        k === 'CUST-9' ? issue({ key: 'CUST-9', summary: 'Customer', attachments: [] }) : issue()
+      ),
+      downloadAttachment: vi.fn(async () => {}),
+      getComments: vi.fn(async (k: string) => {
+        if (k === 'CUST-9') throw new Error('403 comments blocked')
+        return []
+      })
+    }
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await svc.importSourceTicket('NAV-7', 'CUST-9')
+    await settle()
+
+    const summary = await svc.refresh('NAV-7')
+    await settle()
+    // The ticket text loaded fine (no top-level `error`), but comments 403'd — that
+    // must be visible, not swallowed as a fully-successful source.
+    expect(summary.sources[0].error).toBeUndefined()
+    expect(summary.sources[0].commentsError).toContain('403 comments blocked')
+  })
+
   it('creates a case with source tickets linked and their text ingested', async () => {
     const client: AtlassianClientLike = {
       getIssue: vi.fn(async (k: string) =>
@@ -1002,6 +1036,43 @@ describe('JiraCases source tickets', () => {
 
     expect(listCaseJiraLinks(db, 'NAV-7').map((l) => l.key)).toEqual(['CUST-9'])
     expect(listEvidence(db, 'NAV-7').map((e) => e.relPath)).toContain('evidence/CUST-9.ticket.md')
+  })
+
+  it('links using the canonical key Jira returns, not the requested key', async () => {
+    // OLD-1 was moved/renamed upstream; Jira resolves it to NEW-1 on fetch. Once the link
+    // is stored under NEW-1, a later refresh looks it up by NEW-1 too — same as real Jira,
+    // which resolves the canonical key to itself.
+    const renamed = issue({
+      key: 'NEW-1',
+      summary: 'Renamed',
+      attachments: [att('30001', 'moved.log')]
+    })
+    const byKey: Record<string, JiraIssueData> = {
+      'NAV-7': issue(),
+      'OLD-1': renamed,
+      'NEW-1': renamed
+    }
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async (k: string) => byKey[k]),
+      downloadAttachment: vi.fn(async (id: string, dest: string) =>
+        fs.writeFileSync(dest, `bytes-of-${id}`)
+      ),
+      getComments: vi.fn(async () => [])
+    }
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await svc.importSourceTicket('NAV-7', 'OLD-1')
+    await settle()
+
+    // The link row stores the CANONICAL key, not the requested one.
+    expect(listCaseJiraLinks(db, 'NAV-7').map((l) => l.key)).toEqual(['NEW-1'])
+
+    // A subsequent refresh finds the evidence under the canonical key: no phantom
+    // "unknown source" error, and the attachment shows up as new (not lost).
+    const summary = await svc.refresh('NAV-7')
+    expect(summary.sources[0].key).toBe('NEW-1')
+    expect(summary.sources[0].error).toBeUndefined()
+    expect(summary.sources[0].newAttachments.map((a) => a.id)).toEqual(['30001'])
   })
 
   it('still creates the case when a source cannot be read', async () => {
