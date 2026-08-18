@@ -299,6 +299,16 @@ describe('settings schema', () => {
     expect(settingsSchema.parse(stripped).distill.guidance).toBe('Prefer recipes over new skills.')
   })
 
+  it("distill.pipeline defaults to 'v2' and accepts 'v3'", () => {
+    expect(defaultSettings().distill.pipeline).toBe('v2')
+    expect(settingsSchema.parse({}).distill.pipeline).toBe('v2')
+    const set = settingsSchema.parse({ distill: { pipeline: 'v3' } })
+    expect(set.distill.pipeline).toBe('v3')
+    const stripped = stripDefaults(set, defaultSettings())
+    expect(stripped).toEqual({ distill: { pipeline: 'v3' } })
+    expect(settingsSchema.parse(stripped).distill.pipeline).toBe('v3')
+  })
+
   it('defaults both keep-alive keys off', () => {
     const s = settingsSchema.parse({})
     expect(s.general.keepAliveInBackground).toBe(false)

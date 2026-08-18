@@ -286,7 +286,12 @@ const uiSchema = z.looseObject({
 /** Free-text operator guidance folded into every case distillation's input (v2) — a standing
  *  steer ("prefer recipes over new skills", "watch for X") rather than a per-run instruction. */
 const distillSchema = z.looseObject({
-  guidance: z.string().default('')
+  guidance: z.string().default(''),
+  /** Which case-distill pipeline runs: 'v2' = single agentic call; 'v3' = staged pipeline.
+   *  Defaults to 'v2' — v3 stays opt-in until it has run against real cases. Read at job-run
+   *  time (and at enqueue time for `prompt_hash`), so flipping it takes effect on the next job
+   *  with no restart. */
+  pipeline: z.enum(['v2', 'v3']).default('v2')
 })
 
 const onboardingSchema = z.looseObject({
