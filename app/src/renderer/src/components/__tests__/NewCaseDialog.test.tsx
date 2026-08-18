@@ -401,4 +401,94 @@ describe('NewCaseDialog', () => {
     await waitFor(() => expect(jira.createCase).toHaveBeenCalled())
     expect(jira.createCase.mock.calls[0][0].sources).toEqual([])
   })
+
+  it('an expanded source with nothing ticked is not imported', async () => {
+    const CLONE_PREVIEW = {
+      ...PREVIEW,
+      cloneLinks: [
+        { key: 'CUST-9', summary: 'Customer report', direction: 'is-cloned-by' as const }
+      ]
+    }
+    const SOURCE_PREVIEW = {
+      key: 'CUST-9',
+      summary: 'Customer report',
+      status: 'Open',
+      priority: null,
+      labels: [],
+      reporter: 'Cust',
+      created: 'c',
+      updated: 'u',
+      cloneLinks: [],
+      attachments: [
+        { id: '30001', filename: 'customer.log', size: 500, mimeType: 'text/plain', createdAt: 'x' }
+      ]
+    }
+    jira.preview = vi.fn(async (key: string) => ({
+      ok: true,
+      value: key === 'CUST-9' ? SOURCE_PREVIEW : CLONE_PREVIEW
+    }))
+    render(<NewCaseDialog {...noop} />)
+    await userEvent.type(screen.getByPlaceholderText(/ticket key or link/i), 'PROJ-7')
+    await userEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+
+    const row = await screen.findByRole('button', { name: /cloned from CUST-9/i })
+    await userEvent.click(row)
+    // fully expanded, but nothing ticked
+    await screen.findByRole('checkbox', { name: /customer\.log/i })
+
+    await userEvent.click(screen.getByRole('button', { name: /create case/i }))
+
+    await waitFor(() => expect(jira.createCase).toHaveBeenCalled())
+    expect(jira.createCase.mock.calls[0][0].sources).toEqual([])
+  })
+
+  it('a failed source expansion can be retried and its attachments then render unchecked', async () => {
+    const CLONE_PREVIEW = {
+      ...PREVIEW,
+      cloneLinks: [
+        { key: 'CUST-9', summary: 'Customer report', direction: 'is-cloned-by' as const }
+      ]
+    }
+    const SOURCE_PREVIEW = {
+      key: 'CUST-9',
+      summary: 'Customer report',
+      status: 'Open',
+      priority: null,
+      labels: [],
+      reporter: 'Cust',
+      created: 'c',
+      updated: 'u',
+      cloneLinks: [],
+      attachments: [
+        { id: '30001', filename: 'customer.log', size: 500, mimeType: 'text/plain', createdAt: 'x' }
+      ]
+    }
+    let previewCalls = 0
+    jira.preview = vi.fn(async (key: string) => {
+      if (key === 'CUST-9') {
+        previewCalls++
+        if (previewCalls === 1) return { ok: false, code: 'network', message: 'fetch failed' }
+        return { ok: true, value: SOURCE_PREVIEW }
+      }
+      return { ok: true, value: CLONE_PREVIEW }
+    })
+    render(<NewCaseDialog {...noop} />)
+    await userEvent.type(screen.getByPlaceholderText(/ticket key or link/i), 'PROJ-7')
+    await userEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+
+    const row = await screen.findByRole('button', { name: /cloned from CUST-9/i })
+    await userEvent.click(row)
+
+    // first attempt fails — the row must show its error state, not a bare file count
+    expect(await screen.findByText(/fetch failed/i)).toBeInTheDocument()
+    expect(row).not.toHaveTextContent(/\d+ files/)
+    expect(screen.queryByRole('checkbox', { name: /customer\.log/i })).not.toBeInTheDocument()
+
+    // clicking the still-failed row retries the fetch
+    await userEvent.click(row)
+
+    const box = await screen.findByRole('checkbox', { name: /customer\.log/i })
+    expect(box).not.toBeChecked()
+    expect(jira.preview).toHaveBeenCalledTimes(3) // PROJ-7, CUST-9 (fail), CUST-9 (retry)
+  })
 })
