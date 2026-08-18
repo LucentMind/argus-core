@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v2.2.0 — 2026-08-18
+
+77 commits since v2.1.2, 191 files changed (+16,641 / −527).
+
 ### Added
 
 - Argus can now follow a prerelease track. Settings → Updates gains a
@@ -43,6 +47,13 @@
 - `tools/distill-eval` replays distillation against frozen worlds and
   judges the result against human accept-time edits, which are now
   archived as they happen to build that corpus.
+- Case distillation can run as a staged pipeline. A new Settings row picks
+  between `v2` (one agentic call) and `v3`, which splits the work into a
+  cited dossier, then a summary and candidate set in parallel, then a veto
+  pass, then materialization with validators. Each stage records its own
+  prompt hash, usage and drops, so a bad proposal can be traced to the
+  stage that produced it. `v2` remains the default until the two are
+  compared on a real corpus with `tools/distill-eval --pipeline`.
 - Packs can ship tool scripts. A new `run_tool_script` agent tool runs a
   generated stub against a loopback RPC server, so a pack's own tooling
   is callable from a session. The child is spawned with a scrubbed
