@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { CoreUpdaterService, type UpdaterBackend } from '../coreUpdater'
-import type { CoreUpdatePayload } from '../../../../shared/updates'
+import type { CoreUpdatePayload, UpdateChannel } from '../../../../shared/updates'
 
 function fakeBackend(over: Partial<UpdaterBackend> = {}): UpdaterBackend & {
   emitProgress: (p: number) => void
@@ -16,14 +16,25 @@ function fakeBackend(over: Partial<UpdaterBackend> = {}): UpdaterBackend & {
   }
 }
 
-const svc = (backend: UpdaterBackend, supported = true): CoreUpdaterService =>
-  new CoreUpdaterService({ backend, currentVersion: '1.0.8', supported, now: () => 1000 })
+const svc = (
+  backend: UpdaterBackend,
+  supported = true,
+  channel: UpdateChannel = 'stable'
+): CoreUpdaterService =>
+  new CoreUpdaterService({
+    backend,
+    currentVersion: '1.0.8',
+    supported,
+    channel,
+    now: () => 1000
+  })
 
 describe('CoreUpdaterService', () => {
   it('starts idle and reports the current version', () => {
     expect(svc(fakeBackend()).payload()).toEqual({
       currentVersion: '1.0.8',
-      status: { phase: 'idle' }
+      status: { phase: 'idle' },
+      channel: 'stable'
     })
   })
 

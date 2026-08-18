@@ -5,7 +5,11 @@ import type { CoreUpdatePayload } from '../../../shared/updates'
  * every consumer (Settings block, banner) can call it on mount without racing.
  */
 class UpdateStore {
-  private payload: CoreUpdatePayload = { currentVersion: '', status: { phase: 'idle' } }
+  private payload: CoreUpdatePayload = {
+    currentVersion: '',
+    status: { phase: 'idle' },
+    channel: 'stable'
+  }
   private dismissedKey: string | null = null
   private readonly listeners = new Set<() => void>()
   private started = false
@@ -63,7 +67,7 @@ class UpdateStore {
   /** Test-only: the module-level singleton outlives each test's stubbed `window.argus`.
    *  Named to match the existing `reposStore.clearForTests()` precedent. */
   clearForTests(): void {
-    this.payload = { currentVersion: '', status: { phase: 'idle' } }
+    this.payload = { currentVersion: '', status: { phase: 'idle' }, channel: 'stable' }
     this.dismissedKey = null
     this.started = false
     this.listeners.clear()

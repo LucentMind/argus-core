@@ -7,7 +7,11 @@ import { UpdateBanner } from '../UpdateBanner'
 import { updateStore } from '../../lib/updateStore'
 import type { CoreUpdatePayload, UpdateStatus } from '../../../../shared/updates'
 
-const idle: CoreUpdatePayload = { currentVersion: '1.0.8', status: { phase: 'idle' } }
+const idle: CoreUpdatePayload = {
+  currentVersion: '1.0.8',
+  status: { phase: 'idle' },
+  channel: 'stable'
+}
 
 let onChangedCb: ((p: CoreUpdatePayload) => void) | null = null
 
@@ -32,7 +36,7 @@ function stubApi(initial: CoreUpdatePayload = idle): void {
 /** Push a status update through the same `onChanged` path main uses in production. */
 function emitStatus(status: UpdateStatus, currentVersion = '1.0.8'): void {
   if (!onChangedCb) throw new Error('onChanged callback was never captured')
-  act(() => onChangedCb!({ currentVersion, status }))
+  act(() => onChangedCb!({ currentVersion, status, channel: 'stable' }))
 }
 
 beforeEach(() => {
@@ -42,14 +46,22 @@ beforeEach(() => {
 
 describe('UpdateBanner', () => {
   it('renders with a Download action when an update is available', async () => {
-    stubApi({ currentVersion: '1.0.8', status: { phase: 'available', version: '1.1.0' } })
+    stubApi({
+      currentVersion: '1.0.8',
+      status: { phase: 'available', version: '1.1.0' },
+      channel: 'stable'
+    })
     render(<UpdateBanner />)
     expect(await screen.findByText(/argus 1\.1\.0 is available/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /download/i })).toBeInTheDocument()
   })
 
   it('hides once the available banner is dismissed', async () => {
-    stubApi({ currentVersion: '1.0.8', status: { phase: 'available', version: '1.1.0' } })
+    stubApi({
+      currentVersion: '1.0.8',
+      status: { phase: 'available', version: '1.1.0' },
+      channel: 'stable'
+    })
     render(<UpdateBanner />)
     await screen.findByText(/argus 1\.1\.0 is available/i)
     await userEvent.click(screen.getByRole('button', { name: /dismiss update notice/i }))
@@ -59,7 +71,11 @@ describe('UpdateBanner', () => {
   it('re-shows for the same version once it transitions from available to ready', async () => {
     // This is the bug: dismissing "an update exists" must not also dismiss the far more
     // actionable "it is downloaded and waiting for you" notice for the same version.
-    stubApi({ currentVersion: '1.0.8', status: { phase: 'available', version: '1.1.0' } })
+    stubApi({
+      currentVersion: '1.0.8',
+      status: { phase: 'available', version: '1.1.0' },
+      channel: 'stable'
+    })
     render(<UpdateBanner />)
     await screen.findByText(/argus 1\.1\.0 is available/i)
     await userEvent.click(screen.getByRole('button', { name: /dismiss update notice/i }))
@@ -72,7 +88,11 @@ describe('UpdateBanner', () => {
   })
 
   it('hides once the ready banner is dismissed', async () => {
-    stubApi({ currentVersion: '1.0.8', status: { phase: 'ready', version: '1.1.0' } })
+    stubApi({
+      currentVersion: '1.0.8',
+      status: { phase: 'ready', version: '1.1.0' },
+      channel: 'stable'
+    })
     render(<UpdateBanner />)
     await screen.findByText(/argus 1\.1\.0 is ready to install/i)
     await userEvent.click(screen.getByRole('button', { name: /dismiss update notice/i }))
@@ -80,7 +100,11 @@ describe('UpdateBanner', () => {
   })
 
   it('re-shows after a dismissal once a different version shows up', async () => {
-    stubApi({ currentVersion: '1.0.8', status: { phase: 'available', version: '1.1.0' } })
+    stubApi({
+      currentVersion: '1.0.8',
+      status: { phase: 'available', version: '1.1.0' },
+      channel: 'stable'
+    })
     render(<UpdateBanner />)
     await screen.findByText(/argus 1\.1\.0 is available/i)
     await userEvent.click(screen.getByRole('button', { name: /dismiss update notice/i }))

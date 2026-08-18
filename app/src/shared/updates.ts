@@ -41,7 +41,9 @@ export type UpdateStatus =
   /** Structurally impossible here — an unpackaged build. Not an error; never shown as one. */
   | { phase: 'unsupported'; reason: string }
   | { phase: 'checking' }
-  | { phase: 'available'; version: string; notes?: string }
+  /** `downgrade` marks an offer whose version is LOWER than the running one — the shape a
+   *  return to stable takes for someone running a prerelease. Core-only; packs never set it. */
+  | { phase: 'available'; version: string; notes?: string; downgrade?: true }
   | { phase: 'downloading'; percent: number }
   /** Bytes are staged; a restart applies them. */
   | { phase: 'ready'; version: string }
@@ -51,6 +53,10 @@ export type UpdateStatus =
 export interface CoreUpdatePayload {
   currentVersion: string
   status: UpdateStatus
+  /** The channel actually in effect — not necessarily the persisted setting, since a switch is
+   *  refused while a download is staged (`CoreUpdaterService.setChannel`). The UI renders this
+   *  and never the setting, so it cannot show a channel the app is not on. */
+  channel: UpdateChannel
 }
 
 /**
@@ -81,7 +87,9 @@ export function describeUpdate(status: UpdateStatus, subject: 'core' | 'pack' = 
     case 'checking':
       return 'Checking for updates…'
     case 'available':
-      return `Version ${status.version} is available`
+      return status.downgrade
+        ? `Version ${status.version} is the current stable release — installing it moves this install back`
+        : `Version ${status.version} is available`
     case 'downloading':
       return `Downloading… ${status.percent}%`
     case 'ready':
