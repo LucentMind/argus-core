@@ -920,4 +920,13 @@ describe('case jira links', () => {
     expect(onDisk.jiraSources).toEqual(['CUST-9'])
     expect(onDisk.title).toBe('T')
   })
+
+  // Fix 4a: the invariant "a ticket cannot be both the case's own ticket and one of its
+  // sources" must hold at the data layer, not only inside jiraCases.ts's importSourceTicket
+  // caller — a direct accessor call (e.g. from bundle import) must be rejected too.
+  it("rejects linking a ticket that is already the case's own jira key", () => {
+    createCase(db, home, { slug: 'NAV-7', title: 'T', jiraKey: 'NAV-7' })
+    expect(() => addCaseJiraLink(db, home, 'NAV-7', 'NAV-7')).toThrow(/already this case's ticket/)
+    expect(listCaseJiraLinks(db, 'NAV-7')).toEqual([])
+  })
 })
