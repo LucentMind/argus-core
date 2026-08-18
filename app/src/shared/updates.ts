@@ -7,6 +7,18 @@
  * breaks `typecheck:web`.
  */
 /**
+ * The release track an install follows.
+ *
+ * `beta` maps to electron-updater's `allowPrerelease`, and the identifier in the tag itself
+ * must literally be `beta` (or `alpha`). `GitHubProvider.getLatestVersion` derives the running
+ * channel from the running version's prerelease component and only accepts a *stable* release
+ * for a channel it recognises — with a custom identifier like `nightly`, an install would be
+ * offered nightlies forever and never graduate to a stable release.
+ */
+export const UPDATE_CHANNELS = ['stable', 'beta'] as const
+export type UpdateChannel = (typeof UPDATE_CHANNELS)[number]
+
+/**
  * Machine-readable failure kinds, for the few cases where the UI must branch rather than just
  * print a sentence — a pinned-origin refusal offers "download it manually" instead of a retry.
  * Optional: Core's updater sets no code, and `describeUpdate` never reads it.
