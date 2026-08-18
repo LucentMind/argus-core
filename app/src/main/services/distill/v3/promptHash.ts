@@ -39,8 +39,9 @@ export function stagePromptHash(stage: V3Stage, resolve?: (id: string) => string
   return digest(parts)
 }
 
-/** The job-level `prompt_hash` for a v3 run: hash of the four stage hashes, prefixed so it can
- *  never collide with a v2 hash of the same length. */
+/** The job-level `prompt_hash` for a v3 run: hash of the four stage hashes. The literal 'v3' is
+ *  folded into the digest input so a v3 hash never equals a v2 hash of the same prompts; the
+ *  output shape is indistinguishable — use `stages_json IS NOT NULL` to tell a v3 row apart. */
 export function caseDistillPipelineHash(resolve?: (id: string) => string): string {
   return digest(['v3', ...V3_STAGES.map((s) => stagePromptHash(s, resolve))])
 }
