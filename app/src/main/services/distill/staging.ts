@@ -244,6 +244,7 @@ export function stageDistillOutput(
           .basis!.replace(/[\r\n]+/g, ' ')
           .trim()
           .slice(0, 300),
+        ...(p.evidence ? { evidence: p.evidence } : {}),
         ...priorRejectFm(priorRejectMap, p.type, p.target)
       })
     }
