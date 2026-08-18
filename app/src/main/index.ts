@@ -935,7 +935,16 @@ function registerIpc(): void {
   // — Atlassian REST (UI-native; the agent uses Rovo MCP) —
   const atlassianCreds = (): AtlassianAuth =>
     resolveAtlassianCreds(connectorRegistry.get(), mcpOauth)
-  const atlassian = new AtlassianClient(atlassianCreds)
+  // The clone link-type list is passed as a GETTER, matching every other settings-reading
+  // service in this file (settingsTools, defectCorpus.sources, agent): a snapshot here would
+  // pin the list to whatever was on disk at boot and need a restart to take effect.
+  const atlassian = new AtlassianClient(
+    atlassianCreds,
+    fetch,
+    undefined,
+    undefined,
+    () => settingsService.get().jira.cloneLinkTypes
+  )
   const restErrors: Record<string, string> = {} // instanceId → last auth-error message
 
   // — reference sync (Wave 3 Part 3; UI-native REST + headless distillation) —

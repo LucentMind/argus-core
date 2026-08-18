@@ -703,7 +703,7 @@ describe('cloneLinksOf', () => {
   })
 
   it('returns [] when issuelinks is absent', () => {
-    expect(cloneLinksOf({})).toEqual([])
+    expect(cloneLinksOf({}, ['Cloners'])).toEqual([])
   })
 
   it('keeps clone links in both directions and ignores other link types', () => {
@@ -715,19 +715,42 @@ describe('cloneLinksOf', () => {
         link('Duplicate', 'outwardIssue', 'OTHER-2')
       ]
     }
-    expect(cloneLinksOf(fields)).toEqual([
+    expect(cloneLinksOf(fields, ['Cloners'])).toEqual([
       { key: 'CUST-9', summary: 'CUST-9 summary', direction: 'is-cloned-by' },
       { key: 'CUST-10', summary: 'CUST-10 summary', direction: 'clones' }
     ])
   })
 
   it('matches the clone type case-insensitively', () => {
-    expect(cloneLinksOf({ issuelinks: [link('cloners', 'inwardIssue', 'CUST-9')] })).toHaveLength(1)
+    expect(
+      cloneLinksOf({ issuelinks: [link('cloners', 'inwardIssue', 'CUST-9')] }, ['Cloners'])
+    ).toHaveLength(1)
   })
 
   it('skips malformed entries rather than throwing', () => {
     const fields = { issuelinks: [{ type: { name: 'Cloners' } }, null, 'nonsense'] }
-    expect(cloneLinksOf(fields)).toEqual([])
+    expect(cloneLinksOf(fields, ['Cloners'])).toEqual([])
+  })
+
+  it('accepts any configured type name, case-insensitively', () => {
+    const fields = {
+      issuelinks: [
+        { type: { name: 'Kopiert' }, inwardIssue: { key: 'CUST-9', fields: { summary: 's' } } }
+      ]
+    }
+    expect(cloneLinksOf(fields, ['Cloners'])).toEqual([])
+    expect(cloneLinksOf(fields, ['Cloners', 'kopiert'])).toEqual([
+      { key: 'CUST-9', summary: 's', direction: 'is-cloned-by' }
+    ])
+  })
+
+  it('matches nothing when the accepted list is empty', () => {
+    const fields = {
+      issuelinks: [
+        { type: { name: 'Cloners' }, inwardIssue: { key: 'CUST-9', fields: { summary: 's' } } }
+      ]
+    }
+    expect(cloneLinksOf(fields, [])).toEqual([])
   })
 })
 
@@ -773,7 +796,7 @@ describe('cloneLinksOf against a real Jira payload', () => {
   }
 
   it('reads the clone side as "this issue clones that one"', () => {
-    expect(cloneLinksOf(CLONE_SIDE)).toEqual([
+    expect(cloneLinksOf(CLONE_SIDE, ['Cloners'])).toEqual([
       {
         key: 'KAN-17',
         summary: 'Invoice total wrong when a discount code is applied twice',
@@ -783,7 +806,7 @@ describe('cloneLinksOf against a real Jira payload', () => {
   })
 
   it('reads the original side as "this issue is cloned by that one"', () => {
-    expect(cloneLinksOf(ORIGINAL_SIDE)).toEqual([
+    expect(cloneLinksOf(ORIGINAL_SIDE, ['Cloners'])).toEqual([
       {
         key: 'SAM1-11',
         summary: 'Invoice total wrong when a discount code is applied twice',
