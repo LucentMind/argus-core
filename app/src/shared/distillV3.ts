@@ -96,6 +96,9 @@ export interface StageRecord {
   rawOutput: string
   usage?: StageUsage
   error?: string
+  /** Non-fatal validator flags on a KEPT result. `error` means the stage produced nothing usable;
+   *  a flag means it did, with something for the reviewer to look at. Never both. */
+  flags?: ValidatorReason[]
 }
 
 /** Per-candidate drop recorded before staging (veto or validator). Same shape staging's
