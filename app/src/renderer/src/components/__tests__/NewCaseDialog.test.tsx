@@ -402,7 +402,7 @@ describe('NewCaseDialog', () => {
     expect(jira.createCase.mock.calls[0][0].sources).toEqual([])
   })
 
-  it('an expanded source with nothing ticked is not imported', async () => {
+  it('an expanded source with nothing ticked AND not explicitly included is not imported', async () => {
     const CLONE_PREVIEW = {
       ...PREVIEW,
       cloneLinks: [
@@ -433,13 +433,151 @@ describe('NewCaseDialog', () => {
 
     const row = await screen.findByRole('button', { name: /cloned from CUST-9/i })
     await userEvent.click(row)
-    // fully expanded, but nothing ticked
+    // fully expanded, but nothing ticked and the include control untouched — looking is
+    // not choosing, and the include control defaults off.
     await screen.findByRole('checkbox', { name: /customer\.log/i })
+    expect(screen.getByRole('checkbox', { name: /include CUST-9/i })).not.toBeChecked()
 
     await userEvent.click(screen.getByRole('button', { name: /create case/i }))
 
     await waitFor(() => expect(jira.createCase).toHaveBeenCalled())
     expect(jira.createCase.mock.calls[0][0].sources).toEqual([])
+  })
+
+  it('a zero-attachment source can be explicitly included', async () => {
+    // Regression: KAN-17 had a description and a comment but no files, so nothing was
+    // ever tickable and the source was silently dropped under the old rule.
+    const CLONE_PREVIEW = {
+      ...PREVIEW,
+      cloneLinks: [{ key: 'KAN-17', summary: 'Customer ticket', direction: 'is-cloned-by' as const }]
+    }
+    const SOURCE_PREVIEW = {
+      key: 'KAN-17',
+      summary: 'Customer ticket',
+      status: 'Open',
+      priority: null,
+      labels: [],
+      reporter: 'Cust',
+      created: 'c',
+      updated: 'u',
+      cloneLinks: [],
+      attachments: []
+    }
+    jira.preview = vi.fn(async (key: string) => ({
+      ok: true,
+      value: key === 'KAN-17' ? SOURCE_PREVIEW : CLONE_PREVIEW
+    }))
+    render(<NewCaseDialog {...noop} />)
+    await userEvent.type(screen.getByPlaceholderText(/ticket key or link/i), 'PROJ-7')
+    await userEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+
+    const row = await screen.findByRole('button', { name: /cloned from KAN-17/i })
+    await userEvent.click(row)
+    expect(await screen.findByText(/no attachments/i)).toBeInTheDocument()
+
+    const includeBox = screen.getByRole('checkbox', { name: /include KAN-17/i })
+    expect(includeBox).not.toBeChecked()
+    await userEvent.click(includeBox)
+
+    await userEvent.click(screen.getByRole('button', { name: /create case/i }))
+
+    await waitFor(() =>
+      expect(jira.createCase).toHaveBeenCalledWith(expect.objectContaining({ sources: ['KAN-17'] }))
+    )
+  })
+
+  it('ticking a source attachment includes the source without touching the include control', async () => {
+    const CLONE_PREVIEW = {
+      ...PREVIEW,
+      cloneLinks: [
+        { key: 'CUST-9', summary: 'Customer report', direction: 'is-cloned-by' as const }
+      ]
+    }
+    const SOURCE_PREVIEW = {
+      key: 'CUST-9',
+      summary: 'Customer report',
+      status: 'Open',
+      priority: null,
+      labels: [],
+      reporter: 'Cust',
+      created: 'c',
+      updated: 'u',
+      cloneLinks: [],
+      attachments: [
+        { id: '30001', filename: 'customer.log', size: 500, mimeType: 'text/plain', createdAt: 'x' }
+      ]
+    }
+    jira.preview = vi.fn(async (key: string) => ({
+      ok: true,
+      value: key === 'CUST-9' ? SOURCE_PREVIEW : CLONE_PREVIEW
+    }))
+    render(<NewCaseDialog {...noop} />)
+    await userEvent.type(screen.getByPlaceholderText(/ticket key or link/i), 'PROJ-7')
+    await userEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+
+    const row = await screen.findByRole('button', { name: /cloned from CUST-9/i })
+    await userEvent.click(row)
+
+    const fileBox = await screen.findByRole('checkbox', { name: /customer\.log/i })
+    const includeBox = screen.getByRole('checkbox', { name: /include CUST-9/i })
+    expect(includeBox).not.toBeChecked()
+    await userEvent.click(fileBox)
+    expect(includeBox).toBeChecked()
+
+    await userEvent.click(screen.getByRole('button', { name: /create case/i }))
+
+    await waitFor(() =>
+      expect(jira.createCase).toHaveBeenCalledWith(expect.objectContaining({ sources: ['CUST-9'] }))
+    )
+  })
+
+  it('including a source does not tick any of its attachments', async () => {
+    const CLONE_PREVIEW = {
+      ...PREVIEW,
+      cloneLinks: [
+        { key: 'CUST-9', summary: 'Customer report', direction: 'is-cloned-by' as const }
+      ]
+    }
+    const SOURCE_PREVIEW = {
+      key: 'CUST-9',
+      summary: 'Customer report',
+      status: 'Open',
+      priority: null,
+      labels: [],
+      reporter: 'Cust',
+      created: 'c',
+      updated: 'u',
+      cloneLinks: [],
+      attachments: [
+        { id: '30001', filename: 'customer.log', size: 500, mimeType: 'text/plain', createdAt: 'x' }
+      ]
+    }
+    jira.preview = vi.fn(async (key: string) => ({
+      ok: true,
+      value: key === 'CUST-9' ? SOURCE_PREVIEW : CLONE_PREVIEW
+    }))
+    render(<NewCaseDialog {...noop} />)
+    await userEvent.type(screen.getByPlaceholderText(/ticket key or link/i), 'PROJ-7')
+    await userEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+
+    const row = await screen.findByRole('button', { name: /cloned from CUST-9/i })
+    await userEvent.click(row)
+
+    const fileBox = await screen.findByRole('checkbox', { name: /customer\.log/i })
+    const includeBox = screen.getByRole('checkbox', { name: /include CUST-9/i })
+    await userEvent.click(includeBox)
+    expect(fileBox).not.toBeChecked()
+
+    await userEvent.click(screen.getByRole('button', { name: /create case/i }))
+
+    await waitFor(() =>
+      expect(jira.createCase).toHaveBeenCalledWith(expect.objectContaining({ sources: ['CUST-9'] }))
+    )
+    expect(jira.ingestAttachments).not.toHaveBeenCalledWith(
+      'PROJ-7',
+      'CUST-9',
+      expect.anything()
+    )
   })
 
   it('shows a deduped file as done, attributed to the ticket it was already ingested from', async () => {

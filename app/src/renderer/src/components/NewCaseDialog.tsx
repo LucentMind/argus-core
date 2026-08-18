@@ -35,6 +35,12 @@ interface SourceState {
   attachments: JiraAttachmentInfo[]
   /** Ticked attachment ids. Starts EMPTY — unlike the primary ticket, nothing is preselected. */
   checked: Set<string>
+  /** Explicit "import this ticket's text & comments" consent, independent of `checked`.
+   *  Starts false — expanding a row (to look) must not imply this (to choose). Ticking any
+   *  attachment sets this true as a side effect (a file implies wanting the ticket), but this
+   *  flag is what actually decides whether the source is sent, so a zero-attachment source
+   *  (nothing tickable) can still be included. */
+  included: boolean
 }
 
 const kb = (n: number): string => (n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`)
@@ -67,13 +73,22 @@ export function NewCaseDialog({
     // Already expanded (or in flight) — but a prior failure must not permanently kill the
     // row, so an error entry does NOT trip this guard and a click retries the fetch.
     if (sources[key] && !sources[key].error) return
-    setSources((s) => ({ ...s, [key]: { loading: true, attachments: [], checked: new Set() } }))
+    setSources((s) => ({
+      ...s,
+      [key]: { loading: true, attachments: [], checked: new Set(), included: false }
+    }))
     const r = await window.argus.jira.preview(key)
     setSources((s) => ({
       ...s,
       [key]: r.ok
-        ? { loading: false, attachments: r.value.attachments, checked: new Set() }
-        : { loading: false, error: r.message, attachments: [], checked: new Set() }
+        ? { loading: false, attachments: r.value.attachments, checked: new Set(), included: false }
+        : {
+            loading: false,
+            error: r.message,
+            attachments: [],
+            checked: new Set(),
+            included: false
+          }
     }))
   }
 
@@ -84,7 +99,17 @@ export function NewCaseDialog({
       const next = new Set(cur.checked)
       if (on) next.add(id)
       else next.delete(id)
-      return { ...s, [key]: { ...cur, checked: next } }
+      // Ticking a file implies wanting the ticket, but unticking one does not withdraw
+      // consent — that's what the include control is for.
+      return { ...s, [key]: { ...cur, checked: next, included: on ? true : cur.included } }
+    })
+  }
+
+  function toggleSourceIncluded(key: string, on: boolean): void {
+    setSources((s) => {
+      const cur = s[key]
+      if (!cur) return s
+      return { ...s, [key]: { ...cur, included: on } }
     })
   }
 
@@ -161,10 +186,11 @@ export function NewCaseDialog({
     if (step.step !== 'preview') return
     setBusy(true)
     setError(null)
-    // Only sources the user actually ticked something on are imported. An expanded-but-untouched
-    // source is still a "no".
+    // A source is imported when the user explicitly included it, or ticked any of its
+    // attachments (which implies inclusion — see toggleSourceAttachment). An
+    // expanded-but-otherwise-untouched source is still a "no": looking isn't choosing.
     const chosenSources = Object.entries(sources)
-      .filter(([, s]) => s.checked.size > 0)
+      .filter(([, s]) => s.included || s.checked.size > 0)
       .map(([key]) => key)
 
     const r = await window.argus.jira.createCase({
@@ -411,28 +437,44 @@ export function NewCaseDialog({
                       </button>
                       {s?.error && <span className="px-2 text-xs text-mute">{s.error}</span>}
                       {s && !s.loading && !s.error && (
-                        <div className="flex max-h-40 min-h-0 flex-col gap-1 overflow-y-auto pl-3">
-                          {s.attachments.map((a) => (
-                            <label
-                              key={a.id}
-                              className="flex items-center gap-2 rounded-r1 px-1 py-0.5 text-xs hover:bg-hi"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={s.checked.has(a.id)}
-                                onChange={(e) =>
-                                  toggleSourceAttachment(link.key, a.id, e.target.checked)
-                                }
-                              />
-                              <span className="min-w-0 flex-1 truncate font-mono text-ink">
-                                {a.filename}
-                              </span>
-                              <span className="shrink-0 text-mute">{kb(a.size)}</span>
-                            </label>
-                          ))}
-                          {s.attachments.length === 0 && (
-                            <span className="text-xs text-mute">no attachments</span>
-                          )}
+                        <div className="flex min-h-0 flex-col gap-1 pl-3">
+                          {/* Independent of the attachment checkboxes below: a source with no
+                              files still has ticket text and comments worth importing, and this
+                              is the only way to say yes to those without a file to tick. */}
+                          <label className="flex items-center gap-2 rounded-r1 px-1 py-0.5 text-xs hover:bg-hi">
+                            <input
+                              type="checkbox"
+                              aria-label={`Include ${link.key}`}
+                              checked={s.included}
+                              onChange={(e) => toggleSourceIncluded(link.key, e.target.checked)}
+                            />
+                            <span className="text-ink">
+                              Include {link.key} (ticket text &amp; comments)
+                            </span>
+                          </label>
+                          <div className="flex max-h-40 min-h-0 flex-col gap-1 overflow-y-auto">
+                            {s.attachments.map((a) => (
+                              <label
+                                key={a.id}
+                                className="flex items-center gap-2 rounded-r1 px-1 py-0.5 text-xs hover:bg-hi"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={s.checked.has(a.id)}
+                                  onChange={(e) =>
+                                    toggleSourceAttachment(link.key, a.id, e.target.checked)
+                                  }
+                                />
+                                <span className="min-w-0 flex-1 truncate font-mono text-ink">
+                                  {a.filename}
+                                </span>
+                                <span className="shrink-0 text-mute">{kb(a.size)}</span>
+                              </label>
+                            ))}
+                            {s.attachments.length === 0 && (
+                              <span className="text-xs text-mute">no attachments</span>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
