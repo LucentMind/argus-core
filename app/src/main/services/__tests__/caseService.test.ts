@@ -873,11 +873,13 @@ describe('case jira links', () => {
     expect(listCaseJiraLinks(db, 'NAV-1').map((l) => l.key)).toEqual(['CUST-9'])
   })
 
-  it('is idempotent on re-add and does not duplicate', () => {
+  it('is idempotent on re-add and does not duplicate, keeping the attachment_ids baseline', () => {
     createCase(db, home, { slug: 'NAV-2', title: 'T', jiraKey: 'NAV-2' })
     addCaseJiraLink(db, home, 'NAV-2', 'CUST-9')
+    setCaseJiraLinkAttachmentIds(db, 'NAV-2', 'CUST-9', ['a1', 'a2'])
     addCaseJiraLink(db, home, 'NAV-2', 'CUST-9')
     expect(listCaseJiraLinks(db, 'NAV-2')).toHaveLength(1)
+    expect(listCaseJiraLinks(db, 'NAV-2')[0].attachmentIds).toEqual(['a1', 'a2'])
   })
 
   it('stores attachment ids per link', () => {
@@ -905,5 +907,17 @@ describe('case jira links', () => {
       fs.readFileSync(path.join(caseDir(home, 'NAV-5'), 'case.json'), 'utf8')
     )
     expect(onDisk.jiraSources).toEqual(['CUST-9'])
+  })
+
+  it('recovers by rebuilding case.json from the DB record when it is corrupt', () => {
+    createCase(db, home, { slug: 'NAV-6', title: 'T', jiraKey: 'NAV-6' })
+    const file = path.join(caseDir(home, 'NAV-6'), 'case.json')
+    fs.writeFileSync(file, '{ not valid json')
+
+    addCaseJiraLink(db, home, 'NAV-6', 'CUST-9')
+
+    const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'))
+    expect(onDisk.jiraSources).toEqual(['CUST-9'])
+    expect(onDisk.title).toBe('T')
   })
 })
