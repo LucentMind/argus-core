@@ -180,6 +180,7 @@ CREATE TABLE IF NOT EXISTS case_jira_links (
   role           TEXT NOT NULL,
   added_at       TEXT NOT NULL,
   attachment_ids TEXT NOT NULL DEFAULT '[]',
+  deselected_ids TEXT NOT NULL DEFAULT '[]',
   PRIMARY KEY (case_id, jira_key)
 );
 -- Foreign-key indexes. With PRAGMA foreign_keys=ON, an ON DELETE CASCADE on the
@@ -383,6 +384,12 @@ export function openDb(file: string): DatabaseSync {
       WHERE status = 'rca-drafted'`
   )
   db.exec(`UPDATE cases SET status = 'open' WHERE status = 'analyzing'`)
+  // case_jira_links shipped one increment earlier, so a user's database can already have the
+  // table without this column — CREATE TABLE IF NOT EXISTS above would silently skip it.
+  const linkCols = db.prepare(`PRAGMA table_info(case_jira_links)`).all() as { name: string }[]
+  if (!linkCols.some((c) => c.name === 'deselected_ids')) {
+    db.exec(`ALTER TABLE case_jira_links ADD COLUMN deselected_ids TEXT NOT NULL DEFAULT '[]'`)
+  }
   // WP-D migration: legacy sessions had UNIQUE(case_id) (one session per case).
   // SQLite can't drop a constraint — rebuild the table once if the unique index exists.
   const sessionIdx = db.prepare(`PRAGMA index_list(sessions)`).all() as {
