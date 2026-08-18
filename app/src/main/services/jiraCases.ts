@@ -406,7 +406,7 @@ export class JiraCases {
             // Record this attachment against the existing row via `alsoOn` in every case,
             // including a SAME-ticket duplicate (dupJira.key === key): without it, a
             // same-ticket double-upload dedups on ingest but is never credited by
-            // knownAttachments, so refresh re-offers it as new forever (Finding 1). A
+            // knownAttachments, so refresh re-offers it as new forever. A
             // same-ticket entry is a self-reference — "this row is also known as this
             // ticket's a2" — which reads honestly and reuses the one mechanism rather than
             // adding a parallel "known ids" list.
@@ -418,11 +418,7 @@ export class JiraCases {
               // Only claim a ticket the matched row is actually known to be on. A row with
               // no Jira provenance at all (e.g. a manually uploaded file) was never "on"
               // this ticket, so `dedupedFrom` stays unset rather than falsely naming the
-              // current ticket (Finding 2) — see NewCaseDialog.tsx's `f.dedupedFrom &&` guard.
-              // Only claim a ticket the matched row is actually known to be on. A row with
-              // no Jira provenance at all (e.g. a manually uploaded file) was never "on"
-              // this ticket, so `dedupedFrom` stays unset rather than falsely naming the
-              // current ticket (Finding 2) — see NewCaseDialog.tsx's `f.dedupedFrom &&` guard.
+              // current ticket — see NewCaseDialog.tsx's `f.dedupedFrom &&` guard.
               ...(dupJira.key !== undefined ? { dedupedFrom: dupJira.key } : {})
             }
             this.deps.emitProgress(deduped)
