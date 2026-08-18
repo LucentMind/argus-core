@@ -665,10 +665,14 @@ export class JiraCases {
         // record of what the ticket last carried (increment 2 adds a per-source declined
         // set), which is why it is still written below — just no longer read for this diff.
         const ingested = knownAttachments(listEvidence(db, caseSlug), link.key)
+        const declined = new Set(link.deselectedIds)
         sources.push({
           key: link.key,
           newComments: Math.max(0, newCount - oldComments),
-          newAttachments: sourcePreview.attachments.filter((a) => !ingested.has(a.id)),
+          newAttachments: sourcePreview.attachments.filter(
+            (a) => !ingested.has(a.id) && !declined.has(a.id)
+          ),
+          deselectedAttachments: sourcePreview.attachments.filter((a) => declined.has(a.id)),
           ...(sourcePreview.commentsError ? { commentsError: sourcePreview.commentsError } : {})
         })
         setCaseJiraLinkAttachmentIds(
@@ -682,6 +686,7 @@ export class JiraCases {
           key: link.key,
           newComments: 0,
           newAttachments: [],
+          deselectedAttachments: [],
           error: (err as Error).message
         })
       }
