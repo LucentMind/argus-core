@@ -54,6 +54,17 @@ export interface JiraAttachmentProgress {
   extractError?: string
 }
 
+/** Per-source outcome inside a refresh. A source is evidence-only: it is never a post target
+ *  and its failure never fails the case's refresh. */
+export interface JiraSourceRefresh {
+  key: string
+  newComments: number
+  /** New on the source ticket and pending a user decision — refresh does NOT download. */
+  newAttachments: JiraAttachmentInfo[]
+  /** Set when this source could not be read; the primary's refresh still ran. */
+  error?: string
+}
+
 export interface JiraRefreshSummary {
   key: string
   statusChange: { from: string; to: string } | null
@@ -69,6 +80,8 @@ export interface JiraRefreshSummary {
   newComments: number
   /** Set when the comments fetch failed; the rest of the refresh still ran. */
   commentsError?: string
+  /** One entry per linked source ticket; empty for a case with no sources. */
+  sources: JiraSourceRefresh[]
   /** When this refresh ran (also persisted as CaseRecord.jiraSyncedAt). */
   syncedAt: string
 }
