@@ -297,6 +297,31 @@ describe('DistillationSection', () => {
     })
   })
 
+  it('shows the pipeline select defaulting to the single call and offers both pipelines', () => {
+    render(<DistillationSection payload={payload()} />)
+    expect(select('Distillation pipeline').value).toBe('Single call (v2)')
+    expect(optionsOf('Distillation pipeline')).toEqual(['Single call (v2)', 'Staged pipeline (v3)'])
+  })
+
+  it('choosing the staged pipeline patches settings.distill.pipeline', () => {
+    render(<DistillationSection payload={payload()} />)
+    choose('Distillation pipeline', 'Staged pipeline (v3)')
+    expect(patchSpy).toHaveBeenCalledWith({ distill: { pipeline: 'v3' } })
+  })
+
+  it('reflects a stored v3 pipeline and resets it to the default', () => {
+    render(
+      <DistillationSection
+        payload={payload((p) => {
+          p.settings.distill.pipeline = 'v3'
+        })}
+      />
+    )
+    expect(select('Distillation pipeline').value).toBe('Staged pipeline (v3)')
+    fireEvent.click(screen.getByLabelText('Reset Distillation pipeline'))
+    expect(patchSpy).toHaveBeenCalledWith({ distill: { pipeline: null } })
+  })
+
   it('resetting the guidance row clears it', () => {
     render(
       <DistillationSection
