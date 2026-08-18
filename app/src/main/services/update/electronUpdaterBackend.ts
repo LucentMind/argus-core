@@ -1,4 +1,6 @@
+import { prerelease } from 'semver'
 import type { UpdaterBackend } from './coreUpdater'
+import type { UpdateChannel } from '../../../shared/updates'
 
 /**
  * The slice of electron-updater's `autoUpdater` this adapter drives, declared structurally so
@@ -9,6 +11,7 @@ export interface AutoUpdaterLike {
   autoDownload: boolean
   autoInstallOnAppQuit: boolean
   allowPrerelease: boolean
+  allowDowngrade: boolean
   checkForUpdates(): Promise<unknown>
   downloadUpdate(): Promise<unknown>
   quitAndInstall(): void
@@ -28,7 +31,6 @@ export function createElectronUpdaterBackend(au: AutoUpdaterLike): UpdaterBacken
   // downloaded but never restarted for from being wasted.
   au.autoDownload = false
   au.autoInstallOnAppQuit = true
-  au.allowPrerelease = false
 
   const progressCbs = new Set<(percent: number) => void>()
   au.on('download-progress', (payload) => {
@@ -74,6 +76,19 @@ export function createElectronUpdaterBackend(au: AutoUpdaterLike): UpdaterBacken
         au.on('error', onError)
         au.checkForUpdates().catch((err) => settle(() => reject(err as Error)))
       }),
+    // The one place electron-updater's channel vocabulary is spoken.
+    setChannel: (channel: UpdateChannel, currentVersion: string) => {
+      au.allowPrerelease = channel === 'beta'
+      // Deliberately narrower than "the user is on stable": an unconditional allowDowngrade
+      // would turn a yanked release into a downgrade offer for someone who never opted into
+      // prereleases. Scoped to the escape case — a prerelease install asking for stable — it is
+      // the only thing that makes leaving the beta track possible without a manual reinstall,
+      // since the current stable release is BEHIND the running version by definition.
+      //
+      // `au.channel` is never assigned: its setter forces allowDowngrade = true as a side
+      // effect (AppUpdater.js:33-45), which would defeat exactly this scoping.
+      au.allowDowngrade = channel === 'stable' && prerelease(currentVersion) !== null
+    },
     download: async () => {
       await au.downloadUpdate()
     },

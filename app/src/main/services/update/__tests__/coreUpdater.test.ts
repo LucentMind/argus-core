@@ -8,6 +8,7 @@ function fakeBackend(over: Partial<UpdaterBackend> = {}): UpdaterBackend & {
   const progress: Array<(p: number) => void> = []
   return {
     check: vi.fn(async () => null),
+    setChannel: vi.fn(),
     download: vi.fn(async () => {}),
     quitAndInstall: vi.fn(),
     onProgress: (cb) => void progress.push(cb),

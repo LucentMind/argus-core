@@ -5,12 +5,24 @@ import { createElectronUpdaterBackend, type AutoUpdaterLike } from '../electronU
 function fakeAu(): AutoUpdaterLike & {
   emit: (e: string, arg?: unknown) => void
   listenerCount: (event: string) => number
+  channel: string
 } {
   const handlers = new Map<string, Set<(payload: unknown) => void>>()
   return {
     autoDownload: true,
     autoInstallOnAppQuit: false,
     allowPrerelease: true,
+    allowDowngrade: true,
+    // Not part of AutoUpdaterLike, so the adapter cannot assign it without a type error — but
+    // an interface can be widened later, and electron-updater's `channel` setter forces
+    // allowDowngrade = true as a side effect (AppUpdater.js:33-45), which would silently undo
+    // the scoping the tests below pin down. Fail loudly if anyone ever reaches for it.
+    get channel(): string {
+      return ''
+    },
+    set channel(_v: string) {
+      throw new Error('the adapter must never assign autoUpdater.channel')
+    },
     checkForUpdates: vi.fn(async () => undefined),
     downloadUpdate: vi.fn(async () => undefined),
     quitAndInstall: vi.fn(),
@@ -38,7 +50,33 @@ describe('createElectronUpdaterBackend', () => {
     createElectronUpdaterBackend(au)
     expect(au.autoDownload).toBe(false)
     expect(au.autoInstallOnAppQuit).toBe(true)
+  })
+
+  // Construction no longer decides the release track — setChannel does, and the service calls
+  // it from its own constructor before any check can run.
+  it('maps beta to allowPrerelease, and never downgrades while on the prerelease track', () => {
+    const au = fakeAu()
+    createElectronUpdaterBackend(au).setChannel('beta', '2.1.2')
+    expect(au.allowPrerelease).toBe(true)
+    expect(au.allowDowngrade).toBe(false)
+  })
+
+  it('allows a downgrade only when a prerelease install asks for stable', () => {
+    const au = fakeAu()
+    createElectronUpdaterBackend(au).setChannel('stable', '2.2.0-beta.1')
     expect(au.allowPrerelease).toBe(false)
+    // Without this, leaving the beta track would offer nothing until the next stable release
+    // exceeded 2.2.0-beta.1 — a broken beta would be a reinstall-by-hand.
+    expect(au.allowDowngrade).toBe(true)
+  })
+
+  it('never drags an ordinary stable install backwards', () => {
+    const au = fakeAu()
+    createElectronUpdaterBackend(au).setChannel('stable', '2.1.2')
+    expect(au.allowPrerelease).toBe(false)
+    // A yanked or deleted release must not become a downgrade offer for someone who never
+    // opted into prereleases at all.
+    expect(au.allowDowngrade).toBe(false)
   })
 
   it('installs a permanent error sink at construction time, before any check() runs', () => {

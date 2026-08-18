@@ -14,6 +14,7 @@ interface HarnessFixture {
 function harness(backendOverrides: Partial<UpdaterBackend> = {}): HarnessFixture {
   const backend = {
     check: vi.fn(async () => ({ version: '1.1.0' })),
+    setChannel: vi.fn(),
     download: vi.fn(async () => {}),
     quitAndInstall: vi.fn(),
     onProgress: () => {},

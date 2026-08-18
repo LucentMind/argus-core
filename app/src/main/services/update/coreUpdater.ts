@@ -13,6 +13,9 @@ const messageOf = (err: unknown): string => (err instanceof Error ? err.message 
  */
 export interface UpdaterBackend {
   check(): Promise<{ version: string; notes?: string } | null>
+  /** Point the updater at a release track. `currentVersion` is passed rather than captured so
+   *  the adapter can decide whether leaving this track means going backwards. */
+  setChannel(channel: UpdateChannel, currentVersion: string): void
   download(): Promise<void>
   quitAndInstall(): void
   onProgress(cb: (percent: number) => void): void
@@ -21,6 +24,7 @@ export interface UpdaterBackend {
 /** Used when updates are structurally impossible (unpackaged build). */
 export const noopBackend: UpdaterBackend = {
   check: async () => null,
+  setChannel: () => {},
   download: async () => {},
   quitAndInstall: () => {},
   onProgress: () => {}
