@@ -124,3 +124,19 @@ describe('UpdateBanner', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 })
+
+describe('UpdateBanner downgrade', () => {
+  it('does not announce a return to stable as a new version to download', async () => {
+    stubApi({
+      currentVersion: '2.2.0-beta.1',
+      status: { phase: 'available', version: '2.1.2', downgrade: true },
+      channel: 'stable'
+    })
+    render(<UpdateBanner />)
+    expect(
+      await screen.findByText(/argus 2\.1\.2 is the current stable release/i)
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^install$/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /download/i })).not.toBeInTheDocument()
+  })
+})

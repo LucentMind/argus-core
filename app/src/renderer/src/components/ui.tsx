@@ -571,11 +571,15 @@ export function Toggle({
   checked,
   onChange,
   label,
+  disabled = false,
   'aria-label': ariaLabel
 }: {
   checked: boolean
   onChange: (next: boolean) => void
   label: ReactNode
+  /** For a switch whose value cannot honestly change right now. A switch that silently
+   *  swallows clicks reads as broken; this one dims and stops taking them. */
+  disabled?: boolean
   'aria-label'?: string
 }): React.JSX.Element {
   return (
@@ -584,7 +588,12 @@ export function Toggle({
       role="switch"
       aria-checked={checked}
       aria-label={ariaLabel}
-      className="inline-flex cursor-pointer select-none items-center gap-2 text-xs text-dim transition-colors hover:text-ink"
+      disabled={disabled}
+      className={`inline-flex select-none items-center gap-2 text-xs transition-colors ${
+        disabled
+          ? 'cursor-not-allowed text-mute opacity-60'
+          : 'cursor-pointer text-dim hover:text-ink'
+      }`}
       onClick={() => onChange(!checked)}
     >
       <span

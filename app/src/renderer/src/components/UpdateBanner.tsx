@@ -16,12 +16,18 @@ export function UpdateBanner(): React.JSX.Element | null {
   return (
     <div className="relative z-10 flex items-center gap-3 border-b border-hair bg-panel px-4 py-2 text-sm">
       <span className="flex-1">
-        {status.phase === 'available'
-          ? `Argus ${status.version} is available.`
-          : `Argus ${status.version} is ready to install.`}
+        {status.phase === 'ready'
+          ? `Argus ${status.version} is ready to install.`
+          : status.downgrade
+            ? // Leaving the prerelease track offers an OLDER build. "is available" would read as
+              // a new release; this is the one sentence that says what it actually is.
+              `Argus ${status.version} is the current stable release.`
+            : `Argus ${status.version} is available.`}
       </span>
       {status.phase === 'available' ? (
-        <Btn onClick={() => void updateStore.download()}>Download</Btn>
+        <Btn onClick={() => void updateStore.download()}>
+          {status.downgrade ? 'Install' : 'Download'}
+        </Btn>
       ) : (
         <Btn onClick={() => void updateStore.restart()}>Restart now</Btn>
       )}

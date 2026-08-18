@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { UpdateSettings } from '../UpdateSettings'
 import { updateStore } from '../../../lib/updateStore'
+import { settingsStore } from '../../../lib/settingsStore'
 import type { CoreUpdatePayload } from '../../../../../shared/updates'
 
 const idle: CoreUpdatePayload = {
@@ -153,5 +154,70 @@ describe('UpdateSettings', () => {
     const version = await screen.findByText('1.0.8')
     for (let i = 0; i < 6; i++) await userEvent.click(version)
     expect(await screen.findByText(/already enabled/i)).toBeInTheDocument()
+  })
+})
+
+describe('UpdateSettings channel row', () => {
+  const payload = (over: Partial<CoreUpdatePayload>): CoreUpdatePayload => ({ ...idle, ...over })
+
+  it('renders the channel the app is on, not the channel that was requested', async () => {
+    const p = payload({ channel: 'beta' })
+    stubApi({ status: vi.fn(async () => p), check: vi.fn(async () => p) })
+    render(<UpdateSettings />)
+    expect(await screen.findByRole('switch', { name: /prerelease builds/i })).toBeChecked()
+  })
+
+  it('writes the channel through settings rather than a bespoke IPC call', async () => {
+    const patch = vi.spyOn(settingsStore, 'patch').mockResolvedValue(undefined)
+    render(<UpdateSettings />)
+    await userEvent.click(await screen.findByRole('switch', { name: /prerelease builds/i }))
+    expect(patch).toHaveBeenCalledWith({ updates: { channel: 'beta' } })
+  })
+
+  it('switches back to stable from the prerelease track', async () => {
+    const p = payload({ channel: 'beta' })
+    stubApi({ status: vi.fn(async () => p), check: vi.fn(async () => p) })
+    const patch = vi.spyOn(settingsStore, 'patch').mockResolvedValue(undefined)
+    render(<UpdateSettings />)
+    await userEvent.click(await screen.findByRole('switch', { name: /prerelease builds/i }))
+    expect(patch).toHaveBeenCalledWith({ updates: { channel: 'stable' } })
+  })
+
+  it('cannot be switched while bytes are staged, and says why', async () => {
+    const p = payload({ channel: 'beta', status: { phase: 'ready', version: '2.2.0-beta.1' } })
+    stubApi({ status: vi.fn(async () => p), check: vi.fn(async () => p) })
+    render(<UpdateSettings />)
+    // autoInstallOnAppQuit means those bytes land on the next quit regardless — a control that
+    // appeared to cancel that would be lying.
+    expect(await screen.findByRole('switch', { name: /prerelease builds/i })).toBeDisabled()
+    expect(screen.getByText(/restart to finish installing 2\.2\.0-beta\.1/i)).toBeInTheDocument()
+  })
+
+  it('is also locked mid-download, where there is no version to name yet', async () => {
+    const p = payload({ channel: 'beta', status: { phase: 'downloading', percent: 40 } })
+    stubApi({ status: vi.fn(async () => p), check: vi.fn(async () => p) })
+    render(<UpdateSettings />)
+    expect(await screen.findByRole('switch', { name: /prerelease builds/i })).toBeDisabled()
+    expect(screen.getByText(/wait for the download in progress/i)).toBeInTheDocument()
+    expect(screen.queryByText(/undefined/i)).not.toBeInTheDocument()
+  })
+
+  it('does not offer a channel in a build that cannot update at all', async () => {
+    const p = payload({ status: { phase: 'unsupported', reason: 'no' } })
+    stubApi({ status: vi.fn(async () => p), check: vi.fn(async () => p) })
+    render(<UpdateSettings />)
+    await screen.findByText('1.0.8')
+    expect(screen.queryByRole('switch', { name: /prerelease builds/i })).not.toBeInTheDocument()
+  })
+
+  it('labels a downgrade Install, not Download', async () => {
+    const p = payload({
+      currentVersion: '2.2.0-beta.1',
+      status: { phase: 'available', version: '2.1.2', downgrade: true }
+    })
+    stubApi({ status: vi.fn(async () => p), check: vi.fn(async () => p) })
+    render(<UpdateSettings />)
+    expect(await screen.findByRole('button', { name: /install 2\.1\.2/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /download/i })).not.toBeInTheDocument()
   })
 })
