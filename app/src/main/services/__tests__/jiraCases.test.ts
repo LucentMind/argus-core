@@ -952,4 +952,39 @@ describe('JiraCases source tickets', () => {
     expect(paths).toContain('evidence/NAV-7.ticket.md')
     expect(paths).toContain('evidence/CUST-9.ticket.md')
   })
+
+  it('reports only newly added comments on a source ticket, not the running total', async () => {
+    let custComments = [comment('c1', 'first'), comment('c2', 'second')]
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async (k: string) =>
+        k === 'CUST-9'
+          ? issue({ key: 'CUST-9', summary: 'Customer report', attachments: [] })
+          : issue()
+      ),
+      downloadAttachment: vi.fn(async () => {}),
+      getComments: vi.fn(async (k: string) => (k === 'CUST-9' ? custComments : []))
+    }
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await svc.importSourceTicket('NAV-7', 'CUST-9')
+    await settle()
+
+    // Refresh once: establishes the baseline (source has 2 comments upstream, unchanged
+    // since import, so this refresh itself reports zero new comments).
+    const r1 = await svc.refresh('NAV-7')
+    await settle()
+    expect(r1.sources[0].newComments).toBe(0)
+
+    // The source gains comments upstream, independent of the case's own ticket.
+    custComments = [
+      ...custComments,
+      comment('c3', 'third'),
+      comment('c4', 'fourth'),
+      comment('c5', 'fifth')
+    ]
+
+    const r2 = await svc.refresh('NAV-7')
+    await settle()
+    expect(r2.sources[0].newComments).toBe(3)
+  })
 })
