@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import type { CaseRecord } from '../../shared/types'
+import type { CaseRecord, EvidenceRecord } from '../../shared/types'
 import { hasUpstreamChange } from '../../shared/triage'
 import type {
   JiraAttachmentInfo,
@@ -63,6 +63,29 @@ interface JiraEvidenceMeta {
 
 const jiraMeta = (meta: Record<string, unknown>): JiraEvidenceMeta =>
   (meta.jira as JiraEvidenceMeta | undefined) ?? {}
+
+/** Evidence lookup MUST be scoped by ticket key: a case can carry evidence from its primary
+ *  ticket and from source tickets, and role alone is ambiguous across them. */
+const findJiraEvidence = (
+  evidence: EvidenceRecord[],
+  role: string,
+  key: string
+): EvidenceRecord | undefined =>
+  evidence.find((e) => jiraMeta(e.meta).role === role && jiraMeta(e.meta).key === key)
+
+/** attachmentId → filename for attachments already ingested FROM `key`.
+ *  Records stamped with a different key belong to another ticket's diff, not this one.
+ *  Records with no key at all are legacy primary-ticket evidence and count for the primary. */
+const knownAttachments = (evidence: EvidenceRecord[], key: string): Map<string, string> => {
+  const known = new Map<string, string>()
+  for (const e of evidence) {
+    const m = jiraMeta(e.meta)
+    if (!m.attachmentId) continue
+    if (m.key !== undefined && m.key !== key) continue
+    known.set(m.attachmentId, m.filename ?? e.relPath)
+  }
+  return known
+}
 
 function ticketMarkdown(p: JiraIssuePreview, description: string): string {
   return `# ${p.key}: ${p.summary}
@@ -343,7 +366,7 @@ export class JiraCases {
     const evidence = listEvidence(db, caseSlug)
 
     // ticket evidence: update in place (or create if missing from an older case)
-    const mdRec = evidence.find((e) => jiraMeta(e.meta).role === 'ticket')
+    const mdRec = findJiraEvidence(evidence, 'ticket', preview.key)
     const oldStatus = mdRec ? (jiraMeta(mdRec.meta).status ?? '') : ''
     const mdMeta = {
       jira: { key: preview.key, role: 'ticket', status: preview.status, syncedAt: now }
@@ -370,7 +393,7 @@ export class JiraCases {
         'jira',
         mdMeta
       )
-    const rawRec = evidence.find((e) => jiraMeta(e.meta).role === 'ticket-raw')
+    const rawRec = findJiraEvidence(evidence, 'ticket-raw', preview.key)
     const rawMeta = { jira: { key: preview.key, role: 'ticket-raw', syncedAt: now } }
     if (rawRec)
       updateEvidenceContent(
@@ -401,7 +424,7 @@ export class JiraCases {
     let commentsError: string | undefined
     try {
       const comments = await this.deps.client.getComments(kase.jiraKey)
-      const cmRec = evidence.find((e) => jiraMeta(e.meta).role === 'comments')
+      const cmRec = findJiraEvidence(evidence, 'comments', preview.key)
       const oldCount = cmRec ? (jiraMeta(cmRec.meta).commentCount ?? 0) : 0
       newComments = Math.max(0, comments.length - oldCount)
       commentCount = comments.length
@@ -432,11 +455,7 @@ export class JiraCases {
     // nor deselected) are returned for the renderer's selection dialog, which
     // ingests via jira:ingest-attachments and persists deselection. Spec:
     // docs/superpowers/specs/2026-07-17-jira-comments-evidence-scan-design.md §4.
-    const known = new Map<string, string>() // attachmentId → filename (ingested only)
-    for (const e of evidence) {
-      const m = jiraMeta(e.meta)
-      if (m.attachmentId) known.set(m.attachmentId, m.filename ?? e.relPath)
-    }
+    const known = knownAttachments(evidence, preview.key)
     const deselected = new Set(kase.jiraDeselected)
     const fresh = preview.attachments.filter((a) => !known.has(a.id) && !deselected.has(a.id))
     const deselectedAttachments = preview.attachments.filter((a) => deselected.has(a.id))
