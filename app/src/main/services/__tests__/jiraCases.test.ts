@@ -1075,6 +1075,116 @@ describe('JiraCases source tickets', () => {
     expect(summary.sources[0].newAttachments.map((a) => a.id)).toEqual(['30001'])
   })
 
+  it('dedups a byte-identical attachment ingested from a different ticket, attributing it there', async () => {
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async (k: string) =>
+        k === 'CUST-9' ? issue({ key: 'CUST-9', summary: 'Customer', attachments: [] }) : issue()
+      ),
+      downloadAttachment: vi.fn(async (_id: string, dest: string) => {
+        // byte-identical content regardless of which ticket's attachment id is asked for —
+        // this is the clone-of-a-customer-ticket scenario the dedup exists for.
+        fs.writeFileSync(dest, 'same-bytes')
+      }),
+      getComments: vi.fn(async () => [])
+    }
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await svc.ingestAttachments('NAV-7', 'NAV-7', [att('10001', 'log.txt')])
+    await settle()
+
+    const results = await svc.ingestAttachments('NAV-7', 'CUST-9', [att('20001', 'log.txt')])
+    await settle()
+
+    expect(results[0]).toMatchObject({
+      attachmentId: '20001',
+      status: 'done',
+      dedupedFrom: 'NAV-7'
+    })
+    const ev = listEvidence(db, 'NAV-7')
+    // No second evidence row for the same bytes.
+    expect(ev.filter((e) => e.relPath.includes('log.txt'))).toHaveLength(1)
+    const rec = ev.find((e) => e.relPath === 'evidence/log.txt')!
+    expect((rec.meta.jira as { key: string }).key).toBe('NAV-7')
+    expect(
+      (rec.meta.jira as { alsoOn?: Array<{ key: string; attachmentId: string }> }).alsoOn
+    ).toEqual([{ key: 'CUST-9', attachmentId: '20001', filename: 'log.txt' }])
+  })
+
+  it('a deduped source attachment is not reported as new on refresh, including a second refresh', async () => {
+    const custAtts = [att('20001', 'log.txt')]
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async (k: string) =>
+        k === 'CUST-9'
+          ? issue({ key: 'CUST-9', summary: 'Customer', attachments: custAtts })
+          : issue()
+      ),
+      downloadAttachment: vi.fn(async (_id: string, dest: string) => {
+        fs.writeFileSync(dest, 'same-bytes')
+      }),
+      getComments: vi.fn(async () => [])
+    }
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await svc.ingestAttachments('NAV-7', 'NAV-7', [att('10001', 'log.txt')])
+    await settle()
+    await svc.importSourceTicket('NAV-7', 'CUST-9')
+    await settle()
+
+    // The user ticks the source's attachment; it dedups against the primary's copy.
+    await svc.ingestAttachments('NAV-7', 'CUST-9', custAtts)
+    await settle()
+
+    const r1 = await svc.refresh('NAV-7')
+    await settle()
+    expect(r1.sources[0].newAttachments).toEqual([])
+
+    // Must not reappear on a SECOND refresh either — the dedup attribution has to persist,
+    // not just suppress the report once.
+    const r2 = await svc.refresh('NAV-7')
+    await settle()
+    expect(r2.sources[0].newAttachments).toEqual([])
+  })
+
+  it('does not re-extract an archive whose bytes dedup against one already ingested', async () => {
+    const srcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zsrc-'))
+    fs.writeFileSync(path.join(srcDir, 'a.txt'), 'a')
+    fs.writeFileSync(path.join(srcDir, 'b.txt'), 'b')
+    const zipTmp = path.join(os.tmpdir(), `dedup-${Date.now()}.zip`)
+    const zip = new Zip()
+    zip.addFile(path.join(srcDir, 'a.txt'), 'a.txt')
+    zip.addFile(path.join(srcDir, 'b.txt'), 'b.txt')
+    await zip.archive(zipTmp)
+    const zipBytes = fs.readFileSync(zipTmp)
+
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async (k: string) =>
+        k === 'CUST-9' ? issue({ key: 'CUST-9', summary: 'Customer', attachments: [] }) : issue()
+      ),
+      downloadAttachment: vi.fn(async (_id: string, dest: string) => {
+        fs.writeFileSync(dest, zipBytes)
+      }),
+      getComments: vi.fn(async () => [])
+    }
+    const svc = service(client)
+    createCase(db, argusHome, { slug: 'nav-7', title: 'T', jiraKey: 'NAV-7' })
+    const first = await svc.ingestAttachments('nav-7', 'NAV-7', [
+      { id: '20001', filename: 'bundle.zip', size: 9, mimeType: 'application/zip', createdAt: 'c' }
+    ])
+    await settle()
+    expect(first[0]).toMatchObject({ status: 'done', extractedCount: 2 })
+
+    const second = await svc.ingestAttachments('nav-7', 'CUST-9', [
+      { id: '30001', filename: 'bundle.zip', size: 9, mimeType: 'application/zip', createdAt: 'c' }
+    ])
+    await settle()
+    expect(second[0]).toMatchObject({ status: 'done', dedupedFrom: 'NAV-7' })
+    expect(second[0].extractedCount).toBeUndefined()
+
+    // Only the original extraction's inner files exist — the dedup hit did not re-explode.
+    const ev = listEvidence(db, 'nav-7')
+    expect(ev.filter((e) => e.meta.extractedFrom)).toHaveLength(2)
+  })
+
   it('still creates the case when a source cannot be read', async () => {
     const client: AtlassianClientLike = {
       getIssue: vi.fn(async (k: string) => {

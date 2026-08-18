@@ -197,6 +197,26 @@ export async function ingestArtifact(
 }
 
 /**
+ * Existing evidence in this case with these exact bytes, if any.
+ *
+ * Case-scoped — matches the `UNIQUE (case_id, rel_path)` grain the evidence table already
+ * uses and the same `WHERE case_id = ? AND sha256 = ?` lookup `ingestBytes` runs inline.
+ * Exported so other ingest paths that need to dedup by content (e.g. Jira attachment
+ * ingest, which must dedup a downloaded temp file before copying it into the case tree)
+ * can reuse the exact same grain instead of hand-rolling their own query.
+ */
+export function findEvidenceBySha256(
+  db: DatabaseSync,
+  caseId: number,
+  sha256: string
+): EvidenceRecord | null {
+  const row = db
+    .prepare(`SELECT * FROM evidence WHERE case_id = ? AND sha256 = ? LIMIT 1`)
+    .get(caseId, sha256) as unknown as EvidenceRow | undefined
+  return row ? rowToEvidence(row) : null
+}
+
+/**
  * Ingest in-memory content (e.g. a fetched Jira ticket) as an evidence file.
  *
  * @internal `knownSha256` — not part of the public shape. It exists only so
