@@ -22,6 +22,7 @@
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
     "smoke:packaged": "node scripts/smoke-packaged.mjs",
+    "smoke:ptc-packaged": "node scripts/smoke-ptc-packaged.mjs",
     "build:sidecar": "node scripts/build-resource-monitor.mjs",
     "build:win": "npm run build:sidecar && npm run build && electron-builder --win",
     "build:mac": "npm run build:sidecar && npm run build && electron-builder --mac",
