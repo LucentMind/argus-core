@@ -23,7 +23,7 @@ import {
 } from '../../shared/types'
 import type { BundleInspection } from '../../shared/bundle'
 import { caseDir } from './paths'
-import { getCase } from './caseService'
+import { addCaseJiraLink, getCase } from './caseService'
 import { sha256File } from './ingest'
 import { SLUG_RE, scaffoldCaseLinks } from './caseService'
 import { indexEvidenceFile } from './indexer'
@@ -478,6 +478,26 @@ export async function importCase(
       )
       reindexImportedEvidence(db, argusHome, caseId, dir)
       registerImportedSessions(db, caseId, slug, dir)
+      // Restore case_jira_links from the mirrored jiraSources array (see caseService.ts's
+      // mirrorJiraSources) — without this, an imported case LOOKS linked (case.json still
+      // carries jiraSources: [...] and the source's evidence files survive) but
+      // listCaseJiraLinks returns [], so refresh's source loop silently iterates nothing
+      // forever. The baseline is intentionally NOT copied from the export: this machine
+      // never observed the source's live attachments, so attachmentIds starts at [] (what
+      // addCaseJiraLink already defaults to) and the next refresh re-establishes it
+      // honestly rather than inventing a baseline nobody here actually saw.
+      const jiraSources = Array.isArray(onDisk.jiraSources)
+        ? (onDisk.jiraSources as unknown[]).filter((k): k is string => typeof k === 'string')
+        : []
+      for (const key of jiraSources) {
+        try {
+          addCaseJiraLink(db, argusHome, slug, key)
+        } catch (err) {
+          console.warn(
+            `[bundle] failed to restore source link ${key} for ${slug}: ${(err as Error).message}`
+          )
+        }
+      }
       return getCase(db, slug)!
     } catch (err) {
       // the rename may have already landed the dir on disk, and reindex may have
