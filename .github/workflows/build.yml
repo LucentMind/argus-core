@@ -189,15 +189,36 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ github.ref_name }}"
-          awk -v tag="$TAG" '
-            $0 ~ ("^## " tag " ") { found=1; print; next }
-            found && /^## / { exit }
-            found { print }
-          ' CHANGELOG.md > /tmp/changelog-section.md
-          if [ ! -s /tmp/changelog-section.md ]; then
-            echo "::error::No '## $TAG ' section found in CHANGELOG.md — add one before tagging."
-            exit 1
-          fi
+          case "$TAG" in
+            *-*)
+              # A prerelease tag (v2.2.0-beta.1) has no `## <tag>` section and never will — what
+              # it ships for testing is whatever sits under `## Unreleased`. The emptiness check
+              # greps for non-whitespace rather than using `-s`, because the realistic failure
+              # here is an `## Unreleased` heading with only blank lines under it (its state
+              # right after every release), which `-s` would happily pass.
+              awk '
+                index($0, "## Unreleased") == 1 { found=1; next }
+                found && /^## / { exit }
+                found { print }
+              ' CHANGELOG.md > /tmp/changelog-body.md
+              if ! grep -q '[^[:space:]]' /tmp/changelog-body.md; then
+                echo "::error::Nothing under '## Unreleased' in CHANGELOG.md — a prerelease of nothing is a mistake."
+                exit 1
+              fi
+              { echo "## $TAG (prerelease)"; cat /tmp/changelog-body.md; } > /tmp/changelog-section.md
+              ;;
+            *)
+              awk -v tag="$TAG" '
+                $0 ~ ("^## " tag " ") { found=1; print; next }
+                found && /^## / { exit }
+                found { print }
+              ' CHANGELOG.md > /tmp/changelog-section.md
+              if [ ! -s /tmp/changelog-section.md ]; then
+                echo "::error::No '## $TAG ' section found in CHANGELOG.md — add one before tagging."
+                exit 1
+              fi
+              ;;
+          esac
           cat /tmp/changelog-section.md
 
       # Published immediately, not drafted: pushing a `vX.Y.Z` tag IS the act of shipping to
@@ -220,8 +241,16 @@ jobs:
             cat /tmp/changelog-section.md
           } > /tmp/release-notes.md
 
+          # `--prerelease` is the only thing keeping a test build away from stable users: a
+          # stable install resolves its update through the /releases/latest API, which excludes
+          # prereleases by definition. Drop this flag and every installed copy of Argus is
+          # offered the beta at its next check.
+          PRERELEASE=""
+          case "${{ github.ref_name }}" in *-*) PRERELEASE="--prerelease" ;; esac
+
           gh release create "${{ github.ref_name }}" \
             --repo "${{ github.repository }}" \
             --title "${{ github.ref_name }}" \
             --notes-file /tmp/release-notes.md \
+            $PRERELEASE \
             artifacts/*
