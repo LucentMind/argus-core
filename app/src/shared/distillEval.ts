@@ -1,5 +1,5 @@
 import type { CaseDistillInput } from './distill'
-import type { PipelineStages } from './distillV3'
+import type { PipelineStages, PreStageDrop } from './distillV3'
 
 export interface DistillEvalItem {
   type: string
@@ -29,6 +29,12 @@ export interface DistillEvalBundleLine {
     error: string | null
     /** v3: per-stage records (prompt hash, raw output, usage, error). Absent on v2 rows. */
     stages?: PipelineStages
+    /** Everything the run produced but never staged, in drop order: v3's pre-stage drops (veto +
+     *  validators) ahead of staging's own cap/basis drops — the job's `dropped_json` column
+     *  verbatim. Absent on a failed row (staging never ran) and on rows written before the column
+     *  existed. `reason` is an open set: a v2 row carries only `cap`/`basis`, a v3 row every
+     *  VetoReason/ValidatorReason too. */
+    dropped?: PreStageDrop[]
   }
   items: DistillEvalItem[]
   exportedAt: string

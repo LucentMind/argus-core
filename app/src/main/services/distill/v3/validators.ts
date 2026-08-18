@@ -77,7 +77,12 @@ export function validateMaterialized(
     `\\b(${[escapeRe(caseIds.slug), ...(caseIds.jiraKey ? [escapeRe(caseIds.jiraKey)] : [])].join('|')})\\b`,
     'i'
   )
-  if (idRe.test(body)) return { ok: false, reason: 'case-identifiers' }
+  // The `description:` line sits in the frontmatter, i.e. OUTSIDE `body` — and it is the single
+  // string a future agent matches a skill on, so a case slug or ticket key leaking there is at
+  // least as damaging as one in the body. Checked separately rather than by scanning the whole
+  // frontmatter: `name:` is the target, which may legitimately look id-ish.
+  const description = fm ? (fmField(fm.fm, 'description') ?? '') : ''
+  if (idRe.test(body) || idRe.test(description)) return { ok: false, reason: 'case-identifiers' }
   if (p.type === 'reference-edit' && (body.match(/^\s*\d+\.\s/gm)?.length ?? 0) >= 3)
     return { ok: false, reason: 'steps-in-reference' }
   const flags: ValidatorReason[] = []

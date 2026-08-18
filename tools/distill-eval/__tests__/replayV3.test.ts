@@ -67,6 +67,28 @@ describe('replayCaseV3', () => {
     expect(r.stages).toBe(stages)
   })
 
+  it('a reused line surfaces the drops the corpus recorded, not an empty list', async () => {
+    // Reuse skips the run, so the only drops that exist are the ones the exported job carried.
+    // Reporting none would read as "this prompt dropped nothing", the opposite of the truth.
+    const dropped = [
+      { type: 'skill-new', target: 'diagnose-x', title: 'dup', reason: 'target-exists' as const }
+    ]
+    const r = await replayCaseV3(
+      v3Line({ promptHash: caseDistillPipelineHash(), dropped }),
+      { agent: vi.fn(async () => ({ text: 'MUST NOT BE USED' })), oneShot: vi.fn(async () => '') }
+    )
+    expect(r.reused).toBe(true)
+    expect(r.preStageDropped).toEqual(dropped)
+  })
+
+  it('a reused line with no recorded drops reports none rather than an empty array', async () => {
+    const r = await replayCaseV3(v3Line({ promptHash: caseDistillPipelineHash() }), {
+      agent: vi.fn(async () => ({ text: 'MUST NOT BE USED' })),
+      oneShot: vi.fn(async () => '')
+    })
+    expect(r.preStageDropped).toBeUndefined()
+  })
+
   it('a v2 hash never counts as reused — the pipeline hash folds in "v3"', async () => {
     const { agent } = recordingAgent(DOSSIER)
     const r = await replayCaseV3(v3Line({ promptHash: 'ffffffffffff' }), {

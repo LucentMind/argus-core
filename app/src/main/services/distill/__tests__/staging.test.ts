@@ -161,6 +161,56 @@ describe('stageDistillOutput', () => {
     expect(rawWithout).not.toContain('evidence:')
   })
 
+  it('folds a multi-line evidence onto one frontmatter line instead of throwing mid-batch', () => {
+    // Frontmatter values must be single-line (writeProposal throws otherwise) — and that throw
+    // would fire AFTER the supersede step already deleted this case's prior staged items.
+    // `evidence` is sanitized exactly like `basis` so it can never get that far.
+    stageDistillOutput(db, home, 'case-a', 21, {
+      proposals: [
+        {
+          type: 'reference-edit',
+          target: 'wrapped-evidence',
+          title: 'Wrapped',
+          content: 'c',
+          basis: 'evidence-bearing proposal basis text',
+          evidence: '\n[{"finding":7},\n{"evidence":"logs/a.txt"}]\n'
+        }
+      ]
+    })
+    const ps = listProposals(home)
+    expect(ps).toHaveLength(1)
+    const raw = fs.readFileSync(path.join(home, 'proposals', ps[0].file), 'utf8')
+    expect(raw).toContain('evidence: [{"finding":7}, {"evidence":"logs/a.txt"}]')
+  })
+
+  it('validates evidence before the destructive supersede step: a non-string evidence throws and leaves old proposals intact', () => {
+    writeProposal(
+      home,
+      'case-a',
+      { type: 'reference-edit', target: 'old-topic', title: 'old', content: 'x' },
+      { job: '3' }
+    )
+    expect(() =>
+      stageDistillOutput(db, home, 'case-a', 22, {
+        proposals: [
+          {
+            type: 'reference-edit',
+            target: 'valid-topic',
+            title: 't',
+            content: 'fact',
+            basis: 'a well-supported claim about the valid topic',
+            // the shape a v3 bug would produce: the cite array itself, not its JSON encoding
+            evidence: [{ finding: 7 }] as unknown as string
+          }
+        ]
+      })
+    ).toThrow(/evidence/)
+    const ps = listProposals(home)
+    expect(ps).toHaveLength(1)
+    expect(ps[0].target).toBe('old-topic')
+    expect(ps[0].jobId).toBe('3')
+  })
+
   it('marks re-produced previously-reviewed items with the badge flag', () => {
     const f = writeProposal(home, 'case-a', {
       type: 'reference-edit',

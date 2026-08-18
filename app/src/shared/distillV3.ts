@@ -1,9 +1,7 @@
 /** Distillation v3 — staged pipeline shapes shared by main, the eval harness and the export. */
 
 export type DossierCite =
-  | { finding: number }
-  | { session: number; turn: number }
-  | { evidence: string }
+  { finding: number } | { session: number; turn: number } | { evidence: string }
 
 export interface DossierCited {
   cites: DossierCite[]

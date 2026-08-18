@@ -155,8 +155,16 @@ export function assembleDistillInput(
   const c = getCase(db, slug)
   if (!c) throw new Error(`Unknown case: ${slug}`)
 
+  // Job-stamped pending items are deliberately EXCLUDED from "already captured". Staging's
+  // supersede step deletes exactly those — this case's previous distill run's pending proposals —
+  // before it writes the new batch, so by the time this run stages anything they no longer exist.
+  // Listing them here would tell the distiller its own about-to-be-deleted output is already
+  // captured: v3's veto drops every re-proposal as `duplicate` and the inbox ends up EMPTY after
+  // a redistill (in v2 the same hazard was only a prompt steer, and the same fix applies there).
+  // Human-authored pending items (no `job:` frontmatter) survive supersede by design, so they
+  // stay listed and still dedupe.
   const pending = listProposals(argusHome)
-    .filter((p) => p.caseSlug === slug)
+    .filter((p) => p.caseSlug === slug && p.jobId === undefined)
     .map((p) => ({ type: p.type, target: p.target, title: p.title, state: 'pending' as const }))
   const archivedAll = listArchivedProposals(argusHome)
   const archived = archivedAll

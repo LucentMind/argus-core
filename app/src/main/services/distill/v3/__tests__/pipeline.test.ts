@@ -121,6 +121,20 @@ describe('runCaseDistillPipeline', () => {
     expect(err.agentMeta.stages.dossier.error).toMatch(/fence/)
   })
 
+  it('prunes a dossier cite the input cannot back, dropping the item and counting it', async () => {
+    // The model invented finding #99 — the snapshot only has #7. The cite is well-FORMED, so
+    // parseDossier keeps it; only a check against the input can catch it. root_cause loses its
+    // only cite and is nulled, which in turn strands the candidate that pointed at it.
+    const invented = DOSSIER.replace('{"finding":7}', '{"finding":99}')
+    const run = await runCaseDistillPipeline(INPUT, {
+      agent: agentOk(invented),
+      oneShot: oneShotBy(route)
+    })
+    expect(run.stages?.dossierUncitedDropped).toEqual({ root_cause: 1 })
+    expect(run.output.proposals).toEqual([])
+    expect(run.preStageDropped?.map((d) => d.reason)).toContain('malformed')
+  })
+
   it('capHit on the dossier is never parsed', async () => {
     const err = await runCaseDistillPipeline(INPUT, {
       agent: async () => ({ ...(await agentOk(DOSSIER)()), capHit: 'iterations' as const }),
@@ -188,6 +202,31 @@ describe('runCaseDistillPipeline', () => {
     expect(run.output.proposals).toHaveLength(1)
     expect(run.stages?.materialize?.[0].flags).toContain('broad-edit')
     expect(run.stages?.materialize?.[0].error).toBeUndefined()
+  })
+
+  it('a non-parse throw after the dossier is still a DistillAgentRunError carrying the stages', async () => {
+    // A prompt-BUILDER throw (here: a resolver that refuses to serve the materialize ids) is not
+    // a stage parse failure, so nothing on the stage path catches it. Unwrapped it escapes as a
+    // plain Error and the queue's failed row loses stages_json — the one column that says which
+    // stage the run got to.
+    const resolve = (id: string): string => {
+      if (id.startsWith('headless.case-distill.materialize.')) throw new Error('prompt boom')
+      return id
+    }
+    const err = await runCaseDistillPipeline(
+      INPUT,
+      {
+        agent: agentOk(DOSSIER),
+        oneShot: oneShotBy((p) =>
+          p.includes('headless.case-distill.candidates.') ? CANDS : SUMMARY
+        )
+      },
+      resolve
+    ).catch((e) => e)
+    expect(err).toBeInstanceOf(DistillAgentRunError)
+    expect((err as Error).message).toBe('prompt boom')
+    expect(err.agentMeta.stages.dossier.rawOutput).toBe(DOSSIER)
+    expect(err.agentMeta.stages.candidates.rawOutput).toBe(CANDS)
   })
 
   it('an abort mid-stage rejects the run rather than recording a stage error', async () => {

@@ -153,6 +153,22 @@ export function stageDistillOutput(
       `stageDistillOutput: invalid target(s): ${invalidTargets.map((t) => JSON.stringify(t)).join(', ')}`
     )
   }
+  // Same reasoning for `evidence`, for the same reason: it is stamped as ONE frontmatter line, so
+  // a value that isn't a string cannot be written honestly (`${v}` would stringify a cite array to
+  // "[object Object]"). Fail here, before the supersede step, rather than persist nonsense or
+  // throw halfway through the write loop. A multi-line *string* is not rejected — it is sanitized
+  // onto one line at the `stage()` call below, exactly as `basis` is.
+  const badEvidence = (output.proposals ?? []).filter((p) => {
+    const e = (p as { evidence?: unknown }).evidence
+    return e !== undefined && typeof e !== 'string'
+  })
+  if (badEvidence.length > 0) {
+    throw new Error(
+      `stageDistillOutput: non-string evidence on target(s): ${badEvidence
+        .map((p) => JSON.stringify(p.target))
+        .join(', ')}`
+    )
+  }
 
   // One announcement for the whole batch — each removal/write below would
   // otherwise broadcast (and recount the pending set) individually.
@@ -239,12 +255,13 @@ export function stageDistillOutput(
     }
 
     for (const p of kept) {
+      const evidence = (p.evidence ?? '').replace(/[\r\n]+/g, ' ').trim()
       stage(p.type, p.target, p.title, p.content, {
         basis: p
           .basis!.replace(/[\r\n]+/g, ' ')
           .trim()
           .slice(0, 300),
-        ...(p.evidence ? { evidence: p.evidence } : {}),
+        ...(evidence ? { evidence } : {}),
         ...priorRejectFm(priorRejectMap, p.type, p.target)
       })
     }

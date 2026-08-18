@@ -11,6 +11,8 @@ import type { EvalRunners, ReplayResult } from './replay'
  * pipeline produces. `stages` is present on a reused line (copied from the corpus), on a clean
  * run, AND on a failed one (whatever stages completed before the failure) — it is the only way
  * to see WHERE a candidate lost an item, which is the whole point of `--pipeline v3`.
+ * `preStageDropped` follows the same rule: measured on a fresh run, and copied from the corpus
+ * line's `job.dropped` on a reused one.
  */
 export interface ReplayResultV3 extends ReplayResult {
   stages?: PipelineStages
@@ -55,10 +57,21 @@ export async function replayCaseV3(
     // that produced this line, so re-running would only spend model calls to reproduce it.
     const raw = line.job.rawOutput
     const stages = line.job.stages ? { stages: line.job.stages } : {}
+    // Nothing ran, so the only drops that exist are the ones the exported job recorded
+    // (`dropped_json` → `job.dropped`). Reporting an empty list instead would read as "this
+    // prompt dropped nothing", which is the opposite of what the baseline actually did.
+    const drops = line.job.dropped ? { preStageDropped: line.job.dropped } : {}
     try {
-      return { ...base, raw, parsed: parseCaseDistillOutput(raw), parseError: null, ...stages }
+      return {
+        ...base,
+        raw,
+        parsed: parseCaseDistillOutput(raw),
+        parseError: null,
+        ...stages,
+        ...drops
+      }
     } catch (e) {
-      return { ...base, raw, parsed: null, parseError: (e as Error).message, ...stages }
+      return { ...base, raw, parsed: null, parseError: (e as Error).message, ...stages, ...drops }
     }
   }
 

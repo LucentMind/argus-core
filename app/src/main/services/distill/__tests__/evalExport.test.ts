@@ -23,8 +23,8 @@ const SNAPSHOT = JSON.stringify({ caseMeta: { slug: 'nav-1' } })
 function insertJob(over: Partial<Record<string, unknown>> = {}): number {
   const r = db
     .prepare(
-      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, raw_output, error, prompt_hash, created_at, kind, stages_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, raw_output, error, prompt_hash, created_at, kind, stages_json, dropped_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       (over.case_slug as string) ?? 'nav-1',
@@ -35,7 +35,8 @@ function insertJob(over: Partial<Record<string, unknown>> = {}): number {
       (over.prompt_hash as string | null) ?? 'abc123def456',
       (over.created_at as string) ?? '2026-07-29T00:00:00.000Z',
       (over.kind as string) ?? 'case',
-      (over.stages_json as string | null) ?? null
+      (over.stages_json as string | null) ?? null,
+      (over.dropped_json as string | null) ?? null
     )
   return Number(r.lastInsertRowid)
 }
@@ -262,6 +263,20 @@ describe('buildEvalBundle — stages', () => {
     expect(l1.job.stages?.dossier?.promptHash).toBe('h')
     const l2 = lines.find((l) => l.job.id === withoutStages)!
     expect(l2.job.stages).toBeUndefined()
+  })
+
+  it('carries dropped_json verbatim, and leaves it undefined when the column is NULL', () => {
+    // Everything the run produced but never staged — without it the corpus shows only what
+    // survived, and a reused replay line can say nothing about where items were lost.
+    const drops = [
+      { type: 'skill-new', target: 'diagnose-x', title: 'dup', reason: 'target-exists' },
+      { type: 'reference-edit', target: 'r1', title: 'thin', reason: 'basis' }
+    ]
+    const withDrops = insertJob({ case_slug: 'nav-1', dropped_json: JSON.stringify(drops) })
+    const withoutDrops = insertJob({ case_slug: 'nav-2', dropped_json: null })
+    const { lines } = buildEvalBundle(db, home, '1.0.0')
+    expect(lines.find((l) => l.job.id === withDrops)!.job.dropped).toEqual(drops)
+    expect(lines.find((l) => l.job.id === withoutDrops)!.job.dropped).toBeUndefined()
   })
 })
 

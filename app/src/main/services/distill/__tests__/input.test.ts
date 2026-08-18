@@ -74,6 +74,31 @@ describe('assembleDistillInput', () => {
     ])
   })
 
+  it('lists a human-authored pending proposal as already captured, but never a job-stamped one', () => {
+    // A job-stamped pending item is deleted by staging's supersede step BEFORE this run's output
+    // is written, so listing it here would make v3's veto drop every re-proposal as `duplicate`
+    // and leave the inbox empty after a redistill. A human's own pending item survives supersede
+    // and must still dedupe.
+    writeProposal(
+      home,
+      'case-a',
+      { type: 'reference-edit', target: 'from-a-prior-job', title: 'Job', content: 'x' },
+      { job: '3' }
+    )
+    writeProposal(home, 'case-a', {
+      type: 'reference-edit',
+      target: 'hand-written',
+      title: 'Human',
+      content: 'x'
+    })
+
+    const input = assembleDistillInput(db, home, 'case-a')
+
+    expect(input.alreadyCaptured.proposals).toEqual([
+      { type: 'reference-edit', target: 'hand-written', title: 'Human', state: 'pending' }
+    ])
+  })
+
   it('throws on unknown case', () => {
     expect(() => assembleDistillInput(db, home, 'nope')).toThrow(/Unknown case/)
   })
