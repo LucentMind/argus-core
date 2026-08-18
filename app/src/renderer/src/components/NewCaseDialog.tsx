@@ -15,6 +15,11 @@ interface FileRow {
   att: JiraAttachmentInfo
   status: FileStatus
   error?: string
+  /** Set when this file's bytes were already present as evidence from another ticket in
+   *  this case — a dedup hit, not a fresh copy. Names the ticket it was already ingested
+   *  from, so a user who ticked the same file on both the clone and its source understands
+   *  why they got one copy instead of two. */
+  dedupedFrom?: string
 }
 
 type Step =
@@ -94,7 +99,9 @@ export function NewCaseDialog({
           ? {
               ...s,
               files: s.files.map((f) =>
-                f.att.id === p.attachmentId ? { ...f, status: p.status, error: p.error } : f
+                f.att.id === p.attachmentId
+                  ? { ...f, status: p.status, error: p.error, dedupedFrom: p.dedupedFrom }
+                  : f
               )
             }
           : s
@@ -186,13 +193,22 @@ export function NewCaseDialog({
       jiraKey: step.ticketKey,
       files: [...selected, ...sourceFiles].map((att) => ({ att, status: 'pending' as const }))
     })
-    if (selected.length)
-      void window.argus.jira.ingestAttachments(r.value.slug, step.ticketKey, selected)
-    for (const key of chosenSources) {
-      const s = sources[key]
-      const picked = s.attachments.filter((a) => s.checked.has(a.id))
-      if (picked.length) void window.argus.jira.ingestAttachments(r.value.slug, key, picked)
-    }
+    // Sequenced, not concurrent: dedup is check-then-insert (main hashes the download,
+    // looks for an existing evidence row, and only copies on a miss), so two ingest
+    // batches racing could both miss the check and both insert — the same interleaving
+    // that also risks a UNIQUE(case_id, rel_path) violation via the non-atomic
+    // collisionFreeName -> copyAndHash sequence. Fired without `await`ing the IIFE itself
+    // so the dialog stays responsive and downloads keep going if the user navigates away;
+    // only the calls INSIDE the chain are sequenced against each other.
+    void (async () => {
+      if (selected.length)
+        await window.argus.jira.ingestAttachments(r.value.slug, step.ticketKey, selected)
+      for (const key of chosenSources) {
+        const s = sources[key]
+        const picked = s.attachments.filter((a) => s.checked.has(a.id))
+        if (picked.length) await window.argus.jira.ingestAttachments(r.value.slug, key, picked)
+      }
+    })()
   }
 
   function retry(file: FileRow): void {
@@ -458,7 +474,17 @@ export function NewCaseDialog({
                         </Btn>
                       </>
                     ) : f.status === 'done' ? (
-                      <Chip tone="signal">done</Chip>
+                      <>
+                        <Chip tone="signal">done</Chip>
+                        {f.dedupedFrom && (
+                          <span
+                            className="max-w-40 truncate text-mute"
+                            title={`Already present from ${f.dedupedFrom}`}
+                          >
+                            already on {f.dedupedFrom}
+                          </span>
+                        )}
+                      </>
                     ) : (
                       <Chip tone="review">
                         {f.status === 'downloading' ? 'downloading…' : 'queued'}
