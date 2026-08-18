@@ -115,7 +115,10 @@ CREATE TABLE IF NOT EXISTS distill_jobs (
   turn_count INTEGER,
   tool_call_count INTEGER,
   trajectory_json TEXT,
-  dropped_json TEXT
+  dropped_json TEXT,
+  -- v3: per-stage records (PipelineStages) from the staged pipeline, as JSON. NULL for a v2
+  -- single-call run, and for any row written before v3 existed.
+  stages_json TEXT
 );
 CREATE TABLE IF NOT EXISTS rca_jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -501,6 +504,7 @@ export function openDb(file: string): DatabaseSync {
   addDistill('tool_call_count', `tool_call_count INTEGER`)
   addDistill('trajectory_json', `trajectory_json TEXT`)
   addDistill('dropped_json', `dropped_json TEXT`)
+  addDistill('stages_json', `stages_json TEXT`)
   const rcaJobCols = db.prepare(`PRAGMA table_info(rca_jobs)`).all() as { name: string }[]
   if (!rcaJobCols.some((c) => c.name === 'template_snapshot')) {
     db.exec(`ALTER TABLE rca_jobs ADD COLUMN template_snapshot TEXT`)
