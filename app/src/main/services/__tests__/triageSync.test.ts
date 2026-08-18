@@ -32,7 +32,8 @@ function issueFor(key: string, status: string): JiraIssueData {
     attachments: [
       { id: `${key}-a1`, filename: 'a.txt', size: 1, mimeType: 'text/plain', createdAt: '' },
       { id: `${key}-a2`, filename: 'b.txt', size: 1, mimeType: 'text/plain', createdAt: '' }
-    ]
+    ],
+    cloneLinks: []
   }
   return { preview, descriptionMarkdown: 'desc', raw: { key, fields: {} } }
 }

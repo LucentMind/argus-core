@@ -49,6 +49,7 @@ function issue(over: Partial<JiraIssuePreview> = {}): JiraIssueData {
     created: 'c',
     updated: 'u',
     attachments: [att('10001', 'log.txt')],
+    cloneLinks: [],
     ...over
   }
   return { preview, descriptionMarkdown: 'desc body', raw: { key: preview.key, fields: {} } }
@@ -712,7 +713,8 @@ const PREVIEW = {
   reporter: null,
   created: '2026-07-01T00:00:00.000Z',
   updated: '2026-07-20T00:00:00.000Z',
-  attachments: [{ id: 'a1', filename: 'f.log', size: 1, mimeType: 'text/plain', createdAt: '' }]
+  attachments: [{ id: 'a1', filename: 'f.log', size: 1, mimeType: 'text/plain', createdAt: '' }],
+  cloneLinks: []
 }
 
 describe('markReviewed', () => {

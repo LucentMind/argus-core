@@ -11,7 +11,8 @@ import {
   jiraBrowseUrl,
   jiraDate,
   JIRA_CURSOR_UNKNOWN_ZONE_MARGIN_MS,
-  resolveAtlassianCreds
+  resolveAtlassianCreds,
+  cloneLinksOf
 } from '../atlassian'
 import type { ConnectorMap } from '../../../shared/connectors'
 import type { OAuthLike, AtlassianAuth } from '../atlassian'
@@ -688,5 +689,44 @@ describe('resolveSiteUrl', () => {
     const c = new AtlassianClient(() => ({ instanceId: 'rovo' }), (async () =>
       ARES()) as unknown as typeof fetch)
     expect(await c.resolveSiteUrl('rovo')).toBeNull()
+  })
+})
+
+describe('cloneLinksOf', () => {
+  const link = (
+    type: string,
+    dir: 'inwardIssue' | 'outwardIssue',
+    key: string
+  ): Record<string, unknown> => ({
+    type: { name: type },
+    [dir]: { key, fields: { summary: `${key} summary` } }
+  })
+
+  it('returns [] when issuelinks is absent', () => {
+    expect(cloneLinksOf({})).toEqual([])
+  })
+
+  it('keeps clone links in both directions and ignores other link types', () => {
+    const fields = {
+      issuelinks: [
+        link('Cloners', 'inwardIssue', 'CUST-9'),
+        link('Cloners', 'outwardIssue', 'CUST-10'),
+        link('Relates', 'inwardIssue', 'OTHER-1'),
+        link('Duplicate', 'outwardIssue', 'OTHER-2')
+      ]
+    }
+    expect(cloneLinksOf(fields)).toEqual([
+      { key: 'CUST-9', summary: 'CUST-9 summary', direction: 'is-cloned-by' },
+      { key: 'CUST-10', summary: 'CUST-10 summary', direction: 'clones' }
+    ])
+  })
+
+  it('matches the clone type case-insensitively', () => {
+    expect(cloneLinksOf({ issuelinks: [link('cloners', 'inwardIssue', 'CUST-9')] })).toHaveLength(1)
+  })
+
+  it('skips malformed entries rather than throwing', () => {
+    const fields = { issuelinks: [{ type: { name: 'Cloners' } }, null, 'nonsense'] }
+    expect(cloneLinksOf(fields)).toEqual([])
   })
 })
