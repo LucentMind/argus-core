@@ -259,6 +259,10 @@ describe('buildCopilotTools', () => {
     expect(skip('argus_write_memory')).toBe(false) // MEDIUM → gated
     expect(skip('argus_update_case_status')).toBe(false) // MEDIUM → gated
     expect(skip('argus_workspace_checkout')).toBe(false) // MEDIUM → gated
+    // Second seam for the same decision: Copilot bypasses its own permission channel for
+    // anything NATIVE_RISK calls 'allow'. Gating run_tool_script in the risk table only
+    // closes the Claude path; this pins the Copilot one to the same answer.
+    expect(skip('argus_run_tool_script')).toBe(false) // HIGH → gated
   })
 
   it('registers panel commands as panel_<pack>_<window>_<cmd> → canonical mcp name, risk-gated', () => {

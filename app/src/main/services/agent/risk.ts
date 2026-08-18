@@ -82,12 +82,25 @@ export const NATIVE_RISK: Record<string, RiskVerdict> = {
   mcp__argus__read_memory: { action: 'allow', risk: 'LOW' },
   // NOT sandboxed: the PTC child is a plain ELECTRON_RUN_AS_NODE process (env-scrubbed, but
   // otherwise full user-level fs/network access) — the script's own code runs unsandboxed as
-  // the user. What IS restricted are the inner TOOL calls the script can make: the PTC server
-  // allowlist limits it to the read-only PTC_FOREGROUND_TOOLS set, and each such call is
-  // individually risk-checked via its own handler when dispatched. LOW/allow here is therefore
-  // a deliberate product decision — trusting the script body itself, not sandboxing it — made
-  // pending a real sandboxing follow-up, not a claim that the child process is contained.
-  mcp__argus__run_tool_script: { action: 'allow', risk: 'LOW' },
+  // the user. Measured against a packaged build 2026-08-18: the child read and wrote the user's
+  // home directory and opened an arbitrary socket. What IS restricted are the inner TOOL calls
+  // the script can make: the PTC server allowlist limits it to the read-only
+  // PTC_FOREGROUND_TOOLS set, and each is individually risk-checked when dispatched.
+  //
+  // So the script BODY has the reach of a shell command, and Argus classifies `Bash` per
+  // command — this must not be quieter than that. `grantKey: null` is the load-bearing half:
+  // a session grant would make approving one script silently approve every later one, and
+  // unlike a shell command with a stable shape, every script body is a different program.
+  //
+  // Applies to interactive sessions only. The background distiller reaches this tool through
+  // its own canUseTool whitelist (DISTILL_ALLOWED_TOOLS), which never consults this table —
+  // gating here does not stall a headless run.
+  mcp__argus__run_tool_script: {
+    action: 'ask',
+    risk: 'HIGH',
+    grantKey: null,
+    reason: 'Runs a model-authored script on your machine, unsandboxed and as you'
+  },
   // Inert until accepted on the Proposals page (spec §2.4) — writing a proposal steers nothing.
   mcp__argus__write_proposal: { action: 'allow', risk: 'LOW' },
   // A read: pulls a CI job log into evidence. Spec §8 — "reads (fetch PR/CI/diff/logs) auto-run
