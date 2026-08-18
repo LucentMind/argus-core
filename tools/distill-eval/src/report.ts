@@ -1,6 +1,55 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { EvalCaseResult } from './run'
+import type { DistillEvalItem } from '../../../app/src/shared/distillEval'
+import type { PipelineStages, PreStageDrop } from '../../../app/src/shared/distillV3'
+
+/** Where a gold item died in the v3 pipeline. `materialized` means the pipeline DID produce
+ *  something for that target — so a bad verdict on it is a content problem, not a routing or
+ *  veto drop. */
+export type Attribution = 'not-in-dossier' | 'not-a-candidate' | `vetoed:${string}` | 'materialized'
+
+/** Words worth searching for out of a gold item's target + title. Two chars and under are
+ *  noise ("a", "of", "x") that would match almost any stage output. */
+function itemTokens(item: DistillEvalItem): string[] {
+  return `${item.target} ${item.title}`
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 2)
+}
+
+const mentions = (raw: string | undefined, tokens: string[]): boolean => {
+  if (raw === undefined) return false
+  // Lowercased once, not once per token — a dossier raw output is tens of KB.
+  const hay = raw.toLowerCase()
+  return tokens.some((t) => hay.includes(t))
+}
+
+/**
+ * Attribute one gold item to the stage that lost it. Deliberately crude: plain token
+ * containment over each stage's raw output, walked in pipeline order, first miss wins. It
+ * cannot know that the dossier described the same fact in different words, so read it as a
+ * pointer at which stage to open in `details.jsonl`, never as a measurement. An item with no
+ * usable tokens (a one-or-two-char target and title) can never match and reports
+ * `not-in-dossier`.
+ */
+export function attributeItem(
+  item: DistillEvalItem,
+  stages: PipelineStages,
+  dropped: PreStageDrop[] = []
+): Attribution {
+  const tokens = itemTokens(item)
+  if (!mentions(stages.dossier?.rawOutput, tokens)) return 'not-in-dossier'
+  if (!mentions(stages.candidates?.rawOutput, tokens)) return 'not-a-candidate'
+  // Drops are matched on target + type, the two identifiers a gold item shares with a candidate
+  // (titles are model-written and drift between runs, so they are not part of the match). Type
+  // matters as well as target: one run can legitimately materialize `skill-edit diagnose-x`
+  // while vetoing `skill-new diagnose-x` as a duplicate of it, and matching on target alone
+  // would then report a materialized item as vetoed.
+  const drop = dropped.find((d) => d.target === item.target && d.type === item.type)
+  if (drop) return `vetoed:${drop.reason}`
+  return 'materialized'
+}
 
 export function writeReport(
   outDir: string,
@@ -28,6 +77,17 @@ export function writeReport(
   // all of them "budget-exhausted" would misdescribe a crash as a limit working as intended.
   const capLabel = (subtype: string): string =>
     subtype === 'error_max_turns' ? 'budget-exhausted' : `agent-error (${subtype})`
+  // v3 only: one line per graded gold item saying which stage lost it. Cases whose replay was
+  // never graded (parse failure, cap) have no item verdicts and so contribute nothing here —
+  // the summary lines above already name them, and their `stages` are in details.jsonl.
+  const attributions = results
+    .filter((r) => r.stages)
+    .flatMap((r) =>
+      r.itemVerdicts.map(
+        (v) =>
+          `- [${r.caseSlug} #${r.jobId}] ${v.item.title} (${v.item.type} → ${v.item.target}): ${attributeItem(v.item, r.stages!, r.preStageDropped)}`
+      )
+    )
   const md = [
     '# Distill-eval report',
     '',
@@ -48,7 +108,15 @@ export function writeReport(
     '',
     '## By reject tag (improved / total)',
     ...[...byTag.entries()].map(([tag, e]) => `- ${tag}: ${e.improved}/${e.total}`),
-    ''
+    '',
+    // Only emitted for a `--pipeline v3` run; a v2 report keeps its old shape byte for byte.
+    ...(attributions.length
+      ? [
+          '## v3 stage attribution (token containment — a pointer, not a measurement)',
+          ...attributions,
+          ''
+        ]
+      : [])
   ].join('\n')
   const reportPath = path.join(outDir, 'report.md')
   const detailsPath = path.join(outDir, 'details.jsonl')

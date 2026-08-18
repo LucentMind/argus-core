@@ -3,9 +3,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, vi } from 'vitest'
 import { runEval } from '../src/run'
-import { writeReport } from '../src/report'
-import { line } from './fixtures'
+import { writeReport, attributeItem } from '../src/report'
+import { line, v3Line, v3Route, V3_DOSSIER, V3_CANDS } from './fixtures'
 import { caseDistillPromptHash } from '../../../app/src/main/services/distill/promptHash'
+import type { PipelineStages } from '../../../app/src/shared/distillV3'
 
 describe('runEval', () => {
   it('classifies parse transitions and judges reviewed items', async () => {
@@ -108,6 +109,96 @@ describe('runEval', () => {
       verdict: 'unchanged',
       reason: 'prompt unchanged — baseline output reused'
     })
+  })
+})
+
+describe('runEval --pipeline v3', () => {
+  const goldItem = {
+    type: 'skill-edit',
+    target: 'diagnose-x',
+    title: 'append a step',
+    outcome: 'rejected' as const,
+    rejectReason: 'overfit'
+  }
+
+  it('dispatches to the staged pipeline, carries stages/drops, and still judges items', async () => {
+    const results = await runEval(
+      [{ ...v3Line(), items: [goldItem] }],
+      {
+        agent: async () => ({ text: V3_DOSSIER }),
+        // one runner serves BOTH v3's tool-less stages and the judge, exactly as the CLI wires
+        // it — so the fake has to tell them apart by the judge prompt's opening line
+        oneShot: async (p) =>
+          p.startsWith('You are judging')
+            ? '```json\n{"verdict": "improved", "reason": "r"}\n```'
+            : v3Route(p)
+      },
+      undefined,
+      'v3'
+    )
+    expect(results[0].parseOutcome).toBe('ok')
+    expect(results[0].stages?.candidates?.rawOutput).toBe(V3_CANDS)
+    expect(results[0].preStageDropped?.[0].reason).toBe('target-exists')
+    expect(results[0].itemVerdicts[0].verdict.verdict).toBe('improved')
+
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'distill-eval-out-'))
+    const md = fs.readFileSync(writeReport(out, results).reportPath, 'utf8')
+    expect(md).toContain('## v3 stage attribution')
+    // the same target WAS vetoed once (the skill-new duplicate) — matching on target alone
+    // would mislabel this materialized skill-edit as vetoed
+    expect(md).toContain('[nav-1 #1] append a step (skill-edit → diagnose-x): materialized')
+  })
+
+  it('defaults to v2 — no stages, no attribution section', async () => {
+    const results = await runEval([{ ...line(), items: [goldItem] }], {
+      agent: async () => ({ text: '```json\n{}\n```' }),
+      oneShot: async () => '```json\n{"verdict": "improved", "reason": "r"}\n```'
+    })
+    expect(results[0].stages).toBeUndefined()
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'distill-eval-out-'))
+    expect(fs.readFileSync(writeReport(out, results).reportPath, 'utf8')).not.toContain(
+      'stage attribution'
+    )
+  })
+})
+
+describe('attributeItem', () => {
+  const item = { type: 'skill-edit', target: 'diagnose-x', title: 'append a step', outcome: 'accepted' as const }
+  const stage = (rawOutput: string): PipelineStages['dossier'] => ({
+    promptHash: 'h',
+    promptChars: 1,
+    rawOutput
+  })
+
+  it('walks the pipeline in order and reports the first stage that never mentions the item', () => {
+    expect(attributeItem(item, {})).toBe('not-in-dossier')
+    expect(attributeItem(item, { dossier: stage('nothing relevant here') })).toBe('not-in-dossier')
+    expect(attributeItem(item, { dossier: stage('about diagnose-x') })).toBe('not-a-candidate')
+    expect(
+      attributeItem(item, { dossier: stage('about diagnose-x'), candidates: stage('DIAGNOSE-X') })
+    ).toBe('materialized')
+  })
+
+  it('names the veto/validator reason when the candidate survived to a drop', () => {
+    const stages = { dossier: stage('diagnose-x'), candidates: stage('diagnose-x') }
+    expect(
+      attributeItem(item, stages, [
+        { type: 'skill-edit', target: 'diagnose-x', title: 'whatever', reason: 'broad-edit' }
+      ])
+    ).toBe('vetoed:broad-edit')
+    // a drop on a DIFFERENT type for the same target is not this item's drop
+    expect(
+      attributeItem(item, stages, [
+        { type: 'skill-new', target: 'diagnose-x', title: 'dup', reason: 'target-exists' }
+      ])
+    ).toBe('materialized')
+  })
+
+  it('ignores tokens too short to be evidence of anything', () => {
+    // "a" and "of" would match almost any stage output — only "diagnose" and "step" count
+    expect(
+      attributeItem({ ...item, target: 'x', title: 'a of' }, { dossier: stage('a lot of text') })
+    ).toBe('not-in-dossier')
   })
 })
 

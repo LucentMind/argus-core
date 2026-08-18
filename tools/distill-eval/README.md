@@ -105,7 +105,8 @@ Flags (`src/cli.ts`):
 |---|---|---|
 | `--corpus <file>` | yes | the NDJSON bundle from Step 2 |
 | `--out <dir>` | yes | where `report.md` and `details.jsonl` get written |
-| `--contract <file>` | no | replace the distill contract prompt with this file's contents when replaying (see below) |
+| `--pipeline <v2\|v3>` | no | which distiller to replay with; default `v2` (see below) |
+| `--contract <file>` | no | replace the distill contract prompt with this file's contents when replaying (v2 only — see below) |
 | `--model <id>` | no | model id passed to `claude -p --model <id>` |
 | `--limit <n>` | no | only replay the first n corpus lines (fast iteration on a subset) |
 
@@ -114,6 +115,37 @@ working-tree prompt** — `CASE_DISTILL_CONTRACT` / `CASE_DISTILL_SECTIONS` in
 `app/src/main/services/distill/contract.ts` — so the normal workflow is: edit the contract
 in your working tree, run the harness, read the report, iterate. `--contract` exists for
 comparing an alternate draft without committing it, e.g. A/B-ing two candidate rewrites.
+
+### `--pipeline v3` — replay through the staged pipeline
+
+`--pipeline v2` (the default) replays each line through the v2 distiller: one agentic call that
+must produce the whole `CaseDistillOutput`. `--pipeline v3` replays the **staged** pipeline
+instead (`app/src/main/services/distill/v3/pipeline.ts`): dossier (agentic, tools over the frozen
+world) → summary ‖ candidates (tool-less) → veto → materialize per candidate (tool-less, ≤3 at a
+time) → validators. Same corpus, same frozen inputs, same judge; only the distiller under test
+changes.
+
+What that costs and buys:
+
+- **Runner mapping** (`src/replayV3.ts`). Stage 1 uses the `agent` runner — the pipeline builds
+  its own MCP server from `inputSnapshot.world` and hands it over, but the harness **ignores it**
+  and lets `claudeAgentRunner` build `createReplayMcpServer(world)` from the *same* frozen world,
+  because that is the one that stubs the PTC tool the harness cannot host. Stages 2a/2b/3 use the
+  `oneShot` runner — the same one the judge uses. No usage/turn/tool numbers are reported into the
+  stage records: the harness does not measure them, and zeros would read as measured zeros.
+- **Skip-if-unchanged** compares against `caseDistillPipelineHash()` (the hash of the four stage
+  hashes, with `'v3'` folded in) instead of `caseDistillPromptHash()`, so a v2 corpus line never
+  counts as reused under `--pipeline v3` and vice versa.
+- **Cap handling is lossier than the app's.** The harness's agent runner reports only the SDK's
+  terminal subtype and has no `capHit` channel, so any non-success subtype is passed into the
+  pipeline as `capHit: 'iterations'`. The behaviour that matters survives — a cut-off run's text
+  is never parsed, the case is `budget-exhausted`, and the report still labels a non
+  `error_max_turns` subtype an agent error rather than a budget cap.
+- **`--contract` is rejected with `--pipeline v3`.** That flag overrides the single v2 contract id;
+  v3 has four stage contracts with different ids, and the resolver throws on ids it doesn't know.
+  To try a v3 prompt change, edit the stage file (`v3/dossier.ts`, `v3/candidates.ts`, …) in your
+  working tree and re-run — the same edit-and-rerun loop as the default v2 path.
+- **Per-stage attribution in the report** — see Step 4.
 
 **Runners**: there are two, passed around together as `EvalRunners` (`src/replay.ts`):
 
@@ -217,6 +249,30 @@ improved" and know which failure direction your prompt edit actually helped. `de
 has the full per-case, per-item verdict data (including reasons) if you need to go deeper
 than the summary — join it back to the corpus by `jobId`.
 
+Under `--pipeline v3` the report gains a **stage attribution** section: one line per graded gold
+item saying where in the pipeline that item's knowledge was lost. Four labels, decided in pipeline
+order, first miss wins:
+
+| label | meaning |
+|---|---|
+| `not-in-dossier` | no token of the item's target/title appears in the dossier stage's raw output — stage 1 never established the fact, so nothing downstream could route it |
+| `not-a-candidate` | it is in the dossier but not in the candidates stage's raw output — stage 2b didn't propose it |
+| `vetoed:<reason>` | it was proposed, then dropped before staging — `<reason>` is the veto or validator reason (`target-exists`, `duplicate`, `broad-edit`, `materialize-error`, …) |
+| `materialized` | the pipeline produced a proposal for that target+type — so a poor verdict here is a **content** problem, not a routing or veto drop |
+
+**This is a pointer, not a measurement.** The check is plain token containment (lowercased
+target + title, tokens of 3+ chars, "does any of them appear in that stage's raw output"). It
+cannot tell that the dossier described the same fact in different words, so it can say
+`not-in-dossier` about knowledge that is genuinely there under another name. Use it to decide
+which stage's raw output to open in `details.jsonl` (every stage record is there, including for
+runs that failed mid-pipeline), then read that output yourself. Veto drops are matched on
+target **and** type, because one run can legitimately materialize `skill-edit foo` while vetoing
+`skill-new foo` as its duplicate.
+
+Cases whose replay was never graded (parse failure, cap) have no item verdicts and so contribute
+no attribution lines — the summary lines above already name them, and their partial `stages` are
+in `details.jsonl`.
+
 Read `needs-human` entries yourself before trusting the aggregate counts; the judge is
 explicitly instructed to prefer `needs-human` over guessing, so a high needs-human count
 usually means the corpus has ambiguous cases, not that the harness is broken.
@@ -283,7 +339,9 @@ semantics.
 
 `npm test` (vitest) covers the pure logic with fakes — **no live model calls, no CLI spawn**:
 corpus parsing/validation (`__tests__/corpus.test.ts`), skip-if-unchanged + parse
-classification + world/degraded/budget-exhausted replay (`__tests__/replay.test.ts`), judge
+classification + world/degraded/budget-exhausted replay (`__tests__/replay.test.ts`), the v3
+staged replay end to end over fake stage outputs — including stages surviving a mid-pipeline
+failure and the cap mapping (`__tests__/replayV3.test.ts`), judge
 prompt/verdict
 round-tripping including a byte-identity inline snapshot of the unedited-accepted wording
 (`__tests__/judge.test.ts`), the agent runner's SDK option assembly and the replay MCP server's
@@ -298,7 +356,10 @@ message stream, so the SDK's bundled CLI is never spawned. The assembly test doe
 calls `list_sessions` on it, because a runner that wired up a world-*less* server would otherwise
 pass every assertion while silently degrading every replay. The MCP-server tests use a real
 `@modelcontextprotocol/sdk` client over `InMemoryTransport` (same idiom as the app's
-`distill/__tests__/mcp.test.ts`) and call the tools for real against a fixture world.
+`distill/__tests__/mcp.test.ts`) and call the tools for real against a fixture world. The v3
+tests drive the **real** `runCaseDistillPipeline` over fake runner output, so a change to a stage
+contract or parser breaks them rather than being replayed silently; `__tests__/fixtures.ts` holds
+the stage outputs (`V3_DOSSIER`, `V3_CANDS`, …) and the prompt→stage routing both suites share.
 
 `npm run typecheck` type-checks this package on its own `tsconfig.json` (it imports app source
 directly, relative-pathed — see the `../../../app/src` imports in `src/replay.ts`,
