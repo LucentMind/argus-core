@@ -170,6 +170,18 @@ CREATE TABLE IF NOT EXISTS pr_status_cache (
   fetched_at TEXT NOT NULL,
   status_json TEXT NOT NULL
 );
+-- Jira tickets a case reads evidence FROM but is not bound to (spec 2026-08-18-case-source-tickets).
+-- cases.jira_key remains the one ticket the case IS; these are sources only, never a post target.
+-- No separate FK index: PRIMARY KEY(case_id, jira_key) already leads with case_id, so the cascade
+-- lookup is indexed -- same reasoning as pr_bindings above.
+CREATE TABLE IF NOT EXISTS case_jira_links (
+  case_id        INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  jira_key       TEXT NOT NULL,
+  role           TEXT NOT NULL,
+  added_at       TEXT NOT NULL,
+  attachment_ids TEXT NOT NULL DEFAULT '[]',
+  PRIMARY KEY (case_id, jira_key)
+);
 -- Foreign-key indexes. With PRAGMA foreign_keys=ON, an ON DELETE CASCADE on the
 -- parent (cases) forces SQLite to find matching child rows; without an index on
 -- the child's FK column that is a FULL TABLE SCAN per cascade, so deleting one

@@ -526,7 +526,7 @@ export function ensureCaseOrigin(db: DatabaseSync, slug: string, origin: CaseOri
   db.prepare(`UPDATE cases SET origin = ? WHERE slug = ?`).run(origin, slug)
 }
 
-export interface CaseJiraLink {
+export interface JiraBinding {
   key: string
   site: string
   lastSyncedAt: string
@@ -537,7 +537,7 @@ export function setCaseJira(
   db: DatabaseSync,
   argusHome: string,
   slug: string,
-  jira: CaseJiraLink
+  jira: JiraBinding
 ): CaseRecord {
   const existing = getCase(db, slug)
   if (!existing) throw new Error(`Unknown case: ${slug}`)
@@ -574,6 +574,93 @@ export function setCaseJira(
     )
   )
   return getCase(db, slug)!
+}
+
+export interface CaseJiraLink {
+  key: string
+  role: 'source'
+  addedAt: string
+  /** Last-seen attachment ids on THIS ticket; the per-source refresh diff baseline.
+   *  Deliberately per-link: the case-level jiraAttachmentIds means the PRIMARY's
+   *  attachments, and one shared list would let two tickets contaminate each other's diff. */
+  attachmentIds: string[]
+}
+
+interface CaseJiraLinkRow {
+  jira_key: string
+  role: string
+  added_at: string
+  attachment_ids: string
+}
+
+/** Mirror the current link set into case.json, like every other case writer. */
+function mirrorJiraSources(db: DatabaseSync, argusHome: string, slug: string): void {
+  const file = path.join(caseDir(argusHome, slug), 'case.json')
+  let onDisk: Record<string, unknown>
+  try {
+    onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+  } catch {
+    return // no case dir yet (or unreadable): the DB stays authoritative, nothing to mirror into
+  }
+  const jiraSources = listCaseJiraLinks(db, slug).map((l) => l.key)
+  fs.writeFileSync(file, JSON.stringify({ ...onDisk, jiraSources }, null, 2))
+}
+
+export function listCaseJiraLinks(db: DatabaseSync, slug: string): CaseJiraLink[] {
+  const rows = db
+    .prepare(
+      `SELECT jira_key, role, added_at, attachment_ids FROM case_jira_links
+       WHERE case_id = (SELECT id FROM cases WHERE slug = ?) ORDER BY added_at, jira_key`
+    )
+    .all(slug) as unknown as CaseJiraLinkRow[]
+  return rows.map((r) => ({
+    key: r.jira_key,
+    role: 'source' as const,
+    addedAt: r.added_at,
+    attachmentIds: JSON.parse(r.attachment_ids || '[]') as string[]
+  }))
+}
+
+/** Idempotent: re-adding an existing link leaves its attachment_ids baseline intact. */
+export function addCaseJiraLink(
+  db: DatabaseSync,
+  argusHome: string,
+  slug: string,
+  key: string
+): CaseJiraLink {
+  const kase = getCase(db, slug)
+  if (!kase) throw new Error(`Unknown case: ${slug}`)
+  db.prepare(
+    `INSERT INTO case_jira_links (case_id, jira_key, role, added_at, attachment_ids)
+     VALUES (?, ?, 'source', ?, '[]')
+     ON CONFLICT(case_id, jira_key) DO NOTHING`
+  ).run(kase.id, key, new Date().toISOString())
+  mirrorJiraSources(db, argusHome, slug)
+  return listCaseJiraLinks(db, slug).find((l) => l.key === key)!
+}
+
+export function removeCaseJiraLink(
+  db: DatabaseSync,
+  argusHome: string,
+  slug: string,
+  key: string
+): void {
+  db.prepare(
+    `DELETE FROM case_jira_links WHERE case_id = (SELECT id FROM cases WHERE slug = ?) AND jira_key = ?`
+  ).run(slug, key)
+  mirrorJiraSources(db, argusHome, slug)
+}
+
+export function setCaseJiraLinkAttachmentIds(
+  db: DatabaseSync,
+  slug: string,
+  key: string,
+  ids: string[]
+): void {
+  db.prepare(
+    `UPDATE case_jira_links SET attachment_ids = ?
+     WHERE case_id = (SELECT id FROM cases WHERE slug = ?) AND jira_key = ?`
+  ).run(JSON.stringify(ids), slug, key)
 }
 
 /** Persist which Jira attachments the user declined; mirrored into case.json's jira block. */
