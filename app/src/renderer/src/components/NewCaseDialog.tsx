@@ -22,6 +22,16 @@ type Step =
   | { step: 'preview'; ticketKey: string; preview: JiraIssuePreview }
   | { step: 'ingest'; slug: string; jiraKey: string; files: FileRow[] }
 
+/** Per clone-source state, keyed by ticket key. Absent = never expanded, and a source that
+ *  was never expanded is never imported: discovery proposes, the user disposes. */
+interface SourceState {
+  loading: boolean
+  error?: string
+  attachments: JiraAttachmentInfo[]
+  /** Ticked attachment ids. Starts EMPTY — unlike the primary ticket, nothing is preselected. */
+  checked: Set<string>
+}
+
 const kb = (n: number): string => (n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`)
 
 export function NewCaseDialog({
@@ -46,6 +56,30 @@ export function NewCaseDialog({
   const [caseSlug, setCaseSlug] = useState('')
   const [caseTitle, setCaseTitle] = useState('')
   const [checked, setChecked] = useState<Set<string>>(new Set())
+  const [sources, setSources] = useState<Record<string, SourceState>>({})
+
+  async function expandSource(key: string): Promise<void> {
+    if (sources[key]) return // already expanded (or in flight)
+    setSources((s) => ({ ...s, [key]: { loading: true, attachments: [], checked: new Set() } }))
+    const r = await window.argus.jira.preview(key)
+    setSources((s) => ({
+      ...s,
+      [key]: r.ok
+        ? { loading: false, attachments: r.value.attachments, checked: new Set() }
+        : { loading: false, error: r.message, attachments: [], checked: new Set() }
+    }))
+  }
+
+  function toggleSourceAttachment(key: string, id: string, on: boolean): void {
+    setSources((s) => {
+      const cur = s[key]
+      if (!cur) return s
+      const next = new Set(cur.checked)
+      if (on) next.add(id)
+      else next.delete(id)
+      return { ...s, [key]: { ...cur, checked: next } }
+    })
+  }
 
   // per-file progress stream (main keeps downloading even if the dialog closes)
   const ingestSlug = step.step === 'ingest' ? step.slug : null
@@ -118,10 +152,17 @@ export function NewCaseDialog({
     if (step.step !== 'preview') return
     setBusy(true)
     setError(null)
+    // Only sources the user actually ticked something on are imported. An expanded-but-untouched
+    // source is still a "no".
+    const chosenSources = Object.entries(sources)
+      .filter(([, s]) => s.checked.size > 0)
+      .map(([key]) => key)
+
     const r = await window.argus.jira.createCase({
       slug: caseSlug.trim(),
       title: caseTitle.trim(),
-      key: step.ticketKey
+      key: step.ticketKey,
+      sources: chosenSources
     })
     setBusy(false)
     if (!r.ok) {
@@ -134,14 +175,22 @@ export function NewCaseDialog({
     if (deselectedIds.length)
       void window.argus.jira.setAttachmentSelection(r.value.slug, deselectedIds)
     const selected = step.preview.attachments.filter((a) => checked.has(a.id))
+    const sourceFiles = chosenSources.flatMap((key) =>
+      sources[key].attachments.filter((a) => sources[key].checked.has(a.id))
+    )
     setStep({
       step: 'ingest',
       slug: r.value.slug,
       jiraKey: step.ticketKey,
-      files: selected.map((att) => ({ att, status: 'pending' as const }))
+      files: [...selected, ...sourceFiles].map((att) => ({ att, status: 'pending' as const }))
     })
     if (selected.length)
       void window.argus.jira.ingestAttachments(r.value.slug, step.ticketKey, selected)
+    for (const key of chosenSources) {
+      const s = sources[key]
+      const picked = s.attachments.filter((a) => s.checked.has(a.id))
+      if (picked.length) void window.argus.jira.ingestAttachments(r.value.slug, key, picked)
+    }
   }
 
   function retry(file: FileRow): void {
@@ -319,6 +368,58 @@ export function NewCaseDialog({
                 {previewAttachments.length === 0 && <span className="text-xs text-mute">none</span>}
               </div>
             </div>
+            {step.preview.cloneLinks.length > 0 && (
+              <div className="flex flex-col gap-1">
+                {step.preview.cloneLinks.map((link) => {
+                  const s = sources[link.key]
+                  return (
+                    <div key={link.key} className="flex flex-col gap-1">
+                      <button
+                        type="button"
+                        className="flex items-center gap-2 rounded-r1 border border-hair px-2 py-1 text-left text-xs hover:bg-hi"
+                        onClick={() => void expandSource(link.key)}
+                      >
+                        <span className="font-mono text-defect">Cloned from {link.key}</span>
+                        <span className="min-w-0 flex-1 truncate text-dim">{link.summary}</span>
+                        <span className="shrink-0 text-mute">
+                          {s?.loading
+                            ? 'loading…'
+                            : s
+                              ? `${s.attachments.length} files`
+                              : 'show attachments'}
+                        </span>
+                      </button>
+                      {s?.error && <span className="px-2 text-xs text-mute">{s.error}</span>}
+                      {s && !s.loading && !s.error && (
+                        <div className="flex max-h-40 min-h-0 flex-col gap-1 overflow-y-auto pl-3">
+                          {s.attachments.map((a) => (
+                            <label
+                              key={a.id}
+                              className="flex items-center gap-2 rounded-r1 px-1 py-0.5 text-xs hover:bg-hi"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={s.checked.has(a.id)}
+                                onChange={(e) =>
+                                  toggleSourceAttachment(link.key, a.id, e.target.checked)
+                                }
+                              />
+                              <span className="min-w-0 flex-1 truncate font-mono text-ink">
+                                {a.filename}
+                              </span>
+                              <span className="shrink-0 text-mute">{kb(a.size)}</span>
+                            </label>
+                          ))}
+                          {s.attachments.length === 0 && (
+                            <span className="text-xs text-mute">no attachments</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
             <Btn
               variant="primary"
               className="justify-center"
