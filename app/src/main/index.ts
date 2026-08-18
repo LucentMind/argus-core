@@ -1462,6 +1462,18 @@ function registerIpc(): void {
     broadcast,
     service: coreUpdater
   })
+  // The toggle writes a setting; the service is what actually holds a channel. A second
+  // subscriber rather than a branch inside the one at the top of this function: that one runs
+  // long before `coreUpdater` exists. Re-checks immediately so flipping the toggle produces a
+  // visible answer instead of silence until the user asks again.
+  settingsService.subscribe(() => {
+    const want = settingsService.get().updates.channel
+    if (want === coreUpdater.payload().channel) return
+    // A switch is refused while bytes are staged (and in an unpackaged build). Checking the
+    // outcome rather than assuming it keeps a refusal from triggering a pointless check.
+    if (coreUpdater.setChannel(want).channel !== want) return
+    void coreUpdater.check({ manual: true })
+  })
   // Deferred past window creation so it does not contend with startup, and silent on failure —
   // an offline user must not meet a failure banner on every launch.
   setTimeout(() => void coreUpdater.check({ manual: false }), 5_000).unref()
