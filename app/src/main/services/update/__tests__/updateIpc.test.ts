@@ -22,7 +22,8 @@ function harness(backendOverrides: Partial<UpdaterBackend> = {}): HarnessFixture
   const service = new CoreUpdaterService({
     backend,
     currentVersion: '1.0.8',
-    supported: true
+    supported: true,
+    channel: 'stable'
   })
   const handlers = new Map<string, () => unknown>()
   const broadcasts: Array<{ channel: string; payload: unknown }> = []
@@ -45,7 +46,8 @@ describe('registerUpdateIpc', () => {
     const { handlers } = harness()
     expect(await handlers.get(IPC.updateStatus)!()).toEqual({
       currentVersion: '1.0.8',
-      status: { phase: 'idle' }
+      status: { phase: 'idle' },
+      channel: 'stable'
     })
   })
 
@@ -65,7 +67,8 @@ describe('registerUpdateIpc', () => {
     expect(broadcasts.map((b) => b.channel)).toEqual([IPC.updateChanged, IPC.updateChanged])
     expect(broadcasts.at(-1)!.payload).toEqual({
       currentVersion: '1.0.8',
-      status: { phase: 'available', version: '1.1.0', notes: undefined }
+      status: { phase: 'available', version: '1.1.0', notes: undefined },
+      channel: 'stable'
     })
   })
 

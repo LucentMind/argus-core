@@ -1,4 +1,4 @@
-import type { UpdateStatus, CoreUpdatePayload } from '../../../shared/updates'
+import type { UpdateStatus, CoreUpdatePayload, UpdateChannel } from '../../../shared/updates'
 
 /** Safely extract a message string from any rejection value. */
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err))
@@ -32,6 +32,8 @@ export interface CoreUpdaterDeps {
   currentVersion: string
   /** `app.isPackaged`. False ⇒ the updater must never run. */
   supported: boolean
+  /** The persisted release track this install follows. */
+  channel: UpdateChannel
   now?: () => number
 }
 
@@ -39,9 +41,11 @@ export class CoreUpdaterService {
   private status: UpdateStatus
   private readonly listeners = new Set<(p: CoreUpdatePayload) => void>()
   private readonly now: () => number
+  private channel: UpdateChannel
 
   constructor(private readonly deps: CoreUpdaterDeps) {
     this.now = deps.now ?? Date.now
+    this.channel = deps.channel
     this.status = deps.supported
       ? { phase: 'idle' }
       : { phase: 'unsupported', reason: 'Updates are only available in a packaged build' }
@@ -53,7 +57,7 @@ export class CoreUpdaterService {
   }
 
   payload(): CoreUpdatePayload {
-    return { currentVersion: this.deps.currentVersion, status: this.status }
+    return { currentVersion: this.deps.currentVersion, status: this.status, channel: this.channel }
   }
 
   subscribe(cb: (p: CoreUpdatePayload) => void): () => void {

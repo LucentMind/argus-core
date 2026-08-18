@@ -7,7 +7,11 @@ import { UpdateSettings } from '../UpdateSettings'
 import { updateStore } from '../../../lib/updateStore'
 import type { CoreUpdatePayload } from '../../../../../shared/updates'
 
-const idle: CoreUpdatePayload = { currentVersion: '1.0.8', status: { phase: 'idle' } }
+const idle: CoreUpdatePayload = {
+  currentVersion: '1.0.8',
+  status: { phase: 'idle' },
+  channel: 'stable'
+}
 
 function stubApi(
   over: Partial<Record<string, unknown>> = {},

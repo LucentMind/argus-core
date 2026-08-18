@@ -1452,7 +1452,8 @@ function registerIpc(): void {
   const coreUpdater = new CoreUpdaterService({
     backend: app.isPackaged ? createElectronUpdaterBackend(autoUpdater) : noopBackend,
     currentVersion: app.getVersion(),
-    supported: app.isPackaged
+    supported: app.isPackaged,
+    channel: settingsService.get().updates.channel
   })
   // Disposer intentionally discarded: this registration lives for the process lifetime and
   // there is nothing that ever tears it down.

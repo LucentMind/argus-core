@@ -26,6 +26,28 @@ describe('describeUpdate', () => {
     expect(describeUpdate(fromDownload)).toBe('Update failed: disk full')
   })
 
+  describe('downgrade', () => {
+    it('words an offer of an older version as a return to stable, not as an upgrade', () => {
+      expect(describeUpdate({ phase: 'available', version: '2.1.2', downgrade: true })).toBe(
+        'Version 2.1.2 is the current stable release — installing it moves this install back'
+      )
+    })
+
+    it('words it differently from an ordinary offer of the same version', () => {
+      // The flag is the only difference between these two statuses; if the sentence did not
+      // change, a downgrade would read as an upgrade.
+      expect(describeUpdate({ phase: 'available', version: '2.1.2', downgrade: true })).not.toBe(
+        describeUpdate({ phase: 'available', version: '2.1.2' })
+      )
+    })
+
+    it('leaves an ordinary offer untouched', () => {
+      expect(describeUpdate({ phase: 'available', version: '2.2.0' })).toBe(
+        'Version 2.2.0 is available'
+      )
+    })
+  })
+
   describe('subject (Fix 4)', () => {
     it("words the pack-subject idle phase differently from Core's, which claims the whole app", () => {
       expect(describeUpdate({ phase: 'idle' }, 'pack')).toBe('No update available')
