@@ -205,15 +205,18 @@ export class JiraCases {
     })
   }
 
-  /** Sequential per-file download+ingest; failures are per-file and never abort the batch. */
+  /** Sequential per-file download+ingest; failures are per-file and never abort the batch.
+   *  `jiraKey` is passed, never derived from the case: attachments can come from a SOURCE
+   *  ticket, and deriving would attribute the customer's files to the clone. */
   async ingestAttachments(
     caseSlug: string,
+    jiraKey: string,
     attachments: JiraAttachmentInfo[]
   ): Promise<JiraAttachmentProgress[]> {
     const { db, argusHome, detection, queue } = this.deps
     const kase = getCase(db, caseSlug)
     if (!kase) throw new AtlassianError('internal', `Unknown case: ${caseSlug}`)
-    const key = kase.jiraKey ?? ''
+    const key = jiraKey
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-jira-'))
     const results: JiraAttachmentProgress[] = []
     try {

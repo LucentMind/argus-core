@@ -208,7 +208,9 @@ describe('NewCaseDialog', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /log\.txt/ })) // uncheck log.txt
     fireEvent.click(screen.getByRole('button', { name: /^create case$/i }))
     await waitFor(() =>
-      expect(jira.ingestAttachments).toHaveBeenCalledWith('PROJ-7', [PREVIEW.attachments[0]])
+      expect(jira.ingestAttachments).toHaveBeenCalledWith('PROJ-7', 'PROJ-7', [
+        PREVIEW.attachments[0]
+      ])
     )
     // The subscription happens in a passive effect after the ingest step commits,
     // which can land later than the ingestAttachments call under load — wait for
@@ -268,7 +270,9 @@ describe('NewCaseDialog', () => {
     const retry = await screen.findByRole('button', { name: /retry/i })
     fireEvent.click(retry)
     await waitFor(() =>
-      expect(jira.ingestAttachments).toHaveBeenLastCalledWith('PROJ-7', [PREVIEW.attachments[0]])
+      expect(jira.ingestAttachments).toHaveBeenLastCalledWith('PROJ-7', 'PROJ-7', [
+        PREVIEW.attachments[0]
+      ])
     )
   })
 

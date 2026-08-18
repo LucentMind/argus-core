@@ -20,7 +20,7 @@ interface FileRow {
 type Step =
   | { step: 'entry' }
   | { step: 'preview'; ticketKey: string; preview: JiraIssuePreview }
-  | { step: 'ingest'; slug: string; files: FileRow[] }
+  | { step: 'ingest'; slug: string; jiraKey: string; files: FileRow[] }
 
 const kb = (n: number): string => (n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`)
 
@@ -137,9 +137,11 @@ export function NewCaseDialog({
     setStep({
       step: 'ingest',
       slug: r.value.slug,
+      jiraKey: step.ticketKey,
       files: selected.map((att) => ({ att, status: 'pending' as const }))
     })
-    if (selected.length) void window.argus.jira.ingestAttachments(r.value.slug, selected)
+    if (selected.length)
+      void window.argus.jira.ingestAttachments(r.value.slug, step.ticketKey, selected)
   }
 
   function retry(file: FileRow): void {
@@ -150,7 +152,7 @@ export function NewCaseDialog({
         f.att.id === file.att.id ? { ...f, status: 'pending', error: undefined } : f
       )
     })
-    void window.argus.jira.ingestAttachments(step.slug, [file.att])
+    void window.argus.jira.ingestAttachments(step.slug, step.jiraKey, [file.att])
   }
 
   // Toggle-all math for the preview step's attachment list. Every attachment on a fresh
