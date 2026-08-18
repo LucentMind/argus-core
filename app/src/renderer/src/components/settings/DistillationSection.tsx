@@ -10,6 +10,14 @@ import type { SettingsPayload } from '../../../../shared/settings'
 
 const AUTO = 'Automatic'
 
+type DistillPipeline = SettingsPayload['settings']['distill']['pipeline']
+/** Display labels for `settings.distill.pipeline`; the select round-trips through these. */
+const PIPELINE_LABELS: Record<DistillPipeline, string> = {
+  v2: 'Single call (v2)',
+  v3: 'Staged pipeline (v3)'
+}
+const PIPELINE_OPTIONS = Object.values(PIPELINE_LABELS)
+
 /**
  * Which provider instance and model run headless distillation (case close, reference sync).
  *
@@ -158,6 +166,25 @@ export function DistillationSection({ payload }: { payload: SettingsPayload }): 
           provider can only run reference sync.
         </div>
       )}
+      <SettingRow
+        label="Distillation pipeline"
+        description="Single call = one agentic prompt (v2). Staged = dossier → summary ‖ candidates → materialize, with per-stage records (v3)."
+        isDefault={s.distill.pipeline === 'v2'}
+        onReset={() => void settingsStore.patch({ distill: { pipeline: null } })}
+      >
+        <SelectField
+          aria-label="Distillation pipeline"
+          value={PIPELINE_LABELS[s.distill.pipeline]}
+          options={PIPELINE_OPTIONS}
+          onChange={(label) => {
+            const next = (Object.keys(PIPELINE_LABELS) as DistillPipeline[]).find(
+              (k) => PIPELINE_LABELS[k] === label
+            )
+            if (next && next !== s.distill.pipeline)
+              void settingsStore.patch({ distill: { pipeline: next } })
+          }}
+        />
+      </SettingRow>
       <SettingRow
         label="Distillation guidance"
         description="Folded into every case distillation's prompt, under an Operator guidance header"
