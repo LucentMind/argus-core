@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+23 commits since v2.2.0.
+
+### Added
+
+**Link a case to its source tickets**
+
+- A case can now track related Jira tickets — "source" tickets — distinct
+  from its own primary ticket: clone links are discovered automatically
+  from a ticket's `issuelinks` (which link types count as a clone is
+  workspace-configurable), and a source can also be added by hand. A new
+  `case_jira_links` table backs list/add/unlink for a case's sources.
+  Linking enforces that a ticket can't be both the case's own ticket and
+  one of its sources.
+- Linking a source ticket ingests its description text as evidence
+  immediately, the same as the primary ticket; the New Case dialog can
+  offer a cloned ticket's attachments up front when creating a case from a
+  ticket that has clone links.
+- Refresh now checks every linked source independently for new comments
+  and attachments, scoped per ticket key so one source's state can't leak
+  into another's; the refresh-attachments dialog groups results by ticket.
+  Attachments the user explicitly declined on a source are remembered per
+  source so they aren't re-offered on the next refresh.
+- An attachment byte-identical to one already ingested from another linked
+  ticket is deduped by content hash instead of creating a duplicate
+  evidence row (and, for a zip, re-exploding it) — the dedup is recorded
+  against the existing row and shown as "already on \<TICKET\>" next to the
+  done chip.
+
+### Fixed
+
+- A source ticket that gets renamed or moved no longer loses its link:
+  `case_jira_links` now records the ticket's canonical key consistently
+  with how its evidence is stamped, instead of a pre-fetch key that could
+  disagree with it.
+- An attachment the user never explicitly acted on was being reported once
+  and then silently forgotten on the next refresh, because the diff
+  advanced its baseline unconditionally; source refresh now matches the
+  primary ticket's diff behavior exactly.
+- A source ticket's comment-fetch failure is now surfaced instead of
+  silently dropped, and own-ticket/source exclusivity is enforced at the
+  data-access layer itself so every caller gets it, not just the one
+  original call site.
+- Importing a bundle now restores `case_jira_links`, and a corrupted
+  `case.json` recovers its mirrored Jira source state instead of losing it.
+
 ## v2.2.0 — 2026-08-18
 
 77 commits since v2.1.2, 191 files changed (+16,641 / −527).
