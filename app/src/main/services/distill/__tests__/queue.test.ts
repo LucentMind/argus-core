@@ -379,6 +379,32 @@ describe('DistillQueue', () => {
     await q.idle()
   })
 
+  it('retry() re-stamps prompt_hash with the CURRENT dep value, not the one captured at enqueue', async () => {
+    let hash = 'h1'
+    const { q } = makeQueue({
+      promptHash: () => hash,
+      distill: async () => {
+        throw new Error('boom')
+      }
+    })
+    const job = q.enqueue('case-a')
+    await q.idle()
+    expect(q.statusFor('case-a')!.state).toBe('failed')
+    const preRetryRow = db
+      .prepare(`SELECT prompt_hash FROM distill_jobs WHERE id = ?`)
+      .get(job.id) as { prompt_hash: string | null }
+    expect(preRetryRow.prompt_hash).toBe('h1') // sanity: the enqueue-time hash really was 'h1'
+
+    // Simulate the settings flag flipping (v2 -> v3, or any prompt change) while the job sat
+    // failed, before the user clicks retry.
+    hash = 'h2'
+    q.retry(job.id)
+    const row = db.prepare(`SELECT prompt_hash FROM distill_jobs WHERE id = ?`).get(job.id) as {
+      prompt_hash: string | null
+    }
+    expect(row.prompt_hash).toBe('h2')
+  })
+
   it('cancels a queued job without ever running it', async () => {
     let ran = 0
     const { q } = makeQueue({

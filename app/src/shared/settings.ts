@@ -283,8 +283,9 @@ const uiSchema = z.looseObject({
   knowledgeStripDismissed: z.boolean().default(false)
 })
 
-/** Free-text operator guidance folded into every case distillation's input (v2) — a standing
- *  steer ("prefer recipes over new skills", "watch for X") rather than a per-run instruction. */
+/** Free-text operator guidance folded into every case distillation's input (v2 and v3) — a
+ *  standing steer ("prefer recipes over new skills", "watch for X") rather than a per-run
+ *  instruction. */
 const distillSchema = z.looseObject({
   guidance: z.string().default(''),
   /** Which case-distill pipeline runs: 'v2' = single agentic call; 'v3' = staged pipeline.

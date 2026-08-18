@@ -195,6 +195,10 @@ export class DistillQueue {
       .prepare(
         `INSERT INTO distill_jobs (case_slug, state, input_snapshot, prompt_hash, created_at) VALUES (?, 'queued', ?, ?, ?)`
       )
+      // Stamped now, at enqueue time. If settings.distill.pipeline flips while this job sits
+      // queued, the row's prompt_hash can end up describing a different pipeline than the one
+      // that actually runs it — accepted: `retry` re-stamps on every retry, so a failed run
+      // self-corrects, and the window between enqueue and run is normally short.
       .run(slug, snapshot, this.deps.promptHash?.() ?? null, new Date().toISOString())
     const job = this.get(Number(res.lastInsertRowid))!
     this.emit(this.getRaw(job.id)!)
@@ -271,15 +275,18 @@ export class DistillQueue {
     // (contradicting toRow's/DistillJobRow's own "null until a job records them" contract).
     // `stages_json` matters extra here: a v3 attempt's per-stage records would otherwise survive
     // a retry that the settings flag has since routed to v2, leaving a row that claims stages the
-    // run it now describes never produced.
+    // run it now describes never produced. `prompt_hash` also gets re-stamped (not just reset to
+    // NULL) for the same reason: it was captured at the ORIGINAL enqueue time, so if the pipeline
+    // flag flipped since then, the stale hash would otherwise survive onto a row that the fresh
+    // (post-flip) pipeline is about to run, misattributing the eval export's output.
     this.deps.db
       .prepare(
         `UPDATE distill_jobs SET state='queued', error=NULL, raw_output=NULL, item_count=NULL,
          finished_at=NULL, input_tokens=NULL, output_tokens=NULL, cost_usd=NULL, duration_ms=NULL,
          prompt_chars=NULL, turn_count=NULL, tool_call_count=NULL, trajectory_json=NULL,
-         dropped_json=NULL, stages_json=NULL WHERE id=?`
+         dropped_json=NULL, stages_json=NULL, prompt_hash=? WHERE id=?`
       )
-      .run(jobId)
+      .run(this.deps.promptHash?.() ?? null, jobId)
     const fresh = this.get(jobId)!
     this.emit(this.getRaw(jobId)!)
     this.kick()
