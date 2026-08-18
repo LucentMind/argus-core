@@ -8,6 +8,7 @@ import type {
 } from '../agent/driver'
 import { createDistillMcpServer } from './mcp'
 import { DISTILL_ALLOWED_TOOLS, DISTILL_MAX_ITERATIONS } from './worldTools'
+import type { PipelineStages, PreStageDrop } from '../../../shared/distillV3'
 
 export interface CaseDistillRun {
   raw: string
@@ -19,6 +20,9 @@ export interface CaseDistillRun {
   turnCount?: number
   toolCallCount?: number
   trajectory?: TrajectoryEntry[]
+  /** v3 only: per-stage records + drops recorded before staging (veto/validators). */
+  stages?: PipelineStages
+  preStageDropped?: PreStageDrop[]
 }
 
 /**
@@ -49,6 +53,8 @@ export interface DistillAgentRunMeta {
   toolCallCount?: number
   trajectory?: TrajectoryEntry[]
   promptChars?: number
+  /** v3 only: whatever stages had completed when the run failed. */
+  stages?: PipelineStages
 }
 
 /**
