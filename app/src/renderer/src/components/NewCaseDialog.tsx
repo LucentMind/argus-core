@@ -59,7 +59,9 @@ export function NewCaseDialog({
   const [sources, setSources] = useState<Record<string, SourceState>>({})
 
   async function expandSource(key: string): Promise<void> {
-    if (sources[key]) return // already expanded (or in flight)
+    // Already expanded (or in flight) — but a prior failure must not permanently kill the
+    // row, so an error entry does NOT trip this guard and a click retries the fetch.
+    if (sources[key] && !sources[key].error) return
     setSources((s) => ({ ...s, [key]: { loading: true, attachments: [], checked: new Set() } }))
     const r = await window.argus.jira.preview(key)
     setSources((s) => ({
@@ -384,9 +386,11 @@ export function NewCaseDialog({
                         <span className="shrink-0 text-mute">
                           {s?.loading
                             ? 'loading…'
-                            : s
-                              ? `${s.attachments.length} files`
-                              : 'show attachments'}
+                            : s?.error
+                              ? 'retry'
+                              : s
+                                ? `${s.attachments.length} files`
+                                : 'show attachments'}
                         </span>
                       </button>
                       {s?.error && <span className="px-2 text-xs text-mute">{s.error}</span>}
