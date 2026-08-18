@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { runCaseDistillPipeline, type PipelineRunners } from '../pipeline'
+import { runCaseDistillPipeline, MATERIALIZE_CONCURRENCY, type PipelineRunners } from '../pipeline'
 import { DistillAgentRunError } from '../../caseDistiller'
+import { DISTILL_ALLOWED_TOOLS } from '../../worldTools'
 import type { CaseDistillInput } from '../../../../../shared/distill'
 import type { HeadlessAgentResult, HeadlessResult } from '../../../agent/driver'
 
@@ -47,6 +48,34 @@ function oneShotBy(map: (prompt: string) => string): PipelineRunners['oneShot'] 
     usage: { inputTokens: 1, outputTokens: 1, costUsd: 0.01, durationMs: 10 }
   })
 }
+/** Three distinct edit targets — 'solved' caps kept candidates at 3, the default width. */
+const MANY_TARGETS = ['diagnose-x', 'diagnose-y', 'diagnose-z']
+const manyInput = (): CaseDistillInput => ({
+  ...INPUT,
+  skillsIndex: MANY_TARGETS.map((name) => ({
+    name,
+    description: 'when X',
+    content: SKILL.split('diagnose-x').join(name)
+  }))
+})
+const manyCands = (): string =>
+  '```json\n' +
+  JSON.stringify({
+    candidates: MANY_TARGETS.map((t) => ({
+      kind: 'procedure',
+      type: 'skill-edit',
+      target: t,
+      title: t,
+      outline: 'o',
+      evidence: ['root_cause'],
+      related: [],
+      generalization: 'g',
+      routing_rationale: 'r',
+      confidence: 0.9
+    }))
+  }) +
+  '\n```'
+
 const route = (p: string): string =>
   p.includes('# Dossier (established') ? CANDS : p.includes('# Candidate') ? MAT : SUMMARY
 
@@ -60,7 +89,11 @@ describe('runCaseDistillPipeline', () => {
       },
       oneShot: oneShotBy(route)
     })
-    expect((seenAgentOpts[0] as { allowedTools: string[] }).allowedTools).toEqual([])
+    // The seam's `allowedTools` IS the driver's canUseTool whitelist (the SDK-level option is
+    // pinned to [] inside the driver) — an empty list here would deny every world tool.
+    expect((seenAgentOpts[0] as { allowedTools: string[] }).allowedTools).toEqual(
+      DISTILL_ALLOWED_TOOLS
+    )
     expect(run.output.summary?.signature).toBe('s')
     expect(run.output.proposals).toHaveLength(1)
     expect(run.output.proposals?.[0].content).toContain('1. a\n2. b')
@@ -139,6 +172,105 @@ describe('runCaseDistillPipeline', () => {
     })
     expect(run.output.proposals).toEqual([])
     expect(run.preStageDropped?.map((d) => d.reason)).toContain('case-identifiers')
+  })
+
+  it('a validator FLAG keeps the proposal and is recorded on flags, not error', async () => {
+    // whole_file is the escape hatch: `broad-edit` becomes a flag, not a drop.
+    const rewritten = `---\nname: diagnose-x\ndescription: when X\n---\n# diagnose-x\n\n## Procedure\n1. rewritten step one\n2. rewritten step two\n`
+    const whole =
+      '```json\n' +
+      JSON.stringify({ whole_file: rewritten, basis: 'a real basis of twenty+ chars' }) +
+      '\n```'
+    const run = await runCaseDistillPipeline(INPUT, {
+      agent: agentOk(DOSSIER),
+      oneShot: oneShotBy((p) => (p.includes('# Candidate') ? whole : route(p)))
+    })
+    expect(run.output.proposals).toHaveLength(1)
+    expect(run.stages?.materialize?.[0].flags).toContain('broad-edit')
+    expect(run.stages?.materialize?.[0].error).toBeUndefined()
+  })
+
+  it('an abort mid-stage rejects the run rather than recording a stage error', async () => {
+    const ac = new AbortController()
+    const err = await runCaseDistillPipeline(
+      INPUT,
+      {
+        agent: agentOk(DOSSIER),
+        oneShot: async (p): Promise<HeadlessResult> => {
+          if (p.includes('# Dossier (established')) return { text: CANDS }
+          ac.abort()
+          throw new Error('cancelled')
+        }
+      },
+      undefined,
+      ac.signal
+    ).catch((e) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect((err as Error).message).toBe('cancelled')
+  })
+
+  it('an abort between materialize calls stops the queue instead of draining it', async () => {
+    const ac = new AbortController()
+    let calls = 0
+    const run = await runCaseDistillPipeline(
+      manyInput(),
+      {
+        agent: agentOk(DOSSIER),
+        oneShot: async (p): Promise<HeadlessResult> => {
+          if (!p.includes('# Candidate'))
+            return {
+              text: p.includes('# Dossier (established') ? manyCands() : SUMMARY,
+              usage: { inputTokens: 1, outputTokens: 1, costUsd: 0.01, durationMs: 10 }
+            }
+          calls++
+          // A clean return, then a cancel — nothing rejects, so only the early-exit can stop it.
+          ac.abort()
+          return {
+            text: MAT,
+            usage: { inputTokens: 1, outputTokens: 1, costUsd: 0.01, durationMs: 10 }
+          }
+        }
+      },
+      undefined,
+      ac.signal,
+      { concurrency: 1 }
+    )
+    expect(calls).toBe(1)
+    expect(run.stages?.materialize).toHaveLength(1)
+    expect(run.output.proposals).toHaveLength(1)
+    // the completed call's cost is still folded in
+    expect(run.usage?.costUsd).toBeCloseTo(0.53)
+  })
+
+  it('a non-finite or sub-1 concurrency falls back to the default width', async () => {
+    // Observable only with more than one candidate: with a single one, mapLimit's own clamp hides
+    // a bad width. The resolution cap for 'solved' is 3, which is also MATERIALIZE_CONCURRENCY.
+    const many = manyInput()
+    const cands = manyCands()
+    for (const concurrency of [Number.NaN, 0, -3]) {
+      let inflight = 0
+      let peak = 0
+      const run = await runCaseDistillPipeline(
+        many,
+        {
+          agent: agentOk(DOSSIER),
+          oneShot: async (p): Promise<HeadlessResult> => {
+            if (!p.includes('# Candidate'))
+              return { text: p.includes('# Dossier (established') ? cands : SUMMARY }
+            inflight++
+            peak = Math.max(peak, inflight)
+            await new Promise((r) => setTimeout(r, 5))
+            inflight--
+            return { text: MAT }
+          }
+        },
+        undefined,
+        undefined,
+        { concurrency }
+      )
+      expect(run.output.proposals).toHaveLength(3)
+      expect(peak).toBe(MATERIALIZE_CONCURRENCY)
+    }
   })
 
   it('threads the abort signal to every runner', async () => {
