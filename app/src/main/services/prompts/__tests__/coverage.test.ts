@@ -29,7 +29,11 @@ const SCANNED = [
   'app/src/main/services/agent/reviewWrites.ts',
   'app/src/main/services/agent/reviewActions.ts',
   'app/src/main/services/agent/ciLogs.ts',
-  'app/src/main/services/agent/ciTriage.ts'
+  'app/src/main/services/agent/ciTriage.ts',
+  'app/src/main/services/distill/v3/dossier.ts',
+  'app/src/main/services/distill/v3/summary.ts',
+  'app/src/main/services/distill/v3/candidates.ts',
+  'app/src/main/services/distill/v3/materialize.ts'
 ]
 
 /** Files whose tool RETURNS and THROWS also reach the model, not just their long prose. */

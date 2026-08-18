@@ -5,6 +5,10 @@ import { CASE_DISTILL_CONTRACT } from '../../distill/caseDistillContract'
 import { buildDistillPrompt, DISTILL_CONTRACT, REF_DISTILL_SECTIONS } from '../../refSync/distill'
 import { AUTHORING_SECTIONS } from '../../authoring/prompts'
 import { RCA_SECTIONS } from '../../rca/contract'
+import { DOSSIER_SECTIONS } from '../../distill/v3/dossier'
+import { SUMMARY_SECTIONS } from '../../distill/v3/summary'
+import { CANDIDATES_SECTIONS } from '../../distill/v3/candidates'
+import { MATERIALIZE_SECTIONS } from '../../distill/v3/materialize'
 import type { CaseDistillInput } from '../../../../shared/distill'
 import type { RcaDraft } from '../../../../shared/rca'
 import { PROMPT_ENTRIES } from '../registry'
@@ -152,7 +156,15 @@ describe('distill scaffolding honours an injected resolver', () => {
         ...Object.keys(CASE_DISTILL_SECTIONS).map((k) => `headless.case-distill.section.${k}`),
         ...Object.keys(REF_DISTILL_SECTIONS).map((k) => `headless.ref-distill.section.${k}`),
         ...Object.keys(AUTHORING_SECTIONS).map((k) => `headless.authoring.section.${k}`),
-        ...Object.keys(RCA_SECTIONS).map((k) => `headless.case-rca.section.${k}`)
+        ...Object.keys(RCA_SECTIONS).map((k) => `headless.case-rca.section.${k}`),
+        ...Object.keys(DOSSIER_SECTIONS).map((k) => `headless.case-distill.dossier.section.${k}`),
+        ...Object.keys(SUMMARY_SECTIONS).map((k) => `headless.case-distill.summary.section.${k}`),
+        ...Object.keys(CANDIDATES_SECTIONS).map(
+          (k) => `headless.case-distill.candidates.section.${k}`
+        ),
+        ...Object.keys(MATERIALIZE_SECTIONS).map(
+          (k) => `headless.case-distill.materialize.section.${k}`
+        )
       ].sort()
     )
   })
