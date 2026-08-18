@@ -109,4 +109,13 @@ describe('prompt registry', () => {
       }
     }
   })
+
+  it('registers the v3 distill stage prompts', () => {
+    const ids = PROMPT_ENTRIES.map((e) => e.id)
+    for (const s of ['dossier', 'summary', 'candidates', 'materialize'])
+      expect(ids).toContain(`headless.case-distill.${s}.contract`)
+    expect(ids).toContain('headless.case-distill.dossier.section.findings')
+    expect(ids).toContain('headless.case-distill.candidates.section.skills')
+    expect(ids).toContain('headless.case-distill.materialize.section.target')
+  })
 })
