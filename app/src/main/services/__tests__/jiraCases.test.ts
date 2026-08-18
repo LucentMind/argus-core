@@ -5,7 +5,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
 import { caseDir } from '../paths'
-import { listEvidence } from '../ingest'
+import { ingestContent, listEvidence } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
 import { createImmediateQueue, type IngestJob } from '../ingestQueue'
@@ -775,5 +775,34 @@ describe('JiraCases source tickets', () => {
 
     const rec = listEvidence(db, 'NAV-7').find((e) => e.relPath.includes('customer.log'))!
     expect((rec.meta.jira as { key: string }).key).toBe('CUST-9')
+  })
+
+  it("does not adopt another ticket's evidence as its own", async () => {
+    const svc = service(fakeClient(() => issue()))
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await settle()
+
+    // Simulate evidence contributed by a different ticket carrying the same role.
+    ingestContent(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-7',
+      'CUST-9.ticket.md',
+      '# CUST-9: original\n',
+      'jira',
+      { jira: { key: 'CUST-9', role: 'ticket', status: 'Open', syncedAt: 'x' } }
+    )
+    await settle()
+
+    await svc.refresh('NAV-7')
+    await settle()
+
+    const foreign = listEvidence(db, 'NAV-7').find((e) => e.relPath.includes('CUST-9.ticket.md'))!
+    expect(
+      fs.readFileSync(path.join(caseDir(argusHome, 'NAV-7'), foreign.relPath), 'utf8')
+    ).toContain('CUST-9: original')
+    expect((foreign.meta.jira as { key: string }).key).toBe('CUST-9')
   })
 })
