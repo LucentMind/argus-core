@@ -51,6 +51,16 @@ describe('validateMaterialized', () => {
       reason: 'case-identifiers'
     })
   })
+  it('case-identifiers: the skill description is checked too, not just the body', () => {
+    // The description is the only thing a future agent matches on — a case slug or ticket key
+    // leaking into it is exactly as bad there as in the body, and it lives OUTSIDE `fm.body`.
+    expect(
+      ok({ content: SKILL.replace('description: when Y', 'description: when AB-123 hangs') })
+    ).toEqual({ ok: false, reason: 'case-identifiers' })
+    expect(
+      ok({ content: SKILL.replace('description: when Y', 'description: after nav-freeze-2026') })
+    ).toEqual({ ok: false, reason: 'case-identifiers' })
+  })
   it('steps-in-reference: ≥3 numbered lines in a reference', () => {
     expect(ok({ type: 'reference-edit', target: 'r', content: '# R\n1. a\n2. b\n3. c\n' })).toEqual(
       { ok: false, reason: 'steps-in-reference' }

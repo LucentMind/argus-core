@@ -222,6 +222,69 @@ export function parseDossier(text: string): {
   return { dossier, uncitedDropped }
 }
 
+/**
+ * Second gate on cites: `parseDossier` only checks a cite's SHAPE, so a well-formed cite naming
+ * something that never existed — an invented finding id, a turn past the end of a session, an
+ * evidence path nobody uploaded — survives it. This prunes those against the input the dossier
+ * was built from:
+ *
+ *  - `{finding}` must be one of `input.findings[].id`;
+ *  - `{session, turn}` must name a session in the frozen world, with `turn` a valid index into
+ *    that session's snapshot messages. Turns are 0-BASED, matching how the world tools number
+ *    them: `read_transcript`'s `offset` 0 is the first message, and `search_transcript` reports
+ *    each hit's `index` as its position in the same array (worldTools.ts);
+ *  - `{evidence}` must be one of `input.evidence[].relPath`.
+ *
+ * An item left with zero cites is dropped and counted under its own key — the same keys
+ * `parseDossier`'s `uncitedDropped` uses, so a caller can merge the two counts; `root_cause` /
+ * `confirmed_fix` become null.
+ *
+ * A pre-v3 snapshot has no `findings[].id` at all (the field is optional), and a pre-v2 one has
+ * no `world`. Cites of that kind are then unverifiable in EITHER direction, and they are pruned
+ * rather than trusted: dropping an unverifiable claim only costs a knowledge asset, keeping one
+ * materializes an asset on evidence nobody can check.
+ */
+export function pruneUnknownCites(
+  dossier: Dossier,
+  input: CaseDistillInput
+): { dossier: Dossier; dropped: Record<string, number> } {
+  const findingIds = new Set(
+    input.findings.map((f) => f.id).filter((id): id is number => typeof id === 'number')
+  )
+  const turnCounts = new Map((input.world?.sessions ?? []).map((s) => [s.id, s.messages.length]))
+  const evidencePaths = new Set(input.evidence.map((e) => e.relPath))
+  const known = (c: DossierCite): boolean => {
+    if ('finding' in c) return findingIds.has(c.finding)
+    if ('evidence' in c) return evidencePaths.has(c.evidence)
+    const total = turnCounts.get(c.session)
+    return total !== undefined && Number.isInteger(c.turn) && c.turn >= 0 && c.turn < total
+  }
+  const dropped: Record<string, number> = {}
+  const keep = <T extends DossierCited>(item: T | null, key: string): T | null => {
+    if (!item) return null
+    const cites = item.cites.filter(known)
+    if (cites.length === 0) {
+      dropped[key] = (dropped[key] ?? 0) + 1
+      return null
+    }
+    return { ...item, cites }
+  }
+  const keepAll = <T extends DossierCited>(arr: T[], key: string): T[] =>
+    arr.map((item) => keep(item, key)).filter((item): item is T => item !== null)
+  return {
+    dossier: {
+      scope: dossier.scope,
+      root_cause: keep(dossier.root_cause, 'root_cause'),
+      confirmed_fix: keep(dossier.confirmed_fix, 'confirmed_fix'),
+      rejected_hypotheses: keepAll(dossier.rejected_hypotheses, 'rejected_hypotheses'),
+      diagnostic_path: keepAll(dossier.diagnostic_path, 'diagnostic_path'),
+      durable_facts: keepAll(dossier.durable_facts, 'durable_facts'),
+      user_corrections: keepAll(dossier.user_corrections, 'user_corrections')
+    },
+    dropped
+  }
+}
+
 /** `root_cause` | `confirmed_fix` | `<array>[<i>]` → the cited item, or null. */
 export function resolveDossierPath(d: Dossier, path: string): DossierCited | null {
   if (path === 'root_cause') return d.root_cause

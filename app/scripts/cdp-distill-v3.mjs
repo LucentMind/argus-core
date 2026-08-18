@@ -422,7 +422,10 @@ const main = async () => {
   // regex above while telling a replay nothing about which prompt produced which stage.
   check(
     'each stage promptHash matches the expected hash for that stage',
-    stageRecords.every(([n, r]) => r.promptHash === expected.stages[n.replace(/\[\d+\]$/, '')]),
+    // `.every` on an empty list is vacuously true — an absent stages_json must fail this check,
+    // not sail through it (same guard as the hex check above).
+    stageRecords.length >= 4 &&
+      stageRecords.every(([n, r]) => r.promptHash === expected.stages[n.replace(/\[\d+\]$/, '')]),
     expected.stages
   )
   const dossierCost = stages?.dossier?.usage?.costUsd

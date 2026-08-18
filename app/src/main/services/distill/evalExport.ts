@@ -5,7 +5,7 @@ import { proposalsDir, proposalsArchiveDir } from '../paths'
 import { fmBlock, fmField } from '../../../shared/frontmatter'
 import { ACCEPTED_CONTENT_DELIMITER } from '../../../shared/proposals'
 import type { CaseDistillInput } from '../../../shared/distill'
-import type { PipelineStages } from '../../../shared/distillV3'
+import type { PipelineStages, PreStageDrop } from '../../../shared/distillV3'
 import type {
   DistillEvalBundleLine,
   DistillEvalExportResult,
@@ -22,6 +22,7 @@ interface JobRow {
   prompt_hash: string | null
   created_at: string
   stages_json: string | null
+  dropped_json: string | null
 }
 
 /** Frontmatter + body of every .md in dir, keyed job-id → entries; files without a job stamp
@@ -131,7 +132,13 @@ export function buildEvalBundle(
         inputSnapshot: JSON.parse(r.input_snapshot) as CaseDistillInput,
         rawOutput: r.raw_output ?? '',
         error: r.error,
-        ...(r.stages_json ? { stages: JSON.parse(r.stages_json) as PipelineStages } : {})
+        ...(r.stages_json ? { stages: JSON.parse(r.stages_json) as PipelineStages } : {}),
+        // The WHOLE dropped list, not just the v3 half: `items` only ever names what reached the
+        // review queue, so without this the corpus cannot tell "the run never proposed it" from
+        // "the run proposed it and a gate ate it" — which is precisely what a replay needs to
+        // compare against. Filtering out staging's cap/basis drops here would re-create that
+        // blind spot for exactly the cases where the run over-produced.
+        ...(r.dropped_json ? { dropped: JSON.parse(r.dropped_json) as PreStageDrop[] } : {})
       },
       items,
       exportedAt,
