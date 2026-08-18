@@ -230,9 +230,12 @@ export function parseDossier(text: string): {
  *
  *  - `{finding}` must be one of `input.findings[].id`;
  *  - `{session, turn}` must name a session in the frozen world, with `turn` a valid index into
- *    that session's snapshot messages. Turns are 0-BASED, matching how the world tools number
- *    them: `read_transcript`'s `offset` 0 is the first message, and `search_transcript` reports
- *    each hit's `index` as its position in the same array (worldTools.ts);
+ *    that session's snapshot messages. Turns are 0-BASED: `search_transcript` reports each hit's
+ *    `index` as its position in the raw message array and an unfiltered `read_transcript`
+ *    `offset` 0 is the first message (worldTools.ts). A `read_transcript` call WITH a `roles`
+ *    filter slices the filtered array, so an offset the model saw there is a filtered-space
+ *    index — always within the raw length, so this range check is safe (never rejects a real
+ *    turn) but not exact for filtered reads;
  *  - `{evidence}` must be one of `input.evidence[].relPath`.
  *
  * An item left with zero cites is dropped and counted under its own key — the same keys

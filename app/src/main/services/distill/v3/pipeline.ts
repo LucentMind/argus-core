@@ -230,6 +230,10 @@ export async function runCaseDistillPipeline(
 
     // ── stage 3: materialize (parallel) → validators ─────────────────────────────────────────
     const matRecords: NonNullable<PipelineStages['materialize']> = []
+    // Attached NOW (live reference), not after the loop: a throw from materializeToProposal /
+    // validateMaterialized inside the post loop must still surface every record collected so far
+    // through meta() → agentMeta.stages.
+    stages.materialize = matRecords
     const proposals: NonNullable<CaseDistillOutput['proposals']> = []
     // NaN / 0 / negative must fall back to the default rather than clamp to a 1-wide run.
     const width =
@@ -304,7 +308,6 @@ export async function runCaseDistillPipeline(
       if (v.flags.length) rec.flags = v.flags
       proposals.push(m.proposal)
     }
-    stages.materialize = matRecords
 
     const output: CaseDistillOutput = {
       ...(sum.value ? { summary: sum.value } : {}),
