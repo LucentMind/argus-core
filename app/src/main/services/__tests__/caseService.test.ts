@@ -16,7 +16,11 @@ import {
   setReviewBaseline,
   setCaseTriage,
   setCaseReviewState,
-  mergeTags
+  mergeTags,
+  listCaseJiraLinks,
+  addCaseJiraLink,
+  removeCaseJiraLink,
+  setCaseJiraLinkAttachmentIds
 } from '../caseService'
 import { ingestContent } from '../ingest'
 import { createDetection } from '../packs/detection'
@@ -854,5 +858,52 @@ describe('setCaseTriage', () => {
     setCaseReviewState(db, 'abc-1', null)
     expect(getCase(db, 'abc-1')!.reviewState).toBeNull()
     expect(getCase(db, 'abc-1')!.updatedAt).toBe(before)
+  })
+})
+
+describe('case jira links', () => {
+  it('starts empty and round-trips a source link', () => {
+    createCase(db, home, { slug: 'NAV-1', title: 'T', jiraKey: 'NAV-1' })
+    expect(listCaseJiraLinks(db, 'NAV-1')).toEqual([])
+
+    const link = addCaseJiraLink(db, home, 'NAV-1', 'CUST-9')
+    expect(link.key).toBe('CUST-9')
+    expect(link.role).toBe('source')
+    expect(link.attachmentIds).toEqual([])
+    expect(listCaseJiraLinks(db, 'NAV-1').map((l) => l.key)).toEqual(['CUST-9'])
+  })
+
+  it('is idempotent on re-add and does not duplicate', () => {
+    createCase(db, home, { slug: 'NAV-2', title: 'T', jiraKey: 'NAV-2' })
+    addCaseJiraLink(db, home, 'NAV-2', 'CUST-9')
+    addCaseJiraLink(db, home, 'NAV-2', 'CUST-9')
+    expect(listCaseJiraLinks(db, 'NAV-2')).toHaveLength(1)
+  })
+
+  it('stores attachment ids per link', () => {
+    createCase(db, home, { slug: 'NAV-3', title: 'T', jiraKey: 'NAV-3' })
+    addCaseJiraLink(db, home, 'NAV-3', 'CUST-9')
+    addCaseJiraLink(db, home, 'NAV-3', 'CUST-10')
+    setCaseJiraLinkAttachmentIds(db, 'NAV-3', 'CUST-9', ['a1', 'a2'])
+    const links = listCaseJiraLinks(db, 'NAV-3')
+    expect(links.find((l) => l.key === 'CUST-9')!.attachmentIds).toEqual(['a1', 'a2'])
+    expect(links.find((l) => l.key === 'CUST-10')!.attachmentIds).toEqual([])
+  })
+
+  it('removes a link without touching its sibling', () => {
+    createCase(db, home, { slug: 'NAV-4', title: 'T', jiraKey: 'NAV-4' })
+    addCaseJiraLink(db, home, 'NAV-4', 'CUST-9')
+    addCaseJiraLink(db, home, 'NAV-4', 'CUST-10')
+    removeCaseJiraLink(db, home, 'NAV-4', 'CUST-9')
+    expect(listCaseJiraLinks(db, 'NAV-4').map((l) => l.key)).toEqual(['CUST-10'])
+  })
+
+  it('mirrors links into case.json', () => {
+    createCase(db, home, { slug: 'NAV-5', title: 'T', jiraKey: 'NAV-5' })
+    addCaseJiraLink(db, home, 'NAV-5', 'CUST-9')
+    const onDisk = JSON.parse(
+      fs.readFileSync(path.join(caseDir(home, 'NAV-5'), 'case.json'), 'utf8')
+    )
+    expect(onDisk.jiraSources).toEqual(['CUST-9'])
   })
 })
