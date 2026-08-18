@@ -24,7 +24,8 @@ const PREVIEW = {
       createdAt: 'x'
     },
     { id: '10002', filename: 'log.txt', size: 100, mimeType: 'text/plain', createdAt: 'x' }
-  ]
+  ],
+  cloneLinks: []
 }
 
 let progressCb: ((p: JiraAttachmentProgress) => void) | null

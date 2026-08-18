@@ -10,6 +10,7 @@ import {
 } from '../../shared/connectors'
 import type {
   AtlassianErrorCode,
+  CloneLink,
   JiraAttachmentInfo,
   JiraCommentInfo,
   JiraIssuePreview
@@ -193,7 +194,40 @@ function idleAbort(idleMs: number): { signal: AbortSignal; bump: () => void; cle
 }
 
 const ISSUE_FIELDS =
-  'summary,description,status,priority,labels,reporter,created,updated,attachment'
+  'summary,description,status,priority,labels,reporter,created,updated,attachment,issuelinks'
+
+/**
+ * Jira's built-in clone link type. This is the single hardcoded assumption in the
+ * source-ticket feature: an org that renamed the type gets no discovery. A workspace-level
+ * list of accepted link-type names would replace exactly this constant — see the spec's
+ * non-goals (2026-08-18-case-source-tickets-design.md).
+ */
+const CLONE_LINK_TYPE = 'cloners'
+
+/** Pure: extract clone relations from an issue's `fields`. Malformed entries are skipped. */
+export function cloneLinksOf(fields: Record<string, unknown>): CloneLink[] {
+  const links = fields.issuelinks
+  if (!Array.isArray(links)) return []
+  const out: CloneLink[] = []
+  for (const l of links) {
+    if (!l || typeof l !== 'object') continue
+    const entry = l as Record<string, unknown>
+    const name = (entry.type as { name?: string } | undefined)?.name ?? ''
+    if (name.toLowerCase() !== CLONE_LINK_TYPE) continue
+    // inward on a Cloners link reads "is cloned by": the fetched issue is the ORIGINAL.
+    const inward = entry.inwardIssue as { key?: string; fields?: { summary?: string } } | undefined
+    const outward = entry.outwardIssue as
+      { key?: string; fields?: { summary?: string } } | undefined
+    const side = inward ?? outward
+    if (!side?.key) continue
+    out.push({
+      key: String(side.key),
+      summary: String(side.fields?.summary ?? ''),
+      direction: inward ? 'is-cloned-by' : 'clones'
+    })
+  }
+  return out
+}
 
 export class AtlassianClient {
   private cloudId = new Map<string, AtlassianCloud>()
@@ -399,7 +433,8 @@ export class AtlassianClient {
       reporter: (f.reporter as { displayName?: string } | undefined)?.displayName ?? null,
       created: String(f.created ?? ''),
       updated: String(f.updated ?? ''),
-      attachments
+      attachments,
+      cloneLinks: cloneLinksOf(f)
     }
     return { preview, descriptionMarkdown: adfToMarkdown(f.description), raw }
   }

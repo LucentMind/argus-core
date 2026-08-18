@@ -9,6 +9,14 @@ export interface JiraAttachmentInfo {
   createdAt: string
 }
 
+/** A Jira clone relation, in whichever direction the fetched issue sits on. */
+export interface CloneLink {
+  key: string
+  summary: string
+  /** 'clones' = this issue is the clone; 'is-cloned-by' = this issue is the original. */
+  direction: 'clones' | 'is-cloned-by'
+}
+
 export interface JiraIssuePreview {
   key: string
   summary: string
@@ -20,6 +28,9 @@ export interface JiraIssuePreview {
   created: string
   updated: string
   attachments: JiraAttachmentInfo[]
+  /** Clone relations found on the issue. Empty for the overwhelming majority of tickets —
+   *  the source-ticket UI renders only when this is non-empty. */
+  cloneLinks: CloneLink[]
 }
 
 export interface JiraCommentInfo {
