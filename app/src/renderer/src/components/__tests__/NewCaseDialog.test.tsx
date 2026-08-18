@@ -11,6 +11,7 @@ const PREVIEW = {
   key: 'PROJ-7',
   summary: 'Route flickers',
   status: 'Open',
+  priority: null,
   labels: ['nav'],
   reporter: 'Ada',
   created: 'c',
@@ -303,5 +304,101 @@ describe('NewCaseDialog', () => {
     expect(onClose).not.toHaveBeenCalled()
     // form is usable again after the failure
     expect(screen.getByRole('button', { name: /create blank case/i })).toBeEnabled()
+  })
+
+  it('renders no clone-source section when the ticket has no clone links', async () => {
+    jira.preview = vi.fn(async () => ({ ok: true, value: { ...PREVIEW, cloneLinks: [] } }))
+    render(<NewCaseDialog {...noop} />)
+    await userEvent.type(screen.getByPlaceholderText(/ticket key or link/i), 'PROJ-7')
+    await userEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+    await screen.findByDisplayValue('PROJ-7')
+    expect(screen.queryByText(/cloned from/i)).not.toBeInTheDocument()
+  })
+
+  it('offers the clone source unchecked and imports only what was ticked', async () => {
+    const CLONE_PREVIEW = {
+      ...PREVIEW,
+      cloneLinks: [
+        { key: 'CUST-9', summary: 'Customer report', direction: 'is-cloned-by' as const }
+      ]
+    }
+    const SOURCE_PREVIEW = {
+      key: 'CUST-9',
+      summary: 'Customer report',
+      status: 'Open',
+      priority: null,
+      labels: [],
+      reporter: 'Cust',
+      created: 'c',
+      updated: 'u',
+      cloneLinks: [],
+      attachments: [
+        { id: '30001', filename: 'customer.log', size: 500, mimeType: 'text/plain', createdAt: 'x' }
+      ]
+    }
+    jira.preview = vi.fn(async (key: string) => ({
+      ok: true,
+      value: key === 'CUST-9' ? SOURCE_PREVIEW : CLONE_PREVIEW
+    }))
+    render(<NewCaseDialog {...noop} />)
+    await userEvent.type(screen.getByPlaceholderText(/ticket key or link/i), 'PROJ-7')
+    await userEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+
+    const row = await screen.findByRole('button', { name: /cloned from CUST-9/i })
+    await userEvent.click(row)
+
+    const box = await screen.findByRole('checkbox', { name: /customer\.log/i })
+    expect(box).not.toBeChecked()
+    await userEvent.click(box)
+
+    await userEvent.click(screen.getByRole('button', { name: /create case/i }))
+
+    await waitFor(() =>
+      expect(jira.createCase).toHaveBeenCalledWith(
+        expect.objectContaining({ key: 'PROJ-7', sources: ['CUST-9'] })
+      )
+    )
+    await waitFor(() =>
+      expect(jira.ingestAttachments).toHaveBeenCalledWith(
+        'PROJ-7',
+        'CUST-9',
+        expect.arrayContaining([expect.objectContaining({ id: '30001' })])
+      )
+    )
+  })
+
+  it('does not list a source whose attachments were never expanded', async () => {
+    const CLONE_PREVIEW = {
+      ...PREVIEW,
+      cloneLinks: [
+        { key: 'CUST-9', summary: 'Customer report', direction: 'is-cloned-by' as const }
+      ]
+    }
+    const SOURCE_PREVIEW = {
+      key: 'CUST-9',
+      summary: 'Customer report',
+      status: 'Open',
+      priority: null,
+      labels: [],
+      reporter: 'Cust',
+      created: 'c',
+      updated: 'u',
+      cloneLinks: [],
+      attachments: [
+        { id: '30001', filename: 'customer.log', size: 500, mimeType: 'text/plain', createdAt: 'x' }
+      ]
+    }
+    jira.preview = vi.fn(async (key: string) => ({
+      ok: true,
+      value: key === 'CUST-9' ? SOURCE_PREVIEW : CLONE_PREVIEW
+    }))
+    render(<NewCaseDialog {...noop} />)
+    await userEvent.type(screen.getByPlaceholderText(/ticket key or link/i), 'PROJ-7')
+    await userEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+    await screen.findByRole('button', { name: /cloned from CUST-9/i })
+    await userEvent.click(screen.getByRole('button', { name: /create case/i }))
+
+    await waitFor(() => expect(jira.createCase).toHaveBeenCalled())
+    expect(jira.createCase.mock.calls[0][0].sources).toEqual([])
   })
 })
