@@ -8,7 +8,7 @@ import { connectorsStore } from '../../lib/connectorsStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm } from '../../lib/confirmStore'
 import { DEFAULT_PRESETS, type ConnectorsPayload } from '../../../../shared/connectors'
-import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
+import { defaultSettings, settingsSchema, type SettingsPayload } from '../../../../shared/settings'
 
 vi.mock('../../lib/confirmStore', () => ({
   confirm: vi.fn(() => Promise.resolve(true)),
@@ -94,13 +94,18 @@ beforeEach(() => {
       patch: vi.fn((p: Record<string, Record<string, unknown>>) => {
         const merged = { ...currentSettings.settings } as Record<string, unknown>
         // Shallow per-section merge — enough for the sections this suite exercises (rca,
-        // watermark), and it no longer silently drops every section but rca.
+        // watermark, jira), and it no longer silently drops every section but rca.
         for (const [section, value] of Object.entries(p)) {
-          merged[section] = { ...(merged[section] as object), ...value }
+          const next = { ...(merged[section] as object), ...value } as Record<string, unknown>
+          // main's deepMerge DELETES a key patched with null; the re-parse below then re-seeds
+          // that key's schema default. Reproducing it here is what makes the reset idiom
+          // (`{ x: null }`) testable at all — without it a null lands in the payload verbatim.
+          for (const [k, v] of Object.entries(value)) if (v === null) delete next[k]
+          merged[section] = next
         }
         currentSettings = {
           ...currentSettings,
-          settings: merged as SettingsPayload['settings']
+          settings: settingsSchema.parse(merged) as SettingsPayload['settings']
         }
         return Promise.resolve(currentSettings)
       }),
@@ -374,6 +379,48 @@ describe('ConnectorsSettings', () => {
       expect(window.argus.settings.patch).toHaveBeenCalledWith({
         watermark: { jira: { text: '_Drafted by a robot._' } }
       })
+    })
+  })
+
+  describe('Jira clone link types', () => {
+    it('shows the default entry and states what removing them all does', async () => {
+      render(<ConnectorsSettings />)
+      expect(await screen.findByLabelText('Clone link type Cloners')).toHaveValue('Cloners')
+      expect(screen.getByText(/go back to Jira's default \("Cloners"\)/)).toBeInTheDocument()
+    })
+
+    it('appends a custom type to the list', async () => {
+      render(<ConnectorsSettings />)
+      await userEvent.type(await screen.findByLabelText('New clone link type'), 'Kopiert')
+      await userEvent.click(screen.getByRole('button', { name: /^add$/i }))
+      expect(window.argus.settings.patch).toHaveBeenCalledWith({
+        jira: { cloneLinkTypes: ['Cloners', 'Kopiert'] }
+      })
+    })
+
+    it('edits an existing entry in place', async () => {
+      render(<ConnectorsSettings />)
+      const input = await screen.findByLabelText('Clone link type Cloners')
+      await userEvent.clear(input)
+      await userEvent.type(input, 'Kopiert')
+      await userEvent.tab() // DraftInput commits on blur
+      expect(window.argus.settings.patch).toHaveBeenCalledWith({
+        jira: { cloneLinkTypes: ['Kopiert'] }
+      })
+    })
+
+    // NOT `[]`: an empty array does not equal the non-empty default, so stripDefaults would
+    // keep it on disk and discovery would silently match nothing. `null` deletes the key and
+    // the next parse re-seeds ["Cloners"] — which is what the row's copy promises.
+    it('patches null rather than an empty list when the last entry is removed, so it reseeds', async () => {
+      render(<ConnectorsSettings />)
+      await userEvent.click(await screen.findByRole('button', { name: 'Remove Cloners' }))
+      expect(window.argus.settings.patch).toHaveBeenCalledWith({ jira: { cloneLinkTypes: null } })
+      // …and the deleted key re-seeds its default on the next read, rather than persisting as
+      // an empty "match nothing" list.
+      await waitFor(() =>
+        expect(screen.getByLabelText('Clone link type Cloners')).toHaveValue('Cloners')
+      )
     })
   })
 })

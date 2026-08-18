@@ -45,11 +45,14 @@ beforeEach(() => {
 })
 
 describe('JiraSection', () => {
-  it('renders nothing for a case with no Jira key', () => {
+  it('renders nothing for a case with no Jira key, and asks for no sources', () => {
     const { container } = render(
       <JiraSection slug="nn-5187" jiraKey={null} title={TITLE} syncedAt={SYNCED_AT} />
     )
     expect(container.firstChild).toBeNull()
+    // The source load runs in an effect, which necessarily fires BEFORE the `!jiraKey` early
+    // return — so the guard has to live in the loader, not in the render path.
+    expect(window.argus.jira.listSources).not.toHaveBeenCalled()
   })
 
   // Always open (user-directed, 2026-08-02): the ticket, when it was last pulled, and the one

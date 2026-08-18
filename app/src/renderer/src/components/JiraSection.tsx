@@ -65,14 +65,17 @@ export function JiraSection({
   ).dynamicTheme
 
   /** The case's source tickets. Reloaded rather than mutated locally after an add or an unlink,
-   *  so what the section shows is always what the main process actually has linked. */
-  const loadSources = useCallback(
-    (): Promise<void> =>
-      window.argus.jira.listSources(slug).then((r) => {
-        if (r.ok) setSources(r.value)
-      }),
-    [slug]
-  )
+   *  so what the section shows is always what the main process actually has linked.
+   *
+   *  A case with no ticket of its own is a no-op, not a fetch: this hook necessarily runs
+   *  BEFORE the `!jiraKey` early return below, and that case renders no section at all — so
+   *  there is nothing to show the answer in, and nothing to discover clone links from either. */
+  const loadSources = useCallback((): Promise<void> => {
+    if (!jiraKey) return Promise.resolve()
+    return window.argus.jira.listSources(slug).then((r) => {
+      if (r.ok) setSources(r.value)
+    })
+  }, [slug, jiraKey])
 
   useEffect(() => {
     void loadSources()

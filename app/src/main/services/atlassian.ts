@@ -20,6 +20,7 @@ import type {
   ConfluencePageNode,
   ConfluencePageContent
 } from '../../shared/confluence'
+import { DEFAULT_CLONE_LINK_TYPES } from '../../shared/settings'
 import { adfToMarkdown } from './adf'
 
 export class AtlassianError extends Error {
@@ -197,15 +198,18 @@ const ISSUE_FIELDS =
   'summary,description,status,priority,labels,reporter,created,updated,attachment,issuelinks'
 
 /**
- * Jira's built-in clone link type. This is the single hardcoded assumption in the
- * source-ticket feature: an org that renamed the type gets no discovery. A workspace-level
- * list of accepted link-type names would replace exactly this constant — see the spec's
- * non-goals (2026-08-18-case-source-tickets-design.md).
+ * Pure: extract clone relations from an issue's `fields`, keeping links whose type name is in
+ * `acceptedTypes` (compared case-insensitively). Malformed entries are skipped.
+ *
+ * The accepted names are workspace configuration (`settings.jira.cloneLinkTypes`, default
+ * ["Cloners"]) because an organisation can rename Jira's built-in clone link type, and a
+ * mismatch is silent — discovery simply finds nothing, with no error anywhere.
  */
-const CLONE_LINK_TYPE = 'cloners'
-
-/** Pure: extract clone relations from an issue's `fields`. Malformed entries are skipped. */
-export function cloneLinksOf(fields: Record<string, unknown>): CloneLink[] {
+export function cloneLinksOf(
+  fields: Record<string, unknown>,
+  acceptedTypes: string[]
+): CloneLink[] {
+  const accepted = new Set(acceptedTypes.map((t) => t.toLowerCase()))
   const links = fields.issuelinks
   if (!Array.isArray(links)) return []
   const out: CloneLink[] = []
@@ -213,7 +217,7 @@ export function cloneLinksOf(fields: Record<string, unknown>): CloneLink[] {
     if (!l || typeof l !== 'object') continue
     const entry = l as Record<string, unknown>
     const name = (entry.type as { name?: string } | undefined)?.name ?? ''
-    if (name.toLowerCase() !== CLONE_LINK_TYPE) continue
+    if (!accepted.has(name.toLowerCase())) continue
     // inward on a Cloners link reads "is cloned by": the fetched issue is the ORIGINAL.
     const inward = entry.inwardIssue as { key?: string; fields?: { summary?: string } } | undefined
     const outward = entry.outwardIssue as
@@ -236,7 +240,10 @@ export class AtlassianClient {
     private creds: () => AtlassianAuth,
     private fetchImpl: typeof fetch = fetch,
     private timeoutMs = REST_TIMEOUT_MS,
-    private downloadIdleMs = DOWNLOAD_IDLE_MS
+    private downloadIdleMs = DOWNLOAD_IDLE_MS,
+    /** Accepted clone link-type names, read per call so a settings change needs no restart —
+     *  a snapshot taken at construction would pin the list to whatever was on disk at boot. */
+    private cloneLinkTypes: () => string[] = () => [...DEFAULT_CLONE_LINK_TYPES]
   ) {}
 
   /** Maps a non-OK gateway response to the right AtlassianError code. */
@@ -434,7 +441,7 @@ export class AtlassianClient {
       created: String(f.created ?? ''),
       updated: String(f.updated ?? ''),
       attachments,
-      cloneLinks: cloneLinksOf(f)
+      cloneLinks: cloneLinksOf(f, this.cloneLinkTypes())
     }
     return { preview, descriptionMarkdown: adfToMarkdown(f.description), raw }
   }

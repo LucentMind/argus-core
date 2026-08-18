@@ -278,6 +278,22 @@ const migrationsSchema = z.looseObject({
   defaultRepoToList: z.string().default('')
 })
 
+/** Jira's own built-in clone link type. Exported so the REST client's fallback and the schema
+ *  default are one value rather than two strings drifting apart. */
+export const DEFAULT_CLONE_LINK_TYPES = ['Cloners'] as const
+
+const jiraSchema = z.looseObject({
+  /** Jira link-type names treated as "this ticket is a clone of that one". Compared
+   *  case-insensitively. Default is Jira's built-in type; an org that renamed it, or uses a
+   *  custom type, adds theirs here.
+   *
+   *  A stored `[]` genuinely means "match nothing" — unlike an emptied RECORD, an empty array
+   *  does not equal this non-empty default, so `stripDefaults` keeps it and it survives a
+   *  reload. That is why the settings UI patches `null` (the repo's reset idiom: deepMerge
+   *  deletes the key, re-parse re-seeds) when the last entry is removed, rather than `[]`. */
+  cloneLinkTypes: z.array(z.string()).default([...DEFAULT_CLONE_LINK_TYPES])
+})
+
 const uiSchema = z.looseObject({
   /** "How knowledge flows" strip on the Library/Proposals pages — once dismissed it never returns. */
   knowledgeStripDismissed: z.boolean().default(false)
@@ -330,6 +346,7 @@ export const settingsSchema = z.looseObject({
   observability: observabilitySchema.default(() => observabilitySchema.parse({})),
   onboarding: onboardingSchema.default(() => onboardingSchema.parse({})),
   memoryHygiene: memoryHygieneSchema.default(() => memoryHygieneSchema.parse({})),
+  jira: jiraSchema.default(() => jiraSchema.parse({})),
   ui: uiSchema.default(() => uiSchema.parse({})),
   migrations: migrationsSchema.default(() => migrationsSchema.parse({})),
   distill: distillSchema.default(() => distillSchema.parse({})),
