@@ -595,12 +595,18 @@ interface CaseJiraLinkRow {
 
 /** Mirror the current link set into case.json, like every other case writer. */
 function mirrorJiraSources(db: DatabaseSync, argusHome: string, slug: string): void {
-  const file = path.join(caseDir(argusHome, slug), 'case.json')
+  const dir = caseDir(argusHome, slug)
+  if (!fs.existsSync(dir)) return // no case dir yet: nothing to mirror into
+  const file = path.join(dir, 'case.json')
   let onDisk: Record<string, unknown>
   try {
     onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
   } catch {
-    return // no case dir yet (or unreadable): the DB stays authoritative, nothing to mirror into
+    // case.json is corrupt/unreadable — rebuild the rewrite base from the DB record,
+    // same recovery path as setCaseJira, so a corrupted file doesn't permanently stop
+    // future mirroring for this case.
+    const existing = getCase(db, slug)
+    onDisk = existing ? stripDerived(existing) : {}
   }
   const jiraSources = listCaseJiraLinks(db, slug).map((l) => l.key)
   fs.writeFileSync(file, JSON.stringify({ ...onDisk, jiraSources }, null, 2))
