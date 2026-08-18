@@ -82,6 +82,7 @@ interface JobDbRow {
   tool_call_count: number | null
   trajectory_json: string | null
   dropped_json: string | null
+  stages_json: string | null
 }
 
 function toRow(r: JobDbRow): DistillJobRow {
@@ -265,15 +266,18 @@ export class DistillQueue {
       throw new Error(
         `distill job ${jobId} cannot be retried: case ${job.caseSlug} already has an in-flight job (${inFlight.id})`
       )
-    // Resets every v2 column too — a retried job must start with a clean slate, not the
-    // previous attempt's cost/turns/trajectory sitting on a row that reads state='queued'
+    // Resets every v2 AND v3 column too — a retried job must start with a clean slate, not the
+    // previous attempt's cost/turns/trajectory/stages sitting on a row that reads state='queued'
     // (contradicting toRow's/DistillJobRow's own "null until a job records them" contract).
+    // `stages_json` matters extra here: a v3 attempt's per-stage records would otherwise survive
+    // a retry that the settings flag has since routed to v2, leaving a row that claims stages the
+    // run it now describes never produced.
     this.deps.db
       .prepare(
         `UPDATE distill_jobs SET state='queued', error=NULL, raw_output=NULL, item_count=NULL,
          finished_at=NULL, input_tokens=NULL, output_tokens=NULL, cost_usd=NULL, duration_ms=NULL,
          prompt_chars=NULL, turn_count=NULL, tool_call_count=NULL, trajectory_json=NULL,
-         dropped_json=NULL WHERE id=?`
+         dropped_json=NULL, stages_json=NULL WHERE id=?`
       )
       .run(jobId)
     const fresh = this.get(jobId)!
@@ -523,7 +527,7 @@ export class DistillQueue {
       }
       const res = this.deps.stage(r.case_slug, r.id, run.output)
       finish(
-        `state='done', raw_output=?, item_count=?, input_tokens=?, output_tokens=?, cost_usd=?, duration_ms=?, prompt_chars=?, turn_count=?, tool_call_count=?, trajectory_json=?, dropped_json=?`,
+        `state='done', raw_output=?, item_count=?, input_tokens=?, output_tokens=?, cost_usd=?, duration_ms=?, prompt_chars=?, turn_count=?, tool_call_count=?, trajectory_json=?, dropped_json=?, stages_json=?`,
         run.raw,
         res.staged,
         run.usage?.inputTokens ?? null,
@@ -534,7 +538,15 @@ export class DistillQueue {
         run.turnCount ?? null,
         run.toolCallCount ?? null,
         trajectoryJson(run.trajectory),
-        JSON.stringify(res.dropped)
+        // ONE dropped list for the whole run, in the order things were actually dropped:
+        // v3's pre-stage drops (veto + validators, decided before staging ever saw a proposal)
+        // first, then staging's own cap/basis drops. `preStageDropped` is absent on a v2 run, so
+        // this stays byte-identical to the previous `JSON.stringify(res.dropped)` there. The
+        // reason set is wider than staging's own `'cap' | 'basis'` (it now also carries every
+        // VetoReason/ValidatorReason); nothing reads this column back today, so no reader type
+        // needed widening — a future reader must treat `reason` as an open string.
+        JSON.stringify([...(run.preStageDropped ?? []), ...res.dropped]),
+        run.stages ? JSON.stringify(run.stages) : null
       )
     } catch (err) {
       if (ac.signal.aborted) {
@@ -549,9 +561,15 @@ export class DistillQueue {
         // as a done one. Persist the usage/trajectory columns alongside raw_output on this
         // FAILED row, same fields the success path records (minus item_count/dropped_json,
         // which only make sense once staging actually ran).
+        //
+        // `stages_json` is recorded here too, and it is the single most valuable column on a
+        // failed v3 row: the pipeline throws with `agentMeta.stages` carrying every stage that
+        // DID complete plus the failing stage's own `error`, so this row alone says which stage
+        // broke and on what output. Dropping it would leave a v3 failure indistinguishable from
+        // a v2 one. NULL on a v2 failure (no stages) and on any pre-v3 row.
         const m = err.agentMeta
         finish(
-          `state='failed', error=?, raw_output=?, input_tokens=?, output_tokens=?, cost_usd=?, duration_ms=?, prompt_chars=?, turn_count=?, tool_call_count=?, trajectory_json=?`,
+          `state='failed', error=?, raw_output=?, input_tokens=?, output_tokens=?, cost_usd=?, duration_ms=?, prompt_chars=?, turn_count=?, tool_call_count=?, trajectory_json=?, stages_json=?`,
           err.message,
           err.raw,
           m?.usage?.inputTokens ?? null,
@@ -561,7 +579,8 @@ export class DistillQueue {
           m?.promptChars ?? null,
           m?.turnCount ?? null,
           m?.toolCallCount ?? null,
-          trajectoryJson(m?.trajectory)
+          trajectoryJson(m?.trajectory),
+          m?.stages ? JSON.stringify(m.stages) : null
         )
       } else if (err instanceof DistillParseError) {
         finish(`state='failed', error=?, raw_output=?`, err.message, err.raw)

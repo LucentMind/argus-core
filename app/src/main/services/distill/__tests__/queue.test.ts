@@ -122,7 +122,10 @@ describe('DistillQueue', () => {
               turnCount: 12,
               toolCallCount: 11,
               trajectory,
-              promptChars: 777
+              promptChars: 777,
+              stages: {
+                dossier: { promptHash: 'h', promptChars: 1, rawOutput: 'raw', error: 'boom' }
+              }
             }
           )
         }
@@ -135,9 +138,10 @@ describe('DistillQueue', () => {
     expect(failed.state).toBe('failed')
     expect(failed.costUsd).toBe(0.09) // sanity: the columns really were recorded pre-retry
     const preRetryRow = db
-      .prepare(`SELECT trajectory_json FROM distill_jobs WHERE id = ?`)
-      .get(failed.id) as { trajectory_json: string | null }
+      .prepare(`SELECT trajectory_json, stages_json FROM distill_jobs WHERE id = ?`)
+      .get(failed.id) as { trajectory_json: string | null; stages_json: string | null }
     expect(preRetryRow.trajectory_json).not.toBeNull()
+    expect(preRetryRow.stages_json).not.toBeNull() // sanity: v3 stages really were recorded too
 
     // Occupy the queue's single in-flight slot with an unrelated, never-resolving job BEFORE
     // retrying — this queue processes one job at a time regardless of slug (see the class doc
@@ -168,6 +172,7 @@ describe('DistillQueue', () => {
     expect(row.tool_call_count).toBeNull()
     expect(row.trajectory_json).toBeNull()
     expect(row.dropped_json).toBeNull()
+    expect(row.stages_json).toBeNull()
   })
 
   it('abort precedence: a run that aborts and then throws the metadata-carrying error still lands cancelled — no v2 columns, raw_output stays NULL', async () => {
@@ -797,6 +802,66 @@ describe('DistillQueue', () => {
       dropped_json: string | null
     }
     expect(JSON.parse(row.dropped_json!)).toEqual(dropped)
+  })
+
+  it('persists stages_json and merges pre-stage drops AHEAD of staging drops in dropped_json on a done job', async () => {
+    const stagingDrop = {
+      type: 'reference-edit',
+      target: 'topic-9',
+      title: 'T9',
+      reason: 'basis' as const
+    }
+    const { q } = makeQueue({
+      distill: async () => ({
+        raw: '```json\n{}\n```',
+        output: {},
+        usage: { durationMs: 1 },
+        stages: { dossier: { promptHash: 'abc', promptChars: 1, rawOutput: 'x' } },
+        preStageDropped: [
+          { type: 'skill-new', target: 't', title: 'x', reason: 'cap' as const },
+          { type: 'reference-edit', target: 'u', title: 'y', reason: 'case-identifiers' as const }
+        ]
+      }),
+      stage: () => ({
+        staged: 1,
+        droppedDuplicates: 0,
+        supersededRemoved: 0,
+        dropped: [stagingDrop]
+      })
+    })
+    q.enqueue('c1')
+    await q.idle()
+    const row = db.prepare(`SELECT state, stages_json, dropped_json FROM distill_jobs`).get() as {
+      state: string
+      stages_json: string
+      dropped_json: string
+    }
+    expect(row.state).toBe('done')
+    expect(JSON.parse(row.stages_json).dossier.promptHash).toBe('abc')
+    // Pre-stage drops (veto/validator, recorded before staging ever ran) come FIRST, in the
+    // order the pipeline recorded them; staging's own drops follow. A reader walking this array
+    // sees the run's chronology, and the widened reason set ('case-identifiers' here) survives.
+    const drops = JSON.parse(row.dropped_json) as { reason: string; target: string }[]
+    expect(drops.map((d) => d.reason)).toEqual(['cap', 'case-identifiers', 'basis'])
+    expect(drops.map((d) => d.target)).toEqual(['t', 'u', 'topic-9'])
+  })
+
+  it('persists stages_json on a failed agentic job', async () => {
+    const { q } = makeQueue({
+      distill: async () => {
+        throw new DistillAgentRunError('boom', 'raw', {
+          stages: { dossier: { promptHash: 'h', promptChars: 1, rawOutput: 'raw', error: 'boom' } }
+        })
+      }
+    })
+    q.enqueue('c1')
+    await q.idle()
+    const row = db.prepare(`SELECT state, stages_json FROM distill_jobs`).get() as {
+      state: string
+      stages_json: string
+    }
+    expect(row.state).toBe('failed')
+    expect(JSON.parse(row.stages_json).dossier.error).toBe('boom')
   })
 
   it('truncates trajectory_json to the FIRST entries that fit under the 32KB cap (loop-start context matters most)', async () => {

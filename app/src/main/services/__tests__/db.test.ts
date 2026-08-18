@@ -213,7 +213,8 @@ describe('openDb', () => {
         'turn_count',
         'tool_call_count',
         'trajectory_json',
-        'dropped_json'
+        'dropped_json',
+        'stages_json'
       ]) {
         expect(cols).toContain(c)
       }
@@ -260,7 +261,8 @@ describe('openDb', () => {
         'turn_count',
         'tool_call_count',
         'trajectory_json',
-        'dropped_json'
+        'dropped_json',
+        'stages_json'
       ]) {
         expect(cols).toContain(c)
       }
@@ -277,6 +279,7 @@ describe('openDb', () => {
         tool_call_count: number | null
         trajectory_json: string | null
         dropped_json: string | null
+        stages_json: string | null
       }
       expect(row.kind).toBe('case')
       expect(row.input_tokens).toBeNull()
@@ -288,6 +291,7 @@ describe('openDb', () => {
       expect(row.tool_call_count).toBeNull()
       expect(row.trajectory_json).toBeNull()
       expect(row.dropped_json).toBeNull()
+      expect(row.stages_json).toBeNull()
       // statusFor-style read (see DistillQueue.statusFor): the legacy row must still surface
       // through the kind='case' filter after the migration, not get silently dropped.
       const latest = upgraded

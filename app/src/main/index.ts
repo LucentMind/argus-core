@@ -300,6 +300,8 @@ import { DISTILL_AGENT_TIMEOUT_MS } from './services/distill/worldTools'
 import { stageDistillOutput } from './services/distill/staging'
 import { searchCaseSummaries } from './services/distill/summaries'
 import { caseDistillPromptHash } from './services/distill/promptHash'
+import { runCaseDistillPipeline } from './services/distill/v3/pipeline'
+import { caseDistillPipelineHash } from './services/distill/v3/promptHash'
 import { readRejectDigest } from './services/distill/rejectDigest'
 import { RcaJobs } from './services/rca/jobs'
 import { postRcaReport } from './services/rca/post'
@@ -1017,10 +1019,27 @@ function registerIpc(): void {
       assembleDistillInput(db, argusHome, slug, skillsIndexForDistill(), {
         operatorGuidance: settingsService.get().distill.guidance
       }),
-    distill: (input, signal) => runCaseDistillAgent(input, distillAgentRun, resolvePrompt, signal),
+    // Read `settings.distill.pipeline` per CALL, not once at construction: the queue is built at
+    // boot and lives for the process lifetime, so capturing the flag here would make the setting
+    // require a restart. The pipeline needs BOTH runners — `distillAgentRun` for the tool-using
+    // dossier stage, `headlessRun` for the one-shot stages.
+    distill: (input, signal) =>
+      settingsService.get().distill.pipeline === 'v3'
+        ? runCaseDistillPipeline(
+            input,
+            { agent: distillAgentRun, oneShot: headlessRun },
+            resolvePrompt,
+            signal
+          )
+        : runCaseDistillAgent(input, distillAgentRun, resolvePrompt, signal),
     stage: (slug, jobId, output) => stageDistillOutput(db, argusHome, slug, jobId, output),
     broadcast: (p) => broadcast(IPC.distillChanged, p),
-    promptHash: () => caseDistillPromptHash(resolvePrompt),
+    // Same flag, same per-call read: a v3 job must be stamped with the v3 hash (which covers all
+    // four stage prompts) or every eval/replay read would attribute it to the v2 prompt version.
+    promptHash: () =>
+      settingsService.get().distill.pipeline === 'v3'
+        ? caseDistillPipelineHash(resolvePrompt)
+        : caseDistillPromptHash(resolvePrompt),
     argusHome,
     listArchivedProposalsFn: () => listArchivedProposals(argusHome),
     // The digest LLM step is one batch prompt, not a tool-using agent run — Task 10's one-shot
