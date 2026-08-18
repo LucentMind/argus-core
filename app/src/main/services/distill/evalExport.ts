@@ -5,6 +5,7 @@ import { proposalsDir, proposalsArchiveDir } from '../paths'
 import { fmBlock, fmField } from '../../../shared/frontmatter'
 import { ACCEPTED_CONTENT_DELIMITER } from '../../../shared/proposals'
 import type { CaseDistillInput } from '../../../shared/distill'
+import type { PipelineStages } from '../../../shared/distillV3'
 import type {
   DistillEvalBundleLine,
   DistillEvalExportResult,
@@ -20,6 +21,7 @@ interface JobRow {
   error: string | null
   prompt_hash: string | null
   created_at: string
+  stages_json: string | null
 }
 
 /** Frontmatter + body of every .md in dir, keyed job-id → entries; files without a job stamp
@@ -128,7 +130,8 @@ export function buildEvalBundle(
         state: r.state,
         inputSnapshot: JSON.parse(r.input_snapshot) as CaseDistillInput,
         rawOutput: r.raw_output ?? '',
-        error: r.error
+        error: r.error,
+        ...(r.stages_json ? { stages: JSON.parse(r.stages_json) as PipelineStages } : {})
       },
       items,
       exportedAt,

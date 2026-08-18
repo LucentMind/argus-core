@@ -1,4 +1,5 @@
 import type { CaseDistillInput } from './distill'
+import type { PipelineStages } from './distillV3'
 
 export interface DistillEvalItem {
   type: string
@@ -26,6 +27,8 @@ export interface DistillEvalBundleLine {
     inputSnapshot: CaseDistillInput
     rawOutput: string
     error: string | null
+    /** v3: per-stage records (prompt hash, raw output, usage, error). Absent on v2 rows. */
+    stages?: PipelineStages
   }
   items: DistillEvalItem[]
   exportedAt: string

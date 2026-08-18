@@ -132,6 +132,35 @@ describe('stageDistillOutput', () => {
     expect(ps.find((p) => p.target === 'dlt-cmds')!.title).toBe('user cmds')
   })
 
+  it('writes an evidence frontmatter line for a proposal that has one, and none for a proposal that does not', () => {
+    stageDistillOutput(db, home, 'case-a', 11, {
+      proposals: [
+        {
+          type: 'reference-edit',
+          target: 'with-evidence',
+          title: 'WithEvidence',
+          content: 'c',
+          basis: 'evidence-bearing proposal basis text',
+          evidence: '[{"finding":7}]'
+        },
+        {
+          type: 'reference-edit',
+          target: 'without-evidence',
+          title: 'WithoutEvidence',
+          content: 'c',
+          basis: 'no-evidence proposal basis text'
+        }
+      ]
+    })
+    const ps = listProposals(home)
+    const withEv = ps.find((p) => p.target === 'with-evidence')!
+    const rawWith = fs.readFileSync(path.join(home, 'proposals', withEv.file), 'utf8')
+    expect(rawWith).toContain('evidence: [{"finding":7}]')
+    const withoutEv = ps.find((p) => p.target === 'without-evidence')!
+    const rawWithout = fs.readFileSync(path.join(home, 'proposals', withoutEv.file), 'utf8')
+    expect(rawWithout).not.toContain('evidence:')
+  })
+
   it('marks re-produced previously-reviewed items with the badge flag', () => {
     const f = writeProposal(home, 'case-a', {
       type: 'reference-edit',
