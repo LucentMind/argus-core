@@ -730,3 +730,65 @@ describe('cloneLinksOf', () => {
     expect(cloneLinksOf(fields)).toEqual([])
   })
 })
+
+/**
+ * Captured from a REAL Jira Cloud instance (argus88.atlassian.net) on 2026-08-18, not
+ * hand-authored. The fixtures in the describe block above encode an ASSUMPTION about the
+ * shape and orientation of `issuelinks`; these encode what Jira actually returned for a
+ * genuine Cloners link between KAN-17 (the original) and SAM1-11 (its clone).
+ *
+ * Both fields and both directions are trimmed to what cloneLinksOf reads. The instance's
+ * clone link type is named "Cloners" — matching CLONE_LINK_TYPE — with inward "is cloned by"
+ * and outward "clones".
+ */
+describe('cloneLinksOf against a real Jira payload', () => {
+  // Fetched issue = SAM1-11, the CLONE. Jira returns the other end as `outwardIssue`.
+  const CLONE_SIDE = {
+    issuelinks: [
+      {
+        id: '10036',
+        type: { id: '10001', name: 'Cloners', inward: 'is cloned by', outward: 'clones' },
+        outwardIssue: {
+          id: '10123',
+          key: 'KAN-17',
+          fields: { summary: 'Invoice total wrong when a discount code is applied twice' }
+        }
+      }
+    ]
+  }
+
+  // Fetched issue = KAN-17, the ORIGINAL. Jira returns the other end as `inwardIssue`.
+  const ORIGINAL_SIDE = {
+    issuelinks: [
+      {
+        id: '10036',
+        type: { id: '10001', name: 'Cloners', inward: 'is cloned by', outward: 'clones' },
+        inwardIssue: {
+          id: '10122',
+          key: 'SAM1-11',
+          fields: { summary: 'Invoice total wrong when a discount code is applied twice' }
+        }
+      }
+    ]
+  }
+
+  it('reads the clone side as "this issue clones that one"', () => {
+    expect(cloneLinksOf(CLONE_SIDE)).toEqual([
+      {
+        key: 'KAN-17',
+        summary: 'Invoice total wrong when a discount code is applied twice',
+        direction: 'clones'
+      }
+    ])
+  })
+
+  it('reads the original side as "this issue is cloned by that one"', () => {
+    expect(cloneLinksOf(ORIGINAL_SIDE)).toEqual([
+      {
+        key: 'SAM1-11',
+        summary: 'Invoice total wrong when a discount code is applied twice',
+        direction: 'is-cloned-by'
+      }
+    ])
+  })
+})
