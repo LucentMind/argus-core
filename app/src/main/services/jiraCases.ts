@@ -27,7 +27,14 @@ import {
   setCaseSyncState,
   setReviewBaseline
 } from './caseService'
-import { ingestArtifact, ingestContent, listEvidence, updateEvidenceContent } from './ingest'
+import {
+  findEvidenceBySha256,
+  ingestArtifact,
+  ingestContent,
+  listEvidence,
+  sha256File,
+  updateEvidenceContent
+} from './ingest'
 import type { IngestQueueLike } from './ingestQueue'
 import type { Detection } from './packs/detection'
 import { extractZipToTemp, ArchiveLimitError, type ArchiveLimits } from './archiveExtract'
@@ -56,6 +63,17 @@ export interface JiraCasesDeps {
   archiveLimits?: Partial<ArchiveLimits>
 }
 
+/** A ticket this evidence row's bytes are ALSO the attachment for, beyond the row's own
+ *  `key`/`attachmentId`. Written when a dedup hit lands: the file was already ingested from
+ *  one ticket and a byte-identical attachment then turned up on another (the overwhelmingly
+ *  common case being a clone and the customer ticket it was cloned from — Jira clone does not
+ *  copy attachments, but the same files are often re-attached to both independently). */
+interface JiraAlsoOn {
+  key: string
+  attachmentId: string
+  filename: string
+}
+
 interface JiraEvidenceMeta {
   key?: string
   role?: string
@@ -63,6 +81,7 @@ interface JiraEvidenceMeta {
   attachmentId?: string
   filename?: string
   commentCount?: number
+  alsoOn?: JiraAlsoOn[]
 }
 
 const jiraMeta = (meta: Record<string, unknown>): JiraEvidenceMeta =>
@@ -77,18 +96,41 @@ const findJiraEvidence = (
 ): EvidenceRecord | undefined =>
   evidence.find((e) => jiraMeta(e.meta).role === role && jiraMeta(e.meta).key === key)
 
-/** attachmentId → filename for attachments already ingested FROM `key`.
- *  Records stamped with a different key belong to another ticket's diff, not this one.
+/** attachmentId → filename for attachments already ingested FROM `key`, either directly
+ *  (this row's own `meta.jira.attachmentId`/`key`) or via `alsoOn` — a dedup hit that
+ *  attributed this SAME file to `key` as well, without a second evidence row. A ticket's
+ *  ingested set must include both or a deduped file reappears as "new" on every refresh of
+ *  the ticket that lost the dedup coin flip (see the case-source-tickets dedup design).
  *  Records with no key at all are legacy primary-ticket evidence and count for the primary. */
 const knownAttachments = (evidence: EvidenceRecord[], key: string): Map<string, string> => {
   const known = new Map<string, string>()
   for (const e of evidence) {
     const m = jiraMeta(e.meta)
-    if (!m.attachmentId) continue
-    if (m.key !== undefined && m.key !== key) continue
-    known.set(m.attachmentId, m.filename ?? e.relPath)
+    if (m.attachmentId && (m.key === undefined || m.key === key)) {
+      known.set(m.attachmentId, m.filename ?? e.relPath)
+    }
+    for (const also of m.alsoOn ?? []) {
+      if (also.key === key) known.set(also.attachmentId, also.filename)
+    }
   }
   return known
+}
+
+/** Append (idempotently) a secondary ticket attribution to an existing evidence row's
+ *  `meta.jira.alsoOn`, for a dedup hit whose file already carries a DIFFERENT ticket's key.
+ *  Meta-only: the file on disk and its hash are untouched, so this never re-copies, re-hashes
+ *  or re-indexes — only the ingested set another ticket's refresh diff reads changes. */
+function addAlsoOn(db: DatabaseSync, evidenceId: number, entry: JiraAlsoOn): void {
+  const row = db.prepare(`SELECT meta FROM evidence WHERE id = ?`).get(evidenceId) as
+    { meta: string } | undefined
+  if (!row) return
+  const meta = JSON.parse(row.meta) as Record<string, unknown>
+  const jira = { ...(meta.jira as JiraEvidenceMeta | undefined) }
+  const alsoOn = jira.alsoOn ?? []
+  if (alsoOn.some((a) => a.key === entry.key && a.attachmentId === entry.attachmentId)) return
+  jira.alsoOn = [...alsoOn, entry]
+  meta.jira = jira
+  db.prepare(`UPDATE evidence SET meta = ? WHERE id = ?`).run(JSON.stringify(meta), evidenceId)
 }
 
 function ticketMarkdown(p: JiraIssuePreview, description: string): string {
@@ -350,6 +392,31 @@ export class JiraCases {
         try {
           const tmpFile = path.join(tmpDir, sanitizeFilename(a.filename))
           await this.deps.client.downloadAttachment(a.id, tmpFile)
+
+          // Dedup by content BEFORE copying into the case tree. A case bound to a clone
+          // and a source ticket very often carries the same file on both — Jira's clone
+          // link doesn't copy attachments, but the org's own workflow (or the customer)
+          // frequently re-attaches the same evidence to both tickets independently. Hash
+          // the temp file we just downloaded and look for existing evidence in THIS case
+          // with that hash; on a hit, attribute this ticket/attachment to that row instead
+          // of writing a second copy (and, for an archive, instead of re-exploding it).
+          const dup = findEvidenceBySha256(db, kase.id, sha256File(tmpFile))
+          if (dup) {
+            const dupJira = jiraMeta(dup.meta)
+            if (dupJira.key !== undefined && dupJira.key !== key) {
+              addAlsoOn(db, dup.id, { key, attachmentId: a.id, filename: a.filename })
+            }
+            const deduped: JiraAttachmentProgress = {
+              ...base,
+              status: 'done',
+              evidenceId: dup.id,
+              dedupedFrom: dupJira.key ?? key
+            }
+            this.deps.emitProgress(deduped)
+            results.push(deduped)
+            continue
+          }
+
           // ingestArtifact enqueues indexing + extraction; the queue emits its own
           // progress, which is why no `parsing` broadcast is kicked off here any more.
           const rec = await ingestArtifact(

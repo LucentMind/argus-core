@@ -52,6 +52,12 @@ export interface JiraAttachmentProgress {
   extractedCount?: number
   /** For a zip archive: set when extraction was aborted (cap breach / corrupt). */
   extractError?: string
+  /** Set when this attachment's bytes were already present as evidence in this case,
+   *  ingested from the named ticket — this download was deduped, not re-copied. A case
+   *  bound to a clone and a source ticket very often carries the same file on both, since
+   *  a clone's attachments are typically copied from (or shared with) the ticket it was
+   *  cloned from. Absent means this is a genuinely new file. */
+  dedupedFrom?: string
 }
 
 /** Per-source outcome inside a refresh. A source is evidence-only: it is never a post target

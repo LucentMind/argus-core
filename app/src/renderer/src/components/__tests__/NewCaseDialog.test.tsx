@@ -442,6 +442,91 @@ describe('NewCaseDialog', () => {
     expect(jira.createCase.mock.calls[0][0].sources).toEqual([])
   })
 
+  it('shows a deduped file as done, attributed to the ticket it was already ingested from', async () => {
+    render(<NewCaseDialog {...noop} />)
+    fireEvent.change(screen.getByPlaceholderText(/PROJ-1234/i), { target: { value: 'PROJ-7' } })
+    fireEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+    await screen.findByDisplayValue('Route flickers')
+    fireEvent.click(screen.getByRole('button', { name: /^create case$/i }))
+    await waitFor(() => expect(jira.ingestAttachments).toHaveBeenCalled())
+    await waitFor(() => expect(progressCb).not.toBeNull())
+    act(() =>
+      progressCb!({
+        caseSlug: 'PROJ-7',
+        attachmentId: '10001',
+        filename: 'trace.binlog',
+        status: 'done',
+        evidenceId: 1,
+        dedupedFrom: 'CUST-9'
+      })
+    )
+    expect(await screen.findByText(/done/i)).toBeInTheDocument()
+    expect(screen.getByText(/CUST-9/)).toBeInTheDocument()
+  })
+
+  it('ingests the primary batch, then each ticked source, one at a time (not concurrently)', async () => {
+    const CLONE_PREVIEW = {
+      ...PREVIEW,
+      cloneLinks: [
+        { key: 'CUST-9', summary: 'Customer report', direction: 'is-cloned-by' as const }
+      ]
+    }
+    const SOURCE_PREVIEW = {
+      key: 'CUST-9',
+      summary: 'Customer report',
+      status: 'Open',
+      priority: null,
+      labels: [],
+      reporter: 'Cust',
+      created: 'c',
+      updated: 'u',
+      cloneLinks: [],
+      attachments: [
+        { id: '30001', filename: 'customer.log', size: 500, mimeType: 'text/plain', createdAt: 'x' }
+      ]
+    }
+    jira.preview = vi.fn(async (key: string) => ({
+      ok: true,
+      value: key === 'CUST-9' ? SOURCE_PREVIEW : CLONE_PREVIEW
+    }))
+    // The primary's ingestAttachments call stays pending until released, so we can prove
+    // the source's call has NOT fired yet while it's outstanding.
+    let releasePrimary: (() => void) | undefined
+    jira.ingestAttachments = vi.fn((_slug: string, key: string) => {
+      if (key === 'PROJ-7') {
+        return new Promise((resolve) => {
+          releasePrimary = () => resolve({ ok: true, value: [] })
+        })
+      }
+      return Promise.resolve({ ok: true, value: [] })
+    })
+
+    render(<NewCaseDialog {...noop} />)
+    await userEvent.type(screen.getByPlaceholderText(/ticket key or link/i), 'PROJ-7')
+    await userEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+    const row = await screen.findByRole('button', { name: /cloned from CUST-9/i })
+    await userEvent.click(row)
+    const box = await screen.findByRole('checkbox', { name: /customer\.log/i })
+    await userEvent.click(box)
+    await userEvent.click(screen.getByRole('button', { name: /create case/i }))
+
+    await waitFor(() =>
+      expect(jira.ingestAttachments).toHaveBeenCalledWith('PROJ-7', 'PROJ-7', expect.anything())
+    )
+    // While the primary's call is still outstanding, the source must not have started.
+    expect(jira.ingestAttachments).not.toHaveBeenCalledWith('PROJ-7', 'CUST-9', expect.anything())
+
+    releasePrimary!()
+
+    await waitFor(() =>
+      expect(jira.ingestAttachments).toHaveBeenCalledWith(
+        'PROJ-7',
+        'CUST-9',
+        expect.arrayContaining([expect.objectContaining({ id: '30001' })])
+      )
+    )
+  })
+
   it('a failed source expansion can be retried and its attachments then render unchecked', async () => {
     const CLONE_PREVIEW = {
       ...PREVIEW,
