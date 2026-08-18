@@ -207,4 +207,104 @@ describe('CoreUpdaterService', () => {
       at: 1000
     })
   })
+  describe('channels', () => {
+    it('points the backend at the persisted channel before any check can run', () => {
+      const b = fakeBackend()
+      new CoreUpdaterService({
+        backend: b,
+        currentVersion: '2.1.2',
+        supported: true,
+        channel: 'beta'
+      })
+      expect(b.setChannel).toHaveBeenCalledWith('beta', '2.1.2')
+      expect(b.check).not.toHaveBeenCalled()
+    })
+
+    it('reports the effective channel on every payload', () => {
+      expect(svc(fakeBackend(), true, 'beta').payload().channel).toBe('beta')
+    })
+
+    it('drops an offer belonging to the channel it just left', async () => {
+      const b = fakeBackend({ check: vi.fn(async () => ({ version: '2.2.0-beta.1' })) })
+      const s = svc(b, true, 'beta')
+      await s.check({ manual: true })
+      expect(s.payload().status.phase).toBe('available')
+      const after = s.setChannel('stable')
+      expect(after.status).toEqual({ phase: 'idle' })
+      expect(after.channel).toBe('stable')
+      expect(b.setChannel).toHaveBeenLastCalledWith('stable', '1.0.8')
+    })
+
+    it('broadcasts the switch, so a subscribed renderer re-renders', async () => {
+      const seen: CoreUpdatePayload[] = []
+      const s = svc(fakeBackend(), true, 'beta')
+      s.subscribe((p) => void seen.push(p))
+      s.setChannel('stable')
+      expect(seen.at(-1)!.channel).toBe('stable')
+    })
+
+    it('is a no-op when the channel is unchanged', () => {
+      const b = fakeBackend()
+      const s = svc(b, true, 'beta')
+      expect(b.setChannel).toHaveBeenCalledTimes(1) // the constructor's
+      s.setChannel('beta')
+      expect(b.setChannel).toHaveBeenCalledTimes(1)
+    })
+
+    it('refuses to switch while bytes are staged — they install on quit regardless', async () => {
+      const b = fakeBackend({ check: vi.fn(async () => ({ version: '2.2.0-beta.1' })) })
+      const s = svc(b, true, 'beta')
+      await s.check({ manual: true })
+      await s.download()
+      expect(s.payload().status.phase).toBe('ready')
+
+      const after = s.setChannel('stable')
+      expect(after.channel).toBe('beta')
+      expect(after.status).toEqual({ phase: 'ready', version: '2.2.0-beta.1' })
+      expect(b.setChannel).toHaveBeenCalledTimes(1) // still only the constructor's
+    })
+
+    it('never resets an unpackaged build out of unsupported', () => {
+      // The status reset is what drops a stale offer — but `unsupported` is not a stale offer,
+      // it is a structural fact. Resetting it to idle would have an unpackaged build claim
+      // "Argus is up to date" and offer a Check button that can never work.
+      const s = svc(fakeBackend(), false, 'stable')
+      expect(s.setChannel('beta').status.phase).toBe('unsupported')
+    })
+
+    it('marks an offer of a lower version as a downgrade', async () => {
+      const b = fakeBackend({ check: vi.fn(async () => ({ version: '2.1.2' })) })
+      const s = new CoreUpdaterService({
+        backend: b,
+        currentVersion: '2.2.0-beta.1',
+        supported: true,
+        channel: 'stable',
+        now: () => 1000
+      })
+      const status = (await s.check({ manual: true })).status
+      expect(status).toMatchObject({ phase: 'available', version: '2.1.2', downgrade: true })
+    })
+
+    it('does not mark an ordinary forward offer as a downgrade', async () => {
+      const b = fakeBackend({ check: vi.fn(async () => ({ version: '1.1.0' })) })
+      const status = (await svc(b).check({ manual: true })).status
+      expect(status).toMatchObject({ phase: 'available', version: '1.1.0' })
+      expect((status as { downgrade?: true }).downgrade).toBeUndefined()
+    })
+
+    it('treats a prerelease of the same base version as forward, not a downgrade', async () => {
+      // 2.2.0-beta.1 < 2.2.0 in semver, and a beta user IS offered the stable release that
+      // supersedes their build — that is an upgrade, not a return.
+      const b = fakeBackend({ check: vi.fn(async () => ({ version: '2.2.0' })) })
+      const s = new CoreUpdaterService({
+        backend: b,
+        currentVersion: '2.2.0-beta.1',
+        supported: true,
+        channel: 'beta',
+        now: () => 1000
+      })
+      const status = (await s.check({ manual: true })).status
+      expect((status as { downgrade?: true }).downgrade).toBeUndefined()
+    })
+  })
 })
