@@ -16,6 +16,7 @@ import type {
 } from '../../shared/jira'
 import { AtlassianError, type JiraIssueData } from './atlassian'
 import {
+  addCaseJiraLink,
   createCase,
   getCase,
   listCases,
@@ -226,6 +227,63 @@ export class JiraCases {
       site: this.deps.site(),
       lastSyncedAt: now
     })
+  }
+
+  /**
+   * Link a ticket the case reads evidence FROM (typically the customer ticket this case's
+   * clone was made from) and ingest its text, raw JSON and comments. Idempotent: an existing
+   * link keeps its attachment baseline and the evidence is updated in place.
+   *
+   * Attachments are deliberately NOT ingested here. The caller shows the user the source's
+   * attachment list unchecked and then calls ingestAttachments(slug, key, chosen) — nothing
+   * arrives that the user did not pick.
+   */
+  async importSourceTicket(caseSlug: string, key: string): Promise<JiraIssuePreview> {
+    const { db, argusHome, detection, queue } = this.deps
+    const kase = getCase(db, caseSlug)
+    if (!kase) throw new AtlassianError('internal', `Unknown case: ${caseSlug}`)
+    if (key === kase.jiraKey)
+      throw new AtlassianError(
+        'internal',
+        `${key} is already this case's ticket; it cannot also be a source.`
+      )
+
+    const { preview, descriptionMarkdown, raw } = await this.deps.client.getIssue(key)
+    const now = new Date().toISOString()
+    addCaseJiraLink(db, argusHome, caseSlug, key)
+
+    const evidence = listEvidence(db, caseSlug)
+    const write = (role: string, relPath: string, content: string, extra: object = {}): void => {
+      const meta = { jira: { key: preview.key, role, syncedAt: now, ...extra } }
+      const rec = findJiraEvidence(evidence, role, preview.key)
+      if (rec) updateEvidenceContent(db, argusHome, detection, queue, rec.id, content, meta)
+      else ingestContent(db, argusHome, detection, queue, caseSlug, relPath, content, 'jira', meta)
+    }
+
+    write(
+      'source-ticket',
+      `${preview.key}.ticket.md`,
+      ticketMarkdown(preview, descriptionMarkdown),
+      { status: preview.status }
+    )
+    write('source-ticket-raw', `${preview.key}.ticket.json`, JSON.stringify(raw, null, 2))
+
+    // Best-effort, exactly like createFromTicket's comments fetch: a source whose comments
+    // are unreadable must not cost the user the ticket text they came for.
+    try {
+      const comments = await this.deps.client.getComments(key)
+      write(
+        'source-comments',
+        `${preview.key}.comments.md`,
+        commentsMarkdown(preview.key, comments, this.deps.resolvePrompt),
+        { commentCount: comments.length }
+      )
+    } catch (err) {
+      console.warn(`[jira] source comments fetch failed for ${key}: ${(err as Error).message}`)
+    }
+
+    this.deps.evidenceChanged(caseSlug)
+    return preview
   }
 
   /** Sequential per-file download+ingest; failures are per-file and never abort the batch.
