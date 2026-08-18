@@ -99,10 +99,7 @@ export function JiraAttachmentsDialog({
     const synced = tag === 'synced'
     const k = key(g, a)
     return (
-      <label
-        key={k}
-        className="flex items-center gap-2 rounded-r1 px-1 py-0.5 text-xs hover:bg-hi"
-      >
+      <label key={k} className="flex items-center gap-2 rounded-r1 px-1 py-0.5 text-xs hover:bg-hi">
         <input
           type="checkbox"
           aria-label={a.filename}
