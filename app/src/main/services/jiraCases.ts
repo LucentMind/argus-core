@@ -157,7 +157,13 @@ export class JiraCases {
     return (await this.deps.client.getIssue(key)).preview
   }
 
-  async createFromTicket(input: { slug: string; title: string; key: string }): Promise<CaseRecord> {
+  async createFromTicket(input: {
+    slug: string
+    title: string
+    key: string
+    /** Tickets to link as evidence sources (typically the ticket this one was cloned from). */
+    sources?: string[]
+  }): Promise<CaseRecord> {
     const { db, argusHome, detection, queue } = this.deps
     const { preview, descriptionMarkdown, raw } = await this.deps.client.getIssue(input.key)
     createCase(
@@ -225,6 +231,16 @@ export class JiraCases {
       lastSyncError: null,
       ...(commentCount === null ? {} : { jiraCommentCount: commentCount })
     })
+    // Sources are best-effort: a case must exist even if the customer ticket is unreadable.
+    // A failure here leaves no link row, so the case simply has no source — recoverable
+    // later through the add-source path (increment 2).
+    for (const sourceKey of input.sources ?? []) {
+      try {
+        await this.importSourceTicket(input.slug, sourceKey)
+      } catch (err) {
+        console.warn(`[jira] source import failed for ${sourceKey}: ${(err as Error).message}`)
+      }
+    }
     return setCaseJira(db, argusHome, input.slug, {
       key: preview.key,
       site: this.deps.site(),

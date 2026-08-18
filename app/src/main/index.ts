@@ -3434,7 +3434,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.jiraPreview, (_e, key: string) => jiraResult(() => jiraCases.preview(key)))
   ipcMain.handle(
     IPC.jiraCreateCase,
-    async (_e, input: { slug: string; title: string; key: string }) => {
+    async (_e, input: { slug: string; title: string; key: string; sources?: string[] }) => {
       const r = await jiraResult(() => jiraCases.createFromTicket(input))
       if (r.ok)
         await autoLinkDefaultRepo(
