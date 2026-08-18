@@ -12,7 +12,7 @@ import { createImmediateQueue, type IngestJob } from '../ingestQueue'
 import { readIndexState } from '../indexState'
 import { extractDerivedText } from '../extraction'
 import { JiraCases, type AtlassianClientLike } from '../jiraCases'
-import { createCase, getCase, setCaseJiraDeselected } from '../caseService'
+import { createCase, getCase, listCaseJiraLinks, setCaseJiraDeselected } from '../caseService'
 import { deriveActionItems } from '../../../shared/triage'
 import type {
   JiraAttachmentProgress,
@@ -804,5 +804,80 @@ describe('JiraCases source tickets', () => {
       fs.readFileSync(path.join(caseDir(argusHome, 'NAV-7'), foreign.relPath), 'utf8')
     ).toContain('CUST-9: original')
     expect((foreign.meta.jira as { key: string }).key).toBe('CUST-9')
+  })
+
+  it('imports a source ticket as attributed evidence without touching the primary', async () => {
+    const byKey: Record<string, JiraIssueData> = {
+      'NAV-7': issue(),
+      'CUST-9': issue({ key: 'CUST-9', summary: 'Customer report', attachments: [] })
+    }
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async (k: string) => byKey[k]),
+      downloadAttachment: vi.fn(async () => {}),
+      getComments: vi.fn(async (k: string) =>
+        k === 'CUST-9'
+          ? [
+              {
+                id: 'c1',
+                author: 'Cust',
+                created: 'c',
+                updated: 'c',
+                bodyMarkdown: 'happens daily'
+              }
+            ]
+          : []
+      )
+    }
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await svc.importSourceTicket('NAV-7', 'CUST-9')
+    await settle()
+
+    expect(listCaseJiraLinks(db, 'NAV-7').map((l) => l.key)).toEqual(['CUST-9'])
+
+    const ev = listEvidence(db, 'NAV-7')
+    const roles = (relPath: string): { role: string; key: string } =>
+      ev.find((e) => e.relPath === `evidence/${relPath}`)!.meta.jira as {
+        role: string
+        key: string
+      }
+    expect(roles('CUST-9.ticket.md')).toMatchObject({ role: 'source-ticket', key: 'CUST-9' })
+    expect(roles('CUST-9.ticket.json')).toMatchObject({ role: 'source-ticket-raw', key: 'CUST-9' })
+    expect(roles('CUST-9.comments.md')).toMatchObject({ role: 'source-comments', key: 'CUST-9' })
+
+    // The primary's own evidence is untouched and still primary-attributed.
+    expect(roles('NAV-7.ticket.md')).toMatchObject({ role: 'ticket', key: 'NAV-7' })
+
+    // The case is still bound to the clone — a source never becomes the case's ticket.
+    expect(getCase(db, 'NAV-7')!.jiraKey).toBe('NAV-7')
+  })
+
+  it('re-importing a source updates its evidence in place rather than duplicating', async () => {
+    const byKey: Record<string, JiraIssueData> = {
+      'NAV-7': issue(),
+      'CUST-9': issue({ key: 'CUST-9', summary: 'v1', attachments: [] })
+    }
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async (k: string) => byKey[k]),
+      downloadAttachment: vi.fn(async () => {}),
+      getComments: vi.fn(async () => [])
+    }
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await svc.importSourceTicket('NAV-7', 'CUST-9')
+    await settle()
+    byKey['CUST-9'] = issue({ key: 'CUST-9', summary: 'v2', attachments: [] })
+    await svc.importSourceTicket('NAV-7', 'CUST-9')
+    await settle()
+
+    const ev = listEvidence(db, 'NAV-7').filter((e) => e.relPath === 'evidence/CUST-9.ticket.md')
+    expect(ev).toHaveLength(1)
+    expect(
+      fs.readFileSync(
+        path.join(caseDir(argusHome, 'NAV-7'), 'evidence', 'CUST-9.ticket.md'),
+        'utf8'
+      )
+    ).toContain('v2')
+    expect(listCaseJiraLinks(db, 'NAV-7')).toHaveLength(1)
   })
 })
