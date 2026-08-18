@@ -219,6 +219,19 @@ describe('SettingsService', () => {
     expect(onDisk.onboarding).toEqual({ phase1Done: true, sampleCaseSlug: 'sample-onboarding' })
   })
 
+  it('defaults the update channel to stable', () => {
+    expect(defaultSettings().updates.channel).toBe('stable')
+  })
+
+  it('reseeds the channel from a section stripped down to {} on disk', () => {
+    // stripDefaults drops a leaf equal to its default, so the section can reach disk empty.
+    expect(settingsSchema.parse({ updates: {} }).updates.channel).toBe('stable')
+  })
+
+  it('rejects a channel outside the vocabulary', () => {
+    expect(() => settingsSchema.parse({ updates: { channel: 'nightly' } })).toThrow()
+  })
+
   it('memoryHygiene defaults: 45 stale days, 3 min recalls, unstamped epoch', () => {
     const s = settingsSchema.parse({})
     expect(s.memoryHygiene).toEqual({ staleDays: 45, minRecalls: 3, trackingStartedAt: '' })
