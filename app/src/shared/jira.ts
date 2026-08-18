@@ -63,6 +63,10 @@ export interface JiraSourceRefresh {
   newAttachments: JiraAttachmentInfo[]
   /** Set when this source could not be read; the primary's refresh still ran. */
   error?: string
+  /** Set when the source's ticket text loaded but its comments fetch failed — mirrors
+   *  JiraRefreshSummary.commentsError. A source with this set must not be treated as a
+   *  fully successful source. */
+  commentsError?: string
 }
 
 export interface JiraRefreshSummary {
