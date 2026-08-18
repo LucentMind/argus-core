@@ -12,7 +12,13 @@ import { createImmediateQueue, type IngestJob } from '../ingestQueue'
 import { readIndexState } from '../indexState'
 import { extractDerivedText } from '../extraction'
 import { JiraCases, type AtlassianClientLike } from '../jiraCases'
-import { createCase, getCase, listCaseJiraLinks, setCaseJiraDeselected } from '../caseService'
+import {
+  createCase,
+  getCase,
+  listCaseJiraLinks,
+  setCaseJiraDeselected,
+  setCaseJiraLinkDeselected
+} from '../caseService'
 import { deriveActionItems } from '../../../shared/triage'
 import type {
   JiraAttachmentProgress,
@@ -1269,5 +1275,33 @@ describe('JiraCases source tickets', () => {
 
     expect(rec.jiraKey).toBe('NAV-7')
     expect(listCaseJiraLinks(db, 'NAV-7')).toEqual([])
+  })
+
+  it('does not re-offer a declined source attachment as new', async () => {
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async (k: string) =>
+        k === 'CUST-9'
+          ? issue({ key: 'CUST-9', summary: 'Customer', attachments: [att('20001', 'first.log')] })
+          : issue()
+      ),
+      downloadAttachment: vi.fn(async () => {}),
+      getComments: vi.fn(async () => [])
+    }
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await svc.importSourceTicket('NAV-7', 'CUST-9')
+    await settle()
+
+    const r1 = await svc.refresh('NAV-7')
+    await settle()
+    expect(r1.sources[0].newAttachments.map((a) => a.id)).toEqual(['20001'])
+    expect(r1.sources[0].deselectedAttachments).toEqual([])
+
+    setCaseJiraLinkDeselected(db, 'NAV-7', 'CUST-9', ['20001'])
+
+    const r2 = await svc.refresh('NAV-7')
+    await settle()
+    expect(r2.sources[0].newAttachments).toEqual([])
+    expect(r2.sources[0].deselectedAttachments.map((a) => a.id)).toEqual(['20001'])
   })
 })

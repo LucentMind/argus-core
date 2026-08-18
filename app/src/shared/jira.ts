@@ -67,6 +67,9 @@ export interface JiraSourceRefresh {
   newComments: number
   /** New on the source ticket and pending a user decision — refresh does NOT download. */
   newAttachments: JiraAttachmentInfo[]
+  /** Previously declined on this source and still live on the ticket — offered back
+   *  unchecked, exactly like the primary's deselectedAttachments. */
+  deselectedAttachments: JiraAttachmentInfo[]
   /** Set when this source could not be read; the primary's refresh still ran. */
   error?: string
   /** Set when the source's ticket text loaded but its comments fetch failed — mirrors
