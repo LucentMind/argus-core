@@ -4,7 +4,13 @@ import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { Zip, extract } from 'zip-lib'
 import { openDb } from '../db'
-import { createCase, getCase, pinCasePhase } from '../caseService'
+import {
+  addCaseJiraLink,
+  createCase,
+  getCase,
+  listCaseJiraLinks,
+  pinCasePhase
+} from '../caseService'
 import { ingestContent, ingestDerived, listEvidence, sha256File } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { searchEvidence } from '../search'
@@ -177,6 +183,33 @@ async function bundleWithCaseJson(patch: Record<string, unknown>): Promise<strin
   await zip.archive(out)
   return out
 }
+
+// Fix 1: exportCase/importCase must restore case_jira_links, not just the mirrored
+// jiraSources array in case.json — otherwise the imported case LOOKS linked (case.json
+// still says jiraSources: [...]) but listCaseJiraLinks returns [] and refresh's source
+// loop silently iterates nothing forever.
+describe('bundle round-trip of source-ticket links', () => {
+  it('restores case_jira_links from the exported jiraSources on import', async () => {
+    addCaseJiraLink(dbA, homeA, 'NAV-100', 'CUST-9')
+    const out = path.join(homeA, 'NAV-100-links.arguscase')
+    await exportCase(
+      dbA,
+      homeA,
+      'NAV-100',
+      out,
+      { includeTranscripts: false },
+      { argusVersion: '1.0.0' }
+    )
+
+    const rec = await importCase(dbB, homeB, out, 'NAV-100')
+
+    const links = listCaseJiraLinks(dbB, rec.slug)
+    expect(links.map((l) => l.key)).toEqual(['CUST-9'])
+    // The baseline must be re-established honestly, not invented: the new machine
+    // never observed CUST-9's live attachments, so it starts at [].
+    expect(links[0].attachmentIds).toEqual([])
+  })
+})
 
 describe('inspectBundle / proposeSlug', () => {
   it('reads the manifest and proposes the original slug on a fresh home', async () => {
