@@ -987,4 +987,42 @@ describe('JiraCases source tickets', () => {
     await settle()
     expect(r2.sources[0].newComments).toBe(3)
   })
+
+  it('creates a case with source tickets linked and their text ingested', async () => {
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async (k: string) =>
+        k === 'CUST-9' ? issue({ key: 'CUST-9', summary: 'Customer', attachments: [] }) : issue()
+      ),
+      downloadAttachment: vi.fn(async () => {}),
+      getComments: vi.fn(async () => [])
+    }
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7', sources: ['CUST-9'] })
+    await settle()
+
+    expect(listCaseJiraLinks(db, 'NAV-7').map((l) => l.key)).toEqual(['CUST-9'])
+    expect(listEvidence(db, 'NAV-7').map((e) => e.relPath)).toContain('evidence/CUST-9.ticket.md')
+  })
+
+  it('still creates the case when a source cannot be read', async () => {
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async (k: string) => {
+        if (k === 'CUST-9') throw new Error('403 no access')
+        return issue()
+      }),
+      downloadAttachment: vi.fn(async () => {}),
+      getComments: vi.fn(async () => [])
+    }
+    const svc = service(client)
+    const rec = await svc.createFromTicket({
+      slug: 'NAV-7',
+      title: 'T',
+      key: 'NAV-7',
+      sources: ['CUST-9']
+    })
+    await settle()
+
+    expect(rec.jiraKey).toBe('NAV-7')
+    expect(listCaseJiraLinks(db, 'NAV-7')).toEqual([])
+  })
 })

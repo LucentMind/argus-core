@@ -893,6 +893,7 @@ const argus = {
       slug: string
       title: string
       key: string
+      sources?: string[]
     }): Promise<JiraResult<CaseRecord>> => invoke(IPC.jiraCreateCase, input),
     ingestAttachments: (
       caseSlug: string,
