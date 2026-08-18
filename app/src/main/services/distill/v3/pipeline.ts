@@ -16,7 +16,7 @@ import {
 } from '../caseDistiller'
 import { DistillParseError } from '../contract'
 import { createDistillMcpServer } from '../mcp'
-import { DISTILL_MAX_ITERATIONS } from '../worldTools'
+import { DISTILL_ALLOWED_TOOLS, DISTILL_MAX_ITERATIONS } from '../worldTools'
 import { buildDossierPrompt, parseDossier } from './dossier'
 import { buildSummaryPrompt, parseSummary } from './summary'
 import { buildCandidatesPrompt, parseCandidates } from './candidates'
@@ -59,14 +59,20 @@ const asHeadlessUsage = (u: StageUsage | undefined): HeadlessUsage | undefined =
 async function mapLimit<T, R>(
   items: T[],
   limit: number,
-  fn: (t: T, i: number) => Promise<R>
-): Promise<R[]> {
-  const out: R[] = new Array(items.length)
+  fn: (t: T, i: number) => Promise<R>,
+  signal?: AbortSignal
+): Promise<(R | undefined)[]> {
+  const out: (R | undefined)[] = new Array(items.length).fill(undefined)
   let next = 0
   // A limit < 1 would spawn zero workers and silently drop every item — clamp, never no-op.
   const width = Math.min(Math.max(1, Math.floor(limit)), items.length)
   const workers = Array.from({ length: width }, async () => {
     while (next < items.length) {
+      // A cancel between items must not start another call. The in-flight one rethrows on its
+      // own (oneShotStage), so the usual cancel path is a rejection; this only stops the queue
+      // from draining when the abort lands in the gap between two calls, leaving the unstarted
+      // slots as holes the caller skips.
+      if (signal?.aborted) return
       const i = next++
       out[i] = await fn(items[i], i)
     }
@@ -131,9 +137,10 @@ export async function runCaseDistillPipeline(
   const server = createDistillMcpServer(input.world ?? { sessions: [] })
   const res = await runners.agent(dossierPrompt, {
     mcpServer: server,
-    // v2 lesson: a bare allowedTools entry auto-approves BEFORE canUseTool; the whitelist lives
-    // in the runner's canUseTool. This must stay [].
-    allowedTools: [],
+    // Two layers, one name. The SDK-level `allowedTools` option is pinned to [] INSIDE the driver
+    // (a bare entry there auto-approves the tool before canUseTool is ever consulted); THIS list
+    // is the canUseTool whitelist the driver consults — passing [] would deny every world tool.
+    allowedTools: DISTILL_ALLOWED_TOOLS,
     maxIterations: DISTILL_MAX_ITERATIONS,
     ...(signal ? { signal } : {})
   })
@@ -203,9 +210,14 @@ export async function runCaseDistillPipeline(
   // ── stage 3: materialize (parallel) → validators ─────────────────────────────────────────
   const matRecords: NonNullable<PipelineStages['materialize']> = []
   const proposals: NonNullable<CaseDistillOutput['proposals']> = []
+  // NaN / 0 / negative must fall back to the default rather than clamp to a 1-wide run.
+  const width =
+    opts.concurrency !== undefined && Number.isFinite(opts.concurrency) && opts.concurrency >= 1
+      ? Math.floor(opts.concurrency)
+      : MATERIALIZE_CONCURRENCY
   const results = await mapLimit(
     kept,
-    opts.concurrency ?? MATERIALIZE_CONCURRENCY,
+    width,
     async (c: KnowledgeCandidate) => {
       const prompt = buildMaterializePrompt(input, dossier, c, resolve)
       const r = await oneShotStage(
@@ -216,12 +228,18 @@ export async function runCaseDistillPipeline(
         resolve,
         signal
       )
-      return { c, prompt, r }
-    }
+      // Folded here, not in the post loop: a cancel mid-materialize still counts every call that
+      // actually completed, instead of dropping the cost of the whole stage on the floor.
+      promptChars += prompt.length
+      usage = addUsage(usage, r.record.usage)
+      return { c, r }
+    },
+    signal
   )
-  for (const { c, prompt, r } of results) {
-    promptChars += prompt.length
-    usage = addUsage(usage, r.record.usage)
+  for (const item of results) {
+    // Holes = slots a cancel stopped before they started (see mapLimit).
+    if (!item) continue
+    const { c, r } = item
     const rec = { ...r.record, type: c.type, target: c.target }
     matRecords.push(rec)
     if (r.value === undefined) {
@@ -260,7 +278,9 @@ export async function runCaseDistillPipeline(
       preStageDropped.push({ type: c.type, target: c.target, title: c.title, reason: v.reason })
       continue
     }
-    if (v.flags.length) rec.error = `flags: ${v.flags.join(',')}`
+    // A flag is not a failure — it rides its own channel so a KEPT proposal is never persisted
+    // with an `error` a reader would take for "this stage produced nothing".
+    if (v.flags.length) rec.flags = v.flags
     proposals.push(m.proposal)
   }
   stages.materialize = matRecords
