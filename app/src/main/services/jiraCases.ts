@@ -403,14 +403,27 @@ export class JiraCases {
           const dup = findEvidenceBySha256(db, kase.id, sha256File(tmpFile))
           if (dup) {
             const dupJira = jiraMeta(dup.meta)
-            if (dupJira.key !== undefined && dupJira.key !== key) {
-              addAlsoOn(db, dup.id, { key, attachmentId: a.id, filename: a.filename })
-            }
+            // Record this attachment against the existing row via `alsoOn` in every case,
+            // including a SAME-ticket duplicate (dupJira.key === key): without it, a
+            // same-ticket double-upload dedups on ingest but is never credited by
+            // knownAttachments, so refresh re-offers it as new forever (Finding 1). A
+            // same-ticket entry is a self-reference — "this row is also known as this
+            // ticket's a2" — which reads honestly and reuses the one mechanism rather than
+            // adding a parallel "known ids" list.
+            addAlsoOn(db, dup.id, { key, attachmentId: a.id, filename: a.filename })
             const deduped: JiraAttachmentProgress = {
               ...base,
               status: 'done',
               evidenceId: dup.id,
-              dedupedFrom: dupJira.key ?? key
+              // Only claim a ticket the matched row is actually known to be on. A row with
+              // no Jira provenance at all (e.g. a manually uploaded file) was never "on"
+              // this ticket, so `dedupedFrom` stays unset rather than falsely naming the
+              // current ticket (Finding 2) — see NewCaseDialog.tsx's `f.dedupedFrom &&` guard.
+              // Only claim a ticket the matched row is actually known to be on. A row with
+              // no Jira provenance at all (e.g. a manually uploaded file) was never "on"
+              // this ticket, so `dedupedFrom` stays unset rather than falsely naming the
+              // current ticket (Finding 2) — see NewCaseDialog.tsx's `f.dedupedFrom &&` guard.
+              ...(dupJira.key !== undefined ? { dedupedFrom: dupJira.key } : {})
             }
             this.deps.emitProgress(deduped)
             results.push(deduped)
