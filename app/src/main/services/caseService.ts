@@ -584,6 +584,11 @@ export interface CaseJiraLink {
    *  Deliberately per-link: the case-level jiraAttachmentIds means the PRIMARY's
    *  attachments, and one shared list would let two tickets contaminate each other's diff. */
   attachmentIds: string[]
+  /** Attachment ids the user explicitly declined on THIS source. Mirrors the primary's
+   *  cases.jira_deselected: a declined file is offered again only as a "previously skipped"
+   *  row, never as new. Distinct from attachmentIds, which records what the ticket last
+   *  carried and must never gate the "new" signal. */
+  deselectedIds: string[]
 }
 
 interface CaseJiraLinkRow {
@@ -591,6 +596,7 @@ interface CaseJiraLinkRow {
   role: string
   added_at: string
   attachment_ids: string
+  deselected_ids: string
 }
 
 /** Mirror the current link set into case.json, like every other case writer. */
@@ -615,7 +621,7 @@ function mirrorJiraSources(db: DatabaseSync, argusHome: string, slug: string): v
 export function listCaseJiraLinks(db: DatabaseSync, slug: string): CaseJiraLink[] {
   const rows = db
     .prepare(
-      `SELECT jira_key, role, added_at, attachment_ids FROM case_jira_links
+      `SELECT jira_key, role, added_at, attachment_ids, deselected_ids FROM case_jira_links
        WHERE case_id = (SELECT id FROM cases WHERE slug = ?) ORDER BY added_at, jira_key`
     )
     .all(slug) as unknown as CaseJiraLinkRow[]
@@ -623,7 +629,8 @@ export function listCaseJiraLinks(db: DatabaseSync, slug: string): CaseJiraLink[
     key: r.jira_key,
     role: 'source' as const,
     addedAt: r.added_at,
-    attachmentIds: JSON.parse(r.attachment_ids || '[]') as string[]
+    attachmentIds: JSON.parse(r.attachment_ids || '[]') as string[],
+    deselectedIds: JSON.parse(r.deselected_ids || '[]') as string[]
   }))
 }
 
@@ -674,6 +681,21 @@ export function setCaseJiraLinkAttachmentIds(
 ): void {
   db.prepare(
     `UPDATE case_jira_links SET attachment_ids = ?
+     WHERE case_id = (SELECT id FROM cases WHERE slug = ?) AND jira_key = ?`
+  ).run(JSON.stringify(ids), slug, key)
+}
+
+/** Persist which of a SOURCE ticket's attachments the user declined. The primary's equivalent
+ *  is setCaseJiraDeselected (cases.jira_deselected); this is deliberately per-link so two
+ *  tickets can never overwrite each other's decisions. */
+export function setCaseJiraLinkDeselected(
+  db: DatabaseSync,
+  slug: string,
+  key: string,
+  ids: string[]
+): void {
+  db.prepare(
+    `UPDATE case_jira_links SET deselected_ids = ?
      WHERE case_id = (SELECT id FROM cases WHERE slug = ?) AND jira_key = ?`
   ).run(JSON.stringify(ids), slug, key)
 }

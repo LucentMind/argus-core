@@ -20,7 +20,8 @@ import {
   listCaseJiraLinks,
   addCaseJiraLink,
   removeCaseJiraLink,
-  setCaseJiraLinkAttachmentIds
+  setCaseJiraLinkAttachmentIds,
+  setCaseJiraLinkDeselected
 } from '../caseService'
 import { ingestContent } from '../ingest'
 import { createDetection } from '../packs/detection'
@@ -928,5 +929,29 @@ describe('case jira links', () => {
     createCase(db, home, { slug: 'NAV-7', title: 'T', jiraKey: 'NAV-7' })
     expect(() => addCaseJiraLink(db, home, 'NAV-7', 'NAV-7')).toThrow(/already this case's ticket/)
     expect(listCaseJiraLinks(db, 'NAV-7')).toEqual([])
+  })
+
+  it('stores a declined-attachment set per link', () => {
+    createCase(db, home, { slug: 'NAV-9', title: 'T', jiraKey: 'NAV-9' })
+    addCaseJiraLink(db, home, 'NAV-9', 'CUST-9')
+    addCaseJiraLink(db, home, 'NAV-9', 'CUST-10')
+
+    expect(listCaseJiraLinks(db, 'NAV-9').map((l) => l.deselectedIds)).toEqual([[], []])
+
+    setCaseJiraLinkDeselected(db, 'NAV-9', 'CUST-9', ['a1', 'a2'])
+    const links = listCaseJiraLinks(db, 'NAV-9')
+    expect(links.find((l) => l.key === 'CUST-9')!.deselectedIds).toEqual(['a1', 'a2'])
+    expect(links.find((l) => l.key === 'CUST-10')!.deselectedIds).toEqual([])
+  })
+
+  it('keeps the declined set independent of the attachment baseline', () => {
+    createCase(db, home, { slug: 'NAV-10', title: 'T', jiraKey: 'NAV-10' })
+    addCaseJiraLink(db, home, 'NAV-10', 'CUST-9')
+    setCaseJiraLinkDeselected(db, 'NAV-10', 'CUST-9', ['a1'])
+    setCaseJiraLinkAttachmentIds(db, 'NAV-10', 'CUST-9', ['a1', 'a2'])
+
+    const link = listCaseJiraLinks(db, 'NAV-10')[0]
+    expect(link.deselectedIds).toEqual(['a1'])
+    expect(link.attachmentIds).toEqual(['a1', 'a2'])
   })
 })
