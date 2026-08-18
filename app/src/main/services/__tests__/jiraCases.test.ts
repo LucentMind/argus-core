@@ -1277,6 +1277,33 @@ describe('JiraCases source tickets', () => {
     expect(listCaseJiraLinks(db, 'NAV-7')).toEqual([])
   })
 
+  it('lists and removes sources without touching their evidence', async () => {
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async (k: string) =>
+        k === 'CUST-9' ? issue({ key: 'CUST-9', summary: 'Customer', attachments: [] }) : issue()
+      ),
+      downloadAttachment: vi.fn(async () => {}),
+      getComments: vi.fn(async () => [])
+    }
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await svc.importSourceTicket('NAV-7', 'CUST-9')
+    await settle()
+
+    expect(svc.listSources('NAV-7').map((s) => s.key)).toEqual(['CUST-9'])
+
+    svc.removeSource('NAV-7', 'CUST-9')
+
+    expect(svc.listSources('NAV-7')).toEqual([])
+    // Evidence the user has been reasoning over must NOT vanish because the link was removed.
+    expect(listEvidence(db, 'NAV-7').map((e) => e.relPath)).toContain('evidence/CUST-9.ticket.md')
+
+    // And an unlinked source stops being refreshed.
+    const r = await svc.refresh('NAV-7')
+    await settle()
+    expect(r.sources).toEqual([])
+  })
+
   it('does not re-offer a declined source attachment as new', async () => {
     const client: AtlassianClientLike = {
       getIssue: vi.fn(async (k: string) =>
