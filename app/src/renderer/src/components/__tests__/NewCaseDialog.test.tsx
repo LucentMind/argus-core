@@ -464,6 +464,30 @@ describe('NewCaseDialog', () => {
     expect(screen.getByText(/CUST-9/)).toBeInTheDocument()
   })
 
+  it('shows a deduped file as done with no "already on" text when the match has no ticket to name', async () => {
+    // The matched evidence row had no Jira provenance at all (e.g. a manual upload), so the
+    // main process omits dedupedFrom rather than falsely naming the current ticket. The
+    // dialog must not fabricate a ticket name either.
+    render(<NewCaseDialog {...noop} />)
+    fireEvent.change(screen.getByPlaceholderText(/PROJ-1234/i), { target: { value: 'PROJ-7' } })
+    fireEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+    await screen.findByDisplayValue('Route flickers')
+    fireEvent.click(screen.getByRole('button', { name: /^create case$/i }))
+    await waitFor(() => expect(jira.ingestAttachments).toHaveBeenCalled())
+    await waitFor(() => expect(progressCb).not.toBeNull())
+    act(() =>
+      progressCb!({
+        caseSlug: 'PROJ-7',
+        attachmentId: '10001',
+        filename: 'trace.binlog',
+        status: 'done',
+        evidenceId: 1
+      })
+    )
+    expect(await screen.findByText(/done/i)).toBeInTheDocument()
+    expect(screen.queryByText(/already on/i)).not.toBeInTheDocument()
+  })
+
   it('ingests the primary batch, then each ticked source, one at a time (not concurrently)', async () => {
     const CLONE_PREVIEW = {
       ...PREVIEW,

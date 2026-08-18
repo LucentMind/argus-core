@@ -1145,6 +1145,70 @@ describe('JiraCases source tickets', () => {
     expect(r2.sources[0].newAttachments).toEqual([])
   })
 
+  it('a same-ticket byte-identical duplicate attachment is not reported as new on refresh, including a second refresh', async () => {
+    // Accidental double-upload: NAV-7 itself carries a1 and a2, byte-identical, both ticked
+    // by the user. a1 ingests normally; a2 must dedup against it AND be recorded so refresh
+    // stops offering a2 as new forever (see Finding 1 — the `dupJira.key !== key` guard used
+    // to skip recording same-ticket duplicates entirely).
+    const atts = [att('10001', 'a1.txt'), att('10002', 'a2.txt')]
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async () => issue({ attachments: atts })),
+      downloadAttachment: vi.fn(async (_id: string, dest: string) => {
+        fs.writeFileSync(dest, 'same-bytes')
+      }),
+      getComments: vi.fn(async () => [])
+    }
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await settle()
+
+    const results = await svc.ingestAttachments('NAV-7', 'NAV-7', atts)
+    await settle()
+
+    expect(results[0]).toMatchObject({ attachmentId: '10001', status: 'done' })
+    expect(results[1]).toMatchObject({
+      attachmentId: '10002',
+      status: 'done',
+      evidenceId: results[0].evidenceId
+    })
+
+    const r1 = await svc.refresh('NAV-7')
+    await settle()
+    expect(r1.newAttachments).toEqual([])
+
+    // Must not reappear on a SECOND refresh either.
+    const r2 = await svc.refresh('NAV-7')
+    await settle()
+    expect(r2.newAttachments).toEqual([])
+  })
+
+  it('omits dedupedFrom when the matched evidence row has no Jira provenance at all', async () => {
+    // The user manually uploaded a file that happens to be byte-identical to a Jira
+    // attachment. The matched row was never "on" any ticket, so the dialog must not claim
+    // it was already on the CURRENT ticket (Finding 2) — that message would be false.
+    const svc = service(fakeClient(() => issue()))
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await settle()
+    ingestContent(
+      db,
+      argusHome,
+      detection,
+      createImmediateQueue(db, argusHome),
+      'NAV-7',
+      'manual.log',
+      'bytes-of-10001',
+      'upload',
+      {}
+    )
+    await settle()
+
+    const results = await svc.ingestAttachments('NAV-7', 'NAV-7', [att('10001', 'log.txt')])
+    await settle()
+
+    expect(results[0]).toMatchObject({ attachmentId: '10001', status: 'done' })
+    expect(results[0].dedupedFrom).toBeUndefined()
+  })
+
   it('does not re-extract an archive whose bytes dedup against one already ingested', async () => {
     const srcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zsrc-'))
     fs.writeFileSync(path.join(srcDir, 'a.txt'), 'a')
