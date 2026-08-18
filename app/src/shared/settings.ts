@@ -1,6 +1,7 @@
 import { z } from './zodConfig'
 import { defectCorpusSchema } from './defectCorpus'
 import { DEFAULT_RCA_TEMPLATE, type RcaTemplate } from './rcaTemplate'
+import { UPDATE_CHANNELS } from './updates'
 
 export const PERMISSION_MODES = [
   'default',
@@ -305,6 +306,13 @@ const onboardingSchema = z.looseObject({
     .default(() => ({ jira: false, confluence: false, hive: false }))
 })
 
+/** Which release track this install follows. One leaf, carrying its own `.default()`, so the
+ *  section needs no `SETTINGS_ATOMIC_PATHS` entry: `stripDefaults` can only ever reduce it to
+ *  `{}`, which re-parses back to the default rather than throwing. */
+const updatesSchema = z.looseObject({
+  channel: z.enum(UPDATE_CHANNELS).default('stable')
+})
+
 export const settingsSchema = z.looseObject({
   general: generalSchema.default(() => generalSchema.parse({})),
   agent: agentSchema.default(() => agentSchema.parse({})),
@@ -318,7 +326,8 @@ export const settingsSchema = z.looseObject({
   memoryHygiene: memoryHygieneSchema.default(() => memoryHygieneSchema.parse({})),
   ui: uiSchema.default(() => uiSchema.parse({})),
   migrations: migrationsSchema.default(() => migrationsSchema.parse({})),
-  distill: distillSchema.default(() => distillSchema.parse({}))
+  distill: distillSchema.default(() => distillSchema.parse({})),
+  updates: updatesSchema.default(() => updatesSchema.parse({}))
 })
 
 export type AppSettings = z.infer<typeof settingsSchema>
