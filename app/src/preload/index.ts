@@ -910,6 +910,12 @@ const argus = {
       deselectedIds: string[]
     ): Promise<JiraResult<CaseRecord>> =>
       invoke(IPC.jiraSetAttachmentSelection, caseSlug, deselectedIds),
+    setSourceAttachmentSelection: (
+      caseSlug: string,
+      key: string,
+      deselectedIds: string[]
+    ): Promise<JiraResult<void>> =>
+      invoke(IPC.jiraSetSourceAttachmentSelection, caseSlug, key, deselectedIds),
     openIssue: (caseSlug: string): Promise<void> => invoke(IPC.jiraOpenIssue, caseSlug),
     onAttachmentProgress: (cb: (p: JiraAttachmentProgress) => void): (() => void) => {
       const listener = (_e: unknown, p: JiraAttachmentProgress): void => cb(p)
