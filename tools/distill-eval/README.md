@@ -5,12 +5,13 @@ Replay + judge harness for the case-distill prompt. Dev tool; never ships in the
 This is the guide for the whole feedback loop: how rejects get labeled in the app, how a
 corpus gets exported, how to run the harness against a prompt change, and how to read the
 result. The design is `argus-docs/superpowers/specs/2026-07-29-distill-feedback-loop-design.md`;
-this file is the day-to-day operator's manual.
+this file is the day-to-day operator's manual. For what distillation itself does — the two
+pipelines, the frozen world, the staging gates — see `docs/distillation.md`.
 
 ## Why this exists
 
-Case-close distillation (`app/src/main/services/distill/`) turns a closed case into skill/
-reference/memory proposals. Sometimes it gets it wrong in one of two opposite directions —
+Case-close distillation (`app/src/main/services/distill/`) turns a case into skill / reference /
+case-summary proposals. Sometimes it gets it wrong in one of two opposite directions —
 **overfit** (too tied to this one case to reuse) or **overgeneric** (too vague to act on) —
 and sometimes it's just **wrong** or a **duplicate**. Tuning the prompt to fix one failure
 mode without causing the other requires three things this harness provides:
@@ -21,28 +22,31 @@ mode without causing the other requires three things this harness provides:
 
 ## The loop, end to end
 
-```
- Argus app                                   this repo (dev machine)
-┌──────────────────────────┐                ┌─────────────────────────────┐
-│ case closes → distill job│                │                              │
-│ enqueued, prompt_hash +   │                │                              │
-│ input_snapshot frozen     │                │                              │
-│           ↓                │                │                              │
-│ proposals staged           │                │                              │
-│           ↓                │                │                              │
-│ reviewer accepts/rejects   │                │                              │
-│ (reject: pick a reason tag)│                │                              │
-│           ↓                │                │                              │
-│ Settings → Prompts (dev)   │  NDJSON file   │                              │
-│ → "Export distill eval     │ ─────────────▶ │ tools/distill-eval/          │
-│    bundle"                 │  (by hand,     │  npm run build                │
-│                             │   private repo)│  node dist/cli.js --corpus…  │
-│                             │                │           ↓                  │
-│                             │                │  replay with candidate       │
-│                             │                │  prompt → parse → judge      │
-│                             │                │           ↓                  │
-│                             │                │  report.md + details.jsonl   │
-└──────────────────────────┘                └─────────────────────────────┘
+```mermaid
+flowchart LR
+  subgraph app["Argus app"]
+    A1["case closes (or you pick Distill)<br/>→ job enqueued: prompt_hash +<br/>input_snapshot + frozen world"]
+    A2["proposals staged"]
+    A3["reviewer accepts / edits-then-accepts /<br/>rejects with a reason tag"]
+    A4["Settings → Prompts (dev)<br/>→ Export distill eval bundle"]
+    A1 --> A2 --> A3 --> A4
+  end
+
+  subgraph dev["this repo (dev machine)"]
+    B1["npm run build<br/>node dist/cli.js --corpus … --out …"]
+    B2{"--pipeline"}
+    B3["v2: one agentic call<br/>over the frozen world"]
+    B4["v3: dossier → summary ‖ candidates<br/>→ veto → materialize → validators<br/>(per-stage records kept)"]
+    B5["parse → judge each labelled item"]
+    B6["report.md + details.jsonl<br/>(v3: per-stage attribution)"]
+    B1 --> B2
+    B2 -->|"v2 (default)"| B3 --> B5
+    B2 -->|v3| B4 --> B5
+    B5 --> B6
+  end
+
+  A4 -->|"NDJSON, moved by hand<br/>(private corpus repo)"| B1
+  B6 -.->|"edit the contract or a stage file, re-run"| B1
 ```
 
 Nothing is uploaded automatically. The export writes one file to a location you pick; you
@@ -50,9 +54,10 @@ commit it by hand to a private evals corpus repo when you're ready to work on th
 
 ## Step 1 — label rejects in the app
 
-Every proposal reject (Settings → Proposals tab) opens a small reason popover: `overfit`,
-`overgeneric`, `wrong`, `duplicate`, `other`, plus an optional one-line note, or plain
-"Reject" with no reason. This is shown for **every** reject, not just distiller-produced
+Every proposal reject (the Proposals view) opens a small reason bar. Five tags, shown under
+friendlier labels — `overfit` ("Too case-specific"), `overgeneric` ("Too generic"), `wrong`
+("Wrong"), `duplicate` ("Duplicate"), `other` ("Other") — plus an optional one-line note, or
+**Skip reason** to reject with none. This is shown for **every** reject, not just distiller-produced
 proposals — but only rejects on proposals stamped with a `job:` id (i.e. produced by a
 distill job, not a mid-case contribute-back) end up in the replay corpus, because only those
 have a deterministic input to replay against.
@@ -80,10 +85,16 @@ This calls `exportEvalBundle` (`app/src/main/services/distill/evalExport.ts`), w
   pending — skipped jobs are counted and named in the export result, e.g. "3 skipped: job 7
   (acme-timeout) — items pending review"), or `failed` with a stored `raw_output` (a parse
   failure is itself an eval case — a good candidate prompt should produce fewer of these);
-- writes one NDJSON line per included job to the file you choose in the save dialog. Each
-  line is a `DistillEvalBundleLine` (`app/src/shared/distillEval.ts`): the job's frozen
-  `inputSnapshot`, its `promptHash`, its `rawOutput`, and every proposal outcome joined in
-  from the archive (`accepted` / `rejected` + `rejectReason` + `rejectNote`).
+- writes one NDJSON line per included job to the file you choose in the save dialog (default name
+  `distill-eval-YYYY-MM-DD.ndjson`). Each line is a `DistillEvalBundleLine`
+  (`app/src/shared/distillEval.ts`): the job's frozen `inputSnapshot`, its `promptHash`, its
+  `rawOutput`, and every proposal outcome joined in from the archive (`accepted` / `rejected` +
+  `rejectReason` + `rejectNote` + `basis`, and `editedContent` when the accepter changed the
+  draft). A v3 job also carries `job.stages` (the per-stage records from `stages_json`), and any
+  job carries `job.dropped` — everything the run produced but never staged, v3's veto/validator
+  drops ahead of staging's own `cap`/`basis` drops.
+
+The button reports back inline: `N jobs → <path>`, plus ` · N skipped` when any were.
 
 **The file contains raw case data** — findings, evidence descriptions, chat titles, full
 skill/reference bodies. Nothing is redacted; replay requires the real input. Treat it like
@@ -105,10 +116,14 @@ Flags (`src/cli.ts`):
 |---|---|---|
 | `--corpus <file>` | yes | the NDJSON bundle from Step 2 |
 | `--out <dir>` | yes | where `report.md` and `details.jsonl` get written |
-| `--pipeline <v2\|v3>` | no | which distiller to replay with; default `v2` (see below) |
-| `--contract <file>` | no | replace the distill contract prompt with this file's contents when replaying (v2 only — see below) |
+| `--pipeline <v2\|v3>` | no | which distiller to replay with; default `v2`. Anything else exits 2 (see below) |
+| `--contract <file>` | no | replace the distill contract prompt with this file's contents when replaying (v2 only — rejected with `--pipeline v3`, see below) |
 | `--model <id>` | no | model id passed to `claude -p --model <id>` |
-| `--limit <n>` | no | only replay the first n corpus lines (fast iteration on a subset) |
+| `--limit <n>` | no | only replay the first n corpus lines (fast iteration on a subset). Must parse as a finite number |
+
+Parsing is deliberately minimal: each flag takes the **next** argv element, so `--pipeline=v3` does
+not parse and there are no subcommands. Bad or missing arguments print the usage line and exit `2`;
+anything thrown during the run exits `1`.
 
 By default (`--contract` omitted) the harness replays with the **repo's current
 working-tree prompt** — `CASE_DISTILL_CONTRACT` / `CASE_DISTILL_SECTIONS` in
@@ -156,7 +171,7 @@ What that costs and buys:
 | runner | type | used for |
 |---|---|---|
 | `agent` (`src/agentRunner.ts`, `claudeAgentRunner`) | `(prompt, world) => Promise<AgentReplayResult>` | the distill replay itself — agentic, tools over the frozen world |
-| `oneShot` (`src/runner.ts`, `claudeRunner`) | `(prompt) => Promise<string>` | the judge — one prompt in, one verdict out, no tools |
+| `oneShot` (`src/runner.ts`, `claudeRunner`) | `(prompt) => Promise<string>` | the judge — one prompt in, one verdict out, no tools — and, under `--pipeline v3`, stages 2a/2b/3 |
 
 `claudeRunner` shells out to `claude -p --output-format text` (adding `--model` if passed),
 piping the prompt over stdin — not argv and not `execFile` (whose default `maxBuffer` silently
@@ -168,12 +183,18 @@ server** (`createReplayMcpServer`) serving `list_sessions` / `read_transcript` /
 `search_transcript` out of the exported `inputSnapshot.world` through the *same*
 `app/src/main/services/distill/worldTools.ts` functions the live run used — same snapshot in,
 same tool answers out. Its SDK options deliberately mirror the app's `runClaudeHeadlessAgent`:
-`maxTurns: DISTILL_MAX_ITERATIONS`, `tools: []` (no built-ins), `allowedTools:
-DISTILL_ALLOWED_TOOLS` (auto-approve only the `mcp__argus__` surface) plus a `canUseTool`
-deny-gate, an empty scratch `cwd`, and `env: claudeSpawnEnv()` — which is what turns Claude
-Code's **own** auto-memory off. That last one is a fidelity requirement, not hygiene: auto-memory
-also *reads*, so leaving it on would splice unrelated `~/.claude` memories into the replay,
-grading the candidate contract on an input the live job never saw.
+`maxTurns: DISTILL_MAX_ITERATIONS`, `tools: []` (no built-ins), **`allowedTools: []`** with
+`canUseTool` as the single permission decision (it allows exactly `DISTILL_ALLOWED_TOOLS` and
+denies everything else with `not available in distillation replay`), an empty scratch `cwd`, and
+`env: claudeSpawnEnv()` — which is what turns Claude Code's **own** auto-memory off. That last one
+is a fidelity requirement, not hygiene: auto-memory also *reads*, so leaving it on would splice
+unrelated `~/.claude` memories into the replay, grading the candidate contract on an input the live
+job never saw.
+
+The empty `allowedTools` is not an oversight either: a live run on 2026-08-17 showed the SDK warn
+`CLAUDE_SDK_CAN_USE_TOOL_SHADOWED` — a bare `allowedTools` entry auto-approves the tool *before*
+`canUseTool` runs, which made the deny branch dead code. Both the app and this runner now pin it to
+`[]`. Never list a tool in `allowedTools` if you also want `canUseTool` to see it.
 
 Two deliberate differences from the app's loop: the harness passes `maxTurns:
 DISTILL_MAX_ITERATIONS` (50) where the app passes `maxIterations + 1` (51), because the app spends
@@ -241,21 +262,38 @@ parallelism):
 
 ## Step 4 — read the report
 
-`report.md` (written by `src/report.ts`) leads with the aggregate numbers — including a
-**degraded-replay count and the case list** (pre-v2 lines replayed with no world; read their
-verdicts with the caveat above, or re-export the corpus) and a **budget-exhausted count with each
-case's cap subtype** (runs the SDK cut off; ungraded, so they explain any shortfall between case
-count and graded cases) — then a **"Needs
-human review" list first** (every `needs-human` verdict, prompt-changed or not — since
-these are exactly the calls the judge couldn't make confidently), then a per-reject-tag
-improved/total breakdown so you can see e.g. "overfit: 6/9 improved, overgeneric: 1/4
-improved" and know which failure direction your prompt edit actually helped. `details.jsonl`
-has the full per-case, per-item verdict data (including reasons) if you need to go deeper
-than the summary — join it back to the corpus by `jobId`.
+`report.md` (written by `src/report.ts`) leads with five aggregate lines:
 
-Under `--pipeline v3` the report gains a **stage attribution** section: one line per graded gold
-item saying where in the pipeline that item's knowledge was lost. Four labels, decided in pipeline
-order, first miss wins:
+```
+Cases: 24 (9 reused baseline output — prompt unchanged for them)
+Degraded replays (pre-v2 line, no world — tools answered "unavailable"): 2 — acme-timeout #7, …
+Capped or errored replays (agent did not finish, NOT graded): 1 — flaky-upload #19 (budget-exhausted)
+Parse: ok 21 · improved 1 · REGRESSED 0 · still-failing 1
+Item verdicts: improved 7 · unchanged 30 · regressed 1 · needs-human 4
+```
+
+The per-case suffixes appear only when the list is non-empty, and the third line's label is the
+report's own **cap vocabulary**, not the raw SDK subtype: `budget-exhausted` is printed **only**
+for `error_max_turns`; every other non-success subtype prints `agent-error (<subtype>)`. That
+distinction is load-bearing — calling `error_during_execution` "budget-exhausted" would describe a
+crash as a limit working as intended. Either way the case is ungraded, which is what explains any
+shortfall between the case count and the graded ones.
+
+Then the **"Needs human review" list first** (every `needs-human` verdict, prompt-changed or not —
+these are exactly the calls the judge couldn't make confidently), then a per-reject-tag
+improved/total breakdown so you can see e.g. "overfit: 6/9 improved, overgeneric: 1/4 improved" and
+know which failure direction your prompt edit actually helped. Only rejected items are counted
+there; a reject with no tag buckets as `untagged`. `details.jsonl` has the full per-case, per-item
+verdict data (including reasons, and every stage record on a v3 run) if you need to go deeper than
+the summary — join it back to the corpus by `jobId`.
+
+Reused cases are not excluded from any of this: their verdicts are all `unchanged` ("prompt
+unchanged — baseline output reused") and their stages and drops come from the corpus line, so they
+count in the aggregate and attribute like a re-run case.
+
+A v3 run also gets a **stage attribution** section: one line per graded gold item saying where in
+the pipeline that item's knowledge was lost. Four labels, decided in pipeline order, first miss
+wins:
 
 | label | meaning |
 |---|---|
@@ -275,7 +313,9 @@ target **and** type, because one run can legitimately materialize `skill-edit fo
 
 Cases whose replay was never graded (parse failure, cap) have no item verdicts and so contribute
 no attribution lines — the summary lines above already name them, and their partial `stages` are
-in `details.jsonl`.
+in `details.jsonl`. The section is emitted whenever at least one attribution line exists, so a v3
+run in which every case was capped or unparseable produces no section at all, and a v2 report keeps
+its old shape byte for byte.
 
 Read `needs-human` entries yourself before trusting the aggregate counts; the judge is
 explicitly instructed to prefer `needs-human` over guessing, so a high needs-human count
@@ -288,7 +328,8 @@ The normal cycle:
 1. Pick a failure tag from a recent export's report (e.g. `overgeneric` is the majority of
    rejects).
 2. Edit `CASE_DISTILL_CONTRACT` or the relevant `CASE_DISTILL_SECTIONS` entry in
-   `app/src/main/services/distill/contract.ts`.
+   `app/src/main/services/distill/contract.ts` — or, under `--pipeline v3`, the contract or
+   sections in the stage file you are targeting (`v3/dossier.ts`, `v3/candidates.ts`, …).
 3. Re-run `node dist/cli.js --corpus <same file> --out <new dir>`.
 4. Compare the new report's per-tag breakdown to the old one. Improvement on the tag you
    targeted with no new regressions on other tags (including the accepted-item positive
@@ -335,22 +376,37 @@ semantics.
 - **No corpus-repo tooling.** Merging/deduping bundles across multiple developers' exports,
   or a retention policy for old lines, doesn't exist — start manual, revisit if the corpus
   repo grows enough to make hand-merging painful.
+- **The harness replays source constants, never the app's saved prompt overrides.** A dev-Prompts
+  override (`<ARGUS_HOME>/config/dev-prompt-overrides.json`) wins inside the app *and* is what the
+  job's stored `prompt_hash` describes — but the harness builds its prompts from the working-tree
+  constants (plus `--contract`, if given). So a corpus exported from an app with an active override
+  never counts as reused, and the replay is against different text than the baseline ran. Clear the
+  override, or land the change in the source file, before reading such a report as a comparison.
+- **A v3 replay reports no cost.** The runner adapter feeds explicit `turnCount: 0`,
+  `toolCallCount: 0`, `trajectory: []` into the stage records (zeros would otherwise read as
+  measured zeros), and the one-shot stages carry no usage either. The harness can compare v2 and v3
+  on **quality**; it cannot compare them on spend — take those numbers from the app's own job
+  columns or the live CDP gates.
 
 ## Tests
 
 **These tests do not run in CI** — the workflow only runs from `app/`. Run them locally
 (`npm test`) whenever you touch this package; nothing else will catch a break.
 
-`npm test` (vitest) covers the pure logic with fakes — **no live model calls, no CLI spawn**:
-corpus parsing/validation (`__tests__/corpus.test.ts`), skip-if-unchanged + parse
-classification + world/degraded/budget-exhausted replay (`__tests__/replay.test.ts`), the v3
-staged replay end to end over fake stage outputs — including stages surviving a mid-pipeline
-failure and the cap mapping (`__tests__/replayV3.test.ts`), judge
-prompt/verdict
-round-tripping including a byte-identity inline snapshot of the unedited-accepted wording
-(`__tests__/judge.test.ts`), the agent runner's SDK option assembly and the replay MCP server's
-answers with and without a world (`__tests__/agentRunner.test.ts`), and the full `runEval`
-pipeline wiring (`__tests__/run.test.ts`).
+`npm test` (vitest) is 45 tests across six files, all with fakes — **no live model calls, no CLI
+spawn**:
+
+| file | covers |
+|---|---|
+| `__tests__/corpus.test.ts` | corpus parsing / validation |
+| `__tests__/replay.test.ts` | v2 skip-if-unchanged, parse classification, world / degraded / budget-exhausted replay |
+| `__tests__/replayV3.test.ts` | the v3 staged replay end to end over fake stage outputs — stages surviving a mid-pipeline failure, the lossy cap mapping, and the reused-row rules (a reused line surfaces the drops the corpus recorded rather than an empty list; a v2 hash never counts as reused under v3) |
+| `__tests__/judge.test.ts` | judge prompt / verdict round-tripping, including a byte-identity inline snapshot of the unedited-accepted wording |
+| `__tests__/agentRunner.test.ts` | the agent runner's SDK option assembly and the replay MCP server's answers with and without a world |
+| `__tests__/run.test.ts` | the full `runEval` wiring, `attributeItem`, and `writeReport` — including that v2 defaults to no stages and no attribution section |
+
+`__tests__/fixtures.ts` holds the shared v3 stage outputs (`V3_DOSSIER`, `V3_CANDS`, …) and the
+prompt→stage routing both v3 suites use.
 
 The agent runner takes its `query()` as an injected `CreateQueryFn` (defaulting to the SDK's
 `query`), which is the seam the tests fake: they assert the assembled
@@ -362,8 +418,7 @@ pass every assertion while silently degrading every replay. The MCP-server tests
 `@modelcontextprotocol/sdk` client over `InMemoryTransport` (same idiom as the app's
 `distill/__tests__/mcp.test.ts`) and call the tools for real against a fixture world. The v3
 tests drive the **real** `runCaseDistillPipeline` over fake runner output, so a change to a stage
-contract or parser breaks them rather than being replayed silently; `__tests__/fixtures.ts` holds
-the stage outputs (`V3_DOSSIER`, `V3_CANDS`, …) and the prompt→stage routing both suites share.
+contract or parser breaks them rather than being replayed silently.
 
 `npm run typecheck` type-checks this package on its own `tsconfig.json` (it imports app source
 directly, relative-pathed — see the `../../../app/src` imports in `src/replay.ts`,
