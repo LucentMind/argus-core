@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Added
+
+- Argus can now follow a prerelease track. Settings → Updates gains a
+  "Prerelease builds" switch: with it on, the app is offered builds tagged
+  `vX.Y.Z-beta.N`, which are published as GitHub prereleases and are never
+  offered to anyone on the stable track. A prerelease install is carried
+  onto the next stable release automatically, with no need to switch back.
+  Switching back to stable offers the current stable release even when that
+  means going back a version — the way out of a prerelease that turns out to
+  be broken, without reinstalling by hand. Such an offer is worded as a
+  return to stable rather than as an update, and its button reads "Install"
+  rather than "Download". The switch locks while a download is in flight or
+  staged: those bytes install on the next quit regardless, so a control that
+  appeared to cancel them would be lying.
+
 ### Changed
 
 - The case distiller now picks a knowledge type by how the knowledge will
