@@ -15,6 +15,10 @@ import { RISK_DENY_REASONS } from '../agent/risk'
 import { CASE_WORKING_RULES } from '../caseService'
 import { CASE_DISTILL_CONTRACT } from '../distill/caseDistillContract'
 import { CASE_DISTILL_SECTIONS } from '../distill/contract'
+import { DOSSIER_CONTRACT, DOSSIER_SECTIONS } from '../distill/v3/dossier'
+import { SUMMARY_CONTRACT, SUMMARY_SECTIONS } from '../distill/v3/summary'
+import { CANDIDATES_CONTRACT, CANDIDATES_SECTIONS } from '../distill/v3/candidates'
+import { MATERIALIZE_CONTRACT, MATERIALIZE_SECTIONS } from '../distill/v3/materialize'
 import { RCA_CONTRACT, RCA_SECTIONS } from '../rca/contract'
 import { DISTILL_CONTRACT, REF_DISTILL_SECTIONS } from '../refSync/distill'
 import {
@@ -348,6 +352,73 @@ const CASE_RCA_SECTION_ENTRIES: PromptEntry[] = specEntries(RCA_SECTIONS, {
   reaches: 'all'
 })
 
+/** The v3 distill pipeline's four stages (dossier / summary / candidates / materialize), each
+ *  with its own contract + scaffolding sections — same shape as HEADLESS_ENTRIES /
+ *  CASE_DISTILL_SECTION_ENTRIES above, generated rather than hand-listed per stage. */
+const V3_STAGE_CONTRACT_ENTRIES: PromptEntry[] = (
+  [
+    [
+      'dossier',
+      'Distill v3 — stage 1 dossier contract',
+      'app/src/main/services/distill/v3/dossier.ts',
+      () => DOSSIER_CONTRACT
+    ],
+    [
+      'summary',
+      'Distill v3 — stage 2a summary contract',
+      'app/src/main/services/distill/v3/summary.ts',
+      () => SUMMARY_CONTRACT
+    ],
+    [
+      'candidates',
+      'Distill v3 — stage 2b candidates contract',
+      'app/src/main/services/distill/v3/candidates.ts',
+      () => CANDIDATES_CONTRACT
+    ],
+    [
+      'materialize',
+      'Distill v3 — stage 3 materialize contract',
+      'app/src/main/services/distill/v3/materialize.ts',
+      () => MATERIALIZE_CONTRACT
+    ]
+  ] as const
+).map(([stage, title, source, dflt]) => ({
+  id: `headless.case-distill.${stage}.contract`,
+  category: 'headless' as const,
+  title,
+  source,
+  reaches: 'all' as const,
+  editable: true,
+  default: dflt
+}))
+
+const V3_SECTION_ENTRIES: PromptEntry[] = [
+  ...specEntries(DOSSIER_SECTIONS, {
+    prefix: 'headless.case-distill.dossier.section',
+    category: 'headless',
+    source: 'app/src/main/services/distill/v3/dossier.ts',
+    reaches: 'all'
+  }),
+  ...specEntries(SUMMARY_SECTIONS, {
+    prefix: 'headless.case-distill.summary.section',
+    category: 'headless',
+    source: 'app/src/main/services/distill/v3/summary.ts',
+    reaches: 'all'
+  }),
+  ...specEntries(CANDIDATES_SECTIONS, {
+    prefix: 'headless.case-distill.candidates.section',
+    category: 'headless',
+    source: 'app/src/main/services/distill/v3/candidates.ts',
+    reaches: 'all'
+  }),
+  ...specEntries(MATERIALIZE_SECTIONS, {
+    prefix: 'headless.case-distill.materialize.section',
+    category: 'headless',
+    source: 'app/src/main/services/distill/v3/materialize.ts',
+    reaches: 'all'
+  })
+]
+
 const GENERATED_FILE_ENTRIES: PromptEntry[] = [
   {
     id: 'generated-files.case-working-rules',
@@ -433,6 +504,8 @@ export const PROMPT_ENTRIES: readonly PromptEntry[] = [
   ...REF_DISTILL_SECTION_ENTRIES,
   ...AUTHORING_SECTION_ENTRIES,
   ...CASE_RCA_SECTION_ENTRIES,
+  ...V3_STAGE_CONTRACT_ENTRIES,
+  ...V3_SECTION_ENTRIES,
   ...GENERATED_FILE_ENTRIES,
   ...JIRA_ENTRIES,
   ...SYNTHESIZED_ENTRIES,
