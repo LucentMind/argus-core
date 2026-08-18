@@ -185,7 +185,13 @@ export function materializeToProposal(
   const cites: DossierCite[] = []
   for (const p of c.evidence) {
     for (const cite of resolveDossierPath(dossier, p)?.cites ?? []) {
-      const k = JSON.stringify(cite)
+      // Canonical key, not JSON.stringify: isCite accepts {turn, session} in either key order.
+      const k =
+        'finding' in cite
+          ? `f:${cite.finding}`
+          : 'evidence' in cite
+            ? `e:${cite.evidence}`
+            : `s:${cite.session}:${cite.turn}`
       if (seenCites.has(k)) continue
       seenCites.add(k)
       cites.push(cite)
