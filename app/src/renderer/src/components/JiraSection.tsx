@@ -1,11 +1,13 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { RefreshCw, X } from 'lucide-react'
 import { JiraAttachmentsDialog } from './JiraAttachmentsDialog'
+import { AddSourceTicketDialog } from './AddSourceTicketDialog'
 import { CollapsibleSection } from './CollapsibleSection'
-import { IconBtn, SectionLabel } from './ui'
+import { Btn, IconBtn, SectionLabel } from './ui'
 import { uiStore } from '../lib/uiStore'
+import { confirm } from '../lib/confirmStore'
 import { jiraSyncLine, resultDecayMs, type JiraSyncPhase } from '../lib/jiraSyncState'
-import type { JiraRefreshSummary } from '../../../shared/jira'
+import type { JiraRefreshSummary, JiraSourceLink } from '../../../shared/jira'
 
 const LINE_TONE = {
   mute: 'text-mute',
@@ -47,6 +49,8 @@ export function JiraSection({
   const [phase, setPhase] = useState<JiraSyncPhase>({ kind: 'idle' })
   const [lastSynced, setLastSynced] = useState(syncedAt)
   const [pending, setPending] = useState<JiraRefreshSummary | null>(null)
+  const [sources, setSources] = useState<JiraSourceLink[]>([])
+  const [adding, setAdding] = useState(false)
   // The line has finished announcing this result and falls back to the resting stamp.
   const [decayed, setDecayed] = useState(false)
   // derived-state sync: adopt a changed stored value (e.g. the cases list reloads after mount)
@@ -59,6 +63,20 @@ export function JiraSection({
     (cb) => uiStore.subscribe(cb),
     () => uiStore.get()
   ).dynamicTheme
+
+  /** The case's source tickets. Reloaded rather than mutated locally after an add or an unlink,
+   *  so what the section shows is always what the main process actually has linked. */
+  const loadSources = useCallback(
+    (): Promise<void> =>
+      window.argus.jira.listSources(slug).then((r) => {
+        if (r.ok) setSources(r.value)
+      }),
+    [slug]
+  )
+
+  useEffect(() => {
+    void loadSources()
+  }, [loadSources])
 
   /**
    * A result is an announcement, and announcements have to end.
@@ -100,6 +118,21 @@ export function JiraSection({
     } else {
       setPhase({ kind: 'error', message: r.message })
     }
+  }
+
+  /** Not `danger: true`: unlinking stops the sync, it does not delete anything — the evidence
+   *  already imported from the source stays, which is exactly what the message says. */
+  async function unlink(key: string): Promise<void> {
+    if (
+      !(await confirm({
+        title: `Unlink ${key}?`,
+        message: `${key} stops syncing into this case. Evidence already imported from it is kept.`,
+        confirmLabel: 'Unlink'
+      }))
+    )
+      return
+    const r = await window.argus.jira.removeSource(slug, key)
+    if (r.ok) void loadSources()
   }
 
   return (
@@ -149,6 +182,32 @@ export function JiraSection({
           <RefreshCw size={12} className={busy ? 'animate-spin' : undefined} />
         </IconBtn>
       </div>
+      {/* No empty state and no list header: a case with no sources shows only the add control,
+          so the section reads exactly as it did before sources existed. */}
+      {sources.map((s) => (
+        <div key={s.key} className="flex items-center gap-1 pl-2">
+          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-dim">{s.key}</span>
+          <IconBtn
+            aria-label={`Unlink ${s.key}`}
+            title={`Unlink ${s.key}`}
+            size="xs"
+            onClick={() => void unlink(s.key)}
+          >
+            <X size={11} />
+          </IconBtn>
+        </div>
+      ))}
+      <Btn variant="outline" className="justify-center" onClick={() => setAdding(true)}>
+        Add source ticket
+      </Btn>
+      {adding && (
+        <AddSourceTicketDialog
+          slug={slug}
+          jiraKey={jiraKey}
+          onClose={() => setAdding(false)}
+          onAdded={() => void loadSources()}
+        />
+      )}
       {pending && (
         <JiraAttachmentsDialog
           slug={slug}

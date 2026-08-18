@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { render, screen, act, fireEvent } from '@testing-library/react'
+import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { JiraSection } from '../JiraSection'
+import { ConfirmHost } from '../ConfirmHost'
 import { uiStore } from '../../lib/uiStore'
 import { chipStamp } from '../../lib/time'
 import { COUNTS_DECAY_MS, ACK_DECAY_MS } from '../../lib/jiraSyncState'
@@ -34,7 +35,11 @@ beforeEach(() => {
   window.argus = {
     jira: {
       refreshCase: vi.fn(async () => ({ ok: true as const, value: summary() })),
-      openIssue: vi.fn()
+      openIssue: vi.fn(),
+      listSources: vi.fn(async () => ({ ok: true as const, value: [] })),
+      removeSource: vi.fn(async () => ({ ok: true as const, value: undefined })),
+      preview: vi.fn(async () => ({ ok: true as const, value: { cloneLinks: [] } })),
+      addSource: vi.fn(async () => ({ ok: true as const, value: {} }))
     }
   } as never
 })
@@ -127,6 +132,82 @@ describe('JiraSection', () => {
     expect(screen.getByText(/NAVPOR-10068/)).toBeInTheDocument()
     expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
     expect(screen.queryByTestId('jira-sync-line')).not.toBeInTheDocument()
+  })
+})
+
+/** A case with no source links must look exactly as it did before sources existed — the only
+ *  addition is the control that creates the first one. */
+describe('JiraSection source tickets', () => {
+  it('renders nothing source-related when the case has no sources', async () => {
+    render(<JiraSection slug="NAV-7" jiraKey="NAV-7" title={TITLE} syncedAt={null} />)
+    await waitFor(() => expect(window.argus.jira.listSources).toHaveBeenCalledWith('NAV-7'))
+    expect(screen.queryByText(/CUST-9/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/no sources/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /add source ticket/i })).toBeInTheDocument()
+  })
+
+  it('lists sources and unlinks one after confirmation', async () => {
+    // Second call models the post-unlink backend: the row must go because the list reloaded,
+    // not because the component optimistically hid it.
+    window.argus.jira.listSources = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        value: [{ key: 'CUST-9', addedAt: '2026-08-18T00:00:00Z' }]
+      })
+      .mockResolvedValue({ ok: true, value: [] }) as never
+    render(
+      <>
+        <JiraSection slug="NAV-7" jiraKey="NAV-7" title={TITLE} syncedAt={null} />
+        <ConfirmHost />
+      </>
+    )
+
+    await screen.findByText('CUST-9')
+    await userEvent.click(screen.getByRole('button', { name: /unlink CUST-9/i }))
+    // `^unlink$`: the section's own icon button is "Unlink CUST-9" and would match a loose /unlink/.
+    await userEvent.click(await screen.findByRole('button', { name: /^unlink$/i }))
+
+    await waitFor(() =>
+      expect(window.argus.jira.removeSource).toHaveBeenCalledWith('NAV-7', 'CUST-9')
+    )
+    await waitFor(() => expect(screen.queryByText('CUST-9')).not.toBeInTheDocument())
+  })
+
+  it('keeps the source when the confirmation is declined', async () => {
+    window.argus.jira.listSources = vi.fn(async () => ({
+      ok: true as const,
+      value: [{ key: 'CUST-9', addedAt: '2026-08-18T00:00:00Z' }]
+    })) as never
+    render(
+      <>
+        <JiraSection slug="NAV-7" jiraKey="NAV-7" title={TITLE} syncedAt={null} />
+        <ConfirmHost />
+      </>
+    )
+
+    await screen.findByText('CUST-9')
+    await userEvent.click(screen.getByRole('button', { name: /unlink CUST-9/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /^cancel$/i }))
+
+    expect(window.argus.jira.removeSource).not.toHaveBeenCalled()
+    expect(screen.getByText('CUST-9')).toBeInTheDocument()
+  })
+
+  it('reloads the source list after the add dialog reports success', async () => {
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, value: [] })
+      .mockResolvedValue({ ok: true, value: [{ key: 'CUST-9', addedAt: 'x' }] })
+    window.argus.jira.listSources = list as never
+    render(<JiraSection slug="NAV-7" jiraKey="NAV-7" title={TITLE} syncedAt={null} />)
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1))
+
+    await userEvent.click(screen.getByRole('button', { name: /add source ticket/i }))
+    await userEvent.type(await screen.findByPlaceholderText(/ticket key/i), 'CUST-9')
+    await userEvent.click(screen.getByRole('button', { name: /^add$/i }))
+
+    await waitFor(() => expect(screen.getByText('CUST-9')).toBeInTheDocument())
   })
 })
 
