@@ -135,7 +135,11 @@ What that costs and buys:
   stage records: the harness does not measure them, and zeros would read as measured zeros.
 - **Skip-if-unchanged** compares against `caseDistillPipelineHash()` (the hash of the four stage
   hashes, with `'v3'` folded in) instead of `caseDistillPromptHash()`, so a v2 corpus line never
-  counts as reused under `--pipeline v3` and vice versa.
+  counts as reused under `--pipeline v3` and vice versa. A reused row runs nothing, so both its
+  `stages` and its pre-stage drops come from the corpus line itself (`job.stages` and
+  `job.dropped`, exported from the job's `stages_json` / `dropped_json` columns) — stage
+  attribution reads the same on a reused case as on a re-run one, instead of reporting "dropped
+  nothing" for a run that in fact dropped items.
 - **Cap handling is lossier than the app's.** The harness's agent runner reports only the SDK's
   terminal subtype and has no `capHit` channel, so any non-success subtype is passed into the
   pipeline as `capHit: 'iterations'`. The behaviour that matters survives — a cut-off run's text

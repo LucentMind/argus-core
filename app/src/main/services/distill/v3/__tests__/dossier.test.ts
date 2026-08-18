@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { buildDossierPrompt, parseDossier, resolveDossierPath, DOSSIER_SECTIONS } from '../dossier'
+import {
+  buildDossierPrompt,
+  parseDossier,
+  pruneUnknownCites,
+  resolveDossierPath,
+  DOSSIER_SECTIONS
+} from '../dossier'
 import { DistillParseError } from '../../contract'
 import type { CaseDistillInput } from '../../../../../shared/distill'
 
@@ -97,6 +103,96 @@ describe('parseDossier', () => {
   })
   it('requires scope', () => {
     expect(() => parseDossier('```json\n{"root_cause":null}\n```')).toThrow(DistillParseError)
+  })
+})
+
+describe('pruneUnknownCites', () => {
+  /** Session 1 with 5 snapshot messages — `read_transcript` pages these 0-based (offset 0 = the
+   *  first message), so turns 0..4 exist and turn 5 does not. */
+  const WITH_WORLD: CaseDistillInput = {
+    ...INPUT,
+    world: {
+      sessions: [
+        {
+          id: 1,
+          title: 's1',
+          messages: Array.from({ length: 5 }, (_, i) => ({ role: 'user', content: `m${i}` }))
+        }
+      ]
+    }
+  }
+
+  it('keeps every cite that names a real finding, turn or evidence path', () => {
+    const { dossier } = parseDossier(VALID)
+    const r = pruneUnknownCites(dossier, WITH_WORLD)
+    expect(r.dropped).toEqual({})
+    expect(r.dossier).toEqual(dossier)
+  })
+
+  it('drops an item whose only cite names a finding the input never had, and counts it', () => {
+    const { dossier } = parseDossier(VALID.replace('{"finding":8}', '{"finding":404}'))
+    const r = pruneUnknownCites(dossier, WITH_WORLD)
+    expect(r.dossier.rejected_hypotheses).toEqual([])
+    expect(r.dropped).toEqual({ rejected_hypotheses: 1 })
+  })
+
+  it('nulls root_cause and confirmed_fix when all of their cites are pruned', () => {
+    const { dossier } = parseDossier(
+      VALID.split('{"finding":7}')
+        .join('{"finding":404}')
+        .replace('{"session":1,"turn":4}', '{"session":9,"turn":0}')
+    )
+    const r = pruneUnknownCites(dossier, WITH_WORLD)
+    expect(r.dossier.root_cause).toBeNull()
+    expect(r.dossier.confirmed_fix).toBeNull()
+    // durable_facts[0] cited the same invented finding
+    expect(r.dropped).toEqual({ root_cause: 1, confirmed_fix: 1, durable_facts: 1 })
+  })
+
+  it('rejects a turn past the end of the snapshot session, and any session with no world at all', () => {
+    const past = parseDossier(VALID.replace('"turn":4', '"turn":5')).dossier
+    expect(pruneUnknownCites(past, WITH_WORLD).dossier.confirmed_fix).toBeNull()
+    const ok = parseDossier(VALID).dossier
+    expect(pruneUnknownCites(ok, { ...INPUT, world: undefined }).dossier.confirmed_fix).toBeNull()
+  })
+
+  it('rejects an evidence relPath that is not in the inventory', () => {
+    const { dossier } = parseDossier(VALID.replace('logs/a.txt', 'logs/invented.txt'))
+    const r = pruneUnknownCites(dossier, WITH_WORLD)
+    expect(r.dossier.diagnostic_path).toEqual([])
+    expect(r.dropped).toEqual({ diagnostic_path: 1 })
+  })
+
+  it('prunes every finding cite when the snapshot carries no finding ids (pre-v3 input)', () => {
+    const noIds: CaseDistillInput = {
+      ...WITH_WORLD,
+      findings: INPUT.findings.map((f) => ({
+        summary: f.summary,
+        reviewState: f.reviewState,
+        role: f.role,
+        body: f.body
+      }))
+    }
+    const { dossier } = parseDossier(VALID)
+    const r = pruneUnknownCites(dossier, noIds)
+    expect(r.dossier.root_cause).toBeNull()
+    expect(r.dossier.durable_facts).toEqual([])
+    expect(r.dossier.rejected_hypotheses).toEqual([])
+    // the session and evidence cites are still verifiable and survive
+    expect(r.dossier.confirmed_fix?.cites).toEqual([{ session: 1, turn: 4 }])
+    expect(r.dossier.diagnostic_path).toHaveLength(1)
+  })
+
+  it('keeps an item that has one good cite alongside a bad one, minus the bad cite', () => {
+    const { dossier } = parseDossier(
+      VALID.replace(
+        '"cites":[{"finding":7}]},\n "confirmed_fix"',
+        '"cites":[{"finding":7},{"finding":404}]},\n "confirmed_fix"'
+      )
+    )
+    const r = pruneUnknownCites(dossier, WITH_WORLD)
+    expect(r.dossier.root_cause?.cites).toEqual([{ finding: 7 }])
+    expect(r.dropped).toEqual({})
   })
 })
 

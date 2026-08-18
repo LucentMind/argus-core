@@ -16,7 +16,7 @@ import { applyPatch } from './patch'
 export const MATERIALIZE_CONTRACT = `You are writing one knowledge asset for a root-cause-analysis toolkit from a candidate a previous pass selected. A human reviews the result. Write only what the candidate and its evidence establish.
 
 Rules:
-1. CONTENT IS COMPLETE AND READY: for skill-new return the entire SKILL.md (frontmatter with "name:" equal to the target and a "description:" that names the SYMPTOM in the words someone would report it — that description is all a future agent matches on; then the body). For skill-edit / reference-edit return PATCH OPS against the target file shown below — never a rewritten copy: {op: append-section | replace-section | insert-after, heading: "<exact heading line>", content} or {op: append-file, content}; and optionally {"frontmatter": {"description": "..."}} when the description must change — a description-only change may send frontmatter alone with no ops. Only when the change cannot be expressed as ops (a structural rewrite) return "whole_file" with the complete file — this is flagged for the reviewer.
+1. CONTENT IS COMPLETE AND READY: for skill-new return the entire SKILL.md (frontmatter with "name:" equal to the target and a "description:" that names the SYMPTOM in the words someone would report it — that description is all a future agent matches on; then the body). For skill-edit / reference-edit return PATCH OPS against the target file shown below — never a rewritten copy. Each op is {op, heading: "<exact heading line>", content}: append-section adds content at the END of the named section; replace-section replaces that section's body and keeps its heading; insert-after inserts a NEW block (normally with its own heading) immediately after that section. {op: "append-file", content} adds at the end of the file and takes no heading. Optionally {"frontmatter": {"description": "..."}} when the description must change — a description-only change may send frontmatter alone with no ops. Only when the change cannot be expressed as ops (a structural rewrite) return "whole_file" with the complete file — this is flagged for the reviewer.
 2. A reference-edit whose target does not exist yet CREATES it: use append-file ops with a "# Title" line first; references have no frontmatter and NO numbered steps. A skill's body has ordered steps; a reference has facts.
 3. GENERALIZE THE INCIDENT, KEEP THE SCOPE: no ticket numbers, customer names, secrets, case slugs or paths; keep every version / mode / flag / component qualifier the candidate carries — dropping one may make a true statement false.
 4. RELATED ASSETS: when a related file shown below conflicts with the candidate, express the change as an edit or as a scoped statement that names the condition under which each holds; never leave two contradicting facts. List anything this candidate supersedes in "supersedes" [{asset, note}].
@@ -178,9 +178,19 @@ export function materializeToProposal(
   c: KnowledgeCandidate,
   out: MaterializeOutput
 ): MaterializeResult {
-  const cites: DossierCite[] = c.evidence.flatMap(
-    (p) => resolveDossierPath(dossier, p)?.cites ?? []
-  )
+  // Deduped by value, first-seen order: two dossier items commonly rest on the SAME source (a
+  // root cause and the diagnostic step that established it), and the proposal's `evidence`
+  // frontmatter is a list of sources for a reviewer — each one belongs in it once.
+  const seenCites = new Set<string>()
+  const cites: DossierCite[] = []
+  for (const p of c.evidence) {
+    for (const cite of resolveDossierPath(dossier, p)?.cites ?? []) {
+      const k = JSON.stringify(cite)
+      if (seenCites.has(k)) continue
+      seenCites.add(k)
+      cites.push(cite)
+    }
+  }
   const evidence = JSON.stringify(cites)
   const basis = out.basis.replace(/[\r\n]+/g, ' ').trim()
   if (c.type === 'skill-new') {

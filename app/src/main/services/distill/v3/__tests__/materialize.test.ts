@@ -145,6 +145,29 @@ describe('materializeToProposal', () => {
       expect(r.wholeFileUsed).toBe(false)
     }
   })
+  it('dedupes repeated cites across evidence paths, keeping first-seen order', () => {
+    // Two dossier items citing the same finding is the normal case (a root cause and the step
+    // that established it) — the proposal's evidence line should name each source once.
+    const shared: Dossier = {
+      ...D,
+      diagnostic_path: [
+        {
+          step: 's',
+          observation: 'o',
+          discriminated: 'd',
+          cites: [{ session: 1, turn: 2 }, { finding: 7 }]
+        }
+      ]
+    }
+    const r = materializeToProposal(INPUT, shared, cand({}), {
+      ops: [{ op: 'append-section', heading: '## Steps', content: '2. b' }],
+      basis: 'twenty characters basis'
+    })
+    expect(r.ok && JSON.parse(r.proposal.evidence!)).toEqual([
+      { finding: 7 },
+      { session: 1, turn: 2 }
+    ])
+  })
   it('whole_file wins over ops and is flagged', () => {
     const r = materializeToProposal(INPUT, D, cand({}), {
       whole_file: '---\nname: diagnose-x\ndescription: d\n---\nnew',
