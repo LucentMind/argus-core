@@ -149,6 +149,7 @@ export function JiraSection({
       {pending && (
         <JiraAttachmentsDialog
           slug={slug}
+          jiraKey={jiraKey}
           newAttachments={pending.newAttachments}
           deselectedAttachments={pending.deselectedAttachments}
           ingestedAttachments={pending.ingestedAttachments}

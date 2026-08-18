@@ -16,12 +16,14 @@ const kb = (n: number): string => (n >= 1024 ? `${Math.round(n / 1024)} KB` : `$
  */
 export function JiraAttachmentsDialog({
   slug,
+  jiraKey,
   newAttachments,
   deselectedAttachments,
   ingestedAttachments,
   onClose
 }: {
   slug: string
+  jiraKey: string
   newAttachments: JiraAttachmentInfo[]
   deselectedAttachments: JiraAttachmentInfo[]
   ingestedAttachments: JiraAttachmentInfo[]
@@ -63,7 +65,7 @@ export function JiraAttachmentsDialog({
       setError(r.message)
       return
     }
-    if (selected.length) void window.argus.jira.ingestAttachments(slug, selected)
+    if (selected.length) void window.argus.jira.ingestAttachments(slug, jiraKey, selected)
     onClose()
   }
 

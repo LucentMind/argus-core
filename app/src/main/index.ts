@@ -3446,8 +3446,10 @@ function registerIpc(): void {
       return r
     }
   )
-  ipcMain.handle(IPC.jiraIngestAttachments, (_e, caseSlug: string, atts: JiraAttachmentInfo[]) =>
-    jiraResult(() => jiraCases.ingestAttachments(caseSlug, atts))
+  ipcMain.handle(
+    IPC.jiraIngestAttachments,
+    (_e, caseSlug: string, jiraKey: string, atts: JiraAttachmentInfo[]) =>
+      jiraResult(() => jiraCases.ingestAttachments(caseSlug, jiraKey, atts))
   )
   ipcMain.handle(IPC.jiraRefreshCase, (_e, caseSlug: string) =>
     jiraResult(() => jiraCases.refresh(caseSlug))

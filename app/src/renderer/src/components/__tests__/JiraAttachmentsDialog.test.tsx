@@ -35,6 +35,7 @@ describe('JiraAttachmentsDialog', () => {
     const { unmount } = render(
       <JiraAttachmentsDialog
         slug="NAV-7"
+        jiraKey="NAV-7"
         newAttachments={[]}
         deselectedAttachments={[]}
         ingestedAttachments={[]}
@@ -50,6 +51,7 @@ describe('JiraAttachmentsDialog', () => {
     render(
       <JiraAttachmentsDialog
         slug="NAV-7"
+        jiraKey="NAV-7"
         newAttachments={[att('1', 'new.txt')]}
         deselectedAttachments={[att('2', 'old.txt')]}
         ingestedAttachments={[]}
@@ -66,6 +68,7 @@ describe('JiraAttachmentsDialog', () => {
     render(
       <JiraAttachmentsDialog
         slug="NAV-7"
+        jiraKey="NAV-7"
         newAttachments={[att('1', 'new.txt')]}
         deselectedAttachments={[]}
         ingestedAttachments={[att('9', 'synced.txt')]}
@@ -79,7 +82,7 @@ describe('JiraAttachmentsDialog', () => {
     await user.click(screen.getByRole('button', { name: /download selected/i }))
     await waitFor(() => expect(onClose).toHaveBeenCalled())
     // the synced id appears in NEITHER payload: not re-downloaded, not deselected
-    expect(window.argus.jira.ingestAttachments).toHaveBeenCalledWith('NAV-7', [
+    expect(window.argus.jira.ingestAttachments).toHaveBeenCalledWith('NAV-7', 'NAV-7', [
       expect.objectContaining({ id: '1' })
     ])
     expect(window.argus.jira.setAttachmentSelection).toHaveBeenCalledWith('NAV-7', [])
@@ -91,6 +94,7 @@ describe('JiraAttachmentsDialog', () => {
     render(
       <JiraAttachmentsDialog
         slug="NAV-7"
+        jiraKey="NAV-7"
         newAttachments={[att('1', 'new.txt')]}
         deselectedAttachments={[att('2', 'old.txt')]}
         ingestedAttachments={[]}
@@ -99,7 +103,7 @@ describe('JiraAttachmentsDialog', () => {
     )
     await user.click(screen.getByRole('button', { name: /download selected/i }))
     await waitFor(() => expect(onClose).toHaveBeenCalled())
-    expect(window.argus.jira.ingestAttachments).toHaveBeenCalledWith('NAV-7', [
+    expect(window.argus.jira.ingestAttachments).toHaveBeenCalledWith('NAV-7', 'NAV-7', [
       expect.objectContaining({ id: '1' })
     ])
     expect(window.argus.jira.setAttachmentSelection).toHaveBeenCalledWith('NAV-7', ['2'])
@@ -111,6 +115,7 @@ describe('JiraAttachmentsDialog', () => {
     render(
       <JiraAttachmentsDialog
         slug="NAV-7"
+        jiraKey="NAV-7"
         newAttachments={[att('1', 'new.txt')]}
         deselectedAttachments={[att('2', 'old.txt')]}
         ingestedAttachments={[att('9', 'synced.txt')]}
@@ -137,6 +142,7 @@ describe('JiraAttachmentsDialog', () => {
     render(
       <JiraAttachmentsDialog
         slug="NAV-7"
+        jiraKey="NAV-7"
         newAttachments={[]}
         deselectedAttachments={[]}
         ingestedAttachments={[att('9', 'synced.txt')]}
@@ -154,6 +160,7 @@ describe('JiraAttachmentsDialog', () => {
     render(
       <JiraAttachmentsDialog
         slug="NAV-7"
+        jiraKey="NAV-7"
         newAttachments={[
           typed('1', 'b.txt', 'text/plain'),
           typed('2', 'dump.bin', 'application/octet-stream'),
@@ -177,6 +184,7 @@ describe('JiraAttachmentsDialog', () => {
     render(
       <JiraAttachmentsDialog
         slug="NAV-7"
+        jiraKey="NAV-7"
         newAttachments={[att('1', 'new.txt')]}
         deselectedAttachments={[]}
         ingestedAttachments={[]}
@@ -196,6 +204,7 @@ describe('JiraAttachmentsDialog', () => {
     render(
       <JiraAttachmentsDialog
         slug="NAV-7"
+        jiraKey="NAV-7"
         newAttachments={[att('1', 'new.txt')]}
         deselectedAttachments={[]}
         ingestedAttachments={[]}
@@ -212,6 +221,7 @@ describe('JiraAttachmentsDialog', () => {
     render(
       <JiraAttachmentsDialog
         slug="NAV-7"
+        jiraKey="NAV-7"
         newAttachments={[att('1', 'new.txt')]}
         deselectedAttachments={[]}
         ingestedAttachments={[]}
@@ -230,6 +240,7 @@ describe('JiraAttachmentsDialog', () => {
     render(
       <JiraAttachmentsDialog
         slug="NAV-7"
+        jiraKey="NAV-7"
         newAttachments={[att('1', 'new.txt')]}
         deselectedAttachments={[]}
         ingestedAttachments={[]}
