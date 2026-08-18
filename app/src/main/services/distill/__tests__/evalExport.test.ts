@@ -23,8 +23,8 @@ const SNAPSHOT = JSON.stringify({ caseMeta: { slug: 'nav-1' } })
 function insertJob(over: Partial<Record<string, unknown>> = {}): number {
   const r = db
     .prepare(
-      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, raw_output, error, prompt_hash, created_at, kind)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, raw_output, error, prompt_hash, created_at, kind, stages_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       (over.case_slug as string) ?? 'nav-1',
@@ -34,7 +34,8 @@ function insertJob(over: Partial<Record<string, unknown>> = {}): number {
       (over.error as string | null) ?? null,
       (over.prompt_hash as string | null) ?? 'abc123def456',
       (over.created_at as string) ?? '2026-07-29T00:00:00.000Z',
-      (over.kind as string) ?? 'case'
+      (over.kind as string) ?? 'case',
+      (over.stages_json as string | null) ?? null
     )
   return Number(r.lastInsertRowid)
 }
@@ -246,6 +247,21 @@ describe('buildEvalBundle', () => {
     const { lines } = buildEvalBundle(db, home, '1.0.0')
     expect(lines).toHaveLength(1)
     expect(lines[0].items).toEqual([])
+  })
+})
+
+describe('buildEvalBundle — stages', () => {
+  it('carries stages from stages_json when present, and leaves it undefined when the column is NULL', () => {
+    const withStages = insertJob({
+      case_slug: 'nav-1',
+      stages_json: '{"dossier":{"promptHash":"h","promptChars":1,"rawOutput":"x"}}'
+    })
+    const withoutStages = insertJob({ case_slug: 'nav-2', stages_json: null })
+    const { lines } = buildEvalBundle(db, home, '1.0.0')
+    const l1 = lines.find((l) => l.job.id === withStages)!
+    expect(l1.job.stages?.dossier?.promptHash).toBe('h')
+    const l2 = lines.find((l) => l.job.id === withoutStages)!
+    expect(l2.job.stages).toBeUndefined()
   })
 })
 
