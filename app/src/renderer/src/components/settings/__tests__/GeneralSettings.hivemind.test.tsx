@@ -28,9 +28,21 @@ beforeEach(() => {
       recent: vi.fn(async () => [])
     },
     update: {
-      status: vi.fn(async () => ({ currentVersion: '1.0.0', status: { phase: 'idle' } })),
-      check: vi.fn(async () => ({ currentVersion: '1.0.0', status: { phase: 'idle' } })),
-      download: vi.fn(async () => ({ currentVersion: '1.0.0', status: { phase: 'idle' } })),
+      status: vi.fn(async () => ({
+        currentVersion: '1.0.0',
+        status: { phase: 'idle' },
+        channel: 'stable'
+      })),
+      check: vi.fn(async () => ({
+        currentVersion: '1.0.0',
+        status: { phase: 'idle' },
+        channel: 'stable'
+      })),
+      download: vi.fn(async () => ({
+        currentVersion: '1.0.0',
+        status: { phase: 'idle' },
+        channel: 'stable'
+      })),
       restart: vi.fn(async () => {}),
       onChanged: vi.fn(() => () => {})
     }
