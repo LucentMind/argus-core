@@ -3475,6 +3475,17 @@ function registerIpc(): void {
         setCaseJiraLinkDeselected(db, caseSlug, key, deselectedIds.map(String))
       )
   )
+  ipcMain.handle(IPC.jiraListSources, (_e, caseSlug: string) =>
+    jiraResult(async () => jiraCases.listSources(caseSlug))
+  )
+  // addSource IS importSourceTicket: it links the ticket, ingests its text and comments, is
+  // idempotent on re-import and rejects the case's own key. There is no second implementation.
+  ipcMain.handle(IPC.jiraAddSource, (_e, caseSlug: string, key: string) =>
+    jiraResult(() => jiraCases.importSourceTicket(caseSlug, key))
+  )
+  ipcMain.handle(IPC.jiraRemoveSource, (_e, caseSlug: string, key: string) =>
+    jiraResult(async () => jiraCases.removeSource(caseSlug, key))
+  )
 
   // Open the case's Jira issue in the system browser. URL construction stays in
   // main: siteUrl never crosses to the renderer and the http(s) guard applies.

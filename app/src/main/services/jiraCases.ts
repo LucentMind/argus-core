@@ -12,6 +12,7 @@ import type {
   JiraCommentInfo,
   JiraIssuePreview,
   JiraRefreshSummary,
+  JiraSourceLink,
   JiraSourceRefresh,
   JiraSyncAllSummary
 } from '../../shared/jira'
@@ -22,6 +23,7 @@ import {
   getCase,
   listCases,
   listCaseJiraLinks,
+  removeCaseJiraLink,
   setCaseJira,
   setCaseJiraLinkAttachmentIds,
   setCaseSyncState,
@@ -356,6 +358,21 @@ export class JiraCases {
 
     this.deps.evidenceChanged(caseSlug)
     return commentsError === undefined ? preview : { ...preview, commentsError }
+  }
+
+  /** The case's source tickets, for the renderer. Refresh bookkeeping (attachment baseline,
+   *  declined set) is deliberately not exposed — nothing in the UI should reason about it. */
+  listSources(caseSlug: string): JiraSourceLink[] {
+    return listCaseJiraLinks(this.deps.db, caseSlug).map((l) => ({
+      key: l.key,
+      addedAt: l.addedAt
+    }))
+  }
+
+  /** Stop syncing a source. Evidence already ingested from it STAYS: it is evidence the user
+   *  has been reasoning over, and it remains attributable via meta.jira.key (spec §7). */
+  removeSource(caseSlug: string, key: string): void {
+    removeCaseJiraLink(this.deps.db, this.deps.argusHome, caseSlug, key)
   }
 
   /** Sequential per-file download+ingest; failures are per-file and never abort the batch.

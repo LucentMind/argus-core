@@ -77,6 +77,7 @@ import type {
   JiraIssuePreview,
   JiraRefreshSummary,
   JiraResult,
+  JiraSourceLink,
   JiraSyncAllSummary
 } from '../shared/jira'
 import type {
@@ -916,6 +917,12 @@ const argus = {
       deselectedIds: string[]
     ): Promise<JiraResult<void>> =>
       invoke(IPC.jiraSetSourceAttachmentSelection, caseSlug, key, deselectedIds),
+    listSources: (caseSlug: string): Promise<JiraResult<JiraSourceLink[]>> =>
+      invoke(IPC.jiraListSources, caseSlug),
+    addSource: (caseSlug: string, key: string): Promise<JiraResult<JiraIssuePreview>> =>
+      invoke(IPC.jiraAddSource, caseSlug, key),
+    removeSource: (caseSlug: string, key: string): Promise<JiraResult<void>> =>
+      invoke(IPC.jiraRemoveSource, caseSlug, key),
     openIssue: (caseSlug: string): Promise<void> => invoke(IPC.jiraOpenIssue, caseSlug),
     onAttachmentProgress: (cb: (p: JiraAttachmentProgress) => void): (() => void) => {
       const listener = (_e: unknown, p: JiraAttachmentProgress): void => cb(p)

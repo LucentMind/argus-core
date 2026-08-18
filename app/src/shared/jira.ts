@@ -60,6 +60,13 @@ export interface JiraAttachmentProgress {
   dedupedFrom?: string
 }
 
+/** A source ticket as the renderer sees it. Refresh bookkeeping (the attachment baseline and
+ *  the declined set) is deliberately omitted — nothing in the UI should reason about it. */
+export interface JiraSourceLink {
+  key: string
+  addedAt: string
+}
+
 /** Per-source outcome inside a refresh. A source is evidence-only: it is never a post target
  *  and its failure never fails the case's refresh. */
 export interface JiraSourceRefresh {
