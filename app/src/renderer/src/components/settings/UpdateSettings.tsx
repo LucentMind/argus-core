@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { updateStore } from '../../lib/updateStore'
+import { settingsStore } from '../../lib/settingsStore'
 import { describeUpdate } from '../../../../shared/updates'
-import { Btn } from '../ui'
+import { Btn, Toggle } from '../ui'
 import { SettingsSection, SettingRow } from './settingsLayout'
 
 /** Consecutive clicks on the version number must land within this window to count toward the
@@ -13,13 +14,17 @@ const UNLOCK_CLICK_COUNT = 6
 const UNLOCK_MESSAGE_TTL_MS = 5000
 
 export function UpdateSettings(): React.JSX.Element {
-  const { currentVersion, status } = useSyncExternalStore(
+  const { currentVersion, status, channel } = useSyncExternalStore(
     (cb) => updateStore.subscribe(cb),
     () => updateStore.get()
   )
   useEffect(() => updateStore.start(), [])
 
   const busy = status.phase === 'checking' || status.phase === 'downloading'
+  // A staged download installs on the next quit no matter what the channel setting says
+  // afterwards (autoInstallOnAppQuit), so the switch must not pretend otherwise. Main refuses
+  // the same two phases; this is the half the user can see.
+  const staged = status.phase === 'downloading' || status.phase === 'ready'
 
   // Refs, not state: a click counter re-rendering the page on every tap is both pointless and a
   // tell that something is listening — the whole point is that this looks like inert text.
@@ -63,7 +68,9 @@ export function UpdateSettings(): React.JSX.Element {
           </span>
           {unlockMessage && <span className="text-xs text-dim">{unlockMessage}</span>}
           {status.phase === 'available' && (
-            <Btn onClick={() => void updateStore.download()}>Download {status.version}</Btn>
+            <Btn onClick={() => void updateStore.download()}>
+              {status.downgrade ? 'Install' : 'Download'} {status.version}
+            </Btn>
           )}
           {status.phase === 'ready' && (
             <Btn onClick={() => void updateStore.restart()}>Restart</Btn>
@@ -75,6 +82,30 @@ export function UpdateSettings(): React.JSX.Element {
           )}
         </div>
       </SettingRow>
+      {status.phase !== 'unsupported' && (
+        <SettingRow
+          label="Prerelease builds"
+          description={
+            status.phase === 'ready'
+              ? `Restart to finish installing ${status.version} first.`
+              : status.phase === 'downloading'
+                ? 'Wait for the download in progress to finish first.'
+                : 'Prerelease builds ship early and are less tested. Switching back to stable offers you the current stable release, even if that means going back a version.'
+          }
+          isDefault={channel === 'stable'}
+          onReset={() => void settingsStore.patch({ updates: { channel: null } })}
+        >
+          <Toggle
+            checked={channel === 'beta'}
+            disabled={staged}
+            aria-label="Prerelease builds"
+            label=""
+            onChange={(v) =>
+              void settingsStore.patch({ updates: { channel: v ? 'beta' : 'stable' } })
+            }
+          />
+        </SettingRow>
+      )}
     </SettingsSection>
   )
 }
