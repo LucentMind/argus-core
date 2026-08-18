@@ -1,3 +1,4 @@
+import { lt } from 'semver'
 import type { UpdateStatus, CoreUpdatePayload, UpdateChannel } from '../../../shared/updates'
 
 /** Safely extract a message string from any rejection value. */
@@ -50,6 +51,8 @@ export class CoreUpdaterService {
   constructor(private readonly deps: CoreUpdaterDeps) {
     this.now = deps.now ?? Date.now
     this.channel = deps.channel
+    // Before anything else: the first boot check must already run on the user's track.
+    deps.backend.setChannel(deps.channel, deps.currentVersion)
     this.status = deps.supported
       ? { phase: 'idle' }
       : { phase: 'unsupported', reason: 'Updates are only available in a packaged build' }
@@ -83,7 +86,15 @@ export class CoreUpdaterService {
       const found = await this.deps.backend.check()
       this.set(
         found
-          ? { phase: 'available', version: found.version, notes: found.notes }
+          ? {
+              phase: 'available',
+              version: found.version,
+              notes: found.notes,
+              // An offer BELOW the running version is what leaving the prerelease track looks
+              // like — the current stable release is behind a beta by definition. Flagged here
+              // rather than worded here, so `describeUpdate` stays the only place that speaks.
+              ...(lt(found.version, this.deps.currentVersion) ? { downgrade: true as const } : {})
+            }
           : { phase: 'idle' }
       )
     } catch (err) {
@@ -107,6 +118,30 @@ export class CoreUpdaterService {
     } catch (err) {
       this.set({ phase: 'error', message: messageOf(err), at: this.now() })
     }
+    return this.payload()
+  }
+
+  /**
+   * Move this install to another release track.
+   *
+   * Refused outright while a download is in flight or staged: `autoInstallOnAppQuit` means
+   * those bytes install on the next quit no matter what this setting says afterwards, so
+   * honouring the switch would be a claim we cannot keep. The Settings toggle disables itself
+   * in the same two phases — this is the backstop, not the explanation.
+   *
+   * On a real switch the status resets to `idle`: an `available` or `error` earned on the
+   * channel we just left describes a release this install is no longer tracking. The caller
+   * runs the follow-up check; the service does not check on its own.
+   */
+  setChannel(next: UpdateChannel): CoreUpdatePayload {
+    if (next === this.channel) return this.payload()
+    if (this.status.phase === 'downloading' || this.status.phase === 'ready') return this.payload()
+    // `unsupported` is a structural fact about this build, not a stale offer — the reset below
+    // must not turn it into "up to date".
+    if (this.status.phase === 'unsupported') return this.payload()
+    this.channel = next
+    this.deps.backend.setChannel(next, this.deps.currentVersion)
+    this.set({ phase: 'idle' })
     return this.payload()
   }
 
