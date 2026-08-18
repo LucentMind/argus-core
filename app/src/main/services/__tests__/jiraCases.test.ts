@@ -28,6 +28,11 @@ let progress: JiraAttachmentProgress[]
 let changed: string[]
 /** Extraction promises the fake queue kicked off, so `settle()` can wait for them. */
 let extractions: Array<Promise<unknown>>
+// extraction is fire-and-forget: drain what the queue kicked off, then flush timers
+const settle = async (): Promise<void> => {
+  await Promise.allSettled(extractions)
+  await new Promise((r) => setTimeout(r, 0))
+}
 const detection = createDetection(samplePackRegistry())
 
 const att = (id: string, filename: string): JiraIssuePreview['attachments'][number] => ({
@@ -226,7 +231,7 @@ describe('JiraCases.ingestAttachments', () => {
   it('downloads + ingests with provenance, emits per-file progress, fires evidenceChanged', async () => {
     const svc = service(fakeClient(() => issue()))
     await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
-    const results = await svc.ingestAttachments('NAV-7', [att('10001', 'log.txt')])
+    const results = await svc.ingestAttachments('NAV-7', 'NAV-7', [att('10001', 'log.txt')])
     expect(results).toHaveLength(1)
     expect(results[0]).toMatchObject({ attachmentId: '10001', status: 'done' })
     expect(progress.map((p) => p.status)).toEqual(['downloading', 'done'])
@@ -239,7 +244,7 @@ describe('JiraCases.ingestAttachments', () => {
   it('a failing file emits error and does not abort the batch', async () => {
     const svc = service(fakeClient(() => issue(), new Set(['10001'])))
     await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
-    const results = await svc.ingestAttachments('NAV-7', [
+    const results = await svc.ingestAttachments('NAV-7', 'NAV-7', [
       att('10001', 'bad.txt'),
       att('10002', 'ok.txt')
     ])
@@ -252,7 +257,7 @@ describe('JiraCases.ingestAttachments', () => {
     const svc = service(client)
     await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
     const huge = { ...att('10009', 'huge.bin'), size: 600 * 1024 * 1024 } // 600 MB
-    const results = await svc.ingestAttachments('NAV-7', [huge])
+    const results = await svc.ingestAttachments('NAV-7', 'NAV-7', [huge])
     expect(results[0]).toMatchObject({ attachmentId: '10009', status: 'error' })
     expect(results[0].error).toContain('exceeds the 500 MB limit')
     expect(client.downloadAttachment).not.toHaveBeenCalled()
@@ -263,17 +268,11 @@ describe('JiraCases.ingestAttachments', () => {
     const svc = service(client)
     await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
     const huge = { ...att('10009', 'huge.bin'), size: 600 * 1024 * 1024 }
-    const results = await svc.ingestAttachments('NAV-7', [huge, att('10001', 'ok.txt')])
+    const results = await svc.ingestAttachments('NAV-7', 'NAV-7', [huge, att('10001', 'ok.txt')])
     expect(results[0]).toMatchObject({ attachmentId: '10009', status: 'error' })
     expect(results[1]).toMatchObject({ attachmentId: '10001', status: 'done' })
     expect(client.downloadAttachment).toHaveBeenCalledTimes(1)
   })
-
-  // extraction is fire-and-forget: drain what the queue kicked off, then flush timers
-  const settle = async (): Promise<void> => {
-    await Promise.allSettled(extractions)
-    await new Promise((r) => setTimeout(r, 0))
-  }
 
   // Indexing + extraction (and the progress they report) moved behind IngestQueue; what
   // JiraCases still owns is handing every downloaded attachment to that queue.
@@ -285,7 +284,7 @@ describe('JiraCases.ingestAttachments', () => {
     )
     await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
     const before = jobs.length
-    const [done] = await svc.ingestAttachments('NAV-7', [att('10001', 'log.txt')])
+    const [done] = await svc.ingestAttachments('NAV-7', 'NAV-7', [att('10001', 'log.txt')])
     await settle()
     const forAttachment = jobs.slice(before)
     expect(forAttachment).toHaveLength(1)
@@ -304,7 +303,7 @@ describe('JiraCases.ingestAttachments', () => {
     )
     await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
     const before = jobs.length
-    const [done] = await svc.ingestAttachments('NAV-7', [att('10004', 'trace.binlog')])
+    const [done] = await svc.ingestAttachments('NAV-7', 'NAV-7', [att('10004', 'trace.binlog')])
     await settle()
 
     expect(done.status).toBe('done')
@@ -325,7 +324,7 @@ describe('JiraCases.ingestAttachments', () => {
   it('sanitizes hostile filenames into the evidence dir', async () => {
     const svc = service(fakeClient(() => issue()))
     await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
-    await svc.ingestAttachments('NAV-7', [att('10003', '..\\..\\evil?.txt')])
+    await svc.ingestAttachments('NAV-7', 'NAV-7', [att('10003', '..\\..\\evil?.txt')])
     const ev = listEvidence(db, 'NAV-7').map((e) => e.relPath)
     expect(ev.some((p) => p.includes('evil_.txt') || p.includes('evil'))).toBe(true)
     expect(ev.every((p) => p.startsWith('evidence/'))).toBe(true)
@@ -350,7 +349,11 @@ describe('zip attachment extraction', () => {
     })
     const svc = service(client)
     createCase(db, argusHome, { slug: 'nav-7', title: 'T', jiraKey: 'NAV-7' })
-    const results = await svc.ingestAttachments('nav-7', issue(preview).preview.attachments)
+    const results = await svc.ingestAttachments(
+      'nav-7',
+      'NAV-7',
+      issue(preview).preview.attachments
+    )
     // archive attachment reports done with an extracted count
     expect(results[0]).toMatchObject({ attachmentId: '20001', status: 'done', extractedCount: 2 })
     const ev = listEvidence(db, 'nav-7')
@@ -383,7 +386,7 @@ describe('zip attachment extraction', () => {
     const client = zipClient(() => issue(preview), { '20001': { 'a.txt': 'a', 'b.txt': 'b' } })
     const svc = service(client)
     createCase(db, argusHome, { slug: 'nav-7', title: 'T', jiraKey: 'NAV-7' })
-    await svc.ingestAttachments('nav-7', issue(preview).preview.attachments)
+    await svc.ingestAttachments('nav-7', 'NAV-7', issue(preview).preview.attachments)
     const summary = await svc.refresh('nav-7')
     expect(summary.ingestedAttachments.map((a) => a.id)).toEqual(['20001'])
     expect(summary.newAttachments).toEqual([])
@@ -408,7 +411,11 @@ describe('zip attachment extraction', () => {
     })
     const svc = service(client, undefined, { maxEntries: 2 }) // limits override
     createCase(db, argusHome, { slug: 'nav-7', title: 'T', jiraKey: 'NAV-7' })
-    const results = await svc.ingestAttachments('nav-7', issue(preview).preview.attachments)
+    const results = await svc.ingestAttachments(
+      'nav-7',
+      'NAV-7',
+      issue(preview).preview.attachments
+    )
     expect(results[0]).toMatchObject({ attachmentId: '20002', status: 'done' })
     expect(results[0].extractError).toBeTruthy()
     const ev = listEvidence(db, 'nav-7')
@@ -436,7 +443,11 @@ describe('zip attachment extraction', () => {
     })
     const svc = service(client)
     createCase(db, argusHome, { slug: 'nav-7', title: 'T', jiraKey: 'NAV-7' })
-    const results = await svc.ingestAttachments('nav-7', issue(preview).preview.attachments)
+    const results = await svc.ingestAttachments(
+      'nav-7',
+      'NAV-7',
+      issue(preview).preview.attachments
+    )
     expect(results[0]).toMatchObject({ attachmentId: '20003', status: 'done' })
     expect(results[0].extractedCount).toBeUndefined()
     const ev = listEvidence(db, 'nav-7')
@@ -465,7 +476,11 @@ describe('zip attachment extraction', () => {
     })
     const svc = service(client)
     createCase(db, argusHome, { slug: 'nav-7', title: 'T', jiraKey: 'NAV-7' })
-    const results = await svc.ingestAttachments('nav-7', issue(preview).preview.attachments)
+    const results = await svc.ingestAttachments(
+      'nav-7',
+      'NAV-7',
+      issue(preview).preview.attachments
+    )
     expect(results[0]).toMatchObject({ attachmentId: '20004', status: 'done' })
     expect(results[0].extractedCount).toBeUndefined()
     const ev = listEvidence(db, 'nav-7')
@@ -482,7 +497,7 @@ describe('JiraCases.refresh', () => {
     let current = issue()
     const svc = service(fakeClient(() => current))
     await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
-    await svc.ingestAttachments('NAV-7', current.preview.attachments)
+    await svc.ingestAttachments('NAV-7', 'NAV-7', current.preview.attachments)
     const before = listEvidence(db, 'NAV-7').length
 
     current = issue({
@@ -548,7 +563,7 @@ describe('JiraCases.refresh attachment classification (no auto-ingest)', () => {
     )
     const svc = service(client)
     await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
-    await svc.ingestAttachments('NAV-7', [att('10001', 'log.txt')])
+    await svc.ingestAttachments('NAV-7', 'NAV-7', [att('10001', 'log.txt')])
     const summary = await svc.refresh('NAV-7')
     expect(summary.ingestedAttachments.map((a) => a.id)).toEqual(['10001'])
     expect(summary.newAttachments.map((a) => a.id)).toEqual(['10002'])
@@ -558,7 +573,7 @@ describe('JiraCases.refresh attachment classification (no auto-ingest)', () => {
     const client = fakeClient(() => issue({ attachments: [att('10001', 'log.txt')] }))
     const svc = service(client)
     await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
-    await svc.ingestAttachments('NAV-7', [att('10001', 'log.txt')])
+    await svc.ingestAttachments('NAV-7', 'NAV-7', [att('10001', 'log.txt')])
     const gone = service(fakeClient(() => issue({ attachments: [] })))
     const summary = await gone.refresh('NAV-7')
     expect(summary.deletedOnJira).toEqual([{ attachmentId: '10001', filename: 'log.txt' }])
@@ -748,5 +763,17 @@ describe('markReviewed', () => {
     const { svc } = setup()
     const rec = svc.markReviewed('C-1')
     expect(rec.reviewBaseline).toMatchObject({ status: '', commentCount: 0, attachmentIds: [] })
+  })
+})
+
+describe('JiraCases source tickets', () => {
+  it('stamps the passed key on attachment evidence, not the case key', async () => {
+    const svc = service(fakeClient(() => issue()))
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await svc.ingestAttachments('NAV-7', 'CUST-9', [att('20001', 'customer.log')])
+    await settle()
+
+    const rec = listEvidence(db, 'NAV-7').find((e) => e.relPath.includes('customer.log'))!
+    expect((rec.meta.jira as { key: string }).key).toBe('CUST-9')
   })
 })

@@ -896,9 +896,10 @@ const argus = {
     }): Promise<JiraResult<CaseRecord>> => invoke(IPC.jiraCreateCase, input),
     ingestAttachments: (
       caseSlug: string,
+      jiraKey: string,
       attachments: JiraAttachmentInfo[]
     ): Promise<JiraResult<JiraAttachmentProgress[]>> =>
-      invoke(IPC.jiraIngestAttachments, caseSlug, attachments),
+      invoke(IPC.jiraIngestAttachments, caseSlug, jiraKey, attachments),
     refreshCase: (caseSlug: string): Promise<JiraResult<JiraRefreshSummary>> =>
       invoke(IPC.jiraRefreshCase, caseSlug),
     markReviewed: (caseSlug: string): Promise<JiraResult<CaseRecord>> =>
