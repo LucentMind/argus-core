@@ -93,7 +93,10 @@ export function JiraSection({
     if (r.ok) {
       setPhase({ kind: 'result', summary: r.value })
       setLastSynced(r.value.syncedAt)
-      if (r.value.newAttachments.length) setPending(r.value)
+      // Open when the primary OR any source has something to offer: a refresh that found files
+      // only on a source ticket is still a decision the user has to make.
+      if (r.value.newAttachments.length || r.value.sources.some((s) => s.newAttachments.length))
+        setPending(r.value)
     } else {
       setPhase({ kind: 'error', message: r.message })
     }
@@ -149,10 +152,27 @@ export function JiraSection({
       {pending && (
         <JiraAttachmentsDialog
           slug={slug}
-          jiraKey={jiraKey}
-          newAttachments={pending.newAttachments}
-          deselectedAttachments={pending.deselectedAttachments}
-          ingestedAttachments={pending.ingestedAttachments}
+          groups={[
+            {
+              jiraKey,
+              role: 'primary',
+              newAttachments: pending.newAttachments,
+              deselectedAttachments: pending.deselectedAttachments,
+              ingestedAttachments: pending.ingestedAttachments
+            },
+            // A source that errored is excluded: it has no findings to act on, and an empty
+            // group for an unreadable ticket would read as "nothing new" rather than "could
+            // not read". Its error surfaces in the sync line instead.
+            ...pending.sources
+              .filter((s) => !s.error)
+              .map((s) => ({
+                jiraKey: s.key,
+                role: 'source' as const,
+                newAttachments: s.newAttachments,
+                deselectedAttachments: s.deselectedAttachments,
+                ingestedAttachments: []
+              }))
+          ]}
           onClose={() => setPending(null)}
         />
       )}

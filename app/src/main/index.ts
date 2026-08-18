@@ -138,6 +138,7 @@ import {
   deleteCase,
   setCaseStatus,
   setCaseJiraDeselected,
+  setCaseJiraLinkDeselected,
   setCaseMode,
   getCase
 } from './services/caseService'
@@ -3464,6 +3465,15 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC.jiraSetAttachmentSelection, (_e, caseSlug: string, deselected: string[]) =>
     jiraResult(async () => setCaseJiraDeselected(db, argusHome, caseSlug, deselected.map(String)))
+  )
+  // The per-SOURCE equivalent of the handler above: cases.jira_deselected holds the primary's
+  // declined ids, case_jira_links.deselected_ids holds one source's.
+  ipcMain.handle(
+    IPC.jiraSetSourceAttachmentSelection,
+    (_e, caseSlug: string, key: string, deselectedIds: string[]) =>
+      jiraResult(async () =>
+        setCaseJiraLinkDeselected(db, caseSlug, key, deselectedIds.map(String))
+      )
   )
 
   // Open the case's Jira issue in the system browser. URL construction stays in

@@ -128,6 +128,7 @@ export const IPC = {
   jiraSyncProgress: 'jira:sync-progress',
   jiraAttachmentProgress: 'jira:attachment-progress',
   jiraSetAttachmentSelection: 'jira:set-attachment-selection',
+  jiraSetSourceAttachmentSelection: 'jira:set-source-attachment-selection',
   jiraOpenIssue: 'jira:open-issue',
   accessGet: 'access:get',
   accessPatch: 'access:patch',
