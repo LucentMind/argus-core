@@ -35,6 +35,10 @@ export interface AcceptedEntry {
   date: string
   type: ProposalType
   target: AcceptedTarget
+  /** The proposal carried at least one executable sibling, computed from `p.files` at accept
+   *  time (same expression the pending row uses) — main's accept response only returns the
+   *  target it wrote, not the sibling list, so this must be captured before that happens. */
+  hasExec: boolean
 }
 
 const VIEW_MODES: { mode: DiffViewMode; label: string; aria: string }[] = [

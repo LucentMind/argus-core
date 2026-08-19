@@ -506,4 +506,20 @@ describe('per-file edits', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit Collect logs' }))
     expect(screen.getByLabelText('Edit proposal content')).toHaveValue('#!/bin/sh\necho hi\n')
   })
+
+  // A reviewer who accepts a proposal carrying a script and then glances back at the queue
+  // must still see the exec signal — the row stays visible for the rest of the session
+  // (acceptedVisible), so `hasExec` has to survive the accept, not just precede it.
+  it('keeps the exec chip on the queue row after the proposal is accepted', async () => {
+    renderShell()
+    await screen.findByRole('tablist', { name: 'Files in this proposal' })
+    expect(screen.getByRole('button', { name: 'Select proposal Collect logs' })).toHaveTextContent(
+      'exec'
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Accept Collect logs' }))
+    await waitFor(() => expect(acceptMock).toHaveBeenCalled())
+    expect(
+      await screen.findByRole('button', { name: 'Select proposal Collect logs' })
+    ).toHaveTextContent('exec')
+  })
 })
