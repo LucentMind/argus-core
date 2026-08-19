@@ -1546,4 +1546,73 @@ describe('dry run', () => {
     expect(q.listRuns('a').map((r) => r.id)).toContain(dry.id)
     expect(q.listRuns('a').find((r) => r.id === dry.id)!.dryRun).toBe(true)
   })
+
+  it('a dry run occupies the in-flight slot: enqueuing a real distill while it is queued/running cancels it via the existing one-job-per-case path (spec: "A dry run occupies the in-flight slot")', async () => {
+    const { q } = makeQueue({ distill: () => new Promise(() => {}) /* never resolves */ })
+    createCase(db, home, { title: 'A', slug: 'a' })
+    const dry = q.enqueueDryRun('a')
+    await vi.waitFor(
+      () =>
+        expect(
+          (
+            db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(dry.id) as {
+              state: string
+            }
+          ).state
+        ).toBe('running'),
+      { timeout: 5000 }
+    )
+
+    const real = q.enqueue('a')
+
+    const dryRow = db.prepare(`SELECT state, dry_run FROM distill_jobs WHERE id=?`).get(dry.id) as {
+      state: string
+      dry_run: number
+    }
+    expect(dryRow.state).toBe('cancelled')
+    expect(dryRow.dry_run).toBe(1) // cancelling didn't quietly convert it into a real row
+    const inFlight = db
+      .prepare(`SELECT id FROM distill_jobs WHERE case_slug='a' AND state IN ('queued','running')`)
+      .all() as { id: number }[]
+    expect(inFlight.map((r) => r.id)).toEqual([real.id])
+  })
+
+  it('cancelling a dry run directly works — both while queued and while running (spec: "and cancelling the dry run works")', async () => {
+    // One queue, one never-resolving `distill()` — the runner's single global execution slot
+    // (kick() processes one job at a time across ALL slugs, see the class doc comment) stays
+    // occupied by whichever job it picks up first and never lets go, which is what keeps the
+    // SECOND case's dry run genuinely `queued` (not `running`) below.
+    const { q } = makeQueue({ distill: () => new Promise(() => {}) })
+    createCase(db, home, { title: 'A', slug: 'a' })
+    createCase(db, home, { title: 'B', slug: 'b' })
+
+    const running = q.enqueueDryRun('a')
+    await vi.waitFor(
+      () =>
+        expect(
+          (
+            db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(running.id) as {
+              state: string
+            }
+          ).state
+        ).toBe('running'),
+      { timeout: 5000 }
+    )
+    const cancelledRunning = q.cancel(running.id)
+    expect(cancelledRunning.state).toBe('cancelled')
+    expect(cancelledRunning.dryRun).toBe(true)
+
+    // Case B's dry run stays QUEUED: the execution slot is still held by case A's runJob, which
+    // is still awaiting the same never-resolving `distill()` call — cancel() flips the DB row
+    // and aborts the controller, but this fake driver ignores the abort signal and never settles,
+    // so kick()'s loop never advances to pick B up.
+    const queued = q.enqueueDryRun('b')
+    expect(
+      (db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(queued.id) as { state: string })
+        .state
+    ).toBe('queued')
+    const cancelledQueued = q.cancel(queued.id)
+    expect(cancelledQueued.state).toBe('cancelled')
+    expect(cancelledQueued.dryRun).toBe(true)
+  })
 })

@@ -3,11 +3,10 @@ import type { DistillRunDetail } from '../../../shared/distill'
 import type { PipelineStages, PreStageDrop } from '../../../shared/distillV3'
 import { toRow, type JobDbRow } from './queue'
 
-// `JobDbRow` and `toRow` are reused from queue.ts rather than redeclared here. A second copy of
-// the column→field mapping is one fact in two places: adding a field to `DistillJobRow` would
-// need both updated, and the compiler cannot see the omission. Both must be exported from
-// queue.ts as part of this task (change `interface JobDbRow` → `export interface JobDbRow` and
-// `function toRow` → `export function toRow`); nothing else about them changes.
+// `JobDbRow` and `toRow` are reused from queue.ts (both exported there) rather than redeclared
+// here. A second copy of the column→field mapping would be one fact in two places: adding a
+// field to `DistillJobRow` would need both updated, and the compiler cannot see the omission if
+// a second copy silently drifted out of sync.
 
 /** JSON.parse that never throws. Returns null on malformed input rather than propagating —
  *  see DistillRunDetail's doc comment for why a corrupt column must stay openable. */
