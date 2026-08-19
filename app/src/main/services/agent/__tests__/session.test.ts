@@ -20,6 +20,7 @@ import { REVIEW_LAYER_ORDER } from '../../../../shared/reviewLayers'
 import { PERMISSION_MODES } from '../../../../shared/settings'
 import { ProcessLabels } from '../../diagnostics/processLabels'
 import type { ProcessSample } from '../../../../shared/diagnostics'
+import { userSkillsDir } from '../../paths'
 // Real system/init message from a live `auto`-mode SDK session — see
 // drivers/claude/__fixtures__/EVIDENCE.md's "init-auto-mode.json" section: captured
 // against the exact installed SDK version (0.3.220), canUseTool measured invoked zero
@@ -1747,5 +1748,129 @@ describe('isAuthFailure', () => {
   it('does not match ordinary failures', () => {
     expect(isAuthFailure('ENOENT: no such file or directory')).toBe(false)
     expect(isAuthFailure('the tool returned 500')).toBe(false)
+  })
+})
+
+describe('skill asset run gate', () => {
+  /** Seed a user-tier skill script in the session's ARGUS_HOME and return its absolute path. */
+  function seedScript(home: string, body: string): string {
+    const abs = path.join(userSkillsDir(home), 'collect-logs', 'scripts', 'collect.sh')
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, body)
+    return abs
+  }
+
+  it('opens a HIGH ask carrying the asset context, and strips it from the mirror', async () => {
+    const script = '#!/bin/sh\necho hi\n'
+    const abs = seedScript(argusHome, script)
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    const appended: AgentEvent[] = []
+    ;(s as unknown as { deps: { mirror: unknown } }).deps.mirror = {
+      append: (e: AgentEvent) => appended.push(e),
+      indexText: () => {}
+    }
+    await flush()
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<unknown>
+    const pending = canUseTool(
+      'Bash',
+      { command: `bash ${abs}` },
+      { signal: new AbortController().signal }
+    )
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'request.opened')).toBe(true))
+
+    const live = events.find((e) => e.type === 'request.opened')!
+    expect(live.payload).toMatchObject({
+      risk: 'HIGH',
+      assetContext: {
+        skill: 'collect-logs',
+        tier: 'user',
+        relPath: 'scripts/collect.sh',
+        reviewState: 'unreviewed',
+        body: script
+      }
+    })
+    expect((live.payload as { grantKey: string }).grantKey).toMatch(/^skill-asset:[0-9a-f]{16}$/)
+
+    // The body must never reach the .jsonl — IPC.agentHistory replays it back to the renderer.
+    const mirrored = appended.find((e) => e.type === 'request.opened')!
+    expect('assetContext' in mirrored.payload).toBe(false)
+
+    s.respond({
+      requestId: (live.payload as { requestId: string }).requestId,
+      kind: 'deny'
+    })
+    await pending
+    await s.stop('stopped')
+  })
+
+  // Spec §11 names this one explicitly: a grant taken earlier in a session must NOT survive a
+  // content change. It is the whole reason the key is the hash rather than the command.
+  it('re-prompts after the script changes, despite an earlier session grant', async () => {
+    const abs = seedScript(argusHome, '#!/bin/sh\necho hi\n')
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    await flush()
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<unknown>
+    const call = (): Promise<unknown> =>
+      canUseTool('Bash', { command: `bash ${abs}` }, { signal: new AbortController().signal })
+
+    const first = call()
+    await vi.waitFor(() =>
+      expect(events.filter((e) => e.type === 'request.opened')).toHaveLength(1)
+    )
+    const opened = events.find((e) => e.type === 'request.opened')!
+    s.respond({
+      requestId: (opened.payload as { requestId: string }).requestId,
+      kind: 'allow-session'
+    })
+    await first
+
+    // Same bytes: the grant covers it, so no second card opens.
+    await call()
+    expect(events.filter((e) => e.type === 'request.opened')).toHaveLength(1)
+
+    // Changed bytes: a different hash, so a different key, so the grant misses.
+    fs.writeFileSync(abs, '#!/bin/sh\ncurl evil.example\n')
+    const third = call()
+    await vi.waitFor(() =>
+      expect(events.filter((e) => e.type === 'request.opened')).toHaveLength(2)
+    )
+    const reopened = events.filter((e) => e.type === 'request.opened')[1]
+    expect(reopened.payload).toMatchObject({ assetContext: { reviewState: 'unreviewed' } })
+    s.respond({ requestId: (reopened.payload as { requestId: string }).requestId, kind: 'deny' })
+    await third
+    await s.stop('stopped')
+  })
+
+  it('leaves an ordinary command untouched', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    await flush()
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<unknown>
+    const pending = canUseTool(
+      'Bash',
+      { command: 'git fetch origin' },
+      { signal: new AbortController().signal }
+    )
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'request.opened')).toBe(true))
+    const live = events.find((e) => e.type === 'request.opened')!
+    expect(live.payload).toMatchObject({ risk: 'MEDIUM' })
+    expect('assetContext' in live.payload).toBe(false)
+    s.respond({ requestId: (live.payload as { requestId: string }).requestId, kind: 'deny' })
+    await pending
+    await s.stop('stopped')
   })
 })
