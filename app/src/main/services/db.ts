@@ -118,7 +118,11 @@ CREATE TABLE IF NOT EXISTS distill_jobs (
   dropped_json TEXT,
   -- v3: per-stage records (PipelineStages) from the staged pipeline, as JSON. NULL for a v2
   -- single-call run, and for any row written before v3 existed.
-  stages_json TEXT
+  stages_json TEXT,
+  -- A comparison run: the full pipeline ran, staging did not. Every read of "this case's
+  -- distillation state" filters dry_run = 0 (queue.statusFor, needsDistillRun via statusFor,
+  -- evalExport's job selection) — only the run panel's own listing includes these rows.
+  dry_run INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS rca_jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -524,6 +528,7 @@ export function openDb(file: string): DatabaseSync {
   addDistill('trajectory_json', `trajectory_json TEXT`)
   addDistill('dropped_json', `dropped_json TEXT`)
   addDistill('stages_json', `stages_json TEXT`)
+  addDistill('dry_run', `dry_run INTEGER NOT NULL DEFAULT 0`)
   const rcaJobCols = db.prepare(`PRAGMA table_info(rca_jobs)`).all() as { name: string }[]
   if (!rcaJobCols.some((c) => c.name === 'template_snapshot')) {
     db.exec(`ALTER TABLE rca_jobs ADD COLUMN template_snapshot TEXT`)
