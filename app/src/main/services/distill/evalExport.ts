@@ -24,6 +24,7 @@ interface JobRow {
   stages_json: string | null
   dropped_json: string | null
   dry_run: number
+  kind: string
 }
 
 /** Frontmatter + body of every .md in dir, keyed job-id → entries; files without a job stamp
@@ -107,6 +108,16 @@ export function buildEvalBundle(
   for (const r of rows) {
     const skip = (reason: string): void => {
       skipped.push({ jobId: r.id, caseSlug: r.case_slug, reason })
+    }
+    // The default query's `kind='case'` clause keeps a non-case row (e.g. 'reject-digest') out
+    // of the MAX(id) pool entirely, so this only ever fires under an explicit id — the one path
+    // with no SQL-level kind filter, since `opts.jobIds` names exact rows regardless of kind. A
+    // reject-digest row has no `case_slug`/`inputSnapshot` shape a case line expects (its
+    // `input_snapshot` is literally `'{}'`), so exporting it as a case line would silently
+    // fabricate `inputSnapshot: {}` rather than the case's real distill input.
+    if (r.kind !== 'case') {
+      skip(`kind='${r.kind}', not a case job`)
+      continue
     }
     // A dry run staged nothing, so it can carry none of the accept/reject labels the judge
     // needs. Named rather than silently dropped: the default query already excludes dry rows
