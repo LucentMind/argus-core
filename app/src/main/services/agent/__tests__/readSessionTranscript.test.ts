@@ -8,6 +8,7 @@ import { createCase } from '../../caseService'
 import { caseDir } from '../../paths'
 import { createDetection } from '../../packs/detection'
 import { argusToolHandlers, NATIVE_TOOL_SPECS } from '../nativeTools'
+import { OPEN_TAG } from '../historyDigest'
 import { NATIVE_RISK } from '../risk'
 import type { AgentEvent } from '../../../../shared/agent-events'
 
@@ -16,9 +17,9 @@ const detection = createDetection()
 let tmp: string
 let argusHome: string
 let db: DatabaseSync
+let caseId: number
 let tools: ReturnType<typeof argusToolHandlers>
 let runningSessionId: number
-let otherCaseSessionId: number
 let sessionWithNoMirror: number
 
 const ev = (type: string, payload: Record<string, unknown>): AgentEvent =>
@@ -33,12 +34,25 @@ function writeMirror(slug: string, sessionId: number, events: AgentEvent[]): voi
   )
 }
 
-function newSession(caseId: number): number {
+function newSession(forCase: number): number {
   const now = new Date().toISOString()
   const res = db
     .prepare(`INSERT INTO sessions (case_id, created_at, updated_at) VALUES (?, ?, ?)`)
-    .run(caseId, now, now)
+    .run(forCase, now, now)
   return Number(res.lastInsertRowid)
+}
+
+function handlersFor(sessionId: number): ReturnType<typeof argusToolHandlers> {
+  return argusToolHandlers({
+    db,
+    argusHome,
+    detection,
+    caseId,
+    caseSlug: 'NAV-9',
+    sessionId,
+    emitFinding: vi.fn(),
+    githubWatermark: () => ({ enabled: false, text: '' })
+  })
 }
 
 beforeEach(() => {
@@ -47,11 +61,10 @@ beforeEach(() => {
   db = openDb(path.join(argusHome, 'argus.db'))
 
   const rec = createCase(db, argusHome, { slug: 'NAV-9', title: 'imported' })
-  const other = createCase(db, argusHome, { slug: 'OTHER-9', title: 'other' })
+  caseId = rec.id
 
   runningSessionId = newSession(rec.id)
   sessionWithNoMirror = newSession(rec.id)
-  otherCaseSessionId = newSession(other.id)
 
   const turns: AgentEvent[] = []
   for (let i = 1; i <= 5; i++) {
@@ -60,27 +73,13 @@ beforeEach(() => {
     turns.push(ev('assistant.message', { text: `answer ${i}` }))
   }
   writeMirror('NAV-9', runningSessionId, turns)
-  writeMirror('OTHER-9', otherCaseSessionId, [
-    ev('turn.started', { userText: 'other case secret' }),
-    ev('assistant.message', { text: 'other case secret reply' })
-  ])
-  // The other case's session id also exists as a path under THIS case's dir. Without the
-  // ownership check the handler would happily read the wrong case's bytes; with it, the
-  // throw happens before any read, so this decoy must never surface either.
-  writeMirror('NAV-9', otherCaseSessionId, [
-    ev('turn.started', { userText: 'decoy under this case' })
+  // A mirror for a session that is NOT the running one. The tool takes no session argument, so
+  // these bytes must be unreachable no matter what the model passes.
+  writeMirror('NAV-9', sessionWithNoMirror, [
+    ev('turn.started', { userText: 'some other session of this case' })
   ])
 
-  tools = argusToolHandlers({
-    db,
-    argusHome,
-    detection,
-    caseId: rec.id,
-    caseSlug: 'NAV-9',
-    sessionId: runningSessionId,
-    emitFinding: vi.fn(),
-    githubWatermark: () => ({ enabled: false, text: '' })
-  })
+  tools = handlersFor(runningSessionId)
 })
 
 afterEach(() => {
@@ -89,7 +88,7 @@ afterEach(() => {
 })
 
 describe('read_session_transcript', () => {
-  it('returns turns from the running session by default', async () => {
+  it('returns turns from the running session', async () => {
     const out = await tools.read_session_transcript({})
     expect(out).toContain('question 1')
     expect(out).toContain('of 5 turns')
@@ -101,34 +100,24 @@ describe('read_session_transcript', () => {
     expect(out).not.toContain('question 1')
   })
 
-  it('rejects a non-integer session id before touching the filesystem', async () => {
-    const spy = vi.spyOn(fs, 'existsSync')
-    // The message matters: it proves the EARLY integer guard rejected these, not the ownership
-    // lookup further down. Without that distinction the assertion passes even with the guard
-    // deleted, because a NaN id happens to match no sessions row either.
-    await expect(tools.read_session_transcript({ sessionId: '../../etc/passwd' })).rejects.toThrow(
-      /Invalid session id/
-    )
-    await expect(tools.read_session_transcript({ sessionId: 1.5 })).rejects.toThrow(
-      /Invalid session id/
-    )
-    expect(spy).not.toHaveBeenCalled()
-    spy.mockRestore()
+  it('takes no session argument at all', async () => {
+    const spec = NATIVE_TOOL_SPECS.find((s) => s.name === 'read_session_transcript')
+    expect(Object.keys(spec!.schema)).toEqual(['fromTurn', 'limit'])
+    // and a stray sessionId cannot steer it off the running session
+    const out = await tools.read_session_transcript({ sessionId: sessionWithNoMirror })
+    expect(out).toContain('question 1')
+    expect(out).not.toContain('some other session of this case')
   })
 
-  it('cannot read a session belonging to another case', async () => {
-    await expect(tools.read_session_transcript({ sessionId: otherCaseSessionId })).rejects.toThrow(
-      /Unknown session/
-    )
-    // and it is not merely reading a same-named file under this case instead
-    let out = ''
-    try {
-      out = await tools.read_session_transcript({ sessionId: otherCaseSessionId })
-    } catch {
-      /* expected */
-    }
-    expect(out).not.toContain('other case secret')
-    expect(out).not.toContain('decoy under this case')
+  it('renders a coherent range when fromTurn is past the last turn', async () => {
+    const out = await tools.read_session_transcript({ fromTurn: 99 })
+    expect(out).toContain('Turns 0–0 of 5 turns')
+    expect(out).not.toContain('question')
+  })
+
+  it('omits the fence when there is nothing to show', async () => {
+    const out = await tools.read_session_transcript({ fromTurn: 99 })
+    expect(out).not.toContain(OPEN_TAG)
   })
 
   it('frames its output as an untrusted record', async () => {
@@ -137,8 +126,10 @@ describe('read_session_transcript', () => {
   })
 
   it('returns a plain empty result when the mirror is missing', async () => {
-    const out = await tools.read_session_transcript({ sessionId: sessionWithNoMirror })
+    const noMirrorSession = newSession(caseId)
+    const out = await handlersFor(noMirrorSession).read_session_transcript({})
     expect(out).toContain('0 turns')
+    expect(out).not.toContain(OPEN_TAG)
   })
 
   it('is declared and risk-classified under a byte-matching key', () => {
