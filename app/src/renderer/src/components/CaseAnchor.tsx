@@ -213,6 +213,20 @@ export function CaseAnchor({
               onSelect: () => setRunsOpen(true)
             },
             {
+              // Non-destructive by construction: the pipeline runs, staging does not, and
+              // `ignorePriorProposals` keeps this case's own prior proposals out of the input so
+              // the veto does not drop every candidate as `duplicate` before v3 is exercised.
+              label: 'Dry run (compare)…',
+              onSelect: () => {
+                if (pending) return
+                setPending(true)
+                void window.argus.distill
+                  .dryRun(slug, true)
+                  .catch(() => undefined)
+                  .finally(() => setPending(false))
+              }
+            },
+            {
               label: 'Close case',
               onSelect: () => {
                 uiStore.closeTab(slug)

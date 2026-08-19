@@ -49,6 +49,19 @@ describe('DistillChip', () => {
     await waitFor(() => expect(window.argus.distill.status).toHaveBeenCalled())
     await waitFor(() => expect(screen.queryByText(/distill/i)).not.toBeInTheDocument())
   })
+
+  it('labels an in-flight dry run as a dry run, not a distillation', async () => {
+    setup(job({ state: 'running', dryRun: true }))
+    await waitFor(() => expect(window.argus.distill.status).toHaveBeenCalled())
+    expect(await screen.findByText(/dry run…/)).toBeInTheDocument()
+  })
+
+  it('renders nothing for a finished dry run', async () => {
+    setup(job({ state: 'done', dryRun: true, itemCount: null }))
+    await waitFor(() => expect(window.argus.distill.status).toHaveBeenCalled())
+    await waitFor(() => expect(screen.queryByText(/dry run/i)).not.toBeInTheDocument())
+  })
+
   it('failed state offers retry', async () => {
     setup(job({ state: 'failed', error: 'boom', itemCount: null }))
     fireEvent.click(await screen.findByRole('button', { name: /retry/i }))
