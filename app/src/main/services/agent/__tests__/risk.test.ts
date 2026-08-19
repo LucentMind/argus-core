@@ -6,6 +6,11 @@ import {
   type RiskContext,
   type ToolTaxonomy
 } from '../risk'
+import type { SkillAssetContext } from '../../../../shared/agent-events'
+
+// Same command as the existing "cd outside sandbox → deny" case below
+// ('classifyToolCall — Bash' → 'treats rm -rf as HIGH and cd outside sandbox as deny').
+const OUT_OF_SANDBOX_CD = 'cd /home/u/other'
 
 function ctx(overrides: Partial<RiskContext> = {}): RiskContext {
   return {
@@ -502,5 +507,107 @@ describe("network taxonomy kind (Copilot 'fetch')", () => {
   it('yields an empty host (grantKey "net:") on an unparseable url', () => {
     const v = classifyToolCall('fetch', { url: 'not a url' }, ctx({ taxonomy: netTax }))
     expect(v).toMatchObject({ action: 'ask', risk: 'MEDIUM', grantKey: 'net:' })
+  })
+})
+
+describe('classifyToolCall — skill asset run gate', () => {
+  const asset = (over: Partial<SkillAssetContext> = {}): SkillAssetContext => ({
+    skill: 'collect-logs',
+    tier: 'user',
+    relPath: 'scripts/collect.sh',
+    hash: 'a'.repeat(64),
+    reviewState: 'reviewed',
+    body: '#!/bin/sh\necho hi\n',
+    bodyBytesTotal: 18,
+    bodyBytesOmitted: 0,
+    ...over
+  })
+
+  /** Gate every segment that mentions `collect.sh`, nothing else. */
+  const gated = (a: SkillAssetContext): RiskContext => ({
+    ...ctx(),
+    skillAsset: (segment: string) => (segment.includes('collect.sh') ? a : null)
+  })
+
+  const run = (
+    command: string,
+    a: SkillAssetContext = asset()
+  ): ReturnType<typeof classifyToolCall> => classifyToolCall('Bash', { command }, gated(a))
+
+  it('asks at HIGH with a hash-pinned grant key', () => {
+    expect(run('bash scripts/collect.sh')).toMatchObject({
+      action: 'ask',
+      risk: 'HIGH',
+      grantKey: `skill-asset:${'a'.repeat(16)}`
+    })
+  })
+
+  it('carries the asset context onto the verdict', () => {
+    const v = run('bash scripts/collect.sh')
+    expect(v).toMatchObject({ assetContext: { skill: 'collect-logs', reviewState: 'reviewed' } })
+  })
+
+  it.each([
+    ['reviewed', /reviewed on this machine/],
+    ['changed', /changed since/i],
+    ['unreviewed', /never reviewed here/i]
+  ] as const)('names the %s state in the reason', (reviewState, re) => {
+    const v = run('bash scripts/collect.sh', asset({ reviewState }))
+    expect((v as { reason: string }).reason).toMatch(re)
+  })
+
+  it('keeps the action and risk identical across all three states', () => {
+    for (const reviewState of ['reviewed', 'changed', 'unreviewed'] as const) {
+      expect(run('bash scripts/collect.sh', asset({ reviewState }))).toMatchObject({
+        action: 'ask',
+        risk: 'HIGH'
+      })
+    }
+  })
+
+  it('changes the grant key when the bytes change', () => {
+    const a = run('bash scripts/collect.sh', asset({ hash: 'a'.repeat(64) })) as {
+      grantKey: string
+    }
+    const b = run('bash scripts/collect.sh', asset({ hash: 'b'.repeat(64) })) as {
+      grantKey: string
+    }
+    expect(a.grantKey).not.toBe(b.grantKey)
+  })
+
+  it('gates a whole compound command when one segment runs a skill script', () => {
+    expect(run('git log --oneline && bash scripts/collect.sh')).toMatchObject({
+      action: 'ask',
+      risk: 'HIGH',
+      assetContext: { skill: 'collect-logs' }
+    })
+  })
+
+  // Without this, a `rm -rf` segment (also HIGH ask) would win the merge and the card would
+  // show a script approval with no script.
+  it('keeps the asset context when another segment is also HIGH', () => {
+    expect(run('rm -rf /tmp/x && bash scripts/collect.sh')).toMatchObject({
+      action: 'ask',
+      risk: 'HIGH',
+      assetContext: { skill: 'collect-logs' }
+    })
+  })
+
+  // The gate runs first WITHIN a segment, but a deny from any other segment still short-circuits
+  // the whole command. Reuse whatever out-of-sandbox path this file's existing `cd` deny case
+  // uses — do not hard-code `/etc`, which is not out of sandbox on every platform.
+  it('still returns a deny from another segment ahead of the gate', () => {
+    const v = classifyToolCall(
+      'Bash',
+      { command: `${OUT_OF_SANDBOX_CD} && bash scripts/collect.sh` },
+      gated(asset())
+    )
+    expect(v.action).toBe('deny')
+  })
+
+  it('is inert when no resolver is injected', () => {
+    expect(classifyToolCall('Bash', { command: 'bash scripts/collect.sh' }, ctx())).toMatchObject({
+      action: 'allow'
+    })
   })
 })
