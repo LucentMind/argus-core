@@ -104,8 +104,8 @@ CREATE TABLE IF NOT EXISTS distill_jobs (
   finished_at TEXT,
   -- v2: what this row distills. Every read path that must only ever see a case's own
   -- distill history filters on kind='case' (queue.statusFor, needsDistillRun via
-  -- statusFor, evalExport's MAX(id) subselect) so a later kind (e.g. 'reject-digest')
-  -- can share this table without being mistaken for a case job.
+  -- statusFor, evalExport's MAX(id) subselect, usage.ts's distillationStats) so a later
+  -- kind (e.g. 'reject-digest') can share this table without being mistaken for a case job.
   kind TEXT NOT NULL DEFAULT 'case',
   input_tokens INTEGER,
   output_tokens INTEGER,
@@ -121,7 +121,9 @@ CREATE TABLE IF NOT EXISTS distill_jobs (
   stages_json TEXT,
   -- A comparison run: the full pipeline ran, staging did not. Every read of "this case's
   -- distillation state" filters dry_run = 0 (queue.statusFor, needsDistillRun via statusFor,
-  -- evalExport's job selection) — only the run panel's own listing includes these rows.
+  -- evalExport's job selection, usage.ts's distillationStats) — only the run panel's own
+  -- listing includes these rows. New readers of this table: grep for dry_run = 0 across
+  -- this list and add yourself, so this comment doesn't go stale again.
   dry_run INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS rca_jobs (

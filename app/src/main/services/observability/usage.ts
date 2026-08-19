@@ -54,7 +54,10 @@ interface DistillationRow {
  *  `failed_cost` is the one column that also sees `failed` rows: a failed capHit run still ran
  *  the whole agent loop before refusing to parse, so its spend is real and must not vanish just
  *  because the job never became `done`. The outer `WHERE` widens to `state IN ('done','failed')`
- *  only so `failed_cost` has failed rows to sum — it changes nothing for the done-only columns. */
+ *  only so `failed_cost` has failed rows to sum — it changes nothing for the done-only columns.
+ *  `dry_run = 0` keeps comparison runs out of the rollup entirely: these stats answer "what does
+ *  real distillation cost", and a dry run's spend isn't part of that — mixing it in would make
+ *  the per-case cost/turn/prompt averages misleading. */
 function distillationStats(db: DatabaseSync): DistillationUsageStats {
   const row = db
     .prepare(
@@ -65,7 +68,7 @@ function distillationStats(db: DatabaseSync): DistillationUsageStats {
               AVG(CASE WHEN state = 'done' THEN turn_count END) AS avg_turn,
               SUM(CASE WHEN state = 'failed' THEN cost_usd END) AS failed_cost
        FROM distill_jobs
-       WHERE kind = 'case' AND state IN ('done', 'failed')`
+       WHERE kind = 'case' AND state IN ('done', 'failed') AND dry_run = 0`
     )
     .get() as unknown as DistillationRow
   return {

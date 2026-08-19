@@ -58,13 +58,14 @@ function seedDistillJob(
     turnCount?: number | null
     toolCallCount?: number | null
     promptChars?: number | null
+    dryRun?: boolean
   } = {}
 ): void {
   db.prepare(
     `INSERT INTO distill_jobs
        (case_slug, state, input_snapshot, kind, cost_usd, turn_count, tool_call_count,
-        prompt_chars, created_at)
-     VALUES (?, ?, '{}', ?, ?, ?, ?, ?, ?)`
+        prompt_chars, created_at, dry_run)
+     VALUES (?, ?, '{}', ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     caseSlug,
     over.state ?? 'done',
@@ -73,7 +74,8 @@ function seedDistillJob(
     over.turnCount ?? null,
     over.toolCallCount ?? null,
     over.promptChars ?? null,
-    '2026-07-01T00:00:00.000Z'
+    '2026-07-01T00:00:00.000Z',
+    over.dryRun ? 1 : 0
   )
 }
 
@@ -289,6 +291,39 @@ describe('usageStats', () => {
         avgCostUsd: null,
         avgPromptChars: null,
         avgTurnCount: null,
+        failedCostUsd: null
+      })
+    })
+
+    it('excludes done dry runs from jobCount and totalCostUsd, counting only the real job', () => {
+      const db = openDb(':memory:')
+      seedCase(db)
+      seedDistillJob(db, 'c', { costUsd: 1, turnCount: 5, toolCallCount: 2, promptChars: 100 })
+      // A done dry run (comparison run) with a distinguishable cost — if the dry_run filter
+      // were ever dropped, this cost would silently inflate totalCostUsd/avgCostUsd too, not
+      // just jobCount, so both must be asserted.
+      seedDistillJob(db, 'c', {
+        costUsd: 1000,
+        turnCount: 999,
+        toolCallCount: 999,
+        promptChars: 99999,
+        dryRun: true
+      })
+      const s = usageStats({
+        db,
+        argusHome: tmp,
+        access: defaultAgentAccess(),
+        hygiene: HYG,
+        now: NOW
+      })
+      expect(s.distillation.jobCount).toBe(1)
+      expect(s.distillation.totalCostUsd).toBe(1)
+      expect(s.distillation).toEqual({
+        jobCount: 1,
+        totalCostUsd: 1,
+        avgCostUsd: 1,
+        avgPromptChars: 100,
+        avgTurnCount: 5,
         failedCostUsd: null
       })
     })
