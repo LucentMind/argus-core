@@ -30,6 +30,11 @@ describe('distillMenuLabel', () => {
     expect(distillMenuLabel(job({ state: 'running' }))).toBe('Cancel distillation')
   })
 
+  it('reads Cancel dry run (not Cancel distillation) while a dry comparison run is queued or running (regression: the menu row read "Cancel distillation" for an in-flight dry run, telling the operator their real distillation was running when it was not)', () => {
+    expect(distillMenuLabel(job({ state: 'queued', dryRun: true }))).toBe('Cancel dry run')
+    expect(distillMenuLabel(job({ state: 'running', dryRun: true }))).toBe('Cancel dry run')
+  })
+
   it('reads Re-distill with the item count when done', () => {
     expect(distillMenuLabel(job({ state: 'done', itemCount: 3 }))).toBe('Re-distill · 3 items')
     expect(distillMenuLabel(job({ state: 'done', itemCount: 0 }))).toBe(
