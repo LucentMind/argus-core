@@ -15,7 +15,8 @@ const entries: QueueEntry[] = [
     target: 'rca',
     isNew: false,
     locked: false,
-    previouslyReviewed: false
+    previouslyReviewed: false,
+    hasExec: false
   },
   {
     kind: 'pending',
@@ -27,7 +28,8 @@ const entries: QueueEntry[] = [
     target: 'new-skill',
     isNew: true,
     locked: false,
-    previouslyReviewed: false
+    previouslyReviewed: false,
+    hasExec: false
   },
   {
     kind: 'accepted',
@@ -39,7 +41,8 @@ const entries: QueueEntry[] = [
     target: 'ref-doc',
     isNew: false,
     locked: false,
-    previouslyReviewed: false
+    previouslyReviewed: false,
+    hasExec: false
   }
 ]
 
@@ -148,5 +151,22 @@ describe('ProposalQueue', () => {
       entries: [{ ...entries[0], previouslyReviewed: true }]
     })
     expect(screen.getByText('seen before')).toBeInTheDocument()
+  })
+
+  describe('executable marker', () => {
+    it('marks only the row whose proposal carries an executable', () => {
+      renderQueue({
+        entries: [
+          { ...entries[0], title: 'With script', hasExec: true },
+          { ...entries[1], title: 'Prose only', hasExec: false }
+        ]
+      })
+      expect(screen.getByRole('button', { name: 'Select proposal With script' })).toHaveTextContent(
+        'exec'
+      )
+      expect(
+        screen.getByRole('button', { name: 'Select proposal Prose only' })
+      ).not.toHaveTextContent('exec')
+    })
   })
 })

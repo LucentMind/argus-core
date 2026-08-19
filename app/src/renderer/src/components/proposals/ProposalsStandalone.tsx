@@ -131,7 +131,8 @@ export function ProposalsStandalone({
       target: p.type === 'case-summary' ? '' : p.target,
       isNew: p.current === null,
       locked: Boolean(p.locked),
-      previouslyReviewed: Boolean(p.previouslyReviewed)
+      previouslyReviewed: Boolean(p.previouslyReviewed),
+      hasExec: (p.files ?? []).some((f) => f.exec)
     })),
     ...acceptedVisible.map((a) => ({
       kind: 'accepted' as const,
@@ -143,7 +144,11 @@ export function ProposalsStandalone({
       target: a.target.kind === 'case-summary' ? '' : a.target.name,
       isNew: false,
       locked: false,
-      previouslyReviewed: false
+      previouslyReviewed: false,
+      // AcceptedEntry (session-local accept record) does not carry `files` — main's accept
+      // response only returns the target it wrote, not the sibling list. The exec chip already
+      // did its job pre-accept (this row now also wears "accepted"); no signal is lost.
+      hasExec: false
     }))
   ].sort(byCase)
 

@@ -1,5 +1,6 @@
 import { Fragment } from 'react'
 import { Check, Zap, BookOpen, FileText, type LucideIcon } from 'lucide-react'
+import { Chip } from '../ui'
 import { PROPOSAL_TYPE_LABELS } from '../../../../shared/proposals'
 import type { ProposalType } from '../../../../shared/proposals'
 
@@ -14,6 +15,9 @@ export interface QueueEntry {
   isNew: boolean
   locked: boolean
   previouslyReviewed: boolean
+  /** The proposal carries at least one executable sibling. Shown on the CARD, not only in the
+   *  detail pane: a reviewer scanning the inbox must not meet the risk surface below the fold. */
+  hasExec: boolean
 }
 
 /**
@@ -177,6 +181,7 @@ export function ProposalQueue({
                     {e.isNew && <QueueBadge tone="review">new</QueueBadge>}
                     {e.locked && <QueueBadge tone="defect">pack</QueueBadge>}
                     {e.previouslyReviewed && <QueueBadge tone="neutral">seen before</QueueBadge>}
+                    {e.hasExec && <Chip tone="review">exec</Chip>}
                   </span>
                 </span>
               </button>
