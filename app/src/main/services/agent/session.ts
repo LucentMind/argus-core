@@ -6,6 +6,7 @@ import type { PermissionMode } from '../../../shared/settings'
 import type { RunOptionSelection } from '../../../shared/runOptions'
 import { makeEvent, type NormalizeCtx } from './events'
 import { classifyToolCall, type RiskContext } from './risk'
+import { skillAssetContextForSegment } from './skillAssetGate'
 import type {
   AgentDriver,
   DriverKind,
@@ -390,7 +391,12 @@ export class CaseSession {
       packCliNames: deps.packCliNames,
       panelCommandRisk: panelCommandRiskMap(deps.panelCommandDecls ?? []),
       taxonomy: deps.driver.toolTaxonomy,
-      resolve: deps.resolvePrompt
+      resolve: deps.resolvePrompt,
+      // `risk.ts` is a pure function and stays one; the filesystem and the review table are
+      // reached only through this closure. `dir` is what a relative token resolves against,
+      // because that is the cwd the agent's shell runs in.
+      skillAsset: (segment) =>
+        skillAssetContextForSegment({ argusHome: deps.argusHome, db: deps.db, cwd: dir }, segment)
     }
     this.detailCtx = {
       taxonomy: deps.driver.toolTaxonomy,
@@ -657,9 +663,11 @@ export class CaseSession {
   // The mirror is a durable per-case .jsonl log; the live broadcast keeps the full
   // tool input so the approval UI can render/edit it, but persisting raw tool args
   // (comment bodies, file paths, …) to disk is unnecessary — strip it for the
-  // mirrored copy only.
+  // mirrored copy only. `assetContext` goes with it and for a stronger reason: it carries a
+  // script body, and `IPC.agentHistory` replays this file straight back into the renderer.
   private forMirror(e: AgentEvent): AgentEvent {
-    if (e.type !== 'request.opened' || e.payload.input === undefined) return e
+    if (e.type !== 'request.opened') return e
+    if (e.payload.input === undefined && e.payload.assetContext === undefined) return e
     const { requestId, tool, risk, grantKey, argsPreview } = e.payload
     return { ...e, payload: { requestId, tool, risk, grantKey, argsPreview } }
   }
@@ -1095,6 +1103,9 @@ export class CaseSession {
     }
 
     const requestId = crypto.randomUUID()
+    // `verdict` is only an `ask` at this point, but TypeScript does not narrow it across the
+    // intervening statements — take a local first.
+    const assetContext = verdict.action === 'ask' ? verdict.assetContext : undefined
     // Preview the args via the driver's taxonomy: a shell tool renders its command line;
     // everything else renders a truncated JSON blob (replaces the old `=== 'Bash'` check).
     const tax = this.deps.driver.toolTaxonomy.entries[toolName]
@@ -1109,7 +1120,8 @@ export class CaseSession {
         risk: verdict.risk,
         grantKey: verdict.grantKey,
         argsPreview,
-        input
+        input,
+        ...(assetContext ? { assetContext } : {})
       })
     )
     const outcome = await this.approvals.open(
