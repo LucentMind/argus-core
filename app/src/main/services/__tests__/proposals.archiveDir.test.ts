@@ -35,7 +35,9 @@ describe('rejecting a directory-shaped proposal', () => {
     rejectProposal(home, file, { tag: 'wrong' })
     expect(fs.existsSync(path.join(proposalsDir(home), file))).toBe(false)
     const archived = path.join(proposalsArchiveDir(home), file)
-    expect(fs.readFileSync(path.join(archived, 'scripts', 'collect.sh'), 'utf8')).toContain('echo hi')
+    expect(fs.readFileSync(path.join(archived, 'scripts', 'collect.sh'), 'utf8')).toContain(
+      'echo hi'
+    )
     expect(fs.readFileSync(path.join(archived, 'SKILL.md'), 'utf8')).toContain('status: rejected')
   })
 
