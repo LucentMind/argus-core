@@ -275,6 +275,11 @@ export function ChatPane({
   // Why a send can be refused rather than accepted, or null. See `sendTurn`.
   const [sendError, setSendError] = useState<string | null>(null)
 
+  // Dismissal of the history-orphaned banner, per-session and in-memory only: holds the
+  // sessionId it was dismissed for, so switching to a different chat re-arms it. Not
+  // persisted anywhere — no requirement asks the notice to survive a reload.
+  const [historyNoticeDismissed, setHistoryNoticeDismissed] = useState<number | null>(null)
+
   /**
    * Deliver a composed turn, and surface a refusal.
    *
@@ -339,6 +344,25 @@ export function ChatPane({
           onClose={closeFind}
           onMatchesChange={setFindMatches}
         />
+      )}
+      {session?.historyOrphaned && historyNoticeDismissed !== sessionId && (
+        <div
+          role="status"
+          className="mx-4 mt-3 flex items-start gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+        >
+          <span className="flex-1">
+            This transcript came from another machine or another provider. The agent does not have
+            it as context — your next message will carry a summary of it.
+          </span>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            className="shrink-0 opacity-70 hover:opacity-100"
+            onClick={() => setHistoryNoticeDismissed(sessionId)}
+          >
+            ×
+          </button>
+        </div>
       )}
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4">
         {/* inner content node: the scroll container's own box is fixed by the
