@@ -175,20 +175,51 @@ function targetLocked(argusHome: string, type: ProposalType, target: string): bo
   return false
 }
 
+/**
+ * The `.md` holding a proposal's frontmatter and body: the flat file itself, or the
+ * directory's SKILL.md. A proposal's `file` key is the flat file name or the directory
+ * name, so every caller that used to `path.join(dir, file)` goes through here instead.
+ */
+export function proposalBodyPath(dir: string, file: string): string {
+  return file.endsWith('.md') ? path.join(dir, file) : path.join(dir, file, 'SKILL.md')
+}
+
+/**
+ * Every proposal entry in `dir`, in either shape — flat `<stem>.md`, or a directory carrying
+ * SKILL.md plus siblings.
+ *
+ * This is the ONLY readdir over a proposals directory. Nothing else may filter entries on
+ * `.md`: `listArchivedProposals` used to do exactly that, which would have made a
+ * directory-shaped archived proposal vanish from the archive listing, from the cross-case
+ * prior-reject map and from the reject digest — with no error anywhere. See spec §1.
+ */
+function scanProposalDir(dir: string): { file: string; raw: string }[] {
+  if (!fs.existsSync(dir)) return []
+  const out: { file: string; raw: string }[] = []
+  for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (ent.isFile() && ent.name.endsWith('.md')) {
+      out.push({ file: ent.name, raw: fs.readFileSync(path.join(dir, ent.name), 'utf8') })
+      continue
+    }
+    if (!ent.isDirectory()) continue
+    const body = path.join(dir, ent.name, 'SKILL.md')
+    if (!fs.existsSync(body)) continue
+    out.push({ file: ent.name, raw: fs.readFileSync(body, 'utf8') })
+  }
+  return out
+}
+
 /** Every well-formed pending file (valid frontmatter block + known type), frontmatter only. */
 function pendingProposalFiles(
   argusHome: string
 ): { file: string; type: ProposalType; fm: string; body: string }[] {
-  const dir = proposalsDir(argusHome)
-  if (!fs.existsSync(dir)) return []
   const out: { file: string; type: ProposalType; fm: string; body: string }[] = []
-  for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (!ent.isFile() || !ent.name.endsWith('.md')) continue
-    const block = fmBlock(fs.readFileSync(path.join(dir, ent.name), 'utf8'))
+  for (const { file, raw } of scanProposalDir(proposalsDir(argusHome))) {
+    const block = fmBlock(raw)
     if (!block) continue
     const type = fmField(block.fm, 'type') as ProposalType
     if (!PROPOSAL_TYPES.includes(type)) continue
-    out.push({ file: ent.name, type, fm: block.fm, body: block.body })
+    out.push({ file, type, fm: block.fm, body: block.body })
   }
   return out
 }
@@ -245,33 +276,28 @@ export function listArchivedProposals(argusHome: string): {
    *  archived before this field existed — callers that need recency must fall back to `date`. */
   rejectedAt?: string
 }[] {
-  const dir = proposalsArchiveDir(argusHome)
-  if (!fs.existsSync(dir)) return []
-  return fs
-    .readdirSync(dir, { withFileTypes: true })
-    .filter((ent) => ent.isFile() && ent.name.endsWith('.md'))
-    .flatMap((ent) => {
-      const block = fmBlock(fs.readFileSync(path.join(dir, ent.name), 'utf8'))
-      if (!block) return []
-      const status = fmField(block.fm, 'status')
-      if (status !== 'accepted' && status !== 'rejected') return []
-      const rejectReason = fmField(block.fm, 'reject_reason')
-      const rejectNote = fmField(block.fm, 'reject_note')
-      const rejectedAt = fmField(block.fm, 'rejected_at')
-      return [
-        {
-          type: fmField(block.fm, 'type'),
-          target: fmField(block.fm, 'target'),
-          caseSlug: fmField(block.fm, 'case'),
-          title: fmField(block.fm, 'title'),
-          date: fmField(block.fm, 'date'),
-          status,
-          ...(rejectReason ? { rejectReason } : {}),
-          ...(rejectNote ? { rejectNote } : {}),
-          ...(rejectedAt ? { rejectedAt } : {})
-        }
-      ]
-    })
+  return scanProposalDir(proposalsArchiveDir(argusHome)).flatMap(({ raw }) => {
+    const block = fmBlock(raw)
+    if (!block) return []
+    const status = fmField(block.fm, 'status')
+    if (status !== 'accepted' && status !== 'rejected') return []
+    const rejectReason = fmField(block.fm, 'reject_reason')
+    const rejectNote = fmField(block.fm, 'reject_note')
+    const rejectedAt = fmField(block.fm, 'rejected_at')
+    return [
+      {
+        type: fmField(block.fm, 'type'),
+        target: fmField(block.fm, 'target'),
+        caseSlug: fmField(block.fm, 'case'),
+        title: fmField(block.fm, 'title'),
+        date: fmField(block.fm, 'date'),
+        status,
+        ...(rejectReason ? { rejectReason } : {}),
+        ...(rejectNote ? { rejectNote } : {}),
+        ...(rejectedAt ? { rejectedAt } : {})
+      }
+    ]
+  })
 }
 
 /** Delete a pending proposal outright — used by supersede flows; the file is NOT archived. */
