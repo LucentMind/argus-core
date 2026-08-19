@@ -2,12 +2,15 @@ import { useState } from 'react'
 import { Btn, Chip } from '../ui'
 import { MessageView } from '../MessageView'
 import { SharePushDialog } from '../settings/SharePushDialog'
+import { FileRail, BODY_PATH } from './FileRail'
 import {
   UnifiedDiff,
   SplitDiff,
   ProposedView,
   NewFileView,
+  CodeView,
   diffStat,
+  isMarkdownPath,
   type DiffViewMode
 } from './DiffViews'
 import {
@@ -53,14 +56,17 @@ export function ProposalDetail({
   repoSet,
   onOpenHivemind,
   onAccept,
-  onReject
+  onReject,
+  selectedPath,
+  onSelectPath,
+  editedPaths
 }: {
   /** the selected pending proposal, or null when `accepted` is set or nothing selected */
   proposal: ProposalRecord | null
   /** the selected accepted entry, or null */
   accepted: AcceptedEntry | null
   busy: boolean
-  /** non-null = edit mode, holds the draft */
+  /** non-null = edit mode, holds the draft for whichever path is selected */
   editValue: string | null
   onEditChange: (v: string) => void
   onToggleEdit: () => void
@@ -72,6 +78,11 @@ export function ProposalDetail({
   onOpenHivemind: () => void
   onAccept: () => void
   onReject: (reason: RejectReason | undefined) => void
+  /** Which file the rail has selected; `BODY_PATH` for the proposal body. */
+  selectedPath: string
+  onSelectPath: (path: string) => void
+  /** Paths whose buffer differs from the draft, for the rail's "edited" marker. */
+  editedPaths: ReadonlySet<string>
 }): React.JSX.Element {
   const [rejecting, setRejecting] = useState(false)
   const [rejectNote, setRejectNote] = useState('')
@@ -121,14 +132,23 @@ export function ProposalDetail({
   }
 
   const p = proposal
+  const hasFiles = (p.files?.length ?? 0) > 0
+  const selectedFile = hasFiles ? p.files!.find((f) => f.path === selectedPath) : undefined
+  // The body is the fallback for `BODY_PATH` and for a selection that no longer exists (the
+  // record can refresh under the pane while a sibling is selected).
+  const sel = selectedFile ?? { path: BODY_PATH, content: p.content, current: p.current }
+  const selIsBody = sel.path === BODY_PATH
+
   const isMarkdown = p.type === 'case-summary'
   // A new file has no `current` to diff against, so it gets neither a diff nor the view toggle
   // over it (user-directed, 2026-08-08) — every mode would have shown the same single column of
   // added lines. Same shape as the case-summary branch: rendered content, no view bar.
-  const isNewFile = p.current === null
+  const isNewFile = sel.current === null
   const isEditing = editValue !== null
   const showViewBar = !isMarkdown && !isNewFile && !isEditing
-  const stat = !isMarkdown && !isNewFile ? diffStat(p.current, p.content) : null
+  const stat = !isMarkdown && !isNewFile ? diffStat(sel.current, sel.content) : null
+  // A sibling is Markdown only if its path says so; the body always is.
+  const renderAsMarkdown = selIsBody ? true : isMarkdownPath(sel.path)
 
   return (
     // `min-w-0`: this is a flex item of the surface-card row in ProposalsStandalone
@@ -143,7 +163,7 @@ export function ProposalDetail({
           <Chip tone="neutral">{PROPOSAL_TYPE_LABELS[p.type]}</Chip>
           {!isMarkdown && <Chip tone="neutral">→ {p.target}</Chip>}
           <span>{new Date(p.date).toLocaleString()}</span>
-          {p.current === null && <Chip tone="review">new file</Chip>}
+          {sel.current === null && <Chip tone="review">new file</Chip>}
           {p.previouslyReviewed && <Chip tone="review">previously reviewed</Chip>}
           {p.locked && <Chip tone="review">ships with a pack</Chip>}
         </div>
@@ -175,6 +195,15 @@ export function ProposalDetail({
           </div>
         )}
       </div>
+      {hasFiles && (
+        <FileRail
+          files={p.files!}
+          body={{ current: p.current, content: p.content }}
+          selected={sel.path}
+          onSelect={onSelectPath}
+          editedPaths={editedPaths}
+        />
+      )}
       {showViewBar && (
         <div className="flex items-center gap-2 border-b border-hair px-5 py-2">
           <div className="flex overflow-hidden rounded-r2 border border-hair2">
@@ -214,16 +243,23 @@ export function ProposalDetail({
           />
         ) : isMarkdown ? (
           <div className="px-5 py-3">
-            <MessageView markdown={p.content} onCite={noop} />
+            <MessageView markdown={sel.content} onCite={noop} />
           </div>
+        ) : isNewFile && !renderAsMarkdown ? (
+          // A brand-new script or data file: verbatim, no Markdown pass. A MODIFIED sibling
+          // still falls through to the diff below — UnifiedDiff/SplitDiff/ProposedView are
+          // plain `<pre>` line renderers that cannot eat a `#` as a heading, so there is no
+          // lossy-rendering hazard on that path, and the diff is exactly what a reviewer of a
+          // changed file wants to see.
+          <CodeView content={sel.content} />
         ) : isNewFile ? (
-          <NewFileView content={p.content} />
+          <NewFileView content={sel.content} />
         ) : viewMode === 'split' ? (
-          <SplitDiff current={p.current} content={p.content} />
+          <SplitDiff current={sel.current} content={sel.content} />
         ) : viewMode === 'proposed' ? (
-          <ProposedView content={p.content} />
+          <ProposedView content={sel.content} />
         ) : (
-          <UnifiedDiff current={p.current} content={p.content} />
+          <UnifiedDiff current={sel.current} content={sel.content} />
         )}
       </div>
       {rejecting && (
