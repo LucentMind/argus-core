@@ -761,11 +761,20 @@ export function argusToolHandlers(
     },
 
     async write_proposal(args) {
+      // IPC/tool args are untyped at runtime: coerce defensively, exactly as the sibling
+      // handlers do, so a malformed `files` degrades to "no files" rather than throwing a
+      // TypeError the model cannot act on.
+      const rawFiles = Array.isArray(args.files) ? args.files : []
+      const files = rawFiles.map((f) => {
+        const o = (f ?? {}) as { path?: unknown; content?: unknown }
+        return { path: String(o.path ?? ''), content: String(o.content ?? '') }
+      })
       const file = writeProposal(argusHome, caseSlug, {
         type: String(args.type ?? ''),
         target: String(args.target ?? ''),
         title: String(args.title ?? ''),
-        content: String(args.content ?? '')
+        content: String(args.content ?? ''),
+        ...(files.length > 0 ? { files } : {})
       })
       return fb('write_proposal.drafted', { file })
     },
@@ -1011,12 +1020,13 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'write_proposal',
     description:
-      'Draft a contribute-back proposal (new/edited skill, or reference edit) as an inert file the user reviews on the Settings → Proposals page. Choose by how the knowledge will be found again: a symptom-triggered procedure ("when X, do Y") is a skill, and skill-new CREATES it; durable facts consulted while executing some other procedure are a reference, and reference-edit CREATES the reference when the target does not exist. If your content has numbered steps, it is not a reference. Provide the FULL proposed file content, not a diff.',
+      'Draft a contribute-back proposal (new/edited skill, or reference edit) as an inert file the user reviews on the Settings → Proposals page. Choose by how the knowledge will be found again: a symptom-triggered procedure ("when X, do Y") is a skill, and skill-new CREATES it; durable facts consulted while executing some other procedure are a reference, and reference-edit CREATES the reference when the target does not exist. If your content has numbered steps, it is not a reference. Provide the FULL proposed file content, not a diff. A sibling FILE is for content that is executed or copied verbatim (a script, a template, a fixture) — a procedure\'s STEPS belong in the skill body, not in a file. Paths are relative, at most 3 segments, 32 files and 256 KB per proposal.',
     schema: {
       type: z.enum(['skill-new', 'skill-edit', 'reference-edit']),
       target: z.string(),
       title: z.string(),
-      content: z.string()
+      content: z.string(),
+      files: z.array(z.object({ path: z.string(), content: z.string() })).optional()
     }
   },
   {
