@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
@@ -11,7 +12,14 @@ import {
 } from './refSync/refFrontmatter'
 import { defaultAgentAccess } from '../../shared/agentAccess'
 import { ASSET_NAME_RE, validateSkill, hasErrors } from '../../shared/assetValidation'
-import { assetPathError, assetSetError, type SkillAssetInput } from '../../shared/skillAssets'
+import {
+  assetPathError,
+  assetSetError,
+  isExecutableAsset,
+  SKILL_TEMP_PREFIXES,
+  type SkillAssetInput
+} from '../../shared/skillAssets'
+import { recordAssetReviews } from './skillAssetReviews'
 import { fmBlock, fmField, withFrontmatter } from '../../shared/frontmatter'
 import { mergeAuthorship, stampAuthorship, type Identity } from '../../shared/authorship'
 import {
@@ -394,19 +402,6 @@ function archive(
   const src = path.join(srcDir, file)
   const dst = path.join(dstDir, file)
   const isDir = fs.statSync(src).isDirectory()
-  if (isDir) {
-    fs.rmSync(dst, { recursive: true, force: true })
-    try {
-      fs.cpSync(src, dst, { recursive: true })
-    } catch (e) {
-      // A half-copied archive directory is worse than none: it has no rewritten SKILL.md, so
-      // `scanProposalDir` would skip it and the record would look simply absent. Clear it and
-      // let the caller see the failure — the pending proposal is still on disk, so a retry is
-      // clean.
-      fs.rmSync(dst, { recursive: true, force: true })
-      throw e
-    }
-  }
   const extra = Object.entries({
     ...extraFm,
     ...(editedFiles && Object.keys(editedFiles).length > 0
@@ -419,17 +414,112 @@ function archive(
   const updated = fs
     .readFileSync(bodySrc, 'utf8')
     .replace(/^status: pending\r?$/m, `status: ${status}${extra ? `\n${extra}` : ''}`)
-  fs.writeFileSync(proposalBodyPath(dstDir, file), updated + (appendix ?? ''))
-  for (const [rel, content] of Object.entries(editedFiles ?? {})) {
-    // Defense in depth: Task 7's caller validates these, but `archive` joins them into a path
-    // and this file's convention is that a write path re-checks its own inputs.
-    const bad = assetPathError(rel)
-    if (bad) throw new Error(`archive: refusing edited file — ${bad}`)
-    const abs = path.join(dst, 'edited', rel)
+  if (isDir) fs.rmSync(dst, { recursive: true, force: true })
+  try {
+    if (isDir) fs.cpSync(src, dst, { recursive: true })
+    fs.writeFileSync(proposalBodyPath(dstDir, file), updated + (appendix ?? ''))
+    for (const [rel, content] of Object.entries(editedFiles ?? {})) {
+      // Defense in depth: the accept path validates these, but `archive` joins them into a path
+      // and this file's convention is that a write path re-checks its own inputs.
+      const bad = assetPathError(rel)
+      if (bad) throw new Error(`archive: refusing edited file — ${bad}`)
+      const abs = path.join(dst, 'edited', rel)
+      fs.mkdirSync(path.dirname(abs), { recursive: true })
+      fs.writeFileSync(abs, content)
+    }
+  } catch (e) {
+    // Guarded on isDir so the flat path throws exactly as it does today. For a directory, a
+    // half-built archive is worse than none: with no rewritten SKILL.md `scanProposalDir` skips
+    // it, so the record reads as absent rather than broken. `src` is untouched — retry is clean.
+    if (isDir) fs.rmSync(dst, { recursive: true, force: true })
+    throw e
+  }
+  fs.rmSync(src, { recursive: true, force: true })
+}
+
+/**
+ * One sibling file read off a skill-shaped directory. `unreadable` marks a file that is present
+ * but could not be read: it must be SURFACED, never dropped — a silently dropped file would be
+ * accepted-but-missing, and nothing downstream would notice (spec §10).
+ */
+interface ProposalAsset {
+  path: string
+  content: string
+  unreadable?: boolean
+}
+
+/**
+ * Every file under `root` except SKILL.md, as `/`-joined relative paths with contents, sorted.
+ *
+ * ONE walker serves both sides of an accept — the proposal directory and the installed skill
+ * directory — because they differ only in which root they are handed. (`fileListing` in
+ * skillsResolver.ts stays as it is: it returns paths without contents and serves HiveMind's
+ * divergence compare, which is outside this increment.)
+ */
+function walkSkillFiles(root: string): ProposalAsset[] {
+  if (!fs.existsSync(root)) return []
+  const out: ProposalAsset[] = []
+  const walk = (rel: string): void => {
+    for (const e of fs.readdirSync(path.join(root, rel), { withFileTypes: true })) {
+      const r = rel ? `${rel}/${e.name}` : e.name
+      if (e.isDirectory()) {
+        walk(r)
+        continue
+      }
+      if (r === 'SKILL.md') continue
+      try {
+        out.push({ path: r, content: fs.readFileSync(path.join(root, r), 'utf8') })
+      } catch {
+        out.push({ path: r, content: '', unreadable: true })
+      }
+    }
+  }
+  walk('')
+  return out.sort((a, b) => a.path.localeCompare(b.path))
+}
+
+/** Sibling files carried by a directory-shaped proposal; empty for the flat shape. */
+function proposalAssets(argusHome: string, file: string): ProposalAsset[] {
+  return file.endsWith('.md') ? [] : walkSkillFiles(path.join(proposalsDir(argusHome), file))
+}
+
+/**
+ * Write a complete skill directory, or leave the previous one untouched.
+ *
+ * Staged then swapped in two renames because Windows cannot rename over an existing directory,
+ * and because a half-written skill directory is a state no reader in this codebase expects:
+ * `scanTier` would list it, the prompt index would advertise it, and the missing half would
+ * surface as a skill that silently does nothing.
+ */
+function writeSkillDirAtomically(dest: string, files: Map<string, string>): void {
+  const parent = path.dirname(dest)
+  const base = path.basename(dest)
+  const token = crypto.randomUUID().slice(0, 8)
+  // Prefixes come from SKILL_TEMP_PREFIXES (shared/skillAssets.ts), the same definition
+  // `scanTier` skips on. Hard-coding the strings here would let the two drift and silently
+  // reopen the leak where a mid-accept skills list advertises a staging directory.
+  const [stagingPrefix, trashPrefix] = SKILL_TEMP_PREFIXES
+  const staging = path.join(parent, `${stagingPrefix}${base}-${token}`)
+  const trash = path.join(parent, `${trashPrefix}${base}-${token}`)
+  fs.mkdirSync(parent, { recursive: true })
+  fs.rmSync(staging, { recursive: true, force: true })
+  for (const [rel, content] of files) {
+    const abs = path.join(staging, rel)
     fs.mkdirSync(path.dirname(abs), { recursive: true })
     fs.writeFileSync(abs, content)
   }
-  fs.rmSync(src, { recursive: true, force: true })
+  const had = fs.existsSync(dest)
+  try {
+    if (had) fs.renameSync(dest, trash)
+    fs.renameSync(staging, dest)
+  } catch (e) {
+    // Put the original back before rethrowing: a failed accept must never leave the user with
+    // no skill where they had a working one.
+    if (had && !fs.existsSync(dest) && fs.existsSync(trash)) fs.renameSync(trash, dest)
+    fs.rmSync(staging, { recursive: true, force: true })
+    throw e
+  }
+  fs.rmSync(trash, { recursive: true, force: true })
 }
 
 /** Apply to the USER tier (a proposal against a bundled asset shadows it — §1.4), then archive. */
@@ -439,6 +529,9 @@ export function acceptProposal(
   opts: {
     db?: DatabaseSync
     editedContent?: string
+    /** Reviewer-edited sibling files, relPath → content. `SKILL.md` is not a member — the body
+     *  keeps using `editedContent`. */
+    editedFiles?: Record<string, string>
     /** Who is accepting; null when this machine has no git identity (no stamp is written). */
     identity?: Identity | null
     /** Injectable for deterministic tests. */
@@ -459,7 +552,9 @@ export function acceptProposal(
       origin: 'proposal',
       now: opts.now ?? new Date()
     })
-  const raw = fs.readFileSync(path.join(proposalsDir(argusHome), file), 'utf8')
+  // proposalBodyPath, not a bare join: a directory-shaped proposal keeps its frontmatter in
+  // SKILL.md, and reading the directory itself throws EISDIR before any branch runs.
+  const raw = fs.readFileSync(proposalBodyPath(proposalsDir(argusHome), file), 'utf8')
   const fm = fmBlock(raw)?.fm ?? ''
 
   let accepted: AcceptedTarget
@@ -499,8 +594,53 @@ export function acceptProposal(
         `Cannot accept "${p.target}": ${issues.find((i) => i.severity === 'error')!.message}`
       )
     }
-    fs.mkdirSync(dest, { recursive: true })
-    fs.writeFileSync(destFile, stamped)
+    const assets = proposalAssets(argusHome, file)
+    // A file we could not read must abort the accept, not land as an empty file: the throw
+    // happens before `writeSkillDirAtomically`, so the installed skill is untouched (spec §10).
+    const unreadable = assets.filter((a) => a.unreadable).map((a) => a.path)
+    if (unreadable.length > 0) {
+      throw new Error(`Cannot accept "${p.target}": unreadable file(s): ${unreadable.join(', ')}`)
+    }
+    const edits = opts.editedFiles ?? {}
+    const unknown = Object.keys(edits).filter((rel) => !assets.some((a) => a.path === rel))
+    if (unknown.length > 0) {
+      throw new Error(
+        `Cannot accept "${p.target}": edited file not in the proposal: ${unknown.join(', ')}`
+      )
+    }
+    const finalAssets = assets.map((a) => ({
+      path: a.path,
+      content: Object.prototype.hasOwnProperty.call(edits, a.path) ? edits[a.path] : a.content
+    }))
+    // Re-run the write-time rules on the bytes actually about to land: `editedFiles` arrives
+    // over IPC, and the on-disk proposal was validated by a past write, not this one.
+    const assetIssue = assetSetError(finalAssets)
+    if (assetIssue) throw new Error(`Cannot accept "${p.target}": ${assetIssue}`)
+
+    // skill-edit carries forward siblings the proposal did not mention; the proposal's own
+    // files win on a path collision (spec §3: add or replace, never delete).
+    const files = new Map<string, string>()
+    if (p.type === 'skill-edit') {
+      for (const f of walkSkillFiles(dest)) files.set(f.path, f.content)
+    }
+    for (const f of finalAssets) files.set(f.path, f.content)
+    files.set('SKILL.md', stamped)
+    writeSkillDirAtomically(dest, files)
+
+    const executables = finalAssets.filter((f) => isExecutableAsset(f.path, f.content))
+    if (executables.length > 0) {
+      if (!opts.db) throw new Error('accepting a skill with executable files requires db')
+      recordAssetReviews(
+        opts.db,
+        p.target,
+        executables.map((f) => ({ relPath: f.path, content: f.content })),
+        {
+          origin: 'proposal',
+          reviewedBy: opts.identity?.name ?? null,
+          now: opts.now ?? new Date()
+        }
+      )
+    }
     accepted = { kind: 'skill', name: p.target }
   } else {
     // reference-edit lands in the references dir; accepting = human curation
@@ -538,7 +678,8 @@ export function acceptProposal(
     // The leading '\n' is spacing (blank line before the delimiter comment); the delimiter
     // itself — the load-bearing bytes evalExport.ts's lastIndexOf split matches on — comes
     // verbatim from the shared constant so the two sides can never drift apart.
-    edited ? `\n${ACCEPTED_CONTENT_DELIMITER}${body}` : undefined
+    edited ? `\n${ACCEPTED_CONTENT_DELIMITER}${body}` : undefined,
+    opts.editedFiles
   )
   announceChanged()
   return accepted
