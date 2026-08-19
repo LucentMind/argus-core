@@ -156,7 +156,7 @@ describe('ProposalsStandalone', () => {
     renderShell()
     fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
     fireEvent.click(screen.getByRole('button', { name: 'Accept Sharpen step 4' }))
-    expect(acceptMock).toHaveBeenCalledWith('2026-07-10-NAV-100-rca.md')
+    expect(acceptMock).toHaveBeenCalledWith('2026-07-10-NAV-100-rca.md', undefined, undefined)
     expect(await screen.findByText(/accepted into your library/)).toBeInTheDocument()
     // queue row remains, now in accepted style
     expect(screen.getByRole('button', { name: 'Select proposal Sharpen step 4' })).toHaveAttribute(
@@ -217,7 +217,7 @@ describe('ProposalsStandalone', () => {
       target: { value: '# rca\nedited\n' }
     })
     fireEvent.click(screen.getByRole('button', { name: 'Accept Sharpen step 4' }))
-    expect(acceptMock).toHaveBeenCalledWith(expect.any(String), '# rca\nedited\n')
+    expect(acceptMock).toHaveBeenCalledWith(expect.any(String), '# rca\nedited\n', undefined)
   })
 
   it('reject the last pending row (in display order) advances to the previous one', async () => {
@@ -417,5 +417,93 @@ describe('ProposalsStandalone', () => {
     const link = await screen.findByRole('button', { name: 'Set up HiveMind to share →' })
     fireEvent.click(link)
     expect(onNavigateSettings).toHaveBeenCalledWith('team')
+  })
+})
+
+describe('per-file edits', () => {
+  const withFiles: ProposalsPayload = {
+    proposals: [
+      {
+        file: '2026-08-19-ACME-1-collect-logs',
+        type: 'skill-new',
+        target: 'collect-logs',
+        caseSlug: 'ACME-1',
+        date: '2026-08-19T12:00:00.000Z',
+        title: 'Collect logs',
+        content: '---\ndescription: d\n---\n# Collect logs\n',
+        current: null,
+        files: [
+          {
+            path: 'scripts/collect.sh',
+            content: '#!/bin/sh\necho hi\n',
+            current: null,
+            exec: true
+          }
+        ]
+      }
+    ]
+  }
+
+  // Runs after the file's outer beforeEach, which installed the full `window.argus`; this
+  // replaces only the proposals slice so the settings stub (hivemind repo) stays intact.
+  beforeEach(() => {
+    acceptMock = vi.fn(() =>
+      Promise.resolve({ proposals: [], accepted: { kind: 'skill', name: 'collect-logs' } })
+    )
+    ;(window as unknown as { argus: { proposals: unknown } }).argus.proposals = {
+      list: vi.fn().mockResolvedValue(withFiles),
+      accept: acceptMock,
+      reject: rejectMock,
+      rejectDigest: vi.fn().mockResolvedValue(null),
+      onChanged: vi.fn(() => () => {})
+    }
+  })
+
+  it('sends a sibling edit as editedFiles and leaves editedContent undefined', async () => {
+    renderShell()
+    await screen.findByRole('tablist', { name: 'Files in this proposal' })
+    fireEvent.click(screen.getByRole('tab', { name: /collect\.sh/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Collect logs' }))
+    fireEvent.change(screen.getByLabelText('Edit proposal content'), {
+      target: { value: '#!/bin/sh\necho edited\n' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Accept Collect logs' }))
+
+    await waitFor(() =>
+      expect(acceptMock).toHaveBeenCalledWith('2026-08-19-ACME-1-collect-logs', undefined, {
+        'scripts/collect.sh': '#!/bin/sh\necho edited\n'
+      })
+    )
+  })
+
+  it('sends a body edit as editedContent, with no editedFiles', async () => {
+    renderShell()
+    await screen.findByRole('tablist', { name: 'Files in this proposal' })
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Collect logs' }))
+    fireEvent.change(screen.getByLabelText('Edit proposal content'), {
+      target: { value: 'edited body\n' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Accept Collect logs' }))
+
+    await waitFor(() =>
+      expect(acceptMock).toHaveBeenCalledWith(
+        '2026-08-19-ACME-1-collect-logs',
+        'edited body\n',
+        undefined
+      )
+    )
+  })
+
+  it('keeps a body edit and a sibling edit in separate buffers', async () => {
+    renderShell()
+    await screen.findByRole('tablist', { name: 'Files in this proposal' })
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Collect logs' }))
+    fireEvent.change(screen.getByLabelText('Edit proposal content'), {
+      target: { value: 'edited body\n' }
+    })
+    // Switching files must not carry the body's draft into the sibling's buffer.
+    fireEvent.click(screen.getByRole('tab', { name: /collect\.sh/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Collect logs' }))
+    expect(screen.getByLabelText('Edit proposal content')).toHaveValue('#!/bin/sh\necho hi\n')
   })
 })

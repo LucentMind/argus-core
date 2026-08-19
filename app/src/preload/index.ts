@@ -726,9 +726,10 @@ const argus = {
     list: (): Promise<ProposalsPayload> => invoke(IPC.proposalsList),
     accept: (
       file: string,
-      editedContent?: string
+      editedContent?: string,
+      editedFiles?: Record<string, string>
     ): Promise<ProposalsPayload & { accepted: AcceptedTarget }> =>
-      invoke(IPC.proposalsAccept, file, editedContent),
+      invoke(IPC.proposalsAccept, file, editedContent, editedFiles),
     reject: (file: string, reason?: RejectReason): Promise<ProposalsPayload> =>
       invoke(IPC.proposalsReject, file, reason),
     onChanged: (cb: (c: ProposalCounts) => void): (() => void) => {
