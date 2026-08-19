@@ -1,7 +1,7 @@
 import fs from 'node:fs'
-import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { proposalsDir, proposalsArchiveDir } from '../paths'
+import { scanProposalDir } from '../proposals'
 import { fmBlock, fmField } from '../../../shared/frontmatter'
 import { ACCEPTED_CONTENT_DELIMITER } from '../../../shared/proposals'
 import type { CaseDistillInput } from '../../../shared/distill'
@@ -27,14 +27,12 @@ interface JobRow {
   kind: string
 }
 
-/** Frontmatter + body of every .md in dir, keyed job-id → entries; files without a job stamp
- *  are skipped. */
+/** Frontmatter + body of every proposal entry in dir (flat or directory-shaped, via
+ *  `scanProposalDir`), keyed job-id → entries; entries without a job stamp are skipped. */
 function scanJobStamped(dir: string): Map<string, { fm: string; body: string }[]> {
   const out = new Map<string, { fm: string; body: string }[]>()
-  if (!fs.existsSync(dir)) return out
-  for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (!ent.isFile() || !ent.name.endsWith('.md')) continue
-    const block = fmBlock(fs.readFileSync(path.join(dir, ent.name), 'utf8'))
+  for (const { raw } of scanProposalDir(dir)) {
+    const block = fmBlock(raw)
     if (!block) continue
     const job = fmField(block.fm, 'job')
     if (!job) continue

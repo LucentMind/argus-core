@@ -192,8 +192,12 @@ export function proposalBodyPath(dir: string, file: string): string {
  * `.md`: `listArchivedProposals` used to do exactly that, which would have made a
  * directory-shaped archived proposal vanish from the archive listing, from the cross-case
  * prior-reject map and from the reject digest — with no error anywhere. See spec §1.
+ *
+ * `distill/evalExport.ts`'s `scanJobStamped` is the second enforcement site for this
+ * invariant — it consumes this scanner too, so a future reader adding a third proposals
+ * reader knows to route through here rather than rolling its own readdir.
  */
-function scanProposalDir(dir: string): { file: string; raw: string }[] {
+export function scanProposalDir(dir: string): { file: string; raw: string }[] {
   if (!fs.existsSync(dir)) return []
   const out: { file: string; raw: string }[] = []
   for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
