@@ -11,6 +11,7 @@ import {
 } from './refSync/refFrontmatter'
 import { defaultAgentAccess } from '../../shared/agentAccess'
 import { ASSET_NAME_RE, validateSkill, hasErrors } from '../../shared/assetValidation'
+import { assetSetError, type SkillAssetInput } from '../../shared/skillAssets'
 import { fmBlock, fmField, withFrontmatter } from '../../shared/frontmatter'
 import { mergeAuthorship, stampAuthorship, type Identity } from '../../shared/authorship'
 import {
@@ -97,7 +98,14 @@ export function isValidProposalTarget(target: string): boolean {
 export function writeProposal(
   argusHome: string,
   caseSlug: string,
-  input: { type: string; target: string; title: string; content: string },
+  input: {
+    type: string
+    target: string
+    title: string
+    content: string
+    /** Sibling files for skill-new/skill-edit. Non-empty makes the proposal directory-shaped. */
+    files?: SkillAssetInput[]
+  },
   extraFm?: Record<string, string>
 ): string {
   const type = input.type as ProposalType
@@ -117,12 +125,41 @@ export function writeProposal(
     if (/\r|\n/.test(v))
       throw new Error(`writeProposal: extraFm value for "${k}" must be single-line`)
   }
+  const files = input.files ?? []
+  if (files.length > 0) {
+    if (type !== 'skill-new' && type !== 'skill-edit') {
+      throw new Error(
+        `write_proposal: files are only valid for skill-new and skill-edit (got ${type})`
+      )
+    }
+    const bad = assetSetError(files)
+    // Thrown BEFORE any mkdir: a rejected proposal must leave no directory behind for the
+    // inbox to scan.
+    if (bad) throw new Error(`write_proposal: ${bad}`)
+  }
+
   const dir = proposalsDir(argusHome)
   fs.mkdirSync(dir, { recursive: true })
   const date = new Date().toISOString()
-  const stem = `${date.slice(0, 10)}-${caseSlug}-${target.replace(/\.md$/, '')}`
-  let file = `${stem}.md`
-  for (let i = 2; fs.existsSync(path.join(dir, file)); i++) file = `${stem}-${i}.md`
+  const stem = `${date.slice(0, 10)}-${caseSlug}-${target.replace(/(\.md)+$/, '')}`
+  // One collision loop for both shapes: a directory and a flat file must never claim names that
+  // differ only by the `.md`, or `proposalBodyPath` would resolve one to the other.
+  const suffix = files.length > 0 ? '' : '.md'
+  let file = `${stem}${suffix}`
+  for (
+    let i = 2;
+    fs.existsSync(path.join(dir, file)) || fs.existsSync(path.join(dir, `${file}.md`));
+    i++
+  ) {
+    file = `${stem}-${i}${suffix}`
+  }
+  // Belt and braces behind the `(\.md)+` strip above: `proposalBodyPath` distinguishes the
+  // two shapes by this suffix alone, so a directory ending in `.md` would be read as a file
+  // and throw EISDIR out of every listing. Never reachable via the stem rule — asserted
+  // because the blast radius is the entire proposals inbox.
+  if (files.length > 0 && file.endsWith('.md')) {
+    throw new Error(`writeProposal: refusing a directory-shaped proposal named "${file}"`)
+  }
   const fm = [
     '---',
     `type: ${type}`,
@@ -135,7 +172,18 @@ export function writeProposal(
     '---',
     ''
   ].join('\n')
-  fs.writeFileSync(path.join(dir, file), fm + input.content)
+  if (files.length === 0) {
+    fs.writeFileSync(path.join(dir, file), fm + input.content)
+  } else {
+    const root = path.join(dir, file)
+    fs.mkdirSync(root, { recursive: true })
+    fs.writeFileSync(path.join(root, 'SKILL.md'), fm + input.content)
+    for (const f of files) {
+      const abs = path.join(root, f.path)
+      fs.mkdirSync(path.dirname(abs), { recursive: true })
+      fs.writeFileSync(abs, f.content)
+    }
+  }
   announceChanged()
   return file
 }
