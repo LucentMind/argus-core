@@ -116,3 +116,14 @@ export function isExecutableAsset(relPath: string, content: string): boolean {
   if (EXEC_EXTENSIONS.has(extensionOf(relPath))) return true
   return content.startsWith('#!')
 }
+
+/**
+ * Prefixes of the temporary directories `acceptProposal` creates while swapping a skill
+ * directory into place. Both the writer (Task 7) and the reader (`scanTier`) import this one
+ * definition — the two must never carry separate copies of these strings.
+ */
+export const SKILL_TEMP_PREFIXES = ['.staging-', '.trash-'] as const
+
+export function isSkillTempDir(name: string): boolean {
+  return SKILL_TEMP_PREFIXES.some((p) => name.startsWith(p))
+}

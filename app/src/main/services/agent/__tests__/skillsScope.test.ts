@@ -169,4 +169,19 @@ describe('scanTier name filtering', () => {
     )
     expect(resolveSkills(home, defaultAgentAccess()).map((s) => s.name)).toEqual(['real-skill'])
   })
+
+  it('resolves a directory name longer than ASSET_NAME_RE allows, since HiveMind install and pack extraction never enforce that cap', () => {
+    // 70 chars: one past ASSET_NAME_RE's 64-char limit. Only skills-user write paths
+    // (writeUserSkill/forkSkill/skillsImport) enforce that regex — HiveMind install and pack
+    // extraction copy `skills/<name>` verbatim, so a name like this is a real shape, not a
+    // fabricated edge case.
+    const root = userSkillsDir(home)
+    const longName = 'a'.repeat(70)
+    fs.mkdirSync(path.join(root, longName), { recursive: true })
+    fs.writeFileSync(
+      path.join(root, longName, 'SKILL.md'),
+      `---\nname: ${longName}\ndescription: d\n---\n`
+    )
+    expect(resolveSkills(home, defaultAgentAccess()).map((s) => s.name)).toEqual([longName])
+  })
 })
