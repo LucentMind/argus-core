@@ -94,6 +94,12 @@ export function DistillRunPanel({
   const [runs, setRuns] = useState<DistillJobRow[] | null>(null)
   const [selected, setSelected] = useState<number | null>(null)
   const [detail, setDetail] = useState<DistillRunDetail | null>(null)
+  // `detail === null` used to mean two different things at once: "still loading" (the common
+  // case) and "run(jobId) resolved null" (the id doesn't exist — a stale picker entry, or a row
+  // deleted from under the panel). Both rendered the SAME skeleton, so the second case spun
+  // forever with no way out. This flag disambiguates them without touching `detail`'s own type
+  // or any of the rendering below that already treats a present `detail` as ready.
+  const [runNotFound, setRunNotFound] = useState(false)
 
   useEffect(() => {
     let live = true
@@ -118,15 +124,23 @@ export function DistillRunPanel({
     // Deferred to a microtask (the repo's usual set-state-in-effect idiom — see RcaPanel's
     // confirmedAt effect) — a bare setState here would run synchronously in the effect body.
     void Promise.resolve().then(() => {
-      if (live) setDetail(null)
+      if (live) {
+        setDetail(null)
+        setRunNotFound(false)
+      }
     })
     void window.argus.distill
       .run(selected)
       .then((d) => {
-        if (live) setDetail(d)
+        if (!live) return
+        setDetail(d)
+        setRunNotFound(d === null)
       })
       .catch(() => {
-        if (live) setDetail(null)
+        if (live) {
+          setDetail(null)
+          setRunNotFound(true)
+        }
       })
     return () => {
       live = false
@@ -180,9 +194,13 @@ export function DistillRunPanel({
             </label>
 
             {detail === null ? (
-              <div role="status" aria-label="Loading run">
-                <SkeletonRows count={3} />
-              </div>
+              runNotFound ? (
+                <div className="py-16 text-center font-mono text-xs text-dim">Run not found.</div>
+              ) : (
+                <div role="status" aria-label="Loading run">
+                  <SkeletonRows count={3} />
+                </div>
+              )
             ) : (
               <>
                 <div className="font-mono text-xs text-ink">{verdict(detail)}</div>

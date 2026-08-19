@@ -103,9 +103,11 @@ CREATE TABLE IF NOT EXISTS distill_jobs (
   created_at TEXT NOT NULL,
   finished_at TEXT,
   -- v2: what this row distills. Every read path that must only ever see a case's own
-  -- distill history filters on kind='case' (queue.statusFor, needsDistillRun via
-  -- statusFor, evalExport's MAX(id) subselect, usage.ts's distillationStats) so a later
-  -- kind (e.g. 'reject-digest') can share this table without being mistaken for a case job.
+  -- distill history filters on kind='case' (queue.statusFor, queue.listRuns, queue.retry's
+  -- raw.kind !== 'case' guard, needsDistillRun via statusFor, evalExport's job selection —
+  -- both the default MAX(id) subselect and the explicit-id path's per-row kind check,
+  -- usage.ts's distillationStats) so a later kind (e.g. 'reject-digest') can share this table
+  -- without being mistaken for a case job.
   kind TEXT NOT NULL DEFAULT 'case',
   input_tokens INTEGER,
   output_tokens INTEGER,
@@ -119,11 +121,20 @@ CREATE TABLE IF NOT EXISTS distill_jobs (
   -- v3: per-stage records (PipelineStages) from the staged pipeline, as JSON. NULL for a v2
   -- single-call run, and for any row written before v3 existed.
   stages_json TEXT,
-  -- A comparison run: the full pipeline ran, staging did not. Every read of "this case's
+  -- A comparison run: the full pipeline ran, staging did not. Every DB READ of "this case's
   -- distillation state" filters dry_run = 0 (queue.statusFor, needsDistillRun via statusFor,
-  -- evalExport's job selection, usage.ts's distillationStats) — only the run panel's own
-  -- listing includes these rows. New readers of this table: grep for dry_run = 0 across
-  -- this list and add yourself, so this comment doesn't go stale again.
+  -- evalExport's job selection, usage.ts's distillationStats) — queue.listRuns is the one
+  -- reader that deliberately does NOT filter it (the run picker compares a dry run against a
+  -- real one on purpose).
+  --
+  -- The BROADCAST path (DistillQueue.emit(), fired on every case-job state transition) is not
+  -- filtered by dry_run either — a dry run's own queued/running/terminal states all go out over
+  -- IPC like any other job's, which is by design: the chip has to show and cancel a dry run
+  -- while it's actually in flight. The renderer's useDistillJob hook is what keeps this from
+  -- leaking into a resting read: once a TRACKED dry row reaches a terminal state, the hook
+  -- re-fetches status(slug) (going through statusFor, hence the filter above) instead of
+  -- adopting the dry broadcast directly. New DB readers of this table: grep for dry_run = 0
+  -- across this list and add yourself, so this comment doesn't go stale again.
   dry_run INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS rca_jobs (

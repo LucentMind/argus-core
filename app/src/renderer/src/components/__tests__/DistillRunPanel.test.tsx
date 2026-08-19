@@ -97,6 +97,30 @@ describe('DistillRunPanel', () => {
     expect(await screen.findByText(/never been distilled/i)).toBeInTheDocument()
   })
 
+  it('F8: shows plain "not staged" — not "not staged (dry run)" or "staged N" — for a REAL job still queued/running (itemCount null, dryRun false)', async () => {
+    const running = row({
+      id: 4,
+      state: 'running',
+      itemCount: null,
+      dryRun: false,
+      turnCount: null,
+      toolCallCount: null,
+      costUsd: null
+    })
+    setup([running], { 4: detail({ job: running, stages: null, dropped: [] }) })
+    render(<DistillRunPanel slug="c1" onClose={() => undefined} />)
+    expect(await screen.findByText('not staged')).toBeInTheDocument()
+    expect(screen.queryByText(/dry run/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/staged \d/)).not.toBeInTheDocument()
+  })
+
+  it('F9: shows an explicit "run not found" state — not an eternal spinner — when run(jobId) resolves null', async () => {
+    setup([row()], {}) // run(2) resolves null: byId has no entry for id 2
+    render(<DistillRunPanel slug="c1" onClose={() => undefined} />)
+    expect(await screen.findByText(/run not found/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Loading run')).not.toBeInTheDocument()
+  })
+
   // Known hazard (carried forward from the read-path review): readRunDetail guards `dropped`
   // and `trajectory` with Array.isArray but not `stages` — a corrupt-but-valid-JSON stages_json
   // arrives as whatever it parsed to. `detail.stages?.materialize` could be a non-array, and an

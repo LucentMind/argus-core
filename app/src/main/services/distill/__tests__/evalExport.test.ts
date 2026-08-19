@@ -411,4 +411,27 @@ describe('explicit job ids', () => {
       { jobId: dryJobId, caseSlug: 'nav-1', reason: 'dry run — no staged items to judge' }
     ])
   })
+
+  it('F6: names a non-case (reject-digest) id as a skip rather than exporting it as a fabricated case line (regression: an explicit reject-digest id had no kind guard and exported with inputSnapshot: {})', () => {
+    // The default query already excludes non-case kinds via its `kind='case'` clause; the
+    // explicit-id path has no SQL-level kind filter at all (`opts.jobIds` names exact ids), so
+    // this only fires when the operator names a non-case id directly.
+    const digestId = insertJob({
+      kind: 'reject-digest',
+      case_slug: '__reject-digest__',
+      input_snapshot: '{}',
+      raw_output: null,
+      prompt_hash: null
+    })
+
+    const res = buildEvalBundle(db, home, '1.0.0', undefined, { jobIds: [digestId] })
+    expect(res.lines).toEqual([])
+    expect(res.skipped).toEqual([
+      {
+        jobId: digestId,
+        caseSlug: '__reject-digest__',
+        reason: "kind='reject-digest', not a case job"
+      }
+    ])
+  })
 })
