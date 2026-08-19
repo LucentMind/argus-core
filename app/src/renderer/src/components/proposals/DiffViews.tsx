@@ -8,8 +8,8 @@ import { KIND_PREFIX, KIND_CLASS } from './diffUtils'
 const noop = (): void => undefined
 
 export type { DiffViewMode } from './diffUtils'
-// eslint-disable-next-line react-refresh/only-export-components -- re-export of a pure helper co-located with the diff components that consume it; see ToolRow.tsx for the same pattern
-export { diffStat } from './diffUtils'
+// eslint-disable-next-line react-refresh/only-export-components -- re-export of pure helpers co-located with the diff components that consume them; see ToolRow.tsx for the same pattern
+export { diffStat, isMarkdownPath } from './diffUtils'
 
 export function UnifiedDiff({
   current,
@@ -78,6 +78,15 @@ export function SplitDiff({
 
 export function ProposedView({ content }: { content: string }): React.JSX.Element {
   return <pre className="whitespace-pre-wrap px-4 py-3 font-mono text-xs text-dim">{content}</pre>
+}
+
+/** A file shown verbatim: monospace, whitespace preserved, no Markdown pass. */
+export function CodeView({ content }: { content: string }): React.JSX.Element {
+  return (
+    <pre className="min-w-0 overflow-x-auto whitespace-pre-wrap break-words px-5 py-3 font-mono text-xs text-ink">
+      {content}
+    </pre>
+  )
 }
 
 /** Leading YAML frontmatter, split off a markdown document. `front` is null when there is none —
