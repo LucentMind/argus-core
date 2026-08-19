@@ -105,6 +105,7 @@ describe('buildHistoryDigest', () => {
       ev('tool.call.started', { toolCallId: 'x', name: { evil: true } }),
       ev('assistant.message', { text: null }),
       { type: 'turn.started' } as unknown as AgentEvent,
+      null as unknown as AgentEvent,
       ev('turn.started', { userText: 'last question' }),
       ev('assistant.message', { text: 'last answer' })
     ])

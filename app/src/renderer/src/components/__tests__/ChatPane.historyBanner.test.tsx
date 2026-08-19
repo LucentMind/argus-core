@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { ChatPane } from '../ChatPane'
+import { agentStore } from '../../lib/agentStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings } from '../../../../shared/settings'
 import type { SessionSummary } from '../../../../shared/types'
+import type { AgentEvent } from '../../../../shared/agent-events'
 
 const baseSession: SessionSummary = {
   id: 1,
@@ -85,10 +87,46 @@ describe('ChatPane history-orphaned banner', () => {
 
   // `historyOrphaned` is computed in main at list time and nothing else refetched the list
   // after a turn, so the banner kept promising "your next message will carry a summary of it"
-  // long after the turn that consumed the digest made that false.
-  it('refetches the session list so the flag can go stale-free after a turn', async () => {
-    renderChatPane({ session: { ...baseSession, historyOrphaned: true } })
-    await waitFor(() => expect(window.argus.sessions.list).toHaveBeenCalledWith('NAV-1'))
+  // long after the turn that consumed the digest made that false. A mount-only refetch would
+  // make the assertion below pass too, so this drives an actual turn.started -> turn.completed
+  // boundary through agentStore (the way ChatPane really learns a turn ended) and requires a
+  // SECOND sessions.list call after that boundary, not merely a non-zero count.
+  it('refetches the session list again after a turn completes', async () => {
+    const slug = 'NAV-TURN-REFETCH'
+    const at = (type: string, payload: unknown): AgentEvent =>
+      ({
+        eventId: 'e1',
+        caseId: 1,
+        caseSlug: slug,
+        sessionId: 1,
+        turnId: 1,
+        ts: '2026-07-09T00:00:00Z',
+        type,
+        payload
+      }) as AgentEvent
+    const list = window.argus.sessions.list as ReturnType<typeof vi.fn>
+
+    render(
+      <ChatPane
+        slug={slug}
+        sessionId={1}
+        onCite={vi.fn()}
+        session={{ ...baseSession, historyOrphaned: true }}
+      />
+    )
+
+    // mount-time pass
+    await waitFor(() => expect(list).toHaveBeenCalledWith(slug))
+    const callsAfterMount = list.mock.calls.length
+
+    act(() => {
+      agentStore.apply(at('turn.started', { userText: 'go' }))
+    })
+    act(() => {
+      agentStore.apply(at('turn.completed', {}))
+    })
+
+    await waitFor(() => expect(list.mock.calls.length).toBeGreaterThan(callsAfterMount))
   })
 
   it('does not refetch for a healthy chat', async () => {
