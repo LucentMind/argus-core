@@ -54,7 +54,7 @@ describe('pending scan', () => {
     expect(listProposals(home)).toHaveLength(0)
   })
 
-  // A directory named `…​.md` reads as flat by name, so proposalBodyPath resolves it to the
+  // A directory named `….md` reads as flat by name, so proposalBodyPath resolves it to the
   // directory itself and both accept and reject throw EISDIR — listing it would wedge the inbox
   // with an item that can be neither accepted nor rejected.
   it('refuses a directory whose name ends in .md, while a normal directory still lists', () => {
