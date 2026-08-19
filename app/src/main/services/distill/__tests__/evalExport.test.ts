@@ -138,6 +138,21 @@ describe('buildEvalBundle', () => {
     expect(skipped).toEqual([{ jobId: id, caseSlug: 'nav-1', reason: 'not finished' }])
   })
 
+  it('exports the real job, not a newer dry one', () => {
+    // Arrange: one done case job, then a newer done DRY job for the same case.
+    const realJobId = insertJob({ created_at: '2026-08-19T10:00:00.000Z' })
+    reviewedItem(realJobId, 'accepted')
+    db.prepare(
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, raw_output, item_count, created_at, dry_run)
+       VALUES ('nav-1', 'done', '{}', '{}', NULL, '2026-08-19T11:00:00.000Z', 1)`
+    ).run()
+    const { lines } = buildEvalBundle(db, home, '1.0.0')
+    expect(lines).toHaveLength(1)
+    expect(lines[0].job.caseSlug).toBe('nav-1')
+    // The surviving line must be the REAL job — assert on its id, not just the count.
+    expect(lines[0].job.id).toBe(realJobId)
+  })
+
   it('a reject-digest row does not shadow the case job as MAX(id), and is not itself exported', () => {
     const doneId = insertJob({ created_at: '2026-07-29T00:00:00.000Z' })
     reviewedItem(doneId, 'accepted')

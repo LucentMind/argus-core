@@ -1466,3 +1466,84 @@ describe('listRuns', () => {
     expect(q.listRuns('c')).toEqual([])
   })
 })
+
+describe('dry run', () => {
+  it('runs the pipeline but never calls stage()', async () => {
+    const stage = vi.fn(() => ({
+      staged: 3,
+      droppedDuplicates: 0,
+      supersededRemoved: 0,
+      dropped: []
+    }))
+    const { q } = makeQueue({ stage })
+    createCase(db, home, { title: 'A', slug: 'a' })
+    const job = q.enqueueDryRun('a')
+    await q.idle()
+    expect(stage).not.toHaveBeenCalled()
+    const row = db.prepare(`SELECT * FROM distill_jobs WHERE id = ?`).get(job.id) as {
+      state: string
+      item_count: number | null
+      dry_run: number
+      raw_output: string | null
+    }
+    expect(row.state).toBe('done')
+    // NULL, not 0: staging never ran, as distinct from ran and staged nothing.
+    expect(row.item_count).toBeNull()
+    expect(row.dry_run).toBe(1)
+    expect(row.raw_output).not.toBeNull()
+  })
+
+  it('passes ignorePriorProposals through to assembleInput', () => {
+    const assembleInput = vi.fn(() => INPUT)
+    const { q } = makeQueue({ assembleInput })
+    createCase(db, home, { title: 'A', slug: 'a' })
+    q.enqueueDryRun('a', { ignorePriorProposals: true })
+    expect(assembleInput).toHaveBeenCalledWith('a', { ignorePriorProposals: true })
+  })
+
+  it('does not queue a reject-digest rebuild', async () => {
+    // A digest rebuild writes a GLOBAL file; a comparison run must not rewrite standing guidance.
+    archiveReject(home, 'r1')
+    archiveReject(home, 'r2')
+    archiveReject(home, 'r3')
+    archiveReject(home, 'r4')
+    archiveReject(home, 'r5')
+    const { q } = makeQueue({ listArchivedProposalsFn: () => listArchivedProposals(home) })
+    createCase(db, home, { title: 'A', slug: 'a' })
+    q.enqueueDryRun('a')
+    await q.idle()
+    const digest = db
+      .prepare(`SELECT COUNT(*) AS n FROM distill_jobs WHERE kind='reject-digest'`)
+      .get() as { n: number }
+    expect(digest.n).toBe(0)
+  })
+
+  it('statusFor ignores a newer dry row and returns the real job', async () => {
+    const { q } = makeQueue()
+    createCase(db, home, { title: 'A', slug: 'a' })
+    const real = q.enqueue('a')
+    await q.idle()
+    q.enqueueDryRun('a')
+    await q.idle()
+    expect(q.statusFor('a')!.id).toBe(real.id)
+  })
+
+  it('needsDistillRun stays true when the only completed run is dry', async () => {
+    const { q } = makeQueue()
+    createCase(db, home, { title: 'A', slug: 'a' })
+    q.enqueueDryRun('a')
+    await q.idle()
+    expect(needsDistillRun(db, q, 'a')).toBe(true)
+  })
+
+  it('listRuns still includes dry rows — the picker compares them', async () => {
+    const { q } = makeQueue()
+    createCase(db, home, { title: 'A', slug: 'a' })
+    q.enqueue('a')
+    await q.idle()
+    const dry = q.enqueueDryRun('a')
+    await q.idle()
+    expect(q.listRuns('a').map((r) => r.id)).toContain(dry.id)
+    expect(q.listRuns('a').find((r) => r.id === dry.id)!.dryRun).toBe(true)
+  })
+})

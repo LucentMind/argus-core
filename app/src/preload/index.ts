@@ -411,6 +411,8 @@ const argus = {
     cancel: (jobId: number): Promise<DistillJobRow> => invoke(IPC.distillCancel, jobId),
     runs: (slug: string): Promise<DistillJobRow[]> => invoke(IPC.distillRuns, slug),
     run: (jobId: number): Promise<DistillRunDetail | null> => invoke(IPC.distillRun, jobId),
+    dryRun: (slug: string, ignorePriorProposals: boolean): Promise<DistillJobRow> =>
+      invoke(IPC.distillDryRun, slug, ignorePriorProposals),
     onChanged: (cb: (p: DistillStatusPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: DistillStatusPayload): void => cb(p)
       ipcRenderer.on(IPC.distillChanged, listener)
