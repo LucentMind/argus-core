@@ -20,6 +20,8 @@ import { sidecarPath } from '../lineIndex'
 import { MAX_READ_BYTES } from '../search'
 import { listSessions } from '../agent/sessionStore'
 import { readSessionEvents } from '../agent/mirror'
+import { searchMessages } from '../chatSearch'
+import { sessionHistoryOrphaned, type SessionDriverDeps } from '../agent/reviewFraming'
 import type { DatabaseSync } from 'node:sqlite'
 import type { CaseRecord } from '../../../shared/types'
 import { createImmediateQueue } from '../ingestQueue'
@@ -460,6 +462,67 @@ describe('imported transcripts under the multi-session model (WP-D seam)', () =>
       )
       .get('NAV-100') as { n: number }
     expect(rows.n).toBe(0)
+  })
+})
+
+describe('imported transcript FTS indexing (Task 7)', () => {
+  // Same shape as the WP-D seam fixture above: a transcript named by a foreign
+  // autoincrement id, one user turn and one assistant reply, distinctive phrases
+  // in each so a hit can be attributed to the right role.
+  async function importWithTranscript(): Promise<{ rec: CaseRecord; sessionId: number }> {
+    const sessA = path.join(homeA, 'cases', 'NAV-100', 'sessions')
+    const envelope = {
+      eventId: 'e1',
+      caseId: 1,
+      caseSlug: 'NAV-100',
+      sessionId: 7,
+      turnId: 1,
+      ts: '2026-07-10T00:00:00.000Z'
+    }
+    fs.writeFileSync(
+      path.join(sessA, '7.jsonl'),
+      JSON.stringify({
+        ...envelope,
+        type: 'turn.started',
+        payload: { userText: 'distinctivephrase why did tiles fail?' }
+      }) +
+        '\n' +
+        JSON.stringify({
+          ...envelope,
+          eventId: 'e2',
+          type: 'assistant.message',
+          payload: { text: 'assistantonlyphrase root cause is BLOCKED_VERSION' }
+        }) +
+        '\n'
+    )
+    const b = path.join(homeA, 'NAV-100-fts.arguscase')
+    await exportCase(dbA, homeA, 'NAV-100', b, { includeTranscripts: true }, { argusVersion: '1.0.0' })
+    const rec = await importCase(dbB, homeB, b, 'imported-case')
+    const [s] = listSessions(dbB, rec.slug)
+    return { rec, sessionId: s.id }
+  }
+
+  it('makes imported conversations findable in chat search', async () => {
+    const { rec } = await importWithTranscript()
+    const { hits } = searchMessages(dbB, rec.slug, 'distinctivephrase')
+    expect(hits.length).toBeGreaterThan(0)
+    expect(hits[0].role).toBe('user')
+  })
+
+  it('indexes assistant text as well as user text', async () => {
+    const { rec } = await importWithTranscript()
+    const { hits } = searchMessages(dbB, rec.slug, 'assistantonlyphrase')
+    expect(hits.length).toBeGreaterThan(0)
+    expect(hits[0].role).toBe('assistant')
+  })
+
+  it('reports the imported session as history-orphaned', async () => {
+    const { sessionId } = await importWithTranscript()
+    const deps: SessionDriverDeps = {
+      db: dbB,
+      resolveDriver: () => ({ kind: 'claude-agent-sdk' }) as never
+    }
+    expect(sessionHistoryOrphaned(deps, sessionId)).toBe(true)
   })
 })
 
