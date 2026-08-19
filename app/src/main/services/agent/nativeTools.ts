@@ -442,21 +442,11 @@ export function argusToolHandlers(
     },
 
     async read_session_transcript(args) {
-      // The case is taken from the validated session, NEVER from model input — same rule as
-      // panel-command dispatch. A model-supplied sessionId can only ever reach this case's
-      // own sessions, and is integer-checked before it reaches any fs call.
-      const sessionIdArg = args.sessionId == null ? deps.sessionId : Number(args.sessionId as never)
-      if (!Number.isInteger(sessionIdArg)) throw new Error(`Invalid session id: ${args.sessionId}`)
-      const owner = db.prepare(`SELECT case_id FROM sessions WHERE id = ?`).get(sessionIdArg) as
-        { case_id: number } | undefined
-      const thisCase = db.prepare(`SELECT id FROM cases WHERE slug = ?`).get(caseSlug) as
-        { id: number } | undefined
-      // Same error either way: a session that belongs to another case must be indistinguishable
-      // from one that does not exist, or the id space itself becomes an oracle.
-      if (!owner || !thisCase || owner.case_id !== thisCase.id) {
-        throw new Error(`Unknown session ${sessionIdArg} for case ${caseSlug}`)
-      }
-      const turns = transcriptTurns(readSessionEvents(dir, sessionIdArg))
+      // The session is the RUNNING one, never model input: the tool exists to recover turns the
+      // history digest elided from this session's own transcript, and that is all it may reach.
+      // Accepting a session id would let a session read another mode's full transcript, which is
+      // exactly what list_evidence above scopes by mode to prevent.
+      const turns = transcriptTurns(readSessionEvents(dir, deps.sessionId))
       const from =
         args.fromTurn == null ? 1 : Math.max(1, Math.floor(num(args.fromTurn, 'fromTurn')))
       const limit = Math.min(
@@ -466,20 +456,20 @@ export function argusToolHandlers(
       const page = turns.slice(from - 1, from - 1 + limit)
       // The bytes below were authored by whatever machine exported the bundle. The rule saying
       // so is emitted OUTSIDE the fence, where quoted text cannot contradict it, and renderTurn
-      // sanitizes the content so it cannot close its own block. The framing is a registry
-      // prompt, not a const-then-return literal: that shape is a documented blind spot of the
-      // prompt-coverage guard (`coverage.test.ts` RETURN_POSITIONS), so an inline header would
-      // reach the model unreviewed and un-editable.
-      const range = `${page.length ? from : 0}–${from + page.length - 1}`
-      return (
-        fb('read_session_transcript.framing', { range, total: String(turns.length) }) +
-        '\n' +
-        OPEN_TAG +
-        '\n' +
-        page.map(renderTurn).join('\n\n') +
-        '\n' +
-        CLOSE_TAG
-      )
+      // sanitizes the content so it cannot close its own block.
+      //
+      // Deliberate asymmetry: this framing IS overridable from the Prompts surface (it resolves
+      // through the TOOL_FEEDBACK registry), while the digest's equivalent preamble in
+      // historyDigest.ts is a hard-coded const that must not be. The framing is a label on data
+      // the operator can reword; the digest preamble is the security boundary itself.
+      const range = page.length ? `${from}–${from + page.length - 1}` : '0–0'
+      const header = fb('read_session_transcript.framing', {
+        range,
+        total: String(turns.length)
+      })
+      // Nothing to fence: an empty OPEN_TAG/CLOSE_TAG pair is noise the model has to interpret.
+      if (page.length === 0) return header
+      return header + '\n' + OPEN_TAG + '\n' + page.map(renderTurn).join('\n\n') + '\n' + CLOSE_TAG
     },
 
     async search_case_history(args) {
@@ -947,9 +937,8 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'read_session_transcript',
     description:
-      "Read this case's chat transcript in turn order — including history that is not in your context (an imported case, or a chat that changed provider). Paged. Read-only.",
+      'Read this chat\'s own transcript in turn order — including earlier turns that are no longer in your context (marked "turns omitted" in your history). Paged. Read-only.',
     schema: {
-      sessionId: z.number().optional(),
       fromTurn: z.number().optional(),
       limit: z.number().optional()
     }
