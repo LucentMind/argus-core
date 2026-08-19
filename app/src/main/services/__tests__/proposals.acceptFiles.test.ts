@@ -91,10 +91,13 @@ describe('accepting a directory-shaped proposal', () => {
       acceptProposal(home, file, { db, identity: null, editedFiles: { '../evil.sh': 'x' } })
     ).toThrow(/edited file not in the proposal|\.\. are not allowed/)
     // The paths a real escape would actually reach: staging lives UNDER skills-user, so `..`
-    // from a staged file lands there, and `archive`'s edited/ writer joins under the archive
-    // directory. Asserting `<home>/evil.sh` instead would pin a path no bug could write.
+    // from a staged file lands there, and `archive` joins `edited/<rel>` under `<archive>/<file>`,
+    // so `..` lands beside it. Asserting `<home>/evil.sh` instead would pin a path no bug could
+    // write. The archive half is belt-and-braces only — `acceptProposal`'s unknown-key check
+    // throws before `archive` runs, so `archive`'s own `assetPathError` guard is not exercised
+    // here; it would only start mattering if that ordering ever changed.
     expect(fs.existsSync(path.join(userSkillsDir(home), 'evil.sh'))).toBe(false)
-    expect(fs.existsSync(path.join(proposalsArchiveDir(home), 'evil.sh'))).toBe(false)
+    expect(fs.existsSync(path.join(proposalsArchiveDir(home), file, 'evil.sh'))).toBe(false)
   })
 
   // Task 4 built `archive`'s editedFiles handling but could not test it: nothing threaded edits
@@ -175,6 +178,25 @@ describe('accepting a directory-shaped proposal', () => {
     })
     acceptProposal(home, again, { db, identity: null })
     expect(fs.readFileSync(path.join(dest, 'logo.png'))).toEqual(bytes)
+  })
+
+  // Gated, not omitted: CI runs a macOS lane on every push, so this really does execute there;
+  // Windows has no +x bit to preserve. It is the only claim in the copy-based carry-forward with
+  // nothing else behind it — a refactor back to writeFileSync would keep the binary case green
+  // (bytes survive a Buffer round trip) while silently dropping the executable bit.
+  it.skipIf(process.platform === 'win32')('preserves the +x bit on a carried sibling', () => {
+    acceptProposal(home, propose(), { db, identity: null })
+    const sib = path.join(userSkillsDir(home), 'collect-logs', 'scripts', 'collect.sh')
+    fs.chmodSync(sib, 0o755)
+    const again = writeProposal(home, 'acme-2', {
+      type: 'skill-edit',
+      target: 'collect-logs',
+      title: 'Collect logs v2',
+      content: BODY,
+      files: [{ path: 'templates/report.md', content: '# Report\n' }]
+    })
+    acceptProposal(home, again, { db, identity: null })
+    expect(fs.statSync(sib).mode & 0o111).not.toBe(0)
   })
 
   it('carries forward existing siblings on a skill-edit', () => {
