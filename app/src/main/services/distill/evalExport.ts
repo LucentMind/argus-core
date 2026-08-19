@@ -23,6 +23,7 @@ interface JobRow {
   created_at: string
   stages_json: string | null
   dropped_json: string | null
+  dry_run: number
 }
 
 /** Frontmatter + body of every .md in dir, keyed job-id → entries; files without a job stamp
@@ -60,8 +61,16 @@ export function buildEvalBundle(
   db: DatabaseSync,
   argusHome: string,
   argusVersion: string,
-  now: () => Date = () => new Date()
-): { lines: DistillEvalBundleLine[]; skipped: DistillEvalExportResult['skipped'] } {
+  now: () => Date = () => new Date(),
+  /** Named ids bypass the "latest job per case" grouping entirely — exactly those rows are
+   *  exported (subject to the per-row checks below). An empty/absent list is today's default
+   *  behaviour, unchanged: the MAX(id)-per-case query. */
+  opts: { jobIds?: number[] } = {}
+): {
+  lines: DistillEvalBundleLine[]
+  skipped: DistillEvalExportResult['skipped']
+  warnings: DistillEvalExportResult['warnings']
+} {
   // Latest job per case only: re-distills supersede (delete un-archived) earlier jobs'
   // pending proposals, so earlier jobs' outcome sets are structurally incomplete. A cancelled
   // job is excluded from the MAX(id) pool: it never reaches stage() (see DistillQueue.cancel /
@@ -72,24 +81,39 @@ export function buildEvalBundle(
   // sharing this table must neither shadow a case job in the MAX(id) pool nor be exported
   // itself. A dry run (a comparison run that skips staging) must not shadow the real job either
   // — it is not part of this case's distillation history, the same reasoning as `statusFor`.
-  const rows = db
-    .prepare(
-      `SELECT * FROM distill_jobs
-       WHERE id IN (
-         SELECT MAX(id) FROM distill_jobs WHERE state <> 'cancelled' AND kind='case' AND dry_run = 0 GROUP BY case_slug
-       )
-       ORDER BY id ASC`
-    )
-    .all() as unknown as JobRow[]
+  const explicit = Boolean(opts.jobIds && opts.jobIds.length > 0)
+  const rows = explicit
+    ? (db
+        .prepare(
+          `SELECT * FROM distill_jobs WHERE id IN (${opts.jobIds!.map(() => '?').join(', ')}) ORDER BY id ASC`
+        )
+        .all(...opts.jobIds!) as unknown as JobRow[])
+    : (db
+        .prepare(
+          `SELECT * FROM distill_jobs
+           WHERE id IN (
+             SELECT MAX(id) FROM distill_jobs WHERE state <> 'cancelled' AND kind='case' AND dry_run = 0 GROUP BY case_slug
+           )
+           ORDER BY id ASC`
+        )
+        .all() as unknown as JobRow[])
   const pending = scanJobStamped(proposalsDir(argusHome))
   const archived = scanJobStamped(proposalsArchiveDir(argusHome))
   const exportedAt = now().toISOString()
 
   const lines: DistillEvalBundleLine[] = []
   const skipped: DistillEvalExportResult['skipped'] = []
+  const warnings: DistillEvalExportResult['warnings'] = []
   for (const r of rows) {
     const skip = (reason: string): void => {
       skipped.push({ jobId: r.id, caseSlug: r.case_slug, reason })
+    }
+    // A dry run staged nothing, so it can carry none of the accept/reject labels the judge
+    // needs. Named rather than silently dropped: the default query already excludes dry rows
+    // (dry_run = 0), so this only ever fires when the operator asked for this id explicitly.
+    if (r.dry_run === 1) {
+      skip('dry run — no staged items to judge')
+      continue
     }
     if (r.state !== 'done' && r.state !== 'failed') {
       skip('not finished')
@@ -100,8 +124,14 @@ export function buildEvalBundle(
       continue
     }
     if (r.state === 'done' && pending.has(String(r.id))) {
-      skip('items pending review')
-      continue
+      // Under an explicit id the operator gets the row anyway — with a named warning instead of
+      // a silent skip, since only the reviewed items among its proposals carry a judge-usable
+      // accept/reject label.
+      if (!explicit) {
+        skip('items pending review')
+        continue
+      }
+      warnings.push({ jobId: r.id, caseSlug: r.case_slug, reason: 'items pending review' })
     }
     const items: DistillEvalItem[] =
       r.state === 'failed'
@@ -146,19 +176,20 @@ export function buildEvalBundle(
       argusVersion
     })
   }
-  return { lines, skipped }
+  return { lines, skipped, warnings }
 }
 
 export function exportEvalBundle(
   db: DatabaseSync,
   argusHome: string,
   destPath: string,
-  argusVersion: string
+  argusVersion: string,
+  opts: { jobIds?: number[] } = {}
 ): DistillEvalExportResult {
-  const { lines, skipped } = buildEvalBundle(db, argusHome, argusVersion)
+  const { lines, skipped, warnings } = buildEvalBundle(db, argusHome, argusVersion, undefined, opts)
   fs.writeFileSync(
     destPath,
     lines.map((l) => JSON.stringify(l)).join('\n') + (lines.length ? '\n' : '')
   )
-  return { path: destPath, exported: lines.length, skipped }
+  return { path: destPath, exported: lines.length, skipped, warnings }
 }
