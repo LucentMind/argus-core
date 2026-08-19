@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { DatabaseSync } from 'node:sqlite'
 import { caseDir, hivemindSkillsDir, userSkillsDir } from '../paths'
 import { sharedSkillsDir } from '../skillsDir'
 import { skillEnabled, defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
@@ -10,6 +11,7 @@ import { validateSkill, hasErrors, ASSET_NAME_RE } from '../../../shared/assetVa
 import { isSkillTempDir } from '../../../shared/skillAssets'
 import { withFrontmatter, fmField } from '../../../shared/frontmatter'
 import { mergeAuthorship, stampAuthorship, type Identity } from '../../../shared/authorship'
+import { copySkillAssetReviews, dropSkillAssetReviews } from '../skillAssetReviews'
 
 export type SkillTier = 'bundled' | 'user' | 'hivemind'
 
@@ -217,13 +219,20 @@ export function resolveSkills(argusHome: string, access: AgentAccess): ResolvedS
  * Delete <argusHome>/skills-user/<name> — "adopt upstream" / remove a local
  * override so a lower-precedence tier (hivemind, bundled) wins resolution again.
  */
-export function deleteUserSkill(argusHome: string, name: string): void {
+export function deleteUserSkill(
+  argusHome: string,
+  name: string,
+  opts: { db?: DatabaseSync } = {}
+): void {
   assertSkillName(name)
   const dir = path.join(userSkillsDir(argusHome), name)
   if (!fs.existsSync(path.join(dir, 'SKILL.md'))) {
     throw new Error(`No user skill: ${name}`)
   }
   fs.rmSync(dir, { recursive: true, force: true })
+  // The rows described bytes that no longer exist. Identical content returning later costs one
+  // re-approval — the safe direction (spec §8).
+  if (opts.db) dropSkillAssetReviews(opts.db, name)
 }
 
 /** Read the tier-winning SKILL.md for the in-app viewer/editor (same precedence as resolveSkills). */
@@ -330,7 +339,8 @@ export function forkSkill(
   argusHome: string,
   name: string,
   newName: string | undefined,
-  identity: Identity | null
+  identity: Identity | null,
+  opts: { db?: DatabaseSync } = {}
 ): string {
   assertSkillName(name)
   const target = newName ?? name
@@ -352,6 +362,8 @@ export function forkSkill(
   // origin: 'fork' keeps the original author — forking changes who owns the asset, not who
   // wrote it — while recording the forker as a contributor.
   fs.writeFileSync(file, stampAuthorship(renamed, { identity, origin: 'fork', now: new Date() }))
+  // The bytes were genuinely reviewed; only the name changed (spec §8).
+  if (opts.db && target !== name) copySkillAssetReviews(opts.db, name, target)
   return target
 }
 
