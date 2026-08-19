@@ -738,4 +738,89 @@ describe('NewCaseDialog', () => {
     expect(box).not.toBeChecked()
     expect(jira.preview).toHaveBeenCalledTimes(3) // PROJ-7, CUST-9 (fail), CUST-9 (retry)
   })
+
+  /** A clone row that has been fetched. Two files so select-all has something to say. */
+  async function openSourceRow(): Promise<HTMLElement> {
+    const CLONE_PREVIEW = {
+      ...PREVIEW,
+      cloneLinks: [
+        { key: 'CUST-9', summary: 'Customer report', direction: 'is-cloned-by' as const }
+      ]
+    }
+    const SOURCE_PREVIEW = {
+      key: 'CUST-9',
+      summary: 'Customer report',
+      status: 'Open',
+      priority: null,
+      labels: [],
+      reporter: 'Cust',
+      created: 'c',
+      updated: 'u',
+      cloneLinks: [],
+      attachments: [
+        { id: '20001', filename: 'customer.log', size: 10, mimeType: 'text/plain', createdAt: 'x' },
+        { id: '20002', filename: 'second.log', size: 20, mimeType: 'text/plain', createdAt: 'x' }
+      ]
+    }
+    jira.preview = vi.fn(async (key: string) => ({
+      ok: true,
+      value: key === 'CUST-9' ? SOURCE_PREVIEW : CLONE_PREVIEW
+    }))
+    render(<NewCaseDialog {...noop} />)
+    await userEvent.type(screen.getByPlaceholderText(/ticket key or link/i), 'PROJ-7')
+    await userEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+    const row = await screen.findByRole('button', { name: /cloned from CUST-9/i })
+    await userEvent.click(row)
+    await screen.findByRole('checkbox', { name: /customer\.log/i })
+    return row
+  }
+
+  it('collapses an expanded source without refetching or losing the selection', async () => {
+    const row = await openSourceRow()
+    expect(row).toHaveAttribute('aria-expanded', 'true')
+
+    await userEvent.click(screen.getByRole('checkbox', { name: /customer\.log/i }))
+
+    await userEvent.click(row)
+    expect(row).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('checkbox', { name: /customer\.log/i })).not.toBeInTheDocument()
+    // The decision survives the collapse, so the header has to keep stating it — a closed row
+    // that looks inert while still importing a file is the whole hazard here.
+    expect(row).toHaveTextContent(/including · 1\/2 files/i)
+
+    await userEvent.click(row)
+    expect(row).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('checkbox', { name: /customer\.log/i })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /second\.log/i })).not.toBeChecked()
+    expect(jira.preview).toHaveBeenCalledTimes(2) // PROJ-7 + one CUST-9 fetch, no refetch
+  })
+
+  it('a source collapsed while included is still imported', async () => {
+    const row = await openSourceRow()
+    await userEvent.click(screen.getByRole('checkbox', { name: /customer\.log/i }))
+    await userEvent.click(row) // collapse
+
+    await userEvent.click(screen.getByRole('button', { name: /create case/i }))
+
+    await waitFor(() =>
+      expect(jira.createCase).toHaveBeenCalledWith(expect.objectContaining({ sources: ['CUST-9'] }))
+    )
+  })
+
+  it('selects and deselects every attachment on one source', async () => {
+    await openSourceRow()
+    const all = screen.getByRole('button', { name: /select all CUST-9/i })
+
+    await userEvent.click(all)
+    expect(screen.getByRole('checkbox', { name: /customer\.log/i })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /second\.log/i })).toBeChecked()
+    // Selecting files is consent to the ticket, same rule as ticking one by hand.
+    expect(screen.getByRole('checkbox', { name: /include CUST-9/i })).toBeChecked()
+
+    await userEvent.click(screen.getByRole('button', { name: /deselect all CUST-9/i }))
+    expect(screen.getByRole('checkbox', { name: /customer\.log/i })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /second\.log/i })).not.toBeChecked()
+    // Clearing the files does NOT withdraw consent — the include control owns that.
+    expect(screen.getByRole('checkbox', { name: /include CUST-9/i })).toBeChecked()
+  })
 })

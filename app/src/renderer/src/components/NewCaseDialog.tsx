@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { ChevronRight } from 'lucide-react'
 import { Btn, Chip } from './ui'
 import { ModalShell } from './ModalShell'
 import { transientFieldEscape } from '../lib/escapeLayer'
@@ -32,6 +33,10 @@ type Step =
 interface SourceState {
   loading: boolean
   error?: string
+  /** Whether the row's body is showing. Collapsing is purely visual — it keeps `checked` and
+   *  `included` intact, because hiding a choice must never silently withdraw it. The collapsed
+   *  header therefore has to say what is still selected underneath. */
+  expanded: boolean
   attachments: JiraAttachmentInfo[]
   /** Ticked attachment ids. Starts EMPTY — unlike the primary ticket, nothing is preselected. */
   checked: Set<string>
@@ -70,26 +75,56 @@ export function NewCaseDialog({
   const [sources, setSources] = useState<Record<string, SourceState>>({})
 
   async function expandSource(key: string): Promise<void> {
-    // Already expanded (or in flight) — but a prior failure must not permanently kill the
-    // row, so an error entry does NOT trip this guard and a click retries the fetch.
-    if (sources[key] && !sources[key].error) return
+    // Already fetched — the click is a collapse/expand, which must not refetch and must not
+    // touch the selection. A prior failure does NOT trip this guard, so a click retries.
+    const cur = sources[key]
+    if (cur && !cur.error) {
+      if (cur.loading) return
+      setSources((s) => ({ ...s, [key]: { ...s[key], expanded: !s[key].expanded } }))
+      return
+    }
     setSources((s) => ({
       ...s,
-      [key]: { loading: true, attachments: [], checked: new Set(), included: false }
+      [key]: { loading: true, expanded: true, attachments: [], checked: new Set(), included: false }
     }))
     const r = await window.argus.jira.preview(key)
     setSources((s) => ({
       ...s,
       [key]: r.ok
-        ? { loading: false, attachments: r.value.attachments, checked: new Set(), included: false }
+        ? {
+            loading: false,
+            expanded: true,
+            attachments: r.value.attachments,
+            checked: new Set(),
+            included: false
+          }
         : {
             loading: false,
             error: r.message,
+            expanded: true,
             attachments: [],
             checked: new Set(),
             included: false
           }
     }))
+  }
+
+  /** Tick or untick every attachment on one source at once. Selecting implies including the
+   *  ticket (same rule as ticking a single file); clearing does NOT withdraw that consent,
+   *  because the include control is what owns that decision. */
+  function toggleSourceAll(key: string, on: boolean): void {
+    setSources((s) => {
+      const cur = s[key]
+      if (!cur) return s
+      return {
+        ...s,
+        [key]: {
+          ...cur,
+          checked: on ? new Set(cur.attachments.map((a) => a.id)) : new Set(),
+          included: on ? true : cur.included
+        }
+      }
+    })
   }
 
   function toggleSourceAttachment(key: string, id: string, on: boolean): void {
@@ -267,7 +302,21 @@ export function NewCaseDialog({
 
   return (
     <ModalShell
-      title="New case"
+      // Once a ticket is fetched, its identity IS the dialog's subject, so it belongs in the
+      // chrome rather than in a row of its own — a standalone identity line cost a whole band
+      // of vertical space to say what the header could carry for free.
+      title={
+        step.step === 'preview' ? (
+          <>
+            <span>New case</span>
+            <span className="text-hair2">·</span>
+            <span className="text-defect">{step.preview.key}</span>
+            <Chip tone="neutral">{step.preview.status}</Chip>
+          </>
+        ) : (
+          'New case'
+        )
+      }
       ariaLabel="New case"
       onClose={onClose}
       className="max-h-[85vh] w-[560px]"
@@ -343,25 +392,35 @@ export function NewCaseDialog({
 
         {step.step === 'preview' && (
           <>
-            <div className="flex items-center gap-2 text-sm">
-              <span className="font-mono text-defect">{step.preview.key}</span>
-              <Chip tone="neutral">{step.preview.status}</Chip>
-              <span className="truncate text-dim">{step.preview.summary}</span>
+            {/* No identity row here: the key and status live in the dialog header, and the
+                summary is the prefill of the Title field below. Both used to be repeated here,
+                which is how the same sentence ended up on screen three times. */}
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-dim" htmlFor="new-case-slug">
+                Case ID
+              </label>
+              <input
+                id="new-case-slug"
+                aria-label="Case slug"
+                className={`${INPUT} font-mono`}
+                value={caseSlug}
+                onChange={(e) => setCaseSlug(e.target.value)}
+                onKeyDown={(e) => transientFieldEscape(e, caseSlug === '', () => setCaseSlug(''))}
+              />
             </div>
-            <input
-              aria-label="Case slug"
-              className={`${INPUT} font-mono`}
-              value={caseSlug}
-              onChange={(e) => setCaseSlug(e.target.value)}
-              onKeyDown={(e) => transientFieldEscape(e, caseSlug === '', () => setCaseSlug(''))}
-            />
-            <input
-              aria-label="Case title"
-              className={INPUT}
-              value={caseTitle}
-              onChange={(e) => setCaseTitle(e.target.value)}
-              onKeyDown={(e) => transientFieldEscape(e, caseTitle === '', () => setCaseTitle(''))}
-            />
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-dim" htmlFor="new-case-title">
+                Title
+              </label>
+              <input
+                id="new-case-title"
+                aria-label="Case title"
+                className={INPUT}
+                value={caseTitle}
+                onChange={(e) => setCaseTitle(e.target.value)}
+                onKeyDown={(e) => transientFieldEscape(e, caseTitle === '', () => setCaseTitle(''))}
+              />
+            </div>
             <div className="flex min-h-0 flex-col gap-1">
               {/* The toggle-all is a button, not a checkbox: a checkbox here would sit in the
                   same column as the per-file boxes and read as just another file row. */}
@@ -375,6 +434,9 @@ export function NewCaseDialog({
                     // a second label rather than as something clickable.
                     variant="outline"
                     className="ml-auto"
+                    // Named by ticket: once a clone row is expanded there are two of these on
+                    // screen, and "Select all" alone does not say whose files it takes.
+                    aria-label={`${allSelected ? 'Deselect' : 'Select'} all ${step.preview.key} attachments`}
                     onClick={() =>
                       setChecked(
                         allSelected ? new Set() : new Set(previewAttachments.map((a) => a.id))
@@ -396,6 +458,7 @@ export function NewCaseDialog({
                   >
                     <input
                       type="checkbox"
+                      className="shrink-0"
                       checked={checked.has(a.id)}
                       onChange={(e) => {
                         const next = new Set(checked)
@@ -416,42 +479,88 @@ export function NewCaseDialog({
               <div className="flex flex-col gap-1">
                 {step.preview.cloneLinks.map((link) => {
                   const s = sources[link.key]
+                  const open = !!s?.expanded
+                  const allChecked =
+                    !!s &&
+                    s.attachments.length > 0 &&
+                    s.attachments.every((a) => s.checked.has(a.id))
+                  // A clone's summary is normally word-for-word the ticket's own, so showing it
+                  // here just repeats the title field. Show it only when it actually differs.
+                  const distinctSummary =
+                    link.summary && link.summary !== step.preview.summary ? link.summary : null
                   return (
                     <div key={link.key} className="flex flex-col gap-1">
                       <button
                         type="button"
+                        aria-expanded={open}
                         className="flex items-center gap-2 rounded-r1 border border-hair px-2 py-1 text-left text-xs hover:bg-hi"
                         onClick={() => void expandSource(link.key)}
                       >
-                        <span className="font-mono text-defect">Cloned from {link.key}</span>
-                        <span className="min-w-0 flex-1 truncate text-dim">{link.summary}</span>
+                        <ChevronRight
+                          size={12}
+                          className={`shrink-0 text-mute transition-transform ${open ? 'rotate-90' : ''}`}
+                        />
+                        <span className="shrink-0 whitespace-nowrap font-mono text-defect">
+                          Cloned from {link.key}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-dim">
+                          {distinctSummary ?? ''}
+                        </span>
+                        {/* A collapsed row still carries a decision, so the header states it —
+                            otherwise closing the row reads as having cancelled it. */}
                         <span className="shrink-0 text-mute">
                           {s?.loading
                             ? 'loading…'
                             : s?.error
                               ? 'retry'
                               : s
-                                ? `${s.attachments.length} files`
+                                ? s.included
+                                  ? `including · ${s.checked.size}/${s.attachments.length} ${s.attachments.length === 1 ? 'file' : 'files'}`
+                                  : `${s.attachments.length} ${s.attachments.length === 1 ? 'file' : 'files'}`
                                 : 'show attachments'}
                         </span>
                       </button>
                       {s?.error && <span className="px-2 text-xs text-mute">{s.error}</span>}
-                      {s && !s.loading && !s.error && (
-                        <div className="flex min-h-0 flex-col gap-1 pl-3">
+                      {s && open && !s.loading && !s.error && (
+                        // No left padding: every checkbox in this dialog sits in one column, so
+                        // the eye can run straight down them. The bordered header above is what
+                        // says these rows belong to the clone.
+                        <div className="flex min-h-0 flex-col gap-1">
                           {/* Independent of the attachment checkboxes below: a source with no
                               files still has ticket text and comments worth importing, and this
                               is the only way to say yes to those without a file to tick. */}
                           <label className="flex items-center gap-2 rounded-r1 px-1 py-0.5 text-xs hover:bg-hi">
                             <input
                               type="checkbox"
+                              className="shrink-0"
                               aria-label={`Include ${link.key}`}
                               checked={s.included}
                               onChange={(e) => toggleSourceIncluded(link.key, e.target.checked)}
                             />
-                            <span className="text-ink">
+                            <span className="min-w-0 flex-1 text-ink">
                               Include {link.key} (ticket text &amp; comments)
                             </span>
                           </label>
+                          {/* The source's own attachments header, built exactly like the
+                              primary's above. The toggle-all used to sit on the include row,
+                              where it read as belonging to that checkbox — a control that
+                              takes every file must not look like part of the "import the
+                              ticket text" decision. */}
+                          {s.attachments.length > 0 && (
+                            <div className="flex items-center gap-2 border-b border-hair pb-1 text-xs">
+                              <span className="uppercase tracking-wide text-dim">
+                                {link.key} attachments ({s.attachments.length})
+                              </span>
+                              <Btn
+                                variant="outline"
+                                className="ml-auto"
+                                aria-label={`${allChecked ? 'Deselect' : 'Select'} all ${link.key} attachments`}
+                                onClick={() => toggleSourceAll(link.key, !allChecked)}
+                              >
+                                {allChecked ? 'Deselect all' : 'Select all'}
+                              </Btn>
+                            </div>
+                          )}
                           <div className="flex max-h-40 min-h-0 flex-col gap-1 overflow-y-auto">
                             {s.attachments.map((a) => (
                               <label
@@ -460,6 +569,7 @@ export function NewCaseDialog({
                               >
                                 <input
                                   type="checkbox"
+                                  className="shrink-0"
                                   checked={s.checked.has(a.id)}
                                   onChange={(e) =>
                                     toggleSourceAttachment(link.key, a.id, e.target.checked)
