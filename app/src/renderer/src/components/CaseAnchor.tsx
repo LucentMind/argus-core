@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { MenuButton, Checkbox } from './ui'
+import { DistillRunPanel } from './DistillRunPanel'
 import { uiStore } from '../lib/uiStore'
 import { notice } from '../lib/noticeStore'
 import { confirm } from '../lib/confirmStore'
@@ -66,6 +67,7 @@ export function CaseAnchor({
   const tracked = useDistillJob(slug)
   const [override, setOverride] = useState<DistillJobRow | null>(null)
   const [pending, setPending] = useState(false)
+  const [runsOpen, setRunsOpen] = useState(false)
   // adjust-state-during-render: any broadcast (tracked) supersedes the optimistic cancel/
   // redistill result — same idiom as DistillChip, whose adoption-over-swallowed-broadcast
   // comment explains why: DistillQueue.emit() swallows broadcast failures, so the row a
@@ -150,68 +152,77 @@ export function CaseAnchor({
     status === 'closed' ? (resolution ? `Closed · ${resolution}` : 'Closed') : 'Close as…'
 
   return (
-    <div className="flex shrink-0 items-center">
-      <MenuButton
-        // `text-signal` below, not `text-defect` (user-directed, 2026-08-01): a case id is an
-        // identifier, and the dashboard has always drawn it in signal blue (`CaseCard`'s slug).
-        // The header drawing the SAME id in amber made one thing look like two, and spent the
-        // attention colour on a label that is never a problem.
-        label={slug}
-        aria-label={`Case actions · ${slug}`}
-        align="left"
-        nocaret
-        // `!` markers, not plain classes: an appended utility of equal specificity loses to
-        // Btn's own base string on source order alone (h-7/px-3/text-xs), so a bare `h-[30px]`
-        // here would be silently inert. The transparent resting border and the hover fill come
-        // from MenuButton's default `ghost` variant; only the hover hairline is added.
-        triggerClassName="h-[30px]! px-2.5! font-mono text-sm! text-signal! hover:border-hair!"
-        items={[
-          { label: closeAsLabel, children: statusItems },
-          {
-            label: 'Export',
-            children: [
-              { label: 'Export case…', onSelect: () => void exportBundle(true) },
-              { label: 'Export without transcripts…', onSelect: () => void exportBundle(false) }
-            ]
-          },
-          {
-            // No status guard: distilling an open case is allowed on purpose (user-directed,
-            // 2026-08-03). Output stages as inert proposals a human accepts, so an early run
-            // cannot reach the knowledge corpus on its own. While a job is in flight this same
-            // row is the way to stop it — one row, one subject.
-            label: distillMenuLabel(distillJob),
-            onSelect: () => {
-              // Guards the same double-click hazard DistillChip's `retrying`/`cancelling`
-              // guard against a stale response, but here the guard also must cover a plain
-              // double-click before the FIRST response ever lands: with no broadcast yet and
-              // no optimistic row adopted yet, a second click before `pending` existed would
-              // still read the old `distillJob` and issue a second `redistill()`, enqueuing
-              // two jobs — the same "two jobs for one case" hazard reconcileAndEnqueue exists
-              // to prevent on the close path.
-              if (pending) return
-              setPending(true)
-              const inFlight = isDistillInFlight(distillJob)
-              const epoch = cancelEpochRef.current
-              const p = inFlight
-                ? window.argus.distill.cancel(distillJob!.id)
-                : window.argus.distill.redistill(slug)
-              void p
-                .then((row) => {
-                  if (cancelEpochRef.current === epoch) setOverride(row)
-                })
-                .catch(() => undefined)
-                .finally(() => setPending(false))
+    <>
+      <div className="flex shrink-0 items-center">
+        <MenuButton
+          // `text-signal` below, not `text-defect` (user-directed, 2026-08-01): a case id is an
+          // identifier, and the dashboard has always drawn it in signal blue (`CaseCard`'s slug).
+          // The header drawing the SAME id in amber made one thing look like two, and spent the
+          // attention colour on a label that is never a problem.
+          label={slug}
+          aria-label={`Case actions · ${slug}`}
+          align="left"
+          nocaret
+          // `!` markers, not plain classes: an appended utility of equal specificity loses to
+          // Btn's own base string on source order alone (h-7/px-3/text-xs), so a bare `h-[30px]`
+          // here would be silently inert. The transparent resting border and the hover fill come
+          // from MenuButton's default `ghost` variant; only the hover hairline is added.
+          triggerClassName="h-[30px]! px-2.5! font-mono text-sm! text-signal! hover:border-hair!"
+          items={[
+            { label: closeAsLabel, children: statusItems },
+            {
+              label: 'Export',
+              children: [
+                { label: 'Export case…', onSelect: () => void exportBundle(true) },
+                { label: 'Export without transcripts…', onSelect: () => void exportBundle(false) }
+              ]
+            },
+            {
+              // No status guard: distilling an open case is allowed on purpose (user-directed,
+              // 2026-08-03). Output stages as inert proposals a human accepts, so an early run
+              // cannot reach the knowledge corpus on its own. While a job is in flight this same
+              // row is the way to stop it — one row, one subject.
+              label: distillMenuLabel(distillJob),
+              onSelect: () => {
+                // Guards the same double-click hazard DistillChip's `retrying`/`cancelling`
+                // guard against a stale response, but here the guard also must cover a plain
+                // double-click before the FIRST response ever lands: with no broadcast yet and
+                // no optimistic row adopted yet, a second click before `pending` existed would
+                // still read the old `distillJob` and issue a second `redistill()`, enqueuing
+                // two jobs — the same "two jobs for one case" hazard reconcileAndEnqueue exists
+                // to prevent on the close path.
+                if (pending) return
+                setPending(true)
+                const inFlight = isDistillInFlight(distillJob)
+                const epoch = cancelEpochRef.current
+                const p = inFlight
+                  ? window.argus.distill.cancel(distillJob!.id)
+                  : window.argus.distill.redistill(slug)
+                void p
+                  .then((row) => {
+                    if (cancelEpochRef.current === epoch) setOverride(row)
+                  })
+                  .catch(() => undefined)
+                  .finally(() => setPending(false))
+              }
+            },
+            {
+              // A noun beside the verb above: that row starts/stops a run, this one reads the last
+              // one. Kept separate so neither has to change meaning by state.
+              label: 'Distillation details…',
+              onSelect: () => setRunsOpen(true)
+            },
+            {
+              label: 'Close case',
+              onSelect: () => {
+                uiStore.closeTab(slug)
+                onHome()
+              }
             }
-          },
-          {
-            label: 'Close case',
-            onSelect: () => {
-              uiStore.closeTab(slug)
-              onHome()
-            }
-          }
-        ]}
-      />
-    </div>
+          ]}
+        />
+      </div>
+      {runsOpen && <DistillRunPanel slug={slug} onClose={() => setRunsOpen(false)} />}
+    </>
   )
 }
