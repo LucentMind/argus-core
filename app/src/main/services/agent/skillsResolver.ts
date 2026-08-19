@@ -54,7 +54,7 @@ export interface ResolvedSkill {
 }
 
 /** Precedence order, highest first (spec §1.4). */
-const TIERS: Array<{ tier: SkillTier; root: (home: string) => string }> = [
+export const TIERS: Array<{ tier: SkillTier; root: (home: string) => string }> = [
   { tier: 'user', root: userSkillsDir },
   { tier: 'hivemind', root: hivemindSkillsDir },
   { tier: 'bundled', root: sharedSkillsDir }

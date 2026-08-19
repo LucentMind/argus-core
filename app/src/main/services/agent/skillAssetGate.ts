@@ -1,8 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { hivemindSkillsDir, userSkillsDir } from '../paths'
-import { sharedSkillsDir } from '../skillsDir'
 import type { SkillAssetTier } from '../../../shared/skillAssets'
+import { TIERS } from './skillsResolver'
 
 /** Which skill, in which tier, a file on disk belongs to. */
 export interface SkillAssetId {
@@ -13,13 +12,10 @@ export interface SkillAssetId {
   relPath: string
 }
 
-/** Same precedence order as `skillsResolver`'s TIERS: a user copy shadows hivemind, which
- *  shadows bundled. The order only matters if two roots ever nest, which they do not. */
-const TIER_ROOTS: { tier: SkillAssetTier; root: (home: string) => string }[] = [
-  { tier: 'user', root: userSkillsDir },
-  { tier: 'hivemind', root: hivemindSkillsDir },
-  { tier: 'bundled', root: sharedSkillsDir }
-]
+/** Reuses `skillsResolver`'s tier list rather than keeping a second copy: the gate must
+ *  identify assets in exactly the tiers `resolveSkills` materializes, so the two can never
+ *  be allowed to drift apart. */
+const TIER_ROOTS = TIERS
 
 /** `realpathSync.native` on both sides, or nothing: it is what follows the per-case junction to
  *  the real tier root, and on Windows it also returns the filesystem's canonical casing, so the
