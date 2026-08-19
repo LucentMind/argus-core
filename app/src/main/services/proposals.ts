@@ -503,23 +503,36 @@ function writeSkillDirAtomically(dest: string, files: Map<string, string>): void
   const trash = path.join(parent, `${trashPrefix}${base}-${token}`)
   fs.mkdirSync(parent, { recursive: true })
   fs.rmSync(staging, { recursive: true, force: true })
-  for (const [rel, content] of files) {
-    const abs = path.join(staging, rel)
-    fs.mkdirSync(path.dirname(abs), { recursive: true })
-    fs.writeFileSync(abs, content)
-  }
   const had = fs.existsSync(dest)
   try {
+    // Carry-forward by COPY, not by re-writing strings: cpSync preserves bytes and mode, where a
+    // read-as-utf8/write-as-string round trip corrupts a binary sibling (a PNG or zip that
+    // arrived via skills import or a HiveMind pull), zero-fills an unreadable one, and drops the
+    // +x bit off a script. The proposal's own files are overlaid on top, so they still win.
+    if (had) fs.cpSync(dest, staging, { recursive: true })
+    for (const [rel, content] of files) {
+      const abs = path.join(staging, rel)
+      fs.mkdirSync(path.dirname(abs), { recursive: true })
+      fs.writeFileSync(abs, content)
+    }
     if (had) fs.renameSync(dest, trash)
     fs.renameSync(staging, dest)
   } catch (e) {
-    // Put the original back before rethrowing: a failed accept must never leave the user with
-    // no skill where they had a working one.
+    // Put the original back before rethrowing: a failed accept must never leave the user with no
+    // skill where they had a working one.
     if (had && !fs.existsSync(dest) && fs.existsSync(trash)) fs.renameSync(trash, dest)
     fs.rmSync(staging, { recursive: true, force: true })
     throw e
   }
-  fs.rmSync(trash, { recursive: true, force: true })
+  // Best-effort: the swap already succeeded. A failure here (Windows EBUSY on a handle held
+  // against the previous copy is routine) must not turn a completed install into a thrown accept
+  // with no review rows and an un-archived proposal. `scanTier` skips this prefix, so a leftover
+  // is invisible rather than harmful.
+  try {
+    fs.rmSync(trash, { recursive: true, force: true })
+  } catch {
+    /* leftover trash is inert */
+  }
 }
 
 /** Apply to the USER tier (a proposal against a bundled asset shadows it — §1.4), then archive. */
@@ -617,13 +630,11 @@ export function acceptProposal(
     const assetIssue = assetSetError(finalAssets)
     if (assetIssue) throw new Error(`Cannot accept "${p.target}": ${assetIssue}`)
 
-    // Carry forward siblings the proposal did not mention, for BOTH skill types. Not gated on
-    // `skill-edit`: accept already permits a `skill-new` onto an existing skill (it merges that
-    // skill's authorship), and gating here would silently delete the user's existing sibling
-    // files — which the spec forbids outright, for any proposal type. The proposal's own files
-    // still win on a path collision; nothing is ever removed.
+    // Only the proposal's own files plus SKILL.md. Siblings the proposal did not mention are
+    // carried forward by `writeSkillDirAtomically`, which seeds its staging tree by COPYING the
+    // installed directory — bytes and mode intact, for BOTH skill types. Nothing is ever removed:
+    // deletion is a human editor action, which no proposal type may cause.
     const files = new Map<string, string>()
-    for (const f of walkSkillFiles(dest)) files.set(f.path, f.content)
     for (const f of finalAssets) files.set(f.path, f.content)
     files.set('SKILL.md', stamped)
 
