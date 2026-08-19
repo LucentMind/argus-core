@@ -2,7 +2,15 @@
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { UnifiedDiff, SplitDiff, ProposedView, NewFileView, diffStat } from '../DiffViews'
+import {
+  UnifiedDiff,
+  SplitDiff,
+  ProposedView,
+  NewFileView,
+  diffStat,
+  CodeView,
+  isMarkdownPath
+} from '../DiffViews'
 
 const CURRENT = 'keep\nold line\n'
 const CONTENT = 'keep\nnew line\nadded tail\n'
@@ -71,5 +79,36 @@ describe('NewFileView', () => {
     render(<NewFileView content={'# Ref\n\n---\n\nbody\n'} />)
     expect(screen.getByRole('heading', { name: 'Ref' })).toBeInTheDocument()
     expect(screen.getByRole('separator')).toBeInTheDocument()
+  })
+})
+
+describe('isMarkdownPath', () => {
+  it.each(['SKILL.md', 'templates/report.md', 'NOTES.MARKDOWN'])('accepts %s', (p) => {
+    expect(isMarkdownPath(p)).toBe(true)
+  })
+  it.each(['scripts/collect.sh', 'data/x.json', 'bin/run'])('rejects %s', (p) => {
+    expect(isMarkdownPath(p)).toBe(false)
+  })
+})
+
+describe('CodeView', () => {
+  const SCRIPT = '#!/bin/sh\n# collect logs\n    indented\n'
+
+  it('renders a shell comment literally, not as a heading', () => {
+    render(<CodeView content={SCRIPT} />)
+    // The whole body is one <pre>; a Markdown pass would have produced an <h1> for "# collect
+    // logs" and swallowed the leading spaces on the indented line.
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument()
+    expect(
+      screen.getByText((_, node) => node?.tagName === 'PRE' && node.textContent === SCRIPT)
+    ).toBeInTheDocument()
+  })
+
+  it('preserves indentation exactly', () => {
+    render(<CodeView content={SCRIPT} />)
+    const pre = screen.getByText(
+      (_, node) => node?.tagName === 'PRE' && node.textContent === SCRIPT
+    )
+    expect(pre.textContent).toContain('\n    indented\n')
   })
 })
