@@ -24,6 +24,8 @@ import { appendFinding, type NativeToolDeps } from './nativeTools'
 import { panelCommandRiskMap, type PanelCommandDecl } from './panelCommands'
 import type { Detection } from '../packs/detection'
 import { caseDir } from '../paths'
+import { readSessionEvents } from './mirror'
+import { buildHistoryDigest } from './historyDigest'
 import { ingestContent } from '../ingest'
 import { createImmediateQueue, type IngestQueueLike } from '../ingestQueue'
 import { isEditableTool } from '../../../shared/editableTools'
@@ -664,8 +666,36 @@ export class CaseSession {
     return { ...e, payload: { requestId, tool, risk, grantKey, argsPreview } }
   }
 
+  /**
+   * The digest of prior history for this session's FIRST turn, or '' when there is nothing to
+   * replay. Fires only when the driver got no resume cursor — an imported case, or a provider
+   * switch — in which case the on-disk mirror is the only record of the conversation that
+   * exists on this machine. A brand-new session also has a null cursor, but its mirror is
+   * empty, so `buildHistoryDigest` returns '' and nothing is prefixed.
+   *
+   * Deliberately prefixed to the DRIVER call only. Putting it on the `turn.started` event
+   * would render it in the transcript, title the session with it, index it into messages_fts,
+   * and export it into the next bundle — replaying a replay.
+   */
+  private firstTurnDigest(): string {
+    if (this.turnIndex !== 0 || this.deps.resumeCursor !== null) return ''
+    try {
+      const events = readSessionEvents(
+        caseDir(this.deps.argusHome, this.deps.caseSlug),
+        this.sessionId
+      )
+      return buildHistoryDigest(events)
+    } catch (err) {
+      // A send must never fail because history could not be read.
+      console.warn(`[session] history digest failed: ${(err as Error).message}`)
+      return ''
+    }
+  }
+
   send(text: string, opts?: { composed?: boolean }): number {
     if (this.state === 'dead') throw new Error('session is dead')
+    // Captured BEFORE the turnIndex bump: this is the first-turn-only seam.
+    const digest = this.firstTurnDigest()
     this.turnIndex++
     this.activeTurn = true
     // Task 7 (fix round 2): deliberately NOT clearing `auditedToolCallIds` here. A turn
@@ -690,7 +720,8 @@ export class CaseSession {
         ...(opts?.composed ? { composed: true } : {})
       })
     )
-    this.driverSession.send(text)
+    // The ONLY consumer of the digest. Everything above deliberately used raw `text`.
+    this.driverSession.send(digest + text)
     return this.turnIndex
   }
 
