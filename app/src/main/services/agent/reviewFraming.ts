@@ -65,15 +65,26 @@ export function driverForSession(deps: SessionDriverDeps, sessionId: number): Ag
  * True when a session shows conversation history the model cannot see: turns on the record,
  * but no cursor the next turn can resume from.
  *
- * Two unrelated paths land here — an imported case (bundle.ts leaves `driver_cursor` NULL
- * because the source machine's cursor is meaningless locally) and a driver-kind switch
- * (`setSessionModel` nulls it). It keys on the resulting STATE, so both are covered by one
- * rule and no `imported` flag is needed.
+ * Three unrelated paths land here, and it keys on the resulting STATE rather than on how the
+ * session got there, so one rule covers all of them and no `imported` flag is needed:
  *
- * A provider-instance switch is NOT a third path: `sessionCursor`'s instance guard compares
+ *  1. An imported case — bundle.ts leaves `driver_cursor` NULL, because the source machine's
+ *     cursor is meaningless locally.
+ *  2. A driver-kind switch on this session — `setSessionModel` nulls the cursor, since a cursor
+ *     only means anything to the driver that produced it.
+ *  3. A DEFAULT-PROVIDER switch, with this session never touched at all. `driverForSession`
+ *     falls back to `resolveDriver()` for a session with `instance_id: null` (the documented
+ *     steady state for an unpinned session), so changing the default provider in Settings moves
+ *     the `kind` this predicate resolves while the row still carries the old driver's cursor —
+ *     and `sessionCursor`'s `driver_kind` guard then rejects a cursor `setSessionModel` never
+ *     wrote to. This branch's own tests exercise it.
+ *
+ * A provider-INSTANCE switch is not a fourth path: `sessionCursor`'s instance guard compares
  * the row's `instance_id` against itself at every production call site (both here and
  * `registry.ts:300` read `instanceId` from the same session row they then check it against),
- * so the comparison is always self-consistent and can never observe a stale pin.
+ * so that comparison is always self-consistent and can never observe a stale pin. Path 3 is
+ * different precisely because it does NOT go through that guard — it trips the `driver_kind`
+ * one, on a value that came from settings rather than from the row.
  *
  * Resolves the driver through `driverForSession` — the same call `registry.ts` makes before
  * fetching the cursor — so this can never disagree with what the next turn actually does.
