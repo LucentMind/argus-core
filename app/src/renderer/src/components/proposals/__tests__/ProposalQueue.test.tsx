@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { ProposalQueue, type QueueEntry } from '../ProposalQueue'
@@ -167,6 +167,26 @@ describe('ProposalQueue', () => {
       expect(
         screen.getByRole('button', { name: 'Select proposal Prose only' })
       ).not.toHaveTextContent('exec')
+    })
+
+    // F5: the exec marker must match the row's own badge species (QueueBadge: rounded-full,
+    // borderless-background) rather than the taller, uppercase `Chip` every OTHER marker in this
+    // row strip avoids — a `Chip` reads as a different element and adds row height. Class-string
+    // assertion, not a computed-style one: jsdom cannot see layout, but it can see which
+    // className the component chose to render, which is exactly what distinguishes the two
+    // components (Chip: rounded-r1/uppercase/bg-hair-50; QueueBadge: rounded-full).
+    it('renders the exec marker as a QueueBadge, matching the other row markers', () => {
+      renderQueue({
+        entries: [{ ...entries[1], hasExec: true, isNew: true }]
+      })
+      const row = screen.getByRole('button', { name: 'Select proposal New skill proposal' })
+      const execBadge = within(row).getByText('exec').closest('span')!
+      const newBadge = within(row).getByText('new').closest('span')!
+      // Both are QueueBadge tone="review" — literally the same class string.
+      expect(execBadge.className).toBe(newBadge.className)
+      expect(execBadge.className).toContain('rounded-full')
+      expect(execBadge.className).not.toContain('rounded-r1')
+      expect(execBadge.className).not.toContain('uppercase')
     })
   })
 })
