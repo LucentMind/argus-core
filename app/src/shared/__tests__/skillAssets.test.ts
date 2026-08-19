@@ -8,14 +8,12 @@ import {
 } from '../skillAssets'
 
 describe('assetPathError', () => {
-  it.each([
-    'scripts/collect.sh',
-    'templates/report.md',
-    'data/fixtures/one.json',
-    'notes.txt'
-  ])('accepts %s', (p) => {
-    expect(assetPathError(p)).toBeNull()
-  })
+  it.each(['scripts/collect.sh', 'templates/report.md', 'data/fixtures/one.json', 'notes.txt'])(
+    'accepts %s',
+    (p) => {
+      expect(assetPathError(p)).toBeNull()
+    }
+  )
 
   it.each([
     ['', 'empty'],
