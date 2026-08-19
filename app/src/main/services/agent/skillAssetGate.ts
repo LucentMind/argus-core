@@ -79,10 +79,19 @@ function capBody(content: string): {
   if (buf.length <= SKILL_ASSET_BODY_CAP) {
     return { body: content, bodyBytesTotal: buf.length, bodyBytesOmitted: 0 }
   }
+  // A hard byte cut can land inside a multi-byte UTF-8 sequence. Decoding that half-sequence
+  // with `.toString('utf8')` would not drop it — Node substitutes U+FFFD for the dangling
+  // bytes, so the decoded body would be LONGER than what was actually kept, and the
+  // bodyBytesTotal/bodyBytesOmitted counts a caller trusts would stop matching `body`. Walk
+  // back from the cap to the start of the last complete sequence *before* decoding, so what we
+  // decode is exactly what we kept, and derive the omitted count from that true kept length —
+  // never from re-measuring the decoded string.
+  let keep = SKILL_ASSET_BODY_CAP
+  while (keep > 0 && (buf[keep] & 0xc0) === 0x80) keep-- // mid-sequence continuation byte
   return {
-    body: buf.subarray(0, SKILL_ASSET_BODY_CAP).toString('utf8'),
+    body: buf.subarray(0, keep).toString('utf8'),
     bodyBytesTotal: buf.length,
-    bodyBytesOmitted: buf.length - SKILL_ASSET_BODY_CAP
+    bodyBytesOmitted: buf.length - keep
   }
 }
 
@@ -106,7 +115,11 @@ export function skillAssetContextForSegment(
   // disagree about which token is the program.
   const tokens = shellSegmentTokens(segment)
   for (const raw of tokens) {
-    const token = raw.replace(/^["']|["']$/g, '')
+    // Matched pair only, via the `\1` backreference — a malformed token like `'path"` keeps
+    // its quotes rather than having both ends stripped independently. Harmless either way
+    // (an unstripped token just fails to match a skill asset), but the matched form is the
+    // honest read of "surrounding quotes".
+    const token = raw.replace(/^(["'])(.*)\1$/, '$2')
     if (token === '' || token.startsWith('-')) continue
     const abs = path.resolve(deps.cwd, token)
     const id = skillAssetAt(deps.argusHome, abs)
