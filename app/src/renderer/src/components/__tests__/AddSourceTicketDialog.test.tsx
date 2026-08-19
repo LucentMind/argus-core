@@ -40,7 +40,13 @@ describe('AddSourceTicketDialog', () => {
     const onAdded = vi.fn()
     const onClose = vi.fn()
     render(
-      <AddSourceTicketDialog slug="NAV-7" jiraKey="NAV-7" onClose={onClose} onAdded={onAdded} />
+      <AddSourceTicketDialog
+        slug="NAV-7"
+        jiraKey="NAV-7"
+        existing={[]}
+        onClose={onClose}
+        onAdded={onAdded}
+      />
     )
 
     await userEvent.click(await screen.findByRole('button', { name: /CUST-9/ }))
@@ -51,7 +57,13 @@ describe('AddSourceTicketDialog', () => {
 
   it('adds a typed key that was not discovered', async () => {
     render(
-      <AddSourceTicketDialog slug="NAV-7" jiraKey="NAV-7" onClose={vi.fn()} onAdded={vi.fn()} />
+      <AddSourceTicketDialog
+        slug="NAV-7"
+        jiraKey="NAV-7"
+        existing={[]}
+        onClose={vi.fn()}
+        onAdded={vi.fn()}
+      />
     )
 
     await userEvent.type(await screen.findByPlaceholderText(/ticket key/i), 'OTHER-3')
@@ -65,7 +77,13 @@ describe('AddSourceTicketDialog', () => {
   // already covers it for New case, and this field must not be the one place it 404s.
   it('accepts a pasted browse URL as a key', async () => {
     render(
-      <AddSourceTicketDialog slug="NAV-7" jiraKey="NAV-7" onClose={vi.fn()} onAdded={vi.fn()} />
+      <AddSourceTicketDialog
+        slug="NAV-7"
+        jiraKey="NAV-7"
+        existing={[]}
+        onClose={vi.fn()}
+        onAdded={vi.fn()}
+      />
     )
     await userEvent.type(
       await screen.findByPlaceholderText(/ticket key/i),
@@ -85,7 +103,13 @@ describe('AddSourceTicketDialog', () => {
     })) as never
     const onClose = vi.fn()
     render(
-      <AddSourceTicketDialog slug="NAV-7" jiraKey="NAV-7" onClose={onClose} onAdded={vi.fn()} />
+      <AddSourceTicketDialog
+        slug="NAV-7"
+        jiraKey="NAV-7"
+        existing={[]}
+        onClose={onClose}
+        onAdded={vi.fn()}
+      />
     )
     expect(await screen.findByRole('alert')).toHaveTextContent(/not found/i)
     expect(onClose).not.toHaveBeenCalled()
@@ -100,7 +124,13 @@ describe('AddSourceTicketDialog', () => {
     const onClose = vi.fn()
     const onAdded = vi.fn()
     render(
-      <AddSourceTicketDialog slug="NAV-7" jiraKey="NAV-7" onClose={onClose} onAdded={onAdded} />
+      <AddSourceTicketDialog
+        slug="NAV-7"
+        jiraKey="NAV-7"
+        existing={[]}
+        onClose={onClose}
+        onAdded={onAdded}
+      />
     )
     await userEvent.type(await screen.findByPlaceholderText(/ticket key/i), 'OTHER-3')
     await userEvent.click(screen.getByRole('button', { name: /^add$/i }))
@@ -108,5 +138,63 @@ describe('AddSourceTicketDialog', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/already this case's ticket/i)
     expect(onAdded).not.toHaveBeenCalled()
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('does not offer a clone link that is already a source', async () => {
+    window.argus.jira.preview = vi.fn(async () => ({
+      ok: true,
+      value: preview([
+        { key: 'CUST-9', summary: 'Already linked', direction: 'clones' as const },
+        { key: 'CUST-10', summary: 'Not yet linked', direction: 'clones' as const }
+      ])
+    })) as never
+    render(
+      <AddSourceTicketDialog
+        slug="NAV-7"
+        jiraKey="NAV-7"
+        // Lowercased on purpose: the stored links and the live Jira payload are different
+        // sources, and the match must not depend on them agreeing about case.
+        existing={['cust-9']}
+        onClose={vi.fn()}
+        onAdded={vi.fn()}
+      />
+    )
+
+    expect(await screen.findByRole('button', { name: /CUST-10/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /CUST-9/ })).not.toBeInTheDocument()
+  })
+
+  it('drops the cloned-tickets block entirely when every clone is already linked', async () => {
+    window.argus.jira.preview = vi.fn(async () => ({
+      ok: true,
+      value: preview([{ key: 'CUST-9', summary: 'Already linked', direction: 'clones' as const }])
+    })) as never
+    // Rendered unlinked FIRST so the block is proven to be on screen before the linked render
+    // asserts it is gone — asserting the absence alone would also pass against a dialog whose
+    // preview simply had not resolved yet.
+    const { rerender } = render(
+      <AddSourceTicketDialog
+        slug="NAV-7"
+        jiraKey="NAV-7"
+        existing={[]}
+        onClose={vi.fn()}
+        onAdded={vi.fn()}
+      />
+    )
+    expect(await screen.findByText(/cloned tickets/i)).toBeInTheDocument()
+
+    rerender(
+      <AddSourceTicketDialog
+        slug="NAV-7"
+        jiraKey="NAV-7"
+        existing={['CUST-9']}
+        onClose={vi.fn()}
+        onAdded={vi.fn()}
+      />
+    )
+
+    expect(screen.queryByText(/cloned tickets/i)).not.toBeInTheDocument()
+    // The typed-key path is still the way in, so the dialog must not read as empty.
+    expect(screen.getByPlaceholderText(/ticket key/i)).toBeInTheDocument()
   })
 })

@@ -16,6 +16,7 @@ const INPUT =
 export function AddSourceTicketDialog({
   slug,
   jiraKey,
+  existing,
   onClose,
   onAdded
 }: {
@@ -24,6 +25,10 @@ export function AddSourceTicketDialog({
    *  a case with no ticket has nothing to discover from, and `JiraSection` renders none of this
    *  in that state. */
   jiraKey: string
+  /** Keys already linked as sources on this case. Offering one again would be a no-op dressed
+   *  up as an action — `addSource` is idempotent, so clicking it would re-ingest the ticket and
+   *  close the dialog having changed nothing the user can see. */
+  existing: string[]
   onClose: () => void
   onAdded: () => void
 }): React.JSX.Element {
@@ -43,6 +48,11 @@ export function AddSourceTicketDialog({
       live = false
     }
   }, [jiraKey])
+
+  // Compared case-insensitively: these two lists come from different places (the case's stored
+  // links vs. a live Jira payload), and a case mismatch would silently re-offer a linked ticket.
+  const linked = new Set(existing.map((k) => k.toLowerCase()))
+  const offered = links.filter((l) => !linked.has(l.key.toLowerCase()))
 
   async function add(key: string): Promise<void> {
     if (busy || !key) return
@@ -76,10 +86,10 @@ export function AddSourceTicketDialog({
             {error}
           </div>
         )}
-        {links.length > 0 && (
+        {offered.length > 0 && (
           <div className="flex flex-col gap-1">
             <span className="text-xs text-dim">Cloned tickets</span>
-            {links.map((l) => (
+            {offered.map((l) => (
               <Btn
                 key={l.key}
                 variant="outline"
