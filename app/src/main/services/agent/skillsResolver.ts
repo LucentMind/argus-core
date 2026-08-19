@@ -111,10 +111,16 @@ export function bundledSkillError(name: string): Error {
 
 function scanTier(root: string): string[] {
   if (!fs.existsSync(root)) return []
-  return fs
-    .readdirSync(root, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && fs.existsSync(path.join(root, d.name, 'SKILL.md')))
-    .map((d) => d.name)
+  return (
+    fs
+      .readdirSync(root, { withFileTypes: true })
+      // ASSET_NAME_RE first: `acceptProposal` stages a skill in `.staging-<name>-<rand>/`, which
+      // transiently holds a SKILL.md. Without this filter a list running mid-accept would
+      // advertise that directory as an installed skill — including into a session's prompt.
+      .filter((d) => d.isDirectory() && ASSET_NAME_RE.test(d.name))
+      .filter((d) => fs.existsSync(path.join(root, d.name, 'SKILL.md')))
+      .map((d) => d.name)
+  )
 }
 
 /** Every file under `root`, as sorted `/`-joined relative paths. */

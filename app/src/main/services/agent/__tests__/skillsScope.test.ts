@@ -1,4 +1,4 @@
-import { it, expect, beforeEach, afterEach } from 'vitest'
+import { it, expect, beforeEach, afterEach, describe } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -11,8 +11,8 @@ import { AsyncQueue } from '../asyncQueue'
 import { defaultAgentAccess } from '../../../../shared/agentAccess'
 import { createDetection } from '../../packs/detection'
 import { sharedSkillsDir } from '../../skillsDir'
-import { caseDir } from '../../paths'
-import { materializeSessionSkills, ARGUS_SKILL_PLUGIN } from '../skillsResolver'
+import { caseDir, userSkillsDir } from '../../paths'
+import { materializeSessionSkills, ARGUS_SKILL_PLUGIN, resolveSkills } from '../skillsResolver'
 import type { CreateQueryFn } from '../drivers/claude'
 import { createImmediateQueue } from '../../ingestQueue'
 
@@ -150,4 +150,23 @@ it('sends an empty allowlist (never undefined) when no skill resolves enabled', 
 
   expect(lastOptions?.skills).toEqual([])
   await svc.stopAll()
+})
+
+describe('scanTier name filtering', () => {
+  it('ignores a directory whose name is not a legal asset name', () => {
+    const root = userSkillsDir(home)
+    for (const name of ['.staging-real-skill-a1b2', '.trash-real-skill-c3d4']) {
+      fs.mkdirSync(path.join(root, name), { recursive: true })
+      fs.writeFileSync(
+        path.join(root, name, 'SKILL.md'),
+        '---\nname: real-skill\ndescription: d\n---\n'
+      )
+    }
+    fs.mkdirSync(path.join(root, 'real-skill'), { recursive: true })
+    fs.writeFileSync(
+      path.join(root, 'real-skill', 'SKILL.md'),
+      '---\nname: real-skill\ndescription: d\n---\n'
+    )
+    expect(resolveSkills(home, defaultAgentAccess()).map((s) => s.name)).toEqual(['real-skill'])
+  })
 })
