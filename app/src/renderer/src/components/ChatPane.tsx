@@ -348,7 +348,7 @@ export function ChatPane({
       {session?.historyOrphaned && historyNoticeDismissed !== sessionId && (
         <div
           role="status"
-          className="mx-4 mt-3 flex items-start gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+          className="mx-4 mt-3 flex items-start gap-2 rounded border border-defect/40 bg-defect/10 px-3 py-2 text-xs text-defect"
         >
           <span className="flex-1">
             This transcript came from another machine or another provider. The agent does not have
