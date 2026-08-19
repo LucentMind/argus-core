@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
-import { RefreshCw, X } from 'lucide-react'
+import { Plus, RefreshCw, Unlink } from 'lucide-react'
 import { JiraAttachmentsDialog } from './JiraAttachmentsDialog'
 import { AddSourceTicketDialog } from './AddSourceTicketDialog'
 import { CollapsibleSection } from './CollapsibleSection'
-import { Btn, IconBtn, SectionLabel } from './ui'
+import { IconBtn, SectionLabel } from './ui'
 import { uiStore } from '../lib/uiStore'
 import { confirm } from '../lib/confirmStore'
 import { jiraSyncLine, resultDecayMs, type JiraSyncPhase } from '../lib/jiraSyncState'
@@ -175,6 +175,17 @@ export function JiraSection({
             {line.text}
           </div>
         </button>
+        {/* Add sits beside refresh rather than under the list: both act on the whole section
+            rather than on a row, and a full-width button below the sources claimed a band of
+            rail height permanently for an action taken once or twice per case. */}
+        <IconBtn
+          aria-label="Add source ticket"
+          title="Add source ticket"
+          size="xs"
+          onClick={() => setAdding(true)}
+        >
+          <Plus size={12} />
+        </IconBtn>
         <IconBtn
           aria-label="Refresh from Jira"
           title="Refresh from Jira"
@@ -185,7 +196,7 @@ export function JiraSection({
           <RefreshCw size={12} className={busy ? 'animate-spin' : undefined} />
         </IconBtn>
       </div>
-      {/* No empty state and no list header: a case with no sources shows only the add control,
+      {/* No empty state and no list header: a case with no sources renders nothing at all here,
           so the section reads exactly as it did before sources existed. */}
       {sources.map((s) => (
         <div key={s.key} className="flex items-center gap-1 pl-2">
@@ -196,17 +207,18 @@ export function JiraSection({
             size="xs"
             onClick={() => void unlink(s.key)}
           >
-            <X size={11} />
+            {/* Same icon ReposSection uses for its unlink: this detaches a source, it does not
+                delete anything, and an X reads as "remove/close" in a way that invites the
+                opposite reading. */}
+            <Unlink size={11} />
           </IconBtn>
         </div>
       ))}
-      <Btn variant="outline" className="justify-center" onClick={() => setAdding(true)}>
-        Add source ticket
-      </Btn>
       {adding && (
         <AddSourceTicketDialog
           slug={slug}
           jiraKey={jiraKey}
+          existing={sources.map((s) => s.key)}
           onClose={() => setAdding(false)}
           onAdded={() => void loadSources()}
         />
