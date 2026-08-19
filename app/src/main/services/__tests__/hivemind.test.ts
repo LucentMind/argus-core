@@ -477,6 +477,27 @@ describe('pushable + push', () => {
     ])
   })
 
+  // `acceptProposal` swaps a skill directory into place via `.staging-…`/`.trash-…` siblings and
+  // only best-effort removes the trash, so a leftover carrying a valid SKILL.md is expected on
+  // disk. Offering one here would push that tree to the team repo under its temp name.
+  it('skips accept-swap temp directories even though they carry a valid SKILL.md', () => {
+    seedUserAssets()
+    for (const temp of ['.trash-collect-logs-a1b2c3d4', '.staging-collect-logs-e5f6a7b8']) {
+      fs.mkdirSync(path.join(home, 'skills-user', temp), { recursive: true })
+      fs.writeFileSync(
+        path.join(home, 'skills-user', temp, 'SKILL.md'),
+        '---\ndescription: leftover\n---\n# collect-logs\n'
+      )
+    }
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: fakeGit().runner
+    })
+    const skills = svc.pushable().filter((i) => i.kind === 'skill')
+    expect(skills).toEqual([{ kind: 'skill', name: 'my-skill' }])
+  })
+
   it('push branches from origin default, commits, pushes without force, opens a PR', async () => {
     seedClone()
     seedUserAssets()

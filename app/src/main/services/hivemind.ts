@@ -25,6 +25,7 @@ import type {
   PushStatus
 } from '../../shared/hivemind'
 import { PUSHABLE_TIERS } from '../../shared/trustTiers'
+import { isSkillTempDir } from '../../shared/skillAssets'
 
 const execFileAsync = promisify(execFile)
 
@@ -607,6 +608,12 @@ export class HivemindService {
     const uroot = userSkillsDir(this.deps.argusHome)
     if (fs.existsSync(uroot)) {
       for (const ent of fs.readdirSync(uroot, { withFileTypes: true })) {
+        // `acceptProposal`'s swap artifacts (`.staging-…`/`.trash-…`) carry a real SKILL.md and
+        // are otherwise indistinguishable from a skill, and a leftover is an EXPECTED state —
+        // the trash removal is best-effort, and a crash between the two renames leaves one
+        // behind. Offering one here would push that whole tree into the team repo under its
+        // temp name. Same predicate `scanTier` skips on, so the two cannot drift.
+        if (isSkillTempDir(ent.name)) continue
         if (ent.isDirectory() && fs.existsSync(path.join(uroot, ent.name, 'SKILL.md')))
           out.push({ kind: 'skill', name: ent.name })
       }
