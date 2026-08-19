@@ -18,6 +18,11 @@ export interface SkillAssetInput {
   content: string
 }
 
+/** The tiers a skill can live in, highest precedence first. One definition: the main-process
+ *  resolver's `SkillTier` aliases this, and the run gate's wire type uses it, so the renderer
+ *  and main cannot drift into two spellings of the same three strings. */
+export type SkillAssetTier = 'bundled' | 'user' | 'hivemind'
+
 /** Spec §2. `.ts` is here because a skill can legitimately ship a tsx-runner script; the cost of
  *  a false positive is one extra approval prompt, the cost of a false negative is an ungated
  *  script. */

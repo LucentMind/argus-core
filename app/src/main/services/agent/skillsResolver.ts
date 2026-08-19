@@ -8,12 +8,14 @@ import type { ModeRole } from '../../../shared/modes'
 import { frontmatterOf, parseDescription, parseRoles } from '../../../shared/skillFrontmatter'
 import { contentHash } from '../contentHash'
 import { validateSkill, hasErrors, ASSET_NAME_RE } from '../../../shared/assetValidation'
-import { isSkillTempDir } from '../../../shared/skillAssets'
+import { isSkillTempDir, type SkillAssetTier } from '../../../shared/skillAssets'
 import { withFrontmatter, fmField } from '../../../shared/frontmatter'
 import { mergeAuthorship, stampAuthorship, type Identity } from '../../../shared/authorship'
 import { copySkillAssetReviews, dropSkillAssetReviews } from '../skillAssetReviews'
 
-export type SkillTier = 'bundled' | 'user' | 'hivemind'
+/** Kept as a name because this module and its callers read better with it; the union itself
+ *  lives in `shared/skillAssets.ts` so the run gate and the renderer share one definition. */
+export type SkillTier = SkillAssetTier
 
 /**
  * Plugin name under which Argus's resolved skills are registered with the Claude CLI.
