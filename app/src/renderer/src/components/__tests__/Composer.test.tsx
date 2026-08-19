@@ -132,7 +132,8 @@ describe('Composer', () => {
           model: 'claude-haiku-4-5',
           mode: 'investigation',
           runOptions: [],
-          permissionMode: null
+          permissionMode: null,
+          historyOrphaned: false
         }}
       />
     )
@@ -157,7 +158,8 @@ describe('Composer', () => {
           model: 'claude-sonnet-5',
           mode: 'investigation',
           runOptions: [],
-          permissionMode: null
+          permissionMode: null,
+          historyOrphaned: false
         }}
       />
     )
@@ -211,7 +213,8 @@ describe('Composer', () => {
           model: 'opus[1m]',
           mode: 'investigation',
           runOptions: [],
-          permissionMode: null
+          permissionMode: null,
+          historyOrphaned: false
         }}
       />
     )
@@ -276,7 +279,8 @@ describe('Composer', () => {
           model: 'opus[1m]',
           mode: 'investigation',
           runOptions: [],
-          permissionMode: null
+          permissionMode: null,
+          historyOrphaned: false
         }}
       />
     )
@@ -309,7 +313,8 @@ describe('Composer', () => {
     model,
     mode: 'investigation',
     runOptions: [],
-    permissionMode: null
+    permissionMode: null,
+    historyOrphaned: false
   })
 
   it('resolves a session pinned to a STATIC slug against the alias-keyed runtime catalog', async () => {
@@ -627,7 +632,8 @@ const SESSION: SessionSummary = {
   model: 'claude-fable-5',
   mode: 'investigation',
   runOptions: [],
-  permissionMode: null
+  permissionMode: null,
+  historyOrphaned: false
 }
 
 describe('Composer option chips', () => {
