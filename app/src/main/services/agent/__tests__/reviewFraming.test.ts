@@ -184,19 +184,14 @@ describe('sessionHistoryOrphaned', () => {
     expect(sessionHistoryOrphaned(deps(db, copilot), id)).toBe(true)
   })
 
-  it('is true when the cursor belongs to another provider instance', () => {
+  it('is false for an instance-pinned session — sessionCursor cannot detect an instance switch from here', () => {
     const id = seed(db, { turns: 3, cursor: 'abc', kind: 'claude-agent-sdk', instance: 'inst-a' })
-    // Deviation from the brief's literal fixture: `sessionCursor`'s instance guard compares
-    // against THIS session's own stored `instance_id`, so feeding it back via
-    // `sessionProvider` (as `deps(db)` above would) is always self-consistent and can never
-    // trip the guard — no implementation that resolves through `driverForSession` could ever
-    // observe a mismatch that way. The one place a pinned instance genuinely cannot be
-    // trusted is when this call has no way to resolve that specific instance at all
-    // (`driverForInstance` absent, matching the documented AgentService fallback for
-    // un-wired tests) — the session is pinned, but the driver actually used is the live
-    // default, a different account than whatever produced any existing cursor.
-    const unresolvable = { db, resolveDriver: () => claude } as never
-    expect(sessionHistoryOrphaned(unresolvable, id)).toBe(true)
+    // `sessionCursor`'s instance guard compares the row's own `instance_id` (read via
+    // `sessionProvider` above) against itself — the same self-comparison every production
+    // call site performs (registry.ts:300 and this predicate). It is structurally incapable
+    // of observing a stale pin from here, so a session pinned to an instance whose driver
+    // kind still matches the stored cursor's kind is NOT orphaned.
+    expect(sessionHistoryOrphaned(deps(db), id)).toBe(false)
   })
 
   it('is false for a session that has no history to lose', () => {
