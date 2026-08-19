@@ -3049,18 +3049,22 @@ function registerIpc(): void {
 
   // — proposals (spec §2.4) —
   ipcMain.handle(IPC.proposalsList, () => ({ proposals: listProposals(argusHome) }))
-  ipcMain.handle(IPC.proposalsAccept, async (_e, file: string, editedContent?: string) => {
-    const accepted = acceptProposal(argusHome, file, {
-      db,
-      editedContent,
-      identity: await identity()
-    })
-    // A reference-edit proposal WRITES a reference — it is how an agent's durable knowledge
-    // gets into the library — but this handler never signalled it, so both the Library list and
-    // INDEX.md stayed as they were until something else happened to fire.
-    if (accepted.kind === 'reference') referencesChanged()
-    return { proposals: listProposals(argusHome), accepted }
-  })
+  ipcMain.handle(
+    IPC.proposalsAccept,
+    async (_e, file: string, editedContent?: string, editedFiles?: Record<string, string>) => {
+      const accepted = acceptProposal(argusHome, file, {
+        db,
+        editedContent,
+        editedFiles,
+        identity: await identity()
+      })
+      // A reference-edit proposal WRITES a reference — it is how an agent's durable knowledge
+      // gets into the library — but this handler never signalled it, so both the Library list and
+      // INDEX.md stayed as they were until something else happened to fire.
+      if (accepted.kind === 'reference') referencesChanged()
+      return { proposals: listProposals(argusHome), accepted }
+    }
+  )
   ipcMain.handle(IPC.proposalsReject, (_e, file: string, reason?: RejectReason) => {
     rejectProposal(argusHome, file, reason)
     return { proposals: listProposals(argusHome) }
