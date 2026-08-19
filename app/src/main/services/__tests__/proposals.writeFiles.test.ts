@@ -115,8 +115,12 @@ describe('writeProposal with files', () => {
   })
 
   it('still ends in exactly one .md for the flat shape with the same repeated-suffix target', () => {
+    // Parity with pre-multi-file behaviour: only a single `.md` strip, so `a.md.md` yields a
+    // flat name of `a.md.md`, not `a.md`. Built from the date the write itself will use
+    // (rather than a hard-coded literal) so the assertion still holds across a midnight
+    // boundary.
+    const date = new Date().toISOString().slice(0, 10)
     const file = writeProposal(home, 'acme-1', { ...base, target: 'a.md.md' })
-    expect(file.endsWith('.md')).toBe(true)
-    expect(file.endsWith('.md.md')).toBe(false)
+    expect(file).toBe(`${date}-acme-1-a.md.md`)
   })
 })

@@ -141,11 +141,23 @@ export function writeProposal(
   const dir = proposalsDir(argusHome)
   fs.mkdirSync(dir, { recursive: true })
   const date = new Date().toISOString()
-  const stem = `${date.slice(0, 10)}-${caseSlug}-${target.replace(/(\.md)+$/, '')}`
-  // One collision loop for both shapes: a directory and a flat file must never claim names that
-  // differ only by the `.md`, or `proposalBodyPath` would resolve one to the other.
+  // Only the DIRECTORY shape needs the repeated strip. `proposalBodyPath` misroutes a
+  // directory whose name ends in `.md`, but a FLAT proposal named `…-a.md.md` is read
+  // correctly — so the flat branch keeps the historical single strip and its file names stay
+  // byte-identical to what this function produced before multi-file proposals existed.
+  const prefix = `${date.slice(0, 10)}-${caseSlug}-`
+  const stem =
+    files.length > 0
+      ? `${prefix}${target.replace(/(\.md)+$/, '')}`
+      : `${prefix}${target.replace(/\.md$/, '')}`
   const suffix = files.length > 0 ? '' : '.md'
   let file = `${stem}${suffix}`
+  // One loop for both shapes. Writing a directory (suffix ''): the second existsSync probes
+  // `${file}.md` so a new directory can't pick a name that shadows an existing flat file's
+  // name plus `.md`. Writing a flat file (suffix '.md'): that same second probe checks
+  // `${stem}.md.md`, which is inert — the hardening assertion below guarantees no directory
+  // can end in `.md`, so no real directory can ever match it. Kept as one loop rather than
+  // branching so the two shapes can't drift apart independently.
   for (
     let i = 2;
     fs.existsSync(path.join(dir, file)) || fs.existsSync(path.join(dir, `${file}.md`));
