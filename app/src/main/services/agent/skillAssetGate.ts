@@ -1,6 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { SkillAssetTier } from '../../../shared/skillAssets'
+import type { DatabaseSync } from 'node:sqlite'
+import { isExecutableAsset, type SkillAssetTier } from '../../../shared/skillAssets'
+import type { SkillAssetContext } from '../../../shared/agent-events'
+import { assetReviewState, sha256Hex } from '../skillAssetReviews'
+import { shellSegmentTokens } from './risk'
 import { TIERS } from './skillsResolver'
 
 /** Which skill, in which tier, a file on disk belongs to. */
@@ -51,6 +55,80 @@ export function skillAssetAt(argusHome: string, absPath: string): SkillAssetId |
     const parts = rel.split(path.sep)
     if (parts.length < 2) continue // the skill directory itself, not a file inside it
     return { tier, skill: parts[0], relPath: parts.slice(1).join('/') }
+  }
+  return null
+}
+
+export interface SkillAssetGateDeps {
+  argusHome: string
+  db: DatabaseSync
+  /** What a relative token in the command resolves against — the case directory. */
+  cwd: string
+}
+
+/** Head-only, deliberately: for a script the first lines are what a reviewer reads, and PTC's
+ *  head+tail splice would present two disjoint fragments as one program. */
+export const SKILL_ASSET_BODY_CAP = 16_000
+
+function capBody(content: string): {
+  body: string
+  bodyBytesTotal: number
+  bodyBytesOmitted: number
+} {
+  const buf = Buffer.from(content, 'utf8')
+  if (buf.length <= SKILL_ASSET_BODY_CAP) {
+    return { body: content, bodyBytesTotal: buf.length, bodyBytesOmitted: 0 }
+  }
+  return {
+    body: buf.subarray(0, SKILL_ASSET_BODY_CAP).toString('utf8'),
+    bodyBytesTotal: buf.length,
+    bodyBytesOmitted: buf.length - SKILL_ASSET_BODY_CAP
+  }
+}
+
+/**
+ * The skill asset one shell segment would execute, with its review state — or null.
+ *
+ * **A gate, not a sandbox** (spec §7.4), stated here in the register `risk.ts` uses for PTC so
+ * no future reader mistakes it for containment. This reads literal tokens: `bash "$(cat
+ * target)"`, a script piped to an interpreter on stdin, and any path the shell builds at run
+ * time are invisible to it and fall back to ordinary shell classification. Recognising them
+ * would require executing the command's substitutions, which is the thing being gated.
+ *
+ * The first matching token wins: a command naming two skill scripts is gated on the first, and
+ * approving it approves the whole segment either way.
+ */
+export function skillAssetContextForSegment(
+  deps: SkillAssetGateDeps,
+  segment: string
+): SkillAssetContext | null {
+  // `shellSegmentTokens` from risk.ts, deliberately: the gate and the classifier must never
+  // disagree about which token is the program.
+  const tokens = shellSegmentTokens(segment)
+  for (const raw of tokens) {
+    const token = raw.replace(/^["']|["']$/g, '')
+    if (token === '' || token.startsWith('-')) continue
+    const abs = path.resolve(deps.cwd, token)
+    const id = skillAssetAt(deps.argusHome, abs)
+    if (!id) continue
+    let content: string
+    try {
+      if (!fs.statSync(abs).isFile()) continue
+      // `utf8` string, then hash the string: `sha256Hex` digests a JS string as utf8, and
+      // hashing raw bytes instead would disagree with every row increment 1 wrote.
+      content = fs.readFileSync(abs, 'utf8')
+    } catch {
+      continue
+    }
+    if (!isExecutableAsset(id.relPath, content)) continue
+    return {
+      skill: id.skill,
+      tier: id.tier,
+      relPath: id.relPath,
+      hash: sha256Hex(content),
+      reviewState: assetReviewState(deps.db, id.skill, id.relPath, content),
+      ...capBody(content)
+    }
   }
   return null
 }

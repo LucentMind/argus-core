@@ -1,4 +1,28 @@
+import type { AssetReviewState, SkillAssetTier } from './skillAssets'
+
 export type Risk = 'LOW' | 'MEDIUM' | 'HIGH'
+
+/**
+ * A shell command about to run a file that lives inside a skill (spec §7.2/§7.3).
+ *
+ * `verdict.reason` never reaches the approval card, so everything the card must say about the
+ * script travels here. The body is capped with explicit byte counts rather than an inline
+ * truncation marker: a marker gets re-truncated downstream and misread, which is why PTC
+ * returns structured byte fields (`ptc/run.ts`).
+ */
+export interface SkillAssetContext {
+  skill: string
+  tier: SkillAssetTier
+  /** POSIX-separated, relative to the skill directory. */
+  relPath: string
+  /** sha256 of the bytes about to run; the verdict's grant key is its first 16 hex chars. */
+  hash: string
+  reviewState: AssetReviewState
+  /** The bytes about to run, capped to `SKILL_ASSET_BODY_CAP`. */
+  body: string
+  bodyBytesTotal: number
+  bodyBytesOmitted: number
+}
 
 export interface AgentEventBase {
   eventId: string
@@ -76,6 +100,10 @@ export type AgentEvent = AgentEventBase &
           grantKey: string | null
           argsPreview: string // human-readable rendering of the args
           input?: Record<string, unknown> // full args (asks only; absent in pre-Part-3 mirrors)
+          /** Present only for a shell ask that resolved to a skill asset. Carries a script body,
+           *  so `forMirror` strips it alongside `input` — it must never reach the on-disk
+           *  mirror, which `IPC.agentHistory` replays straight back to the renderer. */
+          assetContext?: SkillAssetContext
         }
       }
     | {
