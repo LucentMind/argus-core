@@ -617,19 +617,27 @@ export function acceptProposal(
     const assetIssue = assetSetError(finalAssets)
     if (assetIssue) throw new Error(`Cannot accept "${p.target}": ${assetIssue}`)
 
-    // skill-edit carries forward siblings the proposal did not mention; the proposal's own
-    // files win on a path collision (spec §3: add or replace, never delete).
+    // Carry forward siblings the proposal did not mention, for BOTH skill types. Not gated on
+    // `skill-edit`: accept already permits a `skill-new` onto an existing skill (it merges that
+    // skill's authorship), and gating here would silently delete the user's existing sibling
+    // files — which the spec forbids outright, for any proposal type. The proposal's own files
+    // still win on a path collision; nothing is ever removed.
     const files = new Map<string, string>()
-    if (p.type === 'skill-edit') {
-      for (const f of walkSkillFiles(dest)) files.set(f.path, f.content)
-    }
+    for (const f of walkSkillFiles(dest)) files.set(f.path, f.content)
     for (const f of finalAssets) files.set(f.path, f.content)
     files.set('SKILL.md', stamped)
+
+    // Checked BEFORE the write: a throw between the skill landing on disk and its review rows
+    // being recorded is exactly the split state the staging/swap exists to prevent.
+    const executables = finalAssets.filter((f) => isExecutableAsset(f.path, f.content))
+    if (executables.length > 0 && !opts.db) {
+      throw new Error('accepting a skill with executable files requires db')
+    }
     writeSkillDirAtomically(dest, files)
 
-    const executables = finalAssets.filter((f) => isExecutableAsset(f.path, f.content))
-    if (executables.length > 0) {
-      if (!opts.db) throw new Error('accepting a skill with executable files requires db')
+    // The `opts.db` test is the guard above restated so the type narrows here; it can never be
+    // the reason this block is skipped.
+    if (executables.length > 0 && opts.db) {
       recordAssetReviews(
         opts.db,
         p.target,

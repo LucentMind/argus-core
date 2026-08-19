@@ -135,6 +135,25 @@ describe('accepting a directory-shaped proposal', () => {
     expect(fs.readFileSync(path.join(archived, 'SKILL.md'), 'utf8')).not.toContain('edited_files:')
   })
 
+  // The carry-forward is NOT gated on the proposal type. Accept already permits a skill-new onto
+  // a skill that exists (it merges that skill's authorship), so gating on `skill-edit` would let
+  // a proposal's `type` decide whether the user's existing files survive. Deletion is a human
+  // editor action; no proposal type may cause it.
+  it('carries forward existing siblings on a skill-NEW aimed at an existing skill', () => {
+    acceptProposal(home, propose(), { db, identity: null })
+    const again = writeProposal(home, 'acme-2', {
+      type: 'skill-new',
+      target: 'collect-logs',
+      title: 'Collect logs again',
+      content: BODY,
+      files: [{ path: 'templates/report.md', content: '# Report\n' }]
+    })
+    acceptProposal(home, again, { db, identity: null })
+    const dest = path.join(userSkillsDir(home), 'collect-logs')
+    expect(fs.readFileSync(path.join(dest, 'scripts', 'collect.sh'), 'utf8')).toBe(SCRIPT)
+    expect(fs.readFileSync(path.join(dest, 'templates', 'report.md'), 'utf8')).toBe('# Report\n')
+  })
+
   it('carries forward existing siblings on a skill-edit', () => {
     acceptProposal(home, propose(), { db, identity: null })
     const editFile = writeProposal(home, 'acme-2', {
