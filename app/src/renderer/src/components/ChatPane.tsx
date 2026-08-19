@@ -8,6 +8,7 @@ import { composerDraft } from '../lib/composerDraft'
 import { composerAttachments } from '../lib/composerAttachments'
 import { attachFiles } from '../lib/attachFiles'
 import { reposStore } from '../lib/reposStore'
+import { sessionsStore } from '../lib/sessionsStore'
 import type { CiteTarget } from '../lib/citations'
 import { CitedText } from './CitedText'
 import { uiStore } from '../lib/uiStore'
@@ -279,6 +280,20 @@ export function ChatPane({
   // sessionId it was dismissed for, so switching to a different chat re-arms it. Not
   // persisted anywhere — no requirement asks the notice to survive a reload.
   const [historyNoticeDismissed, setHistoryNoticeDismissed] = useState<number | null>(null)
+
+  // `historyOrphaned` is computed in main when the session list is fetched, and nothing else
+  // refetches that list after a turn — `sessionsStore.load` runs on case mount, mode switch and
+  // session-switcher actions only. So without this the banner kept saying "your next message
+  // will carry a summary of it" for the rest of the visit, after the turn that consumed the
+  // digest had already made both halves of that sentence false. Refetch when a turn ends while
+  // the flag is set, and the UI renders the post-turn answer instead of the mount-time one.
+  // Gated on the flag so an ordinary chat pays no round-trip per turn.
+  const orphaned = session?.historyOrphaned === true
+  const turnRunning = state.running
+  useEffect(() => {
+    if (!orphaned || turnRunning) return
+    void sessionsStore.load(slug).catch(() => undefined)
+  }, [orphaned, turnRunning, slug])
 
   /**
    * Deliver a composed turn, and surface a refusal.

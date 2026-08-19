@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
@@ -81,6 +81,20 @@ describe('ChatPane history-orphaned banner', () => {
   it('says nothing for a healthy chat', () => {
     renderChatPane({ session: { ...baseSession, historyOrphaned: false } })
     expect(screen.queryByText(/does not have it as context/i)).not.toBeInTheDocument()
+  })
+
+  // `historyOrphaned` is computed in main at list time and nothing else refetched the list
+  // after a turn, so the banner kept promising "your next message will carry a summary of it"
+  // long after the turn that consumed the digest made that false.
+  it('refetches the session list so the flag can go stale-free after a turn', async () => {
+    renderChatPane({ session: { ...baseSession, historyOrphaned: true } })
+    await waitFor(() => expect(window.argus.sessions.list).toHaveBeenCalledWith('NAV-1'))
+  })
+
+  it('does not refetch for a healthy chat', async () => {
+    renderChatPane({ session: { ...baseSession, historyOrphaned: false } })
+    await Promise.resolve()
+    expect(window.argus.sessions.list).not.toHaveBeenCalled()
   })
 
   it('can be dismissed', async () => {
