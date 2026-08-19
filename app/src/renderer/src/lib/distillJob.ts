@@ -115,9 +115,14 @@ export function isDistillInFlight(job: DistillJobRow | null): boolean {
  * count — `done` persists for the life of the case, so as a bar chip it was permanent furniture.
  * Running and failed stay on the bar (see DistillChip): one is genuinely transient, the other
  * needs to be loud.
+ *
+ * The in-flight branch checks `dryRun` before anything else: a dry comparison run is not this
+ * case's real distillation, and the ACTION this row triggers when in flight (cancel whatever job
+ * is tracked) is already correct for either kind — only the wording was wrong. Matches
+ * `DistillChip`'s own `job.dryRun ? 'Cancel dry run' : 'Cancel distillation'` split.
  */
 export function distillMenuLabel(job: DistillJobRow | null): string {
-  if (isDistillInFlight(job)) return 'Cancel distillation'
+  if (isDistillInFlight(job)) return job?.dryRun ? 'Cancel dry run' : 'Cancel distillation'
   if (!job) return 'Distill'
   if (job.state !== 'done') return 'Re-distill'
   // `itemCount` is only ever null on a `done` row for a dry run (staging never ran there) —
