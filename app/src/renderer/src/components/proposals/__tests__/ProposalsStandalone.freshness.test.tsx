@@ -202,4 +202,58 @@ describe('ProposalsStandalone freshness', () => {
     expect(errorSpy.mock.calls.some((args) => String(args[0]).includes('same key'))).toBe(false)
     errorSpy.mockRestore()
   })
+
+  // F2: a same-day re-distill regenerating the accepted filename (see the test above) can also
+  // carry a DIFFERENT sibling set — `writeProposal` only uniquifies the filename against files
+  // still present, it does not otherwise reconcile which siblings a re-proposed record carries.
+  // `pathSel` is scoped to `{ file, path }`, and `file` alone survives this supersede — so
+  // `pathSel.path` can go on naming a sibling the fresh record no longer has, even though
+  // `pathSel.file === effectiveSelected` still holds. Without pruning against the fresh record's
+  // own `files`, the rail is left selecting a path with no matching tab, and the edit buffer
+  // stays keyed to an invisible path.
+  it('a same-day re-distill with a different sibling set falls back to the body, not the vanished path', async () => {
+    const recWithFile: ProposalRecord = {
+      ...recA,
+      files: [
+        { path: 'scripts/collect.sh', content: '#!/bin/sh\necho hi\n', current: null, exec: true }
+      ]
+    }
+    list.mockResolvedValue({ proposals: [recWithFile] })
+    ;(
+      window as unknown as { argus: { proposals: { accept: ReturnType<typeof vi.fn> } } }
+    ).argus.proposals.accept = vi.fn((file: string) =>
+      Promise.resolve({
+        proposals: [recWithFile].filter((p) => p.file !== file),
+        accepted: { kind: 'skill', name: 'rca' }
+      })
+    )
+    renderShell()
+    await screen.findByRole('tab', { name: /collect\.sh/ })
+    fireEvent.click(screen.getByRole('tab', { name: /collect\.sh/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Accept Sharpen step 4' }))
+    await screen.findByText(/accepted into your library/i)
+
+    // The re-distilled record keeps the identical filename but swaps the sibling for a
+    // DIFFERENT path — `scripts/collect.sh` is gone from this record entirely.
+    const reproposed: ProposalRecord = {
+      ...recA,
+      title: 'Sharpen step 4 (re-distilled)',
+      files: [
+        { path: 'scripts/other.sh', content: '#!/bin/sh\necho other\n', current: null, exec: true }
+      ]
+    }
+    setList({ proposals: [reproposed] })
+    broadcast({ pendingCount: 1, byType: { 'skill-edit': 1 } })
+
+    await screen.findByRole('button', { name: 'Select proposal Sharpen step 4 (re-distilled)' })
+
+    // The rail must select the body (SKILL.md), not silently point at nothing: the vanished
+    // sibling path has no matching tab at all, so without the fix NO tab is aria-selected.
+    const bodyTab = await screen.findByRole('tab', { name: /SKILL\.md/ })
+    expect(bodyTab).toHaveAttribute('aria-selected', 'true')
+
+    // Edit must seed from the BODY, not an empty buffer keyed to the vanished path.
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Sharpen step 4 (re-distilled)' }))
+    expect(screen.getByLabelText('Edit proposal content')).toHaveValue(reproposed.content)
+  })
 })
