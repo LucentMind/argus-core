@@ -133,9 +133,14 @@ beforeEach(() => {
       exportDistillEval: vi.fn().mockResolvedValue({
         path: 'C:\\out.ndjson',
         exported: 3,
-        skipped: [{ jobId: 9, caseSlug: 'nav-2', reason: 'items pending review' }]
+        skipped: [{ jobId: 9, caseSlug: 'nav-2', reason: 'items pending review' }],
+        warnings: []
       })
-    }
+    },
+    // Untouched unless a test opens the job picker — lazy by design (see JobIdPicker), so an
+    // empty default here never fires for the other describe blocks in this file.
+    cases: { list: vi.fn(async () => []) },
+    distill: { runs: vi.fn(async () => []) }
   }
 })
 
@@ -533,5 +538,71 @@ describe('PromptsDevPage — distill eval export', () => {
     // The section description itself contains the word "job" — match the result line's
     // count pattern specifically, not the substring.
     expect(screen.queryByText(/\d+ jobs? →/)).not.toBeInTheDocument()
+  })
+
+  it("leaving every box unchecked exports today's default set (undefined jobIds)", async () => {
+    const api = (
+      window as unknown as {
+        argus: { devPrompts: { exportDistillEval: ReturnType<typeof vi.fn> } }
+      }
+    ).argus.devPrompts
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Export distill eval bundle' }))
+    await waitFor(() => expect(api.exportDistillEval).toHaveBeenCalledWith(undefined))
+  })
+
+  it('checking a job in the picker exports exactly that id', async () => {
+    ;(
+      window as unknown as { argus: { cases: { list: ReturnType<typeof vi.fn> } } }
+    ).argus.cases.list = vi.fn(async () => [{ slug: 'nav-1', title: 'Nav bug' }])
+    ;(
+      window as unknown as { argus: { distill: { runs: ReturnType<typeof vi.fn> } } }
+    ).argus.distill.runs = vi.fn(async () => [
+      {
+        id: 5,
+        caseSlug: 'nav-1',
+        state: 'done',
+        error: null,
+        itemCount: 2,
+        createdAt: '2026-08-19T10:00:00.000Z',
+        finishedAt: '2026-08-19T10:05:00.000Z',
+        costUsd: null,
+        turnCount: null,
+        toolCallCount: null,
+        promptChars: null,
+        dryRun: false
+      }
+    ])
+    const api = (
+      window as unknown as {
+        argus: { devPrompts: { exportDistillEval: ReturnType<typeof vi.fn> } }
+      }
+    ).argus.devPrompts
+
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose specific jobs (optional)' }))
+    fireEvent.click(await screen.findByText('Nav bug'))
+    fireEvent.click(await screen.findByText(/done · 2026-08-19 · 2 items/))
+    fireEvent.click(screen.getByRole('button', { name: 'Export distill eval bundle' }))
+
+    await waitFor(() => expect(api.exportDistillEval).toHaveBeenCalledWith([5]))
+  })
+
+  it('renders warnings beside skipped, labelled so the two are not confused', async () => {
+    ;(
+      window as unknown as {
+        argus: { devPrompts: { exportDistillEval: ReturnType<typeof vi.fn> } }
+      }
+    ).argus.devPrompts.exportDistillEval = vi.fn().mockResolvedValue({
+      path: 'C:\\out.ndjson',
+      exported: 1,
+      skipped: [{ jobId: 9, caseSlug: 'nav-2', reason: 'not finished' }],
+      warnings: [{ jobId: 5, caseSlug: 'nav-1', reason: 'items pending review' }]
+    })
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Export distill eval bundle' }))
+    expect(await screen.findByText('exported with warnings')).toBeInTheDocument()
+    expect(screen.getByText(/job 5 \(nav-1\) — items pending review/)).toBeInTheDocument()
+    expect(screen.getByText(/skipped · job 9 \(nav-2\) — not finished/)).toBeInTheDocument()
   })
 })

@@ -9,6 +9,7 @@ import {
   type PromptPreview
 } from '../../../../shared/promptsIpc'
 import type { DistillEvalExportResult } from '../../../../shared/distillEval'
+import type { DistillJobRow } from '../../../../shared/distill'
 import { SettingsSection, SettingsSkeleton, SelectField, TEXTAREA_FIELD } from './settingsLayout'
 import { Chip } from '../ui'
 import { confirm } from '../../lib/confirmStore'
@@ -451,6 +452,118 @@ function CaptureTab(): React.JSX.Element {
   )
 }
 
+/** `done · 2026-08-19 · 3 items`. Mirrors DistillRunPanel's own run label — `dryRun`/`itemCount
+ *  === null` are different facts (never ran staging vs. ran and staged nothing) and must not be
+ *  collapsed into the same "no result" text. */
+function jobPickerLabel(r: DistillJobRow): string {
+  const items = r.dryRun ? 'dry run' : r.itemCount === null ? 'no result' : `${r.itemCount} items`
+  const date = (r.finishedAt ?? r.createdAt).slice(0, 10)
+  return `${r.state} · ${date} · ${items}`
+}
+
+/**
+ * Explicit job-id picker for the distill eval export (dev-tools only). Collapsed by default and
+ * lazy in both dimensions — the case list is fetched only once opened, and a case's runs only
+ * once that case is expanded — so pages with many cases don't fire a burst of IPC calls just
+ * because this section exists on the page.
+ *
+ * Leaving every box unchecked is not "select nothing to export": it is the signal for "no
+ * explicit ids", which `PromptsDevPage` turns into an `undefined` argument so the export keeps
+ * its today's-default behaviour (latest fully-reviewed job per case).
+ */
+function JobIdPicker({
+  selectedJobIds,
+  onToggleJob
+}: {
+  selectedJobIds: Set<number>
+  onToggleJob: (id: number) => void
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [cases, setCases] = useState<{ slug: string; title: string }[] | null>(null)
+  const [openSlug, setOpenSlug] = useState<string | null>(null)
+  const [runsBySlug, setRunsBySlug] = useState<Record<string, DistillJobRow[]>>({})
+
+  useEffect(() => {
+    if (!open || cases !== null) return
+    let live = true
+    void window.argus.cases
+      .list()
+      .then((cs: { slug: string; title: string }[]) => live && setCases(cs))
+      // Same fallback as DistillRunPanel's own runs() fetch: an empty list reads as "nothing to
+      // pick from" rather than leaving the picker stuck on "Loading…" forever.
+      .catch(() => live && setCases([]))
+    return () => {
+      live = false
+    }
+  }, [open, cases])
+
+  useEffect(() => {
+    if (!openSlug || runsBySlug[openSlug]) return
+    let live = true
+    void window.argus.distill
+      .runs(openSlug)
+      .then((rs: DistillJobRow[]) => live && setRunsBySlug((prev) => ({ ...prev, [openSlug]: rs })))
+      .catch(() => live && setRunsBySlug((prev) => ({ ...prev, [openSlug]: [] })))
+    return () => {
+      live = false
+    }
+  }, [openSlug, runsBySlug])
+
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        className="self-start text-[11px] text-dim underline decoration-dotted underline-offset-2 hover:text-ink"
+        onClick={() => setOpen(!open)}
+      >
+        {open ? 'Hide job picker' : 'Choose specific jobs (optional)'}
+      </button>
+      {open && (
+        <div className="rounded-r2 border border-hair">
+          {cases === null ? (
+            <p className="px-2 py-1.5 text-[11px] text-mute">Loading cases…</p>
+          ) : cases.length === 0 ? (
+            <p className="px-2 py-1.5 text-[11px] text-mute">No cases yet.</p>
+          ) : (
+            cases.map((c) => (
+              <div key={c.slug} className="border-b border-hair last:border-b-0">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] hover:bg-hair/40"
+                  onClick={() => setOpenSlug(openSlug === c.slug ? null : c.slug)}
+                >
+                  <span className="flex-1 text-ink">{c.title}</span>
+                  <span className="font-mono text-[10px] text-faint">{c.slug}</span>
+                </button>
+                {openSlug === c.slug && (
+                  <div className="flex flex-col gap-1 px-2 pb-2">
+                    {!runsBySlug[c.slug] ? (
+                      <p className="text-[10px] text-mute">Loading runs…</p>
+                    ) : runsBySlug[c.slug].length === 0 ? (
+                      <p className="text-[10px] text-mute">No distill runs for this case.</p>
+                    ) : (
+                      runsBySlug[c.slug].map((r) => (
+                        <label key={r.id} className="flex items-center gap-2 text-[10px] text-ink">
+                          <input
+                            type="checkbox"
+                            checked={selectedJobIds.has(r.id)}
+                            onChange={() => onToggleJob(r.id)}
+                          />
+                          <span className="font-mono">{jobPickerLabel(r)}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function PromptsDevPage(): React.JSX.Element {
   const [catalog, setCatalog] = useState<PromptCatalogPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -461,6 +574,16 @@ export function PromptsDevPage(): React.JSX.Element {
   const [tab, setTab] = useState<'catalog' | 'preview' | 'capture'>('catalog')
   const [exportResult, setExportResult] = useState<DistillEvalExportResult | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [selectedJobIds, setSelectedJobIds] = useState<Set<number>>(new Set())
+
+  const toggleJobId = (id: number): void => {
+    setSelectedJobIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   useEffect(() => {
     const reload = (): void => {
@@ -547,14 +670,18 @@ export function PromptsDevPage(): React.JSX.Element {
             harness (tools/distill-eval). Snapshots contain raw case data: treat the file as
             sensitive and commit it only to the private evals repo.
           </p>
+          <JobIdPicker selectedJobIds={selectedJobIds} onToggleJob={toggleJobId} />
           <div className="flex items-center gap-2">
             <button
               className="rounded-r2 border border-hair px-2 py-1 text-xs text-ink disabled:text-faint"
               disabled={exporting}
               onClick={() => {
                 setExporting(true)
+                // Empty selection → undefined: that is the signal for "no explicit ids", which
+                // keeps the export on its today's-default behaviour (Task 8 contract).
+                const jobIds = selectedJobIds.size > 0 ? Array.from(selectedJobIds) : undefined
                 void window.argus.devPrompts
-                  .exportDistillEval()
+                  .exportDistillEval(jobIds)
                   .then((r) => setExportResult(r))
                   .catch((e: Error) => setMutationError(e.message))
                   .finally(() => setExporting(false))
@@ -570,6 +697,29 @@ export function PromptsDevPage(): React.JSX.Element {
               </span>
             )}
           </div>
+          {exportResult && exportResult.skipped.length > 0 && (
+            <ul className="flex flex-col gap-0.5 pl-3 font-mono text-[10px] text-dim">
+              {exportResult.skipped.map((s) => (
+                <li key={s.jobId}>
+                  skipped · job {s.jobId} ({s.caseSlug}) — {s.reason}
+                </li>
+              ))}
+            </ul>
+          )}
+          {exportResult && exportResult.warnings.length > 0 && (
+            <div className="flex flex-col gap-0.5">
+              <span className="font-mono text-[10px] uppercase tracking-wide text-defect">
+                exported with warnings
+              </span>
+              <ul className="flex flex-col gap-0.5 pl-3 font-mono text-[10px] text-defect">
+                {exportResult.warnings.map((w) => (
+                  <li key={w.jobId}>
+                    job {w.jobId} ({w.caseSlug}) — {w.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </SettingsSection>
     </div>

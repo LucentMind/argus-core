@@ -852,8 +852,8 @@ const argus = {
     captures: (): Promise<PromptCaptureListPayload> => invoke(IPC.devPromptsCaptures),
     capture: (caseSlug: string, sessionId: number): Promise<PromptCaptureDetail | null> =>
       invoke(IPC.devPromptsCapture, caseSlug, sessionId),
-    exportDistillEval: (): Promise<DistillEvalExportResult | null> =>
-      invoke(IPC.devPromptsExportDistillEval),
+    exportDistillEval: (jobIds?: number[]): Promise<DistillEvalExportResult | null> =>
+      invoke(IPC.devPromptsExportDistillEval, jobIds),
     onChanged: (cb: (ids: string[]) => void): (() => void) => {
       const listener = (_e: unknown, ids: string[]): void => cb(ids)
       ipcRenderer.on(IPC.devPromptsChanged, listener)

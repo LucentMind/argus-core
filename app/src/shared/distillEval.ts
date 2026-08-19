@@ -45,4 +45,7 @@ export interface DistillEvalExportResult {
   path: string
   exported: number
   skipped: { jobId: number; caseSlug: string; reason: string }[]
+  /** Jobs exported despite a condition that would normally skip them, because the operator
+   *  asked for them by id. An unjudged line is honest output; an omitted one is not. */
+  warnings: { jobId: number; caseSlug: string; reason: string }[]
 }
