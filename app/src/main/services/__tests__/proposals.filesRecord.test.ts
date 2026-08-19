@@ -5,7 +5,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openDb } from '../db'
 import { writeProposal, acceptProposal, listProposals } from '../proposals'
-import { proposalsDir } from '../paths'
+import { proposalsDir, userSkillsDir } from '../paths'
 
 let home: string
 let db: DatabaseSync
@@ -111,5 +111,31 @@ describe('ProposalRecord.files', () => {
     } finally {
       spy.mockRestore()
     }
+  })
+
+  // Spec §9's compatibility commitment: `currentContent` is shared with the flat path, so this
+  // pins that a flat skill-edit's `current` is byte-identical to what it was before sibling
+  // support existed. Without it, the §9 audit is an unverified claim.
+  it("keeps a FLAT skill-edit proposal's current byte-identical — spec §9 regression", () => {
+    const first = writeProposal(home, 'acme-1', {
+      type: 'skill-new',
+      target: 'plain-skill',
+      title: 'Plain',
+      content: BODY
+    })
+    acceptProposal(home, first, { db, identity: null })
+    const installed = fs.readFileSync(
+      path.join(userSkillsDir(home), 'plain-skill', 'SKILL.md'),
+      'utf8'
+    )
+    writeProposal(home, 'acme-2', {
+      type: 'skill-edit',
+      target: 'plain-skill',
+      title: 'Plain v2',
+      content: BODY.replace('# Collect logs', '# Plain v2')
+    })
+    const rec = listProposals(home).find((p) => p.type === 'skill-edit')!
+    expect(rec.files).toBeUndefined()
+    expect(rec.current).toBe(installed)
   })
 })
