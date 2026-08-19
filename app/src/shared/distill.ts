@@ -1,6 +1,7 @@
 import type { CaseResolution, CaseStatus } from './types'
 import type { ReviewState } from './observability'
 import type { RcaDraft } from './rca'
+import type { PipelineStages, PreStageDrop } from './distillV3'
 
 export type DistillJobState = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
 
@@ -39,6 +40,10 @@ export interface DistillJobRow {
   turnCount: number | null
   toolCallCount: number | null
   promptChars: number | null
+  /** True when this run deliberately skipped staging (a comparison run — see the dry-run
+   *  design). `itemCount` is NULL on such a row: staging never ran, as distinct from ran and
+   *  staged nothing. */
+  dryRun: boolean
 }
 
 export interface CaseDistillInput {
@@ -149,4 +154,23 @@ export interface RejectDigest {
   builtAt: string
   rejectCount: number
   text: string
+}
+
+/** Everything the run detail panel needs about one distill job. Parsed in main — these columns
+ *  are hand-serialized JSON with an open `reason` set, so one defensive parser beats one per
+ *  consumer. A column that fails to parse yields null/[] rather than throwing: the panel is the
+ *  tool for diagnosing a broken run, so a corrupt column must not make it unopenable. */
+export interface DistillRunDetail {
+  job: DistillJobRow
+  /** Parsed `stages_json`. Null on a v2/v1 run (which recorded no stages) and on a corrupt column. */
+  stages: PipelineStages | null
+  /** Parsed `dropped_json`. Empty when the column is NULL or corrupt. */
+  dropped: PreStageDrop[]
+  /** Parsed `trajectory_json`, already truncated at write time by TRAJECTORY_JSON_CAP.
+   *  Entry shape is `TrajectoryEntry` (main-only type); the panel renders entries as JSON. */
+  trajectory: unknown[] | null
+  rawOutput: string | null
+  /** Length of `input_snapshot`, not its content — the snapshot embeds every session transcript
+   *  and is far too large to ship to the renderer. Enough to answer "did this run get any input". */
+  inputSnapshotChars: number
 }
