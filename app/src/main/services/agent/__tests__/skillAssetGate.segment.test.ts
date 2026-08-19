@@ -144,4 +144,20 @@ describe('skillAssetContextForSegment', () => {
     expect(c.bodyBytesOmitted).toBe(0)
     expect(c.bodyBytesTotal).toBe(Buffer.byteLength(SCRIPT, 'utf8'))
   })
+
+  it('keeps the body byte-accurate when a multi-byte codepoint straddles the cap boundary', () => {
+    // A 4-byte UTF-8 codepoint (an emoji) placed so its bytes span indices
+    // [SKILL_ASSET_BODY_CAP - 2, SKILL_ASSET_BODY_CAP + 1] — two bytes fall inside the cap,
+    // two fall outside, so a naive `subarray(0, CAP)` cuts the sequence in half.
+    const prefixLen = SKILL_ASSET_BODY_CAP - 2
+    const prefix = 'x'.repeat(prefixLen)
+    const emoji = '\u{1F600}' // 4 bytes in utf8
+    const suffix = 'y'.repeat(20)
+    const big = prefix + emoji + suffix
+    const abs = seed('scripts/multibyte.sh', big)
+    const c = ctxFor(`bash ${abs}`)!
+    expect(c.bodyBytesTotal).toBe(Buffer.byteLength(big, 'utf8'))
+    expect(Buffer.byteLength(c.body, 'utf8')).toBe(c.bodyBytesTotal - c.bodyBytesOmitted)
+    expect(c.body).not.toContain('�')
+  })
 })
