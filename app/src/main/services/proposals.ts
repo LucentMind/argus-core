@@ -245,12 +245,25 @@ function targetLocked(argusHome: string, type: ProposalType, target: string): bo
 }
 
 /**
+ * A proposal's SHAPE, decided from its name alone and in exactly one place.
+ *
+ * Four call sites used to make this judgement independently (body path, sibling walk,
+ * directory scan, archive), agreeing only because `writeProposal` guarantees
+ * "directory ⟺ no `.md` suffix". That guarantee covers the in-app writer, not the
+ * externally seeded proposals `proposalsWatch.ts` exists to support — so the agreement was
+ * a coincidence of the writer, not a property of the readers. One definition, no drift.
+ */
+function isFlatProposalName(file: string): boolean {
+  return file.endsWith('.md')
+}
+
+/**
  * The `.md` holding a proposal's frontmatter and body: the flat file itself, or the
  * directory's SKILL.md. A proposal's `file` key is the flat file name or the directory
  * name, so every caller that used to `path.join(dir, file)` goes through here instead.
  */
 export function proposalBodyPath(dir: string, file: string): string {
-  return file.endsWith('.md') ? path.join(dir, file) : path.join(dir, file, 'SKILL.md')
+  return isFlatProposalName(file) ? path.join(dir, file) : path.join(dir, file, 'SKILL.md')
 }
 
 /**
@@ -266,6 +279,10 @@ export function proposalBodyPath(dir: string, file: string): string {
  * invariant — it consumes this scanner too, so a future reader adding a third proposals
  * reader knows to route through here rather than rolling its own readdir.
  */
+/** Names already warned about: this scanner runs on every count and every list, so an
+ *  unfixed on-disk mistake would otherwise print on every proposals:changed broadcast. */
+const warnedMdDirs = new Set<string>()
+
 export function scanProposalDir(dir: string): { file: string; raw: string }[] {
   if (!fs.existsSync(dir)) return []
   const out: { file: string; raw: string }[] = []
@@ -275,6 +292,21 @@ export function scanProposalDir(dir: string): { file: string; raw: string }[] {
       continue
     }
     if (!ent.isDirectory()) continue
+    // A DIRECTORY named `…​.md` is unresolvable: `isFlatProposalName` judges shape from the name
+    // alone, so `proposalBodyPath` would hand every caller the directory itself and accept and
+    // reject would both throw EISDIR reading it — the entry would be listed in the inbox and be
+    // neither acceptable nor rejectable, wedged until someone deletes it by hand. `writeProposal`
+    // cannot produce this, but an externally seeded proposal (proposalsWatch.ts) can, so refuse
+    // it here rather than letting the shape question be answered twice.
+    if (isFlatProposalName(ent.name)) {
+      if (!warnedMdDirs.has(ent.name)) {
+        warnedMdDirs.add(ent.name)
+        console.warn(
+          `[proposals] ignoring a directory-shaped proposal whose name ends in .md: ${ent.name}`
+        )
+      }
+      continue
+    }
     const body = path.join(dir, ent.name, 'SKILL.md')
     if (!fs.existsSync(body)) continue
     out.push({ file: ent.name, raw: fs.readFileSync(body, 'utf8') })
@@ -506,7 +538,7 @@ function walkSkillFiles(root: string): ProposalAsset[] {
 
 /** Sibling files carried by a directory-shaped proposal; empty for the flat shape. */
 function proposalAssets(argusHome: string, file: string): ProposalAsset[] {
-  return file.endsWith('.md') ? [] : walkSkillFiles(path.join(proposalsDir(argusHome), file))
+  return isFlatProposalName(file) ? [] : walkSkillFiles(path.join(proposalsDir(argusHome), file))
 }
 
 /**
