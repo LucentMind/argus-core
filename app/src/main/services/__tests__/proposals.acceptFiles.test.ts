@@ -89,8 +89,12 @@ describe('accepting a directory-shaped proposal', () => {
     const file = propose()
     expect(() =>
       acceptProposal(home, file, { db, identity: null, editedFiles: { '../evil.sh': 'x' } })
-    ).toThrow()
-    expect(fs.existsSync(path.join(userSkillsDir(home), '..', 'evil.sh'))).toBe(false)
+    ).toThrow(/edited file not in the proposal|\.\. are not allowed/)
+    // The paths a real escape would actually reach: staging lives UNDER skills-user, so `..`
+    // from a staged file lands there, and `archive`'s edited/ writer joins under the archive
+    // directory. Asserting `<home>/evil.sh` instead would pin a path no bug could write.
+    expect(fs.existsSync(path.join(userSkillsDir(home), 'evil.sh'))).toBe(false)
+    expect(fs.existsSync(path.join(proposalsArchiveDir(home), 'evil.sh'))).toBe(false)
   })
 
   // Task 4 built `archive`'s editedFiles handling but could not test it: nothing threaded edits
@@ -152,6 +156,25 @@ describe('accepting a directory-shaped proposal', () => {
     const dest = path.join(userSkillsDir(home), 'collect-logs')
     expect(fs.readFileSync(path.join(dest, 'scripts', 'collect.sh'), 'utf8')).toBe(SCRIPT)
     expect(fs.readFileSync(path.join(dest, 'templates', 'report.md'), 'utf8')).toBe('# Report\n')
+  })
+
+  // Carry-forward is a byte copy, not a utf8 read/write round trip. Imported skills and HiveMind
+  // pulls can carry PNGs, zips and UTF-16 text; a round trip would replace those bytes with
+  // U+FFFD and hand the user a corrupt file with no error anywhere.
+  it('preserves a NON-UTF8 sibling byte for byte', () => {
+    acceptProposal(home, propose(), { db, identity: null })
+    const dest = path.join(userSkillsDir(home), 'collect-logs')
+    const bytes = Buffer.from([0xff, 0xfe, 0x00, 0x01])
+    fs.writeFileSync(path.join(dest, 'logo.png'), bytes)
+    const again = writeProposal(home, 'acme-2', {
+      type: 'skill-edit',
+      target: 'collect-logs',
+      title: 'Collect logs v2',
+      content: BODY,
+      files: [{ path: 'templates/report.md', content: '# Report\n' }]
+    })
+    acceptProposal(home, again, { db, identity: null })
+    expect(fs.readFileSync(path.join(dest, 'logo.png'))).toEqual(bytes)
   })
 
   it('carries forward existing siblings on a skill-edit', () => {
