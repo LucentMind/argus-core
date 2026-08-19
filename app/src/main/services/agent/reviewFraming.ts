@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { AgentDriver } from './driver'
 import type { SubagentSupport } from '../../../shared/drivers'
 import type { ModeId } from '../../../shared/modes'
-import { sessionProvider, sessionMode } from './sessionStore'
+import { sessionProvider, sessionMode, sessionCursor } from './sessionStore'
 import { getCase } from '../caseService'
 
 /**
@@ -58,6 +58,36 @@ export function driverForSession(deps: SessionDriverDeps, sessionId: number): Ag
   return pinned?.instanceId && deps.driverForInstance
     ? deps.driverForInstance(pinned.instanceId)
     : deps.resolveDriver()
+}
+
+/**
+ * True when a session shows conversation history the model cannot see: turns on the record,
+ * but no cursor the next turn can resume from.
+ *
+ * Three unrelated paths land here — an imported case (bundle.ts leaves `driver_cursor` NULL
+ * because the source machine's cursor is meaningless locally), a driver-kind switch
+ * (`setSessionModel` nulls it), and a provider-instance switch (`sessionCursor` refuses a
+ * cursor from another account). It keys on the resulting STATE, so all three are covered by
+ * one rule and no `imported` flag is needed.
+ *
+ * Resolves the driver through `driverForSession` — the same call `registry.ts` makes before
+ * fetching the cursor — so this can never disagree with what the next turn actually does.
+ */
+export function sessionHistoryOrphaned(deps: SessionDriverDeps, sessionId: number): boolean {
+  const row = deps.db.prepare(`SELECT turn_count FROM sessions WHERE id = ?`).get(sessionId) as
+    { turn_count: number } | undefined
+  if (!row || row.turn_count === 0) return false
+  const pinned = sessionProvider(deps.db, sessionId)
+  // A session pinned to a specific provider instance whose driver this call cannot resolve
+  // (deps.driverForInstance absent) falls back to the live default in driverForSession below —
+  // a DIFFERENT account than the one that produced any existing cursor. We cannot confirm via
+  // `sessionCursor` alone: its instance guard compares against this same row's own
+  // `instance_id`, which is always self-consistent, so it can never observe a stale pin from
+  // here. Treat "pinned but unresolvable" as orphaned rather than silently trusting a cursor
+  // that may belong to a different account.
+  if (pinned?.instanceId && !deps.driverForInstance) return true
+  const kind = driverForSession(deps, sessionId).kind
+  return sessionCursor(deps.db, sessionId, kind, pinned?.instanceId) === null
 }
 
 export type ReviewFramingDeps = SessionDriverDeps
