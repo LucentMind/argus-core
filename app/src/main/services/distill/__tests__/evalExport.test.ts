@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { writeProposal, acceptProposal, rejectProposal } from '../../proposals'
+import { proposalsArchiveDir } from '../../paths'
 import { buildEvalBundle, exportEvalBundle } from '../evalExport'
 
 let home: string
@@ -263,6 +264,31 @@ describe('buildEvalBundle', () => {
     const { lines } = buildEvalBundle(db, home, '1.0.0')
     expect(lines).toHaveLength(1)
     expect(lines[0].items).toEqual([])
+  })
+
+  it('picks up a directory-shaped, job-stamped archived proposal, which scanJobStamped used to drop', () => {
+    // Hand-built because nothing writes this shape until Task 3 — same technique as
+    // proposals.shapes.test.ts's writeDirProposal helper.
+    const id = insertJob()
+    const target = `s-${id}-dir-shaped`
+    const fm = [
+      'type: skill-new',
+      `target: ${target}`,
+      'case: nav-1',
+      'date: 2026-07-29T00:00:00.000Z',
+      'title: Directory-shaped',
+      'status: accepted',
+      `job: ${id}`
+    ].join('\n')
+    const dir = path.join(proposalsArchiveDir(home), 'dir-shaped-proposal')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), `---\n${fm}\n---\n# dir body\n`)
+
+    const { lines } = buildEvalBundle(db, home, '1.0.0')
+    expect(lines).toHaveLength(1)
+    const item = lines[0].items.find((i) => i.target === target)
+    expect(item).toBeDefined()
+    expect(item!.outcome).toBe('accepted')
   })
 })
 
