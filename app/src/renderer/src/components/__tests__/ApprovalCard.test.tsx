@@ -5,6 +5,7 @@ import '@testing-library/jest-dom/vitest'
 import { ApprovalCard } from '../ApprovalCard'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, settingsSchema } from '../../../../shared/settings'
+import type { SkillAssetContext } from '../../../../shared/agent-events'
 
 const request = {
   requestId: 'r1',
@@ -261,5 +262,98 @@ describe('ApprovalCard capabilities are session-scoped', () => {
     render(<ApprovalCard slug="NAV-7" sessionId={3} instanceId="copilot-1" request={mcpRequest} />)
     await new Promise((r) => setTimeout(r, 0))
     expect(screen.queryByLabelText('body')).toBeNull()
+  })
+})
+
+describe('skill asset run gate', () => {
+  const assetRequest = (
+    over: Partial<SkillAssetContext> = {}
+  ): typeof request & { assetContext: SkillAssetContext } => ({
+    ...request,
+    risk: 'HIGH',
+    grantKey: 'skill-asset:0123456789abcdef',
+    argsPreview: 'bash scripts/collect.sh',
+    assetContext: {
+      skill: 'collect-logs',
+      tier: 'user' as const,
+      relPath: 'scripts/collect.sh',
+      hash: '0123456789abcdef'.repeat(4),
+      reviewState: 'reviewed' as const,
+      body: '#!/bin/sh\necho hi\n',
+      bodyBytesTotal: 18,
+      bodyBytesOmitted: 0,
+      ...over
+    }
+  })
+
+  it('names the skill and the file', () => {
+    render(<ApprovalCard slug="NAV-1" sessionId={1} request={assetRequest()} />)
+    expect(screen.getByText(/collect-logs/)).toBeTruthy()
+    // getAllByText, not getByText: the fixture's argsPreview ('bash scripts/collect.sh') also
+    // contains the relPath, so both the notice and the read-only command preview match.
+    expect(screen.getAllByText(/scripts\/collect\.sh/).length).toBeGreaterThan(0)
+  })
+
+  it.each([
+    ['reviewed', /reviewed on this machine/i],
+    ['changed', /changed since you reviewed it/i],
+    ['unreviewed', /never reviewed here/i]
+  ] as const)('leads with the %s state', (reviewState, re) => {
+    render(<ApprovalCard slug="NAV-1" sessionId={1} request={assetRequest({ reviewState })} />)
+    expect(screen.getByText(re)).toBeTruthy()
+  })
+
+  it('shows the body only after the reviewer expands it', () => {
+    render(<ApprovalCard slug="NAV-1" sessionId={1} request={assetRequest()} />)
+    expect(screen.queryByText(/echo hi/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /show script/i }))
+    expect(screen.getByText(/echo hi/)).toBeTruthy()
+  })
+
+  it('states the omitted byte count for a capped body', () => {
+    render(
+      <ApprovalCard
+        slug="NAV-1"
+        sessionId={1}
+        request={assetRequest({ bodyBytesTotal: 20_000, bodyBytesOmitted: 4000 })}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: /show script/i }))
+    expect(screen.getByText(/4000 bytes/)).toBeTruthy()
+  })
+
+  it('says nothing about bytes when none were omitted', () => {
+    render(<ApprovalCard slug="NAV-1" sessionId={1} request={assetRequest()} />)
+    fireEvent.click(screen.getByRole('button', { name: /show script/i }))
+    expect(screen.queryByText(/bytes omitted/i)).toBeNull()
+  })
+
+  // A HIGH ask is grant-less by default; a key pinned to the file's sha256 is the exception,
+  // because it dies the instant the bytes change.
+  it('offers a session grant at HIGH when the key is content-pinned', () => {
+    render(<ApprovalCard slug="NAV-1" sessionId={1} request={assetRequest()} />)
+    fireEvent.click(screen.getByRole('button', { name: /approve for session/i }))
+    expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-1', 1, {
+      requestId: 'r1',
+      kind: 'allow-session',
+      comment: undefined,
+      updatedInput: undefined
+    })
+  })
+
+  it('still offers no session grant for an ordinary HIGH ask', () => {
+    render(
+      <ApprovalCard
+        slug="NAV-1"
+        sessionId={1}
+        request={{ ...request, risk: 'HIGH', grantKey: 'ws:cwd' }}
+      />
+    )
+    expect(screen.queryByRole('button', { name: /approve for session/i })).toBeNull()
+  })
+
+  it('renders an ordinary request with no asset notice', () => {
+    render(<ApprovalCard slug="NAV-1" sessionId={1} request={request} />)
+    expect(screen.queryByRole('button', { name: /show script/i })).toBeNull()
   })
 })

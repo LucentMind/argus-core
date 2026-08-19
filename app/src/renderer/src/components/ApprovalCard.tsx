@@ -3,6 +3,7 @@ import { Chip, Btn, SectionLabel } from './ui'
 import { isEditableTool } from '../../../shared/editableTools'
 import { capabilitiesFor } from '../../../shared/drivers'
 import { useSettingsPayload } from '../lib/settingsStore'
+import type { SkillAssetContext } from '../../../shared/agent-events'
 
 export function ApprovalCard({
   slug,
@@ -22,6 +23,8 @@ export function ApprovalCard({
     argsPreview: string
     grantKey: string | null
     input?: Record<string, unknown>
+    /** Set only for a shell ask that resolved to a script inside a skill (spec §7.2). */
+    assetContext?: SkillAssetContext
   }
 }): React.JSX.Element {
   const [comment, setComment] = useState('')
@@ -69,6 +72,7 @@ export function ApprovalCard({
         <span className="truncate font-mono text-xs text-dim">{request.tool}</span>
         <span className="ml-auto shrink-0 font-mono text-[10.5px] text-mute">{slug}</span>
       </div>
+      {request.assetContext && <SkillAssetNotice ctx={request.assetContext} />}
       {editable ? (
         <div className="mt-2 flex max-h-64 flex-col gap-2 overflow-y-auto">
           {Object.entries(request.input!).map(([k, v]) =>
@@ -108,7 +112,10 @@ export function ApprovalCard({
         <Btn variant="primary" onClick={() => respond('allow')}>
           Approve
         </Btn>
-        {request.grantKey && !high && (
+        {/* A HIGH ask offers no session grant: the key would usually be broad enough that one
+            approval covers things the user never saw. A skill-asset key is pinned to the
+            file's sha256 and dies the instant the bytes change, so it is the exception. */}
+        {request.grantKey && (!high || request.assetContext) && (
           <Btn variant="outline" onClick={() => respond('allow-session')}>
             Approve for session
           </Btn>
@@ -125,6 +132,54 @@ export function ApprovalCard({
           onChange={(e) => setComment(e.target.value)}
         />
       </div>
+    </div>
+  )
+}
+
+const REVIEW_COPY: Record<SkillAssetContext['reviewState'], string> = {
+  reviewed: 'reviewed on this machine',
+  changed: 'CHANGED since you reviewed it',
+  unreviewed: 'never reviewed here'
+}
+
+/**
+ * What a reviewer needs before letting a skill's script run: which skill, which file, whether
+ * these exact bytes were approved here, and the bytes themselves.
+ *
+ * Collapsed by default — the command is the headline and a 400-line script would bury the
+ * buttons — but one click away, because approving bytes you were not shown is the failure this
+ * whole mechanism exists to prevent.
+ */
+function SkillAssetNotice({ ctx }: { ctx: SkillAssetContext }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="mt-2 rounded-r1 border border-hair bg-well p-2">
+      <div className="text-xs text-ink">
+        Runs <span className="font-mono">{ctx.relPath}</span> from the{' '}
+        <span className="font-mono">{ctx.skill}</span> skill ({ctx.tier}) —{' '}
+        {REVIEW_COPY[ctx.reviewState]}
+      </div>
+      <button
+        type="button"
+        className="mt-1 text-xs text-dim underline-offset-2 hover:text-ink hover:underline"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? 'Hide script' : 'Show script'}
+      </button>
+      {open && (
+        <>
+          <pre className="mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-r1 border border-hair bg-well p-2 font-mono text-xs leading-relaxed text-ink">
+            {ctx.body}
+          </pre>
+          {ctx.bodyBytesOmitted > 0 && (
+            // An explicit count, not an inline marker: a truncation marker gets re-truncated
+            // downstream and read as the whole file.
+            <div className="mt-1 font-mono text-[10.5px] text-mute">
+              {ctx.bodyBytesOmitted} bytes omitted of {ctx.bodyBytesTotal}
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }
