@@ -301,7 +301,8 @@ describe('CaseAnchor', () => {
       costUsd: null,
       turnCount: null,
       toolCallCount: null,
-      promptChars: null
+      promptChars: null,
+      dryRun: false
     })
   })
 
@@ -417,7 +418,8 @@ describe('CaseAnchor', () => {
           costUsd: null,
           turnCount: null,
           toolCallCount: null,
-          promptChars: null
+          promptChars: null,
+          dryRun: false
         }
       })
     })
@@ -435,7 +437,8 @@ describe('CaseAnchor', () => {
         costUsd: null,
         turnCount: null,
         toolCallCount: null,
-        promptChars: null
+        promptChars: null,
+        dryRun: false
       })
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
@@ -485,7 +488,8 @@ describe('CaseAnchor', () => {
           costUsd: null,
           turnCount: null,
           toolCallCount: null,
-          promptChars: null
+          promptChars: null,
+          dryRun: false
         }
       })
     })

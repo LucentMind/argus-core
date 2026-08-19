@@ -62,7 +62,7 @@ export interface DistillQueueDeps {
   runOneShot: (prompt: string, opts?: { signal?: AbortSignal }) => Promise<HeadlessResult>
 }
 
-interface JobDbRow {
+export interface JobDbRow {
   id: number
   case_slug: string
   state: string
@@ -83,9 +83,10 @@ interface JobDbRow {
   trajectory_json: string | null
   dropped_json: string | null
   stages_json: string | null
+  dry_run: number
 }
 
-function toRow(r: JobDbRow): DistillJobRow {
+export function toRow(r: JobDbRow): DistillJobRow {
   return {
     id: r.id,
     caseSlug: r.case_slug,
@@ -97,7 +98,8 @@ function toRow(r: JobDbRow): DistillJobRow {
     costUsd: r.cost_usd,
     turnCount: r.turn_count,
     toolCallCount: r.tool_call_count,
-    promptChars: r.prompt_chars
+    promptChars: r.prompt_chars,
+    dryRun: r.dry_run === 1
   }
 }
 

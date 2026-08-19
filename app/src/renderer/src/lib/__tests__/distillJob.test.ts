@@ -16,6 +16,7 @@ const job = (over: Partial<DistillJobRow>): DistillJobRow => ({
   turnCount: null,
   toolCallCount: null,
   promptChars: null,
+  dryRun: false,
   ...over
 })
 
