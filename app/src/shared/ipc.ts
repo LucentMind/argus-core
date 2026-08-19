@@ -323,6 +323,8 @@ export const IPC = {
   distillRedistill: 'distill:redistill',
   distillCancel: 'distill:cancel',
   distillNeedsRun: 'distill:needs-run',
+  distillRuns: 'distill:runs',
+  distillRun: 'distill:run',
   // — defect corpus —
   defectsSearch: 'defects:search',
   defectsTest: 'defects:test',
