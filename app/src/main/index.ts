@@ -92,7 +92,7 @@ import {
   userSkillShadowDiverged
 } from './services/agent/skillsResolver'
 import { scanClaudeSkills, importSkills } from './services/agent/skillsImport'
-import { HivemindService } from './services/hivemind'
+import { executableAssetsOf, HivemindService } from './services/hivemind'
 import {
   listProposals,
   listArchivedProposals,
@@ -3045,6 +3045,9 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC.hivemindPushStatus, async (_e, kind: 'skill' | 'reference', name: string) =>
     hivemind.pushStatus(kind, name, await identity())
+  )
+  ipcMain.handle(IPC.hivemindPushExecutables, (_e, name: string) =>
+    executableAssetsOf(argusHome, name)
   )
 
   // — proposals (spec §2.4) —

@@ -720,7 +720,8 @@ const argus = {
     push: (kind: 'skill' | 'reference', name: string, title: string): Promise<HivemindPushResult> =>
       invoke(IPC.hivemindPush, kind, name, title),
     pushStatus: (kind: 'skill' | 'reference', name: string): Promise<PushStatus> =>
-      invoke(IPC.hivemindPushStatus, kind, name)
+      invoke(IPC.hivemindPushStatus, kind, name),
+    pushExecutables: (name: string): Promise<string[]> => invoke(IPC.hivemindPushExecutables, name)
   },
   proposals: {
     list: (): Promise<ProposalsPayload> => invoke(IPC.proposalsList),
