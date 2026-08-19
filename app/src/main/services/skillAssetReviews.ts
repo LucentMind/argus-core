@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
+import type { AssetReviewState } from '../../shared/skillAssets'
 
 /**
  * The reviewed-bytes record behind the executable-asset gate (spec §7.1).
@@ -10,7 +11,7 @@ import type { DatabaseSync } from 'node:sqlite'
  * HiveMind-pulled skill deliberately gets no row; a teammate's approval is not this user's.
  */
 
-export type AssetReviewState = 'reviewed' | 'changed' | 'unreviewed'
+export type { AssetReviewState }
 
 export function sha256Hex(content: string): string {
   return crypto.createHash('sha256').update(content, 'utf8').digest('hex')

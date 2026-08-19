@@ -23,6 +23,11 @@ export interface SkillAssetInput {
  *  and main cannot drift into two spellings of the same three strings. */
 export type SkillAssetTier = 'bundled' | 'user' | 'hivemind'
 
+/** A file under a skills root, against `skill_asset_reviews`: equal hash = reviewed,
+ *  different = changed since review, no row = never reviewed here. One definition — the write
+ *  side (`skillAssetReviews.ts`) and the wire type the card reads both use it. */
+export type AssetReviewState = 'reviewed' | 'changed' | 'unreviewed'
+
 /** Spec §2. `.ts` is here because a skill can legitimately ship a tsx-runner script; the cost of
  *  a false positive is one extra approval prompt, the cost of a false negative is an ungated
  *  script. */
