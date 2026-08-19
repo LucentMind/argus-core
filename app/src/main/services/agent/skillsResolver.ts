@@ -7,6 +7,7 @@ import type { ModeRole } from '../../../shared/modes'
 import { frontmatterOf, parseDescription, parseRoles } from '../../../shared/skillFrontmatter'
 import { contentHash } from '../contentHash'
 import { validateSkill, hasErrors, ASSET_NAME_RE } from '../../../shared/assetValidation'
+import { isSkillTempDir } from '../../../shared/skillAssets'
 import { withFrontmatter, fmField } from '../../../shared/frontmatter'
 import { mergeAuthorship, stampAuthorship, type Identity } from '../../../shared/authorship'
 
@@ -109,18 +110,37 @@ export function bundledSkillError(name: string): Error {
   )
 }
 
+/** Names already warned about, so a per-turn `resolveSkills` cannot spam the log. */
+const warnedOddNames = new Set<string>()
+
 function scanTier(root: string): string[] {
   if (!fs.existsSync(root)) return []
-  return (
-    fs
-      .readdirSync(root, { withFileTypes: true })
-      // ASSET_NAME_RE first: `acceptProposal` stages a skill in `.staging-<name>-<rand>/`, which
-      // transiently holds a SKILL.md. Without this filter a list running mid-accept would
-      // advertise that directory as an installed skill — including into a session's prompt.
-      .filter((d) => d.isDirectory() && ASSET_NAME_RE.test(d.name))
-      .filter((d) => fs.existsSync(path.join(root, d.name, 'SKILL.md')))
-      .map((d) => d.name)
-  )
+  const out: string[] = []
+  for (const d of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!d.isDirectory()) continue
+    // `acceptProposal` stages a skill in `.staging-<name>-<rand>/` and parks the previous copy
+    // in `.trash-<name>-<rand>/`; both transiently hold a SKILL.md, so a list running mid-accept
+    // would otherwise advertise them as installed skills — including into a live session's
+    // prompt.
+    //
+    // Skipping ONLY these two prefixes is deliberate. Filtering on `ASSET_NAME_RE` instead would
+    // reach every tier, and only the USER tier enforces that regex at write time. HiveMind
+    // install and pack extraction copy `skills/<name>` verbatim, so a pack or teammate skill
+    // whose name that check never had to satisfy — one over 64 characters, say — would silently
+    // vanish from the Library and the session index with no error anywhere.
+    if (isSkillTempDir(d.name)) continue
+    if (!fs.existsSync(path.join(root, d.name, 'SKILL.md'))) continue
+    if (!ASSET_NAME_RE.test(d.name) && !warnedOddNames.has(d.name)) {
+      // Surfaced, never dropped: the skill still resolves. But no Argus write path produces a
+      // name like this, so it is worth one line in the log.
+      warnedOddNames.add(d.name)
+      console.warn(
+        `[skills] resolving a skill whose directory name is not a legal asset name: ${d.name}`
+      )
+    }
+    out.push(d.name)
+  }
+  return out
 }
 
 /** Every file under `root`, as sorted `/`-joined relative paths. */
