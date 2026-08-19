@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ProposalQueue, type QueueEntry } from './ProposalQueue'
 import { ProposalDetail, type AcceptedEntry } from './ProposalDetail'
 import { RejectDigestPanel } from './RejectDigestPanel'
+import { BODY_PATH } from './FileRail'
 import type { DiffViewMode } from './DiffViews'
 import { KnowledgeFlowStrip } from '../settings/KnowledgeFlowStrip'
 import { SettingsSkeleton } from '../settings/settingsLayout'
@@ -26,9 +27,21 @@ export function ProposalsStandalone({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [active, setActive] = useState<ReadonlySet<ProposalType>>(new Set(initialTypes ?? []))
-  const [editing, setEditing] = useState<Record<string, string>>({})
+  // file -> (relative path | BODY_PATH) -> draft. Two levels because one proposal now has many
+  // editable documents; the body keeps `BODY_PATH` so `acceptProposal`'s `editedContent`
+  // contract is unchanged.
+  const [editing, setEditing] = useState<Record<string, Record<string, string>>>({})
   const [accepted, setAccepted] = useState<AcceptedEntry[]>([])
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  // Which path is selected in the rail, scoped to the proposal it was recorded against. Derived
+  // rather than reset by an effect: a plain `useEffect(() => setSelectedPath(BODY_PATH), [dep])`
+  // both trips this repo's `react-hooks/set-state-in-effect` lint (a synchronous setState in an
+  // effect body) and keys on the wrong value — `selectedFile` stays null until the entries[0]
+  // fallback effect below commits, so the first render(s) would key against a value that hasn't
+  // caught up with `effectiveSelected`, the value that actually decides which proposal is shown.
+  // Scoping the recorded selection to the `file` it was made against means a stale path can never
+  // leak onto a different proposal, and there is no frame where a mismatched path is live.
+  const [pathSel, setPathSel] = useState<{ file: string; path: string } | null>(null)
   const [viewMode, setViewMode] = useState<DiffViewMode>('unified')
   const settings = useSettingsPayload()
   const repoSet = (settings?.settings.hivemind.repo ?? '').trim() !== ''
@@ -138,6 +151,10 @@ export function ProposalsStandalone({
     selectedFile !== null && entries.some((e) => e.file === selectedFile)
       ? selectedFile
       : (entries[0]?.file ?? null)
+  // A recorded selection only applies to the proposal it was made against — once
+  // `effectiveSelected` moves on to a different file, this falls back to BODY_PATH rather than
+  // carrying a sibling's path onto a record that may not even have that sibling.
+  const selectedPath = pathSel && pathSel.file === effectiveSelected ? pathSel.path : BODY_PATH
   const selectedPending = pendingSorted.find((p) => p.file === effectiveSelected) ?? null
   // Pending wins over a same-file accepted row (see acceptedVisible above) — this is
   // belt-and-suspenders since the dedupe already keeps them out of `entries` together, but it
@@ -204,10 +221,17 @@ export function ProposalsStandalone({
   }
 
   function toggleEdit(p: ProposalRecord): void {
+    const seed =
+      selectedPath === BODY_PATH
+        ? p.content
+        : (p.files?.find((f) => f.path === selectedPath)?.content ?? '')
     setEditing((prev) => {
+      const forFile = { ...(prev[p.file] ?? {}) }
+      if (selectedPath in forFile) delete forFile[selectedPath]
+      else forFile[selectedPath] = seed
       const next = { ...prev }
-      if (p.file in next) delete next[p.file]
-      else next[p.file] = p.content
+      if (Object.keys(forFile).length === 0) delete next[p.file]
+      else next[p.file] = forFile
       return next
     })
   }
@@ -225,11 +249,16 @@ export function ProposalsStandalone({
   }
 
   function acceptSelected(p: ProposalRecord): void {
-    const draft = p.file in editing ? editing[p.file] : undefined
+    const drafts = editing[p.file] ?? {}
+    const body = BODY_PATH in drafts ? drafts[BODY_PATH] : undefined
+    const siblings = Object.fromEntries(
+      Object.entries(drafts).filter(([path]) => path !== BODY_PATH)
+    )
+    // undefined, not {}: main treats an absent map as "no per-file edits", and an empty object
+    // would archive an `edited_files:` stamp for edits that do not exist.
+    const files = Object.keys(siblings).length > 0 ? siblings : undefined
     void act(async () => {
-      const r = await (draft !== undefined
-        ? window.argus.proposals.accept(p.file, draft)
-        : window.argus.proposals.accept(p.file))
+      const r = await window.argus.proposals.accept(p.file, body, files)
       // Replace, not append: accepting a same-named re-proposal must not leave two
       // session-accepted entries for one file (only the latest target is meaningful).
       setAccepted((prev) => [
@@ -308,12 +337,16 @@ export function ProposalsStandalone({
           accepted={selectedAccepted}
           busy={busy}
           editValue={
-            selectedPending && selectedPending.file in editing
-              ? editing[selectedPending.file]
+            selectedPending && editing[selectedPending.file]?.[selectedPath] !== undefined
+              ? editing[selectedPending.file][selectedPath]
               : null
           }
           onEditChange={(v) =>
-            selectedPending && setEditing((prev) => ({ ...prev, [selectedPending.file]: v }))
+            selectedPending &&
+            setEditing((prev) => ({
+              ...prev,
+              [selectedPending.file]: { ...(prev[selectedPending.file] ?? {}), [selectedPath]: v }
+            }))
           }
           onToggleEdit={() => selectedPending && toggleEdit(selectedPending)}
           viewMode={viewMode}
@@ -323,6 +356,16 @@ export function ProposalsStandalone({
           onOpenHivemind={() => onNavigateSettings('team')}
           onAccept={() => selectedPending && acceptSelected(selectedPending)}
           onReject={(reason) => selectedPending && rejectSelected(selectedPending, reason)}
+          selectedPath={selectedPath}
+          onSelectPath={(path) =>
+            effectiveSelected && setPathSel({ file: effectiveSelected, path })
+          }
+          // A buffer's mere presence is the marker — not diffed against the original — so the
+          // rail flags an edit that reverts to the source text too. That's an accepted
+          // over-approximation, not a bug: this task does not build change-detection.
+          editedPaths={
+            new Set(Object.keys(selectedPending ? (editing[selectedPending.file] ?? {}) : {}))
+          }
         />
       </div>
     </div>

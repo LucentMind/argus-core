@@ -81,7 +81,9 @@ export function ProposalDetail({
   /** Which file the rail has selected; `BODY_PATH` for the proposal body. */
   selectedPath: string
   onSelectPath: (path: string) => void
-  /** Paths whose buffer differs from the draft, for the rail's "edited" marker. */
+  /** Paths that currently have an open edit buffer (Edit was toggled on for them), for the
+   *  rail's "edited" marker — not diffed against the draft, so a buffer that round-trips the
+   *  original text is still flagged. */
   editedPaths: ReadonlySet<string>
 }): React.JSX.Element {
   const [rejecting, setRejecting] = useState(false)
