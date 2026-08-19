@@ -328,23 +328,53 @@ describe('explicit job ids', () => {
     expect(defaultRes.lines.map((l) => l.job.id)).toEqual([newerId])
   })
 
-  it('is byte-identical to today when no ids are given', () => {
-    // Nontrivial arrangement so the two invocations actually exercise the query, the
-    // pending-review skip and the items/skipped/warnings shaping — not just two empty arrays.
-    const doneId = insertJob({ case_slug: 'nav-1', created_at: '2026-08-19T00:00:00.000Z' })
-    reviewedItem(doneId, 'accepted')
-    const pendingId = insertJob({ case_slug: 'nav-2', created_at: '2026-08-19T00:00:00.000Z' })
+  it('omitting opts is byte-identical to passing {}, and both pin the real default-path behaviour (MAX(id) selection, dry-row exclusion, skip reasons)', () => {
+    // case A: two real jobs for one case — the default query's MAX(id) subselect must pick the
+    // newer job, not the older one.
+    const olderA = insertJob({ case_slug: 'nav-1', created_at: '2026-08-19T00:00:00.000Z' })
+    reviewedItem(olderA, 'accepted')
+    const newerA = insertJob({ case_slug: 'nav-1', created_at: '2026-08-19T01:00:00.000Z' })
+    reviewedItem(newerA, 'rejected', { tag: 'overgeneric', note: 'too vague' })
+
+    // case B: a real job followed by a newer DRY job — the default query's `dry_run = 0` filter
+    // must keep the dry row out of the MAX(id) pool entirely, so the real (older) job still
+    // surfaces instead of being shadowed by the dry one and both ending up unexported.
+    const realB = insertJob({ case_slug: 'nav-2', created_at: '2026-08-19T00:00:00.000Z' })
+    reviewedItem(realB, 'accepted')
+    db.prepare(
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, raw_output, item_count, created_at, dry_run)
+       VALUES ('nav-2', 'done', '{}', '{}', NULL, '2026-08-19T01:00:00.000Z', 1)`
+    ).run()
+
+    // case C: a done job with a still-pending job-stamped proposal — must be skipped with a
+    // named reason (not silently dropped, and not turned into a warning: that only happens
+    // under explicit jobIds).
+    const pendingC = insertJob({ case_slug: 'nav-3', created_at: '2026-08-19T00:00:00.000Z' })
     writeProposal(
       home,
-      'nav-2',
+      'nav-3',
       { type: 'skill-new', target: 's-pending', title: 't', content: '# s\n' },
-      { job: String(pendingId) }
+      { job: String(pendingC) }
     )
-    const now = (): Date => new Date('2026-08-19T12:00:00.000Z')
 
-    expect(JSON.stringify(buildEvalBundle(db, home, '1.0.0', now))).toBe(
-      JSON.stringify(buildEvalBundle(db, home, '1.0.0', now, {}))
-    )
+    const now = (): Date => new Date('2026-08-19T12:00:00.000Z')
+    const omitted = buildEvalBundle(db, home, '1.0.0', now)
+    const explicitEmpty = buildEvalBundle(db, home, '1.0.0', now, {})
+
+    // Eliding `opts` and passing `{}` must still agree byte-for-byte...
+    expect(JSON.stringify(omitted)).toBe(JSON.stringify(explicitEmpty))
+
+    // ...and the shared result they agree on must be the REAL default behaviour, not two
+    // stubs that happen to match each other.
+    expect(omitted.lines.map((l) => l.job.id)).toEqual([newerA, realB].sort((a, b) => a - b))
+    const lineA = omitted.lines.find((l) => l.job.id === newerA)!
+    expect(lineA.items.map((i) => i.outcome)).toEqual(['rejected'])
+    const lineB = omitted.lines.find((l) => l.job.id === realB)!
+    expect(lineB.items.map((i) => i.outcome)).toEqual(['accepted'])
+    expect(omitted.skipped).toEqual([
+      { jobId: pendingC, caseSlug: 'nav-3', reason: 'items pending review' }
+    ])
+    expect(omitted.warnings).toEqual([])
   })
 
   it('exports a pending-review job with a warning instead of skipping it', () => {
