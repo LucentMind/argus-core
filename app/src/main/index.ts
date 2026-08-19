@@ -2900,7 +2900,7 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.skillsList, () => skillsPayload())
   ipcMain.handle(IPC.skillsDeleteUser, (_e, name: string) => {
-    deleteUserSkill(argusHome, name)
+    deleteUserSkill(argusHome, name, { db })
     return skillsPayload()
   })
   ipcMain.handle(IPC.skillsRead, (_e, name: string) => readSkill(argusHome, name))
@@ -2915,7 +2915,7 @@ function registerIpc(): void {
     }
   )
   ipcMain.handle(IPC.skillsFork, async (_e, name: string, newName?: string) => {
-    const created = forkSkill(argusHome, name, newName, await identity())
+    const created = forkSkill(argusHome, name, newName, await identity(), { db })
     const payload = skillsPayload()
     // Mirrors `skillsWrite` above, and `hivemindClaimReference`'s `refsyncChanged` below: a fork
     // changes the tier of a skill OTHER windows are showing, and the editor window decides
