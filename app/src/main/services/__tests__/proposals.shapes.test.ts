@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listProposals, listArchivedProposals, proposalBodyPath } from '../proposals'
 import { proposalsDir, proposalsArchiveDir } from '../paths'
 
@@ -52,6 +52,22 @@ describe('pending scan', () => {
   it('ignores a directory with no SKILL.md', () => {
     fs.mkdirSync(path.join(proposalsDir(home), 'not-a-proposal'), { recursive: true })
     expect(listProposals(home)).toHaveLength(0)
+  })
+
+  // A directory named `…​.md` reads as flat by name, so proposalBodyPath resolves it to the
+  // directory itself and both accept and reject throw EISDIR — listing it would wedge the inbox
+  // with an item that can be neither accepted nor rejected.
+  it('refuses a directory whose name ends in .md, while a normal directory still lists', () => {
+    const dir = proposalsDir(home)
+    writeDirProposal(dir, 'seeded-wedge.md', PENDING_FM, 'wedge body\n')
+    writeDirProposal(dir, 'seeded-ok', PENDING_FM, 'ok body\n')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(listProposals(home).map((p) => p.file)).toEqual(['seeded-ok'])
+      expect(warn.mock.calls.flat().join(' ')).toContain('[proposals]')
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('still lists a flat proposal alongside a directory one', () => {
