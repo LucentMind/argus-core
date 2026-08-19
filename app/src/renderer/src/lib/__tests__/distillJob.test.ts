@@ -36,14 +36,6 @@ describe('distillMenuLabel', () => {
     )
   })
 
-  it('appends the NULL-omitting cost readout after itemCount for a done job that recorded usage', () => {
-    expect(
-      distillMenuLabel(
-        job({ state: 'done', itemCount: 3, turnCount: 12, toolCallCount: 34, costUsd: 1.2 })
-      )
-    ).toBe('Re-distill · 3 items · 12 turns · 34 tool calls · $1.20')
-  })
-
   it('keeps the label unchanged from today when a done job recorded no usage (all fields NULL)', () => {
     expect(distillMenuLabel(job({ state: 'done', itemCount: 3 }))).toBe('Re-distill · 3 items')
     expect(distillMenuLabel(job({ state: 'done', itemCount: 0 }))).toBe(
@@ -54,6 +46,32 @@ describe('distillMenuLabel', () => {
   it('reads plain Re-distill after a failure or a cancel', () => {
     expect(distillMenuLabel(job({ state: 'failed' }))).toBe('Re-distill')
     expect(distillMenuLabel(job({ state: 'cancelled' }))).toBe('Re-distill')
+  })
+})
+
+describe('distillMenuLabel — no usage readout', () => {
+  it('omits turns, tool calls and cost on a done job that recorded them', () => {
+    expect(
+      distillMenuLabel(
+        job({ state: 'done', itemCount: 3, turnCount: 14, toolCallCount: 13, costUsd: 0.42 })
+      )
+    ).toBe('Re-distill · 3 items')
+  })
+
+  it('omits them on a zero-item done job too', () => {
+    expect(
+      distillMenuLabel(
+        job({ state: 'done', itemCount: 0, turnCount: 14, toolCallCount: 13, costUsd: 0.42 })
+      )
+    ).toBe('Re-distill · nothing to distill')
+  })
+
+  it('leaves distillCostLine itself intact — DistillChip still uses it', () => {
+    expect(
+      distillCostLine(
+        job({ state: 'done', itemCount: 3, turnCount: 14, toolCallCount: 13, costUsd: 0.42 })
+      )
+    ).toBe('14 turns · 13 tool calls · $0.42')
   })
 })
 
