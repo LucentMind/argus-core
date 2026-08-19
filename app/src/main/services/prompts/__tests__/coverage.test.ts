@@ -54,6 +54,14 @@ const NOT_PROMPTS: { text: string; why: string }[] = [
     text: 'Unknown evidence_id:',
     why: 'Security decision: identical for "missing" and "another case\'s id" so an agent cannot probe ids across cases. Must not be overridable.'
   },
+  {
+    text: 'Unknown session ${sessionIdArg} for case ${caseSlug}',
+    why: "Security decision, same class as 'Unknown evidence_id:' above: read_session_transcript reports a session that belongs to ANOTHER case identically to one that does not exist, so the session-id space cannot be probed for cross-case existence. Must not be overridable."
+  },
+  {
+    text: 'Invalid session id:',
+    why: 'Argument-shape error from read_session_transcript\'s integer guard, same class as "must be a number" below — it rejects a non-integer id before it can reach any fs path join, and carries no instruction to the model.'
+  },
   { text: 'lines ${r.from}', why: 'Data framing for the payload underneath.' },
   {
     text: "${header}\\n${shown.join('\\n')}${tail}",
