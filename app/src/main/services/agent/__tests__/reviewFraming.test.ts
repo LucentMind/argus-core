@@ -6,7 +6,13 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { createSession } from '../sessionStore'
-import { reviewSubagentSupport, driverForSession, resolveReviewFraming } from '../reviewFraming'
+import {
+  reviewSubagentSupport,
+  driverForSession,
+  resolveReviewFraming,
+  sessionHistoryOrphaned,
+  type SessionDriverDeps
+} from '../reviewFraming'
 import type { AgentDriver, DriverSession } from '../driver'
 import { CLAUDE_TOOL_TAXONOMY } from '../risk'
 import { PERMISSION_MODES } from '../../../../shared/settings'
@@ -140,5 +146,61 @@ describe('resolveReviewFraming', () => {
       s.id
     )
     expect(framing.support).toBe('promptable')
+  })
+})
+
+describe('sessionHistoryOrphaned', () => {
+  const claude = { kind: 'claude-agent-sdk' } as never
+  const copilot = { kind: 'github-copilot' } as never
+  const deps = (db: DatabaseSync, driver = claude): SessionDriverDeps =>
+    ({ db, resolveDriver: () => driver, driverForInstance: () => driver }) as never
+
+  function seed(
+    db: DatabaseSync,
+    row: { turns: number; cursor: string | null; kind: string; instance: string | null }
+  ): number {
+    const now = new Date().toISOString()
+    const r = db
+      .prepare(
+        `INSERT INTO sessions (case_id, title, turn_count, driver_cursor, driver_kind, instance_id, created_at, updated_at)
+         VALUES (1, '', ?, ?, ?, ?, ?, ?)`
+      )
+      .run(row.turns, row.cursor, row.kind, row.instance, now, now)
+    return Number(r.lastInsertRowid)
+  }
+
+  it('is false for a healthy session with a matching cursor', () => {
+    const id = seed(db, { turns: 3, cursor: 'abc', kind: 'claude-agent-sdk', instance: null })
+    expect(sessionHistoryOrphaned(deps(db), id)).toBe(false)
+  })
+
+  it('is true for a freshly imported session (history, no cursor)', () => {
+    const id = seed(db, { turns: 3, cursor: null, kind: 'claude-agent-sdk', instance: null })
+    expect(sessionHistoryOrphaned(deps(db), id)).toBe(true)
+  })
+
+  it('is true after a driver-kind switch', () => {
+    const id = seed(db, { turns: 3, cursor: 'abc', kind: 'claude-agent-sdk', instance: null })
+    expect(sessionHistoryOrphaned(deps(db, copilot), id)).toBe(true)
+  })
+
+  it('is true when the cursor belongs to another provider instance', () => {
+    const id = seed(db, { turns: 3, cursor: 'abc', kind: 'claude-agent-sdk', instance: 'inst-a' })
+    // Deviation from the brief's literal fixture: `sessionCursor`'s instance guard compares
+    // against THIS session's own stored `instance_id`, so feeding it back via
+    // `sessionProvider` (as `deps(db)` above would) is always self-consistent and can never
+    // trip the guard — no implementation that resolves through `driverForSession` could ever
+    // observe a mismatch that way. The one place a pinned instance genuinely cannot be
+    // trusted is when this call has no way to resolve that specific instance at all
+    // (`driverForInstance` absent, matching the documented AgentService fallback for
+    // un-wired tests) — the session is pinned, but the driver actually used is the live
+    // default, a different account than whatever produced any existing cursor.
+    const unresolvable = { db, resolveDriver: () => claude } as never
+    expect(sessionHistoryOrphaned(unresolvable, id)).toBe(true)
+  })
+
+  it('is false for a session that has no history to lose', () => {
+    const id = seed(db, { turns: 0, cursor: null, kind: 'claude-agent-sdk', instance: null })
+    expect(sessionHistoryOrphaned(deps(db), id)).toBe(false)
   })
 })
