@@ -227,7 +227,8 @@ describe('ProposalDetail: accepted pane', () => {
     caseSlug: 'NAV-100',
     date: '2026-07-10T12:00:00.000Z',
     type: 'skill-edit' as const,
-    target: { kind: 'skill' as const, name: 'rca' }
+    target: { kind: 'skill' as const, name: 'rca' },
+    hasExec: false
   }
 
   it('shows the confirmation with Share to HiveMind when the repo is set', () => {

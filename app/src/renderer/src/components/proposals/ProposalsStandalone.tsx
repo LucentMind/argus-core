@@ -145,10 +145,7 @@ export function ProposalsStandalone({
       isNew: false,
       locked: false,
       previouslyReviewed: false,
-      // AcceptedEntry (session-local accept record) does not carry `files` — main's accept
-      // response only returns the target it wrote, not the sibling list. The exec chip already
-      // did its job pre-accept (this row now also wears "accepted"); no signal is lost.
-      hasExec: false
+      hasExec: a.hasExec
     }))
   ].sort(byCase)
 
@@ -274,7 +271,8 @@ export function ProposalsStandalone({
           caseSlug: p.caseSlug,
           date: p.date,
           type: p.type,
-          target: r.accepted
+          target: r.accepted,
+          hasExec: (p.files ?? []).some((f) => f.exec)
         }
       ])
       pruneEditing(p.file)
