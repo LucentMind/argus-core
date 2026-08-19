@@ -1439,3 +1439,30 @@ describe('needsDistillRun', () => {
     expect(needsDistillRun(db, q, 'case-a')).toBe(true)
   })
 })
+
+describe('listRuns', () => {
+  it("returns the case's jobs newest first, and no other case's or kind's", async () => {
+    const { q } = makeQueue()
+    createCase(db, home, { slug: 'a', title: 'A' })
+    createCase(db, home, { slug: 'b', title: 'B' })
+    const first = q.enqueue('a')
+    await q.idle()
+    const second = q.enqueue('a')
+    await q.idle()
+    q.enqueue('b')
+    await q.idle()
+    db.prepare(
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at, kind)
+       VALUES ('a', 'done', '{}', '2026-01-01T00:00:00.000Z', 'reject-digest')`
+    ).run()
+
+    const runs = q.listRuns('a')
+    expect(runs.map((r) => r.id)).toEqual([second.id, first.id])
+  })
+
+  it('returns an empty array for a case that was never distilled', () => {
+    const { q } = makeQueue()
+    createCase(db, home, { slug: 'c', title: 'C' })
+    expect(q.listRuns('c')).toEqual([])
+  })
+})

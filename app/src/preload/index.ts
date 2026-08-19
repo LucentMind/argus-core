@@ -137,7 +137,12 @@ import type {
   PanelRect,
   ExternalAppInfo
 } from '../shared/panels'
-import type { DistillJobRow, DistillStatusPayload, RejectDigest } from '../shared/distill'
+import type {
+  DistillJobRow,
+  DistillRunDetail,
+  DistillStatusPayload,
+  RejectDigest
+} from '../shared/distill'
 import type {
   RcaJobRow,
   RcaStatusPayload,
@@ -404,6 +409,8 @@ const argus = {
     retry: (jobId: number): Promise<DistillJobRow> => invoke(IPC.distillRetry, jobId),
     redistill: (slug: string): Promise<DistillJobRow> => invoke(IPC.distillRedistill, slug),
     cancel: (jobId: number): Promise<DistillJobRow> => invoke(IPC.distillCancel, jobId),
+    runs: (slug: string): Promise<DistillJobRow[]> => invoke(IPC.distillRuns, slug),
+    run: (jobId: number): Promise<DistillRunDetail | null> => invoke(IPC.distillRun, jobId),
     onChanged: (cb: (p: DistillStatusPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: DistillStatusPayload): void => cb(p)
       ipcRenderer.on(IPC.distillChanged, listener)

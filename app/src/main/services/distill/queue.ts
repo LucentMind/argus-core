@@ -363,6 +363,18 @@ export class DistillQueue {
     return r ? toRow(r) : null
   }
 
+  /**
+   * Every CASE job for a slug, newest first — the run picker's list. Unlike `statusFor` this
+   * deliberately INCLUDES dry rows: comparing a real run against a dry one is the whole point
+   * of the picker. `kind='case'` still applies; a reject-digest row is not this case's history.
+   */
+  listRuns(slug: string): DistillJobRow[] {
+    const rows = this.deps.db
+      .prepare(`SELECT * FROM distill_jobs WHERE case_slug = ? AND kind='case' ORDER BY id DESC`)
+      .all(slug) as unknown as JobDbRow[]
+    return rows.map(toRow)
+  }
+
   /** Test helper: resolves once nothing is queued or running. See class docs for race analysis. */
   idle(): Promise<void> {
     if (!this.running && !this.nextQueued()) return Promise.resolve()

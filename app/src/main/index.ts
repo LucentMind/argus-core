@@ -304,6 +304,7 @@ import { caseDistillPromptHash } from './services/distill/promptHash'
 import { runCaseDistillPipeline } from './services/distill/v3/pipeline'
 import { caseDistillPipelineHash } from './services/distill/v3/promptHash'
 import { readRejectDigest } from './services/distill/rejectDigest'
+import { readRunDetail } from './services/distill/runDetail'
 import { RcaJobs } from './services/rca/jobs'
 import { postRcaReport } from './services/rca/post'
 import { assembleRcaInput } from './services/rca/input'
@@ -2702,6 +2703,8 @@ function registerIpc(): void {
     reconcileAndEnqueue(distillQueue, slug)
   )
   ipcMain.handle(IPC.distillCancel, (_e, jobId: number) => distillQueue.cancel(jobId))
+  ipcMain.handle(IPC.distillRuns, (_e, slug: string) => distillQueue.listRuns(slug))
+  ipcMain.handle(IPC.distillRun, (_e, jobId: number) => readRunDetail(db, jobId))
 
   // — defect corpus —
   ipcMain.handle(IPC.defectsSearch, (_e, req: CorpusSearchInput) => defectCorpus.searchAll(req))
