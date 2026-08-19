@@ -39,6 +39,11 @@ const SCANNED = [
 /** Files whose tool RETURNS and THROWS also reach the model, not just their long prose. */
 const RETURN_SCANNED = [
   'app/src/main/services/agent/nativeTools.ts',
+  // Not a tool, but the same class: everything this file returns is prefixed to a driver send
+  // and read by the model. Its preamble is the untrusted-content boundary for imported
+  // transcripts — the most security-load-bearing string the history-replay feature has — and it
+  // was in neither list until this entry.
+  'app/src/main/services/agent/historyDigest.ts',
   'app/src/main/services/memory.ts',
   'app/src/main/services/agent/reviewWrites.ts',
   'app/src/main/services/agent/ciLogs.ts'
@@ -55,6 +60,18 @@ const NOT_PROMPTS: { text: string; why: string }[] = [
     why: 'Security decision: identical for "missing" and "another case\'s id" so an agent cannot probe ids across cases. Must not be overridable.'
   },
   { text: 'lines ${r.from}', why: 'Data framing for the payload underneath.' },
+  {
+    text: 'The conversation below happened earlier in this chat',
+    why: "Security decision: historyDigest.ts's untrusted-content preamble is the boundary between bundle-authored bytes and the model treating them as instructions, so it is a hard-coded constant and deliberately NOT operator-overridable — a registry entry would make it reword-able from the Prompts surface, which is exactly what must not be possible. Contrast tool-feedback.read_session_transcript.framing, which IS registered: that one is a label on the same data and may be reworded. This entry is the waiver, not an oversight."
+  },
+  {
+    text: 'earlier turns omitted',
+    why: "historyDigest.ts's omission marker, both arms (with and without the read_session_transcript recovery route, chosen by whether this session's driver registers native tools at all). Hard-coded alongside the preamble for the same reason: an operator-reworded marker could tell the model elided turns are recoverable on a driver where they are not, which is the defect the two arms exist to prevent."
+  },
+  {
+    text: '${preamble}${OPEN_TAG}',
+    why: 'historyDigest.ts gluing its preamble, fence tags, omission note and rendered body together — pure interpolation, no words of its own, same class as the grep_lines header/hits/cap-notice glue exemption below.'
+  },
   {
     text: "${header}\\n${shown.join('\\n')}${tail}",
     why: 'grep_lines gluing its header, hit lines and cap notice together — pure interpolation, no words of its own.'
