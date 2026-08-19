@@ -201,6 +201,47 @@ describe('ProposalDetail: pending', () => {
     expect(screen.queryByRole('button', { name: 'Split view' })).not.toBeInTheDocument()
     expect(screen.queryByText('→ rca')).not.toBeInTheDocument()
   })
+
+  // F3: `writeProposal` refuses `files` for non-skill types, but `listProposals` attaches
+  // `files` to any directory-shaped proposal regardless of `type` (a hand-seeded directory is
+  // reachable that way) — a selected `.sh` sibling of a `case-summary` proposal must still
+  // render as CODE, not through the markdown branch that keys on `p.type` alone.
+  it('a case-summary proposal with a selected script sibling renders CODE, not markdown', () => {
+    renderDetail({
+      proposal: {
+        ...pending,
+        type: 'case-summary',
+        content: '## Summary\nBody text\n',
+        files: [
+          { path: 'scripts/collect.sh', content: '#!/bin/sh\necho hi\n', current: null, exec: true }
+        ]
+      },
+      selectedPath: 'scripts/collect.sh'
+    })
+    expect(screen.queryByRole('heading', { name: 'Summary' })).not.toBeInTheDocument()
+    expect(
+      screen.getByText(
+        (_, node) => node?.tagName === 'PRE' && node.textContent === '#!/bin/sh\necho hi\n'
+      )
+    ).toBeInTheDocument()
+  })
+
+  // F3, other half: the BODY of that same case-summary proposal still renders as markdown —
+  // the fix must not turn off markdown rendering for case-summary altogether.
+  it('a case-summary proposal still renders its body as markdown when the body is selected', () => {
+    renderDetail({
+      proposal: {
+        ...pending,
+        type: 'case-summary',
+        content: '## Summary\nBody text\n',
+        files: [
+          { path: 'scripts/collect.sh', content: '#!/bin/sh\necho hi\n', current: null, exec: true }
+        ]
+      },
+      selectedPath: 'SKILL.md'
+    })
+    expect(screen.getByRole('heading', { name: 'Summary' })).toBeInTheDocument()
+  })
 })
 
 describe('ProposalDetail: accepted pane', () => {
@@ -299,6 +340,34 @@ function renderFilesDetail(over: Record<string, unknown> = {}): {
   return { onSelectPath }
 }
 
+describe('ProposalDetail: new-file chip (F4)', () => {
+  // The chip used to follow the selected file, which could show "Skill · edit", "→
+  // collect-logs" and "new file" together for a skill-edit proposal that only adds a new
+  // sibling — contradicting the queue row. User-decided: hide the chip entirely once the
+  // proposal carries files; the rail's own per-entry "new" marker is the signal there.
+  it('is absent for a files-carrying proposal even though the body is new', () => {
+    renderFilesDetail()
+    expect(screen.queryByText('new file')).not.toBeInTheDocument()
+  })
+
+  it('is absent for a files-carrying proposal even when a new sibling is selected', () => {
+    renderFilesDetail({ selectedPath: 'scripts/collect.sh' })
+    expect(screen.queryByText('new file')).not.toBeInTheDocument()
+  })
+
+  // For a flat proposal (no `files`), the chip keeps its pre-increment meaning: `p.current ===
+  // null`, which for a flat proposal is the same as `sel.current === null`.
+  it('still shows for a flat proposal whose target is new', () => {
+    renderDetail({ proposal: { ...pending, files: undefined, current: null } })
+    expect(screen.getByText('new file')).toBeInTheDocument()
+  })
+
+  it('still stays absent for a flat proposal whose target already exists', () => {
+    renderDetail({ proposal: { ...pending, files: undefined } })
+    expect(screen.queryByText('new file')).not.toBeInTheDocument()
+  })
+})
+
 describe('ProposalDetail with sibling files', () => {
   it('renders the rail', () => {
     renderFilesDetail()
@@ -349,6 +418,34 @@ describe('ProposalDetail with sibling files', () => {
   // plain `<pre>` line renderers that cannot eat a `#` as a heading, so there is no lossy-render
   // hazard on that path, and routing it through CodeView would silently drop the diff and the
   // view bar.
+  // F1: `exec` is also true for a `#!`-shebang file regardless of extension — a sibling named
+  // like Markdown (e.g. a hook template) but starting with a shebang must still render as CODE,
+  // not through MessageView, or the shebang line becomes an `<h1>` and indentation collapses.
+  it('renders an exec sibling as CODE even when its path looks like Markdown', () => {
+    renderFilesDetail({
+      selectedPath: 'templates/hook.md',
+      proposal: {
+        ...WITH_FILES,
+        files: [
+          {
+            path: 'templates/hook.md',
+            content: '#!/bin/sh\necho hook\n',
+            current: null,
+            exec: true
+          }
+        ]
+      }
+    })
+    // A markdown pass would turn "#!/bin/sh" into an `<h1>`; the header's own `<h2>` title is
+    // unrelated and still present, so this checks specifically for a level-1 heading.
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
+    expect(
+      screen.getByText(
+        (_, node) => node?.tagName === 'PRE' && node.textContent === '#!/bin/sh\necho hook\n'
+      )
+    ).toBeInTheDocument()
+  })
+
   it('shows a MODIFIED sibling as a diff, not CodeView, with the view bar present', () => {
     renderFilesDetail({
       selectedPath: 'scripts/collect.sh',

@@ -16,7 +16,14 @@ afterEach(() => {
 function install(name: string, files: Record<string, string>): void {
   const dir = path.join(userSkillsDir(home), name)
   fs.mkdirSync(dir, { recursive: true })
-  fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: x\ndescription: d\n---\n')
+  // Starts with `#!` so the `if (r === 'SKILL.md') continue` skip in `executableAssetsOf` is
+  // actually pinned by the "never counts SKILL.md itself" test below — a body without a shebang
+  // or exec extension would pass that test for the wrong reason (isExecutableAsset already says
+  // false), leaving the skip line free to be deleted unnoticed.
+  fs.writeFileSync(
+    path.join(dir, 'SKILL.md'),
+    '#!/usr/bin/env bash\n---\nname: x\ndescription: d\n---\n'
+  )
   for (const [rel, content] of Object.entries(files)) {
     const abs = path.join(dir, rel)
     fs.mkdirSync(path.dirname(abs), { recursive: true })

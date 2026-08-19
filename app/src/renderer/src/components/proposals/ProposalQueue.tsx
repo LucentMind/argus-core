@@ -1,6 +1,5 @@
 import { Fragment } from 'react'
 import { Check, Zap, BookOpen, FileText, type LucideIcon } from 'lucide-react'
-import { Chip } from '../ui'
 import { PROPOSAL_TYPE_LABELS } from '../../../../shared/proposals'
 import type { ProposalType } from '../../../../shared/proposals'
 
@@ -181,7 +180,11 @@ export function ProposalQueue({
                     {e.isNew && <QueueBadge tone="review">new</QueueBadge>}
                     {e.locked && <QueueBadge tone="defect">pack</QueueBadge>}
                     {e.previouslyReviewed && <QueueBadge tone="neutral">seen before</QueueBadge>}
-                    {e.hasExec && <Chip tone="review">exec</Chip>}
+                    {/* Matches the row's own badge species — every other marker here is a
+                        QueueBadge (rounded-full, 10px, borderless-background); `Chip` is
+                        rounded-r1/uppercase/bg-hair-50 with taller padding and reads as a
+                        different, row-height-adding element (user-directed). */}
+                    {e.hasExec && <QueueBadge tone="review">exec</QueueBadge>}
                   </span>
                 </span>
               </button>

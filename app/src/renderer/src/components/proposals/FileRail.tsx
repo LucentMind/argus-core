@@ -40,7 +40,11 @@ export function FileRail({
     <div
       role="tablist"
       aria-label="Files in this proposal"
-      className="flex shrink-0 flex-wrap gap-1 border-b border-hair px-5 py-2"
+      // `max-h-24 overflow-y-auto`: MAX_ASSET_FILES is 32, so the rail (BODY_PATH + up to 32
+      // siblings) can wrap to a ~200px header on a pane whose diff area is the point. Caps the
+      // rail and lets it scroll instead. jsdom does not lay out flexbox, so this cannot be
+      // asserted in a test — needs a live eyeball.
+      className="flex max-h-24 shrink-0 flex-wrap gap-1 overflow-y-auto border-b border-hair px-5 py-2"
     >
       {entries.map((e) => {
         const isNew = e.current === null

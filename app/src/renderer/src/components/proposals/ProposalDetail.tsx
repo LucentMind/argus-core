@@ -145,7 +145,18 @@ export function ProposalDetail({
   const sel = selectedFile ?? { path: BODY_PATH, content: p.content, current: p.current }
   const selIsBody = sel.path === BODY_PATH
 
-  const isMarkdown = p.type === 'case-summary'
+  // A sibling is Markdown only if its path says so AND it isn't executable — `exec` is also true
+  // for a `#!`-shebang file regardless of extension (isExecutableAsset, shared/skillAssets.ts),
+  // so a `.md`-named script must still route to CodeView, not MessageView, or its shebang line
+  // renders as an `<h1>` and its indentation collapses. The body always renders as Markdown.
+  const renderAsMarkdown = selIsBody ? true : isMarkdownPath(sel.path) && !selectedFile?.exec
+  // `writeProposal` refuses `files` for non-skill types, so the agent write path can never reach
+  // this branch with a sibling selected — but the app also supports proposals hand-seeded into
+  // `proposals/` externally, and `listProposals` attaches `files` for any directory-shaped
+  // proposal regardless of `type`. Keying purely on `p.type` would still route a selected `.sh`
+  // sibling of a hand-seeded `case-summary` through MessageView, so this also has to consult
+  // which file is actually selected (`renderAsMarkdown`, which already carries the F1 exec gate).
+  const isMarkdown = p.type === 'case-summary' && renderAsMarkdown
   // A new file has no `current` to diff against, so it gets neither a diff nor the view toggle
   // over it (user-directed, 2026-08-08) — every mode would have shown the same single column of
   // added lines. Same shape as the case-summary branch: rendered content, no view bar.
@@ -153,8 +164,6 @@ export function ProposalDetail({
   const isEditing = editValue !== null
   const showViewBar = !isMarkdown && !isNewFile && !isEditing
   const stat = !isMarkdown && !isNewFile ? diffStat(sel.current, sel.content) : null
-  // A sibling is Markdown only if its path says so; the body always is.
-  const renderAsMarkdown = selIsBody ? true : isMarkdownPath(sel.path)
 
   return (
     // `min-w-0`: this is a flex item of the surface-card row in ProposalsStandalone
@@ -169,7 +178,13 @@ export function ProposalDetail({
           <Chip tone="neutral">{PROPOSAL_TYPE_LABELS[p.type]}</Chip>
           {!isMarkdown && <Chip tone="neutral">→ {p.target}</Chip>}
           <span>{new Date(p.date).toLocaleString()}</span>
-          {sel.current === null && <Chip tone="review">new file</Chip>}
+          {/* Hidden entirely for a files-carrying proposal (user-directed): the rail's own
+              per-entry "new" marker is the signal there, and following the selected file here
+              could show "Skill · edit", "→ collect-logs" and "new file" together for a
+              skill-edit proposal that only adds a new sibling — contradicting the queue row,
+              which is right (it's an edit). For a flat proposal this keeps its pre-increment
+              meaning: `sel.current` is `p.current` when there is no rail to select against. */}
+          {!hasFiles && sel.current === null && <Chip tone="review">new file</Chip>}
           {p.previouslyReviewed && <Chip tone="review">previously reviewed</Chip>}
           {p.locked && <Chip tone="review">ships with a pack</Chip>}
         </div>

@@ -153,11 +153,20 @@ export function ProposalsStandalone({
     selectedFile !== null && entries.some((e) => e.file === selectedFile)
       ? selectedFile
       : (entries[0]?.file ?? null)
-  // A recorded selection only applies to the proposal it was made against — once
-  // `effectiveSelected` moves on to a different file, this falls back to BODY_PATH rather than
-  // carrying a sibling's path onto a record that may not even have that sibling.
-  const selectedPath = pathSel && pathSel.file === effectiveSelected ? pathSel.path : BODY_PATH
   const selectedPending = pendingSorted.find((p) => p.file === effectiveSelected) ?? null
+  // A recorded selection only applies to the proposal it was made against, AND only to a path
+  // that record still carries — a supersede flow (accept archives a proposal, a same-day
+  // re-distill regenerates the identical filename with a different sibling set: writeProposal
+  // only uniquifies against files still present) can leave `pathSel` naming a sibling the fresh
+  // record no longer has, even though `pathSel.file === effectiveSelected` still holds. Without
+  // the second check, `selectedPath` would name a vanished path — ProposalDetail falls back to
+  // rendering the body while the edit buffer stays keyed to the invisible path, so Edit opens an
+  // empty textarea and Accept fails in main with "edited file not in the proposal".
+  const selPathOk =
+    pathSel?.path === BODY_PATH ||
+    (selectedPending?.files ?? []).some((f) => f.path === pathSel?.path)
+  const selectedPath =
+    pathSel && pathSel.file === effectiveSelected && selPathOk ? pathSel.path : BODY_PATH
   // Pending wins over a same-file accepted row (see acceptedVisible above) — this is
   // belt-and-suspenders since the dedupe already keeps them out of `entries` together, but it
   // keeps this derivation correct on its own terms too.
