@@ -24,7 +24,10 @@ const SCRIPT = '#!/bin/sh\necho hi\n'
 function installUserSkill(name: string): void {
   const dir = path.join(userSkillsDir(home), name)
   fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true })
-  fs.writeFileSync(path.join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: d\n---\n# ${name}\n`)
+  fs.writeFileSync(
+    path.join(dir, 'SKILL.md'),
+    `---\nname: ${name}\ndescription: d\n---\n# ${name}\n`
+  )
   fs.writeFileSync(path.join(dir, 'scripts', 'collect.sh'), SCRIPT)
   recordAssetReviews(db, name, [{ relPath: 'scripts/collect.sh', content: SCRIPT }], {
     origin: 'proposal',
@@ -39,7 +42,10 @@ function installUserSkill(name: string): void {
 function installHivemindSkill(name: string): void {
   const dir = path.join(hivemindSkillsDir(home), name)
   fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true })
-  fs.writeFileSync(path.join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: d\n---\n# ${name}\n`)
+  fs.writeFileSync(
+    path.join(dir, 'SKILL.md'),
+    `---\nname: ${name}\ndescription: d\n---\n# ${name}\n`
+  )
   fs.writeFileSync(path.join(dir, 'scripts', 'collect.sh'), SCRIPT)
   recordAssetReviews(db, name, [{ relPath: 'scripts/collect.sh', content: SCRIPT }], {
     origin: 'proposal',
