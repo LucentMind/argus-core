@@ -61,3 +61,20 @@ describe('removePendingProposal', () => {
     expect(fs.existsSync(path.join(proposalsDir(home), file))).toBe(false)
   })
 })
+
+// The `editedFiles` content-bearing scenarios — edited/<relPath> written beside the untouched
+// original, `edited_files:` frontmatter sorted, and a `..`-bearing key rejected — can only be
+// driven by passing editedFiles into `archive`, and nothing does yet: `acceptProposal`'s opts
+// has no `editedFiles` field, and `rejectProposal` has no way to carry edits at all. Task 7
+// adds that passthrough. `archive` is module-private on purpose, so those three cases are
+// deferred to whichever test lands alongside Task 7's wiring rather than exported here just to
+// reach them. This covers what IS reachable today through the public API.
+describe('archive: editedFiles (no caller passes it yet)', () => {
+  it('writes no edited/ directory and no edited_files: line when nothing is edited', () => {
+    const file = dirProposal()
+    rejectProposal(home, file, { tag: 'wrong' })
+    const archived = path.join(proposalsArchiveDir(home), file)
+    expect(fs.existsSync(path.join(archived, 'edited'))).toBe(false)
+    expect(fs.readFileSync(path.join(archived, 'SKILL.md'), 'utf8')).not.toContain('edited_files:')
+  })
+})
