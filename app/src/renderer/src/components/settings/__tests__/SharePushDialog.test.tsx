@@ -169,3 +169,51 @@ describe('SharePushDialog', () => {
     expect(screen.getByRole('button', { name: 'Open pull request' })).toBeEnabled()
   })
 })
+
+function stubArgusWithExecutables(paths: string[]): { pushExecutables: ReturnType<typeof vi.fn> } {
+  const pushExecutables = vi.fn(async () => paths)
+  ;(window as never as { argus: unknown }).argus = {
+    hivemind: {
+      pushPreview: vi.fn(async () => 'PREVIEW BODY'),
+      push: vi.fn(async () => ({
+        ok: true as const,
+        prUrl: 'https://pr/1',
+        outcome: 'created' as const
+      })),
+      pushStatus: vi.fn(async () => ({ state: 'none' as const })),
+      pushExecutables
+    },
+    openExternal: vi.fn()
+  }
+  return { pushExecutables }
+}
+
+describe('executable warning', () => {
+  it('names the executables being shared', async () => {
+    stubArgusWithExecutables(['scripts/collect.sh'])
+    render(<SharePushDialog kind="skill" name="collect-logs" onClose={vi.fn()} />)
+    expect(await screen.findByText(/Sharing 1 executable file/)).toBeInTheDocument()
+    expect(screen.getByText('scripts/collect.sh')).toBeInTheDocument()
+  })
+
+  it('pluralises and lists every path', async () => {
+    stubArgusWithExecutables(['bin/run', 'scripts/collect.sh'])
+    render(<SharePushDialog kind="skill" name="collect-logs" onClose={vi.fn()} />)
+    expect(await screen.findByText(/Sharing 2 executable files/)).toBeInTheDocument()
+    expect(screen.getByText('bin/run, scripts/collect.sh')).toBeInTheDocument()
+  })
+
+  it('shows nothing for a skill with no executables', async () => {
+    stubArgusWithExecutables([])
+    render(<SharePushDialog kind="skill" name="prose-only" onClose={vi.fn()} />)
+    expect(await screen.findByText('PREVIEW BODY')).toBeInTheDocument()
+    expect(screen.queryByText(/executable file/)).not.toBeInTheDocument()
+  })
+
+  it('does not query for a reference', async () => {
+    const { pushExecutables } = stubArgusWithExecutables(['scripts/collect.sh'])
+    render(<SharePushDialog kind="reference" name="notes.md" onClose={vi.fn()} />)
+    expect(await screen.findByText('PREVIEW BODY')).toBeInTheDocument()
+    expect(pushExecutables).not.toHaveBeenCalled()
+  })
+})

@@ -25,7 +25,7 @@ import type {
   PushStatus
 } from '../../shared/hivemind'
 import { PUSHABLE_TIERS } from '../../shared/trustTiers'
-import { isSkillTempDir } from '../../shared/skillAssets'
+import { isExecutableAsset, isSkillTempDir } from '../../shared/skillAssets'
 
 const execFileAsync = promisify(execFile)
 
@@ -58,6 +58,63 @@ const GITHUB_SHORTHAND = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 /** 'org/name' → GitHub https URL; anything else (URL, local path) is used verbatim. */
 export function cloneUrl(repo: string): string {
   return GITHUB_SHORTHAND.test(repo) ? `https://github.com/${repo}.git` : repo
+}
+
+// `isExecutableAsset`'s content check only needs to see whether a file starts with '#!' — it
+// never looks past those two characters. A user-tier skill directory can legitimately carry
+// large binaries (HiveMind installs and imports carry PNGs and zips), so decoding a whole file
+// as utf8 just to test its first two characters would be pure waste on exactly those files.
+// This many bytes is a generous margin over the 2 the predicate needs, cheap even when unused.
+const SHEBANG_PROBE_BYTES = 64
+
+/** First `SHEBANG_PROBE_BYTES` bytes of `file`, decoded as utf8 — enough for `isExecutableAsset`
+ *  to see a shebang without paying to read the rest of a large sibling file. */
+function readPrefix(file: string): string {
+  const fd = fs.openSync(file, 'r')
+  try {
+    const buf = Buffer.alloc(SHEBANG_PROBE_BYTES)
+    const n = fs.readSync(fd, buf, 0, SHEBANG_PROBE_BYTES, 0)
+    return buf.toString('utf8', 0, n)
+  } finally {
+    fs.closeSync(fd)
+  }
+}
+
+/**
+ * The executable siblings of a user-tier skill, as sorted relative paths.
+ *
+ * Sharing a script with the team is a different act from sharing prose, so the push confirm
+ * names them (spec §8). Uses the same `isExecutableAsset` predicate as the review rail and the
+ * run gate — a second notion of "executable" would disagree exactly once, and it would be here.
+ */
+export function executableAssetsOf(argusHome: string, name: string): string[] {
+  const root = path.join(userSkillsDir(argusHome), name)
+  const out: string[] = []
+  const walk = (rel: string): void => {
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true })
+    } catch {
+      return // no such skill, or unreadable — "nothing to warn about" is the honest answer
+    }
+    for (const e of entries) {
+      const r = rel ? `${rel}/${e.name}` : e.name
+      if (e.isDirectory()) {
+        walk(r)
+        continue
+      }
+      if (r === 'SKILL.md') continue
+      let prefix = ''
+      try {
+        prefix = readPrefix(path.join(root, r))
+      } catch {
+        prefix = '' // extension alone still decides for most files
+      }
+      if (isExecutableAsset(r, prefix)) out.push(r)
+    }
+  }
+  walk('')
+  return out.sort()
 }
 
 /** trust_tier of a local reference file; '' when the file is absent or tier-less. */
