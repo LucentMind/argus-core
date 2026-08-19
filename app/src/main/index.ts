@@ -3205,14 +3205,14 @@ function registerIpc(): void {
    *  only where the user's save dialog points — nothing is uploaded. */
   ipcMain.handle(
     IPC.devPromptsExportDistillEval,
-    async (): Promise<DistillEvalExportResult | null> => {
+    async (_e, jobIds?: number[]): Promise<DistillEvalExportResult | null> => {
       assertDevTools(devTools)
       const r = await dialog.showSaveDialog({
         defaultPath: `distill-eval-${new Date().toISOString().slice(0, 10)}.ndjson`,
         filters: [{ name: 'NDJSON', extensions: ['ndjson'] }]
       })
       if (r.canceled || !r.filePath) return null
-      return exportEvalBundle(db, argusHome, r.filePath, app.getVersion())
+      return exportEvalBundle(db, argusHome, r.filePath, app.getVersion(), { jobIds })
     }
   )
 

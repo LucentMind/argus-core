@@ -301,7 +301,7 @@ describe('exportEvalBundle', () => {
     reviewedItem(id, 'rejected', { tag: 'overgeneric' })
     const dest = path.join(home, 'bundle.ndjson')
     const res = exportEvalBundle(db, home, dest, '1.0.0')
-    expect(res).toMatchObject({ path: dest, exported: 1, skipped: [] })
+    expect(res).toMatchObject({ path: dest, exported: 1, skipped: [], warnings: [] })
     const parsed = fs
       .readFileSync(dest, 'utf8')
       .trim()
@@ -310,5 +310,75 @@ describe('exportEvalBundle', () => {
     expect(parsed).toHaveLength(1)
     expect(parsed[0].job.id).toBe(id)
     expect(parsed[0].argusVersion).toBe('1.0.0')
+  })
+})
+
+describe('explicit job ids', () => {
+  it('exports a non-latest job when asked for it by id', () => {
+    // Two done jobs for one case: the default MAX(id) path would only ever surface `newerId`.
+    const olderId = insertJob({ created_at: '2026-08-19T00:00:00.000Z' })
+    reviewedItem(olderId, 'accepted')
+    const newerId = insertJob({ created_at: '2026-08-19T01:00:00.000Z' })
+    reviewedItem(newerId, 'rejected', { tag: 'overgeneric' })
+
+    const res = buildEvalBundle(db, home, '1.0.0', undefined, { jobIds: [olderId] })
+    expect(res.lines.map((l) => l.job.id)).toEqual([olderId])
+    // Sanity: without the opt, the older job would NOT be the one exported.
+    const defaultRes = buildEvalBundle(db, home, '1.0.0')
+    expect(defaultRes.lines.map((l) => l.job.id)).toEqual([newerId])
+  })
+
+  it('is byte-identical to today when no ids are given', () => {
+    // Nontrivial arrangement so the two invocations actually exercise the query, the
+    // pending-review skip and the items/skipped/warnings shaping — not just two empty arrays.
+    const doneId = insertJob({ case_slug: 'nav-1', created_at: '2026-08-19T00:00:00.000Z' })
+    reviewedItem(doneId, 'accepted')
+    const pendingId = insertJob({ case_slug: 'nav-2', created_at: '2026-08-19T00:00:00.000Z' })
+    writeProposal(
+      home,
+      'nav-2',
+      { type: 'skill-new', target: 's-pending', title: 't', content: '# s\n' },
+      { job: String(pendingId) }
+    )
+    const now = (): Date => new Date('2026-08-19T12:00:00.000Z')
+
+    expect(JSON.stringify(buildEvalBundle(db, home, '1.0.0', now))).toBe(
+      JSON.stringify(buildEvalBundle(db, home, '1.0.0', now, {}))
+    )
+  })
+
+  it('exports a pending-review job with a warning instead of skipping it', () => {
+    const pendingReviewJobId = insertJob()
+    writeProposal(
+      home,
+      'nav-1',
+      { type: 'skill-new', target: 's-pending', title: 't', content: '# s\n' },
+      { job: String(pendingReviewJobId) }
+    )
+
+    const res = buildEvalBundle(db, home, '1.0.0', undefined, { jobIds: [pendingReviewJobId] })
+    expect(res.lines.map((l) => l.job.id)).toEqual([pendingReviewJobId])
+    expect(res.skipped.find((s) => s.jobId === pendingReviewJobId)).toBeUndefined()
+    expect(res.warnings).toEqual([
+      { jobId: pendingReviewJobId, caseSlug: 'nav-1', reason: 'items pending review' }
+    ])
+  })
+
+  it('names a dry job id as an error rather than silently dropping it', () => {
+    // insertJob() has no dry_run column — raw SQL, same as the "exports the real job, not a
+    // newer dry one" test above.
+    const r = db
+      .prepare(
+        `INSERT INTO distill_jobs (case_slug, state, input_snapshot, raw_output, item_count, created_at, dry_run)
+         VALUES ('nav-1', 'done', '{}', '{}', NULL, '2026-08-19T11:00:00.000Z', 1)`
+      )
+      .run()
+    const dryJobId = Number(r.lastInsertRowid)
+
+    const res = buildEvalBundle(db, home, '1.0.0', undefined, { jobIds: [dryJobId] })
+    expect(res.lines).toEqual([])
+    expect(res.skipped).toEqual([
+      { jobId: dryJobId, caseSlug: 'nav-1', reason: 'dry run — no staged items to judge' }
+    ])
   })
 })
