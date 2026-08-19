@@ -27,7 +27,7 @@ import { addCaseJiraLink, getCase } from './caseService'
 import { sha256File } from './ingest'
 import { SLUG_RE, scaffoldCaseLinks } from './caseService'
 import { indexEvidenceFile } from './indexer'
-import { deleteEvidenceFtsForCase } from './ftsIndex'
+import { deleteEvidenceFtsForCase, insertMessageFts } from './ftsIndex'
 import { readIndexState } from './indexState'
 import { ARTIFACTS_DIR, EVIDENCE_DIR } from '../../shared/evidenceScope'
 
@@ -320,6 +320,7 @@ function registerImportedSessions(
   )
   for (const tmp of staged) {
     const events: Record<string, unknown>[] = []
+    const indexable: { role: string; content: string }[] = []
     let title = ''
     let turnCount = 0
     for (const line of fs.readFileSync(tmp, 'utf8').split('\n')) {
@@ -327,13 +328,18 @@ function registerImportedSessions(
       try {
         const e = JSON.parse(line) as Record<string, unknown> & {
           type?: string
-          payload?: { userText?: unknown }
+          payload?: { userText?: unknown; text?: unknown }
         }
         if (e.type === 'turn.started') {
           turnCount++
-          if (!title && typeof e.payload?.userText === 'string') {
-            title = e.payload.userText.trim().slice(0, SESSION_TITLE_MAX)
+          const t = (e.payload as { userText?: unknown })?.userText
+          if (typeof t === 'string') {
+            if (!title) title = t.trim().slice(0, SESSION_TITLE_MAX)
+            indexable.push({ role: 'user', content: t })
           }
+        } else if (e.type === 'assistant.message') {
+          const t = (e.payload as { text?: unknown })?.text
+          if (typeof t === 'string') indexable.push({ role: 'assistant', content: t })
         }
         events.push(e)
       } catch {
@@ -342,6 +348,12 @@ function registerImportedSessions(
     }
     const res = insert.run(caseId, title, turnCount, now, now)
     const newId = Number(res.lastInsertRowid)
+    // Without this the imported transcript is on disk and in the chat but invisible to
+    // chatSearch — insertMessageFts's only other caller is the live mirror, which never
+    // runs for an imported session.
+    for (const m of indexable) {
+      if (m.content.trim()) insertMessageFts(db, m.content, caseId, newId, null, m.role)
+    }
     const rewritten = events
       .map((e) => JSON.stringify({ ...e, caseId, caseSlug, sessionId: newId }))
       .join('\n')
