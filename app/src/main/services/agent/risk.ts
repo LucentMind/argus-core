@@ -281,10 +281,22 @@ function classifyGh(tokens: string[]): RiskVerdict {
   }
 }
 
-function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
+/**
+ * Splits a shell segment into whitespace tokens, dropping leading `VAR=value` assignments.
+ *
+ * Shared between the risk classifier and the skill-asset run gate (`skillAssetGate.ts`)
+ * deliberately: two different splits would disagree about which token is the program exactly
+ * once, and a mismatch there would let a script the gate should have caught run unreviewed, or
+ * flag a token the classifier never treated as the program.
+ */
+export function shellSegmentTokens(segment: string): string[] {
   const tokens = segment.trim().split(/\s+/).filter(Boolean)
-  // skip leading VAR=val assignments
   while (tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) tokens.shift()
+  return tokens
+}
+
+function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
+  const tokens = shellSegmentTokens(segment)
   if (tokens.length === 0) return { action: 'allow', risk: 'LOW' }
   const prog = path.basename(tokens[0])
 
