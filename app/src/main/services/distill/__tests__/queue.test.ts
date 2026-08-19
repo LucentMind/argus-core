@@ -1577,6 +1577,56 @@ describe('dry run', () => {
     expect(inFlight.map((r) => r.id)).toEqual([real.id])
   })
 
+  it("refuses to enqueue while a REAL job is already in-flight, rather than silently cancelling it (regression: enqueueDryRun called cancelOtherInFlight unconditionally, so a stale renderer — e.g. one whose broadcast was dropped by emit()'s deliberate swallow of webContents.send failures — could silently abort a real run in another window; mirrors retry()'s own in-flight guard)", async () => {
+    const { q } = makeQueue({ distill: () => new Promise(() => {}) /* never resolves */ })
+    createCase(db, home, { title: 'A', slug: 'a' })
+    const real = q.enqueue('a')
+    await vi.waitFor(() => expect(q.statusFor('a')!.state).toBe('running'), { timeout: 5000 })
+
+    expect(() => q.enqueueDryRun('a')).toThrow(/already has an in-flight job/i)
+
+    // The real job must be untouched — still running, not cancelled by the refused attempt.
+    const row = db.prepare(`SELECT state, dry_run FROM distill_jobs WHERE id=?`).get(real.id) as {
+      state: string
+      dry_run: number
+    }
+    expect(row.state).toBe('running')
+    expect(row.dry_run).toBe(0)
+  })
+
+  it('refuses to enqueue a second dry run while one is already queued/running for the same case', async () => {
+    const { q } = makeQueue({ distill: () => new Promise(() => {}) /* never resolves */ })
+    createCase(db, home, { title: 'A', slug: 'a' })
+    const first = q.enqueueDryRun('a')
+    await vi.waitFor(
+      () =>
+        expect(
+          (
+            db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(first.id) as {
+              state: string
+            }
+          ).state
+        ).toBe('running'),
+      { timeout: 5000 }
+    )
+
+    expect(() => q.enqueueDryRun('a')).toThrow(/already has an in-flight job/i)
+
+    const row = db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(first.id) as {
+      state: string
+    }
+    expect(row.state).toBe('running')
+  })
+
+  it('does not refuse a dry run for a DIFFERENT case just because another case has one in flight', async () => {
+    const { q } = makeQueue({ distill: () => new Promise(() => {}) /* never resolves */ })
+    createCase(db, home, { title: 'A', slug: 'a' })
+    createCase(db, home, { title: 'B', slug: 'b' })
+    q.enqueueDryRun('a')
+    await vi.waitFor(() => expect(q.listRuns('a')[0]?.state).toBe('running'), { timeout: 5000 })
+    expect(() => q.enqueueDryRun('b')).not.toThrow()
+  })
+
   it('cancelling a dry run directly works — both while queued and while running (spec: "and cancelling the dry run works")', async () => {
     // One queue, one never-resolving `distill()` — the runner's single global execution slot
     // (kick() processes one job at a time across ALL slugs, see the class doc comment) stays

@@ -215,11 +215,26 @@ export class DistillQueue {
    * job row — no proposals, no case summary, no assets, and no reject-digest rebuild (that
    * rewrites a GLOBAL file, so `maybeEnqueueDigest` is deliberately not called here).
    *
-   * Still takes the one-job-per-case slot while queued/running, and still broadcasts, so the
-   * chip can show and cancel it — same `cancelOtherInFlight` path as `enqueue`.
+   * Still takes the one-job-per-case slot while queued/running, so the chip can show and cancel
+   * it — but unlike `enqueue`, it never takes that slot away from someone else. The renderer's
+   * "Dry run (compare)…" row is disabled while anything is in flight, but that is a UI-only
+   * guard: a window whose broadcast got dropped (`emit()` deliberately swallows
+   * `webContents.send` failures) can keep an enabled row past the point it should be. Refusing
+   * here — mirroring `retry`'s own in-flight guard and error-message style — means a stale
+   * renderer can only fail loudly, never silently cancel a REAL run out from under the operator
+   * (losing real agent time/spend) or bump an already in-flight dry run. Checked BEFORE the
+   * INSERT below, same "throws only on a precheck failure, nothing touched yet" contract as
+   * `enqueue`'s own `assembleInput`-then-digest-precheck ordering.
    */
   enqueueDryRun(slug: string, opts: { ignorePriorProposals?: boolean } = {}): DistillJobRow {
     const snapshot = JSON.stringify(this.deps.assembleInput(slug, opts))
+    const inFlight = this.deps.db
+      .prepare(`SELECT id FROM distill_jobs WHERE case_slug=? AND state IN ('queued','running')`)
+      .get(slug) as { id: number } | undefined
+    if (inFlight)
+      throw new Error(
+        `distill dry run for case ${slug} refused: case already has an in-flight job (${inFlight.id})`
+      )
     const res = this.deps.db
       .prepare(
         `INSERT INTO distill_jobs (case_slug, state, input_snapshot, prompt_hash, created_at, dry_run)
@@ -228,7 +243,6 @@ export class DistillQueue {
       .run(slug, snapshot, this.deps.promptHash?.() ?? null, new Date().toISOString())
     const job = this.get(Number(res.lastInsertRowid))!
     this.emit(this.getRaw(job.id)!)
-    this.cancelOtherInFlight(slug, job.id)
     this.kick()
     return job
   }

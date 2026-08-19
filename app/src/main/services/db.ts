@@ -125,7 +125,11 @@ CREATE TABLE IF NOT EXISTS distill_jobs (
   -- distillation state" filters dry_run = 0 (queue.statusFor, needsDistillRun via statusFor,
   -- evalExport's job selection, usage.ts's distillationStats) — queue.listRuns is the one
   -- reader that deliberately does NOT filter it (the run picker compares a dry run against a
-  -- real one on purpose).
+  -- real one on purpose). runDetail.readRunDetail is a second unfiltered reader, but it is
+  -- id-keyed (SELECT ... WHERE id = ?), not "latest row for this case" — an id-keyed read has
+  -- no "which row is this case's real state" question to get wrong, so it needs no dry_run
+  -- filter. It's reached only via listRuns (already kind='case'-filtered), never directly by
+  -- slug.
   --
   -- The BROADCAST path (DistillQueue.emit(), fired on every case-job state transition) is not
   -- filtered by dry_run either — a dry run's own queued/running/terminal states all go out over
