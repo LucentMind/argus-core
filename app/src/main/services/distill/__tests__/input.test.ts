@@ -381,6 +381,38 @@ describe('assembleDistillInput — v2 (user messages, reject annotations, operat
   })
 })
 
+describe('ignorePriorProposals', () => {
+  it('empties alreadyCaptured.proposals without touching skillsIndex', () => {
+    // Archived (not pending): job-stamped pending items are already excluded from
+    // alreadyCaptured by design (see the test above), so a pending fixture here would make
+    // this test pass whether or not the option does anything.
+    const pf = writeProposal(home, 'case-a', {
+      type: 'reference-edit',
+      target: 'dlt-cmds',
+      title: 'Cmds',
+      content: 'x'
+    })
+    rejectProposal(home, pf)
+
+    const skills = [
+      {
+        name: 'analyze-dlt',
+        description: 'DLT skill',
+        content: '---\nname: analyze-dlt\n---\nbody'
+      }
+    ]
+
+    const withPrior = assembleDistillInput(db, home, 'case-a', skills)
+    expect(withPrior.alreadyCaptured.proposals.length).toBeGreaterThan(0)
+
+    const clean = assembleDistillInput(db, home, 'case-a', skills, { ignorePriorProposals: true })
+    expect(clean.alreadyCaptured.proposals).toEqual([])
+    // target-exists reads skillsIndex and is deliberately NOT suppressed here: an asset that
+    // genuinely exists still exists, and that drop is honest output the run panel displays.
+    expect(clean.skillsIndex).toEqual(withPrior.skillsIndex)
+  })
+})
+
 describe('buildReferencesIndex', () => {
   it('summarizes from the body paragraph, falling back to the title only when no body line exists', () => {
     const dir = sharedReferencesDir(home)
