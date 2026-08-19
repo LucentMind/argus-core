@@ -364,11 +364,13 @@ export function listArchivedProposals(argusHome: string): {
   })
 }
 
-/** Delete a pending proposal outright — used by supersede flows; the file is NOT archived. */
+/** Delete a pending proposal outright — used by supersede flows; it is NOT archived. */
 export function removePendingProposal(argusHome: string, file: string): void {
   const p = path.join(proposalsDir(argusHome), path.basename(file))
   if (fs.existsSync(p)) {
-    fs.rmSync(p)
+    // recursive: a directory-shaped proposal (spec §1) is a tree, and a bare rmSync throws
+    // EISDIR on it.
+    fs.rmSync(p, { recursive: true, force: true })
     announceChanged()
   }
 }
@@ -380,19 +382,41 @@ function archive(
   extraFm: Record<string, string> = {},
   /** Appended verbatim after the frontmatter/status rewrite — used to preserve the original
    *  draft body while also recording the human's edited accept text (see acceptProposal). */
-  appendix?: string
+  appendix?: string,
+  /** Reviewer-edited sibling files, relPath → content, archived under `edited/<relPath>` beside
+   *  the original. The originals stay verbatim: accept-time human edits are the highest-signal
+   *  training data the system produces, and overwriting them in place would lose the pair. */
+  editedFiles?: Record<string, string>
 ): void {
-  const src = path.join(proposalsDir(argusHome), file)
-  const dir = proposalsArchiveDir(argusHome)
-  fs.mkdirSync(dir, { recursive: true })
-  const extra = Object.entries(extraFm)
+  const srcDir = proposalsDir(argusHome)
+  const dstDir = proposalsArchiveDir(argusHome)
+  fs.mkdirSync(dstDir, { recursive: true })
+  const src = path.join(srcDir, file)
+  const dst = path.join(dstDir, file)
+  const isDir = fs.statSync(src).isDirectory()
+  if (isDir) {
+    fs.rmSync(dst, { recursive: true, force: true })
+    fs.cpSync(src, dst, { recursive: true })
+  }
+  const extra = Object.entries({
+    ...extraFm,
+    ...(editedFiles && Object.keys(editedFiles).length > 0
+      ? { edited_files: Object.keys(editedFiles).sort().join(',') }
+      : {})
+  })
     .map(([k, v]) => `${k}: ${v}`)
     .join('\n')
+  const bodySrc = proposalBodyPath(srcDir, file)
   const updated = fs
-    .readFileSync(src, 'utf8')
+    .readFileSync(bodySrc, 'utf8')
     .replace(/^status: pending\r?$/m, `status: ${status}${extra ? `\n${extra}` : ''}`)
-  fs.writeFileSync(path.join(dir, file), updated + (appendix ?? ''))
-  fs.rmSync(src)
+  fs.writeFileSync(proposalBodyPath(dstDir, file), updated + (appendix ?? ''))
+  for (const [rel, content] of Object.entries(editedFiles ?? {})) {
+    const abs = path.join(dst, 'edited', rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, content)
+  }
+  fs.rmSync(src, { recursive: true, force: true })
 }
 
 /** Apply to the USER tier (a proposal against a bundled asset shadows it — §1.4), then archive. */
