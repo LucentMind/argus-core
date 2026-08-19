@@ -56,6 +56,13 @@ describe('DistillChip', () => {
     expect(await screen.findByText(/dry run…/)).toBeInTheDocument()
   })
 
+  it('F2: renders no resting state for a FAILED dry run — the case\'s real distillation may be fine, only the comparison run failed (regression: the loud red "distill failed — retry" chip rendered for a case whose real distillation was untouched)', async () => {
+    setup(job({ state: 'failed', dryRun: true, error: 'boom', itemCount: null }))
+    await waitFor(() => expect(window.argus.distill.status).toHaveBeenCalled())
+    await waitFor(() => expect(screen.queryByText(/distill/i)).not.toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
+  })
+
   it('failed state offers retry', async () => {
     setup(job({ state: 'failed', error: 'boom', itemCount: null }))
     fireEvent.click(await screen.findByRole('button', { name: /retry/i }))

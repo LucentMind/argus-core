@@ -93,6 +93,15 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
   }
 
   if (job.state === 'failed') {
+    // A failed dry run is a finished dry row, same as a done or cancelled one — the spec is
+    // explicit that this chip renders no resting state for any of the three. Unlike done/
+    // cancelled (which already fall through to `return null` below, no branch matching them),
+    // `failed` has its own loud branch, so it needs its own guard. Two reasons this matters, not
+    // just consistency: the red "distill failed — retry" text would be flatly wrong here — the
+    // CASE's real distillation is fine, only the comparison run failed — and `retry()` does not
+    // reset `dry_run`, so a click here would silently re-run another dry comparison while the
+    // operator believes they're recovering their real distillation.
+    if (job.dryRun) return null
     const costLine = distillCostLine(job)
     return (
       <span className="flex items-center gap-1.5">
