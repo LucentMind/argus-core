@@ -44,6 +44,7 @@ function str(v: unknown): string | null {
 export function transcriptTurns(events: AgentEvent[]): Turn[] {
   const turns: Turn[] = []
   for (const e of events) {
+    if (!e || typeof e !== 'object') continue
     const payload = (e as { payload?: unknown }).payload
     const p = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>
     if (e.type === 'turn.started') {

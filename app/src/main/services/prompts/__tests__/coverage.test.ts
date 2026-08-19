@@ -131,6 +131,30 @@ const NOT_PROMPTS: { text: string; why: string }[] = [
   }
 ]
 
+/**
+ * Same escape hatch as NOT_PROMPTS, for model-facing literals RETURN_POSITIONS structurally
+ * cannot reach at all — not merely below a length threshold, but sitting in a source position
+ * (an array-literal element, a ternary nested inside another expression rather than directly
+ * behind `return`/`=>`) none of the RETURN_POSITIONS patterns matches. NOT_PROMPTS's own
+ * staleness check ("every not-a-prompt exemption still waives a real literal") requires an entry
+ * to match something `returnedLiteralsIn` actually visits, which by definition never happens for
+ * these — so they live here instead, verified only against the raw file text below. Adding a
+ * RETURN_POSITIONS pattern to reach them was deliberately not done: the instrument for a
+ * scan-blind-but-real string is a waiver that says so, not a wider scan for two strings.
+ */
+const SCAN_BLIND_NOT_PROMPTS: { file: string; text: string; why: string }[] = [
+  {
+    file: 'app/src/main/services/agent/historyDigest.ts',
+    text: '… [truncated]',
+    why: "historyDigest.ts's cap(): the marker appended when a message or tool name is cut to fit its budget. Carries no instruction to the model, just a structural note that content was cut. Returned from a ternary inside an arrow function's implicit-return expression (`(s) => (s.length <= n ? s : ...)`), not directly after `return` or `=>`, so RETURN_POSITIONS's `=>` and ternary patterns — both anchored to what immediately follows the operator — do not reach it."
+  },
+  {
+    file: 'app/src/main/services/agent/historyDigest.ts',
+    text: 'Turn ${t.index}',
+    why: "historyDigest.ts's renderTurn/condensed: the `Turn N` / `User:` / `Tools:` / `Assistant:` section labels, built as elements of an array literal (`const lines = [\\`Turn ${t.index}\\`, ...]`) that is joined and returned afterward — the literals themselves never sit in a return or arrow-return position, only their `.join()` result does. They are fixed section headers over data already covered elsewhere (the user/assistant text and the tool-name list each have their own registry/NOT_PROMPTS coverage), carrying no instruction of their own."
+  }
+]
+
 /** Long enough to be prose rather than a key, a path, or a short label. */
 const MIN_CHARS = 120
 
@@ -381,6 +405,23 @@ describe('prompt coverage', () => {
       (n) => n.text
     )
     expect(stale, `NOT_PROMPTS entries matching nothing:\n${stale.join('\n')}`).toEqual([])
+  })
+
+  it('every scan-blind exemption states why', () => {
+    for (const n of SCAN_BLIND_NOT_PROMPTS) expect(n.why.length, n.text).toBeGreaterThan(20)
+  })
+
+  it('every scan-blind exemption still exists verbatim in its file', () => {
+    // These strings sit where RETURN_POSITIONS structurally never looks (see the comment on
+    // SCAN_BLIND_NOT_PROMPTS), so `returnedLiteralsIn` can never confirm they're still live the
+    // way the NOT_PROMPTS staleness check above does. The closest available proof is a raw
+    // substring check against the file's own text.
+    const stale = SCAN_BLIND_NOT_PROMPTS.filter(
+      (n) => !fs.readFileSync(path.join(REPO_ROOT, n.file), 'utf8').includes(n.text)
+    ).map((n) => `${n.file}: ${n.text}`)
+    expect(stale, `SCAN_BLIND_NOT_PROMPTS entries matching nothing:\n${stale.join('\n')}`).toEqual(
+      []
+    )
   })
 
   it('every deny verdict builds its reason through the registry', () => {
