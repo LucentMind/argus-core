@@ -2,9 +2,36 @@
 
 ## Unreleased
 
-23 commits since v2.2.0.
+## v2.3.0 — 2026-08-19
+
+41 commits since v2.2.0, 55 files changed (+5,121 / −341).
 
 ### Added
+
+**Distillation dry runs and run detail**
+
+- A "Dry run (compare)..." row on the case menu runs the full
+  distillation pipeline against a case without staging proposals,
+  overwriting the case summary, rewriting the global reject digest, or
+  creating any assets — a safe way to compare the pipeline's current
+  behavior against an already-distilled case's real run. `ignorePriorProposals`
+  can also blank the case's own prior proposals for the comparison, since
+  otherwise the duplicate veto silently drops nearly every candidate before
+  the pipeline's actual behavior is exercised.
+- A dry run is excluded from every read of a case's real distillation
+  state — status, redistill-needed checks, eval export, and the Settings
+  cost/usage stats — so a completed comparison run can never mask or
+  inflate the case's own history. It still appears, clearly labeled, in
+  the run picker for side-by-side comparison, and the chip distinguishes
+  "dry run... X" from "distilling... X" while one is in flight.
+- A new run detail panel ("Distillation details...", separate from the
+  Distill row that starts/stops one) shows the verdict, drop breakdown,
+  per-stage raw output, dropped-candidate table, and trajectory for
+  whichever run is selected — newest first, dry runs included.
+- Exporting an eval bundle can now target a specific chosen job instead of
+  only ever the latest one per case, with a dev-tools job picker in the
+  Prompts page; a pending-review or dry job is exported with an explicit
+  warning or skip reason instead of silently vanishing from the bundle.
 
 **Link a case to its source tickets**
 
@@ -30,8 +57,26 @@
   against the existing row and shown as "already on \<TICKET\>" next to the
   done chip.
 
+**Source-ticket UI polish**
+
+- The New Case dialog's clone-ticket rows collapse and re-expand instead
+  of only ever expanding, hide a clone's summary line when it's identical
+  to the ticket's own (which it normally is), and no longer wrap a long
+  key across two lines.
+- The case rail's "Add source ticket" shrinks from a full-width button to
+  a Plus icon beside refresh (matching the section-level vs. row-level
+  action split already used elsewhere), its unlink control switches from
+  an X — which reads as delete — to an unlink icon, and a clone already
+  linked as a source is no longer offered again in the add dialog.
+
 ### Fixed
 
+- A dry run's broadcast could be adopted directly by the UI as if it were
+  the case's real distillation state, at one point making the case menu
+  claim "nothing to distill" for a case whose real run had actually staged
+  items; a completed comparison run was also inflating the Settings
+  distillation cost/usage stats. Both now read through the same
+  dry-run-filtered path the backend already used elsewhere.
 - A source ticket that gets renamed or moved no longer loses its link:
   `case_jira_links` now records the ticket's canonical key consistently
   with how its evidence is stamped, instead of a pre-fetch key that could
