@@ -150,7 +150,7 @@ export function assembleDistillInput(
   argusHome: string,
   slug: string,
   skillsIndex: { name: string; description: string; content: string }[] = [],
-  opts: { operatorGuidance?: string } = {}
+  opts: { operatorGuidance?: string; ignorePriorProposals?: boolean } = {}
 ): CaseDistillInput {
   const c = getCase(db, slug)
   if (!c) throw new Error(`Unknown case: ${slug}`)
@@ -209,7 +209,12 @@ export function assembleDistillInput(
     referencesIndex: referencesIndexOut,
     rcaStructure: readConfirmedRcaStructure(argusHome, slug),
     alreadyCaptured: {
-      proposals: [...pending, ...archived]
+      // A comparison run asks "what would this pipeline produce on a fresh case?" — feeding it
+      // this case's own prior proposals makes the veto drop nearly everything as `duplicate`
+      // before v3's behaviour is ever exercised. Pure input construction: nothing is written and
+      // nothing is deleted, and `skillsIndex` is untouched, so `target-exists` still fires for an
+      // asset that genuinely exists.
+      proposals: opts.ignorePriorProposals ? [] : [...pending, ...archived]
     },
     world: buildWorld(db, slug),
     userMessages: collectUserMessages(db, c.id),
