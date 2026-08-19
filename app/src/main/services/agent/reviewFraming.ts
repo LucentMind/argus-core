@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { AgentDriver } from './driver'
 import type { SubagentSupport } from '../../../shared/drivers'
 import type { ModeId } from '../../../shared/modes'
+import type { SessionSummary } from '../../../shared/types'
 import { sessionProvider, sessionMode, sessionCursor } from './sessionStore'
 import { getCase } from '../caseService'
 
@@ -84,6 +85,15 @@ export function sessionHistoryOrphaned(deps: SessionDriverDeps, sessionId: numbe
   const pinned = sessionProvider(deps.db, sessionId)
   const kind = driverForSession(deps, sessionId).kind
   return sessionCursor(deps.db, sessionId, kind, pinned?.instanceId) === null
+}
+
+/** Stamp `historyOrphaned` onto session summaries. Lives at the driver-aware layer, not in
+ *  sessionStore, because the predicate needs `driverForSession`. */
+export function annotateHistoryOrphaned(
+  deps: SessionDriverDeps,
+  sessions: SessionSummary[]
+): SessionSummary[] {
+  return sessions.map((s) => ({ ...s, historyOrphaned: sessionHistoryOrphaned(deps, s.id) }))
 }
 
 export type ReviewFramingDeps = SessionDriverDeps

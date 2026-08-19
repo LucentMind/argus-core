@@ -48,7 +48,8 @@ function rowToSummary(r: SessionRow): SessionSummary {
     model: r.model,
     mode: r.mode as ModeId,
     runOptions: parseRunOptions(r.run_options),
-    permissionMode: parsePermissionMode(r.permission_mode)
+    permissionMode: parsePermissionMode(r.permission_mode),
+    historyOrphaned: false
   }
 }
 
@@ -97,7 +98,8 @@ export function createSession(
     model: p.model ?? null,
     mode: p.mode ?? DEFAULT_MODE,
     runOptions: [],
-    permissionMode: null
+    permissionMode: null,
+    historyOrphaned: false
   }
 }
 
