@@ -209,13 +209,27 @@ export function writeProposal(
   return file
 }
 
+/**
+ * The directory a skill proposal is measured against: the TIER WINNER for `target` (user >
+ * hivemind > bundled), or null when no tier defines it.
+ *
+ * One definition for all three consumers — the body diff, the per-file diffs, and the accept
+ * write. They used to disagree: the body resolved the winner while the per-file `current` read
+ * `skills-user/<target>`, so a proposal against a hivemind-tier skill showed the hive's SKILL.md
+ * beside `current: null` for siblings that plainly existed. Splitting the question again is the
+ * defect, so it is asked in exactly one place.
+ */
+function targetSkillDir(argusHome: string, target: string): string | null {
+  return resolveSkills(argusHome, defaultAgentAccess()).find((s) => s.name === target)?.dir ?? null
+}
+
 function currentContent(argusHome: string, type: ProposalType, target: string): string | null {
   if (type === 'skill-new' || type === 'skill-edit') {
     // the tier winner is what the agent currently sees — diff against that
-    const winner = resolveSkills(argusHome, defaultAgentAccess()).find((s) => s.name === target)
+    const winner = targetSkillDir(argusHome, target)
     if (!winner) return null
     try {
-      return fs.readFileSync(path.join(winner.dir, 'SKILL.md'), 'utf8')
+      return fs.readFileSync(path.join(winner, 'SKILL.md'), 'utf8')
     } catch {
       return null
     }
@@ -292,7 +306,7 @@ export function scanProposalDir(dir: string): { file: string; raw: string }[] {
       continue
     }
     if (!ent.isDirectory()) continue
-    // A DIRECTORY named `…​.md` is unresolvable: `isFlatProposalName` judges shape from the name
+    // A DIRECTORY named `….md` is unresolvable: `isFlatProposalName` judges shape from the name
     // alone, so `proposalBodyPath` would hand every caller the directory itself and accept and
     // reject would both throw EISDIR reading it — the entry would be listed in the inbox and be
     // neither acceptable nor rejectable, wedged until someone deletes it by hand. `writeProposal`
@@ -329,16 +343,19 @@ function pendingProposalFiles(
   return out
 }
 
-/** Per-file `current`: the installed user-tier copy of the same relative path, or null. */
+/** Per-file `current`: the tier-winning installed copy of the same relative path, or null.
+ *  Same directory `currentContent` diffs the body against — a reviewer comparing a sibling
+ *  must be looking at the same installed skill the body comparison used. */
 function proposalFileRecords(argusHome: string, file: string, target: string): ProposalFile[] {
-  const skillRoot = path.join(userSkillsDir(argusHome), target)
+  const skillRoot = targetSkillDir(argusHome, target)
   return proposalAssets(argusHome, file).map((a) => {
-    const currentPath = path.join(skillRoot, a.path)
     let current: string | null = null
-    try {
-      current = fs.readFileSync(currentPath, 'utf8')
-    } catch {
-      current = null // new file, or no installed skill — "not there" is an answer
+    if (skillRoot !== null) {
+      try {
+        current = fs.readFileSync(path.join(skillRoot, a.path), 'utf8')
+      } catch {
+        current = null // new file, or unreadable — "not there" is an answer
+      }
     }
     return {
       path: a.path,
@@ -548,8 +565,19 @@ function proposalAssets(argusHome: string, file: string): ProposalAsset[] {
  * and because a half-written skill directory is a state no reader in this codebase expects:
  * `scanTier` would list it, the prompt index would advertise it, and the missing half would
  * surface as a skill that silently does nothing.
+ *
+ * `seedFrom` is the directory the staging tree starts from when `dest` does not yet exist —
+ * the tier winner, for an edit accepted against a hivemind- or pack-tier skill. Accepting such
+ * an edit CREATES a user shadow, and a shadow seeded from nothing would contain only the
+ * proposal's own files: the winner's sibling scripts would be silently deleted from what the
+ * agent then resolves. No proposal type may remove a file (spec §10) — deletion is a human
+ * editor action.
  */
-function writeSkillDirAtomically(dest: string, files: Map<string, string>): void {
+function writeSkillDirAtomically(
+  dest: string,
+  files: Map<string, string>,
+  seedFrom?: string | null
+): void {
   const parent = path.dirname(dest)
   const base = path.basename(dest)
   const token = crypto.randomUUID().slice(0, 8)
@@ -562,12 +590,17 @@ function writeSkillDirAtomically(dest: string, files: Map<string, string>): void
   fs.mkdirSync(parent, { recursive: true })
   fs.rmSync(staging, { recursive: true, force: true })
   const had = fs.existsSync(dest)
+  // `had` still governs the SWAP (park the old copy, restore it on failure); the SEED is a
+  // separate question, because a user shadow being created for the first time has a lower tier
+  // to carry forward from. Deliberately not folded together — conflating them is what dropped
+  // the winner's siblings.
+  const seed = had ? dest : seedFrom && fs.existsSync(seedFrom) ? seedFrom : null
   try {
     // Carry-forward by COPY, not by re-writing strings: cpSync preserves bytes and mode, where a
     // read-as-utf8/write-as-string round trip corrupts a binary sibling (a PNG or zip that
     // arrived via skills import or a HiveMind pull), zero-fills an unreadable one, and drops the
     // +x bit off a script. The proposal's own files are overlaid on top, so they still win.
-    if (had) fs.cpSync(dest, staging, { recursive: true })
+    if (seed) fs.cpSync(seed, staging, { recursive: true })
     for (const [rel, content] of files) {
       const abs = path.join(staging, rel)
       fs.mkdirSync(path.dirname(abs), { recursive: true })
@@ -690,8 +723,9 @@ export function acceptProposal(
 
     // Only the proposal's own files plus SKILL.md. Siblings the proposal did not mention are
     // carried forward by `writeSkillDirAtomically`, which seeds its staging tree by COPYING the
-    // installed directory — bytes and mode intact, for BOTH skill types. Nothing is ever removed:
-    // deletion is a human editor action, which no proposal type may cause.
+    // installed directory — the user copy when there is one, otherwise the tier winner this
+    // accept is about to shadow — bytes and mode intact, for BOTH skill types. Nothing is ever
+    // removed: deletion is a human editor action, which no proposal type may cause.
     const files = new Map<string, string>()
     for (const f of finalAssets) files.set(f.path, f.content)
     files.set('SKILL.md', stamped)
@@ -702,7 +736,9 @@ export function acceptProposal(
     if (executables.length > 0 && !opts.db) {
       throw new Error('accepting a skill with executable files requires db')
     }
-    writeSkillDirAtomically(dest, files)
+    // Same helper the two `current` readers use, so what accept carries forward is by
+    // construction the skill the reviewer was shown.
+    writeSkillDirAtomically(dest, files, targetSkillDir(argusHome, p.target))
 
     // The `opts.db` test is the guard above restated so the type narrows here; it can never be
     // the reason this block is skipped.

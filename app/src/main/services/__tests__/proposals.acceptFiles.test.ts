@@ -4,9 +4,9 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openDb } from '../db'
-import { writeProposal, acceptProposal } from '../proposals'
+import { writeProposal, acceptProposal, listProposals } from '../proposals'
 import { assetReviewState } from '../skillAssetReviews'
-import { userSkillsDir, proposalsArchiveDir } from '../paths'
+import { userSkillsDir, proposalsArchiveDir, hivemindSkillsDir } from '../paths'
 
 let home: string
 let db: DatabaseSync
@@ -240,6 +240,55 @@ describe('accepting a directory-shaped proposal', () => {
     spy.mockRestore()
     expect(fs.readFileSync(path.join(dest, 'scripts', 'collect.sh'), 'utf8')).toBe(before)
     expect(fs.readdirSync(userSkillsDir(home)).filter((n) => n.startsWith('.'))).toEqual([])
+  })
+})
+
+/**
+ * Accepting an edit to a skill that lives in a LOWER tier creates a user shadow. That shadow is
+ * what the agent resolves from then on, so it must start from the tier winner's directory —
+ * seeded from the (absent) user copy instead, it would contain only the proposal's own files and
+ * silently delete the winner's sibling scripts, which no proposal type is allowed to do.
+ */
+describe('skill-edit against a lower-tier skill', () => {
+  const HIVE_SCRIPT = '#!/bin/sh\necho hive\n'
+
+  function installHivemindSkill(): void {
+    const dir = path.join(hivemindSkillsDir(home), 'collect-logs')
+    fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, 'SKILL.md'),
+      '---\nname: collect-logs\ndescription: hive collect logs\n---\n# Hive collect logs\n'
+    )
+    fs.writeFileSync(path.join(dir, 'scripts', 'hive-only.sh'), HIVE_SCRIPT)
+  }
+
+  it("carries the hivemind winner's siblings into the new user shadow", () => {
+    installHivemindSkill()
+    const file = writeProposal(home, 'acme-2', {
+      type: 'skill-edit',
+      target: 'collect-logs',
+      title: 'Collect logs v2',
+      content: BODY,
+      files: [{ path: 'templates/report.md', content: '# Report\n' }]
+    })
+    acceptProposal(home, file, { db, identity: null })
+    const dest = path.join(userSkillsDir(home), 'collect-logs')
+    expect(fs.readFileSync(path.join(dest, 'scripts', 'hive-only.sh'), 'utf8')).toBe(HIVE_SCRIPT)
+    expect(fs.readFileSync(path.join(dest, 'templates', 'report.md'), 'utf8')).toBe('# Report\n')
+    expect(fs.readFileSync(path.join(dest, 'SKILL.md'), 'utf8')).toContain('# Collect logs')
+  })
+
+  it('reports per-file current from the tier winner, not from the absent user copy', () => {
+    installHivemindSkill()
+    writeProposal(home, 'acme-2', {
+      type: 'skill-edit',
+      target: 'collect-logs',
+      title: 'Collect logs v2',
+      content: BODY,
+      files: [{ path: 'scripts/hive-only.sh', content: '#!/bin/sh\necho v2\n' }]
+    })
+    const rec = listProposals(home).find((p) => p.type === 'skill-edit')!
+    expect(rec.files?.[0]).toMatchObject({ path: 'scripts/hive-only.sh', current: HIVE_SCRIPT })
   })
 })
 
