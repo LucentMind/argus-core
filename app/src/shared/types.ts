@@ -190,6 +190,10 @@ export interface SessionSummary {
   runOptions: RunOptionSelection[]
   /** Per-session permission mode. Null means "use the settings default". */
   permissionMode: PermissionMode | null
+  /** This chat shows history the model cannot see — an imported transcript, or a provider
+   *  switch that invalidated the resume cursor. The next turn carries a digest instead
+   *  (agent/historyDigest.ts), and the chat says so. Cleared once a fresh cursor is stored. */
+  historyOrphaned: boolean
 }
 
 /** Result of a manual evidence-folder scan (evidence:scan). Lists are relPaths. */

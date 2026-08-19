@@ -231,6 +231,7 @@ import {
 import { defaultCreateQuery as createClaudeQuery } from './services/agent/drivers/claude'
 import { fetchCatalog } from './services/agent/drivers/claude/catalog'
 import { composeReviewRunPrompt } from './services/agent/reviewRunCompose'
+import { annotateHistoryOrphaned } from './services/agent/reviewFraming'
 import { composeReviewActionPrompt } from './services/agent/reviewActionCompose'
 import { composeCiTriagePrompt } from './services/agent/ciTriageCompose'
 import { prWorktreeHead } from './services/agent/reviewWrites'
@@ -1925,7 +1926,15 @@ function registerIpc(): void {
     }
   }
   ipcMain.handle(IPC.sessionsList, (_e, caseSlug: string) =>
-    listSessions(db, caseSlug, newSessionProvider(), getCase(db, caseSlug)?.activeMode)
+    annotateHistoryOrphaned(
+      {
+        db,
+        driverForInstance: (instanceId) =>
+          resolveInstanceDriver(settingsService.get().agent, instanceId).driver,
+        resolveDriver: () => getActiveDriver(settingsService.get().agent)
+      },
+      listSessions(db, caseSlug, newSessionProvider(), getCase(db, caseSlug)?.activeMode)
+    )
   )
   ipcMain.handle(IPC.sessionsCreate, (_e, caseSlug: string) =>
     createSession(db, caseSlug, {
