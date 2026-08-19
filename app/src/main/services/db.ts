@@ -204,6 +204,20 @@ CREATE TABLE IF NOT EXISTS case_jira_links (
   deselected_ids TEXT NOT NULL DEFAULT '[]',
   PRIMARY KEY (case_id, jira_key)
 );
+-- Which skill sibling files a human has actually reviewed on THIS machine, and the bytes they
+-- reviewed. Increment 3's run gate compares the hash of the file about to execute against this
+-- row: equal = reviewed, different = changed since review, absent = never reviewed here (an
+-- imported or HiveMind-pulled skill). PK is (skill, rel_path) — one current review per file, so
+-- re-reviewing replaces rather than accumulates.
+CREATE TABLE IF NOT EXISTS skill_asset_reviews (
+  skill       TEXT NOT NULL,
+  rel_path    TEXT NOT NULL,
+  sha256      TEXT NOT NULL,
+  reviewed_at TEXT NOT NULL,
+  reviewed_by TEXT,
+  origin      TEXT NOT NULL,
+  PRIMARY KEY (skill, rel_path)
+);
 -- Foreign-key indexes. With PRAGMA foreign_keys=ON, an ON DELETE CASCADE on the
 -- parent (cases) forces SQLite to find matching child rows; without an index on
 -- the child's FK column that is a FULL TABLE SCAN per cascade, so deleting one
