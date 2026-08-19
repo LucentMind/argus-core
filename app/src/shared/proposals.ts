@@ -19,6 +19,19 @@ export const PROPOSAL_TYPE_LABELS: Record<ProposalType, string> = {
   'case-summary': 'Case summary'
 }
 
+/** One sibling file carried by a directory-shaped skill proposal (spec §5). */
+export interface ProposalFile {
+  path: string
+  content: string
+  /** The installed skill's copy of this path, or null when the file is new. */
+  current: string | null
+  /** `isExecutableAsset` said so — drives the review badge and increment 3's run gate. */
+  exec: boolean
+  /** Present in the proposal but unreadable. Surfaced so the reviewer sees it; accept refuses
+   *  rather than writing an empty file (spec §10). */
+  unreadable?: boolean
+}
+
 export interface ProposalRecord {
   file: string // file name inside proposals/
   type: ProposalType
@@ -28,6 +41,9 @@ export interface ProposalRecord {
   title: string
   content: string // full proposed content (not a diff — the UI renders the diff)
   current: string | null // current content of the target; null when the target is new
+  /** Sibling files, for a directory-shaped proposal. Absent — never an empty array — for the
+   *  flat shape, so every existing consumer is untouched. */
+  files?: ProposalFile[]
   /** True when the target currently resolves to a non-hand-owned tier with no user copy yet
    *  — accept is refused; the UI disables Accept and shows why. */
   locked?: boolean
