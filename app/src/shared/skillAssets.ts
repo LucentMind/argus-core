@@ -96,7 +96,10 @@ export function assetSetError(files: SkillAssetInput[]): string | null {
     if (bad) return bad
     if (seen.has(f.path)) return `duplicate file path "${f.path}"`
     seen.add(f.path)
-    const bytes = Buffer.byteLength(f.content, 'utf8')
+    // TextEncoder, not Buffer.byteLength: this module is imported by the renderer (the review
+    // panel calls isExecutableAsset), where `Buffer` is a Node global that does not exist and
+    // is not polyfilled — and jsdom tests cannot see that, because they run under Node.
+    const bytes = new TextEncoder().encode(f.content).length
     if (bytes > MAX_ASSET_FILE_BYTES) {
       return `"${f.path}" is ${bytes} bytes; the limit is ${MAX_ASSET_FILE_BYTES} (64 KB) per file`
     }
