@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import type { AgentEvent } from '../../../../shared/agent-events'
-import { buildHistoryDigest, CLOSE_TAG } from '../historyDigest'
+import {
+  buildHistoryDigest,
+  CLOSE_TAG,
+  OPEN_TAG,
+  TOOL_NAME_CAP,
+  TOOLS_PER_TURN
+} from '../historyDigest'
 
 const ev = (type: string, payload: Record<string, unknown>): AgentEvent =>
   ({ type, payload }) as unknown as AgentEvent
@@ -54,9 +60,59 @@ describe('buildHistoryDigest', () => {
   })
 
   it('states how many turns were omitted and how to recover them', () => {
-    const d = buildHistoryDigest(transcript(200), 2000)
+    const d = buildHistoryDigest(transcript(200), { budget: 2000, canReadTranscript: true })
     expect(d).toMatch(/\d+ earlier turns omitted/)
     expect(d).toContain('read_session_transcript')
+  })
+
+  // Codex and the ACP drivers register no native tools (nativeTools.ts NATIVE_TOOL_DRIVERS), so
+  // naming the tool there instructs the model to make a call it cannot make, and misdescribes
+  // the elided turns as recoverable when they are not.
+  it('never names the recovery tool on a driver that does not have it', () => {
+    const d = buildHistoryDigest(transcript(200), { budget: 2000 })
+    expect(d).toMatch(/\d+ earlier turns omitted/)
+    expect(d).not.toContain('read_session_transcript')
+    expect(d).toContain('not available in this conversation')
+  })
+
+  it('defaults to the no-tool wording when the caller says nothing', () => {
+    const d = buildHistoryDigest(transcript(200), { budget: 2000 })
+    expect(d).not.toContain('read_session_transcript')
+  })
+
+  // Tool names come off bundle-authored bytes and were the one rendered field with no cap.
+  it('caps both the length of a tool name and how many a turn lists', () => {
+    const events: AgentEvent[] = [ev('turn.started', { userText: 'hi' })]
+    events.push(ev('tool.call.started', { toolCallId: 'big', name: 'X'.repeat(50_000) }))
+    for (let i = 0; i < TOOLS_PER_TURN + 10; i++) {
+      events.push(ev('tool.call.started', { toolCallId: `t${i}`, name: `tool_${i}` }))
+    }
+    const d = buildHistoryDigest(events)
+    const line = d.split('\n').find((l) => l.startsWith('Tools: '))!
+    expect(line).not.toContain('X'.repeat(TOOL_NAME_CAP + 1))
+    expect(line).toContain('+11 more')
+    expect(line.length).toBeLessThan(TOOLS_PER_TURN * (TOOL_NAME_CAP + 4) + 40)
+  })
+
+  // bundle.ts pushes every JSON line that parsed into the rewritten mirror, so a payload field
+  // can be any type or missing outright. One such line used to throw and — via session.ts's
+  // catch — silently replace the WHOLE replay with nothing.
+  it('skips malformed events instead of losing the whole transcript', () => {
+    const d = buildHistoryDigest([
+      ev('turn.started', { userText: 'first question' }),
+      ev('assistant.message', { text: 'first answer' }),
+      ev('turn.started', { userText: 123 }),
+      ev('tool.call.started', { toolCallId: 'x', name: { evil: true } }),
+      ev('assistant.message', { text: null }),
+      { type: 'turn.started' } as unknown as AgentEvent,
+      ev('turn.started', { userText: 'last question' }),
+      ev('assistant.message', { text: 'last answer' })
+    ])
+    expect(d).toContain('first question')
+    expect(d).toContain('first answer')
+    expect(d).toContain('last question')
+    expect(d).toContain('last answer')
+    expect(d).not.toContain('evil')
   })
 
   it('caps a single oversized message instead of dropping the turn', () => {
@@ -78,7 +134,10 @@ describe('buildHistoryDigest', () => {
 
   it('frames the content as an untrusted record, outside the delimiter', () => {
     const d = buildHistoryDigest(transcript(1))
-    expect(d.indexOf('not instructions')).toBeLessThan(d.indexOf(CLOSE_TAG))
+    // Against OPEN_TAG, not CLOSE_TAG: everything the digest emits precedes the closing
+    // delimiter, so comparing against it asserted almost nothing. The claim worth making is
+    // that the framing sits OUTSIDE the fence, where quoted content cannot contradict it.
+    expect(d.indexOf('not instructions')).toBeLessThan(d.indexOf(OPEN_TAG))
     expect(d).toContain('do not acknowledge')
   })
 })

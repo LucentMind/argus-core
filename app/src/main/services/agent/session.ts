@@ -20,7 +20,7 @@ import { captureFragments, captureTools } from '../prompts/captureInput'
 import type { SessionPromptCapture } from '../../../shared/promptsIpc'
 import type { RiskLevel } from '../../../shared/connectors'
 import { PendingApprovals, PendingDialogs, SessionGrants } from './approvals'
-import { appendFinding, type NativeToolDeps } from './nativeTools'
+import { appendFinding, NATIVE_TOOL_DRIVERS, type NativeToolDeps } from './nativeTools'
 import { panelCommandRiskMap, type PanelCommandDecl } from './panelCommands'
 import type { Detection } from '../packs/detection'
 import { caseDir } from '../paths'
@@ -32,7 +32,7 @@ import { isEditableTool } from '../../../shared/editableTools'
 import { composePersona } from './persona'
 import { filteredIndex } from '../memory'
 import { defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
-import { touchSession, setTitleIfEmpty } from './sessionStore'
+import { touchSession, setTitleIfEmpty, sessionCursor, sessionProvider } from './sessionStore'
 import { extractToolDetail, type ToolDetailCtx } from './toolDetail'
 import { sharedReferencesDir } from '../skillsDir'
 import { DEFAULT_MODE, type ModeId } from '../../../shared/modes'
@@ -349,6 +349,10 @@ export class CaseSession {
    *  make the observation seam a safe sole writer. */
   private effectivePermissionMode: string | null = null
   private turnIndex = 0
+  /** Turns that finished without error on THIS live session. Read only by
+   *  `needsHistoryReplay` — see the second clause of its doc comment for why a driver-minted
+   *  cursor is not by itself evidence that the provider holds the conversation. */
+  private turnsCompleted = 0
   private currentTurnRow: number | null = null
   /** Pids this session registered with `deps.processLabels`, so `stop()` can unregister
    *  exactly what it registered — a missed unregister would leak a stale 'driver' row
@@ -667,24 +671,65 @@ export class CaseSession {
   }
 
   /**
-   * The digest of prior history for this session's FIRST turn, or '' when there is nothing to
-   * replay. Fires only when the driver got no resume cursor — an imported case, or a provider
-   * switch — in which case the on-disk mirror is the only record of the conversation that
-   * exists on this machine. A brand-new session also has a null cursor, but its mirror is
+   * True while this session still owes a history replay — the send-seam counterpart of
+   * `reviewFraming.ts`'s `sessionHistoryOrphaned`, which is what the banner renders.
+   *
+   * It asks the predicate's own question (does a usable cursor exist for this session, right
+   * now, on this driver?) rather than the old `turnIndex === 0` proxy. Keying on the turn index
+   * lost the replay permanently whenever turn 1 failed on auth, spawn or an interrupt: no
+   * cursor was ever written, but `turnIndex` had already moved past 0, so turn 2 got neither a
+   * digest nor a resume. Re-asking at send time makes a successful turn stop the replay and a
+   * failed one retry it.
+   *
+   * The second clause is not redundant with the first. Codex and the ACP drivers mint their
+   * cursor when the provider session is CREATED (codex/index.ts `thread/start`,
+   * acp/index.ts `newSession`), not when a turn succeeds — so on those drivers a cursor can sit
+   * in the row while the provider still holds none of this conversation. Until a turn has
+   * actually completed, a cursor is not evidence that the history is on the provider side, and
+   * only the construction-time `resumeCursor` (which registry.ts read before this session
+   * existed, so nothing this session did can have produced it) proves a real resume.
+   */
+  private needsHistoryReplay(): boolean {
+    const pinned = sessionProvider(this.deps.db, this.sessionId)
+    const cursor = sessionCursor(
+      this.deps.db,
+      this.sessionId,
+      this.deps.driver.kind,
+      pinned?.instanceId
+    )
+    if (cursor === null) return true
+    return this.turnsCompleted === 0 && this.deps.resumeCursor === null
+  }
+
+  /**
+   * The digest of prior history for a turn that still owes one, or '' when there is nothing to
+   * replay. Fires while the session has no usable resume cursor — an imported case, or a
+   * provider switch — in which case the on-disk mirror is the only record of the conversation
+   * that exists on this machine. A brand-new session also has a null cursor, but its mirror is
    * empty, so `buildHistoryDigest` returns '' and nothing is prefixed.
+   *
+   * `canReadTranscript` decides whether the "turns omitted" note may name the tool that
+   * recovers them: only the drivers in `NATIVE_TOOL_DRIVERS` register Argus's native tools, so
+   * on Codex and the ACP drivers naming `read_session_transcript` would instruct the model to
+   * call a tool it does not have. Tested for membership here rather than hard-coding a second
+   * list, so a driver joining or leaving that table moves both facts at once.
    *
    * Deliberately prefixed to the DRIVER call only. Putting it on the `turn.started` event
    * would render it in the transcript, title the session with it, index it into messages_fts,
    * and export it into the next bundle — replaying a replay.
    */
-  private firstTurnDigest(): string {
-    if (this.turnIndex !== 0 || this.deps.resumeCursor !== null) return ''
+  private historyDigestForTurn(): string {
+    if (!this.needsHistoryReplay()) return ''
     try {
       const events = readSessionEvents(
         caseDir(this.deps.argusHome, this.deps.caseSlug),
         this.sessionId
       )
-      return buildHistoryDigest(events)
+      return buildHistoryDigest(events, {
+        canReadTranscript: (NATIVE_TOOL_DRIVERS as readonly string[]).includes(
+          this.deps.driver.kind
+        )
+      })
     } catch (err) {
       // A send must never fail because history could not be read.
       console.warn(`[session] history digest failed: ${(err as Error).message}`)
@@ -694,8 +739,8 @@ export class CaseSession {
 
   send(text: string, opts?: { composed?: boolean }): number {
     if (this.state === 'dead') throw new Error('session is dead')
-    // Captured BEFORE the turnIndex bump: this is the first-turn-only seam.
-    const digest = this.firstTurnDigest()
+    // Captured BEFORE the turnIndex bump and before any of this turn's own rows exist.
+    const digest = this.historyDigestForTurn()
     this.turnIndex++
     this.activeTurn = true
     // Task 7 (fix round 2): deliberately NOT clearing `auditedToolCallIds` here. A turn
@@ -1271,6 +1316,7 @@ export class CaseSession {
           this.currentTurnRow
         )
     }
+    if (!r.isError) this.turnsCompleted++
     this.deps.db
       .prepare(`UPDATE sessions SET turn_count = turn_count + 1, updated_at = ? WHERE id = ?`)
       .run(new Date().toISOString(), this.sessionId)

@@ -11,15 +11,20 @@ import { caseDir } from '../../paths'
 import { CaseSession, type SessionMirrorLike } from '../session'
 import { CLAUDE_TOOL_TAXONOMY } from '../risk'
 import { PERMISSION_MODES } from '../../../../shared/settings'
-import type { AgentDriver, DriverSession } from '../driver'
+import type { AgentDriver, DriverSession, DriverSessionContext } from '../driver'
 import type { AgentEvent } from '../../../../shared/agent-events'
 
 /**
  * A driver that records what CaseSession actually handed the provider. The digest lives on
  * exactly this wire and nowhere else, so `sent` is the only place it may appear.
  */
-function recordingDriver(): { driver: AgentDriver; sent: string[] } {
+function recordingDriver(): {
+  driver: AgentDriver
+  sent: string[]
+  ctx: () => DriverSessionContext
+} {
   const sent: string[] = []
+  let captured: DriverSessionContext | null = null
   const driver: AgentDriver = {
     kind: 'claude-agent-sdk',
     toolTaxonomy: CLAUDE_TOOL_TAXONOMY,
@@ -32,7 +37,10 @@ function recordingDriver(): { driver: AgentDriver; sent: string[] } {
       systemPromptTransport: 'systemPrompt.append',
       subagents: 'configurable'
     },
-    createSession(): DriverSession {
+    // The context is captured, not ignored: `onCursor`/`onTurnResult` are how a real driver
+    // tells CaseSession a turn landed, and the replay seam now keys on exactly that.
+    createSession(ctx: DriverSessionContext): DriverSession {
+      captured = ctx
       return {
         // Never yields and never ends: this suite only inspects the send path.
         events: () => ({ [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }) }),
@@ -43,7 +51,24 @@ function recordingDriver(): { driver: AgentDriver; sent: string[] } {
     },
     probeAuth: async () => ({ ok: true, detail: 'stub' })
   }
-  return { driver, sent }
+  return {
+    driver,
+    sent,
+    ctx: () => {
+      if (!captured) throw new Error('createSession was never called')
+      return captured
+    }
+  }
+}
+
+const TURN_OK = {
+  isError: false,
+  inputTokens: 1,
+  outputTokens: 1,
+  costUsd: 0,
+  durationMs: 1,
+  model: 'm',
+  authFailure: false
 }
 
 const ev = (type: string, payload: Record<string, unknown>): AgentEvent =>
@@ -74,11 +99,23 @@ function writeMirrorFile(): void {
   fs.writeFileSync(path.join(dir, `${sessionId}.jsonl`), `${lines.join('\n')}\n`)
 }
 
+/** A turn that succeeded: the driver reports its cursor, then the turn result. */
+function completeTurn(ctx: DriverSessionContext, cursor: string): void {
+  ctx.onCursor(cursor)
+  ctx.onTurnResult(TURN_OK)
+}
+
+/** A turn that failed before the provider ever produced a cursor — auth, spawn, interrupt. */
+function failTurn(ctx: DriverSessionContext): void {
+  ctx.onTurnResult({ ...TURN_OK, isError: true })
+}
+
 function makeSession(over: { resumeCursor: string | null }): {
   session: CaseSession
   sent: string[]
+  ctx: () => DriverSessionContext
 } {
-  const { driver, sent } = recordingDriver()
+  const { driver, sent, ctx } = recordingDriver()
   const session = new CaseSession({
     db,
     argusHome,
@@ -94,7 +131,7 @@ function makeSession(over: { resumeCursor: string | null }): {
     githubWatermark: () => ({ enabled: false, text: '' }),
     ...over
   })
-  return { session, sent }
+  return { session, sent, ctx }
 }
 
 beforeEach(() => {
@@ -152,19 +189,54 @@ describe('CaseSession first-turn history replay', () => {
     expect(row.title).toBe('what now?')
   })
 
-  it('does not replay on the second send', () => {
+  // The seam asks whether a usable cursor exists NOW, so a turn that actually landed one — the
+  // driver's `onCursor` writes it — is what stops the replay, not the turn counter.
+  it('does not replay once a turn has produced a resume cursor', () => {
     writeMirrorFile()
-    const { session, sent } = makeSession({ resumeCursor: null })
+    const { session, sent, ctx } = makeSession({ resumeCursor: null })
     session.send('first')
+    completeTurn(ctx(), 'cursor-from-turn-1')
     session.send('second')
     expect(sent[1]).toBe('second')
   })
 
+  /**
+   * The defect the turnIndex proxy had: turn 1 failing on auth, spawn or an interrupt never
+   * reaches `onCursor`, so `driver_cursor` is still NULL — but `turnIndex` has already moved
+   * past 0, so turn 2 used to get neither a digest nor a resume and the imported history was
+   * lost for good, silently. The replay must survive a failed first turn.
+   */
+  it('replays again when the first turn failed without landing a cursor', () => {
+    writeMirrorFile()
+    const { session, sent, ctx } = makeSession({ resumeCursor: null })
+    session.send('first')
+    expect(sent[0]).toContain('earlier question') // guard: turn 1 did carry the digest
+    failTurn(ctx())
+    session.send('second')
+    expect(sent[1]).toContain('earlier question')
+    expect(sent[1]).toContain('prior-conversation-record')
+    expect(sent[1].endsWith('second')).toBe(true)
+  })
+
   it('does not replay when the session has a usable cursor', () => {
     writeMirrorFile()
+    // Both halves of "usable": the row carries the cursor AND this session was constructed
+    // with it, which is what a genuine resume looks like.
+    db.prepare(`UPDATE sessions SET driver_cursor = ? WHERE id = ?`).run('abc-uuid', sessionId)
     const { session, sent } = makeSession({ resumeCursor: 'abc-uuid' })
     session.send('hello')
     expect(sent[0]).toBe('hello')
+  })
+
+  // Codex/ACP mint their cursor when the provider session is CREATED, not when a turn
+  // succeeds, so a cursor can be in the row while the provider holds none of this
+  // conversation. Until a turn completes, that cursor is not evidence of context.
+  it('still replays when a cursor exists but no turn has completed on it', () => {
+    writeMirrorFile()
+    db.prepare(`UPDATE sessions SET driver_cursor = ? WHERE id = ?`).run('spawn-cursor', sessionId)
+    const { session, sent } = makeSession({ resumeCursor: null })
+    session.send('hello')
+    expect(sent[0]).toContain('earlier question')
   })
 
   it('sends unprefixed when the mirror is missing', () => {
