@@ -33,6 +33,7 @@ export function SharePushDialog({
   const [outcome, setOutcome] = useState<HivemindPushOutcome | null>(null)
   const [status, setStatus] = useState<PushStatus | null>(null)
   const [previewAttempt, setPreviewAttempt] = useState(0)
+  const [executables, setExecutables] = useState<string[]>([])
 
   useEffect(() => {
     let mounted = true
@@ -53,6 +54,20 @@ export function SharePushDialog({
       .then(() => window.argus.hivemind.pushStatus(kind, name))
       .catch(() => ({ state: 'none' }) as PushStatus)
       .then((s) => mounted && setStatus(s))
+    return () => {
+      mounted = false
+    }
+  }, [kind, name])
+
+  useEffect(() => {
+    if (kind !== 'skill') return
+    let mounted = true
+    // Same defensive shape as the `pushStatus` effect above: an older preload without this
+    // method must degrade to the pre-existing share flow, not crash the dialog.
+    void Promise.resolve()
+      .then(() => window.argus.hivemind.pushExecutables(name))
+      .catch(() => [] as string[])
+      .then((x) => mounted && setExecutables(x))
     return () => {
       mounted = false
     }
@@ -144,6 +159,16 @@ export function SharePushDialog({
           Could not check for an existing pull request ({status.warning}) — sharing anyway may
           create a duplicate.
         </p>
+      )}
+      {executables.length > 0 && (
+        <div
+          role="status"
+          className="rounded-r2 border border-review/40 bg-review/10 px-3 py-2 text-xs text-ink"
+        >
+          Sharing {executables.length} executable file
+          {executables.length === 1 ? '' : 's'} with your team:{' '}
+          <span className="font-mono">{executables.join(', ')}</span>
+        </div>
       )}
       <div className="flex items-center gap-2">
         <span className="text-xs text-dim">PR title</span>
