@@ -213,12 +213,25 @@ export function CaseAnchor({
               onSelect: () => setRunsOpen(true)
             },
             {
-              // Non-destructive by construction: the pipeline runs, staging does not, and
-              // `ignorePriorProposals` keeps this case's own prior proposals out of the input so
-              // the veto does not drop every candidate as `duplicate` before v3 is exercised.
+              // Non-destructive to the KNOWLEDGE CORPUS by construction: the pipeline runs,
+              // staging does not, and `ignorePriorProposals` keeps this case's own prior
+              // proposals out of the input so the veto does not drop every candidate as
+              // `duplicate` before v3 is exercised. It is NOT non-destructive to an in-flight
+              // job, though: `enqueueDryRun` takes the same one-job-per-case slot as a real
+              // distill and calls the same `cancelOtherInFlight` enqueue() does — with no guard
+              // here, clicking this row while a REAL distillation is running would silently
+              // cancel it (losing real agent time/spend) from a row explicitly framed as the
+              // safe one. Disabled while anything is in flight (dry run included — a second dry
+              // run only replaces the first, still not something to do silently) rather than
+              // confirmed: this row's whole premise is "nothing to lose by clicking it", and a
+              // confirm dialog would only be needed for a genuinely destructive action.
               label: 'Dry run (compare)…',
+              disabled: isDistillInFlight(distillJob),
+              title: isDistillInFlight(distillJob)
+                ? 'A distillation is already running for this case'
+                : undefined,
               onSelect: () => {
-                if (pending) return
+                if (pending || isDistillInFlight(distillJob)) return
                 setPending(true)
                 void window.argus.distill
                   .dryRun(slug, true)

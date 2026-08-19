@@ -48,6 +48,12 @@ describe('distillMenuLabel', () => {
     expect(distillMenuLabel(job({ state: 'failed' }))).toBe('Re-distill')
     expect(distillMenuLabel(job({ state: 'cancelled' }))).toBe('Re-distill')
   })
+
+  it('reads plain Re-distill (not "nothing to distill") for a done row with a NULL itemCount — a dry run never collapses into the 0-items reading', () => {
+    expect(distillMenuLabel(job({ state: 'done', itemCount: null, dryRun: true }))).toBe(
+      'Re-distill'
+    )
+  })
 })
 
 describe('distillMenuLabel — no usage readout', () => {
@@ -189,5 +195,101 @@ describe('useDistillJob', () => {
       ctl.onChangedCb({ caseSlug: 'case-a', job: job({ id: 4, state: 'done' }) })
     })
     expect(result.current?.id).toBe(4)
+  })
+
+  it('F1: a dry row reaching a terminal state re-fetches status(slug) instead of adopting the dry payload, restoring the real job (regression: distillMenuLabel read "nothing to distill" for a case whose real run staged 3 items, after its dry-run comparison finished)', async () => {
+    const real = job({ id: 1, state: 'done', itemCount: 3, dryRun: false })
+    const statusMock = vi.fn().mockResolvedValue(real)
+    let onChangedCb!: (p: DistillStatusPayload) => void
+    ;(window as unknown as { argus: unknown }).argus = {
+      distill: {
+        status: statusMock,
+        onChanged: vi.fn((cb: (p: DistillStatusPayload) => void) => {
+          onChangedCb = cb
+          return () => undefined
+        })
+      }
+    }
+    const { result } = renderHook(() => useDistillJob('case-a'))
+    await waitFor(() => expect(result.current?.id).toBe(1))
+
+    // A dry run starts on this already-distilled case. Its in-flight broadcast IS adopted — the
+    // chip must still show and be cancellable while the dry run is actually running.
+    act(() => {
+      onChangedCb({
+        caseSlug: 'case-a',
+        job: job({ id: 2, state: 'running', dryRun: true, itemCount: null })
+      })
+    })
+    expect(result.current?.id).toBe(2)
+    expect(result.current?.dryRun).toBe(true)
+
+    // The dry run finishes. Its terminal broadcast must NOT be adopted directly — that would
+    // present a dry row as the case's real distillation state.
+    act(() => {
+      onChangedCb({
+        caseSlug: 'case-a',
+        job: job({ id: 2, state: 'done', dryRun: true, itemCount: null })
+      })
+    })
+
+    await waitFor(() => expect(result.current?.id).toBe(1))
+    expect(result.current?.itemCount).toBe(3)
+    expect(result.current?.dryRun).toBe(false)
+    expect(statusMock).toHaveBeenCalledTimes(2) // initial mount fetch + the terminal-dry re-fetch
+  })
+
+  it('F1: a stale terminal-dry re-fetch must not clobber a newer job that superseded it before the re-fetch resolved', async () => {
+    const statusMock = vi.fn()
+    statusMock.mockResolvedValueOnce(job({ id: 1, state: 'done', itemCount: 3, dryRun: false }))
+    let resolveRefetch!: (v: DistillJobRow | null) => void
+    statusMock.mockReturnValueOnce(
+      new Promise<DistillJobRow | null>((resolve) => {
+        resolveRefetch = resolve
+      })
+    )
+    let onChangedCb!: (p: DistillStatusPayload) => void
+    ;(window as unknown as { argus: unknown }).argus = {
+      distill: {
+        status: statusMock,
+        onChanged: vi.fn((cb: (p: DistillStatusPayload) => void) => {
+          onChangedCb = cb
+          return () => undefined
+        })
+      }
+    }
+    const { result } = renderHook(() => useDistillJob('case-a'))
+    await waitFor(() => expect(result.current?.id).toBe(1))
+
+    act(() => {
+      onChangedCb({
+        caseSlug: 'case-a',
+        job: job({ id: 2, state: 'running', dryRun: true, itemCount: null })
+      })
+    })
+    act(() => {
+      onChangedCb({
+        caseSlug: 'case-a',
+        job: job({ id: 2, state: 'done', dryRun: true, itemCount: null })
+      })
+    })
+    await waitFor(() => expect(statusMock).toHaveBeenCalledTimes(2))
+
+    // Before the terminal-dry re-fetch resolves, a genuinely newer real job starts on this slug.
+    act(() => {
+      onChangedCb({
+        caseSlug: 'case-a',
+        job: job({ id: 3, state: 'running', dryRun: false, itemCount: null })
+      })
+    })
+    expect(result.current?.id).toBe(3)
+
+    // The stale re-fetch (triggered for job 2's terminal state) now resolves with the old real
+    // job — must not overwrite job 3's row, which is genuinely running.
+    await act(async () => {
+      resolveRefetch(job({ id: 1, state: 'done', itemCount: 3, dryRun: false }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(result.current?.id).toBe(3)
   })
 })

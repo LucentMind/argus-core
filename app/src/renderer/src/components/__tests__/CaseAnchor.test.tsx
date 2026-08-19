@@ -515,4 +515,53 @@ describe('CaseAnchor', () => {
     await user.click(screen.getByText('Dry run (compare)…'))
     await vi.waitFor(() => expect(dryRunMock).toHaveBeenCalledWith('NN-5187', true))
   })
+
+  it('F3: disables Dry run (compare)… while a REAL distillation is running, instead of silently cancelling it (regression: clicking it cancelled the running real job)', async () => {
+    const dryRunMock = vi.fn().mockResolvedValue(null)
+    statusMock.mockResolvedValue({
+      id: 1,
+      caseSlug: 'NN-5187',
+      state: 'running',
+      error: null,
+      itemCount: null,
+      createdAt: 't',
+      finishedAt: null,
+      dryRun: false
+    })
+    window.argus = {
+      cases: { setStatus: vi.fn().mockResolvedValue(undefined) },
+      bundle: { export: vi.fn().mockResolvedValue({ ok: true, fileCount: 0 }) },
+      distill: {
+        status: statusMock,
+        onChanged: vi.fn().mockReturnValue(() => undefined),
+        redistill: redistillMock,
+        cancel: cancelMock,
+        dryRun: dryRunMock
+      }
+    } as never
+    const user = userEvent.setup()
+    renderAnchor({ status: 'open' })
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    await screen.findByText('Cancel distillation') // sanity: the real job is being tracked as running
+
+    const row = screen.getByText('Dry run (compare)…').closest('button')!
+    expect(row.hasAttribute('disabled')).toBe(true)
+    await user.click(row)
+
+    // Give any accidental async work a turn to run, then assert nothing fired: neither the
+    // dry run itself, nor (the actual regression) a cancel of the real running job.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(dryRunMock).not.toHaveBeenCalled()
+    expect(cancelMock).not.toHaveBeenCalled()
+  })
+
+  it('leaves Dry run (compare)… enabled when nothing is in flight', async () => {
+    const dryRunMock = vi.fn().mockResolvedValue(null)
+    window.argus.distill.dryRun = dryRunMock
+    const user = userEvent.setup()
+    renderAnchor({ status: 'open' })
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    const row = screen.getByText('Dry run (compare)…').closest('button')!
+    expect(row.hasAttribute('disabled')).toBe(false)
+  })
 })
