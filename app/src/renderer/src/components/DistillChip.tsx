@@ -78,10 +78,16 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
                   .catch(() => setCancelling(false))
               }
         }
-        title={cancelling ? 'Cancelling…' : 'Cancel distillation'}
-        aria-label={cancelling ? 'Cancelling distillation' : 'Cancel distillation'}
+        title={cancelling ? 'Cancelling…' : job.dryRun ? 'Cancel dry run' : 'Cancel distillation'}
+        aria-label={
+          cancelling
+            ? 'Cancelling distillation'
+            : job.dryRun
+              ? 'Cancel dry run'
+              : 'Cancel distillation'
+        }
       >
-        {cancelling ? 'cancelling…' : 'distilling… ✕'}
+        {cancelling ? 'cancelling…' : job.dryRun ? 'dry run… ✕' : 'distilling… ✕'}
       </Chip>
     )
   }

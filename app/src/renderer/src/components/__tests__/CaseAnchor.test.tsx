@@ -317,7 +317,8 @@ describe('CaseAnchor', () => {
       error: null,
       itemCount: null,
       createdAt: 't',
-      finishedAt: 't2'
+      finishedAt: 't2',
+      dryRun: false
     })
     statusMock.mockResolvedValue({
       id: 7,
@@ -326,7 +327,8 @@ describe('CaseAnchor', () => {
       error: null,
       itemCount: null,
       createdAt: 't',
-      finishedAt: null
+      finishedAt: null,
+      dryRun: false
     })
     const user = userEvent.setup()
     renderAnchor({ status: 'open' })
@@ -349,7 +351,8 @@ describe('CaseAnchor', () => {
       error: null,
       itemCount: null,
       createdAt: 't',
-      finishedAt: null
+      finishedAt: null,
+      dryRun: false
     })
     const user = userEvent.setup()
     renderAnchor({ status: 'open' })
@@ -380,7 +383,8 @@ describe('CaseAnchor', () => {
       error: null,
       itemCount: null,
       createdAt: 't',
-      finishedAt: null
+      finishedAt: null,
+      dryRun: false
     })
     window.argus = {
       cases: { setStatus: vi.fn().mockResolvedValue(undefined) },
@@ -500,5 +504,15 @@ describe('CaseAnchor', () => {
     await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
     await user.click(screen.getByText('Cancel distillation').closest('button')!)
     expect(cancelMock).toHaveBeenCalledWith(9)
+  })
+
+  it('starts a dry run with ignorePriorProposals from the menu', async () => {
+    const dryRunMock = vi.fn().mockResolvedValue(null)
+    window.argus.distill.dryRun = dryRunMock
+    const user = userEvent.setup()
+    renderAnchor({ status: 'open' })
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    await user.click(screen.getByText('Dry run (compare)…'))
+    await vi.waitFor(() => expect(dryRunMock).toHaveBeenCalledWith('NN-5187', true))
   })
 })
