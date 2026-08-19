@@ -41,6 +41,9 @@ function renderDetail(over: Partial<Parameters<typeof ProposalDetail>[0]> = {}):
       onOpenHivemind={vi.fn()}
       onAccept={onAccept}
       onReject={onReject}
+      selectedPath="SKILL.md"
+      onSelectPath={vi.fn()}
+      editedPaths={new Set()}
       {...over}
     />
   )
@@ -250,5 +253,118 @@ describe('ProposalDetail: min-w-0 tripwire', () => {
     expect(root).not.toBeNull()
     const content = root?.querySelector('.min-h-0.min-w-0.flex-1.overflow-y-auto')
     expect(content).not.toBeNull()
+  })
+})
+
+const WITH_FILES: ProposalRecord = {
+  file: '2026-08-19-acme-1-collect-logs',
+  type: 'skill-new',
+  target: 'collect-logs',
+  caseSlug: 'acme-1',
+  date: '2026-08-19T00:00:00.000Z',
+  title: 'Collect logs',
+  content: '---\ndescription: d\n---\n# Collect logs\n',
+  current: null,
+  files: [
+    { path: 'scripts/collect.sh', content: '#!/bin/sh\n# collect\n', current: null, exec: true }
+  ]
+}
+
+function renderFilesDetail(over: Record<string, unknown> = {}): {
+  onSelectPath: ReturnType<typeof vi.fn>
+} {
+  const onSelectPath = vi.fn()
+  render(
+    <ProposalDetail
+      proposal={WITH_FILES}
+      accepted={null}
+      busy={false}
+      editValue={null}
+      onEditChange={vi.fn()}
+      onToggleEdit={vi.fn()}
+      viewMode="unified"
+      onViewMode={vi.fn()}
+      position={{ index: 1, total: 1 }}
+      repoSet={false}
+      onOpenHivemind={vi.fn()}
+      onAccept={vi.fn()}
+      onReject={vi.fn()}
+      selectedPath="SKILL.md"
+      onSelectPath={onSelectPath}
+      editedPaths={new Set()}
+      {...over}
+    />
+  )
+  return { onSelectPath }
+}
+
+describe('ProposalDetail with sibling files', () => {
+  it('renders the rail', () => {
+    renderFilesDetail()
+    expect(screen.getByRole('tablist', { name: 'Files in this proposal' })).toBeInTheDocument()
+  })
+
+  it('shows the body when SKILL.md is selected', () => {
+    renderFilesDetail()
+    // The fixture's title and its markdown heading share the text "Collect logs" — the header
+    // `<h2>` renders it too, so disambiguate by heading level: the body's Markdown pass produces
+    // an `<h1>`, unlike the always-present `<h2>` title.
+    expect(screen.getByRole('heading', { level: 1, name: 'Collect logs' })).toBeInTheDocument()
+  })
+
+  it('shows the selected sibling as CODE, not markdown', () => {
+    renderFilesDetail({ selectedPath: 'scripts/collect.sh' })
+    // A markdown pass would turn "# collect" into a heading. It must not.
+    expect(screen.queryByRole('heading', { name: 'collect' })).not.toBeInTheDocument()
+    expect(
+      screen.getByText(
+        (_, node) => node?.tagName === 'PRE' && node.textContent === '#!/bin/sh\n# collect\n'
+      )
+    ).toBeInTheDocument()
+  })
+
+  it('renders no rail for a flat proposal', () => {
+    renderFilesDetail({ proposal: { ...WITH_FILES, files: undefined } })
+    expect(
+      screen.queryByRole('tablist', { name: 'Files in this proposal' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('edits the selected sibling through the same buffer props', () => {
+    const onEditChange = vi.fn()
+    renderFilesDetail({
+      selectedPath: 'scripts/collect.sh',
+      editValue: '#!/bin/sh\necho edited\n',
+      onEditChange
+    })
+    const box = screen.getByLabelText('Edit proposal content')
+    expect(box).toHaveValue('#!/bin/sh\necho edited\n')
+    fireEvent.change(box, { target: { value: 'x' } })
+    expect(onEditChange).toHaveBeenCalledWith('x')
+  })
+
+  // Controller resolution overrides the brief: CodeView replaces NewFileView only. A MODIFIED
+  // sibling (non-null `current`) still diffs — UnifiedDiff/SplitDiff/ProposedView are already
+  // plain `<pre>` line renderers that cannot eat a `#` as a heading, so there is no lossy-render
+  // hazard on that path, and routing it through CodeView would silently drop the diff and the
+  // view bar.
+  it('shows a MODIFIED sibling as a diff, not CodeView, with the view bar present', () => {
+    renderFilesDetail({
+      selectedPath: 'scripts/collect.sh',
+      proposal: {
+        ...WITH_FILES,
+        files: [
+          {
+            path: 'scripts/collect.sh',
+            content: '#!/bin/sh\necho new\n',
+            current: '#!/bin/sh\necho old\n',
+            exec: true
+          }
+        ]
+      }
+    })
+    expect(screen.getByText('+ echo new')).toBeInTheDocument()
+    expect(screen.getByText('- echo old')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Unified view' })).toBeInTheDocument()
   })
 })
