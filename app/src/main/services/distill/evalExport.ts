@@ -70,12 +70,13 @@ export function buildEvalBundle(
   // a cancelled re-distill becoming the "latest" row and getting skipped as 'not finished'.
   // The eval bundle is a case's distillation history — a non-case kind (e.g. 'reject-digest')
   // sharing this table must neither shadow a case job in the MAX(id) pool nor be exported
-  // itself.
+  // itself. A dry run (a comparison run that skips staging) must not shadow the real job either
+  // — it is not part of this case's distillation history, the same reasoning as `statusFor`.
   const rows = db
     .prepare(
       `SELECT * FROM distill_jobs
        WHERE id IN (
-         SELECT MAX(id) FROM distill_jobs WHERE state <> 'cancelled' AND kind='case' GROUP BY case_slug
+         SELECT MAX(id) FROM distill_jobs WHERE state <> 'cancelled' AND kind='case' AND dry_run = 0 GROUP BY case_slug
        )
        ORDER BY id ASC`
     )

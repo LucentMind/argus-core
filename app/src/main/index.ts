@@ -1026,9 +1026,10 @@ function registerIpc(): void {
   })
   const distillQueue = new DistillQueue({
     db,
-    assembleInput: (slug) =>
+    assembleInput: (slug, opts) =>
       assembleDistillInput(db, argusHome, slug, skillsIndexForDistill(), {
-        operatorGuidance: settingsService.get().distill.guidance
+        operatorGuidance: settingsService.get().distill.guidance,
+        ...(opts?.ignorePriorProposals ? { ignorePriorProposals: true } : {})
       }),
     // Read `settings.distill.pipeline` per CALL, not once at construction: the queue is built at
     // boot and lives for the process lifetime, so capturing the flag here would make the setting
@@ -2705,6 +2706,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC.distillCancel, (_e, jobId: number) => distillQueue.cancel(jobId))
   ipcMain.handle(IPC.distillRuns, (_e, slug: string) => distillQueue.listRuns(slug))
   ipcMain.handle(IPC.distillRun, (_e, jobId: number) => readRunDetail(db, jobId))
+  ipcMain.handle(IPC.distillDryRun, (_e, slug: string, ignorePriorProposals: boolean) =>
+    distillQueue.enqueueDryRun(slug, { ignorePriorProposals })
+  )
 
   // — defect corpus —
   ipcMain.handle(IPC.defectsSearch, (_e, req: CorpusSearchInput) => defectCorpus.searchAll(req))

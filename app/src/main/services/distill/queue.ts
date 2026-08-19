@@ -41,8 +41,9 @@ function trajectoryJson(trajectory: TrajectoryEntry[] | undefined): string | nul
 
 export interface DistillQueueDeps {
   db: DatabaseSync
-  /** Throws → caller sees the throw; nothing is enqueued (guarded by callers). */
-  assembleInput: (slug: string) => CaseDistillInput
+  /** Throws → caller sees the throw; nothing is enqueued (guarded by callers). `opts` carries
+   *  the dry-run input switches; omitted for a normal run. */
+  assembleInput: (slug: string, opts?: { ignorePriorProposals?: boolean }) => CaseDistillInput
   distill: (input: CaseDistillInput, signal: AbortSignal) => Promise<CaseDistillRun>
   stage: (caseSlug: string, jobId: number, output: CaseDistillOutput) => StageResult
   broadcast: (payload: DistillStatusPayload) => void
@@ -210,6 +211,29 @@ export class DistillQueue {
   }
 
   /**
+   * A comparison run: the full pipeline runs, staging does not. Nothing is written outside this
+   * job row — no proposals, no case summary, no assets, and no reject-digest rebuild (that
+   * rewrites a GLOBAL file, so `maybeEnqueueDigest` is deliberately not called here).
+   *
+   * Still takes the one-job-per-case slot while queued/running, and still broadcasts, so the
+   * chip can show and cancel it — same `cancelOtherInFlight` path as `enqueue`.
+   */
+  enqueueDryRun(slug: string, opts: { ignorePriorProposals?: boolean } = {}): DistillJobRow {
+    const snapshot = JSON.stringify(this.deps.assembleInput(slug, opts))
+    const res = this.deps.db
+      .prepare(
+        `INSERT INTO distill_jobs (case_slug, state, input_snapshot, prompt_hash, created_at, dry_run)
+         VALUES (?, 'queued', ?, ?, ?, 1)`
+      )
+      .run(slug, snapshot, this.deps.promptHash?.() ?? null, new Date().toISOString())
+    const job = this.get(Number(res.lastInsertRowid))!
+    this.emit(this.getRaw(job.id)!)
+    this.cancelOtherInFlight(slug, job.id)
+    this.kick()
+    return job
+  }
+
+  /**
    * Inserts a `kind='reject-digest'` row when the digest is stale AND none is already
    * queued/running — the second check keeps a burst of case enqueues (e.g. several cases closed
    * in quick succession, all seeing the same stale digest before the first rebuild lands) from
@@ -351,13 +375,13 @@ export class DistillQueue {
     return fresh
   }
 
-  /** Latest CASE job (highest id) for slug, or null. Blind to other kinds (e.g. reject-digest)
-   *  sharing this table — every renderer/close-flow read of "the case's distill status" must
-   *  see only case jobs, never a digest row that happens to have a higher id. */
+  /** Latest REAL case job (highest id) for slug, or null. Blind to other kinds (e.g.
+   *  reject-digest) and to dry runs: a comparison run is not this case's distillation state, and
+   *  every renderer/close-flow read comes through here. */
   statusFor(slug: string): DistillJobRow | null {
     const r = this.deps.db
       .prepare(
-        `SELECT * FROM distill_jobs WHERE case_slug = ? AND kind='case' ORDER BY id DESC LIMIT 1`
+        `SELECT * FROM distill_jobs WHERE case_slug = ? AND kind='case' AND dry_run = 0 ORDER BY id DESC LIMIT 1`
       )
       .get(slug) as JobDbRow | undefined
     return r ? toRow(r) : null
@@ -546,6 +570,26 @@ export class DistillQueue {
         finishCancelled()
         return
       }
+      if (r.dry_run === 1) {
+        // No staging, and therefore no item_count and no staging-side drops. `dropped_json` still
+        // records the pipeline's OWN pre-stage drops (veto + validators) — those are what the
+        // panel reads to explain a run that produced nothing.
+        finish(
+          `state='done', raw_output=?, input_tokens=?, output_tokens=?, cost_usd=?, duration_ms=?, prompt_chars=?, turn_count=?, tool_call_count=?, trajectory_json=?, dropped_json=?, stages_json=?`,
+          run.raw,
+          run.usage?.inputTokens ?? null,
+          run.usage?.outputTokens ?? null,
+          run.usage?.costUsd ?? null,
+          run.usage?.durationMs ?? null,
+          run.promptChars ?? null,
+          run.turnCount ?? null,
+          run.toolCallCount ?? null,
+          trajectoryJson(run.trajectory),
+          JSON.stringify(run.preStageDropped ?? []),
+          run.stages ? JSON.stringify(run.stages) : null
+        )
+        return
+      }
       const res = this.deps.stage(r.case_slug, r.id, run.output)
       finish(
         `state='done', raw_output=?, item_count=?, input_tokens=?, output_tokens=?, cost_usd=?, duration_ms=?, prompt_chars=?, turn_count=?, tool_call_count=?, trajectory_json=?, dropped_json=?, stages_json=?`,
@@ -643,6 +687,8 @@ export function reconcileAndEnqueue(queue: DistillQueue, slug: string): DistillJ
  * so defaults to unchecked rather than suggesting a second one.
  */
 export function needsDistillRun(db: DatabaseSync, queue: DistillQueue, slug: string): boolean {
+  // Dry rows are already excluded by statusFor. A completed dry run must not make a case look
+  // distilled — that would suppress the genuine close-triggered run.
   const job = queue.statusFor(slug)
   if (!job) return true
   if (job.state === 'queued' || job.state === 'running') return false
