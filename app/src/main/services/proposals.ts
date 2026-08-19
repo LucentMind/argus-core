@@ -11,7 +11,7 @@ import {
 } from './refSync/refFrontmatter'
 import { defaultAgentAccess } from '../../shared/agentAccess'
 import { ASSET_NAME_RE, validateSkill, hasErrors } from '../../shared/assetValidation'
-import { assetSetError, type SkillAssetInput } from '../../shared/skillAssets'
+import { assetPathError, assetSetError, type SkillAssetInput } from '../../shared/skillAssets'
 import { fmBlock, fmField, withFrontmatter } from '../../shared/frontmatter'
 import { mergeAuthorship, stampAuthorship, type Identity } from '../../shared/authorship'
 import {
@@ -396,7 +396,16 @@ function archive(
   const isDir = fs.statSync(src).isDirectory()
   if (isDir) {
     fs.rmSync(dst, { recursive: true, force: true })
-    fs.cpSync(src, dst, { recursive: true })
+    try {
+      fs.cpSync(src, dst, { recursive: true })
+    } catch (e) {
+      // A half-copied archive directory is worse than none: it has no rewritten SKILL.md, so
+      // `scanProposalDir` would skip it and the record would look simply absent. Clear it and
+      // let the caller see the failure — the pending proposal is still on disk, so a retry is
+      // clean.
+      fs.rmSync(dst, { recursive: true, force: true })
+      throw e
+    }
   }
   const extra = Object.entries({
     ...extraFm,
@@ -412,6 +421,10 @@ function archive(
     .replace(/^status: pending\r?$/m, `status: ${status}${extra ? `\n${extra}` : ''}`)
   fs.writeFileSync(proposalBodyPath(dstDir, file), updated + (appendix ?? ''))
   for (const [rel, content] of Object.entries(editedFiles ?? {})) {
+    // Defense in depth: Task 7's caller validates these, but `archive` joins them into a path
+    // and this file's convention is that a write path re-checks its own inputs.
+    const bad = assetPathError(rel)
+    if (bad) throw new Error(`archive: refusing edited file — ${bad}`)
     const abs = path.join(dst, 'edited', rel)
     fs.mkdirSync(path.dirname(abs), { recursive: true })
     fs.writeFileSync(abs, content)
