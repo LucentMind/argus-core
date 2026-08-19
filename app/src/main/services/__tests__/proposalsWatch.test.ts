@@ -104,6 +104,24 @@ describe('proposalsWatch', () => {
     }
   })
 
+  it('fires onChanged for a directory-shaped proposal, but not for a stray non-.md file', async () => {
+    const watcher = createProposalsWatch(argusHome, onChanged)
+    try {
+      await armWatch()
+      const dir = proposalsDir(argusHome)
+      // A stray non-.md FILE (not a directory) must still be filtered out — only the
+      // directory-shaped proposal below is "relevant".
+      fs.writeFileSync(path.join(dir, 'notes.txt'), 'not a proposal')
+      await new Promise((r) => setTimeout(r, 800))
+      expect(onChanged).not.toHaveBeenCalled()
+      fs.mkdirSync(path.join(dir, 'multi-file-skill'))
+      fs.writeFileSync(path.join(dir, 'multi-file-skill', 'SKILL.md'), '---\n---\nhi')
+      await vi.waitFor(() => expect(onChanged).toHaveBeenCalled(), { timeout: FS_WATCH_TIMEOUT })
+    } finally {
+      watcher.close()
+    }
+  })
+
   it('stops firing after close()', async () => {
     const watcher = createProposalsWatch(argusHome, onChanged)
     await armWatch()

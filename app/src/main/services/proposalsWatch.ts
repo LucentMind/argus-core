@@ -4,6 +4,7 @@
 // on caseWatch.ts: same debounce + async-'error' crash guard + teardown
 // discipline, but there's only one directory here, so no per-slug maps.
 import fs from 'node:fs'
+import path from 'node:path'
 import { proposalsDir } from './paths'
 import { DIGEST_FILE } from './distill/rejectDigest'
 
@@ -41,7 +42,19 @@ export function createProposalsWatch(argusHome: string, onChanged: () => void): 
         // distiller, never a reviewable proposal — a digest rebuild must not trigger an
         // app-wide proposals:changed refetch every time it writes this file.
         if (name === DIGEST_FILE) return
-        if (!name.endsWith('.md')) return
+        if (!name.endsWith('.md')) {
+          // A directory-shaped proposal (spec §1) has no `.md` suffix. Let directories through,
+          // and let a vanished path through too — a delete event cannot be stat'd, and the cost
+          // of a spurious debounced refetch is one list query, while the cost of a missed one is
+          // an inbox that stays stale until something else happens to fire.
+          let relevant = true
+          try {
+            relevant = fs.statSync(path.join(dir, name)).isDirectory()
+          } catch {
+            relevant = true
+          }
+          if (!relevant) return
+        }
       }
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
