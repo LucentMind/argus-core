@@ -28,6 +28,7 @@ import {
   REJECT_REASON_TAGS,
   type AcceptedTarget,
   type ProposalCounts,
+  type ProposalFile,
   type ProposalRecord,
   type ProposalType,
   type RejectReason
@@ -296,6 +297,27 @@ function pendingProposalFiles(
   return out
 }
 
+/** Per-file `current`: the installed user-tier copy of the same relative path, or null. */
+function proposalFileRecords(argusHome: string, file: string, target: string): ProposalFile[] {
+  const skillRoot = path.join(userSkillsDir(argusHome), target)
+  return proposalAssets(argusHome, file).map((a) => {
+    const currentPath = path.join(skillRoot, a.path)
+    let current: string | null = null
+    try {
+      current = fs.readFileSync(currentPath, 'utf8')
+    } catch {
+      current = null // new file, or no installed skill — "not there" is an answer
+    }
+    return {
+      path: a.path,
+      content: a.content,
+      current,
+      exec: isExecutableAsset(a.path, a.content),
+      ...(a.unreadable ? { unreadable: true } : {})
+    }
+  })
+}
+
 export function listProposals(argusHome: string): ProposalRecord[] {
   return pendingProposalFiles(argusHome)
     .map(({ file, type, fm, body }) => {
@@ -319,6 +341,10 @@ export function listProposals(argusHome: string): ProposalRecord[] {
         ...(previouslyReviewed ? { previouslyReviewed: true } : {}),
         ...(job ? { jobId: job } : {}),
         ...(basis ? { basis } : {}),
+        ...(() => {
+          const files = proposalFileRecords(argusHome, file, target)
+          return files.length > 0 ? { files } : {}
+        })(),
         ...(priorRejectCase
           ? {
               priorReject: {
