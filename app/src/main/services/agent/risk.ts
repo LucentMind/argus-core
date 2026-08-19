@@ -1,5 +1,5 @@
 import path from 'node:path'
-import type { Risk } from '../../../shared/agent-events'
+import type { Risk, SkillAssetContext } from '../../../shared/agent-events'
 import { classifyToolName, type RiskLevel } from '../../../shared/connectors'
 import { fillPrompt } from '../prompts/fill'
 import type { PromptTextSpecs } from '../../../shared/promptSpec'
@@ -31,20 +31,39 @@ export interface RiskContext {
   /** Prompt-registry resolver for `RISK_DENY_REASONS`. Optional: callers without a store get
    *  the defaults. */
   resolve?: (id: string) => string
+  /**
+   * Resolve one shell segment to the skill asset it would execute, or null.
+   *
+   * Injected rather than imported: this module does no filesystem or database access and must
+   * keep doing none — the gate needs both, and a classifier that reached for them could not be
+   * unit-tested with a plain object. Absent means the gate is off, which is what every existing
+   * caller and every driver-mapping test gets.
+   */
+  skillAsset?: (segment: string) => SkillAssetContext | null
 }
 
 export type RiskVerdict =
   | { action: 'allow'; risk: Risk }
-  | { action: 'ask'; risk: Risk; grantKey: string | null; reason: string }
+  | {
+      action: 'ask'
+      risk: Risk
+      grantKey: string | null
+      reason: string
+      /** Set only by the skill-asset gate. `session.ts` forwards it onto `request.opened`;
+       *  it is the only channel by which the card learns anything about the script, since
+       *  `reason` does not reach the card (see the comment above `NATIVE_RISK`). */
+      assetContext?: SkillAssetContext
+    }
   | { action: 'deny'; risk: Risk; reason: string }
 
 /**
  * The only risk text that reaches the model. `session.ts` forwards `verdict.reason` as the
  * tool_result on a DENY. On an ASK, `verdict.reason` does NOT reach the approval card — the
- * card is built from `{requestId, tool, risk, grantKey, argsPreview}` only (session.ts's
- * `handleToolRequest`), and a refusal sends `outcome.comment ?? 'Denied by user'` back to the
- * model instead. An ASK's `reason` is logged to the audit trail (`logToolCall`) but otherwise
- * unused, so these are deliberately not registered as user-facing copy.
+ * card is built from `{requestId, tool, risk, grantKey, argsPreview}` plus, for a skill-asset
+ * ask, `assetContext` (session.ts's `handleToolRequest`), and a refusal sends
+ * `outcome.comment ?? 'Denied by user'` back to the model instead. An ASK's `reason` is logged
+ * to the audit trail (`logToolCall`) but otherwise unused, so these are deliberately not
+ * registered as user-facing copy.
  */
 export const RISK_DENY_REASONS: PromptTextSpecs = {
   'risk.path-outside-sandbox': {
@@ -295,7 +314,35 @@ export function shellSegmentTokens(segment: string): string[] {
   return tokens
 }
 
+/** The three §7.2 states differ only in what the card says; action and risk are identical. */
+function assetReason(a: SkillAssetContext): string {
+  const what = `Runs ${a.relPath} from the "${a.skill}" skill`
+  if (a.reviewState === 'reviewed') return `${what} — reviewed on this machine`
+  if (a.reviewState === 'changed') return `${what} — CHANGED since you reviewed it`
+  return `${what} — never reviewed here`
+}
+
 function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
+  // The skill-asset gate runs before the program-name dispatch: what matters is the FILE a
+  // segment executes, not whether the program is `bash`, `sh`, `python`, or the script itself.
+  // A gate, not a sandbox (spec §7.4) — see `skillAssetContextForSegment` for what it cannot see:
+  // `bash "$(cat target)"`, a script piped to an interpreter's stdin, and a dynamically built
+  // path are all out of reach and fall back to ordinary shell classification below.
+  const asset = ctx.skillAsset?.(segment)
+  if (asset) {
+    return {
+      action: 'ask',
+      risk: 'HIGH',
+      // The content hash, deliberately not null: the body is a stable, named, previously
+      // reviewed file, so a session grant is reasonable — and pinning the key to the hash kills
+      // that grant the instant the bytes change, including mid-session after a HiveMind pull.
+      // `null` would re-prompt on every iteration of a loop that calls the script ten times,
+      // training exactly the click-through reflex this gate exists to prevent.
+      grantKey: `skill-asset:${asset.hash.slice(0, 16)}`,
+      reason: assetReason(asset),
+      assetContext: asset
+    }
+  }
   const tokens = shellSegmentTokens(segment)
   if (tokens.length === 0) return { action: 'allow', risk: 'LOW' }
   const prog = path.basename(tokens[0])
@@ -337,6 +384,24 @@ function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
 }
 
 const RISK_ORDER: Risk[] = ['LOW', 'MEDIUM', 'HIGH']
+
+/**
+ * Is `v` a worse verdict than the running worst? The first two rules are the original merge,
+ * verbatim: higher risk wins, and an ask beats an allow even at lower risk. The third is new —
+ * at equal risk, a verdict carrying asset context beats one without, because losing it would
+ * show a reviewer a script's approval prompt with no script in it.
+ */
+function isWorse(v: RiskVerdict, worst: RiskVerdict): boolean {
+  if (RISK_ORDER.indexOf(v.risk) > RISK_ORDER.indexOf(worst.risk)) return true
+  if (v.action === 'ask' && worst.action === 'allow') return true
+  if (RISK_ORDER.indexOf(v.risk) !== RISK_ORDER.indexOf(worst.risk)) return false
+  return (
+    v.action === 'ask' &&
+    worst.action === 'ask' &&
+    v.assetContext !== undefined &&
+    worst.assetContext === undefined
+  )
+}
 
 export function classifyToolCall(
   toolName: string,
@@ -388,10 +453,7 @@ export function classifyToolCall(
     for (const seg of segments) {
       const v = classifySegment(seg, ctx)
       if (v.action === 'deny') return v
-      const worse =
-        RISK_ORDER.indexOf(v.risk) > RISK_ORDER.indexOf(worst.risk) ||
-        (v.action === 'ask' && worst.action === 'allow')
-      if (worse) worst = v
+      if (isWorse(v, worst)) worst = v
     }
     return worst
   }
