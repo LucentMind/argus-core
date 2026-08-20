@@ -154,6 +154,11 @@ function reviewStateOrUnreviewed(
  * Only incidental spacing is normalised away. Arguments, redirections and quoting all stay,
  * because they are exactly what the key exists to distinguish: `sh collect.sh` and
  * `sh collect.sh --purge /` must not share a session grant.
+ *
+ * KNOWN, accepted: the collapse does not respect quote boundaries, so `sh a.sh "foo   bar"` and
+ * `sh a.sh "foo bar"` produce the same key and one grant covers both. Noted rather than fixed
+ * (final review round 2, Minor) — telling the two apart needs a quote-aware tokenizer, and the
+ * pair differs only in whitespace INSIDE one argument of an already-reviewed script.
  */
 function normaliseSegment(segment: string): string {
   return segment.trim().replace(/\s+/g, ' ')
@@ -183,8 +188,8 @@ function normaliseSegment(segment: string): string {
  *
  * The first matching token wins: a command naming two skill scripts is gated on the first, and
  * approving it approves the whole segment either way. Across SEGMENTS the classifier handles it
- * instead — `classifyToolCall` refuses a grant key outright when one command runs more than one
- * distinct script.
+ * instead — `classifyToolCall` refuses a grant key outright for any command with more than one
+ * meaningful segment, which covers the two-script case and every other chained shape.
  *
  * `segmentKey` scopes the grant to this exact segment: the key `risk.ts` builds covers one
  * normalised command line, NOT the script in any context. Approving `sh collect.sh` grants
