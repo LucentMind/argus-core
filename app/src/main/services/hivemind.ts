@@ -211,6 +211,11 @@ function validReferenceName(name: string): boolean {
   return base.endsWith('.md') && !/[/\\]/.test(base) && !base.startsWith('.')
 }
 
+/** The one place a tombstone key is spelled, so the ledger and the mirror cannot disagree. */
+export function declineKey(kind: 'skill' | 'reference', name: string): string {
+  return `${kind}/${name}`
+}
+
 /** `author:` from a clone-tree reference file, or null if it can't be read — mirrors
  *  `readFrontmatter`'s swallow-and-degrade behavior so a file vanishing between the
  *  `readdirSync` and this read yields `author: null` for that one item instead of
@@ -229,6 +234,9 @@ interface HivemindStateFile {
   skills: Record<string, string>
   references: Record<string, string>
   pushes: Record<string, PushReceipt>
+  /** Tombstones: 'skill/<name>' | 'reference/<name>' → ISO timestamp of the uninstall.
+   *  The mirror in `currency/hiveAdapter` subtracts these before adopting anything. */
+  declined: Record<string, string>
 }
 
 export interface HivemindDeps {
@@ -264,8 +272,14 @@ export class HivemindService {
       lastSynced: d.lastSynced ?? null,
       skills: d.skills ?? {},
       references: d.references ?? {},
-      pushes: d.pushes ?? {}
+      pushes: d.pushes ?? {},
+      declined: d.declined ?? {}
     }
+  }
+
+  /** Tombstone keys, for the mirror. Read-only view; writes go through install/uninstall. */
+  declined(): Record<string, string> {
+    return this.state().declined
   }
 
   private clone(): string {
@@ -421,7 +435,8 @@ export class HivemindService {
           shadowedByUser: fs.existsSync(
             path.join(userSkillsDir(this.deps.argusHome), ent.name, 'SKILL.md')
           ),
-          updateAvailable: installed && installedCommit !== null && installedCommit !== commit
+          updateAvailable: installed && installedCommit !== null && installedCommit !== commit,
+          orphaned: false
         })
       }
     }
@@ -450,10 +465,48 @@ export class HivemindService {
             installedCommit,
             localTier: installed ? referenceTier(localPath) || null : null,
             shadowedByUser: false,
-            updateAvailable: installed && installedCommit !== null && installedCommit !== commit
+            updateAvailable: installed && installedCommit !== null && installedCommit !== commit,
+            orphaned: false
           })
         }
       }
+    }
+    // Installed items with no counterpart in the clone: still real, still on disk, no longer
+    // offered by the hive. Listed so the user can see and remove them; never deleted here.
+    const seen = new Set(items.map((i) => `${i.kind}/${i.name}`))
+    for (const [name, commit] of Object.entries(state.skills)) {
+      if (seen.has(`skill/${name}`)) continue
+      items.push({
+        kind: 'skill',
+        name,
+        description: '',
+        author: null,
+        commit,
+        installed: true,
+        installedCommit: commit,
+        localTier: null,
+        shadowedByUser: false,
+        updateAvailable: false,
+        orphaned: true
+      })
+    }
+    for (const [name, commit] of Object.entries(state.references)) {
+      if (seen.has(`reference/${name}`)) continue
+      items.push({
+        kind: 'reference',
+        name,
+        description: '',
+        author: null,
+        commit,
+        installed: true,
+        installedCommit: commit,
+        localTier: referenceTier(
+          path.join(sharedReferencesDir(this.deps.argusHome), path.basename(name))
+        ),
+        shadowedByUser: false,
+        updateAvailable: false,
+        orphaned: true
+      })
     }
     return items.sort((a, b) => a.name.localeCompare(b.name))
   }
@@ -465,6 +518,9 @@ export class HivemindService {
     opts?: { overwriteLocalEdits?: boolean }
   ): Promise<HivemindPayload> {
     const state = this.state()
+    // Installing by hand is the undo for a tombstone — the Download button in the row IS the
+    // un-exclude control, so there is no separate one to keep in sync.
+    delete state.declined[declineKey(kind, name)]
     if (kind === 'skill') {
       const src = path.join(this.clone(), 'skills', name)
       if (!fs.existsSync(path.join(src, 'SKILL.md')))
@@ -522,6 +578,10 @@ export class HivemindService {
     fs.rmSync(dest, { recursive: true, force: true })
     const state = this.state()
     delete state.skills[name]
+    // Recorded on EVERY uninstall, not only while auto mode is on: otherwise a user who
+    // uninstalls with the switch off and turns it on later has every removal silently undone,
+    // and the ledger would mean different things depending on when each row was written.
+    state.declined[declineKey('skill', name)] = new Date().toISOString()
     this.store.write(state)
     return this.payload()
   }
@@ -540,6 +600,7 @@ export class HivemindService {
     fs.rmSync(file, { force: true })
     const state = this.state()
     delete state.references[name]
+    state.declined[declineKey('reference', name)] = new Date().toISOString()
     this.store.write(state)
     return this.payload()
   }
