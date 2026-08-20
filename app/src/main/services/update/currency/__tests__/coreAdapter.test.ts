@@ -60,6 +60,20 @@ describe('coreAdapter.survey', () => {
     expect(check).not.toHaveBeenCalled()
   })
 
+  it('does not re-check while a download is in flight', async () => {
+    const check = vi.fn(async () => payloadWith({ phase: 'downloading', percent: 42 }))
+    const svc = fakeService({ phase: 'downloading', percent: 42 }, { check })
+    expect(await createCoreAdapter({ service: svc }).survey()).toEqual([])
+    expect(check).not.toHaveBeenCalled()
+  })
+
+  it('does not re-check while a check is already in flight', async () => {
+    const check = vi.fn(async () => payloadWith({ phase: 'checking' }))
+    const svc = fakeService({ phase: 'checking' }, { check })
+    expect(await createCoreAdapter({ service: svc }).survey()).toEqual([])
+    expect(check).not.toHaveBeenCalled()
+  })
+
   it('surveys silently — a failed check is never a manual one', async () => {
     const check = vi.fn(async () => payloadWith({ phase: 'idle' }))
     const svc = fakeService({ phase: 'idle' }, { check })
@@ -85,5 +99,18 @@ describe('coreAdapter.apply', () => {
     const adapter = createCoreAdapter({ service: svc })
     const [c] = await adapter.survey()
     expect(await adapter.apply(c)).toEqual({ ok: false, error: 'connection reset' })
+  })
+
+  it("does not claim success when the world moved and download no-op'd", async () => {
+    // Simulates CoreUpdaterService.download()'s no-op: the phase was no longer `available` by the
+    // time apply ran (e.g. Settings' "Check for updates" reached the service directly, outside
+    // the apply lock), so download() returned the current payload unchanged instead of staging.
+    const download = vi.fn(async () => payloadWith({ phase: 'idle' }))
+    const svc = fakeService({ phase: 'available', version: '2.3.0' }, { download })
+    const adapter = createCoreAdapter({ service: svc })
+    const [c] = await adapter.survey()
+    const outcome = await adapter.apply(c)
+    expect(outcome.ok).toBe(false)
+    expect(outcome).not.toHaveProperty('reason')
   })
 })

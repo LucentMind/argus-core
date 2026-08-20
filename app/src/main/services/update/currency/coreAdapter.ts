@@ -72,8 +72,17 @@ export function createCoreAdapter({ service }: CoreAdapterDeps): CurrencyAdapter
 
     async apply(): Promise<ApplyOutcome> {
       const after = await service.download()
+      // `ready` — and ONLY `ready` — means bytes are actually staged. "Not an error" is not the
+      // same thing: `CoreUpdaterService.download()` no-ops and returns the CURRENT payload
+      // unchanged whenever its phase is not `available` at call time, setting no error. So if the
+      // world moved between the survey and here — the user pressed "Check for updates" in
+      // Settings, which reaches the service directly without passing through the apply lock —
+      // reporting success on "not error" would claim an update was staged when nothing happened.
+      if (after.status.phase === 'ready') return { ok: true, needsRestart: true }
       if (after.status.phase === 'error') return { ok: false, error: after.status.message }
-      return { ok: true, needsRestart: true }
+      // Any other phase is that race, not a decision for the user: no `reason`, so the service
+      // drops it silently and the next survey re-offers it.
+      return { ok: false, error: `update was no longer available to stage (${after.status.phase})` }
     }
   }
 }
