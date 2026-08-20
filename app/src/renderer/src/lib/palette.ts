@@ -3,17 +3,20 @@ import type { Command } from './commands'
 import type { CorpusItem } from '../../../shared/corpusSearch'
 import type { AuthoringKind } from '../../../shared/authoringIpc'
 import type { DraftRecord } from '../../../shared/editorIpc'
+import type { SkillFileEntry } from '../../../shared/skillFilesIpc'
 
-/** Spec §6.2 and §6.4 share one overlay; which list it shows is DERIVED from the query rather
- *  than held as a second piece of state, so `>` can switch modes mid-type and backspacing over
- *  it switches back with nothing to keep in sync. */
-export type PaletteMode = 'assets' | 'commands'
+/** Spec §6.2, §6.4 and §6's "Open file in skill…" share one overlay; which list it shows is
+ *  DERIVED from the query rather than held as a second piece of state, so a leading `>` or `@`
+ *  can switch modes mid-type and backspacing over it switches back with nothing to keep in
+ *  sync. */
+export type PaletteMode = 'assets' | 'commands' | 'files'
 
 export function modeFromQuery(raw: string): { mode: PaletteMode; query: string } {
-  if (!raw.startsWith('>')) return { mode: 'assets', query: raw }
-  // One optional space is eaten so "> save" and ">save" mean the same thing; further spaces are
-  // the user's and are left in the query.
-  return { mode: 'commands', query: raw.slice(1).replace(/^ /, '') }
+  // One optional space is eaten after the marker so "> save" and ">save" (or "@ foo"/"@foo")
+  // mean the same thing; further spaces are the user's and are left in the query.
+  if (raw.startsWith('>')) return { mode: 'commands', query: raw.slice(1).replace(/^ /, '') }
+  if (raw.startsWith('@')) return { mode: 'files', query: raw.slice(1).replace(/^ /, '') }
+  return { mode: 'assets', query: raw }
 }
 
 export interface AssetRow {
@@ -126,4 +129,17 @@ export function rankCommands(cmds: readonly Command[], query: string): Command[]
     .filter((x): x is { c: Command; m: { score: number; positions: number[] } } => x.m !== null)
     .sort((a, b) => b.m.score - a.m.score)
     .map((x) => x.c)
+}
+
+/** The `@` mode behind "Open file in skill…": ranks the active pane's sibling files by a fuzzy
+ *  match on `relPath`, same shape as `rankCommands` ranks by title. */
+export function rankFiles(files: readonly SkillFileEntry[], query: string): SkillFileEntry[] {
+  if (query === '') return files.slice()
+  return files
+    .map((f) => ({ f, m: fuzzyMatch(query, f.relPath) }))
+    .filter(
+      (x): x is { f: SkillFileEntry; m: { score: number; positions: number[] } } => x.m !== null
+    )
+    .sort((a, b) => b.m.score - a.m.score)
+    .map((x) => x.f)
 }

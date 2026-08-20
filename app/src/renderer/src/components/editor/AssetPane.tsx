@@ -923,15 +923,6 @@ export function AssetPane({
     [name, reloadFiles]
   )
 
-  /** The command registry's "Open file in skill…" (spec §6): reveals the dock on the Files tab,
-   *  same as `findReferences` selects the References tab before its result lands — opening the
-   *  chosen file itself is the dock row's own click, not this command's job. */
-  const openFilesDock = useCallback((): void => {
-    if (!hasFiles) return
-    setDockTab('files')
-    setProblemsOpen(true)
-  }, [hasFiles])
-
   const compare =
     compareSnapshot !== null && (banner.kind === 'stale' || banner.kind === 'conflict')
       ? { disk: banner.disk, snapshot: compareSnapshot }
@@ -982,7 +973,13 @@ export function AssetPane({
       toggleWrap: () => surfaceCommands.toggleWrap(),
       openGotoLine: () => surfaceRef.current?.openGotoLine(),
       findReferences: () => findReferences(),
-      openFiles: () => openFilesDock(),
+      // `files` directly, not a ref: this factory already depends on render-scoped values
+      // (`kind`/`mode`/`draftId`/`file` below) and re-runs whenever `files` changes, same as
+      // `useImperativeHandle` already re-runs on every dependency change here — there is no
+      // ref/render split to preserve for a plain read like this one (contrast `actionsRef`, which
+      // exists because `onSave`/`assist` close over state and would churn the ref map otherwise).
+      listFiles: () => (hasFiles ? files : null),
+      openFile: (relPath) => openFile(relPath),
       focus: () => surfaceRef.current?.focus()
     }),
     // `paneRef` is not listed: React's `useImperativeHandle` already re-runs this factory whenever
@@ -991,7 +988,7 @@ export function AssetPane({
     // unnecessary. `kind`/`mode`/`draftId` feed `draftRef` and are all stable for the life of the
     // pane (two props fixed by the tab, one `useState` minted at mount), so listing them costs no
     // churn — they are here to satisfy exhaustive-deps honestly rather than by omission.
-    [surfaceCommands, findReferences, openFilesDock, kind, mode, draftId, file]
+    [surfaceCommands, findReferences, openFile, hasFiles, files, kind, mode, draftId, file]
   )
 
   // `useAssistProvider` (`../library/assistProvider.ts`) calls `assistProviderLabel` unmemoized on

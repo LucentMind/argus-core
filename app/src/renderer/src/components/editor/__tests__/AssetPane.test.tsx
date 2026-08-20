@@ -1328,21 +1328,38 @@ describe('AssetPane · files dock', () => {
     await waitFor(() => expect(skillsListFiles).toHaveBeenCalledTimes(2))
   })
 
-  it('the "Open file in skill…" command reveals the Files tab', async () => {
+  it('lists this pane\'s files synchronously, for the command palette\'s "Open file in skill…"', async () => {
+    skillsListFiles.mockResolvedValue([
+      { relPath: 'scripts/a.sh', bytes: 3, executable: true, tier: 'user', editable: true }
+    ])
     const paneRef = createRef<AssetPaneHandle>()
     renderPane({ paneRef })
     await waitFor(() => expect(paneRef.current).not.toBeNull())
-    await waitFor(() => expect(skillsListFiles).toHaveBeenCalled())
-    act(() => paneRef.current!.openFiles())
-    expect(screen.getByRole('tab', { name: /files/i })).toHaveAttribute('aria-selected', 'true')
+    await waitFor(() =>
+      expect(paneRef.current!.listFiles()).toEqual([
+        { relPath: 'scripts/a.sh', bytes: 3, executable: true, tier: 'user', editable: true }
+      ])
+    )
   })
 
-  it('does nothing for "Open file in skill…" on a reference — no dock to reveal', async () => {
+  it('reports null for "listFiles" on a reference — no folder to list', async () => {
     const paneRef = createRef<AssetPaneHandle>()
     renderPane({ paneRef, kind: 'reference' })
     await waitFor(() => expect(paneRef.current).not.toBeNull())
-    act(() => paneRef.current!.openFiles())
-    expect(screen.queryByRole('tab', { name: /files/i })).toBeNull()
+    expect(paneRef.current!.listFiles()).toBeNull()
+  })
+
+  it('"openFile" opens the chosen sibling directly, as its own tab — not a dock reveal', async () => {
+    const paneRef = createRef<AssetPaneHandle>()
+    renderPane({ paneRef })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    act(() => paneRef.current!.openFile('scripts/a.sh'))
+    expect(window.argus.editor.open).toHaveBeenCalledWith({
+      kind: 'skill',
+      name: 's',
+      mode: 'edit',
+      file: 'scripts/a.sh'
+    })
   })
 })
 
@@ -1492,6 +1509,7 @@ describe('AssetPane · toolbar fallback tracks buildCommands, not a restated cop
       window: {
         quickOpen: () => {},
         commandPalette: () => {},
+        openFilePicker: () => {},
         closeTab: () => {},
         nextTab: () => {},
         prevTab: () => {}
