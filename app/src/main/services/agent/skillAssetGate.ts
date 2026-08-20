@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import {
@@ -57,32 +58,65 @@ const MSYS_DRIVE_MANGLED = /^[A-Za-z]:[\\/]([A-Za-z])[\\/](.+)$/
  *
  * **win32 only.** On Linux and macOS `/c/Users/x` is a perfectly ordinary absolute path, and
  * rewriting it would point the gate at a file the command never named.
+ *
+ * The platform is a PARAMETER rather than a read of `process.platform` so that guard is testable
+ * off Windows. It had no coverage on any CI leg before: the filesystem-backed tests are
+ * `describe.skipIf(!isWin)`, so the macOS leg skipped them and the Windows leg passed whether or
+ * not the check existed. `skillAssetGate.rewrite.test.ts` covers both arms on every platform.
  */
-function msysAltPath(p: string): string | null {
-  if (process.platform !== 'win32') return null
+export function msysAltPathFor(platform: NodeJS.Platform, p: string): string | null {
+  if (platform !== 'win32') return null
   const m = MSYS_ROOTED.exec(p) ?? MSYS_DRIVE_MANGLED.exec(p)
   if (m === null) return null
   return `${m[1].toUpperCase()}:\\${m[2].replace(/\//g, '\\')}`
 }
 
 /**
- * `realOrNull`, plus the MSYS fallback — the resolution every path in this module goes through.
+ * The path a `~`-rooted spelling names, or null when it does not apply.
  *
- * The literal spelling is tried FIRST and the rewrite only when it names nothing: `C:\c\Users\…`
- * can legitimately exist (a directory called `c` at the drive root), and a real path must never
- * be shadowed by a speculative one. When the literal does resolve, its answer stands even if it
- * is not a skill asset — falling through would let a speculative path decide what a real one
- * already answered.
+ * **Not platform-gated**, unlike the MSYS rewrite: `~` is a POSIX shell feature and every shell
+ * Argus spawns expands it, on Windows as much as on macOS and Linux. It is also not exotic —
+ * `resolveArgusHome` defaults ARGUS_HOME to `path.join(os.homedir(), 'Argus')`, so on a default
+ * install `~/Argus/skills-user/<skill>/scripts/run.sh` is the SHORTEST correct absolute path to a
+ * skill script, and without this the gate could not see it at all.
  *
- * Without this, the whole gate was dead for the git-bash spelling on Windows: `path.resolve`
- * produced `C:\c\…`, `realpathSync.native` threw ENOENT, and an unreviewed skill script ran with
- * no approval card at all (found by the live CDP run, 2026-08-20).
+ * Both spellings the module can be handed are matched by looking for a path SEGMENT that is
+ * exactly `~`, wherever it sits:
+ * - `~/Argus/x` — the raw token, as the model wrote it.
+ * - `<cwd>/~/Argus/x` — what `path.resolve(cwd, '~/Argus/x')` makes of it, which is what the
+ *   token loop below passes. There is no leading `~` left to anchor on, so the segment scan is
+ *   what recognises it; a real directory named `~` is handled by the precedence rule in
+ *   `skillAssetAtRoots` (literal first, expansion only when the literal is not an asset).
+ *
+ * NOT handled, deliberately: `~user/…` names another user's home, which cannot be resolved
+ * without enumerating the system's accounts. Listed in `skillAssetContextForSegment`'s exclusion
+ * block with the rest.
  */
-function realOrNullMsysAware(p: string): string | null {
-  const direct = realOrNull(p)
-  if (direct !== null) return direct
-  const alt = msysAltPath(p)
-  return alt === null ? null : realOrNull(alt)
+export function tildeAltPath(p: string, homeDir: string): string | null {
+  const parts = p.split(/[\\/]/)
+  const at = parts.indexOf('~')
+  if (at === -1) return null
+  const rest = parts.slice(at + 1).filter((s) => s !== '')
+  // A bare `~` names the home DIRECTORY. Directories are never assets, so there is nothing to
+  // gain from expanding it and a rewrite with no tail would just point at the home root.
+  if (rest.length === 0) return null
+  return path.join(homeDir, ...rest)
+}
+
+/**
+ * Every spelling of `p` worth resolving, in precedence order.
+ *
+ * The literal comes FIRST: `C:\c\Users\…` and `<cwd>\~\…` can both legitimately exist, and a real
+ * path must not be shadowed by a speculative one — see `skillAssetAtRoots` for what "first"
+ * actually buys, which is narrower than it looks.
+ */
+function pathSpellings(p: string, homeDir: string): string[] {
+  const out = [p]
+  const msys = msysAltPathFor(process.platform, p)
+  if (msys !== null) out.push(msys)
+  const tilde = tildeAltPath(p, homeDir)
+  if (tilde !== null) out.push(tilde)
+  return out
 }
 
 /** The tier roots that exist right now, resolved, highest precedence first. */
@@ -104,13 +138,11 @@ interface LocatedAsset {
   real: string
 }
 
-/** `skillAssetAt` against roots the caller already resolved — see the note there. */
-function skillAssetAtRoots(
+/** The asset an already-resolved real path names, or null. */
+function assetUnderRoots(
   roots: ReadonlyArray<{ tier: SkillAssetTier; root: string }>,
-  absPath: string
+  real: string
 ): LocatedAsset | null {
-  const real = realOrNullMsysAware(absPath)
-  if (real === null) return null
   for (const { tier, root } of roots) {
     const rel = path.relative(root, real)
     // `path.relative`, not `startsWith`: `skills-user-backup/` shares a prefix with
@@ -119,6 +151,42 @@ function skillAssetAtRoots(
     const parts = rel.split(path.sep)
     if (parts.length < 2) continue // the skill directory itself, not a file inside it
     return { id: { tier, skill: parts[0], relPath: parts.slice(1).join('/') }, real }
+  }
+  return null
+}
+
+/**
+ * `skillAssetAt` against roots the caller already resolved — see the note there.
+ *
+ * Every spelling of the path is tried in turn and the FIRST one that names an asset wins. That
+ * ordering is deliberate on both halves:
+ *
+ * - The literal is tried first, so when a real file sits at the literal resolution AND is an
+ *   asset, it is the one reported. Attribution stays correct: a speculative rewrite never
+ *   relabels a script that a real path already identified.
+ * - But a literal that resolves to something which is NOT an asset does not stop the scan. It
+ *   used to, on the same attribution argument — and that argument, though real, is outranked by
+ *   not going blind: `mkdir -p "C:/c/Users/…"` classifies as allow/LOW (nothing polices `mkdir`),
+ *   so an agent could plant a directory at the literal resolution and switch the gate off for its
+ *   own script. The cost of falling through is a card that could name a script the command is not
+ *   actually running — a false ask, which is the safe direction in a design whose current failure
+ *   mode is a MISSING ask.
+ *
+ * Without the rewrites the whole gate was dead for spellings `path.resolve` cannot parse:
+ * `path.resolve` produced `C:\c\…` or `<cwd>\~\…`, `realpathSync.native` threw ENOENT, and an
+ * unreviewed skill script ran with no approval card at all (the git-bash half was found by the
+ * live CDP run, 2026-08-20).
+ */
+function skillAssetAtRoots(
+  roots: ReadonlyArray<{ tier: SkillAssetTier; root: string }>,
+  absPath: string,
+  homeDir: string
+): LocatedAsset | null {
+  for (const spelling of pathSpellings(absPath, homeDir)) {
+    const real = realOrNull(spelling)
+    if (real === null) continue
+    const located = assetUnderRoots(roots, real)
+    if (located !== null) return located
   }
   return null
 }
@@ -141,13 +209,21 @@ function skillAssetAtRoots(
  * (pack install, "adopt upstream", a HiveMind pull), and a stale miss here reads as "not a skill
  * asset" — the unsafe direction.
  *
- * Both spellings of an absolute Windows path are accepted, `C:\…` and git-bash's `/c/…` — see
- * `realOrNullMsysAware`. The rewrite lives here rather than in the token loop below because
- * "which file does this path name" is this function's whole job, and every caller asks the same
- * question of a path the shell wrote; the loop's job is tokenizing and quote-stripping.
+ * Three spellings are accepted: `C:\…`, git-bash's `/c/…` (win32 only) and `~/…` on every
+ * platform — see `pathSpellings` and `skillAssetAtRoots`. The rewrites live here rather than in
+ * the token loop below because "which file does this path name" is this function's whole job, and
+ * every caller asks the same question of a path the shell wrote; the loop's job is tokenizing and
+ * quote-stripping.
+ *
+ * `homeDir` is injected so the `~` expansion is testable on every platform without stubbing a
+ * global; production omits it and gets `os.homedir()`, which is what the shell expands `~` to.
  */
-export function skillAssetAt(argusHome: string, absPath: string): SkillAssetId | null {
-  return skillAssetAtRoots(tierRoots(argusHome), absPath)?.id ?? null
+export function skillAssetAt(
+  argusHome: string,
+  absPath: string,
+  homeDir: string = os.homedir()
+): SkillAssetId | null {
+  return skillAssetAtRoots(tierRoots(argusHome), absPath, homeDir)?.id ?? null
 }
 
 export interface SkillAssetGateDeps {
@@ -155,6 +231,9 @@ export interface SkillAssetGateDeps {
   db: DatabaseSync
   /** What a relative token in the command resolves against — the case directory. */
   cwd: string
+  /** What the shell expands `~` to. Defaults to `os.homedir()` — the seam exists so tests can
+   *  lay out a fake home, not because any caller has a different answer. */
+  homeDir?: string
 }
 
 /** Head-only, deliberately: for a script the first lines are what a reviewer reads, and PTC's
@@ -231,8 +310,15 @@ function normaliseSegment(segment: string): string {
  *
  * **A gate, not a sandbox** (spec §7.4), stated here in the register `risk.ts` uses for PTC so
  * no future reader mistakes it for containment. This reads literal tokens, and the following
- * all slip past it and fall back to ordinary shell classification. The list is meant to be
- * exhaustive about what is known — an honest list is the whole value of this comment.
+ * all slip past it and fall back to ordinary shell classification. The list is what is KNOWN,
+ * not a proof of completeness — an honest list is the whole value of this comment.
+ *
+ * The path-spelling entries below share one root cause, and it is open-ended by construction:
+ * **this module parses paths with `path.resolve`, and the shell parses them with its own rules.**
+ * Any spelling the shell understands and `path.resolve` does not resolves to nothing, which reads
+ * as "not a skill asset" — a total bypass, not a degraded check. Two such spellings have already
+ * been found by running the thing (git-bash `/c/…` and `~/…`, both now handled); assume there are
+ * more rather than that the list below closes the class.
  *
  * - `bash "$(cat target)"`, a script piped to an interpreter on stdin, and any path the shell
  *   builds at run time. Recognising them would require executing the command's substitutions,
@@ -247,13 +333,21 @@ function normaliseSegment(segment: string): string {
  *   path under an `ARGUS_HOME` whose parent directory has a space in it — ordinary on Windows.
  *   This is a pre-existing property of the shared tokenizer (`cd "/outside dir"` already evades
  *   the sandbox deny in `risk.ts` the same way), but it is newly load-bearing here.
- * - **Path spellings other than `C:\…` and git-bash's `/c/…`.** Those two are handled
- *   (`realOrNullMsysAware`) because they are what Argus's own Windows shell produces; a live run
- *   showed the model reaching for `/c/…` unprompted and the gate missing it entirely. Still NOT
- *   recognised, because nothing Argus spawns emits them: Cygwin's `/cygdrive/c/…`, WSL's
- *   `/mnt/c/…`, the `\\?\C:\…` extended-length form, and UNC paths (`\\host\share\…`,
- *   `\\localhost\C$\…`) — a UNC path can name a file inside a tier root while resolving to a
- *   spelling that matches no local root.
+ * - **Path spellings other than `C:\…`, git-bash's `/c/…` and `~/…`.** Those three are handled
+ *   (`pathSpellings`): the first two are what Argus's own Windows shell produces — a live run
+ *   showed the model reaching for `/c/…` unprompted and the gate missing it entirely — and `~/…`
+ *   is, on a default install, the shortest correct absolute path to a skill script, expanded by
+ *   every shell on every platform. Still NOT recognised:
+ *   - `~user/…` — another user's home. Resolving it means enumerating the system's accounts, and
+ *     nothing Argus writes points at a second user's tree.
+ *   - `$HOME/…`, `${HOME}/…`, `%USERPROFILE%\…` and every other variable reference. These belong
+ *     to the "paths the shell builds at run time" family above, not to the spelling family: the
+ *     token is a variable, not a literal, and its value is not knowable without expanding the
+ *     command.
+ *   - Cygwin's `/cygdrive/c/…`, WSL's `/mnt/c/…`, the `\\?\C:\…` extended-length form, and UNC
+ *     paths (`\\host\share\…`, `\\localhost\C$\…`) — a UNC path can name a file inside a tier
+ *     root while resolving to a spelling that matches no local root. Excluded on the grounds that
+ *     nothing Argus spawns emits them; that is an argument about likelihood, not about safety.
  *
  * The first matching token wins: a command naming two skill scripts is gated on the first, and
  * approving it approves the whole segment either way. Across SEGMENTS the classifier handles it
@@ -275,6 +369,7 @@ export function skillAssetContextForSegment(
   // Once per segment, not once per token — see `skillAssetAt`.
   const roots = tierRoots(deps.argusHome)
   if (roots.length === 0) return null
+  const homeDir = deps.homeDir ?? os.homedir()
   for (const raw of tokens) {
     // Matched pair only, via the `\1` backreference — a malformed token like `'path"` keeps
     // its quotes rather than having both ends stripped independently. Harmless either way
@@ -283,7 +378,7 @@ export function skillAssetContextForSegment(
     const token = raw.replace(/^(["'])(.*)\1$/, '$2')
     if (token === '' || token.startsWith('-')) continue
     const abs = path.resolve(deps.cwd, token)
-    const located = skillAssetAtRoots(roots, abs)
+    const located = skillAssetAtRoots(roots, abs, homeDir)
     if (!located) continue
     const { id, real } = located
     let content: string
