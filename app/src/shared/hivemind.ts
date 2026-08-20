@@ -13,6 +13,9 @@ export interface HivemindItem {
   /** A skills-user copy of this skill exists and shadows the installed one (skills only). */
   shadowedByUser: boolean
   updateAvailable: boolean
+  /** Installed locally but no longer present in the hive repo. Derived per listing, never
+   *  stored: it self-corrects the instant the item reappears upstream. */
+  orphaned: boolean
 }
 /** Whether the installed local reference has edits that are in neither the pin nor HEAD. */
 export interface LocalDivergence {

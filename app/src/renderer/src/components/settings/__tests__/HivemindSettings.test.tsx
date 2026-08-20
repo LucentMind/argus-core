@@ -44,7 +44,8 @@ const ready: HivemindPayload = {
       installedCommit: 'sha-1',
       localTier: null,
       shadowedByUser: false,
-      updateAvailable: true
+      updateAvailable: true,
+      orphaned: false
     },
     {
       kind: 'reference',
@@ -56,7 +57,8 @@ const ready: HivemindPayload = {
       installedCommit: null,
       localTier: null,
       shadowedByUser: false,
-      updateAvailable: false
+      updateAvailable: false,
+      orphaned: false
     }
   ],
   pushable: [{ kind: 'skill', name: 'my-skill' }],
@@ -594,7 +596,8 @@ describe('keep as mine', () => {
         installedCommit: 'sha-3',
         localTier: 'hivemind',
         shadowedByUser: false,
-        updateAvailable: false
+        updateAvailable: false,
+        orphaned: false
       }
     ]
   }
@@ -681,7 +684,8 @@ describe('update hazards', () => {
           localTier: 'user',
           shadowedByUser: false,
           author: null,
-          updateAvailable: true
+          updateAvailable: true,
+          orphaned: false
         }
       ]
     }
@@ -712,7 +716,8 @@ describe('update hazards', () => {
           localTier: 'user',
           shadowedByUser: false,
           author: null,
-          updateAvailable: true
+          updateAvailable: true,
+          orphaned: false
         }
       ]
     }
@@ -745,7 +750,8 @@ describe('update hazards', () => {
           localTier: 'user',
           shadowedByUser: false,
           author: null,
-          updateAvailable: true
+          updateAvailable: true,
+          orphaned: false
         }
       ]
     }
@@ -774,7 +780,8 @@ describe('update hazards', () => {
           localTier: 'user',
           shadowedByUser: false,
           author: null,
-          updateAvailable: true
+          updateAvailable: true,
+          orphaned: false
         }
       ]
     }
@@ -806,7 +813,8 @@ describe('update hazards', () => {
           installedCommit: 'sha-2',
           localTier: 'user',
           shadowedByUser: false,
-          updateAvailable: true
+          updateAvailable: true,
+          orphaned: false
         }
       ]
     }
@@ -842,7 +850,8 @@ describe('update hazards', () => {
           installedCommit: 'sha-2',
           localTier: null,
           shadowedByUser: false,
-          updateAvailable: true
+          updateAvailable: true,
+          orphaned: false
         }
       ]
     }
@@ -912,7 +921,8 @@ describe('download hazards', () => {
           installedCommit: null,
           localTier: null,
           shadowedByUser: true,
-          updateAvailable: false
+          updateAvailable: false,
+          orphaned: false
         }
       ]
     }
@@ -935,7 +945,8 @@ describe('download hazards', () => {
           installedCommit: null,
           localTier: null,
           shadowedByUser: false,
-          updateAvailable: false
+          updateAvailable: false,
+          orphaned: false
         }
       ]
     }
@@ -962,7 +973,8 @@ describe('download hazards', () => {
           installedCommit: 'sha-2',
           localTier: null,
           shadowedByUser: true,
-          updateAvailable: false
+          updateAvailable: false,
+          orphaned: false
         }
       ]
     }
