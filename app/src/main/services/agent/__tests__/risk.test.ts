@@ -296,6 +296,65 @@ describe('classifyToolCall — Bash', () => {
     })
   })
 
+  /**
+   * A trailing `\` immediately before a newline is a shell LINE CONTINUATION, not a statement
+   * separator — the shell joins it into ONE logical line before it ever looks at the text. The
+   * newline split added above (`newline-separated statements`) does not know that: it cuts a
+   * continued command in two regardless of the trailing `\`, so a flag written on the continued
+   * line is never seen next to the program that needs it. `gh api /repos/o/r/issues \` + a
+   * continued `-X POST -f title=x` reads, post-split, as two independent segments — `gh api
+   * /repos/o/r/issues \` (no mutating method in sight → allow/LOW) and `-X POST -f title=x` (not
+   * even recognised as a program invocation) — so a remote-mutating `gh api` call silently
+   * downgrades from the HIGH ask the same command gets written on one line. This is not a corner
+   * case: a model wrapping a long Bash command across lines with `\` is ordinary formatting.
+   */
+  describe('backslash line continuation', () => {
+    // THE regression: this is the case that goes ask/HIGH (pre-commit and desired) → allow/LOW
+    // (at the newline-split commit) if continuations aren't joined before the split runs.
+    it('keeps `gh api … -X POST` HIGH when the flag lands on a continued line', () => {
+      expect(bash('gh api /repos/o/r/issues \\\n  -X POST -f title=x')).toMatchObject({
+        action: 'ask',
+        risk: 'HIGH'
+      })
+    })
+
+    it('keeps a recursive-delete flag HIGH when it lands on a continued line', () => {
+      expect(bash('rm /tmp/a \\\n  -rf /tmp/b')).toMatchObject({
+        action: 'ask',
+        risk: 'HIGH'
+      })
+    })
+
+    // Joining also FIXES a pre-existing miss: `\` used to read as an unrecognised git subcommand
+    // (MEDIUM ask). Once joined, `push` is the subcommand the classifier actually sees (HIGH ask).
+    it('recognises `push` as the subcommand once the continuation is joined', () => {
+      expect(bash('git \\\n  push')).toMatchObject({ action: 'ask', risk: 'HIGH' })
+    })
+
+    it('handles a CRLF continuation the same way as LF', () => {
+      expect(bash('rm /tmp/a \\\r\n  -rf /tmp/b')).toMatchObject({
+        action: 'ask',
+        risk: 'HIGH'
+      })
+    })
+
+    // A newline with no trailing backslash on the prior line is still an ordinary statement
+    // separator — the continuation join must be selective, not swallow every newline.
+    it('a plain newline (no trailing backslash) still separates statements', () => {
+      expect(bash('cd sub\nrm -rf /tmp/x')).toMatchObject({ action: 'ask', risk: 'HIGH' })
+    })
+
+    // The heredoc test must run against the JOINED string. `<<\EOF` (backslash-quoted delimiter,
+    // one of the recognised heredoc forms above) can have its backslash sit right before a line
+    // break, indistinguishable from an ordinary continuation until the join runs. Detecting the
+    // heredoc against the RAW string would miss it — the letter after the backslash falls on the
+    // next line — and would wrongly split the heredoc body as a separate statement, raising a
+    // spurious HIGH card for an `rm -rf /` that the shell only ever writes into a file.
+    it('joins a continuation inside a heredoc marker before heredoc detection', () => {
+      expect(bash('cat <<\\\nEOF\nrm -rf /\nEOF')).toEqual({ action: 'allow', risk: 'LOW' })
+    })
+  })
+
   it('defaults unknown commands to LOW allow', () => {
     expect(bash('wc -l notes.md')).toMatchObject({ action: 'allow', risk: 'LOW' })
   })
