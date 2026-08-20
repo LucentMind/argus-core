@@ -36,6 +36,7 @@ import {
   hasErrors,
   validateReference,
   validateSkill,
+  validateSkillFile,
   type ValidationIssue
 } from '../../../../shared/assetValidation'
 import type { CursorInfo, SurfaceHandle } from './surface'
@@ -458,12 +459,11 @@ export function AssetPane({
     () =>
       // `validateSkill`/`validateReference` both assume they are looking at the asset's own body
       // (frontmatter, a `name:` matching the folder, …) — rules a sibling script or template was
-      // never written to satisfy. Running them here would block Save on "Missing frontmatter" for
-      // every non-Markdown sibling, and misjudge a Markdown one by SKILL.md's rules instead of
-      // its own. Per-file validation is Task 6's; until it lands, a sibling has none rather than
-      // being judged against a schema that isn't its.
+      // never written to satisfy. A sibling gets the §2 checks instead: each sibling is its own
+      // pane, so per-file problems fall out of one-tab-per-file — there is no aggregation to
+      // build.
       file
-        ? []
+        ? validateSkillFile({ relPath: file, content: doc })
         : kind === 'skill'
           ? validateSkill({ name, content: doc })
           : validateReference({ file: name, content: doc }),
