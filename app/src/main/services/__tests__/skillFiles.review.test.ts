@@ -101,9 +101,9 @@ describe('deleteSkillFileReviewed', () => {
 
     deleteSkillFileReviewed({ argusHome: home, db }, 'collect-logs', 'scripts/collect.sh')
 
-    expect(
-      fs.existsSync(path.join(userSkillsDir(home), 'collect-logs/scripts/collect.sh'))
-    ).toBe(false)
+    expect(fs.existsSync(path.join(userSkillsDir(home), 'collect-logs/scripts/collect.sh'))).toBe(
+      false
+    )
     expect(assetReviewState(db, 'collect-logs', 'scripts/collect.sh', body)).toBe('unreviewed')
   })
 
@@ -112,9 +112,9 @@ describe('deleteSkillFileReviewed', () => {
     const dir = path.join(hivemindSkillsDir(home), 'theirs')
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: theirs\n---\nbody\n')
-    expect(() =>
-      deleteSkillFileReviewed({ argusHome: home, db }, 'theirs', 'run.sh')
-    ).toThrow(/read-only/i)
+    expect(() => deleteSkillFileReviewed({ argusHome: home, db }, 'theirs', 'run.sh')).toThrow(
+      /read-only/i
+    )
   })
 })
 
@@ -129,11 +129,14 @@ describe('renameSkillFileReviewed', () => {
       null
     )
 
-    renameSkillFileReviewed({ argusHome: home, db }, 'collect-logs', 'scripts/old.sh', 'scripts/new.sh')
+    renameSkillFileReviewed(
+      { argusHome: home, db },
+      'collect-logs',
+      'scripts/old.sh',
+      'scripts/new.sh'
+    )
 
-    expect(
-      fs.existsSync(path.join(userSkillsDir(home), 'collect-logs/scripts/old.sh'))
-    ).toBe(false)
+    expect(fs.existsSync(path.join(userSkillsDir(home), 'collect-logs/scripts/old.sh'))).toBe(false)
     expect(assetReviewState(db, 'collect-logs', 'scripts/new.sh', body)).toBe('reviewed')
     expect(assetReviewState(db, 'collect-logs', 'scripts/old.sh', body)).toBe('unreviewed')
   })

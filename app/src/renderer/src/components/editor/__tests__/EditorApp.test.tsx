@@ -7,6 +7,7 @@ import { EditorApp } from '../EditorApp'
 import type { SurfaceHandle } from '../surface'
 import type { EditorOpenRequest, PersistedTabs } from '../../../../../shared/editorIpc'
 import type { RefSyncPayload } from '../../../../../shared/referenceSync'
+import type { SkillFileEntry } from '../../../../../shared/skillFilesIpc'
 
 vi.mock('../../library/assistProvider', () => ({
   useAssistProvider: vi.fn(() => ({ ok: true, text: 'via claude' }))
@@ -1368,12 +1369,19 @@ describe('EditorApp · commands', () => {
   // list is cleared on close, and `pickFile` additionally refuses a pick tagged for a tab that is
   // no longer active.
   it("does not carry one skill's file list into another skill's @ picker", async () => {
+    const fileEntry = (relPath: string): SkillFileEntry => ({
+      relPath,
+      executable: true,
+      bytes: 0,
+      tier: 'user',
+      editable: true
+    })
     vi.mocked(window.argus.skills.listFiles).mockImplementation((name: string) =>
       Promise.resolve(
         name === 'my-skill'
-          ? [{ relPath: 'scripts/a.sh', executable: true }]
+          ? [fileEntry('scripts/a.sh')]
           : name === 'other-skill'
-            ? [{ relPath: 'scripts/b.sh', executable: true }]
+            ? [fileEntry('scripts/b.sh')]
             : []
       )
     )
