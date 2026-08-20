@@ -15,8 +15,15 @@ export interface SkillAssetContext {
   tier: SkillAssetTier
   /** POSIX-separated, relative to the skill directory. */
   relPath: string
-  /** sha256 of the bytes about to run; the verdict's grant key is its first 16 hex chars. */
+  /** sha256 of the bytes about to run; leads the verdict's grant key. */
   hash: string
+  /**
+   * sha256 of the whitespace-normalised shell segment the script was found in — the second half
+   * of the grant key, so a session approval covers `sh collect.sh` and not `sh collect.sh
+   * --purge /`. A digest, never content: it crosses to the renderer on `request.opened` like
+   * the rest of this object, and the card has no use for it.
+   */
+  segmentKey: string
   reviewState: AssetReviewState
   /** The bytes about to run, capped to `SKILL_ASSET_BODY_CAP`. */
   body: string
