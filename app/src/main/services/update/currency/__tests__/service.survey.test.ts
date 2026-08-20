@@ -206,7 +206,7 @@ describe('CurrencyService surveying — a rejecting adapter.survey()', () => {
       from: null,
       to: '1',
       verdict: 'blocked',
-      reason: { kind: 'auth' }
+      reason: { kind: 'local-edits' }
     }
     const good = fakeAdapter('hive', [blockedCandidate])
     const { svc, store } = build([bad, good], { now: () => 999 })

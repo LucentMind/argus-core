@@ -47,6 +47,12 @@ export class CurrencyService {
   private pending: Candidate[] = []
   /** Serializes every write, auto and manual alike. */
   private lock: Promise<unknown> = Promise.resolve()
+  /**
+   * Consecutive surveys in which an adapter reported an `auth` block. An expired `gh` sign-in is
+   * a decision only the user can act on, but it presents exactly like a flaky network — so it is
+   * shown on the SECOND consecutive sighting, not the first.
+   */
+  private authStrikes = new Map<AdapterId, number>()
 
   constructor(private readonly deps: CurrencyServiceDeps) {
     this.intervalMs = deps.intervalMs ?? DEFAULT_INTERVAL_MS
@@ -88,6 +94,23 @@ export class CurrencyService {
     this.timer = null
   }
 
+  /**
+   * Survey one adapter on demand — what the Packs and HiveMind Settings tabs call on mount.
+   *
+   * Runs with auto mode OFF: the switch governs APPLYING and the poll, not checking, so visiting
+   * those tabs refreshes their status exactly as it did before this service existed. Rate-limited
+   * to the same interval, so re-entering a tab five times in a minute costs one network round.
+   */
+  async surveyNow(id: AdapterId): Promise<void> {
+    const adapter = this.deps.adapters.find((a) => a.id === id)
+    if (!adapter) return
+    if (this.deps.anchors.dueAt(id, this.intervalMs) > this.now()) return
+    const found = await this.surveyAdapter(adapter)
+    if (!this.deps.autoEnabled()) return
+    this.pending.push(...found.filter((c) => c.verdict === 'clean'))
+    await this.applyPending()
+  }
+
   private async tick(): Promise<void> {
     if (!this.deps.autoEnabled()) return
     const now = this.now()
@@ -121,8 +144,13 @@ export class CurrencyService {
 
   /** The blocked list is per-survey truth: this adapter's old entries go, its new ones land. */
   private replaceBlockedFor(adapter: CurrencyAdapter, found: Candidate[]): void {
-    const mine = new Set(this.blocked.filter((c) => this.ownerOf(c) === adapter.id))
-    this.blocked = [...this.blocked.filter((c) => !mine.has(c)), ...blockedOf(found)]
+    const fresh = blockedOf(found)
+    const hasAuth = fresh.some((c) => c.reason?.kind === 'auth')
+    const strikes = hasAuth ? (this.authStrikes.get(adapter.id) ?? 0) + 1 : 0
+    this.authStrikes.set(adapter.id, strikes)
+    // First sighting of an auth failure is withheld; a second consecutive one is real.
+    const shown = strikes === 1 ? fresh.filter((c) => c.reason?.kind !== 'auth') : fresh
+    this.blocked = [...this.blocked.filter((c) => this.ownerOf(c) !== adapter.id), ...shown]
   }
 
   /**
