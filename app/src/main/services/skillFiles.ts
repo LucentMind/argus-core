@@ -145,14 +145,33 @@ export function writeSkillFile(
   }
 
   const existing = listSkillFiles(argusHome, skill)
-  const prior = existing.find((f) => f.relPath === relPath)
+  // Case-insensitive (I4): Windows/macOS filesystems are case-insensitive, so `Scripts/Run.sh`
+  // and an existing `scripts/run.sh` name the SAME file on disk. `assetValidation.ts`'s
+  // REFERENCES_INDEX check is the in-repo precedent for this comparison. An exact-case compare
+  // here let a differently-cased create silently OVERWRITE the existing file: `prior` came back
+  // `undefined`, `onDisk` was never probed, and the `baseHash === null` "already exists" guard
+  // below never fired.
+  const prior = existing.find((f) => f.relPath.toLowerCase() === relPath.toLowerCase())
 
   // Optimistic concurrency, matching `writeUserSkill`'s baseHash contract: a null baseHash means
-  // "I am creating this", so a file already there is a conflict, not an overwrite.
+  // "I am creating this", so a file already there is a conflict, not an overwrite. `relPath`
+  // (not `prior.relPath`) is what's read: the filesystem itself resolves the differently-cased
+  // path to the same file, so this still returns the real on-disk content when `prior` matched
+  // only case-insensitively.
   const onDisk = prior ? readSkillFile(argusHome, skill, relPath) : null
   if (baseHash === null && onDisk) throw new Error(`"${relPath}" already exists`)
   if (baseHash !== null && onDisk && onDisk.hash !== baseHash) {
     throw new Error(`"${relPath}" changed on disk since you opened it`)
+  }
+  // I5: a non-null baseHash means the caller opened an EXISTING file (a real tab, holding a
+  // hash it read off disk) and is saving an edit to it — so the file being absent now means it
+  // was renamed or deleted elsewhere since the tab opened, not that this is a create. Without
+  // this, that combination fell through both guards above (`onDisk` is null either way) straight
+  // to `fs.writeFileSync`, which RECREATES the file at the old path — after a rename the skill
+  // then carries both paths, each with its own review row. Real tab migration on rename/delete is
+  // a follow-up; this is the scoped mitigation.
+  if (baseHash !== null && !onDisk) {
+    throw new Error(`"${relPath}" was deleted or renamed since you opened it`)
   }
 
   if (!prior && existing.length >= MAX_ASSET_FILES) {
