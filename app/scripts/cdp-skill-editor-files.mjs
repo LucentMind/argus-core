@@ -338,8 +338,8 @@ const main = async () => {
   })
   check(
     'opening the sibling opens its own tab',
-    tabsAfterSibling.length === 2 &&
-      tabsAfterSibling.filter((l) => l.includes(SKILL)).length === 2 &&
+    tabsAfterSibling.length === tabsBeforeSibling.length + 1 &&
+      tabsAfterSibling.filter((l) => l.includes(SKILL)).length === tabsBeforeSibling.length + 1 &&
       siblingDoc.includes(SIBLING_BODY.trim()),
     {
       tabsBeforeSibling,
