@@ -77,6 +77,30 @@ describe('skillAssetContextForSegment', () => {
     expect(ctxFor(`sh ${rel}`)).toMatchObject({ relPath: 'scripts/collect.sh' })
   })
 
+  /**
+   * `deps.cwd` is a PARAMETER, not "the case directory". `risk.ts` tracks a running cwd across the
+   * segments of one command and hands the cwd in force for each segment through, so
+   * `cd <skillDir> && sh scripts/collect.sh` reaches this function with the skill directory. Before
+   * that, every relative token resolved against the case directory whatever the command had done,
+   * and the live-run command above ran ungated.
+   */
+  it('resolves a relative token against a cwd that is not the case directory', () => {
+    seed('scripts/collect.sh', SCRIPT)
+    const skillDir = path.join(userSkillsDir(home), 'collect-logs')
+    const from = (base: string): ReturnType<typeof skillAssetContextForSegment> =>
+      skillAssetContextForSegment(
+        { argusHome: home, db, cwd: base, homeDir: userHome },
+        'sh scripts/collect.sh'
+      )
+    // The case directory is where the defect left it: nothing at <caseDir>/scripts/collect.sh.
+    expect(from(cwd)).toBeNull()
+    expect(from(skillDir)).toMatchObject({
+      skill: 'collect-logs',
+      tier: 'user',
+      relPath: 'scripts/collect.sh'
+    })
+  })
+
   it('strips surrounding quotes from a token', () => {
     const abs = seed('scripts/collect.sh', SCRIPT)
     expect(ctxFor(`bash "${abs}"`)).toMatchObject({ relPath: 'scripts/collect.sh' })

@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest'
 import {
   classifyToolCall,
   CLAUDE_TOOL_TAXONOMY,
+  shellSegmentTokens,
   type RiskContext,
   type ToolTaxonomy
 } from '../risk'
@@ -776,6 +777,198 @@ describe('classifyToolCall — skill asset run gate', () => {
   it('is inert when no resolver is injected', () => {
     expect(classifyToolCall('Bash', { command: 'bash scripts/collect.sh' }, ctx())).toMatchObject({
       action: 'allow'
+    })
+  })
+})
+
+/**
+ * The live-run defect (CDP gate, 2026-08-20): `cd <skillDir> && sh scripts/collect.sh` ran an
+ * unreviewed skill script with NO approval card at all — `tool_calls` recorded `Bash / LOW / auto`.
+ *
+ * Not a path-SPELLING miss like the `/c/…` and `~/…` cases: every token parsed fine. They were
+ * resolved against the wrong BASE DIRECTORY. The gate resolved every relative token against the
+ * case directory regardless of an earlier `cd`, so `scripts/collect.sh` became
+ * `<caseDir>/scripts/collect.sh` (does not exist) and the only other token — the `cd` target — is
+ * the skill DIRECTORY, which `skillAssetAt` deliberately refuses. Both tokens missed and the
+ * segment fell through to a LOW allow.
+ *
+ * The stub below RESOLVES its tokens against the cwd it is handed, exactly as the real gate does.
+ * A stub that ignored the second argument would pass whether or not the tracking exists.
+ */
+describe('classifyToolCall — running cwd across shell segments', () => {
+  const CASE_DIR = '/home/u/Argus/cases/NAV-1'
+  /** What `materializeSessionSkills` junctions into the case directory — the path the model is
+   *  told about, and the one the live command `cd`-ed into. */
+  const SKILL_DIR = `${CASE_DIR}/.claude/skills/collect-logs`
+  const SCRIPT_ABS = `${SKILL_DIR}/scripts/collect.sh`
+
+  const asset: SkillAssetContext = {
+    skill: 'collect-logs',
+    tier: 'user',
+    relPath: 'scripts/collect.sh',
+    hash: 'a'.repeat(64),
+    reviewState: 'unreviewed',
+    segmentKey: 'f'.repeat(64),
+    body: '#!/bin/sh\necho hi\n',
+    bodyBytesTotal: 18,
+    bodyBytesOmitted: 0
+  }
+
+  /** Stands in for `skillAssetContextForSegment`: resolve every token against the SUPPLIED cwd
+   *  and report the asset when one of them lands on the script. */
+  const cwdAware: RiskContext = {
+    ...ctx({ caseDir: CASE_DIR }),
+    skillAsset: (segment: string, cwd: string) =>
+      shellSegmentTokens(segment).some(
+        (t) => path.resolve(cwd, t.replace(/^(["'])(.*)\1$/, '$2')) === path.resolve(SCRIPT_ABS)
+      )
+        ? asset
+        : null
+  }
+
+  const run = (command: string): ReturnType<typeof classifyToolCall> =>
+    classifyToolCall('Bash', { command }, cwdAware)
+
+  // THE regression. Verbatim shape of what the live run executed ungated.
+  it('gates `cd <skillDir> && sh scripts/collect.sh`', () => {
+    const v = run(`cd "${SKILL_DIR}" && sh scripts/collect.sh`)
+    expect(v).toMatchObject({
+      action: 'ask',
+      risk: 'HIGH',
+      assetContext: { skill: 'collect-logs', relPath: 'scripts/collect.sh' }
+    })
+    // Chained, so no session grant — the pre-existing multi-segment rule, unchanged.
+    expect((v as { grantKey: string | null }).grantKey).toBeNull()
+  })
+
+  it('gates it unquoted and with the script as the program', () => {
+    expect(run(`cd ${SKILL_DIR} && ./scripts/collect.sh`)).toMatchObject({
+      action: 'ask',
+      risk: 'HIGH',
+      assetContext: { skill: 'collect-logs' }
+    })
+  })
+
+  it('accumulates across several cd segments', () => {
+    expect(run(`cd .claude/skills && cd collect-logs && sh scripts/collect.sh`)).toMatchObject({
+      action: 'ask',
+      risk: 'HIGH',
+      assetContext: { skill: 'collect-logs' }
+    })
+  })
+
+  it('leaves a later ABSOLUTE token alone whatever the cd did', () => {
+    expect(run(`cd ${CASE_DIR}/evidence && sh ${SCRIPT_ABS}`)).toMatchObject({
+      action: 'ask',
+      risk: 'HIGH',
+      assetContext: { skill: 'collect-logs' }
+    })
+  })
+
+  // The other half of "tracked", and the reason this cannot be faked by trying every base: a cd
+  // into an unrelated directory must make the same relative token STOP matching.
+  it('does not gate a relative token that the tracked cwd does not reach', () => {
+    expect(run(`cd ${CASE_DIR}/evidence && sh scripts/collect.sh`)).toEqual({
+      action: 'allow',
+      risk: 'LOW'
+    })
+  })
+
+  it('leaves an ordinary cd exactly as it classified before', () => {
+    expect(run('cd evidence && ls')).toEqual({ action: 'allow', risk: 'LOW' })
+    expect(run(`cd ${CASE_DIR}/evidence`)).toEqual({ action: 'allow', risk: 'LOW' })
+  })
+
+  it('still denies a cd out of the sandbox, gate or no gate', () => {
+    expect(run(`${OUT_OF_SANDBOX_CD} && sh scripts/collect.sh`).action).toBe('deny')
+    expect(run(OUT_OF_SANDBOX_CD).action).toBe('deny')
+  })
+
+  /**
+   * The cwd itself, observed directly. `classifySegment` calls the injected resolver once per
+   * segment with the cwd in force for THAT segment, so recording them pins the tracker's rules
+   * without needing a filesystem.
+   */
+  describe('the cwd each segment is classified against', () => {
+    const seenFor = (command: string): string[] => {
+      const seen: string[] = []
+      classifyToolCall(
+        'Bash',
+        { command },
+        {
+          ...ctx({ caseDir: CASE_DIR }),
+          skillAsset: (_segment: string, cwd: string) => {
+            seen.push(cwd)
+            return null
+          }
+        }
+      )
+      return seen
+    }
+    // No parts = the seed, which is `ctx.caseDir` passed through untouched — the classifier does
+    // not normalise it, and asserting a `path.resolve`d form would hide that.
+    const abs = (...parts: string[]): string =>
+      parts.length === 0 ? CASE_DIR : path.resolve(CASE_DIR, ...parts)
+
+    it('seeds at the case directory — the agent shell cwd', () => {
+      expect(seenFor('ls')).toEqual([abs()])
+    })
+
+    it('advances on a relative cd, and only after that segment', () => {
+      expect(seenFor('cd sub && ls && ls')).toEqual([abs(), abs('sub'), abs('sub')])
+    })
+
+    it('advances on an in-sandbox absolute cd', () => {
+      expect(seenFor(`cd ${CASE_DIR}/evidence && ls`)).toEqual([abs(), abs('evidence')])
+    })
+
+    it('is unchanged by a segment that is not a cd', () => {
+      expect(seenFor('ls -la && git log')).toEqual([abs(), abs()])
+    })
+
+    // `~` is left in the path deliberately: the far side of the seam (`tildeAltPath`) already
+    // expands a `~` SEGMENT wherever it sits, so this composes rather than duplicating the
+    // home-directory knowledge on the pure side.
+    it.each([
+      ['a bare cd (the shell goes home)', 'cd', ['~']],
+      ['cd ~', 'cd ~', ['~']],
+      ['cd ~/Argus/skills-user', 'cd ~/Argus/skills-user', ['~', 'Argus', 'skills-user']]
+    ])('marks the home directory with a ~ segment for %s', (_label, cd, parts) => {
+      expect(seenFor(`${cd} && ls`)).toEqual([abs(), abs(...parts)])
+    })
+
+    it('treats `cd -` as a swap with the previous directory', () => {
+      expect(seenFor('cd a && cd - && ls')).toEqual([abs(), abs('a'), abs()])
+      expect(seenFor('cd a && cd b && cd - && ls')).toEqual([
+        abs(),
+        abs('a'),
+        abs('a', 'b'),
+        abs('a')
+      ])
+    })
+
+    it('skips cd option flags', () => {
+      expect(seenFor('cd -P sub && ls')).toEqual([abs(), abs('sub')])
+      expect(seenFor('cd -- sub && ls')).toEqual([abs(), abs('sub')])
+    })
+
+    it('strips a matched quote pair from the target', () => {
+      expect(seenFor(`cd "sub" && ls`)).toEqual([abs(), abs('sub')])
+      expect(seenFor(`cd 'sub' && ls`)).toEqual([abs(), abs('sub')])
+    })
+
+    // Documented limit: the shared tokenizer splits on whitespace, so a quoted target containing
+    // a space arrives already torn in half. Advancing to the first fragment would point the gate
+    // at a directory the command never named, so the cwd is left where it was.
+    it('does not advance on a target containing a space', () => {
+      expect(seenFor(`cd "sub dir" && ls`)).toEqual([abs(), abs()])
+    })
+
+    // Only the shell BUILTIN changes the shell's directory; `/usr/bin/cd` is a separate process
+    // whose chdir dies with it. Matching it here would point the gate at a directory the shell
+    // never entered, and a wrong base is a MISSED card.
+    it('does not advance for a path-spelled cd', () => {
+      expect(seenFor('/usr/bin/cd sub && ls')).toEqual([abs(), abs()])
     })
   })
 })
