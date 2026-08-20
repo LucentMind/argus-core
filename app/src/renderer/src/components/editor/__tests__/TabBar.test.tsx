@@ -99,6 +99,41 @@ describe('TabBar', () => {
     expect(screen.getByRole('tab', { name: /^reference · notes\.md/ })).toBeInTheDocument()
   })
 
+  // C1: a sibling tab and its skill's own SKILL.md tab used to render the SAME label (`t.name`
+  // alone), so three tabs open on one skill (SKILL.md + two sibling scripts) read as three
+  // identical `collect-logs` strips, three identical `Close collect-logs` buttons and three
+  // identical dropdown rows — nothing distinguished them visually, by keyboard, or to a screen
+  // reader. `tabLabel` (tabs.ts) fixes this by folding `file` into the label everywhere it is
+  // shown; this test would fail against the pre-fix code, which ignored `t.file` entirely.
+  it('distinguishes a sibling-file tab from its skill SKILL.md tab everywhere the label appears', async () => {
+    const onActivate = vi.fn()
+    const onClose = vi.fn()
+    const siblingTabs: Tab[] = [
+      tab({ id: 's1', name: 'collect-logs' }),
+      tab({ id: 's2', name: 'collect-logs', file: 'scripts/collect.sh' })
+    ]
+    render(<TabBar tabs={siblingTabs} activeId="s1" onActivate={onActivate} onClose={onClose} />)
+
+    // Strip text and accessible name both carry the file.
+    const skillMdTab = screen.getByRole('tab', { name: /^skill · collect-logs \(tab\)$/ })
+    const siblingTab = screen.getByRole('tab', {
+      name: /^skill · collect-logs\/scripts\/collect\.sh \(tab\)$/
+    })
+    expect(skillMdTab).toBeInTheDocument()
+    expect(siblingTab).toBeInTheDocument()
+
+    // Close buttons are distinct too.
+    expect(screen.getByRole('button', { name: 'Close collect-logs' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Close collect-logs/scripts/collect.sh' })
+    ).toBeInTheDocument()
+
+    // ...and the overflow dropdown.
+    await userEvent.click(screen.getByRole('button', { name: /all tabs/i }))
+    const items = screen.getAllByRole('menuitem').map((i) => i.textContent)
+    expect(items).toEqual(['collect-logs', 'collect-logs/scripts/collect.sh'])
+  })
+
   // Spec §6.1: overflow scrolls horizontally with a dropdown. The strip itself scrolls; the
   // dropdown is how you reach a tab that has scrolled out of sight.
   it('lists every tab in the overflow dropdown', async () => {
