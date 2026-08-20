@@ -489,7 +489,7 @@ export function EditorApp(): React.JSX.Element {
         const restored = m.tabs
         setState((s) => {
           const next = restored.tabs.reduce(
-            (acc, t) => openTab(acc, { kind: t.kind, name: t.name, mode: t.mode }, t.view),
+            (acc, t) => openTab(acc, { kind: t.kind, name: t.name, mode: t.mode, file: t.file }, t.view),
             s
           )
           const active = next.tabs[restored.activeIndex]
@@ -513,7 +513,13 @@ export function EditorApp(): React.JSX.Element {
   useEffect(() => {
     if (state === emptyTabs) return
     const report: PersistedTabs = {
-      tabs: state.tabs.map((t) => ({ kind: t.kind, name: t.name, mode: t.mode, view: t.view })),
+      tabs: state.tabs.map((t) => ({
+        kind: t.kind,
+        name: t.name,
+        file: t.file,
+        mode: t.mode,
+        view: t.view
+      })),
       activeIndex: state.tabs.findIndex((t) => t.id === state.activeId)
     }
     window.argus.editor.tabsChanged(report)

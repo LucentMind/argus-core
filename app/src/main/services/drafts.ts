@@ -10,12 +10,19 @@ function hash16(s: string): string {
 }
 
 /**
- * First 16 hex chars of sha256("<kind>:<name>"). Edit-mode identity: the file on disk really is
- * addressed by kind+name, so a rename really is a different asset.
+ * First 16 hex chars of sha256("<kind>:<name>"), or of sha256("<kind>:<name>:<file>") when
+ * `file` is given — a sibling file inside a skill (a skill tab that is not the skill's own
+ * SKILL.md). Edit-mode identity: the file on disk really is addressed by kind+name(+file), so a
+ * rename really is a different asset.
  *
- * Hashed rather than escaped: reference names carry ".md", skill names are folder names, and
- * nothing guarantees either stays flat forever — escaping is a filename-bug generator. The
- * real identity lives in the record body, which is what `read` hands back.
+ * Hashed rather than escaped: reference names carry ".md", skill names are folder names, `file`
+ * is POSIX-separated, and nothing guarantees any of them stays flat forever — escaping is a
+ * filename-bug generator. The real identity lives in the record body, which is what `read` hands
+ * back.
+ *
+ * The two-argument form (`file` omitted) MUST keep hashing exactly `"<kind>:<name>"`, byte for
+ * byte, as it did before `file` existed: that hash is the on-disk filename for every draft
+ * already written under the old scheme, and changing it would silently orphan them all.
  */
 export function draftKey(kind: AuthoringKind, name: string, file?: string): string {
   // The two-argument form must hash exactly as it did before this increment, or every draft
