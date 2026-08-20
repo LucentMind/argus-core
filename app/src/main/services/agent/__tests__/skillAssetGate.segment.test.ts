@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SKILL_ASSET_BODY_CAP, skillAssetContextForSegment } from '../skillAssetGate'
+import { classifyToolCall, CLAUDE_TOOL_TAXONOMY, type RiskContext } from '../risk'
 import { openDb } from '../../db'
 import { recordAssetReviews } from '../../skillAssetReviews'
 import { userSkillsDir } from '../../paths'
@@ -310,6 +311,68 @@ describe('skillAssetContextForSegment', () => {
       } finally {
         spy.mockRestore()
       }
+    })
+  })
+
+  /**
+   * The `cd ~` composition, end to end through the REAL gate.
+   *
+   * `risk.ts` is pure and may not read `os.homedir()`, so `cd ~` advances its tracked cwd to a
+   * literal `~` SEGMENT and relies on `tildeAltPath` here expanding a `~` segment wherever it
+   * sits. Both halves have committed coverage; nothing asserted that they COMPOSE, so a future
+   * narrowing of `tildeAltPath` to a leading-only `~` would break `cd ~ && sh <relFromHome>`
+   * with every test still green.
+   */
+  describe('composed with the cwd risk.ts tracks across segments', () => {
+    const classify = (command: string): ReturnType<typeof classifyToolCall> => {
+      const riskCtx: RiskContext = {
+        caseDir: cwd,
+        workspaceRoots: [],
+        // What production passes (`session.ts`: `readonlyRoots: [...deps.skillsRoots]`), and
+        // load-bearing here: without it a `cd` into the skills tree is an out-of-sandbox DENY.
+        readonlyRoots: [userSkillsDir(home)],
+        taxonomy: CLAUDE_TOOL_TAXONOMY,
+        skillAsset: (segment, segCwd) =>
+          skillAssetContextForSegment(
+            { argusHome: home, db, cwd: segCwd, homeDir: userHome },
+            segment
+          )
+      }
+      return classifyToolCall('Bash', { command }, riskCtx)
+    }
+
+    /** The script's path relative to the user's HOME, POSIX-spelled — what follows `cd ~`. */
+    const relFromHome = (): string =>
+      path
+        .relative(userHome, path.join(userSkillsDir(home), 'collect-logs', 'scripts', 'collect.sh'))
+        .replace(/\\/g, '/')
+
+    it('gates `cd ~ && sh <relFromHome>`', () => {
+      seed('scripts/collect.sh', SCRIPT)
+      expect(classify(`cd ~ && sh ${relFromHome()}`)).toMatchObject({
+        action: 'ask',
+        risk: 'HIGH',
+        assetContext: { skill: 'collect-logs', relPath: 'scripts/collect.sh' }
+      })
+    })
+
+    // The other half of "tracked": without the `cd ~` the same relative token must miss, so the
+    // test above cannot pass for the wrong reason.
+    it('does not gate the same relative token without the cd', () => {
+      seed('scripts/collect.sh', SCRIPT)
+      expect(classify(`sh ${relFromHome()}`)).toEqual({ action: 'allow', risk: 'LOW' })
+    })
+
+    // The live shape, through the real gate rather than a stub — and on two lines, which is the
+    // separator the splitter used to ignore.
+    it('gates `cd <skillDir>` and the script on separate lines', () => {
+      seed('scripts/collect.sh', SCRIPT)
+      const skillDir = path.join(userSkillsDir(home), 'collect-logs')
+      expect(classify(`cd "${skillDir}"\nsh scripts/collect.sh`)).toMatchObject({
+        action: 'ask',
+        risk: 'HIGH',
+        assetContext: { skill: 'collect-logs', relPath: 'scripts/collect.sh' }
+      })
     })
   })
 
