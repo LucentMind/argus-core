@@ -271,13 +271,14 @@ describe('skill asset run gate', () => {
   ): typeof request & { assetContext: SkillAssetContext } => ({
     ...request,
     risk: 'HIGH',
-    grantKey: 'skill-asset:0123456789abcdef',
+    grantKey: 'skill-asset:0123456789abcdef:fedcba9876543210',
     argsPreview: 'bash scripts/collect.sh',
     assetContext: {
       skill: 'collect-logs',
       tier: 'user' as const,
       relPath: 'scripts/collect.sh',
       hash: '0123456789abcdef'.repeat(4),
+      segmentKey: 'fedcba9876543210'.repeat(4),
       reviewState: 'reviewed' as const,
       body: '#!/bin/sh\necho hi\n',
       bodyBytesTotal: 18,

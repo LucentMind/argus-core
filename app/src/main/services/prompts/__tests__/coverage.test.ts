@@ -388,16 +388,18 @@ describe('prompt coverage', () => {
     // the comma-requiring pattern misses (no trailing comma, double-quoted, reason before
     // action, …) — that verdict would never enter `denies`, so `denies.length` would stay 3 and
     // the assertion above would stay green with a hardcoded reason sitting unresolved in the
-    // file. Every occurrence of the bare literal 'deny' must be accounted for instead: the `+2`
-    // is two fixed, non-verdict occurrences the comma-requiring pattern correctly excludes —
+    // file. Every occurrence of the bare literal 'deny' must be accounted for instead: the `+3`
+    // is three fixed, non-verdict occurrences the comma-requiring pattern correctly excludes —
     // the `RiskVerdict` type-union member (`{ action: 'deny'; risk: Risk; reason: string }`,
-    // semicolons not commas) and the early-return check in the Bash segment loop below
-    // (`if (v.action === 'deny') return v`) — do not "fix" this to `+1`: that underconstrains
-    // the check by one, since it only counts the type member and misses the comparison.
+    // semicolons not commas), the early-return check in the Bash segment loop
+    // (`if (v.action === 'deny') return v`), and the deny-wins check in `classifySegment`
+    // (`if (base.action === 'deny') return base`, which gives an ordinary deny precedence over
+    // the skill-asset gate) — do not "fix" this downward: each comparison dropped from the count
+    // underconstrains the check by one.
     expect(
       (src.match(/'deny'/g) ?? []).length,
       'a deny verdict exists in risk.ts that this pattern does not see'
-    ).toBe(denies.length + 2)
+    ).toBe(denies.length + 3)
     const raw = denies.map((m) => m[1].trim()).filter((r) => !r.startsWith('denyReason('))
     expect(raw, `deny reasons not resolved through denyReason():\n${raw.join('\n')}`).toEqual([])
   })

