@@ -1,10 +1,17 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { skillAssetAt } from '../skillAssetGate'
 import { hivemindSkillsDir, userSkillsDir } from '../../paths'
 import { sharedSkillsDir } from '../../skillsDir'
+
+const isWin = process.platform === 'win32'
+
+/** `C:\Users\x\y.sh` -> `/c/Users/x/y.sh`, the absolute-path spelling git-bash uses. */
+function msys(win: string): string {
+  return `/${win[0].toLowerCase()}${win.slice(2).replace(/\\/g, '/')}`
+}
 
 let home: string
 let caseDir: string
@@ -94,5 +101,88 @@ describe('skillAssetAt', () => {
   it('returns null for the skill directory itself, which is not an asset', () => {
     seed(userSkillsDir(home), 'collect-logs', 'scripts/collect.sh', 'echo hi\n')
     expect(skillAssetAt(home, path.join(userSkillsDir(home), 'collect-logs'))).toBeNull()
+  })
+})
+
+// Windows only, because the rewrite itself is: on Linux and macOS `/c/Users/…` is an ordinary
+// absolute path and must never be reinterpreted. Every test above builds its paths with
+// `path.join`, which is why none of them saw this: `path.join` produces the `C:\…` spelling, and
+// the shell Argus spawns on Windows is git-bash, whose native spelling is `/c/…`.
+describe.skipIf(!isWin)('skillAssetAt — MSYS (git-bash) path spellings', () => {
+  it('identifies an asset named with an MSYS absolute path', () => {
+    const abs = seed(userSkillsDir(home), 'collect-logs', 'scripts/collect.sh', 'echo hi\n')
+    expect(skillAssetAt(home, msys(abs))).toEqual(skillAssetAt(home, abs))
+    expect(skillAssetAt(home, msys(abs))).toEqual({
+      tier: 'user',
+      skill: 'collect-logs',
+      relPath: 'scripts/collect.sh'
+    })
+  })
+
+  // What `skillAssetContextForSegment` actually hands over: `path.resolve(caseDir, '/c/…')`
+  // reads the leading `/` as "root of the current drive" and leaves the drive letter behind as a
+  // literal directory, so the gate sees `C:\c\Users\…`.
+  it('identifies it through the path.resolve-mangled spelling too', () => {
+    const abs = seed(userSkillsDir(home), 'collect-logs', 'scripts/collect.sh', 'echo hi\n')
+    const mangled = path.resolve(caseDir, msys(abs))
+    expect(mangled.toLowerCase()).toContain(`${path.sep}c${path.sep}`)
+    expect(skillAssetAt(home, mangled)).toEqual({
+      tier: 'user',
+      skill: 'collect-logs',
+      relPath: 'scripts/collect.sh'
+    })
+  })
+
+  it('rewrites only a single drive letter, never a multi-letter first segment', () => {
+    const abs = seed(userSkillsDir(home), 'collect-logs', 'scripts/collect.sh', 'echo hi\n')
+    // `/usr/<same tail>` — an implementation that stripped the first segment regardless of its
+    // length, or that ignored the letter and reused the current drive, would find the asset here.
+    expect(skillAssetAt(home, `/usr${abs.slice(2).replace(/\\/g, '/')}`)).toBeNull()
+    expect(skillAssetAt(home, `/config${abs.slice(2).replace(/\\/g, '/')}`)).toBeNull()
+    expect(skillAssetAt(home, '/usr/bin/env')).toBeNull()
+  })
+
+  // Precedence. `C:\c\Users\…` can legitimately exist (a directory literally named `c` at the
+  // drive root), so the literal resolution must be tried first and a real path must never be
+  // shadowed by the speculative rewrite. Stubbed rather than seeded: the literal resolution of
+  // an MSYS path always lands at a DRIVE ROOT, which a test has no business writing to.
+  function withLiteralAt(literal: string, target: string | null, fn: () => void): void {
+    const orig = fs.realpathSync.native
+    const spy = vi.spyOn(fs.realpathSync, 'native').mockImplementation(((p: fs.PathLike) => {
+      if (p === literal) {
+        if (target === null) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+        return orig(target)
+      }
+      return orig(p)
+    }) as typeof fs.realpathSync.native)
+    try {
+      fn()
+    } finally {
+      spy.mockRestore()
+    }
+  }
+
+  it('prefers a real path at the literal resolution over the rewrite', () => {
+    const literalAsset = seed(userSkillsDir(home), 'literal-skill', 'run.sh', 'echo lit\n')
+    const rewriteAsset = seed(userSkillsDir(home), 'rewrite-skill', 'run.sh', 'echo rew\n')
+    const token = msys(rewriteAsset)
+    withLiteralAt(token, literalAsset, () => {
+      expect(skillAssetAt(home, token)).toMatchObject({ skill: 'literal-skill' })
+    })
+    // …and with nothing at the literal resolution, the rewrite is what answers.
+    withLiteralAt(token, null, () => {
+      expect(skillAssetAt(home, token)).toMatchObject({ skill: 'rewrite-skill' })
+    })
+  })
+
+  it('does not fall back to the rewrite when the literal resolution exists but is no asset', () => {
+    const outside = path.join(caseDir, 'evidence', 'notes.sh')
+    fs.mkdirSync(path.dirname(outside), { recursive: true })
+    fs.writeFileSync(outside, 'echo hi\n')
+    const rewriteAsset = seed(userSkillsDir(home), 'rewrite-skill', 'run.sh', 'echo rew\n')
+    const token = msys(rewriteAsset)
+    withLiteralAt(token, outside, () => {
+      expect(skillAssetAt(home, token)).toBeNull()
+    })
   })
 })
