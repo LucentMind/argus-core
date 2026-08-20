@@ -175,14 +175,130 @@ describe.skipIf(!isWin)('skillAssetAt — MSYS (git-bash) path spellings', () =>
     })
   })
 
-  it('does not fall back to the rewrite when the literal resolution exists but is no asset', () => {
+  // The decoy. A NON-asset at the literal resolution must not blind the rewrite: `mkdir -p
+  // "C:/c/Users/…"` classifies as allow/LOW (nothing polices `mkdir`), so an agent that could
+  // stop the fallback by creating a directory could switch the gate off for its own script.
+  // The cost of falling through is a card that could name a script the command is not running —
+  // a false ask, the safe direction in a design whose failure mode is a MISSING ask.
+  it('falls back to the rewrite when the literal resolution exists but is no asset', () => {
     const outside = path.join(caseDir, 'evidence', 'notes.sh')
     fs.mkdirSync(path.dirname(outside), { recursive: true })
     fs.writeFileSync(outside, 'echo hi\n')
     const rewriteAsset = seed(userSkillsDir(home), 'rewrite-skill', 'run.sh', 'echo rew\n')
     const token = msys(rewriteAsset)
     withLiteralAt(token, outside, () => {
-      expect(skillAssetAt(home, token)).toBeNull()
+      expect(skillAssetAt(home, token)).toMatchObject({ skill: 'rewrite-skill' })
     })
+  })
+})
+
+/**
+ * `~/Argus/skills-user/<skill>/scripts/run.sh` is, on a default install, the SHORTEST correct
+ * absolute path to a skill script (`resolveArgusHome` defaults to `~/Argus`). Every shell Argus
+ * spawns expands it and `path.resolve` does not, so before this it produced the same total bypass
+ * the git-bash spelling did: no asset, no card, script runs.
+ *
+ * NOT platform-gated, unlike the MSYS block above: `~` is a POSIX shell feature and the gap is
+ * identical on macOS and Linux.
+ */
+describe('skillAssetAt — tilde (~) home spellings', () => {
+  /** The user's home directory, injected — `home` above plays ARGUS_HOME, which on a default
+   *  install sits at `~/Argus`. Laid out that way here so the tokens are the real ones. */
+  let userHome: string
+  let argusHome: string
+  let tildeCaseDir: string
+
+  beforeEach(() => {
+    userHome = home
+    argusHome = path.join(home, 'Argus')
+    tildeCaseDir = path.join(argusHome, 'cases', 'ACME-1')
+    fs.mkdirSync(tildeCaseDir, { recursive: true })
+  })
+
+  it('identifies an asset named with a ~-rooted path', () => {
+    const abs = seed(userSkillsDir(argusHome), 'collect-logs', 'scripts/collect.sh', 'echo hi\n')
+    const token = '~/Argus/skills-user/collect-logs/scripts/collect.sh'
+    expect(skillAssetAt(argusHome, token, userHome)).toEqual(skillAssetAt(argusHome, abs, userHome))
+    expect(skillAssetAt(argusHome, token, userHome)).toEqual({
+      tier: 'user',
+      skill: 'collect-logs',
+      relPath: 'scripts/collect.sh'
+    })
+  })
+
+  // What `skillAssetContextForSegment` actually hands over: `path.resolve(caseDir, '~/…')` glues
+  // the tilde on as a literal directory name under the case directory.
+  it('identifies it through the path.resolve-mangled spelling too', () => {
+    seed(userSkillsDir(argusHome), 'collect-logs', 'scripts/collect.sh', 'echo hi\n')
+    const mangled = path.resolve(
+      tildeCaseDir,
+      '~/Argus/skills-user/collect-logs/scripts/collect.sh'
+    )
+    expect(mangled).toContain(`${path.sep}~${path.sep}`)
+    expect(skillAssetAt(argusHome, mangled, userHome)).toEqual({
+      tier: 'user',
+      skill: 'collect-logs',
+      relPath: 'scripts/collect.sh'
+    })
+  })
+
+  it('accepts the backslash spelling of the same token', () => {
+    seed(userSkillsDir(argusHome), 'collect-logs', 'scripts/collect.sh', 'echo hi\n')
+    const token = '~\\Argus\\skills-user\\collect-logs\\scripts\\collect.sh'
+    expect(skillAssetAt(argusHome, token, userHome)).toMatchObject({ skill: 'collect-logs' })
+  })
+
+  it('does not expand ~user or a bare ~', () => {
+    seed(userSkillsDir(argusHome), 'collect-logs', 'scripts/collect.sh', 'echo hi\n')
+    expect(
+      skillAssetAt(
+        argusHome,
+        '~notauser/Argus/skills-user/collect-logs/scripts/collect.sh',
+        userHome
+      )
+    ).toBeNull()
+    expect(skillAssetAt(argusHome, '~', userHome)).toBeNull()
+    expect(skillAssetAt(argusHome, '~/', userHome)).toBeNull()
+  })
+
+  // Finding 2 again, for the tilde: a real directory literally named `~` under the case dir must
+  // not switch the expansion off. Seeded for real — unlike the MSYS literal, this one does not
+  // land at a drive root.
+  it('falls back to the expansion when the literal ~ directory exists but holds no asset', () => {
+    const decoy = path.join(
+      tildeCaseDir,
+      '~',
+      'Argus',
+      'skills-user',
+      'collect-logs',
+      'scripts',
+      'collect.sh'
+    )
+    fs.mkdirSync(path.dirname(decoy), { recursive: true })
+    fs.writeFileSync(decoy, 'echo decoy\n')
+    seed(userSkillsDir(argusHome), 'collect-logs', 'scripts/collect.sh', 'echo hi\n')
+    const mangled = path.resolve(
+      tildeCaseDir,
+      '~/Argus/skills-user/collect-logs/scripts/collect.sh'
+    )
+    expect(fs.existsSync(mangled)).toBe(true)
+    expect(skillAssetAt(argusHome, mangled, userHome)).toEqual({
+      tier: 'user',
+      skill: 'collect-logs',
+      relPath: 'scripts/collect.sh'
+    })
+  })
+
+  // The injected home is a test seam; production passes nothing and must land on os.homedir().
+  it('defaults to os.homedir() when no home is injected', () => {
+    seed(userSkillsDir(argusHome), 'collect-logs', 'scripts/collect.sh', 'echo hi\n')
+    const token = '~/Argus/skills-user/collect-logs/scripts/collect.sh'
+    expect(skillAssetAt(argusHome, token)).toBeNull()
+    const spy = vi.spyOn(os, 'homedir').mockReturnValue(userHome)
+    try {
+      expect(skillAssetAt(argusHome, token)).toMatchObject({ skill: 'collect-logs' })
+    } finally {
+      spy.mockRestore()
+    }
   })
 })
