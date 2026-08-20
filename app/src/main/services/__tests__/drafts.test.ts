@@ -507,9 +507,7 @@ describe('draft keys for sibling files', () => {
   // file component changed this hash, those drafts would be orphaned and silently unreachable.
   it('leaves the key for a SKILL.md draft byte-identical', () => {
     expect(draftKey('skill', 'collect-logs')).toBe(draftKey('skill', 'collect-logs', undefined))
-    expect(keyOf({ kind: 'skill', name: 'collect-logs' })).toBe(
-      draftKey('skill', 'collect-logs')
-    )
+    expect(keyOf({ kind: 'skill', name: 'collect-logs' })).toBe(draftKey('skill', 'collect-logs'))
   })
 
   it('gives a sibling its own key', () => {

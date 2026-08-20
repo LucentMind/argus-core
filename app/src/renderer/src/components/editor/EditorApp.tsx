@@ -524,7 +524,8 @@ export function EditorApp(): React.JSX.Element {
         const restored = m.tabs
         setState((s) => {
           const next = restored.tabs.reduce(
-            (acc, t) => openTab(acc, { kind: t.kind, name: t.name, mode: t.mode, file: t.file }, t.view),
+            (acc, t) =>
+              openTab(acc, { kind: t.kind, name: t.name, mode: t.mode, file: t.file }, t.view),
             s
           )
           const active = next.tabs[restored.activeIndex]
