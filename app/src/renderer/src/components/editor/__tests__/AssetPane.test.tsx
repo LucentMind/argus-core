@@ -745,7 +745,7 @@ describe('AssetPane', () => {
   // *Discard draft*, reverting the buffer to disk content. Without `file` on `DraftSaved` and the
   // `(s.file ?? null) === (file ?? null)` compare in the listener, this test fails: `Draft` stays
   // undated forever here, but the sibling's broadcast (matching only on kind/name) WOULD date it.
-  it('does not date this pane\'s draft from a sibling pane\'s save', async () => {
+  it("does not date this pane's draft from a sibling pane's save", async () => {
     const { surface } = mount({ file: 'scripts/this.sh' })
     await userEvent.type(surface, 'x')
     await waitFor(() => expect(screen.getByText('Draft')).toBeInTheDocument())
