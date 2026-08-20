@@ -92,6 +92,13 @@ import {
   userSkillShadowDiverged
 } from './services/agent/skillsResolver'
 import { scanClaudeSkills, importSkills } from './services/agent/skillsImport'
+import {
+  deleteSkillFile,
+  listSkillFiles,
+  readSkillFile,
+  renameSkillFile,
+  saveSkillFile
+} from './services/skillFiles'
 import { executableAssetsOf, HivemindService } from './services/hivemind'
 import {
   listProposals,
@@ -2923,6 +2930,38 @@ function registerIpc(): void {
       return { ...payload, hash }
     }
   )
+  // Sibling files (spec §6). Each handler re-derives the skill's tier from disk inside the
+  // service — the editor's disabled buttons are an affordance, this is the boundary. Every
+  // mutating handler re-broadcasts `skills:changed` for the same reason `skillsWrite` does: a
+  // stale tier map in another window leaves a tab wrongly read-only.
+  ipcMain.handle(IPC.skillsListFiles, (_e, name: string) => listSkillFiles(argusHome, name))
+  ipcMain.handle(IPC.skillsReadFile, (_e, name: string, relPath: string) =>
+    readSkillFile(argusHome, name, relPath)
+  )
+  ipcMain.handle(
+    IPC.skillsWriteFile,
+    async (_e, name: string, relPath: string, content: string, baseHash: string | null) => {
+      const id = await identity()
+      const result = saveSkillFile(
+        { argusHome, db, reviewedBy: id?.name ?? null },
+        name,
+        relPath,
+        content,
+        baseHash
+      )
+      broadcast(IPC.skillsChanged, skillsPayload())
+      return result
+    }
+  )
+  ipcMain.handle(IPC.skillsDeleteFile, (_e, name: string, relPath: string) => {
+    deleteSkillFile(argusHome, name, relPath)
+    broadcast(IPC.skillsChanged, skillsPayload())
+  })
+  ipcMain.handle(IPC.skillsRenameFile, (_e, name: string, from: string, to: string) => {
+    renameSkillFile(argusHome, name, from, to)
+    broadcast(IPC.skillsChanged, skillsPayload())
+  })
+
   ipcMain.handle(IPC.skillsFork, async (_e, name: string, newName?: string) => {
     const created = forkSkill(argusHome, name, newName, await identity(), { db })
     const payload = skillsPayload()
