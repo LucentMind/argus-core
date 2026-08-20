@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## v2.3.1 — 2026-08-20
+
+1 commit since v2.3.0, 2 files changed (+85 / −7).
+
+### Fixed
+
+- The chat transcript no longer scrolls itself back to the bottom while
+  the agent is working. Reading anything above the fold during a live
+  turn was impossible — the view followed every new message and every
+  tool block regardless of where the user had scrolled to. Following is
+  now opt-in by position: leave the bottom and it stops, scroll back to
+  within a hair of the bottom and it resumes. Sending a message re-pins
+  too, so composing from up in the history still snaps to the new turn.
+
 ## v2.3.0 — 2026-08-19
 
 41 commits since v2.2.0, 55 files changed (+5,121 / −341).
