@@ -23,8 +23,20 @@
  * those exact bytes back through `window.argus.skills.read` — an app booted against any other
  * `ARGUS_HOME`, or one serving a stale in-memory copy, cannot produce them.
  *
- * Safe to re-run: `seed()` removes and rewrites both fixture skill directories every time, and
- * nothing this script writes lives outside `ARGUS_HOME`.
+ * `ARGUS_HOME` may be reused across runs: `seed()` removes and rewrites both fixture skill
+ * directories every time, and the review-row check (§3 below) is bound to THIS run's start time
+ * and carries a per-run nonce in the edited bytes, so a stale row left by an earlier run can
+ * never satisfy it (see the comment above that check — an earlier version of this gate did not
+ * have this property and could pass with `recordAssetReviews` deleted entirely, if pointed at a
+ * home an earlier correct run had already touched).
+ *
+ * The BROWSER WINDOW must still be freshly booted before each run, same as every other
+ * single-phase gate in this directory (`cdp-skill-run-gate.mjs` included): tab counts below are
+ * measured relative to a baseline captured earlier in the SAME run, which tolerates extra tabs
+ * left over from unrelated earlier activity, but `sameAsset` dedupe means re-opening a skill that
+ * is already open in a leftover tab from a PREVIOUS run of this gate focuses that stale tab
+ * instead of minting a fresh one over the just-reseeded files — nothing here re-synchronises an
+ * already-open buffer against a `seed()` that ran after it was opened.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -52,6 +64,11 @@ if (!HOME) {
 
 const SKILL = 'collect-logs'
 const SIBLING_REL = 'scripts/collect.sh'
+/** The brief's step 5 ("undo history is per file") needs TWO siblings of the SAME skill, not a
+ *  sibling and the skill's own SKILL.md — SKILL.md-vs-sibling was already proven by Task 4's
+ *  draft-key fix, and sibling-vs-sibling is the pair a `(skill, isSibling)`-keyed regression
+ *  (as opposed to the correct `(skill, relPath)`) would slip past. */
+const SECOND_SIBLING_REL = 'scripts/rotate.sh'
 const LOCKED_SKILL = 'collect-logs-locked'
 const LOCKED_REL = 'scripts/probe.sh'
 const NEW_FILE = 'notes/todo.txt'
@@ -61,10 +78,22 @@ const RENAMED_FILE = 'notes/todo-done.txt'
  *  anywhere in the DOM or on disk can only mean THIS script's bytes, never another fixture's or
  *  a leftover from a previous run of a different gate sharing the port list. */
 const MARKER = 'ARGUS-SKILL-EDITOR-FILES-GATE-7c14db'
-const EDIT_LINE = `echo "${MARKER}: edited in the editor"`
+/**
+ * A per-PROCESS nonce (not just per-script-version), baked into the bytes the editor actually
+ * saves. Without this, re-running the gate against an `ARGUS_HOME` an earlier run already touched
+ * produces byte-IDENTICAL edited content, so a stale `skill_asset_reviews` row from that earlier
+ * run — correct sha256, `origin: 'editor'` — satisfies "the save recorded a review row" even if
+ * `recordAssetReviews(...)` were deleted from `skillFiles.ts` outright (the mutation a reviewer
+ * flagged against an earlier version of this file). The freshness bound on `reviewed_at` below is
+ * the second, independent half of closing that hole — either one alone would catch it; both
+ * together mean neither has to be perfect on its own.
+ */
+const RUN_NONCE = crypto.randomBytes(6).toString('hex')
+const EDIT_LINE = `echo "${MARKER}: edited in the editor (run ${RUN_NONCE})"`
 const UNDO_MARKER = `${MARKER}-UNDO-PROBE`
 
 const SIBLING_BODY = ['#!/bin/sh', `echo "${MARKER}: collecting logs"`, ''].join('\n')
+const SECOND_SIBLING_BODY = ['#!/bin/sh', `echo "${MARKER}: rotating logs"`, ''].join('\n')
 const LOCKED_BODY = ['#!/bin/sh', `echo "${MARKER}: locked probe"`, ''].join('\n')
 
 const skillMd = (name, blurb, runLine) =>
@@ -86,6 +115,7 @@ const LOCKED_MD_BODY = skillMd(
 const userSkillDir = path.join(HOME, 'skills-user', SKILL)
 const hiveSkillDir = path.join(HOME, 'skills-hivemind', LOCKED_SKILL)
 const siblingAbs = path.join(userSkillDir, ...SIBLING_REL.split('/'))
+const secondSiblingAbs = path.join(userSkillDir, ...SECOND_SIBLING_REL.split('/'))
 const newFileAbs = path.join(userSkillDir, ...NEW_FILE.split('/'))
 const renamedFileAbs = path.join(userSkillDir, ...RENAMED_FILE.split('/'))
 
@@ -97,6 +127,7 @@ function seed() {
   fs.mkdirSync(path.join(userSkillDir, 'scripts'), { recursive: true })
   fs.writeFileSync(path.join(userSkillDir, 'SKILL.md'), SKILL_MD_BODY)
   fs.writeFileSync(siblingAbs, SIBLING_BODY)
+  fs.writeFileSync(secondSiblingAbs, SECOND_SIBLING_BODY)
 
   fs.mkdirSync(path.join(hiveSkillDir, 'scripts'), { recursive: true })
   fs.writeFileSync(path.join(hiveSkillDir, 'SKILL.md'), LOCKED_MD_BODY)
@@ -230,6 +261,9 @@ const openEditorWindow = async () => {
 
 // ---------- the gate ----------
 const main = async () => {
+  // Captured before anything writes to `argus.db` this run — the freshness half of the
+  // review-row check's stale-row guard (see `RUN_NONCE`'s doc comment above).
+  const RUN_START = new Date().toISOString()
   seed()
   console.error(`seeded ${userSkillDir} and ${hiveSkillDir}`)
 
@@ -343,7 +377,9 @@ const main = async () => {
     'a skill_asset_reviews row for the sibling',
     () => {
       const r = db
-        .prepare(`SELECT sha256, origin FROM skill_asset_reviews WHERE skill = ? AND rel_path = ?`)
+        .prepare(
+          `SELECT sha256, origin, reviewed_at FROM skill_asset_reviews WHERE skill = ? AND rel_path = ?`
+        )
         .get(SKILL, SIBLING_REL)
       return r ?? null
     },
@@ -356,39 +392,72 @@ const main = async () => {
   const expectedHash = onDiskAfterEdit
     ? crypto.createHash('sha256').update(onDiskAfterEdit, 'utf8').digest('hex')
     : null
+  // This is THE check that ties increment 4 back to increments 1 and 3 (per the brief), so it
+  // gets the two-part stale-row guard, not just a hash compare:
+  //   1. `RUN_NONCE` is baked into `EDIT_LINE`, so `expectedHash` cannot coincide with a hash any
+  //      earlier run's edit could have produced — a leftover row from a previous run of this gate
+  //      against the SAME `ARGUS_HOME` will not match it.
+  //   2. `reviewed_at >= RUN_START` independently refuses a leftover row even in the (currently
+  //      unreachable, since sha256 already changes every run) case where the content matched
+  //      anyway — belt and suspenders, per the review that flagged this check as too easy to
+  //      satisfy for the wrong reason. Either guard alone closes the hole; both are here so
+  //      neither has to be relied on being perfect by itself.
   check(
     'the save recorded a review row',
     reviewRow !== null &&
       reviewRow.origin === 'editor' &&
       onDiskAfterEdit !== null &&
-      reviewRow.sha256 === expectedHash,
-    { reviewRow, expectedHash }
+      reviewRow.sha256 === expectedHash &&
+      reviewRow.reviewed_at >= RUN_START,
+    { reviewRow, expectedHash, runStart: RUN_START }
   )
   db.close()
 
-  // ---- 4. undo history is per file ----
-  // Only one sibling was seeded (per the brief), so the second tab IS the sibling's — the first
-  // tab (index 0) is the skill's own SKILL.md, still open since step 1 and never touched. Typing
-  // into the sibling (already the active/second tab) and reading the FIRST tab back is exactly
-  // the "two documents, two undo histories" property; it does not need a second sibling file to
-  // be meaningful, because SKILL.md and the sibling are already two independent buffers.
+  // ---- 4. undo history is per file (sibling vs sibling, per the brief) ----
+  // Deliberately SIBLING vs SIBLING, not SKILL.md vs sibling: that pairing was already proven by
+  // Task 4's draft-key fix (SKILL.md and a sibling sharing one draft/undo buffer). This pairing
+  // is the one a `(skill, isSibling)`-keyed regression — as opposed to the correct
+  // `(skill, relPath)` — would slip past: two siblings of the SAME skill sharing one buffer would
+  // leave every check above green (they only ever look at one sibling), and only THIS check would
+  // catch it.
+  await openFilesTab()
+  const tabsBeforeSecond = await tabCount()
+  check(
+    'opening the second sibling',
+    await clickInPane(`x.textContent.trim() === ${JSON.stringify(SECOND_SIBLING_REL)}`)
+  )
+  await waitFor('a third tab for the second sibling', async () => {
+    const n = await tabCount()
+    return n === tabsBeforeSecond + 1 ? n : null
+  })
+  await waitFor('the second sibling bytes on the visible surface', async () => {
+    const d = await visibleDoc()
+    return d && d.includes('rotating logs') ? d : null
+  })
+  await focusVisibleEnd(editor)
   await editor.insertText(`\n${UNDO_MARKER}\n`)
-  await waitFor('the undo probe on the sibling surface', async () =>
+  await waitFor('the undo probe on the second sibling surface', async () =>
     (await visibleDoc()).includes(UNDO_MARKER)
   )
-  check('switching to the SKILL.md tab', await clickTabAt(0))
-  const skillMdAfterProbe = await waitFor('the SKILL.md tab back on screen', async () => {
+  // Tab 0 is SKILL.md, tab 1 is the FIRST sibling (opened in step 2, edited and saved in step 3),
+  // tab 2 is the second sibling just opened above — position is the only way to target a specific
+  // one, since same-skill tabs share an accessible name (see `clickTabAt`'s doc comment).
+  check('switching back to the first sibling tab', await clickTabAt(1))
+  const firstSiblingAfterProbe = await waitFor('the first sibling tab back on screen', async () => {
     const d = await visibleDoc()
-    return d !== null && d.includes(SKILL) ? d : null
+    return d !== null && d.includes('collecting logs') ? d : null
   })
   check(
     'undo history is per file',
-    !skillMdAfterProbe.includes(UNDO_MARKER) && !skillMdAfterProbe.includes(EDIT_LINE),
-    skillMdAfterProbe.slice(0, 120)
+    !firstSiblingAfterProbe.includes(UNDO_MARKER) &&
+      !firstSiblingAfterProbe.includes('rotating logs') &&
+      firstSiblingAfterProbe.includes(EDIT_LINE),
+    firstSiblingAfterProbe.slice(0, 200)
   )
 
   // ---- 5. add a file through the dock ----
   await openFilesTab()
+  const tabsBeforeAdd = await tabCount()
   check('Add file… is offered', await clickInPane(`x.textContent.trim() === 'Add file…'`))
   await waitFor('the file-name dialog', () =>
     editor.evalJs(`!!document.querySelector('input[aria-label="File path"]')`)
@@ -431,8 +500,14 @@ const main = async () => {
   })
 
   // A brand-new file opens straight into its own tab (AssetPane.confirmFileDialog); the dock now
-  // belongs to THAT tab, so re-open Files there before renaming.
-  await waitFor('a third tab for the new file', async () => (await tabCount()) === 3)
+  // belongs to THAT tab, so re-open Files there before renaming. Relative to `tabsBeforeAdd`, not
+  // a hard-coded count — the count entering this step depends on how many tabs earlier steps
+  // opened, and a literal number here would silently stop meaning what its comment says the next
+  // time an earlier step's tab count changes.
+  await waitFor('a new tab for the added file', async () => {
+    const n = await tabCount()
+    return n === tabsBeforeAdd + 1 ? n : null
+  })
   await openFilesTab()
   await waitFor('the new file listed in the dock', async () => {
     const rows = await filesDockRows()
@@ -513,9 +588,13 @@ const main = async () => {
   })
 
   // ---- 8. a read-only (hivemind) skill offers no file mutations ----
+  const tabsBeforeLocked = await tabCount()
   const openedLocked = await openAsset(app, LOCKED_SKILL)
   if (openedLocked !== true) throw new Error('opening the locked skill did not resolve')
-  await waitFor('a fourth tab for the locked skill', async () => (await tabCount()) === 4)
+  await waitFor('a new tab for the locked skill', async () => {
+    const n = await tabCount()
+    return n === tabsBeforeLocked + 1 ? n : null
+  })
   await waitFor('the locked skill on screen', async () => {
     const d = await visibleDoc()
     return d !== null && d.includes(LOCKED_SKILL) ? d : null
