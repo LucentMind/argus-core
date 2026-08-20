@@ -338,19 +338,42 @@ async function showScript() {
 }
 
 /**
- * How many MEANINGFUL shell segments a command line has — the quantity `classifyToolCall` keys
- * the session grant on: a key is offered for one segment and refused for more, because the key
- * is computed per segment but applied to the whole command.
+ * ⚠ DUPLICATE OF PRODUCT LOGIC — `shellSegments()` in
+ * `app/src/main/services/agent/risk.ts`. Keep the two byte-identical.
  *
- * The split is spelled byte-identically to `classifyToolCall`'s
- * (`app/src/main/services/agent/risk.ts`: `command.split(/&&|\|\||;|\|/)`, then empty segments
- * filtered so a trailing `;` does not cost an ordinary invocation its key). A second copy of a
- * rule is a defect class this repo keeps re-learning, and this is one — unavoidably, since a
- * black-box CDP gate cannot import from `src/`. If that regex ever changes, this must too, and
- * the symptom would be this check failing on a command that is actually fine.
+ * A CDP gate is a black box: it drives the built app over a socket and cannot import from `src/`,
+ * so this rule necessarily exists twice. It cannot be made safe, only LOUD — hence this banner.
+ * It has already drifted once: the newline separator landed in `d51f4963` and this copy did not
+ * follow, which would have failed the check below the first time the model wrote a multi-line
+ * command (caught by reading the diff, not by a red run — the run that round happened to be
+ * single-line).
+ *
+ * **Symptom of drift: this check fails on a command that is actually fine.** That is a RED, never
+ * a false green — the check compares two independently-derived facts (the button the app rendered
+ * vs. the segment count derived here), so a stale copy makes them disagree and the gate says so.
+ * Annoying, not dangerous. Do not "fix" a failure here by relaxing the check; re-read
+ * `shellSegments()` and re-sync.
+ *
+ * Three behaviours to mirror, all three load-bearing:
+ *   1. Join `\`+newline into a space FIRST — a line continuation is formatting, not a separator
+ *      (`b2684609`). Splitting first puts a continued flag in its own segment.
+ *   2. Test the heredoc marker against the JOINED string, for the same reason.
+ *   3. Split on newline too, EXCEPT when a heredoc is open — inside `cat <<'EOF' … EOF` the lines
+ *      are data, not statements (`d51f4963`).
+ * Then drop empty segments, so a trailing `;` does not cost an ordinary invocation its key.
+ *
+ * What it counts is the quantity `classifyToolCall` keys the session grant on: a key is offered
+ * for one segment and refused for more, because the key is computed per segment but applied to
+ * the whole command.
  */
-const meaningfulSegments = (command) =>
-  command.split(/&&|\|\||;|\|/).filter((s) => s.trim() !== '').length
+const HEREDOC_OPEN = /(?<!<)<<(?!<)-?[ \t]*["'\\]?[A-Za-z_]/
+
+const meaningfulSegments = (command) => {
+  const joined = command.replace(/\\\r?\n/g, ' ')
+  return joined
+    .split(HEREDOC_OPEN.test(joined) ? /&&|\|\||;|\|/ : /&&|\|\||;|\||\r?\n/)
+    .filter((s) => s.trim() !== '').length
+}
 
 /** A fresh ARGUS_HOME opens the setup wizard, whose overlay swallows every click behind it. */
 const dismissOnboarding = () =>
