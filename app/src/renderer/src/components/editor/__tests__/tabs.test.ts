@@ -309,3 +309,38 @@ describe('cycleTab', () => {
     expect(cycleTab(s, 1)).toBe(s)
   })
 })
+
+describe('sibling-file tabs', () => {
+  const skillReq = { kind: 'skill' as const, name: 'collect-logs', mode: 'edit' as const }
+  const fileReq = { ...skillReq, file: 'scripts/collect.sh' }
+
+  it('opens a sibling as its own tab beside the skill', () => {
+    let s = openTab(emptyTabs, skillReq)
+    s = openTab(s, fileReq)
+    expect(s.tabs).toHaveLength(2)
+    expect(s.tabs[1].file).toBe('scripts/collect.sh')
+  })
+
+  it('treats two different siblings of one skill as different tabs', () => {
+    let s = openTab(emptyTabs, fileReq)
+    s = openTab(s, { ...skillReq, file: 'templates/report.md' })
+    expect(s.tabs).toHaveLength(2)
+  })
+
+  it('focuses the existing tab when the same sibling is opened twice', () => {
+    let s = openTab(emptyTabs, fileReq)
+    const firstId = s.tabs[0].id
+    s = openTab(s, { ...fileReq })
+    expect(s.tabs).toHaveLength(1)
+    expect(s.activeId).toBe(firstId)
+  })
+
+  // Absent `file` means SKILL.md, so it must not collide with a sibling of the same skill.
+  it('does not confuse the skill tab with one of its files', () => {
+    let s = openTab(emptyTabs, skillReq)
+    s = openTab(s, fileReq)
+    s = openTab(s, skillReq)
+    expect(s.tabs).toHaveLength(2)
+    expect(s.tabs.find((t) => t.id === s.activeId)?.file).toBeUndefined()
+  })
+})

@@ -501,3 +501,33 @@ describe('DraftStore write failure', () => {
     errSpy.mockRestore()
   })
 })
+
+describe('draft keys for sibling files', () => {
+  // Load-bearing: every draft already on disk is keyed by the two-argument form. If adding the
+  // file component changed this hash, those drafts would be orphaned and silently unreachable.
+  it('leaves the key for a SKILL.md draft byte-identical', () => {
+    expect(draftKey('skill', 'collect-logs')).toBe(draftKey('skill', 'collect-logs', undefined))
+    expect(keyOf({ kind: 'skill', name: 'collect-logs' })).toBe(
+      draftKey('skill', 'collect-logs')
+    )
+  })
+
+  it('gives a sibling its own key', () => {
+    const skill = draftKey('skill', 'collect-logs')
+    const file = draftKey('skill', 'collect-logs', 'scripts/collect.sh')
+    expect(file).not.toBe(skill)
+    expect(keyOf({ kind: 'skill', name: 'collect-logs', file: 'scripts/collect.sh' })).toBe(file)
+  })
+
+  it('gives two siblings of one skill different keys', () => {
+    expect(draftKey('skill', 'collect-logs', 'a.sh')).not.toBe(
+      draftKey('skill', 'collect-logs', 'b.sh')
+    )
+  })
+
+  it('still prefers an explicit draftId over the kind/name/file identity', () => {
+    expect(keyOf({ draftId: 'abc', kind: 'skill', name: 'x', file: 'y.sh' })).toBe(
+      keyOf({ draftId: 'abc' } as never)
+    )
+  })
+})
