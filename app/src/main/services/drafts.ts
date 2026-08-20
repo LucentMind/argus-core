@@ -17,8 +17,10 @@ function hash16(s: string): string {
  * nothing guarantees either stays flat forever — escaping is a filename-bug generator. The
  * real identity lives in the record body, which is what `read` hands back.
  */
-export function draftKey(kind: AuthoringKind, name: string): string {
-  return hash16(`${kind}:${name}`)
+export function draftKey(kind: AuthoringKind, name: string, file?: string): string {
+  // The two-argument form must hash exactly as it did before this increment, or every draft
+  // already on disk is orphaned: the key IS the filename.
+  return hash16(file ? `${kind}:${name}:${file}` : `${kind}:${name}`)
 }
 
 /**
@@ -38,8 +40,8 @@ export function keyOf(ref: DraftRef): string {
   // always carries kind+name too), but keeping both checks in the same style means an empty id
   // can never key one bucket here and a different one in `queue()`.
   if ('draftId' in ref && ref.draftId) return hash16(`draft:${ref.draftId}`)
-  const { kind, name } = ref as { kind: AuthoringKind; name: string }
-  return draftKey(kind, name)
+  const { kind, name, file } = ref as { kind: AuthoringKind; name: string; file?: string }
+  return draftKey(kind, name, file)
 }
 
 export interface DraftStoreDeps {

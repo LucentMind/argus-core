@@ -13,6 +13,7 @@ function isTab(v: unknown): v is PersistedTab {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
   if (r.kind !== 'skill' && r.kind !== 'reference') return false
+  if (r.file !== undefined && typeof r.file !== 'string') return false
   if (typeof r.name !== 'string' || r.name === '') return false
   if (r.mode !== 'edit' && r.mode !== 'create') return false
   if (r.view === null || r.view === undefined) return true

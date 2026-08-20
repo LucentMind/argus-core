@@ -49,6 +49,10 @@ export interface EditorOpenRequest {
   /** Set only when resuming an existing create-mode draft: carries its stable id forward so the
    *  resumed tab finds the same draft by id instead of minting a fresh one. */
   draftId?: string
+  /** A sibling file inside the skill, POSIX-separated. Absent means the skill's own SKILL.md —
+   *  which is why it is optional rather than `'' | string`: every tab persisted before this
+   *  increment has no `file`, and must keep meaning SKILL.md. */
+  file?: string
 }
 
 export interface FindReferencesRequest {
@@ -97,7 +101,7 @@ export type DraftChange = Omit<DraftRecord, 'updatedAt'>
  * the stable `draftId` minted when its tab opened, independent of the (mutable) typed name — see
  * `keyOf` in main/services/drafts.ts for why the two schemes differ.
  */
-export type DraftRef = { kind: AuthoringKind; name: string } | { draftId: string }
+export type DraftRef = { kind: AuthoringKind; name: string; file?: string } | { draftId: string }
 
 /** main → renderer, after the bytes are on disk. */
 export interface DraftSaved {
@@ -131,6 +135,10 @@ export interface TabViewState {
 export interface PersistedTab {
   kind: AuthoringKind
   name: string
+  /** A sibling file inside the skill, POSIX-separated. Absent means the skill's own SKILL.md —
+   *  which is why it is optional rather than `'' | string`: every tab persisted before this
+   *  increment has no `file`, and must keep meaning SKILL.md. */
+  file?: string
   mode: 'edit' | 'create'
   view: TabViewState | null
 }

@@ -19,6 +19,8 @@ export interface Tab {
   /** The **live** name: a create-mode tab renames as the user types the name field, and the
    *  strip shows this. */
   name: string
+  /** A sibling file inside the skill, POSIX-separated. Absent means the skill's own SKILL.md. */
+  file?: string
   /**
    * What this tab IS now, which is not always what it was opened as: a create-mode tab becomes
    * an edit-mode one the moment its first save lands (`markTabSaved`). Read by `sameAsset` and by
@@ -67,6 +69,9 @@ function sameAsset(t: Tab, req: EditorOpenRequest): boolean {
   return (
     t.kind === req.kind &&
     t.name === req.name &&
+    // `?? null` on both sides: `undefined` (SKILL.md) and a file path must never compare equal,
+    // and two absent values must.
+    (t.file ?? null) === (req.file ?? null) &&
     t.mode === req.mode &&
     // `draftId` is part of a create-mode tab's IDENTITY, not an extra field. Every "New skill"
     // opens as the same kind/name/mode, and resuming a specific draft from the resumable-drafts
@@ -83,6 +88,7 @@ function mint(s: TabsState, req: EditorOpenRequest, view: TabViewState | null): 
     id: `t${s.nextId}`,
     kind: req.kind,
     name: req.name,
+    file: req.file,
     mode: req.mode,
     req,
     dirty: false,
