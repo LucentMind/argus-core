@@ -505,7 +505,17 @@ describe('DraftStore write failure', () => {
 describe('draft keys for sibling files', () => {
   // Load-bearing: every draft already on disk is keyed by the two-argument form. If adding the
   // file component changed this hash, those drafts would be orphaned and silently unreachable.
+  //
+  // I2: the original version of this test compared `draftKey(...)` against
+  // `draftKey(..., undefined)` and `keyOf(...)` against `draftKey(...)` — both operands come from
+  // the same function, so a regression that changed the no-file hash algorithm (e.g. hashing
+  // `"kind:name:"` instead of `"kind:name"`) would move both sides together and this test would
+  // keep passing while every draft on disk silently orphaned. Pin the literal hash instead — these
+  // were computed independently with `sha256("<kind>:<name>").slice(0,16)` and verified to match.
   it('leaves the key for a SKILL.md draft byte-identical', () => {
+    expect(draftKey('skill', 'collect-logs')).toBe('a79b232bc8806a90')
+    expect(draftKey('skill', 'my-skill')).toBe('28c1b196c11b6385')
+    expect(draftKey('reference', 'jira-fields.md')).toBe('babb36cfc1162f20')
     expect(draftKey('skill', 'collect-logs')).toBe(draftKey('skill', 'collect-logs', undefined))
     expect(keyOf({ kind: 'skill', name: 'collect-logs' })).toBe(draftKey('skill', 'collect-logs'))
   })

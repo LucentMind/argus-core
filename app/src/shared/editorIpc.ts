@@ -110,10 +110,14 @@ export type DraftChange = Omit<DraftRecord, 'updatedAt'>
  */
 export type DraftRef = { kind: AuthoringKind; name: string; file?: string } | { draftId: string }
 
-/** main → renderer, after the bytes are on disk. */
+/** main → renderer, after the bytes are on disk. `file` matches `DraftRecord.file`'s meaning —
+ *  absent for the skill's own SKILL.md (or a reference), present for a sibling. Without it, every
+ *  sibling pane of a skill (which all match on `kind`+`name` alone) mistakes ANY sibling's save
+ *  for its own — see I1 in the whole-branch review. */
 export interface DraftSaved {
   kind: AuthoringKind
   name: string
+  file?: string
   updatedAt: string
 }
 
