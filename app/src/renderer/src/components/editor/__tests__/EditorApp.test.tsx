@@ -1334,6 +1334,58 @@ describe('EditorApp · commands', () => {
       expect(window.argus.editor.discardDraft).toHaveBeenCalledWith({ draftId: 'd1' })
     )
   })
+
+  // I3: `filesForPicker` used to be snapshotted once by `openFilePicker` and never cleared, while
+  // `pickFile` always resolved the pane FRESH at press time (`activePane()?.openFile`). Running
+  // "Open file in skill…" on my-skill, closing, switching to other-skill, then typing the raw `@`
+  // prefix (which routes to files mode from the query alone — see `palette.ts`'s `modeFromQuery`)
+  // used to show my-skill's stale file list while `pickFile` would open it against other-skill's
+  // directory, failing with "Could not read skill". This would fail without I3's fix: the stale
+  // list is cleared on close, and `pickFile` additionally refuses a pick tagged for a tab that is
+  // no longer active.
+  it("does not carry one skill's file list into another skill's @ picker", async () => {
+    vi.mocked(window.argus.skills.listFiles).mockImplementation((name: string) =>
+      Promise.resolve(
+        name === 'my-skill'
+          ? [{ relPath: 'scripts/a.sh', executable: true }]
+          : name === 'other-skill'
+            ? [{ relPath: 'scripts/b.sh', executable: true }]
+            : []
+      )
+    )
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'skill', name: 'my-skill', mode: 'edit' }))
+    act(() => openTab!({ kind: 'skill', name: 'other-skill', mode: 'edit' }))
+    // Focus my-skill and let its listFiles round trip land, so "Open file in skill…" is enabled.
+    await userEvent.click(screen.getByRole('tab', { name: /^skill · my-skill/ }))
+    await screen.findByLabelText('skill · my-skill')
+
+    fireEvent.keyDown(window, { key: 'p', ctrlKey: true, shiftKey: true })
+    const openFileCmd = await screen.findByRole('option', { name: /open file in skill/i })
+    fireEvent.click(openFileCmd)
+    expect(await screen.findByRole('option', { name: /scripts\/a\.sh/ })).toBeInTheDocument()
+
+    // Dismiss (backdrop mousedown -> onClose), then switch to the other skill's tab.
+    fireEvent.mouseDown(screen.getByTestId('palette-backdrop'))
+    await waitFor(() => expect(screen.queryByRole('combobox')).toBeNull())
+    await userEvent.click(screen.getByRole('tab', { name: /^skill · other-skill/ }))
+    await screen.findByLabelText('skill · other-skill')
+
+    // Quick-open, then type the raw `@` prefix by hand rather than running the command again —
+    // this is the path the finding describes: routed to files mode from the query alone.
+    fireEvent.keyDown(window, { key: 'p', ctrlKey: true })
+    const input = await screen.findByRole('combobox')
+    fireEvent.change(input, { target: { value: '@' } })
+    expect(await screen.findByRole('dialog', { name: 'Open file' })).toBeInTheDocument()
+    // my-skill's stale row must not appear...
+    expect(screen.queryByRole('option', { name: /scripts\/a\.sh/ })).not.toBeInTheDocument()
+    // ...and picking is refused rather than silently opening the wrong file, so there is nothing
+    // to pick at all until this pane's own "Open file in skill…" is run again.
+    expect(screen.getByText(/no matching files/i)).toBeInTheDocument()
+    expect(window.argus.editor.open).not.toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'other-skill', file: 'scripts/a.sh' })
+    )
+  })
 })
 
 // The `commands` describe block above only ever fires `p` (palette) or `w` (close tab) — both

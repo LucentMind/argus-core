@@ -300,6 +300,19 @@ export function EditorApp(): React.JSX.Element {
    *  holding a live subscription the overlay would otherwise need. Empty when nothing is open, or
    *  the active pane has no files. */
   const [filesForPicker, setFilesForPicker] = useState<readonly SkillFileEntry[]>([])
+  /**
+   * The tab `filesForPicker` was snapshotted for (I3). A ref, not state — read only at pick time
+   * from inside `pickFile`, never during render (the same discipline `handles`/`stateRef` above
+   * follow).
+   *
+   * Without this, `filesForPicker` and `pickFile`'s target pane come from two different reads:
+   * "Open file in skill…" on skill A snapshots A's files and never clears them, so switching to
+   * skill B and typing `@` (which routes to files mode from the raw query alone — see
+   * `modeFromQuery`) shows A's stale list; picking a row then calls B's `activePane()?.openFile`
+   * with a `relPath` that only exists in A, which fails with "Could not read skill B". `pickFile`
+   * refuses when the active tab has moved on from the tab this snapshot was taken for.
+   */
+  const filesForPickerPaneId = useRef<string | null>(null)
 
   /**
    * Every mounted pane's handle, keyed by tab id. A ref and not state: this is read at press
@@ -362,12 +375,16 @@ export function EditorApp(): React.JSX.Element {
     const h = activePane()
     const files = h?.listFiles() ?? null
     if (!h || files === null) return
+    filesForPickerPaneId.current = stateRef.current.activeId
     setFilesForPicker(files)
     openPalette('@')
   }, [activePane, openPalette])
 
   const pickFile = useCallback(
     (relPath: string): void => {
+      // I3: refuse a pick whose file list was snapshotted for a DIFFERENT tab than the one
+      // active now — see the doc comment on `filesForPickerPaneId`.
+      if (filesForPickerPaneId.current !== stateRef.current.activeId) return
       activePane()?.openFile(relPath)
     },
     [activePane]
@@ -792,7 +809,15 @@ export function EditorApp(): React.JSX.Element {
             onPickAsset={pickAsset}
             onPickFile={pickFile}
             onDiscardDraft={discardDraftRow}
-            onClose={() => setPalette(null)}
+            onClose={() => {
+              setPalette(null)
+              // I3: drop the stale LIST on close too, not just guard the pick — a fresh `@` typed
+              // after this must not show a previous pane's files for even a flash. The paneId ref
+              // is deliberately left alone: `CommandPalette` calls `onClose` immediately before
+              // `onPickFile` on a pick (not just on Escape/dismiss), and `pickFile`'s guard needs
+              // that ref to still hold the snapshot's origin at the moment it runs.
+              setFilesForPicker([])
+            }}
           />
         )}
         <ConfirmHost />
