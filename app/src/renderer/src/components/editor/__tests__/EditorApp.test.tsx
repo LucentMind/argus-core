@@ -1110,6 +1110,46 @@ describe('tab-set restore', () => {
     await waitFor(() => expect(screen.getAllByRole('tab', { name: DOC_TAB })).toHaveLength(1))
   })
 
+  // Regression for the review finding on Task 3: the restore effect used to rebuild the
+  // `EditorOpenRequest` it folds each `PersistedTab` through as `{ kind, name, mode }`, dropping
+  // `t.file`. Two persisted tabs over the SAME skill but different sibling files would then look
+  // identical to `sameAsset` (both `file` read back as absent), and the second would silently
+  // fold into the first instead of opening its own tab. Restoring both here and requiring two
+  // tabs exercises the real `EditorApp` restore effect end to end, not just `openTab`/`sameAsset`
+  // unit-tested against a hand-built request.
+  it('restores two tabs over the same skill that differ only by sibling file as two tabs', async () => {
+    render(<EditorApp />)
+    act(() =>
+      restoreTabs!({
+        tabs: [
+          { kind: 'skill', name: 'my-skill', mode: 'edit', view: null },
+          { kind: 'skill', name: 'my-skill', file: 'reference.md', mode: 'edit', view: null }
+        ],
+        activeIndex: 0
+      })
+    )
+    await waitFor(() => expect(screen.getAllByRole('tab', { name: DOC_TAB })).toHaveLength(2))
+  })
+
+  // Companion regression for the same finding's other half: the persist effect used to rebuild
+  // the `PersistedTab` it reports as `{ kind, name, mode, view }`, dropping `t.file` before it
+  // ever reached `tabsChanged` — so a `file`-bearing tab could never be written to disk at all,
+  // independent of whether restore could read one back. Opening a tab with `file` set and reading
+  // the actual report `tabsChanged` receives exercises the real persist effect, not a hand-built
+  // `PersistedTab` fed straight to `EditorWindowStore`.
+  it('carries the sibling file through to the persisted tab report', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'skill', name: 'my-skill', file: 'reference.md', mode: 'edit' }))
+    await screen.findByRole('tab', { name: DOC_TAB })
+    await waitFor(() =>
+      expect(tabsChanged).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          tabs: [expect.objectContaining({ kind: 'skill', name: 'my-skill', file: 'reference.md' })]
+        })
+      )
+    )
+  })
+
   // The reporting effect also runs on MOUNT, before restore has arrived. Reporting an empty set
   // there tells main to persist nothing over the set it is restoring — the debounce happens to
   // cover it today, but a persisted tab set must not depend on winning a race.

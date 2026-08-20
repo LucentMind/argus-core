@@ -88,6 +88,10 @@ function mint(s: TabsState, req: EditorOpenRequest, view: TabViewState | null): 
     id: `t${s.nextId}`,
     kind: req.kind,
     name: req.name,
+    // Set unconditionally, so every `Tab` carries an own `file` key — `undefined` when absent,
+    // never actually missing. Harmless: `sameAsset` compares with `?? null`, and
+    // `JSON.stringify` (the persisted report) drops an `undefined` value the same as an absent
+    // key. "Absent means SKILL.md" still holds; it just isn't "absent key" at this layer.
     file: req.file,
     mode: req.mode,
     req,
