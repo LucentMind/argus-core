@@ -218,13 +218,14 @@ const tabLabels = () =>
     `Array.from(document.querySelectorAll('${ASSET_TAB_SEL}')).map((t) => t.getAttribute('aria-label'))`
   )
 
-/** Click the Nth tab in strip order (0-indexed). Never by name/label: a sibling tab and its
- *  skill's own SKILL.md tab carry the SAME accessible name — `TabBar` labels a tab
- *  `${kind} · ${t.name}`, and `t.name` is the skill's name whether or not `t.file` is set (see
- *  `tabs.ts`'s `Tab.name` doc comment). Position is the only thing that disambiguates them. */
-const clickTabAt = (index) =>
+/** Click the tab whose accessible name contains `needle`. Since C1's fix, a sibling tab's label
+ *  carries its file (`${kind} · ${skill}/${relPath} (tab)`, from `tabs.ts`'s `tabLabel`), so a
+ *  sibling and its skill's own SKILL.md tab — and two siblings of the same skill — no longer
+ *  share an accessible name. `needle` should be specific enough not to match more than one tab
+ *  (a full `relPath` is never a substring of a different one). */
+const clickTabByLabel = (needle) =>
   editor.evalJs(`(() => {
-    const t = document.querySelectorAll('${ASSET_TAB_SEL}')[${index}]
+    const t = Array.from(document.querySelectorAll('${ASSET_TAB_SEL}')).find((x) => (x.getAttribute('aria-label') || '').includes(${JSON.stringify(needle)}))
     if (!t) return false
     t.click()
     return true
@@ -439,10 +440,17 @@ const main = async () => {
   await waitFor('the undo probe on the second sibling surface', async () =>
     (await visibleDoc()).includes(UNDO_MARKER)
   )
-  // Tab 0 is SKILL.md, tab 1 is the FIRST sibling (opened in step 2, edited and saved in step 3),
-  // tab 2 is the second sibling just opened above — position is the only way to target a specific
-  // one, since same-skill tabs share an accessible name (see `clickTabAt`'s doc comment).
-  check('switching back to the first sibling tab', await clickTabAt(1))
+  // C1: the tab strip must give same-skill tabs distinct accessible names — this is what the
+  // whole "one tab per file" premise rests on, and nothing before this branch's fix ever checked
+  // it (three `collect-logs` tabs used to read `Close collect-logs` alike). At this point there
+  // are (at least) three tabs open on SKILL, SIBLING_REL and SECOND_SIBLING_REL.
+  const sameSkillLabels = (await tabLabels()).filter((l) => l.includes(SKILL))
+  check(
+    'same-skill tabs have distinct accessible names',
+    sameSkillLabels.length >= 3 && new Set(sameSkillLabels).size === sameSkillLabels.length,
+    sameSkillLabels
+  )
+  check('switching back to the first sibling tab', await clickTabByLabel(SIBLING_REL))
   const firstSiblingAfterProbe = await waitFor('the first sibling tab back on screen', async () => {
     const d = await visibleDoc()
     return d !== null && d.includes('collecting logs') ? d : null
