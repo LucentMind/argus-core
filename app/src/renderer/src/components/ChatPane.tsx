@@ -177,6 +177,11 @@ export function ChatPane({
     if (initial && rendered === 0) return
     anchoredKey.current = sessionKey
     if (initial) pinnedToBottom.current = true
+    // Following new output is opt-in by position: once the user has scrolled up
+    // to read, a live turn adding items must not yank the view back down. They
+    // opt back in by scrolling to the bottom again (see `handleScroll`), which is
+    // the same pin the resize re-anchor below already honours.
+    if (!initial && !pinnedToBottom.current) return
     bottom.current?.scrollIntoView?.({ behavior: initial ? 'auto' : 'smooth' })
   }, [sessionKey, rendered])
 
@@ -320,6 +325,9 @@ export function ChatPane({
    */
   async function sendTurn(text: string): Promise<void> {
     setSendError(null)
+    // Sending is an explicit "I am done reading history" — re-pin so the new turn
+    // and its output follow, even if the user had scrolled up to compose it.
+    pinnedToBottom.current = true
     composerDraft.clear(slug, sessionId)
     composerAttachments.clear(slug, sessionId)
     try {
