@@ -328,6 +328,13 @@ describe('ChatPane', () => {
 
     const last = (): string | undefined => scrollBehaviors[scrollBehaviors.length - 1]
 
+    /** jsdom has no layout, so drive the scroll geometry by hand */
+    function sizeScroller(el: HTMLElement, scrollHeight: number, scrollTop: number): void {
+      Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true })
+      Object.defineProperty(el, 'clientHeight', { value: 300, configurable: true })
+      el.scrollTop = scrollTop
+    }
+
     it('jumps a freshly opened chat to the bottom instantly, then animates new messages', () => {
       const slug = 'NAV-SCROLL-OPEN'
       const at = (type: string, payload: unknown): AgentEvent =>
@@ -346,6 +353,76 @@ describe('ChatPane', () => {
       act(() => {
         agentStore.apply(at('assistant.message', { text: 'and here is why' }))
       })
+      expect(last()).toBe('smooth')
+    })
+
+    // A live turn grows the transcript on every message and tool block, and
+    // re-anchoring on each of those made the chat unreadable while the agent was
+    // working: scroll up to read and the view was yanked back down a second
+    // later. Following is opt-in by position — leave the bottom and it stops.
+    it('stops following new output once the user has scrolled up, and resumes at the bottom', () => {
+      const slug = 'NAV-SCROLL-FOLLOW'
+      const at = (type: string, payload: unknown): AgentEvent =>
+        ({ ...base, caseSlug: slug, type, payload, turnId: 4 }) as AgentEvent
+      const { container } = render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
+      act(() => {
+        agentStore.hydrate(slug, 1, [
+          at('turn.started', { userText: 'why did the ingest stall?' }),
+          at('assistant.message', { text: 'the queue drained at 03:12' })
+        ] as AgentEvent[])
+      })
+      expect(scrollBehaviors).toHaveLength(1)
+      const scroller = container.querySelector<HTMLElement>('.overflow-y-auto')!
+
+      // scrolled up to read: 900 - 100 - 300 is far past BOTTOM_SLACK
+      sizeScroller(scroller, 900, 100)
+      fireEvent.scroll(scroller)
+      act(() => {
+        agentStore.apply(at('assistant.message', { text: 'and here is why' }))
+      })
+      expect(scrollBehaviors).toHaveLength(1)
+
+      // snapping back to the bottom opts back in
+      sizeScroller(scroller, 900, 600)
+      fireEvent.scroll(scroller)
+      act(() => {
+        agentStore.apply(at('assistant.message', { text: 'one more thing' }))
+      })
+      expect(scrollBehaviors).toHaveLength(2)
+      expect(last()).toBe('smooth')
+    })
+
+    // Sending is the other way back in: the user may well have scrolled up to
+    // re-read something while composing, and their own new turn must be visible.
+    it('follows again after the user sends from up in the history', () => {
+      const slug = 'NAV-SCROLL-SEND'
+      const at = (type: string, payload: unknown): AgentEvent =>
+        ({ ...base, caseSlug: slug, type, payload, turnId: 4 }) as AgentEvent
+      const { container } = render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
+      act(() => {
+        agentStore.hydrate(slug, 1, [
+          at('turn.started', { userText: 'why did the ingest stall?' }),
+          at('assistant.message', { text: 'the queue drained at 03:12' })
+        ] as AgentEvent[])
+      })
+      const scroller = container.querySelector<HTMLElement>('.overflow-y-auto')!
+      sizeScroller(scroller, 900, 100)
+      fireEvent.scroll(scroller)
+      expect(scrollBehaviors).toHaveLength(1)
+
+      const box = screen.getByPlaceholderText(/message the analyst/i)
+      fireEvent.change(box, { target: { value: 'and the retry storm?' } })
+      fireEvent.keyDown(box, { key: 'Enter' })
+      act(() => {
+        agentStore.apply({
+          ...base,
+          caseSlug: slug,
+          type: 'turn.started',
+          payload: { userText: 'and the retry storm?' },
+          turnId: 5
+        } as AgentEvent)
+      })
+      expect(scrollBehaviors).toHaveLength(2)
       expect(last()).toBe('smooth')
     })
 
@@ -378,13 +455,6 @@ describe('ChatPane', () => {
       afterEach(() => {
         vi.unstubAllGlobals()
       })
-
-      /** jsdom has no layout, so drive the scroll geometry by hand */
-      function sizeScroller(el: HTMLElement, scrollHeight: number, scrollTop: number): void {
-        Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true })
-        Object.defineProperty(el, 'clientHeight', { value: 300, configurable: true })
-        el.scrollTop = scrollTop
-      }
 
       function renderPane(slug: string): HTMLElement {
         const at = (type: string, payload: unknown): AgentEvent =>
