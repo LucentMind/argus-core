@@ -688,6 +688,13 @@ export function EditorApp(): React.JSX.Element {
               // would otherwise resolve the hivemind tier of "theirs" and lock the user out of the
               // file they just wrote. For every edit-mode tab the two are identical.
               const generated = isGeneratedAsset(t.kind, t.name)
+              // `t.name`, not a tab identity: `tierOf` (useAssetTiers.ts) is keyed on `(kind,
+              // name)` alone and knows nothing of `t.file` — confirmed by reading its signature
+              // and the corpus map it closes over. A sibling has no tier of its own (see
+              // `SkillFileEntry.tier`'s doc comment in shared/skillFilesIpc.ts): it is exactly as
+              // editable as the skill that contains it, and this lookup already produces that
+              // answer unchanged, because `t.name` is the skill's name whether or not `t.file` is
+              // set.
               const tier = t.mode === 'create' ? undefined : tierOf(t.kind, t.name)
               const readOnly = t.mode !== 'create' && (generated || !isAssetEditable(t.kind, tier))
               const active = t.id === state.activeId
