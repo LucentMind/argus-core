@@ -37,6 +37,54 @@ function realOrNull(p: string): string | null {
   }
 }
 
+/**
+ * A single drive letter as the leading path segment, in the two spellings an MSYS path reaches
+ * this module in:
+ *
+ * - `/c/Users/x` — what git-bash (and therefore the model writing a command for it) spells an
+ *   absolute Windows path as. `skillAssetAt` can be handed this directly.
+ * - `C:\c\Users\x` — what `path.resolve(caseDir, '/c/Users/x')` makes of it, which is what the
+ *   token loop below passes: `path.resolve` reads the leading `/` as "root of the current drive",
+ *   so the MSYS drive letter survives as a literal directory name.
+ *
+ * A SINGLE letter, deliberately: `/usr/bin/env` and `/config/x.sh` are not drive spellings.
+ */
+const MSYS_ROOTED = /^\/([A-Za-z])\/(.+)$/
+const MSYS_DRIVE_MANGLED = /^[A-Za-z]:[\\/]([A-Za-z])[\\/](.+)$/
+
+/**
+ * The Windows path an MSYS-spelled path names, or null when the spelling does not apply.
+ *
+ * **win32 only.** On Linux and macOS `/c/Users/x` is a perfectly ordinary absolute path, and
+ * rewriting it would point the gate at a file the command never named.
+ */
+function msysAltPath(p: string): string | null {
+  if (process.platform !== 'win32') return null
+  const m = MSYS_ROOTED.exec(p) ?? MSYS_DRIVE_MANGLED.exec(p)
+  if (m === null) return null
+  return `${m[1].toUpperCase()}:\\${m[2].replace(/\//g, '\\')}`
+}
+
+/**
+ * `realOrNull`, plus the MSYS fallback — the resolution every path in this module goes through.
+ *
+ * The literal spelling is tried FIRST and the rewrite only when it names nothing: `C:\c\Users\…`
+ * can legitimately exist (a directory called `c` at the drive root), and a real path must never
+ * be shadowed by a speculative one. When the literal does resolve, its answer stands even if it
+ * is not a skill asset — falling through would let a speculative path decide what a real one
+ * already answered.
+ *
+ * Without this, the whole gate was dead for the git-bash spelling on Windows: `path.resolve`
+ * produced `C:\c\…`, `realpathSync.native` threw ENOENT, and an unreviewed skill script ran with
+ * no approval card at all (found by the live CDP run, 2026-08-20).
+ */
+function realOrNullMsysAware(p: string): string | null {
+  const direct = realOrNull(p)
+  if (direct !== null) return direct
+  const alt = msysAltPath(p)
+  return alt === null ? null : realOrNull(alt)
+}
+
 /** The tier roots that exist right now, resolved, highest precedence first. */
 function tierRoots(argusHome: string): Array<{ tier: SkillAssetTier; root: string }> {
   const out: Array<{ tier: SkillAssetTier; root: string }> = []
@@ -47,12 +95,21 @@ function tierRoots(argusHome: string): Array<{ tier: SkillAssetTier; root: strin
   return out
 }
 
+/** A matched asset together with the real path it resolved to — see `skillAssetAtRoots`. */
+interface LocatedAsset {
+  id: SkillAssetId
+  /** The resolved, canonical path on disk. The caller must read the bytes from THIS and not from
+   *  the path it passed in: for an MSYS spelling the two are different strings, and only this one
+   *  exists. */
+  real: string
+}
+
 /** `skillAssetAt` against roots the caller already resolved — see the note there. */
 function skillAssetAtRoots(
   roots: ReadonlyArray<{ tier: SkillAssetTier; root: string }>,
   absPath: string
-): SkillAssetId | null {
-  const real = realOrNull(absPath)
+): LocatedAsset | null {
+  const real = realOrNullMsysAware(absPath)
   if (real === null) return null
   for (const { tier, root } of roots) {
     const rel = path.relative(root, real)
@@ -61,7 +118,7 @@ function skillAssetAtRoots(
     if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) continue
     const parts = rel.split(path.sep)
     if (parts.length < 2) continue // the skill directory itself, not a file inside it
-    return { tier, skill: parts[0], relPath: parts.slice(1).join('/') }
+    return { id: { tier, skill: parts[0], relPath: parts.slice(1).join('/') }, real }
   }
   return null
 }
@@ -83,9 +140,14 @@ function skillAssetAtRoots(
  * process-lifetime cache keyed on `argusHome`: these roots are created and replaced at runtime
  * (pack install, "adopt upstream", a HiveMind pull), and a stale miss here reads as "not a skill
  * asset" — the unsafe direction.
+ *
+ * Both spellings of an absolute Windows path are accepted, `C:\…` and git-bash's `/c/…` — see
+ * `realOrNullMsysAware`. The rewrite lives here rather than in the token loop below because
+ * "which file does this path name" is this function's whole job, and every caller asks the same
+ * question of a path the shell wrote; the loop's job is tokenizing and quote-stripping.
  */
 export function skillAssetAt(argusHome: string, absPath: string): SkillAssetId | null {
-  return skillAssetAtRoots(tierRoots(argusHome), absPath)
+  return skillAssetAtRoots(tierRoots(argusHome), absPath)?.id ?? null
 }
 
 export interface SkillAssetGateDeps {
@@ -185,6 +247,13 @@ function normaliseSegment(segment: string): string {
  *   path under an `ARGUS_HOME` whose parent directory has a space in it — ordinary on Windows.
  *   This is a pre-existing property of the shared tokenizer (`cd "/outside dir"` already evades
  *   the sandbox deny in `risk.ts` the same way), but it is newly load-bearing here.
+ * - **Path spellings other than `C:\…` and git-bash's `/c/…`.** Those two are handled
+ *   (`realOrNullMsysAware`) because they are what Argus's own Windows shell produces; a live run
+ *   showed the model reaching for `/c/…` unprompted and the gate missing it entirely. Still NOT
+ *   recognised, because nothing Argus spawns emits them: Cygwin's `/cygdrive/c/…`, WSL's
+ *   `/mnt/c/…`, the `\\?\C:\…` extended-length form, and UNC paths (`\\host\share\…`,
+ *   `\\localhost\C$\…`) — a UNC path can name a file inside a tier root while resolving to a
+ *   spelling that matches no local root.
  *
  * The first matching token wins: a command naming two skill scripts is gated on the first, and
  * approving it approves the whole segment either way. Across SEGMENTS the classifier handles it
@@ -214,14 +283,17 @@ export function skillAssetContextForSegment(
     const token = raw.replace(/^(["'])(.*)\1$/, '$2')
     if (token === '' || token.startsWith('-')) continue
     const abs = path.resolve(deps.cwd, token)
-    const id = skillAssetAtRoots(roots, abs)
-    if (!id) continue
+    const located = skillAssetAtRoots(roots, abs)
+    if (!located) continue
+    const { id, real } = located
     let content: string
     try {
-      if (!fs.statSync(abs).isFile()) continue
+      // `real`, not `abs`: for an MSYS token `abs` is the `C:\c\…` mangling, which does not
+      // exist. `real` is the same file in every other case, so this costs nothing.
+      if (!fs.statSync(real).isFile()) continue
       // `utf8` string, then hash the string: `sha256Hex` digests a JS string as utf8, and
       // hashing raw bytes instead would disagree with every row increment 1 wrote.
-      content = fs.readFileSync(abs, 'utf8')
+      content = fs.readFileSync(real, 'utf8')
     } catch {
       continue
     }
