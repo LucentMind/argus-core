@@ -10,6 +10,13 @@ import { userSkillsDir } from '../../paths'
 
 const SCRIPT = '#!/bin/sh\necho hi\n'
 
+const isWin = process.platform === 'win32'
+
+/** `C:\Users\x\y.sh` -> `/c/Users/x/y.sh`, the absolute-path spelling git-bash uses. */
+function msys(win: string): string {
+  return `/${win[0].toLowerCase()}${win.slice(2).replace(/\\/g, '/')}`
+}
+
 let home: string
 let db: DatabaseSync
 let cwd: string
@@ -184,6 +191,36 @@ describe('skillAssetContextForSegment', () => {
     expect(ctxFor(`bash ${abs}`)).toMatchObject({ reviewState: 'reviewed' })
     db.exec('DROP TABLE skill_asset_reviews')
     expect(ctxFor(`bash ${abs}`)).toMatchObject({ reviewState: 'unreviewed' })
+  })
+
+  // The live-run defect: on Windows the agent's shell is git-bash, and the model wrote
+  // `sh "/c/Users/…/scripts/probe.sh"`. `path.resolve` turned that into `C:\c\Users\…`, which
+  // does not exist, so the gate found no asset and an unreviewed script ran with no card at all.
+  describe.skipIf(!isWin)('MSYS (git-bash) path spellings', () => {
+    it('gates a script named with an MSYS absolute path', () => {
+      const abs = seed('scripts/collect.sh', SCRIPT)
+      const win = ctxFor(`sh ${abs}`)
+      const c = ctxFor(`sh ${msys(abs)}`)
+      expect(c).toMatchObject({
+        skill: 'collect-logs',
+        tier: 'user',
+        relPath: 'scripts/collect.sh',
+        reviewState: 'unreviewed'
+      })
+      expect(c?.hash).toBe(win?.hash)
+      expect(c?.body).toBe(SCRIPT)
+    })
+
+    it('gates it when quoted — the exact shape the live run used', () => {
+      const abs = seed('scripts/probe.sh', SCRIPT)
+      expect(ctxFor(`sh "${msys(abs)}"`)).toMatchObject({ relPath: 'scripts/probe.sh' })
+    })
+
+    it('leaves a multi-letter leading segment alone', () => {
+      const abs = seed('scripts/collect.sh', SCRIPT)
+      expect(ctxFor(`sh /usr${abs.slice(2).replace(/\\/g, '/')}`)).toBeNull()
+      expect(ctxFor('/usr/bin/env sh /config/x.sh')).toBeNull()
+    })
   })
 
   it('keeps the body byte-accurate when a multi-byte codepoint straddles the cap boundary', () => {
