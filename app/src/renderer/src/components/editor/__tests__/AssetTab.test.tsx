@@ -494,7 +494,15 @@ describe('sibling files', () => {
     )
   })
 
-  it('shows the read-only notice for a sibling of a read-only skill', async () => {
+  // triage 6: this test used to feed `readOnly`/`tier` in as mount props and assert a badge
+  // rendered — that exercises no line this branch added; `readOnly` is computed upstream by
+  // `EditorApp` (`tierOf` + `isAssetEditable`), not by `AssetTab`/`AssetPane`, so it read like
+  // coverage of the sibling-inherits-its-skill's-tier rule while that rule was covered nowhere.
+  // Replaced by `EditorApp.test.tsx`'s "opens a sibling of a hivemind skill read-only, from the
+  // real tier lookup" (renderer half) alongside `skillFiles.test.ts`'s "refuses a write to a
+  // skill whose winning tier is not user" (main half) — the two independent expressions of the
+  // same rule, pinned together rather than one being hand-fed the other's answer.
+  it('still renders whatever readOnly/tier the host computed, when they are supplied', async () => {
     window.argus.skills.readFile = vi.fn().mockResolvedValue({
       content: 'echo hi\n',
       hash: 'a'.repeat(64),
@@ -502,14 +510,6 @@ describe('sibling files', () => {
       tier: 'hivemind',
       editable: false
     })
-    // `readOnly`/`tier` are supplied here rather than derived inside this test, matching how the
-    // 'read-only loading' describe block above already drives this component: `readOnly` is
-    // computed upstream by `EditorApp` (`tierOf` + `isAssetEditable`, confirmed unaffected by
-    // `file` — see the comment in EditorApp.tsx), not by `AssetTab`/`AssetPane` themselves, so a
-    // unit test of this component supplies the answer that computation would have produced for a
-    // hivemind-tier skill. The tier badge (StatusBar.tsx) is what actually renders "HiveMind"
-    // here — this file has no `ReadOnlyNotice` (that lives in `EditorApp.tsx`'s `TabPane`,
-    // outside this component's tree).
     renderTab(
       { kind: 'skill', name: 'team-skill', file: 'run.sh', mode: 'edit' },
       { readOnly: true, tier: 'HiveMind' }
