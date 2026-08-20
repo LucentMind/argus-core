@@ -147,10 +147,7 @@ export function validateReference(input: { file: string; content: string }): Val
  * No `line` is set on any issue: both checks are about the file as a whole, and a bogus line
  * number would scroll the editor somewhere meaningless.
  */
-export function validateSkillFile(input: {
-  relPath: string
-  content: string
-}): ValidationIssue[] {
+export function validateSkillFile(input: { relPath: string; content: string }): ValidationIssue[] {
   const issues: ValidationIssue[] = []
   const bad = assetPathError(input.relPath)
   if (bad) issues.push({ severity: 'error', message: bad })
