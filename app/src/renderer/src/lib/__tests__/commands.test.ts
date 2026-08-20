@@ -19,7 +19,8 @@ function handle(): AssetPaneHandle {
     toggleWrap: vi.fn(),
     openGotoLine: vi.fn(),
     findReferences: vi.fn(),
-    openFiles: vi.fn(),
+    listFiles: vi.fn(() => null),
+    openFile: vi.fn(),
     focus: vi.fn()
   }
 }
@@ -51,6 +52,7 @@ function ctx(
     window: {
       quickOpen: vi.fn(),
       commandPalette: vi.fn(),
+      openFilePicker: vi.fn(),
       closeTab: vi.fn(),
       nextTab: vi.fn(),
       prevTab: vi.fn()
@@ -173,10 +175,12 @@ describe('buildCommands · run', () => {
     expect(h.changeFontSize).toHaveBeenNthCalledWith(3, 0)
   })
 
-  it('routes "Open file in skill…" to the pane', () => {
-    const h = handle()
-    byId(ctx({ activePane: () => h }, { hasFiles: true }), 'openFilesInSkill').run()
-    expect(h.openFiles).toHaveBeenCalledOnce()
+  it('routes "Open file in skill…" to the window\'s file picker, not the pane directly', () => {
+    // The picker overlay lives in EditorApp, not on the pane (see the doc comment on
+    // `WindowCommands.openFilePicker`).
+    const c = ctx({}, { hasFiles: true })
+    byId(c, 'openFilesInSkill').run()
+    expect(c.window.openFilePicker).toHaveBeenCalledOnce()
   })
 
   it('routes the window commands', () => {

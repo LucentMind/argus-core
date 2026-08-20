@@ -1,5 +1,6 @@
 import type { ViewMode } from './editorPrefs'
 import type { DraftRef } from '../../../shared/editorIpc'
+import type { SkillFileEntry } from '../../../shared/skillFilesIpc'
 
 /**
  * Spec §6.4. One registry, read by the palette, the toolbar buttons and the window keymap, so a
@@ -67,10 +68,14 @@ export interface AssetPaneHandle {
   toggleWrap(): void
   openGotoLine(): void
   findReferences(): void
-  /** Reveal the Files dock tab (spec §6's "Open file in skill…"). Opening the file itself
-   *  happens through the dock's own row click, same as Find references lands its hits in the
-   *  References tab rather than opening one straight away. */
-  openFiles(): void
+  /** The Files dock's current listing for THIS pane, or `null` when there is none — a reference,
+   *  or a create-mode skill with no directory on disk yet (see `hasFiles`'s doc comment) — or the
+   *  initial `listFiles` IPC round trip has not landed. A synchronous, ref-backed read rather than
+   *  a Promise: like `draftRef()`, it is called from a command's `run()`, not render, and the
+   *  command palette needs the list at press time to populate its `@` mode, not after an await. */
+  listFiles(): SkillFileEntry[] | null
+  /** Opens one of those files as its own tab. */
+  openFile(relPath: string): void
   focus(): void
 }
 
@@ -78,6 +83,11 @@ export interface AssetPaneHandle {
 export interface WindowCommands {
   quickOpen(): void
   commandPalette(): void
+  /** Spec §6's "Open file in skill…": opens the palette's `@` mode over the active pane's sibling
+   *  files, so picking one opens it directly — one step, not a reveal-then-click. A no-op when
+   *  there is no active pane or it reports no files, same as the other window commands trust their
+   *  caller's `enabled` gate rather than re-deriving it. */
+  openFilePicker(): void
   closeTab(): void
   nextTab(): void
   prevTab(): void
@@ -264,7 +274,10 @@ export function buildCommands(ctx: CommandContext): Command[] {
       // Same rule as `findReferences`'s `mode === 'edit'`, restated as `p.hasFiles` because
       // this also has to be false for a reference — see the `hasFiles` doc comment.
       enabled: p !== null && p.hasFiles,
-      run: on((h) => h.openFiles())
+      // Not `on((h) => ...)`: the picker is the palette overlay, which lives in `EditorApp`, not
+      // on the pane. `ctx.window.openFilePicker` reads the active pane itself (same as
+      // `closeTab`/`nextTab` read window state directly) and is a no-op with nothing to act on.
+      run: () => ctx.window.openFilePicker()
     },
     {
       id: 'nextTab',

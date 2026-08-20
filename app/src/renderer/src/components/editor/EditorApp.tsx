@@ -41,6 +41,7 @@ import type { AuthoringKind } from '../../../../shared/authoringIpc'
 import type { TierLookup } from '../../../../shared/assetEditable'
 import type { AssetRow } from '../../lib/palette'
 import type { PersistedTabs, TabViewState } from '../../../../shared/editorIpc'
+import type { SkillFileEntry } from '../../../../shared/skillFilesIpc'
 
 /**
  * The stable "this tab offers nothing" value for every tab that is not the active one (see
@@ -294,6 +295,11 @@ export function EditorApp(): React.JSX.Element {
   /** `''` when closed is not a valid closed-state — an empty query is a legitimate OPEN palette.
    *  `null` is closed; a string is open, and its content picks the mode. */
   const [palette, setPalette] = useState<string | null>(null)
+  /** The palette's `@` mode listing (spec §6's "Open file in skill…"), snapshotted at the moment
+   *  the command runs — same as `openPalette` re-reads `assetRows` as it opens rather than
+   *  holding a live subscription the overlay would otherwise need. Empty when nothing is open, or
+   *  the active pane has no files. */
+  const [filesForPicker, setFilesForPicker] = useState<readonly SkillFileEntry[]>([])
 
   /**
    * Every mounted pane's handle, keyed by tab id. A ref and not state: this is read at press
@@ -348,8 +354,36 @@ export function EditorApp(): React.JSX.Element {
     [refreshAssets]
   )
 
+  /** Spec §6's "Open file in skill…": one step, not a reveal-then-click — see the doc comment on
+   *  `WindowCommands.openFilePicker`. Reads the active pane's file list here, in a handler, rather
+   *  than in `CommandPalette`'s render, because `activePane()` reads `handles.current` and this
+   *  repo forbids a ref read during render. */
+  const openFilePicker = useCallback((): void => {
+    const h = activePane()
+    const files = h?.listFiles() ?? null
+    if (!h || files === null) return
+    setFilesForPicker(files)
+    openPalette('@')
+  }, [activePane, openPalette])
+
+  const pickFile = useCallback(
+    (relPath: string): void => {
+      activePane()?.openFile(relPath)
+    },
+    [activePane]
+  )
+
   const commands = useMemo(
     () =>
+      // `openFilePicker` (below) reads `handles.current` through `activePane()`, same as
+      // `activePane`/`dirtyPanes` on the lines right above it, which the linter does not flag —
+      // it only objects once that read is a level removed, behind a SECOND callback that calls
+      // the first. All three are equally safe: `buildCommands` is a plain, synchronous function
+      // that stores every one of these into a `Command.run`/`WindowCommands` slot and calls
+      // NONE of them itself; every actual invocation happens later, from a keypress or a palette
+      // pick — never from this render. `react-hooks/refs` cannot see that through the extra
+      // indirection, hence the false positive.
+      // eslint-disable-next-line react-hooks/refs
       buildCommands({
         pane: paneState,
         activePane,
@@ -359,12 +393,13 @@ export function EditorApp(): React.JSX.Element {
         window: {
           quickOpen: () => openPalette(''),
           commandPalette: () => openPalette('>'),
+          openFilePicker: () => openFilePicker(),
           closeTab: () => setState((s) => (s.activeId ? closeTab(s, s.activeId) : s)),
           nextTab: () => setState((s) => cycleTab(s, 1)),
           prevTab: () => setState((s) => cycleTab(s, -1))
         }
       }),
-    [paneState, activePane, dirtyPanes, dirty, state.tabs.length, openPalette]
+    [paneState, activePane, dirtyPanes, dirty, state.tabs.length, openPalette, openFilePicker]
   )
 
   /**
@@ -752,7 +787,9 @@ export function EditorApp(): React.JSX.Element {
             onRawChange={setPalette}
             commands={commands}
             assets={assetRows}
+            files={filesForPicker}
             onPickAsset={pickAsset}
+            onPickFile={pickFile}
             onDiscardDraft={discardDraftRow}
             onClose={() => setPalette(null)}
           />
