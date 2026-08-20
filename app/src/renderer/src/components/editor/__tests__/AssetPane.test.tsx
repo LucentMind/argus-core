@@ -13,6 +13,12 @@ import type { DraftSaved } from '../../../../../shared/editorIpc'
 import { buildCommands } from '../../../lib/commands'
 import type { AssetPaneHandle, Command, PaneCommandState } from '../../../lib/commands'
 import { useAssistProvider } from '../../library/assistProvider'
+import { confirm } from '../../../lib/confirmStore'
+
+vi.mock('../../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 vi.mock('../../library/assistProvider', () => ({
   // A `vi.fn()`, not a plain arrow function: the "toolbar fallback tracks buildCommands" matrix
@@ -95,6 +101,13 @@ const draftChanged = vi.fn()
 const discardDraft = vi.fn()
 const skillsWrite = vi.fn()
 const skillsRead = vi.fn()
+const skillsListFiles = vi.fn()
+const skillsReadFile = vi.fn()
+const skillsWriteFile = vi.fn()
+const skillsDeleteFile = vi.fn()
+const skillsRenameFile = vi.fn()
+/** Captured so a test can fire the broadcast itself, same shape as `draftSavedListener` below. */
+let skillsChangedListener: (() => void) | undefined
 /** Captured so tests can fire the "bytes are on disk" confirmation themselves — see the
  *  status-bar-derivation tests below, which need to distinguish a pending draft from a dated one. */
 let draftSavedListener: ((s: DraftSaved) => void) | undefined
@@ -116,6 +129,17 @@ beforeEach(() => {
   // true of a freshly opened asset: disk holds exactly what the pane was mounted with.
   skillsRead.mockReset().mockResolvedValue({ content: DISK, hash: 'h1' })
   skillsWrite.mockReset().mockResolvedValue({ hash: 'h2' })
+  // Every default-props pane in this file is `kind: 'skill', mode: 'edit', active: true`, which
+  // is exactly the condition that now fetches the sibling list on mount — an unmocked call would
+  // leave every other test's `beforeEach` racing an unresolved promise. Empty is what is true of
+  // a freshly opened skill with no siblings, matching `skillsRead`'s "disk holds what the pane
+  // mounted with" convention above.
+  skillsListFiles.mockReset().mockResolvedValue([])
+  skillsReadFile.mockReset()
+  skillsWriteFile.mockReset().mockResolvedValue({ hash: 'fh1', executable: false })
+  skillsDeleteFile.mockReset()
+  skillsRenameFile.mockReset()
+  skillsChangedListener = undefined
   // Task 7's view mode / split fraction persist to localStorage (`lib/editorPrefs.ts`), not to
   // React state alone — leaving a prior test's mode behind would make the Preview-button label
   // (and thus which click gets you where) order-dependent.
@@ -133,7 +157,19 @@ beforeEach(() => {
         return () => {}
       }
     },
-    skills: { read: skillsRead, write: skillsWrite },
+    skills: {
+      read: skillsRead,
+      write: skillsWrite,
+      listFiles: skillsListFiles,
+      readFile: skillsReadFile,
+      writeFile: skillsWriteFile,
+      deleteFile: skillsDeleteFile,
+      renameFile: skillsRenameFile,
+      onChanged: (cb: () => void) => {
+        skillsChangedListener = cb
+        return () => {}
+      }
+    },
     refsync: { readRef: vi.fn(), writeRef: vi.fn() },
     authoring: { draft: vi.fn(), improve: vi.fn() }
   } as never
@@ -1159,6 +1195,154 @@ describe('AssetPane · find references', () => {
 
     expect(screen.getByText(/second result/)).toBeInTheDocument()
     expect(screen.queryByText(/first result/)).not.toBeInTheDocument()
+  })
+})
+
+describe('AssetPane · files dock', () => {
+  it("lists the skill's siblings and offers a Files tab", async () => {
+    skillsListFiles.mockResolvedValue([
+      { relPath: 'scripts/a.sh', bytes: 3, executable: true, tier: 'user', editable: true }
+    ])
+    renderPane()
+    expect(window.argus.skills.listFiles).toHaveBeenCalledWith('s')
+    await waitFor(() => expect(screen.getByRole('tab', { name: /files/i })).toBeTruthy())
+  })
+
+  it('offers no Files tab for a reference — there is no folder to list', async () => {
+    renderPane({ kind: 'reference' })
+    // Give the effect a turn; a false negative here (asserting immediately) would pass even if
+    // the guard were missing, because the fetch is async either way.
+    await Promise.resolve()
+    expect(skillsListFiles).not.toHaveBeenCalled()
+    expect(screen.queryByRole('tab', { name: /files/i })).toBeNull()
+  })
+
+  it('offers no Files tab for an unsaved create-mode skill — there is no folder yet', async () => {
+    renderPane({ mode: 'create', draftId: 'd1', initialName: 'untitled' })
+    await Promise.resolve()
+    expect(skillsListFiles).not.toHaveBeenCalled()
+    expect(screen.queryByRole('tab', { name: /files/i })).toBeNull()
+  })
+
+  it('opens a sibling in a tab when its row is clicked', async () => {
+    skillsListFiles.mockResolvedValue([
+      { relPath: 'scripts/a.sh', bytes: 3, executable: true, tier: 'user', editable: true }
+    ])
+    renderPane()
+    await userEvent.click(await screen.findByRole('tab', { name: /files/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'scripts/a.sh' }))
+    expect(window.argus.editor.open).toHaveBeenCalledWith({
+      kind: 'skill',
+      name: 's',
+      mode: 'edit',
+      file: 'scripts/a.sh'
+    })
+  })
+
+  it('adds a file: writes an empty sibling, re-lists, and opens the new tab', async () => {
+    renderPane()
+    await userEvent.click(await screen.findByRole('tab', { name: /files/i }))
+    await userEvent.click(screen.getByRole('button', { name: /add file/i }))
+    await userEvent.type(await screen.findByLabelText('File path'), 'scripts/new.sh')
+    // Exact match: the row-level "Rename scripts/…"/"Delete scripts/…" buttons this dialog sits
+    // above also contain substrings of "Add", but none of them equal it exactly.
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }))
+    await waitFor(() =>
+      expect(window.argus.skills.writeFile).toHaveBeenCalledWith('s', 'scripts/new.sh', '', null)
+    )
+    await waitFor(() => expect(skillsListFiles).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(window.argus.editor.open).toHaveBeenCalledWith({
+        kind: 'skill',
+        name: 's',
+        mode: 'edit',
+        file: 'scripts/new.sh'
+      })
+    )
+  })
+
+  it('renames a file and re-lists', async () => {
+    skillsListFiles.mockResolvedValue([
+      { relPath: 'scripts/a.sh', bytes: 3, executable: true, tier: 'user', editable: true }
+    ])
+    renderPane()
+    await userEvent.click(await screen.findByRole('tab', { name: /files/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Rename scripts/a.sh' }))
+    const input = await screen.findByLabelText('File path')
+    await userEvent.clear(input)
+    await userEvent.type(input, 'scripts/b.sh')
+    await userEvent.click(screen.getByRole('button', { name: 'Rename' }))
+    await waitFor(() =>
+      expect(window.argus.skills.renameFile).toHaveBeenCalledWith(
+        's',
+        'scripts/a.sh',
+        'scripts/b.sh'
+      )
+    )
+    await waitFor(() => expect(skillsListFiles).toHaveBeenCalledTimes(2))
+  })
+
+  it('asks for confirmation before deleting, and does nothing when declined', async () => {
+    skillsListFiles.mockResolvedValue([
+      { relPath: 'scripts/a.sh', bytes: 3, executable: true, tier: 'user', editable: true }
+    ])
+    vi.mocked(confirm).mockResolvedValueOnce(false)
+    renderPane()
+    await userEvent.click(await screen.findByRole('tab', { name: /files/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Delete scripts/a.sh' }))
+    expect(confirm).toHaveBeenCalled()
+    expect(window.argus.skills.deleteFile).not.toHaveBeenCalled()
+  })
+
+  it('deletes a file once confirmed, and re-lists', async () => {
+    skillsListFiles.mockResolvedValue([
+      { relPath: 'scripts/a.sh', bytes: 3, executable: true, tier: 'user', editable: true }
+    ])
+    renderPane()
+    await userEvent.click(await screen.findByRole('tab', { name: /files/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Delete scripts/a.sh' }))
+    await waitFor(() =>
+      expect(window.argus.skills.deleteFile).toHaveBeenCalledWith('s', 'scripts/a.sh')
+    )
+    await waitFor(() => expect(skillsListFiles).toHaveBeenCalledTimes(2))
+  })
+
+  it('hides the mutation buttons on a read-only skill — an affordance, not enforcement', async () => {
+    skillsListFiles.mockResolvedValue([
+      { relPath: 'scripts/a.sh', bytes: 3, executable: false, tier: 'hivemind', editable: false }
+    ])
+    renderPane({ readOnly: true })
+    await userEvent.click(await screen.findByRole('tab', { name: /files/i }))
+    expect(screen.queryByRole('button', { name: /add file/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /rename/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /delete/i })).toBeNull()
+  })
+
+  it('re-lists when a skills:changed broadcast lands', async () => {
+    renderPane()
+    await waitFor(() => expect(skillsListFiles).toHaveBeenCalledTimes(1))
+    skillsListFiles.mockResolvedValue([
+      { relPath: 'scripts/new.sh', bytes: 1, executable: true, tier: 'user', editable: true }
+    ])
+    act(() => skillsChangedListener?.())
+    await waitFor(() => expect(skillsListFiles).toHaveBeenCalledTimes(2))
+  })
+
+  it('the "Open file in skill…" command reveals the Files tab', async () => {
+    const paneRef = createRef<AssetPaneHandle>()
+    renderPane({ paneRef })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    await waitFor(() => expect(skillsListFiles).toHaveBeenCalled())
+    act(() => paneRef.current!.openFiles())
+    expect(screen.getByRole('tab', { name: /files/i })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('does nothing for "Open file in skill…" on a reference — no dock to reveal', async () => {
+    const paneRef = createRef<AssetPaneHandle>()
+    renderPane({ paneRef, kind: 'reference' })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    act(() => paneRef.current!.openFiles())
+    expect(screen.queryByRole('tab', { name: /files/i })).toBeNull()
   })
 })
 

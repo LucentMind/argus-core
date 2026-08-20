@@ -186,6 +186,13 @@ beforeEach(() => {
         ]
       }),
       onChanged: () => () => {},
+      // Task 5's Files dock: every mounted skill pane in edit mode now fetches this on mount.
+      // Empty is the realistic default — none of this file's fixtures ship sibling files.
+      listFiles: vi.fn().mockResolvedValue([]),
+      readFile: vi.fn(),
+      writeFile: vi.fn().mockResolvedValue({ hash: 'fh1', executable: false }),
+      deleteFile: vi.fn(),
+      renameFile: vi.fn(),
       // Echoes back the requested name (real forkSkill's result names what was actually created),
       // rather than a fixed literal, so the "forks under the name the user picks" test proves the
       // tab really followed the returned name and not a hardcoded one.

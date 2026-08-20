@@ -1,11 +1,13 @@
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { ProblemsPanel } from './ProblemsPanel'
 import { ReferencesPanel } from './ReferencesPanel'
+import { FilesPanel } from './FilesPanel'
 import { countBySeverity, summariseIssues } from '../../lib/diagnostics'
 import type { ValidationIssue } from '../../../../shared/assetValidation'
 import type { ReferenceHit } from '../../../../shared/corpusSearch'
+import type { SkillFileEntry } from '../../../../shared/skillFilesIpc'
 
-export type DockTab = 'problems' | 'references'
+export type DockTab = 'problems' | 'references' | 'files'
 
 export interface BottomDockProps {
   issues: ValidationIssue[]
@@ -32,6 +34,22 @@ export interface BottomDockProps {
   onGoToLine: (line: number) => void
   onOpenHit: (hit: ReferenceHit) => void
   onDismissReferences: () => void
+  /** `null` for a reference (or a not-yet-resolved skill tab) — there is no folder to list.
+   *  An empty array is a real skill with no siblings yet, which is why `hasFiles` below is a
+   *  null check and not a length check (see the comment on the "no siblings" test). */
+  files: SkillFileEntry[] | null
+  /** The skill this dock belongs to. Carried alongside `files` rather than derived from it —
+   *  `files` alone answers "is there a folder", not "whose". */
+  skillName: string | null
+  /** The sibling the owning tab currently shows; forwarded to `FilesPanel` so it can mark the
+   *  active row. Null when the tab is the skill's own SKILL.md. */
+  activeFile: string | null
+  /** The skill's editability. A sibling is never editable inside a read-only skill. */
+  filesEditable: boolean
+  onOpenFile: (relPath: string) => void
+  onAddFile: () => void
+  onRenameFile: (relPath: string) => void
+  onDeleteFile: (relPath: string) => void
 }
 
 /**
@@ -52,10 +70,21 @@ export function BottomDock({
   onTabChange,
   onGoToLine,
   onOpenHit,
-  onDismissReferences
+  onDismissReferences,
+  files,
+  skillName,
+  activeFile,
+  filesEditable,
+  onOpenFile,
+  onAddFile,
+  onRenameFile,
+  onDeleteFile
 }: BottomDockProps): React.JSX.Element | null {
   const hasRefs = references !== null || searching
-  if (issues.length === 0 && !hasRefs) return null
+  // A length check would hide the tab for a skill with no siblings yet — exactly the case that
+  // needs it, since it is where the user adds the first one (spec §6).
+  const hasFiles = files !== null
+  if (issues.length === 0 && !hasRefs && !hasFiles) return null
 
   const { errors } = countBySeverity(issues)
   const Chevron = open ? ChevronDown : ChevronRight
@@ -106,6 +135,21 @@ export function BottomDock({
                   : `${references!.hits.length} references to ${references!.query}`}
             </button>
           )}
+          {hasFiles && (
+            <button
+              type="button"
+              role="tab"
+              aria-label="Files"
+              aria-selected={tab === 'files'}
+              onClick={() => {
+                onTabChange('files')
+                onOpenChange(true)
+              }}
+              className={`${tab === 'files' ? 'underline' : ''} text-dim`}
+            >
+              {skillName ? `Files — ${skillName}` : 'Files'}
+            </button>
+          )}
         </div>
         {references !== null && (
           <button
@@ -123,6 +167,17 @@ export function BottomDock({
       {open && tab === 'problems' && <ProblemsPanel issues={issues} onGoToLine={onGoToLine} />}
       {open && tab === 'references' && references !== null && (
         <ReferencesPanel hits={references.hits} onOpenHit={onOpenHit} />
+      )}
+      {open && tab === 'files' && files !== null && (
+        <FilesPanel
+          files={files}
+          activeFile={activeFile}
+          editable={filesEditable}
+          onOpen={onOpenFile}
+          onAdd={onAddFile}
+          onRename={onRenameFile}
+          onDelete={onDeleteFile}
+        />
       )}
     </div>
   )
