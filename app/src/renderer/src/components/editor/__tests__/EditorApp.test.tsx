@@ -871,6 +871,30 @@ describe('read-only tabs', () => {
     act(() => openTab!({ kind: 'reference', name: 'synced.md', mode: 'edit' }))
     expect(await screen.findByRole('status')).toHaveTextContent(/synced\.md/)
   })
+
+  // triage 6: the rule that a sibling inherits its skill's tier (a sibling has no tier of its
+  // own — see the comment above `readOnly`'s derivation, right where this `.map` builds it) is
+  // expressed TWICE: here, via `tierOf(t.kind, t.name)` + `isAssetEditable`, and independently in
+  // main's `skillFiles.ts` (`editableTier` — see `skillFiles.test.ts`'s "refuses a write to a
+  // skill whose winning tier is not user"). The old `AssetTab.test.tsx` test this replaces fed
+  // `readOnly`/`tier` in as mount props, so it exercised no line either half of the rule actually
+  // computes — it only proved `StatusBar` can render a badge it's handed. This drives the real
+  // `EditorApp` pipeline instead: `theirs` (the hivemind fixture) opened on a SIBLING path, so the
+  // lookup has to travel `t.name` -> `tierOf` -> `isAssetEditable` for real, not through a
+  // hand-fed prop, to land on read-only.
+  it('opens a sibling of a hivemind skill read-only, from the real tier lookup', async () => {
+    window.argus.skills.readFile = vi.fn().mockResolvedValue({
+      content: '#!/bin/sh\necho hi\n',
+      hash: 'a'.repeat(64),
+      executable: true,
+      tier: 'hivemind',
+      editable: false
+    })
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'skill', name: 'theirs', file: 'run.sh', mode: 'edit' }))
+    expect(await screen.findByRole('status')).toHaveTextContent(/read-only/i)
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled()
+  })
 })
 
 describe('Edit a copy', () => {
