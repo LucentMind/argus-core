@@ -111,3 +111,33 @@ describe('tab set', () => {
     expect(new EditorWindowStore(home).loadTabs()).toBeNull()
   })
 })
+
+describe('persisting a sibling tab', () => {
+  it('round-trips a tab that names a file', () => {
+    const store = new EditorWindowStore(home)
+    const tabs = {
+      tabs: [
+        { kind: 'skill' as const, name: 'collect-logs', mode: 'edit' as const, view: null },
+        {
+          kind: 'skill' as const,
+          name: 'collect-logs',
+          file: 'scripts/collect.sh',
+          mode: 'edit' as const,
+          view: null
+        }
+      ],
+      activeIndex: 1
+    }
+    store.saveTabs(tabs)
+    expect(store.loadTabs()?.tabs[1].file).toBe('scripts/collect.sh')
+  })
+
+  it('rejects a non-string file, as it rejects an unknown kind', () => {
+    const store = new EditorWindowStore(home)
+    store.saveTabs({
+      tabs: [{ kind: 'skill', name: 'x', file: 7, mode: 'edit', view: null }],
+      activeIndex: 0
+    } as never)
+    expect(store.loadTabs()).toBeNull()
+  })
+})
