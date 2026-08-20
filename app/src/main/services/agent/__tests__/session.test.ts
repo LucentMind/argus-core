@@ -20,7 +20,7 @@ import { REVIEW_LAYER_ORDER } from '../../../../shared/reviewLayers'
 import { PERMISSION_MODES } from '../../../../shared/settings'
 import { ProcessLabels } from '../../diagnostics/processLabels'
 import type { ProcessSample } from '../../../../shared/diagnostics'
-import { userSkillsDir } from '../../paths'
+import { caseDir, userSkillsDir } from '../../paths'
 // Real system/init message from a live `auto`-mode SDK session — see
 // drivers/claude/__fixtures__/EVIDENCE.md's "init-auto-mode.json" section: captured
 // against the exact installed SDK version (0.3.220), canUseTool measured invoked zero
@@ -1939,6 +1939,59 @@ describe('skill asset run gate', () => {
     expect(second.payload).toMatchObject({ risk: 'HIGH', grantKey: null })
     s.respond({ requestId: (second.payload as { requestId: string }).requestId, kind: 'deny' })
     await chained
+    await s.stop('stopped')
+  })
+
+  /**
+   * The live-run defect, end to end. A CDP gate driving the real app ran
+   * `cd "<caseDir>/.claude/skills/collect-logs" && sh scripts/collect.sh` and got
+   * `Bash / LOW / auto` in `tool_calls`, `request.opened = 0`, and the script's marker line in the
+   * model's reply — a TOTAL bypass of the gate, on the invocation shape the tooling itself
+   * teaches (a SKILL.md says "run `scripts/collect.sh`" and the SDK announces the skill's base
+   * directory).
+   *
+   * Faithful to the observed command on every part that mattered: the junction into the case
+   * directory that `materializeSessionSkills` creates, the `cd` into it, and the bare relative
+   * `scripts/collect.sh` after it. This is the test that would have caught it.
+   */
+  it('opens an ask for a script named relative to a cd — the live-run command', async () => {
+    const script = '#!/bin/sh\necho ARGUS-MARKER\n'
+    seedScript(argusHome, script)
+    const dir = caseDir(argusHome, 'NAV-1')
+    const junction = path.join(dir, '.claude', 'skills', 'collect-logs')
+    fs.mkdirSync(path.dirname(junction), { recursive: true })
+    fs.symlinkSync(path.join(userSkillsDir(argusHome), 'collect-logs'), junction, 'junction')
+
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    await flush()
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<unknown>
+    const pending = canUseTool(
+      'Bash',
+      { command: `cd "${junction}" && sh scripts/collect.sh` },
+      { signal: new AbortController().signal }
+    )
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'request.opened')).toBe(true))
+
+    const live = events.find((e) => e.type === 'request.opened')!
+    expect(live.payload).toMatchObject({
+      risk: 'HIGH',
+      // Chained, so the pre-existing multi-segment rule refuses a session grant.
+      grantKey: null,
+      assetContext: {
+        skill: 'collect-logs',
+        tier: 'user',
+        relPath: 'scripts/collect.sh',
+        reviewState: 'unreviewed',
+        body: script
+      }
+    })
+    s.respond({ requestId: (live.payload as { requestId: string }).requestId, kind: 'deny' })
+    await pending
     await s.stop('stopped')
   })
 

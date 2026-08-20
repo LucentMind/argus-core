@@ -38,8 +38,14 @@ export interface RiskContext {
    * keep doing none — the gate needs both, and a classifier that reached for them could not be
    * unit-tested with a plain object. Absent means the gate is off, which is what every existing
    * caller and every driver-mapping test gets.
+   *
+   * `cwd` is what a RELATIVE token in the segment resolves against, and it is a parameter rather
+   * than something the implementation closes over because it is not constant across one command:
+   * `classifyToolCall` tracks it across the segments (`advanceCwd`). It used to be fixed at the
+   * case directory, which made `cd <skillDir> && sh scripts/collect.sh` a total bypass — see
+   * `advanceCwd`. A resolver that ignores this argument is back to the defect.
    */
-  skillAsset?: (segment: string) => SkillAssetContext | null
+  skillAsset?: (segment: string, cwd: string) => SkillAssetContext | null
 }
 
 export type RiskVerdict =
@@ -380,7 +386,7 @@ function assetGrantKey(asset: SkillAssetContext): string {
  * before the fix the gate handed each of them a session-grantable key that the classifier had
  * explicitly set to `null`, turning a never-grant verdict into a grantable one.
  */
-function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
+function classifySegment(segment: string, ctx: RiskContext, cwd: string): RiskVerdict {
   const base = classifyPlainSegment(segment, ctx)
   if (base.action === 'deny') return base
   // The gate sits above the program-name dispatch: what matters is the FILE a segment executes,
@@ -388,7 +394,7 @@ function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
   // sandbox (spec §7.4) — see `skillAssetContextForSegment` for the full list of what it cannot
   // see (command substitution, stdin-fed interpreters, `sh -c "…"`, paths containing a space);
   // all of those fall back to the ordinary classification computed above.
-  const asset = ctx.skillAsset?.(segment)
+  const asset = ctx.skillAsset?.(segment, cwd)
   if (!asset) return base
   const baseWasGrantless = base.action === 'ask' && base.grantKey === null
   return {
@@ -442,6 +448,92 @@ function classifyPlainSegment(segment: string, ctx: RiskContext): RiskVerdict {
   // absolute-path writes/reads are governed by the FS sandbox for FS tools; for bash we
   // only police cd/rm; everything else defaults LOW inside the session cwd.
   return { action: 'allow', risk: 'LOW' }
+}
+
+/**
+ * What one segment does to the shell's working directory.
+ *
+ * `none` covers "not a cd" AND every cd shape deliberately left unmodelled — both leave the
+ * running cwd where it was, which is what the classifier did for every segment before this
+ * existed.
+ */
+type CdMove =
+  { kind: 'none' } | { kind: 'home' } | { kind: 'back' } | { kind: 'to'; target: string }
+
+/**
+ * The home directory, spelled as a path SEGMENT rather than resolved.
+ *
+ * This module may not read `os.homedir()` — it is pure string math over the command text, and the
+ * home directory is a fact about the machine. It does not have to: `path.resolve(cwd, '~')` leaves
+ * a literal `~` segment in the running cwd, and the far side of the injection seam
+ * (`skillAssetGate.ts`'s `tildeAltPath`) already expands a `~` segment wherever it sits, because
+ * the model writing `sh ~/Argus/…` produces exactly the same shape. So `cd ~ && sh x/y.sh`
+ * composes with the tilde handling already in place instead of duplicating it here.
+ */
+const HOME_SEGMENT = '~'
+
+/**
+ * What the `cd` in a segment (if any) moves to.
+ *
+ * `tokens[0] === 'cd'`, EXACTLY — not `path.basename`, which the classifier above uses. Only the
+ * shell builtin changes the shell's directory; `/usr/bin/cd` is a separate process whose chdir
+ * dies with it. Following a path-spelled `cd` would point the gate at a directory the shell never
+ * entered, and a wrong base directory is a MISSED approval card — the failure mode this whole
+ * mechanism exists to close. (The classifier's `cd` DENY is basename-matched and stays that way:
+ * an over-broad deny is the safe direction, an over-broad base is not.)
+ */
+function cdMove(segment: string): CdMove {
+  const tokens = shellSegmentTokens(segment)
+  if (tokens[0] !== 'cd') return { kind: 'none' }
+  for (const raw of tokens.slice(1)) {
+    if (raw === '--') continue
+    // `-` alone is the OLDPWD form, not an option.
+    if (raw === '-') return { kind: 'back' }
+    if (raw.startsWith('-')) continue // -L, -P, -e, -@
+    const target = raw.replace(/^(["'])(.*)\1$/, '$2')
+    // A quote left over after stripping a MATCHED pair means the target contained whitespace and
+    // `shellSegmentTokens` already tore it in half (a documented limit of the shared tokenizer —
+    // see `skillAssetContextForSegment`). Advancing to the first fragment would name a directory
+    // the command never did, so stay put.
+    if (/^["']|["']$/.test(target)) return { kind: 'none' }
+    if (target === '') return { kind: 'none' }
+    return { kind: 'to', target }
+  }
+  // `cd` with no operand: the shell goes to $HOME.
+  return { kind: 'home' }
+}
+
+/**
+ * The running cwd after one segment, plus the one it came from.
+ *
+ * WHY THIS EXISTS. `skillAsset` resolves relative tokens against a base directory, and that base
+ * used to be the case directory for every segment of every command. A live CDP run (2026-08-20)
+ * executed `cd "<caseDir>/.claude/skills/collect-logs" && sh scripts/collect.sh` and the gate saw
+ * nothing at all: `scripts/collect.sh` resolved to `<caseDir>/scripts/collect.sh`, which does not
+ * exist, and the only other token was the skill DIRECTORY, which `skillAssetAt` refuses on purpose
+ * (a directory is not a file inside a skill). Both candidates missed, the segment fell through to
+ * a LOW allow, and an unreviewed script ran with no approval card — `Bash / LOW / auto`.
+ *
+ * That is a different failure mode from the `/c/…` and `~/…` bypasses fixed before it. Those were
+ * SPELLING misses: a token `path.resolve` could not parse. Here every token parsed fine and was
+ * resolved against the wrong BASE. Worse, it is the shape the tooling teaches — a SKILL.md says
+ * "run `scripts/collect.sh`" and the SDK announces the skill's base directory — so it is plausibly
+ * the most common real invocation there is.
+ *
+ * Pure string math, deliberately: no `fs`, no `node:sqlite`, no `crypto`. In particular the `cd`
+ * target is NOT checked for existence. Whether a directory exists is a filesystem question and it
+ * belongs on the far side of the injection seam, where a non-existent base simply resolves to
+ * nothing and reports no asset.
+ *
+ * `prev` is tracked only for `cd -`. It seeds equal to the starting cwd, so a leading `cd -`
+ * (whose real OLDPWD the classifier cannot know) is a no-op rather than a guess.
+ */
+function advanceCwd(cwd: string, prev: string, segment: string): { cwd: string; prev: string } {
+  const move = cdMove(segment)
+  if (move.kind === 'none') return { cwd, prev }
+  if (move.kind === 'back') return { cwd: prev, prev: cwd }
+  const target = move.kind === 'home' ? HOME_SEGMENT : move.target
+  return { cwd: path.resolve(cwd, target), prev: cwd }
 }
 
 const RISK_ORDER: Risk[] = ['LOW', 'MEDIUM', 'HIGH']
@@ -517,8 +609,13 @@ export function classifyToolCall(
     let worst: RiskVerdict = { action: 'allow', risk: 'LOW' }
     // Every DISTINCT script the command runs, in order — used only to word the reason below.
     const assets: SkillAssetContext[] = []
+    // The shell's working directory as of each segment. Seeded at the case directory, which is
+    // where the agent's shell starts, and advanced by any `cd` — see `advanceCwd` for the bypass
+    // this closes. `prevCwd` exists only to answer `cd -`.
+    let cwd = ctx.caseDir
+    let prevCwd = ctx.caseDir
     for (const seg of segments) {
-      const v = classifySegment(seg, ctx)
+      const v = classifySegment(seg, ctx, cwd)
       if (v.action === 'deny') return v
       if (
         v.action === 'ask' &&
@@ -527,6 +624,12 @@ export function classifyToolCall(
       )
         assets.push(v.assetContext)
       if (isWorse(v, worst)) worst = v
+      // AFTER the deny return, so a denied `cd` never moves the cwd. Moot in practice — the loop
+      // returns on the first deny and never reaches a later segment — but writing it this way
+      // means the question stays answered if the early return is ever softened.
+      const next = advanceCwd(cwd, prevCwd, seg)
+      cwd = next.cwd
+      prevCwd = next.prev
     }
     // The grant key is computed per SEGMENT but applied to the WHOLE command, so a chained
     // command must not carry one at all. `isWorse` prefers an asset ask over a plain ask of
