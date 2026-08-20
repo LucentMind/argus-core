@@ -113,9 +113,10 @@ function BrowseRow({
               void askConfirm({
                 title: `Remove ${it.name}?`,
                 message:
-                  it.kind === 'skill'
+                  (it.kind === 'skill'
                     ? 'Its skills-hivemind folder is removed; it stays available in Browse.'
-                    : 'Its local references copy is removed; it stays available in Browse.',
+                    : 'Its local references copy is removed; it stays available in Browse.') +
+                  ' It stays removed — auto-update will not bring it back.',
                 confirmLabel: 'Remove',
                 danger: true
               }).then((ok) => {

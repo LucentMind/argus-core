@@ -41,6 +41,55 @@ function seedClone(): string {
   return clone
 }
 
+/** Seeds a bare clone (`.git` marker only, no items) at `<home>/hivemind`, for the tombstone
+ *  and orphan helpers below, which each seed their own single item. */
+function seedCloneShell(): string {
+  const clone = path.join(home, 'hivemind')
+  fs.mkdirSync(path.join(clone, '.git'), { recursive: true })
+  return clone
+}
+
+/** A HivemindService over a fresh clone containing one skill named `name`, already installed. */
+async function setupWithInstalledSkill(
+  name: string
+): Promise<{ svc: HivemindService; removeFromClone: (rel: string) => void; reload: () => HivemindService }> {
+  const clone = seedCloneShell()
+  fs.mkdirSync(path.join(clone, 'skills', name), { recursive: true })
+  fs.writeFileSync(
+    path.join(clone, 'skills', name, 'SKILL.md'),
+    `---\ndescription: ${name} skill from the hive\n---\n# ${name}\n`
+  )
+  const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'sha-1' })
+  const makeSvc = (): HivemindService =>
+    new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+  const svc = makeSvc()
+  await svc.install('skill', name)
+  return {
+    svc,
+    removeFromClone: (rel: string) => fs.rmSync(path.join(clone, rel), { recursive: true, force: true }),
+    reload: makeSvc
+  }
+}
+
+/** A HivemindService over a fresh clone containing one reference named `name`, already installed. */
+async function setupWithInstalledReference(
+  name: string
+): Promise<{ svc: HivemindService; removeFromClone: (rel: string) => void; reload: () => HivemindService }> {
+  const clone = seedCloneShell()
+  fs.mkdirSync(path.join(clone, 'references'), { recursive: true })
+  fs.writeFileSync(path.join(clone, 'references', name), `# ${name}\n`)
+  const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha-1' })
+  const makeSvc = (): HivemindService =>
+    new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+  const svc = makeSvc()
+  await svc.install('reference', name)
+  return {
+    svc,
+    removeFromClone: (rel: string) => fs.rmSync(path.join(clone, rel), { recursive: true, force: true }),
+    reload: makeSvc
+  }
+}
+
 describe('cloneUrl', () => {
   it('expands org/name to a GitHub https URL and passes URLs/paths through', () => {
     expect(cloneUrl('acme/hivemind')).toBe('https://github.com/acme/hivemind.git')
@@ -2615,5 +2664,50 @@ describe('pushStatus', () => {
     const s = await svc.pushStatus('skill', 'my-skill', me)
     expect(s.state).toBe('none')
     expect(s.state === 'none' && s.warning).toMatch(/not authenticated/)
+  })
+})
+
+describe('tombstones', () => {
+  it('records a tombstone when a skill is uninstalled', async () => {
+    const { svc } = await setupWithInstalledSkill('triage')
+    await svc.uninstallSkill('triage')
+    expect(Object.keys(svc.declined())).toEqual(['skill/triage'])
+  })
+
+  it('records a tombstone when a reference is uninstalled', async () => {
+    const { svc } = await setupWithInstalledReference('style.md')
+    await svc.uninstallReference('style.md')
+    expect(Object.keys(svc.declined())).toEqual(['reference/style.md'])
+  })
+
+  it('clears the tombstone when the item is installed again by hand', async () => {
+    const { svc } = await setupWithInstalledSkill('triage')
+    await svc.uninstallSkill('triage')
+    await svc.install('skill', 'triage')
+    expect(svc.declined()).toEqual({})
+  })
+
+  it('survives a reload of the state file', async () => {
+    const { svc, reload } = await setupWithInstalledSkill('triage')
+    await svc.uninstallSkill('triage')
+    expect(Object.keys(reload().declined())).toEqual(['skill/triage'])
+  })
+})
+
+describe('orphans', () => {
+  it('marks an installed item that is gone from the clone', async () => {
+    const { svc, removeFromClone } = await setupWithInstalledSkill('triage')
+    removeFromClone('skills/triage')
+    const p = await svc.payload()
+    // The item is still listed, because it is still installed locally.
+    const item = p.items.find((i) => i.kind === 'skill' && i.name === 'triage')
+    expect(item?.orphaned).toBe(true)
+    expect(item?.installed).toBe(true)
+  })
+
+  it('leaves a present item unmarked', async () => {
+    const { svc } = await setupWithInstalledSkill('triage')
+    const p = await svc.payload()
+    expect(p.items.find((i) => i.name === 'triage')?.orphaned).toBe(false)
   })
 })
