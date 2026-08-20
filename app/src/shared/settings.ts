@@ -352,11 +352,14 @@ const onboardingSchema = z.looseObject({
     .default(() => ({ jira: false, confluence: false, hive: false }))
 })
 
-/** Which release track this install follows. One leaf, carrying its own `.default()`, so the
- *  section needs no `SETTINGS_ATOMIC_PATHS` entry: `stripDefaults` can only ever reduce it to
- *  `{}`, which re-parses back to the default rather than throwing. */
+/** Which release track this install follows, and whether Argus keeps itself current on its own.
+ *  Both leaves carry their own `.default()`, so the section needs no `SETTINGS_ATOMIC_PATHS`
+ *  entry: `stripDefaults` can only ever reduce it to `{}`, which re-parses back to the defaults
+ *  rather than throwing. */
 const updatesSchema = z.looseObject({
-  channel: z.enum(UPDATE_CHANNELS).default('stable')
+  channel: z.enum(UPDATE_CHANNELS).default('stable'),
+  /** Default ON: keeping current is the behaviour, and the switch is how you opt out of it. */
+  auto: z.boolean().default(true)
 })
 
 export const settingsSchema = z.looseObject({
