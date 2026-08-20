@@ -6,7 +6,10 @@ import type { Candidate } from '../../../../../shared/currency'
 
 const SIX_H = 21_600_000
 
-function memStore(initial: unknown = {}) {
+function memStore(initial: unknown = {}): {
+  load: () => { data: unknown; error: null }
+  write: (o: unknown) => void
+} {
   let data: unknown = initial
   return {
     load: () => ({ data, error: null }),
@@ -26,8 +29,13 @@ function fakeAdapter(id: 'core' | 'packs' | 'hive', candidates: Candidate[] = []
 
 function build(
   adapters: CurrencyAdapter[],
-  over: { now?: () => number; quiet?: boolean; auto?: boolean; store?: ReturnType<typeof memStore> } = {}
-) {
+  over: {
+    now?: () => number
+    quiet?: boolean
+    auto?: boolean
+    store?: ReturnType<typeof memStore>
+  } = {}
+): { svc: CurrencyService; store: ReturnType<typeof memStore> } {
   const store = over.store ?? memStore()
   const svc = new CurrencyService({
     adapters,
@@ -220,7 +228,11 @@ describe('CurrencyService surveying — a rejecting adapter.survey()', () => {
   it('a failure followed by a success resets consecutiveFailures to 0', async () => {
     let t = 0
     const survey = vi.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce([])
-    const a: CurrencyAdapter = { id: 'packs', survey, apply: vi.fn(async () => ({ ok: true as const })) }
+    const a: CurrencyAdapter = {
+      id: 'packs',
+      survey,
+      apply: vi.fn(async () => ({ ok: true as const }))
+    }
     const { svc, store } = build([a], { now: () => t })
     svc.start()
     await vi.advanceTimersByTimeAsync(0)

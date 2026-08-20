@@ -72,7 +72,9 @@ export class CurrencyAnchorStore {
   dueAt(id: AdapterId, intervalMs: number): number {
     const { lastSurveyAt, consecutiveFailures } = this.get(id)
     if (lastSurveyAt === null) return 0
-    return lastSurveyAt + intervalMs * 2 ** Math.min(Math.max(0, consecutiveFailures - 1), MAX_DOUBLINGS)
+    return (
+      lastSurveyAt + intervalMs * 2 ** Math.min(Math.max(0, consecutiveFailures - 1), MAX_DOUBLINGS)
+    )
   }
 
   /** Newest successful survey across every adapter, for the "Checked N minutes ago" line. */
