@@ -14,16 +14,11 @@ export type TranscriptItem =
 
 export type PendingDialog = Extract<AgentEvent, { type: 'dialog.opened' }>['payload']
 
+export type PendingRequest = Extract<AgentEvent, { type: 'request.opened' }>['payload']
+
 export interface CaseAgentState {
   items: TranscriptItem[]
-  pending: {
-    requestId: string
-    tool: string
-    risk: string
-    grantKey: string | null
-    argsPreview: string
-    input?: Record<string, unknown>
-  }[]
+  pending: PendingRequest[]
   pendingDialogs: PendingDialog[]
   running: boolean
   cost: { inputTokens: number; outputTokens: number; costUsd: number }

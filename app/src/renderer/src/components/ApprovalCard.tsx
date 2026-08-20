@@ -153,7 +153,10 @@ const REVIEW_COPY: Record<SkillAssetContext['reviewState'], string> = {
 function SkillAssetNotice({ ctx }: { ctx: SkillAssetContext }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   return (
-    <div className="mt-2 rounded-r1 border border-hair bg-well p-2">
+    <div
+      data-testid="skill-asset-notice"
+      className="mt-2 rounded-r1 border border-hair bg-well p-2"
+    >
       <div className="text-xs text-ink">
         Runs <span className="font-mono">{ctx.relPath}</span> from the{' '}
         <span className="font-mono">{ctx.skill}</span> skill ({ctx.tier}) —{' '}
