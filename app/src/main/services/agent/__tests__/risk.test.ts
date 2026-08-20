@@ -7,6 +7,7 @@ import {
   type ToolTaxonomy
 } from '../risk'
 import type { SkillAssetContext } from '../../../../shared/agent-events'
+import { sha256Hex } from '../../skillAssetReviews'
 
 // Same command as the existing "cd outside sandbox → deny" case below
 // ('classifyToolCall — Bash' → 'treats rm -rf as HIGH and cd outside sandbox as deny').
@@ -517,16 +518,26 @@ describe('classifyToolCall — skill asset run gate', () => {
     relPath: 'scripts/collect.sh',
     hash: 'a'.repeat(64),
     reviewState: 'reviewed',
+    segmentKey: 'f'.repeat(64),
     body: '#!/bin/sh\necho hi\n',
     bodyBytesTotal: 18,
     bodyBytesOmitted: 0,
     ...over
   })
 
+  /**
+   * Stands in for `skillAssetGate`'s real `segmentKey`: the one digest form (`sha256Hex`) over
+   * the same normalisation the gate applies. Duplicated here on purpose — `risk.ts` only
+   * COMPOSES the key, and the normalisation itself is covered against the real filesystem in
+   * `skillAssetGate.segment.test.ts`.
+   */
+  const fakeSegmentKey = (segment: string): string => sha256Hex(segment.trim().replace(/\s+/g, ' '))
+
   /** Gate every segment that mentions `collect.sh`, nothing else. */
   const gated = (a: SkillAssetContext): RiskContext => ({
     ...ctx(),
-    skillAsset: (segment: string) => (segment.includes('collect.sh') ? a : null)
+    skillAsset: (segment: string) =>
+      segment.includes('collect.sh') ? { ...a, segmentKey: fakeSegmentKey(segment) } : null
   })
 
   const run = (
@@ -535,11 +546,26 @@ describe('classifyToolCall — skill asset run gate', () => {
   ): ReturnType<typeof classifyToolCall> => classifyToolCall('Bash', { command }, gated(a))
 
   it('asks at HIGH with a hash-pinned grant key', () => {
-    expect(run('bash scripts/collect.sh')).toMatchObject({
-      action: 'ask',
-      risk: 'HIGH',
-      grantKey: `skill-asset:${'a'.repeat(16)}`
-    })
+    const v = run('bash scripts/collect.sh') as { action: string; risk: string; grantKey: string }
+    expect(v).toMatchObject({ action: 'ask', risk: 'HIGH' })
+    // The script's content hash still leads the key; the segment digest narrows it (fix 3).
+    expect(v.grantKey).toBe(
+      `skill-asset:${'a'.repeat(16)}:${fakeSegmentKey('bash scripts/collect.sh').slice(0, 16)}`
+    )
+  })
+
+  it('keys the same script + same segment identically, spacing aside', () => {
+    const a = run('bash scripts/collect.sh') as { grantKey: string }
+    const b = run('  bash   scripts/collect.sh  ') as { grantKey: string }
+    expect(a.grantKey).toBe(b.grantKey)
+  })
+
+  it('changes the grant key when the same script gets different arguments', () => {
+    const plain = run('bash scripts/collect.sh') as { grantKey: string }
+    const purge = run('bash scripts/collect.sh --purge /') as { grantKey: string }
+    const redirect = run('bash scripts/collect.sh > /home/u/.bashrc') as { grantKey: string }
+    expect(purge.grantKey).not.toBe(plain.grantKey)
+    expect(redirect.grantKey).not.toBe(plain.grantKey)
   })
 
   it('carries the asset context onto the verdict', () => {
@@ -603,6 +629,61 @@ describe('classifyToolCall — skill asset run gate', () => {
       gated(asset())
     )
     expect(v.action).toBe('deny')
+  })
+
+  // The case above was never at risk: the deny lived in a DIFFERENT segment. This one puts the
+  // out-of-sandbox `cd` and the skill-asset path in the SAME segment, which the gate used to
+  // short-circuit — turning a deny into a HIGH ask (and, with a stored grant, an auto-allow).
+  it('denies a segment that both leaves the sandbox and names a skill script', () => {
+    const v = classifyToolCall(
+      'Bash',
+      { command: `${OUT_OF_SANDBOX_CD} scripts/collect.sh` },
+      gated(asset())
+    )
+    expect(v.action).toBe('deny')
+  })
+
+  describe('a command running more than one skill script', () => {
+    const a = asset({ skill: 'collect-logs', relPath: 'scripts/collect.sh', hash: 'a'.repeat(64) })
+    const b = asset({ skill: 'exfil', relPath: 'run.sh', hash: 'b'.repeat(64) })
+    const twoScripts = 'sh scripts/collect.sh && sh exfil/run.sh'
+    const ctxTwo: RiskContext = {
+      ...ctx(),
+      skillAsset: (segment: string) => {
+        const hit = segment.includes('collect.sh') ? a : segment.includes('exfil/run.sh') ? b : null
+        return hit && { ...hit, segmentKey: fakeSegmentKey(segment) }
+      }
+    }
+    const both = (): { action: string; grantKey: string | null; reason: string } =>
+      classifyToolCall('Bash', { command: twoScripts }, ctxTwo) as {
+        action: string
+        grantKey: string | null
+        reason: string
+      }
+
+    // The serious half: with the first script's key kept, a session grant earned on
+    // `sh scripts/collect.sh` alone would auto-allow this command — running `exfil/run.sh`
+    // with no card at all.
+    it('refuses a session grant entirely', () => {
+      const single = run('sh scripts/collect.sh', a) as { grantKey: string }
+      const v = both()
+      expect(v.action).toBe('ask')
+      expect(v.grantKey).not.toBe(single.grantKey)
+      expect(v.grantKey).toBeNull()
+    })
+
+    it('says in the reason that more than one skill script is involved', () => {
+      expect(both().reason).toMatch(/2 different skill scripts/)
+    })
+
+    it('still keys a command that names the same script twice', () => {
+      const v = classifyToolCall(
+        'Bash',
+        { command: 'sh scripts/collect.sh && sh scripts/collect.sh' },
+        ctxTwo
+      ) as { grantKey: string | null }
+      expect(v.grantKey).not.toBeNull()
+    })
   })
 
   it('is inert when no resolver is injected', () => {

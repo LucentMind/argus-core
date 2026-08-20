@@ -53,8 +53,14 @@ export interface ResolvedSkill {
   roles: string[]
 }
 
-/** Precedence order, highest first (spec §1.4). */
-export const TIERS: Array<{ tier: SkillTier; root: (home: string) => string }> = [
+/** Precedence order, highest first (spec §1.4). `readonly` throughout, not a plain array: the
+ *  skill-asset run gate (`skillAssetGate.ts`) now shares this exact object, and an in-place
+ *  splice or reorder from either module would silently change the other's tier precedence —
+ *  including which tier a script is attributed to on an approval card. */
+export const TIERS: ReadonlyArray<{
+  readonly tier: SkillTier
+  readonly root: (home: string) => string
+}> = [
   { tier: 'user', root: userSkillsDir },
   { tier: 'hivemind', root: hivemindSkillsDir },
   { tier: 'bundled', root: sharedSkillsDir }

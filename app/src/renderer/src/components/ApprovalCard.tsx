@@ -113,8 +113,11 @@ export function ApprovalCard({
           Approve
         </Btn>
         {/* A HIGH ask offers no session grant: the key would usually be broad enough that one
-            approval covers things the user never saw. A skill-asset key is pinned to the
-            file's sha256 and dies the instant the bytes change, so it is the exception. */}
+            approval covers things the user never saw. A skill-asset key is the exception — it
+            pins BOTH the file's sha256 (so it dies the instant the bytes change) and the
+            normalised command line (so it covers a re-run, not the script with new arguments).
+            A command running more than one distinct skill script gets `grantKey: null` from the
+            classifier and so falls through to Approve/Deny here, like any other HIGH ask. */}
         {request.grantKey && (!high || request.assetContext) && (
           <Btn variant="outline" onClick={() => respond('allow-session')}>
             Approve for session

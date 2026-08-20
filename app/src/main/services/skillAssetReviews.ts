@@ -9,6 +9,14 @@ import type { AssetReviewState } from '../../shared/skillAssets'
  * approved and the bytes about to execute. Rows are written only where a human on THIS machine
  * reviewed the content: accepting a proposal, or saving the file in the editor. An imported or
  * HiveMind-pulled skill deliberately gets no row; a teammate's approval is not this user's.
+ *
+ * KNOWN IMPRECISION: rows are keyed `(skill, rel_path)` with no tier column, while skills
+ * resolve across three tiers (user / hivemind / bundled) that can each hold a skill of the same
+ * name. A user-tier and a hivemind-tier `collect-logs` that both ship `scripts/collect.sh` share
+ * one row, so a review recorded against one can be read back for the other. The sha256 compare
+ * still bounds the damage — identical bytes are what "reviewed" means, and any byte difference
+ * comes back `changed` — but the row does not record WHICH copy was read. Widening the key needs
+ * a schema migration; recorded here rather than fixed.
  */
 
 export type { AssetReviewState }
