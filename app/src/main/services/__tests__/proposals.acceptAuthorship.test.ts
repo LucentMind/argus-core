@@ -66,6 +66,9 @@ describe('acceptProposal skill authorship — reads the TIER WINNER, not just th
     )
   })
 
+  // Guards the invariant, not the bug: this case passes against the pre-fix code too, because
+  // `existing === null` there as well and the old guard already threw. It is here so the fix's
+  // new `hasUserCopy` signal cannot quietly stop refusing a pack-tier target.
   it('bundled/pack-tier: refuses the accept outright (targetLocked guard)', () => {
     writeTieredSkill(path.join(sharedSkillsDir(home), 'a-skill'))
     const f = propose()
