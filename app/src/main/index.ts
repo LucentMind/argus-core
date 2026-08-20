@@ -93,10 +93,10 @@ import {
 } from './services/agent/skillsResolver'
 import { scanClaudeSkills, importSkills } from './services/agent/skillsImport'
 import {
-  deleteSkillFile,
+  deleteSkillFileReviewed,
   listSkillFiles,
   readSkillFile,
-  renameSkillFile,
+  renameSkillFileReviewed,
   saveSkillFile
 } from './services/skillFiles'
 import { executableAssetsOf, HivemindService } from './services/hivemind'
@@ -2955,11 +2955,11 @@ function registerIpc(): void {
     }
   )
   ipcMain.handle(IPC.skillsDeleteFile, (_e, name: string, relPath: string) => {
-    deleteSkillFile(argusHome, name, relPath)
+    deleteSkillFileReviewed({ argusHome, db }, name, relPath)
     broadcast(IPC.skillsChanged, skillsPayload())
   })
   ipcMain.handle(IPC.skillsRenameFile, (_e, name: string, from: string, to: string) => {
-    renameSkillFile(argusHome, name, from, to)
+    renameSkillFileReviewed({ argusHome, db }, name, from, to)
     broadcast(IPC.skillsChanged, skillsPayload())
   })
 
