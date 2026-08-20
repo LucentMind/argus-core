@@ -19,6 +19,21 @@ function seed(root: string, skill: string, rel: string, body: string): void {
   fs.writeFileSync(abs, body)
 }
 
+// New-2: whether "Scripts/Run.sh" and "scripts/run.sh" name the same file is a property of the
+// VOLUME, not the OS — Windows/macOS ship case-insensitive by default but don't have to, and a
+// future Linux CI runner (today's matrix is windows-latest/macos-latest) would have a genuinely
+// case-sensitive one. Probe the real temp filesystem instead of branching on `process.platform`,
+// so the assertion below only fires where the collision it exercises can actually happen.
+function isFsCaseInsensitive(): boolean {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-ci-probe-'))
+  try {
+    fs.writeFileSync(path.join(dir, 'probe.txt'), 'x')
+    return fs.existsSync(path.join(dir, 'PROBE.TXT'))
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-skill-files-'))
   seed(userSkillsDir(home), 'collect-logs', 'SKILL.md', '---\nname: collect-logs\n---\nbody\n')
@@ -147,16 +162,45 @@ describe('writeSkillFile', () => {
   // silently OVERWROTE the existing file's content with the caller's, who believed they were
   // creating a new one (this is exactly what the dock's Add File dialog does: it always passes
   // `baseHash: null`).
-  it('refuses to create a file that collides case-insensitively with an existing sibling', () => {
-    seed(userSkillsDir(home), 'collect-logs', 'scripts/run.sh', 'echo original\n')
-    expect(() =>
-      writeSkillFile(home, 'collect-logs', 'Scripts/Run.sh', 'echo clobbered\n', null)
-    ).toThrow(/already exists/i)
-    // The original file must be untouched — not silently overwritten under the new casing.
-    expect(
-      fs.readFileSync(path.join(userSkillsDir(home), 'collect-logs/scripts/run.sh'), 'utf8')
-    ).toBe('echo original\n')
-  })
+  it.runIf(isFsCaseInsensitive())(
+    'refuses to create a file that collides case-insensitively with an existing sibling',
+    () => {
+      seed(userSkillsDir(home), 'collect-logs', 'scripts/run.sh', 'echo original\n')
+      expect(() =>
+        writeSkillFile(home, 'collect-logs', 'Scripts/Run.sh', 'echo clobbered\n', null)
+      ).toThrow(/already exists/i)
+      // The original file must be untouched — not silently overwritten under the new casing.
+      expect(
+        fs.readFileSync(path.join(userSkillsDir(home), 'collect-logs/scripts/run.sh'), 'utf8')
+      ).toBe('echo original\n')
+    }
+  )
+
+  // New-1: before the fix, the total-bytes reduce excluded `prior` by an EXACT-case compare
+  // against `relPath`, while `prior` itself (and the "already exists"/"changed on disk" guards)
+  // had already gone case-insensitive. So a same-file overwrite under different casing failed to
+  // exclude its own old bytes from the running total, double-counting them — a legitimate
+  // near-the-cap overwrite could be wrongly refused. Only meaningful where the volume actually
+  // resolves the two paths to one file.
+  it.runIf(isFsCaseInsensitive())(
+    'does not double-count the prior file’s bytes when overwriting it under different casing',
+    () => {
+      // Each file must stay under the 64 KB per-file cap, so pile up filler siblings to get near
+      // the 256 KB TOTAL cap instead of using one big file.
+      const filler = 'x'.repeat(60 * 1024)
+      seed(userSkillsDir(home), 'collect-logs', 'a.txt', filler)
+      seed(userSkillsDir(home), 'collect-logs', 'b.txt', filler)
+      seed(userSkillsDir(home), 'collect-logs', 'c.txt', filler)
+      const body = 'y'.repeat(60 * 1024)
+      seed(userSkillsDir(home), 'collect-logs', 'scripts/run.sh', body)
+      // Existing total is ~240 KB, under the 256 KB cap with ~22 KB of headroom — but double
+      // counting the file being overwritten adds another 60 KB, which would wrongly exceed it.
+      const existing = readSkillFile(home, 'collect-logs', 'scripts/run.sh')!
+      expect(() =>
+        writeSkillFile(home, 'collect-logs', 'Scripts/Run.sh', body, existing.hash)
+      ).not.toThrow()
+    }
+  )
 
   // I5: a stale tab holds a non-null baseHash from when it opened an EXISTING file. If that file
   // was renamed or deleted elsewhere in the meantime, `onDisk` comes back null either way — before
@@ -169,9 +213,9 @@ describe('writeSkillFile', () => {
     expect(() =>
       writeSkillFile(home, 'collect-logs', 'scripts/gone.sh', 'echo new\n', existing.hash)
     ).toThrow(/deleted or renamed/i)
-    expect(
-      fs.existsSync(path.join(userSkillsDir(home), 'collect-logs/scripts/gone.sh'))
-    ).toBe(false)
+    expect(fs.existsSync(path.join(userSkillsDir(home), 'collect-logs/scripts/gone.sh'))).toBe(
+      false
+    )
   })
 })
 
