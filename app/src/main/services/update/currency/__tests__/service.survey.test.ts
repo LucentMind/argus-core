@@ -139,3 +139,103 @@ describe('CurrencyService surveying', () => {
     expect(a.survey).toHaveBeenCalledTimes(1)
   })
 })
+
+function throwingAdapter(id: 'core' | 'packs' | 'hive'): CurrencyAdapter {
+  return {
+    id,
+    survey: vi.fn(async () => {
+      throw new Error('transport failure')
+    }),
+    apply: vi.fn(async () => ({ ok: true as const }))
+  }
+}
+
+describe('CurrencyService surveying — a rejecting adapter.survey()', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('produces no blocked entries and no error field — the failure is silent', async () => {
+    const a = throwingAdapter('packs')
+    const { svc } = build([a])
+    svc.start()
+    await vi.advanceTimersByTimeAsync(0)
+    const p = svc.payload()
+    expect(p.blocked).toEqual([])
+    expect(p).not.toHaveProperty('error')
+    svc.stop()
+  })
+
+  it('resets busy to false (the finally runs even on rejection)', async () => {
+    const a = throwingAdapter('packs')
+    const { svc } = build([a])
+    svc.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(svc.payload().busy).toBe(false)
+    svc.stop()
+  })
+
+  it('records the failure to the anchor store, moving lastSurveyAt forward', async () => {
+    const a = throwingAdapter('packs')
+    const { svc, store } = build([a], { now: () => 500 })
+    svc.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect((store.load().data as Record<string, unknown>).packs).toEqual({
+      lastSurveyAt: 500,
+      consecutiveFailures: 1
+    })
+    svc.stop()
+  })
+
+  it('does not stop a second, healthy adapter from being surveyed in the same tick', async () => {
+    const bad = throwingAdapter('packs')
+    const blockedCandidate: Candidate = {
+      domain: 'hive-skill',
+      key: 'skill/x',
+      label: 'X',
+      from: null,
+      to: '1',
+      verdict: 'blocked',
+      reason: { kind: 'auth' }
+    }
+    const good = fakeAdapter('hive', [blockedCandidate])
+    const { svc, store } = build([bad, good], { now: () => 999 })
+    svc.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(good.survey).toHaveBeenCalledTimes(1)
+    expect(svc.payload().blocked).toEqual([blockedCandidate])
+    expect((store.load().data as Record<string, unknown>).hive).toEqual({
+      lastSurveyAt: 999,
+      consecutiveFailures: 0
+    })
+    expect((store.load().data as Record<string, unknown>).packs).toEqual({
+      lastSurveyAt: 999,
+      consecutiveFailures: 1
+    })
+    svc.stop()
+  })
+
+  it('a failure followed by a success resets consecutiveFailures to 0', async () => {
+    let t = 0
+    const survey = vi.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce([])
+    const a: CurrencyAdapter = { id: 'packs', survey, apply: vi.fn(async () => ({ ok: true as const })) }
+    const { svc, store } = build([a], { now: () => t })
+    svc.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect((store.load().data as Record<string, unknown>).packs).toEqual({
+      lastSurveyAt: 0,
+      consecutiveFailures: 1
+    })
+    // First doubling window: due again exactly one interval after the failed anchor.
+    t = SIX_H + 1
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(survey).toHaveBeenCalledTimes(2)
+    expect((store.load().data as Record<string, unknown>).packs).toEqual({
+      lastSurveyAt: t,
+      consecutiveFailures: 0
+    })
+    svc.stop()
+  })
+})
