@@ -393,10 +393,13 @@ export class CaseSession {
       taxonomy: deps.driver.toolTaxonomy,
       resolve: deps.resolvePrompt,
       // `risk.ts` is a pure function and stays one; the filesystem and the review table are
-      // reached only through this closure. `dir` is what a relative token resolves against,
-      // because that is the cwd the agent's shell runs in.
-      skillAsset: (segment) =>
-        skillAssetContextForSegment({ argusHome: deps.argusHome, db: deps.db, cwd: dir }, segment)
+      // reached only through this closure. The cwd a relative token resolves against comes from
+      // the CALLER, not from `dir`: the agent's shell starts in the case directory, but a `cd`
+      // earlier in the same command moves it, and `classifyToolCall` tracks that. Closing over
+      // `dir` here instead was the bypass — `cd <skillDir> && sh scripts/collect.sh` resolved
+      // `scripts/collect.sh` under the case directory, found nothing, and ran ungated.
+      skillAsset: (segment, cwd) =>
+        skillAssetContextForSegment({ argusHome: deps.argusHome, db: deps.db, cwd }, segment)
     }
     this.detailCtx = {
       taxonomy: deps.driver.toolTaxonomy,
