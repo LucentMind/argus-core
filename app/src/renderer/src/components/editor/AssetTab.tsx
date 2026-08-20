@@ -74,7 +74,7 @@ export function AssetTab({
   linkTargets,
   onOpenLink
 }: AssetTabProps): React.JSX.Element {
-  const { kind, name, mode } = req
+  const { kind, name, mode, file } = req
   const [resolved, setResolved] = useState<Resolved | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Create-mode identity: a stable id, minted once when this tab opens rather than derived from
@@ -93,7 +93,7 @@ export function AssetTab({
   useEffect(() => {
     let live = true
     void (async () => {
-      const disk = await readAsset(kind, name)
+      const disk = await readAsset(kind, name, file)
       let draft: DraftRecord | null = null
       if (readOnly) {
         // A read-only asset has no draft and must not acquire one (see AssetPane's `fileDraft`
@@ -139,7 +139,11 @@ export function AssetTab({
           }
         }
       } else {
-        draft = await window.argus.editor.readDraft({ kind, name })
+        // `file`, when present, is a sibling's identity, not the skill's own — see
+        // `DraftRecord.file`'s doc comment (shared/editorIpc.ts). Spread rather than always
+        // including the key so a SKILL.md tab's call keeps matching what it always has (`{kind,
+        // name}`, no `file` key at all).
+        draft = await window.argus.editor.readDraft({ kind, name, ...(file ? { file } : {}) })
       }
       if (!live) return
       const template = kind === 'skill' ? skillTemplate : referenceTemplate
@@ -179,7 +183,7 @@ export function AssetTab({
     return () => {
       live = false
     }
-  }, [kind, name, mode, draftId, readOnly])
+  }, [kind, name, mode, draftId, readOnly, file])
 
   if (error) {
     return (
@@ -207,6 +211,7 @@ export function AssetTab({
       kind={kind}
       initialName={name}
       mode={mode}
+      file={file}
       draftId={draftId}
       initialDoc={resolved.doc}
       initialBaseline={resolved.baseline}

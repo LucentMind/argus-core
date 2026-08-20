@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
+import { useState } from 'react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { AssetTab } from '../AssetTab'
+import { PaneActionSlotContext } from '../paneActionSlot'
 import type {
   DraftAdoptRequest,
   DraftRecord,
@@ -59,28 +61,68 @@ beforeEach(() => {
       listDrafts,
       onDraftSaved: () => () => {}
     },
+    // `readFile`/`writeFile` (Task 2) start unset here — the `sibling files` describe block below
+    // stubs them per test, matching how `skillsRead` above is the module-level stub for the
+    // SKILL.md path. Left `undefined` by default rather than `vi.fn()` so a test that forgets to
+    // stub one fails loudly (a `TypeError`) instead of silently resolving `undefined`.
     skills: { read: skillsRead, write: vi.fn() },
     refsync: { readRef: vi.fn(), writeRef: vi.fn() },
     authoring: { draft: vi.fn(), improve: vi.fn() }
   } as never
 })
 
+/** Test id of the stand-in title-bar slot `SlotHost` renders — same role as `AssetPane.test.tsx`'s
+ *  identical helper. */
+const SLOT = 'titlebar-actions'
+
+/**
+ * Stands in for the editor window's title-bar strip. `AssetPane` (mounted by `AssetTab` below)
+ * has no header row of its own — the view-mode toggle and Save portal into the slot the window
+ * publishes (paneActionSlot.ts) — so any test that reaches for either button needs one to portal
+ * into. Every existing case above this point queries only text/labels the loader itself renders,
+ * so wrapping `mount` in this changes nothing for them.
+ */
+function SlotHost({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const [slot, setSlot] = useState<HTMLElement | null>(null)
+  return (
+    <>
+      <div data-testid={SLOT} ref={setSlot} />
+      <PaneActionSlotContext.Provider value={slot}>{children}</PaneActionSlotContext.Provider>
+    </>
+  )
+}
+
 const mount = (
   req: EditorOpenRequest = SKILL,
-  opts: { readOnly?: boolean } = {}
+  opts: { readOnly?: boolean; tier?: string } = {}
 ): ReturnType<typeof render> =>
   render(
-    <AssetTab
-      req={req}
-      onDirtyChange={vi.fn()}
-      active={true}
-      readOnly={opts.readOnly ?? false}
-      onNameChange={vi.fn()}
-      onViewStateChange={vi.fn()}
-      linkTargets={[]}
-      onOpenLink={vi.fn()}
-    />
+    <SlotHost>
+      <AssetTab
+        req={req}
+        onDirtyChange={vi.fn()}
+        active={true}
+        readOnly={opts.readOnly ?? false}
+        tier={opts.tier}
+        onNameChange={vi.fn()}
+        onViewStateChange={vi.fn()}
+        linkTargets={[]}
+        onOpenLink={vi.fn()}
+      />
+    </SlotHost>
   )
+
+/** Reuses the file's one render helper (`mount`), the way every case above it does — the brief's
+ *  `renderTab` is this, under the name already in use here. */
+const renderTab = mount
+
+/** Clicks the Save button portalled into `SlotHost`'s slot — the same path `AssetPane.test.tsx`
+ *  drives Save through, since Ctrl+S here would reach nothing: the CodeSurface mock above renders
+ *  a plain `<textarea>` with no CodeMirror keymap, and the window-level Ctrl+S fallback lives in
+ *  `EditorApp.tsx`, which this file does not mount. */
+async function saveActivePane(): Promise<void> {
+  fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
+}
 
 const aDraft = (over: Partial<DraftRecord> = {}): DraftRecord => ({
   kind: 'skill',
@@ -366,5 +408,102 @@ describe('read-only loading', () => {
     expect(await screen.findByLabelText('skill · new-skill')).toBeInTheDocument()
     expect(listDrafts).toHaveBeenCalled()
     expect(screen.getByText(/1 unsaved new skill from earlier/i)).toBeInTheDocument()
+  })
+})
+
+// A sibling file (`req.file` set) is always the skill's, never a reference's — a reference has no
+// siblings. These five cover the whole surface Task 4 adds: the sibling read path bypasses the
+// SKILL.md reader entirely, Markdown preview is offered only for a `.md` sibling, a save round-
+// trips through `writeFile` with the sibling's own hash, and read-only-ness (computed upstream by
+// `EditorApp`'s `tierOf`/`isAssetEditable` — see the comment there) still reaches the pane.
+describe('sibling files', () => {
+  it('loads a sibling through readFile, not the SKILL.md reader', async () => {
+    const readFile = vi.fn().mockResolvedValue({
+      content: '#!/bin/sh\necho hi\n',
+      hash: 'a'.repeat(64),
+      executable: true,
+      tier: 'user',
+      editable: true
+    })
+    window.argus.skills.readFile = readFile
+    window.argus.skills.read = vi.fn()
+    renderTab({ kind: 'skill', name: 'collect-logs', file: 'scripts/collect.sh', mode: 'edit' })
+    await screen.findByText(/echo hi/)
+    expect(readFile).toHaveBeenCalledWith('collect-logs', 'scripts/collect.sh')
+    expect(window.argus.skills.read).not.toHaveBeenCalled()
+  })
+
+  it('offers no Markdown preview for a non-Markdown sibling', async () => {
+    window.argus.skills.readFile = vi.fn().mockResolvedValue({
+      content: '#!/bin/sh\necho hi\n',
+      hash: 'a'.repeat(64),
+      executable: true,
+      tier: 'user',
+      editable: true
+    })
+    renderTab({ kind: 'skill', name: 'collect-logs', file: 'scripts/collect.sh', mode: 'edit' })
+    await screen.findByText(/echo hi/)
+    expect(screen.queryByRole('button', { name: /preview/i })).toBeNull()
+  })
+
+  it('keeps the preview toggle for a Markdown sibling', async () => {
+    window.argus.skills.readFile = vi.fn().mockResolvedValue({
+      content: '# Report\n',
+      hash: 'b'.repeat(64),
+      executable: false,
+      tier: 'user',
+      editable: true
+    })
+    renderTab({ kind: 'skill', name: 'collect-logs', file: 'templates/report.md', mode: 'edit' })
+    await screen.findByText(/Report/)
+    // The header toggle is a three-way cycle — Editor -> Split -> Preview -> Edit (Task 7) — and
+    // opens on 'Editor' ("Split" is its own label), so one click is needed to reach the state
+    // whose label is "Preview". Same pattern as AssetPane.test.tsx's identical climb.
+    fireEvent.click(screen.getByRole('button', { name: 'Split' }))
+    expect(screen.getByRole('button', { name: /preview/i })).toBeTruthy()
+  })
+
+  it('saves a sibling through writeFile with its baseHash', async () => {
+    const writeFile = vi.fn().mockResolvedValue({ hash: 'c'.repeat(64), executable: true })
+    window.argus.skills.readFile = vi.fn().mockResolvedValue({
+      content: 'echo hi\n',
+      hash: 'a'.repeat(64),
+      executable: true,
+      tier: 'user',
+      editable: true
+    })
+    window.argus.skills.writeFile = writeFile
+    renderTab({ kind: 'skill', name: 'collect-logs', file: 'scripts/collect.sh', mode: 'edit' })
+    await screen.findByText(/echo hi/)
+    await saveActivePane()
+    expect(writeFile).toHaveBeenCalledWith(
+      'collect-logs',
+      'scripts/collect.sh',
+      expect.any(String),
+      'a'.repeat(64)
+    )
+  })
+
+  it('shows the read-only notice for a sibling of a read-only skill', async () => {
+    window.argus.skills.readFile = vi.fn().mockResolvedValue({
+      content: 'echo hi\n',
+      hash: 'a'.repeat(64),
+      executable: true,
+      tier: 'hivemind',
+      editable: false
+    })
+    // `readOnly`/`tier` are supplied here rather than derived inside this test, matching how the
+    // 'read-only loading' describe block above already drives this component: `readOnly` is
+    // computed upstream by `EditorApp` (`tierOf` + `isAssetEditable`, confirmed unaffected by
+    // `file` — see the comment in EditorApp.tsx), not by `AssetTab`/`AssetPane` themselves, so a
+    // unit test of this component supplies the answer that computation would have produced for a
+    // hivemind-tier skill. The tier badge (StatusBar.tsx) is what actually renders "HiveMind"
+    // here — this file has no `ReadOnlyNotice` (that lives in `EditorApp.tsx`'s `TabPane`,
+    // outside this component's tree).
+    renderTab(
+      { kind: 'skill', name: 'team-skill', file: 'run.sh', mode: 'edit' },
+      { readOnly: true, tier: 'HiveMind' }
+    )
+    expect(await screen.findByText(/read-only|hivemind/i)).toBeTruthy()
   })
 })
