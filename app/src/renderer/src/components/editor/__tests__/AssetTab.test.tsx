@@ -65,7 +65,17 @@ beforeEach(() => {
     // stubs them per test, matching how `skillsRead` above is the module-level stub for the
     // SKILL.md path. Left `undefined` by default rather than `vi.fn()` so a test that forgets to
     // stub one fails loudly (a `TypeError`) instead of silently resolving `undefined`.
-    skills: { read: skillsRead, write: vi.fn() },
+    //
+    // `listFiles`/`onChanged` (Task 5) DO get a default: every `kind: 'skill', mode: 'edit'` pane
+    // mounted below now fetches its Files dock list on mount regardless of what the test is
+    // actually about, so an unstubbed call here would fail every case in this file rather than
+    // only the ones that care about it.
+    skills: {
+      read: skillsRead,
+      write: vi.fn(),
+      listFiles: vi.fn().mockResolvedValue([]),
+      onChanged: () => () => {}
+    },
     refsync: { readRef: vi.fn(), writeRef: vi.fn() },
     authoring: { draft: vi.fn(), improve: vi.fn() }
   } as never

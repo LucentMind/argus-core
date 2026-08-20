@@ -19,6 +19,7 @@ function handle(): AssetPaneHandle {
     toggleWrap: vi.fn(),
     openGotoLine: vi.fn(),
     findReferences: vi.fn(),
+    openFiles: vi.fn(),
     focus: vi.fn()
   }
 }
@@ -32,6 +33,7 @@ const PANE: PaneCommandState = {
   hasDraft: false,
   canDraft: false,
   canImprove: true,
+  hasFiles: false,
   viewMode: 'editor',
   wrap: true
 }
@@ -116,6 +118,11 @@ describe('buildCommands · enabled', () => {
     expect(byId(ctx({}, { mode: 'edit' }), 'findReferences').enabled).toBe(true)
   })
 
+  it('offers "Open file in skill…" only for a pane with a files dock', () => {
+    expect(byId(ctx({}, { hasFiles: false }), 'openFilesInSkill').enabled).toBe(false)
+    expect(byId(ctx({}, { hasFiles: true }), 'openFilesInSkill').enabled).toBe(true)
+  })
+
   it('enables tab cycling only with more than one tab', () => {
     expect(byId(ctx({ tabCount: 1 }), 'nextTab').enabled).toBe(false)
     expect(byId(ctx({ tabCount: 2 }), 'nextTab').enabled).toBe(true)
@@ -164,6 +171,12 @@ describe('buildCommands · run', () => {
     expect(h.changeFontSize).toHaveBeenNthCalledWith(1, 1)
     expect(h.changeFontSize).toHaveBeenNthCalledWith(2, -1)
     expect(h.changeFontSize).toHaveBeenNthCalledWith(3, 0)
+  })
+
+  it('routes "Open file in skill…" to the pane', () => {
+    const h = handle()
+    byId(ctx({ activePane: () => h }, { hasFiles: true }), 'openFilesInSkill').run()
+    expect(h.openFiles).toHaveBeenCalledOnce()
   })
 
   it('routes the window commands', () => {

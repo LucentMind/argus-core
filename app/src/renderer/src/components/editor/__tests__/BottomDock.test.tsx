@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { BottomDock } from '../BottomDock'
 import type { ValidationIssue } from '../../../../../shared/assetValidation'
 import type { ReferenceHit } from '../../../../../shared/corpusSearch'
+import type { SkillFileEntry } from '../../../../../shared/skillFilesIpc'
 
 const ISSUES: ValidationIssue[] = [{ severity: 'error', message: 'Boom', line: 3 }]
 const HITS: ReferenceHit[] = [
@@ -20,7 +21,15 @@ const base = {
   onTabChange: vi.fn(),
   onGoToLine: vi.fn(),
   onOpenHit: vi.fn(),
-  onDismissReferences: vi.fn()
+  onDismissReferences: vi.fn(),
+  files: null as SkillFileEntry[] | null,
+  skillName: null as string | null,
+  activeFile: null as string | null,
+  filesEditable: true,
+  onOpenFile: vi.fn(),
+  onAddFile: vi.fn(),
+  onRenameFile: vi.fn(),
+  onDeleteFile: vi.fn()
 }
 
 // Finding 9: these mocks are shared, module-scope objects across every test in this file — left
@@ -134,5 +143,26 @@ describe('BottomDock', () => {
   it('singularises one error in the tab strip', () => {
     render(<BottomDock {...base} issues={[{ severity: 'error', message: 'x', line: 1 }]} />)
     expect(screen.getByRole('tab', { name: /problem/i }).textContent).toBe('1 error')
+  })
+
+  describe('the Files tab', () => {
+    it('renders a Files tab when the pane is a skill', () => {
+      render(<BottomDock {...base} files={[]} skillName="collect-logs" />)
+      expect(screen.getByRole('tab', { name: /files/i })).toBeTruthy()
+    })
+
+    it('renders no Files tab for a reference', () => {
+      render(<BottomDock {...base} files={null} skillName={null} />)
+      expect(screen.queryByRole('tab', { name: /files/i })).toBeNull()
+    })
+
+    // The dock hides itself when there is nothing to show; a skill with no siblings still has a
+    // Files tab, because that is where the user adds the first one.
+    it('shows the dock for a skill with no siblings and no problems', () => {
+      render(
+        <BottomDock {...base} files={[]} skillName="collect-logs" issues={[]} references={null} />
+      )
+      expect(screen.getByRole('tab', { name: /files/i })).toBeTruthy()
+    })
   })
 })
