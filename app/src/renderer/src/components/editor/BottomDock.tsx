@@ -57,8 +57,12 @@ export interface BottomDockProps {
  * stacking two panels — §6.3 puts the results "in the problems-panel slot", and two independently
  * collapsing docks at the bottom of a split editor is how that slot stops being a slot.
  *
- * Still absent entirely when there is nothing to say: a clean file with no search gives the
- * document its space back, which is what `ProblemsPanel` did before this.
+ * Still absent entirely when there is nothing to say — a clean reference with no search gives
+ * the document its space back, which is what `ProblemsPanel` did before this — EXCEPT for an
+ * edit-mode skill tab: `hasFiles` (below) is true the moment `files` resolves to an array at
+ * all, even an empty one (a skill with no siblings yet is exactly the case that needs the Files
+ * tab, since it is where the user adds the first one — spec §6), so the dock stays present for
+ * every edit-mode skill pane once that resolve lands.
  */
 export function BottomDock({
   issues,
