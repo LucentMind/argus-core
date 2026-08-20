@@ -140,4 +140,17 @@ describe('persisting a sibling tab', () => {
     } as never)
     expect(store.loadTabs()).toBeNull()
   })
+
+  // M1: `file: ''` must be rejected the same as `name === ''` — it is falsy everywhere
+  // downstream (the tab would show SKILL.md), but `sameAsset`/`draftKey` compare `file ?? null`,
+  // and `'' !== null`. A tolerated `''` would silently fail to dedupe against the real SKILL.md
+  // tab on restore: two tabs sharing one draft key, stomping each other's baseHash.
+  it('rejects an empty-string file, as it rejects an empty name', () => {
+    const store = new EditorWindowStore(home)
+    store.saveTabs({
+      tabs: [{ kind: 'skill', name: 'x', file: '', mode: 'edit', view: null }],
+      activeIndex: 0
+    } as never)
+    expect(store.loadTabs()).toBeNull()
+  })
 })

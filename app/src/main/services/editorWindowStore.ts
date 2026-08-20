@@ -13,7 +13,12 @@ function isTab(v: unknown): v is PersistedTab {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
   if (r.kind !== 'skill' && r.kind !== 'reference') return false
-  if (r.file !== undefined && typeof r.file !== 'string') return false
+  // M1: `''` must be rejected the same as `name === ''` below, not merely non-strings. `file:
+  // ''` is falsy everywhere downstream (the tab shows SKILL.md), but `sameAsset`/`draftKey`
+  // compare `file ?? null`, and `'' !== null` — so a persisted `''` would NOT dedupe against the
+  // real SKILL.md tab: two tabs open on SKILL.md, sharing one draft key and stomping each other's
+  // baseHash. Only reachable from a corrupted store, hence "cheap" rather than "blocking".
+  if (r.file !== undefined && (typeof r.file !== 'string' || r.file === '')) return false
   if (typeof r.name !== 'string' || r.name === '') return false
   if (r.mode !== 'edit' && r.mode !== 'create') return false
   if (r.view === null || r.view === undefined) return true
