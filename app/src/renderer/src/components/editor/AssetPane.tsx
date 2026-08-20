@@ -450,10 +450,14 @@ export function AssetPane({
     () =>
       window.argus.editor.onDraftSaved((s) => {
         // The only thing allowed to claim the draft is kept: it fires strictly after the bytes
-        // are on disk (persist-before-adopt, spec §4.2).
-        if (s.kind === kind && s.name === filedAsRef.current) setDraftAt(s.updatedAt)
+        // are on disk (persist-before-adopt, spec §4.2). `(s.file ?? null) === (file ?? null)`
+        // is load-bearing (I1): without it, every sibling pane of a skill — which all match on
+        // `kind`+`name` alone — claimed ANY sibling's save as its own, flipping `sync` to
+        // 'draft' on a pane with no draft on disk and spuriously enabling *Discard draft*.
+        if (s.kind === kind && s.name === filedAsRef.current && (s.file ?? null) === (file ?? null))
+          setDraftAt(s.updatedAt)
       }),
-    [kind]
+    [kind, file]
   )
 
   const issues: ValidationIssue[] = useMemo(

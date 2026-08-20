@@ -738,6 +738,40 @@ describe('AssetPane', () => {
     await waitFor(() => expect(screen.getByText(/^Draft ·/)).toBeInTheDocument())
   })
 
+  // I1: `draftSaved` used to carry only `{kind, name, updatedAt}`, so a broadcast for ANY
+  // sibling's save matched every pane over the same skill (they all share `kind`+`name`). A pane
+  // whose own draft write was still in flight would be told by a sibling's successful write that
+  // ITS text was safely persisted — a false safety claim — and `hasDraft` would spuriously enable
+  // *Discard draft*, reverting the buffer to disk content. Without `file` on `DraftSaved` and the
+  // `(s.file ?? null) === (file ?? null)` compare in the listener, this test fails: `Draft` stays
+  // undated forever here, but the sibling's broadcast (matching only on kind/name) WOULD date it.
+  it('does not date this pane\'s draft from a sibling pane\'s save', async () => {
+    const { surface } = mount({ file: 'scripts/this.sh' })
+    await userEvent.type(surface, 'x')
+    await waitFor(() => expect(screen.getByText('Draft')).toBeInTheDocument())
+    // A different sibling of the same skill saved — same kind/name, different file.
+    act(() =>
+      draftSavedListener!({
+        kind: 'skill',
+        name: 's',
+        file: 'scripts/other.sh',
+        updatedAt: '2026-07-31T15:42:00.000Z'
+      })
+    )
+    expect(screen.queryByText(/^Draft ·/)).not.toBeInTheDocument()
+    expect(screen.getByText('Draft')).toBeInTheDocument()
+    // This pane's own save DOES date it.
+    act(() =>
+      draftSavedListener!({
+        kind: 'skill',
+        name: 's',
+        file: 'scripts/this.sh',
+        updatedAt: '2026-07-31T15:43:00.000Z'
+      })
+    )
+    await waitFor(() => expect(screen.getByText(/^Draft ·/)).toBeInTheDocument())
+  })
+
   it('reads Conflict while a conflict banner is up', async () => {
     // Explicit rather than relying on the previous tests' state: `vi.clearAllMocks()` in
     // `beforeEach` resets call history but not implementations, which is why `beforeEach` now

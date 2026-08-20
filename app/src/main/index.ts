@@ -929,6 +929,7 @@ function registerIpc(): void {
     editorWindowService?.handle()?.send(EDITOR_IPC.draftSaved, {
       kind: rec.kind,
       name: rec.name,
+      ...(rec.file ? { file: rec.file } : {}),
       updatedAt: rec.updatedAt
     })
   })
