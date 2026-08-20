@@ -139,6 +139,40 @@ describe('writeSkillFile', () => {
     const existing = readSkillFile(home, 'collect-logs', 'f0.txt')!
     expect(() => writeSkillFile(home, 'collect-logs', 'f0.txt', 'y\n', existing.hash)).not.toThrow()
   })
+
+  // I4: on the case-insensitive filesystems this app ships on (Windows, macOS), `Scripts/Run.sh`
+  // and `scripts/run.sh` are the SAME file. Before the fix, `writeSkillFile` matched `prior` with
+  // an exact-case compare, so a create attempt (`baseHash: null`) under different casing found no
+  // `prior`, never probed disk, and the "already exists" guard never fired — `fs.writeFileSync`
+  // silently OVERWROTE the existing file's content with the caller's, who believed they were
+  // creating a new one (this is exactly what the dock's Add File dialog does: it always passes
+  // `baseHash: null`).
+  it('refuses to create a file that collides case-insensitively with an existing sibling', () => {
+    seed(userSkillsDir(home), 'collect-logs', 'scripts/run.sh', 'echo original\n')
+    expect(() =>
+      writeSkillFile(home, 'collect-logs', 'Scripts/Run.sh', 'echo clobbered\n', null)
+    ).toThrow(/already exists/i)
+    // The original file must be untouched — not silently overwritten under the new casing.
+    expect(
+      fs.readFileSync(path.join(userSkillsDir(home), 'collect-logs/scripts/run.sh'), 'utf8')
+    ).toBe('echo original\n')
+  })
+
+  // I5: a stale tab holds a non-null baseHash from when it opened an EXISTING file. If that file
+  // was renamed or deleted elsewhere in the meantime, `onDisk` comes back null either way — before
+  // the fix that fell through BOTH the "already exists" guard (baseHash isn't null) and the
+  // "changed on disk" guard (onDisk is null, so there is nothing to compare the hash against),
+  // straight to `fs.writeFileSync`, which silently RECREATES the file at the old path.
+  it('refuses a save with a non-null baseHash when the file is no longer on disk', () => {
+    const existing = writeSkillFile(home, 'collect-logs', 'scripts/gone.sh', 'echo hi\n', null)
+    fs.rmSync(path.join(userSkillsDir(home), 'collect-logs/scripts/gone.sh'))
+    expect(() =>
+      writeSkillFile(home, 'collect-logs', 'scripts/gone.sh', 'echo new\n', existing.hash)
+    ).toThrow(/deleted or renamed/i)
+    expect(
+      fs.existsSync(path.join(userSkillsDir(home), 'collect-logs/scripts/gone.sh'))
+    ).toBe(false)
+  })
 })
 
 describe('deleteSkillFile and renameSkillFile', () => {
