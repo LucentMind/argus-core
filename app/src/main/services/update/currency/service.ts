@@ -1,4 +1,4 @@
-import type { Candidate, CurrencyPayload } from '../../../../shared/currency'
+import type { AdapterId, Candidate, CurrencyPayload } from '../../../../shared/currency'
 import { blockedOf } from '../../../../shared/currency'
 import type { CurrencyAnchorStore } from './anchors'
 import type { CurrencyAdapter } from './adapter'
@@ -39,6 +39,14 @@ export class CurrencyService {
   private blocked: Candidate[] = []
   private busy = false
   private readonly intervalMs: number
+  /**
+   * Clean candidates awaiting a quiet moment. DERIVED, NEVER PERSISTED: if the app quits with
+   * three unapplied, the next boot's survey finds them again. Persisting it would create a second
+   * representation of "what needs applying" that could disagree with the world.
+   */
+  private pending: Candidate[] = []
+  /** Serializes every write, auto and manual alike. */
+  private lock: Promise<unknown> = Promise.resolve()
 
   constructor(private readonly deps: CurrencyServiceDeps) {
     this.intervalMs = deps.intervalMs ?? DEFAULT_INTERVAL_MS
@@ -85,8 +93,10 @@ export class CurrencyService {
     const now = this.now()
     for (const adapter of this.deps.adapters) {
       if (this.deps.anchors.dueAt(adapter.id, this.intervalMs) > now) continue
-      await this.surveyAdapter(adapter)
+      const found = await this.surveyAdapter(adapter)
+      this.pending.push(...found.filter((c) => c.verdict === 'clean'))
     }
+    await this.applyPending()
   }
 
   private async surveyAdapter(adapter: CurrencyAdapter): Promise<Candidate[]> {
@@ -115,7 +125,55 @@ export class CurrencyService {
     this.blocked = [...this.blocked.filter((c) => !mine.has(c)), ...blockedOf(found)]
   }
 
-  private ownerOf(c: Candidate): string {
+  /**
+   * Writes every pending candidate, one at a time, re-checking quiescence BETWEEN items — a run
+   * that starts mid-batch stops it where it is and the remainder waits for the next quiet tick.
+   *
+   * Serial rather than parallel because hive installs share one clone directory and pack installs
+   * share the packs directory; two at once would race on the same paths.
+   */
+  private async applyPending(): Promise<void> {
+    if (this.pending.length === 0) return
+    await this.withApplyLock(async () => {
+      while (this.pending.length > 0 && this.deps.isQuiet()) {
+        const candidate = this.pending.shift() as Candidate
+        const adapter = this.deps.adapters.find((a) => a.id === this.ownerOf(candidate))
+        if (!adapter) continue
+        this.busy = true
+        this.publish()
+        try {
+          const outcome = await adapter.apply(candidate)
+          // A refusal at apply time is the adapter re-deriving and finding the world moved —
+          // it becomes a decision for the user, not a write to retry next tick.
+          if (!outcome.ok && outcome.reason)
+            this.blocked = [
+              ...this.blocked,
+              { ...candidate, verdict: 'blocked', reason: outcome.reason }
+            ]
+        } catch {
+          // A write that threw is a transport/disk failure, not a decision: stay silent and let
+          // the next survey re-offer it.
+        } finally {
+          this.busy = false
+          this.publish()
+        }
+      }
+    })
+  }
+
+  /**
+   * Runs `fn` with the single global apply lock held. The manual Update handlers in `index.ts`
+   * wrap themselves in this, so an auto-apply and a button press can never interleave in either
+   * direction.
+   */
+  withApplyLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.lock.then(fn, fn)
+    // Swallow here only — the caller still sees the rejection through `run`.
+    this.lock = run.catch(() => {})
+    return run
+  }
+
+  private ownerOf(c: Candidate): AdapterId {
     return c.domain === 'core' ? 'core' : c.domain === 'pack' ? 'packs' : 'hive'
   }
 }
