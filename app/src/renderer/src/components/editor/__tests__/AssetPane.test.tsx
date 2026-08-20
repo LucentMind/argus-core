@@ -509,6 +509,17 @@ describe('AssetPane', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/frontmatter/i)
   })
 
+  // Task 4 turned validation off for a sibling pane ([]); this pins that Task 6 routes it to
+  // validateSkillFile instead, and that the issue actually reaches the Problems panel — a
+  // pure-function-only test of validateSkillFile would pass unchanged even if AssetPane never
+  // wired it in.
+  it('surfaces a validateSkillFile issue in the Problems panel for a sibling pane', async () => {
+    mount({ file: '../escape.sh', initialDoc: 'x\n', initialBaseline: 'x\n' })
+    await userEvent.click(screen.getByRole('button', { name: /error/i }))
+    expect(screen.getByRole('tab', { name: /problem/i })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText(/\.\. are not allowed/i)).toBeInTheDocument()
+  })
+
   it('carries the stable draftId (not a name-based re-key) when a create-mode name is edited', async () => {
     mount({
       mode: 'create',
