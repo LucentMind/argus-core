@@ -680,14 +680,32 @@ export function acceptProposal(
     const named = withFrontmatter(body, { name: p.target })
     const dest = path.join(userSkillsDir(argusHome), p.target)
     const destFile = path.join(dest, 'SKILL.md')
-    // A skill-edit lands on a skill that already exists and may already have an author. The
-    // file on disk owns author/origin/contributors — accepting an agent's edit to someone
-    // else's skill makes the accepter a contributor, not the author. (Spec §7 reads the other
-    // way; the human resolved that contradiction in favour of the disk on 2026-07-30.)
-    const existing = fs.existsSync(destFile) ? fs.readFileSync(destFile, 'utf8') : null
-    if (existing === null && isBundledSkillName(argusHome, p.target)) {
+    // Would this accept create the FIRST user-tier copy of `p.target`? That is the question the
+    // bundled-skill guard below actually asks — it must stay anchored to the USER tier
+    // specifically (not "does authorship exist anywhere"), because a hivemind- or pack-tier
+    // winner is a legitimate merge/write source, just not a legitimate thing to newly shadow
+    // when the ONLY tier that defines the name is bundled (PR #110's tier-precedence fix).
+    const hasUserCopy = fs.existsSync(destFile)
+    if (!hasUserCopy && isBundledSkillName(argusHome, p.target)) {
       throw bundledSkillError(p.target)
     }
+    // A skill-edit lands on a skill that may already exist in ANY tier and may already have an
+    // author. The disk owns author/origin/contributors — accepting an agent's edit to someone
+    // else's skill makes the accepter a contributor, not the author. (Spec §7 reads the other
+    // way; the human resolved that contradiction in favour of the disk on 2026-07-30.)
+    //
+    // "the disk" here means the TIER WINNER, not just skills-user: a skill-edit against a
+    // hivemind- or pack-tier skill that has no user copy YET used to read authorship from
+    // `destFile` alone, find nothing, and let `mergeAuthorship` pass the incoming buffer through
+    // untouched — so `stampAuthorship` found no `author:` and wrote the accepter in as the
+    // author, discarding the true author and their whole contributor trail. `targetSkillDir` is
+    // the one place this codebase already asks "which tier wins for `target`" (the body diff and
+    // the per-file diffs use it too — see its own comment); the authorship read is a fourth
+    // consumer of that same question and was still asking it the old, user-tier-only way.
+    const winnerDir = targetSkillDir(argusHome, p.target)
+    const winnerFile = winnerDir ? path.join(winnerDir, 'SKILL.md') : null
+    const existing =
+      winnerFile && fs.existsSync(winnerFile) ? fs.readFileSync(winnerFile, 'utf8') : null
     const stamped = stamp(mergeAuthorship(named, existing))
     // An empty description makes the skill un-triggerable and nothing downstream complains,
     // so the accept path is the last place to catch it. Same gate the in-app editor uses —
@@ -736,9 +754,9 @@ export function acceptProposal(
     if (executables.length > 0 && !opts.db) {
       throw new Error('accepting a skill with executable files requires db')
     }
-    // Same helper the two `current` readers use, so what accept carries forward is by
-    // construction the skill the reviewer was shown.
-    writeSkillDirAtomically(dest, files, targetSkillDir(argusHome, p.target))
+    // Same `winnerDir` the authorship read above and the two `current` readers all use, so what
+    // accept carries forward is by construction the skill the reviewer was shown.
+    writeSkillDirAtomically(dest, files, winnerDir)
 
     // The `opts.db` test is the guard above restated so the type narrows here; it can never be
     // the reason this block is skipped.
