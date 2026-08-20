@@ -133,6 +133,8 @@ function installBridge(): void {
         ]
       }),
       onChanged: () => () => {},
+      // Task 5's Files dock: every mounted skill pane in edit mode now fetches this on mount.
+      listFiles: vi.fn().mockResolvedValue([]),
       fork: vi.fn()
     },
     refsync: {

@@ -38,6 +38,9 @@ export interface PaneCommandState {
   canDraft: boolean
   /** A non-empty document and a working provider. */
   canImprove: boolean
+  /** This pane belongs to a skill with a files dock — i.e. `kind === 'skill' && mode === 'edit'`
+   *  (create mode has no folder on disk yet to list). Gates "Open file in skill…". */
+  hasFiles: boolean
   viewMode: ViewMode
   wrap: boolean
 }
@@ -64,6 +67,10 @@ export interface AssetPaneHandle {
   toggleWrap(): void
   openGotoLine(): void
   findReferences(): void
+  /** Reveal the Files dock tab (spec §6's "Open file in skill…"). Opening the file itself
+   *  happens through the dock's own row click, same as Find references lands its hits in the
+   *  References tab rather than opening one straight away. */
+  openFiles(): void
   focus(): void
 }
 
@@ -249,6 +256,15 @@ export function buildCommands(ctx: CommandContext): Command[] {
       // Create mode has no file for anything to cite yet, and the corpus lookup would miss.
       enabled: p !== null && p.mode === 'edit',
       run: on((h) => h.findReferences())
+    },
+    {
+      id: 'openFilesInSkill',
+      title: 'Open file in skill…',
+      section: 'Go',
+      // Same rule as `findReferences`'s `mode === 'edit'`, restated as `p.hasFiles` because
+      // this also has to be false for a reference — see the `hasFiles` doc comment.
+      enabled: p !== null && p.hasFiles,
+      run: on((h) => h.openFiles())
     },
     {
       id: 'nextTab',

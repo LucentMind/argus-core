@@ -9,12 +9,14 @@ import { BottomDock, type DockTab } from './BottomDock'
 import { CodeSurface } from './CodeSurface'
 import { DiffView } from './DiffView'
 import { EditorPane } from './EditorPane'
+import { FileNameDialog } from './FileNameDialog'
 import { PreviewPane } from './PreviewPane'
 import { StatusBar, type SyncState } from './StatusBar'
 import { usePaneActionSlot } from './paneActionSlot'
 import { readAsset, writeAsset } from './assetIo'
 import type { SurfaceCommands } from './extensions/keymap'
 import { clockTime } from '../../lib/time'
+import { confirm } from '../../lib/confirmStore'
 import {
   clampFontSize,
   FONT_DEFAULT,
@@ -40,6 +42,7 @@ import type { CursorInfo, SurfaceHandle } from './surface'
 import type { AuthoringKind } from '../../../../shared/authoringIpc'
 import type { ReferenceHit } from '../../../../shared/corpusSearch'
 import type { DraftRecord, TabViewState } from '../../../../shared/editorIpc'
+import type { SkillFileEntry } from '../../../../shared/skillFilesIpc'
 import type { AssetPaneHandle, Command, PaneCommandState } from '../../lib/commands'
 
 export interface AssetPaneProps {
@@ -190,6 +193,17 @@ export function AssetPane({
   const [references, setReferences] = useState<{ query: string; hits: ReferenceHit[] } | null>(null)
   const [searching, setSearching] = useState(false)
   const [dockTab, setDockTab] = useState<DockTab>('problems')
+
+  // Spec §6's Files dock tab. `null` means "no folder to list" — a reference, or a create-mode
+  // skill that has never been saved and so has no directory on disk yet — and is what tells
+  // `BottomDock` to omit the tab outright (see its `hasFiles` comment). `hasFiles` here is a
+  // pane-shape fact, not a data fact: it does not become false just because the skill happens to
+  // have zero siblings, which is exactly the case the tab exists to serve.
+  const hasFiles = kind === 'skill' && mode === 'edit'
+  const [files, setFiles] = useState<SkillFileEntry[] | null>(null)
+  /** Add or rename in progress, holding the field's starting value. `from` is set only for a
+   *  rename, and is what tells the confirm handler which IPC call to make. */
+  const [fileDialog, setFileDialog] = useState<{ from?: string; initial: string } | null>(null)
 
   // Preview is Markdown-only (spec §6). A sibling script has no preview, so the toggle would be
   // a control that does nothing — and `viewMode` must not be able to strand the pane in a blank
@@ -829,6 +843,95 @@ export function AssetPane({
     void window.argus.editor.open({ kind: hit.kind, name: hit.name, mode: 'edit' })
   }, [])
 
+  /**
+   * Spec §6's Files dock. Kept fresh three ways: the initial load below, an explicit re-list
+   * after every mutation this pane makes (so its own Add/Rename/Delete feel immediate rather
+   * than waiting on a round trip through main), and the `skills:changed` broadcast every write
+   * anywhere re-fires — a second window editing the same skill, or a HiveMind pull, must not
+   * leave this list stale.
+   *
+   * Gated on `active` for the same reason the external-change checker above is: every tab stays
+   * mounted (spec §6.1), so an unconditional subscription would run one `listFiles` per open
+   * skill tab on every write anywhere. A hidden tab does not need its dock current; becoming
+   * active re-runs this and catches anything missed while hidden.
+   */
+  useEffect(() => {
+    if (!hasFiles || !active) return
+    let cancelled = false
+    const load = (): void => {
+      void window.argus.skills.listFiles(name).then((list) => {
+        if (!cancelled && liveRef.current) setFiles(list)
+      })
+    }
+    load()
+    const off = window.argus.skills.onChanged(() => load())
+    return () => {
+      cancelled = true
+      off()
+    }
+  }, [hasFiles, name, active])
+
+  const reloadFiles = useCallback((): void => {
+    if (!hasFiles) return
+    void window.argus.skills.listFiles(name).then((list) => {
+      if (liveRef.current) setFiles(list)
+    })
+  }, [hasFiles, name])
+
+  const openFile = useCallback(
+    (relPath: string): void => {
+      void window.argus.editor.open({ kind, name, mode: 'edit', file: relPath })
+    },
+    [kind, name]
+  )
+
+  const confirmFileDialog = useCallback(
+    async (relPath: string): Promise<void> => {
+      if (!fileDialog) return
+      if (fileDialog.from) {
+        await window.argus.skills.renameFile(name, fileDialog.from, relPath)
+      } else {
+        await window.argus.skills.writeFile(name, relPath, '', null)
+      }
+      setFileDialog(null)
+      reloadFiles()
+      // A brand new file is opened straight away — the point of adding one. A rename does not:
+      // nothing new to look at, and any tab already open on the old path is untouched here (its
+      // own `file` is fixed for its whole life — see the prop's doc comment — so it would need
+      // its own migration, which is out of this task's scope).
+      if (!fileDialog.from) openFile(relPath)
+    },
+    [fileDialog, name, reloadFiles, openFile]
+  )
+
+  const deleteFile = useCallback(
+    async (relPath: string): Promise<void> => {
+      const ok = await confirm({
+        title: `Delete "${relPath}"?`,
+        message: 'This cannot be undone.',
+        confirmLabel: 'Delete',
+        danger: true
+      })
+      if (!ok) return
+      try {
+        await window.argus.skills.deleteFile(name, relPath)
+        reloadFiles()
+      } catch (e) {
+        setError((e as Error).message)
+      }
+    },
+    [name, reloadFiles]
+  )
+
+  /** The command registry's "Open file in skill…" (spec §6): reveals the dock on the Files tab,
+   *  same as `findReferences` selects the References tab before its result lands — opening the
+   *  chosen file itself is the dock row's own click, not this command's job. */
+  const openFilesDock = useCallback((): void => {
+    if (!hasFiles) return
+    setDockTab('files')
+    setProblemsOpen(true)
+  }, [hasFiles])
+
   const compare =
     compareSnapshot !== null && (banner.kind === 'stale' || banner.kind === 'conflict')
       ? { disk: banner.disk, snapshot: compareSnapshot }
@@ -879,6 +982,7 @@ export function AssetPane({
       toggleWrap: () => surfaceCommands.toggleWrap(),
       openGotoLine: () => surfaceRef.current?.openGotoLine(),
       findReferences: () => findReferences(),
+      openFiles: () => openFilesDock(),
       focus: () => surfaceRef.current?.focus()
     }),
     // `paneRef` is not listed: React's `useImperativeHandle` already re-runs this factory whenever
@@ -887,7 +991,7 @@ export function AssetPane({
     // unnecessary. `kind`/`mode`/`draftId` feed `draftRef` and are all stable for the life of the
     // pane (two props fixed by the tab, one `useState` minted at mount), so listing them costs no
     // churn — they are here to satisfy exhaustive-deps honestly rather than by omission.
-    [surfaceCommands, findReferences, kind, mode, draftId, file]
+    [surfaceCommands, findReferences, openFilesDock, kind, mode, draftId, file]
   )
 
   // `useAssistProvider` (`../library/assistProvider.ts`) calls `assistProviderLabel` unmemoized on
@@ -914,6 +1018,7 @@ export function AssetPane({
       hasDraft: draftAt !== null,
       canDraft: mode === 'create' && describe.trim() !== '' && providerOk !== false,
       canImprove: doc.trim() !== '' && providerOk !== false,
+      hasFiles,
       // `effectiveViewMode`, not `prefs.viewMode`: the window's own state (the header toggle's
       // label, any future consumer) must agree with what this pane actually rendered, not with a
       // stranded preference this non-Markdown pane refused to honour.
@@ -930,6 +1035,7 @@ export function AssetPane({
       describe,
       doc,
       providerOk,
+      hasFiles,
       effectiveViewMode,
       prefs.wrap
     ]
@@ -1245,6 +1351,14 @@ export function AssetPane({
           onGoToLine={(line) => surfaceRef.current?.goToLine(line)}
           onOpenHit={openHit}
           onDismissReferences={() => setReferences(null)}
+          files={files}
+          skillName={hasFiles ? name : null}
+          activeFile={file ?? null}
+          filesEditable={!readOnly}
+          onOpenFile={openFile}
+          onAddFile={() => setFileDialog({ initial: '' })}
+          onRenameFile={(relPath) => setFileDialog({ from: relPath, initial: relPath })}
+          onDeleteFile={(relPath) => void deleteFile(relPath)}
         />
         <div className="flex items-center justify-end gap-2 border-t border-hair bg-hi px-4 py-2">
           <span className="flex shrink-0 items-center gap-2">
@@ -1290,6 +1404,16 @@ export function AssetPane({
         }}
         onCycleViewMode={() => viewCmd?.run()}
       />
+
+      {fileDialog && (
+        <FileNameDialog
+          title={fileDialog.from ? `Rename "${fileDialog.from}"` : 'Add a file'}
+          confirmLabel={fileDialog.from ? 'Rename' : 'Add'}
+          initialValue={fileDialog.initial}
+          onCancel={() => setFileDialog(null)}
+          onConfirm={confirmFileDialog}
+        />
+      )}
     </div>
   )
 }
