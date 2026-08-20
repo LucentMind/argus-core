@@ -1,9 +1,15 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { ProposalDetail } from '../ProposalDetail'
+import { confirm } from '../../../lib/confirmStore'
 import type { ProposalRecord } from '../../../../../shared/proposals'
+
+vi.mock('../../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 const pending: ProposalRecord = {
   file: 'a.md',
@@ -33,7 +39,9 @@ function renderDetail(over: Partial<Parameters<typeof ProposalDetail>[0]> = {}):
       busy={false}
       editValue={null}
       onEditChange={vi.fn()}
+      isEditing={false}
       onToggleEdit={onToggleEdit}
+      onDiscardDraft={vi.fn()}
       viewMode="unified"
       onViewMode={onViewMode}
       position={{ index: 1, total: 3 }}
@@ -120,7 +128,7 @@ describe('ProposalDetail: pending', () => {
   })
 
   it('edit mode swaps the diff for a textarea and hides the view bar', () => {
-    renderDetail({ editValue: '# rca\nedited\n' })
+    renderDetail({ editValue: '# rca\nedited\n', isEditing: true })
     expect(screen.getByLabelText('Edit proposal content')).toHaveValue('# rca\nedited\n')
     expect(screen.queryByRole('button', { name: 'Split view' })).not.toBeInTheDocument()
   })
@@ -149,6 +157,58 @@ describe('ProposalDetail: pending', () => {
   it('new file shows no +/− stat', () => {
     renderDetail({ proposal: { ...pending, current: null, content: 'a\nb\n' } })
     expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument()
+  })
+
+  // Requirement 2: the non-editing views (diff, verbatim render) must review the draft, not the
+  // agent's original `content`, once one exists — that is the whole point of "review before you
+  // accept". These render with `isEditing: false` on purpose: the toggle has already been
+  // flipped off Edit, same as after a real "View diff" click.
+  it('a MODIFIED sibling diffs the draft against current, not the original proposal content', () => {
+    renderDetail({ editValue: '# rca\nedited\n', isEditing: false })
+    expect(screen.getByText('+ edited')).toBeInTheDocument()
+    expect(screen.queryByText('+ new line')).not.toBeInTheDocument()
+    // The +/− stat is measured against the draft too.
+    expect(screen.getByText('+1')).toBeInTheDocument()
+  })
+
+  // Requirement 3: a new file has no diff to show, so the toggle must say something honest once
+  // Edit is switched off — never "View diff".
+  it('shows "View", not "View diff", while editing is on for a new file (nothing to diff)', () => {
+    renderDetail({
+      proposal: { ...pending, current: null, content: 'a\nb\n' },
+      editValue: 'a\nedited\n',
+      isEditing: true
+    })
+    const btn = screen.getByRole('button', { name: 'Edit Sharpen step 4' })
+    expect(btn).toHaveTextContent('View')
+    expect(btn).not.toHaveTextContent('View diff')
+  })
+
+  // Requirement 3, other half: the new-file verbatim render (NewFileView, through the body's
+  // Markdown pass) must show the draft, not the original proposal content, once Edit is off —
+  // same data-loss shape as the diff case, just through a different renderer.
+  it('a new file renders the draft, not the original content, once Edit is toggled off', () => {
+    renderDetail({
+      proposal: { ...pending, current: null, content: '# heading\noriginal\n' },
+      editValue: '# heading\nedited text\n',
+      isEditing: false
+    })
+    expect(screen.getByText('edited text')).toBeInTheDocument()
+    expect(screen.queryByText('original')).not.toBeInTheDocument()
+  })
+
+  // Same honesty requirement extends to a markdown body (case-summary) — user-directed follow-up
+  // question, resolved yes: `isDiffable` already covers both under one flag, so there is nothing
+  // markdown-specific left to special-case.
+  it('shows "View", not "View diff", while editing is on for a markdown case-summary body', () => {
+    renderDetail({
+      proposal: { ...pending, type: 'case-summary', content: '## Summary\nBody text\n' },
+      editValue: '## Summary\nedited body\n',
+      isEditing: true
+    })
+    const btn = screen.getByRole('button', { name: 'Edit Sharpen step 4' })
+    expect(btn).toHaveTextContent('View')
+    expect(btn).not.toHaveTextContent('View diff')
   })
 
   it('renders a basis line when the proposal carries one', () => {
@@ -244,6 +304,44 @@ describe('ProposalDetail: pending', () => {
   })
 })
 
+describe('ProposalDetail: discard edits (requirement 4)', () => {
+  beforeEach(() => {
+    vi.mocked(confirm).mockClear()
+    vi.mocked(confirm).mockResolvedValue(true)
+  })
+
+  it('shows no Discard button when there is no draft for the selected path', () => {
+    renderDetail({ editValue: null })
+    expect(screen.queryByRole('button', { name: /Discard edits/ })).not.toBeInTheDocument()
+  })
+
+  it('shows Discard whenever a draft exists, even while viewing the diff (not editing)', () => {
+    renderDetail({ editValue: '# rca\nedited\n', isEditing: false })
+    expect(
+      screen.getByRole('button', { name: 'Discard edits to Sharpen step 4' })
+    ).toBeInTheDocument()
+  })
+
+  it('confirms before discarding, using confirmStore (never window.confirm), then calls onDiscardDraft', async () => {
+    const onDiscardDraft = vi.fn()
+    renderDetail({ editValue: '# rca\nedited\n', isEditing: true, onDiscardDraft })
+    fireEvent.click(screen.getByRole('button', { name: 'Discard edits to Sharpen step 4' }))
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ danger: true, confirmLabel: 'Discard' })
+    )
+    await waitFor(() => expect(onDiscardDraft).toHaveBeenCalled())
+  })
+
+  it('declining the confirm leaves the draft alone', async () => {
+    vi.mocked(confirm).mockResolvedValueOnce(false)
+    const onDiscardDraft = vi.fn()
+    renderDetail({ editValue: '# rca\nedited\n', isEditing: true, onDiscardDraft })
+    fireEvent.click(screen.getByRole('button', { name: 'Discard edits to Sharpen step 4' }))
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
+    expect(onDiscardDraft).not.toHaveBeenCalled()
+  })
+})
+
 describe('ProposalDetail: accepted pane', () => {
   // ProposalDetail never touches window.argus.settings itself — repoSet arrives as a prop.
   // SharePushDialog (mounted only after the Share button is clicked, which these two tests
@@ -323,7 +421,9 @@ function renderFilesDetail(over: Record<string, unknown> = {}): {
       busy={false}
       editValue={null}
       onEditChange={vi.fn()}
+      isEditing={false}
       onToggleEdit={vi.fn()}
+      onDiscardDraft={vi.fn()}
       viewMode="unified"
       onViewMode={vi.fn()}
       position={{ index: 1, total: 1 }}
@@ -405,6 +505,7 @@ describe('ProposalDetail with sibling files', () => {
     renderFilesDetail({
       selectedPath: 'scripts/collect.sh',
       editValue: '#!/bin/sh\necho edited\n',
+      isEditing: true,
       onEditChange
     })
     const box = screen.getByLabelText('Edit proposal content')

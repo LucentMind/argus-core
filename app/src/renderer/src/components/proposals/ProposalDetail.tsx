@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Btn, Chip } from '../ui'
 import { MessageView } from '../MessageView'
 import { SharePushDialog } from '../settings/SharePushDialog'
+import { confirm } from '../../lib/confirmStore'
 import { FileRail, BODY_PATH } from './FileRail'
 import {
   UnifiedDiff,
@@ -53,7 +54,9 @@ export function ProposalDetail({
   busy,
   editValue,
   onEditChange,
+  isEditing,
   onToggleEdit,
+  onDiscardDraft,
   viewMode,
   onViewMode,
   position,
@@ -70,10 +73,22 @@ export function ProposalDetail({
   /** the selected accepted entry, or null */
   accepted: AcceptedEntry | null
   busy: boolean
-  /** non-null = edit mode, holds the draft for whichever path is selected */
+  /** The draft buffer for whichever path is selected, or null when there is none yet. This is
+   *  NOT the same fact as "is the textarea showing" (see `isEditing`) — a buffer can exist while
+   *  the pane is showing the diff/preview instead, which is exactly what lets "View diff" review
+   *  an edit without erasing it. */
   editValue: string | null
   onEditChange: (v: string) => void
+  /** Whether the textarea is on screen right now. Explicit and separate from `editValue`'s
+   *  presence — collapsing the two together is the root cause this component used to carry
+   *  (`isEditing = editValue !== null`), which made "View diff" delete the draft to turn itself
+   *  off. */
+  isEditing: boolean
   onToggleEdit: () => void
+  /** Requirement 4: throws the selected path's draft away. This component confirms first
+   *  (`confirmStore`, never `window.confirm`) — the callback itself performs the discard
+   *  unconditionally. */
+  onDiscardDraft: () => void
   viewMode: DiffViewMode
   onViewMode: (m: DiffViewMode) => void
   /** 1-based position among filtered pending, or null for accepted/empty */
@@ -161,9 +176,21 @@ export function ProposalDetail({
   // over it (user-directed, 2026-08-08) — every mode would have shown the same single column of
   // added lines. Same shape as the case-summary branch: rendered content, no view bar.
   const isNewFile = sel.current === null
-  const isEditing = editValue !== null
-  const showViewBar = !isMarkdown && !isNewFile && !isEditing
-  const stat = !isMarkdown && !isNewFile ? diffStat(sel.current, sel.content) : null
+  // Nothing here diffs a new file or a markdown body against anything — both always render
+  // verbatim (MessageView/CodeView/NewFileView below). Drives both the view bar and the toggle's
+  // label: neither may promise a diff that isn't there.
+  const isDiffable = !isMarkdown && !isNewFile
+  // What the non-textarea views show. The draft, when one exists, IS the thing being reviewed —
+  // toggling off Edit used to fall back to `sel.content` (the agent's untouched proposal) because
+  // the draft had just been deleted by that same toggle. Now the draft survives, so it must
+  // actually be shown: "View diff"/"View" is supposed to review what you typed, not what the
+  // agent wrote.
+  const displayContent = editValue ?? sel.content
+  const showViewBar = isDiffable && !isEditing
+  const stat = isDiffable ? diffStat(sel.current, displayContent) : null
+  // Requirement 3: a new file (or a markdown body) has no diff to show, so the toggle must not
+  // call it one once Edit is switched off.
+  const editToggleLabel = isEditing ? (isDiffable ? 'View diff' : 'View') : 'Edit'
 
   return (
     // `min-w-0`: this is a flex item of the surface-card row in ProposalsStandalone
@@ -259,12 +286,14 @@ export function ProposalDetail({
           <textarea
             aria-label="Edit proposal content"
             className="h-full w-full resize-none whitespace-pre-wrap bg-transparent px-5 py-3 font-mono text-xs text-ink focus:outline-none"
-            value={editValue}
+            // `editValue` is non-null whenever `isEditing` is true — `onToggleEdit` (in the
+            // parent) always seeds the buffer before flipping edit mode on.
+            value={editValue ?? ''}
             onChange={(e) => onEditChange(e.target.value)}
           />
         ) : isMarkdown ? (
           <div className="px-5 py-3">
-            <MessageView markdown={sel.content} onCite={noop} />
+            <MessageView markdown={displayContent} onCite={noop} />
           </div>
         ) : isNewFile && !renderAsMarkdown ? (
           // A brand-new script or data file: verbatim, no Markdown pass. A MODIFIED sibling
@@ -272,15 +301,15 @@ export function ProposalDetail({
           // plain `<pre>` line renderers that cannot eat a `#` as a heading, so there is no
           // lossy-rendering hazard on that path, and the diff is exactly what a reviewer of a
           // changed file wants to see.
-          <CodeView content={sel.content} />
+          <CodeView content={displayContent} />
         ) : isNewFile ? (
-          <NewFileView content={sel.content} />
+          <NewFileView content={displayContent} />
         ) : viewMode === 'split' ? (
-          <SplitDiff current={sel.current} content={sel.content} />
+          <SplitDiff current={sel.current} content={displayContent} />
         ) : viewMode === 'proposed' ? (
-          <ProposedView content={sel.content} />
+          <ProposedView content={displayContent} />
         ) : (
-          <UnifiedDiff current={sel.current} content={sel.content} />
+          <UnifiedDiff current={sel.current} content={displayContent} />
         )}
       </div>
       {rejecting && (
@@ -351,8 +380,30 @@ export function ProposalDetail({
           disabled={busy}
           onClick={onToggleEdit}
         >
-          {isEditing ? 'View diff' : 'Edit'}
+          {editToggleLabel}
         </Btn>
+        {editValue !== null && (
+          // Requirement 4: since toggling the view no longer discards a draft, this is now the
+          // only way to throw one away — gated on `confirmStore`/`ConfirmHost` per this repo's
+          // convention, never `window.confirm`. Scoped to the selected path's buffer only, and
+          // the message names exactly what is lost.
+          <Btn
+            variant="ghost"
+            aria-label={`Discard edits to ${p.title}`}
+            disabled={busy}
+            onClick={async () => {
+              const ok = await confirm({
+                title: selIsBody ? 'Discard your edits?' : `Discard your edits to ${sel.path}?`,
+                message: 'Your changes will be lost. This cannot be undone.',
+                confirmLabel: 'Discard',
+                danger: true
+              })
+              if (ok) onDiscardDraft()
+            }}
+          >
+            Discard edits
+          </Btn>
+        )}
         <Btn
           variant="dangerSolid"
           aria-label={`Reject ${p.title}`}

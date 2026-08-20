@@ -220,6 +220,53 @@ describe('ProposalsStandalone', () => {
     expect(acceptMock).toHaveBeenCalledWith(expect.any(String), '# rca\nedited\n', undefined)
   })
 
+  // Regression for the data-loss bug: `editing[file][path]` used to encode BOTH "is this pane
+  // in edit mode" and the draft text, and toggling out of edit mode (`Edit` -> `View diff`)
+  // deleted the map entry outright. Reviewing an edit before accepting — the exact gesture the
+  // "View diff" button invites — silently threw the edit away.
+  it('an edit survives toggling to View diff and back to Edit', async () => {
+    renderShell()
+    fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Sharpen step 4' }))
+    fireEvent.change(screen.getByLabelText('Edit proposal content'), {
+      target: { value: '# rca\nedited\n' }
+    })
+    // Same aria-label at every mode — only the visible text toggles.
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Sharpen step 4' })) // -> View diff
+    expect(screen.queryByLabelText('Edit proposal content')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Sharpen step 4' })) // -> back to Edit
+    expect(screen.getByLabelText('Edit proposal content')).toHaveValue('# rca\nedited\n')
+  })
+
+  // The severe half of the same bug: acceptSelected reads the very map that toggling used to
+  // clear, so Edit -> View diff -> Accept used to silently accept the ORIGINAL, unedited
+  // proposal with nothing on screen contradicting the user. This is the data-loss guard.
+  it('accept sends the edited content after a round trip through the diff view', async () => {
+    renderShell()
+    fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Sharpen step 4' }))
+    fireEvent.change(screen.getByLabelText('Edit proposal content'), {
+      target: { value: '# rca\nedited\n' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Sharpen step 4' })) // -> View diff
+    fireEvent.click(screen.getByRole('button', { name: 'Accept Sharpen step 4' }))
+    expect(acceptMock).toHaveBeenCalledWith(expect.any(String), '# rca\nedited\n', undefined)
+  })
+
+  // Requirement 2: the diff shown after toggling off Edit must reflect what the user typed, not
+  // the agent's original proposal — that's the entire point of "review before you accept".
+  it('the diff view after toggling off Edit shows the edited text, not the original proposal', async () => {
+    renderShell()
+    fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Sharpen step 4' }))
+    fireEvent.change(screen.getByLabelText('Edit proposal content'), {
+      target: { value: '# rca\nedited\n' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Sharpen step 4' })) // -> View diff
+    expect(screen.getByText('+ edited')).toBeInTheDocument()
+    expect(screen.queryByText('+ new line')).not.toBeInTheDocument()
+  })
+
   it('reject the last pending row (in display order) advances to the previous one', async () => {
     renderShell()
     // Sharpen step 4 is oldest → last in the caseSlug-asc/date-desc order.
