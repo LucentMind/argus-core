@@ -332,6 +332,50 @@ export function shellSegmentTokens(segment: string): string[] {
   return tokens
 }
 
+/**
+ * Does this command open a heredoc? If it does, its NEWLINES are not statement separators.
+ *
+ * The marker is `<<` — neither preceded nor followed by a third `<` — plus an optional `-`,
+ * optional whitespace, an optional quote or backslash, and then a letter or underscore. That
+ * accepts every heredoc form a shell writes (`<<EOF`, `<<-EOF`, `<< EOF`, `<<'EOF'`, `<<"EOF"`,
+ * `<<\EOF`) while excluding two things that are not heredocs and must keep their newline split:
+ *   - `<<<`, the here-STRING. It has no body and lives on one line. Both guards are needed: the
+ *     `(?!<)` rejects a match starting at the first `<`, the `(?<!<)` one starting at the second.
+ *   - An arithmetic left shift with a numeric operand, `$((1<<3))` — the digit is not `[A-Za-z_]`.
+ * Chosen over a bare `<<` test deliberately: a bare test would read both of those as heredocs and
+ * withhold the newline split from an ordinary multi-line command, which is a MISSED card. The
+ * residual cost runs the other way and is only noise: a delimiter starting with a digit
+ * (`<<1EOF` — legal, never seen) or a shift by a NAMED variable (`$((1<<n))`) is misjudged, and
+ * misjudging it produces at worst a spurious ask.
+ */
+const HEREDOC_OPEN = /(?<!<)<<(?!<)-?[ \t]*["'\\]?[A-Za-z_]/
+
+/**
+ * The statement separators of one command, in the order a shell reads them.
+ *
+ * A NEWLINE is a separator exactly as `&&`, `;` and `|` are — the Bash tool takes ONE command
+ * string and models write multi-line commands routinely, so `cd <skillDir>\nsh scripts/collect.sh`
+ * is at least as natural as the `&&` spelling that a live run (2026-08-20) executed ungated. Until
+ * this split existed both statements landed in ONE segment: only the first was ever classified,
+ * and `advanceCwd` runs AFTER a segment is classified, so the `cd` never applied to the token
+ * beside it. That reopened the skill-asset bypass, and it left an older hole in the ordinary
+ * classifier — `echo hi\nrm -rf ~` came back allow/LOW, because only `echo` was ever seen.
+ *
+ * The heredoc carve-out is a human decision. Inside `cat <<'EOF' … EOF` the lines are DATA, not
+ * statements, and splitting them raises a spurious "Recursive delete" ask for an `rm -rf` that the
+ * shell only ever writes into a file. Over-asking on legitimate commands trains exactly the
+ * click-through reflex this gate exists to prevent, so a heredoc-bearing command keeps every other
+ * separator and loses only the newline.
+ *
+ * RESIDUAL, and it is a missing-card direction: because the carve-out is per COMMAND rather than
+ * per line, a `cd` and a script invocation spread across lines of a command that ALSO carries a
+ * heredoc anywhere in it stay invisible. Narrowing it would mean tracking heredoc bodies line by
+ * line, which is a parser, not a split.
+ */
+function shellSegments(command: string): string[] {
+  return command.split(HEREDOC_OPEN.test(command) ? /&&|\|\||;|\|/ : /&&|\|\||;|\||\r?\n/)
+}
+
 /** The three §7.2 states differ only in what the card says; action and risk are identical. */
 function assetReason(a: SkillAssetContext): string {
   const what = `Runs ${a.relPath} from the "${a.skill}" skill`
@@ -469,21 +513,70 @@ type CdMove =
  * (`skillAssetGate.ts`'s `tildeAltPath`) already expands a `~` segment wherever it sits, because
  * the model writing `sh ~/Argus/…` produces exactly the same shape. So `cd ~ && sh x/y.sh`
  * composes with the tilde handling already in place instead of duplicating it here.
+ *
+ * That far-side rule — a segment spelled EXACTLY `~`, wherever in the path it sits — is the UNIQUE
+ * rule satisfying both callers, so do not "clean it up" in either direction. Narrowing it to a
+ * LEADING `~` breaks this composition: `path.resolve(cwd, '~')` puts the tilde in the middle
+ * (`<caseDir>/~`), so there is no leading `~` left to anchor on. Widening it to "contains a `~`"
+ * breaks Windows 8.3 short names — `PROGRA~1` is an ordinary directory, not a home reference.
+ * `skillAssetGate.segment.test.ts` asserts the composition end to end so a narrowing cannot pass.
  */
 const HOME_SEGMENT = '~'
 
 /**
+ * Shell syntax that can sit in front of a `cd` without changing what it does to the cwd of the
+ * segments that follow in the same command string.
+ *
+ * `{` is here and `(` is handled separately because `(` glues to the next word (`(cd x`).
+ *
+ * A subshell `( cd x && … )` genuinely restores the cwd when it CLOSES, and this does not model
+ * that — the tracked cwd stays moved for the rest of the command. That direction is a possibly
+ * SPURIOUS card, not a missed one, and the shapes below are exactly the ones an agent reaches for
+ * (`( cd <skillDir> && sh <rel> )`, `for …; do cd <skillDir> && sh <rel>; done`), both of which
+ * bypassed the gate entirely while `tokens[0]` had to be `cd` on the nose.
+ */
+const CD_LEADING_SYNTAX = new Set(['do', 'then', 'else', '{'])
+
+/**
+ * The tokens of a segment with any leading grouping syntax stripped, so `( cd x`, `(cd x` and
+ * `do cd x` all reach `cdMove` below as `cd x`.
+ */
+function cdTokens(segment: string): string[] {
+  const tokens = shellSegmentTokens(segment)
+  while (tokens.length > 0) {
+    const first = tokens[0]
+    if (first.startsWith('(')) {
+      const rest = first.replace(/^\(+/, '')
+      tokens.shift()
+      if (rest !== '') tokens.unshift(rest)
+      continue
+    }
+    if (CD_LEADING_SYNTAX.has(first)) {
+      tokens.shift()
+      continue
+    }
+    break
+  }
+  return tokens
+}
+
+/**
  * What the `cd` in a segment (if any) moves to.
  *
- * `tokens[0] === 'cd'`, EXACTLY — not `path.basename`, which the classifier above uses. Only the
- * shell builtin changes the shell's directory; `/usr/bin/cd` is a separate process whose chdir
- * dies with it. Following a path-spelled `cd` would point the gate at a directory the shell never
- * entered, and a wrong base directory is a MISSED approval card — the failure mode this whole
- * mechanism exists to close. (The classifier's `cd` DENY is basename-matched and stays that way:
- * an over-broad deny is the safe direction, an over-broad base is not.)
+ * The program token must be `cd`, EXACTLY — not `path.basename`, which the classifier above uses.
+ * Only the shell builtin changes the shell's directory; `/usr/bin/cd` is a separate process whose
+ * chdir dies with it. Following a path-spelled `cd` would point the gate at a directory the shell
+ * never entered, and a wrong base directory is a MISSED approval card — the failure mode this
+ * whole mechanism exists to close. (The classifier's `cd` DENY is basename-matched and stays that
+ * way: an over-broad deny is the safe direction, an over-broad base is not.)
+ *
+ * `cdTokens` first drops leading grouping syntax, which is the only relaxation. Everything else
+ * still returns `none` — `pushd`/`popd`, `cd "$VAR"`, `cd $(…)`, `cd ~user`, a target containing a
+ * space. Read that list as NOT YET SEEN rather than improbable: `cd <skillDir> && sh <rel>` sat on
+ * the "unlikely" list right up until a live run executed it and ran a script with no card.
  */
 function cdMove(segment: string): CdMove {
-  const tokens = shellSegmentTokens(segment)
+  const tokens = cdTokens(segment)
   if (tokens[0] !== 'cd') return { kind: 'none' }
   for (const raw of tokens.slice(1)) {
     if (raw === '--') continue
@@ -601,7 +694,7 @@ export function classifyToolCall(
 
   if (tax && tax.kind === 'shell') {
     const command = String(input[tax.commandField] ?? '')
-    const segments = command.split(/&&|\|\||;|\|/)
+    const segments = shellSegments(command)
     // Empty segments do not count: a trailing `;` or `|` splits into two, and treating
     // `sh collect.sh;` as a chained command would strip the key off an ordinary one-command
     // invocation — killing the loop ergonomics `assetGrantKey` exists for, for a stray separator.

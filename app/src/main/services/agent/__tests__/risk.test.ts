@@ -225,6 +225,77 @@ describe('classifyToolCall — Bash', () => {
     }
   )
 
+  /**
+   * A NEWLINE is a statement separator in every shell, exactly as `&&` and `;` are, and the Bash
+   * tool takes ONE command string — so a model writing two lines used to produce ONE segment and
+   * only the first statement was ever classified. `echo hi\nrm -rf ~` came back allow/LOW.
+   *
+   * This is not only the skill-asset bypass (covered further down): it is a hole in the ordinary
+   * classifier that predates the gate entirely.
+   */
+  describe('newline-separated statements', () => {
+    it('classifies a statement on a later line', () => {
+      expect(bash('echo hi\nrm -rf /home/u/other')).toMatchObject({ action: 'ask', risk: 'HIGH' })
+    })
+
+    it('handles CRLF as well as LF', () => {
+      expect(bash('echo hi\r\nrm -rf /home/u/other')).toMatchObject({
+        action: 'ask',
+        risk: 'HIGH'
+      })
+    })
+
+    it('still denies a cd out of the sandbox written on a later line', () => {
+      expect(bash(`echo hi\n${OUT_OF_SANDBOX_CD}`).action).toBe('deny')
+    })
+
+    /**
+     * The carve-out, decided by a human. A heredoc BODY is data, not statements: splitting it
+     * would raise a spurious "Recursive delete" ask for a line the shell only ever writes into a
+     * file, and over-asking on legitimate commands trains exactly the click-through reflex this
+     * classification exists to prevent.
+     */
+    it('does not split the body of a heredoc', () => {
+      expect(bash("cat <<'EOF' > notes.txt\nrm -rf /\nEOF")).toEqual({
+        action: 'allow',
+        risk: 'LOW'
+      })
+    })
+
+    it.each(['cat <<EOF', 'cat <<-EOF', 'cat << EOF', 'cat <<"EOF"', 'cat <<\\EOF'])(
+      'recognises `%s` as opening a heredoc',
+      (open) => {
+        expect(bash(`${open}\nrm -rf /\nEOF`)).toEqual({ action: 'allow', risk: 'LOW' })
+      }
+    )
+
+    // `<<<` is a here-STRING: one line, no body, so there is nothing to carve out and the
+    // newline split must still apply.
+    it('still splits a command containing a here-string', () => {
+      expect(bash('cat <<< hi\nrm -rf /home/u/other')).toMatchObject({
+        action: 'ask',
+        risk: 'HIGH'
+      })
+    })
+
+    // An arithmetic left shift is not a heredoc, and its operand is a number.
+    it('still splits a command containing an arithmetic left shift', () => {
+      expect(bash('echo $((1<<3))\nrm -rf /home/u/other')).toMatchObject({
+        action: 'ask',
+        risk: 'HIGH'
+      })
+    })
+
+    // Only the NEWLINE is withheld inside a heredoc-bearing command; every other separator still
+    // splits it.
+    it('keeps the ordinary separators inside a heredoc-bearing command', () => {
+      expect(bash("git push && cat <<'EOF'\nhi\nEOF")).toMatchObject({
+        action: 'ask',
+        risk: 'HIGH'
+      })
+    })
+  })
+
   it('defaults unknown commands to LOW allow', () => {
     expect(bash('wc -l notes.md')).toMatchObject({ action: 'allow', risk: 'LOW' })
   })
@@ -849,6 +920,61 @@ describe('classifyToolCall — running cwd across shell segments', () => {
     })
   })
 
+  /**
+   * The same live command, one keystroke different. `command.split(/&&|\|\||;|\|/)` did not treat
+   * a newline as a separator, so `cd <skillDir>` and `sh scripts/collect.sh` landed in ONE
+   * segment; `advanceCwd` runs AFTER a segment is classified, so the `cd` never applied to the
+   * token beside it, `scripts/collect.sh` resolved under the case directory and missed, and the
+   * segment fell through to allow/LOW with no card — byte-for-byte the failure the `&&` form was
+   * fixed for. Models write multi-line Bash commands routinely.
+   */
+  describe('the same command written across two lines', () => {
+    it.each([
+      ['LF', '\n'],
+      ['CRLF', '\r\n']
+    ])('gates `cd <skillDir>%s sh scripts/collect.sh`', (_label, nl) => {
+      const v = run(`cd "${SKILL_DIR}"${nl}sh scripts/collect.sh`)
+      expect(v).toMatchObject({
+        action: 'ask',
+        risk: 'HIGH',
+        assetContext: { skill: 'collect-logs', relPath: 'scripts/collect.sh' }
+      })
+      // Two meaningful segments now, so the pre-existing chained-command rule applies.
+      expect((v as { grantKey: string | null }).grantKey).toBeNull()
+    })
+
+    it('gates the `./scripts/collect.sh` program form across lines', () => {
+      expect(run(`cd ${SKILL_DIR}\n./scripts/collect.sh`)).toMatchObject({
+        action: 'ask',
+        risk: 'HIGH',
+        assetContext: { skill: 'collect-logs' }
+      })
+    })
+  })
+
+  /**
+   * Finding 3. Two shapes an agent is most likely to reach for next, closed in `cdMove` alone.
+   * Treat what is still unmodelled as NOT YET SEEN rather than improbable: `cd <skillDir> && sh
+   * <rel>` was on the "unlikely" list right up until a live run executed it.
+   */
+  describe('a cd wrapped in shell syntax', () => {
+    it.each([
+      ['a subshell', `( cd ${SKILL_DIR} && sh scripts/collect.sh )`],
+      // The OPENING paren glued to the cd is what `cdTokens` strips. A CLOSING paren glued to the
+      // last token (`…collect.sh)`) is a different miss — the shared tokenizer hands the gate
+      // `scripts/collect.sh)`, which resolves to nothing — and is left as a documented limit.
+      ['a subshell with the paren glued on', `(cd ${SKILL_DIR} && sh scripts/collect.sh )`],
+      ['a loop body', `for f in *; do cd ${SKILL_DIR} && sh scripts/collect.sh; done`],
+      ['an if body', `if true; then cd ${SKILL_DIR} && sh scripts/collect.sh; fi`]
+    ])('gates a cd inside %s', (_label, command) => {
+      expect(run(command)).toMatchObject({
+        action: 'ask',
+        risk: 'HIGH',
+        assetContext: { skill: 'collect-logs' }
+      })
+    })
+  })
+
   it('accumulates across several cd segments', () => {
     expect(run(`cd .claude/skills && cd collect-logs && sh scripts/collect.sh`)).toMatchObject({
       action: 'ask',
@@ -924,6 +1050,27 @@ describe('classifyToolCall — running cwd across shell segments', () => {
 
     it('is unchanged by a segment that is not a cd', () => {
       expect(seenFor('ls -la && git log')).toEqual([abs(), abs()])
+    })
+
+    it('advances on a cd written on its own line', () => {
+      expect(seenFor('cd sub\nls\nls')).toEqual([abs(), abs('sub'), abs('sub')])
+    })
+
+    // The carve-out, observed at the segment level: a heredoc-bearing command is ONE segment, so
+    // the `cd` in the body never moves the tracked cwd — and neither does anything else in it.
+    it('leaves a heredoc body unsplit', () => {
+      expect(seenFor("cat <<'EOF' > x.sh\ncd sub\nEOF")).toEqual([abs()])
+    })
+
+    it.each([
+      ['a subshell', '( cd sub && ls )'],
+      ['a subshell with the paren glued on', '(cd sub && ls)'],
+      ['a loop body', 'for f in *; do cd sub && ls; done'],
+      ['a then branch', 'if true; then cd sub && ls; fi'],
+      ['an else branch', 'if false; then :; else cd sub && ls; fi'],
+      ['a brace group', '{ cd sub && ls; }']
+    ])('advances for a cd leading %s', (_label, command) => {
+      expect(seenFor(command)).toContain(abs('sub'))
     })
 
     // `~` is left in the path deliberately: the far side of the seam (`tildeAltPath`) already

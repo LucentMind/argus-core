@@ -327,22 +327,42 @@ function normaliseSegment(segment: string): string {
  * `scripts/collect.sh` resolved to `<caseDir>/scripts/collect.sh` (does not exist) and the only
  * other token was the skill DIRECTORY, which `assetUnderRoots` refuses on purpose. Both candidates
  * missed and the script ran with no card. `deps.cwd` is now a per-SEGMENT value that `risk.ts`
- * tracks across a command (`advanceCwd` there); what it does NOT model, all of which leave the cwd
- * where it was — a stale base, i.e. a possible missed card:
- *   - `pushd`/`popd`, subshell `( cd x && … )`, `cd` inside a `for`/`if` body, and any cd whose
- *     target is built at run time (`cd "$SKILL_DIR"`, `cd $(…)`) — the variable-reference family
- *     again, not knowable without expanding the command.
+ * tracks across a command (`advanceCwd` there), and a NEWLINE is one of the separators that
+ * command is split on (`shellSegments` there) — it was not, which reopened the same bypass for
+ * `cd <skillDir>` and the script written on two lines instead of joined with `&&`.
+ *
+ * What the cwd tracking does NOT model, all of which leave the cwd where it was — a stale base,
+ * i.e. a possible missed card. Read this as what is NOT YET SEEN, not as what is improbable:
+ * `cd <skillDir> && sh <rel>` sat on this list until a live run executed it.
+ *   - `pushd`/`popd`, and any cd whose target is built at run time (`cd "$SKILL_DIR"`,
+ *     `cd $(…)`, `cd ~user`) — the variable-reference family again, not knowable without
+ *     expanding the command.
  *   - `cd "a b"` — a target containing a space, torn in half by the shared tokenizer exactly as
  *     the path-with-a-space entry below describes.
  *   - `/usr/bin/cd x` — matched exactly as the shell BUILTIN `cd`, because only the builtin
  *     changes the shell's directory.
- *   - Whether the `cd` would actually SUCCEED. That is a filesystem question and the pure
- *     classifier may not ask it; a cd into a directory that does not exist simply leaves the gate
- *     resolving tokens under a base where it finds nothing.
+ *   - A `)` glued to the last token of a subshell (`( cd x && sh scripts/run.sh)`). The leading
+ *     `(`/`do`/`then`/`else`/`{` are stripped by `cdTokens` in `risk.ts`, so the cd itself is
+ *     seen; the closing paren is a TOKENIZER miss on the far side — the loop below is handed
+ *     `scripts/run.sh)`, which resolves to nothing.
+ *   - A subshell's cwd RESTORE. `( cd x && … )` moves the tracked cwd for the rest of the command
+ *     even though the real shell comes back. That direction over-resolves, so it costs at most a
+ *     spurious card, never a missing one.
+ *   - Whether the `cd` would actually SUCCEED — a filesystem question the pure classifier may not
+ *     ask. A `cd` to a directory that does not exist STILL advances the tracked cwd, so a later
+ *     segment can be resolved against a directory the shell never entered. Benign in practice:
+ *     with `&&` the dependent command does not run at all, and with `;` it will not find its
+ *     target either. Recorded because it is a missing-card direction, not a safe one.
  *   - A relative `cd` that walks OUT of the sandbox (`cd ../../..`). The sandbox deny in
  *     `risk.ts` still only inspects ABSOLUTE `cd` targets — untouched here, and pre-existing.
+ *   - A `cd` and a script invocation spread across LINES of a command that also carries a
+ *     heredoc. `shellSegments` withholds the newline split from any heredoc-bearing command,
+ *     because a heredoc body is data and splitting it raises spurious asks for lines the shell
+ *     only writes to a file. The carve-out is per COMMAND, not per line, so it takes the whole
+ *     command's newlines with it.
  *
-
+ * Back to the tokens themselves. What this module cannot see in a segment it IS given:
+ *
  * - `bash "$(cat target)"`, a script piped to an interpreter on stdin, and any path the shell
  *   builds at run time. Recognising them would require executing the command's substitutions,
  *   which is the thing being gated.
