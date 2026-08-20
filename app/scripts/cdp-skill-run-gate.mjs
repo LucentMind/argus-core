@@ -337,6 +337,21 @@ async function showScript() {
   return clicked ? cardInfo() : null
 }
 
+/**
+ * How many MEANINGFUL shell segments a command line has — the quantity `classifyToolCall` keys
+ * the session grant on: a key is offered for one segment and refused for more, because the key
+ * is computed per segment but applied to the whole command.
+ *
+ * The split is spelled byte-identically to `classifyToolCall`'s
+ * (`app/src/main/services/agent/risk.ts`: `command.split(/&&|\|\||;|\|/)`, then empty segments
+ * filtered so a trailing `;` does not cost an ordinary invocation its key). A second copy of a
+ * rule is a defect class this repo keeps re-learning, and this is one — unavoidably, since a
+ * black-box CDP gate cannot import from `src/`. If that regex ever changes, this must too, and
+ * the symptom would be this check failing on a command that is actually fine.
+ */
+const meaningfulSegments = (command) =>
+  command.split(/&&|\|\||;|\|/).filter((s) => s.trim() !== '').length
+
 /** A fresh ARGUS_HOME opens the setup wizard, whose overlay swallows every click behind it. */
 const dismissOnboarding = () =>
   evalJs(`(() => {
@@ -477,10 +492,18 @@ const main = async () => {
     Boolean(opened && opened.scriptBody && opened.scriptBody.includes(ECHO_LINE)),
     opened?.scriptBody
   )
+  // Both directions, because the model decides the shape of the command and the gate does not.
+  // Asserting only "the button is present" made this check fail whenever the model wrapped the
+  // invocation in its own `cd … &&` — which it does spontaneously, roughly half the time — even
+  // though hiding the grant on a chained command is exactly the intended behaviour. Prompting the
+  // model out of chaining is not the fix: the wording that would take is the wording that made it
+  // refuse to run the script at all (see `runScriptAndCaptureCard`).
+  const segments = meaningfulSegments(reviewed.argsPreview ?? '')
+  const grantOffered = reviewed.buttons.includes('Approve for session')
   check(
-    'session grant offered at HIGH',
-    reviewed.buttons.includes('Approve for session'),
-    reviewed.buttons
+    'session grant offered exactly when the command is one segment',
+    grantOffered === (segments === 1),
+    { segments, grantOffered, command: reviewed.argsPreview }
   )
 
   // ---- 5. change the bytes on disk, run again ----
