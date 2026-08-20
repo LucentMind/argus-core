@@ -6,6 +6,7 @@ import { CommandPalette } from '../CommandPalette'
 import { __resetEscapeLayersForTest } from '../../../lib/escapeLayer'
 import type { AssetRow } from '../../../lib/palette'
 import type { Command } from '../../../lib/commands'
+import type { SkillFileEntry } from '../../../../../shared/skillFilesIpc'
 
 const ASSETS: AssetRow[] = [
   {
@@ -48,6 +49,11 @@ const COMMANDS: Command[] = [
   }
 ]
 
+const FILES: SkillFileEntry[] = [
+  { relPath: 'SKILL.md', bytes: 10, executable: false, tier: 'user', editable: true },
+  { relPath: 'scripts/build.sh', bytes: 20, executable: true, tier: 'user', editable: true }
+]
+
 function Harness(
   props: { initial?: string } & Partial<React.ComponentProps<typeof CommandPalette>>
 ): React.JSX.Element {
@@ -58,7 +64,9 @@ function Harness(
       onRawChange={setRaw}
       commands={COMMANDS}
       assets={ASSETS}
+      files={props.files ?? FILES}
       onPickAsset={props.onPickAsset ?? vi.fn()}
+      onPickFile={props.onPickFile ?? vi.fn()}
       onDiscardDraft={props.onDiscardDraft ?? vi.fn()}
       onClose={props.onClose ?? vi.fn()}
     />
@@ -205,6 +213,56 @@ describe('CommandPalette · commands mode', () => {
 
   it('switches back to assets when the > is deleted', () => {
     render(<Harness initial=">" />)
+    fireEvent.change(input(), { target: { value: '' } })
+    expect(options()).toHaveLength(3)
+  })
+})
+
+describe('CommandPalette · files mode', () => {
+  it("switches on a leading @ and lists the active skill's sibling files", () => {
+    render(<Harness initial="@" />)
+    expect(options()).toHaveLength(2)
+    expect(options()[0]!.textContent).toContain('SKILL.md')
+    expect(options()[1]!.textContent).toContain('scripts/build.sh')
+  })
+
+  it('filters as you type', () => {
+    render(<Harness initial="@" />)
+    fireEvent.change(input(), { target: { value: '@build' } })
+    expect(options()).toHaveLength(1)
+    expect(options()[0]!.textContent).toContain('scripts/build.sh')
+  })
+
+  it('opens the picked file directly — one step, not a reveal-then-click', () => {
+    const onPickFile = vi.fn()
+    render(<Harness initial="@" onPickFile={onPickFile} />)
+    fireEvent.click(options()[1]!)
+    expect(onPickFile).toHaveBeenCalledWith('scripts/build.sh')
+  })
+
+  it('opens the highlighted file on Enter', () => {
+    const onPickFile = vi.fn()
+    render(<Harness initial="@" onPickFile={onPickFile} />)
+    fireEvent.keyDown(input(), { key: 'ArrowDown' })
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    expect(onPickFile).toHaveBeenCalledWith('scripts/build.sh')
+  })
+
+  it('closes after picking a file', () => {
+    const onClose = vi.fn()
+    render(<Harness initial="@" onClose={onClose} />)
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('says so when the active pane has no files', () => {
+    render(<Harness initial="@" files={[]} />)
+    expect(screen.queryAllByRole('option')).toHaveLength(0)
+    expect(screen.getByText(/no matching files/i)).toBeTruthy()
+  })
+
+  it('switches back to assets when the @ is deleted', () => {
+    render(<Harness initial="@" />)
     fireEvent.change(input(), { target: { value: '' } })
     expect(options()).toHaveLength(3)
   })

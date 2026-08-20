@@ -1,20 +1,34 @@
 import { useEffect, useRef, useState } from 'react'
-import { FileText, PencilLine, Sparkles } from 'lucide-react'
-import { modeFromQuery, rankAssets, rankCommands, type AssetRow } from '../../lib/palette'
+import { File, FileText, PencilLine, Sparkles } from 'lucide-react'
+import {
+  modeFromQuery,
+  rankAssets,
+  rankCommands,
+  rankFiles,
+  type AssetRow
+} from '../../lib/palette'
 import { transientFieldEscape, useEscapeLayer } from '../../lib/escapeLayer'
 import { TIER_LABELS, type TrustTier } from '../../../../shared/trustTiers'
 import type { Command } from '../../lib/commands'
+import type { SkillFileEntry } from '../../../../shared/skillFilesIpc'
 
 export interface CommandPaletteProps {
-  /** The raw query, `>` and all. Owned by the host so Ctrl+Shift+P can open pre-filled. */
+  /** The raw query, `>`/`@` and all. Owned by the host so Ctrl+Shift+P can open pre-filled. */
   raw: string
   onRawChange: (raw: string) => void
   commands: readonly Command[]
   assets: readonly AssetRow[]
+  /** The active skill's sibling files for the `@` mode ("Open file in skill…"). Empty when the
+   *  active pane has none — the palette then just reports no matches, same as an empty
+   *  `commands` list would. */
+  files: readonly SkillFileEntry[]
   onPickAsset: (row: AssetRow) => void
+  onPickFile: (relPath: string) => void
   onDiscardDraft: (row: AssetRow) => void
   onClose: () => void
 }
+
+type Row = Command | AssetRow | SkillFileEntry
 
 /** DOM ids for `aria-activedescendant`. Not exported: `react-refresh/only-export-components`
  *  allows this file to export the component and its types, and nothing else. */
@@ -22,8 +36,10 @@ function optionId(id: string): string {
   return `palette-opt-${id}`
 }
 
-function rowKey(row: Command | AssetRow, mode: 'assets' | 'commands'): string {
-  return mode === 'commands' ? (row as Command).id : (row as AssetRow).id
+function rowKey(row: Row, mode: 'assets' | 'commands' | 'files'): string {
+  if (mode === 'commands') return (row as Command).id
+  if (mode === 'files') return (row as SkillFileEntry).relPath
+  return (row as AssetRow).id
 }
 
 const KIND_ICON = { skill: Sparkles, reference: FileText, draft: PencilLine } as const
@@ -44,7 +60,9 @@ export function CommandPalette({
   onRawChange,
   commands,
   assets,
+  files,
   onPickAsset,
+  onPickFile,
   onDiscardDraft,
   onClose
 }: CommandPaletteProps): React.JSX.Element {
@@ -53,8 +71,12 @@ export function CommandPalette({
   useEscapeLayer({ onEscape: onClose })
 
   const { mode, query } = modeFromQuery(raw)
-  const rows: readonly (Command | AssetRow)[] =
-    mode === 'commands' ? rankCommands(commands, query) : rankAssets(assets, query)
+  const rows: readonly Row[] =
+    mode === 'commands'
+      ? rankCommands(commands, query)
+      : mode === 'files'
+        ? rankFiles(files, query)
+        : rankAssets(assets, query)
   // Clamped, not corrected: `rows` can shrink under a stale index between a keystroke and the
   // handler that resets it, and an out-of-range read would blank `aria-activedescendant`.
   const active = rows.length === 0 ? -1 : Math.min(index, rows.length - 1)
@@ -66,7 +88,7 @@ export function CommandPalette({
     listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' })
   }, [active, raw])
 
-  const pick = (row: Command | AssetRow): void => {
+  const pick = (row: Row): void => {
     if (mode === 'commands') {
       const cmd = row as Command
       // Disabled rows are shown rather than hidden — a user hunting for Save all should learn
@@ -74,6 +96,11 @@ export function CommandPalette({
       if (!cmd.enabled) return
       onClose()
       cmd.run()
+      return
+    }
+    if (mode === 'files') {
+      onClose()
+      onPickFile((row as SkillFileEntry).relPath)
       return
     }
     onClose()
@@ -119,7 +146,9 @@ export function CommandPalette({
     >
       <div
         role="dialog"
-        aria-label={mode === 'commands' ? 'Commands' : 'Open asset'}
+        aria-label={
+          mode === 'commands' ? 'Commands' : mode === 'files' ? 'Open file' : 'Open asset'
+        }
         // argus-nodrag: see ModalShell. `pt-[12vh]` clears the editor window's 40px drag strip
         // only above ~333px of window height; below that the OS swallows clicks on the field.
         className="argus-nodrag flex max-h-[60vh] w-[min(38rem,90vw)] flex-col overflow-hidden rounded-r3 border border-hair bg-panel shadow-2xl"
@@ -131,9 +160,21 @@ export function CommandPalette({
           aria-expanded={true}
           aria-controls="palette-list"
           aria-autocomplete="list"
-          aria-label={mode === 'commands' ? 'Search commands' : 'Search skills and references'}
+          aria-label={
+            mode === 'commands'
+              ? 'Search commands'
+              : mode === 'files'
+                ? 'Search files in skill'
+                : 'Search skills and references'
+          }
           {...(activeRow ? { 'aria-activedescendant': optionId(rowKey(activeRow, mode)) } : {})}
-          placeholder={mode === 'commands' ? 'Command…' : 'Skill or reference… (> for commands)'}
+          placeholder={
+            mode === 'commands'
+              ? 'Command…'
+              : mode === 'files'
+                ? 'File in this skill…'
+                : 'Skill or reference… (> for commands)'
+          }
           value={raw}
           onChange={(e) => {
             onRawChange(e.target.value)
@@ -144,7 +185,11 @@ export function CommandPalette({
         />
         {rows.length === 0 ? (
           <div className="px-4 py-6 text-center text-xs text-dim">
-            {mode === 'commands' ? 'No matching commands.' : 'No matching assets.'}
+            {mode === 'commands'
+              ? 'No matching commands.'
+              : mode === 'files'
+                ? 'No matching files.'
+                : 'No matching assets.'}
           </div>
         ) : (
           <ul
@@ -178,6 +223,28 @@ export function CommandPalette({
                       <span className="shrink-0 font-mono text-[11px] text-faint">
                         {cmd.keybinding}
                       </span>
+                    )}
+                  </li>
+                )
+              }
+              if (mode === 'files') {
+                const f = row as SkillFileEntry
+                return (
+                  <li
+                    key={f.relPath}
+                    id={optionId(f.relPath)}
+                    role="option"
+                    aria-selected={i === active}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pick(f)}
+                    className={`flex cursor-pointer items-center gap-2 px-4 py-1.5 text-xs ${
+                      i === active ? 'bg-hi' : ''
+                    }`}
+                  >
+                    <File size={13} aria-hidden="true" className="shrink-0 text-faint" />
+                    <span className="truncate font-mono">{f.relPath}</span>
+                    {f.executable && (
+                      <span className="shrink-0 text-[10.5px] text-faint">exec</span>
                     )}
                   </li>
                 )

@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { corpusRows, draftRows, modeFromQuery, rankAssets, rankCommands } from '../palette'
+import {
+  corpusRows,
+  draftRows,
+  modeFromQuery,
+  rankAssets,
+  rankCommands,
+  rankFiles
+} from '../palette'
 import type { CorpusItem } from '../../../../shared/corpusSearch'
 import type { DraftRecord } from '../../../../shared/editorIpc'
 import type { Command } from '../commands'
+import type { SkillFileEntry } from '../../../../shared/skillFilesIpc'
 
 const CORPUS: CorpusItem[] = [
   {
@@ -44,6 +52,22 @@ describe('modeFromQuery', () => {
 
   it('only treats a LEADING > as the switch', () => {
     expect(modeFromQuery('a>b')).toEqual({ mode: 'assets', query: 'a>b' })
+  })
+
+  it('switches to files on a leading @ (spec §6\'s "Open file in skill…")', () => {
+    expect(modeFromQuery('@scripts')).toEqual({ mode: 'files', query: 'scripts' })
+  })
+
+  it('treats a bare @ as files with no filter', () => {
+    expect(modeFromQuery('@')).toEqual({ mode: 'files', query: '' })
+  })
+
+  it('eats one space after the @, same as >', () => {
+    expect(modeFromQuery('@ scripts')).toEqual({ mode: 'files', query: 'scripts' })
+  })
+
+  it('only treats a LEADING @ as the switch', () => {
+    expect(modeFromQuery('a@b')).toEqual({ mode: 'assets', query: 'a@b' })
   })
 })
 
@@ -187,5 +211,32 @@ describe('rankCommands', () => {
 
   it('filters on the title', () => {
     expect(rankCommands(cmds, 'open').map((c) => c.id)).toEqual(['quickOpen'])
+  })
+})
+
+describe('rankFiles', () => {
+  const file = (relPath: string): SkillFileEntry => ({
+    relPath,
+    bytes: 1,
+    executable: false,
+    tier: 'user',
+    editable: true
+  })
+  const files = [file('SKILL.md'), file('scripts/build.sh'), file('references/notes.md')]
+
+  it('returns everything, in a stable order, for an empty query', () => {
+    expect(rankFiles(files, '').map((f) => f.relPath)).toEqual([
+      'SKILL.md',
+      'scripts/build.sh',
+      'references/notes.md'
+    ])
+  })
+
+  it('drops files that do not match', () => {
+    expect(rankFiles(files, 'zzz')).toEqual([])
+  })
+
+  it('filters on relPath', () => {
+    expect(rankFiles(files, 'build').map((f) => f.relPath)).toEqual(['scripts/build.sh'])
   })
 })
