@@ -370,9 +370,21 @@ const HEREDOC_OPEN = /(?<!<)<<(?!<)-?[ \t]*["'\\]?[A-Za-z_]/
  * per line, a `cd` and a script invocation spread across lines of a command that ALSO carries a
  * heredoc anywhere in it stay invisible. Narrowing it would mean tracking heredoc bodies line by
  * line, which is a parser, not a split.
+ *
+ * A `\` immediately before the newline is a LINE CONTINUATION, not a separator — the shell joins
+ * it into the following line before it reads either as a statement, and a model wrapping a long
+ * Bash command across lines with `\` is ordinary formatting, not two commands. The join MUST run
+ * before both the split and the heredoc test above: split first and a flag written on the
+ * continued line (`gh api … \` / `-X POST …`) lands in its own segment, invisible to the program
+ * on the line before it — silently downgrading a remote mutation to allow/LOW. Test the heredoc
+ * marker against the RAW string and a continuation landing inside the marker itself (`<<\` +
+ * newline + `EOF`, one of the recognised forms above) reads as "no heredoc" because the letter
+ * after the backslash falls on the next line, which then wrongly splits the heredoc BODY as a
+ * separate statement.
  */
 function shellSegments(command: string): string[] {
-  return command.split(HEREDOC_OPEN.test(command) ? /&&|\|\||;|\|/ : /&&|\|\||;|\||\r?\n/)
+  const joined = command.replace(/\\\r?\n/g, ' ')
+  return joined.split(HEREDOC_OPEN.test(joined) ? /&&|\|\||;|\|/ : /&&|\|\||;|\||\r?\n/)
 }
 
 /** The three §7.2 states differ only in what the card says; action and risk are identical. */
