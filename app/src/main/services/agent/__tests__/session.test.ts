@@ -1902,6 +1902,46 @@ describe('skill asset run gate', () => {
     await s.stop('stopped')
   })
 
+  // Final review round 2, finding A — the same silent-execution path, but through a segment the
+  // classifier deliberately refuses to grant at all. A grant earned on `bash <A>` used to
+  // auto-allow `bash <A> && rm -rf <path>` with no card, because the merged verdict inherited
+  // the first (asset) segment's key. Chaining is not a way to launder a grant.
+  it('re-prompts when a granted script is chained with a destructive command', async () => {
+    const a = seedScript(argusHome, '#!/bin/sh\necho hi\n')
+    const victim = path.join(argusHome, 'victim')
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    await flush()
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<unknown>
+    const call = (command: string): Promise<unknown> =>
+      canUseTool('Bash', { command }, { signal: new AbortController().signal })
+
+    const first = call(`bash ${a}`)
+    await vi.waitFor(() =>
+      expect(events.filter((e) => e.type === 'request.opened')).toHaveLength(1)
+    )
+    const opened = events.find((e) => e.type === 'request.opened')!
+    s.respond({
+      requestId: (opened.payload as { requestId: string }).requestId,
+      kind: 'allow-session'
+    })
+    await first
+
+    const chained = call(`bash ${a} && rm -rf ${victim}`)
+    await vi.waitFor(() =>
+      expect(events.filter((e) => e.type === 'request.opened')).toHaveLength(2)
+    )
+    const second = events.filter((e) => e.type === 'request.opened')[1]
+    expect(second.payload).toMatchObject({ risk: 'HIGH', grantKey: null })
+    s.respond({ requestId: (second.payload as { requestId: string }).requestId, kind: 'deny' })
+    await chained
+    await s.stop('stopped')
+  })
+
   it('leaves an ordinary command untouched', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk)

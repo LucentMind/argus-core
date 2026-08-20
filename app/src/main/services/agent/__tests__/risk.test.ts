@@ -676,13 +676,100 @@ describe('classifyToolCall — skill asset run gate', () => {
       expect(both().reason).toMatch(/2 different skill scripts/)
     })
 
-    it('still keys a command that names the same script twice', () => {
+    // Was "still keys a command that names the same script twice". The distinct-hash rule was
+    // too narrow (final review round 2, finding A): ANY chained command loses the key now, and
+    // naming the same script in both halves is still a chained command.
+    it('refuses a grant for a command that names the same script twice', () => {
       const v = classifyToolCall(
         'Bash',
         { command: 'sh scripts/collect.sh && sh scripts/collect.sh' },
         ctxTwo
       ) as { grantKey: string | null }
-      expect(v.grantKey).not.toBeNull()
+      expect(v.grantKey).toBeNull()
+    })
+  })
+
+  /**
+   * Final review round 2, finding A. The grant key is computed per SEGMENT but applied to the
+   * WHOLE command: the merge keeps the first asset segment's verdict (an asset ask beats a
+   * plain ask of equal risk, by design), so before the fix `sh collect.sh && rm -rf ~` carried
+   * the identical key to a bare `sh collect.sh` — and a session grant taken on the benign one
+   * auto-allowed the chained one with no card at all. That is a regression against main, where
+   * every HIGH ask carried a null key and the `rm -rf` always asked.
+   */
+  describe('a skill script chained with other commands', () => {
+    const keyOf = (command: string): string | null =>
+      (run(command) as { grantKey: string | null }).grantKey
+
+    it.each([
+      ['the same script with different arguments', 'sh scripts/collect.sh --purge /'],
+      ['a recursive delete', 'rm -rf /home/u/other'],
+      ['a remote mutation', 'git push']
+    ])('refuses a session grant when chained with %s', (_label, tail) => {
+      const plain = keyOf('sh scripts/collect.sh')
+      expect(plain).not.toBeNull()
+      const chained = keyOf(`sh scripts/collect.sh && ${tail}`)
+      expect(chained).toBeNull()
+      expect(chained).not.toBe(plain)
+    })
+
+    it('refuses a session grant when piped into another command', () => {
+      expect(keyOf('sh scripts/collect.sh | tee /home/u/.bashrc')).toBeNull()
+    })
+
+    // The empty-segment filter is load-bearing: a trailing `;` splits into two segments, and
+    // without the filter an ordinary one-command invocation would lose its key for a stray
+    // separator — killing the loop ergonomics the key exists for.
+    it('keeps the key for a trailing separator (an empty second segment)', () => {
+      expect(keyOf('sh scripts/collect.sh;')).toBe(keyOf('sh scripts/collect.sh'))
+    })
+
+    it('still shows the script and says the command was chained', () => {
+      const v = run('sh scripts/collect.sh && rm -rf /home/u/other') as {
+        action: string
+        risk: string
+        assetContext?: SkillAssetContext
+        reason: string
+      }
+      expect(v).toMatchObject({ action: 'ask', risk: 'HIGH' })
+      expect(v.assetContext).toMatchObject({ skill: 'collect-logs' })
+      expect(v.reason).toMatch(/chained/i)
+    })
+  })
+
+  /**
+   * Final review round 2, finding B. The gate must only ever STRENGTHEN a verdict, and the
+   * grant dimension is part of that: a base verdict the classifier deliberately left grantless
+   * must not become grantable because the segment happens to name a skill script.
+   */
+  describe('over a base verdict that deliberately carries no grant key', () => {
+    it('keeps rm -rf grantless, with the script still shown', () => {
+      const v = run('rm -rf scripts/collect.sh') as {
+        action: string
+        risk: string
+        grantKey: string | null
+        assetContext?: SkillAssetContext
+        reason: string
+      }
+      expect(v).toMatchObject({ action: 'ask', risk: 'HIGH', grantKey: null })
+      expect(v.assetContext).toMatchObject({ skill: 'collect-logs' })
+      expect(v.reason).toMatch(/Recursive delete/)
+    })
+
+    it('keeps a gh api non-GET grantless and still names it in the reason', () => {
+      const v = run('gh api -X POST /repos/o/r/issues --input scripts/collect.sh') as {
+        action: string
+        risk: string
+        grantKey: string | null
+        assetContext?: SkillAssetContext
+        reason: string
+      }
+      expect(v).toMatchObject({ action: 'ask', risk: 'HIGH', grantKey: null })
+      expect(v.assetContext).toMatchObject({ skill: 'collect-logs' })
+      expect(v.reason).toMatch(/Remote mutation: gh api non-GET/)
+      // The asset half still leads it — the card's copy comes from assetContext, but the audit
+      // line should read as "runs this script, and it is also a remote mutation".
+      expect(v.reason).toMatch(/^Runs scripts\/collect\.sh/)
     })
   })
 

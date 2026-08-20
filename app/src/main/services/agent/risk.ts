@@ -336,6 +336,10 @@ function assetReason(a: SkillAssetContext): string {
  * same script ten times trains exactly the click-through reflex this gate exists to prevent.
  * An identical command re-issued still rides the grant; anything else re-prompts.
  *
+ * Two callers narrow it further and neither is optional. `classifySegment` refuses a key when
+ * the segment's ORDINARY verdict was a grantless ask, and `classifyToolCall` refuses one for
+ * any command with more than one meaningful segment — see both for why.
+ *
  * DEVIATION from the plan's Global Constraints, which state the format as
  * `skill-asset:${hash.slice(0, 16)}` (the script alone). A human decided to narrow it after
  * final review found the hash-only key covered arbitrary arguments and redirections.
@@ -356,6 +360,13 @@ function assetGrantKey(asset: SkillAssetContext): string {
  *
  * Running the base path always is free — it is string-only, no filesystem, no database — and it
  * runs before `ctx.skillAsset`, so a denied segment does not pay for the gate's syscalls at all.
+ *
+ * With `baseWasGrantless` below, the gate can only ever STRENGTHEN a verdict, on all three
+ * dimensions: a deny stays a deny, HIGH is the top risk, and a base ask the classifier
+ * deliberately refused to make grantable stays ungrantable. That last one is not decoration —
+ * `rm -rf <skill script>` and `gh api -X POST … --input <skill script>` both name an asset, and
+ * before the fix the gate handed each of them a session-grantable key that the classifier had
+ * explicitly set to `null`, turning a never-grant verdict into a grantable one.
  */
 function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
   const base = classifyPlainSegment(segment, ctx)
@@ -367,11 +378,15 @@ function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
   // all of those fall back to the ordinary classification computed above.
   const asset = ctx.skillAsset?.(segment)
   if (!asset) return base
+  const baseWasGrantless = base.action === 'ask' && base.grantKey === null
   return {
     action: 'ask',
     risk: 'HIGH',
-    grantKey: assetGrantKey(asset),
-    reason: assetReason(asset),
+    grantKey: baseWasGrantless ? null : assetGrantKey(asset),
+    // The asset half leads: the card's copy comes from `assetContext`, not from here, so this
+    // only shapes the audit line — and an audit line reading only "runs a reviewed script" for
+    // a `gh api -X POST` mislabels a remote mutation. Keep both facts, script first.
+    reason: base.action === 'ask' ? `${assetReason(asset)} — ${base.reason}` : assetReason(asset),
     assetContext: asset
   }
 }
@@ -483,11 +498,12 @@ export function classifyToolCall(
   if (tax && tax.kind === 'shell') {
     const command = String(input[tax.commandField] ?? '')
     const segments = command.split(/&&|\|\||;|\|/)
+    // Empty segments do not count: a trailing `;` or `|` splits into two, and treating
+    // `sh collect.sh;` as a chained command would strip the key off an ordinary one-command
+    // invocation — killing the loop ergonomics `assetGrantKey` exists for, for a stray separator.
+    const meaningful = segments.filter((s) => s.trim() !== '')
     let worst: RiskVerdict = { action: 'allow', risk: 'LOW' }
-    // Every DISTINCT script the command runs, in order. The merge keeps one winning verdict, so
-    // without this a two-script command would be gated, keyed and displayed as if it ran only
-    // the first — and `sh <approved>/run.sh && sh <evil>/run.sh` would ride the grant earned on
-    // `sh <approved>/run.sh` alone, executing the second script with no card at all.
+    // Every DISTINCT script the command runs, in order — used only to word the reason below.
     const assets: SkillAssetContext[] = []
     for (const seg of segments) {
       const v = classifySegment(seg, ctx)
@@ -500,17 +516,34 @@ export function classifyToolCall(
         assets.push(v.assetContext)
       if (isWorse(v, worst)) worst = v
     }
-    if (assets.length > 1 && worst.action === 'ask') {
+    // The grant key is computed per SEGMENT but applied to the WHOLE command, so a chained
+    // command must not carry one at all. `isWorse` prefers an asset ask over a plain ask of
+    // equal risk (so the card always has a script in it), which means the winning verdict is
+    // the FIRST asset segment's — identical, key included, to what a bare `sh collect.sh`
+    // produces. Without this block, one "approve for session" on the benign form silently
+    // auto-allows `sh collect.sh && rm -rf ~`, `&& git push`, `&& sh collect.sh --purge /`,
+    // `| tee ~/.bashrc` — with no card, and an audit line naming only the script. Against main
+    // that is a REGRESSION: every HIGH ask there carried a null key, so the `rm -rf` always
+    // asked; this gate introduced the first keyed HIGH ask and let it beat the others.
+    //
+    // Deliberately broader than "more than one distinct script", which it subsumes (two assets
+    // need two segments — `skillAssetContextForSegment` takes at most one per segment). Single
+    // segments, the loop case the key exists for, are untouched.
+    if (worst.action === 'ask' && worst.assetContext && meaningful.length > 1) {
       // `grantKey: null` is the load-bearing half — it is what removes the silent-execution
-      // path. The card still shows the first script's bytes (`assetContext` is unchanged) and
-      // its `argsPreview` shows the whole command, so the reviewer can see the others named;
-      // the reason names them too, for the audit trail.
+      // path. The card still shows only the FIRST script's bytes (`assetContext` is unchanged);
+      // with no grant the reviewer now always gets a card, and its `argsPreview` is the whole
+      // command line, so the others are at least named. Showing every script's bytes on one
+      // card is a deferred design change (final review round 2, Minor), not a hole.
       return {
         ...worst,
         grantKey: null,
-        reason: `${assets.length} different skill scripts in one command (${assets
-          .map((a) => `${a.skill}/${a.relPath}`)
-          .join(', ')}) — only the first is shown; no session grant`
+        reason:
+          assets.length > 1
+            ? `${assets.length} different skill scripts in one command (${assets
+                .map((a) => `${a.skill}/${a.relPath}`)
+                .join(', ')}) — only the first is shown; no session grant`
+            : `${worst.reason} — chained with other commands; no session grant`
       }
     }
     return worst
