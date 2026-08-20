@@ -1017,6 +1017,35 @@ describe('AssetPane · command contract', () => {
     await waitFor(() => expect(onCommandState.mock.lastCall![0].canImprove).toBe(false))
   })
 
+  it('reports hasFiles false while the sibling listing is still loading, then true once it lands', async () => {
+    // A pending promise that never resolves during this test — models the window between mount
+    // and the `listFiles` IPC round trip landing, which is exactly the gap the "Open file in
+    // skill…" command must not read as enabled through (see the `hasFiles` doc comment in
+    // src/renderer/src/lib/commands.ts). Without gating `PaneCommandState.hasFiles` on `files
+    // !== null`, this pane reports `hasFiles: true` immediately, even though
+    // `paneRef.current!.listFiles()` still returns `null` — enabled-but-does-nothing.
+    let resolveListFiles!: (files: Awaited<ReturnType<typeof skillsListFiles>>) => void
+    skillsListFiles.mockReset().mockReturnValue(
+      new Promise((resolve) => {
+        resolveListFiles = resolve
+      })
+    )
+    const onCommandState = vi.fn()
+    const paneRef = createRef<AssetPaneHandle>()
+    renderPane({ active: true, onCommandState, paneRef })
+    await waitFor(() => expect(onCommandState).toHaveBeenCalled())
+    expect(onCommandState.mock.lastCall![0].hasFiles).toBe(false)
+    expect(paneRef.current!.listFiles()).toBeNull()
+
+    resolveListFiles([
+      { relPath: 'scripts/a.sh', bytes: 3, executable: true, tier: 'user', editable: true }
+    ])
+    await waitFor(() => expect(onCommandState.mock.lastCall![0].hasFiles).toBe(true))
+    expect(paneRef.current!.listFiles()).toEqual([
+      { relPath: 'scripts/a.sh', bytes: 3, executable: true, tier: 'user', editable: true }
+    ])
+  })
+
   it('does not report from an INACTIVE pane', async () => {
     const onCommandState = vi.fn()
     renderPane({ active: false, onCommandState })

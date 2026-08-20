@@ -40,7 +40,12 @@ export interface PaneCommandState {
   /** A non-empty document and a working provider. */
   canImprove: boolean
   /** This pane belongs to a skill with a files dock — i.e. `kind === 'skill' && mode === 'edit'`
-   *  (create mode has no folder on disk yet to list). Gates "Open file in skill…". */
+   *  (create mode has no folder on disk yet to list) — AND that dock's initial `listFiles` IPC
+   *  round trip has resolved. The first half alone is a pane-shape fact that is already true at
+   *  mount; folding in the second half is what keeps this in sync with what
+   *  `AssetPaneHandle.listFiles()` can actually return at press time (see its doc comment) — a
+   *  reference or a create-mode skill returns `null` forever, a not-yet-loaded skill pane returns
+   *  `null` only until this flips. Gates "Open file in skill…". */
   hasFiles: boolean
   viewMode: ViewMode
   wrap: boolean
@@ -272,7 +277,8 @@ export function buildCommands(ctx: CommandContext): Command[] {
       title: 'Open file in skill…',
       section: 'Go',
       // Same rule as `findReferences`'s `mode === 'edit'`, restated as `p.hasFiles` because
-      // this also has to be false for a reference — see the `hasFiles` doc comment.
+      // this also has to be false for a reference, AND false until the sibling listing has
+      // actually loaded — see the `hasFiles` doc comment.
       enabled: p !== null && p.hasFiles,
       // Not `on((h) => ...)`: the picker is the palette overlay, which lives in `EditorApp`, not
       // on the pane. `ctx.window.openFilePicker` reads the active pane itself (same as
