@@ -11,7 +11,12 @@ import {
   MAX_ASSET_TOTAL_BYTES
 } from '../../shared/skillAssets'
 import type { SkillAssetTier } from '../../shared/skillAssets'
-import { recordAssetReviews, sha256Hex } from './skillAssetReviews'
+import {
+  dropSkillAssetReview,
+  recordAssetReviews,
+  renameSkillAssetReview,
+  sha256Hex
+} from './skillAssetReviews'
 import type {
   SkillFileEntry,
   SkillFileRead,
@@ -247,4 +252,33 @@ export function saveSkillFile(
     })
   }
   return result
+}
+
+/**
+ * Delete a sibling AND its review row (triage 3). `deleteSkillFile` itself stays a pure
+ * filesystem function — the db work lives here beside `saveSkillFile`, through the same
+ * `SkillFileSaveDeps` shape, rather than inventing a second db-threading convention.
+ */
+export function deleteSkillFileReviewed(
+  deps: Pick<SkillFileSaveDeps, 'argusHome' | 'db'>,
+  skill: string,
+  relPath: string
+): void {
+  deleteSkillFile(deps.argusHome, skill, relPath)
+  dropSkillAssetReview(deps.db, skill, relPath)
+}
+
+/**
+ * Rename a sibling AND carry its review row to the new path (triage 3's other half). Without
+ * this, a renamed executable sibling reads as `unreviewed` the moment the agent tries to run it,
+ * even though the bytes at the new path are exactly what a human already approved at the old one.
+ */
+export function renameSkillFileReviewed(
+  deps: Pick<SkillFileSaveDeps, 'argusHome' | 'db'>,
+  skill: string,
+  from: string,
+  to: string
+): void {
+  renameSkillFile(deps.argusHome, skill, from, to)
+  renameSkillAssetReview(deps.db, skill, from, to)
 }

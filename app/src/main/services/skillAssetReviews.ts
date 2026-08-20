@@ -65,6 +65,34 @@ export function dropSkillAssetReviews(db: DatabaseSync, skill: string): void {
   db.prepare(`DELETE FROM skill_asset_reviews WHERE skill = ?`).run(skill)
 }
 
+/** Called when a single sibling is deleted (triage 3 — `deleteSkillFile`'s counterpart to
+ *  `dropSkillAssetReviews` above, scoped to one file rather than the whole skill). The read side
+ *  is already safe without this: `assetReviewState` keys on `(skill, rel_path)` AND compares the
+ *  sha256, so a stale row can only ever come back `reviewed` for content byte-identical to what a
+ *  human approved at that exact path — a leftover row cannot forge approval for different bytes.
+ *  Still, an orphan row for a file that no longer exists is dead weight worth cleaning up. */
+export function dropSkillAssetReview(db: DatabaseSync, skill: string, relPath: string): void {
+  db.prepare(`DELETE FROM skill_asset_reviews WHERE skill = ? AND rel_path = ?`).run(skill, relPath)
+}
+
+/** Called when a single sibling is renamed. `(skill, rel_path)` is the row's unique key, so a
+ *  blind UPDATE risks a constraint violation if an orphan row already sits at the destination
+ *  path (e.g. left by a delete that predates the `dropSkillAssetReview` fix) — clear that first,
+ *  same as `renameSkillFile` refuses a rename onto a path that already has a FILE. */
+export function renameSkillAssetReview(
+  db: DatabaseSync,
+  skill: string,
+  from: string,
+  to: string
+): void {
+  db.prepare(`DELETE FROM skill_asset_reviews WHERE skill = ? AND rel_path = ?`).run(skill, to)
+  db.prepare(`UPDATE skill_asset_reviews SET rel_path = ? WHERE skill = ? AND rel_path = ?`).run(
+    to,
+    skill,
+    from
+  )
+}
+
 /** Fork copies the reviewed state: the bytes were genuinely reviewed, only the name changed. */
 export function copySkillAssetReviews(db: DatabaseSync, from: string, to: string): void {
   db.prepare(

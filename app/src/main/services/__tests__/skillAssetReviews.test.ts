@@ -7,8 +7,10 @@ import { openDb } from '../db'
 import {
   assetReviewState,
   copySkillAssetReviews,
+  dropSkillAssetReview,
   dropSkillAssetReviews,
   recordAssetReviews,
+  renameSkillAssetReview,
   sha256Hex
 } from '../skillAssetReviews'
 
@@ -101,5 +103,49 @@ describe('dropSkillAssetReviews / copySkillAssetReviews', () => {
     recordAssetReviews(db, 'dst', [{ relPath: 'x.sh', content: 'old' }], opts)
     copySkillAssetReviews(db, 'a', 'dst')
     expect(assetReviewState(db, 'dst', 'x.sh', 'new')).toBe('reviewed')
+  })
+})
+
+// triage 3: deleteSkillFile/renameSkillFile leaving an orphan or stranded review row.
+describe('dropSkillAssetReview / renameSkillAssetReview', () => {
+  it('drop removes the row for one path only, in the same skill', () => {
+    const opts = { origin: 'editor' as const, reviewedBy: null }
+    recordAssetReviews(db, 'a', [{ relPath: 'x.sh', content: 'x' }], opts)
+    recordAssetReviews(db, 'a', [{ relPath: 'y.sh', content: 'y' }], opts)
+    recordAssetReviews(db, 'b', [{ relPath: 'x.sh', content: 'x' }], opts)
+    dropSkillAssetReview(db, 'a', 'x.sh')
+    expect(assetReviewState(db, 'a', 'x.sh', 'x')).toBe('unreviewed')
+    expect(assetReviewState(db, 'a', 'y.sh', 'y')).toBe('reviewed')
+    expect(assetReviewState(db, 'b', 'x.sh', 'x')).toBe('reviewed')
+  })
+
+  it('drop of a path with no row is a no-op', () => {
+    expect(() => dropSkillAssetReview(db, 'a', 'ghost.sh')).not.toThrow()
+  })
+
+  it('rename carries the reviewed state to the new path and drops the old one', () => {
+    recordAssetReviews(db, 'a', [{ relPath: 'old.sh', content: 'x' }], {
+      origin: 'editor',
+      reviewedBy: 'Jiawei Han'
+    })
+    renameSkillAssetReview(db, 'a', 'old.sh', 'new.sh')
+    expect(assetReviewState(db, 'a', 'new.sh', 'x')).toBe('reviewed')
+    expect(assetReviewState(db, 'a', 'old.sh', 'x')).toBe('unreviewed')
+  })
+
+  it('rename onto a path with an orphan row replaces it instead of colliding', () => {
+    const opts = { origin: 'editor' as const, reviewedBy: null }
+    recordAssetReviews(db, 'a', [{ relPath: 'old.sh', content: 'new-content' }], opts)
+    // An orphan row already sitting at the destination path (e.g. left by a delete that predates
+    // dropSkillAssetReview) — a blind UPDATE onto this would violate the (skill, rel_path)
+    // uniqueness the ON CONFLICT clauses elsewhere in this file rely on.
+    recordAssetReviews(db, 'a', [{ relPath: 'new.sh', content: 'stale-content' }], opts)
+    expect(() => renameSkillAssetReview(db, 'a', 'old.sh', 'new.sh')).not.toThrow()
+    expect(assetReviewState(db, 'a', 'new.sh', 'new-content')).toBe('reviewed')
+  })
+
+  it('rename of a path with no row is a no-op', () => {
+    expect(() => renameSkillAssetReview(db, 'a', 'ghost.sh', 'new.sh')).not.toThrow()
+    expect(assetReviewState(db, 'a', 'new.sh', 'x')).toBe('unreviewed')
   })
 })

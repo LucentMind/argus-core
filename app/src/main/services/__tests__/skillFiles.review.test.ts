@@ -3,10 +3,10 @@ import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { saveSkillFile } from '../skillFiles'
+import { deleteSkillFileReviewed, renameSkillFileReviewed, saveSkillFile } from '../skillFiles'
 import { openDb } from '../db'
 import { assetReviewState } from '../skillAssetReviews'
-import { userSkillsDir } from '../paths'
+import { hivemindSkillsDir, userSkillsDir } from '../paths'
 
 let home: string
 let db: DatabaseSync
@@ -83,5 +83,58 @@ describe('saveSkillFile', () => {
       )
     ).toThrow()
     expect(assetReviewState(db, 'collect-logs', '../escape.sh', 'x\n')).toBe('unreviewed')
+  })
+})
+
+// triage 3: deleting or renaming a sibling must not leave its review row stranded.
+describe('deleteSkillFileReviewed', () => {
+  it('deletes the file and drops its review row', () => {
+    const body = '#!/bin/sh\necho hi\n'
+    saveSkillFile(
+      { argusHome: home, db, reviewedBy: 'Jiawei Han' },
+      'collect-logs',
+      'scripts/collect.sh',
+      body,
+      null
+    )
+    expect(assetReviewState(db, 'collect-logs', 'scripts/collect.sh', body)).toBe('reviewed')
+
+    deleteSkillFileReviewed({ argusHome: home, db }, 'collect-logs', 'scripts/collect.sh')
+
+    expect(
+      fs.existsSync(path.join(userSkillsDir(home), 'collect-logs/scripts/collect.sh'))
+    ).toBe(false)
+    expect(assetReviewState(db, 'collect-logs', 'scripts/collect.sh', body)).toBe('unreviewed')
+  })
+
+  it('leaves a still-refused delete with the review row intact', () => {
+    // A read-only (hivemind-tier) skill: `mutable()` throws before any filesystem or db work.
+    const dir = path.join(hivemindSkillsDir(home), 'theirs')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: theirs\n---\nbody\n')
+    expect(() =>
+      deleteSkillFileReviewed({ argusHome: home, db }, 'theirs', 'run.sh')
+    ).toThrow(/read-only/i)
+  })
+})
+
+describe('renameSkillFileReviewed', () => {
+  it('renames the file and carries its review row to the new path', () => {
+    const body = '#!/bin/sh\necho hi\n'
+    saveSkillFile(
+      { argusHome: home, db, reviewedBy: 'Jiawei Han' },
+      'collect-logs',
+      'scripts/old.sh',
+      body,
+      null
+    )
+
+    renameSkillFileReviewed({ argusHome: home, db }, 'collect-logs', 'scripts/old.sh', 'scripts/new.sh')
+
+    expect(
+      fs.existsSync(path.join(userSkillsDir(home), 'collect-logs/scripts/old.sh'))
+    ).toBe(false)
+    expect(assetReviewState(db, 'collect-logs', 'scripts/new.sh', body)).toBe('reviewed')
+    expect(assetReviewState(db, 'collect-logs', 'scripts/old.sh', body)).toBe('unreviewed')
   })
 })
