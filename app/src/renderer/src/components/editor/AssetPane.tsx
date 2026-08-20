@@ -1015,7 +1015,13 @@ export function AssetPane({
       hasDraft: draftAt !== null,
       canDraft: mode === 'create' && describe.trim() !== '' && providerOk !== false,
       canImprove: doc.trim() !== '' && providerOk !== false,
-      hasFiles,
+      // NOT the local `hasFiles` alone: that is a pane-shape fact (see its doc comment) and stays
+      // true from mount, before the `listFiles` IPC round trip resolves — but `handle.listFiles()`
+      // returns `null` until `files` itself lands (see `listFiles` above). Reporting `hasFiles`
+      // here as `PaneCommandState.hasFiles` would enable "Open file in skill…" in that window,
+      // and the command would then read as clickable but silently do nothing when pressed. Command
+      // enablement has to track the same readiness the handle actually serves.
+      hasFiles: hasFiles && files !== null,
       // `effectiveViewMode`, not `prefs.viewMode`: the window's own state (the header toggle's
       // label, any future consumer) must agree with what this pane actually rendered, not with a
       // stranded preference this non-Markdown pane refused to honour.
@@ -1033,6 +1039,7 @@ export function AssetPane({
       doc,
       providerOk,
       hasFiles,
+      files,
       effectiveViewMode,
       prefs.wrap
     ]
