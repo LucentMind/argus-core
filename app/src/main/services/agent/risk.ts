@@ -235,13 +235,17 @@ function withinAny(p: string, roots: string[]): boolean {
 
 function inSandbox(p: string, ctx: RiskContext): boolean {
   // KNOWN, recorded rather than fixed. On Windows the agent's shell is git-bash, whose absolute
-  // paths are spelled `/c/Users/…`. `path.resolve` in `withinAny` reads that leading `/` as "root
-  // of the current drive" and turns it into `C:\c\Users\…`, so a path INSIDE the case directory
-  // written the git-bash way sits outside every sandbox root and `cd /c/<caseDir>` is denied.
+  // paths are spelled `/c/Users/…`; `~/…` is the same story on every platform. `path.resolve` in
+  // `withinAny` reads that leading `/` as "root of the current drive" and turns it into
+  // `C:\c\Users\…` (and leaves `~` as a literal directory name), so a path INSIDE the case
+  // directory written either way sits outside every sandbox root. This function is BOTH the `cd`
+  // check and the fs-read/fs-write sandbox check below, so what gets denied is `cd /c/<caseDir>`
+  // AND every fs-tool path field spelled that way — `read_file "/c/<caseDir>/evidence/x.log"` is
+  // refused just as flatly.
   // This is the mirror image of the skill-asset gate defect fixed in `skillAssetGate.ts`
-  // (`msysAltPath`) — but it errs the conservative way (a false deny, never a false allow), and
-  // it predates that work, so widening MSYS handling to all FS classification here is left for a
-  // change that can cover every path field at once.
+  // (`msysAltPathFor`, `tildeAltPath`) — but it errs the conservative way (a false deny, never a
+  // false allow), and it predates that work, so widening MSYS/tilde handling to all FS
+  // classification here is left for a change that can cover every path field at once.
   return withinAny(p, [ctx.caseDir, ...ctx.workspaceRoots, ...ctx.readonlyRoots])
 }
 

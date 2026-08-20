@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SKILL_ASSET_BODY_CAP, skillAssetContextForSegment } from '../skillAssetGate'
 import { openDb } from '../../db'
 import { recordAssetReviews } from '../../skillAssetReviews'
@@ -17,6 +17,11 @@ function msys(win: string): string {
   return `/${win[0].toLowerCase()}${win.slice(2).replace(/\\/g, '/')}`
 }
 
+let tmp: string
+/** The user's home directory. `home` (ARGUS_HOME) sits at `~/Argus` under it, which is the
+ *  default layout `resolveArgusHome` produces — so `~/Argus/skills-user/…` is a real token here
+ *  and not a contrivance. */
+let userHome: string
 let home: string
 let db: DatabaseSync
 let cwd: string
@@ -29,18 +34,21 @@ function seed(rel: string, body: string): string {
 }
 
 function ctxFor(segment: string): ReturnType<typeof skillAssetContextForSegment> {
-  return skillAssetContextForSegment({ argusHome: home, db, cwd }, segment)
+  return skillAssetContextForSegment({ argusHome: home, db, cwd, homeDir: userHome }, segment)
 }
 
 beforeEach(() => {
-  home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-asset-seg-'))
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-asset-seg-'))
+  userHome = tmp
+  home = path.join(tmp, 'Argus')
+  fs.mkdirSync(home, { recursive: true })
   db = openDb(path.join(home, 'argus.db'))
   cwd = path.join(home, 'cases', 'ACME-1')
   fs.mkdirSync(cwd, { recursive: true })
 })
 afterEach(() => {
   db.close()
-  fs.rmSync(home, { recursive: true, force: true })
+  fs.rmSync(tmp, { recursive: true, force: true })
 })
 
 describe('skillAssetContextForSegment', () => {
@@ -220,6 +228,64 @@ describe('skillAssetContextForSegment', () => {
       const abs = seed('scripts/collect.sh', SCRIPT)
       expect(ctxFor(`sh /usr${abs.slice(2).replace(/\\/g, '/')}`)).toBeNull()
       expect(ctxFor('/usr/bin/env sh /config/x.sh')).toBeNull()
+    })
+  })
+
+  /**
+   * The same defect class as the MSYS block, with wider reach: `~/Argus/skills-user/<skill>/…` is
+   * the shortest correct absolute path to a skill script on a default install, every shell Argus
+   * spawns expands it, and `path.resolve` turns it into `<caseDir>/~/Argus/…` — which does not
+   * exist, so the gate found no asset and the segment fell through to a LOW allow with no card.
+   * Runs on every platform: `~` is a shell feature, not a Windows one.
+   */
+  describe('tilde (~) home spellings', () => {
+    const TOKEN = '~/Argus/skills-user/collect-logs/scripts/collect.sh'
+
+    it('gates a script named with a ~-rooted path', () => {
+      const abs = seed('scripts/collect.sh', SCRIPT)
+      const native = ctxFor(`sh ${abs}`)
+      const c = ctxFor(`sh ${TOKEN}`)
+      expect(c).toMatchObject({
+        skill: 'collect-logs',
+        tier: 'user',
+        relPath: 'scripts/collect.sh',
+        reviewState: 'unreviewed'
+      })
+      expect(c?.hash).toBe(native?.hash)
+      expect(c?.body).toBe(SCRIPT)
+    })
+
+    it('gates it when quoted', () => {
+      seed('scripts/collect.sh', SCRIPT)
+      expect(ctxFor(`sh "${TOKEN}"`)).toMatchObject({ relPath: 'scripts/collect.sh' })
+    })
+
+    it('ignores ~user and a bare ~', () => {
+      seed('scripts/collect.sh', SCRIPT)
+      expect(ctxFor('sh ~notauser/Argus/skills-user/collect-logs/scripts/collect.sh')).toBeNull()
+      expect(ctxFor('ls ~')).toBeNull()
+    })
+
+    // The grant key must not depend on which spelling the model happened to write — but it does,
+    // deliberately: `segmentKey` digests the segment TEXT, so the two spellings are two segments.
+    // Asserted so the property is a decision rather than an accident.
+    it('keys the grant on the segment text, so the two spellings do not share one', () => {
+      const abs = seed('scripts/collect.sh', SCRIPT)
+      expect(ctxFor(`sh ${TOKEN}`)!.segmentKey).not.toBe(ctxFor(`sh ${abs}`)!.segmentKey)
+    })
+
+    // The injected home is a test seam; production passes nothing and must land on os.homedir().
+    it('defaults to os.homedir() when the deps carry no home', () => {
+      seed('scripts/collect.sh', SCRIPT)
+      const bare = (): ReturnType<typeof skillAssetContextForSegment> =>
+        skillAssetContextForSegment({ argusHome: home, db, cwd }, `sh ${TOKEN}`)
+      expect(bare()).toBeNull()
+      const spy = vi.spyOn(os, 'homedir').mockReturnValue(userHome)
+      try {
+        expect(bare()).toMatchObject({ relPath: 'scripts/collect.sh' })
+      } finally {
+        spy.mockRestore()
+      }
     })
   })
 
