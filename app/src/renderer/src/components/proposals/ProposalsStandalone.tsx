@@ -30,7 +30,20 @@ export function ProposalsStandalone({
   // file -> (relative path | BODY_PATH) -> draft. Two levels because one proposal now has many
   // editable documents; the body keeps `BODY_PATH` so `acceptProposal`'s `editedContent`
   // contract is unchanged.
+  //
+  // This is the buffer ALONE — never the "is this pane showing the textarea" fact too. It used
+  // to carry both (presence in the map doubled as edit-mode), and toggling the view to "View
+  // diff" turned edit mode off by deleting the entry outright, taking the draft with it —
+  // reviewing an edit before accepting silently discarded it, and `acceptSelected` below reads
+  // this same map, so Accept then shipped the untouched original with nothing on screen to say
+  // so. `editMode` (below) now owns the mode; this owns only the text, and nothing but
+  // `pruneEditing`/`discardDraft`/accept/reject ever removes an entry from it.
   const [editing, setEditing] = useState<Record<string, Record<string, string>>>({})
+  // file -> set of paths currently showing the edit textarea for that file. A path can have a
+  // buffer in `editing` without being in this set — that's toggled off ("View diff"/"View"),
+  // and the buffer is exactly what that view now reflects (see `onEditChange`'s sibling prop
+  // wiring below and `ProposalDetail`'s `displayContent`).
+  const [editMode, setEditMode] = useState<Record<string, ReadonlySet<string>>>({})
   const [accepted, setAccepted] = useState<AcceptedEntry[]>([])
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   // Which path is selected in the rail, scoped to the proposal it was recorded against. Derived
@@ -231,17 +244,24 @@ export function ProposalsStandalone({
     })
   }
 
+  // Flips the VIEW between the edit textarea and the diff/preview — it must never touch whether
+  // a draft exists. Entering edit mode for a path with no buffer yet seeds one from the proposal
+  // (first edit); every other toggle just flips membership in `editMode`, leaving `editing`
+  // alone so the draft survives "View diff" and comes back exactly as typed.
   function toggleEdit(p: ProposalRecord): void {
-    const seed =
-      selectedPath === BODY_PATH
-        ? p.content
-        : (p.files?.find((f) => f.path === selectedPath)?.content ?? '')
-    setEditing((prev) => {
-      const forFile = { ...(prev[p.file] ?? {}) }
-      if (selectedPath in forFile) delete forFile[selectedPath]
-      else forFile[selectedPath] = seed
+    const path = selectedPath
+    const hasBuffer = path in (editing[p.file] ?? {})
+    if (!hasBuffer) {
+      const seed =
+        path === BODY_PATH ? p.content : (p.files?.find((f) => f.path === path)?.content ?? '')
+      setEditing((prev) => ({ ...prev, [p.file]: { ...(prev[p.file] ?? {}), [path]: seed } }))
+    }
+    setEditMode((prev) => {
+      const forFile = new Set(prev[p.file] ?? [])
+      if (forFile.has(path)) forFile.delete(path)
+      else forFile.add(path)
       const next = { ...prev }
-      if (Object.keys(forFile).length === 0) delete next[p.file]
+      if (forFile.size === 0) delete next[p.file]
       else next[p.file] = forFile
       return next
     })
@@ -249,12 +269,45 @@ export function ProposalsStandalone({
 
   // A stale draft must not attach to a future same-name re-proposal (same-day re-distill can
   // regenerate the identical filename once the original is archived out of the way) — prune it
-  // on every path that removes `p` from the pending list.
+  // on every path that removes `p` from the pending list. Prunes the view-mode flags with it, so
+  // a resurrected filename can't inherit a stray "showing the textarea" state either.
   function pruneEditing(file: string): void {
     setEditing((prev) => {
       if (!(file in prev)) return prev
       const next = { ...prev }
       delete next[file]
+      return next
+    })
+    setEditMode((prev) => {
+      if (!(file in prev)) return prev
+      const next = { ...prev }
+      delete next[file]
+      return next
+    })
+  }
+
+  // Explicit discard (requirement 4): the only way left to throw a draft away, now that toggling
+  // the view no longer does it implicitly. Confirmed by the caller (ProposalDetail) before this
+  // runs. Also drops edit mode for the path — there is nothing left to show a textarea for.
+  function discardDraft(file: string, path: string): void {
+    setEditing((prev) => {
+      const forFile = prev[file]
+      if (!forFile || !(path in forFile)) return prev
+      const nextForFile = { ...forFile }
+      delete nextForFile[path]
+      const next = { ...prev }
+      if (Object.keys(nextForFile).length === 0) delete next[file]
+      else next[file] = nextForFile
+      return next
+    })
+    setEditMode((prev) => {
+      const forFile = prev[file]
+      if (!forFile?.has(path)) return prev
+      const nextForFile = new Set(forFile)
+      nextForFile.delete(path)
+      const next = { ...prev }
+      if (nextForFile.size === 0) delete next[file]
+      else next[file] = nextForFile
       return next
     })
   }
@@ -361,6 +414,8 @@ export function ProposalsStandalone({
             }))
           }
           onToggleEdit={() => selectedPending && toggleEdit(selectedPending)}
+          isEditing={Boolean(selectedPending && editMode[selectedPending.file]?.has(selectedPath))}
+          onDiscardDraft={() => selectedPending && discardDraft(selectedPending.file, selectedPath)}
           viewMode={viewMode}
           onViewMode={setViewMode}
           position={position}
@@ -374,7 +429,10 @@ export function ProposalsStandalone({
           }
           // A buffer's mere presence is the marker — not diffed against the original — so the
           // rail flags an edit that reverts to the source text too. That's an accepted
-          // over-approximation, not a bug: this task does not build change-detection.
+          // over-approximation, not a bug: this task does not build change-detection. The
+          // buffer now outlives toggling to "View diff" (see `editing` above), so the marker
+          // does too — a reviewer who checks the diff no longer sees the "edited" flag vanish
+          // out from under an edit that is still there.
           editedPaths={
             new Set(Object.keys(selectedPending ? (editing[selectedPending.file] ?? {}) : {}))
           }
