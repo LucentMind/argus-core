@@ -92,6 +92,13 @@ export interface DraftRecord {
    *  Absent for edit-mode drafts, whose identity is the file itself, and absent on a create-mode
    *  record written before this field existed (back-compat; adopted on open, AssetTab.tsx). */
   draftId?: string
+  /** A sibling file inside the skill, POSIX-separated — same meaning as `EditorOpenRequest.file`.
+   *  Without this, a sibling's autosaved buffer would hash to the same `draftKey(kind, name)` as
+   *  the skill's own SKILL.md draft (and every other sibling of the same skill), silently
+   *  colliding on disk. Absent for every draft written before Increment 4, which is why `keyOf`'s
+   *  two-argument form must keep hashing exactly as it did before `file` existed (see its comment
+   *  in main/services/drafts.ts). */
+  file?: string
 }
 
 export type DraftChange = Omit<DraftRecord, 'updatedAt'>

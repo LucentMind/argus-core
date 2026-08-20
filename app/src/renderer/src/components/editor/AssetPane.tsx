@@ -47,6 +47,13 @@ export interface AssetPaneProps {
   /** Skill folder / reference file name. In create mode, the initial value of the name field. */
   initialName: string
   mode: 'edit' | 'create'
+  /** A sibling file inside the skill, POSIX-separated — same meaning as
+   *  `EditorOpenRequest.file`. Absent means this pane is the skill's own SKILL.md (or a
+   *  reference). Fixed for the pane's whole life, exactly like `kind`/`mode`: a sibling tab is
+   *  its own `AssetTab`/`AssetPane` mount (see the file-level doc comment on one-tab-per-file),
+   *  so this never changes under a mounted pane. Drives which disk path `readAsset`/`writeAsset`
+   *  hit and whether Markdown preview is even offered (spec §6 — preview is Markdown-only). */
+  file?: string
   /**
    * Create mode's stable identity, minted once by `AssetTab` when the tab opened — the typed
    * name lives only in the record body, never the storage key (see `keyOf` in
@@ -137,6 +144,7 @@ export function AssetPane({
   kind,
   initialName,
   mode,
+  file,
   draftId,
   initialDoc,
   initialBaseline,
@@ -182,6 +190,18 @@ export function AssetPane({
   const [references, setReferences] = useState<{ query: string; hits: ReferenceHit[] } | null>(null)
   const [searching, setSearching] = useState(false)
   const [dockTab, setDockTab] = useState<DockTab>('problems')
+
+  // Preview is Markdown-only (spec §6). A sibling script has no preview, so the toggle would be
+  // a control that does nothing — and `viewMode` must not be able to strand the pane in a blank
+  // preview (or a `split` half showing one) for a file that can never render one. `file` is fixed
+  // for the pane's whole life (see its doc comment above), so `markdown` never changes either.
+  const markdown = !file || file.toLowerCase().endsWith('.md')
+  // `prefs.viewMode` is the raw, PERSISTED preference — shared across every open tab, because it
+  // lives in `localStorage`, not per-tab state. A non-Markdown pane must not simply refuse to
+  // enter Split/Preview going forward; it must also tolerate having MOUNTED with one already
+  // selected (a Markdown tab set it, then this tab opened) rather than rendering a blank preview
+  // pane. This is the value every render below reads instead of `prefs.viewMode` directly.
+  const effectiveViewMode: ViewMode = markdown ? prefs.viewMode : 'editor'
 
   const setViewMode = useCallback((viewMode: ViewMode) => {
     writePrefs({ viewMode })
@@ -279,13 +299,18 @@ export function AssetPane({
         }),
       cycleViewMode: () =>
         setPrefs((p) => {
+          // Reached by both the header button (when `markdown` renders it) and the CodeMirror
+          // keymap/window-level Ctrl+... fallback (which has no button to gate) — a non-Markdown
+          // pane has nothing to cycle to, so this is a no-op there rather than landing on a
+          // preview it can never show.
+          if (!markdown) return p
           const viewMode = nextViewMode(p.viewMode)
           writePrefs({ viewMode })
           return { ...p, viewMode }
         }),
       openLink: (f) => onOpenLinkRef.current(f)
     }),
-    []
+    [markdown]
   )
 
   const runId = useRef(0)
@@ -332,29 +357,33 @@ export function AssetPane({
       // that flips it the other way.
       if (readOnly) return
       draftFiled.current = true
-      // Create mode's identity is `draftId`, carried on every write; edit mode's is kind+name,
-      // already in `args.name`. See `keyOf` in main/services/drafts.ts for why the two schemes
-      // differ — `replaces` (the old rename re-key routing) is gone, because a rename no longer
-      // moves the storage key at all.
+      // Create mode's identity is `draftId`, carried on every write; edit mode's is kind+name(+
+      // file), already in `args.name`/`file`. See `keyOf` in main/services/drafts.ts for why the
+      // two schemes differ — `replaces` (the old rename re-key routing) is gone, because a rename
+      // no longer moves the storage key at all. `file` is spread in rather than always included
+      // so a SKILL.md tab's payload is byte-identical to what it always sent.
       window.argus.editor.draftChanged({
         kind,
         mode,
         ...args,
+        ...(file ? { file } : {}),
         ...(mode === 'create' ? { draftId } : {})
       })
     },
-    [kind, mode, draftId, readOnly]
+    [kind, mode, draftId, readOnly, file]
   )
 
   const dropDraft = useCallback(
     (name: string): void => {
       draftFiled.current = false
       setDraftAt(null)
-      // Create mode discards by `draftId`; `name` is only meaningful for edit mode's kind+name
-      // identity (see `keyOf` in main/services/drafts.ts).
-      void window.argus.editor.discardDraft(mode === 'create' ? { draftId } : { kind, name })
+      // Create mode discards by `draftId`; `name`(+`file`) is only meaningful for edit mode's
+      // kind+name(+file) identity (see `keyOf` in main/services/drafts.ts).
+      void window.argus.editor.discardDraft(
+        mode === 'create' ? { draftId } : { kind, name, ...(file ? { file } : {}) }
+      )
     },
-    [kind, mode, draftId]
+    [kind, mode, draftId, file]
   )
 
   /** Replace the document *and* declare what the new "no unsaved work" text is, in that order. */
@@ -413,10 +442,18 @@ export function AssetPane({
 
   const issues: ValidationIssue[] = useMemo(
     () =>
-      kind === 'skill'
-        ? validateSkill({ name, content: doc })
-        : validateReference({ file: name, content: doc }),
-    [kind, name, doc]
+      // `validateSkill`/`validateReference` both assume they are looking at the asset's own body
+      // (frontmatter, a `name:` matching the folder, …) — rules a sibling script or template was
+      // never written to satisfy. Running them here would block Save on "Missing frontmatter" for
+      // every non-Markdown sibling, and misjudge a Markdown one by SKILL.md's rules instead of
+      // its own. Per-file validation is Task 6's; until it lands, a sibling has none rather than
+      // being judged against a schema that isn't its.
+      file
+        ? []
+        : kind === 'skill'
+          ? validateSkill({ name, content: doc })
+          : validateReference({ file: name, content: doc }),
+    [file, kind, name, doc]
   )
   const blocked = hasErrors(issues)
 
@@ -504,7 +541,7 @@ export function AssetPane({
     const savedContent = docRef.current
     const savedAs = name
     try {
-      const newHash = await writeAsset(kind, savedAs, savedContent, baseHashRef.current)
+      const newHash = await writeAsset(kind, savedAs, savedContent, baseHashRef.current, file)
       if (!liveRef.current) return
       // Adopt before anything else: the next save has to be measured against what this write
       // just put on disk, not the hash it started from.
@@ -542,7 +579,7 @@ export function AssetPane({
     } catch (e) {
       // Classified by re-reading disk, not by matching main's message: that text is not an API,
       // and the create-mode name collision is thrown from the same hash comparison.
-      const disk = await readAsset(kind, savedAs)
+      const disk = await readAsset(kind, savedAs, file)
       if (!liveRef.current) return
       if (isConflict(baseHashRef.current, disk)) {
         setBanner({ kind: 'conflict', disk: disk! })
@@ -608,7 +645,7 @@ export function AssetPane({
 
   const discardDraft = useCallback(async (): Promise<void> => {
     dropDraft(filedAsRef.current)
-    const disk = await readAsset(kind, filedAsRef.current)
+    const disk = await readAsset(kind, filedAsRef.current, file)
     if (!liveRef.current) return
     setBanner({ kind: 'none' })
     if (disk) {
@@ -631,7 +668,7 @@ export function AssetPane({
     // Increment 2 had to unmount the editor before these awaits, because a keystroke landing
     // mid-flight would be silently reverted by the remount that followed. That hazard is gone:
     // this is a transaction, so anything typed in the gap is one Ctrl+Z away rather than lost.
-  }, [kind, mode, name, template, applyContent, dropDraft])
+  }, [kind, mode, name, file, template, applyContent, dropDraft])
 
   const apply = useCallback(
     (action: ConflictAction): void => {
@@ -682,7 +719,7 @@ export function AssetPane({
       // A banner already up means the user is mid-decision; do not move the ground under them.
       if (bannerRef.current.kind !== 'none') return
       void (async () => {
-        const disk = await readAsset(kind, filedAsRef.current)
+        const disk = await readAsset(kind, filedAsRef.current, file)
         if (!liveRef.current || !disk) return
         if (bannerRef.current.kind !== 'none') return
         const next = onExternalChange({
@@ -701,7 +738,7 @@ export function AssetPane({
     check()
     window.addEventListener('focus', check)
     return () => window.removeEventListener('focus', check)
-  }, [kind, active, applyContent])
+  }, [kind, active, applyContent, file])
 
   // Read once, at mount — same discipline as `docRef`/`baselineRef` above, and for a sharper
   // reason here: the next task plugs in the *live* per-tab view state, which updates on every
@@ -833,7 +870,10 @@ export function AssetPane({
       // `filedAsRef`, not `name`: edit-mode identity is the name the draft was FILED under, which
       // is what `dropDraft` above uses for the same reason. Create mode ignores it entirely and
       // keys on `draftId` (see `keyOf` in main/services/drafts.ts).
-      draftRef: () => (mode === 'create' ? { draftId } : { kind, name: filedAsRef.current }),
+      draftRef: () =>
+        mode === 'create'
+          ? { draftId }
+          : { kind, name: filedAsRef.current, ...(file ? { file } : {}) },
       cycleViewMode: () => surfaceCommands.cycleViewMode(),
       changeFontSize: (delta) => surfaceCommands.changeFontSize(delta),
       toggleWrap: () => surfaceCommands.toggleWrap(),
@@ -847,7 +887,7 @@ export function AssetPane({
     // unnecessary. `kind`/`mode`/`draftId` feed `draftRef` and are all stable for the life of the
     // pane (two props fixed by the tab, one `useState` minted at mount), so listing them costs no
     // churn — they are here to satisfy exhaustive-deps honestly rather than by omission.
-    [surfaceCommands, findReferences, kind, mode, draftId]
+    [surfaceCommands, findReferences, kind, mode, draftId, file]
   )
 
   // `useAssistProvider` (`../library/assistProvider.ts`) calls `assistProviderLabel` unmemoized on
@@ -874,7 +914,10 @@ export function AssetPane({
       hasDraft: draftAt !== null,
       canDraft: mode === 'create' && describe.trim() !== '' && providerOk !== false,
       canImprove: doc.trim() !== '' && providerOk !== false,
-      viewMode: prefs.viewMode,
+      // `effectiveViewMode`, not `prefs.viewMode`: the window's own state (the header toggle's
+      // label, any future consumer) must agree with what this pane actually rendered, not with a
+      // stranded preference this non-Markdown pane refused to honour.
+      viewMode: effectiveViewMode,
       wrap: prefs.wrap
     }),
     [
@@ -887,7 +930,7 @@ export function AssetPane({
       describe,
       doc,
       providerOk,
-      prefs.viewMode,
+      effectiveViewMode,
       prefs.wrap
     ]
   )
@@ -927,9 +970,15 @@ export function AssetPane({
   // a command concern. Only `enabled` and `run` come from the descriptor.
   const viewCmd = cmdFor('cycleViewMode', {
     // buildCommands: `idle` — not gated on `readOnly` (viewing a protected asset in Preview is
-    // fine), but still gated on `busy`, which this fallback used to omit.
+    // fine), but still gated on `busy`, which this fallback used to omit. Not gated on `markdown`
+    // either, matching `buildCommands`: the button stays enabled for a non-Markdown sibling (the
+    // status bar's own cycle control has no `markdown` to check), and `run` below is the no-op —
+    // the same guard `surfaceCommands.cycleViewMode` applies, restated here for the same reason
+    // every other fallback in this block is.
     enabled: !busy && proposed === null,
-    run: () => setViewMode(nextViewMode(prefs.viewMode))
+    run: () => {
+      if (markdown) setViewMode(nextViewMode(prefs.viewMode))
+    }
   })
   const draftCmd = cmdFor('draft', {
     // buildCommands: `writable && p.mode === 'create' && p.canDraft`, where `p.canDraft` is
@@ -975,11 +1024,15 @@ export function AssetPane({
         actionSlot !== null &&
         createPortal(
           <span className="flex items-center gap-2">
-            {viewCmd && (
+            {/* `markdown`: a non-Markdown sibling has nothing to toggle to (spec §6 — preview is
+                Markdown-only), so the control itself is omitted rather than offered disabled or
+                left to cycle to a blank preview. See the `markdown`/`effectiveViewMode` comment
+                above. */}
+            {viewCmd && markdown && (
               <Btn variant="ghost" disabled={!viewCmd.enabled} onClick={viewCmd.run}>
-                {prefs.viewMode === 'editor'
+                {effectiveViewMode === 'editor'
                   ? 'Split'
-                  : prefs.viewMode === 'split'
+                  : effectiveViewMode === 'split'
                     ? 'Preview'
                     : 'Edit'}
               </Btn>
@@ -1013,7 +1066,7 @@ export function AssetPane({
             // field above.
             className="min-w-0 flex-1 rounded-r2 bg-well px-2 py-1 text-xs outline-none placeholder:text-faint"
           />
-          {proposed === null && prefs.viewMode !== 'preview' && draftCmd && (
+          {proposed === null && effectiveViewMode !== 'preview' && draftCmd && (
             <Btn variant="outline" disabled={!draftCmd.enabled} onClick={draftCmd.run}>
               <Sparkles size={13} aria-hidden="true" />
               Draft
@@ -1157,7 +1210,7 @@ export function AssetPane({
         aria-hidden={overlay || undefined}
       >
         <EditorPane
-          viewMode={prefs.viewMode}
+          viewMode={effectiveViewMode}
           splitFraction={prefs.splitFraction}
           onSplitFraction={(splitFraction) => {
             writePrefs({ splitFraction })
@@ -1223,7 +1276,7 @@ export function AssetPane({
         issues={issues}
         sync={sync}
         draftAt={draftAt}
-        viewMode={prefs.viewMode}
+        viewMode={effectiveViewMode}
         // Finding 1: routed through the SAME descriptor as the header's Split/Preview button
         // (`viewCmd`, from `cmdFor` above), not a second, ungated call to `setViewMode` — this
         // status-bar control renders OUTSIDE the `inert` overlay wrapper below, so while a

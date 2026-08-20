@@ -106,6 +106,10 @@ export class DraftStore {
       content: change.content,
       baseHash: change.baseHash,
       ...(change.draftId ? { draftId: change.draftId } : {}),
+      // Carried through so a sibling's record is distinguishable from its skill's own on disk —
+      // see `DraftRecord.file`'s doc comment. `keyOf` above already reads it off `change` when no
+      // `draftId` is present, so this is the only line that needed to change here.
+      ...(change.file ? { file: change.file } : {}),
       updatedAt: this.now().toISOString()
     })
     this.cancel(key)
