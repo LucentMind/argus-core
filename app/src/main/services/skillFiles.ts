@@ -179,10 +179,25 @@ export function writeSkillFile(
     throw new Error(`"${relPath}" was deleted or renamed since you opened it`)
   }
 
-  if (!prior && existing.length >= MAX_ASSET_FILES) {
+  // `!prior` would be case-insensitive here too (it's just `prior` from :159), but that's the
+  // wrong signal for THIS check on a case-sensitive filesystem: `prior` can be truthy for a
+  // same-named-but-different-case sibling that never collided on disk (`onDisk` came back null,
+  // see :166), which is a genuine new file, not an overwrite. `onDisk` is the corrected signal —
+  // it reflects whether this write actually lands on an existing file, so the file-count cap
+  // can't be stepped over on a case-sensitive volume, while an overwrite on a case-insensitive
+  // one (where `onDisk` is non-null) still correctly skips the cap.
+  if (!onDisk && existing.length >= MAX_ASSET_FILES) {
     throw new Error(`a skill may carry at most ${MAX_ASSET_FILES} files`)
   }
-  const total = existing.reduce((n, f) => (f.relPath === relPath ? n : n + f.bytes), 0) + bytes
+  // Case-insensitive, matching `prior` at :159: on a case-insensitive filesystem the file being
+  // overwritten may be listed under different casing than `relPath`, so an exact-case compare
+  // here would fail to exclude it and double-count its bytes toward the total — which could
+  // refuse a legitimate write near the 256 KB cap.
+  const total =
+    existing.reduce(
+      (n, f) => (f.relPath.toLowerCase() === relPath.toLowerCase() ? n : n + f.bytes),
+      0
+    ) + bytes
   if (total > MAX_ASSET_TOTAL_BYTES) {
     throw new Error(
       `the files would total ${total} bytes; the limit is ${MAX_ASSET_TOTAL_BYTES} (256 KB)`

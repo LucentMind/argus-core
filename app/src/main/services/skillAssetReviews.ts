@@ -70,7 +70,11 @@ export function dropSkillAssetReviews(db: DatabaseSync, skill: string): void {
  *  is already safe without this: `assetReviewState` keys on `(skill, rel_path)` AND compares the
  *  sha256, so a stale row can only ever come back `reviewed` for content byte-identical to what a
  *  human approved at that exact path — a leftover row cannot forge approval for different bytes.
- *  Still, an orphan row for a file that no longer exists is dead weight worth cleaning up. */
+ *  Still, an orphan row for a file that no longer exists is dead weight worth cleaning up.
+ *  Also subject to the KNOWN IMPRECISION above: since the key carries no tier, deleting
+ *  `skill/rel_path` from the user-tier copy drops the same row a hivemind-tier skill of the same
+ *  name was reading — the safe direction (that copy falls back to `unreviewed`, costing one extra
+ *  approval, never a forged one). */
 export function dropSkillAssetReview(db: DatabaseSync, skill: string, relPath: string): void {
   db.prepare(`DELETE FROM skill_asset_reviews WHERE skill = ? AND rel_path = ?`).run(skill, relPath)
 }
@@ -78,7 +82,11 @@ export function dropSkillAssetReview(db: DatabaseSync, skill: string, relPath: s
 /** Called when a single sibling is renamed. `(skill, rel_path)` is the row's unique key, so a
  *  blind UPDATE risks a constraint violation if an orphan row already sits at the destination
  *  path (e.g. left by a delete that predates the `dropSkillAssetReview` fix) — clear that first,
- *  same as `renameSkillFile` refuses a rename onto a path that already has a FILE. */
+ *  same as `renameSkillFile` refuses a rename onto a path that already has a FILE.
+ *  Also subject to the KNOWN IMPRECISION above: the DELETE-then-UPDATE both filter on `skill`
+ *  alone with no tier column, so renaming the user-tier copy's file can drop or repoint the row a
+ *  same-named hivemind-tier skill was reading — again the safe direction, since a surviving row
+ *  can only read back `reviewed` for byte-identical content at that exact path. */
 export function renameSkillAssetReview(
   db: DatabaseSync,
   skill: string,
