@@ -7,6 +7,7 @@ import {
 } from './skillFrontmatter'
 import { MODES } from './modes'
 import { REF_TARGET_RE, REFERENCES_INDEX } from './referenceSync'
+import { assetPathError, MAX_ASSET_FILE_BYTES } from './skillAssets'
 
 /**
  * Legal skill-directory / reference-target name. Originally `NAME_RE` in
@@ -135,6 +136,31 @@ export function validateReference(input: { file: string; content: string }): Val
   }
   if (!content.trim()) {
     issues.push({ severity: 'error', message: 'The file is empty.' })
+  }
+  return issues
+}
+
+/**
+ * The §2 checks for a skill's sibling file. `validateSkill` is frontmatter-shaped and has
+ * nothing to say about a `.sh`; these are the rules that actually bind a sibling.
+ *
+ * No `line` is set on any issue: both checks are about the file as a whole, and a bogus line
+ * number would scroll the editor somewhere meaningless.
+ */
+export function validateSkillFile(input: {
+  relPath: string
+  content: string
+}): ValidationIssue[] {
+  const issues: ValidationIssue[] = []
+  const bad = assetPathError(input.relPath)
+  if (bad) issues.push({ severity: 'error', message: bad })
+  // TextEncoder, not Buffer — this module is imported by the renderer.
+  const bytes = new TextEncoder().encode(input.content).length
+  if (bytes > MAX_ASSET_FILE_BYTES) {
+    issues.push({
+      severity: 'error',
+      message: `${bytes} bytes; the limit is ${MAX_ASSET_FILE_BYTES} (64 KB) per file`
+    })
   }
   return issues
 }

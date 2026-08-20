@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { validateSkill, validateReference, hasErrors } from '../assetValidation'
+import { validateSkill, validateReference, validateSkillFile, hasErrors } from '../assetValidation'
+import { MAX_ASSET_FILE_BYTES } from '../skillAssets'
 
 const good = [
   '---',
@@ -126,5 +127,39 @@ describe('validateReference', () => {
 
   it('rejects empty content', () => {
     expect(hasErrors(validateReference({ file: 'notes.md', content: '   ' }))).toBe(true)
+  })
+})
+
+describe('validateSkillFile', () => {
+  it('accepts an ordinary sibling', () => {
+    expect(validateSkillFile({ relPath: 'scripts/collect.sh', content: 'echo hi\n' })).toEqual([])
+  })
+
+  it('reports an illegal path as an error, with the shared rule message', () => {
+    const issues = validateSkillFile({ relPath: '../escape.sh', content: 'x\n' })
+    expect(issues).toHaveLength(1)
+    expect(issues[0].severity).toBe('error')
+    expect(issues[0].message).toMatch(/relative|\.\./i)
+  })
+
+  it('reports a file over the per-file byte cap', () => {
+    const issues = validateSkillFile({
+      relPath: 'big.txt',
+      content: 'x'.repeat(MAX_ASSET_FILE_BYTES + 1)
+    })
+    expect(issues.some((i) => i.severity === 'error' && /limit/i.test(i.message))).toBe(true)
+  })
+
+  // TextEncoder, not Buffer: this module is imported by the renderer, where Buffer is a Node
+  // global that does not exist and is not polyfilled — and jsdom cannot see that, because the
+  // tests run under Node.
+  it('measures the cap in UTF-8 bytes, not characters', () => {
+    const justUnder = '✓'.repeat(Math.floor(MAX_ASSET_FILE_BYTES / 3))
+    expect(validateSkillFile({ relPath: 'a.txt', content: justUnder })).toEqual([])
+    expect(
+      validateSkillFile({ relPath: 'a.txt', content: justUnder + '✓✓' }).some(
+        (i) => i.severity === 'error'
+      )
+    ).toBe(true)
   })
 })
