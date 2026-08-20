@@ -5,6 +5,7 @@ import { act, render, screen, waitFor, fireEvent, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { AssetPane } from '../AssetPane'
+import { tabLabel } from '../tabs'
 import { PaneActionSlotContext } from '../paneActionSlot'
 import type { CursorInfo, SurfaceHandle } from '../surface'
 import type { SurfaceCommands } from '../extensions/keymap'
@@ -250,7 +251,9 @@ function mount(
     onDirtyChange,
     onNameChange,
     onViewStateChange,
-    surface: screen.getByLabelText(`${props.kind} · ${props.initialName}`),
+    surface: screen.getByLabelText(
+      `${props.kind} · ${tabLabel({ name: props.initialName, file: props.file })}`
+    ),
     rerender
   }
 }

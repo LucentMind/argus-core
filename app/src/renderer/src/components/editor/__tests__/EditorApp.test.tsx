@@ -1135,7 +1135,17 @@ describe('tab-set restore', () => {
         activeIndex: 0
       })
     )
-    await waitFor(() => expect(screen.getAllByRole('tab', { name: DOC_TAB })).toHaveLength(2))
+    const tabs = await waitFor(() => {
+      const t = screen.getAllByRole('tab', { name: DOC_TAB })
+      expect(t).toHaveLength(2)
+      return t
+    })
+    // C1: the two tabs must also be DISTINGUISHABLE, not just counted — before the fix both read
+    // the bare skill name (`skill · my-skill (tab)`) and were indistinguishable to a screen
+    // reader, by keyboard, or on screen.
+    const names = tabs.map((t) => t.getAttribute('aria-label'))
+    expect(new Set(names).size).toBe(2)
+    expect(names.some((n) => n?.includes('my-skill/reference.md'))).toBe(true)
   })
 
   // Companion regression for the same finding's other half: the persist effect used to rebuild

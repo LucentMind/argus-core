@@ -63,6 +63,17 @@ export function tabPanelElementId(id: string): string {
   return `tabpanel-${id}`
 }
 
+/**
+ * The label a tab shows and is identified by, everywhere: the strip text, the tab's accessible
+ * name, its close button, the all-tabs dropdown row, and the surface's own `aria-label`. One
+ * derivation in one place is what C1's fix is — before this, every display surface showed the
+ * skill name alone, so a skill's SKILL.md tab and its sibling script tabs were indistinguishable
+ * visually, by keyboard, and to a screen reader.
+ */
+export function tabLabel(t: Pick<Tab, 'name' | 'file'>): string {
+  return t.file ? `${t.name}/${t.file}` : t.name
+}
+
 /** Spec §6.1's "one tab per asset". Reads the tab's CURRENT name, so a create-mode rename is
  *  immediately visible to it. */
 function sameAsset(t: Tab, req: EditorOpenRequest): boolean {

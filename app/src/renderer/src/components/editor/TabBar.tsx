@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, X } from 'lucide-react'
-import { tabElementId, tabPanelElementId, type Tab } from './tabs'
+import { tabElementId, tabLabel, tabPanelElementId, type Tab } from './tabs'
 
 export interface TabBarProps {
   tabs: Tab[]
@@ -92,6 +92,7 @@ export function TabBar({
       >
         {tabs.map((t) => {
           const active = t.id === activeId
+          const label = tabLabel(t)
           return (
             <div
               key={t.id}
@@ -112,7 +113,7 @@ export function TabBar({
               // (this div, always — it renders synchronously; the surface waits on `AssetTab`'s
               // async resolve), not a "sometimes" bug but a deterministic wrong-element match.
               // A suffix, not a prefix: `TabBar.test.tsx` anchors its kind/name regex at `^`.
-              aria-label={`${t.kind} · ${t.name}${t.dirty ? ' · unsaved changes' : ''} (tab)`}
+              aria-label={`${t.kind} · ${label}${t.dirty ? ' · unsaved changes' : ''} (tab)`}
               onClick={() => onActivate(t.id)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -124,11 +125,11 @@ export function TabBar({
                 active ? 'bg-panel text-ink' : 'text-dim hover:text-ink'
               }`}
             >
-              <span className="max-w-[14rem] truncate font-mono">{t.name}</span>
+              <span className="max-w-[14rem] truncate font-mono">{label}</span>
               {t.dirty && <span aria-hidden="true" className="size-1.5 rounded-full bg-review" />}
               <button
                 type="button"
-                aria-label={`Close ${t.name}`}
+                aria-label={`Close ${label}`}
                 // A nested native <button> stays a tab stop regardless of its ancestor's
                 // tabIndex, so without pinning this to the tab's own roving state, every close
                 // button would be reachable via Tab even when its tab is not — incoherent, and
@@ -184,7 +185,7 @@ export function TabBar({
                     t.id === activeId ? 'text-ink' : 'text-dim'
                   }`}
                 >
-                  {t.name}
+                  {tabLabel(t)}
                 </button>
               ))}
             </div>

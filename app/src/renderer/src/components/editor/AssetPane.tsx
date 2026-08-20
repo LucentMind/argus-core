@@ -12,6 +12,7 @@ import { EditorPane } from './EditorPane'
 import { FileNameDialog } from './FileNameDialog'
 import { PreviewPane } from './PreviewPane'
 import { StatusBar, type SyncState } from './StatusBar'
+import { tabLabel } from './tabs'
 import { usePaneActionSlot } from './paneActionSlot'
 import { readAsset, writeAsset } from './assetIo'
 import type { SurfaceCommands } from './extensions/keymap'
@@ -1330,7 +1331,7 @@ export function AssetPane({
             <CodeSurface
               ref={surfaceRef}
               initialDoc={initialDoc}
-              ariaLabel={`${kind} · ${initialName}`}
+              ariaLabel={`${kind} · ${tabLabel({ name: initialName, file })}`}
               issues={issues}
               fontSize={prefs.fontSize}
               wrap={prefs.wrap}
