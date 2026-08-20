@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { ApprovalCard } from '../ApprovalCard'
@@ -288,10 +288,12 @@ describe('skill asset run gate', () => {
 
   it('names the skill and the file', () => {
     render(<ApprovalCard slug="NAV-1" sessionId={1} request={assetRequest()} />)
-    expect(screen.getByText(/collect-logs/)).toBeTruthy()
-    // getAllByText, not getByText: the fixture's argsPreview ('bash scripts/collect.sh') also
-    // contains the relPath, so both the notice and the read-only command preview match.
-    expect(screen.getAllByText(/scripts\/collect\.sh/).length).toBeGreaterThan(0)
+    const notice = screen.getByTestId('skill-asset-notice')
+    expect(within(notice).getByText(/collect-logs/)).toBeTruthy()
+    // Scoped to the notice itself: the fixture's argsPreview ('bash scripts/collect.sh') also
+    // contains the relPath and renders in the card's separate read-only command preview, so an
+    // unscoped query would pass even if the notice never rendered relPath at all.
+    expect(within(notice).getByText(/scripts\/collect\.sh/)).toBeTruthy()
   })
 
   it.each([
