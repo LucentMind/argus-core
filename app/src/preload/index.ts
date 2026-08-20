@@ -51,6 +51,7 @@ import type {
 } from '../shared/relatedHistory'
 import type { SourceControlStatus } from '../shared/sourcecontrol'
 import type { AgentAccessPayload } from '../shared/agentAccess'
+import type { SkillFileEntry, SkillFileRead, SkillFileWriteResult } from '../shared/skillFilesIpc'
 import type {
   MemoryTopicsPayload,
   MemoryAuditEntry,
@@ -615,6 +616,20 @@ const argus = {
     read: (name: string): Promise<SkillReadPayload> => invoke(IPC.skillsRead, name),
     write: (name: string, content: string, baseHash: string | null): Promise<SkillsWriteResult> =>
       invoke(IPC.skillsWrite, name, content, baseHash),
+    listFiles: (name: string): Promise<SkillFileEntry[]> => invoke(IPC.skillsListFiles, name),
+    readFile: (name: string, relPath: string): Promise<SkillFileRead | null> =>
+      invoke(IPC.skillsReadFile, name, relPath),
+    writeFile: (
+      name: string,
+      relPath: string,
+      content: string,
+      baseHash: string | null
+    ): Promise<SkillFileWriteResult> =>
+      invoke(IPC.skillsWriteFile, name, relPath, content, baseHash),
+    deleteFile: (name: string, relPath: string): Promise<void> =>
+      invoke(IPC.skillsDeleteFile, name, relPath),
+    renameFile: (name: string, from: string, to: string): Promise<void> =>
+      invoke(IPC.skillsRenameFile, name, from, to),
     fork: (name: string, newName?: string): Promise<{ name: string; skills: SkillListItem[] }> =>
       invoke(IPC.skillsFork, name, newName),
     scanImport: (source: SkillImportSource): Promise<SkillImportCandidate[]> =>

@@ -75,6 +75,11 @@ export const IPC = {
   skillsRead: 'skills:read',
   skillsWrite: 'skills:write',
   skillsFork: 'skills:fork',
+  skillsListFiles: 'skills:listFiles',
+  skillsReadFile: 'skills:readFile',
+  skillsWriteFile: 'skills:writeFile',
+  skillsDeleteFile: 'skills:deleteFile',
+  skillsRenameFile: 'skills:renameFile',
   /** renderer → main: scan a Claude Code skills directory (global `~/.claude/skills`, or a
    *  project's `<dir>/.claude/skills`) for skills that could be imported into the Library. */
   skillsImportScan: 'skills:import-scan',

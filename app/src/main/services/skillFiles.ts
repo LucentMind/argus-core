@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { DatabaseSync } from 'node:sqlite'
 import { TIERS } from './agent/skillsResolver'
 import {
   assetPathError,
@@ -10,7 +11,7 @@ import {
   MAX_ASSET_TOTAL_BYTES
 } from '../../shared/skillAssets'
 import type { SkillAssetTier } from '../../shared/skillAssets'
-import { sha256Hex } from './skillAssetReviews'
+import { recordAssetReviews, sha256Hex } from './skillAssetReviews'
 import type {
   SkillFileEntry,
   SkillFileRead,
@@ -195,4 +196,36 @@ export function renameSkillFile(argusHome: string, skill: string, from: string, 
   if (fs.existsSync(dst)) throw new Error(`"${to}" already exists`)
   fs.mkdirSync(path.dirname(dst), { recursive: true })
   fs.renameSync(src, dst)
+}
+
+export interface SkillFileSaveDeps {
+  argusHome: string
+  db: DatabaseSync
+  /** `Identity.name`, not the identity object — matching what `acceptProposal` passes. */
+  reviewedBy: string | null
+}
+
+/**
+ * Write a sibling and, if it is executable, record that a human here approved these exact bytes
+ * (spec §7.1 — "authoring is reviewing").
+ *
+ * The row is what increment 3's run gate reads: without it, the author's own script would prompt
+ * as `unreviewed` the first time the agent ran it. The write happens first and can throw, so a
+ * refused write never leaves a row claiming bytes that were never stored.
+ */
+export function saveSkillFile(
+  deps: SkillFileSaveDeps,
+  skill: string,
+  relPath: string,
+  content: string,
+  baseHash: string | null
+): SkillFileWriteResult {
+  const result = writeSkillFile(deps.argusHome, skill, relPath, content, baseHash)
+  if (result.executable) {
+    recordAssetReviews(deps.db, skill, [{ relPath, content }], {
+      origin: 'editor',
+      reviewedBy: deps.reviewedBy
+    })
+  }
+  return result
 }
