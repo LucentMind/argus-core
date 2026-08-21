@@ -659,3 +659,27 @@ describe('IngestQueue', () => {
     expect(items.map((e) => e.phase)).toEqual(['indexing', 'extracting', 'done'])
   })
 })
+
+describe('isIdle', () => {
+  it('is idle before anything is enqueued', () => {
+    const { queue } = harness()
+    expect(queue.isIdle()).toBe(true)
+  })
+
+  it('is not idle while a job is draining', async () => {
+    let release!: () => void
+    const { queue } = harness({
+      extract: () =>
+        new Promise<boolean>((resolve) => {
+          release = () => resolve(false)
+        })
+    })
+
+    queue.enqueue({ caseSlug: 'Q-1', evidenceId: 1, absPath: 'nowhere', size: 0, index: false })
+    await Promise.resolve()
+    expect(queue.isIdle()).toBe(false)
+    release()
+    await queue.idle()
+    expect(queue.isIdle()).toBe(true)
+  })
+})

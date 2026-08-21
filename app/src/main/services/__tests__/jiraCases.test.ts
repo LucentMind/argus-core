@@ -130,7 +130,8 @@ function service(
         const rec = listEvidence(db, job.caseSlug, 'all').find((e) => e.id === job.evidenceId)
         if (rec) extractions.push(extractDerivedText(db, argusHome, immediate, rec, extractors))
       },
-      abort: (id) => immediate.abort(id)
+      abort: (id) => immediate.abort(id),
+      isIdle: () => immediate.isIdle()
     },
     emitProgress: (p) => progress.push(p),
     evidenceChanged: (slug) => changed.push(slug),

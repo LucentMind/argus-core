@@ -44,7 +44,7 @@ function insert(relPath: string, indexState: string): number {
 
 function recordingQueue(): IngestQueueLike & { jobs: IngestJob[] } {
   const jobs: IngestJob[] = []
-  return { jobs, enqueue: (j) => jobs.push(j), abort: () => {} }
+  return { jobs, enqueue: (j) => jobs.push(j), abort: () => {}, isIdle: () => true }
 }
 
 describe('requeuePendingIndexes', () => {
