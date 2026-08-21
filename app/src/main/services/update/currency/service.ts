@@ -18,15 +18,15 @@ const DEFAULT_TICK_MS = 60_000
  * second whole-branch review — the gh split narrowed this grace to `auth` alone, when before the
  * split all four `GhError` kinds arrived collapsed into `{ kind: 'auth' }` and were covered).
  *
- * `notfound` (`gh` answered HTTP 404) belongs here: GitHub answers identically for "no such repo"
+ * `gh-notfound` (`gh` answered HTTP 404) belongs here: GitHub answers identically for "no such repo"
  * and "a transient permission blip / an SSO re-authorization the org just required", so badging on
  * the first sighting would light up the TopBar count, the Sources nav dot and the reason line for
  * a perfectly healthy pack over one flaky check.
  *
- * `missing` (gh not installed / not on PATH) is deliberately NOT here: that is deterministic —
+ * `gh-missing` (gh not installed / not on PATH) is deliberately NOT here: that is deterministic —
  * either the binary is on PATH or it is not — so there is no flaky-network shape to wait out.
  */
-const GRACE_KINDS: ReadonlySet<BlockedReason['kind']> = new Set(['auth', 'notfound'])
+const GRACE_KINDS: ReadonlySet<BlockedReason['kind']> = new Set(['auth', 'gh-notfound'])
 
 export interface CurrencyServiceDeps {
   adapters: CurrencyAdapter[]
@@ -74,7 +74,7 @@ export class CurrencyService {
   /** Serializes every write, auto and manual alike. */
   private lock: Promise<unknown> = Promise.resolve()
   /**
-   * Consecutive surveys in which an adapter reported a GRACE_KINDS block (`auth` or `notfound`).
+   * Consecutive surveys in which an adapter reported a GRACE_KINDS block (`auth` or `gh-notfound`).
    * An expired `gh` sign-in or a 404 from a transient permission blip is a decision only the user
    * can act on, but both present exactly like a flaky network check — so either is shown on the
    * SECOND consecutive sighting, not the first. Name kept as `authStrikes` (pre-dates the gh error
@@ -282,7 +282,7 @@ export class CurrencyService {
       } else if (outcome.reason) {
         // A refusal at apply time is the adapter re-deriving and finding the world moved — it
         // becomes a decision for the user, not a write to retry next tick. A grace-kind refusal
-        // (`auth`, `notfound`) is the exception: it presents exactly like a flaky `gh` call, so it
+        // (`auth`, `gh-notfound`) is the exception: it presents exactly like a flaky `gh` call, so it
         // goes through the same two-strike grace as a survey-time one instead of badging the user
         // on its first sighting.
         const show = !GRACE_KINDS.has(outcome.reason.kind) || this.noteApplyAuthStrike(adapter.id)
