@@ -3212,7 +3212,15 @@ function registerIpc(): void {
         // through `currency.surveyNow('packs', true)`) writes to disk and flips the row to
         // up-to-date with no "relaunch to finish" prompt, since `relaunchRequired` is driven
         // entirely by `packsTouched.size` (Important 5, whole-branch review).
-        onInstalled: (id) => packsTouched.add(id)
+        //
+        // Also broadcasts `packsChanged`, matching the hive adapter's `onInstalled` below — without
+        // it, a background-tick install (no caller left to `await currency.surveyNow(...)` and
+        // `refresh()` afterwards, unlike the manual paths) leaves the Packs page showing the old
+        // `installedVersion` and no relaunch banner until the user navigates away and back.
+        onInstalled: (id) => {
+          packsTouched.add(id)
+          broadcast(IPC.packsChanged, undefined)
+        }
       }),
       createHiveAdapter({
         service: hivemind,
