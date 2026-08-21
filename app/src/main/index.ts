@@ -993,12 +993,17 @@ function registerIpc(): void {
     argusHome,
     timeoutMs: DISTILL_AGENT_TIMEOUT_MS // 30 min — quality-first backstop, tuned later from §8 data
   })
+  // Forward ref: `hivemind` cannot be built until far below, but `refSync` (constructed here)
+  // needs to tell it when a claimed reference is deleted, so a hive pin can be tombstoned. Same
+  // forward-ref shape as `currency`/`withUpdateLock` above.
+  let notifyHiveReferenceDeleted: ((file: string) => void) | null = null
   const refSync = new RefSyncService({
     argusHome,
     store: refSyncStore,
     reader: atlassian,
     run: headlessRun,
-    resolvePrompt
+    resolvePrompt,
+    onDeleted: (file) => notifyHiveReferenceDeleted?.(file)
   })
   /**
    * The one "references changed" signal.
@@ -3060,6 +3065,7 @@ function registerIpc(): void {
     argusHome,
     repo: () => settingsService.get().hivemind.repo
   })
+  notifyHiveReferenceDeleted = (file) => hivemind.noteReferenceDeleted(file)
   ipcMain.handle(IPC.hivemindGet, () => hivemind.payload())
   ipcMain.handle(IPC.hivemindCheck, () => hivemind.check())
   ipcMain.handle(IPC.hivemindSync, () => hivemind.sync())
@@ -3169,7 +3175,15 @@ function registerIpc(): void {
           } else {
             referencesChanged()
           }
-        }
+        },
+        // `hivemind.sync()` (called at the top of survey()) writes `lastSynced` — and, on a repo
+        // change, wipes the clone and pins — into the same state file `install()` read-modify-
+        // writes. Route it through the same lock the manual Update/Install handlers use, so an
+        // auto-survey's write can never land between a manual install's read and write and drop
+        // the pin it just set. `withUpdateLock` is safe to close over here even though `currency`
+        // (its forward ref) is still null at this point in construction: `sync()` only runs later,
+        // on a tick, by which time the assignment below has completed.
+        withLock: withUpdateLock
       })
     ],
     anchors: new CurrencyAnchorStore(

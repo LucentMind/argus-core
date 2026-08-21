@@ -605,6 +605,27 @@ export class HivemindService {
     return this.payload()
   }
 
+  /**
+   * A hive-pinned reference can also be deleted through `refSync.deleteReference` — after
+   * `claimReference` restamps it `trust_tier: user`, `deleteReference`'s hand-owned-tier guard
+   * accepts it, by design. That path deletes the FILE but has no way to reach this service's
+   * pin/tombstone, so without this hook `state.references[name]` stays set and no `declined`
+   * entry gets written: the next survey sees `installed: false` with no tombstone and silently
+   * re-adopts the very file the user just deleted, restamping it back to `trust_tier: hivemind`.
+   *
+   * `refSync` calls this AFTER the file is already gone — it never touches the filesystem itself.
+   * A name with no pin recorded is an ordinary user file that was never a HiveMind install, and
+   * this is a no-op for it: nothing here applies (there is no pin to drop and nothing to
+   * tombstone).
+   */
+  noteReferenceDeleted(name: string): void {
+    const state = this.state()
+    if (!(name in state.references)) return
+    delete state.references[name]
+    state.declined[declineKey('reference', name)] = new Date().toISOString()
+    this.store.write(state)
+  }
+
   /** Update preview: what changed upstream since the pinned install. */
   async diff(kind: 'skill' | 'reference', name: string): Promise<string> {
     const rel = kind === 'skill' ? `skills/${name}` : `references/${name}`

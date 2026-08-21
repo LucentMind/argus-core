@@ -2704,6 +2704,36 @@ describe('tombstones', () => {
   })
 })
 
+describe('noteReferenceDeleted', () => {
+  it('tombstones and unpins a hive-pinned reference deleted through the claim-then-delete path', async () => {
+    // Mirrors what actually happens: claimReference restamps trust_tier without touching the
+    // pin, refSync.deleteReference then deletes the FILE (this method never touches disk) and
+    // calls this with the same bare name it was given.
+    const { svc } = await setupWithInstalledReference('runbook.md')
+    await svc.claimReference('runbook.md', null)
+
+    svc.noteReferenceDeleted('runbook.md')
+
+    expect(Object.keys(svc.declined())).toEqual(['reference/runbook.md'])
+    const p = await svc.payload()
+    // Pin is gone: `installedCommit` reverts to null, exactly as `uninstallReference` leaves it.
+    expect(p.items.find((i) => i.name === 'runbook.md')?.installedCommit).toBeNull()
+  })
+
+  it('is a no-op for a name with no HiveMind pin — an ordinary user file', async () => {
+    const { svc } = await setupWithInstalledSkill('triage') // seeds a clone + state file
+    svc.noteReferenceDeleted('my-own-notes.md')
+    expect(svc.declined()).toEqual({})
+  })
+
+  it('persists across a reload of the state file', async () => {
+    const { svc, reload } = await setupWithInstalledReference('runbook.md')
+    await svc.claimReference('runbook.md', null)
+    svc.noteReferenceDeleted('runbook.md')
+    expect(Object.keys(reload().declined())).toEqual(['reference/runbook.md'])
+  })
+})
+
 describe('orphans', () => {
   it('marks an installed item that is gone from the clone', async () => {
     const { svc, removeFromClone } = await setupWithInstalledSkill('triage')

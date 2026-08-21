@@ -9,7 +9,16 @@ import type { AdapterId, ApplyOutcome, Candidate } from '../../../../shared/curr
  */
 export interface CurrencyAdapter {
   id: AdapterId
-  /** Reads network + disk. NEVER writes. Rejects only on transport failure. */
+  /**
+   * Reads network + disk. Classification itself never writes; rejects only on transport failure.
+   *
+   * EXCEPTION: `hiveAdapter`'s survey opens with `HivemindService.sync()`, which pulls the clone
+   * and read-modify-writes the shared HiveMind state file (`lastSynced`, and on a repo change the
+   * pins too) as a side effect of staying current — that single write is real and is taken under
+   * the same apply lock as every other write to that file (see `HiveAdapterDeps.withLock`). Every
+   * other adapter's survey, and the rest of hiveAdapter's own survey after that call, holds to the
+   * "never writes" rule literally.
+   */
   survey(): Promise<Candidate[]>
   /**
    * Writes. Only ever called with a candidate this adapter returned as `clean`.
