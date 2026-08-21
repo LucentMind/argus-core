@@ -41,7 +41,10 @@ export function UpdateSettings(): React.JSX.Element {
 
   const [currency, setCurrency] = useState<CurrencyPayload | null>(null)
   useEffect(() => {
-    void window.argus.currency.get().then(setCurrency)
+    void window.argus.currency
+      .get()
+      .then(setCurrency)
+      .catch((e) => console.warn('[updates] failed to load currency status', e))
     return window.argus.currency.onChanged(setCurrency)
   }, [])
 

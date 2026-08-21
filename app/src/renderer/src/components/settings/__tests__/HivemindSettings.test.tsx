@@ -1005,12 +1005,29 @@ describe('download hazards', () => {
 describe('auto-sync on entering the Team tab', () => {
   // Task 13: the auto-sync effect now goes through the currency service's rate limiter
   // (surveyNow('hive')) instead of calling hivemind.sync() directly, then re-reads via
-  // hivemind.get(). The explicit Sync IconBtn (asserted elsewhere) is unaffected and still
-  // calls hivemind.sync() directly.
+  // hivemind.get(). The explicit Sync IconBtn is covered directly below — it still calls
+  // hivemind.sync() and is never routed through surveyNow.
   it('syncs automatically once the reachability check succeeds, with no Sync click', async () => {
     renderWith(ready)
     await waitFor(() => expect(window.argus.currency.surveyNow).toHaveBeenCalledWith('hive'))
+    expect(window.argus.currency.surveyNow).toHaveBeenCalledTimes(1)
     expect(window.argus.hivemind.sync).not.toHaveBeenCalled()
+  })
+
+  // Finding 1: the mount-time effect above is the only thing the rest of this suite ever
+  // asserted about hivemind.sync — nothing clicked the manual Sync IconBtn, so a regression
+  // that rewired its onClick to surveyNow (or dropped it) would have gone undetected while the
+  // whole suite stayed green. This closes that gap directly.
+  it('clicking the Sync button calls hivemind.sync() directly, not surveyNow', async () => {
+    renderWith(ready)
+    // Let the mount-time auto-sync settle first so its surveyNow call isn't mistaken for one
+    // triggered by the click below.
+    await waitFor(() => expect(window.argus.currency.surveyNow).toHaveBeenCalledWith('hive'))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync' }))
+
+    await waitFor(() => expect(window.argus.hivemind.sync).toHaveBeenCalledTimes(1))
+    expect(window.argus.currency.surveyNow).toHaveBeenCalledTimes(1)
   })
 
   it('skips auto-sync when the repo is not reachable', async () => {
