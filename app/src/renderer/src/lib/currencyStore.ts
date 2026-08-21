@@ -1,18 +1,39 @@
 import type { Candidate, CurrencyDomain, CurrencyPayload } from '../../../shared/currency'
 import { surfacedBlocked } from '../../../shared/currency'
+import type { PageId } from '../components/settings/settingsPages'
 
-/** The Settings pages that can own a held-back item. */
-export type SettingsPageId = 'general' | 'sources' | 'team'
+/**
+ * The Settings pages that can own a held-back item — DERIVED from the real `PAGES` table
+ * (`settingsPages.ts`), not hand-written independently of it. Three copies of the same
+ * assumption used to exist: this literal union, `SettingsView.tsx`'s `p.id as SettingsPageId`
+ * cast, and `pageOwning`'s catch-all below — with nothing tying them together. Renaming or
+ * removing one of `'general' | 'sources' | 'team'` in `PAGES` now silently drops it from
+ * `Extract`'s result instead, which turns `pageOwning`'s corresponding `return` literal (below)
+ * into a compile error rather than a badge that quietly stops finding its page.
+ */
+export type SettingsPageId = Extract<PageId, 'general' | 'sources' | 'team'>
 
 /**
  * Which Settings page shows a given domain — `general` hosts `<UpdateSettings/>`, `sources` hosts
  * `<PacksSettings/>`, `team` hosts `<HivemindSettings/>`. Spelled once here so a badge and the
  * row it is meant to lead to can never disagree about where the item lives.
+ *
+ * Written as an exhaustive switch with NO default — same idiom as `describeBlocked` in
+ * `shared/currency.ts` — rather than the previous `if/if/else` catch-all: the compiler proves
+ * every `CurrencyDomain` is covered by narrowing the switch to `never` on the way out, so a fifth
+ * domain added to that union without a case here fails `typecheck` ("not all code paths return a
+ * value") instead of silently falling through to `'team'`.
  */
 export function pageOwning(domain: CurrencyDomain): SettingsPageId {
-  if (domain === 'core') return 'general'
-  if (domain === 'pack') return 'sources'
-  return 'team'
+  switch (domain) {
+    case 'core':
+      return 'general'
+    case 'pack':
+      return 'sources'
+    case 'hive-skill':
+    case 'hive-reference':
+      return 'team'
+  }
 }
 
 const EMPTY: CurrencyPayload = { auto: true, lastSurveyAt: null, blocked: [], busy: false }
