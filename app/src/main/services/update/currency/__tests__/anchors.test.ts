@@ -78,4 +78,21 @@ describe('CurrencyAnchorStore', () => {
     const s = new CurrencyAnchorStore(fakeStore({ packs: 'nonsense' }))
     expect(s.get('packs')).toEqual({ lastSurveyAt: null, consecutiveFailures: 0 })
   })
+
+  it('does not let a failure move the reported "last successful survey" forward', () => {
+    const s = new CurrencyAnchorStore(fakeStore())
+    s.recordSuccess('packs', 1_000)
+    // A later FAILURE still advances the per-adapter scheduling anchor (for backoff)...
+    s.recordFailure('packs', 9_000)
+    expect(s.get('packs').lastSurveyAt).toBe(9_000)
+    // ...but must not make the status line claim a check succeeded at 9_000.
+    expect(s.lastSurveyAt()).toBe(1_000)
+  })
+
+  it('reports null for "last successful survey" when nothing has ever succeeded, even after failures', () => {
+    const s = new CurrencyAnchorStore(fakeStore())
+    s.recordFailure('packs', 500)
+    s.recordFailure('hive', 700)
+    expect(s.lastSurveyAt()).toBeNull()
+  })
 })

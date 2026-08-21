@@ -1,12 +1,25 @@
 import type { AdapterId } from '../../../../shared/currency'
 
 export interface CurrencyAnchor {
-  /** Epoch ms of the last SUCCESSFUL survey. null ⇒ never surveyed ⇒ due now. */
+  /**
+   * Epoch ms of the last survey ATTEMPT — success or failure — for this adapter. null ⇒ never
+   * surveyed ⇒ due now. This is a SCHEDULING anchor, not a status: `recordFailure` advances it
+   * too, otherwise a permanently unreachable feed would be retried on every single tick instead of
+   * backing off. It must never be read as "last successful survey" — see `lastSuccessAt` below,
+   * which is the field that actually means that.
+   */
   lastSurveyAt: number | null
   consecutiveFailures: number
 }
 
-export type AnchorFile = Partial<Record<AdapterId, CurrencyAnchor>>
+export type AnchorFile = Partial<Record<AdapterId, CurrencyAnchor>> & {
+  /**
+   * Epoch ms of the most recent survey that actually SUCCEEDED, across every adapter. Kept apart
+   * from each adapter's `lastSurveyAt` (which advances on failure too) so the "Checked N minutes
+   * ago" status line can be honest: during an offline week it must not read as freshly checked.
+   */
+  lastSuccessAt?: number
+}
 
 /** Structural, not the JsonFileStore class — the tests need no file on disk. */
 export interface AnchorFileStore {
@@ -54,7 +67,11 @@ export class CurrencyAnchorStore {
   }
 
   recordSuccess(id: AdapterId, at: number): void {
-    this.set(id, { lastSurveyAt: at, consecutiveFailures: 0 })
+    const file = this.file()
+    // `Math.max` rather than a plain overwrite: adapters settle in whatever order their surveys
+    // resolve, and an earlier one finishing after a later one must not walk the value backwards.
+    const lastSuccessAt = Math.max(file.lastSuccessAt ?? 0, at)
+    this.store.write({ ...file, [id]: { lastSurveyAt: at, consecutiveFailures: 0 }, lastSuccessAt })
   }
 
   /**
@@ -77,11 +94,13 @@ export class CurrencyAnchorStore {
     )
   }
 
-  /** Newest successful survey across every adapter, for the "Checked N minutes ago" line. */
+  /**
+   * Newest successful survey across every adapter, for the "Checked N minutes ago" line — reads
+   * `lastSuccessAt`, NOT any adapter's `lastSurveyAt`, which also advances on a failed attempt and
+   * would otherwise read as "checked" during an offline week when nothing actually succeeded.
+   */
   lastSurveyAt(): number | null {
-    const times = (['core', 'packs', 'hive'] as const)
-      .map((id) => this.get(id).lastSurveyAt)
-      .filter((t): t is number => t !== null)
-    return times.length > 0 ? Math.max(...times) : null
+    const v = this.file().lastSuccessAt
+    return typeof v === 'number' ? v : null
   }
 }
