@@ -70,9 +70,27 @@ describe('adoption reporting', () => {
 
   it('does NOT report an update to an already-installed item', async () => {
     const seen: number[] = []
-    const svc = build([update('skill/a')], (n) => seen.push(n))
+    const adapter: CurrencyAdapter = {
+      id: 'hive',
+      survey: vi.fn(async () => [update('skill/a')]),
+      apply: vi.fn(async () => ({ ok: true as const }))
+    }
+    const svc = new CurrencyService({
+      adapters: [adapter],
+      anchors: new CurrencyAnchorStore(memStore()),
+      autoEnabled: () => true,
+      isQuiet: () => true,
+      now: () => 0,
+      tickMs: 1_000,
+      intervalMs: SIX_H,
+      onAdopted: (n) => seen.push(n)
+    })
     svc.start()
     await vi.advanceTimersByTimeAsync(0)
+    // Proof the batch actually ran (and applied, successfully) rather than the count staying
+    // empty because nothing happened at all — the failure mode this negative test exists to
+    // catch is "the batch never ran", not just "the count came out wrong".
+    expect(adapter.apply).toHaveBeenCalledTimes(1)
     expect(seen).toEqual([])
     svc.stop()
   })
@@ -109,6 +127,8 @@ describe('adoption reporting', () => {
     })
     svc.start()
     await vi.advanceTimersByTimeAsync(0)
+    // Same proof as above: the apply genuinely ran and was genuinely refused, not skipped.
+    expect(adapter.apply).toHaveBeenCalledTimes(1)
     expect(seen).toEqual([])
     svc.stop()
   })

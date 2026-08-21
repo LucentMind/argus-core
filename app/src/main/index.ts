@@ -285,6 +285,7 @@ import { createCoreAdapter } from './services/update/currency/coreAdapter'
 import { createPacksAdapter } from './services/update/currency/packsAdapter'
 import { createHiveAdapter } from './services/update/currency/hiveAdapter'
 import { registerCurrencyIpc } from './services/update/currency/currencyIpc'
+import { createAdoptionBroadcastGate } from './services/update/currency/adoptionBroadcastGate'
 import { JsonFileStore } from './services/fileStore'
 import { PanelHost } from './services/panels/panelHost'
 import { createElectronPanelFactory } from './services/panels/electronPlatform'
@@ -3145,6 +3146,14 @@ function registerIpc(): void {
   const anchorsStore = new CurrencyAnchorStore(
     new JsonFileStore(path.join(configDir(argusHome), 'currency.json'))
   )
+  // Wraps `anchorsStore` with an in-memory "broadcast sent, awaiting ack" latch (Fix wave 1):
+  // the persisted flag alone is set asynchronously, by the renderer's ack IPC round trip, so two
+  // `applyPending` batches finishing back-to-back can both read it as unset and both broadcast.
+  // See adoptionBroadcastGate.ts.
+  const adoptionGate = createAdoptionBroadcastGate({
+    anchors: anchorsStore,
+    broadcast: (count) => broadcast(IPC.currencyAdopted, count)
+  })
   currency = new CurrencyService({
     adapters: [
       createCoreAdapter({ service: coreUpdater }),
@@ -3216,19 +3225,21 @@ function registerIpc(): void {
       ingestQueue.isIdle(),
     // Broadcast only; the flag is set by the RENDERER once it has actually shown the notice.
     // `noticeStore` renders only inside the case header, so a notice pushed with no case open is
-    // silently dropped — setting the flag here would consume the one chance to show it. Skipping
-    // the broadcast once the flag is already set means a launch with no case open, followed by
-    // one that does, does not surface a second, stale copy of a notice already acknowledged.
-    onAdopted: (count) => {
-      if (!anchorsStore.firstMirrorNoticeShown()) broadcast(IPC.currencyAdopted, count)
-    }
+    // silently dropped — setting the flag here would consume the one chance to show it. Routed
+    // through `adoptionGate` rather than checking `anchorsStore.firstMirrorNoticeShown()`
+    // directly, so two batches completing before the renderer's ack lands still produce one
+    // broadcast, not two.
+    onAdopted: adoptionGate.onAdopted
   })
   registerCurrencyIpc({
     handle: (channel, fn) =>
       ipcMain.handle(channel, (_e, ...args) => (fn as (...a: unknown[]) => unknown)(...args)),
     broadcast,
     service: currency,
-    anchors: anchorsStore
+    // The wrapped anchors, not `anchorsStore` directly: `currencyAckAdopted`'s handler calls
+    // `markFirstMirrorNoticeShown()` through this, which is what clears `adoptionGate`'s
+    // in-memory latch in addition to persisting the flag.
+    anchors: adoptionGate.anchors
   })
   // 45s: late enough to keep boot cheap and to avoid racing the core boot check.
   setTimeout(() => currency?.start(), 45_000).unref()

@@ -74,26 +74,37 @@ export function TopBar({
   useEffect(() => currencyStore.start(), [])
   const held = currencyStore.surfacedCount()
   // The first-run mirror notice (Task 7). This bar is where it has to be listened for: its only
-  // host, HeaderNotice, is mounted a few lines below, inside the case group — so a broadcast that
-  // arrives with no case open reaches no listener at all. That silence is deliberate: main only
-  // sets `firstMirrorNoticeShown` once THIS handler runs `ackAdopted()`, so the next launch that
-  // does have a case open shows the notice instead of it being lost forever.
-  useEffect(
-    () =>
-      window.argus.currency.onAdopted((count) => {
-        noticeStore.push(
-          `Argus now keeps itself up to date — it installed ${count} HiveMind item${
-            count === 1 ? '' : 's'
-          } from your team's repo. You can turn this off in Settings → Updates.`,
-          'info'
-        )
-        // Acknowledged only now, after the notice is actually queued (and, since HeaderNotice
-        // renders unconditionally off the same store, on screen the moment this component next
-        // paints) — never before, and never if this effect never ran at all.
-        void window.argus.currency.ackAdopted()
-      }),
-    []
-  )
+  // host, HeaderNotice, is mounted a few lines below, but ONLY inside the `activeSlug !== null`
+  // branch — so the listener is gated on that exact same condition (`hasCase`), not registered
+  // unconditionally.
+  //
+  // That gate has to cover the SUBSCRIPTION itself, not just the ack: `noticeStore.push` arms a
+  // 6-second self-dismiss timer the moment it is called, independent of whether HeaderNotice is
+  // mounted to show it. A broadcast that arrived while on Home/Settings/Proposals would otherwise
+  // still get pushed and ack'd — permanently setting `firstMirrorNoticeShown` — and then expire
+  // unseen before anyone could ever open a case to see it. Not subscribing at all when there is no
+  // case open is what keeps the broadcast reaching nobody, so the flag stays unset and the next
+  // launch that does have a case open shows the notice instead.
+  const hasCase = activeSlug !== null
+  useEffect(() => {
+    if (!hasCase) return undefined
+    return window.argus.currency.onAdopted((count) => {
+      noticeStore.push(
+        `Argus now keeps itself up to date — it installed ${count} HiveMind item${
+          count === 1 ? '' : 's'
+        } from your team's repo. You can turn this off in Settings → Updates.`,
+        'info'
+      )
+      // Acknowledged only now, after the notice is actually queued (and, since HeaderNotice
+      // renders unconditionally off the same store whenever `hasCase` is true, on screen the
+      // moment this component next paints) — never before, and never if this effect never ran
+      // at all. `ackAdopted` is a plain IPC round trip with nothing left to do with a failure
+      // here (main already broadcast; a lost ack just means the notice may show again on a
+      // later launch, which is the same "not yet acked" state as if this tab never opened) —
+      // so a rejection is swallowed rather than left unhandled.
+      window.argus.currency.ackAdopted().catch(() => {})
+    })
+  }, [hasCase])
   // Non-null exactly while one of the full-page views (Settings, Proposals, Related history) is
   // up — each publishes its own title here because this bar is its SIBLING, not its ancestor.
   // Doubles as the "am I on such a view" flag the anchor below keys off, so there is one source
