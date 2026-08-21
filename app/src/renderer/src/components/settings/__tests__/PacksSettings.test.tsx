@@ -629,6 +629,40 @@ describe('PacksSettings', () => {
     expect(await screen.findByLabelText('1 pack update needs you')).toBeInTheDocument()
   })
 
+  it('pluralizes both the noun and the verb in the badge label for more than one held-back pack', async () => {
+    // Both keys below ('navigation' and 'code-graph') are the two packs in the default `listed`
+    // fixture that `renderPacks` renders, so two real rows are on screen — not just two blocked
+    // candidates with no matching row.
+    renderPacks({
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'pack',
+            key: 'navigation',
+            label: 'Navigation',
+            from: '1.0.0',
+            to: '1.1.0',
+            verdict: 'blocked',
+            reason: { kind: 'auth' }
+          },
+          {
+            domain: 'pack',
+            key: 'code-graph',
+            label: 'Code Graph',
+            from: '1.0.0',
+            to: '1.0.0',
+            verdict: 'blocked',
+            reason: { kind: 'new-dependency' }
+          }
+        ],
+        busy: false
+      }
+    })
+    expect(await screen.findByLabelText('2 pack updates need you')).toBeInTheDocument()
+  })
+
   it('shows no section badge when nothing is held back', async () => {
     renderPacks({
       currency: { auto: true, lastSurveyAt: new Date().toISOString(), blocked: [], busy: false }
