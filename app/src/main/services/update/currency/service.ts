@@ -130,10 +130,15 @@ export class CurrencyService {
    * those tabs refreshes their status exactly as it did before this service existed. Rate-limited
    * to the same interval, so re-entering a tab five times in a minute costs one network round.
    */
-  async surveyNow(id: AdapterId): Promise<void> {
+  async surveyNow(id: AdapterId, force = false): Promise<void> {
     const adapter = this.deps.adapters.find((a) => a.id === id)
     if (!adapter) return
-    if (this.deps.anchors.dueAt(id, this.intervalMs) > this.now()) return
+    // `force` is the manual "Check for updates" button's escape hatch (Finding 3, whole-branch
+    // review): after a restart the in-memory per-domain status map is empty and this adapter is
+    // not due, so a plain call would silently refuse to run for up to 6h — exactly the moment a
+    // manual check exists to shortcut. `surveyAdapter` still records the anchor on the way
+    // through, so the NEXT plain (non-forced) call is rate-limited from this one same as always.
+    if (!force && this.deps.anchors.dueAt(id, this.intervalMs) > this.now()) return
     const found = await this.surveyAdapter(adapter)
     if (!this.deps.autoEnabled()) return
     this.pushPending(found)

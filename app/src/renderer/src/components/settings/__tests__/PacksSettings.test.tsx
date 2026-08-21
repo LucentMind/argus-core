@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
@@ -471,16 +471,26 @@ describe('PacksSettings', () => {
     await waitFor(() => expect(packs.list.mock.calls.length).toBeGreaterThanOrEqual(2))
   })
 
+  /**
+   * Finding 3 (whole-branch review): the button used to call `packs.checkUpdates()` directly,
+   * bypassing the currency service entirely — so a refusal it turned up (origin-pin, gh auth)
+   * never reached `currency.blocked`, and the page's own reason line (driven by
+   * `<BlockedReasonLine/>`, not `pack.update`) stayed silent until the next 6h survey. Routed
+   * through `currency.surveyNow('packs', true)` instead — `force: true` so it still works when
+   * the adapter isn't due, which after a restart it never is.
+   */
   it('Check for updates calls through', async () => {
     render(<PacksSettings settings={settingsPayload([])} />)
     const btn = await screen.findByRole('button', { name: /check for pack updates/i })
     // Disabled while the mount check is still in flight, so wait it out rather than clicking a
     // dead button too early.
     await waitFor(() => expect(btn).not.toBeDisabled())
+    // The mount-time check already made one unforced call — isolate the click's own effect.
+    currency.surveyNow.mockClear()
     fireEvent.click(btn)
-    // The mount-time check now goes through currency.surveyNow (Task 13), not checkUpdates —
-    // so this explicit click is the only call to packs.checkUpdates, not the second of two.
-    await waitFor(() => expect(packs.checkUpdates).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(currency.surveyNow).toHaveBeenCalledWith('packs', true))
+    expect(currency.surveyNow).toHaveBeenCalledTimes(1)
+    expect(packs.checkUpdates).not.toHaveBeenCalled()
   })
 
   it('renders a failure with the shared wording, not an invented sentence', async () => {
@@ -497,11 +507,16 @@ describe('PacksSettings', () => {
     expect(await screen.findByText(/update failed: origin mismatch/i)).toBeInTheDocument()
   })
 
+  /**
+   * Finding 3 (whole-branch review): this test used to render via `renderPacks({ currency })`,
+   * which points `window.argus.currency.get()` straight at a payload carrying the blocked
+   * candidate — a shape the real "Check for updates" button never produces on its own, since
+   * (before this fix) the button never touched the currency service at all. Rewritten to exercise
+   * the real path instead: click the button, let it route through `currency.surveyNow('packs',
+   * true)`, and simulate the `currency:changed` broadcast that a real forced survey would send
+   * back, the same way `currencyStore` receives every other update.
+   */
   it('tells the user what to do when the origin pin refused, via the unified held-back reason line', async () => {
-    // Before Task 4, this bespoke sentence was driven by `pack.update.code === 'origin-pin'` —
-    // the per-pack update-check status. It is now driven by the currency service's blocked list
-    // instead (`describeBlocked`), which is why a matching Candidate is supplied below: the old
-    // `pack.update.code` no longer renders anything on its own.
     packs.list = vi.fn().mockResolvedValue({
       error: null,
       packs: [
@@ -511,9 +526,18 @@ describe('PacksSettings', () => {
         })
       ]
     })
-    renderPacks({
-      rows: [],
-      currency: {
+    let onChanged: ((p: CurrencyPayload) => void) | null = null
+    currency.onChanged = vi.fn((cb: (p: CurrencyPayload) => void) => {
+      onChanged = cb
+      return () => {}
+    })
+    render(<PacksSettings settings={settingsPayload([])} />)
+    const btn = await screen.findByRole('button', { name: /check for pack updates/i })
+    await waitFor(() => expect(btn).not.toBeDisabled())
+    fireEvent.click(btn)
+    await waitFor(() => expect(currency.surveyNow).toHaveBeenCalledWith('packs', true))
+    act(() => {
+      onChanged?.({
         auto: true,
         lastSurveyAt: new Date().toISOString(),
         busy: false,
@@ -528,7 +552,7 @@ describe('PacksSettings', () => {
             reason: { kind: 'origin-pin' }
           }
         ]
-      }
+      })
     })
     // Old wording was "download it manually from your vendor…"; the consolidated wording (the
     // one place `describeBlocked` for 'origin-pin' is worded) is asserted here instead.
@@ -539,10 +563,8 @@ describe('PacksSettings', () => {
     ).toBeInTheDocument()
   })
 
+  // Same rewrite as the origin-pin test above, and the same reason for it.
   it('tells the user to fix their GitHub CLI auth, via the unified held-back reason line', async () => {
-    // Same consolidation as the origin-pin case above: the old bespoke sentence was gated on
-    // `pack.update.code === 'gh'`; the new one comes from a currency-service Candidate whose
-    // reason is 'auth' (the closest kind in the shared vocabulary to "GitHub CLI sign-in").
     packs.list = vi.fn().mockResolvedValue({
       error: null,
       packs: [
@@ -557,9 +579,18 @@ describe('PacksSettings', () => {
         })
       ]
     })
-    renderPacks({
-      rows: [],
-      currency: {
+    let onChanged: ((p: CurrencyPayload) => void) | null = null
+    currency.onChanged = vi.fn((cb: (p: CurrencyPayload) => void) => {
+      onChanged = cb
+      return () => {}
+    })
+    render(<PacksSettings settings={settingsPayload([])} />)
+    const btn = await screen.findByRole('button', { name: /check for pack updates/i })
+    await waitFor(() => expect(btn).not.toBeDisabled())
+    fireEvent.click(btn)
+    await waitFor(() => expect(currency.surveyNow).toHaveBeenCalledWith('packs', true))
+    act(() => {
+      onChanged?.({
         auto: true,
         lastSurveyAt: new Date().toISOString(),
         busy: false,
@@ -574,7 +605,7 @@ describe('PacksSettings', () => {
             reason: { kind: 'auth' }
           }
         ]
-      }
+      })
     })
     // Old wording was "check your GitHub CLI sign-in under Settings → Health…"; the consolidated
     // wording is `describeBlocked`'s for 'auth'.
@@ -739,10 +770,14 @@ describe('PacksSettings', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('network unreachable')
   })
 
+  // Finding 3: the button routes through `currency.surveyNow`, not `packs.checkUpdates`, now —
+  // the failure has to be mocked on the path the button actually calls.
   it('surfaces a Check for pack updates failure through the alert', async () => {
-    packs.checkUpdates = vi.fn().mockRejectedValue(new Error('offline'))
+    currency.surveyNow = vi.fn().mockRejectedValue(new Error('offline'))
     render(<PacksSettings settings={settingsPayload([])} />)
-    fireEvent.click(await screen.findByRole('button', { name: /check for pack updates/i }))
+    const btn = await screen.findByRole('button', { name: /check for pack updates/i })
+    await waitFor(() => expect(btn).not.toBeDisabled())
+    fireEvent.click(btn)
     expect(await screen.findByRole('alert')).toHaveTextContent('offline')
   })
 
@@ -752,7 +787,8 @@ describe('PacksSettings', () => {
       code: 'checksum',
       error: 'bundle corrupted'
     })
-    packs.checkUpdates = vi.fn().mockResolvedValue({})
+    // currency.surveyNow (the button's real path now, Finding 3) already resolves by default in
+    // the shared beforeEach — nothing to override for the success case.
 
     render(<PacksSettings settings={settingsPayload()} />)
 

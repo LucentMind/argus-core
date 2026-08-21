@@ -76,6 +76,41 @@ describe('CurrencyService policy', () => {
     expect(adapter.survey).toHaveBeenCalledTimes(2)
   })
 
+  // Finding 3: after a restart the in-memory per-domain status map is empty and the adapter is
+  // not due, so a plain `surveyNow` refuses to run for up to 6h — but the manual "Check for
+  // updates" button has to work RIGHT NOW regardless of when the last survey happened, since that
+  // is the whole point of a manual check.
+  it('force bypasses the rate limit', async () => {
+    let t = 0
+    const adapter: CurrencyAdapter = {
+      id: 'packs',
+      survey: vi.fn(async () => []),
+      apply: vi.fn(async () => ({ ok: true as const }))
+    }
+    const svc = build(adapter, { now: () => t })
+    await svc.surveyNow('packs')
+    expect(adapter.survey).toHaveBeenCalledTimes(1)
+    // Still well inside the interval — a plain call would be refused (see the test above).
+    t = SIX_H - 1
+    await svc.surveyNow('packs', true)
+    expect(adapter.survey).toHaveBeenCalledTimes(2)
+  })
+
+  it('a forced survey still records the anchor, so the NEXT plain survey is rate-limited from it', async () => {
+    let t = 0
+    const adapter: CurrencyAdapter = {
+      id: 'packs',
+      survey: vi.fn(async () => []),
+      apply: vi.fn(async () => ({ ok: true as const }))
+    }
+    const svc = build(adapter, { now: () => t })
+    await svc.surveyNow('packs', true)
+    expect(adapter.survey).toHaveBeenCalledTimes(1)
+    t = SIX_H - 1
+    await svc.surveyNow('packs') // plain — must still respect the anchor the forced call left
+    expect(adapter.survey).toHaveBeenCalledTimes(1)
+  })
+
   it('surveyNow with auto off does not apply anything', async () => {
     const adapter: CurrencyAdapter = {
       id: 'packs',

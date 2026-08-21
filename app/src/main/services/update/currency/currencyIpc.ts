@@ -6,7 +6,7 @@ const ADAPTER_IDS: readonly AdapterId[] = ['core', 'packs', 'hive']
 /** Structural, not the CurrencyService class — matches the house DI convention. */
 export interface CurrencyServiceLike {
   payload(): CurrencyPayload
-  surveyNow(id: AdapterId): Promise<void>
+  surveyNow(id: AdapterId, force?: boolean): Promise<void>
   subscribe(cb: (p: CurrencyPayload) => void): () => void
 }
 
@@ -35,11 +35,14 @@ export function registerCurrencyIpc({
   pendingAdopted
 }: CurrencyIpcDeps): () => void {
   handle(IPC.currencyGet, () => service.payload())
-  handle(IPC.currencySurveyNow, async (id: unknown) => {
+  handle(IPC.currencySurveyNow, async (id: unknown, force?: unknown) => {
     // Validated against the closed set rather than passed through: the renderer is not the
     // authority on which adapters exist.
     if (!ADAPTER_IDS.includes(id as AdapterId)) return
-    await service.surveyNow(id as AdapterId)
+    // `force` bypasses the adapter's due-at rate limit — the manual "Check for updates" button's
+    // escape hatch (Finding 3). Coerced rather than passed through raw, same reasoning as the id
+    // check just above: the renderer's own type is not load-bearing here.
+    await service.surveyNow(id as AdapterId, force === true)
   })
   // The flag is set HERE, by the renderer's acknowledgement, not by the broadcast that triggers
   // it: `noticeStore` only renders inside the case header, so a notice pushed with no case open

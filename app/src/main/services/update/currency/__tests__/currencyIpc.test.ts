@@ -7,7 +7,7 @@ const payload: CurrencyPayload = { auto: true, lastSurveyAt: null, blocked: [], 
 
 function fakeService(): {
   payload: () => CurrencyPayload
-  surveyNow: (id: string) => Promise<void>
+  surveyNow: (id: string, force?: boolean) => Promise<void>
   subscribe: (cb: (p: CurrencyPayload) => void) => () => void
   emit: (p: CurrencyPayload) => void
   listenerCount: () => number
@@ -60,7 +60,26 @@ describe('registerCurrencyIpc', () => {
       pendingAdopted: noPending
     })
     await handlers.get(IPC.currencySurveyNow)?.('hive')
-    expect(service.surveyNow).toHaveBeenCalledWith('hive')
+    // No force arg from the renderer ⇒ passed through as an explicit `false`, not omitted — see
+    // the 'routes a forced survey through' test below for the other half of this.
+    expect(service.surveyNow).toHaveBeenCalledWith('hive', false)
+  })
+
+  // Finding 3: the manual "Check for updates" button routes through `surveyNow('packs', true)` so
+  // it works even when the adapter isn't due — this is the plumbing that makes `force` reach the
+  // service.
+  it('routes a forced survey through to the service', async () => {
+    const handlers = new Map<string, (...a: unknown[]) => unknown>()
+    const service = fakeService()
+    registerCurrencyIpc({
+      handle: (ch, fn) => void handlers.set(ch, fn),
+      broadcast: vi.fn(),
+      service,
+      anchors: fakeAnchors(),
+      pendingAdopted: noPending
+    })
+    await handlers.get(IPC.currencySurveyNow)?.('packs', true)
+    expect(service.surveyNow).toHaveBeenCalledWith('packs', true)
   })
 
   it('ignores an unknown adapter id instead of trusting the renderer', async () => {
