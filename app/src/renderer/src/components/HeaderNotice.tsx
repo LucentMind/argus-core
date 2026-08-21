@@ -24,14 +24,19 @@ export function HeaderNotice(): React.JSX.Element | null {
       // still reachable through a native tooltip (Finding 5, whole-branch review).
       title={current.message}
       onClick={() => noticeStore.dismiss(current.id)}
-      // Widened well past the old cap for the same reason — this strip is `min-w-0` and the LAST
-      // element in the case group (see TopBar.tsx), so it is the one thing that absorbs slack
-      // rather than a fixed-width control anything else depends on; relaxing its cap costs no
-      // other layout rule. Still `truncate` (single line): the header itself is a fixed `h-12`,
-      // and wrapping a long notice across two lines risks overflowing that box in ways jsdom
-      // cannot see — this widens the budget rather than removing it. NEEDS A HUMAN EYEBALL: jsdom
-      // computes no layout, so neither the old cutoff nor this widened one can be verified here.
-      className={`max-w-[32rem] truncate text-left text-xs ${
+      // A wider SINGLE line was tried first (`max-w-[32rem]`, replacing the original `max-w-80`)
+      // and measured live to still be wrong: the mandated first-run string is ~132 characters and
+      // renders ~714px wide at this font, so even 512px truncated it — right after "You", before
+      // "can turn this off in Settings -> Updates.", the one actionable half. A wider cap only
+      // moves that same failure to a longer string; it does not fix the class of bug.
+      // `line-clamp-2` (existing idiom — see settingsLayout.tsx, CaseCard.tsx) wraps onto a second
+      // line instead of chasing a wider first one. `whitespace-normal` is explicit rather than
+      // relied-upon-by-default (same belt-and-braces pairing as CaseFiles.tsx's badge), and
+      // `max-w-[32rem]` is kept as the WRAP width, not a truncation budget — at that width the
+      // mandated first-run string fits fully across two lines with room to spare (measured live
+      // over CDP: see task-9-live-report.md's "Check 7 fix" section), so the clamp is a ceiling
+      // against some future even-longer notice, not something this string actually touches.
+      className={`line-clamp-2 max-w-[32rem] whitespace-normal text-left text-xs ${
         current.tone === 'danger' ? 'text-danger' : 'text-dim'
       }`}
     >
