@@ -32,9 +32,20 @@ export type UpdateErrorCode =
   | 'too-large'
   | 'checksum'
   | 'install'
-  /** The GitHub CLI is missing, unauthenticated, or the repo is not visible to it. Distinct
-   *  from 'feed' because the fix is the user's, and the Packs row must say so. */
-  | 'gh'
+  /** The GitHub CLI (gh) is not installed or not on PATH. Distinct from 'gh-auth': installing
+   *  gh and signing in are two different fixes, and the Packs row must not conflate them. */
+  | 'gh-missing'
+  /** `gh` ran but is not authenticated. Distinct from 'feed' because the fix is the user's, and
+   *  the Packs row must say so. */
+  | 'gh-auth'
+  /** `gh` answered HTTP 404 for the pinned repo — not found, or private and not visible to this
+   *  account. GitHub answers identically for the two, so this code must not pretend to know
+   *  which. */
+  | 'gh-notfound'
+  /** Any other `gh` failure (rate-limited, a malformed response, a mid-call network blip). Not
+   *  attributable to a specific fix, so it is treated the same as 'feed'/'download': transport
+   *  noise that never becomes a `BlockedReason`, and is silently re-offered next survey. */
+  | 'gh-failed'
 
 export type UpdateStatus =
   | { phase: 'idle' }

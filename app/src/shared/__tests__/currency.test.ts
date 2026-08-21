@@ -63,6 +63,10 @@ describe('describeBlocked', () => {
     )
     expect(describeBlocked({ kind: 'new-dependency' })).toBe('This update needs a new dependency.')
     expect(describeBlocked({ kind: 'auth' })).toBe('Sign in to the GitHub CLI to continue.')
+    expect(describeBlocked({ kind: 'missing' })).toBe('Install the GitHub CLI to continue.')
+    expect(describeBlocked({ kind: 'notfound' })).toBe(
+      "The repository can't be found — check that it still exists and is visible to your account."
+    )
     expect(describeBlocked({ kind: 'downgrade' })).toBe(
       'Installing it would move this install back a version.'
     )
@@ -103,10 +107,12 @@ describe('surfacedBlocked', () => {
       { kind: 'tier-change', from: 'a', to: 'b' },
       { kind: 'new-dependency' },
       { kind: 'auth' },
+      { kind: 'missing' },
+      { kind: 'notfound' },
       { kind: 'downgrade' },
       { kind: 'origin-pin' }
     ]
-    expect(surfacedBlocked(kinds.map(cand))).toHaveLength(6)
+    expect(surfacedBlocked(kinds.map(cand))).toHaveLength(8)
   })
 
   it('ignores clean candidates entirely', () => {
@@ -124,5 +130,13 @@ describe('surfacedBlocked', () => {
   it('exposes the surfaced set so no caller re-derives it', () => {
     expect(SURFACED_BLOCK_KINDS.has('unsupported')).toBe(false)
     expect(SURFACED_BLOCK_KINDS.has('local-edits')).toBe(true)
+  })
+
+  // Pins the whole-branch-review fix: 'auth', 'missing' and 'notfound' are three DIFFERENT gh
+  // failures, each with something a person can actually act on — unlike a plain transport
+  // failure, which never reaches `BlockedReason` at all (see packsAdapter.test.ts).
+  it('surfaces both new gh-failure kinds — a person can act on either', () => {
+    expect(SURFACED_BLOCK_KINDS.has('missing')).toBe(true)
+    expect(SURFACED_BLOCK_KINDS.has('notfound')).toBe(true)
   })
 })

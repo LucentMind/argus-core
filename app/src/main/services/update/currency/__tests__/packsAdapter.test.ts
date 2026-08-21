@@ -46,9 +46,9 @@ describe('packsAdapter.survey', () => {
     expect(c.reason).toEqual({ kind: 'origin-pin' })
   })
 
-  it('blocks on a gh failure', async () => {
+  it('blocks on a gh auth failure', async () => {
     const { adapter } = build({
-      'code-graph': { phase: 'error', message: 'gh not signed in', at: 1, code: 'gh' }
+      'code-graph': { phase: 'error', message: 'gh not signed in', at: 1, code: 'gh-auth' }
     })
     expect((await adapter.survey())[0].reason).toEqual({ kind: 'auth' })
   })
@@ -56,6 +56,48 @@ describe('packsAdapter.survey', () => {
   it('stays silent about an ordinary transport failure', async () => {
     const { adapter } = build({
       'code-graph': { phase: 'error', message: 'ETIMEDOUT', at: 1, code: 'feed' }
+    })
+    expect(await adapter.survey()).toEqual([])
+  })
+
+  // Pins the whole-branch-review fix: the four `code`s a gh failure can reach this adapter as
+  // must map to four DIFFERENT outcomes. Before the fix, ALL of these collapsed to `code: 'gh'`
+  // and therefore to `{ kind: 'auth' }` — including 'gh-notfound' (a private/renamed repo, where
+  // "sign in" does nothing) and 'gh-missing' (no gh binary at all, where "sign in" is impossible).
+  // A regression that re-collapsed any one of these back onto 'auth' — or that dropped
+  // 'gh-missing'/'gh-notfound' from `reasonOf`'s map entirely — would fail this test.
+  it('maps each of the four gh codes to its own distinct outcome', async () => {
+    const { adapter } = build({
+      'code-graph': {
+        phase: 'error',
+        message: 'the GitHub CLI (gh) is not installed or not on PATH',
+        at: 1,
+        code: 'gh-missing'
+      }
+    })
+    expect((await adapter.survey())[0].reason).toEqual({ kind: 'missing' })
+  })
+
+  it('blocks on a gh notfound failure — distinct from auth and missing', async () => {
+    const { adapter } = build({
+      'code-graph': {
+        phase: 'error',
+        message: 'repository not found, or your account cannot see it',
+        at: 1,
+        code: 'gh-notfound'
+      }
+    })
+    expect((await adapter.survey())[0].reason).toEqual({ kind: 'notfound' })
+  })
+
+  it('stays silent about an unclassified gh failure — not a decision, unlike the other three', async () => {
+    const { adapter } = build({
+      'code-graph': {
+        phase: 'error',
+        message: 'gh returned output that is not JSON',
+        at: 1,
+        code: 'gh-failed'
+      }
     })
     expect(await adapter.survey()).toEqual([])
   })
