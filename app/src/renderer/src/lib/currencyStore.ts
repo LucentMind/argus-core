@@ -45,12 +45,25 @@ class CurrencyStore {
   }
 
   /** Hydrate once and stay subscribed. Idempotent: mounting a second consumer must not attach a
-   *  second IPC listener, which would double every notification. */
+   *  second IPC listener, which would double every notification.
+   *
+   *  `onChanged` is registered BEFORE `get()` is awaited, so a broadcast can legitimately arrive
+   *  while hydration is still in flight — guarded with `this.state === EMPTY` rather than
+   *  unconditionally adopting `get()`'s result, so that broadcast wins instead of being clobbered
+   *  by the later-resolving (and by then stale) hydration. `.catch()` on the hydration promise
+   *  keeps a rejected `get()` (e.g. main not yet ready) from becoming an unhandled rejection —
+   *  the store just stays at `EMPTY` until the next broadcast, rather than every consumer being
+   *  left permanently empty with no error surfaced anywhere. */
   start(): void {
     if (this.started) return
     this.started = true
     window.argus.currency.onChanged((p) => this.set(p))
-    void window.argus.currency.get().then((p) => this.set(p))
+    void window.argus.currency
+      .get()
+      .then((p) => {
+        if (this.state === EMPTY) this.set(p)
+      })
+      .catch(() => {})
   }
 
   /** Held-back items grouped by the page that shows them. Always has all three keys, so a

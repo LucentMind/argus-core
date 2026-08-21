@@ -103,4 +103,70 @@ describe('currencyStore', () => {
     emit({ ...empty, blocked: [blocked('pack', 'local-edits')] })
     expect(notifications).toBe(1)
   })
+
+  // Finding 6 (whole-branch review): `start()` registers `onChanged` BEFORE awaiting `get()`, so
+  // a broadcast can arrive while hydration is still in flight. Without a guard, the later-
+  // resolving (and by now stale) `get()` result overwrites whatever the broadcast just set.
+  describe('start() hydration race', () => {
+    it('does not let a late-resolving get() clobber a broadcast that arrived first', async () => {
+      let resolveGet!: (p: CurrencyPayload) => void
+      const listeners = new Set<(p: CurrencyPayload) => void>()
+      // @ts-expect-error test stub
+      window.argus = {
+        currency: {
+          get: vi.fn(
+            () =>
+              new Promise<CurrencyPayload>((resolve) => {
+                resolveGet = resolve
+              })
+          ),
+          surveyNow: vi.fn(async () => {}),
+          onChanged: (fn: (p: CurrencyPayload) => void) => {
+            listeners.add(fn)
+            return () => listeners.delete(fn)
+          },
+          onAdopted: vi.fn(() => () => {}),
+          ackAdopted: vi.fn(async () => {}),
+          pendingAdopted: vi.fn(async () => 0)
+        }
+      }
+      currencyStore.start()
+      const broadcast = { ...empty, blocked: [blocked('pack', 'local-edits')] }
+      for (const fn of listeners) fn(broadcast)
+      expect(currencyStore.get()).toEqual(broadcast)
+
+      // The hydration resolves only now, AFTER the broadcast — its stale payload must not win.
+      resolveGet({ ...empty, blocked: [] })
+      await new Promise((r) => setTimeout(r, 0))
+      expect(currencyStore.get()).toEqual(broadcast)
+    })
+
+    it('a rejected get() does not throw and leaves the store usable via a later broadcast', async () => {
+      const listeners = new Set<(p: CurrencyPayload) => void>()
+      // @ts-expect-error test stub
+      window.argus = {
+        currency: {
+          get: vi.fn(async () => {
+            throw new Error('offline')
+          }),
+          surveyNow: vi.fn(async () => {}),
+          onChanged: (fn: (p: CurrencyPayload) => void) => {
+            listeners.add(fn)
+            return () => listeners.delete(fn)
+          },
+          onAdopted: vi.fn(() => () => {}),
+          ackAdopted: vi.fn(async () => {}),
+          pendingAdopted: vi.fn(async () => 0)
+        }
+      }
+      expect(() => currencyStore.start()).not.toThrow()
+      // Let the rejected promise settle. If `start()` leaves it unhandled, vitest reports the run
+      // itself as failed even though no assertion below would catch it.
+      await new Promise((r) => setTimeout(r, 0))
+
+      const broadcast = { ...empty, blocked: [blocked('hive-skill', 'local-edits')] }
+      for (const fn of listeners) fn(broadcast)
+      expect(currencyStore.get()).toEqual(broadcast)
+    })
+  })
 })
