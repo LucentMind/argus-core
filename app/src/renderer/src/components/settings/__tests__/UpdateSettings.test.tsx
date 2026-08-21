@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
@@ -65,6 +65,11 @@ beforeEach(() => {
   settingsStore.reset()
   stubApi()
 })
+
+// Several tests below spy on settingsStore.patch with vi.spyOn; without a restore here it leaks
+// into every later test in this file (no restoreMocks in vitest.config.ts, and no other
+// afterEach in this file to catch it).
+afterEach(() => vi.restoreAllMocks())
 
 describe('UpdateSettings', () => {
   it('shows the running version once the store has loaded', async () => {
@@ -327,6 +332,32 @@ describe('keep everything up to date', () => {
       }
     )
     expect(await screen.findByText(/2 items held back/i)).toBeInTheDocument()
+  })
+
+  it('uses singular wording for exactly one held-back item', async () => {
+    renderWithSettings(
+      { updates: { channel: 'stable', auto: true } },
+      {
+        currency: {
+          auto: true,
+          lastSurveyAt: new Date().toISOString(),
+          blocked: [
+            {
+              domain: 'pack',
+              key: 'cg',
+              label: 'CG',
+              from: '1',
+              to: '2',
+              verdict: 'blocked',
+              reason: { kind: 'new-dependency' }
+            }
+          ],
+          busy: false
+        }
+      }
+    )
+    expect(await screen.findByText(/1 item held back/i)).toBeInTheDocument()
+    expect(screen.queryByText(/1 items held back/i)).not.toBeInTheDocument()
   })
 
   it('says nothing has been checked yet when there is no anchor', async () => {

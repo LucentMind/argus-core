@@ -442,6 +442,9 @@ describe('PacksSettings', () => {
   it('checks for pack updates on mount, and re-lists with the result', async () => {
     render(<PacksSettings settings={settingsPayload([])} />)
     await waitFor(() => expect(currency.surveyNow).toHaveBeenCalledWith('packs'))
+    // Cardinality, not just the call: a double-fire on mount (StrictMode, a bad effect
+    // dependency) would slip past a bare toHaveBeenCalledWith.
+    expect(currency.surveyNow).toHaveBeenCalledTimes(1)
     // Not just the call: the check is worthless unless its result is pulled back into the list.
     await waitFor(() => expect(packs.list.mock.calls.length).toBeGreaterThanOrEqual(2))
   })
