@@ -572,7 +572,7 @@ describe('PacksSettings', () => {
           id: 'sample',
           update: {
             phase: 'error',
-            code: 'gh',
+            code: 'gh-auth',
             message: 'the GitHub CLI is not authenticated',
             at: 1
           }

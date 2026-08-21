@@ -31,8 +31,18 @@ function reasonOf(code: UpdateErrorCode | undefined): BlockedReason | null {
   switch (code) {
     case 'origin-pin':
       return { kind: 'origin-pin' }
-    case 'gh':
+    case 'gh-auth':
       return { kind: 'auth' }
+    case 'gh-missing':
+      return { kind: 'missing' }
+    case 'gh-notfound':
+      return { kind: 'notfound' }
+    // 'gh-failed' is deliberately absent: it is classifyGhFailure's catch-all for a gh call that
+    // failed for no attributable reason (rate-limited, a malformed response, a mid-call network
+    // blip). None of those is a decision a person can act on, so — like every OTHER code absent
+    // from this map — it is transport noise, not a `BlockedReason`, and is silently re-offered by
+    // the next survey rather than surfacing a sentence that would send the user chasing a sign-in
+    // or an install that was never the problem.
     default:
       return null
   }

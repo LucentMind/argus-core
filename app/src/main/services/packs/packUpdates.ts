@@ -6,7 +6,7 @@ import { finished } from 'node:stream/promises'
 import { ZodError } from 'zod'
 import { packFeedSchema, selectUpdate, type FeedEntry } from './feed'
 import { findGithubUpdate, RepoMovedError, type GithubCandidate } from './githubFeed'
-import { GhError, type GhClient } from './ghClient'
+import { GhError, type GhClient, type GhErrorKind } from './ghClient'
 import { parseGhRef, sameGhRef } from './githubRef'
 import {
   isGithubSource,
@@ -217,6 +217,15 @@ class UpdateError extends Error {
   }
 }
 
+/** `classifyGhFailure`'s four kinds, threaded through as four distinct `UpdateErrorCode`s rather
+ *  than collapsed into one — see the doc comments on those codes in `shared/updates.ts`. */
+const GH_ERROR_CODE: Record<GhErrorKind, UpdateErrorCode> = {
+  missing: 'gh-missing',
+  auth: 'gh-auth',
+  notfound: 'gh-notfound',
+  failed: 'gh-failed'
+}
+
 export interface PackUpdatesDeps {
   argusHome: string
   state: PacksStateStore
@@ -370,7 +379,9 @@ export class PackUpdatesService {
           )
         }
         const gh = this.deps.gh
-        if (!gh) throw new UpdateError('gh', 'the GitHub CLI client is not available')
+        // Unwired deps.gh (production always wires nodeGhClient) reads the same as "gh isn't
+        // usable" — the same fix (install/configure gh) applies either way.
+        if (!gh) throw new UpdateError('gh-missing', 'the GitHub CLI client is not available')
         try {
           ;({ sha256 } = await gh.downloadAsset(
             download.pin,
@@ -379,7 +390,7 @@ export class PackUpdatesService {
             zipPath
           ))
         } catch (err) {
-          if (err instanceof GhError) throw new UpdateError('gh', err.message)
+          if (err instanceof GhError) throw new UpdateError(GH_ERROR_CODE[err.kind], err.message)
           throw new UpdateError('download', (err as Error).message)
         }
       }
@@ -557,7 +568,9 @@ export class PackUpdatesService {
     const installedVersion = this.deps.state.get(id)
     if (!installedVersion) throw new UpdateError('feed', `pack '${id}' is not installed`)
     const gh = this.deps.gh
-    if (!gh) throw new UpdateError('gh', 'the GitHub CLI client is not available')
+    // Unwired deps.gh (production always wires nodeGhClient) reads the same as "gh isn't
+    // usable" — the same fix (install/configure gh) applies either way.
+    if (!gh) throw new UpdateError('gh-missing', 'the GitHub CLI client is not available')
 
     let found: Awaited<ReturnType<typeof findGithubUpdate>>
     try {
@@ -566,7 +579,7 @@ export class PackUpdatesService {
       // A moved repo is the gh-path analogue of a cross-origin redirect, so it reports through
       // the SAME code — the Packs row's "download it manually" branch is already written for it.
       if (err instanceof RepoMovedError) throw new UpdateError('origin-pin', err.message)
-      if (err instanceof GhError) throw new UpdateError('gh', err.message)
+      if (err instanceof GhError) throw new UpdateError(GH_ERROR_CODE[err.kind], err.message)
       throw new UpdateError('feed', (err as Error).message)
     }
     if (!found) return null

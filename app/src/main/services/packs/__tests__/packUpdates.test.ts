@@ -651,7 +651,7 @@ describe('github-pinned packs', () => {
     })
   })
 
-  it('reports a gh failure with the gh code, not the feed code', async () => {
+  it('reports a gh auth failure with its own code, not the feed code', async () => {
     const failing: GhClient = {
       api: async () => {
         throw new GhError('auth', 'the GitHub CLI is not authenticated')
@@ -661,7 +661,29 @@ describe('github-pinned packs', () => {
       }
     }
     expect(await ghSvc(failing).checkAll()).toMatchObject({
-      sample: { phase: 'error', code: 'gh' }
+      sample: { phase: 'error', code: 'gh-auth' }
+    })
+  })
+
+  // Pins the whole-branch-review fix: `classifyGhFailure`'s four kinds must reach `checkAll()`
+  // as four DIFFERENT codes, not collapsed into one — a regression that re-collapsed them (e.g.
+  // reverting to a single `'gh'` code) would fail every assertion below except the auth one
+  // above, which shares its expected code with none of these.
+  it.each([
+    ['missing', 'the GitHub CLI (gh) is not installed or not on PATH', 'gh-missing'],
+    ['notfound', 'repository not found, or your account cannot see it', 'gh-notfound'],
+    ['failed', 'gh returned output that is not JSON', 'gh-failed']
+  ] as const)('reports a gh %s failure as %s', async (kind, message, code) => {
+    const failing: GhClient = {
+      api: async () => {
+        throw new GhError(kind, message)
+      },
+      downloadAsset: async () => {
+        throw new Error('unused')
+      }
+    }
+    expect(await ghSvc(failing).checkAll()).toMatchObject({
+      sample: { phase: 'error', code }
     })
   })
 
