@@ -48,13 +48,19 @@ describe('HeaderNotice', () => {
     expect(screen.queryByText('first')).toBeNull()
   })
 
-  // Finding 5 (whole-branch review): the mandated first-run notice string is ~132 characters, and
-  // at the old `max-w-80` (320px) single-line truncation, roughly the first 45 render before the
-  // ellipsis — the reader never sees "You can turn this off in Settings -> Updates.", the ONE
-  // actionable half of the sentence. jsdom computes no layout, so it cannot see the truncation
-  // itself; what it CAN pin is that the full text is reachable through the native title tooltip
-  // regardless of how much of it fits on screen, and that the truncation budget was actually
-  // widened rather than left at the old cap.
+  // Finding 5 (whole-branch review) plus a live-verification follow-up (task 9): the mandated
+  // first-run notice string is ~132 characters, and at the ORIGINAL `max-w-80` (320px) single-line
+  // truncation, roughly the first 45 characters rendered before the ellipsis — the reader never
+  // saw "You can turn this off in Settings -> Updates.", the ONE actionable half of the sentence.
+  // A first fix widened the cap to `max-w-[32rem]` (512px) but KEPT `truncate` (single line); a
+  // live CDP measurement (task-9-live-report.md) found that STILL truncated the same string at
+  // ~512px of its ~714px rendered width, cutting it off right after "You" — the same class of bug,
+  // just a longer string away. jsdom computes no layout, so it cannot see either truncation
+  // directly; what it CAN pin is that the full text is reachable through the native title tooltip
+  // regardless of how much fits on screen, AND — the actual fix — that the single-line truncating
+  // classes are gone and the wrapping ones are present. Neither this test nor jsdom can confirm
+  // the text is actually LEGIBLE on screen (no layout engine here) — that is the live CDP
+  // measurement's job, not a unit test's; see task-9-live-report.md for the pixel evidence.
   it('carries the full message as a title, so a truncated notice is still reachable', async () => {
     render(<HeaderNotice />)
     const long =
@@ -64,14 +70,19 @@ describe('HeaderNotice', () => {
     expect(btn).toHaveAttribute('title', long)
   })
 
-  it('widens the truncation cap past the old 320px, which cut off the notice before its actionable half', async () => {
+  it('wraps across lines instead of truncating to one, so a long notice is not cut off', async () => {
     render(<HeaderNotice />)
     notice('short')
     const btn = await screen.findByRole('button', { name: 'Dismiss: short' })
-    // Pinned to the actual replacement class, not merely the absence of the old one: asserting
-    // only `not.toContain('max-w-80')` would pass for `max-w-8` too — four times NARROWER than the
-    // cap this test exists to prove was widened (whole-branch review, minor finding).
-    expect(btn.className).toContain('max-w-[32rem]')
-    expect(btn.className).not.toContain('max-w-80')
+    // `truncate` (Tailwind's `whitespace-nowrap overflow-hidden text-overflow-ellipsis` shorthand)
+    // is what silently ate the actionable half of the sentence — a single-line cap, however wide,
+    // reproduces the same bug for a long-enough string. Its absence is necessary but not
+    // sufficient (a plain unclamped div would also lack it), so this also pins the two classes
+    // that positively express "this wraps": `line-clamp-2` (the same idiom settingsLayout.tsx and
+    // CaseCard.tsx already use) and `whitespace-normal`, which together are what let the text
+    // actually break onto a second line rather than run off the first.
+    expect(btn.className).not.toContain('truncate')
+    expect(btn.className).toContain('line-clamp-2')
+    expect(btn.className).toContain('whitespace-normal')
   })
 })
