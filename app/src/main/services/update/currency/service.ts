@@ -247,6 +247,8 @@ export class CurrencyService {
             { ...candidate, verdict: 'blocked', reason: outcome.reason }
           ]
       }
+      // No `reason` ⇒ a transport failure, not a decision: dropped silently here, exactly as
+      // the `catch` below does, and re-offered by the next survey.
       return false
     } catch {
       // A write that threw is a transport/disk failure, not a decision: stay silent and let the
