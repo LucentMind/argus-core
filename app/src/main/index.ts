@@ -103,7 +103,7 @@ import {
   renameSkillFileReviewed,
   saveSkillFile
 } from './services/skillFiles'
-import { executableAssetsOf, HivemindService } from './services/hivemind'
+import { declineKey, executableAssetsOf, HivemindService } from './services/hivemind'
 import {
   listProposals,
   listArchivedProposals,
@@ -1516,7 +1516,14 @@ function registerIpc(): void {
         }
       })
       // 'ready' is the only phase that got as far as installPack — see packUpdates.apply.
-      if (status.phase === 'ready') packsTouched.add(id)
+      if (status.phase === 'ready') {
+        packsTouched.add(id)
+        // `this.blocked` is otherwise rewritten only by a survey, which this manual path never
+        // triggers — without this, a hold the user just resolved by hand (e.g. Update after an
+        // origin-pin refusal) keeps reading as held back until the next scheduled survey, up to
+        // 6h later (Finding 2, whole-branch review).
+        currency?.forget(id)
+      }
       packUpdateStatuses = { ...packUpdateStatuses, [id]: status }
       broadcast(IPC.packsChanged, undefined)
       return plan ? { planned: true, plan } : { planned: false, status }
@@ -3087,6 +3094,10 @@ function registerIpc(): void {
     ) =>
       withUpdateLock(async () => {
         const p = await hivemind.install(kind, name, opts)
+        // Every failure path in `hivemind.install` throws (see Task 8's dead-branch removal), so
+        // reaching here means the write landed — same "manual path never triggers a survey" gap
+        // as the pack apply handler above (Finding 2, whole-branch review).
+        currency?.forget(declineKey(kind, name))
         if (kind === 'skill') {
           // install implies intent → clear any lingering disable override (sparse store keeps only false)
           agentAccessStore.patch({ skills: { [`hivemind/${name}`]: true } })
