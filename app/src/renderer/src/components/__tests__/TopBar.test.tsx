@@ -1084,5 +1084,69 @@ describe('TopBar', () => {
       unmount()
       expect(off).toHaveBeenCalledTimes(1)
     })
+
+    // Fix wave 1 (review: CRITICAL). `HeaderNotice` only ever mounts inside the
+    // `activeSlug !== null` branch, so a listener registered unconditionally would push a notice
+    // — arming `noticeStore`'s 6-second self-dismiss timer — and ack it, with nothing on screen
+    // to show it and no way to see it again: the flag would already read "shown". The fix has to
+    // stop the SUBSCRIPTION itself while there is no case open, not merely skip the ack.
+    it('registers no listener at all — and acks nothing — while no case is open', () => {
+      render(
+        <TopBar
+          activeSlug={null}
+          activeCase={null}
+          onHome={vi.fn()}
+          onSelect={vi.fn()}
+          onSettings={vi.fn()}
+          onStatusChanged={vi.fn()}
+        />
+      )
+      expect(window.argus.currency.onAdopted).not.toHaveBeenCalled()
+      expect(window.argus.currency.ackAdopted).not.toHaveBeenCalled()
+    })
+
+    it('defers the notice across a home→case transition: subscribes, shows, and acks only once a case opens', async () => {
+      let fire: ((n: number) => void) | null = null
+      window.argus.currency.onAdopted = vi.fn((cb: (n: number) => void) => {
+        fire = cb
+        return () => {
+          fire = null
+        }
+      })
+      const { rerender } = render(
+        <TopBar
+          activeSlug={null}
+          activeCase={null}
+          onHome={vi.fn()}
+          onSelect={vi.fn()}
+          onSettings={vi.fn()}
+          onStatusChanged={vi.fn()}
+        />
+      )
+      // Still on Home: no listener yet, so nothing to fire and nothing that could ack.
+      expect(window.argus.currency.onAdopted).not.toHaveBeenCalled()
+      expect(window.argus.currency.ackAdopted).not.toHaveBeenCalled()
+
+      uiStore.openTab('NAV-1')
+      rerender(
+        <TopBar
+          activeSlug="NAV-1"
+          activeCase={CASE}
+          onHome={vi.fn()}
+          onSelect={vi.fn()}
+          onSettings={vi.fn()}
+          onStatusChanged={vi.fn()}
+        />
+      )
+      await vi.waitFor(() => expect(fire).toBeTruthy())
+      act(() => fire!(2))
+
+      expect(
+        await screen.findByText(
+          "Argus now keeps itself up to date — it installed 2 HiveMind items from your team's repo. You can turn this off in Settings → Updates."
+        )
+      ).toBeInTheDocument()
+      await vi.waitFor(() => expect(window.argus.currency.ackAdopted).toHaveBeenCalledTimes(1))
+    })
   })
 })
