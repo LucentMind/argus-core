@@ -20,12 +20,10 @@ import {
   SettingRow,
   Switch,
   DraftInput,
-  SelectField,
   SettingsSkeleton,
   FIELD
 } from './settingsLayout'
 import { SourceControl } from './SourceControl'
-import { RcaTemplateSettings } from './RcaTemplateSettings'
 import { Btn, Card, Chip, IconBtn, MenuButton } from '../ui'
 import { DEFAULT_CLONE_LINK_TYPES, DEFAULT_WATERMARK_TEXT } from '../../../../shared/settings'
 
@@ -33,19 +31,6 @@ const WATERMARK_TARGETS = [
   { key: 'jira', label: 'Jira comments', hint: 'The RCA exec summary posted to the linked issue.' },
   { key: 'github', label: 'GitHub PR comments', hint: 'Findings posted to a bound pull request.' }
 ] as const
-
-/** Labels for `settings.rca.techDestination` — kept here rather than in shared/settings.ts
- *  since they're display strings for exactly this one SelectField, and `SelectField`'s
- *  contract is label-in/label-out (see settingsLayout.tsx). */
-const TECH_DESTINATION_LABELS = {
-  attachment: 'Attach markdown to the Jira issue',
-  'confluence-page': 'Publish a Confluence page'
-} as const
-const TECH_DESTINATION_BY_LABEL: Record<string, keyof typeof TECH_DESTINATION_LABELS> =
-  Object.fromEntries(Object.entries(TECH_DESTINATION_LABELS).map(([k, v]) => [v, k])) as Record<
-    string,
-    keyof typeof TECH_DESTINATION_LABELS
-  >
 
 function statusChip(
   inst: ConnectorInstance,
@@ -244,7 +229,6 @@ export function ConnectorsSettings(): React.JSX.Element {
   const [editing, setEditing] = useState<string | null>(null)
   const [newLinkType, setNewLinkType] = useState('')
   if (!payload) return <SettingsSkeleton />
-  const rca = settingsPayload?.settings.rca
   const watermark = settingsPayload?.settings.watermark
   const jira = settingsPayload?.settings.jira
 
@@ -345,46 +329,6 @@ export function ConnectorsSettings(): React.JSX.Element {
           ]}
         />
       </div>
-      {rca && (
-        <SettingsSection title="RCA report">
-          <SettingRow
-            label="Technical report destination"
-            description="Where a confirmed RCA's technical drill-down is posted — the exec summary always goes as a Jira comment."
-            isDefault={rca.techDestination === 'attachment'}
-            onReset={() => void settingsStore.patch({ rca: { techDestination: null } })}
-          >
-            <SelectField
-              aria-label="Technical report destination"
-              value={TECH_DESTINATION_LABELS[rca.techDestination]}
-              options={Object.values(TECH_DESTINATION_LABELS)}
-              onChange={(v) =>
-                void settingsStore.patch({ rca: { techDestination: TECH_DESTINATION_BY_LABEL[v] } })
-              }
-            />
-          </SettingRow>
-          {rca.techDestination === 'confluence-page' && (
-            <SettingRow
-              label="Confluence space key"
-              description='The space the technical report is published into, e.g. "ENG".'
-              isDefault={!rca.confluenceSpaceKey}
-              onReset={() => void settingsStore.patch({ rca: { confluenceSpaceKey: null } })}
-            >
-              <DraftInput
-                value={rca.confluenceSpaceKey}
-                onCommit={(v) =>
-                  void settingsStore.patch({ rca: { confluenceSpaceKey: v.trim() } })
-                }
-                aria-label="Confluence space key"
-                className={FIELD}
-                placeholder="ENG"
-              />
-            </SettingRow>
-          )}
-          {/* Outside the confluence-page branch above: the template drives BOTH reports and
-              must stay reachable whatever the tech destination is. */}
-          <RcaTemplateSettings template={rca.template} />
-        </SettingsSection>
-      )}
       {jira && (
         <SettingsSection title="Jira">
           <SettingRow

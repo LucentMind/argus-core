@@ -14,7 +14,6 @@ import { DeleteCaseDialog } from './DeleteCaseDialog'
 import { RoutineInbox } from './routines/RoutineInbox'
 import { useRoutinesPayload } from '../lib/routinesStore'
 import { useProposalCounts } from '../lib/proposalsStore'
-import { useSettingsPayload } from '../lib/settingsStore'
 import { usePrStatuses } from '../lib/prStatusStore'
 import { uiStore } from '../lib/uiStore'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
@@ -42,7 +41,6 @@ export function CaseDashboard({
   children?: React.ReactNode
 }): React.JSX.Element {
   const [exportNote, setExportNote] = useState<{ slug: string; text: string } | null>(null)
-  const [deleteError, setDeleteError] = useState<{ slug: string; text: string } | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [login, setLogin] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
@@ -51,7 +49,6 @@ export function CaseDashboard({
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [syncing, setSyncing] = useState<{ done: number; total: number } | null>(null)
   const [syncNote, setSyncNote] = useState<string | null>(null)
-  const settings = useSettingsPayload()
   // RoutineInbox (mounted below) is the first reader of this singleton; start() is idempotent
   // and the store fetches once, so this is a second subscriber, not a second IPC round trip.
   const routines = useRoutinesPayload()
@@ -124,21 +121,11 @@ export function CaseDashboard({
     setExportNote({ slug, text: r.ok ? `exported ${r.fileCount} files` : r.error })
   }
 
-  async function requestDelete(slug: string): Promise<void> {
-    // default true — also while the settings payload is still loading
-    const confirm = settings?.settings.general.confirmCaseDelete ?? true
-    if (!confirm) {
-      setDeleteError(null)
-      try {
-        await window.argus.cases.delete(slug)
-      } catch (err) {
-        setDeleteError({ slug, text: (err as Error).message })
-      } finally {
-        // resync the list even on failure — the deletion may have partially committed
-        onDeleted()
-      }
-      return
-    }
+  /** Always opens the type-the-slug dialog. The `general.confirmCaseDelete` switch that used to
+   *  let a user skip it is gone (user-directed, 2026-08-21): deleting a case destroys its
+   *  evidence, findings and transcript with no undo, and a preference whose only non-default
+   *  state removes that guard is not a preference worth keeping. */
+  function requestDelete(slug: string): void {
     setDeleting(slug)
   }
 
@@ -369,16 +356,13 @@ export function CaseDashboard({
                 index={i}
                 onOpen={onOpen}
                 onExport={(slug) => void exportCase(slug)}
-                onDelete={(slug) => void requestDelete(slug)}
+                onDelete={(slug) => requestDelete(slug)}
                 prStatus={prStatuses[c.slug]}
                 reviewCount={reviewCounts.get(c.slug) ?? 0}
-                note={
-                  deleteError?.slug === c.slug
-                    ? { text: deleteError.text, danger: true }
-                    : exportNote?.slug === c.slug
-                      ? { text: exportNote.text, danger: false }
-                      : null
-                }
+                // No delete-error branch any more: every delete goes through
+                // `DeleteCaseDialog`, which reports its own failure inline and stays open for a
+                // retry. The card-level note was only ever reachable from the confirm-off path.
+                note={exportNote?.slug === c.slug ? { text: exportNote.text, danger: false } : null}
               />
             ))}
           </div>

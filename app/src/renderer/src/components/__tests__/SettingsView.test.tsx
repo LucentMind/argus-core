@@ -383,6 +383,8 @@ describe('SettingsView', () => {
     const onClose = vi.fn()
     render(<SettingsView onClose={onClose} onOpenProposals={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
+    // Theme lives inside the collapsed Appearance row now (user-directed, 2026-08-21).
+    fireEvent.click(screen.getByLabelText('Expand appearance'))
     const theme = screen.getByRole('combobox', { name: 'Theme' })
     fireEvent.click(theme)
     expect(theme.getAttribute('aria-expanded')).toBe('true')

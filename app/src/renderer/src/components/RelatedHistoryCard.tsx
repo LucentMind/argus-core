@@ -9,6 +9,7 @@ import type {
 import { Chip, IconBtn, SectionLabel } from './ui'
 import { CollapsibleSection } from './CollapsibleSection'
 import { uiStore } from '../lib/uiStore'
+import { useSettingsPayload } from '../lib/settingsStore'
 import { isOpenableUrl } from '../lib/openableUrl'
 
 const DISMISS_KEY = (slug: string): string => `argus:related-dismissed:${slug}`
@@ -164,6 +165,12 @@ export function RelatedHistoryCard({
     (cb) => uiStore.subscribe(cb),
     () => uiStore.get()
   )
+  // `null` while the settings payload is still in flight — deliberately NOT defaulted to the
+  // schema's `true`. Guessing on would fire one search per case opened during the boot window
+  // even for a user who has switched it off, which is exactly the fan-out the switch exists to
+  // stop. The effect re-runs when the payload lands, so an on-install loses nothing but a tick.
+  const settings = useSettingsPayload()
+  const searchOnOpen = settings ? settings.settings.general.relatedSearchOnOpen : null
 
   useEffect(() => {
     const already =
@@ -176,6 +183,11 @@ export function RelatedHistoryCard({
     setResult(null)
     setExpanded(null)
     if (already) return
+    // The master switch (Settings -> Defect corpus). This is the ONLY automatic
+    // related-history search in the app, so gating it here is what makes the
+    // setting mean "searched when a case opens" — the explorer runs the same IPC
+    // on the user's own initiative and is deliberately not gated.
+    if (searchOnOpen !== true) return
     let mounted = true
     void window.argus.related
       .search({ caseSlug: slug })
@@ -189,7 +201,7 @@ export function RelatedHistoryCard({
     return () => {
       mounted = false
     }
-  }, [slug])
+  }, [slug, searchOnOpen])
 
   const degraded = result ? degradedLabel(result.sources) : null
   // Render when there is something to show OR something is broken. Returning

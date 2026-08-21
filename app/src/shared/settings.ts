@@ -42,6 +42,11 @@ const providerInstanceSchema = z.looseObject({
 export type ProviderInstance = z.infer<typeof providerInstanceSchema>
 
 const generalSchema = z.looseObject({
+  /** @deprecated Case deletion always confirms (user-directed, 2026-08-21) — a switch whose
+   *  only non-default state disables an irreversible action's guard. Kept in the schema for
+   *  one release so an existing `false` on disk parses instead of failing the whole settings
+   *  read; nothing reads it. `looseObject` would tolerate the key regardless, but naming it
+   *  here is what stops someone reintroducing it as a live setting. */
   confirmCaseDelete: z.boolean().default(true),
   /** @deprecated Superseded by `defaultRepos`. Retained only so the one-time
    *  `migrateDefaultRepoToList` can read it; that migration nulls it, after which
@@ -51,11 +56,27 @@ const generalSchema = z.looseObject({
   /** Repos auto-linked to every new case. Empty equals its default, so an emptied list is
    *  stripped from disk and reseeds as `[]` on reload — which is the correct end state. */
   defaultRepos: z.array(z.string()).default([]),
-  /** Gates RelatedHistoryService's local case-history provider (this install's own past
-   *  cases). Off by default; a live global setting, not snapshotted per case — flipping it
-   *  takes effect on the very next search, for every case. Corpus providers and the
-   *  search_case_history agent tool are unaffected (design decision, 2026-08-05 spec). */
+  /** @deprecated Renamed to `relatedIncludeLocalCases` and moved to Settings → Defect corpus
+   *  (user-directed, 2026-08-21). `migrateRelatedSearchSwitches` copies a stored `true` across
+   *  and nulls this key; do not read it anywhere else. */
   similarPastCasesEnabled: z.boolean().default(false),
+  /**
+   * Whether opening a case runs a related-history search at all — local cases AND every enabled
+   * defect corpus. Its predecessor (`similarPastCasesEnabled`) gated only the local provider,
+   * which left no way to stop the case-open fan-out as a whole.
+   *
+   * On by default, because that is exactly what today's build does: corpus providers already
+   * search on every case open, and an upgrade must not silently stop them. Off means nothing is
+   * searched until the user opens the related-history explorer themselves — the explorer is
+   * user-initiated and is deliberately NOT gated by this.
+   */
+  relatedSearchOnOpen: z.boolean().default(true),
+  /** Whether this install's own closed cases are one of the sources that search draws on. Off
+   *  by default, unchanged from `similarPastCasesEnabled` — the local provider only has
+   *  anything to match against once cases have been distilled. Gates
+   *  RelatedHistoryService's local provider; corpus providers and the `search_case_history`
+   *  agent tool are unaffected (design decision, 2026-08-05 spec). */
+  relatedIncludeLocalCases: z.boolean().default(false),
   /** Closing the last window leaves Argus in the tray instead of quitting, so scheduled
    *  routines keep firing. Off by default: a fresh install must not leave a background process
    *  behind for a user who has never created a routine. With it off nothing is lost, only
@@ -275,7 +296,10 @@ const migrationsSchema = z.looseObject({
    *  reset run exactly once, so a Bypass chosen deliberately afterwards survives. */
   bypassDefaultReset: z.string().default(''),
   /** When `general.defaultRepo` (single) was folded into `general.defaultRepos` (list). */
-  defaultRepoToList: z.string().default('')
+  defaultRepoToList: z.string().default(''),
+  /** When `general.similarPastCasesEnabled` was split into `relatedSearchOnOpen` (new master)
+   *  and `relatedIncludeLocalCases` (the old meaning). */
+  relatedSearchSwitches: z.string().default('')
 })
 
 /** Jira's own built-in clone link type. Exported so the REST client's fallback and the schema

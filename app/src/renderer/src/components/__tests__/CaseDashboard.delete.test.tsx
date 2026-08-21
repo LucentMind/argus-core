@@ -181,45 +181,38 @@ describe('CaseDashboard delete', () => {
     expect(onDeleted).not.toHaveBeenCalled()
   })
 
-  it('deletes without the dialog when confirmCaseDelete is off', async () => {
-    setup(payload((p) => (p.settings.general.confirmCaseDelete = false)))
-    const onDeleted = vi.fn()
+  // The `general.confirmCaseDelete` escape hatch is gone (user-directed, 2026-08-21): a case
+  // delete is irreversible, so the dialog is the only path. These two used to cover the
+  // confirm-off shortcut and now assert it no longer exists.
+  it('always opens the dialog — there is no confirm-off shortcut', async () => {
+    setup(payload())
     render(
       <CaseDashboard
         cases={cases}
         onOpen={vi.fn()}
         onNew={vi.fn()}
         onImport={vi.fn()}
-        onDeleted={onDeleted}
+        onDeleted={vi.fn()}
       />
     )
-    // settingsStore fetches async — wait until the payload has landed
-    await waitFor(() => expect(settingsStore.get()).not.toBeNull())
     fireEvent.click(screen.getByRole('button', { name: 'Delete NAV-1' }))
-    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('NAV-1'))
-    expect(screen.queryByRole('dialog')).toBeNull()
-    await waitFor(() => expect(onDeleted).toHaveBeenCalled())
+    expect(await screen.findByLabelText('Confirm slug')).toBeTruthy()
+    expect(deleteMock).not.toHaveBeenCalled()
   })
 
-  it('shows an inline error and still resyncs when the confirm-off delete fails', async () => {
+  it('opens the dialog even with a legacy confirmCaseDelete:false on disk', async () => {
     setup(payload((p) => (p.settings.general.confirmCaseDelete = false)))
-    deleteMock.mockImplementation(async () => {
-      throw new Error('case locked')
-    })
-    const onDeleted = vi.fn()
     render(
       <CaseDashboard
         cases={cases}
         onOpen={vi.fn()}
         onNew={vi.fn()}
         onImport={vi.fn()}
-        onDeleted={onDeleted}
+        onDeleted={vi.fn()}
       />
     )
-    await waitFor(() => expect(settingsStore.get()).not.toBeNull())
     fireEvent.click(screen.getByRole('button', { name: 'Delete NAV-1' }))
-    expect(await screen.findByText('case locked')).toBeTruthy()
-    expect(screen.queryByRole('dialog')).toBeNull()
-    await waitFor(() => expect(onDeleted).toHaveBeenCalled())
+    expect(await screen.findByLabelText('Confirm slug')).toBeTruthy()
+    expect(deleteMock).not.toHaveBeenCalled()
   })
 })

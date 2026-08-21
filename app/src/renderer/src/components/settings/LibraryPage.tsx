@@ -616,8 +616,11 @@ export function LibraryPage({
             </button>
           ))}
         </div>
+        {/* `primary`, the page's one filled button (user-directed, 2026-08-21): creating a skill
+            or reference is the only thing this page's header does, and as an outline button it
+            read as the third of three equal controls beside the search box and the kind filter. */}
         <MenuButton
-          variant="outline"
+          variant="primary"
           align="right"
           aria-label="New"
           label="New"

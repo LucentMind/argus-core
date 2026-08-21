@@ -1,10 +1,16 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { act, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { RcaTemplateSettings } from '../RcaTemplateSettings'
+import { confirm } from '../../../lib/confirmStore'
 import { DEFAULT_RCA_TEMPLATE } from '../../../../../shared/rcaTemplate'
 import type { RcaTemplate } from '../../../../../shared/rcaTemplate'
+
+vi.mock('../../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 const patch = vi.fn()
 vi.mock('../../../lib/settingsStore', async () => {
@@ -12,14 +18,33 @@ vi.mock('../../../lib/settingsStore', async () => {
   return { ...actual, settingsStore: { patch: (p: unknown) => patch(p) } }
 })
 
-function renderWith(template: RcaTemplate = DEFAULT_RCA_TEMPLATE): void {
+/**
+ * Render with the editor already disclosed. The whole template is one collapsed row and only
+ * ONE report is expanded at a time (2026-08-21 rework), so a test that wants to touch a row
+ * has to open its way in — `fireEvent`, not `userEvent`, so the synchronous `act()` tests at
+ * the bottom of this file can use the same helper.
+ */
+function renderWith(
+  template: RcaTemplate = DEFAULT_RCA_TEMPLATE,
+  report: 'exec' | 'tech' = 'exec'
+): void {
   render(<RcaTemplateSettings template={template} />)
+  fireEvent.click(screen.getByLabelText('Expand report template'))
+  if (report === 'tech') fireEvent.click(screen.getByLabelText('Toggle the technical report'))
 }
 
-beforeEach(() => patch.mockReset())
+/** Open one section's instruction textarea — hidden until its pencil is clicked. */
+function openInstruction(name: string): void {
+  fireEvent.click(screen.getByLabelText('Edit the instruction for ' + name))
+}
+
+beforeEach(() => {
+  patch.mockReset()
+  vi.mocked(confirm).mockClear().mockResolvedValue(true)
+})
 
 describe('RcaTemplateSettings', () => {
-  it('lists both reports with their sections in order', () => {
+  it('lists the open report sections in order, one report at a time', () => {
     renderWith()
     const exec = screen.getByRole('list', { name: /executive summary sections/i })
     expect(
@@ -27,7 +52,19 @@ describe('RcaTemplateSettings', () => {
         .getAllByRole('listitem')
         .map((li) => li.textContent)
     ).toHaveLength(5)
+    // The other report is a shut header until asked for — the point of the rework, so it is
+    // asserted rather than assumed.
+    expect(screen.queryByRole('list', { name: /technical report sections/i })).toBeNull()
+    fireEvent.click(screen.getByLabelText('Toggle the technical report'))
     expect(screen.getByRole('list', { name: /technical report sections/i })).toBeTruthy()
+    expect(screen.queryByRole('list', { name: /executive summary sections/i })).toBeNull()
+  })
+
+  it('keeps the whole editor shut until its row is expanded', () => {
+    render(<RcaTemplateSettings template={DEFAULT_RCA_TEMPLATE} />)
+    expect(screen.queryByRole('list', { name: /executive summary sections/i })).toBeNull()
+    // The collapsed row still says what it holds.
+    expect(screen.getByText(/5 \+ 7 sections/)).toBeTruthy()
   })
 
   it('renames a section heading', async () => {
@@ -97,7 +134,7 @@ describe('RcaTemplateSettings', () => {
   })
 
   it('offers no Remove on a claims row — claims sections are part of the contract', () => {
-    renderWith()
+    renderWith(DEFAULT_RCA_TEMPLATE, 'tech')
     expect(screen.queryByLabelText('Remove Root cause from the technical report')).toBeNull()
     expect(screen.getByLabelText('Enable Root cause in the technical report')).toBeTruthy()
   })
@@ -111,23 +148,36 @@ describe('RcaTemplateSettings', () => {
       enabled: true,
       instruction: 'x'
     })
-    renderWith(t)
+    renderWith(t, 'tech')
     await userEvent.click(screen.getByLabelText('Remove Detection from the technical report'))
     const sent = patch.mock.calls[0][0] as { rca: { template: RcaTemplate } }
     expect(sent.rca.template.tech.some((s) => s.id === 'tech-detection')).toBe(false)
   })
 
-  it('edits a narrative instruction but offers none for a claims section', async () => {
+  it('opens one instruction at a time, and offers none for a claims section', () => {
     renderWith()
+    // Nothing is open until a pencil is clicked — the old editor rendered all nine at once.
+    expect(
+      screen.queryByLabelText('Instruction for What happened in the executive summary')
+    ).toBeNull()
+    openInstruction('What happened in the executive summary')
     expect(
       screen.getByLabelText('Instruction for What happened in the executive summary')
     ).toBeTruthy()
-    // tech "Root cause" is claims-kind: its content comes from the findings, not an instruction.
-    expect(screen.queryByLabelText('Instruction for Root cause in the technical report')).toBeNull()
-    // ...while the exec "Root cause" of the same NAME is narrative and does have one.
+    // Opening another closes the first: one editor, wherever the user last clicked.
+    openInstruction('Root cause in the executive summary')
+    expect(
+      screen.queryByLabelText('Instruction for What happened in the executive summary')
+    ).toBeNull()
     expect(
       screen.getByLabelText('Instruction for Root cause in the executive summary')
     ).toBeTruthy()
+    // tech "Root cause" is claims-kind: its content comes from the findings, so it has no
+    // instruction to open and therefore no pencil at all.
+    fireEvent.click(screen.getByLabelText('Toggle the technical report'))
+    expect(
+      screen.queryByLabelText('Edit the instruction for Root cause in the technical report')
+    ).toBeNull()
   })
 
   it('names the two same-headed Root cause rows distinctly', () => {
@@ -136,11 +186,13 @@ describe('RcaTemplateSettings', () => {
     // getByLabelText throws on multiple matches, which is the assertion.
     renderWith()
     expect(screen.getByLabelText('Heading for Root cause in the executive summary')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Toggle the technical report'))
     expect(screen.getByLabelText('Heading for Root cause in the technical report')).toBeTruthy()
   })
 
   it('warns when a narrative section has an empty instruction, and does not patch', async () => {
     renderWith()
+    openInstruction('What happened in the executive summary')
     const field = screen.getByLabelText('Instruction for What happened in the executive summary')
     await userEvent.clear(field)
     await userEvent.tab()
@@ -152,8 +204,22 @@ describe('RcaTemplateSettings', () => {
     const t = structuredClone(DEFAULT_RCA_TEMPLATE)
     t.exec[0].heading = 'Changed'
     renderWith(t)
-    await userEvent.click(screen.getByRole('button', { name: /reset to defaults/i }))
-    expect(patch).toHaveBeenCalledWith({ rca: { template: DEFAULT_RCA_TEMPLATE } })
+    await userEvent.click(screen.getByRole('button', { name: /reset template to defaults/i }))
+    // Behind a confirm now: the one irreversible control in the editor.
+    expect(confirm).toHaveBeenCalled()
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith({ rca: { template: DEFAULT_RCA_TEMPLATE } })
+    )
+  })
+
+  it('resets nothing when the confirm is declined', async () => {
+    vi.mocked(confirm).mockResolvedValue(false)
+    const t = structuredClone(DEFAULT_RCA_TEMPLATE)
+    t.exec[0].heading = 'Changed'
+    renderWith(t)
+    await userEvent.click(screen.getByRole('button', { name: /reset template to defaults/i }))
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
+    expect(patch).not.toHaveBeenCalled()
   })
 })
 
@@ -193,9 +259,9 @@ describe('Reset to defaults repaints the fields', () => {
     const t = structuredClone(DEFAULT_RCA_TEMPLATE)
     t.exec[0].heading = 'Changed heading'
     renderWith(t)
-    await userEvent.click(screen.getByRole('button', { name: /reset to defaults/i }))
+    await userEvent.click(screen.getByRole('button', { name: /reset template to defaults/i }))
     // The row must now READ as the default; an uncontrolled input would still show the old text.
-    const field = screen.getByLabelText('Heading for What happened in the executive summary')
+    const field = await screen.findByLabelText('Heading for What happened in the executive summary')
     expect((field as HTMLInputElement).value).toBe('What happened')
     // ...and focusing/blurring it must not patch the discarded value back in.
     patch.mockReset()

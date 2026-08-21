@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Plus, Trash2, ChevronUp, ChevronDown } from 'lucide-react'
-import { Btn } from '../ui'
+import { Plus, Trash2, ChevronUp, ChevronDown, Pencil } from 'lucide-react'
+import { Btn, Chip, IconBtn } from '../ui'
+import { DisclosureBtn, RowActions } from './settingsLayout'
 import { settingsStore } from '../../lib/settingsStore'
+import { confirm } from '../../lib/confirmStore'
 import { blurOnEscape } from '../../lib/escapeLayer'
 import { DEFAULT_RCA_TEMPLATE } from '../../../../shared/rcaTemplate'
 import type { RcaSection, RcaTemplate } from '../../../../shared/rcaTemplate'
@@ -47,8 +49,26 @@ const NEW_INSTRUCTION: Record<ReportKey, string> = {
   tech: 'Describe what the model should write here.'
 }
 
+/**
+ * The RCA template editor, as one collapsed row inside the RCA report section (user-directed,
+ * 2026-08-21).
+ *
+ * It used to render both reports open, every section as a bordered card, and every narrative
+ * section's instruction as an always-visible textarea — nine textareas on the default template,
+ * which made the settings page it lived on scroll for two screens before reaching its next row.
+ * Three nested disclosures replace that: the template as a whole, then one report at a time,
+ * then the instruction of the ONE section being edited. Everything else is a single line —
+ * enabled checkbox, heading, and hover-revealed actions.
+ */
 export function RcaTemplateSettings({ template }: { template: RcaTemplate }): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
+  /** The whole editor, shut by default. */
+  const [openTemplate, setOpenTemplate] = useState(false)
+  /** At most one report expanded — they are alternatives (write the exec summary, or the
+   *  technical report), and two open lists is the wall this rework exists to remove. */
+  const [openReport, setOpenReport] = useState<ReportKey | null>('exec')
+  /** Section id whose instruction textarea is open, if any. */
+  const [editingId, setEditingId] = useState<string | null>(null)
   /**
    * The edit-in-progress template. `settingsStore.patch` is async with no optimistic update, so
    * the `template` prop only refreshes once main has round-tripped and written settings.json.
@@ -95,6 +115,9 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
       setError(
         `"${blank.heading || blank.id}" needs an instruction — it tells the model what to write there.`
       )
+      // Open the offending row: with instructions hidden by default, an error naming a section
+      // the user cannot see is an error they cannot act on.
+      setEditingId(blank.id)
       return
     }
     setError(null)
@@ -136,19 +159,25 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
   }
 
   function add(report: ReportKey): void {
+    const id = freshId(current.current, report)
     replace(report, [
       ...current.current[report],
       {
-        id: freshId(current.current, report),
+        id,
         heading: 'New section',
         kind: 'narrative',
         enabled: true,
         instruction: NEW_INSTRUCTION[report]
       }
     ])
+    // A new section's whole point is its instruction, and it is the one row whose default text
+    // is a placeholder — so it opens on creation rather than waiting for a second click.
+    setOpenReport(report)
+    setEditingId(id)
   }
 
   function remove(report: ReportKey, id: string): void {
+    if (editingId === id) setEditingId(null)
     replace(
       report,
       current.current[report].filter((s) => s.id !== id)
@@ -157,103 +186,199 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
 
   function renderList(report: ReportKey): React.JSX.Element {
     const label = REPORT_LABEL[report]
+    const sections = draft[report]
+    const on = sections.filter((s) => s.enabled).length
+    const open = openReport === report
     return (
-      <section className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-[10.5px] font-medium uppercase tracking-wide text-mute">{label}</h3>
+      <div className="overflow-hidden rounded-r2 border border-hair">
+        {/* The header is the collapse toggle AND the summary line, so a shut report still says
+            how many sections it has and how many are switched on. */}
+        <div className="flex items-center gap-2 bg-hair/30 px-2 py-1.5">
+          <button
+            type="button"
+            aria-label={`Toggle the ${label}`}
+            aria-expanded={open}
+            onClick={() => setOpenReport(open ? null : report)}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          >
+            <ChevronDown
+              size={13}
+              strokeWidth={1.5}
+              className={`shrink-0 text-mute transition-transform ${open ? '' : '-rotate-90'}`}
+              aria-hidden="true"
+            />
+            <span className="shrink-0 text-xs text-ink">
+              {label[0].toUpperCase()}
+              {label.slice(1)}
+            </span>
+            <span className="truncate text-[11px] text-mute">
+              {sections.length} section{sections.length === 1 ? '' : 's'} ·{' '}
+              {on === sections.length ? 'all on' : `${on} on`}
+            </span>
+          </button>
           <Btn aria-label={`Add a section to the ${label}`} onClick={() => add(report)}>
             <Plus size={12} strokeWidth={1.5} />
-            Add section
+            Section
           </Btn>
         </div>
-        <ul aria-label={`${label} sections`} className="flex flex-col gap-1.5">
-          {draft[report].map((s, i) => (
-            <li key={s.id} className="flex flex-col gap-1 rounded-r2 border border-hair p-2">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  aria-label={`Enable ${s.heading} in the ${label}`}
-                  checked={s.enabled}
-                  onChange={() => update(report, s.id, { enabled: !s.enabled })}
-                />
-                <input
-                  aria-label={`Heading for ${s.heading} in the ${label}`}
-                  value={s.heading}
-                  onChange={(e) => editLocal(report, s.id, { heading: e.target.value })}
-                  onBlur={(e) => commitField(report, s.id, { heading: e.target.value })}
-                  onKeyDown={blurOnEscape}
-                  className="min-w-0 flex-1 rounded-r1 border border-hair bg-overlay px-1.5 py-0.5 text-xs text-ink"
-                />
-                <button
-                  type="button"
-                  aria-label={`Move ${s.heading} up in the ${label}`}
-                  disabled={i === 0}
-                  onClick={() => move(report, i, -1)}
-                  className="text-mute hover:text-ink disabled:opacity-40"
+        {open && (
+          <ul aria-label={`${label} sections`} className="flex flex-col gap-0.5 p-1.5">
+            {sections.map((s, i) => {
+              const editing = editingId === s.id
+              return (
+                <li
+                  key={s.id}
+                  className="group/row rounded-r2 border border-transparent hover:border-hair hover:bg-hair/30"
                 >
-                  <ChevronUp size={14} strokeWidth={1.5} />
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Move ${s.heading} down in the ${label}`}
-                  disabled={i === draft[report].length - 1}
-                  onClick={() => move(report, i, 1)}
-                  className="text-mute hover:text-ink disabled:opacity-40"
-                >
-                  <ChevronDown size={14} strokeWidth={1.5} />
-                </button>
-                {s.kind === 'narrative' && (
-                  <button
-                    type="button"
-                    aria-label={`Remove ${s.heading} from the ${label}`}
-                    onClick={() => remove(report, s.id)}
-                    className="text-mute hover:text-danger"
-                  >
-                    <Trash2 size={14} strokeWidth={1.5} />
-                  </button>
-                )}
-              </div>
-              {s.kind === 'narrative' ? (
-                <textarea
-                  aria-label={`Instruction for ${s.heading} in the ${label}`}
-                  value={s.instruction ?? ''}
-                  rows={2}
-                  onChange={(e) => editLocal(report, s.id, { instruction: e.target.value })}
-                  onBlur={(e) => commitField(report, s.id, { instruction: e.target.value })}
-                  onKeyDown={blurOnEscape}
-                  className="rounded-r1 border border-hair bg-overlay px-1.5 py-1 text-[11px] text-ink"
-                />
-              ) : (
-                <p className="text-[11px] text-mute">
-                  Renders the report&apos;s {s.slot} structure. Reorder, rename, or switch it off —
-                  its content comes from the findings, not from an instruction.
-                </p>
-              )}
-            </li>
-          ))}
-        </ul>
-      </section>
+                  <div className="flex items-center gap-2 px-1.5 py-1">
+                    <input
+                      type="checkbox"
+                      aria-label={`Enable ${s.heading} in the ${label}`}
+                      checked={s.enabled}
+                      onChange={() => update(report, s.id, { enabled: !s.enabled })}
+                    />
+                    <input
+                      aria-label={`Heading for ${s.heading} in the ${label}`}
+                      value={s.heading}
+                      onChange={(e) => editLocal(report, s.id, { heading: e.target.value })}
+                      onBlur={(e) => commitField(report, s.id, { heading: e.target.value })}
+                      onKeyDown={blurOnEscape}
+                      // Borderless until hovered or focused: a column of boxed inputs reads as a
+                      // form waiting to be filled in, when every one of them is already correct.
+                      className={`min-w-0 flex-1 rounded-r1 border border-transparent bg-transparent px-1.5 py-0.5 text-xs transition-colors hover:border-hair focus:border-hair2 focus:bg-well focus:outline-none ${
+                        s.enabled ? 'text-ink' : 'text-faint'
+                      }`}
+                    />
+                    {/* A claims section's content comes from the findings, so there is no
+                        instruction to open. One chip says that where the old editor spent a
+                        two-line paragraph per row saying it. */}
+                    {s.kind === 'claims' && (
+                      <Chip tone="neutral" title={`Built from the report's ${s.slot} findings`}>
+                        auto
+                      </Chip>
+                    )}
+                    <RowActions>
+                      <IconBtn
+                        size="xs"
+                        aria-label={`Move ${s.heading} up in the ${label}`}
+                        title="Move up"
+                        disabled={i === 0}
+                        onClick={() => move(report, i, -1)}
+                      >
+                        <ChevronUp size={13} strokeWidth={1.5} />
+                      </IconBtn>
+                      <IconBtn
+                        size="xs"
+                        aria-label={`Move ${s.heading} down in the ${label}`}
+                        title="Move down"
+                        disabled={i === sections.length - 1}
+                        onClick={() => move(report, i, 1)}
+                      >
+                        <ChevronDown size={13} strokeWidth={1.5} />
+                      </IconBtn>
+                      {s.kind === 'narrative' && (
+                        <>
+                          <IconBtn
+                            size="xs"
+                            aria-label={`${editing ? 'Hide' : 'Edit'} the instruction for ${s.heading} in the ${label}`}
+                            aria-expanded={editing}
+                            title={editing ? 'Hide instruction' : 'Edit instruction'}
+                            onClick={() => setEditingId(editing ? null : s.id)}
+                          >
+                            <Pencil size={13} strokeWidth={1.5} />
+                          </IconBtn>
+                          <IconBtn
+                            size="xs"
+                            aria-label={`Remove ${s.heading} from the ${label}`}
+                            title="Remove section"
+                            className="hover:text-danger"
+                            onClick={() => remove(report, s.id)}
+                          >
+                            <Trash2 size={13} strokeWidth={1.5} />
+                          </IconBtn>
+                        </>
+                      )}
+                    </RowActions>
+                  </div>
+                  {editing && s.kind === 'narrative' && (
+                    <div className="pb-1.5 pl-7 pr-1.5">
+                      <textarea
+                        aria-label={`Instruction for ${s.heading} in the ${label}`}
+                        value={s.instruction ?? ''}
+                        rows={3}
+                        onChange={(e) => editLocal(report, s.id, { instruction: e.target.value })}
+                        onBlur={(e) => commitField(report, s.id, { instruction: e.target.value })}
+                        onKeyDown={blurOnEscape}
+                        className="w-full resize-y rounded-r1 border border-hair bg-well p-1.5 text-[11px] leading-relaxed text-ink focus:border-hair2 focus:outline-none"
+                      />
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
     )
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-mute">
-          The sections each report is built from. Changes apply to reports generated from now on — a
-          draft already generated keeps the template it was generated under.
-        </p>
-        <Btn onClick={() => void save(structuredClone(DEFAULT_RCA_TEMPLATE))}>
-          Reset to defaults
-        </Btn>
+    // A bare row, not a `SettingRow`: the disclosed content sits BELOW the row at full width,
+    // which SettingRow has no slot for — same shape as General's Default repositories row.
+    <div className="flex flex-col gap-2 px-4 py-3">
+      <div className="flex items-center gap-4">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex flex-wrap items-center gap-2 text-sm text-ink">
+            Report template
+            <Chip tone="neutral">
+              {draft.exec.length} + {draft.tech.length} sections
+            </Chip>
+          </span>
+          <span className="text-xs text-mute">
+            The sections each report is built from. Changes apply to reports generated from now on —
+            a draft already generated keeps the template it was generated under.
+          </span>
+        </div>
+        <DisclosureBtn
+          expanded={openTemplate}
+          onToggle={() => setOpenTemplate((o) => !o)}
+          label="report template"
+        />
       </div>
+      {/* Outside the `openTemplate` branch: a save can fail while the user is collapsing the
+          editor, and an invisible error is an error that never gets fixed. */}
       {error && (
         <p role="alert" className="text-xs text-danger">
           {error}
         </p>
       )}
-      {renderList('exec')}
-      {renderList('tech')}
+      {openTemplate && (
+        <div className="flex flex-col gap-2">
+          {renderList('exec')}
+          {renderList('tech')}
+          {/* Bottom-right, under what it resets — and behind a confirm. It used to be the first
+              control on the section's opening line, which made the one irreversible action here
+              also the most prominent. */}
+          <div className="flex justify-end">
+            <Btn
+              variant="ghost"
+              onClick={() => {
+                void confirm({
+                  title: 'Reset the RCA template?',
+                  message:
+                    'Both reports go back to their default sections and instructions. Any section you added or reworded is lost. Reports already generated keep the template they were generated under.',
+                  confirmLabel: 'Reset',
+                  danger: true
+                }).then((ok) => {
+                  if (ok) void save(structuredClone(DEFAULT_RCA_TEMPLATE))
+                })
+              }}
+            >
+              Reset template to defaults
+            </Btn>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
