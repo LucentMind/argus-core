@@ -367,4 +367,67 @@ describe('keep everything up to date', () => {
     )
     expect(await screen.findByText(/not checked yet/i)).toBeInTheDocument()
   })
+
+  it('does not count an unsupported core block in the held-back total', async () => {
+    renderWithSettings(
+      { updates: { channel: 'stable', auto: true } },
+      {
+        currency: {
+          auto: true,
+          lastSurveyAt: new Date().toISOString(),
+          blocked: [
+            {
+              domain: 'core',
+              key: 'core',
+              label: 'Argus',
+              from: '2.3.0',
+              to: '2.3.0',
+              verdict: 'blocked',
+              reason: { kind: 'unsupported' }
+            }
+          ],
+          busy: false
+        }
+      }
+    )
+    expect(await screen.findByText(/everything current/i)).toBeInTheDocument()
+    // Scoped to the count line's own wording ("N item(s) held back"): the row's static
+    // description text also contains the bare phrase "held back", so an unscoped
+    // /held back/i here would pass even if the count itself were still wrong.
+    expect(screen.queryByText(/\d+ items? held back/i)).not.toBeInTheDocument()
+  })
+
+  it('counts a real block', async () => {
+    renderWithSettings(
+      { updates: { channel: 'stable', auto: true } },
+      {
+        currency: {
+          auto: true,
+          lastSurveyAt: new Date().toISOString(),
+          blocked: [
+            {
+              domain: 'core',
+              key: 'core',
+              label: 'Argus',
+              from: '2.3.0',
+              to: '2.3.0',
+              verdict: 'blocked',
+              reason: { kind: 'unsupported' }
+            },
+            {
+              domain: 'pack',
+              key: 'cg',
+              label: 'CG',
+              from: '1',
+              to: '2',
+              verdict: 'blocked',
+              reason: { kind: 'new-dependency' }
+            }
+          ],
+          busy: false
+        }
+      }
+    )
+    expect(await screen.findByText(/1 item held back/i)).toBeInTheDocument()
+  })
 })
