@@ -58,3 +58,53 @@ export interface CurrencyPayload {
 export function blockedOf(candidates: Candidate[]): Candidate[] {
   return candidates.filter((c) => c.verdict === 'blocked')
 }
+
+/**
+ * The one place a held-back sentence is worded — the counterpart to `updates.ts`'s
+ * `describeUpdate`. Every surface that explains a hold renders this and nothing of its own, so
+ * the wording cannot drift between the Packs page and the HiveMind page the way status wording
+ * has drifted in this codebase before.
+ */
+export function describeBlocked(reason: BlockedReason): string {
+  switch (reason.kind) {
+    case 'local-edits':
+      return 'You have edited this locally.'
+    case 'tier-change':
+      return `This update would change its trust tier from ${reason.from} to ${reason.to}.`
+    case 'new-dependency':
+      return 'This update needs a new dependency.'
+    case 'auth':
+      return 'Sign in to the GitHub CLI to continue.'
+    case 'downgrade':
+      return 'Installing it would move this install back a version.'
+    case 'origin-pin':
+      return 'It no longer comes from the origin it was installed from — download it from your vendor and use Install from file.'
+    case 'unsupported':
+      return 'Updates are only available in a packaged build.'
+  }
+}
+
+/**
+ * Which holds are worth putting in front of someone.
+ *
+ * `unsupported` is excluded deliberately: it means "this build structurally cannot update"
+ * (an unpackaged dev build), which is not a decision anyone can act on. It is unreachable in a
+ * packaged build — `supported` is `app.isPackaged` — so excluding it costs nothing in production
+ * and stops every dev build from permanently reading "1 item held back". The Version row still
+ * shows it, worded by `describeBlocked`, because that row is about the app itself.
+ */
+export const SURFACED_BLOCK_KINDS: ReadonlySet<BlockedReason['kind']> = new Set([
+  'local-edits',
+  'tier-change',
+  'new-dependency',
+  'auth',
+  'downgrade',
+  'origin-pin'
+])
+
+/** Blocked candidates worth surfacing — what every badge and count is derived from. */
+export function surfacedBlocked(candidates: Candidate[]): Candidate[] {
+  return candidates.filter(
+    (c) => c.verdict === 'blocked' && c.reason != null && SURFACED_BLOCK_KINDS.has(c.reason.kind)
+  )
+}
