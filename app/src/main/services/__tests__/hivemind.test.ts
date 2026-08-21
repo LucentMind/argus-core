@@ -52,7 +52,11 @@ function seedCloneShell(): string {
 /** A HivemindService over a fresh clone containing one skill named `name`, already installed. */
 async function setupWithInstalledSkill(
   name: string
-): Promise<{ svc: HivemindService; removeFromClone: (rel: string) => void; reload: () => HivemindService }> {
+): Promise<{
+  svc: HivemindService
+  removeFromClone: (rel: string) => void
+  reload: () => HivemindService
+}> {
   const clone = seedCloneShell()
   fs.mkdirSync(path.join(clone, 'skills', name), { recursive: true })
   fs.writeFileSync(
@@ -66,7 +70,8 @@ async function setupWithInstalledSkill(
   await svc.install('skill', name)
   return {
     svc,
-    removeFromClone: (rel: string) => fs.rmSync(path.join(clone, rel), { recursive: true, force: true }),
+    removeFromClone: (rel: string) =>
+      fs.rmSync(path.join(clone, rel), { recursive: true, force: true }),
     reload: makeSvc
   }
 }
@@ -74,7 +79,11 @@ async function setupWithInstalledSkill(
 /** A HivemindService over a fresh clone containing one reference named `name`, already installed. */
 async function setupWithInstalledReference(
   name: string
-): Promise<{ svc: HivemindService; removeFromClone: (rel: string) => void; reload: () => HivemindService }> {
+): Promise<{
+  svc: HivemindService
+  removeFromClone: (rel: string) => void
+  reload: () => HivemindService
+}> {
   const clone = seedCloneShell()
   fs.mkdirSync(path.join(clone, 'references'), { recursive: true })
   fs.writeFileSync(path.join(clone, 'references', name), `# ${name}\n`)
@@ -85,7 +94,8 @@ async function setupWithInstalledReference(
   await svc.install('reference', name)
   return {
     svc,
-    removeFromClone: (rel: string) => fs.rmSync(path.join(clone, rel), { recursive: true, force: true }),
+    removeFromClone: (rel: string) =>
+      fs.rmSync(path.join(clone, rel), { recursive: true, force: true }),
     reload: makeSvc
   }
 }
