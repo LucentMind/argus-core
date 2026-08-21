@@ -205,6 +205,10 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
   const blockedPacks = surfacedBlocked(currency.blocked).filter(
     (c) => pageOwning(c.domain) === 'sources'
   )
+  // A candidate whose `key` matches no row currently rendered here (e.g. a pack that was
+  // uninstalled after the last survey) still counts toward the badge total below, with no reason
+  // line anywhere to explain it — accepted, since the next `checkUpdates()` re-syncs the survey
+  // against the current pack list.
   const blockedFor = (id: string): Candidate | undefined => blockedPacks.find((c) => c.key === id)
 
   const refresh = useCallback(async () => {
@@ -548,7 +552,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
             {blockedPacks.length > 0 && (
               <Chip
                 tone="review"
-                aria-label={`${blockedPacks.length} pack update${blockedPacks.length === 1 ? '' : 's'} needs you`}
+                aria-label={`${blockedPacks.length} pack update${blockedPacks.length === 1 ? '' : 's'} ${blockedPacks.length === 1 ? 'needs' : 'need'} you`}
               >
                 {blockedPacks.length}
               </Chip>
