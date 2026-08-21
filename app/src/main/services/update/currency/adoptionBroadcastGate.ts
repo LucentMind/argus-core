@@ -13,9 +13,14 @@
 export const PENDING_WINDOW_MS = 60_000
 
 export interface AdoptionBroadcastGateDeps {
-  /** The persisted flag. Structural, not the whole `CurrencyAnchorStore` — this gate only ever
-   *  touches these two methods. */
-  anchors: { firstMirrorNoticeShown(): boolean; markFirstMirrorNoticeShown(): void }
+  /** The persisted flag and pending count. Structural, not the whole `CurrencyAnchorStore` — this
+   *  gate only ever touches these four methods. */
+  anchors: {
+    firstMirrorNoticeShown(): boolean
+    markFirstMirrorNoticeShown(): void
+    pendingAdoptedCount(): number
+    setPendingAdoptedCount(n: number): void
+  }
   broadcast: (count: number) => void
   /** Injected, not `Date.now()` directly, so the window's expiry is deterministic under fake
    *  timers. Defaults to `Date.now` for real callers. */
@@ -57,30 +62,43 @@ export function createAdoptionBroadcastGate(deps: AdoptionBroadcastGateDeps): {
    * everything adoptable has already been adopted. Retaining the count here lets a case that opens
    * afterwards recover it by asking, instead of the batch being lost the moment its broadcast goes
    * unheard.
+   *
+   * PERSISTED, not an in-memory closure variable (Important 2, second whole-branch review): the
+   * likeliest real trigger of the first mirror run is the moment the user opens Settings (which
+   * itself surveys), and a user who then configures things and quits without ever opening a case
+   * would otherwise lose the count the instant the process exits — with no later batch to recover
+   * it, since everything adoptable is already adopted. Reads through to `anchors`, which is the
+   * SAME `currency.json` `firstMirrorNoticeShown` lives in, so a gate rebuilt in a later process
+   * sees whatever the previous process last wrote here.
    */
   pendingCount: () => number
 } {
   const now = deps.now ?? Date.now
   let pendingSince: number | null = null
-  let pendingCount = 0
   return {
     onAdopted: (count) => {
       if (deps.anchors.firstMirrorNoticeShown()) return
       // Evaluated lazily here, on the next call, rather than via a `setTimeout` — nothing to
       // clear on shutdown, and no behaviour depends on the expiry firing at an exact instant.
+      // This half stays IN-MEMORY and process-scoped on purpose: it only ever coalesces two
+      // applyPending() batches finishing back-to-back within the same run (see the module
+      // docblock), and persisting it would resurrect exactly the indefinite hold Fix wave 2 (see
+      // the module docblock) removed — a stale window surviving a restart could suppress a
+      // brand-new adoption in the next process for no reason.
       if (pendingSince !== null && now() - pendingSince < PENDING_WINDOW_MS) return
       pendingSince = now()
-      pendingCount = count
+      deps.anchors.setPendingAdoptedCount(count)
       deps.broadcast(count)
     },
     anchors: {
       firstMirrorNoticeShown: () => deps.anchors.firstMirrorNoticeShown(),
       markFirstMirrorNoticeShown: () => {
         pendingSince = null
-        pendingCount = 0
+        // Clears the persisted count too — see `CurrencyAnchorStore.markFirstMirrorNoticeShown`,
+        // which writes both in one go.
         deps.anchors.markFirstMirrorNoticeShown()
       }
     },
-    pendingCount: () => pendingCount
+    pendingCount: () => deps.anchors.pendingAdoptedCount()
   }
 }

@@ -22,6 +22,15 @@ export type AnchorFile = Partial<Record<AdapterId, CurrencyAnchor>> & {
   /** Whether the first-run mirror notice has been shown. Lives here because `currency.json` is
    *  already this service's own state file; it is NOT a per-item decision. */
   firstMirrorNoticeShown?: boolean
+  /**
+   * The count from the most recent `onAdopted` broadcast that has not yet been acknowledged —
+   * `adoptionBroadcastGate`'s persisted half of the same latch. Kept here, not only in that
+   * gate's in-memory closure, so a batch that adopts while no case is open (and so is never
+   * acked — see `TopBar.tsx`) survives a process restart instead of being lost the moment the
+   * process that broadcast it exits. Cleared to 0 in the same write as `firstMirrorNoticeShown`,
+   * never independently — see `markFirstMirrorNoticeShown` below.
+   */
+  pendingAdoptedCount?: number
 }
 
 /** Structural, not the JsonFileStore class — the tests need no file on disk. */
@@ -120,8 +129,24 @@ export class CurrencyAnchorStore {
   }
 
   /** Called by the renderer once it has actually shown the notice — see `CurrencyService`'s
-   *  `onAdopted` for why this is never set from the broadcasting side. */
+   *  `onAdopted` for why this is never set from the broadcasting side. Clears the persisted
+   *  pending count in the SAME write: once the flag is shown, the count exists to answer a
+   *  question ("was anything missed?") that is now moot, and leaving it behind would replay a
+   *  notice that was already acked. */
   markFirstMirrorNoticeShown(): void {
-    this.store.write({ ...this.file(), firstMirrorNoticeShown: true })
+    this.store.write({ ...this.file(), firstMirrorNoticeShown: true, pendingAdoptedCount: 0 })
+  }
+
+  /** The count from the most recent unacknowledged adoption broadcast — 0 once acked. See
+   *  `AnchorFile.pendingAdoptedCount`. */
+  pendingAdoptedCount(): number {
+    const v = this.file().pendingAdoptedCount
+    return typeof v === 'number' ? v : 0
+  }
+
+  /** Called by `adoptionBroadcastGate` the moment it broadcasts, so the count survives a process
+   *  restart that happens before any ack lands. */
+  setPendingAdoptedCount(n: number): void {
+    this.store.write({ ...this.file(), pendingAdoptedCount: n })
   }
 }

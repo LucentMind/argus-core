@@ -1,15 +1,28 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createAdoptionBroadcastGate, PENDING_WINDOW_MS } from '../adoptionBroadcastGate'
 
+/** Models the two fields `CurrencyAnchorStore` actually persists in `currency.json` — a shared,
+ *  mutable "file" so two gates built over the SAME `fakeAnchors()` instance behave like two
+ *  processes reading and writing one disk file (Important 2). */
 function fakeAnchors(): {
   firstMirrorNoticeShown: () => boolean
   markFirstMirrorNoticeShown: () => void
+  pendingAdoptedCount: () => number
+  setPendingAdoptedCount: (n: number) => void
 } {
   let shown = false
+  let pending = 0
   return {
     firstMirrorNoticeShown: () => shown,
     markFirstMirrorNoticeShown: () => {
       shown = true
+      // Real `CurrencyAnchorStore.markFirstMirrorNoticeShown` clears the persisted count in the
+      // same write — see anchors.ts.
+      pending = 0
+    },
+    pendingAdoptedCount: () => pending,
+    setPendingAdoptedCount: (n) => {
+      pending = n
     }
   }
 }
@@ -150,6 +163,36 @@ describe('createAdoptionBroadcastGate', () => {
       clock.advance(500) // well inside PENDING_WINDOW_MS
       gate.onAdopted(9) // suppressed — no broadcast, so no new count either
       expect(gate.pendingCount()).toBe(2)
+    })
+
+    // Important 2 (second whole-branch review): a pending count kept only in the gate's own
+    // closure dies with the process. The likeliest real trigger of the first mirror run is the
+    // user opening Settings (which itself surveys) — if they quit without ever opening a case, an
+    // in-memory-only count is gone the moment the process exits, and no later batch ever arrives
+    // to recover it (everything adoptable is already adopted). Persisting through `anchors` (the
+    // same object `CurrencyAnchorStore` backs with `currency.json`) is what lets a gate rebuilt in
+    // a LATER process — modeled here as a second `createAdoptionBroadcastGate` over the same
+    // `fakeAnchors()` instance — still answer the query correctly.
+    it('a pending count survives a gate rebuilt from the same anchors store', () => {
+      const anchors = fakeAnchors()
+      const before = createAdoptionBroadcastGate({ anchors, broadcast: vi.fn() })
+      before.onAdopted(7)
+      // Simulates a restart: a brand-new gate instance, zero in-memory state, same backing store.
+      const after = createAdoptionBroadcastGate({ anchors, broadcast: vi.fn() })
+      expect(after.pendingCount()).toBe(7)
+    })
+
+    it('an ack through the rebuilt gate clears the count the earlier gate persisted', () => {
+      const anchors = fakeAnchors()
+      const before = createAdoptionBroadcastGate({ anchors, broadcast: vi.fn() })
+      before.onAdopted(7)
+      const after = createAdoptionBroadcastGate({ anchors, broadcast: vi.fn() })
+      after.anchors.markFirstMirrorNoticeShown()
+      expect(after.pendingCount()).toBe(0)
+      // And the earlier (still-live, in a real process this would not coexist, but the object
+      // under test is `anchors` itself) gate reads the same cleared value — proving the count
+      // lives in the shared store, not either gate's own closure.
+      expect(before.pendingCount()).toBe(0)
     })
   })
 })

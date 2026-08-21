@@ -95,4 +95,37 @@ describe('CurrencyAnchorStore', () => {
     s.recordFailure('hive', 700)
     expect(s.lastSurveyAt()).toBeNull()
   })
+
+  // Important 2 (second whole-branch review): `adoptionBroadcastGate.pendingCount` used to be a
+  // closure variable that died with the process — persisting it here is what lets it survive a
+  // restart. 0 is the correct default: a file with no `pendingAdoptedCount` key at all (every
+  // existing `currency.json` on disk before this change) must read as "nothing pending", not throw
+  // or read `undefined`.
+  it('defaults the pending adopted count to 0 when never set', () => {
+    const s = new CurrencyAnchorStore(fakeStore())
+    expect(s.pendingAdoptedCount()).toBe(0)
+  })
+
+  it('persists a pending adopted count immediately', () => {
+    const store = fakeStore()
+    const s = new CurrencyAnchorStore(store)
+    s.setPendingAdoptedCount(4)
+    expect(store.current().pendingAdoptedCount).toBe(4)
+    expect(s.pendingAdoptedCount()).toBe(4)
+  })
+
+  it('is read by a second store instance over the same file (survives a process restart)', () => {
+    const store = fakeStore()
+    new CurrencyAnchorStore(store).setPendingAdoptedCount(9)
+    expect(new CurrencyAnchorStore(store).pendingAdoptedCount()).toBe(9)
+  })
+
+  it('clears the pending adopted count in the SAME write as marking the notice shown', () => {
+    const store = fakeStore()
+    const s = new CurrencyAnchorStore(store)
+    s.setPendingAdoptedCount(4)
+    s.markFirstMirrorNoticeShown()
+    expect(s.pendingAdoptedCount()).toBe(0)
+    expect(store.current().firstMirrorNoticeShown).toBe(true)
+  })
 })
