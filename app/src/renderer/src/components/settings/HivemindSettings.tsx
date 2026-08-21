@@ -252,16 +252,39 @@ export function HivemindSettings({
   useEffect(() => currencyStore.start(), [])
   // Same grouping `currencyStore.blockedByPage()` does internally, narrowed to this page's own
   // domains — written this way (rather than calling `blockedByPage()` itself) so `currency` is
-  // genuinely read here and this component re-renders on every broadcast.
+  // genuinely read here and this component re-renders on every broadcast. One pass over
+  // `currency.blocked`; the Skills/References badges below slice this same array rather than
+  // re-deriving it, so the two counts can never drift apart from what the reason lines use.
   const blockedHive = surfacedBlocked(currency.blocked).filter(
     (c) => pageOwning(c.domain) === 'team'
   )
+  // Split by domain rather than one combined total: unlike Packs (one section, one badge),
+  // this page has two content sections (Skills/References), each owning only its own kind of
+  // row. A combined badge on either section — or on Repository, which owns neither — would
+  // point the reader at rows that cannot possibly be the held-back one. See PacksSettings'
+  // `blockedFor` comment for why a badge total can legitimately exceed the visible rows.
+  const blockedSkills = blockedHive.filter((c) => c.domain === 'hive-skill')
+  const blockedReferences = blockedHive.filter((c) => c.domain === 'hive-reference')
   // A candidate whose `key` matches no row currently rendered here (e.g. a hive item that was
-  // uninstalled after the last survey) still counts toward the badge total below, with no reason
+  // uninstalled after the last survey) still counts toward the badge totals above, with no reason
   // line anywhere to explain it — accepted, since the next sync re-runs the survey against the
   // current item list (mirrors PacksSettings' blockedFor).
   const blockedFor = (i: HivemindItem): Candidate | undefined =>
     blockedHive.find((c) => c.key === `${i.kind}/${i.name}`)
+
+  /** The section-header badge for one domain's held-back count — same wording as Packs' section
+   *  badge (agreeing noun+verb plural), just scoped to whichever list owns this section. */
+  function sectionBadge(n: number): React.JSX.Element | undefined {
+    if (n === 0) return undefined
+    return (
+      <Chip
+        tone="review"
+        aria-label={`${n} HiveMind update${n === 1 ? '' : 's'} ${n === 1 ? 'needs' : 'need'} you`}
+      >
+        {n}
+      </Chip>
+    )
+  }
 
   // Re-runs whenever the repo setting changes so the payload, gh status, and
   // readiness probe all refresh immediately after the user commits a new repo
@@ -413,16 +436,6 @@ export function HivemindSettings({
     <SettingsSection
       title="Repository"
       subtitle="The GitHub repo your team's skills and references are shared through."
-      action={
-        blockedHive.length > 0 ? (
-          <Chip
-            tone="review"
-            aria-label={`${blockedHive.length} HiveMind update${blockedHive.length === 1 ? '' : 's'} ${blockedHive.length === 1 ? 'needs' : 'need'} you`}
-          >
-            {blockedHive.length}
-          </Chip>
-        ) : undefined
-      }
     >
       {/* `stacked` (2026-08-01): the default SettingRow puts label+description and the control
           on ONE line, which needs the full content column. In this half-width panel that line
@@ -536,6 +549,12 @@ export function HivemindSettings({
     )
   }
 
+  // Known gap (2026-08-21), same family as the filter-ternary comment below: `!payload`
+  // (loading) and `dormant` both return before Skills/References — and their badges — are ever
+  // computed, so a stale `blockedSkills`/`blockedReferences` count from a prior survey is
+  // invisible while the repo is unset or the payload hasn't loaded. Accepted for the same
+  // reason: Task 6's TopBar/nav-row surfacing does not depend on this page being in any
+  // particular state.
   if (payload.state === 'dormant') {
     return (
       <div className="flex flex-col gap-6">
@@ -576,6 +595,25 @@ export function HivemindSettings({
     )
   }
 
+  /** One section header's full action slot: the held-back badge (if any) beside the existing
+   *  Download All button (if any) — both optional, so a section with neither renders no action
+   *  at all rather than an empty wrapper. */
+  function sectionAction(
+    kind: 'skill' | 'reference',
+    targets: HivemindItem[],
+    blockedCount: number
+  ): React.JSX.Element | undefined {
+    const badge = sectionBadge(blockedCount)
+    const downloadBtn = downloadAllAction(kind, targets)
+    if (!badge && !downloadBtn) return undefined
+    return (
+      <span className="flex items-center gap-2">
+        {badge}
+        {downloadBtn}
+      </span>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-6">
       {upstreams}
@@ -608,16 +646,26 @@ export function HivemindSettings({
           onChange={(e) => setFilter(e.target.value)}
         />
 
+        {/* Known gap (2026-08-21): an active filter that matches nothing in either list hides
+            this whole block, including a Skills/References badge below whose held-back count is
+            about the ITEM, not the filter text — a filter typed while something is genuinely
+            held back can make that badge invisible on this page. Not fixed here: Task 6 puts the
+            same count on the Settings TopBar button and a dot on the `team` nav row, so it is
+            never invisible everywhere at once, only on this one filtered view. */}
         {filter && skills.length === 0 && references.length === 0 ? (
           <div className="px-1 py-2 text-sm text-dim">
             No HiveMind content matches &quot;{filter}&quot;.
           </div>
         ) : (
           <>
-            {skills.length > 0 && (
+            {/* `|| blockedSkills.length > 0`: without this, a held-back skill with zero visible
+                rows (e.g. every skill item filtered out, or the survey named one no longer in
+                `payload.items`) would hide the Skills header entirely, taking its badge with it —
+                the same failure mode the outer filter-ternary above has, just one layer in. */}
+            {(skills.length > 0 || blockedSkills.length > 0) && (
               <SettingsSection
                 title="Skills"
-                action={downloadAllAction('skill', downloadableSkills)}
+                action={sectionAction('skill', downloadableSkills, blockedSkills.length)}
               >
                 {skills.map((it) => (
                   <BrowseRow
@@ -641,10 +689,14 @@ export function HivemindSettings({
               </SettingsSection>
             )}
 
-            {references.length > 0 && (
+            {(references.length > 0 || blockedReferences.length > 0) && (
               <SettingsSection
                 title="References"
-                action={downloadAllAction('reference', downloadableReferences)}
+                action={sectionAction(
+                  'reference',
+                  downloadableReferences,
+                  blockedReferences.length
+                )}
               >
                 {references.map((it) => (
                   <BrowseRow
