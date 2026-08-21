@@ -1215,5 +1215,79 @@ describe('TopBar', () => {
       ).toBeInTheDocument()
       await vi.waitFor(() => expect(window.argus.currency.ackAdopted).toHaveBeenCalledTimes(1))
     })
+
+    // Important 1 (second whole-branch review): the `pendingAdopted()` promise has no
+    // cancellation of its own. A user who opens a case and leaves before the IPC round trip
+    // resolves must not have the notice pushed (arming its 6s self-dismiss timer with nothing
+    // rendering it) and acked (permanently consuming the one chance) into the void.
+    it('does not push or ack a pending-count answer that resolves after unmount', async () => {
+      uiStore.openTab('NAV-1')
+      let resolvePending!: (n: number) => void
+      window.argus.currency.pendingAdopted = vi.fn(
+        () =>
+          new Promise<number>((resolve) => {
+            resolvePending = resolve
+          })
+      )
+      const pushSpy = vi.spyOn(noticeStore, 'push')
+      const { unmount } = render(
+        <TopBar
+          activeSlug="NAV-1"
+          activeCase={CASE}
+          onHome={vi.fn()}
+          onSelect={vi.fn()}
+          onSettings={vi.fn()}
+          onStatusChanged={vi.fn()}
+        />
+      )
+      await vi.waitFor(() => expect(window.argus.currency.pendingAdopted).toHaveBeenCalledTimes(1))
+      unmount()
+      await act(async () => {
+        resolvePending(5)
+        await Promise.resolve()
+      })
+      expect(pushSpy).not.toHaveBeenCalled()
+      expect(window.argus.currency.ackAdopted).not.toHaveBeenCalled()
+      pushSpy.mockRestore()
+    })
+
+    // Important 1: main gives no ordering guarantee between a live `onAdopted` broadcast and a
+    // racing `pendingAdopted()` query for the SAME batch — both can resolve. Without the `shown`
+    // guard the notice would push (and ack) twice for one adoption.
+    it('shows exactly once, and acks exactly once, when both paths fire for the same batch', async () => {
+      uiStore.openTab('NAV-1')
+      let fire: ((n: number) => void) | null = null
+      window.argus.currency.onAdopted = vi.fn((cb: (n: number) => void) => {
+        fire = cb
+        return () => {}
+      })
+      let resolvePending!: (n: number) => void
+      window.argus.currency.pendingAdopted = vi.fn(
+        () =>
+          new Promise<number>((resolve) => {
+            resolvePending = resolve
+          })
+      )
+      const pushSpy = vi.spyOn(noticeStore, 'push')
+      render(
+        <TopBar
+          activeSlug="NAV-1"
+          activeCase={CASE}
+          onHome={vi.fn()}
+          onSelect={vi.fn()}
+          onSettings={vi.fn()}
+          onStatusChanged={vi.fn()}
+        />
+      )
+      await vi.waitFor(() => expect(fire).toBeTruthy())
+      act(() => fire!(5))
+      await act(async () => {
+        resolvePending(5)
+        await Promise.resolve()
+      })
+      expect(pushSpy).toHaveBeenCalledTimes(1)
+      expect(window.argus.currency.ackAdopted).toHaveBeenCalledTimes(1)
+      pushSpy.mockRestore()
+    })
   })
 })

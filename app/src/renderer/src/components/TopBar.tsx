@@ -90,7 +90,22 @@ export function TopBar({
   const hasCase = activeSlug !== null
   useEffect(() => {
     if (!hasCase) return undefined
+    // Liveness guard for the in-flight `pendingAdopted()` query below (Important 1, second
+    // whole-branch review): that promise has no cancellation of its own, so a user who opens a
+    // case and navigates back to Home/Settings before the IPC round trip resolves would otherwise
+    // still run `show()` against an effect whose case is no longer open — arming `noticeStore`'s
+    // 6-second self-dismiss timer with `HeaderNotice` unmounted, and permanently acking a notice
+    // nobody saw. `alive` is flipped in the cleanup and checked before `show` runs.
+    let alive = true
+    // `shown` closes the other half of the same gap: main handles IPC in arrival order and the ack
+    // is sent strictly later than the broadcast, so nothing prevents `onAdopted` and a racing
+    // `pendingAdopted` query from both resolving for the SAME batch (see the comment on the query
+    // below). Scoped to this effect run, not module state, so a genuinely later batch after a
+    // fresh case-open still shows.
+    let shown = false
     const show = (count: number): void => {
+      if (shown) return
+      shown = true
       noticeStore.push(
         `Argus now keeps itself up to date — it installed ${count} HiveMind item${
           count === 1 ? '' : 's'
@@ -114,14 +129,19 @@ export function TopBar({
     // everything adoptable is already adopted. So the subscription alone reproduces "the notice's
     // one chance is consumed unseen" on a different path than the one Task 7 closed. Querying the
     // pending count once, on this same case-open transition, recovers exactly that missed
-    // broadcast: main retains it (see adoptionBroadcastGate.pendingCount) until acked, so asking
-    // is safe even if the query is genuinely racing a live `onAdopted` — the two paths cannot both
-    // fire for the same batch (a query that lands after `markFirstMirrorNoticeShown` reads back
-    // the 0 that ack just produced).
+    // broadcast: main retains it (see adoptionBroadcastGate.pendingCount) until acked. This query
+    // CAN genuinely race a live `onAdopted` firing for the same batch — main gives no ordering
+    // guarantee between the two — so it is `shown` above, not the comment that used to be here,
+    // that keeps the race from double-pushing.
     void window.argus.currency.pendingAdopted().then((count) => {
+      if (!alive) return
       if (count > 0) show(count)
     })
-    return window.argus.currency.onAdopted(show)
+    const unsubscribe = window.argus.currency.onAdopted(show)
+    return () => {
+      alive = false
+      unsubscribe()
+    }
   }, [hasCase])
   // Non-null exactly while one of the full-page views (Settings, Proposals, Related history) is
   // up — each publishes its own title here because this bar is its SIBLING, not its ancestor.
