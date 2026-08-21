@@ -74,11 +74,13 @@ export function TopBar({
   useEffect(() => currencyStore.start(), [])
   const held = currencyStore.surfacedCount()
   // The first-run mirror notice (Task 7). This bar is where it has to be listened for: its only
-  // host, HeaderNotice, is mounted a few lines below, but ONLY inside the `activeSlug !== null`
-  // branch — so the listener is gated on that exact same condition (`hasCase`), not registered
-  // unconditionally.
+  // host, HeaderNotice, is mounted a few lines below, but ONLY inside the `hasCase` branch — so
+  // the listener is gated on that same flag, not registered unconditionally. The JSX branch below
+  // reads `hasCase` too (not a second `activeSlug !== null` of its own) — this is the ONE
+  // expression the invariant "the listener runs iff HeaderNotice can render" depends on; two
+  // independent copies of the same check are how that invariant quietly drifts apart.
   //
-  // That gate has to cover the SUBSCRIPTION itself, not just the ack: `noticeStore.push` arms a
+  // The gate has to cover the SUBSCRIPTION itself, not just the ack: `noticeStore.push` arms a
   // 6-second self-dismiss timer the moment it is called, independent of whether HeaderNotice is
   // mounted to show it. A broadcast that arrived while on Home/Settings/Proposals would otherwise
   // still get pushed and ack'd — permanently setting `firstMirrorNoticeShown` — and then expire
@@ -205,7 +207,7 @@ export function TopBar({
           )}
         </div>
       )}
-      {activeSlug !== null && (
+      {hasCase && (
         <>
           {/* Separates the wordmark from the case group. It used to sit outside this branch and
               render on every view — which left a hairline hanging in open space on home and in
