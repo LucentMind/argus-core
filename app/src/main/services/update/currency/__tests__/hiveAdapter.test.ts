@@ -112,6 +112,47 @@ describe('hiveAdapter.survey', () => {
     await adapter.survey()
     expect(service.localDivergence).not.toHaveBeenCalled()
   })
+
+  it('drops a stale pin when the item was removed outside the app', async () => {
+    // `installed: false` but `installedCommit` still set: a hand-deleted skill directory, not
+    // cleared via `uninstallSkill`. `from` must follow `installed`, not the stale pin.
+    const { adapter } = build([
+      item({ name: 'rca', installed: false, installedCommit: 'abc123', updateAvailable: false })
+    ])
+    const [c] = await adapter.survey()
+    expect(c.from).toBe(null)
+  })
+
+  it('does not let a tombstone suppress an update to something still installed', async () => {
+    const { adapter } = build([item({ updateAvailable: true })], {
+      declined: { 'skill/triage': '2026-08-19T00:00:00.000Z' }
+    })
+    expect(await adapter.survey()).toEqual([
+      {
+        domain: 'hive-skill',
+        key: 'skill/triage',
+        label: 'triage',
+        from: 'abc123',
+        to: 'def456',
+        verdict: 'clean'
+      }
+    ])
+  })
+
+  it('offers nothing when the clone is not ready', async () => {
+    const { adapter, service } = build([item()])
+    service.sync = vi.fn(async (): Promise<HivemindPayload> => ({
+      repo: 'org/hive',
+      state: 'not-cloned',
+      error: null,
+      headCommit: null,
+      lastSynced: null,
+      items: [],
+      pushable: [],
+      pushes: {}
+    }))
+    expect(await adapter.survey()).toEqual([])
+  })
 })
 
 describe('hiveAdapter.apply', () => {
@@ -158,5 +199,17 @@ describe('hiveAdapter.apply', () => {
     await adapter.apply({ ...cand, domain: 'hive-skill', key: 'skill/triage', label: 'triage' })
     expect(service.localDivergence).not.toHaveBeenCalled()
     expect(service.install).toHaveBeenCalledWith('skill', 'triage')
+  })
+
+  it('splits a key on the FIRST slash, so a name containing a slash round-trips', async () => {
+    // `reference/confluence/foo.md` must split to kind `reference`, name `confluence/foo.md` —
+    // not stop at the wrong slash.
+    const { adapter, service } = build([])
+    await adapter.apply({
+      ...cand,
+      key: 'reference/confluence/foo.md',
+      label: 'confluence/foo.md'
+    })
+    expect(service.install).toHaveBeenCalledWith('reference', 'confluence/foo.md')
   })
 })
