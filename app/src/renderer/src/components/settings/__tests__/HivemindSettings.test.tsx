@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { HivemindSettings } from '../HivemindSettings'
@@ -1236,9 +1236,12 @@ describe('held-back items', () => {
     expect(await screen.findByLabelText('1 HiveMind update needs you')).toBeInTheDocument()
   })
 
-  it('pluralizes both the noun and the verb in the badge label for more than one held-back item', async () => {
+  it('pluralizes both the noun and the verb in the badge label for more than one held-back item in the same section', async () => {
+    // Both candidates are 'hive-skill', so this exercises the Skills badge's own plural
+    // grammar — not a combined cross-section total (badges are per-section since Fix wave 1;
+    // see 'badges References but not Skills' below for the domain split itself).
     renderHive({
-      items: [item({ kind: 'skill', name: 'a' }), item({ kind: 'reference', name: 'b.md' })],
+      items: [item({ kind: 'skill', name: 'a' }), item({ kind: 'skill', name: 'c' })],
       currency: {
         auto: true,
         lastSurveyAt: new Date().toISOString(),
@@ -1253,9 +1256,9 @@ describe('held-back items', () => {
             reason: { kind: 'auth' }
           },
           {
-            domain: 'hive-reference',
-            key: 'reference/b.md',
-            label: 'b.md',
+            domain: 'hive-skill',
+            key: 'skill/c',
+            label: 'c',
             from: 'x',
             to: 'y',
             verdict: 'blocked',
@@ -1266,6 +1269,47 @@ describe('held-back items', () => {
       }
     })
     expect(await screen.findByLabelText('2 HiveMind updates need you')).toBeInTheDocument()
+    // No reference item and no hive-reference candidate — References never renders, so the
+    // label found above can only be the Skills section's own badge.
+    expect(screen.queryByText('References')).not.toBeInTheDocument()
+  })
+
+  /**
+   * The test that makes the per-section split load-bearing (Fix wave 1). Both sections are
+   * forced to actually render (one skill item, one reference item) so there is somewhere for a
+   * wrongly-placed badge to land: a combined-list implementation (both sections reading the same
+   * `blockedHive` total instead of their own domain slice) would badge Skills too and this test
+   * would catch it, even though every other test in this file — including the single-candidate
+   * 'badges the HiveMind section' test above — stays green under that same bug, since none of
+   * them render a second, badge-less section to check against.
+   */
+  it('badges References but not Skills for a single hive-reference block, with both sections visible', async () => {
+    renderHive({
+      items: [item({ kind: 'skill', name: 'a' }), item({ kind: 'reference', name: 'style.md' })],
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'hive-reference',
+            key: 'reference/style.md',
+            label: 'style.md',
+            from: 'x',
+            to: 'y',
+            verdict: 'blocked',
+            reason: { kind: 'local-edits' }
+          }
+        ],
+        busy: false
+      }
+    })
+    const referencesSection = (await screen.findByText('References')).closest('section')!
+    expect(
+      within(referencesSection).getByLabelText('1 HiveMind update needs you')
+    ).toBeInTheDocument()
+
+    const skillsSection = screen.getByText('Skills').closest('section')!
+    expect(within(skillsSection).queryByLabelText(/HiveMind update.*need/i)).not.toBeInTheDocument()
   })
 
   it('shows no section badge when nothing is held back', async () => {
