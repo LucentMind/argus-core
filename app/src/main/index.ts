@@ -3177,8 +3177,9 @@ function registerIpc(): void {
     ),
     // Read live, never captured: the user can flip the switch at any moment.
     autoEnabled: () => settingsService.get().updates.auto,
-    // Gates DISK WRITES only. A core download is not gated — it writes into electron-updater's
-    // cache, which nothing the running app reads.
+    // Gates DISK WRITES only, and only for packs/hive: `CurrencyService.applyPending` drains core
+    // candidates unconditionally, never through this function, because a core download writes
+    // only into electron-updater's cache — nothing the running app reads.
     //
     // `agentService` is a nullable forward ref in this file, so an app that has not built it yet
     // reads as quiet — correct: with no agent service there is no turn in flight.
