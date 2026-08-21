@@ -73,6 +73,23 @@ describe('describeBlocked', () => {
       'Updates are only available in a packaged build.'
     )
   })
+
+  // Finding 4 (whole-branch review): `referenceTier` returns '' for a file with no `trust_tier`
+  // frontmatter, so `localDivergence` legitimately produces `{ from: '', to: 'hivemind' }` for an
+  // unstamped local reference the hive offers. The pre-existing update-confirm panel already
+  // handles exactly this (`HivemindSettings.tsx`'s `{tierChange.from || 'none'}`, backed by its own
+  // regression test) — this sentence has to match that precedent rather than reopen the blank gap
+  // it was written to close.
+  it('renders "none" rather than a blank gap when a tier is unreadable', () => {
+    expect(describeBlocked({ kind: 'tier-change', from: '', to: 'hivemind' })).toBe(
+      'This update would change its trust tier from none to hivemind.'
+    )
+    // The destination side of the same sentence, for completeness — nothing in this codebase
+    // currently produces to: '', but the wording has to stay honest if one ever does.
+    expect(describeBlocked({ kind: 'tier-change', from: 'hivemind', to: '' })).toBe(
+      'This update would change its trust tier from hivemind to none.'
+    )
+  })
 })
 
 describe('surfacedBlocked', () => {
