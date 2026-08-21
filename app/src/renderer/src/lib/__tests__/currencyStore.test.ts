@@ -14,21 +14,29 @@ const blocked = (domain: Candidate['domain'], kind: 'local-edits' | 'unsupported
 })
 
 function stubBridge(payload: CurrencyPayload): { emit: (p: CurrencyPayload) => void } {
-  let cb: ((p: CurrencyPayload) => void) | null = null
+  // Mirrors the real preload bridge (`app/src/preload/index.ts`'s `ipcRenderer.on`), which
+  // registers an independent listener per call rather than a single slot — so a double `start()`
+  // in the store under test actually attaches two listeners here, and a missing idempotence guard
+  // shows up as a doubled notification count.
+  const listeners = new Set<(p: CurrencyPayload) => void>()
   // @ts-expect-error test stub
   window.argus = {
     currency: {
       get: vi.fn(async () => payload),
       surveyNow: vi.fn(async () => {}),
       onChanged: (fn: (p: CurrencyPayload) => void) => {
-        cb = fn
+        listeners.add(fn)
         return () => {
-          cb = null
+          listeners.delete(fn)
         }
       }
     }
   }
-  return { emit: (p) => cb?.(p) }
+  return {
+    emit: (p) => {
+      for (const fn of listeners) fn(p)
+    }
+  }
 }
 
 const empty: CurrencyPayload = { auto: true, lastSurveyAt: null, blocked: [], busy: false }
