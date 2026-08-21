@@ -219,27 +219,39 @@ export class BinariesService {
     }
   }
 
-  async probe(): Promise<ProbeToolRow[]> {
+  /**
+   * Probe every declared binary, or only the `ids` given.
+   *
+   * The filter exists for the Sources page's re-check button, which re-runs the checks that
+   * FAILED rather than all of them (user-directed, 2026-08-21): a full re-probe spawns every
+   * tool's `--version` again and blanks every row's chip, to re-learn what it already knew
+   * about the ones that passed. An unknown id simply yields no row — the caller's list comes
+   * from a previous report, and a pack uninstalled in between must not fail the whole call.
+   */
+  async probe(ids?: readonly string[]): Promise<ProbeToolRow[]> {
+    const wanted = ids ? new Set(ids) : null
     return Promise.all(
-      this.all().map(async (r) => {
-        if (r.decl.kind === 'pathDir') {
-          const found = r.value != null && firstExistingExe(r.value, r.decl.names) != null
+      this.all()
+        .filter((r) => !wanted || wanted.has(r.decl.id))
+        .map(async (r) => {
+          if (r.decl.kind === 'pathDir') {
+            const found = r.value != null && firstExistingExe(r.value, r.decl.names) != null
+            return {
+              id: r.decl.id,
+              ok: found,
+              chip: found ? 'found' : 'not found',
+              detail: found ? (r.value as string) : 'not found'
+            }
+          }
+          if (!r.value) return { id: r.decl.id, ok: false, chip: 'not found', detail: 'not found' }
+          const v = await this.version(r)
           return {
             id: r.decl.id,
-            ok: found,
-            chip: found ? 'found' : 'not found',
-            detail: found ? (r.value as string) : 'not found'
+            ok: true,
+            chip: v ? `found · ${v}` : 'found',
+            detail: v ? `${r.value} · ${v}` : r.value
           }
-        }
-        if (!r.value) return { id: r.decl.id, ok: false, chip: 'not found', detail: 'not found' }
-        const v = await this.version(r)
-        return {
-          id: r.decl.id,
-          ok: true,
-          chip: v ? `found · ${v}` : 'found',
-          detail: v ? `${r.value} · ${v}` : r.value
-        }
-      })
+        })
     )
   }
 

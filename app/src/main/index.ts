@@ -3286,7 +3286,13 @@ function registerIpc(): void {
     settingsService.patch(p)
     return settingsService.payload()
   })
-  ipcMain.handle(IPC.settingsProbeTools, () => binariesService.probe())
+  ipcMain.handle(IPC.settingsProbeTools, (_e, ids?: unknown) =>
+    // IPC args are untrusted: anything that is not an array of strings probes everything,
+    // which is the old behaviour and the safe reading of a malformed filter.
+    binariesService.probe(
+      Array.isArray(ids) && ids.every((i) => typeof i === 'string') ? (ids as string[]) : undefined
+    )
+  )
   ipcMain.handle(IPC.settingsPickPath, async (_e, mode: 'file' | 'directory') => {
     const r = await dialog.showOpenDialog({
       properties: [mode === 'file' ? 'openFile' : 'openDirectory']
@@ -3513,6 +3519,10 @@ function registerIpc(): void {
   }
 
   ipcMain.handle(IPC.jiraPreview, (_e, key: string) => jiraResult(() => jiraCases.preview(key)))
+  // Read-only catalogue lookup, called by Settings -> Connectors to offer the site's real
+  // link-type names instead of a free-text box. Goes through `jiraResult` like every other
+  // Jira call, so an unauthorized connector answers with a message rather than throwing.
+  ipcMain.handle(IPC.jiraLinkTypes, () => jiraResult(() => atlassian.issueLinkTypes()))
   ipcMain.handle(
     IPC.jiraCreateCase,
     async (_e, input: { slug: string; title: string; key: string; sources?: string[] }) => {

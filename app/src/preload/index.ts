@@ -76,6 +76,7 @@ import type {
   JiraAttachmentInfo,
   JiraAttachmentProgress,
   JiraIssuePreview,
+  JiraLinkType,
   JiraRefreshSummary,
   JiraResult,
   JiraSourceLink,
@@ -885,7 +886,8 @@ const argus = {
   settings: {
     get: () => invoke(IPC.settingsGet),
     patch: (p: unknown) => invoke(IPC.settingsPatch, p),
-    probeTools: () => invoke(IPC.settingsProbeTools),
+    /** Omit `ids` to probe every declared tool; pass a list to re-probe just those. */
+    probeTools: (ids?: readonly string[]) => invoke(IPC.settingsProbeTools, ids),
     pickPath: (mode: 'file' | 'directory') => invoke(IPC.settingsPickPath, mode),
     reveal: (what: 'dataRoot' | 'settingsFile') => invoke(IPC.settingsReveal, what),
     setDataRoot: (): Promise<{ changed: boolean }> => invoke(IPC.settingsSetDataRoot),
@@ -950,6 +952,8 @@ const argus = {
     removeSource: (caseSlug: string, key: string): Promise<JiraResult<void>> =>
       invoke(IPC.jiraRemoveSource, caseSlug, key),
     openIssue: (caseSlug: string): Promise<void> => invoke(IPC.jiraOpenIssue, caseSlug),
+    /** The site's issue link-type catalogue, for the clone-link-type picker. */
+    linkTypes: (): Promise<JiraResult<JiraLinkType[]>> => invoke(IPC.jiraLinkTypes),
     onAttachmentProgress: (cb: (p: JiraAttachmentProgress) => void): (() => void) => {
       const listener = (_e: unknown, p: JiraAttachmentProgress): void => cb(p)
       ipcRenderer.on(IPC.jiraAttachmentProgress, listener)
