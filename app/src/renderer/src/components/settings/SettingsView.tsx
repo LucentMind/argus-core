@@ -57,6 +57,15 @@ const ANCHOR: Partial<Record<PageId, string>> = {
   team: 'settings-team'
 }
 
+/**
+ * Type-guards a `PageId` down to `SettingsPageId` by checking it is actually a key of `byPage`
+ * (which always has exactly the three owned ids — see `currencyStore.blockedByPage`), rather than
+ * asserting it with `as`. The ten other ids (`agent`, `library`, `memory`, …) correctly miss.
+ */
+function ownsBlocked(id: PageId, byPage: Record<SettingsPageId, unknown>): id is SettingsPageId {
+  return id in byPage
+}
+
 export function SettingsView({
   onClose,
   initialPage,
@@ -147,8 +156,12 @@ export function SettingsView({
               hiding the last page in a group leaves its heading behind with nothing under it. */}
         {pages.map((p, i) => {
           // Ten of these ids (`agent`, `library`, `memory`, …) are pages this store does not
-          // own, so the lookup correctly misses and `?? []` is load-bearing, not defensive.
-          const heldCount = (byPage[p.id as SettingsPageId] ?? []).length
+          // own. `ownsBlocked` type-guards `p.id` down to `SettingsPageId` by checking it is
+          // actually a key of `byPage` (which always has exactly the three owned ids) rather than
+          // asserting it with `as` — the unsound cast this replaced was safe only because of the
+          // `?? []` fallback, with nothing to catch a future `PAGES`/`SettingsPageId` divergence
+          // statically (minor finding, whole-branch review).
+          const heldCount = (ownsBlocked(p.id, byPage) ? byPage[p.id] : []).length
           return (
             <Fragment key={p.id}>
               {(i === 0 || pages[i - 1].group !== p.group) && (
