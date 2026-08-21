@@ -70,7 +70,12 @@ export function describeBlocked(reason: BlockedReason): string {
     case 'local-edits':
       return 'You have edited this locally.'
     case 'tier-change':
-      return `This update would change its trust tier from ${reason.from} to ${reason.to}.`
+      // `from` (and, in principle, `to`) can be '' — `referenceTier` returns that for a file with
+      // no readable `trust_tier` frontmatter, which `localDivergence` passes straight through.
+      // '|| none' matches the wording the pre-existing update-confirm panel already uses for this
+      // exact case (`HivemindSettings.tsx`'s `{tierChange.from || 'none'}`) rather than reopening
+      // the blank-gap sentence that panel was written to avoid.
+      return `This update would change its trust tier from ${reason.from || 'none'} to ${reason.to || 'none'}.`
     case 'new-dependency':
       return 'This update needs a new dependency.'
     case 'auth':
