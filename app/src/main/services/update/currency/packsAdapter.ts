@@ -13,6 +13,14 @@ export interface PacksAdapterDeps {
   updates: PackUpdatesLike
   /** Installed packs, for the display name and the version a candidate is coming FROM. */
   installed: () => { id: string; displayName: string; installedVersion: string | null }[]
+  /**
+   * Mirrors what the `packsCheckUpdates` IPC handler does with its `checkAll()` result. Without
+   * this, `survey()`'s own `checkAll()` call is a dead end: nothing outside this adapter ever
+   * learns what it found, so `packsList`'s `updates` map — the thing that drives the "update
+   * available" chip — never changes and the badge stays cold until someone presses the manual
+   * "Check for pack updates" button.
+   */
+  onSurveyed?: (statuses: Record<string, UpdateStatus>) => void
 }
 
 /**
@@ -30,12 +38,17 @@ function reasonOf(code: UpdateErrorCode | undefined): BlockedReason | null {
   }
 }
 
-export function createPacksAdapter({ updates, installed }: PacksAdapterDeps): CurrencyAdapter {
+export function createPacksAdapter({
+  updates,
+  installed,
+  onSurveyed
+}: PacksAdapterDeps): CurrencyAdapter {
   return {
     id: 'packs',
 
     async survey(): Promise<Candidate[]> {
       const statuses = await updates.checkAll()
+      onSurveyed?.(statuses)
       const rows = new Map(installed().map((p) => [p.id, p]))
       const out: Candidate[] = []
       for (const [id, status] of Object.entries(statuses)) {

@@ -212,4 +212,43 @@ describe('hiveAdapter.apply', () => {
     })
     expect(service.install).toHaveBeenCalledWith('reference', 'confluence/foo.md')
   })
+
+  it('fires onInstalled with the kind and name after a successful install', async () => {
+    const { service } = build([])
+    const onInstalled = vi.fn()
+    const adapter = createHiveAdapter({ service, onInstalled })
+    await adapter.apply({ ...cand, domain: 'hive-reference', key: 'reference/style.md' })
+    expect(onInstalled).toHaveBeenCalledTimes(1)
+    expect(onInstalled).toHaveBeenCalledWith('reference', 'style.md')
+  })
+
+  it('does NOT fire onInstalled when apply refuses a diverged candidate', async () => {
+    const { service } = build([], {
+      divergence: { diverged: true, diff: '- a\n+ b', tierChange: null }
+    })
+    const onInstalled = vi.fn()
+    const adapter = createHiveAdapter({ service, onInstalled })
+    await adapter.apply(cand)
+    expect(onInstalled).not.toHaveBeenCalled()
+    expect(service.install).not.toHaveBeenCalled()
+  })
+
+  it('does NOT fire onInstalled when service.install itself reports an error', async () => {
+    const { service } = build([])
+    service.install = vi.fn(async () => ({
+      repo: 'org/hive',
+      state: 'ready' as const,
+      error: 'disk full',
+      headCommit: 'def456',
+      lastSynced: '2026-08-20T00:00:00.000Z',
+      items: [],
+      pushable: [],
+      pushes: {}
+    }))
+    const onInstalled = vi.fn()
+    const adapter = createHiveAdapter({ service, onInstalled })
+    const result = await adapter.apply(cand)
+    expect(result).toEqual({ ok: false, error: 'disk full' })
+    expect(onInstalled).not.toHaveBeenCalled()
+  })
 })
