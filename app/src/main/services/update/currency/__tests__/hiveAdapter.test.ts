@@ -15,6 +15,7 @@ const item = (over: Partial<HivemindItem> = {}): HivemindItem => ({
   shadowedByUser: false,
   updateAvailable: true,
   orphaned: false,
+  declined: false,
   ...over
 })
 

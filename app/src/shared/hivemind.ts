@@ -16,6 +16,9 @@ export interface HivemindItem {
   /** Installed locally but no longer present in the hive repo. Derived per listing, never
    *  stored: it self-corrects the instant the item reappears upstream. */
   orphaned: boolean
+  /** The user removed this deliberately, so the mirror will not re-adopt it. Derived from the
+   *  `declined` ledger on every listing, never stored on the item. */
+  declined: boolean
 }
 /** Whether the installed local reference has edits that are in neither the pin nor HEAD. */
 export interface LocalDivergence {

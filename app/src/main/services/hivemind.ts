@@ -409,6 +409,7 @@ export class HivemindService {
 
   private async listItems(): Promise<HivemindItem[]> {
     const state = this.state()
+    const declinedKeys = state.declined
     const items: HivemindItem[] = []
     const skillsRoot = path.join(this.clone(), 'skills')
     if (fs.existsSync(skillsRoot)) {
@@ -436,7 +437,8 @@ export class HivemindService {
             path.join(userSkillsDir(this.deps.argusHome), ent.name, 'SKILL.md')
           ),
           updateAvailable: installed && installedCommit !== null && installedCommit !== commit,
-          orphaned: false
+          orphaned: false,
+          declined: Boolean(declinedKeys[declineKey('skill', ent.name)])
         })
       }
     }
@@ -466,7 +468,8 @@ export class HivemindService {
             localTier: installed ? referenceTier(localPath) || null : null,
             shadowedByUser: false,
             updateAvailable: installed && installedCommit !== null && installedCommit !== commit,
-            orphaned: false
+            orphaned: false,
+            declined: Boolean(declinedKeys[declineKey('reference', name)])
           })
         }
       }
@@ -487,7 +490,8 @@ export class HivemindService {
         localTier: null,
         shadowedByUser: false,
         updateAvailable: false,
-        orphaned: true
+        orphaned: true,
+        declined: Boolean(declinedKeys[declineKey('skill', name)])
       })
     }
     for (const [name, commit] of Object.entries(state.references)) {
@@ -500,12 +504,13 @@ export class HivemindService {
         commit,
         installed: true,
         installedCommit: commit,
-        localTier: referenceTier(
-          path.join(sharedReferencesDir(this.deps.argusHome), path.basename(name))
-        ),
+        localTier:
+          referenceTier(path.join(sharedReferencesDir(this.deps.argusHome), path.basename(name))) ||
+          null,
         shadowedByUser: false,
         updateAvailable: false,
-        orphaned: true
+        orphaned: true,
+        declined: Boolean(declinedKeys[declineKey('reference', name)])
       })
     }
     return items.sort((a, b) => a.name.localeCompare(b.name))

@@ -6,10 +6,12 @@ import { HivemindSettings } from '../HivemindSettings'
 import { settingsStore } from '../../../lib/settingsStore'
 import { referenceSyncStore } from '../../../lib/referenceSyncStore'
 import { connectorsStore } from '../../../lib/connectorsStore'
+import { currencyStore } from '../../../lib/currencyStore'
 import { confirm } from '../../../lib/confirmStore'
 import { defaultSettings } from '../../../../../shared/settings'
-import type { HivemindPayload, LocalDivergence } from '../../../../../shared/hivemind'
+import type { HivemindItem, HivemindPayload, LocalDivergence } from '../../../../../shared/hivemind'
 import type { SettingsPayload } from '../../../../../shared/settings'
+import type { CurrencyPayload } from '../../../../../shared/currency'
 
 // Uninstall/keep-as-mine go through the Argus confirm dialog (imported as askConfirm in the
 // component). Stub it so these tests drive the confirm/cancel branches directly.
@@ -45,7 +47,8 @@ const ready: HivemindPayload = {
       localTier: null,
       shadowedByUser: false,
       updateAvailable: true,
-      orphaned: false
+      orphaned: false,
+      declined: false
     },
     {
       kind: 'reference',
@@ -58,7 +61,8 @@ const ready: HivemindPayload = {
       localTier: null,
       shadowedByUser: false,
       updateAvailable: false,
-      orphaned: false
+      orphaned: false,
+      declined: false
     }
   ],
   pushable: [{ kind: 'skill', name: 'my-skill' }],
@@ -171,11 +175,53 @@ function renderWith(payload: HivemindPayload): ReturnType<typeof render> {
   return render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
 }
 
+/**
+ * Renders the page, optionally overriding the item list (defaults to `ready`'s) and the currency
+ * payload `window.argus.currency.get()` resolves to (the held-back list the chips, reason line,
+ * and section badge read). The one render helper this file has for the currency-aware tests —
+ * extend it rather than adding a second.
+ */
+function renderHive(
+  options: { items?: HivemindItem[]; currency?: CurrencyPayload } = {}
+): ReturnType<typeof render> {
+  const payload: HivemindPayload = options.items ? { ...ready, items: options.items } : ready
+  const argus = mockArgus(payload) as unknown as { currency: { get: ReturnType<typeof vi.fn> } }
+  if (options.currency) {
+    const currency = options.currency
+    argus.currency.get = vi.fn().mockResolvedValue(currency)
+  }
+  ;(window as unknown as { argus: unknown }).argus = argus
+  return render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+}
+
+/** A minimal HivemindItem, overridable per test — the one item fixture factory for this file. */
+function item(overrides: Partial<HivemindItem> = {}): HivemindItem {
+  return {
+    kind: 'skill',
+    name: 'item',
+    description: '',
+    author: null,
+    commit: 'sha',
+    installed: false,
+    installedCommit: null,
+    localTier: null,
+    shadowedByUser: false,
+    updateAvailable: false,
+    orphaned: false,
+    declined: false,
+    ...overrides
+  }
+}
+
 beforeEach(() => {
   // Both are module-level singletons that latch after their first load; without a reset they
   // carry another suite's payload (and its stale `window.argus`) into this one.
   referenceSyncStore.reset()
   connectorsStore.reset()
+  // currencyStore is a module-level singleton too — without resetting it here, a later test's
+  // `currencyStore.start()` would find `started` still true from a previous test and skip
+  // re-hydrating from this test's own stub entirely.
+  currencyStore.reset()
   installMock.mockClear()
   surveyNowMock.mockClear()
   localDivergenceMock.mockReset().mockResolvedValue({ diverged: false, diff: '', tierChange: null })
@@ -614,7 +660,8 @@ describe('keep as mine', () => {
         localTier: 'hivemind',
         shadowedByUser: false,
         updateAvailable: false,
-        orphaned: false
+        orphaned: false,
+        declined: false
       }
     ]
   }
@@ -702,7 +749,8 @@ describe('update hazards', () => {
           shadowedByUser: false,
           author: null,
           updateAvailable: true,
-          orphaned: false
+          orphaned: false,
+          declined: false
         }
       ]
     }
@@ -734,7 +782,8 @@ describe('update hazards', () => {
           shadowedByUser: false,
           author: null,
           updateAvailable: true,
-          orphaned: false
+          orphaned: false,
+          declined: false
         }
       ]
     }
@@ -768,7 +817,8 @@ describe('update hazards', () => {
           shadowedByUser: false,
           author: null,
           updateAvailable: true,
-          orphaned: false
+          orphaned: false,
+          declined: false
         }
       ]
     }
@@ -798,7 +848,8 @@ describe('update hazards', () => {
           shadowedByUser: false,
           author: null,
           updateAvailable: true,
-          orphaned: false
+          orphaned: false,
+          declined: false
         }
       ]
     }
@@ -831,7 +882,8 @@ describe('update hazards', () => {
           localTier: 'user',
           shadowedByUser: false,
           updateAvailable: true,
-          orphaned: false
+          orphaned: false,
+          declined: false
         }
       ]
     }
@@ -868,7 +920,8 @@ describe('update hazards', () => {
           localTier: null,
           shadowedByUser: false,
           updateAvailable: true,
-          orphaned: false
+          orphaned: false,
+          declined: false
         }
       ]
     }
@@ -939,7 +992,8 @@ describe('download hazards', () => {
           localTier: null,
           shadowedByUser: true,
           updateAvailable: false,
-          orphaned: false
+          orphaned: false,
+          declined: false
         }
       ]
     }
@@ -963,7 +1017,8 @@ describe('download hazards', () => {
           localTier: null,
           shadowedByUser: false,
           updateAvailable: false,
-          orphaned: false
+          orphaned: false,
+          declined: false
         }
       ]
     }
@@ -991,7 +1046,8 @@ describe('download hazards', () => {
           localTier: null,
           shadowedByUser: true,
           updateAvailable: false,
-          orphaned: false
+          orphaned: false,
+          declined: false
         }
       ]
     }
@@ -1111,5 +1167,112 @@ describe('download all', () => {
       'skill',
       'skill-b'
     )
+  })
+})
+
+describe('held-back items', () => {
+  it('chips an orphaned item', async () => {
+    renderHive({ items: [item({ name: 'gone', orphaned: true, installed: true })] })
+    expect(await screen.findByText('not in hive')).toBeInTheDocument()
+  })
+
+  it('chips a tombstoned item and still offers Download as the undo', async () => {
+    renderHive({ items: [item({ name: 'removed', installed: false, declined: true })] })
+    expect(await screen.findByText('not mirrored')).toBeInTheDocument()
+    expect(screen.getByLabelText('Download removed')).toBeInTheDocument()
+  })
+
+  it('does not chip an ordinary not-installed item', async () => {
+    renderHive({ items: [item({ name: 'fresh', installed: false, declined: false })] })
+    await screen.findByLabelText('Download fresh')
+    expect(screen.queryByText('not mirrored')).not.toBeInTheDocument()
+  })
+
+  it('shows the held-back reason under a hive item', async () => {
+    renderHive({
+      items: [item({ kind: 'reference', name: 'style.md', localTier: 'hivemind' })],
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'hive-reference',
+            key: 'reference/style.md',
+            label: 'style.md',
+            from: 'x',
+            to: 'y',
+            verdict: 'blocked',
+            reason: { kind: 'local-edits' }
+          }
+        ],
+        busy: false
+      }
+    })
+    expect(
+      await screen.findByText(/held back — you have edited this locally\./i)
+    ).toBeInTheDocument()
+  })
+
+  it('badges the HiveMind section with the held-back count', async () => {
+    renderHive({
+      items: [item({ kind: 'reference', name: 'style.md' })],
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'hive-skill',
+            key: 'skill/a',
+            label: 'a',
+            from: 'x',
+            to: 'y',
+            verdict: 'blocked',
+            reason: { kind: 'tier-change', from: 'mine', to: 'hivemind' }
+          }
+        ],
+        busy: false
+      }
+    })
+    expect(await screen.findByLabelText('1 HiveMind update needs you')).toBeInTheDocument()
+  })
+
+  it('pluralizes both the noun and the verb in the badge label for more than one held-back item', async () => {
+    renderHive({
+      items: [item({ kind: 'skill', name: 'a' }), item({ kind: 'reference', name: 'b.md' })],
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'hive-skill',
+            key: 'skill/a',
+            label: 'a',
+            from: 'x',
+            to: 'y',
+            verdict: 'blocked',
+            reason: { kind: 'auth' }
+          },
+          {
+            domain: 'hive-reference',
+            key: 'reference/b.md',
+            label: 'b.md',
+            from: 'x',
+            to: 'y',
+            verdict: 'blocked',
+            reason: { kind: 'local-edits' }
+          }
+        ],
+        busy: false
+      }
+    })
+    expect(await screen.findByLabelText('2 HiveMind updates need you')).toBeInTheDocument()
+  })
+
+  it('shows no section badge when nothing is held back', async () => {
+    renderHive({
+      currency: { auto: true, lastSurveyAt: new Date().toISOString(), blocked: [], busy: false }
+    })
+    await screen.findByText('hive-probe')
+    expect(screen.queryByLabelText(/needs you|need you/i)).not.toBeInTheDocument()
   })
 })
