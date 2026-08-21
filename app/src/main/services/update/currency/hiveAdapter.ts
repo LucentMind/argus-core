@@ -32,6 +32,17 @@ export interface HiveAdapterDeps {
    * the broadcast this fires.
    */
   onInstalled?: (kind: 'skill' | 'reference', name: string) => void
+  /**
+   * The same apply lock `CurrencyService.withApplyLock` (and the manual Update/Install IPC
+   * handlers) share. `service.sync()` is a read-modify-write of the whole HiveMind state file
+   * (`git pull` + `store.write({ ...state(), lastSynced })`, and on a repo change an `fs.rmSync`
+   * of the clone) — NOT the read-only operation `survey()`'s doc comment promises. Without this
+   * lock, that write can land between `HivemindService.install()`'s own read and write of the same
+   * file and silently drop whatever install just pinned. Wraps ONLY the `sync()` call: everything
+   * after it in `survey()` is a true read, and holding the lock across the rest — or across a long
+   * network sync when unset — would block the user's manual Install button for no reason.
+   */
+  withLock?: <T>(fn: () => Promise<T>) => Promise<T>
 }
 
 const domainOf = (kind: 'skill' | 'reference'): CurrencyDomain =>
@@ -68,14 +79,20 @@ async function referenceBlock(
   return null
 }
 
-export function createHiveAdapter({ service, onInstalled }: HiveAdapterDeps): CurrencyAdapter {
+export function createHiveAdapter({
+  service,
+  onInstalled,
+  withLock
+}: HiveAdapterDeps): CurrencyAdapter {
   return {
     id: 'hive',
 
     async survey(): Promise<Candidate[]> {
       // Sync first: every verdict below is about the clone's HEAD, so a stale clone would
-      // classify against yesterday's hive.
-      const payload = await service.sync()
+      // classify against yesterday's hive. `sync()` writes (see `withLock`'s doc comment above),
+      // so it alone runs under the apply lock — the classification below is a true read and does
+      // not need it.
+      const payload = await (withLock ? withLock(() => service.sync()) : service.sync())
       if (payload.state !== 'ready') return []
       const declined = service.declined()
       const out: Candidate[] = []

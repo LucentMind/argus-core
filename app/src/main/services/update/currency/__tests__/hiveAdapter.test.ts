@@ -139,6 +139,58 @@ describe('hiveAdapter.survey', () => {
     ])
   })
 
+  it('runs sync() inside the provided lock, not around the rest of survey()', async () => {
+    const { service } = build([item()])
+    const order: string[] = []
+    let released: (() => void) | null = null
+    let lockCalls = 0
+    const withLock = async <T>(fn: () => Promise<T>): Promise<T> => {
+      lockCalls++
+      order.push('lock:enter')
+      try {
+        return await fn()
+      } finally {
+        order.push('lock:exit')
+      }
+    }
+    service.sync = vi.fn(async () => {
+      order.push('sync:start')
+      // Prove the lock is held for the DURATION of sync(), not just entered before it — a fake
+      // that only recorded call order around an already-resolved promise couldn't catch a
+      // `withLock` that let `sync()`'s work escape its scope.
+      await new Promise<void>((resolve) => {
+        released = resolve
+      })
+      order.push('sync:end')
+      return {
+        repo: 'org/hive',
+        state: 'ready' as const,
+        error: null,
+        headCommit: 'def456',
+        lastSynced: '2026-08-20T00:00:00.000Z',
+        items: [],
+        pushable: [],
+        pushes: {}
+      }
+    })
+    const adapter = createHiveAdapter({ service, withLock })
+    const surveyed = adapter.survey()
+    await vi.waitFor(() => expect(order).toContain('sync:start'))
+    // The lock must still be held here: nothing has released `sync()` yet, so if `withLock`
+    // resolved before `fn` finished, `lock:exit` would already be in `order`.
+    expect(order).toEqual(['lock:enter', 'sync:start'])
+    released!()
+    await surveyed
+    expect(order).toEqual(['lock:enter', 'sync:start', 'sync:end', 'lock:exit'])
+    expect(lockCalls).toBe(1)
+  })
+
+  it('does not require a lock: survey works unchanged when withLock is not provided', async () => {
+    const { adapter, service } = build([item()])
+    expect(await adapter.survey()).toHaveLength(1)
+    expect(service.sync).toHaveBeenCalledTimes(1)
+  })
+
   it('offers nothing when the clone is not ready', async () => {
     const { adapter, service } = build([item()])
     service.sync = vi.fn(async (): Promise<HivemindPayload> => ({
