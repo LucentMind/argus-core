@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, beforeEach } from 'vitest'
@@ -45,5 +46,28 @@ describe('HeaderNotice', () => {
     notice('second')
     expect(await screen.findByText('second')).toBeTruthy()
     expect(screen.queryByText('first')).toBeNull()
+  })
+
+  // Finding 5 (whole-branch review): the mandated first-run notice string is ~132 characters, and
+  // at the old `max-w-80` (320px) single-line truncation, roughly the first 45 render before the
+  // ellipsis — the reader never sees "You can turn this off in Settings -> Updates.", the ONE
+  // actionable half of the sentence. jsdom computes no layout, so it cannot see the truncation
+  // itself; what it CAN pin is that the full text is reachable through the native title tooltip
+  // regardless of how much of it fits on screen, and that the truncation budget was actually
+  // widened rather than left at the old cap.
+  it('carries the full message as a title, so a truncated notice is still reachable', async () => {
+    render(<HeaderNotice />)
+    const long =
+      "Argus now keeps itself up to date — it installed 3 HiveMind items from your team's repo. You can turn this off in Settings → Updates."
+    notice(long)
+    const btn = await screen.findByRole('button', { name: `Dismiss: ${long}` })
+    expect(btn).toHaveAttribute('title', long)
+  })
+
+  it('widens the truncation cap past the old 320px, which cut off the notice before its actionable half', async () => {
+    render(<HeaderNotice />)
+    notice('short')
+    const btn = await screen.findByRole('button', { name: 'Dismiss: short' })
+    expect(btn.className).not.toContain('max-w-80')
   })
 })
