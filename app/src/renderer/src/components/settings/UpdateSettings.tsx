@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { updateStore } from '../../lib/updateStore'
 import { settingsStore, useSettingsPayload } from '../../lib/settingsStore'
 import { describeUpdate } from '../../../../shared/updates'
+import { surfacedBlocked } from '../../../../shared/currency'
 import type { CurrencyPayload } from '../../../../shared/currency'
 import { Btn, Toggle } from '../ui'
 import { SettingsSection, SettingRow } from './settingsLayout'
@@ -19,8 +20,11 @@ const UNLOCK_MESSAGE_TTL_MS = 5000
 function currencyLine(c: CurrencyPayload | null): string {
   if (!c || c.lastSurveyAt === null) return 'Not checked yet'
   const when = new Date(c.lastSurveyAt).toLocaleString()
-  if (c.blocked.length === 0) return `Checked ${when} · everything current`
-  const n = c.blocked.length
+  // Only surfaced blocks count: `unsupported` means this build structurally cannot update, which
+  // is not something the reader can act on — and in an unpackaged build it would otherwise make
+  // the line permanently read "1 item held back".
+  const n = surfacedBlocked(c.blocked).length
+  if (n === 0) return `Checked ${when} · everything current`
   return `Checked ${when} · ${n} item${n === 1 ? '' : 's'} held back`
 }
 
