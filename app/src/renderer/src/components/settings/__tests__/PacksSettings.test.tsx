@@ -343,11 +343,48 @@ describe('PacksSettings', () => {
     expect(screen.queryByRole('button', { name: 'Expand tools · code-graph' })).toBeNull()
   })
 
-  it('Re-run checks re-probes every tool, including collapsed ones', async () => {
+  // The re-check button re-runs the FAILED probes only (user-directed, 2026-08-21): a full
+  // re-probe re-runs every tool's `--version` to re-learn what it already knew, and blanks every
+  // row's chip while it does.
+  it('re-checks only the tools the last probe said were missing', async () => {
+    window.argus.settings.probeTools = vi.fn(async () => [
+      { id: 'argus-demo', ok: false, chip: 'not found', detail: 'not found' },
+      { id: 'graphify', ok: true, chip: 'found', detail: 'C:/…/graphify' }
+    ])
     render(<PacksSettings settings={settingsPayload()} />)
-    await screen.findByRole('button', { name: 'Expand tools · navigation' })
-    fireEvent.click(screen.getByRole('button', { name: 'Re-run checks' }))
+    const btn = await screen.findByRole('button', { name: 'Re-check failed tools' })
+    await waitFor(() => expect(btn).toHaveTextContent('Re-check 1 failed'))
+    fireEvent.click(btn)
     await waitFor(() => expect(window.argus.settings.probeTools).toHaveBeenCalledTimes(2))
+    // The second call names the failing id — not undefined, which would probe everything.
+    expect(vi.mocked(window.argus.settings.probeTools).mock.calls[1][0]).toEqual(['argus-demo'])
+  })
+
+  it('has nothing to re-check when every probe passed, and says so', async () => {
+    render(<PacksSettings settings={settingsPayload()} />)
+    const btn = await screen.findByRole('button', { name: 'Re-check failed tools' })
+    await waitFor(() => expect(btn).toHaveTextContent('All checks passed'))
+    expect(btn).toBeDisabled()
+  })
+
+  it('keeps a passing row\u2019s chip while a partial re-check runs', async () => {
+    window.argus.settings.probeTools = vi.fn(async (ids?: readonly string[]) =>
+      (
+        [
+          { id: 'argus-demo', ok: false, chip: 'not found', detail: 'not found' },
+          { id: 'graphify', ok: true, chip: 'found · v1', detail: 'C:/…/graphify · v1' }
+        ] as Array<{ id: string; ok: boolean; chip: string; detail: string }>
+      ).filter((r) => !ids || ids.includes(r.id))
+    )
+    render(<PacksSettings settings={settingsPayload()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Expand tools · navigation' }))
+    await screen.findByText('Demo tool')
+    fireEvent.click(screen.getByRole('button', { name: 'Re-check failed tools' }))
+    // A partial run must not blank the report: the row it did not ask about keeps its answer.
+    await waitFor(() =>
+      expect(vi.mocked(window.argus.settings.probeTools).mock.calls[1][0]).toEqual(['argus-demo'])
+    )
+    await waitFor(() => expect(screen.getByText('not found')).toBeInTheDocument())
   })
 
   it('offers Update on a pack with an available update', async () => {

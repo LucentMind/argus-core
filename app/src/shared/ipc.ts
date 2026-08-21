@@ -138,6 +138,7 @@ export const IPC = {
   jiraAddSource: 'jira:add-source',
   jiraRemoveSource: 'jira:remove-source',
   jiraOpenIssue: 'jira:open-issue',
+  jiraLinkTypes: 'jira:link-types',
   accessGet: 'access:get',
   accessPatch: 'access:patch',
   accessChanged: 'access:changed',
