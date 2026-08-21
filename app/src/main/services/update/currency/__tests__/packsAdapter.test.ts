@@ -75,7 +75,7 @@ describe('packsAdapter.survey', () => {
         code: 'gh-missing'
       }
     })
-    expect((await adapter.survey())[0].reason).toEqual({ kind: 'missing' })
+    expect((await adapter.survey())[0].reason).toEqual({ kind: 'gh-missing' })
   })
 
   it('blocks on a gh notfound failure — distinct from auth and missing', async () => {
@@ -87,7 +87,7 @@ describe('packsAdapter.survey', () => {
         code: 'gh-notfound'
       }
     })
-    expect((await adapter.survey())[0].reason).toEqual({ kind: 'notfound' })
+    expect((await adapter.survey())[0].reason).toEqual({ kind: 'gh-notfound' })
   })
 
   it('stays silent about an unclassified gh failure — not a decision, unlike the other three', async () => {

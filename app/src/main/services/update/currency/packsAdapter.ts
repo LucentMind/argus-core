@@ -45,9 +45,9 @@ function reasonOf(code: UpdateErrorCode | undefined): BlockedReason | null {
     case 'gh-auth':
       return { kind: 'auth' }
     case 'gh-missing':
-      return { kind: 'missing' }
+      return { kind: 'gh-missing' }
     case 'gh-notfound':
-      return { kind: 'notfound' }
+      return { kind: 'gh-notfound' }
     // 'gh-failed' is deliberately absent: it is classifyGhFailure's catch-all for a gh call that
     // failed for no attributable reason (rate-limited, a malformed response, a mid-call network
     // blip). None of those is a decision a person can act on, so — like every OTHER code absent

@@ -173,7 +173,7 @@ describe('CurrencyService policy', () => {
   // to withhold.
   it('hides a notfound block on its first occurrence and shows it on the second, same grace as auth', async () => {
     let t = 0
-    const notfoundBlocked: Candidate = { ...authBlocked, reason: { kind: 'notfound' } }
+    const notfoundBlocked: Candidate = { ...authBlocked, reason: { kind: 'gh-notfound' } }
     const adapter: CurrencyAdapter = {
       id: 'packs',
       survey: vi.fn(async () => [notfoundBlocked]),
@@ -191,7 +191,7 @@ describe('CurrencyService policy', () => {
   // flaky-network shape to wait out — so it must NOT be swept into the grace by whatever mechanism
   // covers `auth`/`notfound`.
   it('shows a missing block immediately — needs only one occurrence', async () => {
-    const missingBlocked: Candidate = { ...authBlocked, reason: { kind: 'missing' } }
+    const missingBlocked: Candidate = { ...authBlocked, reason: { kind: 'gh-missing' } }
     const adapter: CurrencyAdapter = {
       id: 'packs',
       survey: vi.fn(async () => [missingBlocked]),
