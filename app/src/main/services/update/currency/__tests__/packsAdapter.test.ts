@@ -143,4 +143,18 @@ describe('packsAdapter.apply', () => {
     )
     expect(await adapter.apply(candidate())).toEqual({ ok: false, error: 'ECONNRESET' })
   })
+
+  it('does not infer success from "not an error": idle (world moved) is a failure with no reason', async () => {
+    // `PackUpdatesService.apply` returns `{ phase: 'idle' }`, with no error, when `findUpdate`
+    // finds nothing this time — the update disappeared between survey and apply.
+    const { adapter } = build(
+      { 'code-graph': { phase: 'available', version: '1.1.0' } },
+      { phase: 'idle' }
+    )
+    const outcome = await adapter.apply(candidate())
+    expect(outcome.ok).toBe(false)
+    // Explicitly no `reason`: a `reason` makes this a permanent user-facing decision, which a
+    // transient world-moved race must never become — it must silently be re-offered next survey.
+    expect(outcome).not.toHaveProperty('reason')
+  })
 })
