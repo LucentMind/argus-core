@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react'
 import { settingsStore } from '../../lib/settingsStore'
+import { Chip } from '../ui'
 import { SettingsSection, SettingRow, SelectField, DraftTextarea } from './settingsLayout'
 import {
   getDriver,
@@ -7,8 +9,21 @@ import {
   resolveDistillAgentProvider
 } from '../../../../shared/drivers'
 import type { SettingsPayload } from '../../../../shared/settings'
+import type { DistillationUsageStats } from '../../../../shared/observability'
 
 const AUTO = 'Automatic'
+
+/** avg cost/turns/prompt-size readout for the usage row — each segment omitted when its average
+ *  is null (no done run ever recorded that column; SQL AVG ignores NULLs, so this never
+ *  fabricates a $0.00/0-turn average from rows that simply predate usage tracking). Moved here
+ *  from MemorySettings with the row it describes (user-directed, 2026-08-21). */
+function distillationDescription(d: DistillationUsageStats): string {
+  const parts: string[] = []
+  if (d.avgCostUsd !== null) parts.push(`avg $${d.avgCostUsd.toFixed(2)}`)
+  if (d.avgTurnCount !== null) parts.push(`avg ${d.avgTurnCount.toFixed(1)} turns`)
+  if (d.avgPromptChars !== null) parts.push(`avg ${Math.round(d.avgPromptChars)} prompt chars`)
+  return parts.length > 0 ? parts.join(' · ') : 'no usage recorded on these runs'
+}
 
 type DistillPipeline = SettingsPayload['settings']['distill']['pipeline']
 /** Display labels for `settings.distill.pipeline`; the select round-trips through these. */
@@ -30,6 +45,29 @@ const PIPELINE_OPTIONS = Object.values(PIPELINE_LABELS)
  * the payload plus the pure resolvers in shared/drivers.ts.
  */
 export function DistillationSection({ payload }: { payload: SettingsPayload }): React.JSX.Element {
+  /**
+   * What distillation has actually cost. Lived on the Memory page until 2026-08-21, where it
+   * reported on jobs configured two pages away; the spend belongs beside the provider and model
+   * that decide it.
+   *
+   * Fetched here rather than passed down: `usage.stats()` is a whole-app payload with no other
+   * consumer on this page, and the section is otherwise prop-derived. A failed call leaves the
+   * row absent — a settings page must not surface a stats outage as an error.
+   */
+  const [distillUsage, setDistillUsage] = useState<DistillationUsageStats | null>(null)
+  useEffect(() => {
+    let alive = true
+    void window.argus.usage
+      .stats()
+      .then((u) => {
+        if (alive) setDistillUsage(u.distillation)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+
   const s = payload.settings
   const a = s.agent
   const stored = a.distillProvider
@@ -121,7 +159,10 @@ export function DistillationSection({ payload }: { payload: SettingsPayload }): 
   }
 
   return (
-    <SettingsSection title="Background work">
+    <SettingsSection
+      title="Background work"
+      subtitle="Unattended runs: which provider does them, and what they have cost."
+    >
       {!resolved.ok && <div className="px-4 py-3 text-xs text-danger">{resolved.reason}</div>}
       <SettingRow
         label="Distillation provider"
@@ -199,6 +240,22 @@ export function DistillationSection({ payload }: { payload: SettingsPayload }): 
           onCommit={(v) => void settingsStore.patch({ distill: { guidance: v || null } })}
         />
       </SettingRow>
+      {distillUsage && distillUsage.jobCount > 0 && (
+        <SettingRow
+          label={`${distillUsage.jobCount} completed run${distillUsage.jobCount === 1 ? '' : 's'}`}
+          description={distillationDescription(distillUsage)}
+        >
+          {distillUsage.totalCostUsd !== null && (
+            <Chip tone="neutral">${distillUsage.totalCostUsd.toFixed(2)} total</Chip>
+          )}
+          {/* Failed capHit runs ran the whole agent loop before refusing to parse — often the
+              most expensive outcome, not a free one — so their spend gets its own chip rather
+              than vanishing into a done-only total. */}
+          {distillUsage.failedCostUsd !== null && distillUsage.failedCostUsd > 0 && (
+            <Chip tone="danger">+${distillUsage.failedCostUsd.toFixed(2)} on failed runs</Chip>
+          )}
+        </SettingRow>
+      )}
     </SettingsSection>
   )
 }

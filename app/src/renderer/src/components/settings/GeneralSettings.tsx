@@ -120,11 +120,90 @@ function DefaultReposRow({ repos }: { repos: readonly string[] }): React.JSX.Ele
   )
 }
 
-export function GeneralSettings({ payload }: { payload: SettingsPayload }): React.JSX.Element {
+/**
+ * Theme, dynamic theme and UI scale as ONE collapsed row (user-directed, 2026-08-21).
+ *
+ * Three window-local look-and-feel switches opened the General page and pushed everything that
+ * actually configures Argus — repos, data root, updates — below the fold. They are also the
+ * rows a user touches once and never again, so they earn the least permanent space.
+ *
+ * Shaped exactly like {@link DefaultReposRow}: bare row, `DisclosureBtn` alone in the trailing
+ * slot, disclosed content BELOW the row. The chip is the collapsed summary — the current theme
+ * and scale are what a user opening this row wants to know, so the row keeps saying them while
+ * shut. Never auto-opens: unlike the repos list, an empty state is impossible here.
+ */
+function AppearanceRow(): React.JSX.Element {
+  const [open, setOpen] = useState(false)
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
     () => uiStore.get()
   )
+  const scale = `${Math.round(ui.uiScale * 100)}%`
+
+  return (
+    <div className="flex flex-col px-4 py-3">
+      <div className="flex items-center gap-4">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex flex-wrap items-center gap-2 text-sm text-ink">
+            Appearance
+            <Chip tone="neutral">
+              {ui.themePreference} · {scale}
+              {ui.dynamicTheme ? ' · dynamic' : ''}
+            </Chip>
+          </span>
+          <span className="text-xs text-mute">
+            Theme, ambient styling, and zoom — this window only (stored locally)
+          </span>
+        </div>
+        <DisclosureBtn expanded={open} onToggle={() => setOpen((o) => !o)} label="appearance" />
+      </div>
+      {open && (
+        // Sub-rows, not `SettingRow`s: a SettingRow's `px-4` would indent them past the row they
+        // belong to, and none of the three has a reset (they are local UI state, not settings
+        // with a stored default to erase).
+        <div className="mt-1 flex flex-col">
+          <div className="flex items-center gap-4 rounded-r2 px-1.5 py-2">
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="text-sm text-ink">Theme</span>
+              <span className="text-xs text-mute">System follows your OS setting</span>
+            </div>
+            <SelectField
+              aria-label="Theme"
+              value={ui.themePreference}
+              options={['system', 'dark', 'light']}
+              onChange={(v) => uiStore.setThemePreference(v as ThemePreference)}
+            />
+          </div>
+          <div className="flex items-center gap-4 rounded-r2 px-1.5 py-2">
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="text-sm text-ink">Dynamic theme</span>
+              <span className="text-xs text-mute">Ambient dashboard styling</span>
+            </div>
+            <Switch
+              checked={ui.dynamicTheme}
+              onChange={(v) => uiStore.setDynamicTheme(v)}
+              aria-label="Dynamic theme"
+            />
+          </div>
+          <div className="flex items-center gap-4 rounded-r2 px-1.5 py-2">
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="text-sm text-ink">UI scale</span>
+              <span className="text-xs text-mute">Zoom the whole interface</span>
+            </div>
+            <SelectField
+              aria-label="UI scale"
+              value={scale}
+              options={UI_SCALES.map((s) => `${Math.round(s * 100)}%`)}
+              onChange={(v) => uiStore.setUiScale((parseInt(v, 10) / 100) as UiScale)}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function GeneralSettings({ payload }: { payload: SettingsPayload }): React.JSX.Element {
   const g = payload.settings.general
 
   return (
@@ -132,59 +211,13 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
       {/* Untitled: the page label in the header masthead already says "General", and this
           section is the whole page (user-directed, 2026-08-02). */}
       <SettingsSection>
-        <SettingRow
-          label="Theme"
-          description="This window only (stored locally) — System follows your OS setting"
-        >
-          <SelectField
-            aria-label="Theme"
-            value={ui.themePreference}
-            options={['system', 'dark', 'light']}
-            onChange={(v) => uiStore.setThemePreference(v as ThemePreference)}
-          />
-        </SettingRow>
-        <SettingRow
-          label="Dynamic theme"
-          description="Ambient dashboard styling — this window only (stored locally)"
-        >
-          <Switch
-            checked={ui.dynamicTheme}
-            onChange={(v) => uiStore.setDynamicTheme(v)}
-            aria-label="Dynamic theme"
-          />
-        </SettingRow>
-        <SettingRow label="UI scale" description="Zoom the whole interface (this window only)">
-          <SelectField
-            aria-label="UI scale"
-            value={`${Math.round(ui.uiScale * 100)}%`}
-            options={UI_SCALES.map((s) => `${Math.round(s * 100)}%`)}
-            onChange={(v) => uiStore.setUiScale((parseInt(v, 10) / 100) as UiScale)}
-          />
-        </SettingRow>
-        <SettingRow
-          label="Confirm case delete"
-          description="Require typing the case slug before a case is deleted"
-          isDefault={g.confirmCaseDelete}
-          onReset={() => void settingsStore.patch({ general: { confirmCaseDelete: null } })}
-        >
-          <Switch
-            checked={g.confirmCaseDelete}
-            onChange={(v) => void settingsStore.patch({ general: { confirmCaseDelete: v } })}
-            aria-label="Confirm case delete"
-          />
-        </SettingRow>
-        <SettingRow
-          label="Similar past cases"
-          description="Search this install's own case history for matches when a case opens"
-          isDefault={!g.similarPastCasesEnabled}
-          onReset={() => void settingsStore.patch({ general: { similarPastCasesEnabled: null } })}
-        >
-          <Switch
-            checked={g.similarPastCasesEnabled}
-            onChange={(v) => void settingsStore.patch({ general: { similarPastCasesEnabled: v } })}
-            aria-label="Similar past cases"
-          />
-        </SettingRow>
+        <AppearanceRow />
+        {/* No "Confirm case delete" row (user-directed, 2026-08-21): deleting a case is
+            irreversible and now always asks. A switch that turns a destructive confirmation off
+            is a setting whose only reachable state is the dangerous one. */}
+        {/* No "Similar past cases" row either — it moved to Settings → Defect corpus and became
+            the general related-search switch (`relatedSearchOnOpen` + `relatedIncludeLocalCases`),
+            which is where the corpora it searches alongside are configured. */}
         <SettingRow
           label="Keep running in the background"
           description="Closing the window leaves Argus in the tray so scheduled routines keep firing. On macOS Argus always keeps running, so scheduled routines fire regardless of this setting."

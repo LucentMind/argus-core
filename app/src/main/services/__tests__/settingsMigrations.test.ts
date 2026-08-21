@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   migrateBypassDefault,
   migrateDefaultRepoToList,
+  migrateRelatedSearchSwitches,
   type MigratableSettings
 } from '../settingsMigrations'
 import {
@@ -152,5 +153,40 @@ describe('migrateDefaultRepoToList', () => {
     migrateDefaultRepoToList(s, NOW)
     expect(s.get().general.defaultRepos).toEqual(['C:\\repos\\a', 'C:\\repos\\b'])
     expect(s.get().general.defaultRepo).toBeNull()
+  })
+})
+
+describe('migrateRelatedSearchSwitches', () => {
+  it('carries a stored similarPastCasesEnabled across to the local-cases switch', () => {
+    const s = fakeSettings((st) => {
+      st.general.similarPastCasesEnabled = true
+    })
+    migrateRelatedSearchSwitches(s, NOW)
+    expect(s.get().general.relatedIncludeLocalCases).toBe(true)
+    // The master switch is untouched: its default (on) is what today's build already does.
+    expect(s.get().general.relatedSearchOnOpen).toBe(true)
+    expect(s.get().general.similarPastCasesEnabled).toBe(false) // key deleted, default reseeded
+    expect(s.get().migrations.relatedSearchSwitches).toBe('2026-08-01T00:00:00.000Z')
+  })
+
+  it('leaves local cases off when the legacy flag was never set', () => {
+    const s = fakeSettings()
+    migrateRelatedSearchSwitches(s, NOW)
+    expect(s.get().general.relatedIncludeLocalCases).toBe(false)
+    expect(s.get().general.relatedSearchOnOpen).toBe(true)
+    expect(s.get().migrations.relatedSearchSwitches).toBe('2026-08-01T00:00:00.000Z')
+  })
+
+  it('is a no-op on a second run, so a later opt-out is not undone', () => {
+    const s = fakeSettings((st) => {
+      st.general.similarPastCasesEnabled = true
+    })
+    migrateRelatedSearchSwitches(s, NOW)
+    const writesAfterFirst = s.writes
+    // the user turns local history back off, on purpose
+    s.patch({ general: { relatedIncludeLocalCases: false } })
+    migrateRelatedSearchSwitches(s, NOW)
+    expect(s.writes).toBe(writesAfterFirst + 1) // only the explicit patch above
+    expect(s.get().general.relatedIncludeLocalCases).toBe(false)
   })
 })

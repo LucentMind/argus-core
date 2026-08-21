@@ -320,40 +320,8 @@ describe('ConnectorsSettings', () => {
     expect(screen.getByText(/secret store unavailable/)).toBeTruthy()
   })
 
-  describe('RCA report settings (task 11)', () => {
-    it('defaults to "attach to Jira issue" and hides the space key field', async () => {
-      render(<ConnectorsSettings />)
-      const select = await screen.findByRole('combobox', { name: /technical report destination/i })
-      expect(select).toHaveTextContent('Attach markdown to the Jira issue')
-      expect(screen.queryByLabelText('Confluence space key')).toBeNull()
-    })
-
-    it('switching to Confluence patches the setting and reveals the space key field', async () => {
-      render(<ConnectorsSettings />)
-      const select = await screen.findByRole('combobox', { name: /technical report destination/i })
-      fireEvent.click(select)
-      fireEvent.click(screen.getByRole('option', { name: /publish a confluence page/i }))
-      await waitFor(() =>
-        expect(window.argus.settings.patch).toHaveBeenCalledWith({
-          rca: { techDestination: 'confluence-page' }
-        })
-      )
-      expect(await screen.findByLabelText('Confluence space key')).toBeTruthy()
-    })
-
-    it('commits the Confluence space key on blur', async () => {
-      currentSettings = settingsPayload({ rca: { techDestination: 'confluence-page' } })
-      render(<ConnectorsSettings />)
-      const input = await screen.findByLabelText('Confluence space key')
-      fireEvent.change(input, { target: { value: 'ENG' } })
-      fireEvent.blur(input)
-      await waitFor(() =>
-        expect(window.argus.settings.patch).toHaveBeenCalledWith({
-          rca: { confluenceSpaceKey: 'ENG' }
-        })
-      )
-    })
-  })
+  // The RCA report section moved to Settings -> Agent (user-directed, 2026-08-21); its
+  // three cases moved with it, to settings/__tests__/RcaReportSettings.test.tsx.
 
   describe('Comment watermark settings (task 5)', () => {
     it('toggles the Jira watermark', async () => {

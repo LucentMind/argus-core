@@ -62,9 +62,16 @@ function choose(label: string, option: string): void {
   fireEvent.click(screen.getByRole('option', { name: option }))
 }
 
+/** Theme, dynamic theme and UI scale live behind one collapsed Appearance row
+ *  (user-directed, 2026-08-21) — open it before addressing any of the three. */
+function openAppearance(): void {
+  fireEvent.click(screen.getByLabelText('Expand appearance'))
+}
+
 describe('GeneralSettings', () => {
   it('theme select writes uiStore (renderer-local), not IPC', () => {
     render(<GeneralSettings payload={payload()} />)
+    openAppearance()
     choose('Theme', 'light')
     expect(uiStore.get().theme).toBe('light')
     expect(window.argus.settings.patch).not.toHaveBeenCalled()
@@ -72,6 +79,7 @@ describe('GeneralSettings', () => {
 
   it('dynamic theme switch writes uiStore (renderer-local), not IPC', () => {
     render(<GeneralSettings payload={payload()} />)
+    openAppearance()
     const sw = screen.getByRole('switch', { name: 'Dynamic theme' })
     expect(sw.getAttribute('aria-checked')).toBe('false')
     fireEvent.click(sw)
@@ -80,29 +88,24 @@ describe('GeneralSettings', () => {
     expect(window.argus.settings.patch).not.toHaveBeenCalled()
   })
 
-  it('similar past cases switch is off by default and patches app-global settings', () => {
+  it('keeps the appearance controls collapsed until the row is expanded', () => {
     render(<GeneralSettings payload={payload()} />)
-    const sw = screen.getByRole('switch', { name: 'Similar past cases' })
-    expect(sw.getAttribute('aria-checked')).toBe('false')
-    fireEvent.click(sw)
-    expect(window.argus.settings.patch).toHaveBeenCalledWith({
-      general: { similarPastCasesEnabled: true }
-    })
+    expect(screen.queryByLabelText('Theme')).toBeNull()
+    expect(screen.queryByRole('switch', { name: 'Dynamic theme' })).toBeNull()
+    expect(screen.queryByLabelText('UI scale')).toBeNull()
+    // The collapsed row still states what it is set to.
+    expect(screen.getByText(/dark/)).toBeTruthy()
+    openAppearance()
+    expect(screen.getByLabelText('Theme')).toBeTruthy()
+    expect(screen.getByLabelText('UI scale')).toBeTruthy()
   })
 
-  it('similar past cases reset appears only when non-default', () => {
-    const { rerender } = render(<GeneralSettings payload={payload()} />)
-    expect(screen.queryByRole('button', { name: 'Reset Similar past cases' })).toBeNull()
-    rerender(
-      <GeneralSettings
-        payload={payload((p) => (p.settings.general.similarPastCasesEnabled = true))}
-      />
-    )
-    expect(screen.getByRole('button', { name: 'Reset Similar past cases' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Reset Similar past cases' }))
-    expect(window.argus.settings.patch).toHaveBeenCalledWith({
-      general: { similarPastCasesEnabled: null }
-    })
+  // Both moved off this page on 2026-08-21: case delete always confirms, and the related
+  // search switch lives on Settings -> Defect corpus.
+  it('offers neither a delete-confirmation nor a related-search switch', () => {
+    render(<GeneralSettings payload={payload()} />)
+    expect(screen.queryByRole('switch', { name: 'Confirm case delete' })).toBeNull()
+    expect(screen.queryByRole('switch', { name: 'Similar past cases' })).toBeNull()
   })
 
   it('patches the keep-alive setting from the toggle', () => {

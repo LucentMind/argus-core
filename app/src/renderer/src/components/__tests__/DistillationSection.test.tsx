@@ -71,6 +71,26 @@ beforeEach(() => {
       get: vi.fn(async () => payload()),
       patch: patchSpy,
       onChanged: vi.fn(() => () => {})
+    },
+    // The spend row (moved off the Memory page, 2026-08-21) reads this on mount. Zero jobs
+    // = no row, which is what every case in this file assumes; the row's own arithmetic is
+    // covered in settings/__tests__/DistillationSection.spend.test.tsx.
+    usage: {
+      stats: vi.fn(async () => ({
+        hygiene: { staleDays: 30, minRecalls: 1, trackingStartedAt: '2026-01-01T00:00:00Z' },
+        skills: [],
+        memory: [],
+        references: [],
+        archived: [],
+        distillation: {
+          jobCount: 0,
+          totalCostUsd: null,
+          failedCostUsd: null,
+          avgCostUsd: null,
+          avgTurnCount: null,
+          avgPromptChars: null
+        }
+      }))
     }
   } as never
 })

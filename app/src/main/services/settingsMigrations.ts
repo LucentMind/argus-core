@@ -82,3 +82,36 @@ export function migrateDefaultRepoToList(
     general: { defaultRepo: null, ...(adopt ? { defaultRepos: [legacy] } : {}) }
   })
 }
+
+/**
+ * One-time upgrade: split `general.similarPastCasesEnabled` into the two switches that replaced
+ * it (`relatedSearchOnOpen` + `relatedIncludeLocalCases`).
+ *
+ * The old flag gated ONE source — this install's own past cases — while corpus providers
+ * searched on every case open regardless. The new pair keeps that behaviour on upgrade: the
+ * master defaults on (corpora keep searching), and the old value carries across to the
+ * local-cases switch, so a user who had turned local history on keeps it and a user who never
+ * touched it sees no change at all.
+ *
+ * The legacy key is nulled unconditionally — `null` deletes it (see `deepMerge`) and `false` is
+ * its schema default, so it leaves disk rather than lingering as a second source of truth.
+ *
+ * Idempotent via the `migrations.relatedSearchSwitches` stamp, written even when there was
+ * nothing to carry across: without that, a user who later turns local history off would have it
+ * switched back on at the next launch.
+ */
+export function migrateRelatedSearchSwitches(
+  settings: MigratableSettings,
+  now: () => Date = () => new Date()
+): void {
+  const current = settings.get()
+  if (current.migrations.relatedSearchSwitches) return
+  const legacy = current.general.similarPastCasesEnabled
+  settings.patch({
+    migrations: { relatedSearchSwitches: now().toISOString() },
+    general: {
+      similarPastCasesEnabled: null,
+      ...(legacy ? { relatedIncludeLocalCases: true } : {})
+    }
+  })
+}

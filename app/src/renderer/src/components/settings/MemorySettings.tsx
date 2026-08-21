@@ -13,11 +13,7 @@ import { confirm } from '../../lib/confirmStore'
 import { topicEnabled } from '../../../../shared/agentAccess'
 import { SAMPLE_CASE_SLUG } from '../../../../shared/onboarding'
 import type { MemoryAuditEntry, MemoryTopicsPayload } from '../../../../shared/memoryIpc'
-import type {
-  UsageStatsPayload,
-  MemoryUsageRow,
-  DistillationUsageStats
-} from '../../../../shared/observability'
+import type { UsageStatsPayload, MemoryUsageRow } from '../../../../shared/observability'
 
 const TABS = [
   { id: 'topics', label: 'Topics' },
@@ -59,17 +55,6 @@ function usageLine(u: MemoryUsageRow | undefined): string {
   const recalls = u.recallCount === 0 ? 'never recalled' : `${u.recallCount} recalls`
   const last = u.lastRecalledAt ? `, last ${u.lastRecalledAt.slice(0, 10)}` : ''
   return ` · ${recalls}${last}`
-}
-
-/** avg cost/turns/prompt-size readout for the Distillation summary row — each segment omitted
- *  when its average is null (no done run ever recorded that column; SQL AVG ignores NULLs, so
- *  this never fabricates a $0.00/0-turn average from rows that simply predate usage tracking). */
-function distillationDescription(d: DistillationUsageStats): string {
-  const parts: string[] = []
-  if (d.avgCostUsd !== null) parts.push(`avg $${d.avgCostUsd.toFixed(2)}`)
-  if (d.avgTurnCount !== null) parts.push(`avg ${d.avgTurnCount.toFixed(1)} turns`)
-  if (d.avgPromptChars !== null) parts.push(`avg ${Math.round(d.avgPromptChars)} prompt chars`)
-  return parts.length > 0 ? parts.join(' · ') : 'no usage recorded on these runs'
 }
 
 /**
@@ -375,28 +360,9 @@ export function MemorySettings(): React.JSX.Element {
             })}
           </SettingsSection>
 
-          {usage && usage.distillation.jobCount > 0 && (
-            <SettingsSection title="Distillation">
-              <SettingRow
-                label={`${usage.distillation.jobCount} completed run${usage.distillation.jobCount === 1 ? '' : 's'}`}
-                description={distillationDescription(usage.distillation)}
-              >
-                {usage.distillation.totalCostUsd !== null && (
-                  <Chip tone="neutral">${usage.distillation.totalCostUsd.toFixed(2)} total</Chip>
-                )}
-                {/* Failed capHit runs ran the whole agent loop before refusing to parse — often
-                    the most expensive outcome, not a free one — so their spend gets its own chip
-                    rather than vanishing into a done-only total. */}
-                {usage.distillation.failedCostUsd !== null &&
-                  usage.distillation.failedCostUsd > 0 && (
-                    <Chip tone="danger">
-                      +${usage.distillation.failedCostUsd.toFixed(2)} on failed runs
-                    </Chip>
-                  )}
-              </SettingRow>
-            </SettingsSection>
-          )}
-
+          {/* The Distillation spend section moved to Settings → Agent → Background work
+              (user-directed, 2026-08-21), beside the provider, model and pipeline that decide
+              what a run costs. */}
           {usage && usage.archived.length > 0 && (
             <SettingsSection title="Archived topics">
               {usage.archived.map((a) => (

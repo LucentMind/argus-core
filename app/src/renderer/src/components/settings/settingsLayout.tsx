@@ -72,7 +72,13 @@ export function SettingsSection({
    * render, which is loud rather than subtle if anyone tries it.
    */
   title?: string
-  /** Supporting copy under the header — states what the section's rows have in common. */
+  /** Supporting copy ON the header line, after the title — states what the section's rows have
+   *  in common. It used to sit on its own line under the header, which cost every section a
+   *  third line of chrome before its first row and pushed the Library's three group cards a
+   *  screenful apart (user-directed, 2026-08-21). Truncates with an ellipsis rather than
+   *  wrapping: the title and count must keep their natural width, and the subtitle is the half
+   *  of the line that can afford to be cut. Kept on its own line only when there is no title to
+   *  sit beside. */
   subtitle?: string
   /** Controls rendered on the section header line, right-aligned (e.g. a refresh button). */
   action?: ReactNode
@@ -98,35 +104,42 @@ export function SettingsSection({
     <section className="flex flex-col gap-2">
       {/* Row skipped entirely when there is nothing to put in it — rendering an empty one would
           leave the section's `gap-2` above the card as a stray blank line. */}
-      {(heading || action) && (
-        <div className="flex items-center justify-between gap-2">
-          {/* `&& heading`, not `onToggle` alone: the toggle's accessible name is built from the
-            title, so without one this would render a button named "Toggle section · undefined".
-            Untitled sections are not collapsible — falling through to the (empty) heading is the
-            honest outcome. */}
-          {onToggle && heading ? (
-            <button
-              type="button"
-              aria-label={`Toggle section · ${title}`}
-              aria-expanded={!collapsed}
-              onClick={onToggle}
-              className="flex items-center gap-1.5 text-left"
-            >
-              <ChevronDown
-                size={12}
-                strokeWidth={1.5}
-                className={`text-mute transition-transform ${collapsed ? '-rotate-90' : ''}`}
-                aria-hidden="true"
-              />
-              {heading}
-            </button>
-          ) : (
-            heading
-          )}
+      {(heading || action || subtitle) && (
+        <div className="flex items-center justify-between gap-3">
+          {/* `min-w-0` on the left group, and only the subtitle inside it may shrink: without
+              it the flex item's automatic min-width is its content, so a long subtitle pushes
+              the action button off the row instead of truncating. */}
+          <div className="flex min-w-0 items-baseline gap-3">
+            {/* `&& heading`, not `onToggle` alone: the toggle's accessible name is built from the
+              title, so without one this would render a button named "Toggle section · undefined".
+              Untitled sections are not collapsible — falling through to the (empty) heading is the
+              honest outcome. */}
+            {onToggle && heading ? (
+              <button
+                type="button"
+                aria-label={`Toggle section · ${title}`}
+                aria-expanded={!collapsed}
+                onClick={onToggle}
+                className="flex shrink-0 items-center gap-1.5 text-left"
+              >
+                <ChevronDown
+                  size={12}
+                  strokeWidth={1.5}
+                  className={`text-mute transition-transform ${collapsed ? '-rotate-90' : ''}`}
+                  aria-hidden="true"
+                />
+                {heading}
+              </button>
+            ) : (
+              heading && <div className="shrink-0">{heading}</div>
+            )}
+            {/* Outside the toggle button on purpose: the subtitle is prose a user may want to
+                select, and a click on it should not collapse the section. */}
+            {subtitle && <p className="truncate text-xs text-mute">{subtitle}</p>}
+          </div>
           {action}
         </div>
       )}
-      {subtitle && <p className="text-xs text-mute">{subtitle}</p>}
       {!collapsed && (
         <Card className={`flex flex-col divide-y divide-hair ${dynamic ? 'glass-panel' : ''}`}>
           {children}

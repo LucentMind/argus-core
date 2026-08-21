@@ -15,6 +15,7 @@ import {
 } from './settingsLayout'
 import { AnnotatedForm } from './AnnotatedForm'
 import { DistillationSection } from './DistillationSection'
+import { RcaReportSettings } from './RcaReportSettings'
 import { ProviderModels } from './ProviderModels'
 import { ProviderRow } from './ProviderRow'
 import { AddProviderMenu, LastChecked } from './providerHeader'
@@ -289,9 +290,7 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
         })}
       </SettingsSection>
 
-      <DistillationSection payload={payload} />
-
-      <SettingsSection title="Session defaults">
+      <SettingsSection title="Session defaults" subtitle="What a new chat session starts with.">
         <SettingRow
           label="Show tool calls"
           description="Default visibility of tool-call cards (stored locally)"
@@ -330,45 +329,65 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
             onChange={(label) => patchAgent({ defaultPermissionMode: MODE_BY_LABEL[label] })}
           />
         </SettingRow>
-        <SettingRow
-          label="Max concurrent sessions"
-          description="Least-recently-used idle session is reaped at the cap"
-          isDefault={a.maxSessions === 3}
-          onReset={() => patchAgent({ maxSessions: null })}
-        >
-          <input
-            type="number"
-            min={1}
-            max={16}
-            aria-label="Max concurrent sessions"
-            className={`${FIELD} w-20`}
-            value={a.maxSessions}
-            onChange={(e) => {
-              const n = Number(e.target.value)
-              if (Number.isInteger(n) && n >= 1 && n <= 16) patchAgent({ maxSessions: n })
-            }}
-          />
-        </SettingRow>
-        <SettingRow
-          label="Probe timeout (ms)"
-          isDefault={a.probeTimeoutMs === 10000}
-          onReset={() => patchAgent({ probeTimeoutMs: null })}
-        >
-          <input
-            type="number"
-            min={1000}
-            max={120000}
-            step={500}
-            aria-label="Probe timeout (ms)"
-            className={`${FIELD} w-24`}
-            value={a.probeTimeoutMs}
-            onChange={(e) => {
-              const n = Number(e.target.value)
-              if (Number.isInteger(n) && n >= 1000 && n <= 120000) patchAgent({ probeTimeoutMs: n })
-            }}
-          />
-        </SettingRow>
+        {/* Dev-only (user-directed, 2026-08-21). Both are machine tuning, not preferences: the
+            session cap trades memory for how many chats stay warm, and the probe timeout only
+            matters while diagnosing a slow provider binary. Neither has a reason to be the
+            first thing a user reads under Session defaults. Same `devOnly` gate as the Prompts
+            page (settingsPages.ts) — hidden entirely rather than disabled, so a shipped build
+            never advertises them. */}
+        {payload.devTools && (
+          <SettingRow
+            label="Max concurrent sessions"
+            description="Least-recently-used idle session is reaped at the cap"
+            badge={<Chip tone="neutral">dev</Chip>}
+            isDefault={a.maxSessions === 3}
+            onReset={() => patchAgent({ maxSessions: null })}
+          >
+            <input
+              type="number"
+              min={1}
+              max={16}
+              aria-label="Max concurrent sessions"
+              className={`${FIELD} w-20`}
+              value={a.maxSessions}
+              onChange={(e) => {
+                const n = Number(e.target.value)
+                if (Number.isInteger(n) && n >= 1 && n <= 16) patchAgent({ maxSessions: n })
+              }}
+            />
+          </SettingRow>
+        )}
+        {payload.devTools && (
+          <SettingRow
+            label="Probe timeout (ms)"
+            badge={<Chip tone="neutral">dev</Chip>}
+            isDefault={a.probeTimeoutMs === 10000}
+            onReset={() => patchAgent({ probeTimeoutMs: null })}
+          >
+            <input
+              type="number"
+              min={1000}
+              max={120000}
+              step={500}
+              aria-label="Probe timeout (ms)"
+              className={`${FIELD} w-24`}
+              value={a.probeTimeoutMs}
+              onChange={(e) => {
+                const n = Number(e.target.value)
+                if (Number.isInteger(n) && n >= 1000 && n <= 120000)
+                  patchAgent({ probeTimeoutMs: n })
+              }}
+            />
+          </SettingRow>
+        )}
       </SettingsSection>
+
+      <DistillationSection payload={payload} />
+
+      {/* Moved off Connectors (user-directed, 2026-08-21): only the destination row is about a
+          connector — the template is a standing instruction to the model, the same kind of
+          setting as the persona append and the distillation guidance above it. */}
+      <RcaReportSettings payload={payload} />
     </>
   )
 }

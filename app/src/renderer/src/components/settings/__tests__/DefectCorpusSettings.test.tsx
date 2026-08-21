@@ -345,6 +345,38 @@ describe('DefectCorpusSettings', () => {
   })
 })
 
+describe('DefectCorpusSettings related-history switches', () => {
+  // Moved off the General page on 2026-08-21 and split in two: a master that gates the whole
+  // case-open search, and the old local-cases-only flag under it.
+  beforeEach(() => mockArgus())
+
+  it('defaults to searching on case open, with local cases off', () => {
+    render(<DefectCorpusSettings payload={payloadWith({})} />)
+    expect(
+      screen.getByRole('switch', { name: 'Search related cases on case open' })
+    ).toHaveAttribute('aria-checked', 'true')
+    expect(
+      screen.getByRole('switch', { name: "Include this install's own cases" })
+    ).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('patches the master switch', () => {
+    render(<DefectCorpusSettings payload={payloadWith({})} />)
+    fireEvent.click(screen.getByRole('switch', { name: 'Search related cases on case open' }))
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      general: { relatedSearchOnOpen: false }
+    })
+  })
+
+  it('patches the local-cases switch independently of the master', () => {
+    render(<DefectCorpusSettings payload={payloadWith({})} />)
+    fireEvent.click(screen.getByRole('switch', { name: "Include this install's own cases" }))
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      general: { relatedIncludeLocalCases: true }
+    })
+  })
+})
+
 describe('DefectCorpusSettings ingestion editor', () => {
   it('does not render the ingestion expander when the last Test lacked admin capability', async () => {
     window.argus.defects.test = vi.fn().mockResolvedValue({
