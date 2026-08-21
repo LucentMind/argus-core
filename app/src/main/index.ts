@@ -1492,7 +1492,14 @@ function registerIpc(): void {
   // the manual pack/hive update handlers registered above it must share its apply lock. Same
   // forward-ref shape as `agentService`/`diagnostics` elsewhere in this file.
   let currency: CurrencyService | null = null
-  /** Run a manual update behind the auto-updater's lock, so the two can never interleave. */
+  /**
+   * Run a manual PACK or HIVE update behind the auto-updater's lock, so an auto-apply and a
+   * manual one can never interleave and race on the same install paths.
+   *
+   * Deliberately NOT wrapped around the manual CORE path (`registerUpdateIpc`, below): a core
+   * download/install writes only into electron-updater's own cache, never a path `applyPending`
+   * touches, so it has nothing to race with and no reason to wait on this lock.
+   */
   const withUpdateLock = <T>(fn: () => Promise<T>): Promise<T> =>
     currency ? currency.withApplyLock(fn) : fn()
   ipcMain.handle(IPC.packsApplyUpdate, async (_e, id: string): Promise<ApplyUpdateOutcome> =>
@@ -3131,6 +3138,13 @@ function registerIpc(): void {
   )
 
   // — keep everything up to date (spec 2026-08-20) —
+  // Hoisted into a named const, rather than inlined at each of its two call sites below, so the
+  // service and `registerCurrencyIpc` share the SAME instance: two separate `CurrencyAnchorStore`
+  // objects over the same file would mean the first-run notice's flag is written to one and read
+  // from the other, and the notice would never actually stop reappearing.
+  const anchorsStore = new CurrencyAnchorStore(
+    new JsonFileStore(path.join(configDir(argusHome), 'currency.json'))
+  )
   currency = new CurrencyService({
     adapters: [
       createCoreAdapter({ service: coreUpdater }),
@@ -3139,7 +3153,8 @@ function registerIpc(): void {
         // Deliberately NOT `listInstalledPacks`: that is async purely because it awaits
         // `binaries.probe()` for the Packs page's binary chips, which this adapter does not
         // need — and `installed()` is a synchronous dep. This reproduces its id-union over the
-        // two sync sources and nothing else.
+        // two sync sources, minus that function's `.sort()` — harmless here, since `survey()`
+        // folds the result into a `Map` and order never survives that.
         installed: () => {
           const versions = packsState.list()
           const loaded = new Map(packRegistry.packs().map((p) => [p.id, p]))
@@ -3186,9 +3201,7 @@ function registerIpc(): void {
         withLock: withUpdateLock
       })
     ],
-    anchors: new CurrencyAnchorStore(
-      new JsonFileStore(path.join(configDir(argusHome), 'currency.json'))
-    ),
+    anchors: anchorsStore,
     // Read live, never captured: the user can flip the switch at any moment.
     autoEnabled: () => settingsService.get().updates.auto,
     // Gates DISK WRITES only, and only for packs/hive: `CurrencyService.applyPending` drains core
@@ -3200,13 +3213,22 @@ function registerIpc(): void {
     isQuiet: () =>
       (agentService?.states() ?? []).every((s) => !s.activeTurn) &&
       !routinesService.isRunning() &&
-      ingestQueue.isIdle()
+      ingestQueue.isIdle(),
+    // Broadcast only; the flag is set by the RENDERER once it has actually shown the notice.
+    // `noticeStore` renders only inside the case header, so a notice pushed with no case open is
+    // silently dropped — setting the flag here would consume the one chance to show it. Skipping
+    // the broadcast once the flag is already set means a launch with no case open, followed by
+    // one that does, does not surface a second, stale copy of a notice already acknowledged.
+    onAdopted: (count) => {
+      if (!anchorsStore.firstMirrorNoticeShown()) broadcast(IPC.currencyAdopted, count)
+    }
   })
   registerCurrencyIpc({
     handle: (channel, fn) =>
       ipcMain.handle(channel, (_e, ...args) => (fn as (...a: unknown[]) => unknown)(...args)),
     broadcast,
-    service: currency
+    service: currency,
+    anchors: anchorsStore
   })
   // 45s: late enough to keep boot cheap and to avoid racing the core boot check.
   setTimeout(() => currency?.start(), 45_000).unref()

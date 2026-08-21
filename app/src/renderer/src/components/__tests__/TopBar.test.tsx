@@ -9,6 +9,7 @@ import { caseBarStore } from '../../lib/caseBarStore'
 import { viewTitleStore } from '../../lib/viewTitleStore'
 import { proposalsStore } from '../../lib/proposalsStore'
 import { currencyStore } from '../../lib/currencyStore'
+import { noticeStore } from '../../lib/noticeStore'
 import { AmbientAnchorContext } from '../../lib/ambientAnchors'
 import type { CaseRecord } from '../../../../shared/types'
 import type { DistillJobRow } from '../../../../shared/distill'
@@ -37,6 +38,8 @@ beforeEach(() => {
   // currencyStore is a module singleton (Task 2); localStorage.clear() above does not touch it,
   // so a leftover `blocked` list from one test would bleed the Settings badge into the next.
   currencyStore.reset()
+  // Same reason: HeaderNotice reads this module singleton directly, not through a prop.
+  noticeStore.reset()
   uiStore.setDynamicTheme(false)
   window.argus = {
     modes: { available: vi.fn(async () => ['investigation', 'review']) },
@@ -47,7 +50,9 @@ beforeEach(() => {
     },
     currency: {
       get: vi.fn(async () => ({ auto: true, lastSurveyAt: null, blocked: [], busy: false })),
-      onChanged: vi.fn(() => () => {})
+      onChanged: vi.fn(() => () => {}),
+      onAdopted: vi.fn(() => () => {}),
+      ackAdopted: vi.fn(async () => {})
     },
     cases: {
       setStatus: vi.fn(async () => undefined),
@@ -982,5 +987,102 @@ describe('TopBar', () => {
       />
     )
     expect(await screen.findByLabelText('Settings')).toBeInTheDocument()
+  })
+
+  // Task 7: the first-run notice. `HeaderNotice` (mounted here, inside the case group) is its
+  // only host — a notice pushed with no case open is silently dropped — so this is where the
+  // listener that turns `currency:adopted` into a notice, and then acknowledges it, has to live.
+  describe('first-run mirror notice', () => {
+    it('shows the notice and acknowledges it only AFTER it is on screen', async () => {
+      uiStore.openTab('NAV-1')
+      let fire: ((n: number) => void) | null = null
+      window.argus.currency.onAdopted = vi.fn((cb: (n: number) => void) => {
+        fire = cb
+        return () => {}
+      })
+      // Order captured through a synchronous side channel, not by asserting inside `ack` itself:
+      // `ack` is invoked with `void`, so a `toEqual`/`expect` thrown from inside its body would
+      // become an unhandled promise rejection instead of failing this test — that shape was
+      // caught live (see task-7-report.md) when a deliberately wrong call order still passed.
+      const order: string[] = []
+      const originalPush = noticeStore.push.bind(noticeStore)
+      const pushSpy = vi.spyOn(noticeStore, 'push').mockImplementation((message, tone) => {
+        order.push('push')
+        return originalPush(message, tone)
+      })
+      const ack = vi.fn(() => {
+        order.push('ack')
+        return Promise.resolve()
+      })
+      window.argus.currency.ackAdopted = ack
+
+      render(
+        <TopBar
+          activeSlug="NAV-1"
+          activeCase={CASE}
+          onHome={vi.fn()}
+          onSelect={vi.fn()}
+          onSettings={vi.fn()}
+          onStatusChanged={vi.fn()}
+        />
+      )
+      await vi.waitFor(() => expect(fire).toBeTruthy())
+      act(() => fire!(3))
+
+      expect(
+        await screen.findByText(
+          "Argus now keeps itself up to date — it installed 3 HiveMind items from your team's repo. You can turn this off in Settings → Updates."
+        )
+      ).toBeInTheDocument()
+      expect(ack).toHaveBeenCalledTimes(1)
+      // The actual order proof: the notice was queued (`push`) strictly before main was told it
+      // could set the "already shown" flag (`ack`).
+      expect(order).toEqual(['push', 'ack'])
+      pushSpy.mockRestore()
+    })
+
+    it('keeps "item" singular when exactly one was adopted', async () => {
+      uiStore.openTab('NAV-1')
+      let fire: ((n: number) => void) | null = null
+      window.argus.currency.onAdopted = vi.fn((cb: (n: number) => void) => {
+        fire = cb
+        return () => {}
+      })
+      render(
+        <TopBar
+          activeSlug="NAV-1"
+          activeCase={CASE}
+          onHome={vi.fn()}
+          onSelect={vi.fn()}
+          onSettings={vi.fn()}
+          onStatusChanged={vi.fn()}
+        />
+      )
+      await vi.waitFor(() => expect(fire).toBeTruthy())
+      act(() => fire!(1))
+      expect(
+        await screen.findByText(
+          "Argus now keeps itself up to date — it installed 1 HiveMind item from your team's repo. You can turn this off in Settings → Updates."
+        )
+      ).toBeInTheDocument()
+    })
+
+    it('unsubscribes the listener on unmount', () => {
+      const off = vi.fn()
+      window.argus.currency.onAdopted = vi.fn(() => off)
+      const { unmount } = render(
+        <TopBar
+          activeSlug="NAV-1"
+          activeCase={CASE}
+          onHome={vi.fn()}
+          onSelect={vi.fn()}
+          onSettings={vi.fn()}
+          onStatusChanged={vi.fn()}
+        />
+      )
+      expect(off).not.toHaveBeenCalled()
+      unmount()
+      expect(off).toHaveBeenCalledTimes(1)
+    })
   })
 })

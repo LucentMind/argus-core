@@ -19,6 +19,9 @@ export type AnchorFile = Partial<Record<AdapterId, CurrencyAnchor>> & {
    * ago" status line can be honest: during an offline week it must not read as freshly checked.
    */
   lastSuccessAt?: number
+  /** Whether the first-run mirror notice has been shown. Lives here because `currency.json` is
+   *  already this service's own state file; it is NOT a per-item decision. */
+  firstMirrorNoticeShown?: boolean
 }
 
 /** Structural, not the JsonFileStore class — the tests need no file on disk. */
@@ -85,7 +88,14 @@ export class CurrencyAnchorStore {
     })
   }
 
-  /** Epoch ms at which this adapter may be surveyed again. 0 ⇒ due now. */
+  /**
+   * Epoch ms at which this adapter may be surveyed again. 0 ⇒ due now.
+   *
+   * The exponent is `consecutiveFailures - 1`, floored at 0, NOT `consecutiveFailures`: the gap
+   * after the first failure is one plain interval (6 h), and only the second failure starts
+   * doubling. That is what makes the ladder 6 → 12 → 24 rather than 12 → 24 → 24 — one flaky
+   * check must not immediately double the gap.
+   */
   dueAt(id: AdapterId, intervalMs: number): number {
     const { lastSurveyAt, consecutiveFailures } = this.get(id)
     if (lastSurveyAt === null) return 0
@@ -102,5 +112,16 @@ export class CurrencyAnchorStore {
   lastSurveyAt(): number | null {
     const v = this.file().lastSuccessAt
     return typeof v === 'number' ? v : null
+  }
+
+  /** Whether the first-run mirror notice has already been shown. */
+  firstMirrorNoticeShown(): boolean {
+    return this.file().firstMirrorNoticeShown === true
+  }
+
+  /** Called by the renderer once it has actually shown the notice — see `CurrencyService`'s
+   *  `onAdopted` for why this is never set from the broadcasting side. */
+  markFirstMirrorNoticeShown(): void {
+    this.store.write({ ...this.file(), firstMirrorNoticeShown: true })
   }
 }

@@ -17,6 +17,11 @@ export interface CurrencyServiceDeps {
   now?: () => number
   tickMs?: number
   intervalMs?: number
+  /** Called once per apply batch with the number of BRAND-NEW adoptions (`from === null`) that
+   *  actually landed. Not called when the count is zero, and never for an update to something
+   *  already installed — the first-run notice is about the mirror adopting things you never
+   *  asked for, which is the surprising part. */
+  onAdopted?: (count: number) => void
 }
 
 /**
@@ -192,22 +197,34 @@ export class CurrencyService {
   private async applyPending(): Promise<void> {
     if (this.pending.length === 0) return
     await this.withApplyLock(async () => {
+      let adopted = 0
       for (;;) {
         const idx = this.pending.findIndex((c) => c.domain === 'core')
         if (idx === -1) break
         const [candidate] = this.pending.splice(idx, 1)
-        await this.applyOne(candidate)
+        if (await this.applyOne(candidate)) adopted++
       }
       while (this.pending.length > 0 && this.deps.isQuiet()) {
         const candidate = this.pending.shift() as Candidate
-        await this.applyOne(candidate)
+        if (await this.applyOne(candidate)) adopted++
       }
+      // Fired once per batch, still inside the lock — `onAdopted` is a plain synchronous
+      // notification, not a write the lock needs to order against anything else, but reporting
+      // it here keeps "the batch, including its count" one atomic unit from the caller's view,
+      // and costs nothing since the lock is about to release either way. Never fired at zero:
+      // the first-run notice is about SURPRISE, and a batch with no brand-new adoption is not.
+      if (adopted > 0) this.deps.onAdopted?.(adopted)
     })
   }
 
-  private async applyOne(candidate: Candidate): Promise<void> {
+  /**
+   * Applies one candidate. Returns true iff it was a BRAND-NEW adoption (`from === null`) that
+   * actually landed — the only shape `applyPending`'s `onAdopted` count includes. An update to
+   * something already installed, or an apply that refused or threw, returns false.
+   */
+  private async applyOne(candidate: Candidate): Promise<boolean> {
     const adapter = this.deps.adapters.find((a) => a.id === this.ownerOf(candidate))
-    if (!adapter) return
+    if (!adapter) return false
     this.busy = true
     this.publish()
     try {
@@ -216,6 +233,7 @@ export class CurrencyService {
         // A write that actually succeeded ends any run of apply-time auth flakiness for this
         // adapter — the next refusal, if any, is a fresh first strike.
         this.applyAuthStrikes.delete(adapter.id)
+        return candidate.from === null
       } else if (outcome.reason) {
         // A refusal at apply time is the adapter re-deriving and finding the world moved — it
         // becomes a decision for the user, not a write to retry next tick. An `auth` refusal is
@@ -229,9 +247,11 @@ export class CurrencyService {
             { ...candidate, verdict: 'blocked', reason: outcome.reason }
           ]
       }
+      return false
     } catch {
       // A write that threw is a transport/disk failure, not a decision: stay silent and let the
       // next survey re-offer it.
+      return false
     } finally {
       this.busy = false
       this.publish()

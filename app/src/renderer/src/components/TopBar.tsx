@@ -6,6 +6,7 @@ import { caseBarStore } from '../lib/caseBarStore'
 import { useViewTitle } from '../lib/viewTitleStore'
 import { useProposalCounts } from '../lib/proposalsStore'
 import { currencyStore, needsYouLabel } from '../lib/currencyStore'
+import { noticeStore } from '../lib/noticeStore'
 import { isDarwin } from '../lib/platform'
 import { WindowControls } from './WindowControls'
 import { CaseAnchor } from './CaseAnchor'
@@ -72,6 +73,27 @@ export function TopBar({
   )
   useEffect(() => currencyStore.start(), [])
   const held = currencyStore.surfacedCount()
+  // The first-run mirror notice (Task 7). This bar is where it has to be listened for: its only
+  // host, HeaderNotice, is mounted a few lines below, inside the case group — so a broadcast that
+  // arrives with no case open reaches no listener at all. That silence is deliberate: main only
+  // sets `firstMirrorNoticeShown` once THIS handler runs `ackAdopted()`, so the next launch that
+  // does have a case open shows the notice instead of it being lost forever.
+  useEffect(
+    () =>
+      window.argus.currency.onAdopted((count) => {
+        noticeStore.push(
+          `Argus now keeps itself up to date — it installed ${count} HiveMind item${
+            count === 1 ? '' : 's'
+          } from your team's repo. You can turn this off in Settings → Updates.`,
+          'info'
+        )
+        // Acknowledged only now, after the notice is actually queued (and, since HeaderNotice
+        // renders unconditionally off the same store, on screen the moment this component next
+        // paints) — never before, and never if this effect never ran at all.
+        void window.argus.currency.ackAdopted()
+      }),
+    []
+  )
   // Non-null exactly while one of the full-page views (Settings, Proposals, Related history) is
   // up — each publishes its own title here because this bar is its SIBLING, not its ancestor.
   // Doubles as the "am I on such a view" flag the anchor below keys off, so there is one source

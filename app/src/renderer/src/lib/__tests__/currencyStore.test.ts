@@ -29,7 +29,9 @@ function stubBridge(payload: CurrencyPayload): { emit: (p: CurrencyPayload) => v
         return () => {
           listeners.delete(fn)
         }
-      }
+      },
+      onAdopted: vi.fn(() => () => {}),
+      ackAdopted: vi.fn(async () => {})
     }
   }
   return {
