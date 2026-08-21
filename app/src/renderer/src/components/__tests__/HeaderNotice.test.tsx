@@ -68,6 +68,10 @@ describe('HeaderNotice', () => {
     render(<HeaderNotice />)
     notice('short')
     const btn = await screen.findByRole('button', { name: 'Dismiss: short' })
+    // Pinned to the actual replacement class, not merely the absence of the old one: asserting
+    // only `not.toContain('max-w-80')` would pass for `max-w-8` too — four times NARROWER than the
+    // cap this test exists to prove was widened (whole-branch review, minor finding).
+    expect(btn.className).toContain('max-w-[32rem]')
     expect(btn.className).not.toContain('max-w-80')
   })
 })
