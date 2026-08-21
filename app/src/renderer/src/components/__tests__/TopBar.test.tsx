@@ -8,9 +8,11 @@ import { uiStore } from '../../lib/uiStore'
 import { caseBarStore } from '../../lib/caseBarStore'
 import { viewTitleStore } from '../../lib/viewTitleStore'
 import { proposalsStore } from '../../lib/proposalsStore'
+import { currencyStore } from '../../lib/currencyStore'
 import { AmbientAnchorContext } from '../../lib/ambientAnchors'
 import type { CaseRecord } from '../../../../shared/types'
 import type { DistillJobRow } from '../../../../shared/distill'
+import type { CurrencyPayload } from '../../../../shared/currency'
 
 const CASE = {
   id: 1,
@@ -32,12 +34,19 @@ beforeEach(() => {
   caseBarStore.reset()
   viewTitleStore.reset()
   proposalsStore.reset()
+  // currencyStore is a module singleton (Task 2); localStorage.clear() above does not touch it,
+  // so a leftover `blocked` list from one test would bleed the Settings badge into the next.
+  currencyStore.reset()
   uiStore.setDynamicTheme(false)
   window.argus = {
     modes: { available: vi.fn(async () => ['investigation', 'review']) },
     distill: { status: vi.fn(async () => null), onChanged: vi.fn(() => () => {}) },
     proposals: {
       list: vi.fn(async () => ({ proposals: [] })),
+      onChanged: vi.fn(() => () => {})
+    },
+    currency: {
+      get: vi.fn(async () => ({ auto: true, lastSurveyAt: null, blocked: [], busy: false })),
       onChanged: vi.fn(() => () => {})
     },
     cases: {
@@ -876,5 +885,102 @@ describe('TopBar', () => {
     // has since claimed the slot
     expect(setCutoff).not.toHaveBeenCalled()
     expect(setLight).not.toHaveBeenCalled()
+  })
+
+  // Task 6: the Settings button is the global backstop for held-back items — the reader who
+  // needs to know is not necessarily on the Settings page when a survey holds something back, so
+  // the count has to reach them here. Mirrors the Proposals pill's badge idiom (above).
+  it('badges the Settings button with the held-back count', async () => {
+    const currency: CurrencyPayload = {
+      auto: true,
+      lastSurveyAt: new Date().toISOString(),
+      blocked: [
+        {
+          domain: 'hive-skill',
+          key: 'skill/a',
+          label: 'a',
+          from: 'x',
+          to: 'y',
+          verdict: 'blocked',
+          reason: { kind: 'local-edits' }
+        }
+      ],
+      busy: false
+    }
+    window.argus.currency.get = vi.fn(async () => currency)
+    render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    expect(await screen.findByLabelText('Settings — 1 update needs you')).toBeInTheDocument()
+  })
+
+  // Regression pin: the noun-only ternary (`update${n === 1 ? '' : 's'} needs you`) shipped
+  // wrong on the Packs page and was fixed twice on this branch — a single-item test cannot catch
+  // it, since "1 update needs you" reads fine either way. Two items is what exposes a verb that
+  // was never pluralized.
+  it('agrees the verb with the noun in the Settings badge at n=2', async () => {
+    const currency: CurrencyPayload = {
+      auto: true,
+      lastSurveyAt: new Date().toISOString(),
+      blocked: [
+        {
+          domain: 'hive-skill',
+          key: 'skill/a',
+          label: 'a',
+          from: 'x',
+          to: 'y',
+          verdict: 'blocked',
+          reason: { kind: 'local-edits' }
+        },
+        {
+          domain: 'pack',
+          key: 'cg',
+          label: 'CG',
+          from: '1',
+          to: '2',
+          verdict: 'blocked',
+          reason: { kind: 'new-dependency' }
+        }
+      ],
+      busy: false
+    }
+    window.argus.currency.get = vi.fn(async () => currency)
+    render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    expect(await screen.findByLabelText('Settings — 2 updates need you')).toBeInTheDocument()
+  })
+
+  // Negative counterpart: with nothing held back the button must go back to its plain,
+  // unbadged name — a stale "needs you" would be a lie. Falsifiable because the button's
+  // accessible name is `undefined`-free ('Settings' or 'Settings — N ...'): if the badge code
+  // wrongly fired at n === 0, this would look for `Settings — 0 updates need you` instead and
+  // fail to find a plain 'Settings' label.
+  it('leaves the Settings button unbadged when nothing is held back', async () => {
+    render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    expect(await screen.findByLabelText('Settings')).toBeInTheDocument()
   })
 })

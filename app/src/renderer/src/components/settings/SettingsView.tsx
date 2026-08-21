@@ -4,6 +4,7 @@ import { useSettingsPayload } from '../../lib/settingsStore'
 import { useEscapeLayer } from '../../lib/escapeLayer'
 import { viewTitleStore } from '../../lib/viewTitleStore'
 import { uiStore } from '../../lib/uiStore'
+import { currencyStore, needsYouLabel, type SettingsPageId } from '../../lib/currencyStore'
 import type { ProposalType } from '../../../../shared/proposals'
 import { GeneralSettings } from './GeneralSettings'
 import { AgentSettings } from './AgentSettings'
@@ -91,6 +92,16 @@ export function SettingsView({
   // pages[0] rather than land on undefined (resolveDeepLink already keeps `page` inside
   // `pages`, but this stays defensive against the two agreeing on the filtered set).
   const active = pages.find((p) => p.id === page) ?? pages[0]
+  // Subscribed so the nav dots below re-render on every `currency:changed` broadcast;
+  // `blockedByPage()` allocates a fresh object on every call, so it is computed here in the
+  // render body rather than handed to `useSyncExternalStore` as a getSnapshot (see
+  // currencyStore.ts).
+  useSyncExternalStore(
+    (cb) => currencyStore.subscribe(cb),
+    () => currencyStore.get()
+  )
+  useEffect(() => currencyStore.start(), [])
+  const byPage = currencyStore.blockedByPage()
 
   // The header renders this now (spec §5.1). Two effects, not one: a single effect with a
   // cleanup would publish `null` on every page change before publishing the new page, blinking
@@ -134,44 +145,57 @@ export function SettingsView({
       >
         {/* `pages`, not PAGES — the group-header lookup must read the same filtered array, or
               hiding the last page in a group leaves its heading behind with nothing under it. */}
-        {pages.map((p, i) => (
-          <Fragment key={p.id}>
-            {(i === 0 || pages[i - 1].group !== p.group) && (
-              // text-mute, not text-faint (user-directed, 2026-08-02): --faint is white @18% in
-              // dark and navy @30% in light, and at 9px these headings were unreadable in BOTH —
-              // washed out against the rail in light, nearly gone in dark. --mute (38%/50%) is the
-              // next rung and fixes both directions at once; it is still a rung below the
-              // --dim/--ink the nav items themselves use, so the heading↔item hierarchy holds.
-              <div
-                className={`px-2.5 pb-1 font-mono text-[9px] uppercase tracking-wide text-mute ${
-                  i === 0 ? 'pt-1' : 'pt-3'
-                }`}
-              >
-                {p.group}
-              </div>
-            )}
-            <button
-              data-onboarding-anchor={ANCHOR[p.id]}
-              disabled={!p.enabled}
-              className={`flex items-center gap-2 rounded-r2 px-2.5 py-1.5 text-left text-xs transition-colors disabled:cursor-default ${
-                page === p.id
-                  ? 'bg-hi text-ink'
-                  : p.enabled
-                    ? 'text-dim hover:bg-hair hover:text-ink'
-                    : 'text-faint'
-              }`}
-              onClick={() => goTo(p.id)}
-            >
-              <p.Icon size={15} strokeWidth={1.5} className="shrink-0" />
-              <span className="flex-1">{p.label}</span>
-              {!p.enabled && (
-                <span className="font-mono text-[9px] uppercase tracking-wide text-faint">
-                  soon
-                </span>
+        {pages.map((p, i) => {
+          // Ten of these ids (`agent`, `library`, `memory`, …) are pages this store does not
+          // own, so the lookup correctly misses and `?? []` is load-bearing, not defensive.
+          const heldCount = (byPage[p.id as SettingsPageId] ?? []).length
+          return (
+            <Fragment key={p.id}>
+              {(i === 0 || pages[i - 1].group !== p.group) && (
+                // text-mute, not text-faint (user-directed, 2026-08-02): --faint is white @18% in
+                // dark and navy @30% in light, and at 9px these headings were unreadable in BOTH —
+                // washed out against the rail in light, nearly gone in dark. --mute (38%/50%) is
+                // the next rung and fixes both directions at once; it is still a rung below the
+                // --dim/--ink the nav items themselves use, so the heading↔item hierarchy holds.
+                <div
+                  className={`px-2.5 pb-1 font-mono text-[9px] uppercase tracking-wide text-mute ${
+                    i === 0 ? 'pt-1' : 'pt-3'
+                  }`}
+                >
+                  {p.group}
+                </div>
               )}
-            </button>
-          </Fragment>
-        ))}
+              <button
+                data-onboarding-anchor={ANCHOR[p.id]}
+                disabled={!p.enabled}
+                // The dot below is decorative (`aria-hidden`), so the count rides the button's
+                // accessible name instead — `undefined` here falls back to the button's own text
+                // content (icon + label), which is what keeps the name plain `General` etc. when
+                // nothing is held back rather than leaving a stale "needs you" behind.
+                aria-label={heldCount > 0 ? needsYouLabel(p.label, heldCount) : undefined}
+                className={`flex items-center gap-2 rounded-r2 px-2.5 py-1.5 text-left text-xs transition-colors disabled:cursor-default ${
+                  page === p.id
+                    ? 'bg-hi text-ink'
+                    : p.enabled
+                      ? 'text-dim hover:bg-hair hover:text-ink'
+                      : 'text-faint'
+                }`}
+                onClick={() => goTo(p.id)}
+              >
+                <p.Icon size={15} strokeWidth={1.5} className="shrink-0" />
+                <span className="flex-1">{p.label}</span>
+                {heldCount > 0 && (
+                  <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-review" />
+                )}
+                {!p.enabled && (
+                  <span className="font-mono text-[9px] uppercase tracking-wide text-faint">
+                    soon
+                  </span>
+                )}
+              </button>
+            </Fragment>
+          )
+        })}
       </nav>
       {/* scrollbar-gutter: content that grows past the fold (opening a memory editor, expanding
             a provider) must not shove every control left by the scrollbar's width. Reserving the

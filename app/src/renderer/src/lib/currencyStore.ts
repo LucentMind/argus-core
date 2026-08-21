@@ -82,3 +82,13 @@ class CurrencyStore {
 }
 
 export const currencyStore = new CurrencyStore()
+
+/**
+ * The "N update(s) need(s) you" phrase shared by the TopBar Settings badge and the Settings nav
+ * rows. Both the noun and the verb agree with `n` — the Packs page's section badge shipped with
+ * only the noun pluralized ("2 updates needs you") and had to be fixed after the fact, so this
+ * is centralized to keep that mistake from recurring a third time.
+ */
+export function needsYouLabel(subject: string, n: number): string {
+  return `${subject} — ${n} update${n === 1 ? '' : 's'} ${n === 1 ? 'needs' : 'need'} you`
+}
