@@ -63,8 +63,8 @@ describe('describeBlocked', () => {
     )
     expect(describeBlocked({ kind: 'new-dependency' })).toBe('This update needs a new dependency.')
     expect(describeBlocked({ kind: 'auth' })).toBe('Sign in to the GitHub CLI to continue.')
-    expect(describeBlocked({ kind: 'missing' })).toBe('Install the GitHub CLI to continue.')
-    expect(describeBlocked({ kind: 'notfound' })).toBe(
+    expect(describeBlocked({ kind: 'gh-missing' })).toBe('Install the GitHub CLI to continue.')
+    expect(describeBlocked({ kind: 'gh-notfound' })).toBe(
       "The repository can't be found — check that it still exists and is visible to your account."
     )
     expect(describeBlocked({ kind: 'downgrade' })).toBe(
@@ -101,18 +101,24 @@ describe('surfacedBlocked', () => {
     expect(surfacedBlocked([cand({ kind: 'unsupported' })])).toEqual([])
   })
 
+  // Strengthened (minor finding, second whole-branch review): `toHaveLength(8)` alone would still
+  // pass if the filter dropped one kind and let a duplicate through in its place. Asserting the
+  // actual ordered set of surviving kinds is what a dropped-kind mutant cannot slip past.
   it('keeps every other kind', () => {
-    const kinds: BlockedReason[] = [
-      { kind: 'local-edits' },
-      { kind: 'tier-change', from: 'a', to: 'b' },
-      { kind: 'new-dependency' },
-      { kind: 'auth' },
-      { kind: 'missing' },
-      { kind: 'notfound' },
-      { kind: 'downgrade' },
-      { kind: 'origin-pin' }
+    const kinds: BlockedReason['kind'][] = [
+      'local-edits',
+      'tier-change',
+      'new-dependency',
+      'auth',
+      'gh-missing',
+      'gh-notfound',
+      'downgrade',
+      'origin-pin'
     ]
-    expect(surfacedBlocked(kinds.map(cand))).toHaveLength(8)
+    const reasons: BlockedReason[] = kinds.map((kind) =>
+      kind === 'tier-change' ? { kind, from: 'a', to: 'b' } : { kind }
+    )
+    expect(surfacedBlocked(reasons.map(cand)).map((c) => c.reason?.kind)).toEqual(kinds)
   })
 
   it('ignores clean candidates entirely', () => {
@@ -132,11 +138,11 @@ describe('surfacedBlocked', () => {
     expect(SURFACED_BLOCK_KINDS.has('local-edits')).toBe(true)
   })
 
-  // Pins the whole-branch-review fix: 'auth', 'missing' and 'notfound' are three DIFFERENT gh
+  // Pins the whole-branch-review fix: 'auth', 'gh-missing' and 'gh-notfound' are three DIFFERENT gh
   // failures, each with something a person can actually act on — unlike a plain transport
   // failure, which never reaches `BlockedReason` at all (see packsAdapter.test.ts).
   it('surfaces both new gh-failure kinds — a person can act on either', () => {
-    expect(SURFACED_BLOCK_KINDS.has('missing')).toBe(true)
-    expect(SURFACED_BLOCK_KINDS.has('notfound')).toBe(true)
+    expect(SURFACED_BLOCK_KINDS.has('gh-missing')).toBe(true)
+    expect(SURFACED_BLOCK_KINDS.has('gh-notfound')).toBe(true)
   })
 })

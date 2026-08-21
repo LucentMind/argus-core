@@ -309,7 +309,7 @@ describe('CurrencyService applying — apply-time auth refusal', () => {
       apply: vi.fn(async () => ({
         ok: false as const,
         error: 'repo not found',
-        reason: { kind: 'notfound' as const }
+        reason: { kind: 'gh-notfound' as const }
       }))
     }
     const svc = build(adapter, { now: () => t })
@@ -320,7 +320,7 @@ describe('CurrencyService applying — apply-time auth refusal', () => {
     t = SIX_H + 1
     await vi.advanceTimersByTimeAsync(2_000)
     expect(adapter.apply).toHaveBeenCalledTimes(2)
-    expect(svc.payload().blocked.map((c) => c.reason)).toEqual([{ kind: 'notfound' }])
+    expect(svc.payload().blocked.map((c) => c.reason)).toEqual([{ kind: 'gh-notfound' }])
     svc.stop()
   })
 
@@ -332,13 +332,13 @@ describe('CurrencyService applying — apply-time auth refusal', () => {
       apply: vi.fn(async () => ({
         ok: false as const,
         error: 'gh not installed',
-        reason: { kind: 'missing' as const }
+        reason: { kind: 'gh-missing' as const }
       }))
     }
     const svc = build(adapter)
     svc.start()
     await vi.advanceTimersByTimeAsync(0)
-    expect(svc.payload().blocked.map((c) => c.reason)).toEqual([{ kind: 'missing' }])
+    expect(svc.payload().blocked.map((c) => c.reason)).toEqual([{ kind: 'gh-missing' }])
     svc.stop()
   })
 })

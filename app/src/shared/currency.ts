@@ -26,11 +26,15 @@ export type BlockedReason =
   | { kind: 'origin-pin' }
   | { kind: 'auth' }
   /** The GitHub CLI (gh) is not installed or not on PATH. Distinct from `auth`: the fix is
-   *  installing gh, not signing in. */
-  | { kind: 'missing' }
+   *  installing gh, not signing in. Named `gh-missing`, not the domain-agnostic `missing`: this
+   *  kind is bound to a GitHub-CLI-specific sentence below, and a bare `missing` would silently
+   *  invite a future hive or core producer to reuse it for an unrelated "not found" case and
+   *  render "Install the GitHub CLI to continue." for something that has nothing to do with gh. */
+  | { kind: 'gh-missing' }
   /** `gh` answered HTTP 404 for the pinned repo. GitHub answers identically for "no such repo"
-   *  and "private, no access to this account" — the sentence must not pretend to know which. */
-  | { kind: 'notfound' }
+   *  and "private, no access to this account" — the sentence must not pretend to know which.
+   *  Named `gh-notfound` for the same reason as `gh-missing` above. */
+  | { kind: 'gh-notfound' }
   | { kind: 'unsupported' }
 
 export interface Candidate {
@@ -86,9 +90,9 @@ export function describeBlocked(reason: BlockedReason): string {
       return 'This update needs a new dependency.'
     case 'auth':
       return 'Sign in to the GitHub CLI to continue.'
-    case 'missing':
+    case 'gh-missing':
       return 'Install the GitHub CLI to continue.'
-    case 'notfound':
+    case 'gh-notfound':
       return "The repository can't be found — check that it still exists and is visible to your account."
     case 'downgrade':
       return 'Installing it would move this install back a version.'
@@ -113,8 +117,8 @@ export const SURFACED_BLOCK_KINDS: ReadonlySet<BlockedReason['kind']> = new Set(
   'tier-change',
   'new-dependency',
   'auth',
-  'missing',
-  'notfound',
+  'gh-missing',
+  'gh-notfound',
   'downgrade',
   'origin-pin'
 ])
