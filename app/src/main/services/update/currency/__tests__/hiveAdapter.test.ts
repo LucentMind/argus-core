@@ -287,7 +287,9 @@ describe('hiveAdapter.apply', () => {
   })
 
   it('reports success even when the payload carries a clone-level error', async () => {
-    const { adapter, service } = build([])
+    const { service } = build([])
+    const onInstalled = vi.fn()
+    const adapter = createHiveAdapter({ service, onInstalled })
     ;(service.install as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       repo: 'org/hive',
       state: 'error',
@@ -303,5 +305,8 @@ describe('hiveAdapter.apply', () => {
     // skipped the install call entirely, or that resolved `{ ok: true }` for the wrong reason,
     // would still satisfy the assertion above but fail this one.
     expect(service.install).toHaveBeenCalledWith('reference', 'style.md')
+    // A payload `.error` describes the clone, not this call, so it must NOT suppress the
+    // broadcast — see the `onInstalled` doc comment in hiveAdapter.ts.
+    expect(onInstalled).toHaveBeenCalledWith('reference', 'style.md')
   })
 })
