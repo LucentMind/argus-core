@@ -10,23 +10,37 @@ const AUTO_INSTALLABLE: Record<string, () => Promise<{ ok: boolean; log: string 
 }
 
 /**
- * One probe cycle for every tool on the page — probeTools() returns all rows in a
- * single IPC call, so the page owns the report and hands it to each ToolRow.
+ * One probe cycle for the tools on the page — probeTools() returns every row in a single IPC
+ * call, so the page owns the report and hands it to each ToolRow.
+ *
+ * `runChecks(ids)` re-probes only those ids and MERGES the answers into the report it already
+ * holds (user-directed, 2026-08-21): the Sources page's button re-checks what failed, and a
+ * partial run must not blank the rows it did not ask about. `checking` names the rows currently
+ * in flight so those — and only those — read as pending. A full run (no ids) still clears the
+ * report outright, which is what the mount probe wants: there is nothing to preserve yet.
  */
 // eslint-disable-next-line react-refresh/only-export-components -- hook co-located with the ToolRow component it drives; see MetricCards.tsx for the same pattern
 export function useToolProbes(): {
   report: ProbeToolRow[] | null
   running: boolean
-  runChecks: () => void
+  checking: ReadonlySet<string>
+  runChecks: (ids?: readonly string[]) => void
 } {
   const [report, setReport] = useState<ProbeToolRow[] | null>(null)
   const [running, setRunning] = useState(false)
+  const [checking, setChecking] = useState<ReadonlySet<string>>(new Set())
 
-  function runChecks(): void {
-    setReport(null)
+  function runChecks(ids?: readonly string[]): void {
+    if (!ids) setReport(null)
+    setChecking(new Set(ids ?? []))
     setRunning(true)
-    void window.argus.settings.probeTools().then((r: ProbeToolRow[]) => {
-      setReport(r)
+    void window.argus.settings.probeTools(ids).then((r: ProbeToolRow[]) => {
+      // Merge, keyed by id: a partial run returns only the rows it probed, and the rest of the
+      // report is still the truth. Replacing wholesale would drop every passing row's chip.
+      setReport((prev) =>
+        !prev || !ids ? r : [...prev.filter((old) => !r.some((n) => n.id === old.id)), ...r]
+      )
+      setChecking(new Set())
       setRunning(false)
     })
   }
@@ -36,16 +50,20 @@ export function useToolProbes(): {
     runChecks()
   }, [])
 
-  return { report, running, runChecks }
+  return { report, running, checking, runChecks }
 }
 
 export function ToolRow({
   row,
   report,
+  checking,
   onInstalled
 }: {
   row: ResolvedToolRow
   report: ProbeToolRow[] | null
+  /** Ids being re-probed right now — those rows show "checking…" even though the report still
+   *  holds their previous answer. */
+  checking?: ReadonlySet<string>
   onInstalled: () => void
 }): React.JSX.Element {
   const [installing, setInstalling] = useState(false)
@@ -90,7 +108,7 @@ export function ToolRow({
       }
       stacked
       trailing={
-        report ? (
+        report && !checking?.has(row.id) ? (
           probe?.ok ? (
             <Chip tone="review">{probe.chip}</Chip>
           ) : (

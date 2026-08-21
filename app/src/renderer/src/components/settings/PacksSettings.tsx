@@ -41,6 +41,7 @@ function PackCard({
   pack,
   tools,
   report,
+  checking,
   busy,
   onUninstall,
   onInstalled,
@@ -49,6 +50,7 @@ function PackCard({
   pack: InstalledPackRow
   tools: SettingsPayload['resolvedTools']
   report: ReturnType<typeof useToolProbes>['report']
+  checking: ReturnType<typeof useToolProbes>['checking']
   busy: boolean
   onUninstall: () => void
   onInstalled: () => void
@@ -114,7 +116,13 @@ function PackCard({
       {open && tools.length > 0 && (
         <div data-pack-tools={pack.id} className="border-l border-hair pl-4">
           {tools.map((t) => (
-            <ToolRow key={t.id} row={t} report={report} onInstalled={onInstalled} />
+            <ToolRow
+              key={t.id}
+              row={t}
+              report={report}
+              checking={checking}
+              onInstalled={onInstalled}
+            />
           ))}
         </div>
       )}
@@ -171,7 +179,11 @@ function InstallPlan({
 }
 
 export function PacksSettings({ settings }: { settings: SettingsPayload }): React.JSX.Element {
-  const { report, running, runChecks } = useToolProbes()
+  const { report, running, checking, runChecks } = useToolProbes()
+  /** Ids the last probe said were missing — what the re-check button re-runs. Read off the
+   *  report rather than tracked separately, so it can never disagree with the chips on
+   *  screen. `null` (no report yet) means the mount probe is still in flight. */
+  const failedToolIds = (report ?? []).filter((r) => !r.ok).map((r) => r.id)
   const [payload, setPayload] = useState<PacksListPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -540,6 +552,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
             pack={p}
             tools={settings.resolvedTools.filter((t) => t.packId === p.id)}
             report={report}
+            checking={checking}
             busy={busy}
             onUninstall={() => void uninstall(p)}
             onInstalled={runChecks}
@@ -583,23 +596,39 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
         </div>
       )}
       <div className="flex items-center gap-2">
+        {/* GitHub is the primary install route (user-directed, 2026-08-21): packs are published
+            as GitHub releases, and a local bundle file is the exception — the one you built
+            yourself or were sent. */}
         <Btn
           variant="primary"
-          aria-label="Install from file"
-          disabled={busy}
-          onClick={() => void install()}
-        >
-          Install from file…
-        </Btn>
-        <Btn
           aria-label="Install from GitHub"
           disabled={busy}
           onClick={() => setRepoOpen((v) => !v)}
         >
           Install from GitHub…
         </Btn>
-        <Btn disabled={running} onClick={runChecks}>
-          {running ? 'Checking…' : 'Re-run checks'}
+        <Btn aria-label="Install from file" disabled={busy} onClick={() => void install()}>
+          Install from file…
+        </Btn>
+        {/* Re-checks the FAILED tools only (user-directed, 2026-08-21). A full re-probe re-runs
+            every tool's `--version` to re-learn what it already knew, and blanks every row's chip
+            while it does. With nothing failing there is nothing to re-check, so the button says
+            so instead of offering busywork. */}
+        <Btn
+          aria-label="Re-check failed tools"
+          title={
+            failedToolIds.length > 0
+              ? `Re-probe ${failedToolIds.join(', ')}`
+              : 'Every tool check passed'
+          }
+          disabled={running || failedToolIds.length === 0}
+          onClick={() => runChecks(failedToolIds)}
+        >
+          {running
+            ? 'Checking…'
+            : failedToolIds.length > 0
+              ? `Re-check ${failedToolIds.length} failed`
+              : 'All checks passed'}
         </Btn>
       </div>
     </div>

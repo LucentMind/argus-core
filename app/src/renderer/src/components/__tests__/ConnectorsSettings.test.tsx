@@ -111,6 +111,10 @@ beforeEach(() => {
       }),
       onChanged: vi.fn(() => () => {})
     },
+    jira: {
+      // The Jira section fetches the site's link-type catalogue on mount.
+      linkTypes: vi.fn().mockResolvedValue({ ok: true, value: [] })
+    },
     secrets: {
       set: vi.fn().mockResolvedValue(undefined),
       has: vi.fn().mockResolvedValue(false),
@@ -350,45 +354,24 @@ describe('ConnectorsSettings', () => {
     })
   })
 
-  describe('Jira clone link types', () => {
-    it('shows the default entry and states what removing them all does', async () => {
+  describe('the Jira section', () => {
+    // Only rendered with an Atlassian connector configured (user-directed, 2026-08-21): every
+    // row in it is about how Argus reads Jira. Its contents have their own suite,
+    // settings/__tests__/JiraSettings.test.tsx.
+    it('renders when a rovo-preset connector exists', async () => {
       render(<ConnectorsSettings />)
-      expect(await screen.findByLabelText('Clone link type Cloners')).toHaveValue('Cloners')
-      expect(screen.getByText(/go back to Jira's default \("Cloners"\)/)).toBeInTheDocument()
+      expect(await screen.findByText('Clone link types')).toBeInTheDocument()
     })
 
-    it('appends a custom type to the list', async () => {
-      render(<ConnectorsSettings />)
-      await userEvent.type(await screen.findByLabelText('New clone link type'), 'Kopiert')
-      await userEvent.click(screen.getByRole('button', { name: /^add$/i }))
-      expect(window.argus.settings.patch).toHaveBeenCalledWith({
-        jira: { cloneLinkTypes: ['Cloners', 'Kopiert'] }
+    it('is absent when no Atlassian connector is configured', async () => {
+      currentPayload = basePayload({
+        connectors: { local: { kind: 'stdio', enabled: false, config: { command: 'npx' } } },
+        runtime: { local: { state: 'never-connected' } },
+        oauth: { local: 'not-authorized' }
       })
-    })
-
-    it('edits an existing entry in place', async () => {
       render(<ConnectorsSettings />)
-      const input = await screen.findByLabelText('Clone link type Cloners')
-      await userEvent.clear(input)
-      await userEvent.type(input, 'Kopiert')
-      await userEvent.tab() // DraftInput commits on blur
-      expect(window.argus.settings.patch).toHaveBeenCalledWith({
-        jira: { cloneLinkTypes: ['Kopiert'] }
-      })
-    })
-
-    // NOT `[]`: an empty array does not equal the non-empty default, so stripDefaults would
-    // keep it on disk and discovery would silently match nothing. `null` deletes the key and
-    // the next parse re-seeds ["Cloners"] — which is what the row's copy promises.
-    it('patches null rather than an empty list when the last entry is removed, so it reseeds', async () => {
-      render(<ConnectorsSettings />)
-      await userEvent.click(await screen.findByRole('button', { name: 'Remove Cloners' }))
-      expect(window.argus.settings.patch).toHaveBeenCalledWith({ jira: { cloneLinkTypes: null } })
-      // …and the deleted key re-seeds its default on the next read, rather than persisting as
-      // an empty "match nothing" list.
-      await waitFor(() =>
-        expect(screen.getByLabelText('Clone link type Cloners')).toHaveValue('Cloners')
-      )
+      await screen.findByText('MCP connectors')
+      expect(screen.queryByText('Clone link types')).toBeNull()
     })
   })
 })

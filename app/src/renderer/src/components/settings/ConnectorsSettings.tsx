@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Globe, GlobeOff, X } from 'lucide-react'
+import { Globe, GlobeOff } from 'lucide-react'
 import {
   CONNECTOR_FORMS,
   ROVO_FORM_EXTRAS,
@@ -24,8 +24,9 @@ import {
   FIELD
 } from './settingsLayout'
 import { SourceControl } from './SourceControl'
-import { Btn, Card, Chip, IconBtn, MenuButton } from '../ui'
-import { DEFAULT_CLONE_LINK_TYPES, DEFAULT_WATERMARK_TEXT } from '../../../../shared/settings'
+import { JiraSettings } from './JiraSettings'
+import { Btn, Card, Chip, MenuButton } from '../ui'
+import { DEFAULT_WATERMARK_TEXT } from '../../../../shared/settings'
 
 const WATERMARK_TARGETS = [
   { key: 'jira', label: 'Jira comments', hint: 'The RCA exec summary posted to the linked issue.' },
@@ -227,19 +228,13 @@ export function ConnectorsSettings(): React.JSX.Element {
   const payload = useConnectorsPayload()
   const settingsPayload = useSettingsPayload()
   const [editing, setEditing] = useState<string | null>(null)
-  const [newLinkType, setNewLinkType] = useState('')
   if (!payload) return <SettingsSkeleton />
   const watermark = settingsPayload?.settings.watermark
-  const jira = settingsPayload?.settings.jira
-
-  /** Patch `null`, not `[]`, once the last entry is gone: an empty ARRAY does not equal the
-   *  non-empty default, so `stripDefaults` would keep it on disk and clone discovery would
-   *  silently match nothing forever. `null` is the repo's reset idiom — deepMerge deletes the
-   *  key and the next parse re-seeds ["Cloners"], which is what the row's copy promises. */
-  function setCloneLinkTypes(next: string[]): void {
-    const clean = next.map((t) => t.trim()).filter(Boolean)
-    void settingsStore.patch({ jira: { cloneLinkTypes: clean.length ? clean : null } })
-  }
+  /** An Atlassian connector exists (the `rovo` preset — same rule main's `rovoInstanceId`
+   *  applies, restated here because that helper lives in a main-process module). Existence,
+   *  not authorization: a user who has added the connector and not yet authorized it still
+   *  needs these settings, and the link-type picker says so itself when it cannot reach Jira. */
+  const atlassianConfigured = Object.values(payload.connectors).some((i) => i.preset === 'rovo')
 
   function addPreset(pid: string): void {
     if (!payload!.connectors[pid]) {
@@ -292,8 +287,32 @@ export function ConnectorsSettings(): React.JSX.Element {
           — PR lookup, pushes, HiveMind — and it was buried under the MCP list, the Add-connector
           button and the RCA section, three scrolls down. */}
       <SourceControl />
-      {/* Untitled — same reason as GeneralSettings: the header masthead already names the page. */}
-      <SettingsSection>
+      {/* Titled, unlike most single-section pages: GitHub sits above it in its own card, so
+          "the page is the section" no longer holds — and the title is what gives Add connector a
+          header line to live on (user-directed, 2026-08-21), instead of a lone button floating
+          under the list. */}
+      <SettingsSection
+        title="MCP connectors"
+        subtitle="External systems the analyst can call tools on."
+        action={
+          <MenuButton
+            label="Add connector"
+            variant="primary"
+            align="right"
+            aria-label="add connector"
+            items={[
+              ...Object.entries(payload.presets)
+                .filter(([pid]) => !(RESERVED_INSTANCE_IDS as readonly string[]).includes(pid))
+                .map(([pid, p]) => ({
+                  label: p.displayName,
+                  onSelect: () => addPreset(pid)
+                })),
+              { label: 'Custom remote (HTTP)', onSelect: () => addCustom('http') },
+              { label: 'Custom local (stdio)', onSelect: () => addCustom('stdio') }
+            ]}
+          />
+        }
+      >
         {Object.entries(payload.connectors).map(([id, inst]) => (
           <ConnectorCard
             key={id}
@@ -311,80 +330,10 @@ export function ConnectorsSettings(): React.JSX.Element {
           <div className="p-3 text-sm text-dim">No connectors yet.</div>
         )}
       </SettingsSection>
-      <div>
-        <MenuButton
-          label="Add connector"
-          variant="primary"
-          align="left"
-          aria-label="add connector"
-          items={[
-            ...Object.entries(payload.presets)
-              .filter(([pid]) => !(RESERVED_INSTANCE_IDS as readonly string[]).includes(pid))
-              .map(([pid, p]) => ({
-                label: p.displayName,
-                onSelect: () => addPreset(pid)
-              })),
-            { label: 'Custom remote (HTTP)', onSelect: () => addCustom('http') },
-            { label: 'Custom local (stdio)', onSelect: () => addCustom('stdio') }
-          ]}
-        />
-      </div>
-      {jira && (
-        <SettingsSection title="Jira">
-          <SettingRow
-            label="Clone link types"
-            description={`Jira link-type names that mean "this ticket is a clone of that one" — what source-ticket discovery looks for on an issue. Compared case-insensitively. Remove every entry to go back to Jira's default ("${DEFAULT_CLONE_LINK_TYPES.join('", "')}").`}
-            isDefault={
-              jira.cloneLinkTypes.length === DEFAULT_CLONE_LINK_TYPES.length &&
-              jira.cloneLinkTypes.every((t, i) => t === DEFAULT_CLONE_LINK_TYPES[i])
-            }
-            onReset={() => void settingsStore.patch({ jira: { cloneLinkTypes: null } })}
-            stacked
-          >
-            <div className="flex flex-col gap-1">
-              {jira.cloneLinkTypes.map((t, i) => (
-                <div key={`${i}:${t}`} className="flex items-center gap-1">
-                  <DraftInput
-                    value={t}
-                    onCommit={(v) =>
-                      setCloneLinkTypes(jira.cloneLinkTypes.map((old, j) => (j === i ? v : old)))
-                    }
-                    aria-label={`Clone link type ${t}`}
-                    className={FIELD}
-                  />
-                  <IconBtn
-                    aria-label={`Remove ${t}`}
-                    title={`Remove ${t}`}
-                    size="sm"
-                    onClick={() => setCloneLinkTypes(jira.cloneLinkTypes.filter((_, j) => j !== i))}
-                  >
-                    <X size={12} />
-                  </IconBtn>
-                </div>
-              ))}
-              <div className="flex items-center gap-1">
-                <input
-                  className={FIELD}
-                  aria-label="New clone link type"
-                  placeholder="Cloners"
-                  value={newLinkType}
-                  onChange={(e) => setNewLinkType(e.target.value)}
-                />
-                <Btn
-                  variant="outline"
-                  disabled={!newLinkType.trim()}
-                  onClick={() => {
-                    setCloneLinkTypes([...jira.cloneLinkTypes, newLinkType])
-                    setNewLinkType('')
-                  }}
-                >
-                  Add
-                </Btn>
-              </div>
-            </div>
-          </SettingRow>
-        </SettingsSection>
-      )}
+      {/* Only with an Atlassian connector configured (user-directed, 2026-08-21). Every row in
+          it configures how Argus reads Jira, which an install with no Atlassian connector has no
+          question about — it was three rows of dead settings on those installs. */}
+      {settingsPayload && atlassianConfigured && <JiraSettings payload={settingsPayload} />}
       {watermark && (
         <SettingsSection title="Comment watermark">
           {WATERMARK_TARGETS.map(({ key, label, hint }) => (

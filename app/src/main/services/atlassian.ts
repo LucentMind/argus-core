@@ -13,7 +13,8 @@ import type {
   CloneLink,
   JiraAttachmentInfo,
   JiraCommentInfo,
-  JiraIssuePreview
+  JiraIssuePreview,
+  JiraLinkType
 } from '../../shared/jira'
 import type {
   ConfluenceSpace,
@@ -498,6 +499,30 @@ export class AtlassianClient {
       })),
       nextPageToken: body.nextPageToken ?? null
     }
+  }
+
+  /**
+   * The site's issue link-type catalogue — what Settings → Connectors offers as clone link types
+   * instead of asking the user to type a name that has to match Jira exactly (user-directed,
+   * 2026-08-21). A mismatch there is silent: discovery just finds nothing.
+   *
+   * Unpaginated on purpose: the endpoint returns the whole catalogue in one response and a site
+   * has a handful of link types, not pages of them. Entries without a string `name` are dropped
+   * rather than failing the call — the name is the only field the caller stores.
+   */
+  async issueLinkTypes(): Promise<JiraLinkType[]> {
+    const res = await this.request('/rest/api/3/issueLinkType')
+    const body = await this.parseJson<{
+      issueLinkTypes?: Array<{ id?: unknown; name?: unknown; inward?: unknown; outward?: unknown }>
+    }>(res)
+    return (body.issueLinkTypes ?? [])
+      .filter((t): t is { id?: unknown; name: string } & typeof t => typeof t.name === 'string')
+      .map((t) => ({
+        id: String(t.id ?? t.name),
+        name: t.name,
+        ...(typeof t.inward === 'string' ? { inward: t.inward } : {}),
+        ...(typeof t.outward === 'string' ? { outward: t.outward } : {})
+      }))
   }
 
   /** All comments on an issue, oldest first; paginated so long threads are never truncated. */

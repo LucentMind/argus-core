@@ -33,6 +33,22 @@ export interface JiraIssuePreview {
   cloneLinks: CloneLink[]
 }
 
+/**
+ * One entry of Jira's issue link-type catalogue (`GET /rest/api/3/issueLinkType`).
+ *
+ * `inward`/`outward` are the phrasings Jira shows on an issue ("is cloned by" / "clones") and
+ * are what makes a name pickable rather than guessable: an org that renamed "Cloners" still
+ * recognises its own wording. Optional because only `name` is load-bearing — it is what
+ * `cloneLinksOf` compares against — and a gateway that omits the phrasings must not make the
+ * whole list unusable.
+ */
+export interface JiraLinkType {
+  id: string
+  name: string
+  inward?: string
+  outward?: string
+}
+
 export interface JiraCommentInfo {
   id: string
   author: string | null
