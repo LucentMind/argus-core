@@ -92,6 +92,13 @@ beforeEach(() => {
       download: vi.fn(async () => ({ currentVersion: '1.0.0', status: { phase: 'idle' } })),
       restart: vi.fn(async () => {}),
       onChanged: vi.fn(() => () => {})
+    },
+    // Task 13: UpdateSettings' master-toggle row (inside Settings → General) reads the
+    // currency payload for its status line.
+    currency: {
+      get: vi.fn(async () => ({ auto: true, lastSurveyAt: null, blocked: [], busy: false })),
+      surveyNow: vi.fn(async () => {}),
+      onChanged: vi.fn(() => () => {})
     }
   } as never
   // After the bridge stub: uiStore pushes both settings out to the panel windows through it.

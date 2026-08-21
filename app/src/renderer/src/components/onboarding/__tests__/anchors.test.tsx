@@ -61,6 +61,13 @@ beforeEach(() => {
       })),
       restart: vi.fn(async () => {}),
       onChanged: vi.fn(() => () => {})
+    },
+    // Task 13: UpdateSettings' master-toggle row (inside Settings → General, the default page)
+    // reads the currency payload for its status line.
+    currency: {
+      get: vi.fn(async () => ({ auto: true, lastSurveyAt: null, blocked: [], busy: false })),
+      surveyNow: vi.fn(async () => {}),
+      onChanged: vi.fn(() => () => {})
     }
   } as never
   settingsStore.reset()

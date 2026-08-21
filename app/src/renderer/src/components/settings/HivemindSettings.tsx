@@ -277,8 +277,9 @@ export function HivemindSettings({
     let mounted = true
     // eslint-disable-next-line react-hooks/set-state-in-effect -- check-keyed kickoff: set the spinner immediately before the async sync resolves
     setAutoSyncing(true)
-    void window.argus.hivemind
-      .sync()
+    void window.argus.currency
+      .surveyNow('hive')
+      .then(() => window.argus.hivemind.get())
       .then((p) => {
         if (mounted) setPayload(p)
       })

@@ -136,6 +136,13 @@ beforeEach(() => {
       checkUpdates: vi.fn(async () => ({})),
       onChanged: vi.fn(() => () => undefined)
     },
+    // Task 13: the mount-time check above is now routed through the currency service's
+    // surveyNow, so PacksSettings' effect needs this stubbed too.
+    currency: {
+      get: vi.fn(async () => ({ auto: true, lastSurveyAt: null, blocked: [], busy: false })),
+      surveyNow: vi.fn(async () => {}),
+      onChanged: vi.fn(() => () => undefined)
+    },
     graph: { install: vi.fn(async () => ({ ok: true, log: 'installed' })) },
     refsync: {
       get: vi.fn(async () => refPayload),
