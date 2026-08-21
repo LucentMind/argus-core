@@ -53,6 +53,14 @@ export class CurrencyService {
    * shown on the SECOND consecutive sighting, not the first.
    */
   private authStrikes = new Map<AdapterId, number>()
+  /**
+   * Same idea as `authStrikes`, but for a refusal seen at APPLY time rather than survey time —
+   * kept in a separate map because a survey that comes back clean (the normal case right before an
+   * apply-time `auth` refusal: the check succeeded, the write failed) resets `authStrikes` to 0 on
+   * every tick, which would silently defeat the two-strike grace for this path if it shared the
+   * counter.
+   */
+  private applyAuthStrikes = new Map<AdapterId, number>()
 
   constructor(private readonly deps: CurrencyServiceDeps) {
     this.intervalMs = deps.intervalMs ?? DEFAULT_INTERVAL_MS
@@ -107,7 +115,7 @@ export class CurrencyService {
     if (this.deps.anchors.dueAt(id, this.intervalMs) > this.now()) return
     const found = await this.surveyAdapter(adapter)
     if (!this.deps.autoEnabled()) return
-    this.pending.push(...found.filter((c) => c.verdict === 'clean'))
+    this.pushPending(found)
     await this.applyPending()
   }
 
@@ -117,9 +125,25 @@ export class CurrencyService {
     for (const adapter of this.deps.adapters) {
       if (this.deps.anchors.dueAt(adapter.id, this.intervalMs) > now) continue
       const found = await this.surveyAdapter(adapter)
-      this.pending.push(...found.filter((c) => c.verdict === 'clean'))
+      this.pushPending(found)
     }
     await this.applyPending()
+  }
+
+  /**
+   * Queues every clean candidate from a survey, deduped by `key`: a later survey's version of a
+   * candidate REPLACES an earlier queued one in place rather than sitting beside it, because the
+   * newer survey is the more current truth. Without this, a machine that is rarely quiet piles up
+   * repeat copies of the same candidate at every 6h survey, and the eventual drain applies (and,
+   * on refusal, blocks) each one several times over.
+   */
+  private pushPending(found: Candidate[]): void {
+    for (const c of found) {
+      if (c.verdict !== 'clean') continue
+      const idx = this.pending.findIndex((p) => p.key === c.key)
+      if (idx === -1) this.pending.push(c)
+      else this.pending[idx] = c
+    }
   }
 
   private async surveyAdapter(adapter: CurrencyAdapter): Promise<Candidate[]> {
@@ -154,8 +178,13 @@ export class CurrencyService {
   }
 
   /**
-   * Writes every pending candidate, one at a time, re-checking quiescence BETWEEN items — a run
-   * that starts mid-batch stops it where it is and the remainder waits for the next quiet tick.
+   * Writes every pending candidate.
+   *
+   * Core is drained UNCONDITIONALLY, first: it writes only into electron-updater's cache —
+   * nothing the running app reads — so a long agent turn or a busy ingest queue must never starve
+   * it. Pack and hive candidates write files the app may be reading, so they wait their turn,
+   * re-checking quiescence BETWEEN items — a run that starts mid-batch stops it where it is and
+   * the remainder waits for the next quiet tick.
    *
    * Serial rather than parallel because hive installs share one clone directory and pack installs
    * share the packs directory; two at once would race on the same paths.
@@ -163,30 +192,57 @@ export class CurrencyService {
   private async applyPending(): Promise<void> {
     if (this.pending.length === 0) return
     await this.withApplyLock(async () => {
+      for (;;) {
+        const idx = this.pending.findIndex((c) => c.domain === 'core')
+        if (idx === -1) break
+        const [candidate] = this.pending.splice(idx, 1)
+        await this.applyOne(candidate)
+      }
       while (this.pending.length > 0 && this.deps.isQuiet()) {
         const candidate = this.pending.shift() as Candidate
-        const adapter = this.deps.adapters.find((a) => a.id === this.ownerOf(candidate))
-        if (!adapter) continue
-        this.busy = true
-        this.publish()
-        try {
-          const outcome = await adapter.apply(candidate)
-          // A refusal at apply time is the adapter re-deriving and finding the world moved —
-          // it becomes a decision for the user, not a write to retry next tick.
-          if (!outcome.ok && outcome.reason)
-            this.blocked = [
-              ...this.blocked,
-              { ...candidate, verdict: 'blocked', reason: outcome.reason }
-            ]
-        } catch {
-          // A write that threw is a transport/disk failure, not a decision: stay silent and let
-          // the next survey re-offer it.
-        } finally {
-          this.busy = false
-          this.publish()
-        }
+        await this.applyOne(candidate)
       }
     })
+  }
+
+  private async applyOne(candidate: Candidate): Promise<void> {
+    const adapter = this.deps.adapters.find((a) => a.id === this.ownerOf(candidate))
+    if (!adapter) return
+    this.busy = true
+    this.publish()
+    try {
+      const outcome = await adapter.apply(candidate)
+      if (outcome.ok) {
+        // A write that actually succeeded ends any run of apply-time auth flakiness for this
+        // adapter — the next refusal, if any, is a fresh first strike.
+        this.applyAuthStrikes.delete(adapter.id)
+      } else if (outcome.reason) {
+        // A refusal at apply time is the adapter re-deriving and finding the world moved — it
+        // becomes a decision for the user, not a write to retry next tick. An `auth` refusal is
+        // the one exception: it presents exactly like a flaky `gh` sign-in, so it goes through the
+        // same two-strike grace as a survey-time one instead of badging the user on its first
+        // sighting.
+        const show = outcome.reason.kind !== 'auth' || this.noteApplyAuthStrike(adapter.id)
+        if (show)
+          this.blocked = [
+            ...this.blocked,
+            { ...candidate, verdict: 'blocked', reason: outcome.reason }
+          ]
+      }
+    } catch {
+      // A write that threw is a transport/disk failure, not a decision: stay silent and let the
+      // next survey re-offer it.
+    } finally {
+      this.busy = false
+      this.publish()
+    }
+  }
+
+  /** Same two-strike grace as `replaceBlockedFor`, applied to an apply-time `auth` refusal. */
+  private noteApplyAuthStrike(id: AdapterId): boolean {
+    const strikes = (this.applyAuthStrikes.get(id) ?? 0) + 1
+    this.applyAuthStrikes.set(id, strikes)
+    return strikes >= 2
   }
 
   /**
