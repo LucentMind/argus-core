@@ -279,6 +279,13 @@ import { CoreUpdaterService, noopBackend } from './services/update/coreUpdater'
 import { createElectronUpdaterBackend } from './services/update/electronUpdaterBackend'
 import { registerUpdateIpc } from './services/update/updateIpc'
 import type { UpdateStatus } from '../shared/updates'
+import { CurrencyService } from './services/update/currency/service'
+import { CurrencyAnchorStore } from './services/update/currency/anchors'
+import { createCoreAdapter } from './services/update/currency/coreAdapter'
+import { createPacksAdapter } from './services/update/currency/packsAdapter'
+import { createHiveAdapter } from './services/update/currency/hiveAdapter'
+import { registerCurrencyIpc } from './services/update/currency/currencyIpc'
+import { JsonFileStore } from './services/fileStore'
 import { PanelHost } from './services/panels/panelHost'
 import { createElectronPanelFactory } from './services/panels/electronPlatform'
 import { resolvePanelAsset, buildPanelCsp, type PanelWindowLoc } from './services/panels/protocol'
@@ -1476,23 +1483,32 @@ function registerIpc(): void {
     broadcast(IPC.packsChanged, undefined)
     return packUpdateStatuses
   })
-  ipcMain.handle(IPC.packsApplyUpdate, async (_e, id: string): Promise<ApplyUpdateOutcome> => {
-    // The manual Update button has a user to approve a plan, so an update needing a new
-    // dependency stages one instead of being refused. `plan` stays null on every other path,
-    // which is what keeps this handler's answer a plain status.
-    let plan: PlanResult | null = null
-    const status = await packUpdates.apply(id, {
-      planUnsatisfied: async (root) => {
-        plan = await planStager.stageFromBundle(root)
-        return plan
-      }
+  // Forward ref: the currency service cannot be built until `hivemind` exists (far below), but
+  // the manual pack/hive update handlers registered above it must share its apply lock. Same
+  // forward-ref shape as `agentService`/`diagnostics` elsewhere in this file.
+  let currency: CurrencyService | null = null
+  /** Run a manual update behind the auto-updater's lock, so the two can never interleave. */
+  const withUpdateLock = <T>(fn: () => Promise<T>): Promise<T> =>
+    currency ? currency.withApplyLock(fn) : fn()
+  ipcMain.handle(IPC.packsApplyUpdate, async (_e, id: string): Promise<ApplyUpdateOutcome> =>
+    withUpdateLock(async () => {
+      // The manual Update button has a user to approve a plan, so an update needing a new
+      // dependency stages one instead of being refused. `plan` stays null on every other path,
+      // which is what keeps this handler's answer a plain status.
+      let plan: PlanResult | null = null
+      const status = await packUpdates.apply(id, {
+        planUnsatisfied: async (root) => {
+          plan = await planStager.stageFromBundle(root)
+          return plan
+        }
+      })
+      // 'ready' is the only phase that got as far as installPack — see packUpdates.apply.
+      if (status.phase === 'ready') packsTouched.add(id)
+      packUpdateStatuses = { ...packUpdateStatuses, [id]: status }
+      broadcast(IPC.packsChanged, undefined)
+      return plan ? { planned: true, plan } : { planned: false, status }
     })
-    // 'ready' is the only phase that got as far as installPack — see packUpdates.apply.
-    if (status.phase === 'ready') packsTouched.add(id)
-    packUpdateStatuses = { ...packUpdateStatuses, [id]: status }
-    broadcast(IPC.packsChanged, undefined)
-    return plan ? { planned: true, plan } : { planned: false, status }
-  })
+  )
 
   // — app auto-update (notify first; spec §3) —
   // The backend is only constructed when packaged: electron-updater reads app metadata that
@@ -3054,22 +3070,23 @@ function registerIpc(): void {
       kind: 'skill' | 'reference',
       name: string,
       opts?: { overwriteLocalEdits?: boolean }
-    ) => {
-      const p = await hivemind.install(kind, name, opts)
-      if (kind === 'skill') {
-        // install implies intent → clear any lingering disable override (sparse store keeps only false)
-        agentAccessStore.patch({ skills: { [`hivemind/${name}`]: true } })
-        broadcast(IPC.skillsChanged, skillsPayload())
-      } else {
-        // Downloading a reference writes into the references dir, exactly as uninstalling one
-        // deletes from it — and the Library's list is a renderer-side mirror that fetches ONCE
-        // and is only updated by this broadcast (referenceSyncStore.start() is idempotent). Its
-        // absence is why a reference removed here and then re-downloaded never came back until
-        // the window reloaded: the remove broadcast, the download did not.
-        referencesChanged()
-      }
-      return p
-    }
+    ) =>
+      withUpdateLock(async () => {
+        const p = await hivemind.install(kind, name, opts)
+        if (kind === 'skill') {
+          // install implies intent → clear any lingering disable override (sparse store keeps only false)
+          agentAccessStore.patch({ skills: { [`hivemind/${name}`]: true } })
+          broadcast(IPC.skillsChanged, skillsPayload())
+        } else {
+          // Downloading a reference writes into the references dir, exactly as uninstalling one
+          // deletes from it — and the Library's list is a renderer-side mirror that fetches ONCE
+          // and is only updated by this broadcast (referenceSyncStore.start() is idempotent). Its
+          // absence is why a reference removed here and then re-downloaded never came back until
+          // the window reloaded: the remove broadcast, the download did not.
+          referencesChanged()
+        }
+        return p
+      })
   )
   ipcMain.handle(IPC.hivemindUninstallSkill, async (_e, name: string) => {
     const p = await hivemind.uninstallSkill(name)
@@ -3106,6 +3123,52 @@ function registerIpc(): void {
   ipcMain.handle(IPC.hivemindPushExecutables, (_e, name: string) =>
     executableAssetsOf(argusHome, name)
   )
+
+  // — keep everything up to date (spec 2026-08-20) —
+  currency = new CurrencyService({
+    adapters: [
+      createCoreAdapter({ service: coreUpdater }),
+      createPacksAdapter({
+        updates: packUpdates,
+        // Deliberately NOT `listInstalledPacks`: that is async purely because it awaits
+        // `binaries.probe()` for the Packs page's binary chips, which this adapter does not
+        // need — and `installed()` is a synchronous dep. This reproduces its id-union over the
+        // two sync sources and nothing else.
+        installed: () => {
+          const versions = packsState.list()
+          const loaded = new Map(packRegistry.packs().map((p) => [p.id, p]))
+          return [...new Set([...Object.keys(versions), ...loaded.keys()])].map((id) => ({
+            id,
+            displayName: loaded.get(id)?.manifest.displayName ?? id,
+            installedVersion: versions[id] ?? null
+          }))
+        }
+      }),
+      createHiveAdapter({ service: hivemind })
+    ],
+    anchors: new CurrencyAnchorStore(
+      new JsonFileStore(path.join(configDir(argusHome), 'currency.json'))
+    ),
+    // Read live, never captured: the user can flip the switch at any moment.
+    autoEnabled: () => settingsService.get().updates.auto,
+    // Gates DISK WRITES only. A core download is not gated — it writes into electron-updater's
+    // cache, which nothing the running app reads.
+    //
+    // `agentService` is a nullable forward ref in this file, so an app that has not built it yet
+    // reads as quiet — correct: with no agent service there is no turn in flight.
+    isQuiet: () =>
+      (agentService?.states() ?? []).every((s) => !s.activeTurn) &&
+      !routinesService.isRunning() &&
+      ingestQueue.isIdle()
+  })
+  registerCurrencyIpc({
+    handle: (channel, fn) =>
+      ipcMain.handle(channel, (_e, ...args) => (fn as (...a: unknown[]) => unknown)(...args)),
+    broadcast,
+    service: currency
+  })
+  // 45s: late enough to keep boot cheap and to avoid racing the core boot check.
+  setTimeout(() => currency?.start(), 45_000).unref()
 
   // — proposals (spec §2.4) —
   ipcMain.handle(IPC.proposalsList, () => ({ proposals: listProposals(argusHome) }))
