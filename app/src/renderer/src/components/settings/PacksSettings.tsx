@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import semver from 'semver'
 import { SettingsSection, SettingRow, SettingsSkeleton, DisclosureBtn } from './settingsLayout'
 import { Btn, Chip } from '../ui'
 import { confirm } from '../../lib/confirmStore'
 import { ToolRow, useToolProbes } from './ToolRow'
+import { currencyStore, pageOwning } from '../../lib/currencyStore'
+import { BlockedReasonLine } from './BlockedReasonLine'
 import type {
   PacksListPayload,
   InstalledPackRow,
@@ -11,6 +13,8 @@ import type {
   PlannedPack
 } from '../../../../shared/packs'
 import type { SettingsPayload } from '../../../../shared/settings'
+import { surfacedBlocked } from '../../../../shared/currency'
+import type { Candidate } from '../../../../shared/currency'
 import { describeUpdate } from '../../../../shared/updates'
 
 function installErrorMessage(code: string, error: string): string {
@@ -43,6 +47,7 @@ function PackCard({
   report,
   checking,
   busy,
+  blocked,
   onUninstall,
   onInstalled,
   onUpdate
@@ -52,6 +57,9 @@ function PackCard({
   report: ReturnType<typeof useToolProbes>['report']
   checking: ReturnType<typeof useToolProbes>['checking']
   busy: boolean
+  /** The currency service's held-back candidate for this pack, if any — looked up once by the
+   *  page and passed down so the store subscription stays in one place. */
+  blocked: Candidate | undefined
   onUninstall: () => void
   onInstalled: () => void
   onUpdate: () => void
@@ -99,20 +107,9 @@ function PackCard({
         )}
       </SettingRow>
       {pack.update != null && (
-        <div className="pl-4 text-sm text-dim">
-          {describeUpdate(pack.update, 'pack')}
-          {pack.update.phase === 'error' && pack.update.code === 'origin-pin' && (
-            <> — download it manually from your vendor and install it with Install from file.</>
-          )}
-          {pack.update?.phase === 'error' && pack.update.code === 'gh' && (
-            <>
-              {' '}
-              — check your GitHub CLI sign-in under Settings → Health, and that the repository still
-              exists and is visible to your account.
-            </>
-          )}
-        </div>
+        <div className="pl-4 text-sm text-dim">{describeUpdate(pack.update, 'pack')}</div>
       )}
+      {blocked && <BlockedReasonLine candidate={blocked} />}
       {open && tools.length > 0 && (
         <div data-pack-tools={pack.id} className="border-l border-hair pl-4">
           {tools.map((t) => (
@@ -196,6 +193,19 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
   // setState in it.
   const [autoChecking, setAutoChecking] = useState(true)
   const [plan, setPlan] = useState<PlannedPack[] | null>(null)
+
+  const currency = useSyncExternalStore(
+    (cb) => currencyStore.subscribe(cb),
+    () => currencyStore.get()
+  )
+  useEffect(() => currencyStore.start(), [])
+  // Same grouping `currencyStore.blockedByPage()` does internally, narrowed to this page's own
+  // domain — written this way (rather than calling `blockedByPage()` itself) so `currency` is
+  // genuinely read here and this component re-renders on every broadcast.
+  const blockedPacks = surfacedBlocked(currency.blocked).filter(
+    (c) => pageOwning(c.domain) === 'sources'
+  )
+  const blockedFor = (id: string): Candidate | undefined => blockedPacks.find((c) => c.key === id)
 
   const refresh = useCallback(async () => {
     setPayload(await window.argus.packs.list())
@@ -534,13 +544,23 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
       <SettingsSection
         title="Installed Packs"
         action={
-          <Btn
-            aria-label="Check for pack updates"
-            disabled={busy || autoChecking}
-            onClick={() => void checkUpdates()}
-          >
-            {autoChecking ? 'Checking…' : 'Check for updates'}
-          </Btn>
+          <span className="flex items-center gap-2">
+            {blockedPacks.length > 0 && (
+              <Chip
+                tone="review"
+                aria-label={`${blockedPacks.length} pack update${blockedPacks.length === 1 ? '' : 's'} needs you`}
+              >
+                {blockedPacks.length}
+              </Chip>
+            )}
+            <Btn
+              aria-label="Check for pack updates"
+              disabled={busy || autoChecking}
+              onClick={() => void checkUpdates()}
+            >
+              {autoChecking ? 'Checking…' : 'Check for updates'}
+            </Btn>
+          </span>
         }
       >
         {payload.packs.length === 0 && (
@@ -554,6 +574,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
             report={report}
             checking={checking}
             busy={busy}
+            blocked={blockedFor(p.id)}
             onUninstall={() => void uninstall(p)}
             onInstalled={runChecks}
             onUpdate={() => void applyUpdate(p.id)}

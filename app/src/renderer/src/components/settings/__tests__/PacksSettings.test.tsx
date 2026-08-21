@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { PacksSettings } from '../PacksSettings'
 import { confirm } from '../../../lib/confirmStore'
+import { currencyStore } from '../../../lib/currencyStore'
 import type {
   ApplyPlanResult,
   InstalledPackRow,
@@ -12,6 +13,7 @@ import type {
   PlannedPack,
   PlanResult
 } from '../../../../../shared/packs'
+import type { CurrencyPayload } from '../../../../../shared/currency'
 
 vi.mock('../../../lib/confirmStore', () => ({
   confirm: vi.fn(() => Promise.resolve(true)),
@@ -151,9 +153,29 @@ function mockPacks(
   }
 }
 
+/**
+ * Renders the page, optionally overriding the currency payload `window.argus.currency.get()`
+ * resolves to (the held-back list the Packs section and its rows read). `rows` overrides the
+ * resolved-tools fixture the same way the bare `settingsPayload()` calls elsewhere in this file
+ * do. The one render helper this file has — extend it rather than adding a second.
+ */
+function renderPacks(
+  options: { currency?: CurrencyPayload; rows?: ResolvedToolRow[] } = {}
+): ReturnType<typeof render> {
+  if (options.currency) {
+    const payload = options.currency
+    currency.get = vi.fn(async () => payload)
+  }
+  return render(<PacksSettings settings={settingsPayload(options.rows)} />)
+}
+
 let packs: Record<string, ReturnType<typeof vi.fn>>
 let currency: Record<string, ReturnType<typeof vi.fn>>
 beforeEach(() => {
+  // The store is a module-level singleton that outlives any one test's stubbed `window.argus` —
+  // without resetting it here, a later test's `currencyStore.start()` would find `started` still
+  // true from a previous test and skip re-hydrating from this test's own stub entirely.
+  currencyStore.reset()
   packs = mockPacks()
   // Task 13: the mount-time check is now routed through the currency service's surveyNow —
   // this stub exists so PacksSettings' effect (which calls window.argus.currency.surveyNow)
@@ -475,7 +497,11 @@ describe('PacksSettings', () => {
     expect(await screen.findByText(/update failed: origin mismatch/i)).toBeInTheDocument()
   })
 
-  it('tells the user to download manually when the origin pin refused', async () => {
+  it('tells the user what to do when the origin pin refused, via the unified held-back reason line', async () => {
+    // Before Task 4, this bespoke sentence was driven by `pack.update.code === 'origin-pin'` —
+    // the per-pack update-check status. It is now driven by the currency service's blocked list
+    // instead (`describeBlocked`), which is why a matching Candidate is supplied below: the old
+    // `pack.update.code` no longer renders anything on its own.
     packs.list = vi.fn().mockResolvedValue({
       error: null,
       packs: [
@@ -485,11 +511,38 @@ describe('PacksSettings', () => {
         })
       ]
     })
-    render(<PacksSettings settings={settingsPayload([])} />)
-    expect(await screen.findByText(/download it manually/i)).toBeInTheDocument()
+    renderPacks({
+      rows: [],
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        busy: false,
+        blocked: [
+          {
+            domain: 'pack',
+            key: 'sample',
+            label: 'sample',
+            from: '1.0.0',
+            to: '1.1.0',
+            verdict: 'blocked',
+            reason: { kind: 'origin-pin' }
+          }
+        ]
+      }
+    })
+    // Old wording was "download it manually from your vendor…"; the consolidated wording (the
+    // one place `describeBlocked` for 'origin-pin' is worded) is asserted here instead.
+    expect(
+      await screen.findByText(
+        /held back — it no longer comes from the origin it was installed from — download it from your vendor and use install from file\./i
+      )
+    ).toBeInTheDocument()
   })
 
-  it('tells the user to fix their GitHub CLI auth when a check fails with code gh', async () => {
+  it('tells the user to fix their GitHub CLI auth, via the unified held-back reason line', async () => {
+    // Same consolidation as the origin-pin case above: the old bespoke sentence was gated on
+    // `pack.update.code === 'gh'`; the new one comes from a currency-service Candidate whose
+    // reason is 'auth' (the closest kind in the shared vocabulary to "GitHub CLI sign-in").
     packs.list = vi.fn().mockResolvedValue({
       error: null,
       packs: [
@@ -504,9 +557,107 @@ describe('PacksSettings', () => {
         })
       ]
     })
-    render(<PacksSettings settings={settingsPayload([])} />)
-    expect(await screen.findByText(/GitHub CLI/)).toBeInTheDocument()
-    expect(screen.getByText(/Settings → Health/)).toBeInTheDocument()
+    renderPacks({
+      rows: [],
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        busy: false,
+        blocked: [
+          {
+            domain: 'pack',
+            key: 'sample',
+            label: 'sample',
+            from: '1.0.0',
+            to: '1.1.0',
+            verdict: 'blocked',
+            reason: { kind: 'auth' }
+          }
+        ]
+      }
+    })
+    // Old wording was "check your GitHub CLI sign-in under Settings → Health…"; the consolidated
+    // wording is `describeBlocked`'s for 'auth'.
+    expect(
+      await screen.findByText(/held back — sign in to the github cli to continue\./i)
+    ).toBeInTheDocument()
+  })
+
+  it('shows the held-back reason under a pack the updater left alone', async () => {
+    renderPacks({
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'pack',
+            key: 'code-graph',
+            label: 'Code Graph',
+            from: '1.0.0',
+            to: '1.0.0',
+            verdict: 'blocked',
+            reason: { kind: 'new-dependency' }
+          }
+        ],
+        busy: false
+      }
+    })
+    expect(
+      await screen.findByText(/held back — this update needs a new dependency\./i)
+    ).toBeInTheDocument()
+  })
+
+  it('badges the Packs section with the held-back count', async () => {
+    renderPacks({
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'pack',
+            key: 'code-graph',
+            label: 'Code Graph',
+            from: '1.0.0',
+            to: '1.0.0',
+            verdict: 'blocked',
+            reason: { kind: 'auth' }
+          }
+        ],
+        busy: false
+      }
+    })
+    expect(await screen.findByLabelText('1 pack update needs you')).toBeInTheDocument()
+  })
+
+  it('shows no section badge when nothing is held back', async () => {
+    renderPacks({
+      currency: { auto: true, lastSurveyAt: new Date().toISOString(), blocked: [], busy: false }
+    })
+    await screen.findByText(/packs/i)
+    expect(screen.queryByLabelText(/needs you/i)).not.toBeInTheDocument()
+  })
+
+  it('does not badge a hive block on the Packs section', async () => {
+    renderPacks({
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'hive-reference',
+            key: 'reference/a.md',
+            label: 'a.md',
+            from: 'x',
+            to: 'y',
+            verdict: 'blocked',
+            reason: { kind: 'local-edits' }
+          }
+        ],
+        busy: false
+      }
+    })
+    await screen.findByText(/packs/i)
+    expect(screen.queryByLabelText(/needs you/i)).not.toBeInTheDocument()
   })
 
   it('prompts for relaunch after a successful applyUpdate', async () => {
