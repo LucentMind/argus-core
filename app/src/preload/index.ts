@@ -127,6 +127,7 @@ import type {
   ApplyUpdateOutcome
 } from '../shared/packs'
 import type { CoreUpdatePayload, UpdateStatus } from '../shared/updates'
+import type { AdapterId, CurrencyPayload } from '../shared/currency'
 import type { SeedSampleResult } from '../shared/onboarding'
 import type { PrBinding, PrRef, PrSearchResult } from '../shared/pr'
 import type { ReviewRunComposition } from '../shared/reviewCompose'
@@ -348,6 +349,15 @@ const argus = {
       const listener = (_e: unknown, p: CoreUpdatePayload): void => cb(p)
       ipcRenderer.on(IPC.updateChanged, listener)
       return () => ipcRenderer.removeListener(IPC.updateChanged, listener)
+    }
+  },
+  currency: {
+    get: (): Promise<CurrencyPayload> => invoke(IPC.currencyGet),
+    surveyNow: (id: AdapterId): Promise<void> => invoke(IPC.currencySurveyNow, id),
+    onChanged: (cb: (p: CurrencyPayload) => void): (() => void) => {
+      const listener = (_e: unknown, p: CurrencyPayload): void => cb(p)
+      ipcRenderer.on(IPC.currencyChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.currencyChanged, listener)
     }
   },
   panels: {
