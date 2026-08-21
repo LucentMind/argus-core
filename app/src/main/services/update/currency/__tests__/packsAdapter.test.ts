@@ -65,6 +65,21 @@ describe('packsAdapter.survey', () => {
     const adapter = createPacksAdapter({ updates, installed: () => [] })
     expect(await adapter.survey()).toEqual([])
   })
+
+  it('reports the checkAll statuses through onSurveyed', async () => {
+    const statuses: Record<string, UpdateStatus> = {
+      'code-graph': { phase: 'available', version: '1.1.0' }
+    }
+    const updates: PackUpdatesLike = {
+      checkAll: vi.fn(async () => statuses),
+      apply: vi.fn(async (): Promise<UpdateStatus> => ({ phase: 'ready', version: '1.1.0' }))
+    }
+    const onSurveyed = vi.fn()
+    const adapter = createPacksAdapter({ updates, installed: () => installed, onSurveyed })
+    await adapter.survey()
+    expect(onSurveyed).toHaveBeenCalledTimes(1)
+    expect(onSurveyed).toHaveBeenCalledWith(statuses)
+  })
 })
 
 describe('packsAdapter.apply', () => {

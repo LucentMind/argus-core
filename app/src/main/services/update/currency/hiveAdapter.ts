@@ -23,6 +23,15 @@ export interface HivemindLike {
 
 export interface HiveAdapterDeps {
   service: HivemindLike
+  /**
+   * Mirrors the broadcasts the manual `hivemindInstall` IPC handler performs after a successful
+   * `service.install()` — called ONLY when `apply()` actually installed something, never on a
+   * refusal (blocked candidate) or a thrown/`.error` install. Without this, an auto-adopted skill
+   * or reference sits on disk but stays invisible to the renderer (skills list / Library) until
+   * the window is reloaded, because those lists fetch once and are otherwise only refreshed by
+   * the broadcast this fires.
+   */
+  onInstalled?: (kind: 'skill' | 'reference', name: string) => void
 }
 
 const domainOf = (kind: 'skill' | 'reference'): CurrencyDomain =>
@@ -59,7 +68,7 @@ async function referenceBlock(
   return null
 }
 
-export function createHiveAdapter({ service }: HiveAdapterDeps): CurrencyAdapter {
+export function createHiveAdapter({ service, onInstalled }: HiveAdapterDeps): CurrencyAdapter {
   return {
     id: 'hive',
 
@@ -120,6 +129,7 @@ export function createHiveAdapter({ service }: HiveAdapterDeps): CurrencyAdapter
       }
       const after = await service.install(kind, name)
       if (after.error) return { ok: false, error: after.error }
+      onInstalled?.(kind, name)
       return { ok: true }
     }
   }
