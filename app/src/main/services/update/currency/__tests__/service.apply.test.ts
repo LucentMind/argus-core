@@ -299,6 +299,48 @@ describe('CurrencyService applying — apply-time auth refusal', () => {
     expect(svc.payload().blocked.map((c) => c.reason)).toEqual([{ kind: 'auth' }])
     svc.stop()
   })
+
+  // Important 4: the apply-time grace must cover `notfound` too, same as the survey-time one.
+  it('withholds an apply-time notfound refusal on the first occurrence, shows it on the second', async () => {
+    let t = 0
+    const adapter: CurrencyAdapter = {
+      id: 'packs',
+      survey: vi.fn(async () => [clean('code-graph')]),
+      apply: vi.fn(async () => ({
+        ok: false as const,
+        error: 'repo not found',
+        reason: { kind: 'notfound' as const }
+      }))
+    }
+    const svc = build(adapter, { now: () => t })
+    svc.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(svc.payload().blocked).toEqual([])
+    expect(adapter.apply).toHaveBeenCalledTimes(1)
+    t = SIX_H + 1
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(adapter.apply).toHaveBeenCalledTimes(2)
+    expect(svc.payload().blocked.map((c) => c.reason)).toEqual([{ kind: 'notfound' }])
+    svc.stop()
+  })
+
+  // `missing` must NOT be swept into the apply-time grace — it needs only one occurrence.
+  it('shows an apply-time missing refusal immediately', async () => {
+    const adapter: CurrencyAdapter = {
+      id: 'packs',
+      survey: vi.fn(async () => [clean('code-graph')]),
+      apply: vi.fn(async () => ({
+        ok: false as const,
+        error: 'gh not installed',
+        reason: { kind: 'missing' as const }
+      }))
+    }
+    const svc = build(adapter)
+    svc.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(svc.payload().blocked.map((c) => c.reason)).toEqual([{ kind: 'missing' }])
+    svc.stop()
+  })
 })
 
 describe('CurrencyService applying — pending is deduped by candidate key', () => {

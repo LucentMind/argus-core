@@ -165,6 +165,43 @@ describe('CurrencyService policy', () => {
     expect(svc.payload().blocked).toEqual([])
   })
 
+  // Important 4 (second whole-branch review): before the gh error split, all four `GhError` kinds
+  // arrived collapsed into `{ kind: 'auth' }` and were covered by the two-strike grace. The split
+  // narrowed the grace to literally `'auth'`, so `notfound` — a `gh` HTTP 404, which GitHub answers
+  // identically for "no such repo" and "a transient permission blip / SSO re-authorization" —
+  // regressed to badging on its first sighting, exactly the flaky-network shape the grace exists
+  // to withhold.
+  it('hides a notfound block on its first occurrence and shows it on the second, same grace as auth', async () => {
+    let t = 0
+    const notfoundBlocked: Candidate = { ...authBlocked, reason: { kind: 'notfound' } }
+    const adapter: CurrencyAdapter = {
+      id: 'packs',
+      survey: vi.fn(async () => [notfoundBlocked]),
+      apply: vi.fn(async () => ({ ok: true as const }))
+    }
+    const svc = build(adapter, { now: () => t })
+    await svc.surveyNow('packs')
+    expect(svc.payload().blocked).toEqual([])
+    t = SIX_H + 1
+    await svc.surveyNow('packs')
+    expect(svc.payload().blocked).toEqual([notfoundBlocked])
+  })
+
+  // `missing` (gh not installed / not on PATH) stays immediate on purpose — deterministic, not a
+  // flaky-network shape to wait out — so it must NOT be swept into the grace by whatever mechanism
+  // covers `auth`/`notfound`.
+  it('shows a missing block immediately — needs only one occurrence', async () => {
+    const missingBlocked: Candidate = { ...authBlocked, reason: { kind: 'missing' } }
+    const adapter: CurrencyAdapter = {
+      id: 'packs',
+      survey: vi.fn(async () => [missingBlocked]),
+      apply: vi.fn(async () => ({ ok: true as const }))
+    }
+    const svc = build(adapter)
+    await svc.surveyNow('packs')
+    expect(svc.payload().blocked).toEqual([missingBlocked])
+  })
+
   it('shows every non-auth block on its first occurrence', async () => {
     const localEdits: Candidate = {
       domain: 'hive-reference',
