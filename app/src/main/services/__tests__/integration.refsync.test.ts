@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -357,6 +357,43 @@ it('deleteReference removes hand-owned files, refuses hive-managed tiers', () =>
   expect(() => svc.deleteReference('hive.md')).toThrow(/not a hand-owned reference/)
   expect(fs.existsSync(path.join(dir, 'synced.md'))).toBe(true)
   expect(fs.existsSync(path.join(dir, 'hive.md'))).toBe(true)
+})
+
+it('deleteReference calls onDeleted with the file name, so a hive pin can be tombstoned', () => {
+  // deleteReference has no idea whether `file` was ever a HiveMind pin — that ledger lives in
+  // HivemindService. This proves the hook fires with the right name; whether a pin actually
+  // exists for it is HivemindService's own `noteReferenceDeleted` test's job (hivemind.test.ts).
+  const dir = sharedReferencesDir(home)
+  fs.writeFileSync(path.join(dir, 'claimed.md'), '---\ntrust_tier: user\n---\n# claimed\n')
+  const onDeleted = vi.fn()
+  const withHook = new RefSyncService({
+    argusHome: home,
+    store,
+    reader: fakeReader([]),
+    now: () => new Date('2026-07-10T00:00:00Z'),
+    onDeleted
+  })
+
+  withHook.deleteReference('claimed.md')
+
+  expect(onDeleted).toHaveBeenCalledTimes(1)
+  expect(onDeleted).toHaveBeenCalledWith('claimed.md')
+})
+
+it('deleteReference does not call onDeleted when the delete itself is refused', () => {
+  const dir = sharedReferencesDir(home)
+  fs.writeFileSync(path.join(dir, 'hive.md'), '---\ntrust_tier: hivemind\n---\n# hive\n')
+  const onDeleted = vi.fn()
+  const withHook = new RefSyncService({
+    argusHome: home,
+    store,
+    reader: fakeReader([]),
+    now: () => new Date('2026-07-10T00:00:00Z'),
+    onDeleted
+  })
+
+  expect(() => withHook.deleteReference('hive.md')).toThrow(/not a hand-owned reference/)
+  expect(onDeleted).not.toHaveBeenCalled()
 })
 
 it('deleteReference rejects invalid names and the generated index', () => {

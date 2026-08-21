@@ -56,6 +56,16 @@ export interface RefSyncServiceDeps {
   /** Prompt-registry resolver, forwarded to the distiller. */
   resolvePrompt?: (id: string) => string
   now?: () => Date
+  /**
+   * Called after `deleteReference` removes a file, with the same `file` it was given. A file that
+   * was claimed via `HivemindService.claimReference` (restamped `trust_tier: user`) can reach this
+   * hand-owned-tier-only method, but this service has no access to — and does not own — the
+   * HiveMind pin/tombstone ledger, so it cannot itself decide whether the deletion needs one.
+   * `HivemindService.noteReferenceDeleted` does: it checks its own pin map and is a no-op for any
+   * name it never pinned. An injected callback rather than importing `HivemindService` directly,
+   * so this module stays ignorant of HiveMind's existence — mirrors `hiveAdapter`'s `onInstalled`.
+   */
+  onDeleted?: (file: string) => void
 }
 
 export class RefSyncService {
@@ -178,6 +188,8 @@ export class RefSyncService {
     assertHandOwnedReferenceTier(tier, file)
     fs.rmSync(p, { force: true })
     this.regenerateIndex()
+    // Only matters for a claimed (formerly hive-pinned) file — a no-op for an ordinary user file.
+    this.deps.onDeleted?.(file)
   }
 
   /**
