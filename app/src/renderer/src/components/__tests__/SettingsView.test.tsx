@@ -12,11 +12,13 @@ import { referenceSyncStore } from '../../lib/referenceSyncStore'
 import { connectorsStore } from '../../lib/connectorsStore'
 import { updateStore } from '../../lib/updateStore'
 import { viewTitleStore } from '../../lib/viewTitleStore'
+import { currencyStore } from '../../lib/currencyStore'
 import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import { DEFAULT_PRESETS } from '../../../../shared/connectors'
 import type { PacksListPayload } from '../../../../shared/packs'
 import type { RefSyncPayload } from '../../../../shared/referenceSync'
+import type { CurrencyPayload } from '../../../../shared/currency'
 
 function payload(overrides: Partial<SettingsPayload> = {}): SettingsPayload {
   return {
@@ -83,6 +85,9 @@ beforeEach(() => {
   connectorsStore.reset()
   updateStore.clearForTests()
   viewTitleStore.reset()
+  // currencyStore is a module singleton (Task 2); localStorage.clear() above does not touch it,
+  // so a leftover `blocked` list from one test would bleed nav dots into the next.
+  currencyStore.reset()
   window.argus = {
     settings: {
       get: vi.fn(async () => currentPayload),
@@ -538,6 +543,85 @@ describe('SettingsView', () => {
     render(<SettingsView onClose={vi.fn()} initialPage={'general'} onOpenProposals={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     expect(screen.queryByRole('navigation', { name: 'Knowledge flow' })).not.toBeInTheDocument()
+  })
+
+  // Task 6: the nav row a held-back item's page owns is the other half of the TopBar backstop —
+  // the count has to say WHICH page to open, not just that one needs attention.
+  describe('currency nav dots', () => {
+    it('dots the nav row of each page that owns a held-back item', async () => {
+      const currency: CurrencyPayload = {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'pack',
+            key: 'cg',
+            label: 'CG',
+            from: '1',
+            to: '2',
+            verdict: 'blocked',
+            reason: { kind: 'new-dependency' }
+          }
+        ],
+        busy: false
+      }
+      window.argus.currency.get = vi.fn(async () => currency)
+      render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
+      expect(await screen.findByLabelText('Sources — 1 update needs you')).toBeInTheDocument()
+      // Falsifiability: a `pack` candidate owns `sources` (currencyStore.pageOwning), never
+      // `team` — if the row lookup or the domain→page mapping ever mis-keyed a pack item onto
+      // Team, this candidate (the only one in the payload) would dot Team's row instead/too,
+      // and this assertion would fail. Proved by flipping `domain` to `'hive-skill'` locally
+      // during review: 'Sources — …' then stops matching and 'Team — …' matches instead.
+      expect(screen.queryByLabelText(/^Team —/)).not.toBeInTheDocument()
+    })
+
+    // Regression pin for the noun-only ternary that shipped wrong on the Packs page (fixed
+    // twice on this branch already) — a single-item test cannot catch a verb that was never
+    // pluralized, since "1 update needs you" reads fine either way.
+    it('agrees the verb with the noun in the nav row label at n=2', async () => {
+      const currency: CurrencyPayload = {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'pack',
+            key: 'cg',
+            label: 'CG',
+            from: '1',
+            to: '2',
+            verdict: 'blocked',
+            reason: { kind: 'new-dependency' }
+          },
+          {
+            domain: 'pack',
+            key: 'db',
+            label: 'DB',
+            from: '1',
+            to: '2',
+            verdict: 'blocked',
+            reason: { kind: 'downgrade' }
+          }
+        ],
+        busy: false
+      }
+      window.argus.currency.get = vi.fn(async () => currency)
+      render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
+      expect(await screen.findByLabelText('Sources — 2 updates need you')).toBeInTheDocument()
+    })
+
+    // Negative test. Falsifiable: the render helper's default stub (see beforeEach) already
+    // returns an empty `blocked` list, so if the dot/aria-label code fired unconditionally (or
+    // on an empty array's falsy-but-present length), 'General' — the always-rendered first row —
+    // would carry a "needs you" label here and `findByText('Sources')` would instead find a
+    // labeled variant with no plain-text match if the label swallowed the row's visible text;
+    // either way a wrongly-firing dot changes what `/needs you/i` matches from "nothing" to
+    // "something", which is exactly what the second assertion below checks for.
+    it('dots no row when nothing is held back', async () => {
+      render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
+      await screen.findByText('Sources')
+      expect(screen.queryByLabelText(/needs you/i)).not.toBeInTheDocument()
+    })
   })
 
   describe('masthead', () => {

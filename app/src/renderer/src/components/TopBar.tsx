@@ -1,10 +1,11 @@
-import { useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { Settings, Timeline, Home, Inbox } from 'lucide-react'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { uiStore } from '../lib/uiStore'
 import { caseBarStore } from '../lib/caseBarStore'
 import { useViewTitle } from '../lib/viewTitleStore'
 import { useProposalCounts } from '../lib/proposalsStore'
+import { currencyStore, needsYouLabel } from '../lib/currencyStore'
 import { isDarwin } from '../lib/platform'
 import { WindowControls } from './WindowControls'
 import { CaseAnchor } from './CaseAnchor'
@@ -62,6 +63,15 @@ export function TopBar({
   )
   const anchors = useAmbientAnchors()
   const proposalCounts = useProposalCounts()
+  // Subscribed so the Settings badge below re-renders on every `currency:changed` broadcast;
+  // `surfacedCount()` itself allocates fresh on every call, so it is computed here in the render
+  // body rather than handed to `useSyncExternalStore` as a getSnapshot (see currencyStore.ts).
+  useSyncExternalStore(
+    (cb) => currencyStore.subscribe(cb),
+    () => currencyStore.get()
+  )
+  useEffect(() => currencyStore.start(), [])
+  const held = currencyStore.surfacedCount()
   // Non-null exactly while one of the full-page views (Settings, Proposals, Related history) is
   // up — each publishes its own title here because this bar is its SIBLING, not its ancestor.
   // Doubles as the "am I on such a view" flag the anchor below keys off, so there is one source
@@ -298,8 +308,21 @@ export function TopBar({
             <Timeline size={19} strokeWidth={1.5} />
           </button>
         )}
-        <button className={ACTION_BTN} aria-label="Settings" title="Settings" onClick={onSettings}>
+        <button
+          className={`${ACTION_BTN} relative`}
+          aria-label={held > 0 ? needsYouLabel('Settings', held) : 'Settings'}
+          title="Settings"
+          onClick={onSettings}
+        >
           <Settings size={19} strokeWidth={1.5} />
+          {held > 0 && (
+            <span
+              aria-hidden="true"
+              className="absolute -right-0.5 -top-0.5 rounded-full bg-review/15 px-1 font-mono text-[10px] leading-4 text-review"
+            >
+              {held}
+            </span>
+          )}
         </button>
       </div>
       {/* Outside the `max-w-[50%]` group on purpose: the window's caption buttons are not part of
