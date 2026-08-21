@@ -131,6 +131,40 @@ describe('packsAdapter.apply', () => {
     expect(updates.apply).toHaveBeenCalledWith('code-graph')
   })
 
+  // Important 5 (second whole-branch review): nothing in src/main or src/shared read
+  // `needsRelaunch` off this adapter's outcome — the manual Update button's `packsTouched`
+  // tracking (which actually drives `relaunchRequired`, see packsService.ts) lived on a completely
+  // different call path. `onInstalled` is the hook `index.ts` wires to `packsTouched.add`.
+  it('calls onInstalled with the candidate key on a ready apply', async () => {
+    const updates: PackUpdatesLike = {
+      checkAll: vi.fn(async () => ({})),
+      apply: vi.fn(async () => ({ phase: 'ready' as const, version: '1.1.0' }))
+    }
+    const onInstalled = vi.fn()
+    const adapter = createPacksAdapter({ updates, installed: () => installed, onInstalled })
+    await adapter.apply(candidate())
+    expect(onInstalled).toHaveBeenCalledWith('code-graph')
+    expect(onInstalled).toHaveBeenCalledTimes(1)
+  })
+
+  // Negative counterpart: a refusal is not an install, and a mutant that called `onInstalled`
+  // unconditionally would falsely mark a failed apply as needing a relaunch.
+  it('does not call onInstalled when the apply is refused', async () => {
+    const updates: PackUpdatesLike = {
+      checkAll: vi.fn(async () => ({})),
+      apply: vi.fn(async () => ({
+        phase: 'error' as const,
+        message: 'origin changed',
+        at: 1,
+        code: 'origin-pin' as const
+      }))
+    }
+    const onInstalled = vi.fn()
+    const adapter = createPacksAdapter({ updates, installed: () => installed, onInstalled })
+    await adapter.apply(candidate())
+    expect(onInstalled).not.toHaveBeenCalled()
+  })
+
   it('passes NO hooks, so a dependency-adding update is refused rather than staged', async () => {
     const { adapter, updates } = build({ 'code-graph': { phase: 'available', version: '1.1.0' } })
     await adapter.apply(candidate())

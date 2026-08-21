@@ -3205,7 +3205,14 @@ function registerIpc(): void {
         onSurveyed: (statuses) => {
           packUpdateStatuses = statuses
           broadcast(IPC.packsChanged, undefined)
-        }
+        },
+        // Mirrors what the manual `packsApplyUpdate` handler does with `packsTouched` after a
+        // `ready` apply (see `withUpdateLock`'s handler above) — without this, an install this
+        // adapter performs (auto, or the Packs page's "Check for pack updates" button routed
+        // through `currency.surveyNow('packs', true)`) writes to disk and flips the row to
+        // up-to-date with no "relaunch to finish" prompt, since `relaunchRequired` is driven
+        // entirely by `packsTouched.size` (Important 5, whole-branch review).
+        onInstalled: (id) => packsTouched.add(id)
       }),
       createHiveAdapter({
         service: hivemind,

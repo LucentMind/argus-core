@@ -21,6 +21,17 @@ export interface PacksAdapterDeps {
    * "Check for pack updates" button.
    */
   onSurveyed?: (statuses: Record<string, UpdateStatus>) => void
+  /**
+   * Mirrors what the manual `packsApplyUpdate` IPC handler does with `packsTouched` after a
+   * `ready` apply — called ONLY then, never on a refusal or an unresolved race (Important 5,
+   * whole-branch review). Without this, `packsTouched` (which drives `relaunchRequired`, see
+   * `packsService.ts`) never learns about an install this adapter's own `apply()` performed: the
+   * pack is downloaded and installed on disk, the row flips to up-to-date, and the user keeps
+   * running the OLD pack code with no "relaunch to finish" prompt — this path calls
+   * `packUpdates.apply(id)` directly and never touches `packsTouched` on its own. Same shape as
+   * `hiveAdapter`'s `onInstalled`.
+   */
+  onInstalled?: (id: string) => void
 }
 
 /**
@@ -51,7 +62,8 @@ function reasonOf(code: UpdateErrorCode | undefined): BlockedReason | null {
 export function createPacksAdapter({
   updates,
   installed,
-  onSurveyed
+  onSurveyed,
+  onInstalled
 }: PacksAdapterDeps): CurrencyAdapter {
   return {
     id: 'packs',
@@ -104,7 +116,10 @@ export function createPacksAdapter({
       // all when `findUpdate` finds nothing, which is exactly what happens when the world moved
       // between the survey and here. Reporting success on "not error" would claim a pack was
       // updated when nothing was written.
-      if (status.phase === 'ready') return { ok: true, needsRelaunch: true }
+      if (status.phase === 'ready') {
+        onInstalled?.(c.key)
+        return { ok: true, needsRelaunch: true }
+      }
       if (status.phase === 'error') {
         const reason =
           reasonOf(status.code) ??
