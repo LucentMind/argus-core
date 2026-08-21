@@ -48,9 +48,21 @@ export function createAdoptionBroadcastGate(deps: AdoptionBroadcastGateDeps): {
   onAdopted: (count: number) => void
   /** Pass as `registerCurrencyIpc`'s `anchors` dep. */
   anchors: { firstMirrorNoticeShown(): boolean; markFirstMirrorNoticeShown(): void }
+  /**
+   * The count from the most recent broadcast that has not yet been acknowledged — 0 once acked,
+   * or once the underlying flag was already persisted as shown. This is the queryable half of
+   * Finding 1's fix: a batch adopted while no case was open broadcasts `currency:adopted` into the
+   * void (TopBar deliberately does not subscribe in that state), and on the likeliest path — the
+   * very first mirror run — no LATER batch ever arrives to give the notice a second chance, since
+   * everything adoptable has already been adopted. Retaining the count here lets a case that opens
+   * afterwards recover it by asking, instead of the batch being lost the moment its broadcast goes
+   * unheard.
+   */
+  pendingCount: () => number
 } {
   const now = deps.now ?? Date.now
   let pendingSince: number | null = null
+  let pendingCount = 0
   return {
     onAdopted: (count) => {
       if (deps.anchors.firstMirrorNoticeShown()) return
@@ -58,14 +70,17 @@ export function createAdoptionBroadcastGate(deps: AdoptionBroadcastGateDeps): {
       // clear on shutdown, and no behaviour depends on the expiry firing at an exact instant.
       if (pendingSince !== null && now() - pendingSince < PENDING_WINDOW_MS) return
       pendingSince = now()
+      pendingCount = count
       deps.broadcast(count)
     },
     anchors: {
       firstMirrorNoticeShown: () => deps.anchors.firstMirrorNoticeShown(),
       markFirstMirrorNoticeShown: () => {
         pendingSince = null
+        pendingCount = 0
         deps.anchors.markFirstMirrorNoticeShown()
       }
-    }
+    },
+    pendingCount: () => pendingCount
   }
 }

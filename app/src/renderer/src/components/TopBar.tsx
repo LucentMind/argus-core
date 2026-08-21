@@ -85,12 +85,12 @@ export function TopBar({
   // mounted to show it. A broadcast that arrived while on Home/Settings/Proposals would otherwise
   // still get pushed and ack'd — permanently setting `firstMirrorNoticeShown` — and then expire
   // unseen before anyone could ever open a case to see it. Not subscribing at all when there is no
-  // case open is what keeps the broadcast reaching nobody, so the flag stays unset and the next
-  // launch that does have a case open shows the notice instead.
+  // case open is what keeps the broadcast reaching nobody, so the flag stays unset — but see below
+  // for why that alone is not enough.
   const hasCase = activeSlug !== null
   useEffect(() => {
     if (!hasCase) return undefined
-    return window.argus.currency.onAdopted((count) => {
+    const show = (count: number): void => {
       noticeStore.push(
         `Argus now keeps itself up to date — it installed ${count} HiveMind item${
           count === 1 ? '' : 's'
@@ -105,7 +105,23 @@ export function TopBar({
       // later launch, which is the same "not yet acked" state as if this tab never opened) —
       // so a rejection is swallowed rather than left unhandled.
       window.argus.currency.ackAdopted().catch(() => {})
+    }
+    // `currency:adopted` is a ONE-SHOT broadcast, not state — subscribing here catches only a
+    // batch that adopts AFTER this effect runs. On the likeliest real path (the first mirror run
+    // adopting everything available while the user is still on the landing screen, or the very
+    // act of opening Settings, which itself triggers a survey) the one broadcast that batch
+    // produces goes out with nobody subscribed, and no LATER batch ever arrives to fire again —
+    // everything adoptable is already adopted. So the subscription alone reproduces "the notice's
+    // one chance is consumed unseen" on a different path than the one Task 7 closed. Querying the
+    // pending count once, on this same case-open transition, recovers exactly that missed
+    // broadcast: main retains it (see adoptionBroadcastGate.pendingCount) until acked, so asking
+    // is safe even if the query is genuinely racing a live `onAdopted` — the two paths cannot both
+    // fire for the same batch (a query that lands after `markFirstMirrorNoticeShown` reads back
+    // the 0 that ack just produced).
+    void window.argus.currency.pendingAdopted().then((count) => {
+      if (count > 0) show(count)
     })
+    return window.argus.currency.onAdopted(show)
   }, [hasCase])
   // Non-null exactly while one of the full-page views (Settings, Proposals, Related history) is
   // up — each publishes its own title here because this bar is its SIBLING, not its ancestor.

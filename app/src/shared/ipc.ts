@@ -220,6 +220,7 @@ export const IPC = {
   currencyChanged: 'currency:changed',
   currencyAdopted: 'currency:adopted',
   currencyAckAdopted: 'currency:ack-adopted',
+  currencyPendingAdopted: 'currency:pending-adopted',
   refsyncGet: 'refsync:get',
   refsyncValidateSpace: 'refsync:validate-space',
   refsyncChildren: 'refsync:children',
