@@ -58,16 +58,6 @@ const clickByLabel = (label) =>
     return true
   })()`)
 
-const clickByText = (text) =>
-  main.evalJs(`(() => {
-    const el = [...document.querySelectorAll('button')].find(
-      (b) => b.textContent.trim() === ${JSON.stringify(text)}
-    )
-    if (!el) return false
-    el.click()
-    return true
-  })()`)
-
 /** A fresh ARGUS_HOME opens the first-run wizard over everything; dismiss it once. */
 const skipOnboarding = async () => {
   await main.evalJs(`(() => {
