@@ -8,14 +8,18 @@ function fakeStore(initial: unknown = {}): {
   load: () => { data: unknown; error: string | null }
   write: (o: unknown) => void
   current: () => AnchorFile
+  writeCount: () => number
 } {
   let data: unknown = initial
+  let writes = 0
   return {
     load: () => ({ data, error: null }),
     write: (o) => {
+      writes++
       data = JSON.parse(JSON.stringify(o))
     },
-    current: () => data as AnchorFile
+    current: () => data as AnchorFile,
+    writeCount: () => writes
   }
 }
 
@@ -120,11 +124,19 @@ describe('CurrencyAnchorStore', () => {
     expect(new CurrencyAnchorStore(store).pendingAdoptedCount()).toBe(9)
   })
 
+  // Pins the ATOMICITY the name claims, not just the resulting values: `adoptionBroadcastGate`
+  // (Finding 2) is safe reading `pendingCount()` as `anchors.pendingAdoptedCount()` alone only
+  // because this method writes both fields in one `store.write` call. A refactor that split it
+  // into two sequential writes would leave the end state identical but reopen the drifted-state
+  // window (flag false, count stale) that Finding 2 exists to guard against — and the old
+  // end-state-only assertions below would not have noticed.
   it('clears the pending adopted count in the SAME write as marking the notice shown', () => {
     const store = fakeStore()
     const s = new CurrencyAnchorStore(store)
     s.setPendingAdoptedCount(4)
+    const writesBefore = store.writeCount()
     s.markFirstMirrorNoticeShown()
+    expect(store.writeCount()).toBe(writesBefore + 1)
     expect(s.pendingAdoptedCount()).toBe(0)
     expect(store.current().firstMirrorNoticeShown).toBe(true)
   })
