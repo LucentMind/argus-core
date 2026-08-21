@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { blockedOf, type Candidate } from '../currency'
+import { blockedOf, describeBlocked, surfacedBlocked, SURFACED_BLOCK_KINDS } from '../currency'
+import type { BlockedReason, Candidate } from '../currency'
 import { settingsSchema } from '../settings'
 
 const clean: Candidate = {
@@ -41,5 +42,70 @@ describe('updates.auto', () => {
 
   it('still defaults the whole section from an empty object', () => {
     expect(settingsSchema.parse({ updates: {} }).updates).toEqual({ channel: 'stable', auto: true })
+  })
+})
+
+const cand = (reason: BlockedReason): Candidate => ({
+  domain: 'pack',
+  key: 'k',
+  label: 'k',
+  from: '1',
+  to: '2',
+  verdict: 'blocked',
+  reason
+})
+
+describe('describeBlocked', () => {
+  it('words every reason kind', () => {
+    expect(describeBlocked({ kind: 'local-edits' })).toBe('You have edited this locally.')
+    expect(describeBlocked({ kind: 'tier-change', from: 'mine', to: 'hivemind' })).toBe(
+      'This update would change its trust tier from mine to hivemind.'
+    )
+    expect(describeBlocked({ kind: 'new-dependency' })).toBe('This update needs a new dependency.')
+    expect(describeBlocked({ kind: 'auth' })).toBe('Sign in to the GitHub CLI to continue.')
+    expect(describeBlocked({ kind: 'downgrade' })).toBe(
+      'Installing it would move this install back a version.'
+    )
+    expect(describeBlocked({ kind: 'origin-pin' })).toBe(
+      'It no longer comes from the origin it was installed from — download it from your vendor and use Install from file.'
+    )
+    expect(describeBlocked({ kind: 'unsupported' })).toBe(
+      'Updates are only available in a packaged build.'
+    )
+  })
+})
+
+describe('surfacedBlocked', () => {
+  it('drops unsupported, which is not a decision anyone can make', () => {
+    expect(surfacedBlocked([cand({ kind: 'unsupported' })])).toEqual([])
+  })
+
+  it('keeps every other kind', () => {
+    const kinds: BlockedReason[] = [
+      { kind: 'local-edits' },
+      { kind: 'tier-change', from: 'a', to: 'b' },
+      { kind: 'new-dependency' },
+      { kind: 'auth' },
+      { kind: 'downgrade' },
+      { kind: 'origin-pin' }
+    ]
+    expect(surfacedBlocked(kinds.map(cand))).toHaveLength(6)
+  })
+
+  it('ignores clean candidates entirely', () => {
+    const clean: Candidate = {
+      domain: 'pack',
+      key: 'c',
+      label: 'c',
+      from: '1',
+      to: '2',
+      verdict: 'clean'
+    }
+    expect(surfacedBlocked([clean])).toEqual([])
+  })
+
+  it('exposes the surfaced set so no caller re-derives it', () => {
+    expect(SURFACED_BLOCK_KINDS.has('unsupported')).toBe(false)
+    expect(SURFACED_BLOCK_KINDS.has('local-edits')).toBe(true)
   })
 })
