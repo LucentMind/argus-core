@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { RefreshCw, Trash2 } from 'lucide-react'
 import {
   SettingsSection,
+  SettingRow,
   FIELD,
   TEXTAREA_FIELD,
   DraftInput,
@@ -821,38 +822,71 @@ export function DefectCorpusSettings({ payload }: { payload: SettingsPayload }):
     setNewName('')
   }
 
+  const g = payload.settings.general
+
   return (
-    <SettingsSection
-      title="Defect corpus sources"
-      subtitle="External defect corpora your team shares — searched for similar past cases and kept in sync from each server."
-    >
-      {entries.length === 0 && (
-        <div className="px-3 py-2 text-xs text-faint">
-          No sources yet — add one to enable defect-similarity search.
+    <div className="flex flex-col gap-6">
+      {/* Moved off General (user-directed, 2026-08-21). The switch that decides whether a
+          case-open search happens belongs beside the sources that search fans out to — on
+          General it was one line of prose that never named the corpora it was about. */}
+      <SettingsSection title="Related history" subtitle="What Argus looks up when a case opens.">
+        <SettingRow
+          label="Search related cases on case open"
+          description="Runs every enabled source below and shows the matches on the case. Off means nothing is searched until you open the related-history explorer yourself."
+          isDefault={g.relatedSearchOnOpen}
+          onReset={() => void settingsStore.patch({ general: { relatedSearchOnOpen: null } })}
+        >
+          <Switch
+            checked={g.relatedSearchOnOpen}
+            onChange={(v) => void settingsStore.patch({ general: { relatedSearchOnOpen: v } })}
+            aria-label="Search related cases on case open"
+          />
+        </SettingRow>
+        <SettingRow
+          label="Include this install's own cases"
+          description="Closed cases on this machine, matched against their distilled summaries. Independent of the corpora below."
+          isDefault={!g.relatedIncludeLocalCases}
+          onReset={() => void settingsStore.patch({ general: { relatedIncludeLocalCases: null } })}
+        >
+          <Switch
+            checked={g.relatedIncludeLocalCases}
+            onChange={(v) => void settingsStore.patch({ general: { relatedIncludeLocalCases: v } })}
+            aria-label="Include this install's own cases"
+          />
+        </SettingRow>
+      </SettingsSection>
+      <SettingsSection
+        title="Defect corpus sources"
+        subtitle="External corpora your team shares, kept in sync from each server."
+      >
+        {entries.length === 0 && (
+          <div className="px-3 py-2 text-xs text-faint">
+            No sources yet — add one to enable defect-similarity search.
+          </div>
+        )}
+        {entries.length > 0 && (
+          <div className="flex flex-col gap-3 p-3">
+            {entries.map(([id, cfg]) => (
+              <SourceCard key={id} id={id} cfg={cfg} />
+            ))}
+          </div>
+        )}
+        <div className="flex items-center gap-2 px-3 py-3">
+          <input
+            aria-label="New source name"
+            className={`${FIELD} min-w-0 flex-1`}
+            placeholder="e.g. platform-jira"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') addSource()
+            }}
+          />
+          <Btn variant="outline" onClick={addSource}>
+            Add source
+          </Btn>
         </div>
-      )}
-      {entries.length > 0 && (
-        <div className="flex flex-col gap-3 p-3">
-          {entries.map(([id, cfg]) => (
-            <SourceCard key={id} id={id} cfg={cfg} />
-          ))}
-        </div>
-      )}
-      <div className="flex items-center gap-2 px-3 py-3">
-        <input
-          aria-label="New source name"
-          className={`${FIELD} min-w-0 flex-1`}
-          placeholder="e.g. platform-jira"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') addSource()
-          }}
-        />
-        <Btn variant="outline" onClick={addSource}>
-          Add source
-        </Btn>
-      </div>
-    </SettingsSection>
+      </SettingsSection>
+    </div>
   )
 }

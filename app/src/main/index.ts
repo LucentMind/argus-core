@@ -34,7 +34,11 @@ import {
 import { topicEnabled } from '../shared/agentAccess'
 import { openDb } from './services/db'
 import { SettingsService } from './services/settings'
-import { migrateBypassDefault, migrateDefaultRepoToList } from './services/settingsMigrations'
+import {
+  migrateBypassDefault,
+  migrateDefaultRepoToList,
+  migrateRelatedSearchSwitches
+} from './services/settingsMigrations'
 import { devToolsEnabled } from './services/prompts/gate'
 import { readDevToolsUnlocked, writeDevToolsUnlocked } from './services/devToolsUnlock'
 import { PromptCaptureStore } from './services/prompts/capture'
@@ -777,6 +781,10 @@ function registerIpc(): void {
   // One-time upgrade: fold the legacy single `general.defaultRepo` into the new
   // `general.defaultRepos` list.
   migrateDefaultRepoToList(settingsService)
+
+  // One-time upgrade: split the legacy `general.similarPastCasesEnabled` (local cases only)
+  // into the master `relatedSearchOnOpen` plus `relatedIncludeLocalCases`.
+  migrateRelatedSearchSwitches(settingsService)
 
   // Capture declared user env BEFORE anything mutates process.env, then let the
   // service export resolved values / prepend pathDirs for spawned children.
@@ -2744,7 +2752,7 @@ function registerIpc(): void {
   const relatedHistory = new RelatedHistoryService({
     db,
     defectCorpus,
-    localCasesEnabled: () => settingsService.get().general.similarPastCasesEnabled
+    localCasesEnabled: () => settingsService.get().general.relatedIncludeLocalCases
   })
   ipcMain.handle(IPC.relatedSearch, (_e, input: unknown) =>
     // IPC args are untrusted: one chokepoint validates and normalizes the whole

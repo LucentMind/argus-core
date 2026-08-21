@@ -56,7 +56,24 @@ beforeEach(() => {
     },
     // Empty by default: expanding a Claude row's Models section (ProviderModels, Change 3)
     // falls back to the static catalog, which is what these tests assert against.
-    models: { catalog: vi.fn(async () => []) }
+    models: { catalog: vi.fn(async () => []) },
+    // Background work's spend row (moved off Memory, 2026-08-21) reads this on mount. Zero
+    // jobs = the row renders nothing, which is what every test here assumes.
+    usage: {
+      stats: vi.fn(async () => ({
+        memory: [],
+        archived: [],
+        hygiene: { staleDays: 30, minRecalls: 1, trackingStartedAt: new Date().toISOString() },
+        distillation: {
+          jobCount: 0,
+          totalCostUsd: null,
+          failedCostUsd: null,
+          avgCostUsd: null,
+          avgTurnCount: null,
+          avgPromptChars: null
+        }
+      }))
+    }
   } as never
 })
 
@@ -309,10 +326,25 @@ describe('AgentSettings add provider', () => {
 
 describe('AgentSettings session defaults', () => {
   it('session-default rows still patch agent keys', async () => {
-    render(<AgentSettings payload={payload()} />)
+    render(<AgentSettings payload={payload((p) => (p.devTools = true))} />)
     const input = await screen.findByLabelText('Max concurrent sessions')
     fireEvent.change(input, { target: { value: '5' } })
     expect(window.argus.settings.patch).toHaveBeenCalledWith({ agent: { maxSessions: 5 } })
+  })
+
+  // The two machine-tuning rows are dev-gated (user-directed, 2026-08-21). Hidden, not
+  // disabled: a shipped build must not advertise a control it will not honour.
+  it('hides the tuning rows unless dev tools are unlocked', async () => {
+    render(<AgentSettings payload={payload()} />)
+    await screen.findByText('Session defaults')
+    expect(screen.queryByLabelText('Max concurrent sessions')).toBeNull()
+    expect(screen.queryByLabelText('Probe timeout (ms)')).toBeNull()
+  })
+
+  it('shows the tuning rows when dev tools are unlocked', async () => {
+    render(<AgentSettings payload={payload((p) => (p.devTools = true))} />)
+    expect(await screen.findByLabelText('Max concurrent sessions')).toBeTruthy()
+    expect(screen.getByLabelText('Probe timeout (ms)')).toBeTruthy()
   })
 
   it('show tool calls switch writes uiStore (renderer-local), not IPC', async () => {

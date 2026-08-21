@@ -4,6 +4,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { RelatedHistoryCard } from '../RelatedHistoryCard'
 import { uiStore } from '../../lib/uiStore'
+import { settingsStore } from '../../lib/settingsStore'
+import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type {
   CorpusDefectHit,
   LocalCaseHit,
@@ -43,16 +45,42 @@ const corpusHit = (over: Partial<CorpusDefectHit> = {}): CorpusDefectHit => ({
   ...over
 })
 
-function setArgus(result: Partial<RelatedSearchResult> | Error): void {
+/** The card reads `general.relatedSearchOnOpen` before it searches at all (the master
+ *  switch on Settings -> Defect corpus), so the fake carries a settings payload too. */
+function settingsPayload(searchOnOpen: boolean): SettingsPayload {
+  const settings = defaultSettings()
+  settings.general.relatedSearchOnOpen = searchOnOpen
+  return {
+    settings,
+    resolvedTools: [],
+    dataRoot: { path: 'C:/tmp/argus', fromEnv: false },
+    loadError: null
+  }
+}
+
+function setArgus(
+  result: Partial<RelatedSearchResult> | Error,
+  searchOnOpen = true
+): ReturnType<typeof vi.fn> {
   const search =
     result instanceof Error
       ? vi.fn().mockRejectedValue(result)
       : vi.fn().mockResolvedValue({ query: 'q', hits: [], sources: [], ...result })
-  ;(window as unknown as { argus: unknown }).argus = { related: { search } }
+  ;(window as unknown as { argus: unknown }).argus = {
+    related: { search },
+    settings: {
+      get: vi.fn(async () => settingsPayload(searchOnOpen)),
+      onChanged: vi.fn(() => () => {})
+    }
+  }
+  return search
 }
 
 beforeEach(() => {
   localStorage.clear()
+  // Module-level singleton: without this the first test's payload (and its master-switch
+  // value) is still the one every later test reads.
+  settingsStore.reset()
   // uiStore is a module-level singleton that only reads localStorage in its constructor —
   // localStorage.clear() above does not reset railCollapsed, so a collapse in one test would
   // otherwise leak into every later test in this file.
@@ -319,5 +347,25 @@ describe('RelatedHistoryCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Collapse Related history' }))
 
     expect(screen.getByRole('button', { name: 'Dismiss' })).toBeInTheDocument()
+  })
+})
+
+describe('RelatedHistoryCard master switch', () => {
+  // `general.relatedSearchOnOpen` (Settings -> Defect corpus) decides whether opening a case
+  // searches at all — local cases AND every corpus. The explorer is user-initiated and is
+  // deliberately not gated by it, so this is the only place the switch bites.
+  it('does not search when the switch is off', async () => {
+    const search = setArgus({ hits: [localHit()] }, false)
+    render(<RelatedHistoryCard slug="new" />)
+    await waitFor(() => expect(settingsStore.get()).not.toBeNull())
+    expect(search).not.toHaveBeenCalled()
+    expect(screen.queryByText(/Related history/i)).not.toBeInTheDocument()
+  })
+
+  it('searches when the switch is on', async () => {
+    const search = setArgus({ hits: [localHit()] }, true)
+    render(<RelatedHistoryCard slug="new" />)
+    await screen.findByText(/Related history/i)
+    expect(search).toHaveBeenCalledWith({ caseSlug: 'new' })
   })
 })
