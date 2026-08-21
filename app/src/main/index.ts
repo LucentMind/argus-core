@@ -3239,7 +3239,8 @@ function registerIpc(): void {
     // The wrapped anchors, not `anchorsStore` directly: `currencyAckAdopted`'s handler calls
     // `markFirstMirrorNoticeShown()` through this, which is what clears `adoptionGate`'s
     // in-memory latch in addition to persisting the flag.
-    anchors: adoptionGate.anchors
+    anchors: adoptionGate.anchors,
+    pendingAdopted: adoptionGate.pendingCount
   })
   // 45s: late enough to keep boot cheap and to avoid racing the core boot check.
   setTimeout(() => currency?.start(), 45_000).unref()

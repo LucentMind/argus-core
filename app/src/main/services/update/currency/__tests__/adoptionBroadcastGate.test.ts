@@ -115,4 +115,41 @@ describe('createAdoptionBroadcastGate', () => {
     expect(broadcast).toHaveBeenCalledTimes(1)
     expect(anchors.firstMirrorNoticeShown()).toBe(false)
   })
+
+  // Finding 1: a batch that adopted while no case was open broadcasts into the void — nobody was
+  // subscribed to turn it into a notice. Retaining the count here is what lets a LATER case-open
+  // recover it (TopBar queries this once on the transition), instead of that batch being lost the
+  // moment its broadcast goes unheard.
+  describe('pendingCount', () => {
+    it('is 0 before anything has been adopted', () => {
+      const gate = createAdoptionBroadcastGate({ anchors: fakeAnchors(), broadcast: vi.fn() })
+      expect(gate.pendingCount()).toBe(0)
+    })
+
+    it('retains the count of the most recent broadcast while unacked', () => {
+      const gate = createAdoptionBroadcastGate({ anchors: fakeAnchors(), broadcast: vi.fn() })
+      gate.onAdopted(4)
+      expect(gate.pendingCount()).toBe(4)
+    })
+
+    it('goes back to 0 once the renderer acknowledges it', () => {
+      const gate = createAdoptionBroadcastGate({ anchors: fakeAnchors(), broadcast: vi.fn() })
+      gate.onAdopted(4)
+      gate.anchors.markFirstMirrorNoticeShown()
+      expect(gate.pendingCount()).toBe(0)
+    })
+
+    it('does not update the retained count for a fire suppressed by the coalescing window', () => {
+      const clock = manualClock()
+      const gate = createAdoptionBroadcastGate({
+        anchors: fakeAnchors(),
+        broadcast: vi.fn(),
+        now: clock.now
+      })
+      gate.onAdopted(2)
+      clock.advance(500) // well inside PENDING_WINDOW_MS
+      gate.onAdopted(9) // suppressed — no broadcast, so no new count either
+      expect(gate.pendingCount()).toBe(2)
+    })
+  })
 })

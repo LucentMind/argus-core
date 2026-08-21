@@ -20,6 +20,10 @@ export interface CurrencyIpcDeps {
   /** Only the two methods the first-run notice ack needs — not the whole `CurrencyAnchorStore`,
    *  which also owns per-adapter survey scheduling this channel has no business touching. */
   anchors: { firstMirrorNoticeShown(): boolean; markFirstMirrorNoticeShown(): void }
+  /** `adoptionGate.pendingCount` — the count of the most recent adoption broadcast that has not
+   *  yet been acknowledged. Queried by `TopBar` once on the case-open transition, to recover a
+   *  batch that broadcast while no case was open and nobody was subscribed to hear it. */
+  pendingAdopted: () => number
 }
 
 /** Registers the currency channels. Returns a disposer that stops the change broadcasts. */
@@ -27,7 +31,8 @@ export function registerCurrencyIpc({
   handle,
   broadcast,
   service,
-  anchors
+  anchors,
+  pendingAdopted
 }: CurrencyIpcDeps): () => void {
   handle(IPC.currencyGet, () => service.payload())
   handle(IPC.currencySurveyNow, async (id: unknown) => {
@@ -43,5 +48,6 @@ export function registerCurrencyIpc({
   handle(IPC.currencyAckAdopted, () => {
     anchors.markFirstMirrorNoticeShown()
   })
+  handle(IPC.currencyPendingAdopted, () => pendingAdopted())
   return service.subscribe((p) => broadcast(IPC.currencyChanged, p))
 }

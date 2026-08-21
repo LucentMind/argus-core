@@ -31,7 +31,8 @@ function stubBridge(payload: CurrencyPayload): { emit: (p: CurrencyPayload) => v
         }
       },
       onAdopted: vi.fn(() => () => {}),
-      ackAdopted: vi.fn(async () => {})
+      ackAdopted: vi.fn(async () => {}),
+      pendingAdopted: vi.fn(async () => 0)
     }
   }
   return {

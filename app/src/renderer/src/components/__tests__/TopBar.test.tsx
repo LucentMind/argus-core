@@ -52,7 +52,8 @@ beforeEach(() => {
       get: vi.fn(async () => ({ auto: true, lastSurveyAt: null, blocked: [], busy: false })),
       onChanged: vi.fn(() => () => {}),
       onAdopted: vi.fn(() => () => {}),
-      ackAdopted: vi.fn(async () => {})
+      ackAdopted: vi.fn(async () => {}),
+      pendingAdopted: vi.fn(async () => 0)
     },
     cases: {
       setStatus: vi.fn(async () => undefined),
@@ -1102,6 +1103,72 @@ describe('TopBar', () => {
         />
       )
       expect(window.argus.currency.onAdopted).not.toHaveBeenCalled()
+      expect(window.argus.currency.ackAdopted).not.toHaveBeenCalled()
+      // Finding 1: querying for a missed broadcast is gated the same way subscribing is — asking
+      // with no case open would be pointless (nothing could render the answer) and cheapens the
+      // one signal that distinguishes "never adopted anything" from "adopted, but no case was
+      // open to show it".
+      expect(window.argus.currency.pendingAdopted).not.toHaveBeenCalled()
+    })
+
+    // Finding 1: the likeliest real failure this branch shipped with. `currency:adopted` is a
+    // one-shot broadcast; if the FIRST mirror run adopts everything available while no case is
+    // open (fresh install, still on the landing screen — or the user just opened Settings, which
+    // itself triggers a survey), no later batch ever arrives to fire `onAdopted` again, because
+    // everything adoptable is already adopted. The notice's only chance was that one broadcast,
+    // and nobody was subscribed to hear it. Recovering it means asking main directly, once, on the
+    // transition into a case — not just subscribing for a future event that will never come.
+    it('recovers a batch that adopted while no case was open by querying the pending count', async () => {
+      window.argus.currency.pendingAdopted = vi.fn(async () => 5)
+      const { rerender } = render(
+        <TopBar
+          activeSlug={null}
+          activeCase={null}
+          onHome={vi.fn()}
+          onSelect={vi.fn()}
+          onSettings={vi.fn()}
+          onStatusChanged={vi.fn()}
+        />
+      )
+      expect(window.argus.currency.pendingAdopted).not.toHaveBeenCalled()
+
+      uiStore.openTab('NAV-1')
+      rerender(
+        <TopBar
+          activeSlug="NAV-1"
+          activeCase={CASE}
+          onHome={vi.fn()}
+          onSelect={vi.fn()}
+          onSettings={vi.fn()}
+          onStatusChanged={vi.fn()}
+        />
+      )
+      expect(
+        await screen.findByText(
+          "Argus now keeps itself up to date — it installed 5 HiveMind items from your team's repo. You can turn this off in Settings → Updates."
+        )
+      ).toBeInTheDocument()
+      await vi.waitFor(() => expect(window.argus.currency.ackAdopted).toHaveBeenCalledTimes(1))
+    })
+
+    // Negative counterpart, and the falsifiability check for the test above: a query that comes
+    // back 0 (nothing pending — either nothing was ever adopted, or a previous case-open already
+    // acked it) must show nothing and must not ack again. Without this, a mutant that always
+    // showed the notice regardless of the queried count would still pass the positive test.
+    it('shows and acks nothing when the pending query comes back 0', async () => {
+      uiStore.openTab('NAV-1')
+      render(
+        <TopBar
+          activeSlug="NAV-1"
+          activeCase={CASE}
+          onHome={vi.fn()}
+          onSelect={vi.fn()}
+          onSettings={vi.fn()}
+          onStatusChanged={vi.fn()}
+        />
+      )
+      await vi.waitFor(() => expect(window.argus.currency.pendingAdopted).toHaveBeenCalledTimes(1))
+      expect(screen.queryByText(/Argus now keeps itself up to date/)).not.toBeInTheDocument()
       expect(window.argus.currency.ackAdopted).not.toHaveBeenCalled()
     })
 

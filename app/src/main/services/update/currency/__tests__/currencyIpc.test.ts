@@ -33,6 +33,8 @@ const fakeAnchors = (): {
   markFirstMirrorNoticeShown: vi.fn()
 })
 
+const noPending = (): number => 0
+
 describe('registerCurrencyIpc', () => {
   it('serves the payload', async () => {
     const handlers = new Map<string, (...a: unknown[]) => unknown>()
@@ -41,7 +43,8 @@ describe('registerCurrencyIpc', () => {
       handle: (ch, fn) => void handlers.set(ch, fn),
       broadcast: vi.fn(),
       service,
-      anchors: fakeAnchors()
+      anchors: fakeAnchors(),
+      pendingAdopted: noPending
     })
     expect(await handlers.get(IPC.currencyGet)?.()).toEqual(payload)
   })
@@ -53,7 +56,8 @@ describe('registerCurrencyIpc', () => {
       handle: (ch, fn) => void handlers.set(ch, fn),
       broadcast: vi.fn(),
       service,
-      anchors: fakeAnchors()
+      anchors: fakeAnchors(),
+      pendingAdopted: noPending
     })
     await handlers.get(IPC.currencySurveyNow)?.('hive')
     expect(service.surveyNow).toHaveBeenCalledWith('hive')
@@ -66,7 +70,8 @@ describe('registerCurrencyIpc', () => {
       handle: (ch, fn) => void handlers.set(ch, fn),
       broadcast: vi.fn(),
       service,
-      anchors: fakeAnchors()
+      anchors: fakeAnchors(),
+      pendingAdopted: noPending
     })
     await handlers.get(IPC.currencySurveyNow)?.('../../etc')
     expect(service.surveyNow).not.toHaveBeenCalled()
@@ -79,7 +84,8 @@ describe('registerCurrencyIpc', () => {
       handle: vi.fn(),
       broadcast,
       service,
-      anchors: fakeAnchors()
+      anchors: fakeAnchors(),
+      pendingAdopted: noPending
     })
     service.emit(payload)
     expect(broadcast).toHaveBeenCalledWith(IPC.currencyChanged, payload)
@@ -94,7 +100,8 @@ describe('registerCurrencyIpc', () => {
       handle: (ch, fn) => void handlers.set(ch, fn),
       broadcast: vi.fn(),
       service: fakeService(),
-      anchors: { firstMirrorNoticeShown: () => false, markFirstMirrorNoticeShown: mark }
+      anchors: { firstMirrorNoticeShown: () => false, markFirstMirrorNoticeShown: mark },
+      pendingAdopted: noPending
     })
     await handlers.get(IPC.currencyAckAdopted)?.()
     expect(mark).toHaveBeenCalledTimes(1)
@@ -107,10 +114,25 @@ describe('registerCurrencyIpc', () => {
       handle: (ch, fn) => void handlers.set(ch, fn),
       broadcast: vi.fn(),
       service: fakeService(),
-      anchors: { firstMirrorNoticeShown: () => false, markFirstMirrorNoticeShown: mark }
+      anchors: { firstMirrorNoticeShown: () => false, markFirstMirrorNoticeShown: mark },
+      pendingAdopted: noPending
     })
     await handlers.get(IPC.currencyGet)?.()
     await handlers.get(IPC.currencySurveyNow)?.('hive')
     expect(mark).not.toHaveBeenCalled()
+  })
+
+  // Finding 1: TopBar queries this once on the case-open transition, to recover a batch that
+  // broadcast while nobody was subscribed to hear it.
+  it('serves the pending-adopted count from its dep, not a hardcoded 0', async () => {
+    const handlers = new Map<string, (...a: unknown[]) => unknown>()
+    registerCurrencyIpc({
+      handle: (ch, fn) => void handlers.set(ch, fn),
+      broadcast: vi.fn(),
+      service: fakeService(),
+      anchors: fakeAnchors(),
+      pendingAdopted: () => 3
+    })
+    expect(await handlers.get(IPC.currencyPendingAdopted)?.()).toBe(3)
   })
 })

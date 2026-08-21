@@ -364,7 +364,8 @@ const argus = {
       ipcRenderer.on(IPC.currencyAdopted, listener)
       return () => ipcRenderer.removeListener(IPC.currencyAdopted, listener)
     },
-    ackAdopted: (): Promise<void> => invoke(IPC.currencyAckAdopted)
+    ackAdopted: (): Promise<void> => invoke(IPC.currencyAckAdopted),
+    pendingAdopted: (): Promise<number> => invoke(IPC.currencyPendingAdopted)
   },
   panels: {
     list: (caseSlug?: string): Promise<PanelInfo[]> => invoke(IPC.panelsList, caseSlug),
