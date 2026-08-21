@@ -89,6 +89,12 @@ export function createPacksAdapter({
      */
     async apply(c: Candidate): Promise<ApplyOutcome> {
       const status = await updates.apply(c.key)
+      // `ready` — and ONLY `ready` — means the install actually happened. "Not an error" is not
+      // the same thing: `PackUpdatesService.apply` returns `{ phase: 'idle' }` with no error at
+      // all when `findUpdate` finds nothing, which is exactly what happens when the world moved
+      // between the survey and here. Reporting success on "not error" would claim a pack was
+      // updated when nothing was written.
+      if (status.phase === 'ready') return { ok: true, needsRelaunch: true }
       if (status.phase === 'error') {
         const reason =
           reasonOf(status.code) ??
@@ -99,8 +105,9 @@ export function createPacksAdapter({
           ? { ok: false, error: status.message, reason }
           : { ok: false, error: status.message }
       }
-      // A pack whose files changed under a running app needs a relaunch to be picked up.
-      return { ok: true, needsRelaunch: true }
+      // Any other phase is that race, not a decision for the user: no `reason`, so the service
+      // drops it silently and the next survey re-offers it.
+      return { ok: false, error: `pack update was no longer available to apply (${status.phase})` }
     }
   }
 }
