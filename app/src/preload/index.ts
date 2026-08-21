@@ -358,7 +358,13 @@ const argus = {
       const listener = (_e: unknown, p: CurrencyPayload): void => cb(p)
       ipcRenderer.on(IPC.currencyChanged, listener)
       return () => ipcRenderer.removeListener(IPC.currencyChanged, listener)
-    }
+    },
+    onAdopted: (cb: (count: number) => void): (() => void) => {
+      const listener = (_e: unknown, count: number): void => cb(count)
+      ipcRenderer.on(IPC.currencyAdopted, listener)
+      return () => ipcRenderer.removeListener(IPC.currencyAdopted, listener)
+    },
+    ackAdopted: (): Promise<void> => invoke(IPC.currencyAckAdopted)
   },
   panels: {
     list: (caseSlug?: string): Promise<PanelInfo[]> => invoke(IPC.panelsList, caseSlug),

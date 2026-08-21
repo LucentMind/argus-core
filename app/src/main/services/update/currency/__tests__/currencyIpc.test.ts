@@ -25,6 +25,14 @@ function fakeService(): {
   }
 }
 
+const fakeAnchors = (): {
+  firstMirrorNoticeShown: () => boolean
+  markFirstMirrorNoticeShown: () => void
+} => ({
+  firstMirrorNoticeShown: () => false,
+  markFirstMirrorNoticeShown: vi.fn()
+})
+
 describe('registerCurrencyIpc', () => {
   it('serves the payload', async () => {
     const handlers = new Map<string, (...a: unknown[]) => unknown>()
@@ -32,7 +40,8 @@ describe('registerCurrencyIpc', () => {
     registerCurrencyIpc({
       handle: (ch, fn) => void handlers.set(ch, fn),
       broadcast: vi.fn(),
-      service
+      service,
+      anchors: fakeAnchors()
     })
     expect(await handlers.get(IPC.currencyGet)?.()).toEqual(payload)
   })
@@ -43,7 +52,8 @@ describe('registerCurrencyIpc', () => {
     registerCurrencyIpc({
       handle: (ch, fn) => void handlers.set(ch, fn),
       broadcast: vi.fn(),
-      service
+      service,
+      anchors: fakeAnchors()
     })
     await handlers.get(IPC.currencySurveyNow)?.('hive')
     expect(service.surveyNow).toHaveBeenCalledWith('hive')
@@ -55,7 +65,8 @@ describe('registerCurrencyIpc', () => {
     registerCurrencyIpc({
       handle: (ch, fn) => void handlers.set(ch, fn),
       broadcast: vi.fn(),
-      service
+      service,
+      anchors: fakeAnchors()
     })
     await handlers.get(IPC.currencySurveyNow)?.('../../etc')
     expect(service.surveyNow).not.toHaveBeenCalled()
@@ -64,10 +75,42 @@ describe('registerCurrencyIpc', () => {
   it('broadcasts every change and the disposer stops it', () => {
     const broadcast = vi.fn()
     const service = fakeService()
-    const dispose = registerCurrencyIpc({ handle: vi.fn(), broadcast, service })
+    const dispose = registerCurrencyIpc({
+      handle: vi.fn(),
+      broadcast,
+      service,
+      anchors: fakeAnchors()
+    })
     service.emit(payload)
     expect(broadcast).toHaveBeenCalledWith(IPC.currencyChanged, payload)
     dispose()
     expect(service.listenerCount()).toBe(0)
+  })
+
+  it('marks the first-run notice shown when the renderer acknowledges it', async () => {
+    const handlers = new Map<string, (...a: unknown[]) => unknown>()
+    const mark = vi.fn()
+    registerCurrencyIpc({
+      handle: (ch, fn) => void handlers.set(ch, fn),
+      broadcast: vi.fn(),
+      service: fakeService(),
+      anchors: { firstMirrorNoticeShown: () => false, markFirstMirrorNoticeShown: mark }
+    })
+    await handlers.get(IPC.currencyAckAdopted)?.()
+    expect(mark).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not mark it as a side effect of any other channel', async () => {
+    const handlers = new Map<string, (...a: unknown[]) => unknown>()
+    const mark = vi.fn()
+    registerCurrencyIpc({
+      handle: (ch, fn) => void handlers.set(ch, fn),
+      broadcast: vi.fn(),
+      service: fakeService(),
+      anchors: { firstMirrorNoticeShown: () => false, markFirstMirrorNoticeShown: mark }
+    })
+    await handlers.get(IPC.currencyGet)?.()
+    await handlers.get(IPC.currencySurveyNow)?.('hive')
+    expect(mark).not.toHaveBeenCalled()
   })
 })

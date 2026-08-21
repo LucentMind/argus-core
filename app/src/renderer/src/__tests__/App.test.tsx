@@ -211,7 +211,9 @@ beforeEach(() => {
     currency: {
       get: vi.fn(async () => ({ auto: true, lastSurveyAt: null, blocked: [], busy: false })),
       surveyNow: vi.fn(async () => {}),
-      onChanged: vi.fn(() => () => {})
+      onChanged: vi.fn(() => () => {}),
+      onAdopted: vi.fn(() => () => {}),
+      ackAdopted: vi.fn(async () => {})
     }
   } as never
 })
