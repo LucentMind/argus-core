@@ -90,6 +90,22 @@ export class CurrencyService {
     return () => void this.listeners.delete(cb)
   }
 
+  /**
+   * Drops any blocked entry matching `key` and republishes.
+   *
+   * `this.blocked` is otherwise rewritten only by `replaceBlockedFor`, which runs on a SURVEY —
+   * and the manual apply/install IPC handlers in `index.ts` never trigger one. Without this, a
+   * hold a user has just resolved by hand (e.g. Update -> Overwrite my copy on a `local-edits`
+   * block) keeps reading as held back — the badge, the nav dot, the reason line, all of it — with
+   * no user-accessible way to clear it until the next scheduled survey, up to 6h later. Called
+   * from those handlers right after a successful outcome; a key that is not currently held back is
+   * a harmless no-op.
+   */
+  forget(key: string): void {
+    this.blocked = this.blocked.filter((c) => c.key !== key)
+    this.publish()
+  }
+
   private publish(): void {
     const p = this.payload()
     for (const cb of this.listeners) cb(p)
