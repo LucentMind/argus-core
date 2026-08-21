@@ -64,6 +64,8 @@ export interface IngestQueueLike {
    * next chunk boundary and any partial index is removed.
    */
   abort(evidenceId: number): void
+  /** Synchronous counterpart to `idle()`: is there a drain in flight right now? */
+  isIdle(): boolean
 }
 
 /**
@@ -166,6 +168,12 @@ export class IngestQueue implements IngestQueueLike {
   /** Resolves once the queue is empty. Test affordance; production never awaits it. */
   async idle(): Promise<void> {
     while (this.running) await this.running
+  }
+
+  /** Synchronous counterpart to `idle()`: is there a drain in flight right now?
+   *  The auto-update quiescence gate is polled, so it needs an answer, not a promise. */
+  isIdle(): boolean {
+    return this.running === null
   }
 
   /**
@@ -436,6 +444,10 @@ export function createImmediateQueue(db: DatabaseSync, argusHome: string): Inges
     abort(): void {
       // Nothing to cancel: enqueue() finished indexing before it returned, so by
       // the time any caller could abort, the job no longer exists.
+    },
+    isIdle(): boolean {
+      // enqueue() runs and finishes synchronously, so this stand-in is never mid-drain.
+      return true
     }
   }
 }

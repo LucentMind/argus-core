@@ -23,7 +23,8 @@ function recordingQueue(): IngestQueueLike & { jobs: IngestJob[]; abortedIds: nu
     jobs,
     abortedIds,
     enqueue: (j) => jobs.push(j),
-    abort: (id) => abortedIds.push(id)
+    abort: (id) => abortedIds.push(id),
+    isIdle: () => true
   }
 }
 
@@ -137,7 +138,8 @@ describe('ingest enqueues instead of indexing inline', () => {
       abort: (id) => {
         const row = db.prepare(`SELECT id FROM evidence WHERE id = ?`).get(id)
         seenWhenAborted.push(row !== undefined)
-      }
+      },
+      isIdle: () => true
     }
 
     deleteEvidence(db, argusHome, abortingQueue, 'IQ-1', parent.id)

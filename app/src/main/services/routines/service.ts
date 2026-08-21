@@ -274,6 +274,12 @@ export class RoutinesService {
     }
   }
 
+  /** Is a routine executing right now? Cheaper than `payload()`, which reads the runs table —
+   *  this is polled once a minute by the auto-update quiescence gate. */
+  isRunning(): boolean {
+    return this.running !== null
+  }
+
   payload(): RoutinesPayload {
     const runs = listRoutineRuns(this.deps.db)
     const runIds = runs.map((r) => r.id)
