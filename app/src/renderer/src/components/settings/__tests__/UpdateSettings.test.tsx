@@ -6,7 +6,10 @@ import '@testing-library/jest-dom/vitest'
 import { UpdateSettings } from '../UpdateSettings'
 import { updateStore } from '../../../lib/updateStore'
 import { settingsStore } from '../../../lib/settingsStore'
-import type { CoreUpdatePayload } from '../../../../../shared/updates'
+import type { CoreUpdatePayload, UpdateChannel } from '../../../../../shared/updates'
+import type { CurrencyPayload } from '../../../../../shared/currency'
+import { defaultSettings } from '../../../../../shared/settings'
+import type { SettingsPayload } from '../../../../../shared/settings'
 
 const idle: CoreUpdatePayload = {
   currentVersion: '1.0.8',
@@ -14,9 +17,22 @@ const idle: CoreUpdatePayload = {
   channel: 'stable'
 }
 
+const idleCurrency: CurrencyPayload = { auto: true, lastSurveyAt: null, blocked: [], busy: false }
+
+function settingsPayloadFor(channel: UpdateChannel, auto: boolean): SettingsPayload {
+  return {
+    settings: { ...defaultSettings(), updates: { channel, auto } },
+    resolvedTools: [],
+    dataRoot: { path: 'C:/tmp/argus', fromEnv: false },
+    loadError: null
+  }
+}
+
 function stubApi(
   over: Partial<Record<string, unknown>> = {},
-  devToolsUnlock: () => Promise<{ devTools: boolean }> = vi.fn(async () => ({ devTools: false }))
+  devToolsUnlock: () => Promise<{ devTools: boolean }> = vi.fn(async () => ({ devTools: false })),
+  settings: SettingsPayload = settingsPayloadFor('stable', true),
+  currency: CurrencyPayload = idleCurrency
 ): void {
   ;(window as unknown as { argus: unknown }).argus = {
     update: {
@@ -27,12 +43,26 @@ function stubApi(
       onChanged: vi.fn(() => () => {}),
       ...over
     },
-    devTools: { unlock: devToolsUnlock }
+    devTools: { unlock: devToolsUnlock },
+    settings: {
+      get: vi.fn(async () => settings),
+      patch: vi.fn(async () => settings),
+      onChanged: vi.fn(() => () => {})
+    },
+    currency: {
+      get: vi.fn(async () => currency),
+      surveyNow: vi.fn(async () => {}),
+      onChanged: vi.fn(() => () => {})
+    }
   }
 }
 
 beforeEach(() => {
   updateStore.clearForTests()
+  // settingsStore is a module-level singleton (see RoutinesPage.test.tsx precedent): without a
+  // reset here, the SECOND test onward would see the FIRST test's already-fetched payload
+  // instead of this test's `stubApi()` settings, since `start()` only fetches once.
+  settingsStore.reset()
   stubApi()
 })
 
@@ -125,7 +155,9 @@ describe('UpdateSettings', () => {
     })
     render(<UpdateSettings />)
     expect(await screen.findByText(/checking for updates/i)).toBeInTheDocument()
-    expect(screen.queryByText(/up to date/i)).not.toBeInTheDocument()
+    // Narrowed to the exact idle sentence (Task 13 added a "Keep everything up to date" toggle
+    // row that is always on screen, so the old broad /up to date/i now also matches that label).
+    expect(screen.queryByText(/argus is up to date/i)).not.toBeInTheDocument()
   })
 
   it('clicking the version 6 times unlocks dev tools and asks for a restart', async () => {
@@ -219,5 +251,89 @@ describe('UpdateSettings channel row', () => {
     render(<UpdateSettings />)
     expect(await screen.findByRole('button', { name: /install 2\.1\.2/i })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /download/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('keep everything up to date', () => {
+  /** Stubs settings (for the toggle's checked state) and, optionally, the currency payload (for
+   *  the status line) and a `settingsStore.patch` spy (for asserting the write), then renders. */
+  function renderWithSettings(
+    settings: { updates: { channel: UpdateChannel; auto: boolean } },
+    opts: { patch?: ReturnType<typeof vi.fn>; currency?: CurrencyPayload } = {}
+  ): ReturnType<typeof render> {
+    stubApi(
+      {},
+      undefined,
+      settingsPayloadFor(settings.updates.channel, settings.updates.auto),
+      opts.currency ?? idleCurrency
+    )
+    if (opts.patch) {
+      vi.spyOn(settingsStore, 'patch').mockImplementation(
+        opts.patch as unknown as typeof settingsStore.patch
+      )
+    }
+    return render(<UpdateSettings />)
+  }
+
+  it('renders the toggle on by default', async () => {
+    renderWithSettings({ updates: { channel: 'stable', auto: true } })
+    expect(await screen.findByLabelText('Keep everything up to date')).toBeChecked()
+  })
+
+  it('patches the setting when switched off', async () => {
+    const patch = vi.fn()
+    renderWithSettings({ updates: { channel: 'stable', auto: true } }, { patch })
+    await userEvent.click(await screen.findByLabelText('Keep everything up to date'))
+    expect(patch).toHaveBeenCalledWith({ updates: { auto: false } })
+  })
+
+  it('says everything is current when nothing is held back', async () => {
+    renderWithSettings(
+      { updates: { channel: 'stable', auto: true } },
+      { currency: { auto: true, lastSurveyAt: new Date().toISOString(), blocked: [], busy: false } }
+    )
+    expect(await screen.findByText(/everything current/i)).toBeInTheDocument()
+  })
+
+  it('counts held-back items', async () => {
+    renderWithSettings(
+      { updates: { channel: 'stable', auto: true } },
+      {
+        currency: {
+          auto: true,
+          lastSurveyAt: new Date().toISOString(),
+          blocked: [
+            {
+              domain: 'hive-reference',
+              key: 'reference/a.md',
+              label: 'a.md',
+              from: 'x',
+              to: 'y',
+              verdict: 'blocked',
+              reason: { kind: 'local-edits' }
+            },
+            {
+              domain: 'pack',
+              key: 'cg',
+              label: 'CG',
+              from: '1',
+              to: '2',
+              verdict: 'blocked',
+              reason: { kind: 'new-dependency' }
+            }
+          ],
+          busy: false
+        }
+      }
+    )
+    expect(await screen.findByText(/2 items held back/i)).toBeInTheDocument()
+  })
+
+  it('says nothing has been checked yet when there is no anchor', async () => {
+    renderWithSettings(
+      { updates: { channel: 'stable', auto: true } },
+      { currency: { auto: true, lastSurveyAt: null, blocked: [], busy: false } }
+    )
+    expect(await screen.findByText(/not checked yet/i)).toBeInTheDocument()
   })
 })

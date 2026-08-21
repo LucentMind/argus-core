@@ -45,6 +45,17 @@ beforeEach(() => {
       })),
       restart: vi.fn(async () => {}),
       onChanged: vi.fn(() => () => {})
+    },
+    // Task 13: UpdateSettings' master-toggle row reads settings.updates.auto via
+    // useSettingsPayload() and the status line via currency.get()/onChanged().
+    settings: {
+      get: vi.fn(async () => payload),
+      onChanged: vi.fn(() => () => {})
+    },
+    currency: {
+      get: vi.fn(async () => ({ auto: true, lastSurveyAt: null, blocked: [], busy: false })),
+      surveyNow: vi.fn(async () => {}),
+      onChanged: vi.fn(() => () => {})
     }
   } as never
 })

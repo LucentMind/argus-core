@@ -152,10 +152,21 @@ function mockPacks(
 }
 
 let packs: Record<string, ReturnType<typeof vi.fn>>
+let currency: Record<string, ReturnType<typeof vi.fn>>
 beforeEach(() => {
   packs = mockPacks()
+  // Task 13: the mount-time check is now routed through the currency service's surveyNow —
+  // this stub exists so PacksSettings' effect (which calls window.argus.currency.surveyNow)
+  // doesn't throw on an undefined property. The manual "Check for pack updates" button still
+  // calls packs.checkUpdates() directly and is unaffected.
+  currency = {
+    get: vi.fn(async () => ({ auto: true, lastSurveyAt: null, blocked: [], busy: false })),
+    surveyNow: vi.fn(async () => {}),
+    onChanged: vi.fn(() => () => {})
+  }
   ;(window as unknown as { argus: unknown }).argus = {
     packs,
+    currency,
     settings: {
       get: vi.fn(async () => settingsPayload()),
       patch: vi.fn(async () => settingsPayload()),
@@ -386,10 +397,14 @@ describe('PacksSettings', () => {
   /**
    * The page checks on arrival (user-directed, 2026-08-08) — as a button at the bottom of the
    * page, "update available" only ever appeared for a user who already suspected there was one.
+   *
+   * Task 13 rewired this mount-time trigger through the currency service's rate limiter
+   * (`surveyNow`) instead of calling `packs.checkUpdates()` directly — the explicit "Check for
+   * pack updates" button below still calls `checkUpdates()` on its own, unrate-limited.
    */
   it('checks for pack updates on mount, and re-lists with the result', async () => {
     render(<PacksSettings settings={settingsPayload([])} />)
-    await waitFor(() => expect(packs.checkUpdates).toHaveBeenCalledOnce())
+    await waitFor(() => expect(currency.surveyNow).toHaveBeenCalledWith('packs'))
     // Not just the call: the check is worthless unless its result is pulled back into the list.
     await waitFor(() => expect(packs.list.mock.calls.length).toBeGreaterThanOrEqual(2))
   })
@@ -398,10 +413,12 @@ describe('PacksSettings', () => {
     render(<PacksSettings settings={settingsPayload([])} />)
     const btn = await screen.findByRole('button', { name: /check for pack updates/i })
     // Disabled while the mount check is still in flight, so wait it out rather than clicking a
-    // dead button and asserting on the mount call by accident.
+    // dead button too early.
     await waitFor(() => expect(btn).not.toBeDisabled())
     fireEvent.click(btn)
-    await waitFor(() => expect(packs.checkUpdates).toHaveBeenCalledTimes(2))
+    // The mount-time check now goes through currency.surveyNow (Task 13), not checkUpdates —
+    // so this explicit click is the only call to packs.checkUpdates, not the second of two.
+    await waitFor(() => expect(packs.checkUpdates).toHaveBeenCalledTimes(1))
   })
 
   it('renders a failure with the shared wording, not an invented sentence', async () => {

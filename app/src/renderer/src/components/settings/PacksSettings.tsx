@@ -219,8 +219,8 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
    */
   useEffect(() => {
     let mounted = true
-    void window.argus.packs
-      .checkUpdates()
+    void window.argus.currency
+      .surveyNow('packs')
       .then(() => (mounted ? refresh() : undefined))
       .catch((e) => console.warn('[packs] update check failed', e))
       .finally(() => {

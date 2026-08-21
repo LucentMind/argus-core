@@ -70,9 +70,21 @@ const ready: HivemindPayload = {
 const installMock = vi.fn()
 const localDivergenceMock = vi.fn<(name: string) => Promise<LocalDivergence>>()
 
+// Task 13: the auto-sync effect now rate-limits itself through the currency service's
+// surveyNow('hive') instead of calling hivemind.sync() directly, then re-reads via
+// hivemind.get() the same way the component already does elsewhere. Declared once, outside
+// mockArgus, so 'does not lock the panel while auto-syncing' can override just this one method
+// (mirroring how it overrides hivemind.sync today) without losing the rest of the stub.
+const surveyNowMock = vi.fn().mockResolvedValue(undefined)
+
 function mockArgus(payload: HivemindPayload): Record<string, unknown> {
   installMock.mockResolvedValue(payload)
   return {
+    currency: {
+      get: vi.fn().mockResolvedValue({ auto: true, lastSurveyAt: null, blocked: [], busy: false }),
+      surveyNow: surveyNowMock,
+      onChanged: vi.fn(() => () => undefined)
+    },
     hivemind: {
       get: vi.fn().mockResolvedValue(payload),
       sync: vi.fn().mockResolvedValue(payload),
@@ -165,6 +177,7 @@ beforeEach(() => {
   referenceSyncStore.reset()
   connectorsStore.reset()
   installMock.mockClear()
+  surveyNowMock.mockClear()
   localDivergenceMock.mockReset().mockResolvedValue({ diverged: false, diff: '', tierChange: null })
   ;(window as unknown as { argus: unknown }).argus = mockArgus(ready)
   vi.spyOn(settingsStore, 'patch').mockResolvedValue(undefined as never)
@@ -434,10 +447,14 @@ describe('HivemindSettings', () => {
   })
 
   it('refetches the hivemind payload when the repo setting changes', async () => {
+    // Task 13: hivemind.get() is now called TWICE per repo-load cycle — once directly by this
+    // effect, and once more when the auto-sync effect's currency.surveyNow('hive') resolves and
+    // chains into hivemind.get() to pick up the refreshed payload. So each repo change now
+    // contributes 2 calls, not 1.
     const { rerender } = render(<HivemindSettings payload={settingsPayload('org/hive')} />)
-    await waitFor(() => expect(window.argus.hivemind.get).toHaveBeenCalledTimes(1))
-    rerender(<HivemindSettings payload={settingsPayload('org/other')} />)
     await waitFor(() => expect(window.argus.hivemind.get).toHaveBeenCalledTimes(2))
+    rerender(<HivemindSettings payload={settingsPayload('org/other')} />)
+    await waitFor(() => expect(window.argus.hivemind.get).toHaveBeenCalledTimes(4))
   })
 
   it('shows readiness feedback for the configured repo', async () => {
@@ -986,32 +1003,37 @@ describe('download hazards', () => {
 })
 
 describe('auto-sync on entering the Team tab', () => {
+  // Task 13: the auto-sync effect now goes through the currency service's rate limiter
+  // (surveyNow('hive')) instead of calling hivemind.sync() directly, then re-reads via
+  // hivemind.get(). The explicit Sync IconBtn (asserted elsewhere) is unaffected and still
+  // calls hivemind.sync() directly.
   it('syncs automatically once the reachability check succeeds, with no Sync click', async () => {
     renderWith(ready)
-    await waitFor(() => expect(window.argus.hivemind.sync).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(window.argus.currency.surveyNow).toHaveBeenCalledWith('hive'))
+    expect(window.argus.hivemind.sync).not.toHaveBeenCalled()
   })
 
   it('skips auto-sync when the repo is not reachable', async () => {
     window.argus.hivemind.check = vi.fn().mockResolvedValue({ ok: false, error: 'no access' })
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     expect(await screen.findByText('not reachable')).toBeInTheDocument()
-    expect(window.argus.hivemind.sync).not.toHaveBeenCalled()
+    expect(window.argus.currency.surveyNow).not.toHaveBeenCalled()
   })
 
   it('does not lock the panel while auto-syncing in the background', async () => {
     const argus = mockArgus(ready)
-    let resolveSync: ((p: HivemindPayload) => void) | undefined
-    ;(argus.hivemind as { sync: ReturnType<typeof vi.fn> }).sync = vi.fn(
+    let resolveSurvey: (() => void) | undefined
+    ;(argus.currency as { surveyNow: ReturnType<typeof vi.fn> }).surveyNow = vi.fn(
       () =>
-        new Promise<HivemindPayload>((resolve) => {
-          resolveSync = resolve
+        new Promise<void>((resolve) => {
+          resolveSurvey = resolve
         })
     )
     ;(window as unknown as { argus: unknown }).argus = argus
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     const downloadBtn = await screen.findByLabelText('Download hive-note.md')
     expect(downloadBtn).not.toBeDisabled()
-    resolveSync?.(ready)
+    resolveSurvey?.()
   })
 })
 

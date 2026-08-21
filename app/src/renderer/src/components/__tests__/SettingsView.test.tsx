@@ -209,6 +209,13 @@ beforeEach(() => {
       download: vi.fn(async () => ({ currentVersion: '1.0.0', status: { phase: 'idle' } })),
       restart: vi.fn(async () => {}),
       onChanged: vi.fn(() => () => {})
+    },
+    // Task 13: UpdateSettings' master-toggle row (also on the default page) reads the currency
+    // payload, and Packs/Team's mount-time checks now go through currency.surveyNow.
+    currency: {
+      get: vi.fn(async () => ({ auto: true, lastSurveyAt: null, blocked: [], busy: false })),
+      surveyNow: vi.fn(async () => {}),
+      onChanged: vi.fn(() => () => {})
     }
   } as never
 })
