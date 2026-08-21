@@ -286,22 +286,22 @@ describe('hiveAdapter.apply', () => {
     expect(service.install).not.toHaveBeenCalled()
   })
 
-  it('does NOT fire onInstalled when service.install itself reports an error', async () => {
-    const { service } = build([])
-    service.install = vi.fn(async () => ({
+  it('reports success even when the payload carries a clone-level error', async () => {
+    const { adapter, service } = build([])
+    ;(service.install as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       repo: 'org/hive',
-      state: 'ready' as const,
-      error: 'disk full',
-      headCommit: 'def456',
-      lastSynced: '2026-08-20T00:00:00.000Z',
+      state: 'error',
+      error: 'clone unreadable',
+      headCommit: null,
+      lastSynced: null,
       items: [],
       pushable: [],
       pushes: {}
-    }))
-    const onInstalled = vi.fn()
-    const adapter = createHiveAdapter({ service, onInstalled })
-    const result = await adapter.apply(cand)
-    expect(result).toEqual({ ok: false, error: 'disk full' })
-    expect(onInstalled).not.toHaveBeenCalled()
+    })
+    expect(await adapter.apply(cand)).toEqual({ ok: true })
+    // Distinguishes "ran and correctly ignored the payload's error" from "never ran": a fake that
+    // skipped the install call entirely, or that resolved `{ ok: true }` for the wrong reason,
+    // would still satisfy the assertion above but fail this one.
+    expect(service.install).toHaveBeenCalledWith('reference', 'style.md')
   })
 })

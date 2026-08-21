@@ -26,10 +26,11 @@ export interface HiveAdapterDeps {
   /**
    * Mirrors the broadcasts the manual `hivemindInstall` IPC handler performs after a successful
    * `service.install()` — called ONLY when `apply()` actually installed something, never on a
-   * refusal (blocked candidate) or a thrown/`.error` install. Without this, an auto-adopted skill
-   * or reference sits on disk but stays invisible to the renderer (skills list / Library) until
-   * the window is reloaded, because those lists fetch once and are otherwise only refreshed by
-   * the broadcast this fires.
+   * refusal (blocked candidate) or a thrown install. A payload `.error` describes the clone's
+   * state, not this call, so it does NOT suppress this callback — see `apply()`'s comment.
+   * Without this, an auto-adopted skill or reference sits on disk but stays invisible to the
+   * renderer (skills list / Library) until the window is reloaded, because those lists fetch once
+   * and are otherwise only refreshed by the broadcast this fires.
    */
   onInstalled?: (kind: 'skill' | 'reference', name: string) => void
   /**
@@ -144,8 +145,10 @@ export function createHiveAdapter({
         else error = `${name} was edited locally since it was checked`
         return { ok: false, error, reason }
       }
-      const after = await service.install(kind, name)
-      if (after.error) return { ok: false, error: after.error }
+      // No error branch: `install()` either throws (caught by CurrencyService) or succeeds.
+      // Its returned payload's `error` describes the CLONE's state, not this call, so testing it
+      // here could only ever report failure for a write that actually landed.
+      await service.install(kind, name)
       onInstalled?.(kind, name)
       return { ok: true }
     }
