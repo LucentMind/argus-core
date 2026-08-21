@@ -424,6 +424,38 @@ describe('RoutinesService', () => {
   })
 })
 
+describe('isRunning', () => {
+  it('is false with nothing queued', () => {
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async () => ({ status: 'ok', text: '' })
+    })
+    expect(svc.isRunning()).toBe(false)
+  })
+
+  it('is true while a routine is executing', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const svc = new RoutinesService({
+      db,
+      argusHome: home,
+      store,
+      runTurn: async () => {
+        await gate
+        return { status: 'ok', text: '' }
+      }
+    })
+    svc.startRun('sweep')
+    await Promise.resolve()
+    expect(svc.isRunning()).toBe(true)
+    release()
+    await svc.whenIdle()
+    expect(svc.isRunning()).toBe(false)
+  })
+})
+
 describe('case origin', () => {
   it('marks the case it creates as routine-created', async () => {
     const svc = new RoutinesService({
