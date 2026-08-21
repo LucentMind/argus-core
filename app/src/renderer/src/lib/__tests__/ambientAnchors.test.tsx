@@ -27,6 +27,13 @@ beforeEach(() => {
     modes: { available: vi.fn(async () => ['investigation', 'review']) },
     distill: { status: vi.fn(async () => null), onChanged: vi.fn(() => () => {}) },
     proposals: { list: vi.fn(async () => ({ proposals: [] })), onChanged: vi.fn(() => () => {}) },
+    currency: {
+      get: vi.fn(async () => ({ auto: true, lastSurveyAt: null, blocked: [], busy: false })),
+      surveyNow: vi.fn(async () => {}),
+      onChanged: vi.fn(() => () => {}),
+      onAdopted: vi.fn(() => () => {}),
+      ackAdopted: vi.fn(async () => {})
+    },
     cases: {
       setStatus: vi.fn(async () => undefined),
       setMode: vi.fn(async () => ({ sessionId: 9 }))
