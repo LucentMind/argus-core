@@ -50,9 +50,7 @@ function seedCloneShell(): string {
 }
 
 /** A HivemindService over a fresh clone containing one skill named `name`, already installed. */
-async function setupWithInstalledSkill(
-  name: string
-): Promise<{
+async function setupWithInstalledSkill(name: string): Promise<{
   svc: HivemindService
   removeFromClone: (rel: string) => void
   reload: () => HivemindService
@@ -77,9 +75,7 @@ async function setupWithInstalledSkill(
 }
 
 /** A HivemindService over a fresh clone containing one reference named `name`, already installed. */
-async function setupWithInstalledReference(
-  name: string
-): Promise<{
+async function setupWithInstalledReference(name: string): Promise<{
   svc: HivemindService
   removeFromClone: (rel: string) => void
   reload: () => HivemindService
@@ -2749,5 +2745,28 @@ describe('orphans', () => {
     const { svc } = await setupWithInstalledSkill('triage')
     const p = await svc.payload()
     expect(p.items.find((i) => i.name === 'triage')?.orphaned).toBe(false)
+  })
+})
+
+describe('declined flag on items', () => {
+  it('marks a tombstoned item', async () => {
+    const { svc } = await setupWithInstalledSkill('triage')
+    await svc.uninstallSkill('triage')
+    const p = await svc.payload()
+    expect(p.items.find((i) => i.name === 'triage')?.declined).toBe(true)
+  })
+
+  it('leaves an ordinary item unmarked', async () => {
+    const { svc } = await setupWithInstalledSkill('triage')
+    const p = await svc.payload()
+    expect(p.items.find((i) => i.name === 'triage')?.declined).toBe(false)
+  })
+
+  it('clears the flag when the item is installed again', async () => {
+    const { svc } = await setupWithInstalledSkill('triage')
+    await svc.uninstallSkill('triage')
+    await svc.install('skill', 'triage')
+    const p = await svc.payload()
+    expect(p.items.find((i) => i.name === 'triage')?.declined).toBe(false)
   })
 })

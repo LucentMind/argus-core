@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useState, useSyncExternalStore } from 'react'
 import { Download, ExternalLink, RefreshCw, Trash2, X } from 'lucide-react'
 import { SettingsSection, SettingRow, SettingsSkeleton, DraftInput, FIELD } from './settingsLayout'
 import { ConfluenceSpaces, useConfluenceEnabled } from './ConfluenceSpaces'
@@ -8,9 +8,13 @@ import { withByline } from './byline'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm as askConfirm } from '../../lib/confirmStore'
 import { UnifiedDiffView } from '../UnifiedDiffView'
+import { BlockedReasonLine } from './BlockedReasonLine'
+import { currencyStore, pageOwning } from '../../lib/currencyStore'
 import type { HivemindItem, HivemindPayload, LocalDivergence } from '../../../../shared/hivemind'
 import type { SettingsPayload } from '../../../../shared/settings'
 import type { SourceControlStatus } from '../../../../shared/sourcecontrol'
+import { surfacedBlocked } from '../../../../shared/currency'
+import type { Candidate } from '../../../../shared/currency'
 
 type UpdateConfirm = {
   kind: 'skill' | 'reference'
@@ -28,6 +32,7 @@ function BrowseRow({
   it,
   busy,
   confirm,
+  blocked,
   onInstall,
   onOpenUpdate,
   onReinstall,
@@ -38,6 +43,9 @@ function BrowseRow({
   it: HivemindItem
   busy: boolean
   confirm: UpdateConfirm | null
+  /** The currency service's held-back candidate for this item, if any — looked up once by the
+   *  page and passed down so the store subscription stays in one place. */
+  blocked: Candidate | undefined
   onInstall: () => void
   onOpenUpdate: () => void
   onReinstall: () => void
@@ -55,6 +63,8 @@ function BrowseRow({
           <>
             {it.localTier && <TierBadge tier={it.localTier} />}
             {it.updateAvailable ? <Chip tone="review">update available</Chip> : undefined}
+            {it.orphaned && <Chip tone="neutral">not in hive</Chip>}
+            {it.declined && <Chip tone="neutral">not mirrored</Chip>}
           </>
         }
       >
@@ -129,6 +139,7 @@ function BrowseRow({
           </Btn>
         )}
       </SettingRow>
+      {blocked && <BlockedReasonLine candidate={blocked} />}
       {it.shadowedByUser && !it.installed && (
         <div className="px-4 pb-3">
           <div className="rounded-r2 border border-hair bg-hair/40 px-2 py-1 text-xs text-mute">
@@ -233,6 +244,24 @@ export function HivemindSettings({
 
   const g = settingsPayload.settings.hivemind
   const confluenceOn = useConfluenceEnabled()
+
+  const currency = useSyncExternalStore(
+    (cb) => currencyStore.subscribe(cb),
+    () => currencyStore.get()
+  )
+  useEffect(() => currencyStore.start(), [])
+  // Same grouping `currencyStore.blockedByPage()` does internally, narrowed to this page's own
+  // domains — written this way (rather than calling `blockedByPage()` itself) so `currency` is
+  // genuinely read here and this component re-renders on every broadcast.
+  const blockedHive = surfacedBlocked(currency.blocked).filter(
+    (c) => pageOwning(c.domain) === 'team'
+  )
+  // A candidate whose `key` matches no row currently rendered here (e.g. a hive item that was
+  // uninstalled after the last survey) still counts toward the badge total below, with no reason
+  // line anywhere to explain it — accepted, since the next sync re-runs the survey against the
+  // current item list (mirrors PacksSettings' blockedFor).
+  const blockedFor = (i: HivemindItem): Candidate | undefined =>
+    blockedHive.find((c) => c.key === `${i.kind}/${i.name}`)
 
   // Re-runs whenever the repo setting changes so the payload, gh status, and
   // readiness probe all refresh immediately after the user commits a new repo
@@ -384,6 +413,16 @@ export function HivemindSettings({
     <SettingsSection
       title="Repository"
       subtitle="The GitHub repo your team's skills and references are shared through."
+      action={
+        blockedHive.length > 0 ? (
+          <Chip
+            tone="review"
+            aria-label={`${blockedHive.length} HiveMind update${blockedHive.length === 1 ? '' : 's'} ${blockedHive.length === 1 ? 'needs' : 'need'} you`}
+          >
+            {blockedHive.length}
+          </Chip>
+        ) : undefined
+      }
     >
       {/* `stacked` (2026-08-01): the default SettingRow puts label+description and the control
           on ONE line, which needs the full content column. In this half-width panel that line
@@ -586,6 +625,7 @@ export function HivemindSettings({
                     it={it}
                     busy={busy}
                     confirm={updateConfirm}
+                    blocked={blockedFor(it)}
                     onInstall={() =>
                       void run(() => window.argus.hivemind.install(it.kind, it.name))
                     }
@@ -612,6 +652,7 @@ export function HivemindSettings({
                     it={it}
                     busy={busy}
                     confirm={updateConfirm}
+                    blocked={blockedFor(it)}
                     onInstall={() =>
                       void run(() => window.argus.hivemind.install(it.kind, it.name))
                     }
