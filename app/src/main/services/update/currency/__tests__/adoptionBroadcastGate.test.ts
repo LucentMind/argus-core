@@ -194,5 +194,24 @@ describe('createAdoptionBroadcastGate', () => {
       // lives in the shared store, not either gate's own closure.
       expect(before.pendingCount()).toBe(0)
     })
+
+    // Belt-and-braces (Finding 2, minors fix wave): `fakeAnchors()` above always keeps the flag
+    // and the count in sync, because it mirrors the real `CurrencyAnchorStore`, which clears both
+    // in a SINGLE `store.write` (see anchors.ts, pinned atomic by anchors.test.ts). This state is
+    // UNREACHABLE today through that store. It models what a future write-split (or a write that
+    // throws after the in-memory latch is already cleared) could leave behind on disk: the flag
+    // persisted true, the count stale and nonzero — reaching in directly, bypassing the coupled
+    // fake, since no real call sequence produces it. `pendingCount()` must not trust the stale
+    // count once the flag says the notice was already shown.
+    it('reads 0 once the flag is true, even if the persisted count has drifted stale', () => {
+      const anchors = {
+        firstMirrorNoticeShown: () => true,
+        markFirstMirrorNoticeShown: vi.fn(),
+        pendingAdoptedCount: () => 5,
+        setPendingAdoptedCount: vi.fn()
+      }
+      const gate = createAdoptionBroadcastGate({ anchors, broadcast: vi.fn() })
+      expect(gate.pendingCount()).toBe(0)
+    })
   })
 })

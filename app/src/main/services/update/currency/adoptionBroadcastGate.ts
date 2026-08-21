@@ -99,6 +99,14 @@ export function createAdoptionBroadcastGate(deps: AdoptionBroadcastGateDeps): {
         deps.anchors.markFirstMirrorNoticeShown()
       }
     },
-    pendingCount: () => deps.anchors.pendingAdoptedCount()
+    // Guarded by the flag, not the raw persisted count alone: this is safe today only because
+    // `CurrencyAnchorStore.markFirstMirrorNoticeShown` clears both fields in a SINGLE
+    // `store.write` (pinned atomic by anchors.test.ts), so the two never actually drift. This is
+    // a belt-and-braces guard for that atomicity ever breaking (e.g. a future write-split, or a
+    // write that throws after the caller already treats the notice as acked) — not a fix for a
+    // reachable bug: `firstMirrorNoticeShown()` and `pendingAdoptedCount()` agree in every state
+    // this codebase can currently produce.
+    pendingCount: () =>
+      deps.anchors.firstMirrorNoticeShown() ? 0 : deps.anchors.pendingAdoptedCount()
   }
 }
