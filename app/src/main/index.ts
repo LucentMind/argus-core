@@ -1466,6 +1466,12 @@ function registerIpc(): void {
     const res = await installPack(source, { argusHome, state: packsState })
     if (res.ok) {
       packsTouched.add(res.id)
+      // `Candidate.key` for a pack is the bare pack id (see packsAdapter.ts's `key: id`) — this is
+      // the one path the app itself tells a user with an `origin-pin` hold to take ("download it
+      // from your vendor and use Install from file"), so without this the badge, the Sources nav
+      // dot and the reason line would all stay for up to 6h after they followed that exact
+      // guidance (Important 3, whole-branch review).
+      currency?.forget(res.id)
       broadcast(IPC.packsChanged, undefined)
       referencesChanged()
     }
@@ -1475,6 +1481,9 @@ function registerIpc(): void {
     const res = uninstallPack(id, { argusHome, state: packsState, coreSkillsDir })
     if (res.ok) {
       packsTouched.add(id)
+      // Uninstalling a held-back pack must clear its hold too — otherwise the badge keeps
+      // counting an item with no row anywhere left to render its reason (Important 3).
+      currency?.forget(id)
       broadcast(IPC.packsChanged, undefined)
       referencesChanged()
     }
@@ -3117,11 +3126,16 @@ function registerIpc(): void {
     const p = await hivemind.uninstallSkill(name)
     // drop the enablement override entirely; a future re-install starts enabled again
     agentAccessStore.patch({ skills: { [`hivemind/${name}`]: null } })
+    // Uninstalling a held-back skill must clear its hold too, or the badge keeps counting an item
+    // with no row anywhere left to render its reason (Important 3, whole-branch review). Same key
+    // format `hiveAdapter.ts`'s `survey()` builds (`declineKey(it.kind, it.name)`).
+    currency?.forget(declineKey('skill', name))
     broadcast(IPC.skillsChanged, skillsPayload())
     return p
   })
   ipcMain.handle(IPC.hivemindUninstallReference, async (_e, name: string) => {
     const p = await hivemind.uninstallReference(name)
+    currency?.forget(declineKey('reference', name))
     referencesChanged()
     return p
   })
