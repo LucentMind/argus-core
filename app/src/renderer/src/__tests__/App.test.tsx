@@ -213,7 +213,8 @@ beforeEach(() => {
       surveyNow: vi.fn(async () => {}),
       onChanged: vi.fn(() => () => {}),
       onAdopted: vi.fn(() => () => {}),
-      ackAdopted: vi.fn(async () => {})
+      ackAdopted: vi.fn(async () => {}),
+      pendingAdopted: vi.fn(async () => 0)
     }
   } as never
 })
