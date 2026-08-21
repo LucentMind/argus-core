@@ -3134,9 +3134,35 @@ function registerIpc(): void {
             displayName: loaded.get(id)?.manifest.displayName ?? id,
             installedVersion: versions[id] ?? null
           }))
+        },
+        // Mirrors the `packsCheckUpdates` IPC handler exactly: without this, `survey()`'s own
+        // `checkAll()` (run on every Settings→Packs mount via `surveyNow('packs')`) is a dead
+        // end — `packUpdateStatuses` never changes and the "update available" badge never lights
+        // up on its own.
+        onSurveyed: (statuses) => {
+          packUpdateStatuses = statuses
+          broadcast(IPC.packsChanged, undefined)
         }
       }),
-      createHiveAdapter({ service: hivemind })
+      createHiveAdapter({
+        service: hivemind,
+        // Mirrors the broadcasts `hivemindInstall` performs after a successful manual install —
+        // but deliberately NOT its `agentAccessStore.patch(...)` clear. That patch exists because
+        // a person clicking Install is unambiguous intent to have the skill enabled. An automatic
+        // mirror adoption running unattended at 3am carries no such intent: it is "keep bytes
+        // current", not "the user asked for this skill". Silently re-enabling a skill someone
+        // explicitly disabled — as a side effect of the background poll picking up an upstream
+        // update to it — would be a surprising, security-relevant override of a deliberate choice.
+        // So the auto path only makes the new/updated content visible; it never touches the
+        // enablement override.
+        onInstalled: (kind) => {
+          if (kind === 'skill') {
+            broadcast(IPC.skillsChanged, skillsPayload())
+          } else {
+            referencesChanged()
+          }
+        }
+      })
     ],
     anchors: new CurrencyAnchorStore(
       new JsonFileStore(path.join(configDir(argusHome), 'currency.json'))
