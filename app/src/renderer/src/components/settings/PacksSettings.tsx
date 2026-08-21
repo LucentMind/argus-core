@@ -422,12 +422,21 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
     }
   }
 
+  /**
+   * Routed through the currency service (Finding 3, whole-branch review), not
+   * `window.argus.packs.checkUpdates()` directly: a refusal this turns up (origin-pin, a `gh`
+   * auth failure) is worded by `<BlockedReasonLine/>` off `currency.blocked` now, not off
+   * `pack.update` — calling `checkUpdates()` alone found the refusal but never told the currency
+   * service about it, so the row's guidance stayed silent until the next scheduled (up to 6h-away)
+   * survey. `force: true` is what lets a manual click work regardless of when that last was —
+   * exactly the guarantee a "check right now" button has to make.
+   */
   async function checkUpdates(): Promise<void> {
     if (busy) return
     setError(null)
     setBusy(true)
     try {
-      await window.argus.packs.checkUpdates()
+      await window.argus.currency.surveyNow('packs', true)
       await refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))

@@ -353,7 +353,8 @@ const argus = {
   },
   currency: {
     get: (): Promise<CurrencyPayload> => invoke(IPC.currencyGet),
-    surveyNow: (id: AdapterId): Promise<void> => invoke(IPC.currencySurveyNow, id),
+    surveyNow: (id: AdapterId, force?: boolean): Promise<void> =>
+      invoke(IPC.currencySurveyNow, id, force ?? false),
     onChanged: (cb: (p: CurrencyPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: CurrencyPayload): void => cb(p)
       ipcRenderer.on(IPC.currencyChanged, listener)
