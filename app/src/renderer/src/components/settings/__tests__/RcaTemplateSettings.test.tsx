@@ -180,6 +180,41 @@ describe('RcaTemplateSettings', () => {
     ).toBeNull()
   })
 
+  it('labels the nameless self-heading section instead of showing an empty field', () => {
+    // `tech-narrative` ships with `heading: ''` on purpose — render.ts splices it in raw because
+    // it emits its own `## ` headings. As a plain heading input it was a blank line with an
+    // editable field that changes nothing, which reads as a bug.
+    renderWith(DEFAULT_RCA_TEMPLATE, 'tech')
+    expect(screen.getByText(/writes its own headings/i)).toBeTruthy()
+    // No heading field at all for this one — and its other controls are addressed by a real
+    // name rather than by the empty string.
+    expect(
+      screen.queryByLabelText('Heading for Analysis narrative in the technical report')
+    ).toBeNull()
+    expect(screen.getByLabelText('Enable Analysis narrative in the technical report')).toBeTruthy()
+    expect(screen.getByLabelText('Move Analysis narrative up in the technical report')).toBeTruthy()
+  })
+
+  it('marks exactly the claims rows auto, and names what each is written from', () => {
+    renderWith(DEFAULT_RCA_TEMPLATE, 'tech')
+    const rows = screen.getAllByRole('listitem')
+    const autoRows = rows.filter((li) =>
+      [...li.querySelectorAll('span')].some((el) => el.textContent === 'auto')
+    )
+    // 7 tech sections, 6 of them claims — Impact is narrative and keeps its instruction.
+    expect(autoRows).toHaveLength(6)
+    const impact = rows.find((li) =>
+      li.querySelector('input[aria-label="Heading for Impact in the technical report"]')
+    )!
+    expect([...impact.querySelectorAll('span')].some((el) => el.textContent === 'auto')).toBe(false)
+    expect(
+      screen.getByLabelText('Edit the instruction for Impact in the technical report')
+    ).toBeTruthy()
+    // The chip's tooltip answers the question the chip provokes.
+    const rootCause = autoRows[0].querySelector('[title]')!
+    expect(rootCause.getAttribute('title')).toMatch(/root cause/i)
+  })
+
   it('names the two same-headed Root cause rows distinctly', () => {
     // Section headings are not unique — the default template ships a "Root cause" in each
     // report — so a control named after the heading alone would address two different fields.

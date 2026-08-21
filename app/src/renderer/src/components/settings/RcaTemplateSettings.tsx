@@ -40,6 +40,40 @@ function withEdit(
   return { ...t, [report]: t[report].map((s) => (s.id === id ? { ...s, ...patch } : s)) }
 }
 
+/**
+ * What the `auto` chip means, per slot — the tooltip a user gets when they ask why a row has no
+ * instruction to edit. Keyed by slot rather than written once, because "where does this content
+ * come from" is a different answer for each of them.
+ */
+const SLOT_SOURCE: Record<string, string> = {
+  'root-cause': 'the findings marked as root cause',
+  contributing: 'the findings marked as contributing factors',
+  symptoms: 'the findings marked as symptoms, and their timeline',
+  'ruled-out': 'the findings marked as ruled out',
+  timeline: 'the case timeline',
+  remediation: 'the findings marked as remediation',
+  'tech-narrative': "the model's technical write-up, which brings its own headings"
+}
+
+/**
+ * The one section that writes its own `## ` headings (`render.ts`'s `isSelfHeading`), and
+ * therefore ships with an empty `heading` on purpose.
+ *
+ * It needs saying out loud here: rendered as an ordinary heading input it was a blank line with
+ * an editable field that changes nothing, which reads as a bug rather than as a design. This row
+ * gets a static label instead.
+ */
+function isSelfHeading(s: RcaSection): boolean {
+  return s.kind === 'claims' && s.slot === 'tech-narrative'
+}
+
+/** The name every control in a row is addressed by. A section with no heading — the
+ *  self-heading one ships that way — would otherwise give its checkbox and its move buttons
+ *  accessible names like "Enable  in the technical report": a name that says nothing, and
+ *  that collides with any other nameless row. */
+const rowName = (s: RcaSection): string =>
+  s.heading.trim() || (isSelfHeading(s) ? 'Analysis narrative' : 'Untitled section')
+
 /** A new section's starting instruction. The exec text carries the non-technical prohibition
  *  because `RCA_CONTRACT` rule 6 enforces it whatever the instruction says — a new exec section
  *  should read the way the rule already behaves rather than inviting the user to write something
@@ -233,34 +267,50 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
                   <div className="flex items-center gap-2 px-1.5 py-1">
                     <input
                       type="checkbox"
-                      aria-label={`Enable ${s.heading} in the ${label}`}
+                      aria-label={`Enable ${rowName(s)} in the ${label}`}
                       checked={s.enabled}
                       onChange={() => update(report, s.id, { enabled: !s.enabled })}
                     />
-                    <input
-                      aria-label={`Heading for ${s.heading} in the ${label}`}
-                      value={s.heading}
-                      onChange={(e) => editLocal(report, s.id, { heading: e.target.value })}
-                      onBlur={(e) => commitField(report, s.id, { heading: e.target.value })}
-                      onKeyDown={blurOnEscape}
-                      // Borderless until hovered or focused: a column of boxed inputs reads as a
-                      // form waiting to be filled in, when every one of them is already correct.
-                      className={`min-w-0 flex-1 rounded-r1 border border-transparent bg-transparent px-1.5 py-0.5 text-xs transition-colors hover:border-hair focus:border-hair2 focus:bg-well focus:outline-none ${
-                        s.enabled ? 'text-ink' : 'text-faint'
-                      }`}
-                    />
+                    {isSelfHeading(s) ? (
+                      <span
+                        className={`min-w-0 flex-1 px-1.5 py-0.5 text-xs italic ${
+                          s.enabled ? 'text-dim' : 'text-faint'
+                        }`}
+                        title="This section supplies its own headings, so it has no name of its own."
+                      >
+                        Analysis narrative — writes its own headings
+                      </span>
+                    ) : (
+                      <input
+                        aria-label={`Heading for ${rowName(s)} in the ${label}`}
+                        value={s.heading}
+                        placeholder="Untitled section"
+                        onChange={(e) => editLocal(report, s.id, { heading: e.target.value })}
+                        onBlur={(e) => commitField(report, s.id, { heading: e.target.value })}
+                        onKeyDown={blurOnEscape}
+                        // Borderless until hovered or focused: a column of boxed inputs reads as a
+                        // form waiting to be filled in, when every one of them is already correct.
+                        className={`min-w-0 flex-1 rounded-r1 border border-transparent bg-transparent px-1.5 py-0.5 text-xs transition-colors placeholder:text-faint hover:border-hair focus:border-hair2 focus:bg-well focus:outline-none ${
+                          s.enabled ? 'text-ink' : 'text-faint'
+                        }`}
+                      />
+                    )}
                     {/* A claims section's content comes from the findings, so there is no
                         instruction to open. One chip says that where the old editor spent a
-                        two-line paragraph per row saying it. */}
+                        two-line paragraph per row saying it — and its tooltip names the source,
+                        which is the question the chip alone provokes. */}
                     {s.kind === 'claims' && (
-                      <Chip tone="neutral" title={`Built from the report's ${s.slot} findings`}>
+                      <Chip
+                        tone="neutral"
+                        title={`Written from ${SLOT_SOURCE[s.slot ?? ''] ?? 'the findings'} — rename it, reorder it or switch it off, but there is no instruction to give.`}
+                      >
                         auto
                       </Chip>
                     )}
                     <RowActions>
                       <IconBtn
                         size="xs"
-                        aria-label={`Move ${s.heading} up in the ${label}`}
+                        aria-label={`Move ${rowName(s)} up in the ${label}`}
                         title="Move up"
                         disabled={i === 0}
                         onClick={() => move(report, i, -1)}
@@ -269,7 +319,7 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
                       </IconBtn>
                       <IconBtn
                         size="xs"
-                        aria-label={`Move ${s.heading} down in the ${label}`}
+                        aria-label={`Move ${rowName(s)} down in the ${label}`}
                         title="Move down"
                         disabled={i === sections.length - 1}
                         onClick={() => move(report, i, 1)}
@@ -280,7 +330,7 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
                         <>
                           <IconBtn
                             size="xs"
-                            aria-label={`${editing ? 'Hide' : 'Edit'} the instruction for ${s.heading} in the ${label}`}
+                            aria-label={`${editing ? 'Hide' : 'Edit'} the instruction for ${rowName(s)} in the ${label}`}
                             aria-expanded={editing}
                             title={editing ? 'Hide instruction' : 'Edit instruction'}
                             onClick={() => setEditingId(editing ? null : s.id)}
@@ -289,7 +339,7 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
                           </IconBtn>
                           <IconBtn
                             size="xs"
-                            aria-label={`Remove ${s.heading} from the ${label}`}
+                            aria-label={`Remove ${rowName(s)} from the ${label}`}
                             title="Remove section"
                             className="hover:text-danger"
                             onClick={() => remove(report, s.id)}
@@ -303,7 +353,7 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
                   {editing && s.kind === 'narrative' && (
                     <div className="pb-1.5 pl-7 pr-1.5">
                       <textarea
-                        aria-label={`Instruction for ${s.heading} in the ${label}`}
+                        aria-label={`Instruction for ${rowName(s)} in the ${label}`}
                         value={s.instruction ?? ''}
                         rows={3}
                         onChange={(e) => editLocal(report, s.id, { instruction: e.target.value })}
