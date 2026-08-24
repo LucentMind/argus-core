@@ -15,6 +15,20 @@ export type AuthLike = (
   options: { serverUrl: string | URL; authorizationCode?: string }
 ) => Promise<'AUTHORIZED' | 'REDIRECT'>
 
+/** A pre-registered OAuth client, as configured on a connector instance. */
+export interface ConfidentialClient {
+  clientId: string
+  /** Resolved plaintext, or null when unset / unresolvable. */
+  clientSecret: string | null
+  /** Space-separated; empty means "let the SDK decide". */
+  scopes: string
+  /** Empty means ephemeral loopback. */
+  redirectUrl: string
+}
+
+/** Injected so `oauth.ts` never imports the connector registry (and stays Electron-free). */
+export type ClientConfigResolver = (instanceId: string) => ConfidentialClient | null
+
 const EXPIRY_SLACK_MS = 60_000
 const AUTHORIZE_TIMEOUT_MS = 300_000 // 5 min for the user to approve in the browser
 
@@ -143,7 +157,9 @@ class StoreBackedProvider implements OAuthClientProvider {
     private id: string,
     private secrets: SecretStore,
     private redirect: string,
-    private onRedirect: (url: URL) => void | Promise<void>
+    private onRedirect: (url: URL) => void | Promise<void>,
+    /** When set, registration is skipped entirely and these credentials are presented. */
+    private staticClient?: { clientId: string; clientSecret: string | null; scope: string }
   ) {}
 
   get redirectUrl(): string {
@@ -156,7 +172,8 @@ class StoreBackedProvider implements OAuthClientProvider {
       redirect_uris: [this.redirect],
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
-      token_endpoint_auth_method: 'none' // public client + PKCE
+      token_endpoint_auth_method: this.staticClient?.clientSecret ? 'client_secret_post' : 'none',
+      ...(this.staticClient?.scope ? { scope: this.staticClient.scope } : {})
     }
   }
 
@@ -171,6 +188,21 @@ class StoreBackedProvider implements OAuthClientProvider {
   }
 
   clientInformation(): OAuthClientInformationFull | undefined {
+    // A configured client is pinned by config, not by an ephemeral port, so the
+    // stale-redirect discard below cannot apply to it. Returning a value here is what
+    // makes the SDK skip registerClient() — the whole point for servers without DCR.
+    if (this.staticClient?.clientId) {
+      return {
+        client_id: this.staticClient.clientId,
+        ...(this.staticClient.clientSecret
+          ? { client_secret: this.staticClient.clientSecret }
+          : {}),
+        redirect_uris: [this.redirect],
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: this.staticClient.clientSecret ? 'client_secret_post' : 'none'
+      } as OAuthClientInformationFull
+    }
     const info = this.read<OAuthClientInformationFull>('client')
     // a dynamically-registered client's redirect_uris embeds the loopback port
     // from the run that registered it; a later run picks a different ephemeral
@@ -182,6 +214,7 @@ class StoreBackedProvider implements OAuthClientProvider {
   }
 
   saveClientInformation(info: OAuthClientInformationFull): void {
+    if (this.staticClient?.clientId) return // nothing was registered; nothing to persist
     this.secrets.set(`mcp/${this.id}/client`, JSON.stringify(info))
   }
 
@@ -218,7 +251,8 @@ export class McpOAuth {
   constructor(
     private secrets: SecretStore,
     private openExternal: (url: string) => Promise<void>,
-    private authFn: AuthLike = auth as unknown as AuthLike
+    private authFn: AuthLike = auth as unknown as AuthLike,
+    private clientConfig: ClientConfigResolver = () => null
   ) {}
 
   /** Interactive authorization (Authorize / Re-authorize button). */
@@ -234,8 +268,16 @@ export class McpOAuth {
       // whole point. The client registration is deliberately kept — it stays
       // valid, and clientInformation()'s stale-redirect guard handles the rest.
       this.secrets.delete(`mcp/${instanceId}/tokens`)
-      const provider = new StoreBackedProvider(instanceId, this.secrets, lb.redirectUrl, (url) =>
-        this.openExternal(url.toString())
+      const cfg = this.clientConfig(instanceId)
+      const stat = cfg?.clientId
+        ? { clientId: cfg.clientId, clientSecret: cfg.clientSecret, scope: cfg.scopes }
+        : undefined
+      const provider = new StoreBackedProvider(
+        instanceId,
+        this.secrets,
+        lb.redirectUrl,
+        (url) => this.openExternal(url.toString()),
+        stat
       )
       const first = await this.authFn(provider, { serverUrl })
       if (first !== 'AUTHORIZED') {
