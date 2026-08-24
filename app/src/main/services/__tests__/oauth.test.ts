@@ -574,6 +574,40 @@ describe('authorize: redirect and scope plumbing', () => {
     }
   })
 
+  it('a bind failure leaves existing stored tokens intact', async () => {
+    // A fixed configured port being occupied means authFn is never reached — the
+    // still-valid stored grant must survive, not be wiped by a failure that had
+    // nothing to do with the token itself.
+    const seeded = JSON.stringify({
+      access_token: 'still-good',
+      token_type: 'bearer',
+      refresh_token: 'still-good-refresh',
+      obtainedAt: Date.now()
+    })
+    secrets.set('mcp/slack/tokens', seeded)
+    const busy = await startLoopback()
+    const port = Number(new URL(busy.redirectUrl).port)
+    try {
+      const oauth = new McpOAuth(
+        secrets,
+        async () => {},
+        vi.fn() as unknown as AuthLike,
+        () => ({
+          clientId: '1.2',
+          clientSecret: 's',
+          scopes: '',
+          redirectUrl: `http://127.0.0.1:${port}/callback`
+        })
+      )
+      const r = await oauth.authorize('slack', SERVER)
+      expect(r.ok).toBe(false)
+      expect(r.error).toMatch(/already in use/)
+      expect(secrets.resolve('mcp/slack/tokens')).toBe(seeded)
+    } finally {
+      busy.close()
+    }
+  })
+
   it('refresh presents the configured client, never a fresh registration', async () => {
     let info: OAuthClientInformationFull | undefined
     const authFn: AuthLike = async (provider) => {

@@ -319,16 +319,6 @@ export class McpOAuth {
     // into a real HTTP error — the DCR/Rovo path must see the plain global fetch.
     const fetchFn = stat ? slackTokenFetch() : undefined
 
-    // Drop any stored grant FIRST. The SDK's auth() refreshes whenever the
-    // provider yields a refresh_token and re-throws a non-ServerError
-    // OAuthError (invalid_grant) rather than falling through to
-    // startAuthorization — so presenting a revoked/expired refresh_token here
-    // fails before the browser ever opens, leaving the connector stuck with no
-    // way back. This path is interactive by definition: a fresh grant is the
-    // whole point. Any client registration is deliberately kept — it stays
-    // valid, and clientInformation()'s stale-redirect guard handles the rest.
-    this.secrets.delete(`mcp/${instanceId}/tokens`)
-
     if (!isLoopbackRedirect(redirect)) {
       return this.authorizeByHand(instanceId, serverUrl, redirect, scope, stat, fetchFn)
     }
@@ -337,7 +327,8 @@ export class McpOAuth {
     try {
       // Inside its own try: a fixed configured port may be occupied, or the redirect may
       // be malformed in a way startLoopback rejects — either must reach the connector card
-      // as a named error result, never an unhandled rejection.
+      // as a named error result, never an unhandled rejection. Nothing has touched the
+      // stored grant yet, so a bind failure here leaves an existing working connector alone.
       lb = await startLoopback(redirect)
     } catch (err) {
       const message = (err as Error).message
@@ -345,6 +336,16 @@ export class McpOAuth {
       return { ok: false, error: message }
     }
     try {
+      // Drop any stored grant now that the loopback listener is up and authFn is about to
+      // run. The SDK's auth() refreshes whenever the provider yields a refresh_token and
+      // re-throws a non-ServerError OAuthError (invalid_grant) rather than falling through
+      // to startAuthorization — so presenting a revoked/expired refresh_token here fails
+      // before the browser ever opens, leaving the connector stuck with no way back. This
+      // path is interactive by definition: a fresh grant is the whole point. Any client
+      // registration is deliberately kept — it stays valid, and clientInformation()'s
+      // stale-redirect guard handles the rest.
+      this.secrets.delete(`mcp/${instanceId}/tokens`)
+
       const provider = new StoreBackedProvider(
         instanceId,
         this.secrets,
