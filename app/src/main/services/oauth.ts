@@ -18,12 +18,40 @@ export type AuthLike = (
 const EXPIRY_SLACK_MS = 60_000
 const AUTHORIZE_TIMEOUT_MS = 300_000 // 5 min for the user to approve in the browser
 
-/** One-shot 127.0.0.1 callback server for the system-browser redirect. Exported for tests. */
-export async function startLoopback(): Promise<{
+/**
+ * True when Argus can listen for the authorization code itself: an empty value (ephemeral
+ * loopback, the Rovo default) or an http loopback address. Anything else — including an https
+ * localhost URL — means the code comes back by hand.
+ */
+export function isLoopbackRedirect(url: string): boolean {
+  if (!url) return true
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return false
+  }
+  if (u.protocol !== 'http:') return false
+  const h = u.hostname.replace(/^\[|\]$/g, '')
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1'
+}
+
+/**
+ * One-shot callback server for the system-browser redirect. With no argument it binds an
+ * ephemeral port on 127.0.0.1 (the original behavior). With a loopback URL it binds that
+ * URL's host, port and path, and reports the URL **verbatim** — Slack matches redirect_uri
+ * exactly, so "localhost" must not be normalized to "127.0.0.1". Exported for tests.
+ */
+export async function startLoopback(publicUrl = ''): Promise<{
   redirectUrl: string
   waitForCode: (timeoutMs: number) => Promise<string>
   close: () => void
 }> {
+  const target = publicUrl ? new URL(publicUrl) : null
+  const wantPath = target?.pathname ?? '/callback'
+  const host = (target?.hostname ?? '127.0.0.1').replace(/^\[|\]$/g, '')
+  const port = target?.port ? Number(target.port) : 0
+
   let resolveCode!: (c: string) => void
   let rejectCode!: (e: Error) => void
   const codeP = new Promise<string>((res, rej) => {
@@ -32,7 +60,7 @@ export async function startLoopback(): Promise<{
   })
   const server = http.createServer((req, res) => {
     const u = new URL(req.url ?? '/', 'http://127.0.0.1')
-    if (u.pathname !== '/callback') {
+    if (u.pathname !== wantPath) {
       res.writeHead(404).end()
       return
     }
@@ -42,10 +70,23 @@ export async function startLoopback(): Promise<{
     if (code) resolveCode(code)
     else rejectCode(new Error(u.searchParams.get('error') ?? 'authorization failed'))
   })
-  await new Promise<void>((res) => server.listen(0, '127.0.0.1', res))
-  const port = (server.address() as AddressInfo).port
+  await new Promise<void>((res, rej) => {
+    // A fixed port can be occupied by anything; say which port and which field fixes it,
+    // rather than surfacing a bare EADDRINUSE at the connector card.
+    server.once('error', (e: NodeJS.ErrnoException) =>
+      rej(
+        e.code === 'EADDRINUSE'
+          ? new Error(
+              `redirect port ${port} is already in use — change Redirect URL on the connector card`
+            )
+          : e
+      )
+    )
+    server.listen(port, host, res)
+  })
+  const bound = (server.address() as AddressInfo).port
   return {
-    redirectUrl: `http://127.0.0.1:${port}/callback`,
+    redirectUrl: publicUrl || `http://127.0.0.1:${bound}/callback`,
     waitForCode: (timeoutMs) =>
       Promise.race([
         codeP,
