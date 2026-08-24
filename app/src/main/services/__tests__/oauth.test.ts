@@ -601,6 +601,27 @@ describe('confidential client', () => {
     createServerSpy.mockRestore()
   })
 
+  it('a whitespace-only Client ID is rejected the same as an empty one (final-review finding 2)', async () => {
+    // Without trimming before the emptiness test in missingClientId(), a space-only clientId
+    // (e.g. a stray leading/trailing space pasted alongside the real value) reads as
+    // "configured", the guard never fires, and the SDK reaches Slack with a blank client_id —
+    // an opaque remote failure instead of this guard's clear local one.
+    const createServerSpy = vi.spyOn(http, 'createServer')
+    const authFn: AuthLike = vi.fn()
+    const oauth = new McpOAuth(
+      secrets,
+      async () => {},
+      authFn,
+      () => slackCfg({ clientId: '   ', clientSecret: null })
+    )
+    const r = await oauth.authorize('slack', SERVER)
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/Client ID/)
+    expect(authFn).not.toHaveBeenCalled()
+    expect(createServerSpy).not.toHaveBeenCalled()
+    createServerSpy.mockRestore()
+  })
+
   it('authorizeWithCode also rejects a configured redirectUrl with no Client ID', async () => {
     const authFn: AuthLike = vi.fn()
     const oauth = new McpOAuth(

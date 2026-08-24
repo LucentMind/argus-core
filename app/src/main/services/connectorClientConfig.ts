@@ -55,7 +55,12 @@ export function buildConnectorClientConfigResolver(
       // the server advertises", so float it to the read-only evidence set here, where the UI
       // cannot bypass it. Scoped to the slack preset only — a non-slack http connector's ''
       // must keep meaning "let the SDK decide", same as before.
-      scopes: !cfg.scopes && inst.preset === 'slack' ? SLACK_DEFAULT_SCOPES : cfg.scopes,
+      // Tested with .trim() so a whitespace-only value (e.g. '\n' — see the DraftTextarea
+      // onCommit note below) still floors to SLACK_DEFAULT_SCOPES instead of reaching the SDK
+      // as `scope=%0A`, which Slack answers with an opaque invalid_scope. The stored/returned
+      // value is left untrimmed on the non-floored branch — this only changes what counts as
+      // "empty" for the floor decision, not what a real (non-whitespace) scopes string carries.
+      scopes: !cfg.scopes?.trim() && inst.preset === 'slack' ? SLACK_DEFAULT_SCOPES : cfg.scopes,
       redirectUrl: cfg.redirectUrl
     }
   }
