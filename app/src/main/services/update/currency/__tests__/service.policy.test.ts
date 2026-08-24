@@ -202,6 +202,26 @@ describe('CurrencyService policy', () => {
     expect(svc.payload().blocked).toEqual([missingBlocked])
   })
 
+  // A 403 is either org SAML/SSO enforcement (persistent) or API rate limiting (transient), and
+  // `describeBlocked` deliberately does not guess which. The transient half is exactly the
+  // flaky-network shape this grace exists to withhold, so it waits for a second sighting like
+  // `auth` and `gh-notfound`. The cost is one extra survey before a real SSO refusal badges.
+  it('hides a forbidden block on its first occurrence and shows it on the second', async () => {
+    let t = 0
+    const forbiddenBlocked: Candidate = { ...authBlocked, reason: { kind: 'gh-forbidden' } }
+    const adapter: CurrencyAdapter = {
+      id: 'packs',
+      survey: vi.fn(async () => [forbiddenBlocked]),
+      apply: vi.fn(async () => ({ ok: true as const }))
+    }
+    const svc = build(adapter, { now: () => t })
+    await svc.surveyNow('packs')
+    expect(svc.payload().blocked).toEqual([])
+    t = SIX_H + 1
+    await svc.surveyNow('packs')
+    expect(svc.payload().blocked).toEqual([forbiddenBlocked])
+  })
+
   it('shows every non-auth block on its first occurrence', async () => {
     const localEdits: Candidate = {
       domain: 'hive-reference',

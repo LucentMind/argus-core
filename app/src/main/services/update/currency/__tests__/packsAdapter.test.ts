@@ -102,6 +102,22 @@ describe('packsAdapter.survey', () => {
     expect(await adapter.survey()).toEqual([])
   })
 
+  it('surfaces a gh-forbidden failure instead of dropping the candidate', async () => {
+    const { adapter } = build({
+      'code-graph': { phase: 'error', message: 'HTTP 403', at: 1, code: 'gh-forbidden' }
+    })
+    const found = await adapter.survey()
+    expect(found).toHaveLength(1)
+    expect(found[0].reason).toEqual({ kind: 'gh-forbidden' })
+  })
+
+  it('still drops an unattributable gh-failed failure as transport noise', async () => {
+    const { adapter } = build({
+      'code-graph': { phase: 'error', message: 'boom', at: 1, code: 'gh-failed' }
+    })
+    expect(await adapter.survey()).toHaveLength(0)
+  })
+
   it('ignores a pack with no installed row', async () => {
     const { updates } = build({ ghost: { phase: 'available', version: '9.9.9' } })
     const adapter = createPacksAdapter({ updates, installed: () => [] })

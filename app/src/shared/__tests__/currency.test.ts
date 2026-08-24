@@ -145,4 +145,16 @@ describe('surfacedBlocked', () => {
     expect(SURFACED_BLOCK_KINDS.has('gh-missing')).toBe(true)
     expect(SURFACED_BLOCK_KINDS.has('gh-notfound')).toBe(true)
   })
+
+  it('surfaces gh-forbidden — it is actionable', () => {
+    expect(SURFACED_BLOCK_KINDS.has('gh-forbidden')).toBe(true)
+  })
+})
+
+describe('describeBlocked gh-forbidden', () => {
+  it('words a 403 without guessing which of its two causes it is', () => {
+    expect(describeBlocked({ kind: 'gh-forbidden' })).toBe(
+      'GitHub refused the request — your token may need organization authorization, or you may be rate-limited.'
+    )
+  })
 })

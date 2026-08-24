@@ -15,7 +15,7 @@ export const GH_DOWNLOAD_TIMEOUT_MS = 300_000
  */
 export const GH_MAX_BUFFER = 16 * 1024 * 1024
 
-export type GhErrorKind = 'missing' | 'auth' | 'notfound' | 'failed'
+export type GhErrorKind = 'missing' | 'auth' | 'notfound' | 'forbidden' | 'failed'
 
 export class GhError extends Error {
   constructor(
@@ -51,6 +51,13 @@ export function classifyGhFailure(err: unknown): GhError {
   }
   if (/HTTP 404|Not Found/i.test(stderr)) {
     return new GhError('notfound', `repository not found, or your account cannot see it: ${detail}`)
+  }
+  if (/HTTP 403|Forbidden/i.test(stderr)) {
+    // 403 covers two things that need opposite advice — org SAML/SSO enforcement (persistent) and
+    // API rate limiting (transient). `gh` does emit distinguishable text for them, and this
+    // deliberately does not read it: GitHub can reword those strings without warning, and a
+    // misclassification would send the user chasing the wrong fix. The one sentence names both.
+    return new GhError('forbidden', `GitHub refused the request: ${detail}`)
   }
   return new GhError('failed', detail)
 }

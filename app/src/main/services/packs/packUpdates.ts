@@ -223,6 +223,7 @@ const GH_ERROR_CODE: Record<GhErrorKind, UpdateErrorCode> = {
   missing: 'gh-missing',
   auth: 'gh-auth',
   notfound: 'gh-notfound',
+  forbidden: 'gh-forbidden',
   failed: 'gh-failed'
 }
 
