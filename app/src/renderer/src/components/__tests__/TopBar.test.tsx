@@ -990,6 +990,49 @@ describe('TopBar', () => {
     expect(await screen.findByLabelText('Settings')).toBeInTheDocument()
   })
 
+  // Task 2 (increment 3): with auto-update off, `tick()` returns before surveying, so `blocked`
+  // is a frozen snapshot that can be hours stale — the TopBar badge is an AMBIENT claim (made
+  // while the reader is looking at something else) and must not demand attention on behalf of a
+  // service the user deliberately disabled. `currencyStore.surfacedCount()` gates on `auto`.
+  it('leaves the Settings button unbadged when auto-update is off', async () => {
+    const currency: CurrencyPayload = {
+      auto: false,
+      lastSurveyAt: new Date().toISOString(),
+      blocked: [
+        {
+          domain: 'hive-skill',
+          key: 'skill/a',
+          label: 'a',
+          from: 'x',
+          to: 'y',
+          verdict: 'blocked',
+          reason: { kind: 'local-edits' }
+        }
+      ],
+      busy: false
+    }
+    window.argus.currency.get = vi.fn(async () => currency)
+    render(
+      <TopBar
+        activeSlug={null}
+        activeCase={null}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    // `findByLabelText('Settings')` alone would also match the button's PRE-hydration label —
+    // it starts out bare 'Settings' (held === 0, currencyStore's initial EMPTY state) before
+    // `currency.get()`'s promise resolves, and find* resolves on the first match it sees. That
+    // makes the assertion pass whether or not the auto:false gate ever ran, since the untouched
+    // first paint already satisfies it. Waiting for the store to actually adopt the stubbed
+    // payload first is what proves this is the POST-hydration, gated state, not a race won by
+    // asserting before the mock ever settles.
+    await vi.waitFor(() => expect(currencyStore.get().blocked).toHaveLength(1))
+    expect(await screen.findByLabelText('Settings')).toBeInTheDocument()
+  })
+
   // Task 7: the first-run notice. `HeaderNotice` (mounted here, inside the case group) is its
   // only host — a notice pushed with no case open is silently dropped — so this is where the
   // listener that turns `currency:adopted` into a notice, and then acknowledges it, has to live.

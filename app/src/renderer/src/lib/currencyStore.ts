@@ -89,15 +89,25 @@ class CurrencyStore {
 
   /** Held-back items grouped by the page that shows them. Always has all three keys, so a
    *  consumer can index without a null check. Derives from `surfacedBlocked` only — never
-   *  re-derives which reason kinds are actionable. */
+   *  re-derives which reason kinds are actionable.
+   *
+   *  Empty when auto-update is off. This feeds the Settings nav dots, which are an AMBIENT claim
+   *  — made while the reader is looking at something else, and promising "this is current". With
+   *  the switch off `tick()` returns before surveying (`service.ts`), so `blocked` is a frozen
+   *  snapshot that can be hours stale, and the dot would demand attention on behalf of a service
+   *  the user deliberately disabled. The page-level badges are NOT gated: they read
+   *  `surfacedBlocked(payload.blocked)` directly, and opening those pages runs a survey. */
   blockedByPage(): Record<SettingsPageId, Candidate[]> {
     const out: Record<SettingsPageId, Candidate[]> = { general: [], sources: [], team: [] }
+    if (!this.state.auto) return out
     for (const c of surfacedBlocked(this.state.blocked)) out[pageOwning(c.domain)].push(c)
     return out
   }
 
-  /** Total worth showing — what the TopBar dot and the status line count. */
+  /** Total worth showing — what the TopBar Settings badge counts. Zero when auto-update is off,
+   *  for the reason spelled out on `blockedByPage` above. */
   surfacedCount(): number {
+    if (!this.state.auto) return 0
     return surfacedBlocked(this.state.blocked).length
   }
 
