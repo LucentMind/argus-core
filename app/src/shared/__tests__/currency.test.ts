@@ -3,11 +3,31 @@ import {
   blockedOf,
   describeBlocked,
   describeUnshownHolds,
+  hiveCandidateKey,
   surfacedBlocked,
   SURFACED_BLOCK_KINDS
 } from '../currency'
 import type { BlockedReason, Candidate } from '../currency'
 import { settingsSchema } from '../settings'
+
+/**
+ * Important 3, whole-branch review: this is the one place `'skill/<name>' | 'reference/<name>'`
+ * is spelled — `main`'s `declineKey` delegates to it, and every renderer surface that needs the
+ * candidate key for a hive item (which cannot import from `main/`) imports this directly instead
+ * of re-spelling `${kind}/${name}` inline. A near-miss in any hand-spelled copy (separator, case)
+ * would leave `blockedFor` returning undefined and shown-key sets failing to match, with no type
+ * error — this pins the exact format so a future edit here is a deliberate, visible change.
+ */
+describe('hiveCandidateKey', () => {
+  it('joins kind and name with a single slash', () => {
+    expect(hiveCandidateKey('skill', 'triage')).toBe('skill/triage')
+    expect(hiveCandidateKey('reference', 'style.md')).toBe('reference/style.md')
+  })
+
+  it('preserves a slash already inside the name (a nested reference)', () => {
+    expect(hiveCandidateKey('reference', 'confluence/foo.md')).toBe('reference/confluence/foo.md')
+  })
+})
 
 const clean: Candidate = {
   domain: 'pack',

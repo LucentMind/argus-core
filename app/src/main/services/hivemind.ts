@@ -26,6 +26,7 @@ import type {
 } from '../../shared/hivemind'
 import { PUSHABLE_TIERS } from '../../shared/trustTiers'
 import { isExecutableAsset, isSkillTempDir } from '../../shared/skillAssets'
+import { hiveCandidateKey } from '../../shared/currency'
 
 const execFileAsync = promisify(execFile)
 
@@ -211,9 +212,14 @@ function validReferenceName(name: string): boolean {
   return base.endsWith('.md') && !/[/\\]/.test(base) && !base.startsWith('.')
 }
 
-/** The one place a tombstone key is spelled, so the ledger and the mirror cannot disagree. */
+/**
+ * The tombstone key, so the ledger and the mirror cannot disagree. Delegates to
+ * `shared/currency.ts`'s `hiveCandidateKey` — the actual `'skill/<name>' | 'reference/<name>'`
+ * format lives there now, not here, so the renderer (which cannot import from `main/`) has a real
+ * import to share instead of a hand-spelled copy (Important 3, whole-branch review).
+ */
 export function declineKey(kind: 'skill' | 'reference', name: string): string {
-  return `${kind}/${name}`
+  return hiveCandidateKey(kind, name)
 }
 
 /** `author:` from a clone-tree reference file, or null if it can't be read — mirrors

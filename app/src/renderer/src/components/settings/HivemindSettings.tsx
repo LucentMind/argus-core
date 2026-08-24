@@ -14,7 +14,7 @@ import { currencyStore, needsYouLabel, pageOwning } from '../../lib/currencyStor
 import type { HivemindItem, HivemindPayload, LocalDivergence } from '../../../../shared/hivemind'
 import type { SettingsPayload } from '../../../../shared/settings'
 import type { SourceControlStatus } from '../../../../shared/sourcecontrol'
-import { surfacedBlocked } from '../../../../shared/currency'
+import { hiveCandidateKey, surfacedBlocked } from '../../../../shared/currency'
 import type { Candidate } from '../../../../shared/currency'
 
 type UpdateConfirm = {
@@ -281,7 +281,7 @@ export function HivemindSettings({
   // line anywhere to explain it — `<UnshownHoldsLine/>` below says so instead of a section silently
   // looking like it points at nothing (mirrors PacksSettings' blockedFor).
   const blockedFor = (i: HivemindItem): Candidate | undefined =>
-    blockedHive.find((c) => c.key === `${i.kind}/${i.name}`)
+    blockedHive.find((c) => c.key === hiveCandidateKey(i.kind, i.name))
 
   /** The section-header badge for one domain's held-back count — same wording as Packs' section
    *  badge (agreeing noun+verb plural), just scoped to whichever list owns this section. */
@@ -594,8 +594,8 @@ export function HivemindSettings({
   const downloadableReferences = references.filter(isDownloadable)
   // Same accounting as Packs' `unshownPacks`, per section: a candidate whose key matches no row
   // currently rendered — hidden by the filter, or gone since the survey.
-  const shownSkillKeys = new Set(skills.map((it) => `${it.kind}/${it.name}`))
-  const shownReferenceKeys = new Set(references.map((it) => `${it.kind}/${it.name}`))
+  const shownSkillKeys = new Set(skills.map((it) => hiveCandidateKey(it.kind, it.name)))
+  const shownReferenceKeys = new Set(references.map((it) => hiveCandidateKey(it.kind, it.name)))
   const unshownSkills = blockedSkills.filter((c) => !shownSkillKeys.has(c.key)).length
   const unshownReferences = blockedReferences.filter((c) => !shownReferenceKeys.has(c.key)).length
 
