@@ -646,6 +646,12 @@ describe('SettingsView', () => {
       }
       window.argus.currency.get = vi.fn(async () => currency)
       render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
+      // `findByText('Sources')` alone would also match the FIRST paint — the nav row renders
+      // unconditionally, before `currency.get()`'s promise resolves — so the assertion below could
+      // pass whether or not the auto:false gate ever ran (same hazard TopBar.test.tsx's sibling
+      // guards against, see its comment there). Waiting for the store to actually adopt the
+      // stubbed payload first is what proves this is the POST-hydration, gated state.
+      await vi.waitFor(() => expect(currencyStore.get().blocked).toHaveLength(1))
       await screen.findByText('Sources')
       expect(screen.queryByLabelText(/needs you|need you/i)).not.toBeInTheDocument()
     })
