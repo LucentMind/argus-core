@@ -379,11 +379,22 @@ describe('McpOAuth', () => {
 
 describe('confidential client', () => {
   const SERVER = 'https://mcp.slack.com/mcp'
+  // authorize() now actually binds the configured redirectUrl (it used to ignore it and
+  // always bind ephemeral), so the fixture needs a real, currently-free port rather than
+  // the old "port 0 as a don't-care placeholder" — startLoopback rejects an explicit :0
+  // on a supplied URL (Task 2). Discovered per test, not hardcoded, same as freePort()
+  // in the startLoopback suite above.
+  let port = 0
+  beforeEach(async () => {
+    const probe = await startLoopback()
+    port = Number(new URL(probe.redirectUrl).port)
+    probe.close()
+  })
   const slackCfg = (over: Partial<ConfidentialClient> = {}): ConfidentialClient => ({
     clientId: '123.456',
     clientSecret: 'sh-secret',
     scopes: 'channels:history users:read',
-    redirectUrl: 'http://localhost:0/callback',
+    redirectUrl: `http://localhost:${port}/callback`,
     ...over
   })
 
@@ -497,6 +508,92 @@ describe('confidential client', () => {
     expect(r.ok).toBe(true)
     // must be the STATIC client, not undefined from the stale-redirect discard
     expect(info?.client_id).toBe('123.456')
+  })
+})
+
+describe('authorize: redirect and scope plumbing', () => {
+  const SERVER = 'https://mcp.slack.com/mcp'
+
+  it('binds the configured loopback port and hands the SDK the same redirect_uri', async () => {
+    // free port, discovered rather than hardcoded — see freePort() in the startLoopback suite
+    const probe = await startLoopback()
+    const port = Number(new URL(probe.redirectUrl).port)
+    probe.close()
+    const redirectUrl = `http://127.0.0.1:${port}/cb`
+
+    let seenRedirect = ''
+    let seenScope: string | undefined
+    const authFn: AuthLike = async (provider, opts) => {
+      if (opts.authorizationCode) {
+        await provider.saveTokens({ access_token: 'xoxp-9', token_type: 'user' })
+        return 'AUTHORIZED'
+      }
+      seenRedirect = String(provider.redirectUrl)
+      seenScope = opts.scope
+      await provider.redirectToAuthorization(new URL('https://slack.com/oauth/v2_user/authorize'))
+      setTimeout(() => void fetch(`${redirectUrl}?code=c9`), 50)
+      return 'REDIRECT'
+    }
+    const oauth = new McpOAuth(
+      secrets,
+      async () => {},
+      authFn,
+      () => ({
+        clientId: '1.2',
+        clientSecret: 's',
+        scopes: 'channels:history',
+        redirectUrl
+      })
+    )
+    const r = await oauth.authorize('slack', SERVER)
+    expect(r.ok).toBe(true)
+    expect(seenRedirect).toBe(redirectUrl)
+    expect(seenScope).toBe('channels:history')
+  })
+
+  it('surfaces a bind failure as an error result, not a throw', async () => {
+    const busy = await startLoopback()
+    const port = Number(new URL(busy.redirectUrl).port)
+    try {
+      const oauth = new McpOAuth(
+        secrets,
+        async () => {},
+        vi.fn() as unknown as AuthLike,
+        () => ({
+          clientId: '1.2',
+          clientSecret: 's',
+          scopes: '',
+          redirectUrl: `http://127.0.0.1:${port}/callback`
+        })
+      )
+      const r = await oauth.authorize('slack', SERVER)
+      expect(r.ok).toBe(false)
+      expect(r.error).toMatch(/already in use/)
+    } finally {
+      busy.close()
+    }
+  })
+
+  it('refresh presents the configured client, never a fresh registration', async () => {
+    let info: OAuthClientInformationFull | undefined
+    const authFn: AuthLike = async (provider) => {
+      info = (await provider.clientInformation()) as OAuthClientInformationFull
+      await provider.saveTokens({ access_token: 'xoxp-r', token_type: 'user' })
+      return 'AUTHORIZED'
+    }
+    const oauth = new McpOAuth(
+      secrets,
+      async () => {},
+      authFn,
+      () => ({
+        clientId: '7.7',
+        clientSecret: 'sec',
+        scopes: '',
+        redirectUrl: 'http://localhost:8080/callback'
+      })
+    )
+    expect(await oauth.refresh('slack', SERVER)).toBe(true)
+    expect(info?.client_id).toBe('7.7')
   })
 })
 
