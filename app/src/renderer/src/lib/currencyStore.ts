@@ -96,7 +96,10 @@ class CurrencyStore {
    *  the switch off `tick()` returns before surveying (`service.ts`), so `blocked` is a frozen
    *  snapshot that can be hours stale, and the dot would demand attention on behalf of a service
    *  the user deliberately disabled. The page-level badges are NOT gated: they read
-   *  `surfacedBlocked(payload.blocked)` directly, and opening those pages runs a survey. */
+   *  `surfacedBlocked(payload.blocked)` directly, and opening those pages asks for a survey,
+   *  subject to the same rate limit (`service.ts`'s `surveyNow` is refused for up to 6h unless
+   *  forced) — so with auto off a page badge can still be a frozen snapshot, not freshness the
+   *  code actually guarantees. */
   blockedByPage(): Record<SettingsPageId, Candidate[]> {
     const out: Record<SettingsPageId, Candidate[]> = { general: [], sources: [], team: [] }
     if (!this.state.auto) return out
