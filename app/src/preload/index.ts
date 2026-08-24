@@ -923,6 +923,7 @@ const argus = {
     patch: (p: unknown) => invoke(IPC.connectorsPatch, p),
     test: (id: string) => invoke(IPC.connectorsTest, id),
     oauth: (id: string) => invoke(IPC.connectorsOauth, id),
+    oauthCode: (id: string, code: string) => invoke(IPC.connectorsOauthCode, id, code),
     onChanged: (cb: (p: ConnectorsPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: ConnectorsPayload): void => cb(p)
       ipcRenderer.on(IPC.connectorsChanged, listener)

@@ -143,6 +143,7 @@ import {
   type ConnectorsPayload,
   type HttpConnectorConfig
 } from '../shared/connectors'
+import { buildConnectorClientConfigResolver } from './services/connectorClientConfig'
 import {
   createCase,
   listCases,
@@ -951,7 +952,15 @@ function registerIpc(): void {
       updatedAt: rec.updatedAt
     })
   })
-  const mcpOauth = new McpOAuth(secretStore, (url) => shell.openExternal(url))
+  const mcpOauth = new McpOAuth(
+    secretStore,
+    (url) => shell.openExternal(url),
+    undefined,
+    // Reads mcp-servers.json (via connectorRegistry) fresh on every call, so an edit takes
+    // effect on the next Authorize without a restart — see connectorClientConfig.ts for the
+    // $secret-resolution and no-clientId behavior, and why it's extracted rather than inline.
+    buildConnectorClientConfigResolver({ registry: connectorRegistry, secrets: secretStore })
+  )
   const mcpService = new McpService({
     registry: connectorRegistry,
     secrets: secretStore,
@@ -3553,6 +3562,18 @@ function registerIpc(): void {
       // resolveAtlassianCreds, and would cache Atlassian's site under the wrong id.
       if (inst.preset === 'rovo') void atlassian.resolveSiteUrl(id) // warm cloudId+siteUrl cache; ignore result/errors
     }
+    broadcast(IPC.connectorsChanged, connectorsPayload())
+    return r
+  })
+  ipcMain.handle(IPC.connectorsOauthCode, async (_e, id: string, code: string) => {
+    const inst = connectorRegistry.get()[id]
+    if (!inst) return { ok: false, error: `unknown connector: ${id}` }
+    const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
+    const r = await mcpOauth.authorizeWithCode(id, cfg.url, code)
+    // Same display-badge reset as connectorsOauth above; deliberately NO resolveSiteUrl
+    // warm-up here — the non-loopback hand-carried-code path only exists because Slack (no
+    // Atlassian REST layer behind it) can't use a redirect Argus can listen on.
+    if (r.ok) mcpService.clearRuntime(id)
     broadcast(IPC.connectorsChanged, connectorsPayload())
     return r
   })
