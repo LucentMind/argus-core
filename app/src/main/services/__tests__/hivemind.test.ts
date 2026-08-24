@@ -77,11 +77,13 @@ async function setupWithInstalledSkill(name: string): Promise<{
 /** A HivemindService over a fresh clone containing one reference named `name`, already installed. */
 async function setupWithInstalledReference(name: string): Promise<{
   svc: HivemindService
+  clone: string
   removeFromClone: (rel: string) => void
   reload: () => HivemindService
 }> {
   const clone = seedCloneShell()
-  fs.mkdirSync(path.join(clone, 'references'), { recursive: true })
+  // `name` may be namespaced (`confluence/x.md`), which is a real subdirectory in the clone.
+  fs.mkdirSync(path.dirname(path.join(clone, 'references', name)), { recursive: true })
   fs.writeFileSync(path.join(clone, 'references', name), `# ${name}\n`)
   const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha-1' })
   const makeSvc = (): HivemindService =>
@@ -90,6 +92,7 @@ async function setupWithInstalledReference(name: string): Promise<{
   await svc.install('reference', name)
   return {
     svc,
+    clone,
     removeFromClone: (rel: string) =>
       fs.rmSync(path.join(clone, rel), { recursive: true, force: true }),
     reload: makeSvc
@@ -2755,6 +2758,53 @@ describe('tombstones', () => {
     expect(Object.keys(svc.declined())).toEqual(['reference/style.md'])
   })
 
+  /**
+   * The Library row calls `uninstallReference(r.file)` — the LOCAL file name. Installs flatten
+   * `confluence/x.md` to `references/x.md` while the pin and the tombstone stay keyed by the
+   * namespaced hive name, so keying off the caller's name left the pin in place and tombstoned
+   * a key no item has: the removed file still read as pinned, and the next survey saw a
+   * tombstone-free `installed: false` and could re-adopt the file the user had just removed.
+   */
+  it('a confluence/ install removed by its flattened local name unpins and tombstones the NAMESPACED key', async () => {
+    const { svc } = await setupWithInstalledReference('confluence/adasis.md')
+
+    await svc.uninstallReference('adasis.md')
+
+    expect(Object.keys(svc.declined())).toEqual(['reference/confluence/adasis.md'])
+    const item = (await svc.payload()).items.find((i) => i.name === 'confluence/adasis.md')!
+    expect(item.installed).toBe(false)
+    expect(item.installedCommit).toBeNull()
+    expect(item.declined).toBe(true)
+  })
+
+  /** The resolution must not fire in reverse: a flat item is never tombstoned under confluence/. */
+  it('a flat install removed by its own name keeps the flat key', async () => {
+    const { svc } = await setupWithInstalledReference('runbook.md')
+    await svc.uninstallReference('runbook.md')
+    expect(Object.keys(svc.declined())).toEqual(['reference/runbook.md'])
+  })
+
+  /**
+   * Both halves of the hive's references/ folder can offer the same basename, and installing
+   * both leaves TWO pins for ONE local file. Removing that file invalidates both, so both are
+   * cleared — leaving either behind means a pin pointing at a file that no longer exists.
+   */
+  it('clears every pin naming the removed local file when a flat and a confluence/ copy collide', async () => {
+    const { svc, clone } = await setupWithInstalledReference('adasis.md')
+    fs.mkdirSync(path.join(clone, 'references', 'confluence'), { recursive: true })
+    fs.writeFileSync(path.join(clone, 'references', 'confluence', 'adasis.md'), '# distilled\n')
+    await svc.install('reference', 'confluence/adasis.md', { overwriteLocalEdits: true })
+
+    await svc.uninstallReference('adasis.md')
+
+    expect(Object.keys(svc.declined()).sort()).toEqual([
+      'reference/adasis.md',
+      'reference/confluence/adasis.md'
+    ])
+    const refs = (await svc.payload()).items.filter((i) => i.kind === 'reference')
+    expect(refs.map((i) => i.installedCommit)).toEqual([null, null])
+  })
+
   it('clears the tombstone when the item is installed again by hand', async () => {
     const { svc } = await setupWithInstalledSkill('triage')
     await svc.uninstallSkill('triage')
@@ -2783,6 +2833,28 @@ describe('noteReferenceDeleted', () => {
     const p = await svc.payload()
     // Pin is gone: `installedCommit` reverts to null, exactly as `uninstallReference` leaves it.
     expect(p.items.find((i) => i.name === 'runbook.md')?.installedCommit).toBeNull()
+  })
+
+  /**
+   * The caller names the file it deleted, and this method has to find the pin behind that file —
+   * which for a `confluence/` install is keyed by the namespaced name the install flattened.
+   *
+   * Defensive rather than reachable today: the only route in is refSync's hand-owned-tier
+   * delete, and a confluence-stamped install cannot be claimed into a hand-owned tier
+   * (`claimReference` refuses anything but `hivemind`). It is fixed anyway because the two
+   * removal paths must agree on which key a local file resolves to — the alternative is a
+   * ledger that stays consistent only as long as an unrelated guard elsewhere holds.
+   */
+  it('unpins and tombstones the NAMESPACED key when the local file a confluence/ install flattened to is deleted', async () => {
+    const { svc } = await setupWithInstalledReference('confluence/adasis.md')
+    // exactly what refSync does: the FILE is already gone, and this hook is told its name
+    fs.rmSync(path.join(home, 'references', 'adasis.md'), { force: true })
+
+    svc.noteReferenceDeleted('adasis.md')
+
+    expect(Object.keys(svc.declined())).toEqual(['reference/confluence/adasis.md'])
+    const item = (await svc.payload()).items.find((i) => i.name === 'confluence/adasis.md')!
+    expect(item.installedCommit).toBeNull()
   })
 
   it('is a no-op for a name with no HiveMind pin — an ordinary user file', async () => {
