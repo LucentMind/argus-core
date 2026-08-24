@@ -52,11 +52,12 @@ function reasonOf(code: UpdateErrorCode | undefined): BlockedReason | null {
       return { kind: 'gh-forbidden' }
     // 'gh-failed' is deliberately absent: it is classifyGhFailure's catch-all for a gh call that
     // failed for no attributable reason (a malformed response, a mid-call network blip) —
-    // rate-limiting is 'gh-forbidden' above, not this. None of those is a decision a person can
-    // act on, so — like every OTHER code absent from this map — it is transport noise, not a
-    // `BlockedReason`, and is silently re-offered by the next survey rather than surfacing a
-    // sentence that would send the user chasing a sign-in or an install that was never the
-    // problem.
+    // rate-limiting normally arrives as HTTP 403 and routes to 'gh-forbidden' above
+    // (classifyGhFailure only matches /HTTP 403|Forbidden/, so a rate limit surfaced as HTTP 429
+    // still falls through to here). None of those is a decision a person can act on, so — like
+    // every OTHER code absent from this map — it is transport noise, not a `BlockedReason`, and
+    // is silently re-offered by the next survey rather than surfacing a sentence that would send
+    // the user chasing a sign-in or an install that was never the problem.
     default:
       return null
   }
