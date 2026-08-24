@@ -464,7 +464,9 @@ describe('HivemindSettings', () => {
     })
     ;(window as unknown as { argus: unknown }).argus = argus
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
-    expect(await screen.findByText('error')).toBeInTheDocument()
+    const chip = await screen.findByText('error')
+    expect(chip).toBeInTheDocument()
+    expect(chip).toHaveAttribute('title', 'clone diverged')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
