@@ -1,0 +1,50 @@
+import type { ConnectorRegistry } from './connectors'
+import type { SecretStore } from './secrets'
+import {
+  connectorConfig,
+  resolveSecretRefs,
+  type HttpConnectorConfig
+} from '../../shared/connectors'
+import type { ClientConfigResolver } from './oauth'
+
+export interface ConnectorClientConfigDeps {
+  registry: Pick<ConnectorRegistry, 'get'>
+  secrets: Pick<SecretStore, 'resolve'>
+}
+
+/**
+ * Builds the `ClientConfigResolver` McpOAuth needs to present a connector's confidential-client
+ * credentials (Task 5/6's `clientId`/`clientSecret`/`scopes`/`redirectUrl`). Extracted out of
+ * main/index.ts — same convention as `buildJiraScopeResolver` in jiraScopeResolver.ts — so the
+ * $secret-resolution and no-clientId behavior below is reachable from Vitest without needing an
+ * IPC-registration harness.
+ *
+ * Calls `deps.registry.get()` fresh on every invocation rather than once at construction time:
+ * the registry is file-watched, so an edit to mcp-servers.json must take effect on the very next
+ * Authorize click without restarting the app.
+ */
+export function buildConnectorClientConfigResolver(
+  deps: ConnectorClientConfigDeps
+): ClientConfigResolver {
+  return (id) => {
+    const inst = deps.registry.get()[id]
+    if (!inst) return null
+    const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
+    // resolveSecretRefs turns a missing/unresolvable $secret ref into '' (and reports the name
+    // in `missing`, which nothing here needs); fold that back to null below so a caller never
+    // mistakes an empty string for a resolved secret.
+    const { value } = resolveSecretRefs(cfg.clientSecret, (n) => deps.secrets.resolve(n))
+    // Deliberately NOT `if (!cfg.clientId) return null`: authorize()/refresh() (oauth.ts) read
+    // redirectUrl/scopes off this SAME return value regardless of clientId, and only gate the
+    // confidential-client path on `cfg?.clientId` being truthy. Returning null here for a
+    // clientId-less connector (Rovo, and any future public-client one) would silently discard a
+    // configured redirectUrl/scopes and misroute it down the ephemeral-loopback path — the
+    // unknown-CONNECTOR case is the only one that should short-circuit.
+    return {
+      clientId: cfg.clientId,
+      clientSecret: typeof value === 'string' && value ? value : null,
+      scopes: cfg.scopes,
+      redirectUrl: cfg.redirectUrl
+    }
+  }
+}

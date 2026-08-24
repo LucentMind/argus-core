@@ -106,6 +106,7 @@ export const IPC = {
   connectorsChanged: 'connectors:changed',
   connectorsTest: 'connectors:test',
   connectorsOauth: 'connectors:oauth',
+  connectorsOauthCode: 'connectors:oauth-code',
   secretsSet: 'secrets:set',
   secretsHas: 'secrets:has',
   secretsDelete: 'secrets:delete',
