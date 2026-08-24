@@ -46,9 +46,10 @@ export type UpdateErrorCode =
    *  the account is rate-limited. GitHub does not reliably distinguish the two in a form worth
    *  parsing, so this code must not pretend to know which. */
   | 'gh-forbidden'
-  /** Any other `gh` failure (rate-limited, a malformed response, a mid-call network blip). Not
-   *  attributable to a specific fix, so it is treated the same as 'feed'/'download': transport
-   *  noise that never becomes a `BlockedReason`, and is silently re-offered next survey. */
+  /** Any other `gh` failure (a malformed response, a mid-call network blip) — rate-limiting is
+   *  'gh-forbidden' above, not this. Not attributable to a specific fix, so it is treated the same
+   *  as 'feed'/'download': transport noise that never becomes a `BlockedReason`, and is silently
+   *  re-offered next survey. */
   | 'gh-failed'
 
 export type UpdateStatus =
