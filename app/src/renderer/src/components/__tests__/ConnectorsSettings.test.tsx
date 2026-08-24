@@ -377,7 +377,12 @@ describe('ConnectorsSettings', () => {
   })
 
   describe('Slack connector card', () => {
-    const withSlack = (): ConnectorsPayload =>
+    // clientId defaults to a real value: a redirectUrl-configured connector with no Client ID
+    // is the exact dead end task 3 fixes (Authorize reaches the SDK's dynamic-client-registration
+    // fallback and fails), so the shared fixture must not reproduce it for tests that aren't
+    // about that guard. The dedicated 'Authorize is disabled without a Client ID' test below
+    // overrides it back to '' to exercise that case specifically.
+    const withSlack = (configOver: Record<string, unknown> = {}): ConnectorsPayload =>
       basePayload({
         connectors: {
           slack: {
@@ -389,7 +394,9 @@ describe('ConnectorsSettings', () => {
               url: 'https://mcp.slack.com/mcp',
               transport: 'http',
               oauth: true,
-              redirectUrl: 'http://localhost:8080/callback'
+              clientId: 'client-123',
+              redirectUrl: 'http://localhost:8080/callback',
+              ...configOver
             }
           }
         },
@@ -397,12 +404,55 @@ describe('ConnectorsSettings', () => {
         oauth: { slack: 'not-authorized' }
       })
 
+    it('Authorize is disabled when a redirectUrl is configured but no Client ID is set yet', async () => {
+      // Reproduces the default first-click experience on a freshly-added Slack preset:
+      // DEFAULT_PRESETS pre-fills redirectUrl but not clientId. Without this the SDK reaches
+      // dynamic client registration and fails with "Incompatible auth server: does not support
+      // dynamic client registration" — a confusing error for an unfilled field.
+      currentPayload = withSlack({ clientId: '' })
+      render(<ConnectorsSettings />)
+      const auth = (await screen.findByLabelText('authorize · slack')) as HTMLButtonElement
+      expect(auth.disabled).toBe(true)
+    })
+
+    it('Authorize is enabled once a Client ID is entered', async () => {
+      currentPayload = withSlack() // clientId: 'client-123' by default
+      render(<ConnectorsSettings />)
+      const auth = (await screen.findByLabelText('authorize · slack')) as HTMLButtonElement
+      expect(auth.disabled).toBe(false)
+    })
+
+    it('a Rovo card (no clientId, no redirectUrl configured) is unaffected by the guard', async () => {
+      currentPayload = basePayload({
+        oauth: { rovo: 'not-authorized' },
+        connectors: {
+          rovo: {
+            kind: 'http',
+            preset: 'rovo',
+            enabled: true,
+            config: {
+              url: 'https://mcp.atlassian.com/v1/mcp/authv2',
+              transport: 'http',
+              oauth: true
+            }
+          }
+        },
+        runtime: { rovo: { state: 'never-connected' } }
+      })
+      render(<ConnectorsSettings />)
+      const auth = (await screen.findByLabelText('authorize · rovo')) as HTMLButtonElement
+      expect(auth.disabled).toBe(false)
+    })
+
     it('shows the confidential-client fields when editing, and hides them on a Rovo card', async () => {
       currentPayload = withSlack()
       render(<ConnectorsSettings />)
       await userEvent.click(await screen.findByLabelText('actions · slack'))
       await userEvent.click(screen.getByText('Edit details'))
-      expect(await screen.findByLabelText(/Client ID/i)).toBeInTheDocument()
+      // Exact labels, not a /Client ID/i regex: with clientId now non-default (fixture sets
+      // 'client-123', so Authorize isn't disabled per task 3), AnnotatedForm also renders a
+      // "Reset Client ID" button, which a substring/regex match on "Client ID" would also hit.
+      expect(await screen.findByLabelText('Client ID')).toBeInTheDocument()
       expect(screen.getByLabelText(/Client secret/i)).toBeInTheDocument()
       expect(screen.getByLabelText(/User scopes/i)).toBeInTheDocument()
       expect(screen.getByLabelText(/Redirect URL/i)).toBeInTheDocument()

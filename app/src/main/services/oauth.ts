@@ -76,6 +76,11 @@ export function slackTokenFetch(inner: typeof fetch = fetch): typeof fetch {
   return async (input, init) => {
     const res = await inner(input, init)
     if (!res.ok) return res
+    // A 204/205 has no body to inspect, and `new Response(text, { status: 204 })` below would
+    // throw `TypeError: Response with null body status cannot have body` even with text === ''
+    // — the Fetch spec forbids a body on these statuses outright. Nothing downstream needs to
+    // examine an empty success body, so hand the original response back untouched.
+    if (res.status === 204 || res.status === 205) return res
     const contentType = res.headers.get('content-type') ?? ''
     if (!contentType.includes('json')) return res
     const text = await res.text()
@@ -307,14 +312,50 @@ export class McpOAuth {
     private clientConfig: ClientConfigResolver = () => null
   ) {}
 
+  /**
+   * The `{ clientId, clientSecret, scope }` shape StoreBackedProvider's static-client branch
+   * needs — built identically at all three call sites (authorize/authorizeWithCode/refresh),
+   * which is exactly the kind of security-relevant duplication that drifts. `undefined` means
+   * "no configured client — take the public-client/DCR path" (Rovo).
+   */
+  private static stat(
+    cfg: ConfidentialClient | null
+  ): { clientId: string; clientSecret: string | null; scope: string } | undefined {
+    return cfg?.clientId
+      ? { clientId: cfg.clientId, clientSecret: cfg.clientSecret, scope: cfg.scopes }
+      : undefined
+  }
+
+  /**
+   * A confidential-client server (one with a configured redirectUrl, e.g. Slack) has no
+   * registration_endpoint. With no clientId yet entered, the SDK's only remaining path is
+   * dynamic client registration, which fails as "Incompatible auth server: does not support
+   * dynamic client registration" — a confusing error for what is really just an unfilled
+   * field, and the default first-click experience on a freshly-added Slack preset. Generic on
+   * "redirectUrl configured, no clientId" rather than `preset === 'slack'`, so it covers any
+   * future confidential-client server the same way. Rovo configures neither redirectUrl nor
+   * clientId and legitimately relies on DCR, so this never fires for it.
+   */
+  private static missingClientId(cfg: ConfidentialClient | null): string | null {
+    return cfg?.redirectUrl && !cfg.clientId
+      ? 'no Client ID configured — add it from your Slack app on the connector card before authorizing'
+      : null
+  }
+
   /** Interactive authorization (Authorize / Re-authorize button). */
   async authorize(instanceId: string, serverUrl: string): Promise<AuthorizeResult> {
     const cfg = this.clientConfig(instanceId)
+    const missing = McpOAuth.missingClientId(cfg)
+    if (missing) {
+      // Named before binding any port — a fixed configured redirect otherwise reserves the
+      // port for nothing, and the by-hand path would open a browser tab with no way to
+      // exchange the code.
+      this.errors.set(instanceId, missing)
+      return { ok: false, error: missing }
+    }
     const redirect = cfg?.redirectUrl ?? ''
     const scope = cfg?.scopes || undefined
-    const stat = cfg?.clientId
-      ? { clientId: cfg.clientId, clientSecret: cfg.clientSecret, scope: cfg.scopes }
-      : undefined
+    const stat = McpOAuth.stat(cfg)
     // Only a static-credential connector needs Slack's 200-with-ok:false quirk translated
     // into a real HTTP error — the DCR/Rovo path must see the plain global fetch.
     const fetchFn = stat ? slackTokenFetch() : undefined
@@ -434,9 +475,14 @@ export class McpOAuth {
     code: string
   ): Promise<AuthorizeResult> {
     const cfg = this.clientConfig(instanceId)
-    const stat = cfg?.clientId
-      ? { clientId: cfg.clientId, clientSecret: cfg.clientSecret, scope: cfg.scopes }
-      : undefined
+    const missing = McpOAuth.missingClientId(cfg)
+    if (missing) {
+      // Same guard as authorize() — reachable if the Client ID field is cleared between the
+      // authorize() call that opened the browser (needsCode) and the paste-back here.
+      this.errors.set(instanceId, missing)
+      return { ok: false, error: missing }
+    }
+    const stat = McpOAuth.stat(cfg)
     try {
       const provider = new StoreBackedProvider(
         instanceId,
@@ -467,10 +513,22 @@ export class McpOAuth {
   /** Non-interactive refresh; a demand for the browser counts as failure → error state. */
   async refresh(instanceId: string, serverUrl: string): Promise<boolean> {
     try {
+      // A refresh can only ever succeed by presenting a stored refresh_token — without one,
+      // calling authFn only reaches the SDK's own auth(), which falls through to
+      // startAuthorization. For a static (confidential) client, startAuthorization calls
+      // provider.saveCodeVerifier() BEFORE our throwing redirectToAuthorization() ever runs —
+      // clobbering whatever PKCE verifier authorizeByHand's paste flow is mid-way through,
+      // possibly for minutes while the user copies a code out of the browser address bar.
+      // composeHeaders(..., { refreshOnExpiry: true }) (mcp.ts) calls refresh() on every
+      // unauthorized connector — reachable from a new session, Test connection, and the
+      // Health page — so short-circuit here, before touching the provider at all, and go
+      // through the same catch below so status() still reports 'error' exactly as it does
+      // for any other refresh failure. Strictly correct (a refresh could never have
+      // succeeded without one) and also skips a pointless discovery round-trip.
+      if (!this.storedRefreshToken(instanceId)) throw new Error('no refresh token stored')
+
       const cfg = this.clientConfig(instanceId)
-      const stat = cfg?.clientId
-        ? { clientId: cfg.clientId, clientSecret: cfg.clientSecret, scope: cfg.scopes }
-        : undefined
+      const stat = McpOAuth.stat(cfg)
       // No loopback runs here, so anchor the provider on the STORED client's own
       // redirect so clientInformation()'s stale-port guard self-matches — the
       // refresh_token grant is client-bound and must present the registered
@@ -531,5 +589,16 @@ export class McpOAuth {
   clear(instanceId: string): void {
     for (const n of ['tokens', 'client', 'verifier']) this.secrets.delete(`mcp/${instanceId}/${n}`)
     this.errors.delete(instanceId)
+  }
+
+  /** The refresh_token from the stored grant, or undefined when absent/corrupt/never set. */
+  private storedRefreshToken(instanceId: string): string | undefined {
+    const raw = this.secrets.resolve(`mcp/${instanceId}/tokens`)
+    if (raw == null) return undefined
+    try {
+      return (JSON.parse(raw) as OAuthTokens).refresh_token
+    } catch {
+      return undefined
+    }
   }
 }
