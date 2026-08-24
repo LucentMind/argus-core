@@ -6,6 +6,7 @@ import {
   McpOAuth,
   startLoopback,
   isLoopbackRedirect,
+  slackTokenFetch,
   type AuthLike,
   type ConfidentialClient
 } from '../oauth'
@@ -496,5 +497,45 @@ describe('confidential client', () => {
     expect(r.ok).toBe(true)
     // must be the STATIC client, not undefined from the stale-redirect discard
     expect(info?.client_id).toBe('123.456')
+  })
+})
+
+describe('slackTokenFetch', () => {
+  const json = (body: unknown, status = 200): Response =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' }
+    })
+
+  it('turns a 200 {"ok":false} into a 400 the SDK will report as an OAuth error', async () => {
+    const f = slackTokenFetch(async () => json({ ok: false, error: 'bad_client_secret' }))
+    const res = await f('https://slack.com/api/oauth.v2.user.access')
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ error: 'bad_client_secret' })
+  })
+
+  it('passes a successful token response through untouched', async () => {
+    const body = {
+      ok: true,
+      access_token: 'xoxp-abc',
+      token_type: 'user',
+      authed_user: { id: 'U1' }
+    }
+    const f = slackTokenFetch(async () => json(body))
+    const res = await f('https://slack.com/api/oauth.v2.user.access')
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual(body)
+  })
+
+  it('leaves metadata discovery alone — those payloads carry no ok field', async () => {
+    const f = slackTokenFetch(async () => json({ issuer: 'https://mcp.slack.com' }))
+    const res = await f('https://mcp.slack.com/.well-known/oauth-authorization-server')
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ issuer: 'https://mcp.slack.com' })
+  })
+
+  it('does not touch non-JSON or already-failing responses', async () => {
+    const f = slackTokenFetch(async () => new Response('nope', { status: 502 }))
+    expect((await f('https://slack.com/x')).status).toBe(502)
   })
 })
