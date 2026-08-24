@@ -132,4 +132,36 @@ describe('adoption reporting', () => {
     expect(seen).toEqual([])
     svc.stop()
   })
+
+  it('does not count a non-hive adoption — the notice says "HiveMind items"', async () => {
+    // Not using `build()`: it wires an adapter with id 'hive', but a 'pack' candidate is owned
+    // by adapter id 'packs' (see `ownerOf`). With a mismatched adapter id, `applyOne` would
+    // return false at its `!adapter` guard regardless of the domain predicate under test, making
+    // the assertion pass for the wrong reason. Route through a real 'packs' adapter instead so
+    // this actually exercises the domain filter.
+    const seen: number[] = []
+    const adapter: CurrencyAdapter = {
+      id: 'packs',
+      survey: vi.fn(async (): Promise<Candidate[]> => [
+        { domain: 'pack', key: 'p', label: 'p', from: null, to: '1', verdict: 'clean' }
+      ]),
+      apply: vi.fn(async () => ({ ok: true as const }))
+    }
+    const svc = new CurrencyService({
+      adapters: [adapter],
+      anchors: new CurrencyAnchorStore(memStore()),
+      autoEnabled: () => true,
+      isQuiet: () => true,
+      now: () => 0,
+      tickMs: 1_000,
+      intervalMs: SIX_H,
+      onAdopted: (n) => seen.push(n)
+    })
+    svc.start()
+    await vi.advanceTimersByTimeAsync(0)
+    // Proof the batch actually ran and the write succeeded, not that nothing happened at all.
+    expect(adapter.apply).toHaveBeenCalledTimes(1)
+    expect(seen).toEqual([])
+    svc.stop()
+  })
 })
