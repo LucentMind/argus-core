@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { McpOAuth, startLoopback, type AuthLike } from '../oauth'
+import { McpOAuth, startLoopback, isLoopbackRedirect, type AuthLike } from '../oauth'
 import { SecretStore, type SecretCrypto } from '../secrets'
 
 const fakeCrypto = (): SecretCrypto => ({
@@ -51,6 +51,59 @@ describe('startLoopback', () => {
     } finally {
       lb.close()
     }
+  })
+
+  // Discover a port the OS just handed out and immediately released. Racy in principle,
+  // standard in practice — and far better than hardcoding a port CI might be using.
+  const freePort = async (): Promise<number> => {
+    const probe = await startLoopback()
+    const port = Number(new URL(probe.redirectUrl).port)
+    probe.close()
+    return port
+  }
+
+  it('binds the port and path from a supplied redirect URL, and reports it verbatim', async () => {
+    const port = await freePort()
+    // Reported verbatim, NOT rebuilt as 127.0.0.1 — Slack matches redirect_uri exactly,
+    // so the "localhost" spelling has to survive all the way to the token exchange.
+    const url = `http://localhost:${port}/slack-cb`
+    const lb = await startLoopback(url)
+    try {
+      expect(lb.redirectUrl).toBe(url)
+      const codeP = lb.waitForCode(5000)
+      // and the server really is listening on that host/port/path
+      await fetch(`${url}?code=from-slack`)
+      expect(await codeP).toBe('from-slack')
+    } finally {
+      lb.close()
+    }
+  })
+
+  it('names the port and the field to change when the port is taken', async () => {
+    const first = await startLoopback()
+    const port = Number(new URL(first.redirectUrl).port)
+    try {
+      await expect(startLoopback(`http://127.0.0.1:${port}/callback`)).rejects.toThrow(
+        new RegExp(`${port}.*already in use`)
+      )
+    } finally {
+      first.close()
+    }
+  })
+})
+
+describe('isLoopbackRedirect', () => {
+  it('treats empty, localhost, 127.0.0.1 and ::1 over http as loopback', () => {
+    expect(isLoopbackRedirect('')).toBe(true)
+    expect(isLoopbackRedirect('http://localhost:8080/callback')).toBe(true)
+    expect(isLoopbackRedirect('http://127.0.0.1:8080/callback')).toBe(true)
+    expect(isLoopbackRedirect('http://[::1]:8080/callback')).toBe(true)
+  })
+
+  it('rejects anything else — those need the paste-the-code path', () => {
+    expect(isLoopbackRedirect('https://example.com/oauth/callback')).toBe(false)
+    expect(isLoopbackRedirect('https://localhost:8080/callback')).toBe(false) // https ⇒ not ours
+    expect(isLoopbackRedirect('not a url')).toBe(false)
   })
 })
 
