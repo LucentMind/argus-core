@@ -237,6 +237,16 @@ interface HivemindStateFile {
   /** Tombstones: 'skill/<name>' | 'reference/<name>' → ISO timestamp of the uninstall.
    *  The mirror in `currency/hiveAdapter` subtracts these before adopting anything. */
   declined: Record<string, string>
+  /**
+   * The message from the most recent `sync()` that threw (e.g. a non-fast-forward `git pull`),
+   * or null once a sync has succeeded since. `sync()`'s own return value carried the error fine,
+   * but nothing PERSISTED it (Important 2, whole-branch review) — so a caller that calls `sync()`
+   * and separately re-reads via `payload()` (`hiveAdapter.survey()`; the HiveMind Settings page's
+   * Sync button, via `currency.surveyNow()` then `hivemind.get()`) saw a clean `state: 'ready'`,
+   * because `payload()` derived state purely from a live `rev-parse HEAD` against the OLD, still-
+   * valid HEAD the failed pull left in place.
+   */
+  lastSyncError: string | null
 }
 
 export interface HivemindDeps {
@@ -273,7 +283,8 @@ export class HivemindService {
       skills: d.skills ?? {},
       references: d.references ?? {},
       pushes: d.pushes ?? {},
-      declined: d.declined ?? {}
+      declined: d.declined ?? {},
+      lastSyncError: d.lastSyncError ?? null
     }
   }
 
@@ -319,6 +330,11 @@ export class HivemindService {
     // A clone of a previously-configured repo is not this repo's content —
     // report not-cloned (sync will replace it) rather than listing stale items.
     if (await this.cloneIsStale(repo)) return { ...base, state: 'not-cloned' }
+    // A persisted failure from the most recent `sync()` outranks a live `rev-parse`: the clone's
+    // OLD HEAD is still perfectly readable after a failed pull, so without this check `payload()`
+    // would report `ready` over a sync that never actually landed (Important 2, whole-branch
+    // review). Cleared the moment a later `sync()` succeeds.
+    if (st.lastSyncError) return { ...base, state: 'error', error: st.lastSyncError }
     try {
       const headCommit = await this.git(['rev-parse', 'HEAD'], this.clone())
       return { ...base, state: 'ready', headCommit, items: await this.listItems() }
@@ -348,11 +364,18 @@ export class HivemindService {
         await this.healParkedHead(this.clone())
         await this.git(['pull', '--ff-only'], this.clone())
       }
-      this.store.write({ ...this.state(), lastSynced: new Date().toISOString() })
+      this.store.write({
+        ...this.state(),
+        lastSynced: new Date().toISOString(),
+        lastSyncError: null
+      })
       return await this.payload()
     } catch (err) {
+      const message = (err as Error).message
+      // Persisted, not just returned: see `HivemindStateFile.lastSyncError`'s doc comment.
+      this.store.write({ ...this.state(), lastSyncError: message })
       const p = await this.payload()
-      return { ...p, state: 'error', error: (err as Error).message }
+      return { ...p, state: 'error', error: message }
     }
   }
 

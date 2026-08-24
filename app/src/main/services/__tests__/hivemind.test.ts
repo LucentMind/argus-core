@@ -150,6 +150,57 @@ describe('HivemindService states', () => {
     expect(p.error).toMatch(/divergent/)
   })
 
+  /**
+   * Important 2, whole-branch review: `sync()`'s own return value carried the error fine (the
+   * test above), but nothing PERSISTED it — so a caller that calls `sync()` and then separately
+   * re-reads via `payload()` (exactly what `hiveAdapter.survey()` does, and what the HiveMind
+   * Settings page's Sync button does via `currency.surveyNow('hive', true)` followed by
+   * `hivemind.get()`) saw a clean `state: 'ready', error: null`, because `payload()` derived state
+   * purely from a live `rev-parse HEAD` against the OLD, still-valid HEAD the failed pull left in
+   * place. The Sync button's spinner would finish, the chip would say "synced", and the git error
+   * text — shown before this branch — was gone.
+   */
+  it('persists a sync failure so a later, independent payload() call still reports it', async () => {
+    seedClone()
+    const runner: Runner = async (_c, args) => {
+      if (args[0] === 'pull') throw new Error('divergent history')
+      if (args[0] === 'remote') return 'https://github.com/acme/hivemind.git'
+      if (args[0] === 'rev-parse') return 'headsha'
+      return 'x'
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    await svc.sync()
+    // A fresh call, not sync()'s own return value — this is what `hiveAdapter.survey()` and the
+    // Sync button's `hivemind.get()` actually see.
+    const p = await svc.payload()
+    expect(p.state).toBe('error')
+    expect(p.error).toMatch(/divergent/)
+  })
+
+  it('clears a persisted sync failure once a later sync succeeds', async () => {
+    seedClone()
+    let failPull = true
+    const runner: Runner = async (_c, args) => {
+      if (args[0] === 'pull') {
+        if (failPull) throw new Error('divergent history')
+        return ''
+      }
+      if (args[0] === 'remote') return 'https://github.com/acme/hivemind.git'
+      if (args[0] === 'rev-parse') return 'headsha'
+      if (args[0] === 'log') return 'itemsha'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    await svc.sync()
+    expect((await svc.payload()).state).toBe('error')
+
+    failPull = false
+    await svc.sync()
+    const p = await svc.payload()
+    expect(p.state).toBe('ready')
+    expect(p.error).toBeNull()
+  })
+
   it('sync heals a clone parked on a share branch before pulling', async () => {
     // The old `push` self-healed via a `checkout <defaultBranch>` in its `finally`; the
     // worktree rewrite never touches the clone's HEAD at all, so a clone left parked (by a
