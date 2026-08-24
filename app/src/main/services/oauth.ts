@@ -51,6 +51,38 @@ export function isLoopbackRedirect(url: string): boolean {
 }
 
 /**
+ * Slack answers a FAILED token exchange with HTTP 200 and {"ok":false,"error":"…"}. The MCP
+ * SDK only treats non-2xx as an error, so without this the user gets a Zod complaint about a
+ * missing access_token instead of "bad_client_secret". Re-emit those as 400s carrying the
+ * OAuth error shape. Successful payloads pass through byte-for-byte — Slack's success body
+ * already parses against OAuthTokensSchema.
+ */
+export function slackTokenFetch(inner: typeof fetch = fetch): typeof fetch {
+  return async (input, init) => {
+    const res = await inner(input, init)
+    if (!res.ok) return res
+    if (!(res.headers.get('content-type') ?? '').includes('json')) return res
+    const text = await res.text()
+    let body: unknown
+    try {
+      body = JSON.parse(text)
+    } catch {
+      return new Response(text, { status: res.status, headers: res.headers })
+    }
+    const b = body as { ok?: boolean; error?: string }
+    if (b && b.ok === false) {
+      const error = b.error ?? 'slack_error'
+      return new Response(JSON.stringify({ error, error_description: error }), {
+        status: 400,
+        headers: { 'content-type': 'application/json' }
+      })
+    }
+    // the body was consumed by text(); hand back an equivalent response
+    return new Response(text, { status: res.status, headers: res.headers })
+  }
+}
+
+/**
  * One-shot callback server for the system-browser redirect. With no argument it binds an
  * ephemeral port on 127.0.0.1 (the original behavior). With a loopback URL it binds that
  * URL's host, port and path, and reports the URL **verbatim** — Slack matches redirect_uri
