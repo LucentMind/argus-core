@@ -19,34 +19,73 @@ export const TEXTAREA_FIELD =
   'w-full min-h-32 resize-y rounded-r2 border border-hair bg-well p-2 font-mono text-xs leading-relaxed text-ink placeholder:text-mute transition-colors focus:border-hair2 focus:outline-none'
 
 /**
- * The settings-wide disclosure affordance: a chevron icon button that rotates when open.
- * Shared so the provider rows and the pack rows read as the same control — each previously
- * grew its own variant (the packs one even spelled out "N tools", which the pack row's own
- * badges already implied).
+ * The click target that makes a whole disclosure row expand it (user-directed, 2026-08-24).
+ *
+ * Every expandable settings row used to open only from a 28px chevron in its trailing slot,
+ * while the label, the summary chip and the description beside it — the parts a user actually
+ * aims at — did nothing. This is a transparent button stretched across the row instead, so a
+ * click anywhere on the row toggles it.
+ *
+ * **An overlay, not a wrapping `<button>`.** These rows carry their own controls (a provider's
+ * enable switch, its "Set as default" link, a pack's Uninstall), and a button may not contain a
+ * button. The overlay sits FIRST in the row so the row's own positioned children paint above it
+ * and keep their clicks — which is why every interactive sibling needs `relative` on it (or on
+ * its wrapper). Non-positioned content — the label column's prose — stays underneath and is what
+ * gives the row its large target.
+ *
+ * The default `className` bleeds the target into the card row's `px-4 pt-3` padding and stops at
+ * the row's bottom edge, so a row with disclosed content below it never swallows clicks meant
+ * for that content. A row that IS the whole padded box (`ProviderRow`) passes `inset-0`.
+ *
+ * No `title`: the chevron button this replaced carried one, but a tooltip on a target the width
+ * of the whole row would follow the pointer across every label and chip in it, and would also be
+ * the tooltip shown INSTEAD of theirs. Keeps the "Expand …"/"Collapse …" accessible name it had, so this stays one
+ * control by name; {@link DisclosureChevron} is `aria-hidden` decoration next to it, not a
+ * second button with the same name.
  */
-export function DisclosureBtn({
+export function DisclosureOverlay({
   expanded,
   onToggle,
-  label
+  label,
+  className = 'absolute -inset-x-4 -top-3 bottom-0'
 }: {
   expanded: boolean
   onToggle: () => void
   /** Noun phrase for the a11y name, e.g. "provider details" → "Expand provider details". */
   label: string
+  className?: string
 }): React.JSX.Element {
   return (
-    <IconBtn
+    <button
+      type="button"
       aria-label={expanded ? `Collapse ${label}` : `Expand ${label}`}
       aria-expanded={expanded}
-      title={expanded ? 'Collapse' : 'Expand'}
       onClick={onToggle}
+      className={`${className} cursor-pointer rounded-r2`}
+    />
+  )
+}
+
+/**
+ * The chevron that states a disclosure row's state — a span, not a button: {@link
+ * DisclosureOverlay} behind it already takes the click, and a real button here would be a second
+ * control with the same accessible name.
+ *
+ * Wears `IconBtn`'s geometry and hover so the row looks exactly as it did when the chevron was
+ * the only target, except the hover now lights up from anywhere on the row (`group/disc`).
+ */
+export function DisclosureChevron({ expanded }: { expanded: boolean }): React.JSX.Element {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-r2 text-dim transition-colors group-hover/disc:bg-hair group-hover/disc:text-ink"
     >
       <ChevronDown
         size={14}
         strokeWidth={1.5}
         className={`transition-transform ${expanded ? 'rotate-180' : ''}`}
       />
-    </IconBtn>
+    </span>
   )
 }
 
@@ -221,6 +260,9 @@ export function SettingRow({
   stacked,
   trailing,
   onOpen,
+  expanded,
+  onToggle,
+  toggleLabel,
   children
 }: {
   label: string
@@ -236,6 +278,13 @@ export function SettingRow({
   trailing?: ReactNode
   /** When set, renders the label as a clickable button with aria-label. */
   onOpen?: () => void
+  /** Disclosure state, when the row expands content the CALLER renders below it. Pair with
+   *  {@link onToggle} and {@link toggleLabel}: the whole row becomes the click target (see
+   *  {@link DisclosureOverlay}) and a chevron joins the control column. */
+  expanded?: boolean
+  onToggle?: () => void
+  /** Noun phrase for the toggle's a11y name, e.g. "tools · navigation". */
+  toggleLabel?: string
   children: ReactNode
 }): React.JSX.Element {
   /**
@@ -287,8 +336,20 @@ export function SettingRow({
     )
   }
   return (
-    <div className="group/row flex items-center gap-4 px-4 py-3">
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+    <div
+      className={`group/row flex items-center gap-4 px-4 py-3 ${onToggle ? 'group/disc relative' : ''}`}
+    >
+      {onToggle && toggleLabel !== undefined && (
+        <DisclosureOverlay
+          expanded={expanded ?? false}
+          onToggle={onToggle}
+          label={toggleLabel}
+          className="absolute inset-0"
+        />
+      )}
+      {/* `relative` only when the label is itself a control: everything else in this column is
+          prose, and prose UNDER the disclosure overlay is what makes the whole row open it. */}
+      <div className={`flex min-w-0 flex-1 flex-col gap-0.5 ${onOpen ? 'relative' : ''}`}>
         <span className={labelClass} title={hint}>
           {labelContent}
         </span>
@@ -300,11 +361,23 @@ export function SettingRow({
         {description && <span className="line-clamp-2 text-xs text-mute">{description}</span>}
       </div>
       {!isDefault && onReset && (
-        <IconBtn aria-label={`Reset ${label}`} title="Reset to default" onClick={onReset}>
+        <IconBtn
+          aria-label={`Reset ${label}`}
+          title="Reset to default"
+          onClick={onReset}
+          className="relative"
+        >
           <Eraser size={13} />
         </IconBtn>
       )}
-      <div className="flex shrink-0 items-center gap-2">{children}</div>
+      {/* `relative`: the row's own controls (a pack's Update/Uninstall) must outrank the
+          disclosure overlay behind them. */}
+      <div className="relative flex shrink-0 items-center gap-2">
+        {children}
+        {onToggle && toggleLabel !== undefined && (
+          <DisclosureChevron expanded={expanded ?? false} />
+        )}
+      </div>
     </div>
   )
 }

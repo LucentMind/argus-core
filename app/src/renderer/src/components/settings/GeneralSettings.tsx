@@ -7,7 +7,14 @@ import { onboardingReplay } from '../../lib/onboardingStore'
 import { tourStore } from '../../lib/tourStore'
 import { Btn, Chip, IconBtn } from '../ui'
 import { RepoPickerMenu } from '../RepoPickerMenu'
-import { SettingsSection, SettingRow, Switch, SelectField, DisclosureBtn } from './settingsLayout'
+import {
+  SettingsSection,
+  SettingRow,
+  Switch,
+  SelectField,
+  DisclosureOverlay,
+  DisclosureChevron
+} from './settingsLayout'
 import { UpdateSettings } from './UpdateSettings'
 import type { SettingsPayload } from '../../../../shared/settings'
 
@@ -22,7 +29,7 @@ import type { SettingsPayload } from '../../../../shared/settings'
  * anchored under it.
  *
  * Built as a bare row rather than through `SettingRow`, and shaped after `ProviderRow`
- * (user-directed, 2026-08-08): label column, a `DisclosureBtn` alone in the trailing slot, and the
+ * (user-directed, 2026-08-08): label column, a disclosure chevron alone in the trailing slot, and the
  * disclosed content BELOW the row rather than inside its control column. `SettingRow` has no slot
  * for content under the row — a stacked one would leave the chevron's own `pt-2` control strip
  * behind while collapsed — and the trailing chevron is what makes this read as the same kind of
@@ -41,7 +48,12 @@ function DefaultReposRow({ repos }: { repos: readonly string[] }): React.JSX.Ele
 
   return (
     <div className="flex flex-col px-4 py-3">
-      <div className="flex items-center gap-4">
+      <div className="group/disc relative flex items-center gap-4">
+        <DisclosureOverlay
+          expanded={open}
+          onToggle={() => setOpen((o) => !o)}
+          label="default repositories"
+        />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex flex-wrap items-center gap-2 text-sm text-ink">
             Default repositories
@@ -56,11 +68,7 @@ function DefaultReposRow({ repos }: { repos: readonly string[] }): React.JSX.Ele
               : 'Automatically linked to new cases'}
           </span>
         </div>
-        <DisclosureBtn
-          expanded={open}
-          onToggle={() => setOpen((o) => !o)}
-          label="default repositories"
-        />
+        <DisclosureChevron expanded={open} />
       </div>
       {open && (
         // No box of its own (user-directed, 2026-08-08): the disclosed list already sits inside
@@ -127,7 +135,7 @@ function DefaultReposRow({ repos }: { repos: readonly string[] }): React.JSX.Ele
  * actually configures Argus — repos, data root, updates — below the fold. They are also the
  * rows a user touches once and never again, so they earn the least permanent space.
  *
- * Shaped exactly like {@link DefaultReposRow}: bare row, `DisclosureBtn` alone in the trailing
+ * Shaped exactly like {@link DefaultReposRow}: bare row, a disclosure chevron alone in the trailing
  * slot, disclosed content BELOW the row. The chip is the collapsed summary — the current theme
  * and scale are what a user opening this row wants to know, so the row keeps saying them while
  * shut. Never auto-opens: unlike the repos list, an empty state is impossible here.
@@ -142,7 +150,8 @@ function AppearanceRow(): React.JSX.Element {
 
   return (
     <div className="flex flex-col px-4 py-3">
-      <div className="flex items-center gap-4">
+      <div className="group/disc relative flex items-center gap-4">
+        <DisclosureOverlay expanded={open} onToggle={() => setOpen((o) => !o)} label="appearance" />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex flex-wrap items-center gap-2 text-sm text-ink">
             Appearance
@@ -155,7 +164,7 @@ function AppearanceRow(): React.JSX.Element {
             Theme, ambient styling, and zoom — this window only (stored locally)
           </span>
         </div>
-        <DisclosureBtn expanded={open} onToggle={() => setOpen((o) => !o)} label="appearance" />
+        <DisclosureChevron expanded={open} />
       </div>
       {open && (
         // Sub-rows, not `SettingRow`s: a SettingRow's `px-4` would indent them past the row they
