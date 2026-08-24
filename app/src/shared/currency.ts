@@ -54,6 +54,21 @@ export interface Candidate {
   reason?: BlockedReason
 }
 
+/**
+ * The `'skill/<name>' | 'reference/<name>'` half of `Candidate.key`, in the ONE place it is
+ * spelled. `main/services/hivemind.ts`'s `declineKey` delegates to this rather than spelling its
+ * own copy, so the ledger (declined tombstones), the mirror (`hiveAdapter`, `forgetHooks`) and
+ * every renderer surface that filters or labels a hive candidate by key all read the same string
+ * (Important 3, whole-branch review). Lives here, not in `main/`, specifically so the renderer —
+ * which cannot import from `main/` — has a real import instead of a fourth hand-spelled copy: a
+ * near-miss (a different separator, a case change) would otherwise leave every `blockedFor` call
+ * returning undefined and every shown-key set failing to match, with no type error and no failing
+ * test, because the test fixtures build both sides from the same literal.
+ */
+export function hiveCandidateKey(kind: 'skill' | 'reference', name: string): string {
+  return `${kind}/${name}`
+}
+
 export type ApplyOutcome =
   | { ok: true; needsRelaunch?: boolean; needsRestart?: boolean }
   | { ok: false; error: string; reason?: BlockedReason }
