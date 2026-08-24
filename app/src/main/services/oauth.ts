@@ -376,10 +376,10 @@ export class McpOAuth {
   }
 
   /**
-   * Non-loopback redirects (a fixed https/public host) mean Argus cannot listen for the
-   * callback itself — the user must copy the code from the browser and paste it back.
-   * Task 6 implements that exchange (authorizeWithCode); this stub only keeps authorize()
-   * compiling and branching correctly until then.
+   * Non-loopback redirect: Argus cannot listen on the user's https URL, so it opens the
+   * consent page and stops — no listener is ever started on this path. The caller collects
+   * the `?code=` value and calls authorizeWithCode(). The PKCE verifier is already in the
+   * secret store, so the two halves join up across separate calls.
    */
   private async authorizeByHand(
     instanceId: string,
@@ -389,13 +389,75 @@ export class McpOAuth {
     stat: { clientId: string; clientSecret: string | null; scope: string } | undefined,
     fetchFn: typeof fetch | undefined
   ): Promise<AuthorizeResult> {
-    void instanceId
-    void serverUrl
-    void redirect
-    void scope
-    void stat
-    void fetchFn
-    return { ok: false, error: 'not implemented' }
+    try {
+      const provider = new StoreBackedProvider(
+        instanceId,
+        this.secrets,
+        redirect,
+        (url) => this.openExternal(url.toString()),
+        stat
+      )
+      // Same discipline as the loopback path (Task 5), and for the same reason: a
+      // stale/revoked refresh_token would make the SDK's own auth() throw during its
+      // internal refresh attempt, before ever reaching startAuthorization — stranding
+      // the connector with the browser never opened. Positioned immediately before
+      // authFn, not earlier, so a failure before this point (there is none on this
+      // path today — nothing stands between provider construction and authFn) would
+      // still leave an existing working grant alone.
+      this.secrets.delete(`mcp/${instanceId}/tokens`)
+      const r = await this.authFn(provider, { serverUrl, scope, fetchFn })
+      if (r === 'AUTHORIZED') {
+        this.errors.delete(instanceId)
+        return { ok: true }
+      }
+      // not an error: the browser is open and the user owes us a code
+      return { ok: false, needsCode: true }
+    } catch (err) {
+      const message = (err as Error).message
+      this.errors.set(instanceId, message)
+      return { ok: false, error: message }
+    }
+  }
+
+  /**
+   * Second half of the non-loopback flow: exchange a hand-carried authorization code.
+   * Presents the SAME redirect_uri authorizeByHand used (both read it from clientConfig),
+   * since Slack matches redirect_uri exactly at both the authorize and token steps.
+   */
+  async authorizeWithCode(
+    instanceId: string,
+    serverUrl: string,
+    code: string
+  ): Promise<AuthorizeResult> {
+    const cfg = this.clientConfig(instanceId)
+    const stat = cfg?.clientId
+      ? { clientId: cfg.clientId, clientSecret: cfg.clientSecret, scope: cfg.scopes }
+      : undefined
+    try {
+      const provider = new StoreBackedProvider(
+        instanceId,
+        this.secrets,
+        cfg?.redirectUrl ?? '',
+        () => {
+          // the exchange must never need the browser again; if it does, the grant is wrong
+          throw new Error('interactive authorization required')
+        },
+        stat
+      )
+      const r = await this.authFn(provider, {
+        serverUrl,
+        authorizationCode: code.trim(),
+        scope: cfg?.scopes || undefined,
+        fetchFn: stat ? slackTokenFetch() : undefined
+      })
+      if (r !== 'AUTHORIZED') throw new Error('authorization did not complete')
+      this.errors.delete(instanceId)
+      return { ok: true }
+    } catch (err) {
+      const message = (err as Error).message
+      this.errors.set(instanceId, message)
+      return { ok: false, error: message }
+    }
   }
 
   /** Non-interactive refresh; a demand for the browser counts as failure → error state. */

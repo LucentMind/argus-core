@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
+import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import {
@@ -628,6 +629,130 @@ describe('authorize: redirect and scope plumbing', () => {
     )
     expect(await oauth.refresh('slack', SERVER)).toBe(true)
     expect(info?.client_id).toBe('7.7')
+  })
+})
+
+describe('paste-the-code path', () => {
+  const SERVER = 'https://mcp.slack.com/mcp'
+  const httpsCfg: ConfidentialClient = {
+    clientId: '1.2',
+    clientSecret: 's',
+    scopes: 'users:read',
+    redirectUrl: 'https://example.com/oauth/callback'
+  }
+
+  it('opens the browser, starts no listener, and asks for the code', async () => {
+    const opened: string[] = []
+    // The whole point of the by-hand path: Argus cannot listen on the configured
+    // https redirect. Spy on the same http.createServer that startLoopback() uses
+    // (imported here as the same Node module singleton) to prove no listener is
+    // ever bound, not just that this test's own code doesn't bind one.
+    const createServerSpy = vi.spyOn(http, 'createServer')
+    const authFn: AuthLike = async (provider) => {
+      await provider.redirectToAuthorization(new URL('https://slack.com/oauth/v2_user/authorize'))
+      return 'REDIRECT'
+    }
+    const oauth = new McpOAuth(
+      secrets,
+      async (u) => void opened.push(u),
+      authFn,
+      () => httpsCfg
+    )
+    const r = await oauth.authorize('slack', SERVER)
+    expect(r.ok).toBe(false)
+    expect(r.needsCode).toBe(true)
+    expect(r.error).toBeUndefined()
+    expect(opened[0]).toContain('slack.com/oauth/v2_user/authorize')
+    expect(createServerSpy).not.toHaveBeenCalled()
+    createServerSpy.mockRestore()
+  })
+
+  it('drops a stored grant before calling authFn, so a stale refresh_token is never presented', async () => {
+    // Same discipline as the loopback path (Task 5): presenting a stale/revoked
+    // refresh_token risks the SDK's own auth() throwing during its internal refresh
+    // attempt before the browser ever opens, stranding the connector. Prove the
+    // deletion actually runs, and runs before authFn ever sees the provider.
+    secrets.set(
+      'mcp/slack/tokens',
+      JSON.stringify({
+        access_token: 'stale',
+        token_type: 'user',
+        refresh_token: 'revoked-by-slack',
+        obtainedAt: Date.now()
+      })
+    )
+    let sawTokens: unknown = 'unset'
+    const authFn: AuthLike = async (provider) => {
+      sawTokens = await provider.tokens()
+      await provider.redirectToAuthorization(new URL('https://slack.com/oauth/v2_user/authorize'))
+      return 'REDIRECT'
+    }
+    const oauth = new McpOAuth(
+      secrets,
+      async () => {},
+      authFn,
+      () => httpsCfg
+    )
+    const r = await oauth.authorize('slack', SERVER)
+    expect(r.needsCode).toBe(true)
+    expect(sawTokens).toBeUndefined()
+  })
+
+  it('exchanges a pasted code against the SAME redirect_uri, and trims it', async () => {
+    let seenCode: string | undefined
+    let seenRedirect = ''
+    const authFn: AuthLike = async (provider, opts) => {
+      seenCode = opts.authorizationCode
+      seenRedirect = String(provider.redirectUrl)
+      await provider.saveTokens({ access_token: 'xoxp-pasted', token_type: 'user' })
+      return 'AUTHORIZED'
+    }
+    const oauth = new McpOAuth(
+      secrets,
+      async () => {},
+      authFn,
+      () => httpsCfg
+    )
+    const r = await oauth.authorizeWithCode('slack', SERVER, '  the-code\n')
+    expect(r.ok).toBe(true)
+    expect(seenCode).toBe('the-code')
+    expect(seenRedirect).toBe('https://example.com/oauth/callback')
+    expect(oauth.accessToken('slack')).toBe('xoxp-pasted')
+  })
+
+  it('a rejected code leaves an error status, not a token', async () => {
+    const authFn: AuthLike = async () => {
+      throw new Error('invalid_code')
+    }
+    const oauth = new McpOAuth(
+      secrets,
+      async () => {},
+      authFn,
+      () => httpsCfg
+    )
+    const r = await oauth.authorizeWithCode('slack', SERVER, 'bad')
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/invalid_code/)
+    expect(oauth.status('slack')).toBe('error')
+  })
+
+  it("the exchange's redirect callback throws rather than reopening the browser", async () => {
+    // If the exchange somehow demands the browser again, the PKCE/redirect_uri
+    // pairing from the first half is already broken — that must surface as a
+    // thrown error, not a silent second consent screen the user never asked for.
+    const authFn: AuthLike = async (provider) => {
+      await provider.redirectToAuthorization(new URL('https://slack.com/oauth/v2_user/authorize'))
+      return 'REDIRECT'
+    }
+    const oauth = new McpOAuth(
+      secrets,
+      async () => {},
+      authFn,
+      () => httpsCfg
+    )
+    const r = await oauth.authorizeWithCode('slack', SERVER, 'code')
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/interactive authorization required/)
   })
 })
 
