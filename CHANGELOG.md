@@ -120,6 +120,14 @@
   row now offers a picker over the connected site's own link-type
   catalogue instead of free text.
 
+### Changed
+
+- Expandable settings rows — Appearance, Default repositories, each
+  provider, a pack's tools, the RCA report template — now expand from a
+  click anywhere on the row instead of only from the chevron at its end.
+  The row's own controls (enable switches, Update/Uninstall, "Set as
+  default") keep their own clicks.
+
 ### Fixed
 
 - A chained shell command running two skill scripts — one already

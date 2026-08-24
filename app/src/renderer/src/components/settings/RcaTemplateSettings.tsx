@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Plus, Trash2, ChevronUp, ChevronDown, Pencil } from 'lucide-react'
 import { Btn, Chip, IconBtn } from '../ui'
-import { DisclosureBtn, RowActions } from './settingsLayout'
+import { DisclosureOverlay, DisclosureChevron, RowActions } from './settingsLayout'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm } from '../../lib/confirmStore'
 import { blurOnEscape } from '../../lib/escapeLayer'
@@ -376,7 +376,12 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
     // A bare row, not a `SettingRow`: the disclosed content sits BELOW the row at full width,
     // which SettingRow has no slot for — same shape as General's Default repositories row.
     <div className="flex flex-col gap-2 px-4 py-3">
-      <div className="flex items-center gap-4">
+      <div className="group/disc relative flex items-center gap-4">
+        <DisclosureOverlay
+          expanded={openTemplate}
+          onToggle={() => setOpenTemplate((o) => !o)}
+          label="report template"
+        />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex flex-wrap items-center gap-2 text-sm text-ink">
             Report template
@@ -389,11 +394,7 @@ export function RcaTemplateSettings({ template }: { template: RcaTemplate }): Re
             a draft already generated keeps the template it was generated under.
           </span>
         </div>
-        <DisclosureBtn
-          expanded={openTemplate}
-          onToggle={() => setOpenTemplate((o) => !o)}
-          label="report template"
-        />
+        <DisclosureChevron expanded={openTemplate} />
       </div>
       {/* Outside the `openTemplate` branch: a save can fail while the user is collapsing the
           editor, and an invisible error is an error that never gets fixed. */}
