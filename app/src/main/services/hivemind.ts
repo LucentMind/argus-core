@@ -332,7 +332,8 @@ export class HivemindService {
       pushes: st.pushes
     }
     if (!repo) return { ...base, state: 'dormant' }
-    if (!fs.existsSync(path.join(this.clone(), '.git'))) return { ...base, state: 'not-cloned' }
+    if (!fs.existsSync(path.join(this.clone(), '.git')))
+      return { ...base, state: 'not-cloned', error: st.lastSyncError }
     // A clone of a previously-configured repo is not this repo's content —
     // report not-cloned (sync will replace it) rather than listing stale items.
     if (await this.cloneIsStale(repo)) return { ...base, state: 'not-cloned' }

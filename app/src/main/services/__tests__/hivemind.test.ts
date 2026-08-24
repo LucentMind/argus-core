@@ -125,6 +125,20 @@ describe('HivemindService states', () => {
     ])
   })
 
+  it('keeps the persisted sync error reachable after a failed first clone (git removes the dir it created, so payload() still sees not-cloned)', async () => {
+    const runner: Runner = async (_cmd, args) => {
+      if (args[0] === 'clone') throw new Error('Filename too long')
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    await svc.sync()
+    // Independent call, not the value sync() returned — this is what a later settings-page
+    // mount or Sync-button opt-in actually reads.
+    const p = await svc.payload()
+    expect(p.state).toBe('not-cloned')
+    expect(p.error).toBe('Filename too long')
+  })
+
   it('sync pulls --ff-only on an existing clone and stamps lastSynced', async () => {
     seedClone()
     const { runner, calls } = fakeGit({ 'rev-parse': 'headsha', log: 'itemsha' })
