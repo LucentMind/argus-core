@@ -175,6 +175,10 @@ describe('HivemindService states', () => {
     const p = await svc.payload()
     expect(p.state).toBe('error')
     expect(p.error).toMatch(/divergent/)
+    // The clone is still readable after a failed pull — an error state must not empty the list
+    // (Critical, fix-wave review of 84b09df0). Both items seedClone() writes must still surface.
+    expect(p.headCommit).toBe('headsha')
+    expect(p.items.map((it) => it.name).sort()).toEqual(['hive-note.md', 'hive-probe'])
   })
 
   it('clears a persisted sync failure once a later sync succeeds', async () => {

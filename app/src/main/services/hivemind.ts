@@ -340,10 +340,16 @@ export class HivemindService {
     // OLD HEAD is still perfectly readable after a failed pull, so without this check `payload()`
     // would report `ready` over a sync that never actually landed (Important 2, whole-branch
     // review). Cleared the moment a later `sync()` succeeds.
-    if (st.lastSyncError) return { ...base, state: 'error', error: st.lastSyncError }
+    //
+    // The clone stays readable through a failed pull, so `headCommit` and `items` are still
+    // read below even when a sync error is persisted — an `error` state must not empty the list
+    // (Critical, fix-wave review of 84b09df0). Only a live read failure (the catch) zeroes them.
     try {
       const headCommit = await this.git(['rev-parse', 'HEAD'], this.clone())
-      return { ...base, state: 'ready', headCommit, items: await this.listItems() }
+      const items = await this.listItems()
+      return st.lastSyncError
+        ? { ...base, state: 'error', error: st.lastSyncError, headCommit, items }
+        : { ...base, state: 'ready', headCommit, items }
     } catch (err) {
       return { ...base, state: 'error', error: (err as Error).message }
     }
