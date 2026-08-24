@@ -3,6 +3,7 @@ import { Globe, GlobeOff } from 'lucide-react'
 import {
   CONNECTOR_FORMS,
   ROVO_FORM_EXTRAS,
+  SLACK_FORM_EXTRAS,
   RESERVED_INSTANCE_IDS,
   collectSecretRefs,
   type ConnectorInstance,
@@ -89,6 +90,8 @@ function ConnectorCard({
   const [toolsOpen, setToolsOpen] = useState(false)
   const [testing, setTesting] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
+  const [pendingCode, setPendingCode] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
   const supported = Boolean(CONNECTOR_FORMS[inst.kind])
   const cfg = (inst.config ?? {}) as Record<string, unknown>
   const isOauth = inst.kind === 'http' && (cfg as Partial<HttpConnectorConfig>).oauth === true
@@ -96,7 +99,8 @@ function ConnectorCard({
   const secretGap = !secretsAvailable && collectSecretRefs(inst.config).length > 0
   const annotations = {
     ...(CONNECTOR_FORMS[inst.kind] ?? {}),
-    ...(inst.preset === 'rovo' ? ROVO_FORM_EXTRAS : {})
+    ...(inst.preset === 'rovo' ? ROVO_FORM_EXTRAS : {}),
+    ...(inst.preset === 'slack' ? SLACK_FORM_EXTRAS : {})
   }
 
   function test(): void {
@@ -116,9 +120,29 @@ function ConnectorCard({
 
   function authorize(): void {
     setAuthError(null)
-    void window.argus.connectors.oauth(id).then((r: { ok: boolean; error?: string }) => {
-      if (!r.ok) setAuthError(r.error ?? 'authorization failed')
-    })
+    setPendingCode(null)
+    void window.argus.connectors
+      .oauth(id)
+      .then((r: { ok: boolean; error?: string; needsCode?: boolean }) => {
+        // needsCode is not a failure: the consent page is open and the redirect is one
+        // Argus cannot listen on, so the code comes back by hand.
+        if (r.needsCode) setPendingCode('')
+        else if (!r.ok) setAuthError(r.error ?? 'authorization failed')
+      })
+  }
+
+  function submitCode(): void {
+    const code = (pendingCode ?? '').trim()
+    if (!code) return
+    setSubmitting(true)
+    setAuthError(null)
+    void window.argus.connectors
+      .oauthCode(id, code)
+      .then((r: { ok: boolean; error?: string }) => {
+        if (r.ok) setPendingCode(null)
+        else setAuthError(r.error ?? 'authorization failed')
+      })
+      .finally(() => setSubmitting(false))
   }
 
   return (
@@ -162,6 +186,31 @@ function ConnectorCard({
             >
               {summary} <span aria-hidden="true">{toolsOpen ? '▾' : '▸'}</span>
             </button>
+          )}
+          {isOauth && pendingCode !== null && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-dim">
+                Approve in the browser, then paste the <code>code</code> value from the redirect
+                URL:
+              </span>
+              <input
+                className={`${FIELD} w-56 font-mono`}
+                aria-label={`authorization code · ${id}`}
+                value={pendingCode}
+                onChange={(e) => setPendingCode(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submitCode()
+                }}
+              />
+              <Btn
+                variant="primary"
+                aria-label={`submit code · ${id}`}
+                disabled={submitting || !pendingCode.trim()}
+                onClick={submitCode}
+              >
+                {submitting ? 'Exchanging…' : 'Complete authorization'}
+              </Btn>
+            </div>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
