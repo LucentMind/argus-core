@@ -49,8 +49,18 @@ export async function startLoopback(publicUrl = ''): Promise<{
 }> {
   const target = publicUrl ? new URL(publicUrl) : null
   const wantPath = target?.pathname ?? '/callback'
-  const host = (target?.hostname ?? '127.0.0.1').replace(/^\[|\]$/g, '')
-  const port = target?.port ? Number(target.port) : 0
+  const rawHost = (target?.hostname ?? '127.0.0.1').replace(/^\[|\]$/g, '')
+
+  // The reported redirectUrl is the caller's string verbatim (see below), so if it names
+  // no port there is no way to report back wherever the OS actually put the ephemeral
+  // listener — the two would silently disagree and break the round-trip. The no-argument
+  // call is exempt: port 0 there is the point, and nothing is echoed back.
+  if (target && (!target.port || Number(target.port) === 0)) {
+    throw new Error(
+      'redirect URL must specify a port — set one in Redirect URL on the connector card'
+    )
+  }
+  const port = target ? Number(target.port) : 0
 
   let resolveCode!: (c: string) => void
   let rejectCode!: (e: Error) => void
@@ -58,7 +68,7 @@ export async function startLoopback(publicUrl = ''): Promise<{
     resolveCode = res
     rejectCode = rej
   })
-  const server = http.createServer((req, res) => {
+  const handleRequest = (req: http.IncomingMessage, res: http.ServerResponse): void => {
     const u = new URL(req.url ?? '/', 'http://127.0.0.1')
     if (u.pathname !== wantPath) {
       res.writeHead(404).end()
@@ -69,22 +79,48 @@ export async function startLoopback(publicUrl = ''): Promise<{
     const code = u.searchParams.get('code')
     if (code) resolveCode(code)
     else rejectCode(new Error(u.searchParams.get('error') ?? 'authorization failed'))
-  })
-  await new Promise<void>((res, rej) => {
-    // A fixed port can be occupied by anything; say which port and which field fixes it,
-    // rather than surfacing a bare EADDRINUSE at the connector card.
-    server.once('error', (e: NodeJS.ErrnoException) =>
-      rej(
-        e.code === 'EADDRINUSE'
-          ? new Error(
-              `redirect port ${port} is already in use — change Redirect URL on the connector card`
-            )
-          : e
-      )
-    )
-    server.listen(port, host, res)
-  })
-  const bound = (server.address() as AddressInfo).port
+  }
+
+  const servers: http.Server[] = []
+  const listenOn = (host: string, primary: boolean): Promise<void> =>
+    new Promise<void>((res, rej) => {
+      const server = http.createServer(handleRequest)
+      // A fixed port can be occupied by anything; say which port and which field fixes it,
+      // rather than surfacing a bare EADDRINUSE at the connector card. A failure on the
+      // SECONDARY (::1) bind is not fatal — see the dual-bind comment below — so it just
+      // degrades to the primary listener alone instead of rejecting.
+      server.once('error', (e: NodeJS.ErrnoException) => {
+        if (!primary) {
+          res()
+          return
+        }
+        rej(
+          e.code === 'EADDRINUSE'
+            ? new Error(
+                `redirect port ${port} is already in use — change Redirect URL on the connector card`
+              )
+            : e
+        )
+      })
+      server.listen(port, host, () => {
+        servers.push(server)
+        res()
+      })
+    })
+
+  await listenOn(rawHost === 'localhost' ? '127.0.0.1' : rawHost, true)
+  const bound = (servers[0].address() as AddressInfo).port
+
+  if (rawHost === 'localhost') {
+    // RFC 8252 §7.3: a native OAuth client "SHOULD listen on both 127.0.0.1 and ::1".
+    // Node resolves "localhost" via dns.lookup at listen() time and may bind only one
+    // family, but the system browser resolves "localhost" independently and may connect
+    // to the other — landing on a port with nothing listening. Bind both so whichever
+    // family the browser picks still reaches a listener; both use the same fixed port
+    // (guaranteed above), and both resolve the one shared codeP.
+    await listenOn('::1', false)
+  }
+
   return {
     redirectUrl: publicUrl || `http://127.0.0.1:${bound}/callback`,
     waitForCode: (timeoutMs) =>
@@ -95,7 +131,9 @@ export async function startLoopback(publicUrl = ''): Promise<{
           if (typeof t.unref === 'function') t.unref()
         })
       ]),
-    close: () => void server.close()
+    close: () => {
+      for (const server of servers) server.close()
+    }
   }
 }
 
