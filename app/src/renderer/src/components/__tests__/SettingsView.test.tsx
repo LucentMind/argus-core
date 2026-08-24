@@ -622,6 +622,33 @@ describe('SettingsView', () => {
       await screen.findByText('Sources')
       expect(screen.queryByLabelText(/needs you/i)).not.toBeInTheDocument()
     })
+
+    // Task 2 (increment 3): with auto-update off, `tick()` returns before surveying, so `blocked`
+    // is a frozen snapshot that can be hours stale — the nav dot is an AMBIENT claim (made while
+    // the reader is looking at something else) and must not demand attention on behalf of a
+    // service the user deliberately disabled. `currencyStore.blockedByPage()` gates on `auto`.
+    it('dots no nav row when auto-update is off', async () => {
+      const currency: CurrencyPayload = {
+        auto: false,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'pack',
+            key: 'cg',
+            label: 'CG',
+            from: '1',
+            to: '2',
+            verdict: 'blocked',
+            reason: { kind: 'new-dependency' }
+          }
+        ],
+        busy: false
+      }
+      window.argus.currency.get = vi.fn(async () => currency)
+      render(<SettingsView onClose={vi.fn()} onOpenProposals={vi.fn()} />)
+      await screen.findByText('Sources')
+      expect(screen.queryByLabelText(/needs you|need you/i)).not.toBeInTheDocument()
+    })
   })
 
   describe('masthead', () => {
