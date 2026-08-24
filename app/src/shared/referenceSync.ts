@@ -157,6 +157,13 @@ export interface ReferenceStatus {
   stale: boolean
   /** `Name <email>` from frontmatter; null for synced/bundled files, which have no human author. */
   author: string | null
+  /**
+   * The `source_repo` install stamp — the HiveMind this copy was downloaded from, null for a
+   * file this machine authored or syncs itself. Upstream blobs never carry it (hivemind.ts
+   * `STAMP_KEYS` writes it on install), so it is the one honest signal for "someone else owns
+   * this file's currency": staleness and the update marker both key off it.
+   */
+  sourceRepo: string | null
 }
 
 export interface RefSyncPayload {

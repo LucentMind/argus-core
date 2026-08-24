@@ -133,6 +133,21 @@ function hivePayload(pushes: Record<string, { prUrl: string; pushedAt: string }>
         author: null,
         updateAvailable: true
       },
+      // a reference installed from the hive's confluence/ subfolder: the hive knows it under
+      // the namespaced name, the local copy lives at the flattened basename (install flattens),
+      // and its stamped tier is confluence rather than hivemind.
+      {
+        kind: 'reference',
+        name: 'confluence/hive-conf.md',
+        description: '',
+        commit: 'new',
+        installed: true,
+        installedCommit: 'old',
+        localTier: 'confluence',
+        shadowedByUser: false,
+        author: null,
+        updateAvailable: true
+      },
       // a hive-tier skill with an upstream update — the marker must mirror refRow's
       // (previously only references rendered it; see Finding 3).
       {
@@ -164,7 +179,8 @@ const refPayload: RefSyncPayload = {
       lastSynced: null,
       sourceCount: 0,
       stale: false,
-      author: null
+      author: null,
+      sourceRepo: null
     },
     {
       file: 'nav-runbook.md',
@@ -172,7 +188,17 @@ const refPayload: RefSyncPayload = {
       lastSynced: '2026-07-20T00:00:00.000Z',
       sourceCount: 3,
       stale: true,
-      author: null
+      author: null,
+      sourceRepo: null
+    },
+    {
+      file: 'hive-conf.md',
+      tier: 'confluence',
+      lastSynced: null,
+      sourceCount: 0,
+      stale: false,
+      author: null,
+      sourceRepo: 'acme/hivemind'
     },
     {
       file: 'adasis.md',
@@ -180,7 +206,8 @@ const refPayload: RefSyncPayload = {
       lastSynced: '2026-07-25T00:00:00.000Z',
       sourceCount: 0,
       stale: false,
-      author: null
+      author: null,
+      sourceRepo: 'acme/hivemind'
     }
   ]
 }
@@ -485,7 +512,7 @@ describe('LibraryPage merged list', () => {
     render(<LibraryPage />)
     await screen.findByText('rca')
     expect(screen.getAllByText('skill').length).toBeGreaterThanOrEqual(4)
-    expect(screen.getAllByText('reference').length).toBe(3)
+    expect(screen.getAllByText('reference').length).toBe(4)
   })
 
   it('clicking a reference row opens the markdown viewer', async () => {
@@ -530,9 +557,9 @@ describe('LibraryPage merged list', () => {
     await screen.findByText('rca')
     // user-tier skill + user-tier reference
     expect(screen.getAllByText('you').length).toBe(3)
-    // hivemind skill, confluence reference
+    // hivemind skill, confluence references (one synced here, one installed from the hive)
     expect(screen.getAllByText('HiveMind').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('Confluence')).toBeInTheDocument()
+    expect(screen.getAllByText('Confluence').length).toBe(2)
     // the bundled skill sits alone in Built-in and carries no origin badge
     expect(screen.queryByText('pack')).toBeNull()
   })
@@ -591,16 +618,35 @@ describe('LibraryPage claim', () => {
     render(<LibraryPage />)
     const row = await findRow('adasis.md')
     expect(within(row).getByText('update')).toBeInTheDocument()
-    // exactly two rows in the whole page carry the chip: this reference and the
-    // hive-probe skill below
-    expect(screen.getAllByText('update')).toHaveLength(2)
+    // exactly three rows in the whole page carry the chip: this reference, the
+    // confluence/-namespaced hive reference, and the hive-probe skill below
+    expect(screen.getAllByText('update')).toHaveLength(3)
   })
 
   it('an upstream update shows on the hivemind skill row too, scoped to that row', async () => {
     render(<LibraryPage />)
     const row = await findRow('hive-probe')
     expect(within(row).getByText('update')).toBeInTheDocument()
-    expect(screen.getAllByText('update')).toHaveLength(2)
+    expect(screen.getAllByText('update')).toHaveLength(3)
+  })
+
+  /**
+   * A reference from the hive's confluence/ subfolder is stamped `trust_tier: confluence`, and
+   * installs flatten `confluence/x.md` to `references/x.md`. Both facts used to hide the marker:
+   * the chip was gated on `tier === 'hivemind'`, and the hive item was looked up under the
+   * FLATTENED name while the payload keys it by the namespaced one. So the one currency signal
+   * these files do have never rendered.
+   */
+  it('an upstream update shows on a confluence-stamped hive reference, whose hive item is keyed by the namespaced confluence/ name', async () => {
+    render(<LibraryPage />)
+    const row = await findRow('hive-conf.md')
+    expect(within(row).getByText('update')).toBeInTheDocument()
+  })
+
+  it('a locally-synced confluence reference with no hive counterpart shows no update chip', async () => {
+    render(<LibraryPage />)
+    const row = await findRow('nav-runbook.md')
+    expect(within(row).queryByText('update')).toBeNull()
   })
 
   it('a claimed (user-tier) reference with a stale updateAvailable hive entry shows no update chip', async () => {

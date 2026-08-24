@@ -80,7 +80,8 @@ const refPayload: RefSyncPayload = {
       lastSynced: null,
       sourceCount: 0,
       stale: false,
-      author: null
+      author: null,
+      sourceRepo: null
     },
     {
       file: 'nav-runbook.md',
@@ -88,7 +89,8 @@ const refPayload: RefSyncPayload = {
       lastSynced: '2026-07-20T00:00:00.000Z',
       sourceCount: 3,
       stale: true,
-      author: null
+      author: null,
+      sourceRepo: null
     }
   ]
 }

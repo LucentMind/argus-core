@@ -67,7 +67,8 @@ const refPayload: RefSyncPayload = {
       lastSynced: null,
       sourceCount: 0,
       stale: false,
-      author: null
+      author: null,
+      sourceRepo: null
     },
     {
       file: 'routing-flow.md',
@@ -75,7 +76,8 @@ const refPayload: RefSyncPayload = {
       lastSynced: '2026-06-01T00:00:00.000Z',
       sourceCount: 2,
       stale: true,
-      author: null
+      author: null,
+      sourceRepo: null
     }
   ]
 }

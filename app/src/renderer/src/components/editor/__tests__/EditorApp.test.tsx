@@ -78,14 +78,23 @@ const tabsChanged = vi.fn()
 /** The reference rows `refsync.get` starts every test with. `shared.md` is the only one a claim
  *  can act on: `claimReference` refuses anything but an installed HiveMind reference. */
 const references = (sharedTier: string | null = 'hivemind'): RefSyncPayload['references'] => [
-  { file: 'notes.md', tier: null, lastSynced: null, sourceCount: 0, stale: false, author: null },
+  {
+    file: 'notes.md',
+    tier: null,
+    lastSynced: null,
+    sourceCount: 0,
+    stale: false,
+    author: null,
+    sourceRepo: null
+  },
   {
     file: 'synced.md',
     tier: 'confluence',
     lastSynced: null,
     sourceCount: 0,
     stale: false,
-    author: null
+    author: null,
+    sourceRepo: null
   },
   {
     file: 'shared.md',
@@ -93,7 +102,8 @@ const references = (sharedTier: string | null = 'hivemind'): RefSyncPayload['ref
     lastSynced: null,
     sourceCount: 0,
     stale: false,
-    author: null
+    author: null,
+    sourceRepo: null
   }
 ]
 

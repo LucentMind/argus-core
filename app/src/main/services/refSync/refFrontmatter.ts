@@ -37,6 +37,18 @@ export function refTitle(raw: string): string | null {
   return fmField(b.fm, 'title') || null
 }
 
+/**
+ * The `source_repo` stamp `HivemindService.install()` writes into a downloaded copy; null on a
+ * file this machine authored or syncs itself. Distinguishes the two kinds of `trust_tier:
+ * confluence` reference: one this install syncs from Confluence, and one the hive publisher
+ * syncs and this install merely pinned.
+ */
+export function refSourceRepo(raw: string): string | null {
+  const b = fmBlock(raw)
+  if (!b) return null
+  return fmField(b.fm, 'source_repo') || null
+}
+
 export function refBody(raw: string): string {
   const b = fmBlock(raw)
   return b ? b.body : raw
