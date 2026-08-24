@@ -567,12 +567,11 @@ export function HivemindSettings({
     )
   }
 
-  // Known gap (2026-08-21), same family as the filter-ternary comment below: `!payload`
-  // (loading) and `dormant` both return before Skills/References — and their badges — are ever
-  // computed, so a stale `blockedSkills`/`blockedReferences` count from a prior survey is
-  // invisible while the repo is unset or the payload hasn't loaded. Accepted for the same
-  // reason: Task 6's TopBar/nav-row surfacing does not depend on this page being in any
-  // particular state.
+  // Known gap (2026-08-21): `!payload` (loading) and `dormant` both return before
+  // Skills/References — and their badges — are ever computed, so a stale
+  // `blockedSkills`/`blockedReferences` count from a prior survey is invisible while the repo is
+  // unset or the payload hasn't loaded. Accepted for the same reason: Task 6's TopBar/nav-row
+  // surfacing does not depend on this page being in any particular state.
   if (payload.state === 'dormant') {
     return (
       <div className="flex flex-col gap-6">
