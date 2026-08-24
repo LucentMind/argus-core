@@ -132,6 +132,7 @@ function ConnectorCard({
   }
 
   function submitCode(): void {
+    if (submitting) return
     const code = (pendingCode ?? '').trim()
     if (!code) return
     setSubmitting(true)
@@ -197,6 +198,7 @@ function ConnectorCard({
                 className={`${FIELD} w-56 font-mono`}
                 aria-label={`authorization code · ${id}`}
                 value={pendingCode}
+                disabled={submitting}
                 onChange={(e) => setPendingCode(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') submitCode()

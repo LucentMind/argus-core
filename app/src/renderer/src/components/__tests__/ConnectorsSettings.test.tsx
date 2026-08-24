@@ -440,5 +440,30 @@ describe('ConnectorsSettings', () => {
       expect(await screen.findByText('bad_client_secret')).toBeInTheDocument()
       expect(screen.queryByLabelText('authorization code · slack')).not.toBeInTheDocument()
     })
+
+    it('two rapid Enter presses on the code input submit only once (in-flight guard)', async () => {
+      currentPayload = withSlack()
+      vi.mocked(window.argus.connectors.oauth).mockResolvedValue({ ok: false, needsCode: true })
+      let resolveOauthCode!: (r: { ok: boolean }) => void
+      const pending = new Promise<{ ok: boolean }>((resolve) => {
+        resolveOauthCode = resolve
+      })
+      vi.mocked(window.argus.connectors.oauthCode).mockReturnValue(pending)
+      render(<ConnectorsSettings />)
+      await userEvent.click(await screen.findByLabelText('authorize · slack'))
+      const input = await screen.findByLabelText('authorization code · slack')
+      await userEvent.type(input, 'pasted-code')
+
+      // Two Enter presses while the first exchange is still in flight — the OAuth code is
+      // single-use, so a second oauthCode call with the same code would come back as an error.
+      fireEvent.keyDown(input, { key: 'Enter' })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(window.argus.connectors.oauthCode).toHaveBeenCalledTimes(1)
+
+      resolveOauthCode({ ok: true })
+      await waitFor(() =>
+        expect(screen.queryByLabelText('authorization code · slack')).not.toBeInTheDocument()
+      )
+    })
   })
 })
