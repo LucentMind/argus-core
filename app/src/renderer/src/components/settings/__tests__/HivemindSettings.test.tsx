@@ -448,7 +448,12 @@ describe('HivemindSettings', () => {
     expect(screen.getByRole('button', { name: 'Sync' })).toBeInTheDocument()
   })
 
-  it('surfaces an initial-load error from a bad hivemind.get payload', async () => {
+  // Superseded (Important, fix-wave review of 84b09df0): this used to assert the mount effect
+  // painted `p.error` as an alert banner — but that field describes the CLONE's state (a
+  // possibly-stale `lastSyncError`), not an outcome of this particular mount, and a stale one
+  // would then repaint the same banner on every visit to the tab indefinitely. The status chip
+  // is the correct, non-alarming surface for it; only the Sync button's own attempt should alert.
+  it('shows the error status chip, not an alert, for an initial-load payload error', async () => {
     const argus = mockArgus(ready)
     ;(argus.hivemind as { get: ReturnType<typeof vi.fn> }).get = vi.fn().mockResolvedValue({
       ...ready,
@@ -459,8 +464,8 @@ describe('HivemindSettings', () => {
     })
     ;(window as unknown as { argus: unknown }).argus = argus
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
-    const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent(/clone diverged/)
+    expect(await screen.findByText('error')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('surfaces a rejected diff fetch when opening the update flow', async () => {
@@ -1506,5 +1511,63 @@ describe('download all honours tombstones', () => {
     })
     await screen.findByLabelText('Download removed')
     expect(screen.queryByLabelText('Download all skills')).not.toBeInTheDocument()
+  })
+})
+
+// Important (fix-wave review of 84b09df0): `payload.error` describes the CLONE's state (a
+// possibly-stale `lastSyncError`), not the outcome of whichever call returned it. Only the Sync
+// button is actually attempting a sync, so only it may turn `payload.error` into an alert banner
+// — the mount effect and every write (install/uninstall/reinstall/downloadAll) must not.
+describe('a persisted sync error does not leak into unrelated operations', () => {
+  // Same shape as `ready` (state 'error', non-empty items) as the Critical fix in this same wave
+  // now returns: the clone is still readable, so the page still has items, but a past sync failed.
+  const staleError: HivemindPayload = { ...ready, state: 'error', error: 'divergent history' }
+
+  it('does not raise an alert on mount just because a past sync failed', async () => {
+    renderWith(staleError)
+    // Wait for the page to actually finish loading this payload before asserting an absence —
+    // otherwise the assertion could pass on a still-loading first frame regardless of the fix.
+    expect(await screen.findByText('error')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('does not raise an alert for a successful Download even though the payload carries a stale sync error', async () => {
+    renderWith(ready)
+    // AFTER renderWith: `mockArgus()` itself does `installMock.mockResolvedValue(payload)`, so
+    // setting this before render would just be clobbered back to `ready` (no error) by render.
+    installMock.mockResolvedValue(staleError)
+    await userEvent.click(await screen.findByLabelText('Download hive-note.md'))
+    // Waiting merely for `installMock` to have been *called* races `run()`'s own state updates —
+    // the mock resolves synchronously, so that wait can (and, against the pre-fix code, does)
+    // resolve before setPayload/setError land. The status chip flipping to 'error' is set from
+    // the same `setPayload(p)` call any `setError` would follow, in the same synchronous tail —
+    // so it is a completion signal that (unlike the Download button) survives even if the
+    // returned payload's item list makes the button itself disappear.
+    expect(await screen.findByText('error')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('does not raise an alert for a successful Download All even though the payload carries a stale sync error', async () => {
+    renderHive({ items: [item({ kind: 'skill', name: 'a', installed: false })] })
+    // AFTER renderHive/mockArgus, for the same reason as the single-Download test above.
+    installMock.mockResolvedValue(staleError)
+    await userEvent.click(await screen.findByLabelText('Download all skills'))
+    // Same race as the single-Download case above, and the same completion signal: the status
+    // chip flips to 'error' in the same tick as any `setError` from the loop's `install()` call,
+    // and unlike the Download All button itself, it does not depend on the returned payload's
+    // item list still containing a downloadable skill.
+    expect(await screen.findByText('error')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  // The flip side: this is NOT a blanket suppression. The Sync button is genuinely attempting a
+  // sync, so a clone-state error is this call's own outcome and must still surface.
+  it('still raises an alert when the Sync button itself lands a persisted error', async () => {
+    const argus = mockArgus(ready) as unknown as { hivemind: { get: ReturnType<typeof vi.fn> } }
+    argus.hivemind.get = vi.fn().mockResolvedValue(staleError)
+    ;(window as unknown as { argus: unknown }).argus = argus
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    await userEvent.click(await screen.findByLabelText('Sync'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('divergent history')
   })
 })

@@ -304,7 +304,11 @@ export function HivemindSettings({
       .then((p) => {
         if (!mounted) return
         setPayload(p)
-        if (p.error) setError(p.error)
+        // Not `if (p.error) setError(p.error)`: a persisted `lastSyncError` is a CLONE-state
+        // fact, not an outcome of this mount, and would otherwise repaint the same stale banner
+        // on every visit to this tab (Important, fix-wave review of 84b09df0). The status chip
+        // below already reflects `payload.state === 'error'`; only the Sync button's own run()
+        // call turns this into an alert, since only Sync is actually attempting a sync.
       })
       .catch((e) => mounted && setError(e instanceof Error ? e.message : String(e)))
     void window.argus.sourceControl.status().then((s) => mounted && setGh(s))
@@ -334,7 +338,8 @@ export function HivemindSettings({
   // persists a failure into `lastSyncError` (Important 2, whole-branch review), so the
   // `hivemind.get()` chained below still lands a payload with `error` set, and `setPayload(p)`
   // carries it into the status chip the same as any other payload. The manual Sync button
-  // surfaces the same persisted error explicitly via `run()`'s `if (p.error) setError(p.error)`.
+  // surfaces the same persisted error explicitly by passing `{ surfaceCloneError: true }` to
+  // `run()` — the one caller for which a clone-state error genuinely IS this call's outcome.
   useEffect(() => {
     if (check !== 'ok') return
     let mounted = true
@@ -355,14 +360,23 @@ export function HivemindSettings({
     }
   }, [check])
 
-  async function run(fn: () => Promise<HivemindPayload>): Promise<void> {
+  /** `surfaceCloneError`: a returned payload's `.error` describes the CLONE's state (a possibly
+   *  stale `lastSyncError`), not this call's own outcome — mirrors hiveAdapter.apply()'s comment
+   *  on the same hazard. Every `run()` caller here is a write (install/uninstall/reinstall) except
+   *  the Sync button, which is the one case where a clone-state error genuinely IS the outcome, so
+   *  only it opts in. Defaulting to surface would repaint a red banner over a successful write
+   *  whenever a past, unrelated sync had failed (Important, fix-wave review of 84b09df0). */
+  async function run(
+    fn: () => Promise<HivemindPayload>,
+    opts?: { surfaceCloneError?: boolean }
+  ): Promise<void> {
     if (busy) return
     setBusy(true)
     setError(null)
     try {
       const p = await fn()
       setPayload(p)
-      if (p.error) setError(p.error)
+      if (opts?.surfaceCloneError && p.error) setError(p.error)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -417,7 +431,10 @@ export function HivemindSettings({
       try {
         const p = await window.argus.hivemind.install(kind, targets[i].name)
         setPayload(p)
-        if (p.error) setError(p.error)
+        // Not `if (p.error) setError(p.error)`: same clone-state hazard as `run()` above —
+        // `install()`'s payload can carry a stale `lastSyncError` even though this particular
+        // download landed (Important, fix-wave review of 84b09df0). Real per-item failures are
+        // caught below and reported via `failed`.
       } catch {
         failed.push(targets[i].name)
       }
@@ -503,15 +520,20 @@ export function HivemindSettings({
               className="ml-auto"
               disabled={busy || autoSyncing}
               onClick={() =>
-                void run(async () => {
-                  // Routed through the currency service, mirroring Packs' "Check for updates"
-                  // button: the hive adapter's `survey()` performs the sync itself and then
-                  // re-derives `currency.blocked`, so a hold this sync resolved stops reading as
-                  // held back immediately instead of at the next scheduled survey up to 6h away.
-                  // `true` forces past the rate limit — a manual button has to mean now.
-                  await window.argus.currency.surveyNow('hive', true)
-                  return window.argus.hivemind.get()
-                })
+                void run(
+                  async () => {
+                    // Routed through the currency service, mirroring Packs' "Check for updates"
+                    // button: the hive adapter's `survey()` performs the sync itself and then
+                    // re-derives `currency.blocked`, so a hold this sync resolved stops reading as
+                    // held back immediately instead of at the next scheduled survey up to 6h away.
+                    // `true` forces past the rate limit — a manual button has to mean now.
+                    await window.argus.currency.surveyNow('hive', true)
+                    return window.argus.hivemind.get()
+                  },
+                  // This IS a sync attempt, so unlike every other run() caller, a clone-state
+                  // error genuinely is this call's own outcome — surface it.
+                  { surfaceCloneError: true }
+                )
               }
             >
               <RefreshCw size={14} className={busy || autoSyncing ? 'animate-spin' : ''} />
