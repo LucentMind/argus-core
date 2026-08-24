@@ -22,10 +22,15 @@ describe('legibility line', () => {
   it('no material class on a form control primitive', () => {
     const layout = readFileSync(join(SRC, 'components/settings/settingsLayout.tsx'), 'utf8')
     // FIELD/TEXTAREA_FIELD are the shared control classes; Switch/SelectField use them
-    const controls = layout.slice(
-      layout.indexOf('export const FIELD'),
-      layout.indexOf('DisclosureBtn')
-    )
+    const start = layout.indexOf('export const FIELD')
+    const end = layout.indexOf('DisclosureOverlay')
+    // Both markers asserted, and the span bounded: `indexOf` returns -1 for a marker that has
+    // been renamed, and `slice(start, -1)` silently widens the scan to the whole file — which is
+    // how this guard started reporting `SettingsSection`'s own (sanctioned) `glass-panel`
+    // instead of a real regression. A missing marker must fail as a missing marker.
+    expect(start, 'FIELD marker missing').toBeGreaterThan(-1)
+    expect(end, 'end marker missing — rename the marker, do not drop it').toBeGreaterThan(start)
+    const controls = layout.slice(start, end)
     expect(controls).not.toContain('glass-panel')
     expect(controls).not.toContain('glass-card')
   })

@@ -337,7 +337,7 @@ export function SettingRow({
   }
   return (
     <div
-      className={`group/row flex items-center gap-4 px-4 py-3 ${onToggle ? 'group/disc relative' : ''}`}
+      className={`group/row flex items-center gap-4 px-4 py-3${onToggle ? ' group/disc relative' : ''}`}
     >
       {onToggle && toggleLabel !== undefined && (
         <DisclosureOverlay
@@ -349,7 +349,7 @@ export function SettingRow({
       )}
       {/* `relative` only when the label is itself a control: everything else in this column is
           prose, and prose UNDER the disclosure overlay is what makes the whole row open it. */}
-      <div className={`flex min-w-0 flex-1 flex-col gap-0.5 ${onOpen ? 'relative' : ''}`}>
+      <div className={`flex min-w-0 flex-1 flex-col gap-0.5${onOpen ? ' relative' : ''}`}>
         <span className={labelClass} title={hint}>
           {labelContent}
         </span>
