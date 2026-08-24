@@ -103,7 +103,7 @@ import {
   renameSkillFileReviewed,
   saveSkillFile
 } from './services/skillFiles'
-import { declineKey, executableAssetsOf, HivemindService } from './services/hivemind'
+import { executableAssetsOf, HivemindService } from './services/hivemind'
 import {
   listProposals,
   listArchivedProposals,
@@ -286,6 +286,7 @@ import { createPacksAdapter } from './services/update/currency/packsAdapter'
 import { createHiveAdapter } from './services/update/currency/hiveAdapter'
 import { registerCurrencyIpc } from './services/update/currency/currencyIpc'
 import { createAdoptionBroadcastGate } from './services/update/currency/adoptionBroadcastGate'
+import { createForgetHooks } from './services/update/currency/forgetHooks'
 import { JsonFileStore } from './services/fileStore'
 import { PanelHost } from './services/panels/panelHost'
 import { createElectronPanelFactory } from './services/panels/electronPlatform'
@@ -1471,7 +1472,7 @@ function registerIpc(): void {
       // from your vendor and use Install from file"), so without this the badge, the Sources nav
       // dot and the reason line would all stay for up to 6h after they followed that exact
       // guidance (Important 3, whole-branch review).
-      currency?.forget(res.id)
+      forgetHooks.packInstalled(res.id)
       broadcast(IPC.packsChanged, undefined)
       referencesChanged()
     }
@@ -1483,7 +1484,7 @@ function registerIpc(): void {
       packsTouched.add(id)
       // Uninstalling a held-back pack must clear its hold too — otherwise the badge keeps
       // counting an item with no row anywhere left to render its reason (Important 3).
-      currency?.forget(id)
+      forgetHooks.packUninstalled(id)
       broadcast(IPC.packsChanged, undefined)
       referencesChanged()
     }
@@ -1502,6 +1503,9 @@ function registerIpc(): void {
   // the manual pack/hive update handlers registered above it must share its apply lock. Same
   // forward-ref shape as `agentService`/`diagnostics` elsewhere in this file.
   let currency: CurrencyService | null = null
+  // Same forward-ref shape as `currency` itself: this closure only reads `currency` when a
+  // handler actually fires, by which point the assignment far below has already run.
+  const forgetHooks = createForgetHooks({ forget: (key) => currency?.forget(key) })
   /**
    * Run a manual PACK or HIVE update behind the auto-updater's lock, so an auto-apply and a
    * manual one can never interleave and race on the same install paths.
@@ -1531,7 +1535,7 @@ function registerIpc(): void {
         // triggers — without this, a hold the user just resolved by hand (e.g. Update after an
         // origin-pin refusal) keeps reading as held back until the next scheduled survey, up to
         // 6h later (Finding 2, whole-branch review).
-        currency?.forget(id)
+        forgetHooks.packUpdated(id)
       }
       packUpdateStatuses = { ...packUpdateStatuses, [id]: status }
       broadcast(IPC.packsChanged, undefined)
@@ -3106,7 +3110,7 @@ function registerIpc(): void {
         // Every failure path in `hivemind.install` throws (see Task 8's dead-branch removal), so
         // reaching here means the write landed — same "manual path never triggers a survey" gap
         // as the pack apply handler above (Finding 2, whole-branch review).
-        currency?.forget(declineKey(kind, name))
+        forgetHooks.hiveInstalled(kind, name)
         if (kind === 'skill') {
           // install implies intent → clear any lingering disable override (sparse store keeps only false)
           agentAccessStore.patch({ skills: { [`hivemind/${name}`]: true } })
@@ -3129,13 +3133,13 @@ function registerIpc(): void {
     // Uninstalling a held-back skill must clear its hold too, or the badge keeps counting an item
     // with no row anywhere left to render its reason (Important 3, whole-branch review). Same key
     // format `hiveAdapter.ts`'s `survey()` builds (`declineKey(it.kind, it.name)`).
-    currency?.forget(declineKey('skill', name))
+    forgetHooks.hiveUninstalled('skill', name)
     broadcast(IPC.skillsChanged, skillsPayload())
     return p
   })
   ipcMain.handle(IPC.hivemindUninstallReference, async (_e, name: string) => {
     const p = await hivemind.uninstallReference(name)
-    currency?.forget(declineKey('reference', name))
+    forgetHooks.hiveUninstalled('reference', name)
     referencesChanged()
     return p
   })
