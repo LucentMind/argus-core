@@ -1326,6 +1326,55 @@ describe('held-back items', () => {
     await screen.findByText('hive-probe')
     expect(screen.queryByLabelText(/needs you|need you/i)).not.toBeInTheDocument()
   })
+
+  it('says so when a filter hides the held-back row', async () => {
+    renderHive({
+      items: [item({ kind: 'skill', name: 'triage' })],
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'hive-skill',
+            key: 'skill/triage',
+            label: 'triage',
+            from: 'x',
+            to: 'y',
+            verdict: 'blocked',
+            reason: { kind: 'local-edits' }
+          }
+        ],
+        busy: false
+      }
+    })
+    await screen.findByLabelText('1 HiveMind update needs you')
+    await userEvent.type(screen.getByLabelText('Filter HiveMind content'), 'zzz')
+    expect(await screen.findByText('1 held-back item is not shown here.')).toBeInTheDocument()
+  })
+
+  it('says nothing when the held-back row is visible', async () => {
+    renderHive({
+      items: [item({ kind: 'skill', name: 'triage' })],
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'hive-skill',
+            key: 'skill/triage',
+            label: 'triage',
+            from: 'x',
+            to: 'y',
+            verdict: 'blocked',
+            reason: { kind: 'local-edits' }
+          }
+        ],
+        busy: false
+      }
+    })
+    await screen.findByLabelText('1 HiveMind update needs you')
+    expect(screen.queryByText(/not shown here/i)).not.toBeInTheDocument()
+  })
 })
 
 describe('download all honours tombstones', () => {
