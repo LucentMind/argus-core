@@ -287,7 +287,15 @@ export class CurrencyService {
         // A write that actually succeeded ends any run of apply-time auth flakiness for this
         // adapter — the next refusal, if any, is a fresh first strike.
         this.applyAuthStrikes.delete(adapter.id)
-        return candidate.from === null
+        // Only HIVE adoptions count. The first-run notice this feeds says "N HiveMind items", and
+        // nothing else enforced that: `from === null` alone would count a brand-new pack or core
+        // install too. Neither can produce it today — core always has a version, and a pack with a
+        // source always has one — so this is a guard against the copy and the count drifting, not
+        // a live bug.
+        return (
+          candidate.from === null &&
+          (candidate.domain === 'hive-skill' || candidate.domain === 'hive-reference')
+        )
       } else if (outcome.reason) {
         // A refusal at apply time is the adapter re-deriving and finding the world moved — it
         // becomes a decision for the user, not a write to retry next tick. A grace-kind refusal
