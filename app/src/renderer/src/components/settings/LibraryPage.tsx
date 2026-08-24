@@ -484,8 +484,20 @@ export function LibraryPage({
     const receipt = pushes[`reference/${r.file}`]
     const canShare = r.tier !== null && (PUSHABLE_TIERS as readonly string[]).includes(r.tier)
     const u = refUsage?.get(r.file)
-    const hive = hiveItems.get(`reference/${r.file}`)
+    // Installs flatten: a hive item named `confluence/x.md` lands on disk as `references/x.md`,
+    // so the local file name alone does not address the item it came from. Both keys are tried
+    // rather than one, because the flat and namespaced halves of the hive's references/ folder
+    // can hold the same basename.
+    const hive =
+      hiveItems.get(`reference/${r.file}`) ?? hiveItems.get(`reference/confluence/${r.file}`)
     const canClaim = r.tier === 'hivemind' && (hive?.installed ?? true)
+    // Currency of a downloaded copy is the hive's, whatever tier it was stamped with — a
+    // confluence/ install is stamped `confluence` and is no less hive-tracked for it. Both
+    // clauses earn their place: `sourceRepo` excludes a same-named file this machine synced
+    // itself, and the tier check excludes a claimed copy, whose pin can still report an update
+    // the user has already opted out of by taking ownership.
+    const hiveTracked =
+      r.sourceRepo !== null && (HIVE_MANAGED_TIERS as readonly string[]).includes(r.tier ?? '')
     // Hand-owned tiers are deleted for good; hive-managed ones merely uninstall. The verb is
     // hoisted because it is now the tooltip AND the accessible name (see removeReference).
     const removeVerb = r.tier !== 'hivemind' && r.tier !== 'confluence' ? 'Delete' : 'Remove'
@@ -510,7 +522,7 @@ export function LibraryPage({
             <>
               <Chip tone="neutral">reference</Chip>
               {r.tier !== null && groupOf(r.tier) !== 'built-in' && <TierBadge tier={r.tier} />}
-              {r.tier === 'hivemind' && hive?.updateAvailable && <Chip tone="review">update</Chip>}
+              {hiveTracked && hive?.updateAvailable && <Chip tone="review">update</Chip>}
               {r.stale && <Chip tone="danger">stale</Chip>}
               {receipt && <PushReceiptChip name={r.file} receipt={receipt} />}
             </>

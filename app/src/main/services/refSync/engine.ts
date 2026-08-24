@@ -14,7 +14,7 @@ import {
   type ReferenceSyncConfig,
   type VanishedRef
 } from '../../../shared/referenceSync'
-import { refTier, refTitle, parseRefSources } from './refFrontmatter'
+import { refTier, refTitle, refSourceRepo, parseRefSources } from './refFrontmatter'
 import { listReferenceFiles, referenceSummary } from './referenceFiles'
 import { parseAuthorship } from '../../../shared/authorship'
 
@@ -105,12 +105,22 @@ export function computeChangedSet(
   return { changed, unrouted, conflicts }
 }
 
-/** Per-file staleness for the References page (>14 days unsynced, confluence tier only). */
+/**
+ * Per-file staleness for the References page (>14 days unsynced, confluence tier only).
+ *
+ * "Unsynced" means unsynced BY THIS INSTALL, which is why a `source_repo` stamp exempts the
+ * file: a reference downloaded from the hive's `confluence/` subfolder is stamped
+ * `trust_tier: confluence` too, but its `sources:` belong to the publisher and this machine
+ * never syncs them. Judged on tier alone it read as stale the moment it landed, forever — a
+ * warning with no action behind it and no bearing on whether a newer version exists. Currency
+ * for those files is the hive's `updateAvailable`, not the clock.
+ */
 export function referenceStatuses(referencesDir: string, now: Date): ReferenceStatus[] {
   return listReferenceFiles(referencesDir)
     .map((rel) => {
       const raw = fs.readFileSync(path.join(referencesDir, rel), 'utf8')
       const tier = refTier(raw)
+      const sourceRepo = refSourceRepo(raw)
       const sources = parseRefSources(raw)
       const newest =
         sources
@@ -123,8 +133,9 @@ export function referenceStatuses(referencesDir: string, now: Date): ReferenceSt
         tier,
         lastSynced: newest,
         sourceCount: sources.length,
-        stale: tier === 'confluence' && isStale(newest, now),
-        author: parseAuthorship(raw).author
+        stale: tier === 'confluence' && sourceRepo === null && isStale(newest, now),
+        author: parseAuthorship(raw).author,
+        sourceRepo
       }
     })
     .sort((a, b) => a.file.localeCompare(b.file))
