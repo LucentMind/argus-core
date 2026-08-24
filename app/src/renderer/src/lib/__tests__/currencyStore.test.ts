@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { currencyStore, pageOwning } from '../currencyStore'
+import { currencyStore, pageOwning, needsYouLabel } from '../currencyStore'
 import type { Candidate, CurrencyPayload } from '../../../../shared/currency'
 
 const blocked = (domain: Candidate['domain'], kind: 'local-edits' | 'unsupported'): Candidate => ({
@@ -168,5 +168,22 @@ describe('currencyStore', () => {
       for (const fn of listeners) fn(broadcast)
       expect(currencyStore.get()).toEqual(broadcast)
     })
+  })
+})
+
+describe('needsYouLabel', () => {
+  it('words the TopBar and nav-row shape — subject first, em dash', () => {
+    expect(needsYouLabel(1, { subject: 'Settings' })).toBe('Settings — 1 update needs you')
+    expect(needsYouLabel(2, { subject: 'Sources' })).toBe('Sources — 2 updates need you')
+  })
+
+  it('words the section-badge shape — qualifier inside the noun, no subject', () => {
+    expect(needsYouLabel(1, { qualifier: 'pack' })).toBe('1 pack update needs you')
+    expect(needsYouLabel(2, { qualifier: 'HiveMind' })).toBe('2 HiveMind updates need you')
+  })
+
+  it('agrees the verb with the noun in every shape', () => {
+    expect(needsYouLabel(1)).toBe('1 update needs you')
+    expect(needsYouLabel(2)).toBe('2 updates need you')
   })
 })

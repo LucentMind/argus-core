@@ -9,7 +9,7 @@ import { settingsStore } from '../../lib/settingsStore'
 import { confirm as askConfirm } from '../../lib/confirmStore'
 import { UnifiedDiffView } from '../UnifiedDiffView'
 import { BlockedReasonLine } from './BlockedReasonLine'
-import { currencyStore, pageOwning } from '../../lib/currencyStore'
+import { currencyStore, needsYouLabel, pageOwning } from '../../lib/currencyStore'
 import type { HivemindItem, HivemindPayload, LocalDivergence } from '../../../../shared/hivemind'
 import type { SettingsPayload } from '../../../../shared/settings'
 import type { SourceControlStatus } from '../../../../shared/sourcecontrol'
@@ -277,10 +277,7 @@ export function HivemindSettings({
   function sectionBadge(n: number): React.JSX.Element | undefined {
     if (n === 0) return undefined
     return (
-      <Chip
-        tone="review"
-        aria-label={`${n} HiveMind update${n === 1 ? '' : 's'} ${n === 1 ? 'needs' : 'need'} you`}
-      >
+      <Chip tone="review" aria-label={needsYouLabel(n, { qualifier: 'HiveMind' })}>
         {n}
       </Chip>
     )
