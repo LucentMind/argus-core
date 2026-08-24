@@ -393,6 +393,19 @@ describe('confidential client', () => {
       if (opts.authorizationCode) {
         info = (await provider.clientInformation()) as OAuthClientInformationFull
         meta = provider.clientMetadata
+        // A real SDK may still call saveClientInformation() even when clientInformation()
+        // already returned a value (it's the same code path DCR would use to persist a
+        // fresh registration). The guard must no-op here rather than persist this — if
+        // the early return in saveClientInformation() were removed, this call alone would
+        // make the assertion below false.
+        await provider.saveClientInformation?.({
+          client_id: '999.999',
+          client_secret: 'should-not-be-written',
+          redirect_uris: [String(provider.redirectUrl)],
+          grant_types: ['authorization_code', 'refresh_token'],
+          response_types: ['code'],
+          token_endpoint_auth_method: 'client_secret_post'
+        } as OAuthClientInformationFull)
         await provider.saveTokens({ access_token: 'xoxp-1', token_type: 'user' })
         return 'AUTHORIZED'
       }
@@ -411,7 +424,8 @@ describe('confidential client', () => {
     expect(info?.client_id).toBe('123.456')
     expect(info?.client_secret).toBe('sh-secret')
     expect(meta?.token_endpoint_auth_method).toBe('client_secret_post')
-    // registration would have written this; it must not exist
+    // saveClientInformation() was called above with a registered-client payload;
+    // the static-client guard must have discarded it rather than persisting it
     expect(secrets.has('mcp/slack/client')).toBe(false)
   })
 
@@ -448,5 +462,39 @@ describe('confidential client', () => {
     await oauth.authorize('rovo', SERVER)
     expect(info).toBeUndefined()
     expect(oauth.status('rovo')).toBe('authorized')
+  })
+
+  it('clientInformation: the static-client branch wins over a stale stored registration (branch order)', async () => {
+    // Seed a leftover dynamic registration whose redirect_uris names an old ephemeral
+    // loopback port — never the one this run's fresh loopback will pick. If the
+    // stale-redirect discard in clientInformation() ran BEFORE the static-client check,
+    // this stored client's mismatched redirect_uris would make it return undefined
+    // instead of ever reaching the static branch.
+    secrets.set(
+      'mcp/slack/client',
+      JSON.stringify({
+        client_id: 'stale-dcr-client',
+        redirect_uris: ['http://127.0.0.1:1111/callback'],
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none'
+      })
+    )
+    let info: OAuthClientInformationFull | undefined
+    const authFn: AuthLike = async (provider) => {
+      info = (await provider.clientInformation()) as OAuthClientInformationFull
+      await provider.saveTokens({ access_token: 'xoxp-3', token_type: 'user' })
+      return 'AUTHORIZED'
+    }
+    const oauth = new McpOAuth(
+      secrets,
+      async () => {},
+      authFn,
+      () => slackCfg()
+    )
+    const r = await oauth.authorize('slack', SERVER)
+    expect(r.ok).toBe(true)
+    // must be the STATIC client, not undefined from the stale-redirect discard
+    expect(info?.client_id).toBe('123.456')
   })
 })
