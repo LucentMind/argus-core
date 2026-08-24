@@ -498,7 +498,17 @@ export function HivemindSettings({
               title="Sync HiveMind"
               className="ml-auto"
               disabled={busy || autoSyncing}
-              onClick={() => void run(() => window.argus.hivemind.sync())}
+              onClick={() =>
+                void run(async () => {
+                  // Routed through the currency service, mirroring Packs' "Check for updates"
+                  // button: the hive adapter's `survey()` performs the sync itself and then
+                  // re-derives `currency.blocked`, so a hold this sync resolved stops reading as
+                  // held back immediately instead of at the next scheduled survey up to 6h away.
+                  // `true` forces past the rate limit — a manual button has to mean now.
+                  await window.argus.currency.surveyNow('hive', true)
+                  return window.argus.hivemind.get()
+                })
+              }
             >
               <RefreshCw size={14} className={busy || autoSyncing ? 'animate-spin' : ''} />
             </IconBtn>
