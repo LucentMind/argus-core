@@ -330,8 +330,11 @@ export function HivemindSettings({
   // looks at it instead of requiring a manual Sync click. Deliberately NOT routed through
   // `run()` — staying off `busy` keeps Download/Remove/Update usable immediately, and a pull
   // with nothing new to fetch is typically instant anyway. Failures (offline, auth) are
-  // swallowed: being unreachable when Settings happens to be opened is normal, not worth
-  // interrupting the user for. The manual Sync button still surfaces errors via `run()`.
+  // swallowed here — this effect never calls `setError` — but not lost: `hivemind.sync()`
+  // persists a failure into `lastSyncError` (Important 2, whole-branch review), so the
+  // `hivemind.get()` chained below still lands a payload with `error` set, and `setPayload(p)`
+  // carries it into the status chip the same as any other payload. The manual Sync button
+  // surfaces the same persisted error explicitly via `run()`'s `if (p.error) setError(p.error)`.
   useEffect(() => {
     if (check !== 'ok') return
     let mounted = true
