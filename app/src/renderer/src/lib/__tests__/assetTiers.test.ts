@@ -95,7 +95,8 @@ describe('useAssetTiers', () => {
           lastSynced: null,
           sourceCount: 0,
           stale: false,
-          author: null
+          author: null,
+          sourceRepo: null
         }
       ]
     }

@@ -203,7 +203,8 @@ describe('referenceStatuses', () => {
         lastSynced: null,
         sourceCount: 0,
         stale: false,
-        author: null
+        author: null,
+        sourceRepo: null
       },
       {
         file: 'routing-flow.md',
@@ -211,9 +212,56 @@ describe('referenceStatuses', () => {
         lastSynced: '2026-06-01T00:00:00.000Z',
         sourceCount: 1,
         stale: true,
-        author: null
+        author: null,
+        sourceRepo: null
       }
     ])
+  })
+
+  /**
+   * Staleness answers "has THIS install synced the file lately?". A reference downloaded from
+   * the hive is stamped `trust_tier: confluence` when it came from the hive's `confluence/`
+   * subfolder (hivemind.ts `resolvedTier`), but the hive blob carries no `sources:` — the
+   * publisher syncs it, this machine never does. Left in the confluence bucket it read as
+   * permanently stale (`isStale(null) === true`), a warning the user could not act on and that
+   * said nothing about whether a newer version existed. `source_repo` (an install stamp
+   * upstream blobs never carry) is what separates the two.
+   */
+  it('a hive-installed confluence reference is not stale, however old, while a locally-synced one with the same tier still is', () => {
+    fs.writeFileSync(
+      path.join(tmp, 'hive-conf.md'),
+      [
+        '---',
+        'title: H',
+        'trust_tier: confluence',
+        'source_repo: https://github.com/acme/hive',
+        'source_commit: abc123',
+        '---',
+        '# H',
+        ''
+      ].join('\n')
+    )
+    fs.writeFileSync(
+      path.join(tmp, 'local-conf.md'),
+      stampRefFile('# L', {
+        title: 'L',
+        sources: [{ url: 'u', pageId: '9', version: 1, lastSynced: '2026-06-01T00:00:00.000Z' }],
+        now: new Date('2026-06-01T00:00:00Z')
+      })
+    )
+    const st = referenceStatuses(tmp, new Date('2026-07-10T00:00:00Z'))
+    expect(st.find((s) => s.file === 'hive-conf.md')).toMatchObject({
+      tier: 'confluence',
+      lastSynced: null,
+      sourceRepo: 'https://github.com/acme/hive',
+      stale: false
+    })
+    // the guard is `source_repo`, not the tier: an equally old file this machine DOES sync
+    // must keep its warning, or the fix would have silenced staleness altogether
+    expect(st.find((s) => s.file === 'local-conf.md')).toMatchObject({
+      sourceRepo: null,
+      stale: true
+    })
   })
 })
 
