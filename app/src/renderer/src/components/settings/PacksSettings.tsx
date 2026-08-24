@@ -6,6 +6,7 @@ import { confirm } from '../../lib/confirmStore'
 import { ToolRow, useToolProbes } from './ToolRow'
 import { currencyStore, needsYouLabel, pageOwning } from '../../lib/currencyStore'
 import { BlockedReasonLine } from './BlockedReasonLine'
+import { UnshownHoldsLine } from './UnshownHoldsLine'
 import type {
   PacksListPayload,
   InstalledPackRow,
@@ -207,9 +208,16 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
   )
   // A candidate whose `key` matches no row currently rendered here (e.g. a pack that was
   // uninstalled after the last survey) still counts toward the badge total below, with no reason
-  // line anywhere to explain it — accepted, since the next `checkUpdates()` re-syncs the survey
-  // against the current pack list.
+  // line anywhere to explain it — `<UnshownHoldsLine/>` below says so instead of the section
+  // silently looking like it points at nothing.
   const blockedFor = (id: string): Candidate | undefined => blockedPacks.find((c) => c.key === id)
+
+  // Held-back packs with no row on this page — the pack was uninstalled since the survey, or the
+  // list has not caught up. The badge above still counts them (it is the true total, and the
+  // TopBar's must agree with it), so the section says so rather than looking like it is pointing
+  // at nothing.
+  const shownPackIds = new Set((payload?.packs ?? []).map((p) => p.id))
+  const unshownPacks = blockedPacks.filter((c) => !shownPackIds.has(c.key)).length
 
   const refresh = useCallback(async () => {
     setPayload(await window.argus.packs.list())
@@ -576,6 +584,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
           </span>
         }
       >
+        <UnshownHoldsLine count={unshownPacks} />
         {payload.packs.length === 0 && (
           <div className="px-3 py-2 text-xs text-dim">No packs installed.</div>
         )}

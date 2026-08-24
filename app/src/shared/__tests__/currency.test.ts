@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { blockedOf, describeBlocked, surfacedBlocked, SURFACED_BLOCK_KINDS } from '../currency'
+import {
+  blockedOf,
+  describeBlocked,
+  describeUnshownHolds,
+  surfacedBlocked,
+  SURFACED_BLOCK_KINDS
+} from '../currency'
 import type { BlockedReason, Candidate } from '../currency'
 import { settingsSchema } from '../settings'
 
@@ -156,5 +162,12 @@ describe('describeBlocked gh-forbidden', () => {
     expect(describeBlocked({ kind: 'gh-forbidden' })).toBe(
       'GitHub refused the request — your token may need organization authorization, or you may be rate-limited.'
     )
+  })
+})
+
+describe('describeUnshownHolds', () => {
+  it('agrees the verb with the noun', () => {
+    expect(describeUnshownHolds(1)).toBe('1 held-back item is not shown here.')
+    expect(describeUnshownHolds(2)).toBe('2 held-back items are not shown here.')
   })
 })

@@ -702,6 +702,51 @@ describe('PacksSettings', () => {
     expect(screen.queryByLabelText(/needs you/i)).not.toBeInTheDocument()
   })
 
+  it('says so when a held-back pack has no row on this page', async () => {
+    renderPacks({
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'pack',
+            key: 'not-installed-any-more',
+            label: 'Gone',
+            from: '1',
+            to: '2',
+            verdict: 'blocked',
+            reason: { kind: 'auth' }
+          }
+        ],
+        busy: false
+      }
+    })
+    expect(await screen.findByText('1 held-back item is not shown here.')).toBeInTheDocument()
+  })
+
+  it('says nothing when every held-back pack has a row', async () => {
+    renderPacks({
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'pack',
+            key: 'code-graph',
+            label: 'Code Graph',
+            from: '1',
+            to: '2',
+            verdict: 'blocked',
+            reason: { kind: 'auth' }
+          }
+        ],
+        busy: false
+      }
+    })
+    await screen.findByLabelText('1 pack update needs you')
+    expect(screen.queryByText(/not shown here/i)).not.toBeInTheDocument()
+  })
+
   it('does not badge a hive block on the Packs section', async () => {
     renderPacks({
       currency: {

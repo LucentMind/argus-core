@@ -9,6 +9,7 @@ import { settingsStore } from '../../lib/settingsStore'
 import { confirm as askConfirm } from '../../lib/confirmStore'
 import { UnifiedDiffView } from '../UnifiedDiffView'
 import { BlockedReasonLine } from './BlockedReasonLine'
+import { UnshownHoldsLine } from './UnshownHoldsLine'
 import { currencyStore, needsYouLabel, pageOwning } from '../../lib/currencyStore'
 import type { HivemindItem, HivemindPayload, LocalDivergence } from '../../../../shared/hivemind'
 import type { SettingsPayload } from '../../../../shared/settings'
@@ -277,8 +278,8 @@ export function HivemindSettings({
   const blockedReferences = blockedHive.filter((c) => c.domain === 'hive-reference')
   // A candidate whose `key` matches no row currently rendered here (e.g. a hive item that was
   // uninstalled after the last survey) still counts toward the badge totals above, with no reason
-  // line anywhere to explain it — accepted, since the next sync re-runs the survey against the
-  // current item list (mirrors PacksSettings' blockedFor).
+  // line anywhere to explain it — `<UnshownHoldsLine/>` below says so instead of a section silently
+  // looking like it points at nothing (mirrors PacksSettings' blockedFor).
   const blockedFor = (i: HivemindItem): Candidate | undefined =>
     blockedHive.find((c) => c.key === `${i.kind}/${i.name}`)
 
@@ -589,6 +590,12 @@ export function HivemindSettings({
   const references = filtered.filter((it) => it.kind === 'reference')
   const downloadableSkills = skills.filter(isDownloadable)
   const downloadableReferences = references.filter(isDownloadable)
+  // Same accounting as Packs' `unshownPacks`, per section: a candidate whose key matches no row
+  // currently rendered — hidden by the filter, or gone since the survey.
+  const shownSkillKeys = new Set(skills.map((it) => `${it.kind}/${it.name}`))
+  const shownReferenceKeys = new Set(references.map((it) => `${it.kind}/${it.name}`))
+  const unshownSkills = blockedSkills.filter((c) => !shownSkillKeys.has(c.key)).length
+  const unshownReferences = blockedReferences.filter((c) => !shownReferenceKeys.has(c.key)).length
 
   /** Section-header action for "Download All" — omitted entirely when nothing in that
    *  section is downloadable, rather than rendering a dead button. */
@@ -663,16 +670,13 @@ export function HivemindSettings({
           onChange={(e) => setFilter(e.target.value)}
         />
 
-        {/* Known gap (2026-08-21): an active filter that matches nothing in either list hides
-            this whole block, including a Skills/References badge below whose held-back count is
-            about the ITEM, not the filter text — a filter typed while something is genuinely
-            held back can make that badge invisible on this page. Not fixed here: Task 6 puts the
-            same count on the Settings TopBar button and a dot on the `team` nav row, so it is
-            never invisible everywhere at once, only on this one filtered view. */}
         {filter && skills.length === 0 && references.length === 0 ? (
-          <div className="px-1 py-2 text-sm text-dim">
-            No HiveMind content matches &quot;{filter}&quot;.
-          </div>
+          <>
+            <div className="px-1 py-2 text-sm text-dim">
+              No HiveMind content matches &quot;{filter}&quot;.
+            </div>
+            <UnshownHoldsLine count={blockedSkills.length + blockedReferences.length} />
+          </>
         ) : (
           <>
             {/* `|| blockedSkills.length > 0`: without this, a held-back skill with zero visible
@@ -684,6 +688,7 @@ export function HivemindSettings({
                 title="Skills"
                 action={sectionAction('skill', downloadableSkills, blockedSkills.length)}
               >
+                <UnshownHoldsLine count={unshownSkills} />
                 {skills.map((it) => (
                   <BrowseRow
                     key={`${it.kind}/${it.name}`}
@@ -715,6 +720,7 @@ export function HivemindSettings({
                   blockedReferences.length
                 )}
               >
+                <UnshownHoldsLine count={unshownReferences} />
                 {references.map((it) => (
                   <BrowseRow
                     key={`${it.kind}/${it.name}`}
