@@ -169,6 +169,43 @@ describe('currencyStore', () => {
       expect(currencyStore.get()).toEqual(broadcast)
     })
   })
+
+  // Nested inside `describe('currencyStore')` (not a sibling) so it inherits that describe's
+  // `beforeEach(() => currencyStore.reset())` above — a sibling describe would not run it, and
+  // state would leak in from whichever test ran last.
+  describe('auto-update off', () => {
+    it('reports no global count — nothing may demand attention for a disabled service', async () => {
+      stubBridge({ ...empty, auto: false, blocked: [blocked('pack', 'local-edits')] })
+      currencyStore.start()
+      await vi.waitFor(() => expect(currencyStore.get().blocked).toHaveLength(1))
+      expect(currencyStore.surfacedCount()).toBe(0)
+    })
+
+    it('groups nothing by page', async () => {
+      stubBridge({ ...empty, auto: false, blocked: [blocked('pack', 'local-edits')] })
+      currencyStore.start()
+      await vi.waitFor(() => expect(currencyStore.get().blocked).toHaveLength(1))
+      const byPage = currencyStore.blockedByPage()
+      expect(byPage.sources).toHaveLength(0)
+      expect(byPage.general).toHaveLength(0)
+      expect(byPage.team).toHaveLength(0)
+    })
+
+    it('leaves the raw payload alone — the pages still read it directly', async () => {
+      stubBridge({ ...empty, auto: false, blocked: [blocked('pack', 'local-edits')] })
+      currencyStore.start()
+      await vi.waitFor(() => expect(currencyStore.get().blocked).toHaveLength(1))
+      expect(currencyStore.get().blocked).toHaveLength(1)
+    })
+
+    it('still counts and groups when auto is on', async () => {
+      stubBridge({ ...empty, auto: true, blocked: [blocked('pack', 'local-edits')] })
+      currencyStore.start()
+      await vi.waitFor(() => expect(currencyStore.get().blocked).toHaveLength(1))
+      expect(currencyStore.surfacedCount()).toBe(1)
+      expect(currencyStore.blockedByPage().sources).toHaveLength(1)
+    })
+  })
 })
 
 describe('needsYouLabel', () => {
