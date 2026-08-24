@@ -94,7 +94,15 @@ function ConnectorCard({
   const [submitting, setSubmitting] = useState(false)
   const supported = Boolean(CONNECTOR_FORMS[inst.kind])
   const cfg = (inst.config ?? {}) as Record<string, unknown>
-  const isOauth = inst.kind === 'http' && (cfg as Partial<HttpConnectorConfig>).oauth === true
+  const httpCfg = cfg as Partial<HttpConnectorConfig>
+  const isOauth = inst.kind === 'http' && httpCfg.oauth === true
+  // A confidential-client server (a configured redirectUrl, e.g. Slack) has no
+  // registration_endpoint — clicking Authorize with no Client ID yet entered reaches the
+  // SDK's dynamic-client-registration fallback and fails with "Incompatible auth server:
+  // does not support dynamic client registration". Disable before the click, not just after
+  // (main/oauth.ts's authorize() also guards this server-side). Rovo has no redirectUrl
+  // configured, so this never disables its card.
+  const needsClientId = Boolean(httpCfg.redirectUrl) && !httpCfg.clientId
   const summary = toolSummary(inst)
   const secretGap = !secretsAvailable && collectSecretRefs(inst.config).length > 0
   const annotations = {
@@ -132,6 +140,9 @@ function ConnectorCard({
   }
 
   function submitCode(): void {
+    // An OAuth authorization code is single-use: a second oauthCode() call with the same
+    // pasted code (e.g. from two rapid Enter presses while the first exchange is still in
+    // flight) would come back as an error, not a harmless repeat. Do not "simplify" this away.
     if (submitting) return
     const code = (pendingCode ?? '').trim()
     if (!code) return
@@ -169,7 +180,7 @@ function ConnectorCard({
             {isOauth && oauthStatus !== 'authorized' && (
               <Btn
                 variant="primary"
-                disabled={!String((cfg as Partial<HttpConnectorConfig>).url ?? '')}
+                disabled={!String(httpCfg.url ?? '') || needsClientId}
                 aria-label={`authorize · ${id}`}
                 onClick={authorize}
               >

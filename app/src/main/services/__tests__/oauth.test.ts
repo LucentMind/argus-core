@@ -262,6 +262,19 @@ describe('McpOAuth', () => {
   })
 
   it('refresh: non-interactive success clears error; interactive demand or throw → status error', async () => {
+    // refresh() only ever calls authFn when a refresh_token is already on file (a bare
+    // "unauthorized, never connected" instance short-circuits — see the dedicated
+    // "no stored refresh_token" tests below) — seed one so this test still exercises what
+    // it names: authFn's own success/failure outcome, not the no-token short-circuit.
+    secrets.set(
+      'mcp/rovo/tokens',
+      JSON.stringify({
+        access_token: 'stale',
+        token_type: 'bearer',
+        refresh_token: 'ref-old',
+        obtainedAt: Date.now()
+      })
+    )
     const good: AuthLike = async (provider) => {
       await provider.saveTokens({ access_token: 'tok-2', token_type: 'bearer', expires_in: 3600 })
       return 'AUTHORIZED'
@@ -270,6 +283,15 @@ describe('McpOAuth', () => {
     expect(await oauth.refresh('rovo', SERVER)).toBe(true)
     expect(oauth.status('rovo')).toBe('authorized')
 
+    secrets.set(
+      'mcp/rovo2/tokens',
+      JSON.stringify({
+        access_token: 'stale2',
+        token_type: 'bearer',
+        refresh_token: 'ref-old2',
+        obtainedAt: Date.now()
+      })
+    )
     const needsBrowser: AuthLike = async (provider) => {
       await provider.redirectToAuthorization(new URL('https://auth.example.com'))
       return 'REDIRECT'
@@ -277,6 +299,57 @@ describe('McpOAuth', () => {
     const oauth2 = new McpOAuth(secrets, async () => {}, needsBrowser)
     expect(await oauth2.refresh('rovo2', SERVER)).toBe(false)
     expect(oauth2.status('rovo2')).toBe('error')
+  })
+
+  it('refresh: no stored tokens at all short-circuits before authFn, status → error', async () => {
+    let authFnCalled = false
+    const authFn: AuthLike = async () => {
+      authFnCalled = true
+      return 'AUTHORIZED'
+    }
+    const oauth = new McpOAuth(secrets, async () => {}, authFn)
+    expect(await oauth.refresh('rovo', SERVER)).toBe(false)
+    expect(authFnCalled).toBe(false)
+    expect(oauth.status('rovo')).toBe('error')
+  })
+
+  it('refresh: a stored access_token with no refresh_token still short-circuits before authFn', async () => {
+    secrets.set(
+      'mcp/rovo/tokens',
+      JSON.stringify({
+        access_token: 'tok-no-refresh',
+        token_type: 'bearer',
+        obtainedAt: Date.now()
+      })
+    )
+    let authFnCalled = false
+    const authFn: AuthLike = async () => {
+      authFnCalled = true
+      return 'AUTHORIZED'
+    }
+    const oauth = new McpOAuth(secrets, async () => {}, authFn)
+    expect(await oauth.refresh('rovo', SERVER)).toBe(false)
+    expect(authFnCalled).toBe(false)
+    expect(oauth.status('rovo')).toBe('error')
+  })
+
+  it('refresh: no stored refresh_token leaves an in-flight paste-flow PKCE verifier untouched', async () => {
+    // Reproduces the defect this fix closes: authorizeByHand deletes tokens and leaves the
+    // flow half-finished while the user copies a code out of the browser. A background
+    // refresh() during that window must not reach the SDK's startAuthorization, which would
+    // call provider.saveCodeVerifier() and clobber the verifier the later authorizeWithCode()
+    // needs — before our throwing redirectToAuthorization() ever gets a chance to fail it.
+    secrets.set('mcp/rovo/verifier', 'in-flight-pkce-verifier')
+    let authFnCalled = false
+    const authFn: AuthLike = async (provider) => {
+      authFnCalled = true
+      await provider.saveCodeVerifier('clobbered')
+      return 'REDIRECT'
+    }
+    const oauth = new McpOAuth(secrets, async () => {}, authFn)
+    expect(await oauth.refresh('rovo', SERVER)).toBe(false)
+    expect(authFnCalled).toBe(false)
+    expect(secrets.resolve('mcp/rovo/verifier')).toBe('in-flight-pkce-verifier')
   })
 
   it('clientInformation: stale redirect_uris (old loopback port) → undefined, forcing re-registration', async () => {
@@ -341,6 +414,18 @@ describe('McpOAuth', () => {
         token_endpoint_auth_method: 'none'
       })
     )
+    // refresh() only calls authFn once a refresh_token is on file — see the "no stored
+    // refresh_token" tests for that short-circuit; this test is about what happens once
+    // authFn IS reached.
+    secrets.set(
+      'mcp/x/tokens',
+      JSON.stringify({
+        access_token: 'stale',
+        token_type: 'bearer',
+        refresh_token: 'ref-x',
+        obtainedAt: Date.now()
+      })
+    )
     let captured: unknown
     const authFn: AuthLike = async (provider) => {
       captured = provider.clientInformation()
@@ -356,6 +441,15 @@ describe('McpOAuth', () => {
 
   it('refresh: a corrupted client blob without redirect_uris does not throw', async () => {
     secrets.set('mcp/x/client', JSON.stringify({ client_id: 'c-broken' }))
+    secrets.set(
+      'mcp/x/tokens',
+      JSON.stringify({
+        access_token: 'stale',
+        token_type: 'bearer',
+        refresh_token: 'ref-x',
+        obtainedAt: Date.now()
+      })
+    )
     const authFn: AuthLike = async (provider) => {
       provider.clientInformation() // must not throw despite missing redirect_uris
       await provider.saveTokens({ access_token: 'tok', token_type: 'bearer', expires_in: 3600 })
@@ -460,6 +554,10 @@ describe('confidential client', () => {
   })
 
   it('an empty clientId falls back to the public-client DCR path (Rovo is unaffected)', async () => {
+    // The real Rovo shape: no clientId AND no redirectUrl configured (buildConnectorClientConfigResolver
+    // returns '' for both, same as httpConfigSchema's defaults when the fields were never set).
+    // Task 3's missingClientId() guard only fires when a redirectUrl IS configured, so this
+    // must NOT redirect through it — see the "no Client ID" tests below for that case.
     let info: unknown = 'unset'
     const authFn: AuthLike = async (provider) => {
       info = await provider.clientInformation()
@@ -470,11 +568,52 @@ describe('confidential client', () => {
       secrets,
       async () => {},
       authFn,
-      () => slackCfg({ clientId: '', clientSecret: null })
+      () => slackCfg({ clientId: '', clientSecret: null, redirectUrl: '' })
     )
-    await oauth.authorize('rovo', SERVER)
+    const r = await oauth.authorize('rovo', SERVER)
+    expect(r.ok).toBe(true)
     expect(info).toBeUndefined()
     expect(oauth.status('rovo')).toBe('authorized')
+  })
+
+  it('a configured redirectUrl with no Client ID is rejected before binding any port', async () => {
+    // Reproduces the default first-click experience on a freshly-added Slack preset:
+    // redirectUrl comes pre-filled by DEFAULT_PRESETS, clientId is '' until the user pastes
+    // one in. Without this guard the SDK reaches dynamic client registration and fails with
+    // "Incompatible auth server: does not support dynamic client registration" — confusing,
+    // and reproduced as the default experience rather than an edge case.
+    const createServerSpy = vi.spyOn(http, 'createServer')
+    const authFn: AuthLike = vi.fn()
+    const oauth = new McpOAuth(
+      secrets,
+      async () => {},
+      authFn,
+      () => slackCfg({ clientId: '', clientSecret: null })
+    )
+    const r = await oauth.authorize('slack', SERVER)
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/Client ID/)
+    expect(authFn).not.toHaveBeenCalled()
+    // "before binding any port" — a fixed configured redirect must not reserve the port for
+    // an authorization attempt that can never succeed.
+    expect(createServerSpy).not.toHaveBeenCalled()
+    expect(oauth.status('slack')).toBe('error')
+    createServerSpy.mockRestore()
+  })
+
+  it('authorizeWithCode also rejects a configured redirectUrl with no Client ID', async () => {
+    const authFn: AuthLike = vi.fn()
+    const oauth = new McpOAuth(
+      secrets,
+      async () => {},
+      authFn,
+      () => slackCfg({ clientId: '', clientSecret: null })
+    )
+    const r = await oauth.authorizeWithCode('slack', SERVER, 'some-code')
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/Client ID/)
+    expect(authFn).not.toHaveBeenCalled()
+    expect(oauth.status('slack')).toBe('error')
   })
 
   it('clientInformation: the static-client branch wins over a stale stored registration (branch order)', async () => {
@@ -610,6 +749,16 @@ describe('authorize: redirect and scope plumbing', () => {
   })
 
   it('refresh presents the configured client, never a fresh registration', async () => {
+    // refresh() only calls authFn once a refresh_token is on file.
+    secrets.set(
+      'mcp/slack/tokens',
+      JSON.stringify({
+        access_token: 'stale',
+        token_type: 'user',
+        refresh_token: 'ref-slack',
+        obtainedAt: Date.now()
+      })
+    )
     let info: OAuthClientInformationFull | undefined
     const authFn: AuthLike = async (provider) => {
       info = (await provider.clientInformation()) as OAuthClientInformationFull
@@ -845,6 +994,28 @@ describe('slackTokenFetch', () => {
     const res = await f('https://slack.com/api/oauth.v2.user.access')
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual(body)
+  })
+
+  it('returns a 204 untouched rather than throwing on the null-body reconstruction', async () => {
+    // `new Response(text, { status: 204 })` throws `TypeError: Response with null body status
+    // cannot have body` even when text === '' — the Fetch spec forbids a body on 204/205
+    // outright. A JSON-typed 204/205 must short-circuit before ever reaching that
+    // reconstruction, same as the non-2xx and non-JSON early-return branches above.
+    const f = slackTokenFetch(
+      async () =>
+        new Response(null, { status: 204, headers: { 'content-type': 'application/json' } })
+    )
+    const res = await f('https://slack.com/x')
+    expect(res.status).toBe(204)
+  })
+
+  it('returns a 205 untouched for the same reason', async () => {
+    const f = slackTokenFetch(
+      async () =>
+        new Response(null, { status: 205, headers: { 'content-type': 'application/json' } })
+    )
+    const res = await f('https://slack.com/x')
+    expect(res.status).toBe(205)
   })
 
   it('leaves metadata discovery alone — those payloads carry no ok field', async () => {

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { buildConnectorClientConfigResolver } from '../connectorClientConfig'
 import type { ConnectorRegistry } from '../connectors'
 import type { SecretStore } from '../secrets'
-import type { ConnectorMap } from '../../../shared/connectors'
+import { SLACK_DEFAULT_SCOPES, type ConnectorMap } from '../../../shared/connectors'
 
 /**
  * Behavioural coverage for the ClientConfigResolver McpOAuth (Task 5/6) is constructed with —
@@ -117,8 +117,60 @@ describe('buildConnectorClientConfigResolver', () => {
     expect(cfg?.scopes).toBe('')
   })
 
+  it('floors an emptied scopes field to the read-only evidence set for a slack-preset connector', () => {
+    // Reproduces the reset/clear path: AnnotatedForm's defaultValue is UI-only, so clearing
+    // the scopes textarea commits '' (see SLACK_FORM_EXTRAS.scopes in shared/connectors.ts).
+    // Without this floor, scope: undefined reaches the SDK, which falls back to Slack's full
+    // scopes_supported (28 scopes, including write scopes) — exactly what the spec forbids.
+    const resolver = buildConnectorClientConfigResolver({
+      registry: fakeRegistry({
+        slack: {
+          kind: 'http',
+          preset: 'slack',
+          enabled: true,
+          config: {
+            url: 'https://mcp.slack.com/mcp',
+            clientId: 'client-123',
+            scopes: '',
+            redirectUrl: 'http://localhost:8080/callback'
+          }
+        }
+      }),
+      secrets: fakeSecrets({})
+    })
+    expect(resolver('slack')?.scopes).toBe(SLACK_DEFAULT_SCOPES)
+  })
+
+  it('leaves an empty scopes field alone for a non-slack http connector', () => {
+    // The floor is scoped to the slack preset specifically — any other http connector's
+    // empty scopes must keep meaning "let the SDK decide", unchanged from before this fix.
+    const resolver = buildConnectorClientConfigResolver({
+      registry: fakeRegistry({
+        custom: {
+          kind: 'http',
+          enabled: true,
+          config: {
+            url: 'https://example.com/mcp',
+            clientId: 'client-456',
+            scopes: '',
+            redirectUrl: 'http://localhost:8080/callback'
+          }
+        }
+      }),
+      secrets: fakeSecrets({})
+    })
+    expect(resolver('custom')?.scopes).toBe('')
+  })
+
   it('reads the registry fresh on every call — a config edit takes effect without rebuilding the resolver', () => {
-    const map: ConnectorMap = {
+    // The real ConnectorRegistry does `this.map = this.loadNow()` on reload — it REPLACES the
+    // reference, it does not mutate the old map in place. A fake whose get() returns the same
+    // object every call (as fakeRegistry() above does, and as this test used to) cannot
+    // distinguish "reads deps.registry.get() on every call" from "hoisted `const m =
+    // deps.registry.get()` once at construction and mutated the same object it's still
+    // holding" — both would see the in-place edit and pass. Hold the map in a `let` and
+    // reassign it, the way a real reload does, so a hoisted resolver actually fails here.
+    let current: ConnectorMap = {
       slack: {
         kind: 'http',
         enabled: true,
@@ -126,13 +178,17 @@ describe('buildConnectorClientConfigResolver', () => {
       }
     }
     const resolver = buildConnectorClientConfigResolver({
-      registry: fakeRegistry(map),
+      registry: { get: () => current },
       secrets: fakeSecrets({})
     })
     expect(resolver('slack')?.clientId).toBe('old-id')
-    // mutate in place, as the watched-registry reload would (the fake's get() always returns
-    // the same object reference, same as ConnectorRegistry.get() returning its live cache)
-    map.slack.config = { url: 'https://mcp.slack.com/mcp', clientId: 'new-id' }
+    current = {
+      slack: {
+        kind: 'http',
+        enabled: true,
+        config: { url: 'https://mcp.slack.com/mcp', clientId: 'new-id' }
+      }
+    }
     expect(resolver('slack')?.clientId).toBe('new-id')
   })
 })
