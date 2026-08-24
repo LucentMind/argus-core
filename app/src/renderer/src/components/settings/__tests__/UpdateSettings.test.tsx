@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { UpdateSettings } from '../UpdateSettings'
 import { updateStore } from '../../../lib/updateStore'
 import { settingsStore } from '../../../lib/settingsStore'
+import { currencyStore } from '../../../lib/currencyStore'
 import type { CoreUpdatePayload, UpdateChannel } from '../../../../../shared/updates'
 import type { CurrencyPayload } from '../../../../../shared/currency'
 import { defaultSettings } from '../../../../../shared/settings'
@@ -58,6 +59,7 @@ function stubApi(
 }
 
 beforeEach(() => {
+  currencyStore.reset()
   updateStore.clearForTests()
   // settingsStore is a module-level singleton (see RoutinesPage.test.tsx precedent): without a
   // reset here, the SECOND test onward would see the FIRST test's already-fetched payload
@@ -429,5 +431,49 @@ describe('keep everything up to date', () => {
       }
     )
     expect(await screen.findByText(/1 item held back/i)).toBeInTheDocument()
+  })
+})
+
+describe('UpdateSettings reads the shared currency store', () => {
+  it('still reports held-back items when auto-update is off — this is the page that owns the switch', async () => {
+    stubApi(undefined, undefined, undefined, {
+      auto: false,
+      lastSurveyAt: new Date().toISOString(),
+      blocked: [
+        {
+          domain: 'pack',
+          key: 'cg',
+          label: 'CG',
+          from: '1',
+          to: '2',
+          verdict: 'blocked',
+          reason: { kind: 'new-dependency' }
+        }
+      ],
+      busy: false
+    })
+    render(<UpdateSettings />)
+    expect(await screen.findByText(/1 item held back/i)).toBeInTheDocument()
+  })
+
+  it('reads state the shared store already holds, instead of fetching its own', async () => {
+    stubApi(undefined, undefined, undefined, {
+      auto: true,
+      lastSurveyAt: new Date().toISOString(),
+      blocked: [],
+      busy: false
+    })
+    // Hydrate the singleton first, as any other consumer (TopBar, the Packs page) would have.
+    currencyStore.start()
+    await waitFor(() => expect(currencyStore.get().lastSurveyAt).not.toBeNull())
+    const getSpy = window.argus.currency.get as ReturnType<typeof vi.fn>
+    getSpy.mockClear()
+
+    render(<UpdateSettings />)
+
+    expect(await screen.findByText(/everything current/i)).toBeInTheDocument()
+    // `start()` is idempotent, so a component on the shared store issues no second fetch. The
+    // private `useState` + `get()` this task removes would have called it here.
+    expect(getSpy).not.toHaveBeenCalled()
   })
 })
