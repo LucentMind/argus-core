@@ -217,8 +217,11 @@ class UpdateError extends Error {
   }
 }
 
-/** `classifyGhFailure`'s four kinds, threaded through as four distinct `UpdateErrorCode`s rather
- *  than collapsed into one — see the doc comments on those codes in `shared/updates.ts`. */
+/** Every `classifyGhFailure` kind, threaded through as its own distinct `UpdateErrorCode` rather
+ *  than collapsed into one — see the doc comments on those codes in `shared/updates.ts`. The
+ *  `Record<GhErrorKind, UpdateErrorCode>` type below is what actually enforces that this map
+ *  stays exhaustive as `GhErrorKind` grows: a kind missing an entry here is a compile error, not
+ *  a stale count to notice by inspection. */
 const GH_ERROR_CODE: Record<GhErrorKind, UpdateErrorCode> = {
   missing: 'gh-missing',
   auth: 'gh-auth',
