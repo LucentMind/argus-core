@@ -1,6 +1,6 @@
 import { ArrowUpCircle } from 'lucide-react'
 import { Chip } from '../ui'
-import { DisclosureBtn, Switch } from './settingsLayout'
+import { DisclosureOverlay, DisclosureChevron, Switch } from './settingsLayout'
 import { ProviderIcon } from './ProviderIcon'
 import { RedactedText } from './RedactedText'
 import type { ProviderStatus } from '../../../../shared/types'
@@ -29,7 +29,13 @@ function StatusLine({
     return (
       <span className="flex min-w-0 flex-wrap items-center gap-x-1 text-xs text-mute">
         <span>Authenticated as</span>
-        <RedactedText value={status.email} aria-label="Toggle account email visibility" />
+        {/* `relative`: the row is one big disclosure target (see `DisclosureOverlay`), and the
+            reveal toggle has to paint above it to keep its own click. */}
+        <RedactedText
+          value={status.email}
+          aria-label="Toggle account email visibility"
+          className="relative"
+        />
         {status.subscription && <span>· {status.subscription}</span>}
       </span>
     )
@@ -81,7 +87,15 @@ export function ProviderRow({
   const behind = status?.latestVersion
   return (
     <div>
-      <div className="flex items-center gap-2 px-4 py-3">
+      {/* `inset-0`, not the overlay's default bleed: this row IS the padded box (the expanded
+          settings are a sibling below it), so the target is exactly the row. */}
+      <div className="group/disc relative flex items-center gap-2 px-4 py-3">
+        <DisclosureOverlay
+          expanded={expanded}
+          onToggle={onToggleExpanded}
+          label={`${label} settings`}
+          className="absolute inset-0"
+        />
         <span
           aria-hidden
           className={`h-2 w-2 shrink-0 rounded-full ${dotClass(enabled ? (status?.state ?? 'checking') : 'disabled')}`}
@@ -123,7 +137,9 @@ export function ProviderRow({
                 type="button"
                 onClick={onSetDefault}
                 aria-label={`Set ${label} as default provider`}
-                className="shrink-0 text-xs text-defect hover:text-defect/70"
+                // `relative`: same reason as the switch — this link lives inside the row-wide
+                // disclosure target and must keep its own click.
+                className="relative shrink-0 text-xs text-defect hover:text-defect/70"
               >
                 Set as default
               </button>
@@ -131,12 +147,10 @@ export function ProviderRow({
           </span>
           <StatusLine status={status} enabled={enabled} />
         </span>
-        <span className="flex shrink-0 items-center gap-2">
-          <DisclosureBtn
-            expanded={expanded}
-            onToggle={onToggleExpanded}
-            label={`${label} settings`}
-          />
+        {/* `relative`: the enable switch has to paint above the row-wide overlay to stay
+            clickable — toggling a provider off is not the same act as expanding it. */}
+        <span className="relative flex shrink-0 items-center gap-2">
+          <DisclosureChevron expanded={expanded} />
           <Switch checked={enabled} onChange={onToggleEnabled} aria-label={`Enable ${label}`} />
         </span>
       </div>

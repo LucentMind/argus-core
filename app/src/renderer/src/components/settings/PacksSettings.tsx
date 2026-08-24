@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import semver from 'semver'
-import { SettingsSection, SettingRow, SettingsSkeleton, DisclosureBtn } from './settingsLayout'
+import { SettingsSection, SettingRow, SettingsSkeleton } from './settingsLayout'
 import { Btn, Chip } from '../ui'
 import { confirm } from '../../lib/confirmStore'
 import { ToolRow, useToolProbes } from './ToolRow'
@@ -69,10 +69,19 @@ function PackCard({
   return (
     <div>
       <SettingRow
+        {...(tools.length > 0
+          ? {
+              expanded: open,
+              onToggle: () => setOpen((o) => !o),
+              toggleLabel: `tools · ${pack.id}`
+            }
+          : {})}
         label={pack.displayName}
         description={`${pack.id}${pack.platform ? ` · ${pack.platform}` : ''}`}
         badge={
-          <span className="flex items-center gap-1">
+          // `relative`: the badges sit above the row-wide disclosure overlay so a binary chip's
+          // `title` (its probe detail) is still hoverable.
+          <span className="relative flex items-center gap-1">
             <Chip tone="neutral">{pack.installedVersion ?? pack.loadedVersion ?? '—'}</Chip>
             {pack.pendingRelaunch && <Chip tone="review">pending relaunch</Chip>}
             {pack.update?.phase === 'available' && <Chip tone="signal">update available</Chip>}
@@ -98,13 +107,6 @@ function PackCard({
           >
             Uninstall
           </Btn>
-        )}
-        {tools.length > 0 && (
-          <DisclosureBtn
-            expanded={open}
-            onToggle={() => setOpen((o) => !o)}
-            label={`tools · ${pack.id}`}
-          />
         )}
       </SettingRow>
       {pack.update != null && (
