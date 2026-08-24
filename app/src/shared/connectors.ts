@@ -41,7 +41,14 @@ export const httpConfigSchema = z.looseObject({
   url: z.string().default(''),
   transport: z.enum(['http', 'sse']).default('http'),
   oauth: z.boolean().default(false),
-  headers: z.record(z.string(), z.unknown()).default(() => ({})) // values may be $secret refs
+  headers: z.record(z.string(), z.unknown()).default(() => ({})), // values may be $secret refs
+  // --- confidential OAuth client (RFC 6749 §2.3.1). Generic, not Slack-specific: any MCP
+  // server that refuses dynamic client registration needs exactly these four. Empty
+  // clientId = the public-client + DCR path, which is what Rovo uses. ---
+  clientId: z.string().default(''),
+  clientSecret: z.unknown().optional(), // a $secret ref
+  scopes: z.string().default(''), // space-separated; empty = let the SDK choose
+  redirectUrl: z.string().default('') // empty = ephemeral loopback
 })
 export type HttpConnectorConfig = z.infer<typeof httpConfigSchema>
 
@@ -162,6 +169,60 @@ export const CONNECTOR_FORMS: Record<string, Record<string, FieldAnnotation>> = 
  */
 export const ROVO_FORM_EXTRAS: Record<string, FieldAnnotation> = {}
 
+/**
+ * The read-only evidence set. Deliberately NOT Slack's full `scopes_supported` (28 scopes,
+ * including canvases:write and files:write) — the SDK would otherwise request all of them and
+ * the user would have to declare every one on their Slack app.
+ */
+export const SLACK_DEFAULT_SCOPES = [
+  'channels:history',
+  'channels:read',
+  'groups:history',
+  'groups:read',
+  'im:history',
+  'im:read',
+  'mpim:history',
+  'mpim:read',
+  'users:read',
+  'search:read.public',
+  'search:read.private',
+  'files:read'
+].join(' ')
+
+/** Extra fields on the Slack preset card. Orders start at 10 so they sort after http's 1-3. */
+export const SLACK_FORM_EXTRAS: Record<string, FieldAnnotation> = {
+  clientId: {
+    control: 'text',
+    label: 'Client ID',
+    placeholder: '1234567890.1234567890',
+    order: 10,
+    help: 'From your Slack app at api.slack.com/apps → Basic Information. Slack does not support dynamic client registration, so the app must exist before you authorize.'
+  },
+  clientSecret: {
+    control: 'password',
+    label: 'Client secret',
+    order: 11,
+    sensitive: true,
+    help: 'Stored in the OS keychain; the config file keeps only a reference.'
+  },
+  scopes: {
+    control: 'textarea',
+    label: 'User scopes (space-separated)',
+    placeholder: SLACK_DEFAULT_SCOPES,
+    order: 12,
+    defaultValue: SLACK_DEFAULT_SCOPES,
+    help: 'Each of these must also be declared as a User Token Scope on the Slack app, or authorization is rejected.'
+  },
+  redirectUrl: {
+    control: 'text',
+    label: 'Redirect URL',
+    placeholder: 'http://localhost:8080/callback',
+    order: 13,
+    defaultValue: 'http://localhost:8080/callback',
+    help: 'Must match a Redirect URL registered on the Slack app. A localhost URL is captured automatically; any other URL means you paste the code back here.'
+  }
+}
+
 // --- presets (config/connector-presets.json over these built-ins) ------------
 
 export const presetSchema = z.looseObject({
@@ -180,6 +241,20 @@ export const DEFAULT_PRESETS: ConnectorPresets = {
     displayName: 'Atlassian Rovo',
     kind: 'http',
     config: { url: 'https://mcp.atlassian.com/v1/mcp/authv2', transport: 'http', oauth: true },
+    links: {}
+  },
+  slack: {
+    displayName: 'Slack',
+    kind: 'http',
+    // Slack: "We do not support SSE-based connections or Dynamic Client Registration at this
+    // time." clientId/clientSecret are intentionally absent — the user brings their own app.
+    config: {
+      url: 'https://mcp.slack.com/mcp',
+      transport: 'http',
+      oauth: true,
+      scopes: SLACK_DEFAULT_SCOPES,
+      redirectUrl: 'http://localhost:8080/callback'
+    },
     links: {}
   }
 }
