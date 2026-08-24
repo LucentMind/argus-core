@@ -136,3 +136,14 @@ export function surfacedBlocked(candidates: Candidate[]): Candidate[] {
     (c) => c.verdict === 'blocked' && c.reason != null && SURFACED_BLOCK_KINDS.has(c.reason.kind)
   )
 }
+
+/**
+ * The one sentence for "this section's badge counts more than it can show."
+ *
+ * Deliberately names no cause. A row can be missing because a filter hides it or because the item
+ * is gone since the survey, and the surface knows only that a key matched no row — not which. A
+ * sentence that named a cause would be guessing.
+ */
+export function describeUnshownHolds(n: number): string {
+  return `${n} held-back item${n === 1 ? '' : 's'} ${n === 1 ? 'is' : 'are'} not shown here.`
+}
