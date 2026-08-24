@@ -422,6 +422,34 @@ describe('ConnectorsSettings', () => {
       expect(auth.disabled).toBe(false)
     })
 
+    it('shows a hint explaining the disabled Authorize button (final-review finding 1)', async () => {
+      // A greyed-out button with no visible reason is a silent dead end — the fix renders a
+      // short, actionable hint (not an error) next to it whenever needsClientId disables it.
+      currentPayload = withSlack({ clientId: '' })
+      render(<ConnectorsSettings />)
+      const hint = await screen.findByLabelText('authorize hint · slack')
+      expect(hint).toHaveTextContent(/no Client ID configured/i)
+      expect(hint.className).toContain('text-dim')
+      expect(hint.className).not.toContain('text-danger')
+    })
+
+    it('the hint disappears once a Client ID makes Authorize enabled', async () => {
+      currentPayload = withSlack() // clientId: 'client-123' by default
+      render(<ConnectorsSettings />)
+      await screen.findByLabelText('authorize · slack')
+      expect(screen.queryByLabelText('authorize hint · slack')).not.toBeInTheDocument()
+    })
+
+    it('a whitespace-only Client ID still shows the hint and disables Authorize (final-review finding 2)', async () => {
+      // Mirrors main/oauth.ts's missingClientId(): a space-only value must not read as
+      // "configured" here either, or Authorize enables into an opaque Slack failure.
+      currentPayload = withSlack({ clientId: '   ' })
+      render(<ConnectorsSettings />)
+      const auth = (await screen.findByLabelText('authorize · slack')) as HTMLButtonElement
+      expect(auth.disabled).toBe(true)
+      expect(await screen.findByLabelText('authorize hint · slack')).toBeInTheDocument()
+    })
+
     it('a Rovo card (no clientId, no redirectUrl configured) is unaffected by the guard', async () => {
       currentPayload = basePayload({
         oauth: { rovo: 'not-authorized' },
