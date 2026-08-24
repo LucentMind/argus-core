@@ -61,13 +61,18 @@ export function slackTokenFetch(inner: typeof fetch = fetch): typeof fetch {
   return async (input, init) => {
     const res = await inner(input, init)
     if (!res.ok) return res
-    if (!(res.headers.get('content-type') ?? '').includes('json')) return res
+    const contentType = res.headers.get('content-type') ?? ''
+    if (!contentType.includes('json')) return res
     const text = await res.text()
     let body: unknown
     try {
       body = JSON.parse(text)
     } catch {
-      return new Response(text, { status: res.status, headers: res.headers })
+      // the body was consumed by text(); hand back an equivalent response. Only
+      // content-type carries over — content-length/content-encoding described the
+      // original transport bytes, not this re-serialized text, and would mislead a
+      // downstream consumer (e.g. a stale content-encoding: gzip on plain text).
+      return new Response(text, { status: res.status, headers: { 'content-type': contentType } })
     }
     const b = body as { ok?: boolean; error?: string }
     if (b && b.ok === false) {
@@ -77,8 +82,8 @@ export function slackTokenFetch(inner: typeof fetch = fetch): typeof fetch {
         headers: { 'content-type': 'application/json' }
       })
     }
-    // the body was consumed by text(); hand back an equivalent response
-    return new Response(text, { status: res.status, headers: res.headers })
+    // the body was consumed by text(); hand back an equivalent response (see above)
+    return new Response(text, { status: res.status, headers: { 'content-type': contentType } })
   }
 }
 

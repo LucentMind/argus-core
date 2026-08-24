@@ -511,7 +511,15 @@ describe('slackTokenFetch', () => {
     const f = slackTokenFetch(async () => json({ ok: false, error: 'bad_client_secret' }))
     const res = await f('https://slack.com/api/oauth.v2.user.access')
     expect(res.status).toBe(400)
-    expect(await res.json()).toMatchObject({ error: 'bad_client_secret' })
+    // The SDK's parseErrorResponse (client/auth.js) builds the user-visible message
+    // from error_description, not error: `new errorClass(error_description || '', ...)`.
+    // `error` only selects which OAuthError subclass to throw. Asserting just `error`
+    // here would stay green even if error_description were dropped from the body,
+    // while the user's error message silently went empty — the whole point of this fix.
+    expect(await res.json()).toMatchObject({
+      error: 'bad_client_secret',
+      error_description: 'bad_client_secret'
+    })
   })
 
   it('passes a successful token response through untouched', async () => {
@@ -534,8 +542,42 @@ describe('slackTokenFetch', () => {
     expect(await res.json()).toEqual({ issuer: 'https://mcp.slack.com' })
   })
 
-  it('does not touch non-JSON or already-failing responses', async () => {
+  it('passes through an already-failing (non-2xx) response untouched', async () => {
+    // Non-ok responses return at the very first guard, before the content-type
+    // check or any body read — this must never reach the JSON-parsing logic below.
     const f = slackTokenFetch(async () => new Response('nope', { status: 502 }))
-    expect((await f('https://slack.com/x')).status).toBe(502)
+    const res = await f('https://slack.com/x')
+    expect(res.status).toBe(502)
+    expect(await res.text()).toBe('nope')
+  })
+
+  it('passes through a 2xx response with a non-JSON content-type untouched', async () => {
+    const f = slackTokenFetch(
+      async () =>
+        new Response('<html>not json</html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' }
+        })
+    )
+    const res = await f('https://slack.com/x')
+    expect(res.status).toBe(200)
+    // Proves the original body was never consumed — a body-already-read regression
+    // would surface here as an empty string, not as a status-code mismatch.
+    expect(await res.text()).toBe('<html>not json</html>')
+  })
+
+  it('reconstructs a 2xx JSON-typed response whose body is not valid JSON', async () => {
+    const f = slackTokenFetch(
+      async () =>
+        new Response('not actually json', {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        })
+    )
+    const res = await f('https://slack.com/x')
+    expect(res.status).toBe(200)
+    // The catch-and-reconstruct branch reads the body via text() to attempt JSON.parse,
+    // then must hand back an equivalent, still-readable response — not the consumed one.
+    expect(await res.text()).toBe('not actually json')
   })
 })
