@@ -118,11 +118,23 @@ class CurrencyStore {
 export const currencyStore = new CurrencyStore()
 
 /**
- * The "N update(s) need(s) you" phrase shared by the TopBar Settings badge and the Settings nav
- * rows. Both the noun and the verb agree with `n` — the Packs page's section badge shipped with
- * only the noun pluralized ("2 updates needs you") and had to be fixed after the fact, so this
- * is centralized to keep that mistake from recurring a third time.
+ * The "N update(s) need(s) you" phrase shared by the TopBar Settings badge, the Settings nav rows
+ * and both section badges. Both the noun and the verb agree with `n` — the Packs page's section
+ * badge shipped with only the noun pluralized ("2 updates needs you") and had to be fixed after
+ * the fact, so this is centralized to keep that mistake from recurring a third time.
+ *
+ * Two shapes, because the four call sites genuinely read differently and always have:
+ *   `subject`   prefixes "Subject — ", for a control whose name must say what it leads to
+ *               (the TopBar button, a nav row).
+ *   `qualifier` goes inside the noun ("1 pack update"), for a badge already sitting on the
+ *               section it is about, where a subject prefix would just repeat the header.
+ * Passing neither yields the bare phrase. Passing both is allowed and yields
+ * "Subject — N qualifier updates need you"; no current call site does that.
  */
-export function needsYouLabel(subject: string, n: number): string {
-  return `${subject} — ${n} update${n === 1 ? '' : 's'} ${n === 1 ? 'needs' : 'need'} you`
+export function needsYouLabel(
+  n: number,
+  { subject, qualifier }: { subject?: string; qualifier?: string } = {}
+): string {
+  const core = `${n} ${qualifier ? `${qualifier} ` : ''}update${n === 1 ? '' : 's'} ${n === 1 ? 'needs' : 'need'} you`
+  return subject ? `${subject} — ${core}` : core
 }
