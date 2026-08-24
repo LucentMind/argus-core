@@ -3,6 +3,7 @@ import type { SecretStore } from './secrets'
 import {
   connectorConfig,
   resolveSecretRefs,
+  SLACK_DEFAULT_SCOPES,
   type HttpConnectorConfig
 } from '../../shared/connectors'
 import type { ClientConfigResolver } from './oauth'
@@ -43,7 +44,18 @@ export function buildConnectorClientConfigResolver(
     return {
       clientId: cfg.clientId,
       clientSecret: typeof value === 'string' && value ? value : null,
-      scopes: cfg.scopes,
+      // SLACK_FORM_EXTRAS.scopes carries a `defaultValue` for AnnotatedForm's isDefault
+      // comparison ONLY — that value is never written back to config. Clearing the textarea
+      // (or whatever reset affordance reads `isDefault`) commits null, deepMerge deletes the
+      // key, and connectorConfig() reseeds '' — so an empty scopes field is fully reachable
+      // from the UI, not just a hand-edited config file. Passed through as scope: undefined,
+      // the SDK's scope-selection strategy falls back FIRST to
+      // resourceMetadata.scopes_supported.join(' ') — Slack's full 28-scope set, including
+      // canvases:write and files:write. An empty field must never mean "request everything
+      // the server advertises", so float it to the read-only evidence set here, where the UI
+      // cannot bypass it. Scoped to the slack preset only — a non-slack http connector's ''
+      // must keep meaning "let the SDK decide", same as before.
+      scopes: !cfg.scopes && inst.preset === 'slack' ? SLACK_DEFAULT_SCOPES : cfg.scopes,
       redirectUrl: cfg.redirectUrl
     }
   }
