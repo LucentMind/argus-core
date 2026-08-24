@@ -628,6 +628,27 @@ export class HivemindService {
   }
 
   /**
+   * Every pin key that names the local file `name` — the resolution both removal paths need.
+   *
+   * Callers name a reference by the file on disk (the Library row, refSync's delete hook), but
+   * `install()` flattens `confluence/x.md` to `references/x.md` and keys the pin and tombstone
+   * by the NAMESPACED hive name. Keying off the caller's name therefore missed the pin entirely
+   * and tombstoned a key no item carries.
+   *
+   * All matching keys, not the first: the flat and `confluence/` halves of the hive's
+   * references/ folder can offer the same basename, and installing both leaves two pins for the
+   * one local file. Removing that file invalidates both — a surviving pin would point at a file
+   * that no longer exists, and its item would keep reading as installed.
+   *
+   * Split on `/` rather than `path.basename`, because these keys are hive paths (always POSIX),
+   * not filesystem paths.
+   */
+  private referencePinKeys(state: HivemindStateFile, name: string): string[] {
+    const base = name.slice(name.lastIndexOf('/') + 1)
+    return Object.keys(state.references).filter((k) => k.slice(k.lastIndexOf('/') + 1) === base)
+  }
+
+  /**
    * Delete the installed local copy and its pin. Only hive-managed tiers
    * (hivemind/confluence) qualify — user/team-knowledge copies are the user's
    * own content and stay untouched (mirror of the claimReference guard).
@@ -640,8 +661,14 @@ export class HivemindService {
       throw new Error(`Not an installed HiveMind reference: ${name}`)
     fs.rmSync(file, { force: true })
     const state = this.state()
-    delete state.references[name]
-    state.declined[declineKey('reference', name)] = new Date().toISOString()
+    const now = new Date().toISOString()
+    // No pin recorded is still a removal the user made deliberately, so it is tombstoned under
+    // the name they used — there is simply nothing to resolve it against.
+    const keys = this.referencePinKeys(state, name)
+    for (const key of keys.length ? keys : [name]) {
+      delete state.references[key]
+      state.declined[declineKey('reference', key)] = now
+    }
     this.store.write(state)
     return this.payload()
   }
@@ -661,9 +688,13 @@ export class HivemindService {
    */
   noteReferenceDeleted(name: string): void {
     const state = this.state()
-    if (!(name in state.references)) return
-    delete state.references[name]
-    state.declined[declineKey('reference', name)] = new Date().toISOString()
+    const keys = this.referencePinKeys(state, name)
+    if (!keys.length) return
+    const now = new Date().toISOString()
+    for (const key of keys) {
+      delete state.references[key]
+      state.declined[declineKey('reference', key)] = now
+    }
     this.store.write(state)
   }
 
