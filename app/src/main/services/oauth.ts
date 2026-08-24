@@ -12,7 +12,14 @@ import type { OAuthStatus } from '../../shared/connectors'
 /** Injected so tests never hit the network; production passes the SDK's auth(). */
 export type AuthLike = (
   provider: OAuthClientProvider,
-  options: { serverUrl: string | URL; authorizationCode?: string }
+  options: {
+    serverUrl: string | URL
+    authorizationCode?: string
+    /** Space-separated scope override; matches the SDK's own `auth()` option. */
+    scope?: string
+    /** Custom fetch, e.g. `slackTokenFetch()` for a static-credential connector. */
+    fetchFn?: typeof fetch
+  }
 ) => Promise<'AUTHORIZED' | 'REDIRECT'>
 
 /** A pre-registered OAuth client, as configured on a connector instance. */
@@ -28,6 +35,14 @@ export interface ConfidentialClient {
 
 /** Injected so `oauth.ts` never imports the connector registry (and stays Electron-free). */
 export type ClientConfigResolver = (instanceId: string) => ConfidentialClient | null
+
+export interface AuthorizeResult {
+  ok: boolean
+  error?: string
+  /** The configured redirect is not loopback — the caller must collect the code and
+   *  call authorizeWithCode() (Task 6). */
+  needsCode?: boolean
+}
 
 const EXPIRY_SLACK_MS = 60_000
 const AUTHORIZE_TIMEOUT_MS = 300_000 // 5 min for the user to approve in the browser
@@ -293,22 +308,43 @@ export class McpOAuth {
   ) {}
 
   /** Interactive authorization (Authorize / Re-authorize button). */
-  async authorize(instanceId: string, serverUrl: string): Promise<{ ok: boolean; error?: string }> {
-    const lb = await startLoopback()
+  async authorize(instanceId: string, serverUrl: string): Promise<AuthorizeResult> {
+    const cfg = this.clientConfig(instanceId)
+    const redirect = cfg?.redirectUrl ?? ''
+    const scope = cfg?.scopes || undefined
+    const stat = cfg?.clientId
+      ? { clientId: cfg.clientId, clientSecret: cfg.clientSecret, scope: cfg.scopes }
+      : undefined
+    // Only a static-credential connector needs Slack's 200-with-ok:false quirk translated
+    // into a real HTTP error — the DCR/Rovo path must see the plain global fetch.
+    const fetchFn = stat ? slackTokenFetch() : undefined
+
+    // Drop any stored grant FIRST. The SDK's auth() refreshes whenever the
+    // provider yields a refresh_token and re-throws a non-ServerError
+    // OAuthError (invalid_grant) rather than falling through to
+    // startAuthorization — so presenting a revoked/expired refresh_token here
+    // fails before the browser ever opens, leaving the connector stuck with no
+    // way back. This path is interactive by definition: a fresh grant is the
+    // whole point. Any client registration is deliberately kept — it stays
+    // valid, and clientInformation()'s stale-redirect guard handles the rest.
+    this.secrets.delete(`mcp/${instanceId}/tokens`)
+
+    if (!isLoopbackRedirect(redirect)) {
+      return this.authorizeByHand(instanceId, serverUrl, redirect, scope, stat, fetchFn)
+    }
+
+    let lb: Awaited<ReturnType<typeof startLoopback>>
     try {
-      // Drop any stored grant FIRST. The SDK's auth() refreshes whenever the
-      // provider yields a refresh_token and re-throws a non-ServerError
-      // OAuthError (invalid_grant) rather than falling through to
-      // startAuthorization — so presenting a revoked/expired refresh_token here
-      // fails before the browser ever opens, leaving the connector stuck with no
-      // way back. This path is interactive by definition: a fresh grant is the
-      // whole point. The client registration is deliberately kept — it stays
-      // valid, and clientInformation()'s stale-redirect guard handles the rest.
-      this.secrets.delete(`mcp/${instanceId}/tokens`)
-      const cfg = this.clientConfig(instanceId)
-      const stat = cfg?.clientId
-        ? { clientId: cfg.clientId, clientSecret: cfg.clientSecret, scope: cfg.scopes }
-        : undefined
+      // Inside its own try: a fixed configured port may be occupied, or the redirect may
+      // be malformed in a way startLoopback rejects — either must reach the connector card
+      // as a named error result, never an unhandled rejection.
+      lb = await startLoopback(redirect)
+    } catch (err) {
+      const message = (err as Error).message
+      this.errors.set(instanceId, message)
+      return { ok: false, error: message }
+    }
+    try {
       const provider = new StoreBackedProvider(
         instanceId,
         this.secrets,
@@ -316,10 +352,15 @@ export class McpOAuth {
         (url) => this.openExternal(url.toString()),
         stat
       )
-      const first = await this.authFn(provider, { serverUrl })
+      const first = await this.authFn(provider, { serverUrl, scope, fetchFn })
       if (first !== 'AUTHORIZED') {
         const code = await lb.waitForCode(AUTHORIZE_TIMEOUT_MS)
-        const second = await this.authFn(provider, { serverUrl, authorizationCode: code })
+        const second = await this.authFn(provider, {
+          serverUrl,
+          authorizationCode: code,
+          scope,
+          fetchFn
+        })
         if (second !== 'AUTHORIZED') throw new Error('authorization did not complete')
       }
       this.errors.delete(instanceId)
@@ -333,13 +374,41 @@ export class McpOAuth {
     }
   }
 
+  /**
+   * Non-loopback redirects (a fixed https/public host) mean Argus cannot listen for the
+   * callback itself — the user must copy the code from the browser and paste it back.
+   * Task 6 implements that exchange (authorizeWithCode); this stub only keeps authorize()
+   * compiling and branching correctly until then.
+   */
+  private async authorizeByHand(
+    instanceId: string,
+    serverUrl: string,
+    redirect: string,
+    scope: string | undefined,
+    stat: { clientId: string; clientSecret: string | null; scope: string } | undefined,
+    fetchFn: typeof fetch | undefined
+  ): Promise<AuthorizeResult> {
+    void instanceId
+    void serverUrl
+    void redirect
+    void scope
+    void stat
+    void fetchFn
+    return { ok: false, error: 'not implemented' }
+  }
+
   /** Non-interactive refresh; a demand for the browser counts as failure → error state. */
   async refresh(instanceId: string, serverUrl: string): Promise<boolean> {
     try {
+      const cfg = this.clientConfig(instanceId)
+      const stat = cfg?.clientId
+        ? { clientId: cfg.clientId, clientSecret: cfg.clientSecret, scope: cfg.scopes }
+        : undefined
       // No loopback runs here, so anchor the provider on the STORED client's own
       // redirect so clientInformation()'s stale-port guard self-matches — the
       // refresh_token grant is client-bound and must present the registered
-      // client_id, never a fresh dynamic registration.
+      // client_id, never a fresh dynamic registration. A configured client pins its
+      // own redirect, so it takes priority over whatever got stored.
       let storedRedirect: string | undefined
       const rawClient = this.secrets.resolve(`mcp/${instanceId}/client`)
       if (rawClient != null) {
@@ -352,12 +421,17 @@ export class McpOAuth {
       const provider = new StoreBackedProvider(
         instanceId,
         this.secrets,
-        storedRedirect ?? 'http://127.0.0.1/callback',
+        cfg?.redirectUrl || storedRedirect || 'http://127.0.0.1/callback',
         () => {
           throw new Error('interactive authorization required')
-        }
+        },
+        stat
       )
-      const r = await this.authFn(provider, { serverUrl })
+      const r = await this.authFn(provider, {
+        serverUrl,
+        scope: cfg?.scopes || undefined,
+        fetchFn: stat ? slackTokenFetch() : undefined
+      })
       if (r !== 'AUTHORIZED') throw new Error('interactive authorization required')
       this.errors.delete(instanceId)
       return true
