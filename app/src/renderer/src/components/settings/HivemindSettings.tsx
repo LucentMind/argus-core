@@ -454,7 +454,12 @@ export function HivemindSettings({
       )
     if (payload?.state === 'ready') return <Chip tone="signal">synced</Chip>
     if (payload?.state === 'not-cloned') return <Chip tone="review">ready to sync</Chip>
-    if (payload?.state === 'error') return <Chip tone="danger">error</Chip>
+    if (payload?.state === 'error')
+      return (
+        <Chip tone="danger" title={payload.error ?? undefined}>
+          error
+        </Chip>
+      )
     return null
   })()
 
