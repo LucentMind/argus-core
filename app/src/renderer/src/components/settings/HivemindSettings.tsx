@@ -222,6 +222,16 @@ function matchesFilter(it: { name: string; description: string }, filter: string
   return it.name.toLowerCase().includes(q) || it.description.toLowerCase().includes(q)
 }
 
+/** A not-yet-installed item the mirror may still adopt. Excludes tombstoned (`declined`) items:
+ *  those carry a `not mirrored` chip meaning the mirror will not adopt them, and `install()`
+ *  clears the tombstone — so a sweep that included them would silently un-decline everything the
+ *  user deliberately removed. The per-item Download button remains the undo. Single source of
+ *  truth for both the "Download All" button's target list/visibility and `downloadAll`'s own
+ *  filter, so the two can never desync the way they did before. */
+function isDownloadable(it: HivemindItem): boolean {
+  return !it.installed && !it.updateAvailable && !it.declined
+}
+
 export function HivemindSettings({
   payload: settingsPayload
 }: {
@@ -388,18 +398,12 @@ export function HivemindSettings({
     )
   }
 
-  /** Downloads every not-yet-installed item of one kind, one at a time — sequential rather
-   *  than parallel so installs don't race each other writing into the same local clone dir.
-   *  Best-effort: one failure doesn't stop the rest; failures are reported together at the end.
-   *
-   *  Skips tombstoned (`declined`) items: those carry a `not mirrored` chip meaning the mirror
-   *  will not adopt them, and `install()` clears the tombstone — so a sweep that included them
-   *  would silently un-decline everything the user had deliberately removed. Skipping is silent
-   *  because the chip already explains, on each row, why that item was passed over. The per-item
-   *  Download button remains the undo. */
+  /** Downloads every downloadable item of one kind, one at a time — sequential rather than
+   *  parallel so installs don't race each other writing into the same local clone dir.
+   *  Best-effort: one failure doesn't stop the rest; failures are reported together at the end. */
   async function downloadAll(kind: 'skill' | 'reference', items: HivemindItem[]): Promise<void> {
     if (busy) return
-    const targets = items.filter((it) => !it.installed && !it.updateAvailable && !it.declined)
+    const targets = items.filter(isDownloadable)
     if (targets.length === 0) return
     setBusy(true)
     setError(null)
@@ -573,12 +577,8 @@ export function HivemindSettings({
   const filtered = payload.items.filter((it) => matchesFilter(it, filter))
   const skills = filtered.filter((it) => it.kind === 'skill')
   const references = filtered.filter((it) => it.kind === 'reference')
-  const downloadableSkills = skills.filter(
-    (it) => !it.installed && !it.updateAvailable && !it.declined
-  )
-  const downloadableReferences = references.filter(
-    (it) => !it.installed && !it.updateAvailable && !it.declined
-  )
+  const downloadableSkills = skills.filter(isDownloadable)
+  const downloadableReferences = references.filter(isDownloadable)
 
   /** Section-header action for "Download All" — omitted entirely when nothing in that
    *  section is downloadable, rather than rendering a dead button. */
