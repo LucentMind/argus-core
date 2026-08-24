@@ -35,6 +35,10 @@ export type BlockedReason =
    *  and "private, no access to this account" — the sentence must not pretend to know which.
    *  Named `gh-notfound` for the same reason as `gh-missing` above. */
   | { kind: 'gh-notfound' }
+  /** `gh` answered HTTP 403: the token may need organization (SAML/SSO) authorization, or the
+   *  account may be rate-limited. Named `gh-forbidden` for the same reason as `gh-missing` and
+   *  `gh-notfound` — it is bound to a GitHub-CLI-specific sentence below. */
+  | { kind: 'gh-forbidden' }
   | { kind: 'unsupported' }
 
 export interface Candidate {
@@ -94,6 +98,8 @@ export function describeBlocked(reason: BlockedReason): string {
       return 'Install the GitHub CLI to continue.'
     case 'gh-notfound':
       return "The repository can't be found — check that it still exists and is visible to your account."
+    case 'gh-forbidden':
+      return 'GitHub refused the request — your token may need organization authorization, or you may be rate-limited.'
     case 'downgrade':
       return 'Installing it would move this install back a version.'
     case 'origin-pin':
@@ -119,6 +125,7 @@ export const SURFACED_BLOCK_KINDS: ReadonlySet<BlockedReason['kind']> = new Set(
   'auth',
   'gh-missing',
   'gh-notfound',
+  'gh-forbidden',
   'downgrade',
   'origin-pin'
 ])

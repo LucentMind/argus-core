@@ -57,6 +57,18 @@ describe('classifyGhFailure', () => {
   it('is a GhError, so callers can narrow on it', () => {
     expect(classifyGhFailure(new Error('x'))).toBeInstanceOf(GhError)
   })
+
+  it('classifies an HTTP 403 as forbidden, not as the catch-all', () => {
+    const err = classifyGhFailure({
+      stderr: 'gh: HTTP 403: Resource protected by organization SAML enforcement'
+    })
+    expect(err.kind).toBe('forbidden')
+  })
+
+  it('still classifies an unattributable failure as failed', () => {
+    const err = classifyGhFailure({ stderr: 'something else went wrong' })
+    expect(err.kind).toBe('failed')
+  })
 })
 
 describe('hashFile failures', () => {
