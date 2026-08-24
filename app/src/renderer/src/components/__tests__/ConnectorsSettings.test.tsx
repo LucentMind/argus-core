@@ -87,6 +87,7 @@ beforeEach(() => {
       patch: vi.fn(() => Promise.resolve(currentPayload)),
       test: vi.fn().mockResolvedValue({ ok: true, tools: [] }),
       oauth: vi.fn().mockResolvedValue({ ok: true }),
+      oauthCode: vi.fn().mockResolvedValue({ ok: true }),
       onChanged: vi.fn(() => () => {})
     },
     settings: {
@@ -372,6 +373,72 @@ describe('ConnectorsSettings', () => {
       render(<ConnectorsSettings />)
       await screen.findByText('MCP connectors')
       expect(screen.queryByText('Clone link types')).toBeNull()
+    })
+  })
+
+  describe('Slack connector card', () => {
+    const withSlack = (): ConnectorsPayload =>
+      basePayload({
+        connectors: {
+          slack: {
+            kind: 'http',
+            displayName: 'Slack',
+            preset: 'slack',
+            enabled: true,
+            config: {
+              url: 'https://mcp.slack.com/mcp',
+              transport: 'http',
+              oauth: true,
+              redirectUrl: 'http://localhost:8080/callback'
+            }
+          }
+        },
+        runtime: { slack: { state: 'never-connected' } },
+        oauth: { slack: 'not-authorized' }
+      })
+
+    it('shows the confidential-client fields when editing, and hides them on a Rovo card', async () => {
+      currentPayload = withSlack()
+      render(<ConnectorsSettings />)
+      await userEvent.click(await screen.findByLabelText('actions · slack'))
+      await userEvent.click(screen.getByText('Edit details'))
+      expect(await screen.findByLabelText(/Client ID/i)).toBeInTheDocument()
+      expect(screen.getByLabelText(/Client secret/i)).toBeInTheDocument()
+      expect(screen.getByLabelText(/User scopes/i)).toBeInTheDocument()
+      expect(screen.getByLabelText(/Redirect URL/i)).toBeInTheDocument()
+    })
+
+    it('no client fields on the Rovo card', async () => {
+      render(<ConnectorsSettings />) // basePayload() — rovo only
+      await userEvent.click(await screen.findByLabelText('actions · rovo'))
+      await userEvent.click(screen.getByText('Edit details'))
+      await screen.findByLabelText('display name · rovo')
+      expect(screen.queryByLabelText(/Client ID/i)).not.toBeInTheDocument()
+    })
+
+    it('needsCode reveals a paste field, and submitting it calls oauthCode', async () => {
+      currentPayload = withSlack()
+      vi.mocked(window.argus.connectors.oauth).mockResolvedValue({ ok: false, needsCode: true })
+      render(<ConnectorsSettings />)
+      await userEvent.click(await screen.findByLabelText('authorize · slack'))
+      const input = await screen.findByLabelText('authorization code · slack')
+      await userEvent.type(input, 'pasted-code')
+      await userEvent.click(screen.getByLabelText('submit code · slack'))
+      await waitFor(() =>
+        expect(window.argus.connectors.oauthCode).toHaveBeenCalledWith('slack', 'pasted-code')
+      )
+    })
+
+    it('a plain failure shows the error and no paste field', async () => {
+      currentPayload = withSlack()
+      vi.mocked(window.argus.connectors.oauth).mockResolvedValue({
+        ok: false,
+        error: 'bad_client_secret'
+      })
+      render(<ConnectorsSettings />)
+      await userEvent.click(await screen.findByLabelText('authorize · slack'))
+      expect(await screen.findByText('bad_client_secret')).toBeInTheDocument()
+      expect(screen.queryByLabelText('authorization code · slack')).not.toBeInTheDocument()
     })
   })
 })
