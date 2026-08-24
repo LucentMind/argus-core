@@ -4,7 +4,7 @@ import { SettingsSection, SettingRow, SettingsSkeleton, DisclosureBtn } from './
 import { Btn, Chip } from '../ui'
 import { confirm } from '../../lib/confirmStore'
 import { ToolRow, useToolProbes } from './ToolRow'
-import { currencyStore, pageOwning } from '../../lib/currencyStore'
+import { currencyStore, needsYouLabel, pageOwning } from '../../lib/currencyStore'
 import { BlockedReasonLine } from './BlockedReasonLine'
 import type {
   PacksListPayload,
@@ -561,7 +561,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
             {blockedPacks.length > 0 && (
               <Chip
                 tone="review"
-                aria-label={`${blockedPacks.length} pack update${blockedPacks.length === 1 ? '' : 's'} ${blockedPacks.length === 1 ? 'needs' : 'need'} you`}
+                aria-label={needsYouLabel(blockedPacks.length, { qualifier: 'pack' })}
               >
                 {blockedPacks.length}
               </Chip>

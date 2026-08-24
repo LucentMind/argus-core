@@ -185,7 +185,9 @@ export function SettingsView({
                 // accessible name instead — `undefined` here falls back to the button's own text
                 // content (icon + label), which is what keeps the name plain `General` etc. when
                 // nothing is held back rather than leaving a stale "needs you" behind.
-                aria-label={heldCount > 0 ? needsYouLabel(p.label, heldCount) : undefined}
+                aria-label={
+                  heldCount > 0 ? needsYouLabel(heldCount, { subject: p.label }) : undefined
+                }
                 className={`flex items-center gap-2 rounded-r2 px-2.5 py-1.5 text-left text-xs transition-colors disabled:cursor-default ${
                   page === p.id
                     ? 'bg-hi text-ink'

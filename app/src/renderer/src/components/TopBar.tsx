@@ -381,7 +381,7 @@ export function TopBar({
         )}
         <button
           className={`${ACTION_BTN} relative`}
-          aria-label={held > 0 ? needsYouLabel('Settings', held) : 'Settings'}
+          aria-label={held > 0 ? needsYouLabel(held, { subject: 'Settings' }) : 'Settings'}
           title="Settings"
           onClick={onSettings}
         >
