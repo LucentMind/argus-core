@@ -2,6 +2,157 @@
 
 ## Unreleased
 
+177 commits since v2.3.0, 207 files changed (+21,386 / −1,193).
+
+### Added
+
+**Unified currency: one survey/apply pipeline for Core, Packs, and HiveMind**
+
+- A new "Keep everything up to date" master toggle (Settings → Updates)
+  replaces three previously separate update mechanisms with a single
+  periodic survey that checks Core, every installed pack, and the
+  HiveMind repo on one schedule, with per-adapter backoff anchors
+  persisted to disk so a missed check catches up instead of waiting out a
+  fixed interval. The toggle governs only whether *clean* candidates (no
+  dependency change, no trust-tier change, no local edits) apply
+  automatically — it never governs whether the app checks; Packs/HiveMind
+  Settings and the manual "Check for updates"/"Sync" buttons always
+  survey on demand, rate-limited to the same poll interval.
+- Applies run behind an app-quiescence gate (no active agent turn, no
+  running routine, an idle ingest queue) and a single apply lock shared
+  with the manual Update/Install buttons, so a background auto-apply and
+  a button press can never interleave. Core drains unconditionally ahead
+  of the quiescence check, since it only writes into the updater's own
+  cache; Pack and Hive writes touch files the app may be reading, so they
+  wait for a quiet moment and re-check quiescence between each item.
+- A settings status line reports "not checked yet / everything current /
+  N items held back" from one payload, hydrated exactly once and shared
+  by every surface (TopBar, nav, Settings pages) instead of each racing
+  its own fetch.
+
+**Per-adapter safety rules**
+
+- Core stages an update in the background but never force-restarts the
+  app — the user finishes it on their own schedule, and a stage is only
+  reported ready once its bytes are actually confirmed present.
+- Packs refuses to auto-apply any update that would add a new dependency;
+  that always surfaces as a held-back item requiring explicit approval.
+- HiveMind mirrors the repo and re-derives its own installed/pinned state
+  from the clone before writing, rather than trusting a stale snapshot,
+  and shares its write lock with manual installs so a background survey
+  can't race a user-initiated pin change.
+- A two-strike grace covers auth and not-found GitHub failures — GitHub
+  answers a private repo and a transient permission/SSO blip identically,
+  so the first sighting is withheld and only a second consecutive failure
+  badges the user; a missing GitHub CLI install is deterministic and
+  surfaces immediately.
+
+**Held-back reasons, badges, and nav dots**
+
+- Anything currency withholds — local edits, a trust-tier change, a new
+  dependency, an auth or sign-in problem, a not-found repo, a downgrade,
+  an origin mismatch — renders from one shared sentence-writer, so the
+  wording can't drift between the Packs and HiveMind pages.
+- The Settings button and the nav rows that own held-back items get an
+  attention dot; Packs and HiveMind each get a section badge and per-item
+  reason line, with Skills and References badged separately rather than
+  lumped under one "Repository" count. Dots and badges go quiet entirely
+  when the master toggle is off, and republish immediately when it's
+  flipped rather than showing stale state until the next survey.
+
+**First-run HiveMind mirror notice**
+
+- The first time currency mirrors brand-new HiveMind content (not
+  updates to things already installed), a one-time notice in the case
+  header reports how many items were adopted — recovering as a pending
+  count on next case-open, persisted across a restart, if no case was
+  open when it happened.
+
+**Multi-file skills**
+
+- A skill in the Library can now carry sibling files alongside
+  `SKILL.md` — scripts and other supporting assets, not just the one
+  document. `write_proposal` can attach these files, and accepting a
+  proposal writes the skill's whole directory atomically, preserving
+  existing sibling files rather than deleting them even when merging into
+  a HiveMind- or pack-tier skill with no local copy yet.
+- The proposal review UI shows a file rail for a proposal that carries
+  siblings, lets each file be reviewed and edited individually (edits
+  carry through to what gets accepted), and renders non-Markdown files as
+  code. A proposal that includes an executable is flagged on the queue
+  card, and pushing a skill to the team through HiveMind names the
+  executables it shares before you confirm.
+- A skill's sibling files can be opened, edited, and saved as their own
+  tabs in the editor, with per-file autosave and validation; a Files dock
+  tab lists the active skill's siblings, and the `@` file picker opens
+  one directly.
+- Before the agent runs a script that's part of a skill, it's checked
+  against that script's review state and — if not yet approved —
+  surfaced as an approval card naming the script and its size, instead of
+  running silently. Hardening closed several ways this gate could be
+  bypassed: chaining an approved script with a second, unreviewed one no
+  longer rides the first's grant; scripts referenced via a git-bash MSYS
+  path or a `~`-rooted path no longer fall through to a silent allow; and
+  multi-line commands and backslash line-continuations are now parsed
+  correctly instead of missing the script reference entirely.
+
+**Orphaned session history**
+
+- A session can carry conversation history the model no longer has as
+  context — after importing a case from another machine, switching
+  driver, or switching provider accounts on a pinned session. A
+  dismissible chat banner now surfaces this, and the next turn
+  automatically replays a deterministic digest of the prior transcript.
+  For drivers with native tool support (Claude, Copilot), a
+  `read_session_transcript` tool lets the model page back through turns
+  the digest had to omit, scoped to that session's own transcript.
+
+**Settings reorganization**
+
+- General's Theme/Dynamic theme/UI scale controls collapse into one
+  Appearance row; RCA report settings move from Connectors onto Agent,
+  its template editor now three nested disclosures instead of nine
+  textareas at once; distillation spend moves to Agent → Background work,
+  beside the provider and model that determine run cost; and Library
+  section subtitles move onto their header lines.
+- "Re-run checks" on the Sources page becomes "Re-check N failed" and
+  only re-probes the tools that last failed; the Jira clone-link-types
+  row now offers a picker over the connected site's own link-type
+  catalogue instead of free text.
+
+### Fixed
+
+- A chained shell command running two skill scripts — one already
+  approved for the session — could silently auto-run the second,
+  unreviewed one with no approval card; a related hole let a skill-asset
+  grant apply to a base command the classifier had deliberately left
+  grantless.
+- Accepting a proposal against a HiveMind- or pack-tier skill with no
+  local user copy could discard the true author's frontmatter and
+  contributor trail, or drop that skill's existing sibling scripts
+  entirely.
+- Toggling a proposal's view between edit and diff mode could silently
+  discard an in-progress edit; the toggle now preserves the buffer, and
+  discarding requires explicit confirmation.
+- The chat transcript could yank a reader who'd scrolled up back to the
+  bottom mid-turn; auto-scroll now only follows new output while pinned
+  to the bottom.
+- The pending-adoption count for the first-run HiveMind notice now
+  survives an app restart instead of resetting to zero.
+- A hold resolved by hand (e.g. installing from a file after an
+  origin-pin block) clears immediately instead of waiting up to 6 hours
+  for the next scheduled survey.
+- A failed HiveMind sync now persists its error so the Sync button and
+  status chip keep reporting it on later visits, with the message on the
+  chip itself and no longer false-alarming on an unrelated later
+  operation; "Download All" no longer un-declines every item previously
+  removed, and uninstalling now leaves a tombstone so the mirror can't
+  silently reinstall a deliberate removal.
+- A background (non-manual) pack or HiveMind auto-install now broadcasts
+  the same change events the manual buttons already did, so the Packs
+  and HiveMind pages and the "relaunch to finish" prompt update live
+  instead of only after a reload.
+
 ## v2.3.0 — 2026-08-19
 
 41 commits since v2.2.0, 55 files changed (+5,121 / −341).
