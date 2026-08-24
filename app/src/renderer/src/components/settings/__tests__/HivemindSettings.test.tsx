@@ -1071,20 +1071,26 @@ describe('auto-sync on entering the Team tab', () => {
     expect(window.argus.hivemind.sync).not.toHaveBeenCalled()
   })
 
-  // Finding 1: the mount-time effect above is the only thing the rest of this suite ever
-  // asserted about hivemind.sync — nothing clicked the manual Sync IconBtn, so a regression
-  // that rewired its onClick to surveyNow (or dropped it) would have gone undetected while the
-  // whole suite stayed green. This closes that gap directly.
-  it('clicking the Sync button calls hivemind.sync() directly, not surveyNow', async () => {
-    renderWith(ready)
-    // Let the mount-time auto-sync settle first so its surveyNow call isn't mistaken for one
-    // triggered by the click below.
-    await waitFor(() => expect(window.argus.currency.surveyNow).toHaveBeenCalledWith('hive'))
+  // Finding 1 (superseded by Task 8): this used to assert the manual Sync button called
+  // `hivemind.sync()` directly — the very defect Task 8 fixes. The button is now routed
+  // through a forced `currency.surveyNow('hive', true)`, mirroring Packs' "Check for updates"
+  // button, because the hive adapter's `survey()` performs the sync itself and then re-derives
+  // `currency.blocked`; a direct `hivemind.sync()` call alongside it would sync the repo twice
+  // per click. The two tests below replace this one and close the same coverage gap (nothing
+  // else in this suite clicks the manual Sync button) against the new, correct behavior.
+  it('routes the Sync button through a forced currency survey', async () => {
+    renderHive({ items: [item({ kind: 'skill', name: 'a' })] })
+    await userEvent.click(await screen.findByLabelText('Sync'))
+    await waitFor(() => expect(surveyNowMock).toHaveBeenCalledWith('hive', true))
+  })
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Sync' }))
-
-    await waitFor(() => expect(window.argus.hivemind.sync).toHaveBeenCalledTimes(1))
-    expect(window.argus.currency.surveyNow).toHaveBeenCalledTimes(1)
+  it('does not call hivemind.sync directly — the survey performs it', async () => {
+    renderHive({ items: [item({ kind: 'skill', name: 'a' })] })
+    const syncMock = window.argus.hivemind.sync as ReturnType<typeof vi.fn>
+    syncMock.mockClear()
+    await userEvent.click(await screen.findByLabelText('Sync'))
+    await waitFor(() => expect(surveyNowMock).toHaveBeenCalledWith('hive', true))
+    expect(syncMock).not.toHaveBeenCalled()
   })
 
   it('skips auto-sync when the repo is not reachable', async () => {
