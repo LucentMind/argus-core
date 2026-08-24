@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { HivemindSettings } from '../HivemindSettings'
@@ -1318,5 +1319,35 @@ describe('held-back items', () => {
     })
     await screen.findByText('hive-probe')
     expect(screen.queryByLabelText(/needs you|need you/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('download all honours tombstones', () => {
+  it('leaves a tombstoned item alone when downloading all', async () => {
+    renderHive({
+      items: [
+        item({ kind: 'skill', name: 'kept', installed: false, declined: false }),
+        item({ kind: 'skill', name: 'removed', installed: false, declined: true })
+      ]
+    })
+    await userEvent.click(await screen.findByLabelText('Download all skills'))
+    await waitFor(() => expect(installMock).toHaveBeenCalledWith('skill', 'kept'))
+    expect(installMock).not.toHaveBeenCalledWith('skill', 'removed')
+  })
+
+  it('still offers the per-item Download as the tombstone undo', async () => {
+    renderHive({
+      items: [item({ kind: 'skill', name: 'removed', installed: false, declined: true })]
+    })
+    await userEvent.click(await screen.findByLabelText('Download removed'))
+    await waitFor(() => expect(installMock).toHaveBeenCalledWith('skill', 'removed'))
+  })
+
+  it('hides Download All when every candidate is tombstoned', async () => {
+    renderHive({
+      items: [item({ kind: 'skill', name: 'removed', installed: false, declined: true })]
+    })
+    await screen.findByLabelText('Download removed')
+    expect(screen.queryByLabelText('Download all skills')).not.toBeInTheDocument()
   })
 })

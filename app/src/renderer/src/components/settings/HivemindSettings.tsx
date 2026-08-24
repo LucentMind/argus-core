@@ -390,10 +390,16 @@ export function HivemindSettings({
 
   /** Downloads every not-yet-installed item of one kind, one at a time — sequential rather
    *  than parallel so installs don't race each other writing into the same local clone dir.
-   *  Best-effort: one failure doesn't stop the rest; failures are reported together at the end. */
+   *  Best-effort: one failure doesn't stop the rest; failures are reported together at the end.
+   *
+   *  Skips tombstoned (`declined`) items: those carry a `not mirrored` chip meaning the mirror
+   *  will not adopt them, and `install()` clears the tombstone — so a sweep that included them
+   *  would silently un-decline everything the user had deliberately removed. Skipping is silent
+   *  because the chip already explains, on each row, why that item was passed over. The per-item
+   *  Download button remains the undo. */
   async function downloadAll(kind: 'skill' | 'reference', items: HivemindItem[]): Promise<void> {
     if (busy) return
-    const targets = items.filter((it) => !it.installed && !it.updateAvailable)
+    const targets = items.filter((it) => !it.installed && !it.updateAvailable && !it.declined)
     if (targets.length === 0) return
     setBusy(true)
     setError(null)
@@ -567,8 +573,12 @@ export function HivemindSettings({
   const filtered = payload.items.filter((it) => matchesFilter(it, filter))
   const skills = filtered.filter((it) => it.kind === 'skill')
   const references = filtered.filter((it) => it.kind === 'reference')
-  const downloadableSkills = skills.filter((it) => !it.installed && !it.updateAvailable)
-  const downloadableReferences = references.filter((it) => !it.installed && !it.updateAvailable)
+  const downloadableSkills = skills.filter(
+    (it) => !it.installed && !it.updateAvailable && !it.declined
+  )
+  const downloadableReferences = references.filter(
+    (it) => !it.installed && !it.updateAvailable && !it.declined
+  )
 
   /** Section-header action for "Download All" — omitted entirely when nothing in that
    *  section is downloadable, rather than rendering a dead button. */
