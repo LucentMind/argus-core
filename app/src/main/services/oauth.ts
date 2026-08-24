@@ -335,9 +335,19 @@ export class McpOAuth {
    * "redirectUrl configured, no clientId" rather than `preset === 'slack'`, so it covers any
    * future confidential-client server the same way. Rovo configures neither redirectUrl nor
    * clientId and legitimately relies on DCR, so this never fires for it.
+   *
+   * Known cost, accepted rather than fixed: this condition also matches a legitimate DCR-capable
+   * server whose user pinned a fixed loopback port (startLoopback supports that — see the
+   * publicUrl param) instead of using the ephemeral default. That connector would get Authorize
+   * disabled with this Slack-flavored message. Reachability is low — CONNECTOR_FORMS.http does
+   * not expose redirectUrl, so it requires hand-editing mcp-servers.json — so this is not
+   * re-scoped to `preset === 'slack'`.
    */
   private static missingClientId(cfg: ConfidentialClient | null): string | null {
-    return cfg?.redirectUrl && !cfg.clientId
+    // .trim() on the test only: a space-only Client ID (e.g. pasted with trailing whitespace,
+    // or a stray key press) must not slip past this guard and fail opaquely at Slack instead.
+    // The value itself is never trimmed here — only whether it counts as "configured".
+    return cfg?.redirectUrl && !cfg.clientId?.trim()
       ? 'no Client ID configured — add it from your Slack app on the connector card before authorizing'
       : null
   }
@@ -446,6 +456,18 @@ export class McpOAuth {
       // disk (unguarded fs.mkdirSync/writeFileSync/renameSync in fileStore.ts) and can
       // throw — is caught by the same try/catch below and leaves an existing working
       // grant alone, rather than proceeding to authFn on a half-cleared store.
+      //
+      // This deletion is also load-bearing for refresh()'s no-refresh-token short-circuit
+      // staying safe during the paste window that follows: once authFn below reaches
+      // startAuthorization, the provider's saveCodeVerifier() leaves a PKCE verifier in the
+      // store for however long the user takes to copy the code out of the browser and call
+      // authorizeWithCode(). If a refresh_token had ALSO still been present at that moment, a
+      // concurrent refresh() (composeHeaders' refreshOnExpiry, or Test connection) would skip
+      // its short-circuit, reach the SDK's own auth(), and call saveCodeVerifier() again —
+      // clobbering the verifier this in-flight authorization needs at exchange time. Deleting
+      // the stored tokens (and their refresh_token) here first is what makes
+      // storedRefreshToken() in refresh() find nothing and short-circuit instead. Remove this
+      // delete and that clobber comes back.
       this.secrets.delete(`mcp/${instanceId}/tokens`)
       const r = await this.authFn(provider, { serverUrl, scope, fetchFn })
       // Clear a stale error from a prior failed attempt whether this run finishes

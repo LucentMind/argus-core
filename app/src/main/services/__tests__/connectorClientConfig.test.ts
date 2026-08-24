@@ -141,6 +141,32 @@ describe('buildConnectorClientConfigResolver', () => {
     expect(resolver('slack')?.scopes).toBe(SLACK_DEFAULT_SCOPES)
   })
 
+  it('floors a whitespace-only scopes field the same as a truly empty one (final-review finding 2)', () => {
+    // The DraftTextarea backing this field commits on blur only, with no Enter-commit — but
+    // typing Enter inside the textarea inserts a literal newline, and its onCommit maps only
+    // '' -> null (not '\n' or ' '). Deleting the visible text and blurring can therefore commit
+    // whitespace instead of ''. Without trimming before the emptiness test here, that
+    // whitespace is truthy, `!cfg.scopes` is false, and the floor never applies — the SDK
+    // would see scope: '\n', Slack would answer an opaque invalid_scope.
+    const resolver = buildConnectorClientConfigResolver({
+      registry: fakeRegistry({
+        slack: {
+          kind: 'http',
+          preset: 'slack',
+          enabled: true,
+          config: {
+            url: 'https://mcp.slack.com/mcp',
+            clientId: 'client-123',
+            scopes: '\n',
+            redirectUrl: 'http://localhost:8080/callback'
+          }
+        }
+      }),
+      secrets: fakeSecrets({})
+    })
+    expect(resolver('slack')?.scopes).toBe(SLACK_DEFAULT_SCOPES)
+  })
+
   it('leaves an empty scopes field alone for a non-slack http connector', () => {
     // The floor is scoped to the slack preset specifically — any other http connector's
     // empty scopes must keep meaning "let the SDK decide", unchanged from before this fix.

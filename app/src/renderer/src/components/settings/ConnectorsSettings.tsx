@@ -102,7 +102,10 @@ function ConnectorCard({
   // does not support dynamic client registration". Disable before the click, not just after
   // (main/oauth.ts's authorize() also guards this server-side). Rovo has no redirectUrl
   // configured, so this never disables its card.
-  const needsClientId = Boolean(httpCfg.redirectUrl) && !httpCfg.clientId
+  // .trim() on the test only, mirroring main/oauth.ts's missingClientId(): a space-only Client
+  // ID must not read as "configured" here either, or Authorize enables into the same opaque
+  // Slack failure this guard exists to avoid. The stored config value is left untrimmed.
+  const needsClientId = Boolean(httpCfg.redirectUrl) && !httpCfg.clientId?.trim()
   const summary = toolSummary(inst)
   const secretGap = !secretsAvailable && collectSecretRefs(inst.config).length > 0
   const annotations = {
@@ -186,6 +189,16 @@ function ConnectorCard({
               >
                 Authorize…
               </Btn>
+            )}
+            {/* A disabled Authorize with no visible reason is a silent dead end — a `title`
+                attribute alone is unreliable across platforms, so say it inline instead.
+                Same wording as main/oauth.ts's missingClientId(), and the same "do this next"
+                tone (text-dim, not text-danger) the card already uses for secondary text —
+                this is guidance, not an error. */}
+            {isOauth && needsClientId && (
+              <span className="text-xs text-dim" aria-label={`authorize hint · ${id}`}>
+                no Client ID configured — add it below before authorizing
+              </span>
             )}
             {isOauth && authError && <span className="text-xs text-danger">{authError}</span>}
             {secretGap && <Chip tone="danger">secret store unavailable</Chip>}
