@@ -143,6 +143,20 @@ export class CurrencyService {
     for (const cb of this.listeners) cb(p)
   }
 
+  /**
+   * Forces a fresh `payload()` out to every subscriber with no survey or apply in between
+   * (Critical 1, whole-branch review). `payload().auto` is read live from `autoEnabled()`, but
+   * before this the only publishers were a survey and an apply — so flipping
+   * `settings.updates.auto` with nothing currently running left every subscriber (the TopBar
+   * badge, the Settings nav dots) holding the LAST payload's `auto`, stale until the next
+   * scheduled survey — which never comes if the flip just turned auto OFF. `main/index.ts` calls
+   * this from a settings subscriber the moment `updates.auto` actually changes; see
+   * `createAutoChangeWatcher`.
+   */
+  republish(): void {
+    this.publish()
+  }
+
   /** Ticks immediately (this is the catch-up pass), then every `tickMs`. Idempotent. */
   start(): void {
     if (this.timer) return
