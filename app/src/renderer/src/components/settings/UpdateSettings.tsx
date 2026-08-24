@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { updateStore } from '../../lib/updateStore'
 import { settingsStore, useSettingsPayload } from '../../lib/settingsStore'
+import { currencyStore } from '../../lib/currencyStore'
 import { describeUpdate } from '../../../../shared/updates'
 import { surfacedBlocked } from '../../../../shared/currency'
 import type { CurrencyPayload } from '../../../../shared/currency'
@@ -16,9 +17,14 @@ const UNLOCK_CLICK_COUNT = 6
 const UNLOCK_MESSAGE_TTL_MS = 5000
 
 /** The one place the survey status is worded. `blocked` is per-survey truth, so an empty list a
- *  moment after launch means "not surveyed yet", not "nothing wrong" — hence the null branch. */
-function currencyLine(c: CurrencyPayload | null): string {
-  if (!c || c.lastSurveyAt === null) return 'Not checked yet'
+ *  moment after launch means "not surveyed yet", not "nothing wrong" — hence the null-timestamp
+ *  branch.
+ *
+ *  Counts ALL surfaced blocks, deliberately ungated by `auto` — unlike `currencyStore`'s
+ *  `surfacedCount()`, which the TopBar uses. This is the page that owns the switch, so it is the
+ *  one surface that must still say what is held back after you turn auto-update off. */
+function currencyLine(c: CurrencyPayload): string {
+  if (c.lastSurveyAt === null) return 'Not checked yet'
   const when = new Date(c.lastSurveyAt).toLocaleString()
   // Only surfaced blocks count: `unsupported` means this build structurally cannot update, which
   // is not something the reader can act on — and in an unpackaged build it would otherwise make
@@ -43,14 +49,14 @@ export function UpdateSettings(): React.JSX.Element {
   const settingsPayload = useSettingsPayload()
   const auto = settingsPayload?.settings.updates.auto ?? true
 
-  const [currency, setCurrency] = useState<CurrencyPayload | null>(null)
-  useEffect(() => {
-    void window.argus.currency
-      .get()
-      .then(setCurrency)
-      .catch((e) => console.warn('[updates] failed to load currency status', e))
-    return window.argus.currency.onChanged(setCurrency)
-  }, [])
+  // The shared store, not a second private subscription: two independent hydrations of one fact
+  // can disagree, and this one lacked the store's `state === EMPTY` guard, so a late-resolving
+  // `get()` could clobber a broadcast that had already arrived.
+  const currency = useSyncExternalStore(
+    (cb) => currencyStore.subscribe(cb),
+    () => currencyStore.get()
+  )
+  useEffect(() => currencyStore.start(), [])
 
   const busy = status.phase === 'checking' || status.phase === 'downloading'
   // A staged download installs on the next quit no matter what the channel setting says
