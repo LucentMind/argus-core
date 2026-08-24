@@ -2,7 +2,17 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { McpOAuth, startLoopback, isLoopbackRedirect, type AuthLike } from '../oauth'
+import {
+  McpOAuth,
+  startLoopback,
+  isLoopbackRedirect,
+  type AuthLike,
+  type ConfidentialClient
+} from '../oauth'
+import type {
+  OAuthClientInformationFull,
+  OAuthClientMetadata
+} from '@modelcontextprotocol/sdk/shared/auth.js'
 import { SecretStore, type SecretCrypto } from '../secrets'
 
 const fakeCrypto = (): SecretCrypto => ({
@@ -363,5 +373,80 @@ describe('McpOAuth', () => {
     expect(oauth.status('rovo')).toBe('not-authorized')
     expect(secrets.has('mcp/rovo/tokens')).toBe(false)
     expect(secrets.has('mcp/rovo/client')).toBe(false)
+  })
+})
+
+describe('confidential client', () => {
+  const SERVER = 'https://mcp.slack.com/mcp'
+  const slackCfg = (over: Partial<ConfidentialClient> = {}): ConfidentialClient => ({
+    clientId: '123.456',
+    clientSecret: 'sh-secret',
+    scopes: 'channels:history users:read',
+    redirectUrl: 'http://localhost:0/callback',
+    ...over
+  })
+
+  it('presents configured credentials so the SDK never attempts registration', async () => {
+    let info: OAuthClientInformationFull | undefined
+    let meta: OAuthClientMetadata | undefined
+    const authFn: AuthLike = async (provider, opts) => {
+      if (opts.authorizationCode) {
+        info = (await provider.clientInformation()) as OAuthClientInformationFull
+        meta = provider.clientMetadata
+        await provider.saveTokens({ access_token: 'xoxp-1', token_type: 'user' })
+        return 'AUTHORIZED'
+      }
+      await provider.redirectToAuthorization(new URL('https://slack.com/oauth/v2_user/authorize'))
+      setTimeout(() => void fetch(`${provider.redirectUrl}?code=c1`), 50)
+      return 'REDIRECT'
+    }
+    const oauth = new McpOAuth(
+      secrets,
+      async () => {},
+      authFn,
+      () => slackCfg()
+    )
+    const r = await oauth.authorize('slack', SERVER)
+    expect(r.ok).toBe(true)
+    expect(info?.client_id).toBe('123.456')
+    expect(info?.client_secret).toBe('sh-secret')
+    expect(meta?.token_endpoint_auth_method).toBe('client_secret_post')
+    // registration would have written this; it must not exist
+    expect(secrets.has('mcp/slack/client')).toBe(false)
+  })
+
+  it('carries the configured scopes into client metadata', async () => {
+    let meta: OAuthClientMetadata | undefined
+    const authFn: AuthLike = async (provider) => {
+      meta = provider.clientMetadata
+      await provider.saveTokens({ access_token: 'xoxp-2', token_type: 'user' })
+      return 'AUTHORIZED'
+    }
+    const oauth = new McpOAuth(
+      secrets,
+      async () => {},
+      authFn,
+      () => slackCfg()
+    )
+    await oauth.authorize('slack', SERVER)
+    expect(meta?.scope).toBe('channels:history users:read')
+  })
+
+  it('an empty clientId falls back to the public-client DCR path (Rovo is unaffected)', async () => {
+    let info: unknown = 'unset'
+    const authFn: AuthLike = async (provider) => {
+      info = await provider.clientInformation()
+      await provider.saveTokens({ access_token: 'tok', token_type: 'bearer' })
+      return 'AUTHORIZED'
+    }
+    const oauth = new McpOAuth(
+      secrets,
+      async () => {},
+      authFn,
+      () => slackCfg({ clientId: '', clientSecret: null })
+    )
+    await oauth.authorize('rovo', SERVER)
+    expect(info).toBeUndefined()
+    expect(oauth.status('rovo')).toBe('authorized')
   })
 })
