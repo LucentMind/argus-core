@@ -1375,6 +1375,100 @@ describe('held-back items', () => {
     await screen.findByLabelText('1 HiveMind update needs you')
     expect(screen.queryByText(/not shown here/i)).not.toBeInTheDocument()
   })
+
+  // Fix wave 1: the two tests above only ever drove `unshownSkills`/`unshownReferences` at zero,
+  // or routed through the OUTER filter-matches-nothing ternary (a different expression entirely,
+  // `blockedSkills.length + blockedReferences.length` at :678) — so the per-section counts at
+  // HivemindSettings.tsx:597-598, rendered at :691 and :723, were never proven against a nonzero
+  // value. These three close that gap.
+
+  it('says so within the Skills section for a blocked skill with no visible row, without a filter', async () => {
+    renderHive({
+      items: [item({ kind: 'skill', name: 'visible-skill' })],
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'hive-skill',
+            key: 'skill/other',
+            label: 'other',
+            from: 'x',
+            to: 'y',
+            verdict: 'blocked',
+            reason: { kind: 'local-edits' }
+          }
+        ],
+        busy: false
+      }
+    })
+    // No filter is typed, so `skills.length === 1` keeps the outer ternary from ever firing —
+    // this can only be the per-section UnshownHoldsLine at :691, driven by `unshownSkills`.
+    const skillsSection = (await screen.findByText('Skills')).closest('section')!
+    expect(
+      within(skillsSection).getByText('1 held-back item is not shown here.')
+    ).toBeInTheDocument()
+  })
+
+  it('says so within the References section for a blocked reference with no visible row', async () => {
+    renderHive({
+      items: [item({ kind: 'reference', name: 'visible-ref.md' })],
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'hive-reference',
+            key: 'reference/other.md',
+            label: 'other.md',
+            from: 'x',
+            to: 'y',
+            verdict: 'blocked',
+            reason: { kind: 'local-edits' }
+          }
+        ],
+        busy: false
+      }
+    })
+    const referencesSection = (await screen.findByText('References')).closest('section')!
+    expect(
+      within(referencesSection).getByText('1 held-back item is not shown here.')
+    ).toBeInTheDocument()
+  })
+
+  it('does not leak an unshown-skill count into the References section', async () => {
+    // Both sections visible (one real row each), so an implementation that fed both sections the
+    // combined `blockedSkills.length + blockedReferences.length` instead of their own domain
+    // slice would show the line in References too — this is what catches that.
+    renderHive({
+      items: [
+        item({ kind: 'skill', name: 'visible-skill' }),
+        item({ kind: 'reference', name: 'visible-ref.md' })
+      ],
+      currency: {
+        auto: true,
+        lastSurveyAt: new Date().toISOString(),
+        blocked: [
+          {
+            domain: 'hive-skill',
+            key: 'skill/other',
+            label: 'other',
+            from: 'x',
+            to: 'y',
+            verdict: 'blocked',
+            reason: { kind: 'local-edits' }
+          }
+        ],
+        busy: false
+      }
+    })
+    const skillsSection = (await screen.findByText('Skills')).closest('section')!
+    expect(
+      within(skillsSection).getByText('1 held-back item is not shown here.')
+    ).toBeInTheDocument()
+    const referencesSection = screen.getByText('References').closest('section')!
+    expect(within(referencesSection).queryByText(/not shown here/i)).not.toBeInTheDocument()
+  })
 })
 
 describe('download all honours tombstones', () => {
