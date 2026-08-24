@@ -90,6 +90,54 @@ describe('startLoopback', () => {
       first.close()
     }
   })
+
+  it('binds a "localhost" redirect URL on 127.0.0.1, reachable there', async () => {
+    const port = await freePort()
+    const lb = await startLoopback(`http://localhost:${port}/callback`)
+    try {
+      const codeP = lb.waitForCode(5000)
+      await fetch(`http://127.0.0.1:${port}/callback?code=via-v4`)
+      expect(await codeP).toBe('via-v4')
+    } finally {
+      lb.close()
+    }
+  })
+
+  it('binds a "localhost" redirect URL on ::1 too, since the browser may resolve there instead', async () => {
+    const port = await freePort()
+    const lb = await startLoopback(`http://localhost:${port}/callback`)
+    try {
+      const codeP = lb.waitForCode(5000)
+      await fetch(`http://[::1]:${port}/callback?code=via-v6`)
+      expect(await codeP).toBe('via-v6')
+    } finally {
+      lb.close()
+    }
+  })
+
+  it('close() releases both loopback listeners bound for a "localhost" URL', async () => {
+    const port = await freePort()
+    const lb = await startLoopback(`http://localhost:${port}/callback`)
+    lb.close()
+    // If either listener survived close(), one of these same-port binds would
+    // throw EADDRINUSE instead of succeeding.
+    const v4 = await startLoopback(`http://127.0.0.1:${port}/callback`)
+    v4.close()
+    const v6 = await startLoopback(`http://[::1]:${port}/callback`)
+    v6.close()
+  })
+
+  it('rejects a portless redirect URL — the ephemeral port picked would not match what is reported', async () => {
+    await expect(startLoopback('http://localhost/callback')).rejects.toThrow(
+      /must specify a port.*Redirect URL/
+    )
+  })
+
+  it('rejects an explicit :0 redirect URL for the same reason', async () => {
+    await expect(startLoopback('http://localhost:0/callback')).rejects.toThrow(
+      /must specify a port.*Redirect URL/
+    )
+  })
 })
 
 describe('isLoopbackRedirect', () => {
