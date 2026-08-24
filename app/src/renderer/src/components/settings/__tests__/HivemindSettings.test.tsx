@@ -1481,6 +1481,14 @@ describe('download all honours tombstones', () => {
     })
     await userEvent.click(await screen.findByLabelText('Download all skills'))
     await waitFor(() => expect(installMock).toHaveBeenCalledWith('skill', 'kept'))
+    // `downloadAll` is a SEQUENTIAL loop: at the instant 'kept' is first observed, the second
+    // iteration (which would process 'removed', if the `!it.declined` filter were deleted) has
+    // not run yet — so `.not.toHaveBeenCalledWith('skill', 'removed')` alone can pass whether or
+    // not the tombstone filter exists, purely on timing. Waiting for the progress indicator to
+    // clear (the loop's own signal that every iteration, not just the first, has finished) before
+    // checking the call count is what actually pins the filter.
+    await waitFor(() => expect(screen.queryByText(/Downloading…/)).not.toBeInTheDocument())
+    expect(installMock).toHaveBeenCalledTimes(1)
     expect(installMock).not.toHaveBeenCalledWith('skill', 'removed')
   })
 
