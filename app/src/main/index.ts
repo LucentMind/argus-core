@@ -287,6 +287,7 @@ import { createHiveAdapter } from './services/update/currency/hiveAdapter'
 import { registerCurrencyIpc } from './services/update/currency/currencyIpc'
 import { createAdoptionBroadcastGate } from './services/update/currency/adoptionBroadcastGate'
 import { createForgetHooks } from './services/update/currency/forgetHooks'
+import { createAutoChangeWatcher } from './services/update/currency/autoChangeWatcher'
 import { JsonFileStore } from './services/fileStore'
 import { PanelHost } from './services/panels/panelHost'
 import { createElectronPanelFactory } from './services/panels/electronPlatform'
@@ -3286,6 +3287,18 @@ function registerIpc(): void {
     anchors: adoptionGate.anchors,
     pendingAdopted: adoptionGate.pendingCount
   })
+  // Beside the `updates.channel` subscriber above: without this, flipping "Keep everything up to
+  // date" off produced silence rather than a visible answer (Critical 1, whole-branch review) —
+  // `payload().auto` only ever reached a subscriber via a survey or an apply, and turning auto OFF
+  // stops surveys, so the TopBar badge and the Settings nav dots kept showing the LAST payload's
+  // (stale) `auto: true` for the rest of the session. `createAutoChangeWatcher` is the tested half
+  // (`main/index.ts` has no test harness); this closure just wires it to the live setting and to
+  // `currency.republish()`.
+  const autoWatcher = createAutoChangeWatcher({
+    getAuto: () => settingsService.get().updates.auto,
+    onChange: () => currency?.republish()
+  })
+  settingsService.subscribe(() => autoWatcher.check())
   // 45s: late enough to keep boot cheap and to avoid racing the core boot check.
   setTimeout(() => currency?.start(), 45_000).unref()
 
