@@ -25,8 +25,17 @@ const DEFAULT_TICK_MS = 60_000
  *
  * `gh-missing` (gh not installed / not on PATH) is deliberately NOT here: that is deterministic —
  * either the binary is on PATH or it is not — so there is no flaky-network shape to wait out.
+ *
+ * `gh-forbidden` (a `gh` HTTP 403) belongs here for the same reason: it names two causes at once —
+ * org SAML/SSO enforcement (persistent) and API rate limiting (transient) — and the grace costs a
+ * persistent SSO refusal one extra survey while costing a rate limit nothing. A rate-limit 403 is
+ * transient and must not badge a healthy pack over one flaky check.
  */
-const GRACE_KINDS: ReadonlySet<BlockedReason['kind']> = new Set(['auth', 'gh-notfound'])
+const GRACE_KINDS: ReadonlySet<BlockedReason['kind']> = new Set([
+  'auth',
+  'gh-notfound',
+  'gh-forbidden'
+])
 
 export interface CurrencyServiceDeps {
   adapters: CurrencyAdapter[]
