@@ -401,13 +401,17 @@ export class McpOAuth {
       // stale/revoked refresh_token would make the SDK's own auth() throw during its
       // internal refresh attempt, before ever reaching startAuthorization — stranding
       // the connector with the browser never opened. Positioned immediately before
-      // authFn, not earlier, so a failure before this point (there is none on this
-      // path today — nothing stands between provider construction and authFn) would
-      // still leave an existing working grant alone.
+      // authFn so a failure at this delete itself — SecretStore.delete() persists to
+      // disk (unguarded fs.mkdirSync/writeFileSync/renameSync in fileStore.ts) and can
+      // throw — is caught by the same try/catch below and leaves an existing working
+      // grant alone, rather than proceeding to authFn on a half-cleared store.
       this.secrets.delete(`mcp/${instanceId}/tokens`)
       const r = await this.authFn(provider, { serverUrl, scope, fetchFn })
+      // Clear a stale error from a prior failed attempt whether this run finishes
+      // (AUTHORIZED) or merely reaches the browser (needsCode) — needsCode is not a
+      // failure and status() must not keep reporting the old one.
+      this.errors.delete(instanceId)
       if (r === 'AUTHORIZED') {
-        this.errors.delete(instanceId)
         return { ok: true }
       }
       // not an error: the browser is open and the user owes us a code

@@ -698,6 +698,62 @@ describe('paste-the-code path', () => {
     expect(sawTokens).toBeUndefined()
   })
 
+  it('a fallible secrets.delete before authFn: authFn never runs, the message survives, status is error', async () => {
+    // SecretStore.delete() persists to disk whenever the key existed (secrets.ts), and
+    // JsonFileStore.write() does unguarded fs.mkdirSync/writeFileSync/renameSync
+    // (fileStore.ts) — none wrapped in try/catch. That delete sits directly between
+    // provider construction and authFn on this path, so it is a fallible operation the
+    // surrounding try/catch must cover: no proceeding to authFn, the thrown message
+    // survives into the result, and status() reports 'error', not a silent success.
+    secrets.set('mcp/slack/tokens', JSON.stringify({ access_token: 'stale', token_type: 'user' }))
+    const boom = new Error('EACCES: permission denied, rename secrets.json.tmp -> secrets.json')
+    vi.spyOn(secrets, 'delete').mockImplementation(() => {
+      throw boom
+    })
+    let authFnCalled = false
+    const authFn: AuthLike = async () => {
+      authFnCalled = true
+      return 'AUTHORIZED'
+    }
+    const oauth = new McpOAuth(
+      secrets,
+      async () => {},
+      authFn,
+      () => httpsCfg
+    )
+    const r = await oauth.authorize('slack', SERVER)
+    expect(authFnCalled).toBe(false)
+    expect(r).toEqual({ ok: false, error: boom.message })
+    expect(oauth.status('slack')).toBe('error')
+  })
+
+  it('a needsCode result clears a stale error left by a prior failed attempt', async () => {
+    // Drive the stale error the same way a real failure would — through authorize()
+    // itself — then retry and reach needsCode. needsCode is documented as "not an
+    // error"; status() must reflect that through the public surface, not just the
+    // return value of this call.
+    let attempt = 0
+    const authFn: AuthLike = async (provider) => {
+      attempt++
+      if (attempt === 1) throw new Error('temporary network blip')
+      await provider.redirectToAuthorization(new URL('https://slack.com/oauth/v2_user/authorize'))
+      return 'REDIRECT'
+    }
+    const oauth = new McpOAuth(
+      secrets,
+      async () => {},
+      authFn,
+      () => httpsCfg
+    )
+    const first = await oauth.authorize('slack', SERVER)
+    expect(first.error).toMatch(/temporary network blip/)
+    expect(oauth.status('slack')).toBe('error')
+
+    const second = await oauth.authorize('slack', SERVER)
+    expect(second).toEqual({ ok: false, needsCode: true })
+    expect(oauth.status('slack')).not.toBe('error')
+  })
+
   it('exchanges a pasted code against the SAME redirect_uri, and trims it', async () => {
     let seenCode: string | undefined
     let seenRedirect = ''
