@@ -175,6 +175,36 @@ describe('refresh — github', () => {
     expect(getCase(db, 'cli-14189')!.jiraKey).toBe('cli/go-gh#42')
   })
 
+  // Finding I1: refresh looks up existing evidence by the NEW canonical ref, but after a
+  // transfer the existing rows still carry the OLD ref in meta.jira.key. Every lookup misses,
+  // so the case forks — a stale ticket.md that never updates again, plus a fresh one — and the
+  // comment-count diff silently re-reports the whole prior thread as new (oldCount reads 0).
+  it('follows a transferred issue instead of forking its evidence', async () => {
+    await cases.createFromTicket({ slug: 'cli-14189', title: 'Tiles 403', key: 'cli/cli#14189' })
+    cases = rebuild({
+      ...ISSUE,
+      number: 42,
+      url: 'https://github.com/cli/go-gh/issues/42',
+      comments: [
+        ...ISSUE.comments,
+        { id: 'c2', author: { login: 'bo' }, body: 'moved here', createdAt: '2026-08-22T09:00:00Z' }
+      ]
+    })
+    const summary = await cases.refresh('cli-14189')
+    expect(summary.rebound).toEqual({ from: 'cli/cli#14189', to: 'cli/go-gh#42' })
+
+    const evidence = listEvidence(db, 'cli-14189')
+    const ticketFiles = evidence.filter((e) => e.relPath.endsWith('.ticket.md'))
+    // Exactly one — not a stale row from the old ref plus a fresh one from the new ref.
+    expect(ticketFiles).toHaveLength(1)
+    const meta = ticketFiles[0].meta as { jira?: { key?: string } }
+    expect(meta.jira?.key).toBe('cli/go-gh#42')
+
+    // Computed against the prior count (1 comment before the transfer), not 0 — a missed
+    // lookup would re-report the whole existing thread as new.
+    expect(summary.newComments).toBe(1)
+  })
+
   it('never calls Atlassian for a github-bound case', async () => {
     await cases.createFromTicket({ slug: 'cli-14189', title: 'Tiles 403', key: 'cli/cli#14189' })
     cases = rebuild(ISSUE)
