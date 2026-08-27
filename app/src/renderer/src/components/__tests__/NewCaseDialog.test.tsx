@@ -449,7 +449,9 @@ describe('NewCaseDialog', () => {
     // ever tickable and the source was silently dropped under the old rule.
     const CLONE_PREVIEW = {
       ...PREVIEW,
-      cloneLinks: [{ key: 'KAN-17', summary: 'Customer ticket', direction: 'is-cloned-by' as const }]
+      cloneLinks: [
+        { key: 'KAN-17', summary: 'Customer ticket', direction: 'is-cloned-by' as const }
+      ]
     }
     const SOURCE_PREVIEW = {
       key: 'KAN-17',
@@ -573,11 +575,7 @@ describe('NewCaseDialog', () => {
     await waitFor(() =>
       expect(jira.createCase).toHaveBeenCalledWith(expect.objectContaining({ sources: ['CUST-9'] }))
     )
-    expect(jira.ingestAttachments).not.toHaveBeenCalledWith(
-      'PROJ-7',
-      'CUST-9',
-      expect.anything()
-    )
+    expect(jira.ingestAttachments).not.toHaveBeenCalledWith('PROJ-7', 'CUST-9', expect.anything())
   })
 
   it('shows a deduped file as done, attributed to the ticket it was already ingested from', async () => {
@@ -822,5 +820,49 @@ describe('NewCaseDialog', () => {
     expect(screen.getByRole('checkbox', { name: /second\.log/i })).not.toBeChecked()
     // Clearing the files does NOT withdraw consent — the include control owns that.
     expect(screen.getByRole('checkbox', { name: /include CUST-9/i })).toBeChecked()
+  })
+
+  it('names the resolved provider in the preview header', async () => {
+    const user = userEvent.setup()
+    window.argus.jira.preview = vi.fn(async () => ({
+      ok: true,
+      value: {
+        provider: 'github',
+        key: 'cli/cli#14189',
+        summary: 'Tiles 403',
+        status: 'open',
+        priority: null,
+        labels: [],
+        reporter: 'mislav',
+        created: '2026-08-19T10:00:00Z',
+        updated: '2026-08-21T17:56:37Z',
+        attachments: [],
+        cloneLinks: [],
+        url: 'https://github.com/cli/cli/issues/14189'
+      }
+    })) as never
+    render(
+      <NewCaseDialog onClose={() => {}} onCreateBlank={async () => {}} onOpenCase={() => {}} />
+    )
+    await user.type(
+      screen.getByPlaceholderText(/ticket/i),
+      'https://github.com/cli/cli/issues/14189'
+    )
+    await user.click(screen.getByRole('button', { name: /fetch/i }))
+    expect(await screen.findByText(/GitHub issue/i)).toBeInTheDocument()
+    expect(screen.getByText('cli/cli#14189')).toBeInTheDocument()
+  })
+
+  it('rejects a pull request URL before any fetch', async () => {
+    const user = userEvent.setup()
+    const preview = vi.fn()
+    window.argus.jira.preview = preview as never
+    render(
+      <NewCaseDialog onClose={() => {}} onCreateBlank={async () => {}} onOpenCase={() => {}} />
+    )
+    await user.type(screen.getByPlaceholderText(/ticket/i), 'https://github.com/cli/cli/pull/9')
+    await user.click(screen.getByRole('button', { name: /fetch/i }))
+    expect(await screen.findByText(/pull request, not an issue/i)).toBeInTheDocument()
+    expect(preview).not.toHaveBeenCalled()
   })
 })
