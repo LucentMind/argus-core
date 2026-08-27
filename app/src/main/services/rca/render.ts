@@ -213,9 +213,10 @@ function renderSections(
 export function renderExecReport(draft: RcaDraft, meta: CaseMeta, opts: RenderOptions): string {
   const dropped = opts.dropped ?? new Set<string>()
   const bodies = renderSections(opts.template.exec, dropped, (s) => narrativeBody(draft, s.id).body)
+  const trackerName = meta.ticketProvider === 'github' ? 'GitHub' : 'Jira'
   return joinSections([
     `# RCA — ${meta.title}`,
-    meta.jiraKey ? `Jira: ${meta.jiraKey}` : '',
+    meta.jiraKey ? `${trackerName}: ${meta.jiraKey}` : '',
     ...bodies
   ])
 }
@@ -226,7 +227,8 @@ export function renderExecReport(draft: RcaDraft, meta: CaseMeta, opts: RenderOp
  */
 export function renderTechReport(draft: RcaDraft, meta: CaseMeta, opts: RenderOptions): string {
   const dropped = opts.dropped ?? new Set<string>()
-  const metaLine = [meta.jiraKey ? `Jira: ${meta.jiraKey}` : '', `Case: ${meta.slug}`]
+  const trackerName = meta.ticketProvider === 'github' ? 'GitHub' : 'Jira'
+  const metaLine = [meta.jiraKey ? `${trackerName}: ${meta.jiraKey}` : '', `Case: ${meta.slug}`]
     .filter((s) => s.length > 0)
     .join(' · ')
   const withTimeline = symptomsOwnsTimeline(opts.template.tech)

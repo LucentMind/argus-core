@@ -103,7 +103,8 @@ export function assembleRcaInput(
       jiraKey: c.jiraKey,
       resolution: c.resolution,
       tags: c.tags,
-      createdAt: c.createdAt
+      createdAt: c.createdAt,
+      ticketProvider: c.ticketProvider
     },
     findings: listFindings(db, argusHome, slug)
       .filter((f) => f.mode === DEFAULT_MODE)

@@ -105,7 +105,8 @@ export function handEditedReports(
       jiraKey: kase.jiraKey,
       resolution: kase.resolution,
       tags: kase.tags,
-      createdAt: kase.createdAt
+      createdAt: kase.createdAt,
+      ticketProvider: kase.ticketProvider
     }
     const template = templateFromSnapshot(row.template_snapshot)
     const dropped = storedDropped(row.dropped_sections)

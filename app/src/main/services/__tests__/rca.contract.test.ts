@@ -75,6 +75,23 @@ describe('buildCaseRcaPrompt', () => {
     for (const key of Object.keys(RCA_SECTIONS)) expect(p).toContain(RCA_SECTIONS[key].text)
     expect(p).toContain('[finding 7]')
   })
+
+  it('labels the case-meta tracker line "jira" for a Jira-bound case', () => {
+    const input = minimalInput()
+    input.caseMeta.ticketProvider = 'jira'
+    const p = buildCaseRcaPrompt(input, DEFAULT_RCA_TEMPLATE)
+    expect(p).toContain('jira: KAN-1')
+    expect(p).not.toMatch(/\bgithub:/)
+  })
+
+  it('labels the case-meta tracker line "github" for a GitHub-bound case, never "jira"', () => {
+    const input = minimalInput()
+    input.caseMeta.jiraKey = 'acme/widgets#8'
+    input.caseMeta.ticketProvider = 'github'
+    const p = buildCaseRcaPrompt(input, DEFAULT_RCA_TEMPLATE)
+    expect(p).toContain('github: acme/widgets#8')
+    expect(p).not.toMatch(/\bjira:/)
+  })
 })
 
 describe('parseRcaOutput', () => {
