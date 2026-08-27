@@ -41,6 +41,7 @@ function mkCase(patch: Partial<CaseRecord>): CaseRecord {
     reviewState: null,
     title: 'Bearing jumps',
     jiraKey: 'NAV-1',
+    ticketProvider: 'jira',
     jiraSyncedAt: null,
     jiraDeselected: [],
     jiraStatus: null,
@@ -128,9 +129,7 @@ it('shows no metrics at all for a case with no ticket', () => {
 })
 
 it('renders singular "comment" in the tooltip when the comment count is exactly 1', () => {
-  render(
-    <CaseCard c={mkCase({ jiraKey: 'NAV-1', jiraCommentCount: 1 })} {...noop} />
-  )
+  render(<CaseCard c={mkCase({ jiraKey: 'NAV-1', jiraCommentCount: 1 })} {...noop} />)
   const metric = screen.getByTestId('metric-comments')
   expect(metric.getAttribute('title')).toBe('1 comment')
 })

@@ -496,7 +496,14 @@ describe('imported transcript FTS indexing (Task 7)', () => {
         '\n'
     )
     const b = path.join(homeA, 'NAV-100-fts.arguscase')
-    await exportCase(dbA, homeA, 'NAV-100', b, { includeTranscripts: true }, { argusVersion: '1.0.0' })
+    await exportCase(
+      dbA,
+      homeA,
+      'NAV-100',
+      b,
+      { includeTranscripts: true },
+      { argusVersion: '1.0.0' }
+    )
     const rec = await importCase(dbB, homeB, b, 'imported-case')
     const [s] = listSessions(dbB, rec.slug)
     return { rec, sessionId: s.id }
@@ -637,5 +644,32 @@ describe('legacy status values', () => {
     )
     const rec = await importCase(dbB, homeB, out, 'NAV-100')
     expect(rec.phase).toBe('rca-drafted')
+  })
+
+  it('carries ticketProvider through export and import', async () => {
+    createCase(dbA, homeA, {
+      slug: 'GH-CASE',
+      title: 'gh case',
+      jiraKey: 'cli/cli#14189',
+      ticketProvider: 'github'
+    })
+    const out = path.join(
+      os.tmpdir(),
+      `gh-${Date.now()}-${Math.random().toString(36).slice(2)}.arguscase`
+    )
+    await exportCase(
+      dbA,
+      homeA,
+      'GH-CASE',
+      out,
+      { includeTranscripts: true },
+      { argusVersion: '1.0.0' }
+    )
+    // A case imported as 'jira' while holding a GitHub ref would call Atlassian with
+    // `cli/cli#14189` on the next sync. This is the same failure shape as the
+    // case_jira_links rows that bundles used to drop.
+    const rec = await importCase(dbB, homeB, out, 'GH-CASE')
+    expect(rec.ticketProvider).toBe('github')
+    expect(getCase(dbB, 'GH-CASE')!.ticketProvider).toBe('github')
   })
 })
