@@ -92,12 +92,14 @@ interface JiraEvidenceMeta {
   alsoOn?: JiraAlsoOn[]
 }
 
-const jiraMeta = (meta: Record<string, unknown>): JiraEvidenceMeta =>
+export const jiraMeta = (meta: Record<string, unknown>): JiraEvidenceMeta =>
   (meta.jira as JiraEvidenceMeta | undefined) ?? {}
 
 /** Evidence lookup MUST be scoped by ticket key: a case can carry evidence from its primary
- *  ticket and from source tickets, and role alone is ambiguous across them. */
-const findJiraEvidence = (
+ *  ticket and from source tickets, and role alone is ambiguous across them. Exported for
+ *  `rca/input.ts`, which reads the ticket/comments rows the same way `refresh` does — off
+ *  `meta.jira.role`/`key` rather than a reconstructed filename, so it survives a rebind. */
+export const findJiraEvidence = (
   evidence: EvidenceRecord[],
   role: string,
   key: string
@@ -125,25 +127,49 @@ const knownAttachments = (evidence: EvidenceRecord[], key: string): Map<string, 
 }
 
 /** After a rebind (a transferred/renamed issue whose canonical ref changed), migrate every
- *  evidence row still carrying the OLD ref in `meta.jira.key` to the NEW one — in place, on
- *  both the DB row and the `evidence` array passed in — so the case FOLLOWS the issue
- *  instead of forking it. Without this, every lookup below is keyed by the new ref, misses
- *  the old-ref rows entirely, and re-ingests fresh ticket/comments files alongside the
- *  stale ones that then never update again (see Finding I1). Meta-only, like `addAlsoOn`:
- *  never touches file bytes, hash, or index. */
+ *  evidence row still carrying the OLD ref in `meta.jira.key` — or in `meta.jira.alsoOn`, an
+ *  attachment credited to the old ref via dedup (see `addAlsoOn`) — to the NEW one, in place,
+ *  on both the DB rows and the `evidence` array passed in, so the case FOLLOWS the issue
+ *  instead of forking it. Without the `key` half, every lookup below is keyed by the new ref,
+ *  misses the old-ref rows entirely, and re-ingests fresh ticket/comments files alongside the
+ *  stale ones that then never update again (see Finding I1). Without the `alsoOn` half, an
+ *  attachment dedup-attributed to the old ref stays invisible to `knownAttachments(new ref)`
+ *  and gets re-offered as "new" on every refresh after the transfer — exactly the repeating
+ *  failure `alsoOn` exists to prevent. Meta-only, like `addAlsoOn`: never touches file bytes,
+ *  hash, or index. Runs as one transaction so a mid-migration failure can't leave some rows on
+ *  the new ref and others on the old (a partial fork). */
 function migrateJiraKey(
   db: DatabaseSync,
   evidence: EvidenceRecord[],
   from: string,
   to: string
 ): void {
+  const updates: { e: EvidenceRecord; meta: Record<string, unknown> }[] = []
   for (const e of evidence) {
     const jira = jiraMeta(e.meta)
-    if (jira.key !== from) continue
-    const meta = { ...e.meta, jira: { ...jira, key: to } }
-    db.prepare(`UPDATE evidence SET meta = ? WHERE id = ?`).run(JSON.stringify(meta), e.id)
-    e.meta = meta
+    const keyMatches = jira.key === from
+    const alsoOn = jira.alsoOn
+    const alsoOnMatches = alsoOn?.some((a) => a.key === from) ?? false
+    if (!keyMatches && !alsoOnMatches) continue
+    const newJira: JiraEvidenceMeta = { ...jira }
+    if (keyMatches) newJira.key = to
+    if (alsoOnMatches) {
+      newJira.alsoOn = alsoOn!.map((a) => (a.key === from ? { ...a, key: to } : a))
+    }
+    updates.push({ e, meta: { ...e.meta, jira: newJira } })
   }
+  if (updates.length === 0) return
+  db.exec('BEGIN')
+  try {
+    for (const { e, meta } of updates) {
+      db.prepare(`UPDATE evidence SET meta = ? WHERE id = ?`).run(JSON.stringify(meta), e.id)
+    }
+    db.exec('COMMIT')
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw err
+  }
+  for (const { e, meta } of updates) e.meta = meta
 }
 
 /** Append (idempotently) a secondary ticket attribution to an existing evidence row's

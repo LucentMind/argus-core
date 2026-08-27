@@ -1339,4 +1339,64 @@ describe('JiraCases source tickets', () => {
     expect(r2.sources[0].newAttachments).toEqual([])
     expect(r2.sources[0].deselectedAttachments.map((a) => a.id)).toEqual(['20001'])
   })
+
+  // Minor 1: migrateJiraKey only rewrote the top-level meta.jira.key, never the entries
+  // inside meta.jira.alsoOn. An attachment credited to the PRIMARY ref via a dedup hit (its
+  // own row's key is the OTHER ticket it was ingested from — see `addAlsoOn`) kept the OLD
+  // primary ref in its alsoOn entry after a transfer, so knownAttachments(new ref) could
+  // never see it and refresh re-offered it as "new" forever — exactly what alsoOn exists to
+  // prevent (see its doc comment).
+  it('migrates an alsoOn attribution along with a transferred primary ref', async () => {
+    const custAtts = [att('20001', 'log.txt')]
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async (k: string) =>
+        k === 'CUST-9'
+          ? issue({ key: 'CUST-9', summary: 'Customer', attachments: [] })
+          : issue({ key: 'NAV-7', attachments: custAtts })
+      ),
+      downloadAttachment: vi.fn(async (_id: string, dest: string) =>
+        fs.writeFileSync(dest, 'same-bytes')
+      ),
+      getComments: vi.fn(async () => [])
+    }
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    // First ingest attributes the row's OWN key to CUST-9 (a source ticket)...
+    await svc.ingestAttachments('NAV-7', 'CUST-9', custAtts)
+    await settle()
+    // ...then a byte-identical dedup hit from the PRIMARY ticket (NAV-7) is recorded via
+    // alsoOn, not a new row or a rewritten key.
+    await svc.ingestAttachments('NAV-7', 'NAV-7', custAtts)
+    await settle()
+
+    const before = listEvidence(db, 'NAV-7').find((e) => e.relPath.includes('log.txt'))!
+    expect((before.meta.jira as { key: string }).key).toBe('CUST-9')
+    expect(
+      (before.meta.jira as { alsoOn?: Array<{ key: string }> }).alsoOn?.map((a) => a.key)
+    ).toEqual(['NAV-7'])
+
+    // Transfer the PRIMARY ticket NAV-7 -> NAV-8. The row's own key (CUST-9) is untouched,
+    // but the alsoOn entry naming NAV-7 must follow the transfer.
+    const renamed: AtlassianClientLike = {
+      ...client,
+      getIssue: vi.fn(async (k: string) =>
+        k === 'CUST-9'
+          ? issue({ key: 'CUST-9', summary: 'Customer', attachments: [] })
+          : issue({ key: 'NAV-8', attachments: custAtts })
+      )
+    }
+    const svc2 = service(renamed)
+    const summary = await svc2.refresh('NAV-7')
+    await settle()
+    expect(summary.rebound).toEqual({ from: 'NAV-7', to: 'NAV-8' })
+
+    const after = listEvidence(db, 'NAV-7').find((e) => e.relPath.includes('log.txt'))!
+    expect((after.meta.jira as { key: string }).key).toBe('CUST-9')
+    expect(
+      (after.meta.jira as { alsoOn?: Array<{ key: string }> }).alsoOn?.map((a) => a.key)
+    ).toEqual(['NAV-8'])
+
+    // Without the migration, this refresh (and every one after) would re-offer log.txt as new.
+    expect(summary.newAttachments).toEqual([])
+  })
 })
