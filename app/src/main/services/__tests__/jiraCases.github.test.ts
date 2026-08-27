@@ -12,6 +12,7 @@ import { JiraCases } from '../jiraCases'
 import { createGithubProvider } from '../tickets/githubProvider'
 import { createJiraProvider } from '../tickets/jiraProvider'
 import type { Runner } from '../github'
+import { AtlassianError } from '../atlassian'
 
 const ISSUE = {
   number: 14189,
@@ -98,6 +99,90 @@ function rebuild(payload: unknown): JiraCases {
     }
   })
 }
+
+/** Same shape as `rebuild`, but the injected `gh` Runner rejects instead of returning JSON. */
+function rebuildWithFailingGh(gh: Runner): JiraCases {
+  const jiraClient = {
+    getIssue: vi.fn(async () => {
+      throw new Error('Atlassian must not be called for a GitHub case')
+    }),
+    getComments: vi.fn(async () => []),
+    downloadAttachment: vi.fn(async () => undefined)
+  }
+  return new JiraCases({
+    db,
+    argusHome: home,
+    detection: createDetection(),
+    client: jiraClient,
+    site: () => 'https://argus88.atlassian.net',
+    queue: createImmediateQueue(db, home),
+    emitProgress: () => {},
+    evidenceChanged: () => {},
+    providers: {
+      jira: createJiraProvider({
+        client: jiraClient,
+        site: () => 'https://argus88.atlassian.net',
+        postComment: async () => undefined
+      }),
+      github: createGithubProvider({ gh })
+    }
+  })
+}
+
+// spec §7 rows 1-2: a raw `gh` rejection reaching the ticket path must become the same typed
+// AtlassianError shape Jira failures already produce, with the two named messages.
+describe('gh failure mapping (spec §7)', () => {
+  it('reports gh absent as not-configured, naming the CLI', async () => {
+    const gh = vi.fn(async () => {
+      const err = new Error('spawn gh ENOENT') as NodeJS.ErrnoException
+      err.code = 'ENOENT'
+      throw err
+    }) as unknown as Runner
+    const c = rebuildWithFailingGh(gh)
+    await expect(c.preview('cli/cli#14189')).rejects.toMatchObject({
+      code: 'not-configured',
+      message: expect.stringMatching(/GitHub CLI \(gh\) is not installed/)
+    })
+  })
+
+  it('reports gh not authenticated distinctly, naming `gh auth login`', async () => {
+    const gh = vi.fn(async () => {
+      const err = new Error('Command failed: gh issue view 14189 --repo cli/cli') as Error & {
+        stderr?: string
+      }
+      err.stderr = 'To get started with GitHub CLI, please run:  gh auth login\n'
+      throw err
+    }) as unknown as Runner
+    const c = rebuildWithFailingGh(gh)
+    await expect(c.preview('cli/cli#14189')).rejects.toMatchObject({
+      code: 'auth',
+      message: expect.stringMatching(/gh auth login/)
+    })
+  })
+
+  it('reports an unresolvable issue as not-found', async () => {
+    const gh = vi.fn(async () => {
+      const err = new Error('Command failed: gh issue view 99999 --repo cli/cli') as Error & {
+        stderr?: string
+      }
+      err.stderr =
+        'GraphQL: Could not resolve to an issue or pull request with the number of 99999. (repository.issue)\n'
+      throw err
+    }) as unknown as Runner
+    const c = rebuildWithFailingGh(gh)
+    await expect(c.preview('cli/cli#99999')).rejects.toMatchObject({ code: 'not-found' })
+  })
+
+  it("every mapped gh failure is an AtlassianError, matching Jira's typed shape", async () => {
+    const gh = vi.fn(async () => {
+      const err = new Error('spawn gh ENOENT') as NodeJS.ErrnoException
+      err.code = 'ENOENT'
+      throw err
+    }) as unknown as Runner
+    const c = rebuildWithFailingGh(gh)
+    await expect(c.preview('cli/cli#14189')).rejects.toBeInstanceOf(AtlassianError)
+  })
+})
 
 describe('createFromTicket — github', () => {
   it('creates a case bound to the GitHub issue', async () => {

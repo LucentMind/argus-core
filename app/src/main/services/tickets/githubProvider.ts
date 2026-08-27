@@ -5,7 +5,7 @@ import type { JiraCommentInfo } from '../../../shared/jira'
 import type { PrCandidate } from '../../../shared/pr'
 import { splitGithubRef } from '../../../shared/ticketRef'
 import type { TicketIssueData, TicketPreview } from '../../../shared/tickets'
-import { defaultGhRunner, GH_TIMEOUT_MS, type Runner } from '../github'
+import { defaultGhRunner, GH_TIMEOUT_MS, ghAtlassianError, type Runner } from '../github'
 import type { TicketProvider } from './provider'
 
 /** Exactly the fields `gh issue view --json` is asked for. */
@@ -71,7 +71,15 @@ function refFromIssueUrl(url: string): string | null {
 
 export function createGithubProvider(deps: { gh?: Runner }): TicketProvider {
   const gh = deps.gh ?? defaultGhRunner
-  const run = (args: string[]): Promise<string> => gh('gh', args, { timeoutMs: GH_TIMEOUT_MS })
+  // The ONE place a raw gh rejection becomes typed prose for this provider (spec §7 rows 1-2):
+  // every `run()` call — issue view, issue comment, pr view — goes through here.
+  const run = async (args: string[]): Promise<string> => {
+    try {
+      return await gh('gh', args, { timeoutMs: GH_TIMEOUT_MS })
+    } catch (err) {
+      throw ghAtlassianError(err)
+    }
+  }
 
   const fetchIssue = async (ref: string): Promise<GhIssue> => {
     const { owner, repo, number } = splitGithubRef(ref)
