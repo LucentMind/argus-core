@@ -22,7 +22,7 @@ export const CANDIDATES_CONTRACT = `You are selecting durable-knowledge candidat
    A skill-new is CLASS-LEVEL; its name names the class of problem as a lowercase-hyphenated verb phrase (diagnose-…, analyze-…, check-…), never this case.
 8. TARGETS. skill-edit target MUST be an installed skill name; skill-new target MUST NOT exist; reference-edit may name an existing team-knowledge reference or a new one (which creates it); NEVER a [tier: confluence] reference — put that knowledge in a new team-knowledge reference instead.
 9. EVIDENCE. Every candidate's "evidence" lists ≥ 1 dossier path ("root_cause", "confirmed_fix", "diagnostic_path[2]", "durable_facts[0]", …) it rests on. A candidate with no dossier support is not a candidate.
-10. OUTPUT. Order candidates by confidence, most confident first — a per-resolution cap is applied by CODE afterwards, so do NOT self-truncate to one item. Exactly one fenced \`\`\`json block: {"candidates": [{kind: procedure|fact, type: skill-new|skill-edit|reference-edit, target, title, outline, evidence[], related[], generalization, routing_rationale, confidence}]}. "outline" for a procedure = trigger, ordered actions, stop condition; for a fact = the scoped statement(s). {"candidates": []} is a valid answer.`
+10. OUTPUT. Order candidates by confidence, most confident first — a per-resolution cap is applied by CODE afterwards, so do NOT self-truncate to one item. Exactly one fenced \`\`\`json block: {"candidates": [{kind: procedure|fact, type: skill-new|skill-edit|reference-edit, target, title, outline, evidence[], related[], generalization, routing_rationale, confidence}]}. "outline" is always a plain string, never an object or array: for a procedure, write the trigger, ordered actions and stop condition as one prose string; for a fact, the scoped statement(s) as prose. {"candidates": []} is a valid answer.`
 
 export const CANDIDATES_SECTIONS: PromptTextSpecs = {
   case: { title: 'Candidates section — case metadata', text: '# Case' },
@@ -87,7 +87,34 @@ const isStr = (v: unknown): v is string => typeof v === 'string' && v.trim().len
 const strArr = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
 
-export function parseCandidates(text: string): KnowledgeCandidate[] {
+/** One candidate's own shape is bad (e.g. a structured `outline` instead of prose) — drop just
+ *  that entry, not the batch: `null` here never becomes a thrown DistillParseError. */
+function parseOneCandidate(c: unknown): KnowledgeCandidate | null {
+  if (typeof c !== 'object' || c === null) return null
+  const x = c as Record<string, unknown>
+  if (!isStr(x.kind) || !KINDS.has(x.kind)) return null
+  if (!isStr(x.type) || !TYPES.has(x.type)) return null
+  if (!isStr(x.target) || !isStr(x.title) || !isStr(x.outline)) return null
+  if (!Array.isArray(x.evidence)) return null
+  const conf = typeof x.confidence === 'number' ? Math.min(1, Math.max(0, x.confidence)) : 0.5
+  return {
+    kind: x.kind as KnowledgeCandidate['kind'],
+    type: x.type as KnowledgeCandidate['type'],
+    target: x.target.trim(),
+    title: x.title.trim(),
+    outline: x.outline,
+    evidence: strArr(x.evidence),
+    related: strArr(x.related),
+    generalization: typeof x.generalization === 'string' ? x.generalization : '',
+    routing_rationale: typeof x.routing_rationale === 'string' ? x.routing_rationale : '',
+    confidence: conf
+  }
+}
+
+export function parseCandidates(text: string): {
+  candidates: KnowledgeCandidate[]
+  malformedDropped: number
+} {
   const fences = [...text.matchAll(/```json\s*\n([\s\S]*?)\n```/g)]
   if (fences.length !== 1)
     throw new DistillParseError(`expected exactly 1 json fence, got ${fences.length}`, text)
@@ -103,30 +130,12 @@ export function parseCandidates(text: string): KnowledgeCandidate[] {
   for (const k of Object.keys(o))
     if (k !== 'candidates') throw new DistillParseError(`unknown key "${k}"`, text)
   if (!Array.isArray(o.candidates)) throw new DistillParseError('candidates must be an array', text)
-  return o.candidates.map((c: unknown) => {
-    if (typeof c !== 'object' || c === null)
-      throw new DistillParseError('candidate is not an object', text)
-    const x = c as Record<string, unknown>
-    if (!isStr(x.kind) || !KINDS.has(x.kind))
-      throw new DistillParseError(`bad kind "${String(x.kind)}"`, text)
-    if (!isStr(x.type) || !TYPES.has(x.type))
-      throw new DistillParseError(`bad type "${String(x.type)}"`, text)
-    if (!isStr(x.target) || !isStr(x.title) || !isStr(x.outline))
-      throw new DistillParseError('candidate fields invalid', text)
-    if (!Array.isArray(x.evidence))
-      throw new DistillParseError('candidate evidence must be an array', text)
-    const conf = typeof x.confidence === 'number' ? Math.min(1, Math.max(0, x.confidence)) : 0.5
-    return {
-      kind: x.kind as KnowledgeCandidate['kind'],
-      type: x.type as KnowledgeCandidate['type'],
-      target: x.target.trim(),
-      title: x.title.trim(),
-      outline: x.outline,
-      evidence: strArr(x.evidence),
-      related: strArr(x.related),
-      generalization: typeof x.generalization === 'string' ? x.generalization : '',
-      routing_rationale: typeof x.routing_rationale === 'string' ? x.routing_rationale : '',
-      confidence: conf
-    }
-  })
+  const candidates: KnowledgeCandidate[] = []
+  let malformedDropped = 0
+  for (const c of o.candidates) {
+    const parsed = parseOneCandidate(c)
+    if (parsed) candidates.push(parsed)
+    else malformedDropped++
+  }
+  return { candidates, malformedDropped }
 }

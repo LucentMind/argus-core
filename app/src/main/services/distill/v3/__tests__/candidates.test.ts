@@ -75,23 +75,46 @@ describe('buildCandidatesPrompt', () => {
 
 describe('parseCandidates', () => {
   it('parses candidates', () => {
-    const c = parseCandidates(C)
-    expect(c).toHaveLength(1)
-    expect(c[0].type).toBe('skill-new')
-    expect(c[0].confidence).toBe(0.8)
+    const { candidates } = parseCandidates(C)
+    expect(candidates).toHaveLength(1)
+    expect(candidates[0].type).toBe('skill-new')
+    expect(candidates[0].confidence).toBe(0.8)
   })
   it('accepts an empty candidates array', () => {
-    expect(parseCandidates('```json\n{"candidates":[]}\n```')).toEqual([])
+    expect(parseCandidates('```json\n{"candidates":[]}\n```')).toEqual({
+      candidates: [],
+      malformedDropped: 0
+    })
   })
   it('defaults optional arrays and clamps confidence', () => {
-    const c = parseCandidates(C.replace(',"related":["diagnose-x"]', '').replace('0.8', '7'))
-    expect(c[0].related).toEqual([])
-    expect(c[0].confidence).toBe(1)
-  })
-  it('throws on a bad kind/type or missing evidence array', () => {
-    expect(() => parseCandidates(C.replace('"procedure"', '"thing"'))).toThrow(DistillParseError)
-    expect(() => parseCandidates(C.replace('"evidence":["root_cause"],', ''))).toThrow(
-      DistillParseError
+    const { candidates } = parseCandidates(
+      C.replace(',"related":["diagnose-x"]', '').replace('0.8', '7')
     )
+    expect(candidates[0].related).toEqual([])
+    expect(candidates[0].confidence).toBe(1)
+  })
+  it('drops a candidate with a bad kind/type or missing evidence array, rather than failing the batch', () => {
+    const badKind = parseCandidates(C.replace('"procedure"', '"thing"'))
+    expect(badKind.candidates).toEqual([])
+    expect(badKind.malformedDropped).toBe(1)
+    const badEvidence = parseCandidates(C.replace('"evidence":["root_cause"],', ''))
+    expect(badEvidence.candidates).toEqual([])
+    expect(badEvidence.malformedDropped).toBe(1)
+  })
+  it('still throws on a structurally broken payload (bad JSON, wrong fence count, non-array candidates)', () => {
+    expect(() => parseCandidates('not json at all')).toThrow(DistillParseError)
+    expect(() => parseCandidates('```json\n{"candidates": "nope"}\n```')).toThrow(DistillParseError)
+  })
+  it('drops a malformed candidate (non-string outline) but keeps the rest of the batch', () => {
+    const twoOneBad = `\`\`\`json
+{"candidates":[
+  {"kind":"procedure","type":"skill-new","target":"diagnose-bad","title":"bad","outline":{"trigger":"t","actions":["a"],"stop_condition":"s"},"evidence":["root_cause"],"related":[],"generalization":"g","routing_rationale":"r","confidence":0.9},
+  {"kind":"fact","type":"reference-edit","target":"r1","title":"good","outline":"o","evidence":["root_cause"],"related":[],"generalization":"g","routing_rationale":"r","confidence":0.6}
+]}
+\`\`\``
+    const { candidates, malformedDropped } = parseCandidates(twoOneBad)
+    expect(candidates).toHaveLength(1)
+    expect(candidates[0].target).toBe('r1')
+    expect(malformedDropped).toBe(1)
   })
 })
