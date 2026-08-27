@@ -7,20 +7,11 @@ import type { EvidenceRecord } from '../../../shared/types'
 import { getCase } from '../caseService'
 import { listFindings } from '../findings'
 import { listEvidence } from '../ingest'
-import { caseDir, evidenceDir } from '../paths'
-import { refSlug } from '../../../shared/ticketRef'
+import { caseDir } from '../paths'
 import { findJiraEvidence, jiraMeta } from '../jiraEvidenceMeta'
 
 /** Tail cap per session; RCA needs the conclusion of a conversation, not its start. */
 export const TRANSCRIPT_CAP = 8000
-
-function readEvidenceFile(argusHome: string, slug: string, name: string): string | null {
-  try {
-    return fs.readFileSync(path.join(evidenceDir(argusHome, slug), name), 'utf8')
-  } catch {
-    return null
-  }
-}
 
 /** Read a specific evidence row's bytes off its own `relPath` — never a reconstructed
  *  filename, so this survives a transfer that changed the case's ticket key without renaming
@@ -47,22 +38,21 @@ function readEvidenceRow(argusHome: string, slug: string, rec: EvidenceRecord): 
  *  `importSourceTicket` always writes the distinct roles `source-ticket`/`source-ticket-raw`/
  *  `source-comments` — so a role-only match here can never return a source ticket's text.
  *
- *  Falls back further to the legacy filename convention (`${refSlug(key)}.<role-suffix>`)
- *  only when no row carries the role at all, which covers evidence ingested before this
- *  metadata existed. */
+ *  No legacy-filename fallback: every production write goes through `ingestContent`/
+ *  `ingestArtifact`, which insert the DB row atomically with the file write, so an evidence
+ *  file with no matching row cannot occur outside a hand-rolled test fixture. */
 function readTicketEvidence(
   argusHome: string,
   slug: string,
   key: string,
   evidence: EvidenceRecord[],
-  role: 'ticket' | 'comments',
-  legacySuffix: 'ticket.md' | 'comments.md'
+  role: 'ticket' | 'comments'
 ): string | null {
   const rec = findJiraEvidence(evidence, role, key)
   if (rec) return readEvidenceRow(argusHome, slug, rec)
   const roleOnly = evidence.find((e) => jiraMeta(e.meta).role === role)
   if (roleOnly) return readEvidenceRow(argusHome, slug, roleOnly)
-  return readEvidenceFile(argusHome, slug, `${refSlug(key)}.${legacySuffix}`)
+  return null
 }
 
 /**
@@ -130,10 +120,10 @@ export function assembleRcaInput(
       size: e.size
     })),
     jiraTicketMarkdown: c.jiraKey
-      ? readTicketEvidence(argusHome, slug, c.jiraKey, evidenceRows, 'ticket', 'ticket.md')
+      ? readTicketEvidence(argusHome, slug, c.jiraKey, evidenceRows, 'ticket')
       : null,
     jiraCommentsMarkdown: c.jiraKey
-      ? readTicketEvidence(argusHome, slug, c.jiraKey, evidenceRows, 'comments', 'comments.md')
+      ? readTicketEvidence(argusHome, slug, c.jiraKey, evidenceRows, 'comments')
       : null,
     transcripts,
     priorDraft
