@@ -104,6 +104,9 @@ export interface JiraSourceRefresh {
 export interface JiraRefreshSummary {
   key: string
   statusChange: { from: string; to: string } | null
+  /** Set when the upstream issue was transferred and the case followed it. GitHub redirects
+   *  a transferred issue silently, so without this the identity change would be invisible. */
+  rebound?: { from: string; to: string }
   /** New on the ticket and pending a user decision — refresh does NOT download. */
   newAttachments: JiraAttachmentInfo[]
   /** Previously deselected ids still live on the ticket (offered unchecked in the dialog). */
