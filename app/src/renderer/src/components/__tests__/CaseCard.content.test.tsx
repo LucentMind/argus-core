@@ -91,6 +91,38 @@ it('shows the upstream Jira status and the last-activity age', () => {
   expect(screen.getByTestId('case-context')).toHaveTextContent('Jira: In Progress · updated 2d ago')
 })
 
+it('shows GitHub status for a GitHub-bound case', () => {
+  render(
+    <CaseCard
+      c={mkCase({
+        ticketProvider: 'github',
+        jiraKey: 'owner/repo#7',
+        jiraStatus: 'closed (duplicate)',
+        updatedAt: twoDaysAgo
+      })}
+      {...noop}
+    />
+  )
+  expect(screen.getByTestId('case-context')).toHaveTextContent(
+    'GitHub: closed (duplicate) · updated 2d ago'
+  )
+})
+
+it('still shows Jira status for a Jira-bound case — the label follows ticketProvider, not a hardcoded default', () => {
+  render(
+    <CaseCard
+      c={mkCase({
+        ticketProvider: 'jira',
+        jiraKey: 'KAN-22',
+        jiraStatus: 'In Progress',
+        updatedAt: twoDaysAgo
+      })}
+      {...noop}
+    />
+  )
+  expect(screen.getByTestId('case-context')).toHaveTextContent('Jira: In Progress · updated 2d ago')
+})
+
 it('omits the Jira part for a case with no ticket', () => {
   render(<CaseCard c={mkCase({ jiraKey: null, updatedAt: twoDaysAgo })} {...noop} />)
   expect(screen.getByTestId('case-context')).toHaveTextContent('updated 2d ago')

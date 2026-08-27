@@ -130,14 +130,17 @@ export function CaseCard({
       >
         {c.title}
       </h2>
-      {/* The band the card used to leave empty. Jira's own status is otherwise invisible in
-          the steady state — it surfaces only as a `status → X` chip when it CHANGES (see
-          shared/triage.ts). That chip stays: it is the change signal, this line is the state.
-          `updated` is the case's own updatedAt, distinct from the footer's sync badge, which
-          says when we last talked to Jira. */}
+      {/* The band the card used to leave empty. The upstream tracker's own status is otherwise
+          invisible in the steady state — it surfaces only as a `status → X` chip when it
+          CHANGES (see shared/triage.ts). That chip stays: it is the change signal, this line is
+          the state. `updated` is the case's own updatedAt, distinct from the footer's sync
+          badge, which says when we last talked to the tracker. The label follows
+          `ticketProvider` — never re-derived from the key's shape. */}
       <div data-testid="case-context" className="truncate text-xs text-dim">
         {[
-          c.jiraKey && c.jiraStatus ? `Jira: ${c.jiraStatus}` : null,
+          c.jiraKey && c.jiraStatus
+            ? `${c.ticketProvider === 'github' ? 'GitHub' : 'Jira'}: ${c.jiraStatus}`
+            : null,
           `updated ${formatSyncAge(c.updatedAt)}`
         ]
           .filter(Boolean)
