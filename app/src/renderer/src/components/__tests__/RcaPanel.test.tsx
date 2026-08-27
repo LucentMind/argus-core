@@ -897,17 +897,35 @@ describe('RcaPanel', () => {
     // proves the warning is conditional at all; without them a hardcoded `danger: true` would
     // pass every other test in this file.
 
-    async function renderAndClickPost(): Promise<void> {
+    // The real caller (CaseWorkspace.tsx) always passes `ticketProvider` — the button label is
+    // driven ENTIRELY by that prop (`trackerName`), not by the shape of `jiraKey` or by
+    // `ticketVisibility`'s return value. A render that omits `ticketProvider` shows "Post to
+    // Jira" no matter what `jiraKey` looks like, which is a harness artifact, not a screen the
+    // app can produce: the PUBLIC/PRIVATE/UNKNOWN cases below are simulating a GitHub-bound
+    // case (that's the only case `ticketVisibility` returns non-null for, per the component's
+    // own comment above `onPostClick`), so they must pass `ticketProvider: 'github'` and look
+    // for the GitHub-labeled button; the null case simulates a Jira case and passes
+    // `ticketProvider: 'jira'` explicitly.
+    async function renderAndClickPost(ticketProvider: 'jira' | 'github'): Promise<void> {
       status.mockResolvedValue(doneStatusPayload({ confirmedAt: '2026-08-14T00:00:00Z' }))
-      render(<RcaPanel slug="case-a" jiraKey="my-org/my-repo#42" onClose={vi.fn()} />)
-      const postBtn = await screen.findByRole('button', { name: /post to jira/i })
+      render(
+        <RcaPanel
+          slug="case-a"
+          jiraKey="my-org/my-repo#42"
+          ticketProvider={ticketProvider}
+          onClose={vi.fn()}
+        />
+      )
+      const postBtn = await screen.findByRole('button', {
+        name: ticketProvider === 'github' ? /post to github/i : /post to jira/i
+      })
       await userEvent.click(postBtn)
       await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
     }
 
     it('PUBLIC: the confirm dialog carries the danger warning, names the target ref, and states the repo IS public', async () => {
       ticketVisibility.mockResolvedValue('PUBLIC')
-      await renderAndClickPost()
+      await renderAndClickPost('github')
       const opts = vi.mocked(confirm).mock.calls[0][0]
       expect(opts.title).toMatch(/my-org\/my-repo#42/)
       expect(opts.danger).toBe(true)
@@ -918,7 +936,7 @@ describe('RcaPanel', () => {
 
     it('PRIVATE: no public warning appears, and the dialog is not marked danger', async () => {
       ticketVisibility.mockResolvedValue('PRIVATE')
-      await renderAndClickPost()
+      await renderAndClickPost('github')
       const opts = vi.mocked(confirm).mock.calls[0][0]
       expect(opts.title).toMatch(/my-org\/my-repo#42/)
       expect(opts.danger).toBeFalsy()
@@ -930,7 +948,7 @@ describe('RcaPanel', () => {
     // copy must not assert a fact the code does not know, unlike the PUBLIC case above.
     it('UNKNOWN: still warns with danger styling, but states the visibility could not be confirmed rather than asserting the repo is public', async () => {
       ticketVisibility.mockResolvedValue('UNKNOWN')
-      await renderAndClickPost()
+      await renderAndClickPost('github')
       const opts = vi.mocked(confirm).mock.calls[0][0]
       expect(opts.danger).toBe(true)
       render(<>{opts.message}</>)
@@ -941,7 +959,7 @@ describe('RcaPanel', () => {
 
     it('null (a Jira case): no public warning, and the ordinary Jira confirmation shows instead', async () => {
       ticketVisibility.mockResolvedValue(null)
-      await renderAndClickPost()
+      await renderAndClickPost('jira')
       const opts = vi.mocked(confirm).mock.calls[0][0]
       expect(opts.title).toMatch(/post rca to jira/i)
       expect(opts.danger).toBeFalsy()

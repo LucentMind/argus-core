@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { NewCaseDialog } from '../NewCaseDialog'
@@ -897,15 +897,24 @@ describe('NewCaseDialog', () => {
   // view` before createCase throws "Invalid case slug") for a different reason — the prefill
   // itself is too long. Asserts against the REAL SLUG_RE, not a restated pattern, so this
   // can't silently drift from what createCase actually enforces.
-  it('prefills a Case ID that still satisfies SLUG_RE for a very long GitHub repo name', async () => {
-    const user = userEvent.setup()
-    const longRepo = 'a'.repeat(70)
+  //
+  // It also asserts the issue number survives truncation: naive `.slice(0, 64)` on the whole
+  // `{repo}-{number}` string cuts the number off the END for a repo this long, so every issue
+  // in the same long-named repo would prefill the identical Case ID and collide in
+  // `createCase` on the second one. Fetching two different issue numbers must produce two
+  // different slugs.
+  async function fetchGithubSlug(
+    user: ReturnType<typeof userEvent.setup>,
+    key: string
+  ): Promise<string> {
+    const [owner, rest] = key.split('/')
+    const [repo, numStr] = rest.split('#')
     window.argus.jira.preview = vi.fn(async () => ({
       ok: true,
       value: {
         provider: 'github',
-        key: `owner/${longRepo}#42`,
-        summary: 'Long repo name',
+        key,
+        summary: 'x',
         status: 'open',
         priority: null,
         labels: [],
@@ -914,7 +923,7 @@ describe('NewCaseDialog', () => {
         updated: '2026-08-21T17:56:37Z',
         attachments: [],
         cloneLinks: [],
-        url: `https://github.com/owner/${longRepo}/issues/42`
+        url: `https://github.com/${owner}/${repo}/issues/${numStr}`
       }
     })) as never
     render(
@@ -922,11 +931,48 @@ describe('NewCaseDialog', () => {
     )
     await user.type(
       screen.getByPlaceholderText(/ticket/i),
-      `https://github.com/owner/${longRepo}/issues/42`
+      `https://github.com/${owner}/${repo}/issues/${numStr}`
     )
     await user.click(screen.getByRole('button', { name: /fetch/i }))
     const slugInput = await screen.findByLabelText('Case slug')
-    expect(SLUG_RE.test((slugInput as HTMLInputElement).value)).toBe(true)
+    return (slugInput as HTMLInputElement).value
+  }
+
+  it('prefills a Case ID that still satisfies SLUG_RE for a very long GitHub repo name, and keeps the issue number', async () => {
+    const longRepo = 'a'.repeat(70)
+    const slug1 = await fetchGithubSlug(userEvent.setup(), `owner/${longRepo}#42`)
+    expect(SLUG_RE.test(slug1)).toBe(true)
+    expect(slug1.endsWith('-42')).toBe(true)
+
+    cleanup()
+
+    const slug2 = await fetchGithubSlug(userEvent.setup(), `owner/${longRepo}#99`)
+    expect(SLUG_RE.test(slug2)).toBe(true)
+    expect(slug2.endsWith('-99')).toBe(true)
+
+    expect(slug1).not.toBe(slug2)
+  })
+
+  // MUST/IMPORTANT (leading-non-alnum repo): `owner/.github` is a real, ubiquitous GitHub repo
+  // (community health files) and accepts issues. SLUG_RE requires the first character to be
+  // alnum; a naive `{repo}-{number}` prefill of `.github-42` fails SLUG_RE while the Create
+  // button stays enabled — the exact C2 failure this prefill exists to prevent.
+  it('prefills a valid Case ID for a repo name starting with a dot', async () => {
+    const slug = await fetchGithubSlug(userEvent.setup(), 'owner/.github#42')
+    expect(SLUG_RE.test(slug)).toBe(true)
+    expect(slug.endsWith('-42')).toBe(true)
+  })
+
+  it('prefills a valid Case ID for a repo name starting with an underscore', async () => {
+    const slug = await fetchGithubSlug(userEvent.setup(), 'owner/_private#42')
+    expect(SLUG_RE.test(slug)).toBe(true)
+    expect(slug.endsWith('-42')).toBe(true)
+  })
+
+  it('prefills a valid Case ID for a repo name starting with a dash', async () => {
+    const slug = await fetchGithubSlug(userEvent.setup(), 'owner/-dash#42')
+    expect(SLUG_RE.test(slug)).toBe(true)
+    expect(slug.endsWith('-42')).toBe(true)
   })
 
   it('rejects a pull request URL before any fetch', async () => {
