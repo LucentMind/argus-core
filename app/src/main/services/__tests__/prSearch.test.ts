@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -6,6 +6,7 @@ import path from 'node:path'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { searchPrsForCase, type Runner } from '../prSearch'
+import type { TicketProvider } from '../tickets/provider'
 
 let db: DatabaseSync
 let home: string
@@ -157,5 +158,83 @@ describe('searchPrsForCase', () => {
       error: null,
       searchedRepos: ['JiaweiHan88/HiveMindTest']
     })
+  })
+})
+
+describe('searchPrsForCase — github-bound case', () => {
+  const CANDIDATE = {
+    owner: 'cli',
+    repo: 'cli',
+    number: 14222,
+    url: 'https://github.com/cli/cli/pull/14222',
+    title: 'Fix the thing',
+    state: 'merged' as const,
+    isDraft: false,
+    createdAt: '2026-08-21T17:56:37Z',
+    isBackport: false,
+    preselected: true
+  }
+  const fakeGithubProvider = (): TicketProvider => ({
+    id: 'github',
+    getIssue: async () => {
+      throw new Error('unused')
+    },
+    getComments: async () => [],
+    postComment: async () => ({ url: '' }),
+    webUrl: (r) => r,
+    linkedPrs: async () => []
+  })
+  const fakeJiraProvider = (): TicketProvider => ({ ...fakeGithubProvider(), id: 'jira' })
+
+  it('uses the issue linked-PR references, never a title search', async () => {
+    createCase(db, home, {
+      slug: 'cli-14189',
+      title: 'x',
+      jiraKey: 'cli/cli#14189',
+      ticketProvider: 'github'
+    })
+    const search = vi.fn(async () => {
+      throw new Error('gh search prs must not run for a github-bound case')
+    }) as unknown as Runner
+    const result = await searchPrsForCase(
+      {
+        db,
+        gh: search,
+        providers: {
+          jira: fakeJiraProvider(),
+          github: { ...fakeGithubProvider(), linkedPrs: async () => [CANDIDATE] }
+        }
+      },
+      'cli-14189'
+    )
+    expect(result.error).toBeNull()
+    expect(result.candidates).toEqual([CANDIDATE])
+  })
+
+  it('reports a provider failure in `error` instead of throwing', async () => {
+    createCase(db, home, {
+      slug: 'cli-14189',
+      title: 'x',
+      jiraKey: 'cli/cli#14189',
+      ticketProvider: 'github'
+    })
+    const result = await searchPrsForCase(
+      {
+        db,
+        providers: {
+          jira: fakeJiraProvider(),
+          github: {
+            ...fakeGithubProvider(),
+            linkedPrs: async () => {
+              throw new Error('gh: not logged in')
+            }
+          }
+        }
+      },
+      'cli-14189'
+    )
+    // Every failure path here degrades to manual linking — nothing may block on it.
+    expect(result.candidates).toEqual([])
+    expect(result.error).toMatch(/not logged in/)
   })
 })
