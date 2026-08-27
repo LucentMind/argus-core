@@ -276,6 +276,36 @@ describe('local provider — regression tests for the spec §1 defect', () => {
     if (r.ok) expect(r.hits.map((h) => (h as LocalCaseHit).caseSlug)).toEqual(['target'])
   })
 
+  it('10. a GitHub-shaped jiraKey (owner/repo#N) is a single term FTS5 can query without throwing', async () => {
+    // Task 7: a GitHub-bound case's `jiraKey` looks like `cli/cli#14189`. `/` and
+    // `#` are FTS5 query-syntax characters — an UNQUOTED MATCH term containing them
+    // is a syntax error (verified directly against node:sqlite's fts5: `db.prepare(
+    // 'SELECT ... WHERE t MATCH ?').all('cli/cli#14189')` throws `fts5: syntax error
+    // near "/"`). `buildRelatedQuery` never splits on `/` or `#` (`tokenize` only
+    // splits on whitespace — query.ts:65-67), so the whole ref survives as ONE
+    // `jiraKey`-source term, and `isExactMatch`/`isStrong` already put every
+    // `jiraKey` term through `ftsTerm`'s quoted-phrase path (summaries.ts, fix pass
+    // 3, 6d186647) — the same mechanism added to fix "KAN-4" prefix-colliding with
+    // "KAN-42". That quoting turns the ref into a valid FTS5 phrase and, since the
+    // indexed text and the query use the same tokenizer, still matches a verbatim
+    // citation of it. There is no separate raw-jiraKey MATCH-building site in
+    // localCases.ts for a GitHub ref to hit unescaped.
+    pad(6)
+    add('target', 'solved', {
+      signature: 'completely unrelated symptom text',
+      keywords: ['cli/cli#14189']
+    })
+    createCase(db, home, { slug: 'current', title: 'irrelevant', jiraKey: 'cli/cli#14189' })
+    const q = buildRelatedQuery(db, 'current')
+    expect(q.terms).toEqual([
+      { text: 'irrelevant', source: 'title' },
+      { text: 'cli/cli#14189', source: 'jiraKey' }
+    ])
+    const r = await provider('current').search(q, 5)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.hits.map((h) => (h as LocalCaseHit).caseSlug)).toEqual(['target'])
+  })
+
   // SUPERSEDES the fix-pass-3 version of this test, whose premise (a
   // legitimate-looking 2-term overlap arising from 'sample' PREFIX-matching
   // 'sampled') is now structurally impossible: weak (title/finding/free)
