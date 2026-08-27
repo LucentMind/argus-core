@@ -154,4 +154,22 @@ describe('summaryHasChanges', () => {
   it('is true when only the status moved', () => {
     expect(summaryHasChanges(summary({ statusChange: { from: 'A', to: 'B' } }))).toBe(true)
   })
+
+  // spec §6.4: a transferred GitHub issue is an identity change on its own, even with
+  // nothing else different — it must not be swallowed by the "nothing changed" path.
+  it('is true when only the issue was rebound', () => {
+    expect(summaryHasChanges(summary({ rebound: { from: 'a/old#1', to: 'a/new#1' } }))).toBe(true)
+  })
+})
+
+describe('rebound (spec §6.4)', () => {
+  it('states the move in the refresh line', () => {
+    const line = jiraSyncLine(
+      { kind: 'result', summary: summary({ rebound: { from: 'a/old#1', to: 'a/new#1' } }) },
+      SYNCED_AT
+    )
+    expect(line.text).toContain('a/old#1')
+    expect(line.text).toContain('a/new#1')
+    expect(line.tone).toBe('defect')
+  })
 })

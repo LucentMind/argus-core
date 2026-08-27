@@ -8,6 +8,7 @@ import {
   type PrCheck,
   type PrStatus
 } from '../../shared/prStatus'
+import { AtlassianError } from './atlassian'
 
 const execFileAsync = promisify(execFile)
 
@@ -54,6 +55,31 @@ export function ghErrorText(err: unknown): string {
   const e = err as NodeJS.ErrnoException & { stderr?: string }
   if (e?.code === 'ENOENT') return 'GitHub CLI (gh) is not installed'
   return (e?.stderr ?? '').trim() || (e as Error)?.message || String(err)
+}
+
+/**
+ * Classifies a failed `gh` call into the `AtlassianErrorCode` vocabulary the whole ticket
+ * abstraction (Jira AND GitHub — the name predates the second provider) already speaks, so a
+ * `gh`-shaped failure reaching `main/index.ts`'s `jiraResult` carries the same typed shape as
+ * an `AtlassianError` instead of falling into the generic `internal` bucket (spec §7 rows 1-2).
+ *
+ * Used at the ONE seam where the ticket path's raw `gh` rejections are turned into prose:
+ * `createGithubProvider`'s `run` helper. `defaultGhRunner` itself must stay uncaught —
+ * `prSearch.ts` branches on the raw `e.code === 'ENOENT'` — this is a separate, later seam.
+ */
+export function ghAtlassianError(err: unknown): AtlassianError {
+  const e = err as NodeJS.ErrnoException & { stderr?: string }
+  if (e?.code === 'ENOENT')
+    return new AtlassianError('not-configured', 'GitHub CLI (gh) is not installed')
+  const text = ghErrorText(err)
+  if (/gh auth login|not logged in|authentication required/i.test(text))
+    return new AtlassianError(
+      'auth',
+      'GitHub CLI is not authenticated — run `gh auth login` and try again.'
+    )
+  if (/could not resolve to an issue|not found \(http 404\)/i.test(text))
+    return new AtlassianError('not-found', 'Ticket not found on GitHub.')
+  return new AtlassianError('internal', text)
 }
 
 /**
