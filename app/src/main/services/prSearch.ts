@@ -8,6 +8,7 @@ import {
 import { getCase } from './caseService'
 import { listStoredWorkspaces } from './workspaces'
 import { defaultGhRunner, ghErrorText, type Runner } from './github'
+import { providerFor, type TicketProviderRegistry } from './tickets/provider'
 
 /** Re-exported so existing importers of `prSearch`'s Runner keep working. */
 export type { Runner }
@@ -15,6 +16,8 @@ export type { Runner }
 export interface PrSearchDeps {
   db: DatabaseSync
   gh?: Runner
+  /** Optional so existing Jira-only callers are unchanged; required for GitHub cases. */
+  providers?: TicketProviderRegistry
 }
 
 // A captured search took ~5.4s; 20s leaves headroom without hanging a background task.
@@ -36,6 +39,18 @@ export async function searchPrsForCase(
     const kase = getCase(deps.db, caseSlug)
     if (!kase?.jiraKey) return empty // nothing to search for — not an error
     key = kase.jiraKey
+    if (kase.ticketProvider === 'github') {
+      // GitHub declares its linkages: `Fixes #123` is structured data, not a title heuristic.
+      // The Jira title search would look for the literal `owner/repo#123` and silently
+      // return nothing.
+      if (!deps.providers) return empty
+      try {
+        const candidates = await providerFor('github', deps.providers).linkedPrs(kase.jiraKey)
+        return { candidates, error: null, searchedRepos: [kase.jiraKey.split('#')[0]] }
+      } catch (err) {
+        return { candidates: [], error: ghErrorText(err), searchedRepos: [] }
+      }
+    }
     // Scoped to linked repos: review mode requires a local clone to make a worktree
     // from, so a PR in an unlinked repo is out of scope by design.
     repos = [
