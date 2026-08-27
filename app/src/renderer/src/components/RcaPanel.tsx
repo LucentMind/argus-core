@@ -705,7 +705,7 @@ export function RcaPanel({
                 </Btn>
                 {job.confirmedAt && (
                   <Btn disabled={postBusy} onClick={() => void onPostClick()}>
-                    {postBusy ? 'Posting…' : 'Post to Jira'}
+                    {postBusy ? 'Posting…' : `Post to ${trackerName}`}
                   </Btn>
                 )}
                 {job.confirmedAt && <Chip tone="review">confirmed</Chip>}

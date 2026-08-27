@@ -61,11 +61,16 @@ const kb = (n: number): string => (n >= 1024 ? `${Math.round(n / 1024)} KB` : `$
  * and it satisfies SLUG_RE for any real GitHub repo name: repo/owner charset is limited to
  * `[A-Za-z0-9._-]`, the same set SLUG_RE allows after its required leading alnum, and GitHub
  * itself never issues a repo name starting with a non-alnum character.
+ *
+ * `SLUG_RE` also caps total length at 64 — a repo name long enough to push `{repo}-{number}`
+ * past that still has to satisfy it, so the prefill is truncated to 64 chars. Every character
+ * up to the cut is already drawn from `SLUG_RE`'s allowed set, so truncating never introduces
+ * a character the regex would reject.
  */
 function prefillSlug(preview: TicketPreview): string {
   if (preview.provider !== 'github') return preview.key
   const { repo, number } = splitGithubRef(preview.key)
-  return `${repo}-${number}`
+  return `${repo}-${number}`.slice(0, 64)
 }
 
 export function NewCaseDialog({

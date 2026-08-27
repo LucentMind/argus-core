@@ -892,6 +892,43 @@ describe('NewCaseDialog', () => {
     expect(SLUG_RE.test((slugInput as HTMLInputElement).value)).toBe(true)
   })
 
+  // Minor 3: SLUG_RE caps total length at 64. A repo name long enough that `{repo}-{number}`
+  // overruns that reproduces the exact C2 flow (a Create click that spends a real `gh issue
+  // view` before createCase throws "Invalid case slug") for a different reason — the prefill
+  // itself is too long. Asserts against the REAL SLUG_RE, not a restated pattern, so this
+  // can't silently drift from what createCase actually enforces.
+  it('prefills a Case ID that still satisfies SLUG_RE for a very long GitHub repo name', async () => {
+    const user = userEvent.setup()
+    const longRepo = 'a'.repeat(70)
+    window.argus.jira.preview = vi.fn(async () => ({
+      ok: true,
+      value: {
+        provider: 'github',
+        key: `owner/${longRepo}#42`,
+        summary: 'Long repo name',
+        status: 'open',
+        priority: null,
+        labels: [],
+        reporter: 'mislav',
+        created: '2026-08-19T10:00:00Z',
+        updated: '2026-08-21T17:56:37Z',
+        attachments: [],
+        cloneLinks: [],
+        url: `https://github.com/owner/${longRepo}/issues/42`
+      }
+    })) as never
+    render(
+      <NewCaseDialog onClose={() => {}} onCreateBlank={async () => {}} onOpenCase={() => {}} />
+    )
+    await user.type(
+      screen.getByPlaceholderText(/ticket/i),
+      `https://github.com/owner/${longRepo}/issues/42`
+    )
+    await user.click(screen.getByRole('button', { name: /fetch/i }))
+    const slugInput = await screen.findByLabelText('Case slug')
+    expect(SLUG_RE.test((slugInput as HTMLInputElement).value)).toBe(true)
+  })
+
   it('rejects a pull request URL before any fetch', async () => {
     const user = userEvent.setup()
     const preview = vi.fn()

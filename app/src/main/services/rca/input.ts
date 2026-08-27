@@ -3,11 +3,13 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { CaseRcaInput, RcaDraft } from '../../../shared/rca'
 import { DEFAULT_MODE } from '../../../shared/modes'
+import type { EvidenceRecord } from '../../../shared/types'
 import { getCase } from '../caseService'
 import { listFindings } from '../findings'
 import { listEvidence } from '../ingest'
-import { evidenceDir } from '../paths'
+import { caseDir, evidenceDir } from '../paths'
 import { refSlug } from '../../../shared/ticketRef'
+import { findJiraEvidence } from '../jiraCases'
 
 /** Tail cap per session; RCA needs the conclusion of a conversation, not its start. */
 export const TRANSCRIPT_CAP = 8000
@@ -18,6 +20,36 @@ function readEvidenceFile(argusHome: string, slug: string, name: string): string
   } catch {
     return null
   }
+}
+
+/** Read a specific evidence row's bytes off its own `relPath` — never a reconstructed
+ *  filename, so this survives a transfer that changed the case's ticket key without renaming
+ *  the file on disk (see Finding C1-follow-up). `relPath` is already case-relative
+ *  (`evidence/xxx.ticket.md`), matching how `ingest.ts` resolves it elsewhere. */
+function readEvidenceRow(argusHome: string, slug: string, rec: EvidenceRecord): string | null {
+  try {
+    return fs.readFileSync(path.join(caseDir(argusHome, slug), ...rec.relPath.split('/')), 'utf8')
+  } catch {
+    return null
+  }
+}
+
+/** Locate this case's ticket/comments evidence the way `refresh` does — off `meta.jira.role`
+ *  scoped by `key` — and read it by `relPath`. Falls back to the legacy filename convention
+ *  (`${refSlug(key)}.<role-suffix>`) only when no row carries the matching metadata, which
+ *  covers evidence ingested before this metadata existed; ordinary, never-transferred cases
+ *  always resolve via metadata since every write site sets it. */
+function readTicketEvidence(
+  argusHome: string,
+  slug: string,
+  key: string,
+  evidence: EvidenceRecord[],
+  role: 'ticket' | 'comments',
+  legacySuffix: 'ticket.md' | 'comments.md'
+): string | null {
+  const rec = findJiraEvidence(evidence, role, key)
+  if (rec) return readEvidenceRow(argusHome, slug, rec)
+  return readEvidenceFile(argusHome, slug, `${refSlug(key)}.${legacySuffix}`)
 }
 
 /**
@@ -59,6 +91,8 @@ export function assembleRcaInput(
     // nothing — dropping it keeps the RCA prompt from padding on empty transcripts.
     .filter((t) => t.text.length > 0)
 
+  const evidenceRows = listEvidence(db, slug)
+
   return {
     caseMeta: {
       slug: c.slug,
@@ -77,16 +111,16 @@ export function assembleRcaInput(
         reviewState: f.reviewState,
         role: f.role
       })),
-    evidence: listEvidence(db, slug).map((e) => ({
+    evidence: evidenceRows.map((e) => ({
       relPath: e.relPath,
       artifactType: e.artifactType,
       size: e.size
     })),
     jiraTicketMarkdown: c.jiraKey
-      ? readEvidenceFile(argusHome, slug, `${refSlug(c.jiraKey)}.ticket.md`)
+      ? readTicketEvidence(argusHome, slug, c.jiraKey, evidenceRows, 'ticket', 'ticket.md')
       : null,
     jiraCommentsMarkdown: c.jiraKey
-      ? readEvidenceFile(argusHome, slug, `${refSlug(c.jiraKey)}.comments.md`)
+      ? readTicketEvidence(argusHome, slug, c.jiraKey, evidenceRows, 'comments', 'comments.md')
       : null,
     transcripts,
     priorDraft

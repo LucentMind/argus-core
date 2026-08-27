@@ -284,6 +284,11 @@ describe('refresh — github', () => {
     expect(ticketFiles).toHaveLength(1)
     const meta = ticketFiles[0].meta as { jira?: { key?: string } }
     expect(meta.jira?.key).toBe('cli/go-gh#42')
+    // The migration is meta-only by design (no rename) — the file on disk still carries the
+    // OLD ref's slug even though meta.jira.key now names the NEW one. A test that only checks
+    // meta.jira.key can't see this two-representations split; a reader keyed off the filename
+    // (the pre-fix `rca/input.ts`) would look for a `cli-go-gh-42.ticket.md` that never exists.
+    expect(ticketFiles[0].relPath).toMatch(/cli-cli-14189\.ticket\.md$/)
 
     // Computed against the prior count (1 comment before the transfer), not 0 — a missed
     // lookup would re-report the whole existing thread as new.
