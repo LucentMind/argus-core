@@ -10,6 +10,7 @@ function mk(slug: string, updatedAt: string, lastWorkedAt: string | null): CaseR
     reviewState: null,
     title: slug,
     jiraKey: null,
+    ticketProvider: 'jira',
     jiraSyncedAt: null,
     jiraDeselected: [],
     jiraStatus: null,

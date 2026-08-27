@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS cases (
   slug TEXT NOT NULL UNIQUE,
   title TEXT NOT NULL,
   jira_key TEXT,
+  ticket_provider TEXT NOT NULL DEFAULT 'jira',
   status TEXT NOT NULL DEFAULT 'open',
   resolution TEXT,
   tags TEXT NOT NULL DEFAULT '[]',
@@ -419,6 +420,12 @@ export function openDb(file: string): DatabaseSync {
       WHERE status = 'rca-drafted'`
   )
   db.exec(`UPDATE cases SET status = 'open' WHERE status = 'analyzing'`)
+  // Every pre-existing case is a Jira case by construction, so the column default is also the
+  // correct backfill — no UPDATE is needed. `ticket_provider` is the ONLY authority on which
+  // provider a case belongs to; nothing infers it from `jira_key`'s shape.
+  if (!caseCols.some((c) => c.name === 'ticket_provider')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN ticket_provider TEXT NOT NULL DEFAULT 'jira'`)
+  }
   // case_jira_links shipped one increment earlier, so a user's database can already have the
   // table without this column — CREATE TABLE IF NOT EXISTS above would silently skip it.
   const linkCols = db.prepare(`PRAGMA table_info(case_jira_links)`).all() as { name: string }[]

@@ -955,3 +955,41 @@ describe('case jira links', () => {
     expect(link.attachmentIds).toEqual(['a1', 'a2'])
   })
 })
+
+describe('ticketProvider', () => {
+  it('defaults to jira when not specified', () => {
+    const rec = createCase(db, home, { slug: 'CASE-1', title: 'x', jiraKey: 'KAN-1' })
+    expect(rec.ticketProvider).toBe('jira')
+    expect(getCase(db, 'CASE-1')!.ticketProvider).toBe('jira')
+  })
+
+  it('persists github and survives a re-read', () => {
+    const rec = createCase(db, home, {
+      slug: 'CASE-2',
+      title: 'y',
+      jiraKey: 'cli/cli#14189',
+      ticketProvider: 'github'
+    })
+    expect(rec.ticketProvider).toBe('github')
+    expect(getCase(db, 'CASE-2')!.ticketProvider).toBe('github')
+  })
+
+  it('mirrors ticketProvider into case.json', () => {
+    createCase(db, home, {
+      slug: 'CASE-3',
+      title: 'z',
+      jiraKey: 'cli/cli#7',
+      ticketProvider: 'github'
+    })
+    const onDisk = JSON.parse(
+      fs.readFileSync(path.join(caseDir(home, 'CASE-3'), 'case.json'), 'utf8')
+    ) as Record<string, unknown>
+    expect(onDisk.ticketProvider).toBe('github')
+  })
+
+  it('reads an unknown stored value as jira', () => {
+    createCase(db, home, { slug: 'CASE-4', title: 'w' })
+    db.prepare(`UPDATE cases SET ticket_provider = 'gitlab' WHERE slug = ?`).run('CASE-4')
+    expect(getCase(db, 'CASE-4')!.ticketProvider).toBe('jira')
+  })
+})

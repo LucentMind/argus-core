@@ -439,13 +439,14 @@ export async function importCase(
     const res = db
       .prepare(
         `INSERT INTO cases
-           (slug, title, jira_key, status, resolution, phase_pin, phase_pinned_at, tags, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           (slug, title, jira_key, ticket_provider, status, resolution, phase_pin, phase_pinned_at, tags, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         slug,
         manifest.title,
         typeof onDisk.jiraKey === 'string' ? (onDisk.jiraKey as string) : null,
+        onDisk.ticketProvider === 'github' ? 'github' : 'jira',
         status,
         resolution,
         phasePin,

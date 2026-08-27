@@ -22,6 +22,7 @@ import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase } from './ftsIndex'
 import { CAPTURE_DIR_REL } from './prompts/capture'
 import { createSession, latestSessionForMode, type SessionProvider } from './agent/sessionStore'
 import { materializePrBindings, type PrMaterializer } from './prBindings'
+import type { TicketProviderId } from '../../shared/ticketRef'
 
 /** Case-slug shape; also reused by caseFiles path guards so a slug can never traverse. */
 export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
@@ -66,6 +67,7 @@ interface CaseRow {
   review_state: string | null
   title: string
   jira_key: string | null
+  ticket_provider: string
   jira_synced_at: string | null
   jira_deselected: string | null
   jira_status: string | null
@@ -95,6 +97,10 @@ function rowToCase(r: CaseRow): CaseRecord {
     reviewState: (r.review_state as CaseReviewState) ?? null,
     title: r.title,
     jiraKey: r.jira_key,
+    // Defence in depth against a direct DB edit or a downgrade, same convention as `origin`
+    // and `activeMode`: an unknown value reads as the default rather than reaching a provider
+    // registry lookup that would throw on every render.
+    ticketProvider: (r.ticket_provider === 'github' ? 'github' : 'jira') as TicketProviderId,
     jiraSyncedAt: r.jira_synced_at ?? null,
     jiraDeselected: JSON.parse(r.jira_deselected ?? '[]') as string[],
     jiraStatus: r.jira_status ?? null,
@@ -178,10 +184,10 @@ export function createCase(
   const now = new Date().toISOString()
   const res = db
     .prepare(
-      `INSERT INTO cases (slug, title, jira_key, status, resolution, tags, created_at, updated_at)
-       VALUES (?, ?, ?, 'open', NULL, '[]', ?, ?)`
+      `INSERT INTO cases (slug, title, jira_key, ticket_provider, status, resolution, tags, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'open', NULL, '[]', ?, ?)`
     )
-    .run(input.slug, input.title, input.jiraKey ?? null, now, now)
+    .run(input.slug, input.title, input.jiraKey ?? null, input.ticketProvider ?? 'jira', now, now)
 
   const id = Number(res.lastInsertRowid)
   const dir = caseDir(argusHome, input.slug)
@@ -197,6 +203,7 @@ export function createCase(
       reviewState: null,
       title: input.title,
       jiraKey: input.jiraKey ?? null,
+      ticketProvider: input.ticketProvider ?? 'jira',
       jiraSyncedAt: null,
       jiraDeselected: [],
       jiraStatus: null,
