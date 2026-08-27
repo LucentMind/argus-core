@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { describe, it, expect, vi } from 'vitest'
 import { createGithubProvider } from '../githubProvider'
 import type { Runner } from '../../github'
@@ -53,6 +55,9 @@ describe('githubProvider.getIssue', () => {
     expect(preview.reporter).toBe('mislav')
     expect(preview.attachments).toEqual([])
     expect(preview.cloneLinks).toEqual([])
+    expect(preview.created).toBe('2026-08-19T10:00:00Z')
+    expect(preview.updated).toBe('2026-08-21T17:56:37Z')
+    expect(preview.url).toBe('https://github.com/cli/cli/issues/14189')
     expect(descriptionMarkdown).toBe('Steps to reproduce:\n\n1. run gh')
   })
 
@@ -185,6 +190,137 @@ describe('githubProvider.linkedPrs', () => {
       gh: runnerFor({ ...ISSUE, closedByPullRequestsReferences: [] })
     })
     expect(await p.linkedPrs('cli/cli#14189')).toEqual([])
+  })
+
+  it('keeps an OPEN linked PR reference', async () => {
+    // closedByPullRequestsReferences is populated on open issues too and can point at a
+    // not-yet-merged PR; the state === 'closed' filter must let OPEN through.
+    const gh = vi.fn(async (_cmd: string, args: string[]) =>
+      args[0] === 'issue'
+        ? JSON.stringify(ISSUE)
+        : JSON.stringify({
+            number: 14222,
+            state: 'OPEN',
+            isDraft: false,
+            title: 'Fix Copilot declined-install warning newline',
+            createdAt: '2026-08-21T17:56:37Z',
+            url: 'https://github.com/cli/cli/pull/14222'
+          })
+    ) as unknown as Runner
+    const prs = await createGithubProvider({ gh }).linkedPrs('cli/cli#14189')
+    expect(prs).toHaveLength(1)
+    expect(prs[0].state).toBe('open')
+  })
+
+  it('isolates a failed reference so the others still return', async () => {
+    // Two closing references; the first gh pr view call throws (deleted/private repo,
+    // transient network error). The failure must not discard the second, already-resolvable
+    // reference — the caller degrades a *total* failure to "no candidates", so one bad
+    // reference must not cost every other linked PR.
+    const ISSUE_TWO_REFS = {
+      ...ISSUE,
+      closedByPullRequestsReferences: [
+        {
+          id: 'PR_bad',
+          number: 1,
+          repository: { id: 'r1', name: 'cli', owner: { id: 'o1', login: 'cli' } },
+          url: 'https://github.com/cli/cli/pull/1'
+        },
+        {
+          id: 'PR_good',
+          number: 14222,
+          repository: { id: 'r2', name: 'cli', owner: { id: 'o2', login: 'cli' } },
+          url: 'https://github.com/cli/cli/pull/14222'
+        }
+      ]
+    }
+    let prCalls = 0
+    const gh = vi.fn(async (_cmd: string, args: string[]) => {
+      if (args[0] === 'issue') return JSON.stringify(ISSUE_TWO_REFS)
+      prCalls++
+      if (prCalls === 1) throw new Error('gh: repository not found (private or deleted)')
+      return JSON.stringify({
+        number: 14222,
+        state: 'MERGED',
+        isDraft: false,
+        title: 'Fix Copilot declined-install warning newline',
+        createdAt: '2026-08-21T17:56:37Z',
+        url: 'https://github.com/cli/cli/pull/14222'
+      })
+    }) as unknown as Runner
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const prs = await createGithubProvider({ gh }).linkedPrs('cli/cli#14189')
+    warnSpy.mockRestore()
+    expect(prs).toEqual([
+      {
+        owner: 'cli',
+        repo: 'cli',
+        number: 14222,
+        url: 'https://github.com/cli/cli/pull/14222',
+        title: 'Fix Copilot declined-install warning newline',
+        state: 'merged',
+        isDraft: false,
+        createdAt: '2026-08-21T17:56:37Z',
+        isBackport: false,
+        preselected: true
+      }
+    ])
+  })
+})
+
+describe('githubProvider.postComment', () => {
+  it('posts via --body-file, never --body', async () => {
+    const gh = vi.fn(
+      async () => 'https://github.com/cli/cli/issues/14189#issuecomment-1'
+    ) as unknown as Runner
+    await createGithubProvider({ gh }).postComment('cli/cli#14189', '# report\n\nsome body')
+    const [cmd, args] = (gh as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(cmd).toBe('gh')
+    expect(args.slice(0, 4)).toEqual(['issue', 'comment', '14189', '--repo'])
+    expect(args[4]).toBe('cli/cli')
+    expect(args).toContain('--body-file')
+    expect(args).not.toContain('--body')
+  })
+
+  it('writes the exact markdown to the file passed to --body-file', async () => {
+    const markdown = '# report\n\nsome **body** with `code`'
+    let capturedContents: string | undefined
+    const gh = vi.fn(async (_cmd: string, args: string[]) => {
+      const file = args[args.indexOf('--body-file') + 1]
+      capturedContents = fs.readFileSync(file, 'utf8')
+      return 'https://github.com/cli/cli/issues/14189#issuecomment-1'
+    }) as unknown as Runner
+    await createGithubProvider({ gh }).postComment('cli/cli#14189', markdown)
+    expect(capturedContents).toBe(markdown)
+  })
+
+  it('returns the URL parsed out of gh stdout', async () => {
+    const gh = vi.fn(
+      async () => 'some preamble https://github.com/cli/cli/issues/14189#issuecomment-42 trailer'
+    ) as unknown as Runner
+    const { url } = await createGithubProvider({ gh }).postComment('cli/cli#14189', 'body')
+    expect(url).toBe('https://github.com/cli/cli/issues/14189#issuecomment-42')
+  })
+
+  it('falls back to the issue web URL when stdout carries no URL', async () => {
+    const gh = vi.fn(async () => 'no url here') as unknown as Runner
+    const { url } = await createGithubProvider({ gh }).postComment('cli/cli#14189', 'body')
+    expect(url).toBe('https://github.com/cli/cli/issues/14189')
+  })
+
+  it('removes the temp directory even when the gh call throws', async () => {
+    let capturedDir: string | undefined
+    const gh = vi.fn(async (_cmd: string, args: string[]) => {
+      const file = args[args.indexOf('--body-file') + 1]
+      capturedDir = path.dirname(file)
+      expect(fs.existsSync(capturedDir)).toBe(true)
+      throw new Error('gh: network error')
+    }) as unknown as Runner
+    await expect(createGithubProvider({ gh }).postComment('cli/cli#14189', 'body')).rejects.toThrow(
+      /network error/
+    )
+    expect(capturedDir).toBeDefined()
+    expect(fs.existsSync(capturedDir!)).toBe(false)
   })
 })
 
