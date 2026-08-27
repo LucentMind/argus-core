@@ -70,6 +70,35 @@ beforeEach(() => {
   })
 })
 
+function rebuild(payload: unknown): JiraCases {
+  const gh = vi.fn(async () => JSON.stringify(payload)) as unknown as Runner
+  const jiraClient = {
+    getIssue: vi.fn(async () => {
+      throw new Error('Atlassian must not be called for a GitHub case')
+    }),
+    getComments: vi.fn(async () => []),
+    downloadAttachment: vi.fn(async () => undefined)
+  }
+  return new JiraCases({
+    db,
+    argusHome: home,
+    detection: createDetection(),
+    client: jiraClient,
+    site: () => 'https://argus88.atlassian.net',
+    queue: createImmediateQueue(db, home),
+    emitProgress: () => {},
+    evidenceChanged: () => {},
+    providers: {
+      jira: createJiraProvider({
+        client: jiraClient,
+        site: () => 'https://argus88.atlassian.net',
+        postComment: async () => undefined
+      }),
+      github: createGithubProvider({ gh })
+    }
+  })
+}
+
 describe('createFromTicket — github', () => {
   it('creates a case bound to the GitHub issue', async () => {
     const rec = await cases.createFromTicket({
@@ -115,5 +144,40 @@ describe('preview — dispatch', () => {
     await expect(cases.preview('https://github.com/cli/cli/pull/14222')).rejects.toThrow(
       /pull request, not an issue/i
     )
+  })
+})
+
+describe('refresh — github', () => {
+  it('updates status and counts new comments', async () => {
+    await cases.createFromTicket({ slug: 'cli-14189', title: 'Tiles 403', key: 'cli/cli#14189' })
+    const moved = {
+      ...ISSUE,
+      state: 'CLOSED',
+      stateReason: 'NOT_PLANNED',
+      comments: [
+        ...ISSUE.comments,
+        { id: 'c2', author: { login: 'bo' }, body: 'wontfix', createdAt: '2026-08-22T09:00:00Z' }
+      ]
+    }
+    cases = rebuild(moved)
+    const summary = await cases.refresh('cli-14189')
+    expect(summary.statusChange).toEqual({ from: 'open', to: 'closed (not planned)' })
+    expect(summary.newComments).toBe(1)
+    expect(getCase(db, 'cli-14189')!.jiraStatus).toBe('closed (not planned)')
+    expect(getCase(db, 'cli-14189')!.jiraCommentCount).toBe(2)
+  })
+
+  it('rebinds and reports when the issue was transferred', async () => {
+    await cases.createFromTicket({ slug: 'cli-14189', title: 'Tiles 403', key: 'cli/cli#14189' })
+    cases = rebuild({ ...ISSUE, number: 42, url: 'https://github.com/cli/go-gh/issues/42' })
+    const summary = await cases.refresh('cli-14189')
+    expect(summary.rebound).toEqual({ from: 'cli/cli#14189', to: 'cli/go-gh#42' })
+    expect(getCase(db, 'cli-14189')!.jiraKey).toBe('cli/go-gh#42')
+  })
+
+  it('never calls Atlassian for a github-bound case', async () => {
+    await cases.createFromTicket({ slug: 'cli-14189', title: 'Tiles 403', key: 'cli/cli#14189' })
+    cases = rebuild(ISSUE)
+    await expect(cases.refresh('cli-14189')).resolves.toBeDefined()
   })
 })

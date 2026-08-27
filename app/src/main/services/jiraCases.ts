@@ -562,8 +562,12 @@ export class JiraCases {
     const { db, argusHome, detection, queue } = this.deps
     const kase = getCase(db, caseSlug)
     if (!kase?.jiraKey)
-      throw new AtlassianError('not-configured', `Case ${caseSlug} has no linked Jira ticket.`)
-    const { preview, descriptionMarkdown, raw } = await this.deps.client.getIssue(kase.jiraKey)
+      throw new AtlassianError('not-configured', `Case ${caseSlug} has no linked ticket.`)
+    // BY STORED ID. The ref's shape is never consulted.
+    const provider = providerFor(kase.ticketProvider, this.deps.providers)
+    const { preview, descriptionMarkdown, raw } = await provider.getIssue(kase.jiraKey)
+    const rebound =
+      preview.key !== kase.jiraKey ? { from: kase.jiraKey, to: preview.key } : undefined
     const now = new Date().toISOString()
     const evidence = listEvidence(db, caseSlug)
 
@@ -590,7 +594,7 @@ export class JiraCases {
         detection,
         queue,
         caseSlug,
-        `${preview.key}.ticket.md`,
+        `${refSlug(preview.key)}.ticket.md`,
         ticketMarkdown(preview, descriptionMarkdown),
         'jira',
         mdMeta
@@ -614,7 +618,7 @@ export class JiraCases {
         detection,
         queue,
         caseSlug,
-        `${preview.key}.ticket.json`,
+        `${refSlug(preview.key)}.ticket.json`,
         JSON.stringify(raw, null, 2),
         'jira',
         rawMeta
@@ -625,7 +629,7 @@ export class JiraCases {
     let commentCount: number | null = null
     let commentsError: string | undefined
     try {
-      const comments = await this.deps.client.getComments(kase.jiraKey)
+      const comments = await provider.getComments(preview.key)
       const cmRec = findJiraEvidence(evidence, 'comments', preview.key)
       const oldCount = cmRec ? (jiraMeta(cmRec.meta).commentCount ?? 0) : 0
       newComments = Math.max(0, comments.length - oldCount)
@@ -642,7 +646,7 @@ export class JiraCases {
           detection,
           queue,
           caseSlug,
-          `${preview.key}.comments.md`,
+          `${refSlug(preview.key)}.comments.md`,
           content,
           'jira',
           cmMeta
@@ -730,6 +734,15 @@ export class JiraCases {
       }
     }
 
+    if (rebound) {
+      // Adopt the canonical ref so every later call names the issue where it now lives.
+      setCaseJira(db, argusHome, caseSlug, {
+        key: preview.key,
+        site: this.deps.site(),
+        lastSyncedAt: now
+      })
+    }
+
     return {
       key: preview.key,
       statusChange:
@@ -741,6 +754,7 @@ export class JiraCases {
       newComments,
       sources,
       ...(commentsError ? { commentsError } : {}),
+      ...(rebound ? { rebound } : {}),
       syncedAt: now
     }
   }
