@@ -164,7 +164,7 @@ describe('NewCaseDialog', () => {
     render(<NewCaseDialog {...noop} />)
     fireEvent.change(screen.getByPlaceholderText(/^slug/i), { target: { value: 'adhoc-1' } })
     fireEvent.change(screen.getByPlaceholderText(/^title/i), { target: { value: 'Ad hoc' } })
-    fireEvent.change(screen.getByPlaceholderText(/jira key/i), {
+    fireEvent.change(screen.getByPlaceholderText(/issue or ticket key/i), {
       target: { value: 'https://foo.atlassian.net/browse/PROJ-7' }
     })
     fireEvent.click(screen.getByRole('button', { name: /create blank case/i }))
@@ -172,9 +172,58 @@ describe('NewCaseDialog', () => {
       expect(noop.onCreateBlank).toHaveBeenCalledWith({
         slug: 'adhoc-1',
         title: 'Ad hoc',
-        jiraKey: 'PROJ-7'
+        jiraKey: 'PROJ-7',
+        ticketProvider: 'jira'
       })
     )
+  })
+
+  it('creates a blank case from a GitHub issue ref, tagged ticketProvider: github', async () => {
+    render(<NewCaseDialog {...noop} />)
+    fireEvent.change(screen.getByPlaceholderText(/^slug/i), { target: { value: 'adhoc-1' } })
+    fireEvent.change(screen.getByPlaceholderText(/^title/i), { target: { value: 'Ad hoc' } })
+    fireEvent.change(screen.getByPlaceholderText(/issue or ticket key/i), {
+      target: { value: 'owner/repo#42' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: /create blank case/i }))
+    await waitFor(() =>
+      expect(noop.onCreateBlank).toHaveBeenCalledWith({
+        slug: 'adhoc-1',
+        title: 'Ad hoc',
+        jiraKey: 'owner/repo#42',
+        ticketProvider: 'github'
+      })
+    )
+  })
+
+  it('creates a blank case from a bare Jira key, still tagged ticketProvider: jira', async () => {
+    render(<NewCaseDialog {...noop} />)
+    fireEvent.change(screen.getByPlaceholderText(/^slug/i), { target: { value: 'adhoc-1' } })
+    fireEvent.change(screen.getByPlaceholderText(/^title/i), { target: { value: 'Ad hoc' } })
+    fireEvent.change(screen.getByPlaceholderText(/issue or ticket key/i), {
+      target: { value: 'PROJ-9' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: /create blank case/i }))
+    await waitFor(() =>
+      expect(noop.onCreateBlank).toHaveBeenCalledWith({
+        slug: 'adhoc-1',
+        title: 'Ad hoc',
+        jiraKey: 'PROJ-9',
+        ticketProvider: 'jira'
+      })
+    )
+  })
+
+  it('rejects an unusable ref in the optional blank-case field instead of silently tagging it jira', async () => {
+    render(<NewCaseDialog {...noop} />)
+    fireEvent.change(screen.getByPlaceholderText(/^slug/i), { target: { value: 'adhoc-1' } })
+    fireEvent.change(screen.getByPlaceholderText(/^title/i), { target: { value: 'Ad hoc' } })
+    fireEvent.change(screen.getByPlaceholderText(/issue or ticket key/i), {
+      target: { value: '#42' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: /create blank case/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/include the repository/i)
+    expect(noop.onCreateBlank).not.toHaveBeenCalled()
   })
 
   it('not-configured errors point at the Connectors page; blank path stays available', async () => {
@@ -848,7 +897,7 @@ describe('NewCaseDialog', () => {
       <NewCaseDialog onClose={() => {}} onCreateBlank={async () => {}} onOpenCase={() => {}} />
     )
     await user.type(
-      screen.getByPlaceholderText(/ticket/i),
+      screen.getByPlaceholderText(/ticket key or link/i),
       'https://github.com/cli/cli/issues/14189'
     )
     await user.click(screen.getByRole('button', { name: /fetch/i }))
@@ -883,7 +932,7 @@ describe('NewCaseDialog', () => {
       <NewCaseDialog onClose={() => {}} onCreateBlank={async () => {}} onOpenCase={() => {}} />
     )
     await user.type(
-      screen.getByPlaceholderText(/ticket/i),
+      screen.getByPlaceholderText(/ticket key or link/i),
       'https://github.com/cli/cli/issues/14189'
     )
     await user.click(screen.getByRole('button', { name: /fetch/i }))
@@ -930,7 +979,7 @@ describe('NewCaseDialog', () => {
       <NewCaseDialog onClose={() => {}} onCreateBlank={async () => {}} onOpenCase={() => {}} />
     )
     await user.type(
-      screen.getByPlaceholderText(/ticket/i),
+      screen.getByPlaceholderText(/ticket key or link/i),
       `https://github.com/${owner}/${repo}/issues/${numStr}`
     )
     await user.click(screen.getByRole('button', { name: /fetch/i }))
@@ -982,7 +1031,10 @@ describe('NewCaseDialog', () => {
     render(
       <NewCaseDialog onClose={() => {}} onCreateBlank={async () => {}} onOpenCase={() => {}} />
     )
-    await user.type(screen.getByPlaceholderText(/ticket/i), 'https://github.com/cli/cli/pull/9')
+    await user.type(
+      screen.getByPlaceholderText(/ticket key or link/i),
+      'https://github.com/cli/cli/pull/9'
+    )
     await user.click(screen.getByRole('button', { name: /fetch/i }))
     expect(await screen.findByText(/pull request, not an issue/i)).toBeInTheDocument()
     expect(preview).not.toHaveBeenCalled()
