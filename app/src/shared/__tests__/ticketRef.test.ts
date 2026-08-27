@@ -48,6 +48,12 @@ describe('parseTicketRef — github', () => {
   it('tolerates dots and dashes in owner and repo', () => {
     expect(ok('my-org/my.repo#7')).toEqual({ provider: 'github', ref: 'my-org/my.repo#7' })
   })
+
+  it('canonicalises a zero-padded issue number', () => {
+    // The ref is stored as the case's ticket identity, so `#007` and `#7` must not become
+    // two different canonical spellings of one issue.
+    expect(ok('cli/cli#007')).toEqual({ provider: 'github', ref: 'cli/cli#7' })
+  })
 })
 
 describe('parseTicketRef — rejections', () => {
