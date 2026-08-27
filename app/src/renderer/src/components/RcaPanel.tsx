@@ -102,9 +102,16 @@ const SECTIONS: { role: Exclude<FindingRole, 'duplicate'>; label: string }[] = [
  */
 export function RcaPanel({
   slug,
+  jiraKey = null,
   onClose
 }: {
   slug: string
+  /** The case's ticket ref, for the github post-confirm dialog's title (`Post the RCA to
+   *  ${jiraKey}?`). Passed down the same way `JiraSection` gets it — from the already-fetched
+   *  `cases` array via CaseWorkspace — rather than refetched here. Unused on the Jira path.
+   *  Optional (defaulting to null) only so existing test call sites need no change; every real
+   *  caller passes it. */
+  jiraKey?: string | null
   onClose: () => void
 }): React.JSX.Element {
   // Same occlusion registration as PrPickerDialog: a docked panel is a native WebContentsView
@@ -451,6 +458,25 @@ export function RcaPanel({
   }
 
   async function onPostClick(): Promise<void> {
+    // null for anything that isn't a github-provider case with a linked issue — those fall
+    // through to the existing Jira confirm copy below.
+    const visibility = await window.argus.rca.ticketVisibility(slug)
+    if (visibility !== null) {
+      const unconfirmedPrivacy = visibility === 'PUBLIC' || visibility === 'UNKNOWN'
+      const ok = await confirmDialog({
+        title: `Post the RCA to ${jiraKey}?`,
+        message: unconfirmedPrivacy ? (
+          <span className="text-danger">
+            This repository is public — the comment will be readable by anyone.
+          </span>
+        ) : undefined,
+        danger: unconfirmedPrivacy
+      })
+      if (!ok) return
+      await doPost()
+      return
+    }
+
     const cfg = settingsPayload?.settings.rca
     const ok = await confirmDialog({
       title: 'Post RCA to Jira?',

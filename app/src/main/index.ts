@@ -139,6 +139,7 @@ import { JiraCases } from './services/jiraCases'
 import { createGithubProvider } from './services/tickets/githubProvider'
 import type { TicketProviderRegistry } from './services/tickets/provider'
 import { createJiraProvider } from './services/tickets/jiraProvider'
+import { defaultGhRunner, GH_TIMEOUT_MS } from './services/github'
 import { buildJiraScopeResolver } from './services/jiraScopeResolver'
 import type { JiraAttachmentInfo, JiraResult } from '../shared/jira'
 import {
@@ -2911,7 +2912,8 @@ function registerIpc(): void {
         siteUrl: () => {
           const id = rovoInstanceId(connectorRegistry.get())
           return id ? atlassian.resolveSiteUrl(id) : Promise.resolve(null)
-        }
+        },
+        providers: ticketProviders
       },
       slug
     )
@@ -2974,6 +2976,23 @@ function registerIpc(): void {
   ipcMain.handle(IPC.rcaHandEdited, (_e, slug: string) => {
     if (!getCase(db, slug)) throw new Error(`Unknown case: ${slug}`)
     return handEditedReports({ db, argusHome }, slug)
+  })
+
+  // Public-repo warning probe for the RCA post confirm dialog. null for anything that isn't a
+  // github-provider case with a linked issue — the renderer falls back to the Jira confirm copy.
+  ipcMain.handle(IPC.ticketVisibility, async (_e, slug: string) => {
+    const kase = getCase(db, slug)
+    if (!kase?.jiraKey || kase.ticketProvider !== 'github') return null
+    const [ownerRepo] = kase.jiraKey.split('#')
+    try {
+      const out = await defaultGhRunner('gh', ['repo', 'view', ownerRepo, '--json', 'visibility'], {
+        timeoutMs: GH_TIMEOUT_MS
+      })
+      return (JSON.parse(out) as { visibility: string }).visibility
+    } catch {
+      // Unknown visibility must read as "cannot confirm this is private", never as private.
+      return 'UNKNOWN'
+    }
   })
 
   // — skills —

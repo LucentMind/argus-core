@@ -6,6 +6,8 @@ import type { AppSettings } from '../../../shared/settings'
 import { getCase } from '../caseService'
 import { artifactsDir } from '../paths'
 import { applyWatermark } from '../../../shared/watermark'
+import { providerFor, type TicketProviderRegistry } from '../tickets/provider'
+import { postRcaToGithub } from './postGithub'
 
 export interface PostRcaDeps {
   db: DatabaseSync
@@ -23,6 +25,8 @@ export interface PostRcaDeps {
   /** AtlassianClient.resolveSiteUrl(instanceId) — used both as the tool calls' `cloudId`
    *  (a site URL is an accepted cloudId form) and for the Confluence page link fallback. */
   siteUrl: () => Promise<string | null>
+  /** Both providers; used to route a GitHub-bound case away from the Rovo path. */
+  providers?: TicketProviderRegistry
 }
 
 interface JobRow {
@@ -72,6 +76,19 @@ export async function postRcaReport(deps: PostRcaDeps, slug: string): Promise<Po
   const kase = getCase(deps.db, slug)
   if (!kase) throw new Error(`Unknown case: ${slug}`)
   if (!kase.jiraKey) throw new Error('This case has no linked Jira issue.')
+
+  if (kase.ticketProvider === 'github') {
+    if (!deps.providers) throw new Error('GitHub posting is not configured.')
+    return postRcaToGithub(
+      {
+        db: deps.db,
+        argusHome: deps.argusHome,
+        settings: deps.settings,
+        provider: providerFor('github', deps.providers)
+      },
+      slug
+    )
+  }
 
   const job = deps.db
     .prepare(
