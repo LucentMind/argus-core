@@ -11,6 +11,8 @@ import { createDetection } from '../packs/detection'
 import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import { createImmediateQueue } from '../ingestQueue'
 import { JiraCases, type AtlassianClientLike } from '../jiraCases'
+import { createGithubProvider } from '../tickets/githubProvider'
+import { createJiraProvider } from '../tickets/jiraProvider'
 import { createCase, getCase, listCases, setCaseStatus } from '../caseService'
 import { AtlassianError } from '../atlassian'
 import type { JiraCommentInfo, JiraIssuePreview } from '../../../shared/jira'
@@ -98,15 +100,20 @@ function fakeClient(): FakeClient {
 }
 
 function service(client: AtlassianClientLike): JiraCases {
+  const site = (): string => 'https://acme.atlassian.net'
   return new JiraCases({
     db,
     argusHome,
     detection,
     client,
-    site: () => 'https://acme.atlassian.net',
+    site,
     queue: createImmediateQueue(db, argusHome),
     emitProgress: () => {},
-    evidenceChanged: () => {}
+    evidenceChanged: () => {},
+    providers: {
+      jira: createJiraProvider({ client, site, postComment: async () => undefined }),
+      github: createGithubProvider({})
+    }
   })
 }
 

@@ -41,6 +41,9 @@ import type { IngestQueueLike } from './ingestQueue'
 import type { Detection } from './packs/detection'
 import { extractZipToTemp, ArchiveLimitError, type ArchiveLimits } from './archiveExtract'
 import { JIRA_PROMPTS } from './jiraPrompts'
+import { parseTicketRef, type TicketProviderId } from '../../shared/ticketRef'
+import type { TicketPreview } from '../../shared/tickets'
+import { providerFor, type TicketProviderRegistry } from './tickets/provider'
 
 export interface AtlassianClientLike {
   getIssue(key: string): Promise<JiraIssueData>
@@ -63,6 +66,9 @@ export interface JiraCasesDeps {
   resolvePrompt?: (id: string) => string
   /** Overridable in tests; production uses ARCHIVE_LIMITS. */
   archiveLimits?: Partial<ArchiveLimits>
+  /** Both ticket providers. Selection is always by explicit id — the stored
+   *  `ticket_provider` for an existing case, the parsed provider for new input. */
+  providers: TicketProviderRegistry
 }
 
 /** A ticket this evidence row's bytes are ALSO the attachment for, beyond the row's own
@@ -154,6 +160,13 @@ ${description || '_(no description)_'}
 const sanitizeFilename = (name: string): string =>
   path.basename(name.replace(/[\\/:*?"<>|]/g, '_')) || 'attachment'
 
+/**
+ * A ref made safe for a filename. A Jira key is already safe; a GitHub ref carries `/` and
+ * `#`, which would otherwise create nested directories or truncate the name. `cli/cli#14189`
+ * becomes `cli-cli-14189`.
+ */
+const refSlug = (ref: string): string => ref.replace(/[^A-Za-z0-9._-]+/g, '-')
+
 export function commentsMarkdown(
   key: string,
   comments: JiraCommentInfo[],
@@ -197,8 +210,12 @@ function isZipFile(filePath: string): boolean {
 export class JiraCases {
   constructor(private deps: JiraCasesDeps) {}
 
-  async preview(key: string): Promise<JiraIssuePreview> {
-    return (await this.deps.client.getIssue(key)).preview
+  /** `input` is whatever the user typed — a key, a ref, or a URL. */
+  async preview(input: string): Promise<TicketPreview> {
+    const parsed = parseTicketRef(input)
+    if (!parsed.ok) throw new Error(parsed.error)
+    const provider = providerFor(parsed.value.provider, this.deps.providers)
+    return (await provider.getIssue(parsed.value.ref)).preview
   }
 
   async createFromTicket(input: {
@@ -209,11 +226,15 @@ export class JiraCases {
     sources?: string[]
   }): Promise<CaseRecord> {
     const { db, argusHome, detection, queue } = this.deps
-    const { preview, descriptionMarkdown, raw } = await this.deps.client.getIssue(input.key)
+    const parsed = parseTicketRef(input.key)
+    if (!parsed.ok) throw new Error(parsed.error)
+    const providerId: TicketProviderId = parsed.value.provider
+    const provider = providerFor(providerId, this.deps.providers)
+    const { preview, descriptionMarkdown, raw } = await provider.getIssue(parsed.value.ref)
     createCase(
       db,
       argusHome,
-      { slug: input.slug, title: input.title, jiraKey: preview.key },
+      { slug: input.slug, title: input.title, jiraKey: preview.key, ticketProvider: providerId },
       this.deps.resolvePrompt
     )
     const now = new Date().toISOString()
@@ -223,7 +244,7 @@ export class JiraCases {
       detection,
       queue,
       input.slug,
-      `${preview.key}.ticket.md`,
+      `${refSlug(preview.key)}.ticket.md`,
       ticketMarkdown(preview, descriptionMarkdown),
       'jira',
       { jira: { key: preview.key, role: 'ticket', status: preview.status, syncedAt: now } }
@@ -234,7 +255,7 @@ export class JiraCases {
       detection,
       queue,
       input.slug,
-      `${preview.key}.ticket.json`,
+      `${refSlug(preview.key)}.ticket.json`,
       JSON.stringify(raw, null, 2),
       'jira',
       { jira: { key: preview.key, role: 'ticket-raw', syncedAt: now } }
@@ -245,7 +266,7 @@ export class JiraCases {
     // (presence semantics) rather than persisting a wrong count of 0.
     let commentCount: number | null = null
     try {
-      const comments = await this.deps.client.getComments(input.key)
+      const comments = await provider.getComments(preview.key)
       commentCount = comments.length
       ingestContent(
         db,
@@ -253,7 +274,7 @@ export class JiraCases {
         detection,
         queue,
         input.slug,
-        `${preview.key}.comments.md`,
+        `${refSlug(preview.key)}.comments.md`,
         commentsMarkdown(preview.key, comments, this.deps.resolvePrompt),
         'jira',
         {
