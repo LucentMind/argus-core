@@ -4,7 +4,7 @@ import { Btn, Chip } from './ui'
 import { ModalShell } from './ModalShell'
 import { transientFieldEscape } from '../lib/escapeLayer'
 import { parseJiraKeyInput } from '../lib/jiraKeyInput'
-import { parseTicketRef } from '../../../shared/ticketRef'
+import { parseTicketRef, splitGithubRef } from '../../../shared/ticketRef'
 import { sortAttachmentsByType } from '../lib/attachmentOrder'
 import type { NewCaseInput } from '../../../shared/types'
 import type { JiraAttachmentInfo } from '../../../shared/jira'
@@ -51,6 +51,22 @@ interface SourceState {
 }
 
 const kb = (n: number): string => (n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`)
+
+/**
+ * Case ID prefill from a fetched preview. A Jira key (`PROJ-123`) already satisfies
+ * `SLUG_RE` (caseService.ts) and is used unchanged. A GitHub ref (`owner/repo#123`) is not
+ * a valid slug at all — `/` and `#` are both rejected — so it must never be used directly
+ * (see Finding C2: that is exactly what let the Create button spend a real `gh issue view`
+ * call before throwing "Invalid case slug"). `{repo}-{number}` is what the spec asked for,
+ * and it satisfies SLUG_RE for any real GitHub repo name: repo/owner charset is limited to
+ * `[A-Za-z0-9._-]`, the same set SLUG_RE allows after its required leading alnum, and GitHub
+ * itself never issues a repo name starting with a non-alnum character.
+ */
+function prefillSlug(preview: TicketPreview): string {
+  if (preview.provider !== 'github') return preview.key
+  const { repo, number } = splitGithubRef(preview.key)
+  return `${repo}-${number}`
+}
 
 export function NewCaseDialog({
   onClose,
@@ -203,7 +219,7 @@ export function NewCaseDialog({
       )
       return
     }
-    setCaseSlug(r.value.key)
+    setCaseSlug(prefillSlug(r.value))
     setCaseTitle(r.value.summary)
     setChecked(new Set(r.value.attachments.map((a) => a.id)))
     setStep({ step: 'preview', ticketKey: r.value.key, preview: r.value })

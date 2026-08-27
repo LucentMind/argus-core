@@ -41,7 +41,7 @@ import type { IngestQueueLike } from './ingestQueue'
 import type { Detection } from './packs/detection'
 import { extractZipToTemp, ArchiveLimitError, type ArchiveLimits } from './archiveExtract'
 import { JIRA_PROMPTS } from './jiraPrompts'
-import { parseTicketRef, type TicketProviderId } from '../../shared/ticketRef'
+import { parseTicketRef, refSlug, type TicketProviderId } from '../../shared/ticketRef'
 import type { TicketPreview } from '../../shared/tickets'
 import { providerFor, type TicketProviderRegistry } from './tickets/provider'
 
@@ -124,6 +124,28 @@ const knownAttachments = (evidence: EvidenceRecord[], key: string): Map<string, 
   return known
 }
 
+/** After a rebind (a transferred/renamed issue whose canonical ref changed), migrate every
+ *  evidence row still carrying the OLD ref in `meta.jira.key` to the NEW one — in place, on
+ *  both the DB row and the `evidence` array passed in — so the case FOLLOWS the issue
+ *  instead of forking it. Without this, every lookup below is keyed by the new ref, misses
+ *  the old-ref rows entirely, and re-ingests fresh ticket/comments files alongside the
+ *  stale ones that then never update again (see Finding I1). Meta-only, like `addAlsoOn`:
+ *  never touches file bytes, hash, or index. */
+function migrateJiraKey(
+  db: DatabaseSync,
+  evidence: EvidenceRecord[],
+  from: string,
+  to: string
+): void {
+  for (const e of evidence) {
+    const jira = jiraMeta(e.meta)
+    if (jira.key !== from) continue
+    const meta = { ...e.meta, jira: { ...jira, key: to } }
+    db.prepare(`UPDATE evidence SET meta = ? WHERE id = ?`).run(JSON.stringify(meta), e.id)
+    e.meta = meta
+  }
+}
+
 /** Append (idempotently) a secondary ticket attribution to an existing evidence row's
  *  `meta.jira.alsoOn`, for a dedup hit whose file already carries a DIFFERENT ticket's key.
  *  Meta-only: the file on disk and its hash are untouched, so this never re-copies, re-hashes
@@ -159,13 +181,6 @@ ${description || '_(no description)_'}
 
 const sanitizeFilename = (name: string): string =>
   path.basename(name.replace(/[\\/:*?"<>|]/g, '_')) || 'attachment'
-
-/**
- * A ref made safe for a filename. A Jira key is already safe; a GitHub ref carries `/` and
- * `#`, which would otherwise create nested directories or truncate the name. `cli/cli#14189`
- * becomes `cli-cli-14189`.
- */
-const refSlug = (ref: string): string => ref.replace(/[^A-Za-z0-9._-]+/g, '-')
 
 export function commentsMarkdown(
   key: string,
@@ -353,11 +368,11 @@ export class JiraCases {
 
     write(
       'source-ticket',
-      `${preview.key}.ticket.md`,
+      `${refSlug(preview.key)}.ticket.md`,
       ticketMarkdown(preview, descriptionMarkdown),
       { status: preview.status }
     )
-    write('source-ticket-raw', `${preview.key}.ticket.json`, JSON.stringify(raw, null, 2))
+    write('source-ticket-raw', `${refSlug(preview.key)}.ticket.json`, JSON.stringify(raw, null, 2))
 
     // Best-effort, exactly like createFromTicket's comments fetch: a source whose comments
     // are unreadable must not cost the user the ticket text they came for. Unlike
@@ -368,7 +383,7 @@ export class JiraCases {
       const comments = await this.deps.client.getComments(key)
       write(
         'source-comments',
-        `${preview.key}.comments.md`,
+        `${refSlug(preview.key)}.comments.md`,
         commentsMarkdown(preview.key, comments, this.deps.resolvePrompt),
         { commentCount: comments.length }
       )
@@ -570,6 +585,11 @@ export class JiraCases {
       preview.key !== kase.jiraKey ? { from: kase.jiraKey, to: preview.key } : undefined
     const now = new Date().toISOString()
     const evidence = listEvidence(db, caseSlug)
+    // Migrate existing evidence to the new canonical ref BEFORE any lookup below — every
+    // findJiraEvidence/knownAttachments call from here on is keyed by preview.key (the new
+    // ref), and without this the case forks its evidence on a transfer instead of following
+    // it (see Finding I1).
+    if (rebound) migrateJiraKey(db, evidence, rebound.from, rebound.to)
 
     // ticket evidence: update in place (or create if missing from an older case)
     const mdRec = findJiraEvidence(evidence, 'ticket', preview.key)
@@ -732,15 +752,6 @@ export class JiraCases {
           error: (err as Error).message
         })
       }
-    }
-
-    if (rebound) {
-      // Adopt the canonical ref so every later call names the issue where it now lives.
-      setCaseJira(db, argusHome, caseSlug, {
-        key: preview.key,
-        site: this.deps.site(),
-        lastSyncedAt: now
-      })
     }
 
     return {
