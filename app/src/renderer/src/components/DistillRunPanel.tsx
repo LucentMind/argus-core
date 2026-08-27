@@ -260,6 +260,12 @@ export function DistillRunPanel({
                   </div>
                 )}
 
+                {detail.stages?.candidatesMalformedDropped !== undefined && (
+                  <div className="font-mono text-[11px] text-dim">
+                    Malformed candidates dropped: {detail.stages.candidatesMalformedDropped}
+                  </div>
+                )}
+
                 {detail.trajectory && (
                   <details className="border-t border-hair pt-2">
                     <summary className="cursor-pointer font-mono text-[11px] uppercase tracking-wide text-dim">

@@ -135,6 +135,47 @@ describe('runCaseDistillPipeline', () => {
     expect(run.preStageDropped?.map((d) => d.reason)).toContain('malformed')
   })
 
+  it('drops a candidate whose outline is not a string, and still materializes the rest', async () => {
+    // One bad shape used to throw out of parseCandidates and fail the WHOLE run — the good
+    // candidate beside it never reached materialize. It must now survive, and the drop must be
+    // counted so the run panel can say the model went off-contract.
+    const one = (over: object): object => ({
+      kind: 'procedure',
+      type: 'skill-edit',
+      target: 'diagnose-x',
+      title: 't',
+      outline: 'o',
+      evidence: ['root_cause'],
+      related: [],
+      generalization: 'g',
+      routing_rationale: 'r',
+      confidence: 0.9,
+      ...over
+    })
+    const mixed =
+      '```json\n' +
+      JSON.stringify({
+        candidates: [
+          // Would otherwise be kept and materialized — only its outline shape disqualifies it.
+          one({
+            type: 'skill-new',
+            target: 'diagnose-y',
+            outline: { trigger: 't', actions: ['a'] }
+          }),
+          one({})
+        ]
+      }) +
+      '\n```'
+    const run = await runCaseDistillPipeline(INPUT, {
+      agent: agentOk(DOSSIER),
+      oneShot: oneShotBy((p) => (p.includes('# Dossier (established') ? mixed : route(p)))
+    })
+    expect(run.stages?.candidatesMalformedDropped).toBe(1)
+    expect(run.output.proposals).toHaveLength(1)
+    expect(run.stages?.materialize?.map((m) => m.target)).toEqual(['diagnose-x'])
+    expect(run.preStageDropped).toEqual([])
+  })
+
   it('capHit on the dossier is never parsed', async () => {
     const err = await runCaseDistillPipeline(INPUT, {
       agent: async () => ({ ...(await agentOk(DOSSIER)()), capHit: 'iterations' as const }),
