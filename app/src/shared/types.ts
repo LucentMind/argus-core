@@ -3,6 +3,7 @@ import type { ModeId } from './modes'
 import type { EvidenceScope } from './evidenceScope'
 import type { RunOptionSelection } from './runOptions'
 import type { PermissionMode } from './settings'
+import type { TicketProviderId } from './ticketRef'
 
 /**
  * The DECLARED lifecycle — the only case state a human or an agent states outright.
@@ -84,6 +85,9 @@ export interface NewCaseInput {
   slug: string
   title: string
   jiraKey?: string
+  /** Which tracker `jiraKey` names. Omitted = 'jira', which is correct for every caller
+   *  that predates GitHub support. */
+  ticketProvider?: TicketProviderId
 }
 
 /** Upstream Jira snapshot captured when the user last opened (reviewed) the case. */
@@ -126,6 +130,8 @@ export interface CaseRecord {
   reviewState: CaseReviewState
   title: string
   jiraKey: string | null
+  /** Which tracker `jiraKey` names. The single authority — never re-derived from the ref. */
+  ticketProvider: TicketProviderId
   /** Last successful Jira sync (create-from-ticket or refresh); null when never synced. */
   jiraSyncedAt: string | null
   /** Jira attachment ids the user chose not to ingest; [] when none. */

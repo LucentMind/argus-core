@@ -13,6 +13,7 @@ function mkCase(over: Partial<CaseRecord> = {}): CaseRecord {
     reviewState: null,
     title: 'Bearing jumps',
     jiraKey: 'NAV-1',
+    ticketProvider: 'jira',
     jiraSyncedAt: '2026-07-08T00:00:00Z',
     jiraDeselected: [],
     jiraStatus: null,
