@@ -223,9 +223,10 @@ export async function runCaseDistillPipeline(
         meta()
       )
     }
+    if (cand.value.malformedDropped) stages.candidatesMalformedDropped = cand.value.malformedDropped
 
     // ── veto ─────────────────────────────────────────────────────────────────────────────────
-    const { kept, dropped } = vetoCandidates(cand.value, dossier, input)
+    const { kept, dropped } = vetoCandidates(cand.value.candidates, dossier, input)
     const preStageDropped: PreStageDrop[] = [...dropped]
 
     // ── stage 3: materialize (parallel) → validators ─────────────────────────────────────────
