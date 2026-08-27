@@ -1009,6 +1009,8 @@ describe('RcaPanel', () => {
       ).toBeInTheDocument()
       expect(screen.queryByText('Jira comment')).not.toBeInTheDocument()
       expect(screen.queryByText(/jira comment already posted/i)).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /post to github/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /post to jira/i })).not.toBeInTheDocument()
     })
 
     it('names Jira for a Jira-bound case', async () => {
@@ -1024,6 +1026,8 @@ describe('RcaPanel', () => {
         screen.getByText(/the jira comment already posted.*will not re-send the jira comment/i)
       ).toBeInTheDocument()
       expect(screen.queryByText('GitHub comment')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /post to jira/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /post to github/i })).not.toBeInTheDocument()
     })
   })
 })
