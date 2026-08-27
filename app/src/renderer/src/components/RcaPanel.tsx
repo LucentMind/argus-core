@@ -109,8 +109,10 @@ export function RcaPanel({
   /** The case's ticket ref, for the github post-confirm dialog's title (`Post the RCA to
    *  ${jiraKey}?`). Passed down the same way `JiraSection` gets it — from the already-fetched
    *  `cases` array via CaseWorkspace — rather than refetched here. Unused on the Jira path.
-   *  Optional (defaulting to null) only so existing test call sites need no change; every real
-   *  caller passes it. */
+   *  Optional (defaulting to null) purely so the ~20 existing test call sites don't all need
+   *  updating — every real caller passes it. The danger/warning content is driven entirely by
+   *  the `ticketVisibility` IPC probe, not by this prop, so it stays correct even when this is
+   *  absent; only the title falls back to a ref-less phrasing when it is null. */
   jiraKey?: string | null
   onClose: () => void
 }): React.JSX.Element {
@@ -464,7 +466,7 @@ export function RcaPanel({
     if (visibility !== null) {
       const unconfirmedPrivacy = visibility === 'PUBLIC' || visibility === 'UNKNOWN'
       const ok = await confirmDialog({
-        title: `Post the RCA to ${jiraKey}?`,
+        title: jiraKey ? `Post the RCA to ${jiraKey}?` : 'Post the RCA?',
         message: unconfirmedPrivacy ? (
           <span className="text-danger">
             This repository is public — the comment will be readable by anyone.
