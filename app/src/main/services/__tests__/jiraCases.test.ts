@@ -12,6 +12,8 @@ import { createImmediateQueue, type IngestJob } from '../ingestQueue'
 import { readIndexState } from '../indexState'
 import { extractDerivedText } from '../extraction'
 import { JiraCases, type AtlassianClientLike } from '../jiraCases'
+import { createGithubProvider } from '../tickets/githubProvider'
+import { createJiraProvider } from '../tickets/jiraProvider'
 import {
   createCase,
   getCase,
@@ -117,12 +119,17 @@ function service(
   // JiraCases' contract is now "enqueue it", not "index and extract it".
   const immediate = createImmediateQueue(db, argusHome)
   const extractors = stubExtractors('binlog')
+  const site = (): string => 'https://acme.atlassian.net'
   return new JiraCases({
     db,
     argusHome,
     detection,
     client,
-    site: () => 'https://acme.atlassian.net',
+    site,
+    providers: {
+      jira: createJiraProvider({ client, site, postComment: async () => undefined }),
+      github: createGithubProvider({})
+    },
     queue: {
       enqueue: (job) => {
         immediate.enqueue(job)

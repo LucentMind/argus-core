@@ -136,6 +136,8 @@ import {
   type AtlassianAuth
 } from './services/atlassian'
 import { JiraCases } from './services/jiraCases'
+import { createGithubProvider } from './services/tickets/githubProvider'
+import { createJiraProvider } from './services/tickets/jiraProvider'
 import { buildJiraScopeResolver } from './services/jiraScopeResolver'
 import type { JiraAttachmentInfo, JiraResult } from '../shared/jira'
 import {
@@ -2227,7 +2229,20 @@ function registerIpc(): void {
     queue: ingestQueue,
     emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
     evidenceChanged: evidenceChangedB,
-    resolvePrompt
+    resolvePrompt,
+    providers: {
+      jira: createJiraProvider({
+        client: atlassian,
+        site: () => atlassian.cachedSiteUrl(rovoInstanceId(connectorRegistry.get()) ?? '') ?? '',
+        postComment: async () => {
+          // Jira comment posting lives in rca/post.ts, above this seam. This provider's
+          // postComment is unreachable for Jira today and must fail loudly rather than
+          // silently succeed if a future caller reaches for it.
+          throw new Error('Jira comments are posted through the Rovo connector, not this seam.')
+        }
+      }),
+      github: createGithubProvider({})
+    }
   })
 
   // The jira half of ScopeResolver. Lives HERE, not in services/routines/, because it needs the
