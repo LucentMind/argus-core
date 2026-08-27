@@ -17,3 +17,16 @@ export interface TicketProvider {
    */
   linkedPrs(ref: string): Promise<PrCandidate[]>
 }
+
+export interface TicketProviderRegistry {
+  jira: TicketProvider
+  github: TicketProvider
+}
+
+/** Selection is BY ID ONLY. Nothing here looks at the ref's shape. */
+export function providerFor(
+  id: TicketProviderId,
+  registry: TicketProviderRegistry
+): TicketProvider {
+  return registry[id]
+}
