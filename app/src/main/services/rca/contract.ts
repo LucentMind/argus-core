@@ -38,8 +38,9 @@ Rules:
    evidence with \`citations\` only where the instruction allows it.
 6. Every section listed under "Executive summary" is for a non-technical reader: no file paths,
    no code, no finding ids, no \`citations\`. This OVERRIDES that section's own instruction —
-   the executive summary posts as a Jira comment to a business audience, so the rule holds even
-   for a section whose instruction says nothing about it, or asks for the opposite.
+   the executive summary posts as a comment on the tracked issue (Jira or GitHub) to a business
+   audience, so the rule holds even for a section whose instruction says nothing about it, or
+   asks for the opposite.
 7. Citations point at evidence files (relPath from the evidence inventory) or repo paths
    exactly as they appear in findings — never invent paths.
 8. Respect prior human edits: if a "previously confirmed structure" section is present,
@@ -52,8 +53,8 @@ export const RCA_SECTIONS: PromptTextSpecs = {
     text: '# Report sections (write one `sections` entry per id)'
   },
   case: { title: 'RCA section — case metadata', text: '# Case' },
-  ticket: { title: 'RCA section — Jira ticket', text: '# Jira ticket (as ingested)' },
-  comments: { title: 'RCA section — Jira comments', text: '# Jira comments (as ingested)' },
+  ticket: { title: 'RCA section — ticket', text: '# Ticket (as ingested)' },
+  comments: { title: 'RCA section — ticket comments', text: '# Ticket comments (as ingested)' },
   findings: {
     title: 'RCA section — findings',
     text: '# Findings (id, review state, current role)'
@@ -115,10 +116,11 @@ export function buildCaseRcaPrompt(
         `### [finding ${f.id}] [${f.reviewState}${f.role ? ` · ${f.role}` : ''}] ${f.summary}\n${f.body}`
     )
     .join('\n\n')
+  const trackerLabel = m.ticketProvider === 'github' ? 'github' : 'jira'
   const parts = [
     resolve ? resolve('headless.case-rca.contract') : RCA_CONTRACT,
     `${sec('sections')}\n${sectionBriefs(template)}`,
-    `${sec('case')}\nslug: ${m.slug}\ntitle: ${m.title}\njira: ${m.jiraKey ?? '—'}\nresolution: ${m.resolution ?? '—'}\ntags: ${m.tags.join(', ') || '—'}\nopened: ${m.createdAt}`,
+    `${sec('case')}\nslug: ${m.slug}\ntitle: ${m.title}\n${trackerLabel}: ${m.jiraKey ?? '—'}\nresolution: ${m.resolution ?? '—'}\ntags: ${m.tags.join(', ') || '—'}\nopened: ${m.createdAt}`,
     `${sec('ticket')}\n${input.jiraTicketMarkdown ?? '(none)'}`,
     `${sec('comments')}\n${input.jiraCommentsMarkdown ?? '(none)'}`,
     `${sec('findings')}\n\n${findings || '(none)'}`,

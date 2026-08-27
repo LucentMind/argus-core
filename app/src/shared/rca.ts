@@ -1,5 +1,6 @@
 import type { FindingRole } from './observability'
 import type { RcaTemplate } from './rcaTemplate'
+import type { TicketProviderId } from './ticketRef'
 
 export interface Citation {
   path: string
@@ -88,6 +89,12 @@ export interface CaseRcaInput {
     resolution: string | null
     tags: string[]
     createdAt: string
+    /** `CaseRecord.ticketProvider`, for naming the right tracker in the rendered report and
+     *  the model-facing prompt instead of always saying "Jira". Optional (defaulting to
+     *  `'jira'` at every read site) so the many existing test fixtures that build this shape
+     *  by hand don't all need updating — every real caller passes it (see `assembleRcaInput`,
+     *  the `rca:render-preview` handler, and `RcaJobs.confirm`). */
+    ticketProvider?: TicketProviderId
   }
   /** Investigation-mode findings only; id included so the draft can link claims. */
   findings: {

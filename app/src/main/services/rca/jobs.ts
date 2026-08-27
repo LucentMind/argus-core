@@ -281,7 +281,8 @@ export class RcaJobs {
       jiraKey: kase.jiraKey,
       resolution: kase.resolution,
       tags: kase.tags,
-      createdAt: kase.createdAt
+      createdAt: kase.createdAt,
+      ticketProvider: kase.ticketProvider
     }
     fs.writeFileSync(path.join(dir, 'rca-structure.json'), JSON.stringify(edited, null, 2))
     // `toIdSet` (the same coercion the `rca:render-preview` handler uses) makes a malformed
