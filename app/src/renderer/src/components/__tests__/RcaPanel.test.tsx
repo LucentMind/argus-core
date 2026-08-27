@@ -95,6 +95,7 @@ const findingsList = vi.fn()
 const readMarkdown = vi.fn()
 const saveMarkdown = vi.fn()
 const handEdited = vi.fn()
+const ticketVisibility = vi.fn()
 let rcaChangedCb: ((p: RcaStatusPayload) => void) | null = null
 
 beforeEach(() => {
@@ -112,6 +113,9 @@ beforeEach(() => {
   readMarkdown.mockReset().mockResolvedValue({ exec: '# exec', tech: '# tech' })
   saveMarkdown.mockReset().mockResolvedValue(undefined)
   handEdited.mockReset().mockResolvedValue({ exec: false, tech: false })
+  // Default: not a github-provider case — the existing Jira confirm copy path is exercised
+  // unless a test explicitly opts into the github path.
+  ticketVisibility.mockReset().mockResolvedValue(null)
   vi.mocked(confirm).mockReset().mockResolvedValue(true)
 
   window.argus = {
@@ -129,7 +133,8 @@ beforeEach(() => {
       }),
       readMarkdown,
       saveMarkdown,
-      handEdited
+      handEdited,
+      ticketVisibility
     },
     findings: { list: findingsList },
     settings: { get: vi.fn(async () => settingsPayload()), onChanged: vi.fn(() => () => {}) }

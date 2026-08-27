@@ -227,6 +227,58 @@ describe('postRcaReport', () => {
     await expect(postRcaReport(fakeDeps(), 'no-such-case')).rejects.toThrow(/unknown case/i)
   })
 
+  it('routes a github-provider case through the ticket provider, never through callTool', async () => {
+    createCase(db, home, {
+      slug: 'case-gh',
+      title: 'Case GH',
+      jiraKey: 'org/repo#42',
+      ticketProvider: 'github'
+    })
+    writeArtifacts('case-gh')
+    insertJob('case-gh')
+    const calls: { tool: string; instanceId: string; args: Record<string, unknown> }[] = []
+    const posted: { ref: string; markdown: string }[] = []
+
+    const res = await postRcaReport(
+      {
+        ...fakeDeps({ calls }),
+        providers: {
+          jira: {
+            id: 'jira',
+            getIssue: async () => {
+              throw new Error('unused')
+            },
+            getComments: async () => [],
+            postComment: async () => {
+              throw new Error('unused')
+            },
+            webUrl: (r) => r,
+            linkedPrs: async () => []
+          },
+          github: {
+            id: 'github',
+            getIssue: async () => {
+              throw new Error('unused')
+            },
+            getComments: async () => [],
+            postComment: async (ref, markdown) => {
+              posted.push({ ref, markdown })
+              return { url: 'https://github.com/org/repo/issues/42#issuecomment-1' }
+            },
+            webUrl: (r) => r,
+            linkedPrs: async () => []
+          }
+        }
+      },
+      'case-gh'
+    )
+
+    expect(res.comment?.ok).toBe(true)
+    expect(posted).toHaveLength(1)
+    expect(posted[0].ref).toBe('org/repo#42')
+    expect(calls).toHaveLength(0) // the Rovo callTool path was never touched
+  })
+
   it('throws a clear error when the Atlassian site cannot be resolved, before posting anything', async () => {
     createCase(db, home, { slug: 'case-g', title: 'Case G', jiraKey: 'PROJ-7' })
     writeArtifacts('case-g')

@@ -468,7 +468,10 @@ const argus = {
     saveMarkdown: (slug: string, kind: 'exec' | 'tech', body: string): Promise<void> =>
       invoke(IPC.rcaSaveMarkdown, slug, kind, body),
     handEdited: (slug: string): Promise<{ exec: boolean; tech: boolean }> =>
-      invoke(IPC.rcaHandEdited, slug)
+      invoke(IPC.rcaHandEdited, slug),
+    /** For a github-provider case with a linked issue: the repo's visibility
+     *  ('PUBLIC' | 'PRIVATE' | 'UNKNOWN'). null for anything else (not github, no jiraKey). */
+    ticketVisibility: (slug: string): Promise<string | null> => invoke(IPC.ticketVisibility, slug)
   },
   search: {
     query: (q: string, filters?: SearchFilters): Promise<UnifiedSearchResult> =>

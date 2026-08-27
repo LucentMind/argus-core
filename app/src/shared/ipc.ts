@@ -366,6 +366,9 @@ export const IPC = {
   rcaReadMarkdown: 'rca:read-markdown',
   rcaSaveMarkdown: 'rca:save-markdown',
   rcaHandEdited: 'rca:hand-edited',
+  /** GitHub-issue visibility probe for the post-back confirm dialog: 'PUBLIC' | 'PRIVATE' |
+   *  'UNKNOWN' for a github-provider case with a linked issue, null otherwise. */
+  ticketVisibility: 'ticket:visibility',
   // — routines (saved prompt + trigger, run unattended) —
   routinesList: 'routines:list',
   /** Static data, not a payload field — see services/routines/templates.ts. Read once; there is
