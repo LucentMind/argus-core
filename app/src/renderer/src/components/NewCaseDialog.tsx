@@ -3,7 +3,6 @@ import { ChevronRight } from 'lucide-react'
 import { Btn, Chip } from './ui'
 import { ModalShell } from './ModalShell'
 import { transientFieldEscape } from '../lib/escapeLayer'
-import { parseJiraKeyInput } from '../lib/jiraKeyInput'
 import { parseTicketRef, splitGithubRef } from '../../../shared/ticketRef'
 import { sortAttachmentsByType } from '../lib/attachmentOrder'
 import type { NewCaseInput } from '../../../shared/types'
@@ -241,13 +240,23 @@ export function NewCaseDialog({
 
   async function createBlank(): Promise<void> {
     if (busy) return
+    // Same parser as the main ticket field: a GitHub ref typed here must be tagged
+    // `ticketProvider: 'github'`, not silently stored as a Jira-shaped key (see Finding
+    // above — `NewCaseInput.ticketProvider` exists precisely so this field can say which
+    // tracker it resolved to instead of defaulting everything to Jira).
+    const parsed = jira.trim() ? parseTicketRef(jira) : null
+    if (parsed && !parsed.ok) {
+      setError(parsed.error)
+      return
+    }
     setBusy(true)
     setError(null)
     try {
       await onCreateBlank({
         slug,
         title,
-        jiraKey: jira.trim() ? parseJiraKeyInput(jira) : undefined
+        jiraKey: parsed ? parsed.value.ref : undefined,
+        ticketProvider: parsed ? parsed.value.provider : undefined
       })
       onClose()
     } catch (e) {
@@ -374,11 +383,11 @@ export function NewCaseDialog({
         {step.step === 'entry' && (
           <>
             <div className="flex flex-col gap-2">
-              <span className="text-xs text-dim">From a Jira ticket</span>
+              <span className="text-xs text-dim">From a Jira ticket or GitHub issue</span>
               <div className="flex gap-2">
                 <input
                   className={`${INPUT} min-w-0 flex-1 font-mono`}
-                  placeholder="ticket key or link (e.g. PROJ-1234)"
+                  placeholder="ticket key or link (e.g. PROJ-1234 or owner/repo#123)"
                   value={ticketKey}
                   onChange={(e) => setTicketKey(e.target.value)}
                   onKeyDown={(e) =>
@@ -413,7 +422,7 @@ export function NewCaseDialog({
               />
               <input
                 className={`${INPUT} font-mono`}
-                placeholder="jira key or link (optional)"
+                placeholder="issue or ticket key (optional)"
                 value={jira}
                 onChange={(e) => setJira(e.target.value)}
                 onKeyDown={(e) => transientFieldEscape(e, jira === '', () => setJira(''))}

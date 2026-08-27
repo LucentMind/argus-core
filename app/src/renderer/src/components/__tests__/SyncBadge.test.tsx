@@ -75,6 +75,24 @@ describe('SyncBadge', () => {
     expect(screen.getByTestId('sync-badge').textContent).toBe('never')
   })
 
+  it('names GitHub in the never-synced tooltip for a GitHub-bound case', () => {
+    render(
+      <SyncBadge
+        c={mkCase({ ticketProvider: 'github', jiraKey: 'owner/repo#7', jiraSyncedAt: null })}
+      />
+    )
+    expect(screen.getByTestId('sync-badge').getAttribute('title')).toBe(
+      'Linked to GitHub but never synced'
+    )
+  })
+
+  it('still names Jira in the never-synced tooltip for a Jira-bound case — the label follows ticketProvider', () => {
+    render(<SyncBadge c={mkCase({ ticketProvider: 'jira', jiraSyncedAt: null })} />)
+    expect(screen.getByTestId('sync-badge').getAttribute('title')).toBe(
+      'Linked to Jira but never synced'
+    )
+  })
+
   it('still shows the failure age when the case never had a successful sync', () => {
     freezeAt('2026-07-14T00:00:00Z')
     render(

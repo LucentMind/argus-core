@@ -3,7 +3,7 @@ import { formatSyncAge } from '../../../shared/triage'
 import { CircleCheck, TriangleAlert, Minus } from 'lucide-react'
 
 /**
- * Freshness and health of the Jira link, in one footer slot.
+ * Freshness and health of the tracker link (Jira or GitHub), in one footer slot.
  *
  * The icon carries health and the text carries age, because a badge that only ever said "Synced"
  * carried neither. The word "synced" is deliberately absent from the badge text: the check glyph
@@ -41,10 +41,11 @@ export function SyncBadge({ c }: { c: CaseRecord }): React.JSX.Element | null {
   }
 
   if (!c.jiraSyncedAt) {
+    const trackerName = c.ticketProvider === 'github' ? 'GitHub' : 'Jira'
     return (
       <span
         data-testid="sync-badge"
-        title="Linked to Jira but never synced"
+        title={`Linked to ${trackerName} but never synced`}
         className="flex shrink-0 items-center gap-1 text-mute"
       >
         <Minus size={12} aria-hidden="true" />
