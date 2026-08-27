@@ -127,6 +127,26 @@ describe('renderExecReport', () => {
     expect(md).not.toContain('Jira')
   })
 
+  it('labels the tracker line "Jira" for a Jira-bound case', () => {
+    const md = renderExecReport(
+      draft(),
+      { ...meta(), ticketProvider: 'jira' },
+      { template: DEFAULT_RCA_TEMPLATE }
+    )
+    expect(md).toContain('Jira: KAN-42')
+    expect(md).not.toContain('GitHub')
+  })
+
+  it('labels the tracker line "GitHub" for a GitHub-bound case', () => {
+    const md = renderExecReport(
+      draft(),
+      { ...meta(), jiraKey: 'acme/widgets#8', ticketProvider: 'github' },
+      { template: DEFAULT_RCA_TEMPLATE }
+    )
+    expect(md).toContain('GitHub: acme/widgets#8')
+    expect(md).not.toContain('Jira')
+  })
+
   it('skips empty sections with no placeholder noise', () => {
     const md = renderExecReport(emptyDraft(), meta(), { template: DEFAULT_RCA_TEMPLATE })
     expect(md).not.toMatch(/\(none\)/i)
@@ -187,6 +207,26 @@ describe('renderTechReport', () => {
     const md = renderTechReport(emptyDraft(), meta(), { template: DEFAULT_RCA_TEMPLATE })
     expect(md).toContain('## Root cause')
     expect(md).toContain('## Remediation')
+  })
+
+  it('labels the meta line "Jira" for a Jira-bound case', () => {
+    const md = renderTechReport(
+      draft(),
+      { ...meta(), ticketProvider: 'jira' },
+      { template: DEFAULT_RCA_TEMPLATE }
+    )
+    expect(md).toContain('Jira: KAN-42')
+    expect(md).not.toContain('GitHub')
+  })
+
+  it('labels the meta line "GitHub" for a GitHub-bound case', () => {
+    const md = renderTechReport(
+      draft(),
+      { ...meta(), jiraKey: 'acme/widgets#8', ticketProvider: 'github' },
+      { template: DEFAULT_RCA_TEMPLATE }
+    )
+    expect(md).toContain('GitHub: acme/widgets#8')
+    expect(md).not.toContain('Jira')
   })
 })
 
