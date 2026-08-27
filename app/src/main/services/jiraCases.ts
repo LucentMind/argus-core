@@ -44,6 +44,16 @@ import { JIRA_PROMPTS } from './jiraPrompts'
 import { parseTicketRef, refSlug, type TicketProviderId } from '../../shared/ticketRef'
 import type { TicketPreview } from '../../shared/tickets'
 import { providerFor, type TicketProviderRegistry } from './tickets/provider'
+import {
+  jiraMeta,
+  findJiraEvidence,
+  type JiraAlsoOn,
+  type JiraEvidenceMeta
+} from './jiraEvidenceMeta'
+
+// Re-exported so existing callers (and rca/input.ts, historically) keep working — the actual
+// definitions now live in jiraEvidenceMeta.ts (Wave D, optional cleanup).
+export { jiraMeta, findJiraEvidence }
 
 export interface AtlassianClientLike {
   getIssue(key: string): Promise<JiraIssueData>
@@ -70,41 +80,6 @@ export interface JiraCasesDeps {
    *  `ticket_provider` for an existing case, the parsed provider for new input. */
   providers: TicketProviderRegistry
 }
-
-/** A ticket this evidence row's bytes are ALSO the attachment for, beyond the row's own
- *  `key`/`attachmentId`. Written when a dedup hit lands: the file was already ingested from
- *  one ticket and a byte-identical attachment then turned up on another (the overwhelmingly
- *  common case being a clone and the customer ticket it was cloned from — Jira clone does not
- *  copy attachments, but the same files are often re-attached to both independently). */
-interface JiraAlsoOn {
-  key: string
-  attachmentId: string
-  filename: string
-}
-
-interface JiraEvidenceMeta {
-  key?: string
-  role?: string
-  status?: string
-  attachmentId?: string
-  filename?: string
-  commentCount?: number
-  alsoOn?: JiraAlsoOn[]
-}
-
-export const jiraMeta = (meta: Record<string, unknown>): JiraEvidenceMeta =>
-  (meta.jira as JiraEvidenceMeta | undefined) ?? {}
-
-/** Evidence lookup MUST be scoped by ticket key: a case can carry evidence from its primary
- *  ticket and from source tickets, and role alone is ambiguous across them. Exported for
- *  `rca/input.ts`, which reads the ticket/comments rows the same way `refresh` does — off
- *  `meta.jira.role`/`key` rather than a reconstructed filename, so it survives a rebind. */
-export const findJiraEvidence = (
-  evidence: EvidenceRecord[],
-  role: string,
-  key: string
-): EvidenceRecord | undefined =>
-  evidence.find((e) => jiraMeta(e.meta).role === role && jiraMeta(e.meta).key === key)
 
 /** attachmentId → filename for attachments already ingested FROM `key`, either directly
  *  (this row's own `meta.jira.attachmentId`/`key`) or via `alsoOn` — a dedup hit that

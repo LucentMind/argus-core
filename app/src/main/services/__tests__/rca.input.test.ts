@@ -333,4 +333,45 @@ describe('assembleRcaInput', () => {
     expect(input.jiraTicketMarkdown).toContain('Route flickers')
     expect(input.jiraCommentsMarkdown).toContain('seen it too')
   })
+
+  // Wave D, Minor 1: `refresh` commits the metadata migration (`migrateJiraKey`) before it
+  // writes `cases.jira_key`. An exception between those two statements leaves evidence rows
+  // migrated to a newer ref than the case record still names. A SECOND transfer before that
+  // gap is fixed compounds it — `migrateJiraKey`'s `from` no longer matches the row's
+  // already-migrated key, so it's skipped again, and `c.jiraKey` ends up two refs behind the
+  // row's real `meta.jira.key`. The exact-match lookup (role+key) misses under that drift,
+  // and so does the legacy filename fallback (which is keyed off the same stale `c.jiraKey`
+  // and would look for a file that was never written under that name). This simulates the
+  // drift directly against the DB — a real refresh cannot land in this state without an
+  // injected failure, which isn't what this test is proving — and asserts the ticket and
+  // comments text still resolve via a role-only match.
+  it('resolves ticket/comments evidence when meta.jira.key and cases.jira_key have both drifted out of sync', async () => {
+    const svc = githubCases(githubIssue())
+    await svc.createFromTicket({ slug: 'cli-14189', title: 'Tiles 403', key: 'cli/cli#14189' })
+
+    // Simulate one completed-but-half-committed migration (meta moved on) plus a second
+    // transfer noticed by the case record but never reconciled against the evidence rows.
+    const caseId = getCase(db, 'cli-14189')!.id
+    const rows = db.prepare(`SELECT id, meta FROM evidence WHERE case_id = ?`).all(caseId) as {
+      id: number
+      meta: string
+    }[]
+    for (const row of rows) {
+      const meta = JSON.parse(row.meta) as { jira?: { key?: string } }
+      if (meta.jira?.key === 'cli/cli#14189') {
+        meta.jira.key = 'cli/cli#20000'
+        db.prepare(`UPDATE evidence SET meta = ? WHERE id = ?`).run(JSON.stringify(meta), row.id)
+      }
+    }
+    db.prepare(`UPDATE cases SET jira_key = ? WHERE id = ?`).run('cli/cli#99999', caseId)
+
+    // Neither the exact metadata match nor the legacy filename fallback can find this row:
+    // the row's key is now 'cli/cli#20000', the case's key is 'cli/cli#99999', and the file
+    // on disk is still named for the ORIGINAL ref ('cli-cli-14189.ticket.md').
+    const input = assembleRcaInput(db, home, 'cli-14189')
+    expect(input.jiraTicketMarkdown).not.toBeNull()
+    expect(input.jiraCommentsMarkdown).not.toBeNull()
+    expect(input.jiraTicketMarkdown).toContain('Repro: open the map.')
+    expect(input.jiraCommentsMarkdown).toContain('Also seen on v2.')
+  })
 })
