@@ -57,20 +57,29 @@ const kb = (n: number): string => (n >= 1024 ? `${Math.round(n / 1024)} KB` : `$
  * `SLUG_RE` (caseService.ts) and is used unchanged. A GitHub ref (`owner/repo#123`) is not
  * a valid slug at all — `/` and `#` are both rejected — so it must never be used directly
  * (see Finding C2: that is exactly what let the Create button spend a real `gh issue view`
- * call before throwing "Invalid case slug"). `{repo}-{number}` is what the spec asked for,
- * and it satisfies SLUG_RE for any real GitHub repo name: repo/owner charset is limited to
- * `[A-Za-z0-9._-]`, the same set SLUG_RE allows after its required leading alnum, and GitHub
- * itself never issues a repo name starting with a non-alnum character.
+ * call before throwing "Invalid case slug"). `{repo}-{number}` is what the spec asked for.
  *
- * `SLUG_RE` also caps total length at 64 — a repo name long enough to push `{repo}-{number}`
- * past that still has to satisfy it, so the prefill is truncated to 64 chars. Every character
- * up to the cut is already drawn from `SLUG_RE`'s allowed set, so truncating never introduces
- * a character the regex would reject.
+ * The repo charset (`[A-Za-z0-9._-]`) is a subset of what SLUG_RE allows for non-leading
+ * characters, but SLUG_RE also requires the FIRST character to be alnum, and GitHub *does*
+ * issue repo names starting with `.`, `_`, or `-` — `owner/.github` (the standard
+ * community-health-files repo) is a real, ubiquitous example. Left unhandled, that produced
+ * `.github-42`, which `SLUG_RE.test` rejects while the Create button stayed enabled — the
+ * exact failure this prefill exists to prevent. So any leading run of non-alnum characters is
+ * stripped first; if that empties the repo name entirely (e.g. a repo of all `-`/`.`/`_`), a
+ * safe `repo` placeholder keeps the leading character alnum.
+ *
+ * `SLUG_RE` also caps total length at 64. The issue number is what makes the slug unique
+ * within a repo, so truncation must never remove it — only the repo portion is cut, leaving
+ * room for `-{number}` in full. Every character kept is already drawn from `SLUG_RE`'s
+ * allowed set, so truncating never introduces a character the regex would reject.
  */
 function prefillSlug(preview: TicketPreview): string {
   if (preview.provider !== 'github') return preview.key
   const { repo, number } = splitGithubRef(preview.key)
-  return `${repo}-${number}`.slice(0, 64)
+  const suffix = `-${number}`
+  const alnumRepo = repo.replace(/^[^A-Za-z0-9]+/, '') || 'repo'
+  const maxRepoLen = Math.max(1, 64 - suffix.length)
+  return `${alnumRepo.slice(0, maxRepoLen)}${suffix}`
 }
 
 export function NewCaseDialog({

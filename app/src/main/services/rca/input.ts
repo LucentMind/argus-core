@@ -9,7 +9,7 @@ import { listFindings } from '../findings'
 import { listEvidence } from '../ingest'
 import { caseDir, evidenceDir } from '../paths'
 import { refSlug } from '../../../shared/ticketRef'
-import { findJiraEvidence } from '../jiraCases'
+import { findJiraEvidence, jiraMeta } from '../jiraEvidenceMeta'
 
 /** Tail cap per session; RCA needs the conclusion of a conversation, not its start. */
 export const TRANSCRIPT_CAP = 8000
@@ -35,10 +35,21 @@ function readEvidenceRow(argusHome: string, slug: string, rec: EvidenceRecord): 
 }
 
 /** Locate this case's ticket/comments evidence the way `refresh` does — off `meta.jira.role`
- *  scoped by `key` — and read it by `relPath`. Falls back to the legacy filename convention
- *  (`${refSlug(key)}.<role-suffix>`) only when no row carries the matching metadata, which
- *  covers evidence ingested before this metadata existed; ordinary, never-transferred cases
- *  always resolve via metadata since every write site sets it. */
+ *  scoped by `key` — and read it by `relPath`.
+ *
+ *  Falls back to a ROLE-ONLY match (ignoring `key` entirely) when the scoped lookup misses.
+ *  `refresh` writes `cases.jira_key` and migrates existing rows' `meta.jira.key` in two
+ *  separate statements; an exception between them leaves rows migrated to a newer ref than
+ *  the case record still names. A case transferred a SECOND time before that gap is noticed
+ *  compounds it: `migrateJiraKey`'s `from` no longer matches the row's already-migrated key,
+ *  so the row is skipped again, and `c.jiraKey` (used here) can be two refs behind the row's
+ *  actual `meta.jira.key`. Roles `ticket`/`comments` are exclusive to the primary ticket —
+ *  `importSourceTicket` always writes the distinct roles `source-ticket`/`source-ticket-raw`/
+ *  `source-comments` — so a role-only match here can never return a source ticket's text.
+ *
+ *  Falls back further to the legacy filename convention (`${refSlug(key)}.<role-suffix>`)
+ *  only when no row carries the role at all, which covers evidence ingested before this
+ *  metadata existed. */
 function readTicketEvidence(
   argusHome: string,
   slug: string,
@@ -49,6 +60,8 @@ function readTicketEvidence(
 ): string | null {
   const rec = findJiraEvidence(evidence, role, key)
   if (rec) return readEvidenceRow(argusHome, slug, rec)
+  const roleOnly = evidence.find((e) => jiraMeta(e.meta).role === role)
+  if (roleOnly) return readEvidenceRow(argusHome, slug, roleOnly)
   return readEvidenceFile(argusHome, slug, `${refSlug(key)}.${legacySuffix}`)
 }
 

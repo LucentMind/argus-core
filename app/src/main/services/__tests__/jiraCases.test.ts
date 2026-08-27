@@ -1400,3 +1400,47 @@ describe('JiraCases source tickets', () => {
     expect(summary.newAttachments).toEqual([])
   })
 })
+
+// Wave D, Minor 2: `migrateJiraKey` wraps its per-row UPDATEs in BEGIN/COMMIT/ROLLBACK, but
+// nothing had ever forced a mid-migration failure, so the ROLLBACK path was unproven — every
+// test in this file (and rca.input.test.ts) still passes with all three `db.exec` calls
+// stripped out entirely. A `BEFORE UPDATE` trigger on `evidence` gives a real, deterministic
+// mid-transaction failure without mocking `node:sqlite` or touching production code: it raises
+// once any row already carries the migrated-to ref, so the FIRST of three UPDATEs in the loop
+// succeeds (proving the trigger only fires mid-migration, not on the first write) and the
+// SECOND fails — and the assertion is that the ROLLBACK undid the first UPDATE too, not just
+// that the second one didn't happen.
+describe('migrateJiraKey transaction', () => {
+  it('rolls back every row (0 of 3) when a mid-migration UPDATE fails', async () => {
+    const client = fakeClient(() => issue({ key: 'NAV-7', attachments: [] }))
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await settle()
+
+    // createFromTicket writes exactly 3 evidence rows sharing meta.jira.key = 'NAV-7':
+    // ticket.md (role 'ticket'), ticket.json (role 'ticket-raw'), comments.md (role 'comments').
+    const jiraKeyOf = (e: EvidenceRecord): string | undefined =>
+      (e.meta.jira as { key?: string } | undefined)?.key
+    const before = listEvidence(db, 'NAV-7')
+    expect(before.filter((e) => jiraKeyOf(e) === 'NAV-7')).toHaveLength(3)
+
+    db.exec(`
+      CREATE TRIGGER migrate_guard BEFORE UPDATE ON evidence
+      WHEN (SELECT COUNT(*) FROM evidence WHERE meta LIKE '%"key":"NAV-8"%') >= 1
+      BEGIN SELECT RAISE(FAIL, 'injected mid-migration failure'); END
+    `)
+
+    const renamed: AtlassianClientLike = {
+      ...client,
+      getIssue: vi.fn(async () => issue({ key: 'NAV-8', attachments: [] }))
+    }
+    const svc2 = service(renamed)
+    await expect(svc2.refresh('NAV-7')).rejects.toThrow(/injected mid-migration failure/)
+
+    db.exec('DROP TRIGGER migrate_guard')
+
+    const after = listEvidence(db, 'NAV-7')
+    expect(after.filter((e) => jiraKeyOf(e) === 'NAV-8')).toHaveLength(0)
+    expect(after.filter((e) => jiraKeyOf(e) === 'NAV-7')).toHaveLength(3)
+  })
+})
