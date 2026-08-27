@@ -859,7 +859,14 @@ export function CaseWorkspace({
           }}
         />
       )}
-      {rcaOpen && <RcaPanel slug={slug} jiraKey={jiraKey} onClose={() => setRcaOpen(false)} />}
+      {rcaOpen && (
+        <RcaPanel
+          slug={slug}
+          jiraKey={jiraKey}
+          ticketProvider={ticketProvider}
+          onClose={() => setRcaOpen(false)}
+        />
+      )}
       {explorerOpen && (
         // key={slug}: the explorer holds a never-reset `seeded` ref plus
         // `req.text`/`req.edited` state. Without a remount, switching cases

@@ -17,7 +17,7 @@ import {
   reassign,
   ROLE_LABEL,
   targetsMessage,
-  TARGET_LABEL,
+  targetLabel,
   type Claim,
   type ClaimRole
 } from '../lib/rcaDraft'
@@ -28,6 +28,7 @@ import type {
   RcaDroppedSections,
   RcaStatusPayload
 } from '../../../shared/rca'
+import type { TicketProviderId } from '../../../shared/ticketRef'
 
 function ClaimCard({
   claim,
@@ -103,6 +104,7 @@ const SECTIONS: { role: Exclude<FindingRole, 'duplicate'>; label: string }[] = [
 export function RcaPanel({
   slug,
   jiraKey = null,
+  ticketProvider,
   onClose
 }: {
   slug: string
@@ -114,8 +116,16 @@ export function RcaPanel({
    *  the `ticketVisibility` IPC probe, not by this prop, so it stays correct even when this is
    *  absent; only the title falls back to a ref-less phrasing when it is null. */
   jiraKey?: string | null
+  /** `CaseRecord.ticketProvider`, passed the same way as `jiraKey` (I5) — used only to name the
+   *  right tracker in the post-target row and repost notices; everything else about which post
+   *  path runs is still driven by `ticketVisibility`/`postRcaReport` on the main-process side. */
+  ticketProvider?: TicketProviderId
   onClose: () => void
 }): React.JSX.Element {
+  // The only comment target that can ever fire for a GitHub-bound case (I5) — names the repost
+  // notices below by the case's real tracker instead of always saying "Jira".
+  const trackerName = ticketProvider === 'github' ? 'GitHub' : 'Jira'
+
   // Same occlusion registration as PrPickerDialog: a docked panel is a native WebContentsView
   // that paints above all DOM, so any component-level modal must hide it while open.
   const modalId = useId()
@@ -467,11 +477,20 @@ export function RcaPanel({
       const unconfirmedPrivacy = visibility === 'PUBLIC' || visibility === 'UNKNOWN'
       const ok = await confirmDialog({
         title: jiraKey ? `Post the RCA to ${jiraKey}?` : 'Post the RCA?',
-        message: unconfirmedPrivacy ? (
-          <span className="text-danger">
-            This repository is public — the comment will be readable by anyone.
-          </span>
-        ) : undefined,
+        // UNKNOWN means the visibility probe failed — treating it as unsafe is correct (a
+        // failed check is not evidence of privacy), but PUBLIC is the only case where "this
+        // repository is public" is a fact the code has actually established.
+        message:
+          visibility === 'PUBLIC' ? (
+            <span className="text-danger">
+              This repository is public — the comment will be readable by anyone.
+            </span>
+          ) : visibility === 'UNKNOWN' ? (
+            <span className="text-danger">
+              This repository&apos;s visibility could not be confirmed — it may be public and
+              readable by anyone.
+            </span>
+          ) : undefined,
         danger: unconfirmedPrivacy
       })
       if (!ok) return
@@ -698,13 +717,14 @@ export function RcaPanel({
                   need a retry (that's the whole point of the skip-when-ok logic). */}
               {postResults?.comment?.ok && (
                 <p className="text-xs text-mute">
-                  The Jira comment already posted — posting again will not re-send the Jira comment.
+                  The {trackerName} comment already posted — posting again will not re-send the{' '}
+                  {trackerName} comment.
                 </p>
               )}
               {postResults?.comment?.ok && handEdited.exec && (
                 <p className="text-xs text-danger">
-                  Your text edits to the Jira comment will not reach the already-posted comment —
-                  Jira still shows the earlier text.
+                  Your text edits to the {trackerName} comment will not reach the already-posted
+                  comment — {trackerName} still shows the earlier text.
                 </p>
               )}
               {confirmError && <p className="text-xs text-danger">{confirmError}</p>}
@@ -717,7 +737,7 @@ export function RcaPanel({
                     if (!r) return null
                     return (
                       <div key={key} className="flex flex-wrap items-center gap-2 text-xs">
-                        <span className="text-ink">{TARGET_LABEL[key]}</span>
+                        <span className="text-ink">{targetLabel(key, ticketProvider)}</span>
                         {r.ok ? (
                           <Chip tone="signal">posted</Chip>
                         ) : (
@@ -734,7 +754,7 @@ export function RcaPanel({
                         {!r.ok && r.error && <span className="text-danger">{r.error}</span>}
                         {!r.ok && (
                           <Btn
-                            aria-label={`Retry ${TARGET_LABEL[key]}`}
+                            aria-label={`Retry ${targetLabel(key, ticketProvider)}`}
                             disabled={postBusy}
                             onClick={() => void doPost()}
                           >

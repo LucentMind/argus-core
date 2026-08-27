@@ -1,6 +1,7 @@
 import { FINDING_ROLES } from '../../../shared/observability'
 import type { FindingRole } from '../../../shared/observability'
 import type { Citation, PostResults, RcaDraft, RoleAssignment } from '../../../shared/rca'
+import type { TicketProviderId } from '../../../shared/ticketRef'
 
 /**
  * Pure helpers backing `RcaPanel` (task-11 brief): the claim card model, the role-reassignment
@@ -51,10 +52,15 @@ export const ROLE_LABEL: Record<Exclude<FindingRole, 'duplicate'>, string> = {
   'ruled-out': 'Ruled out'
 }
 
-export const TARGET_LABEL: Record<keyof PostResults, string> = {
-  comment: 'Jira comment',
-  attachment: 'Jira attachment',
-  confluencePage: 'Confluence page'
+/**
+ * Post-target row label. `attachment`/`confluencePage` never apply to a GitHub-bound case
+ * (`postRcaToGithub` posts one `comment` only — no attachment API), so only `comment` needs to
+ * name the case's actual tracker; a GitHub post must never be labelled "Jira comment" (I5).
+ */
+export function targetLabel(key: keyof PostResults, ticketProvider?: TicketProviderId): string {
+  if (key === 'comment') return ticketProvider === 'github' ? 'GitHub comment' : 'Jira comment'
+  if (key === 'attachment') return 'Jira attachment'
+  return 'Confluence page'
 }
 
 /** One claim card, unified across the draft's four differently-shaped sections (rootCause is a

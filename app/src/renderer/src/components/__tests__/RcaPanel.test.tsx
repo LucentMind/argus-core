@@ -180,10 +180,11 @@ async function renderDonePanel(
     dropped?: RcaDroppedSections
     confirmedAt?: string | null
     postResults?: PostResults | null
-  } = {}
+  } = {},
+  ticketProvider?: 'jira' | 'github'
 ): Promise<void> {
   status.mockResolvedValue(doneStatusPayload(over))
-  render(<RcaPanel slug="case-a" onClose={vi.fn()} />)
+  render(<RcaPanel slug="case-a" ticketProvider={ticketProvider} onClose={vi.fn()} />)
   await screen.findByText('the cache key omitted the tenant id')
 }
 
@@ -904,14 +905,15 @@ describe('RcaPanel', () => {
       await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
     }
 
-    it('PUBLIC: the confirm dialog carries the danger warning and names the target ref', async () => {
+    it('PUBLIC: the confirm dialog carries the danger warning, names the target ref, and states the repo IS public', async () => {
       ticketVisibility.mockResolvedValue('PUBLIC')
       await renderAndClickPost()
       const opts = vi.mocked(confirm).mock.calls[0][0]
       expect(opts.title).toMatch(/my-org\/my-repo#42/)
       expect(opts.danger).toBe(true)
       render(<>{opts.message}</>)
-      expect(screen.getByText(/public/i)).toBeInTheDocument()
+      // "is public" — a fact, not a hedge. Distinguishes this from the UNKNOWN copy below.
+      expect(screen.getByText(/this repository is public/i)).toBeInTheDocument()
     })
 
     it('PRIVATE: no public warning appears, and the dialog is not marked danger', async () => {
@@ -923,13 +925,18 @@ describe('RcaPanel', () => {
       expect(opts.message).toBeUndefined()
     })
 
-    it('UNKNOWN: the warning appears — an unconfirmed visibility is treated as unsafe', async () => {
+    // The probe FAILED here — it never established the repo is public. Unknown must still
+    // carry the danger styling and still warn (treating unknown as unsafe is correct), but the
+    // copy must not assert a fact the code does not know, unlike the PUBLIC case above.
+    it('UNKNOWN: still warns with danger styling, but states the visibility could not be confirmed rather than asserting the repo is public', async () => {
       ticketVisibility.mockResolvedValue('UNKNOWN')
       await renderAndClickPost()
       const opts = vi.mocked(confirm).mock.calls[0][0]
       expect(opts.danger).toBe(true)
       render(<>{opts.message}</>)
       expect(screen.getByText(/public/i)).toBeInTheDocument()
+      expect(screen.queryByText(/this repository is public/i)).not.toBeInTheDocument()
+      expect(screen.getByText(/could not be confirmed/i)).toBeInTheDocument()
     })
 
     it('null (a Jira case): no public warning, and the ordinary Jira confirmation shows instead', async () => {
@@ -981,6 +988,42 @@ describe('RcaPanel', () => {
         screen.queryByText(/will not reach the already-posted comment/i)
       ).not.toBeInTheDocument()
       expect(screen.getByRole('button', { name: /post to jira/i })).toBeEnabled()
+    })
+  })
+
+  // I5: the result pane must name the case's real tracker, not always "Jira" — the assertion
+  // against the Jira-bound case is what proves the label is conditional rather than just
+  // hardcoded the other way.
+  describe('post-target naming follows ticketProvider (I5)', () => {
+    it('names GitHub for a GitHub-bound case', async () => {
+      await renderDonePanel(
+        {
+          confirmedAt: '2026-08-14T00:00:00Z',
+          postResults: { comment: { ok: true, at: '2026-08-14T00:00:05Z' } }
+        },
+        'github'
+      )
+      expect(await screen.findByText('GitHub comment')).toBeInTheDocument()
+      expect(
+        screen.getByText(/the github comment already posted.*will not re-send the github comment/i)
+      ).toBeInTheDocument()
+      expect(screen.queryByText('Jira comment')).not.toBeInTheDocument()
+      expect(screen.queryByText(/jira comment already posted/i)).not.toBeInTheDocument()
+    })
+
+    it('names Jira for a Jira-bound case', async () => {
+      await renderDonePanel(
+        {
+          confirmedAt: '2026-08-14T00:00:00Z',
+          postResults: { comment: { ok: true, at: '2026-08-14T00:00:05Z' } }
+        },
+        'jira'
+      )
+      expect(await screen.findByText('Jira comment')).toBeInTheDocument()
+      expect(
+        screen.getByText(/the jira comment already posted.*will not re-send the jira comment/i)
+      ).toBeInTheDocument()
+      expect(screen.queryByText('GitHub comment')).not.toBeInTheDocument()
     })
   })
 })

@@ -14,7 +14,8 @@ export function summaryHasChanges(s: JiraRefreshSummary): boolean {
     s.newAttachments.length > 0 ||
     s.statusChange !== null ||
     s.deletedOnJira.length > 0 ||
-    s.newComments > 0
+    s.newComments > 0 ||
+    s.rebound !== undefined
   )
 }
 
@@ -41,6 +42,9 @@ export function resultDecayMs(phase: JiraSyncPhase): number | null {
 /** Prose form of a refresh result. */
 function summarize(s: JiraRefreshSummary): string {
   const parts: string[] = []
+  // Stated first: a rebind is an identity change, not a routine update, and without this
+  // note it would otherwise be a silent one (spec §6.4).
+  if (s.rebound) parts.push(`moved from ${s.rebound.from} to ${s.rebound.to}`)
   if (s.newAttachments.length)
     parts.push(
       `${s.newAttachments.length} new attachment${s.newAttachments.length === 1 ? '' : 's'}`
