@@ -73,7 +73,11 @@ export function parseTicketRef(input: string): ParsedTicketRef {
   return { ok: true, value: { provider: 'jira', ref: trimmed } }
 }
 
-const ghRef = (owner: string, repo: string, number: string): string => `${owner}/${repo}#${number}`
+// Canonicalise the issue number (remove leading zeros) since this ref is stored as the case's
+// ticket identity and later used for lookup and comparison. `#007` and `#7` must map to the
+// same canonical ref.
+const ghRef = (owner: string, repo: string, number: string): string =>
+  `${owner}/${repo}#${Number(number)}`
 
 export function splitGithubRef(ref: string): { owner: string; repo: string; number: number } {
   const m = GH_SHORT.exec(ref)
