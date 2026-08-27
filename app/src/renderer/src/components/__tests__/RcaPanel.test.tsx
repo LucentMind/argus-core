@@ -889,6 +889,59 @@ describe('RcaPanel', () => {
     expect(screen.queryByText(/could not be read/i)).not.toBeInTheDocument()
   })
 
+  describe('posting to a GitHub issue: the public-repo warning', () => {
+    // These four cover the safety-relevant branch end to end: PUBLIC/UNKNOWN must warn (failing
+    // to confirm privacy is not evidence of privacy), PRIVATE and the Jira `null` case must not.
+    // The PRIVATE and null cases are not redundant with the mutation check below — they are what
+    // proves the warning is conditional at all; without them a hardcoded `danger: true` would
+    // pass every other test in this file.
+
+    async function renderAndClickPost(): Promise<void> {
+      status.mockResolvedValue(doneStatusPayload({ confirmedAt: '2026-08-14T00:00:00Z' }))
+      render(<RcaPanel slug="case-a" jiraKey="my-org/my-repo#42" onClose={vi.fn()} />)
+      const postBtn = await screen.findByRole('button', { name: /post to jira/i })
+      await userEvent.click(postBtn)
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+    }
+
+    it('PUBLIC: the confirm dialog carries the danger warning and names the target ref', async () => {
+      ticketVisibility.mockResolvedValue('PUBLIC')
+      await renderAndClickPost()
+      const opts = vi.mocked(confirm).mock.calls[0][0]
+      expect(opts.title).toMatch(/my-org\/my-repo#42/)
+      expect(opts.danger).toBe(true)
+      render(<>{opts.message}</>)
+      expect(screen.getByText(/public/i)).toBeInTheDocument()
+    })
+
+    it('PRIVATE: no public warning appears, and the dialog is not marked danger', async () => {
+      ticketVisibility.mockResolvedValue('PRIVATE')
+      await renderAndClickPost()
+      const opts = vi.mocked(confirm).mock.calls[0][0]
+      expect(opts.title).toMatch(/my-org\/my-repo#42/)
+      expect(opts.danger).toBeFalsy()
+      expect(opts.message).toBeUndefined()
+    })
+
+    it('UNKNOWN: the warning appears — an unconfirmed visibility is treated as unsafe', async () => {
+      ticketVisibility.mockResolvedValue('UNKNOWN')
+      await renderAndClickPost()
+      const opts = vi.mocked(confirm).mock.calls[0][0]
+      expect(opts.danger).toBe(true)
+      render(<>{opts.message}</>)
+      expect(screen.getByText(/public/i)).toBeInTheDocument()
+    })
+
+    it('null (a Jira case): no public warning, and the ordinary Jira confirmation shows instead', async () => {
+      ticketVisibility.mockResolvedValue(null)
+      await renderAndClickPost()
+      const opts = vi.mocked(confirm).mock.calls[0][0]
+      expect(opts.title).toMatch(/post rca to jira/i)
+      expect(opts.danger).toBeFalsy()
+      expect(String(opts.message ?? '')).not.toMatch(/public/i)
+    })
+  })
+
   describe('re-posting an already-posted comment', () => {
     it('says a hand-edited exec report will not reach the already-posted Jira comment', async () => {
       handEdited.mockResolvedValue({ exec: true, tech: false })
