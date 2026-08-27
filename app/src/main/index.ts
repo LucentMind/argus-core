@@ -131,13 +131,12 @@ import {
   AtlassianError,
   atlassianRestConfigured,
   rovoInstanceId,
-  jiraBrowseUrl,
   resolveAtlassianCreds,
   type AtlassianAuth
 } from './services/atlassian'
 import { JiraCases } from './services/jiraCases'
 import { createGithubProvider } from './services/tickets/githubProvider'
-import type { TicketProviderRegistry } from './services/tickets/provider'
+import { providerFor, type TicketProviderRegistry } from './services/tickets/provider'
 import { createJiraProvider } from './services/tickets/jiraProvider'
 import { defaultGhRunner, GH_TIMEOUT_MS } from './services/github'
 import { buildJiraScopeResolver } from './services/jiraScopeResolver'
@@ -3809,20 +3808,16 @@ function registerIpc(): void {
     jiraResult(async () => jiraCases.removeSource(caseSlug, key))
   )
 
-  // Open the case's Jira issue in the system browser. URL construction stays in
-  // main: siteUrl never crosses to the renderer and the http(s) guard applies.
+  // Open the case's ticket in the system browser. URL construction stays in main
+  // (never crosses to the renderer) and the http(s) guard still applies. Routed
+  // through the ticket-provider registry rather than building a Jira browse URL
+  // directly: `kase.ticketProvider` is the single authority on which tracker
+  // `kase.jiraKey` names, and a GitHub-bound case must open on github.com, not
+  // fall back to whatever Atlassian site happens to be connected.
   ipcMain.handle(IPC.jiraOpenIssue, async (_e, caseSlug: string) => {
     const kase = getCase(db, caseSlug)
     if (!kase?.jiraKey) return
-    // siteUrl only, no creds: the browser opens the issue on the user's own
-    // Atlassian session, so a missing API token must not block this. siteUrl
-    // comes from the OAuth discovery cache (warmed on authorize / prior REST
-    // calls) rather than a config field — degrade to a no-op when it's cold
-    // or the rovo connector isn't authorized.
-    const id = rovoInstanceId(connectorRegistry.get())
-    const siteUrl = id ? await atlassian.resolveSiteUrl(id) : null
-    if (!siteUrl) return // no connector / site URL — menu item is a no-op
-    const url = jiraBrowseUrl(siteUrl, kase.jiraKey)
+    const url = providerFor(kase.ticketProvider, ticketProviders).webUrl(kase.jiraKey)
     if (!isOpenableUrl(url)) return
     void shell.openExternal(url)
   })

@@ -136,6 +136,25 @@ describe('JiraSection', () => {
     expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
     expect(screen.queryByTestId('jira-sync-line')).not.toBeInTheDocument()
   })
+
+  // GitHub-provider case: the open/refresh chrome must name the actual tracker, not default to
+  // Jira, and the source-ticket affordance must not appear at all — sources are Jira-only this
+  // increment, and an add button that cannot work is worse than none.
+  it('names GitHub in the open/refresh chrome for a GitHub-provider case, and hides sources', () => {
+    render(
+      <JiraSection
+        slug="nn-5187"
+        jiraKey="cli/cli#14189"
+        title={TITLE}
+        syncedAt={SYNCED_AT}
+        ticketProvider="github"
+      />
+    )
+    expect(screen.getByRole('button', { name: 'Open cli/cli#14189 in GitHub' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Refresh from GitHub' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /add source ticket/i })).not.toBeInTheDocument()
+    expect(window.argus.jira.listSources).not.toHaveBeenCalled()
+  })
 })
 
 /** A case with no source links must look exactly as it did before sources existed — the only

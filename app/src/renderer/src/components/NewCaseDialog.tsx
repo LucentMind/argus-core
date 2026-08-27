@@ -4,9 +4,11 @@ import { Btn, Chip } from './ui'
 import { ModalShell } from './ModalShell'
 import { transientFieldEscape } from '../lib/escapeLayer'
 import { parseJiraKeyInput } from '../lib/jiraKeyInput'
+import { parseTicketRef } from '../../../shared/ticketRef'
 import { sortAttachmentsByType } from '../lib/attachmentOrder'
 import type { NewCaseInput } from '../../../shared/types'
-import type { JiraAttachmentInfo, JiraIssuePreview } from '../../../shared/jira'
+import type { JiraAttachmentInfo } from '../../../shared/jira'
+import type { TicketPreview } from '../../../shared/tickets'
 
 const INPUT =
   'h-8 rounded-r2 border border-hair bg-overlay px-2.5 text-sm text-ink placeholder:text-mute transition-colors focus:border-hair2'
@@ -25,7 +27,7 @@ interface FileRow {
 
 type Step =
   | { step: 'entry' }
-  | { step: 'preview'; ticketKey: string; preview: JiraIssuePreview }
+  | { step: 'preview'; ticketKey: string; preview: TicketPreview }
   | { step: 'ingest'; slug: string; jiraKey: string; files: FileRow[] }
 
 /** Per clone-source state, keyed by ticket key. Absent = never expanded, and a source that
@@ -170,7 +172,15 @@ export function NewCaseDialog({
   }, [ingestSlug])
 
   async function fetchTicket(): Promise<void> {
-    const key = parseJiraKeyInput(ticketKey)
+    // Parsed client-side, before any IPC call: a pull request (or other rejected input) must
+    // never reach `preview` — there is nothing useful to fetch, and the error is purely about
+    // the text the user typed, not anything the provider could answer.
+    const parsed = parseTicketRef(ticketKey)
+    if (!parsed.ok) {
+      setError(parsed.error)
+      return
+    }
+    const key = parsed.value.ref
     setBusy(true)
     setError(null)
     // Clear the entry field synchronously (same render as setBusy) so its value
@@ -394,7 +404,13 @@ export function NewCaseDialog({
           <>
             {/* No identity row here: the key and status live in the dialog header, and the
                 summary is the prefill of the Title field below. Both used to be repeated here,
-                which is how the same sentence ended up on screen three times. */}
+                which is how the same sentence ended up on screen three times. This one line is
+                the exception — which tracker resolved the ref is not visible anywhere else in
+                the dialog, and a case silently created against the wrong provider is a much
+                worse surprise than a redundant label. */}
+            <div className="text-xs text-mute">
+              {step.preview.provider === 'github' ? 'GitHub issue' : 'Jira ticket'}
+            </div>
             <div className="flex flex-col gap-1">
               <label className="text-xs text-dim" htmlFor="new-case-slug">
                 Case ID

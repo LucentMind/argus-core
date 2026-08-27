@@ -323,6 +323,7 @@ function App(): React.JSX.Element {
                 caseTitle={cases.find((c) => c.slug === view.slug)?.title ?? ''}
                 jiraKey={cases.find((c) => c.slug === view.slug)?.jiraKey ?? null}
                 jiraSyncedAt={cases.find((c) => c.slug === view.slug)?.jiraSyncedAt ?? null}
+                ticketProvider={cases.find((c) => c.slug === view.slug)?.ticketProvider}
                 onModeSwitched={() => void reload()}
                 onOpenHit={handleOpenHit}
                 onOpenCitation={(id, start, end) =>

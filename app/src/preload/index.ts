@@ -82,6 +82,7 @@ import type {
   JiraSourceLink,
   JiraSyncAllSummary
 } from '../shared/jira'
+import type { TicketPreview } from '../shared/tickets'
 import type {
   BundleExportResult,
   BundleInspectResult,
@@ -938,7 +939,7 @@ const argus = {
     delete: (name: string) => invoke(IPC.secretsDelete, name)
   },
   jira: {
-    preview: (key: string): Promise<JiraResult<JiraIssuePreview>> => invoke(IPC.jiraPreview, key),
+    preview: (key: string): Promise<JiraResult<TicketPreview>> => invoke(IPC.jiraPreview, key),
     createCase: (input: {
       slug: string
       title: string

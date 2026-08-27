@@ -27,6 +27,7 @@ import { panelKeyStr } from '../../../shared/panels'
 import type { ChatJumpTarget, FileNode, UnifiedHit } from '../../../shared/types'
 import { classifyCitePath, toRepoNameSet, type CiteTarget } from '../lib/citations'
 import type { ModeId } from '../../../shared/modes'
+import type { TicketProviderId } from '../../../shared/ticketRef'
 import type { RunOptionSelection } from '../../../shared/runOptions'
 import type { PermissionMode } from '../../../shared/settings'
 import { caseBarStore, type CaseBarEvent } from '../lib/caseBarStore'
@@ -37,6 +38,7 @@ export function CaseWorkspace({
   caseTitle,
   jiraKey,
   jiraSyncedAt,
+  ticketProvider,
   onModeSwitched,
   onOpenHit,
   onOpenCitation,
@@ -60,6 +62,10 @@ export function CaseWorkspace({
    *  list is still loading, or when the case has no ticket (the pill renders nothing). */
   jiraKey: string | null
   jiraSyncedAt: string | null
+  /** `CaseRecord.ticketProvider`, passed down the same way as `jiraKey`/`jiraSyncedAt` above.
+   *  Optional (default 'jira') so callers that predate GitHub support, including tests, keep
+   *  working unchanged. */
+  ticketProvider?: TicketProviderId
   /** A mode switch persisted `CaseRecord.activeMode` in the DB (ModeSwitcher already called
    *  `cases.setMode`); this tells the parent to refetch its `cases` array so the `activeMode`
    *  prop above stops being stale — same contract as `onStatusChanged`, just for the mode
@@ -594,6 +600,7 @@ export function CaseWorkspace({
                   jiraKey={jiraKey}
                   title={caseTitle}
                   syncedAt={jiraSyncedAt}
+                  ticketProvider={ticketProvider}
                 />
                 {/* key: remount on case switch. Pending/error chips live in ReposSection's own
                   usePendingList() state, which is component-instance state, not derived from

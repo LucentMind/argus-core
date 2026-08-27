@@ -8,6 +8,7 @@ import { uiStore } from '../lib/uiStore'
 import { confirm } from '../lib/confirmStore'
 import { jiraSyncLine, resultDecayMs, type JiraSyncPhase } from '../lib/jiraSyncState'
 import type { JiraRefreshSummary, JiraSourceLink } from '../../../shared/jira'
+import type { TicketProviderId } from '../../../shared/ticketRef'
 
 const LINE_TONE = {
   mute: 'text-mute',
@@ -34,7 +35,8 @@ export function JiraSection({
   slug,
   jiraKey,
   title,
-  syncedAt
+  syncedAt,
+  ticketProvider = 'jira'
 }: {
   slug: string
   jiraKey: string | null
@@ -45,7 +47,14 @@ export function JiraSection({
    *  this case. */
   title: string
   syncedAt: string | null
+  /** `CaseRecord.ticketProvider` — the single authority on which tracker `jiraKey` names.
+   *  Defaults to 'jira', matching every caller that predates GitHub support. Source tickets
+   *  stay Jira-only this increment, so a GitHub-provider case hides that whole sub-section
+   *  rather than offering an affordance that cannot work. */
+  ticketProvider?: TicketProviderId
 }): React.JSX.Element | null {
+  const isGithub = ticketProvider === 'github'
+  const trackerName = isGithub ? 'GitHub' : 'Jira'
   const [phase, setPhase] = useState<JiraSyncPhase>({ kind: 'idle' })
   const [lastSynced, setLastSynced] = useState(syncedAt)
   const [pending, setPending] = useState<JiraRefreshSummary | null>(null)
@@ -71,11 +80,14 @@ export function JiraSection({
    *  BEFORE the `!jiraKey` early return below, and that case renders no section at all — so
    *  there is nothing to show the answer in, and nothing to discover clone links from either. */
   const loadSources = useCallback((): Promise<void> => {
-    if (!jiraKey) return Promise.resolve()
+    // Source tickets are Jira-only this increment: a GitHub-provider case has nothing to
+    // load and nothing to show, so skip the round trip entirely rather than fetch for a
+    // section that renders nothing.
+    if (!jiraKey || isGithub) return Promise.resolve()
     return window.argus.jira.listSources(slug).then((r) => {
       if (r.ok) setSources(r.value)
     })
-  }, [slug, jiraKey])
+  }, [slug, jiraKey, isGithub])
 
   useEffect(() => {
     void loadSources()
@@ -158,8 +170,8 @@ export function JiraSection({
             highlight. */}
         <button
           type="button"
-          aria-label={`Open ${jiraKey} in Jira`}
-          title={`Open ${jiraKey} in Jira`}
+          aria-label={`Open ${jiraKey} in ${trackerName}`}
+          title={`Open ${jiraKey} in ${trackerName}`}
           className="min-w-0 flex-1 rounded-r2 border border-transparent px-2 py-1.5 text-left transition-colors hover:border-hair hover:bg-hair/50"
           onClick={() => void window.argus.jira.openIssue(slug)}
         >
@@ -177,18 +189,22 @@ export function JiraSection({
         </button>
         {/* Add sits beside refresh rather than under the list: both act on the whole section
             rather than on a row, and a full-width button below the sources claimed a band of
-            rail height permanently for an action taken once or twice per case. */}
+            rail height permanently for an action taken once or twice per case. Hidden entirely
+            for a GitHub-provider case: source tickets are Jira-only this increment, and an
+            affordance that cannot work is worse than none. */}
+        {!isGithub && (
+          <IconBtn
+            aria-label="Add source ticket"
+            title="Add source ticket"
+            size="xs"
+            onClick={() => setAdding(true)}
+          >
+            <Plus size={12} />
+          </IconBtn>
+        )}
         <IconBtn
-          aria-label="Add source ticket"
-          title="Add source ticket"
-          size="xs"
-          onClick={() => setAdding(true)}
-        >
-          <Plus size={12} />
-        </IconBtn>
-        <IconBtn
-          aria-label="Refresh from Jira"
-          title="Refresh from Jira"
+          aria-label={`Refresh from ${trackerName}`}
+          title={`Refresh from ${trackerName}`}
           size="xs"
           disabled={busy}
           onClick={() => void refresh()}
@@ -197,24 +213,27 @@ export function JiraSection({
         </IconBtn>
       </div>
       {/* No empty state and no list header: a case with no sources renders nothing at all here,
-          so the section reads exactly as it did before sources existed. */}
-      {sources.map((s) => (
-        <div key={s.key} className="flex items-center gap-1 pl-2">
-          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-dim">{s.key}</span>
-          <IconBtn
-            aria-label={`Unlink ${s.key}`}
-            title={`Unlink ${s.key}`}
-            size="xs"
-            onClick={() => void unlink(s.key)}
-          >
-            {/* Same icon ReposSection uses for its unlink: this detaches a source, it does not
-                delete anything, and an X reads as "remove/close" in a way that invites the
-                opposite reading. */}
-            <Unlink size={11} />
-          </IconBtn>
-        </div>
-      ))}
-      {adding && (
+          so the section reads exactly as it did before sources existed. Sources are Jira-only,
+          so a GitHub-provider case never renders any of this — `sources` also stays empty for
+          it, since `loadSources` skips the fetch above. */}
+      {!isGithub &&
+        sources.map((s) => (
+          <div key={s.key} className="flex items-center gap-1 pl-2">
+            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-dim">{s.key}</span>
+            <IconBtn
+              aria-label={`Unlink ${s.key}`}
+              title={`Unlink ${s.key}`}
+              size="xs"
+              onClick={() => void unlink(s.key)}
+            >
+              {/* Same icon ReposSection uses for its unlink: this detaches a source, it does not
+                  delete anything, and an X reads as "remove/close" in a way that invites the
+                  opposite reading. */}
+              <Unlink size={11} />
+            </IconBtn>
+          </div>
+        ))}
+      {!isGithub && adding && (
         <AddSourceTicketDialog
           slug={slug}
           jiraKey={jiraKey}
