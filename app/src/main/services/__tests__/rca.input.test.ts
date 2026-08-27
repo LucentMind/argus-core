@@ -5,7 +5,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
 import { createCase, getCase } from '../caseService'
-import { evidenceDir } from '../paths'
 import { assembleRcaInput, TRANSCRIPT_CAP } from '../rca/input'
 import { JiraCases, type AtlassianClientLike } from '../jiraCases'
 import { createDetection } from '../packs/detection'
@@ -66,8 +65,40 @@ function indexMsg(
 }
 
 describe('assembleRcaInput', () => {
-  it('includes only investigation findings, inlines ticket md, tails transcripts', () => {
-    createCase(db, home, { slug: 'case-a', title: 'Case A', jiraKey: 'KAN-1' })
+  it('includes only investigation findings, inlines ticket md, tails transcripts', async () => {
+    // Case + ticket/comments evidence go through the real write path (JiraCases ->
+    // ingestContent), the same as production, rather than hand-placing files that have no
+    // DB row behind them. See Finding C1-follow-up below for why that distinction matters.
+    const client: AtlassianClientLike = {
+      getIssue: vi.fn(async () => ({
+        preview: {
+          key: 'KAN-1',
+          summary: 'Case A ticket',
+          status: 'Open',
+          priority: null,
+          labels: [],
+          reporter: 'Ada',
+          created: 'c',
+          updated: 'u',
+          attachments: [],
+          cloneLinks: []
+        },
+        descriptionMarkdown: 'ticket body text',
+        raw: { key: 'KAN-1', fields: {} }
+      })),
+      downloadAttachment: vi.fn(async () => undefined),
+      getComments: vi.fn(async () => [
+        {
+          id: 'c1',
+          author: 'Ada',
+          bodyMarkdown: 'comment body text',
+          created: '2026-01-01T00:00:00Z',
+          updated: '2026-01-01T00:00:00Z'
+        }
+      ])
+    }
+    const svc = jiraCasesFor(client)
+    await svc.createFromTicket({ slug: 'case-a', title: 'Case A', key: 'KAN-1' })
     const caseId = getCase(db, 'case-a')!.id
 
     insertSession(caseId, 1, 'Investigation chat', null) // defaults to 'investigation'
@@ -82,11 +113,6 @@ describe('assembleRcaInput', () => {
     // review-session messages must never leak into transcripts
     indexMsg(caseId, 2, 20, 'user', 'review question')
     indexMsg(caseId, 2, 21, 'assistant', 'review answer')
-
-    const dir = evidenceDir(home, 'case-a')
-    fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(path.join(dir, 'KAN-1.ticket.md'), '# KAN-1\n\nticket body text\n')
-    fs.writeFileSync(path.join(dir, 'KAN-1.comments.md'), 'comment body text\n')
 
     const input = assembleRcaInput(db, home, 'case-a')
 
@@ -150,32 +176,12 @@ describe('assembleRcaInput', () => {
 
   // Finding C1: a GitHub ref (`owner/repo#123`) carries `/` and `#`, which the write side
   // (jiraCases.ts) slugs away via refSlug before naming the evidence file on disk. The read
-  // side here must build the SAME filename from the SAME helper, or it silently misses the
-  // file `readEvidenceFile`'s catch swallows the miss into `null`, and RCA is drafted with
-  // no issue body and no comments at all.
-  it('inlines ticket/comments markdown for a GitHub-bound case', () => {
-    createCase(db, home, {
-      slug: 'case-gh',
-      title: 'Case GH',
-      jiraKey: 'cli/cli#14189',
-      ticketProvider: 'github'
-    })
-    const dir = evidenceDir(home, 'case-gh')
-    fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(path.join(dir, 'cli-cli-14189.ticket.md'), '# cli/cli#14189\n\nissue body\n')
-    fs.writeFileSync(path.join(dir, 'cli-cli-14189.comments.md'), 'comment body\n')
-
-    const input = assembleRcaInput(db, home, 'case-gh')
-
-    expect(input.jiraTicketMarkdown).not.toBeNull()
-    expect(input.jiraCommentsMarkdown).not.toBeNull()
-    expect(input.jiraTicketMarkdown).toContain('issue body')
-    expect(input.jiraCommentsMarkdown).toContain('comment body')
-  })
-
-  // Finding C1-follow-up: the hand-written-file test above only ever exercises the READ
-  // side, so it can't catch a write/read disagreement — which is the entire defect class.
-  // These go through the real write path (JiraCases) end to end.
+  // side here must resolve the SAME row the write side produced, or RCA is drafted with no
+  // issue body and no comments at all. Originally covered by a hand-written-file fixture
+  // that only ever exercised the READ side and so could never catch a write/read
+  // disagreement — the entire defect class. That coverage now lives in the end-to-end test
+  // just below ('a GitHub case created via createFromTicket has non-null ticket/comments
+  // markdown'), which goes through the real write path (JiraCases) end to end.
 
   function githubIssue(over: Record<string, unknown> = {}): Record<string, unknown> {
     return {
