@@ -2218,10 +2218,17 @@ function registerIpc(): void {
   // `await` on a real network call first (`atlassian.searchIssues`) — true today, but incidental
   // and easy to invalidate with a caching layer or a synchronous first-page short-circuit.
   // Hoisting removes the ordering dependency entirely rather than re-documenting it.
+  //
+  // Shared by both dependents below (was copy-pasted at each call site, which let them
+  // drift): read only after a successful client call (getIssue) already warmed the
+  // discovery cache for this instance, so the sync cache read is safe here —
+  // resolveSiteUrl's async discovery path is not needed on this hot path.
+  const jiraSiteUrl = (): string =>
+    atlassian.cachedSiteUrl(rovoInstanceId(connectorRegistry.get()) ?? '') ?? ''
   const ticketProviders: TicketProviderRegistry = {
     jira: createJiraProvider({
       client: atlassian,
-      site: () => atlassian.cachedSiteUrl(rovoInstanceId(connectorRegistry.get()) ?? '') ?? '',
+      site: jiraSiteUrl,
       postComment: async () => {
         // Jira comment posting lives in rca/post.ts, above this seam. This provider's
         // postComment is unreachable for Jira today and must fail loudly rather than
@@ -2237,10 +2244,7 @@ function registerIpc(): void {
     argusHome,
     detection,
     client: atlassian,
-    // Read only after a successful client call (getIssue) already warmed the
-    // discovery cache for this instance, so the sync cache read is safe here —
-    // resolveSiteUrl's async discovery path is not needed on this hot path.
-    site: () => atlassian.cachedSiteUrl(rovoInstanceId(connectorRegistry.get()) ?? '') ?? '',
+    site: jiraSiteUrl,
     queue: ingestQueue,
     emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
     evidenceChanged: evidenceChangedB,
@@ -3817,6 +3821,15 @@ function registerIpc(): void {
   ipcMain.handle(IPC.jiraOpenIssue, async (_e, caseSlug: string) => {
     const kase = getCase(db, caseSlug)
     if (!kase?.jiraKey) return
+    // jiraSiteUrl (the Jira provider's `site`) never discovers — it's a sync cache read,
+    // safe on the hot path because normal Jira calls warm it first. A cold app launch with
+    // no Jira REST call yet this session hits an empty cache, so webUrl below would build a
+    // relative `/browse/...` that isOpenableUrl silently rejects. Warm the cache here, on
+    // the Jira path ONLY, before reading it — a GitHub case never touches Atlassian.
+    if (kase.ticketProvider === 'jira') {
+      const instanceId = rovoInstanceId(connectorRegistry.get())
+      if (instanceId) await atlassian.resolveSiteUrl(instanceId) // best-effort; webUrl degrades gracefully on failure
+    }
     const url = providerFor(kase.ticketProvider, ticketProviders).webUrl(kase.jiraKey)
     if (!isOpenableUrl(url)) return
     void shell.openExternal(url)

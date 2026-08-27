@@ -6,6 +6,9 @@ import '@testing-library/jest-dom/vitest'
 import { NewCaseDialog } from '../NewCaseDialog'
 import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 import type { JiraAttachmentProgress } from '../../../../shared/jira'
+// The real validator, not a restated pattern — a copy here could drift from what
+// createCase actually enforces (see Finding C2).
+import { SLUG_RE } from '../../../../main/services/caseService'
 
 const PREVIEW = {
   key: 'PROJ-7',
@@ -851,6 +854,42 @@ describe('NewCaseDialog', () => {
     await user.click(screen.getByRole('button', { name: /fetch/i }))
     expect(await screen.findByText(/GitHub issue/i)).toBeInTheDocument()
     expect(screen.getByText('cli/cli#14189')).toBeInTheDocument()
+  })
+
+  // Finding C2: `key` for a GitHub preview is `owner/repo#123`, which SLUG_RE rejects (`/`
+  // and `#`). Prefilling it verbatim let the Create button spend a real `gh issue view` call
+  // before createCase threw "Invalid case slug" — the button was never disabled because
+  // `caseSlug.trim()` was still truthy. The prefill must be a slug that actually validates.
+  it('prefills a Case ID that satisfies SLUG_RE for a GitHub preview', async () => {
+    const user = userEvent.setup()
+    window.argus.jira.preview = vi.fn(async () => ({
+      ok: true,
+      value: {
+        provider: 'github',
+        key: 'cli/cli#14189',
+        summary: 'Tiles 403',
+        status: 'open',
+        priority: null,
+        labels: [],
+        reporter: 'mislav',
+        created: '2026-08-19T10:00:00Z',
+        updated: '2026-08-21T17:56:37Z',
+        attachments: [],
+        cloneLinks: [],
+        url: 'https://github.com/cli/cli/issues/14189'
+      }
+    })) as never
+    render(
+      <NewCaseDialog onClose={() => {}} onCreateBlank={async () => {}} onOpenCase={() => {}} />
+    )
+    await user.type(
+      screen.getByPlaceholderText(/ticket/i),
+      'https://github.com/cli/cli/issues/14189'
+    )
+    await user.click(screen.getByRole('button', { name: /fetch/i }))
+    const slugInput = await screen.findByLabelText('Case slug')
+    expect((slugInput as HTMLInputElement).value).toBe('cli-14189')
+    expect(SLUG_RE.test((slugInput as HTMLInputElement).value)).toBe(true)
   })
 
   it('rejects a pull request URL before any fetch', async () => {

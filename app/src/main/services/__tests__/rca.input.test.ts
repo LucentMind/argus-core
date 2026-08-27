@@ -139,4 +139,29 @@ describe('assembleRcaInput', () => {
   it('throws on unknown case', () => {
     expect(() => assembleRcaInput(db, home, 'nope')).toThrow(/Unknown case/)
   })
+
+  // Finding C1: a GitHub ref (`owner/repo#123`) carries `/` and `#`, which the write side
+  // (jiraCases.ts) slugs away via refSlug before naming the evidence file on disk. The read
+  // side here must build the SAME filename from the SAME helper, or it silently misses the
+  // file `readEvidenceFile`'s catch swallows the miss into `null`, and RCA is drafted with
+  // no issue body and no comments at all.
+  it('inlines ticket/comments markdown for a GitHub-bound case', () => {
+    createCase(db, home, {
+      slug: 'case-gh',
+      title: 'Case GH',
+      jiraKey: 'cli/cli#14189',
+      ticketProvider: 'github'
+    })
+    const dir = evidenceDir(home, 'case-gh')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'cli-cli-14189.ticket.md'), '# cli/cli#14189\n\nissue body\n')
+    fs.writeFileSync(path.join(dir, 'cli-cli-14189.comments.md'), 'comment body\n')
+
+    const input = assembleRcaInput(db, home, 'case-gh')
+
+    expect(input.jiraTicketMarkdown).not.toBeNull()
+    expect(input.jiraCommentsMarkdown).not.toBeNull()
+    expect(input.jiraTicketMarkdown).toContain('issue body')
+    expect(input.jiraCommentsMarkdown).toContain('comment body')
+  })
 })

@@ -7,6 +7,7 @@ import { getCase } from '../caseService'
 import { listFindings } from '../findings'
 import { listEvidence } from '../ingest'
 import { evidenceDir } from '../paths'
+import { refSlug } from '../../../shared/ticketRef'
 
 /** Tail cap per session; RCA needs the conclusion of a conversation, not its start. */
 export const TRANSCRIPT_CAP = 8000
@@ -82,10 +83,10 @@ export function assembleRcaInput(
       size: e.size
     })),
     jiraTicketMarkdown: c.jiraKey
-      ? readEvidenceFile(argusHome, slug, `${c.jiraKey}.ticket.md`)
+      ? readEvidenceFile(argusHome, slug, `${refSlug(c.jiraKey)}.ticket.md`)
       : null,
     jiraCommentsMarkdown: c.jiraKey
-      ? readEvidenceFile(argusHome, slug, `${c.jiraKey}.comments.md`)
+      ? readEvidenceFile(argusHome, slug, `${refSlug(c.jiraKey)}.comments.md`)
       : null,
     transcripts,
     priorDraft

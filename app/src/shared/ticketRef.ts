@@ -84,3 +84,15 @@ export function splitGithubRef(ref: string): { owner: string; repo: string; numb
   if (!m) throw new Error(`Not a GitHub ref: ${ref}`)
   return { owner: m[1], repo: m[2], number: Number(m[3]) }
 }
+
+/**
+ * A ref made safe for a filename. A Jira key is already safe; a GitHub ref carries `/` and
+ * `#`, which would otherwise create nested directories or truncate the name. `cli/cli#14189`
+ * becomes `cli-cli-14189`.
+ *
+ * This is the ONLY construction of a ticket-ref-derived filename anywhere — every read AND
+ * write site (jiraCases.ts's createFromTicket/refresh/importSourceTicket, rca/input.ts's
+ * read) must go through this one function, or a read site built from the raw ref silently
+ * misses every file a write site wrapped (see Finding C1).
+ */
+export const refSlug = (ref: string): string => ref.replace(/[^A-Za-z0-9._-]+/g, '-')
