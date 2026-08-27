@@ -171,36 +171,45 @@ export function createGithubProvider(deps: { gh?: Runner }): TicketProvider {
       for (const r of issue.closedByPullRequestsReferences) {
         const owner = r.repository.owner.login
         const repo = r.repository.name
-        // The reference carries only number/url/repository — state, title, isDraft and
-        // createdAt need their own call (verified 2026-08-27).
-        const detail = JSON.parse(
-          await run([
-            'pr',
-            'view',
-            String(r.number),
-            '--repo',
-            `${owner}/${repo}`,
-            '--json',
-            'number,state,isDraft,title,createdAt,url'
-          ])
-        ) as { state: string; isDraft: boolean; title: string; createdAt: string; url: string }
-        // gh pr view returns UPPERCASE state; PrCandidate['state'] is the lowercase union
-        // that gh search prs produces. Not lowercasing here yields a candidate whose state
-        // never matches any renderer branch.
-        const state = detail.state.toLowerCase() as PrCandidate['state']
-        if (state === 'closed') continue // closed-and-never-merged is not reviewable
-        out.push({
-          owner,
-          repo,
-          number: r.number,
-          url: detail.url,
-          title: detail.title,
-          state,
-          isDraft: detail.isDraft,
-          createdAt: detail.createdAt,
-          isBackport: false,
-          preselected: true
-        })
+        // One bad reference (deleted/private repo, transient network error) must not cost
+        // the caller every other linked PR: PR discovery never blocks, and the only caller
+        // degrades a total failure to "no candidates, show the error" — isolate per reference.
+        try {
+          // The reference carries only number/url/repository — state, title, isDraft and
+          // createdAt need their own call (verified 2026-08-27).
+          const detail = JSON.parse(
+            await run([
+              'pr',
+              'view',
+              String(r.number),
+              '--repo',
+              `${owner}/${repo}`,
+              '--json',
+              'number,state,isDraft,title,createdAt,url'
+            ])
+          ) as { state: string; isDraft: boolean; title: string; createdAt: string; url: string }
+          // gh pr view returns UPPERCASE state; PrCandidate['state'] is the lowercase union
+          // that gh search prs produces. Not lowercasing here yields a candidate whose state
+          // never matches any renderer branch.
+          const state = detail.state.toLowerCase() as PrCandidate['state']
+          if (state === 'closed') continue // closed-and-never-merged is not reviewable
+          out.push({
+            owner,
+            repo,
+            number: r.number,
+            url: detail.url,
+            title: detail.title,
+            state,
+            isDraft: detail.isDraft,
+            createdAt: detail.createdAt,
+            isBackport: false,
+            preselected: true
+          })
+        } catch (err) {
+          console.warn(
+            `[github] linked PR fetch failed for ${owner}/${repo}#${r.number}: ${(err as Error).message}`
+          )
+        }
       }
       return out
     }
