@@ -213,6 +213,49 @@ function safeRelPath(rel: string, requiredPrefix?: string): boolean {
   return rel.split('/').every((seg) => seg !== '..' && seg !== '')
 }
 
+/**
+ * Check every manifest entry against the extracted tree. Throws naming the first bad path.
+ *
+ * Extracted from importCase so the archive path (caseArchive.ts) verifies bundles the same
+ * way rather than growing a second copy: archiving DELETES the originals on the strength of
+ * this check, so the two must never drift.
+ */
+export function verifyStagedBundle(stagedCaseDir: string, manifest: BundleManifest): void {
+  for (const f of manifest.files) {
+    if (!safeRelPath(f.path)) throw new Error(`Bundle is corrupt: unsafe path ${f.path}`)
+    const abs = path.join(stagedCaseDir, ...f.path.split('/'))
+    if (!fs.existsSync(abs)) throw new Error(`Bundle is corrupt: missing ${f.path}`)
+    if (sha256File(abs) !== f.sha256) {
+      throw new Error(`Bundle is corrupt: checksum mismatch on ${f.path}`)
+    }
+  }
+}
+
+/**
+ * Extract a bundle to a temp dir, verify every file in it, and return its manifest.
+ *
+ * Verifies the ARCHIVE, not the source files it was built from: a hash computed from the
+ * thing about to be deleted proves nothing about the thing being kept. This is the check
+ * that makes archiving safe to follow with a delete.
+ */
+export async function verifyBundleArchive(zipPath: string): Promise<BundleManifest> {
+  // realpathSync for the same reason inspectBundle does it: os.tmpdir() is a symlink into
+  // /private/var on macOS and zip-lib's guard compares realpaths.
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-verify-')))
+  try {
+    await extract(zipPath, tmp, { safeSymlinksOnly: true })
+    const manifestFile = path.join(tmp, 'manifest.json')
+    if (!fs.existsSync(manifestFile)) {
+      throw new Error('Not an Argus case bundle: manifest.json missing')
+    }
+    const manifest = readManifest(manifestFile)
+    verifyStagedBundle(path.join(tmp, 'case'), manifest)
+    return manifest
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
+}
+
 /** Rebuild evidence rows + FTS from the bundled .meta sidecars (old ids remapped). */
 function reindexImportedEvidence(
   db: DatabaseSync,
@@ -384,14 +427,7 @@ export async function importCase(
     const manifest = readManifest(path.join(tmp, 'manifest.json'))
     const staged = path.join(tmp, 'case')
     // integrity: every manifest entry present with the recorded hash — nothing lands otherwise
-    for (const f of manifest.files) {
-      if (!safeRelPath(f.path)) throw new Error(`Bundle is corrupt: unsafe path ${f.path}`)
-      const abs = path.join(staged, ...f.path.split('/'))
-      if (!fs.existsSync(abs)) throw new Error(`Bundle is corrupt: missing ${f.path}`)
-      if (sha256File(abs) !== f.sha256) {
-        throw new Error(`Bundle is corrupt: checksum mismatch on ${f.path}`)
-      }
-    }
+    verifyStagedBundle(staged, manifest)
     // case fields come from the bundled case.json; manifest carries slug/title
     let onDisk: Record<string, unknown> = {}
     try {
