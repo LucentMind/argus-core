@@ -27,7 +27,10 @@ function mk(slug: string, updatedAt: string, lastWorkedAt: string | null): CaseR
     createdAt: '2026-07-01T00:00:00.000Z',
     updatedAt,
     actionItems: [],
-    lastWorkedAt
+    lastWorkedAt,
+    archivedAt: null,
+    archivePath: null,
+    lastOpenedAt: null
   }
 }
 

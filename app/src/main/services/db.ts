@@ -440,6 +440,26 @@ export function openDb(file: string): DatabaseSync {
   if (!caseCols.some((c) => c.name === 'phase_pinned_at')) {
     db.exec(`ALTER TABLE cases ADD COLUMN phase_pinned_at TEXT`)
   }
+  // Case archiving. All nullable with no backfill: NULL means "never archived" / "never
+  // opened", which is exactly true of every pre-existing row. archive_sha256 is the
+  // manifest hash recorded at archive time, so a later restore can tell a bundle that was
+  // swapped or truncated on disk from the one this case actually produced.
+  if (!caseCols.some((c) => c.name === 'archived_at')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN archived_at TEXT`)
+  }
+  if (!caseCols.some((c) => c.name === 'archive_path')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN archive_path TEXT`)
+  }
+  if (!caseCols.some((c) => c.name === 'archive_sha256')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN archive_sha256 TEXT`)
+  }
+  // Written when a case is opened in the UI. Reading a reference case is activity even
+  // though nothing changes, and nothing else in the schema records it — without this, the
+  // cases most worth keeping live are exactly the ones that look idle. repo_usage is the
+  // existing precedent for recording use that is not modification.
+  if (!caseCols.some((c) => c.name === 'last_opened_at')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN last_opened_at TEXT`)
+  }
   // Collapse the legacy four-value status onto the two-value lifecycle. `analyzing` needs no
   // preservation: it re-derives from the evidence and turn rows that produced it. `rca-drafted`
   // cannot re-derive, so it becomes a pin stamped at updated_at — the closest thing to the

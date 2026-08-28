@@ -47,6 +47,9 @@ function mkCase(overrides: Partial<CaseRecord> = {}): CaseRecord {
     updatedAt: daysAgo(2),
     actionItems: [],
     lastWorkedAt: null,
+    archivedAt: null,
+    archivePath: null,
+    lastOpenedAt: null,
     ...overrides
   }
 }

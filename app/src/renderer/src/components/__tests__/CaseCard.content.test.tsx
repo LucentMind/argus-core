@@ -59,6 +59,9 @@ function mkCase(patch: Partial<CaseRecord>): CaseRecord {
     updatedAt: twoDaysAgo,
     actionItems: [],
     lastWorkedAt: null,
+    archivedAt: null,
+    archivePath: null,
+    lastOpenedAt: null,
     ...patch
   }
 }

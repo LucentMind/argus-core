@@ -13,13 +13,7 @@ import type { TicketProviderId } from './ticketRef'
 export type CaseStatus = 'open' | 'closed'
 
 /** What is happening on the case right now. Derived from the newest work event. */
-export type CasePhase =
-  | 'open'
-  | 'analyzing'
-  | 'pr-created'
-  | 'reviewing'
-  | 'rca-drafted'
-  | 'closed'
+export type CasePhase = 'open' | 'analyzing' | 'pr-created' | 'reviewing' | 'rca-drafted' | 'closed'
 
 /**
  * Phases with no artifact to derive them from, which must therefore be declared and stored.
@@ -171,6 +165,12 @@ export interface CaseRecord {
    * empty there. Never stored — see `stripDerived` in caseService.ts.
    */
   lastWorkedAt: string | null
+  /** When this case's bulk was archived out, or null while it is live. */
+  archivedAt: string | null
+  /** Absolute path of the bundle produced at archive time, or null. */
+  archivePath: string | null
+  /** When the case was last opened in the UI. Use, not modification — see db.ts. */
+  lastOpenedAt: string | null
 }
 
 export interface SessionSummary {

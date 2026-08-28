@@ -34,7 +34,10 @@ const cases: CaseRecord[] = [
     createdAt: '2026-07-10T00:00:00.000Z',
     updatedAt: '2026-07-10T00:00:00.000Z',
     actionItems: [],
-    lastWorkedAt: null
+    lastWorkedAt: null,
+    archivedAt: null,
+    archivePath: null,
+    lastOpenedAt: null
   }
 ]
 

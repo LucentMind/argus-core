@@ -21,7 +21,8 @@ import {
   addCaseJiraLink,
   removeCaseJiraLink,
   setCaseJiraLinkAttachmentIds,
-  setCaseJiraLinkDeselected
+  setCaseJiraLinkDeselected,
+  touchCaseOpened
 } from '../caseService'
 import { ingestContent } from '../ingest'
 import { createDetection } from '../packs/detection'
@@ -991,5 +992,30 @@ describe('ticketProvider', () => {
     createCase(db, home, { slug: 'CASE-4', title: 'w' })
     db.prepare(`UPDATE cases SET ticket_provider = 'gitlab' WHERE slug = ?`).run('CASE-4')
     expect(getCase(db, 'CASE-4')!.ticketProvider).toBe('jira')
+  })
+})
+
+describe('archive columns', () => {
+  it('defaults every archive field to null on a new case', () => {
+    const rec = createCase(db, home, { slug: 'KAN-1', title: 'x' })
+    expect(rec.archivedAt).toBeNull()
+    expect(rec.archivePath).toBeNull()
+    expect(rec.lastOpenedAt).toBeNull()
+  })
+
+  it('touchCaseOpened records the time without moving updated_at', () => {
+    createCase(db, home, { slug: 'KAN-2', title: 'x' })
+    const before = getCase(db, 'KAN-2')!
+    touchCaseOpened(db, 'KAN-2')
+    const after = getCase(db, 'KAN-2')!
+    expect(after.lastOpenedAt).not.toBeNull()
+    // updated_at is a MODIFICATION timestamp; opening a case is use, not modification.
+    // Plan B's eligibility rule reads both, and conflating them would make merely viewing
+    // a case look like editing it.
+    expect(after.updatedAt).toBe(before.updatedAt)
+  })
+
+  it('touchCaseOpened on an unknown slug is a no-op, not a throw', () => {
+    expect(() => touchCaseOpened(db, 'NO-SUCH-CASE')).not.toThrow()
   })
 })

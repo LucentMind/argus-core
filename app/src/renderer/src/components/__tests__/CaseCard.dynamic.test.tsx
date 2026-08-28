@@ -33,7 +33,10 @@ function rec(mut?: (c: CaseRecord) => void): CaseRecord {
     createdAt: '2026-07-01T00:00:00Z',
     updatedAt: '2026-07-08T00:00:00Z',
     actionItems: attention,
-    lastWorkedAt: null
+    lastWorkedAt: null,
+    archivedAt: null,
+    archivePath: null,
+    lastOpenedAt: null
   }
   mut?.(c)
   return c

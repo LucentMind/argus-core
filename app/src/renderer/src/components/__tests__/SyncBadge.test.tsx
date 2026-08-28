@@ -31,6 +31,9 @@ function mkCase(over: Partial<CaseRecord> = {}): CaseRecord {
     updatedAt: '2026-07-08T00:00:00Z',
     actionItems: [],
     lastWorkedAt: null,
+    archivedAt: null,
+    archivePath: null,
+    lastOpenedAt: null,
     ...over
   }
 }
