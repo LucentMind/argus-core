@@ -1375,7 +1375,7 @@ function registerIpc(): void {
     // have no background index — so it stays 0 when 'evidence' wasn't asked for.
     let pendingIndexCount = 0
     if (sources.includes('evidence')) {
-      const evidence = searchEvidenceWithStatus(db, q, f)
+      const evidence = searchEvidenceWithStatus(db, argusHome, q, f)
       hits.push(...evidence.hits.map((h) => ({ kind: 'evidence' as const, ...h })))
       pendingIndexCount = evidence.pendingIndexCount
     }

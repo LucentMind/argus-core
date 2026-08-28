@@ -157,6 +157,32 @@ export async function ensureIndex(
   }
 }
 
+/**
+ * Load an existing line index without ever building one: memory cache, then sidecar, then
+ * null. The sync counterpart to ensureIndex, for callers that cannot await — searchEvidence
+ * renders up to 50 snippets per query and is synchronous all the way to its IPC handler.
+ *
+ * Returning null is a normal outcome, not a failure: sidecars are only written for files
+ * over MAX_READ_BYTES (indexer.ts `wantSidecar`), so a small file legitimately has none and
+ * the caller's scan fallback is bounded by that same threshold.
+ */
+export function loadIndexSync(argusHome: string, absPath: string): LineIndex | null {
+  const resolved = path.resolve(absPath)
+  let stat: fs.Stats
+  try {
+    stat = fs.statSync(resolved)
+  } catch {
+    return null
+  }
+  const cached = memCache.get(resolved)
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    memCache.delete(resolved)
+    memCache.set(resolved, cached)
+    return cached
+  }
+  return loadSidecar(sidecarPath(argusHome, resolved), stat.mtimeMs, stat.size)
+}
+
 export const MAX_LINES_PER_READ = 2000
 
 /** Read a clamped [from, to] line range via checkpoint seek. Synchronous —

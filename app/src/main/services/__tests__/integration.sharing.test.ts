@@ -59,7 +59,7 @@ describe('exit criterion: bundle round-trips with working search (spec Part 2 ex
     expect(insp.proposedSlug).toBe('NAV-100')
     const rec = await importCase(dbB, homeB, bundle, insp.proposedSlug)
     // the shared defect signature is findable on the receiving machine (evidence FTS)
-    const hits = searchEvidence(dbB, 'BLOCKED_VERSION', { caseSlug: rec.slug })
+    const hits = searchEvidence(dbB, homeB, 'BLOCKED_VERSION', { caseSlug: rec.slug })
     expect(hits.length).toBeGreaterThan(0)
     expect(hits[0].relPath).toContain('evidence/')
     // findings render from the imported file (findings.md is not FTS-indexed as-built —
