@@ -108,7 +108,11 @@ function chunkText(
     }
     return { text: readLineWindow(abs, startLine, endLine).content, missing: false }
   } catch {
-    return { text: '', missing: false }
+    // Any read failure renders the marker, never a blank. A blank snippet is
+    // indistinguishable from the contentless snippet() NULL this whole read-from-disk
+    // path exists to avoid — and the earlier existsSync check cannot cover a permission
+    // error, or the file vanishing between that check and this read.
+    return { text: '', missing: true }
   }
 }
 
