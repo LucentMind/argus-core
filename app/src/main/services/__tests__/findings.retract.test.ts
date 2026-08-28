@@ -99,21 +99,42 @@ describe('reviewFinding', () => {
     expect(row?.reviewActor).toBe('human')
   })
 
-  it('a reset to pending clears review_actor and review_reason', () => {
+  it('a reset to pending clears review_actor but PRESERVES review_reason', () => {
+    // review_reason is the only record of what was wrong with the finding (retractFinding
+    // is its sole writer); reviewFinding must never destroy it, only the actor lets it back
+    // in through a display/prompt gate. See the comment at the reviewFinding UPDATE.
     const id = seed('rejected', 'agent', 'agent reason')
     reviewFinding(db, id, 'pending')
     const row = listFindings(db, home, 'CASE-A').find((f) => f.id === id)
     expect(row?.reviewState).toBe('pending')
     expect(row?.reviewActor).toBeNull()
-    expect(row?.reviewReason).toBeNull()
+    expect(row?.reviewReason).toBe('agent reason')
     expect(row?.reviewedAt).toBeNull()
   })
 
-  it('a human reject over an agent retraction replaces the actor and clears the reason', () => {
+  it('a human reject over an agent retraction replaces the actor but PRESERVES the reason in the DB', () => {
+    // Regression guard: a previous wave had reviewFinding clear review_reason on every
+    // transition, which meant the most likely human gesture (agreeing with a retraction by
+    // clicking reject) permanently destroyed the agent's stated reasoning with no undo. The
+    // misattribution that clearing was meant to prevent is handled by actor-gating alone
+    // (FindingCard / reviewTag both key off reviewActor === 'agent'), so the DB keeps the
+    // text even though it becomes invisible everywhere once the actor is 'human'.
     const id = seed('rejected', 'agent', 'agent reason')
     reviewFinding(db, id, 'rejected')
     const row = listFindings(db, home, 'CASE-A').find((f) => f.id === id)
     expect(row?.reviewActor).toBe('human')
-    expect(row?.reviewReason).toBeNull()
+    expect(row?.reviewReason).toBe('agent reason')
+  })
+
+  it('accepts a finding: actor becomes human and any existing reason survives', () => {
+    const id = seed('rejected', 'agent', 'agent reason')
+    const reviewed = reviewFinding(db, id, 'accepted')
+    expect(reviewed?.reviewState).toBe('accepted')
+    expect(reviewed?.reviewActor).toBe('human')
+    expect(reviewed?.reviewReason).toBe('agent reason')
+    const row = listFindings(db, home, 'CASE-A').find((f) => f.id === id)
+    expect(row?.reviewState).toBe('accepted')
+    expect(row?.reviewActor).toBe('human')
+    expect(row?.reviewReason).toBe('agent reason')
   })
 })

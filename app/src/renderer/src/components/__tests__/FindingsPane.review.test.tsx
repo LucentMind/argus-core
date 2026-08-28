@@ -258,14 +258,17 @@ describe('FindingsPane review flavor', () => {
       expect(within(item).queryByText('retracted by agent')).not.toBeInTheDocument()
     )
 
-    // Second click: human rejects it for real.
+    // Second click: human rejects it for real. The server PRESERVES review_reason in the DB
+    // (fix: reviewFinding must not clear it — it's the only record of what was wrong), so the
+    // IPC round-trip still carries the old text; only the actor flips to 'human'. The card
+    // must hide both the label and the reason on actor alone, not because the text is gone.
     review.mockResolvedValueOnce(
       row({
         id: 4,
         summary: 'Retracted by the agent',
         reviewState: 'rejected',
         reviewActor: 'human',
-        reviewReason: null
+        reviewReason: 'the guard is in the caller'
       })
     )
     await userEvent.click(within(item).getByRole('button', { name: 'Mark finding not useful' }))
@@ -277,5 +280,43 @@ describe('FindingsPane review flavor', () => {
     )
     expect(within(item).queryByText('retracted by agent')).not.toBeInTheDocument()
     expect(within(item).queryByText('the guard is in the caller')).not.toBeInTheDocument()
+  })
+
+  it('keeps the expand affordance enabled (body survives) after a review click', async () => {
+    // reviewFinding's row (what `findings.review` returns over IPC) never carries a `body` —
+    // only listFindings joins findings.md to attach one. A wholesale replace of the local
+    // finding with that row would silently drop the body the instant it's reviewed, which
+    // disables the expand toggle in FindingCard (`disabled={!f.body}`) until the next
+    // agent-emitted bump or a pane remount. The `row()` helper here deliberately omits `body`
+    // by default (matching the IPC shape) — only the initial `list` seeds one.
+    list.mockResolvedValue([
+      row({ id: 1, summary: 'Has a body', body: 'The detailed finding body.' })
+    ])
+    const review = vi
+      .fn()
+      .mockResolvedValue(
+        row({ id: 1, summary: 'Has a body', reviewState: 'accepted', reviewActor: 'human' })
+      )
+    window.argus = {
+      findings: { list, review, clear: vi.fn() },
+      cases: { readFindings: vi.fn().mockResolvedValue('') },
+      review: { worktreeHead: vi.fn().mockResolvedValue(null) },
+      rca: { onRcaChanged: vi.fn(() => () => {}) }
+    } as never
+
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+    const item = (await screen.findByText('Has a body')).closest('li') as HTMLElement
+    const toggle = within(item).getByRole('button', { name: 'Has a body' })
+    expect(toggle).toBeEnabled()
+
+    await userEvent.click(within(item).getByRole('button', { name: 'Mark finding good' }))
+    await waitFor(() =>
+      expect(within(item).getByRole('button', { name: 'Mark finding good' })).toHaveAttribute(
+        'aria-pressed',
+        'true'
+      )
+    )
+
+    expect(within(item).getByRole('button', { name: 'Has a body' })).toBeEnabled()
   })
 })
