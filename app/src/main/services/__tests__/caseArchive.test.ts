@@ -2,16 +2,22 @@ import { describe, it, expect, afterEach } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { archiveCase, manifestHash } from '../caseArchive'
-import { freezeCase, isCaseFrozen, unfreezeCase } from '../caseFreeze'
+import { freezeCase, isCaseFrozen } from '../caseFreeze'
 import { verifyBundleArchive } from '../bundle'
-import { ingestArtifact } from '../ingest'
+import { ingestArtifact, listEvidence } from '../ingest'
+import { extractDerivedText } from '../extraction'
+import type { Extractors } from '../packs/extractors'
 import { createImmediateQueue } from '../ingestQueue'
 import { createDetection } from '../packs/detection'
 import { caseArchivePath, caseDir } from '../paths'
 import { getCase } from '../caseService'
 import { searchEvidence } from '../search'
+import { scanEvidence } from '../scan'
+import { createSession } from '../agent/sessionStore'
+import { SessionMirror } from '../agent/mirror'
 import type { BundleManifest } from '../../../shared/bundle'
 import { cleanupArchiveFixtures, seedArchivableCase, snapshotCase } from './archiveFixtures'
+import { createLegacyEvidenceFts } from './legacyFts'
 
 afterEach(() => {
   cleanupArchiveFixtures()
@@ -93,6 +99,26 @@ describe('archiveCase', () => {
     ).map((r) => Number(r.fts_rowid))
     expect(indexRowids.length).toBeGreaterThan(0)
 
+    // The LEGACY generation too. `deleteEvidenceFtsForCase` clears both, and on a database
+    // that has not finished the contentless migration the legacy pair is where an archived
+    // case's chunks actually live — a mutation dropping only that branch would otherwise pass.
+    // openDb no longer declares these tables, so the fixture recreates the pre-migration
+    // schema exactly as an older release left it (createLegacyEvidenceFts is the frozen copy
+    // of that column list, already used by the migration tests).
+    createLegacyEvidenceFts(db)
+    const legacyRowid = Number(
+      db
+        .prepare(
+          `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
+           VALUES ('the needle in the legacy index', ?, 0, 1, 2)`
+        )
+        .run(evidenceIds[0]).lastInsertRowid
+    )
+    db.prepare(`INSERT INTO evidence_fts_map (fts_rowid, evidence_id) VALUES (?, ?)`).run(
+      legacyRowid,
+      evidenceIds[0]
+    )
+
     await archiveCase(db, home, slug, { argusVersion: 'test' })
 
     // the index rows for those exact ids are gone, not merely unreachable through the join
@@ -114,6 +140,22 @@ describe('archiveCase', () => {
       ).n
     )
     expect(indexLeft, 'orphaned evidence_index rows').toBe(0)
+    const legacyMapLeft = Number(
+      (
+        db
+          .prepare(`SELECT count(*) AS n FROM evidence_fts_map WHERE evidence_id IN (${idList})`)
+          .get() as { n: number }
+      ).n
+    )
+    expect(legacyMapLeft, 'orphaned evidence_fts_map rows').toBe(0)
+    const legacyLeft = Number(
+      (
+        db.prepare(`SELECT count(*) AS n FROM evidence_fts WHERE rowid = ?`).get(legacyRowid) as {
+          n: number
+        }
+      ).n
+    )
+    expect(legacyLeft, 'orphaned evidence_fts rows').toBe(0)
 
     expect(searchEvidence(db, home, 'needle', { caseSlug: slug })).toEqual([])
     const caseId = getCase(db, slug)!.id
@@ -259,11 +301,11 @@ describe('archiveCase refuses an unstable case and freezes a stable one', () => 
     const { dest, run } = await tryIngest(db, home, slug, 'frozen.log')
     const rowsBefore = evidenceCount(db, slug)
 
-    freezeCase(slug)
+    const freeze = freezeCase(slug)
     try {
       await expect(run()).rejects.toThrow(/being archived/i)
     } finally {
-      unfreezeCase(slug)
+      freeze.release()
     }
 
     expect(fs.existsSync(dest), 'the file must not have landed').toBe(false)
@@ -309,6 +351,252 @@ describe('archiveCase refuses an unstable case and freezes a stable one', () => 
     const { dest, run } = await tryIngest(db, home, slug, 'after-failed-archive.log')
     await expect(run()).resolves.toBeTruthy()
     expect(fs.existsSync(dest)).toBe(true)
+  })
+})
+
+describe('the freeze is owner-scoped and non-reentrant', () => {
+  it('refuses a second, overlapping archive and keeps the FIRST one frozen', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    let before: unknown = null
+    let after: unknown = null
+    let second: unknown = null
+    let stillFrozen = false
+
+    const res = await archiveCase(
+      db,
+      home,
+      slug,
+      { argusVersion: 'test' },
+      {
+        // inside the first archive's verify window: bundle sealed, nothing deleted yet
+        verify: async (zip): Promise<BundleManifest> => {
+          before = snapshotCase(db, home, slug)
+          second = await archiveCase(db, home, slug, { argusVersion: 'test' }).then(
+            () => null,
+            (e) => e
+          )
+          // the refused attempt's `finally` must NOT have released the freeze this archive
+          // is still relying on — that release is what reopened the write window
+          stillFrozen = isCaseFrozen(slug)
+          after = snapshotCase(db, home, slug)
+          return await verifyBundleArchive(zip)
+        }
+      }
+    )
+
+    expect(String(second)).toMatch(/already being archived/i)
+    expect(stillFrozen, 'the first archive lost its freeze to the refused one').toBe(true)
+    expect(after, 'the refused attempt changed the case').toEqual(before)
+    expect(fs.existsSync(res.bundlePath)).toBe(true)
+    expect(isCaseFrozen(slug)).toBe(false)
+  })
+
+  it('a stale handle cannot release a later freeze of the same slug', () => {
+    const first = freezeCase('FREEZE-OWNER-1')
+    expect(() => freezeCase('FREEZE-OWNER-1')).toThrow(/already being archived/i)
+    first.release()
+
+    const second = freezeCase('FREEZE-OWNER-1')
+    first.release() // the previous owner's handle: must be inert now
+    expect(isCaseFrozen('FREEZE-OWNER-1'), 'a stale handle released someone else’s freeze').toBe(
+      true
+    )
+    second.release()
+    expect(isCaseFrozen('FREEZE-OWNER-1')).toBe(false)
+  })
+})
+
+describe('scanEvidence is a write path too, and obeys the freeze', () => {
+  const scanDeps = (
+    db: Parameters<typeof scanEvidence>[0],
+    home: string
+  ): Parameters<typeof scanEvidence>[3] => ({
+    evidenceChanged: () => {},
+    queue: createImmediateQueue(db, home)
+  })
+
+  /** Drop an untracked file into the case's evidence dir — what Rescan exists to register. */
+  function plantUntracked(home: string, slug: string, name: string): string {
+    const dest = path.join(caseDir(home, slug), 'evidence', name)
+    fs.mkdirSync(path.dirname(dest), { recursive: true })
+    fs.writeFileSync(dest, 'dropped in by hand while the archive was running\n')
+    return dest
+  }
+
+  it('a scan into a FROZEN case throws and registers nothing', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    const planted = plantUntracked(home, slug, 'rescan-me.log')
+    const rowsBefore = evidenceCount(db, slug)
+
+    const freeze = freezeCase(slug)
+    try {
+      expect(() => scanEvidence(db, home, createDetection(), scanDeps(db, home), slug)).toThrow(
+        /being archived/i
+      )
+    } finally {
+      freeze.release()
+    }
+
+    // the file is still just a file: no row, and no .meta sidecar written for it
+    expect(evidenceCount(db, slug)).toBe(rowsBefore)
+    // .meta/ itself pre-exists (the fixture's own ingests wrote sidecars there); what must
+    // not exist is a sidecar for THIS file, which is what registering it would create
+    expect(
+      fs.existsSync(path.join(caseDir(home, slug), 'evidence', '.meta', 'rescan-me.log.json'))
+    ).toBe(false)
+    expect(fs.existsSync(planted), 'the scan must not have touched the file itself').toBe(true)
+  })
+
+  it('a scan into an ARCHIVED case throws and does not recreate the deleted tree', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    const evidenceRoot = path.join(caseDir(home, slug), 'evidence')
+    expect(fs.existsSync(evidenceRoot)).toBe(false)
+
+    expect(() => scanEvidence(db, home, createDetection(), scanDeps(db, home), slug)).toThrow(
+      /archived/i
+    )
+
+    // the guard sits before scanEvidence's own mkdirSync: an archived case must not get its
+    // evidence/ directory back as a side effect of someone pressing Rescan
+    expect(fs.existsSync(evidenceRoot), 'evidence/ was recreated').toBe(false)
+    expect(evidenceCount(db, slug)).toBe(0)
+  })
+
+  it('a scan into an ordinary live case still registers the file', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    plantUntracked(home, slug, 'ordinary-rescan.log')
+    const rowsBefore = evidenceCount(db, slug)
+
+    const summary = scanEvidence(db, home, createDetection(), scanDeps(db, home), slug)
+
+    expect(summary.added).toContain('evidence/ordinary-rescan.log')
+    expect(evidenceCount(db, slug)).toBe(rowsBefore + 1)
+  })
+})
+
+describe('extraction does not write into a frozen tree before its guard fires', () => {
+  it('leaves no orphan .derived file when the case is frozen', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    // an evidence-scoped row specifically: the derived dir follows its parent's tree, so
+    // picking whichever row came first would point this assertion at artifacts/.derived
+    const rec = listEvidence(db, slug, 'all').find((e) => e.relPath.startsWith('evidence/'))!
+    expect(rec).toBeTruthy()
+    const derivedDir = path.join(caseDir(home, slug), 'evidence', '.derived')
+    expect(fs.existsSync(derivedDir)).toBe(false)
+    // the guard must fire before the extractor is ever run, so this command is never spawned
+    const extractors = {
+      extractFor: () => ({ command: 'no-such-extractor', args: ['{input}', '{output}'] })
+    } as unknown as Extractors
+
+    const freeze = freezeCase(slug)
+    try {
+      await expect(
+        extractDerivedText(db, home, createImmediateQueue(db, home), rec, extractors)
+      ).rejects.toThrow(/being archived/i)
+    } finally {
+      freeze.release()
+    }
+
+    // ingestDerived's guard alone fires only after the output file is on disk; this asserts
+    // the directory the extraction pipeline creates was never made at all
+    expect(fs.existsSync(derivedDir), 'an orphan .derived dir was created in a frozen tree').toBe(
+      false
+    )
+  })
+})
+
+describe('a frozen or archived case cannot acquire a transcript writer', () => {
+  it('createSession is refused for a frozen case and inserts no row', async () => {
+    const { db, slug } = await seedArchivableCase()
+    const caseId = getCase(db, slug)!.id
+    const sessionsBefore = (
+      db.prepare(`SELECT count(*) AS n FROM sessions WHERE case_id = ?`).get(caseId) as {
+        n: number
+      }
+    ).n
+
+    const freeze = freezeCase(slug)
+    try {
+      // exactly the call RoutinesService makes for an unattended background run
+      // (routines/service.ts) — the session the scheduler can start on a timer at any point
+      // inside the archive window, which never enters AgentService's live map
+      expect(() =>
+        createSession(db, slug, { driverKind: 'claude-agent-sdk', model: null })
+      ).toThrow(/being archived/i)
+    } finally {
+      freeze.release()
+    }
+
+    const sessionsAfter = (
+      db.prepare(`SELECT count(*) AS n FROM sessions WHERE case_id = ?`).get(caseId) as {
+        n: number
+      }
+    ).n
+    expect(sessionsAfter).toBe(sessionsBefore)
+  })
+
+  it('createSession is refused for an archived case and inserts no row', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    const caseId = getCase(db, slug)!.id
+
+    expect(() => createSession(db, slug, 'claude-agent-sdk')).toThrow(/archived/i)
+    const n = (
+      db.prepare(`SELECT count(*) AS n FROM sessions WHERE case_id = ?`).get(caseId) as {
+        n: number
+      }
+    ).n
+    expect(n).toBe(0)
+  })
+
+  it('a mirror cannot be constructed for a frozen case, so no transcript is appended', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    // an EXISTING session being resumed mid-archive: no new sessions row is created, so the
+    // createSession guard above cannot see this at all
+    const existing = Number(
+      (
+        db
+          .prepare(`SELECT id FROM sessions WHERE case_id = (SELECT id FROM cases WHERE slug = ?)`)
+          .get(slug) as { id: number }
+      ).id
+    )
+    const file = path.join(caseDir(home, slug), 'sessions', `${existing + 100}.jsonl`)
+
+    const freeze = freezeCase(slug)
+    try {
+      expect(
+        () =>
+          new SessionMirror(db, file, {
+            caseId: getCase(db, slug)!.id,
+            sessionId: existing + 100,
+            caseSlug: slug
+          })
+      ).toThrow(/being archived/i)
+    } finally {
+      freeze.release()
+    }
+    expect(fs.existsSync(file)).toBe(false)
+  })
+
+  it('a mirror cannot be constructed for an archived case, and does not recreate sessions/', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    const caseId = getCase(db, slug)!.id
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    const sessionsDir = path.join(caseDir(home, slug), 'sessions')
+    expect(fs.existsSync(sessionsDir)).toBe(false)
+
+    expect(
+      () =>
+        new SessionMirror(db, path.join(sessionsDir, '7.jsonl'), {
+          caseId,
+          sessionId: 7,
+          caseSlug: slug
+        })
+    ).toThrow(/archived/i)
+
+    // the constructor's mkdirSync is what would otherwise resurrect the deleted tree
+    expect(fs.existsSync(sessionsDir), 'sessions/ was recreated by the mirror').toBe(false)
   })
 })
 

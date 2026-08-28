@@ -23,7 +23,7 @@ describe('SessionMirror', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-mir-'))
     const db = openDb(path.join(tmp, 'a.db'))
     const file = path.join(tmp, 'sessions', 's1.jsonl')
-    const m = new SessionMirror(db, file, { caseId: 1, sessionId: 1 })
+    const m = new SessionMirror(db, file, { caseId: 1, sessionId: 1, caseSlug: 'NAV-1' })
     m.append(ev('content.delta'))
     m.append(ev('turn.completed'))
     m.close()
@@ -40,7 +40,8 @@ describe('SessionMirror', () => {
     const caseDir = path.join(tmp, 'case')
     const m = new SessionMirror(db, path.join(caseDir, 'sessions', '1.jsonl'), {
       caseId: 1,
-      sessionId: 1
+      sessionId: 1,
+      caseSlug: 'NAV-1'
     })
     m.append(ev('turn.started'))
     m.append(ev('assistant.message'))
@@ -84,7 +85,11 @@ describe('SessionMirror', () => {
   it('indexes message text into messages_fts', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-mir-'))
     const db = openDb(path.join(tmp, 'a.db'))
-    const m = new SessionMirror(db, path.join(tmp, 's.jsonl'), { caseId: 1, sessionId: 1 })
+    const m = new SessionMirror(db, path.join(tmp, 's.jsonl'), {
+      caseId: 1,
+      sessionId: 1,
+      caseSlug: 'NAV-1'
+    })
     m.indexText('assistant', 'The tile server returned 404', 3)
     const row = db
       .prepare(`SELECT content, role FROM messages_fts WHERE messages_fts MATCH 'tile'`)

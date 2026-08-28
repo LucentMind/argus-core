@@ -1869,7 +1869,8 @@ function registerIpc(): void {
       path.join(caseDir(argusHome, caseSlug), 'sessions', `${sessionId}.jsonl`),
       {
         caseId: listCases(db).find((c) => c.slug === caseSlug)?.id ?? 0,
-        sessionId
+        sessionId,
+        caseSlug
       }
     )
   agentService = new AgentService({

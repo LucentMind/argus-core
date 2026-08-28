@@ -1,5 +1,4 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { getCase } from './caseService'
 
 /**
  * In-process freeze registry for cases undergoing a long, snapshot-based operation.
@@ -15,19 +14,54 @@ import { getCase } from './caseService'
  * successfully archived case is `cases.archived_at`, checked by the same function below.
  *
  * Lives in its own module rather than in `caseArchive.ts` because the write paths that must
- * call the guard are in `ingest.ts`, and `caseArchive → bundle → ingest` would make that a
- * cycle.
+ * call the guard are in `ingest.ts`, `scan.ts`, `extraction.ts` and
+ * `agent/sessionStore.ts` + `agent/mirror.ts`, several of which `caseArchive` transitively
+ * imports. It therefore imports NOTHING from the services layer — the archived check is a
+ * one-column raw query rather than `caseService.getCase`, because `sessionStore` is imported
+ * BY `caseService`, and routing through it would close a real import cycle.
+ *
+ * The registry is a Map slug → token, not a Set, and the freeze is NOT reentrant. Two
+ * overlapping archives of the same slug used to both "succeed" at freezing and then the
+ * first to finish released the OTHER one's freeze, reopening the write window it was still
+ * inside. `freezeCase` now refuses a slug that is already frozen, and only the returned
+ * handle can release it.
  */
-const frozen = new Set<string>()
+const frozen = new Map<string, symbol>()
 
-/** Mark a case unwritable. Callers MUST pair this with `unfreezeCase` in a `finally`. */
-export function freezeCase(slug: string): void {
-  frozen.add(slug)
+/** A freeze that only its owner can release. Returned by `freezeCase`; call `release()` in a
+ *  `finally` so no throw can leave a case permanently unwritable. */
+export interface FreezeHandle {
+  readonly slug: string
+  release(): void
 }
 
-/** Release a freeze. Safe to call for a slug that is not frozen. */
-export function unfreezeCase(slug: string): void {
-  frozen.delete(slug)
+/**
+ * Mark a case unwritable and take ownership of that freeze.
+ *
+ * Throws if the case is ALREADY frozen. That refusal is the whole point: an idempotent
+ * freeze plus a slug-keyed release means whichever holder finishes first unfreezes the case
+ * for everybody, including a concurrent archive still inside its verify window. The message
+ * is user-facing — a double-clicked archive button, two windows, or a retry over a slow
+ * first attempt all land here.
+ *
+ * Callers MUST pair this with `handle.release()` in a `finally`.
+ */
+export function freezeCase(slug: string): FreezeHandle {
+  if (frozen.has(slug)) {
+    throw new Error(
+      `Case ${slug} is already being archived. Wait for that operation to finish before starting another.`
+    )
+  }
+  const token = Symbol(slug)
+  frozen.set(slug, token)
+  return {
+    slug,
+    release(): void {
+      // Identity-checked: a stale handle from an earlier, already-released freeze must never
+      // release the freeze a LATER archive of the same slug now holds.
+      if (frozen.get(slug) === token) frozen.delete(slug)
+    }
+  }
 }
 
 /** Test/diagnostic reader. Production code should call `assertCaseWritable` instead. */
@@ -49,8 +83,9 @@ export function assertCaseWritable(db: DatabaseSync, slug: string): void {
       `Case ${slug} is being archived right now and cannot accept new files. Try again once archiving finishes.`
     )
   }
-  const rec = getCase(db, slug)
-  if (rec?.archivedAt) {
+  const rec = db.prepare(`SELECT archived_at FROM cases WHERE slug = ?`).get(slug) as
+    { archived_at: string | null } | undefined
+  if (rec?.archived_at) {
     throw new Error(`Case ${slug} is archived and cannot accept new files. Restore it first.`)
   }
 }
