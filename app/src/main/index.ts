@@ -867,9 +867,11 @@ function registerIpc(): void {
   const requeued = requeuePendingIndexes(db, argusHome, ingestQueue)
   if (requeued > 0) console.log(`[ingest] re-queued ${requeued} unfinished index(es) after restart`)
 
-  // Fire-and-forget: the migration yields between rows and search reads both generations
-  // until it finishes, so nothing waits on it. A quit mid-run loses no completed work —
-  // each evidence row moves in one savepoint and progress is the legacy table itself.
+  // Fire-and-forget: the migration yields on a byte cadence, both between rows and within a
+  // single huge one, and search reads both generations until it finishes, so nothing waits
+  // on it. A quit mid-run loses no completed work — each CHUNK moves in one savepoint and
+  // progress is the legacy table itself. It logs its own start/progress/completion (and the
+  // one-time VACUUM that follows) to the console, same as the re-queue line above.
   void runEvidenceIndexMigration(db, { shouldStop: () => quitting }).catch((err) => {
     console.warn('[evidence-index] migration paused:', (err as Error).message)
   })
