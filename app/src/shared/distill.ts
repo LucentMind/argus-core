@@ -64,6 +64,11 @@ export interface CaseDistillInput {
     id?: number
     summary: string
     reviewState: ReviewState
+    /** Why it was rejected. Optional: absent on every snapshot taken before retraction
+     *  existed, and a retry replays its original snapshot verbatim. */
+    reviewReason?: string | null
+    /** Who rejected it. 'agent' means the agent withdrew its own finding. */
+    reviewActor?: 'agent' | 'human' | null
     role: string | null
     body: string
   }[]

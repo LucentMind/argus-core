@@ -57,6 +57,8 @@ describe('assembleDistillInput', () => {
         id: expect.any(Number),
         summary: 'Root cause found',
         reviewState: 'accepted',
+        reviewReason: null,
+        reviewActor: null,
         role: null,
         body: expect.stringContaining('Clock resync.')
       }

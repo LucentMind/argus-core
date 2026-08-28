@@ -1,6 +1,7 @@
 import type { CaseRcaInput } from '../../../shared/rca'
 import type { PromptTextSpecs } from '../../../shared/promptSpec'
 import type { RcaSection, RcaTemplate } from '../../../shared/rcaTemplate'
+import { reviewTag } from '../../../shared/findingTag'
 
 /**
  * The system contract handed to the headless case-RCA drafter. Mirrors
@@ -113,7 +114,7 @@ export function buildCaseRcaPrompt(
   const findings = input.findings
     .map(
       (f) =>
-        `### [finding ${f.id}] [${f.reviewState}${f.role ? ` · ${f.role}` : ''}] ${f.summary}\n${f.body}`
+        `### [finding ${f.id}] [${reviewTag(f)}${f.role ? ` · ${f.role}` : ''}] ${f.summary}\n${f.body}`
     )
     .join('\n\n')
   const trackerLabel = m.ticketProvider === 'github' ? 'github' : 'jira'

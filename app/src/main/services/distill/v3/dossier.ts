@@ -1,6 +1,7 @@
 import type { CaseDistillInput } from '../../../../shared/distill'
 import type { Dossier, DossierCite, DossierCited } from '../../../../shared/distillV3'
 import type { PromptTextSpecs } from '../../../../shared/promptSpec'
+import { reviewTag } from '../../../../shared/findingTag'
 import { DistillParseError } from '../contract'
 
 /**
@@ -16,7 +17,7 @@ EVIDENCE HIERARCHY — strongest first. Every item you record carries "cites" na
   2. Tool output or an evidence artifact the assistant READ in the transcript (a log grep, a command result, a query) — primary evidence. Cite it as {"session": id, "turn": n} or {"evidence": "relPath"}.
   3. The user's own statement in a user turn.
   4. The assistant's own claim. A claim is a HYPOTHESIS unless a finding or an artifact confirms it. Decisive values very often live only in tool outputs the assistant read — those outputs are evidence; the assistant's sentence ABOUT them is not.
-A finding marked [rejected] or with role ruled-out is INADMISSIBLE as a cause or fix — record it under rejected_hypotheses with HOW it was ruled out. A [pending] finding is inadmissible for root_cause / confirmed_fix but may appear in diagnostic_path.
+A finding marked [rejected] or with role ruled-out is INADMISSIBLE as a cause or fix — record it under rejected_hypotheses with HOW it was ruled out. A finding marked [rejected · retracted by agent: <reason>] was withdrawn by the assistant itself after it turned out to be wrong: it is INADMISSIBLE everywhere except rejected_hypotheses, where that reason IS the how-it-was-ruled-out. A [pending] finding is inadmissible for root_cause / confirmed_fix but may appear in diagnostic_path.
 
 RULES:
 1. ROOT CAUSE: the finding with role root-cause (assigned by a human-confirmed RCA) anchors "root_cause". If that finding is still [pending], record it and say so in scope.note. No root-cause role and no accepted causal finding → root_cause is null.
@@ -58,7 +59,7 @@ export function buildDossierPrompt(
   const findings = input.findings
     .map(
       (f) =>
-        `### [${f.id !== undefined ? `#${f.id} · ` : ''}${f.reviewState}${f.role ? ` · ${f.role}` : ''}] ${f.summary}\n${f.body}`
+        `### [${f.id !== undefined ? `#${f.id} · ` : ''}${reviewTag(f)}${f.role ? ` · ${f.role}` : ''}] ${f.summary}\n${f.body}`
     )
     .join('\n\n')
   const parts = [
