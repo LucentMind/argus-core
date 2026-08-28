@@ -5,6 +5,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { extract } from 'zip-lib'
 import {
   exportCase,
+  readBundleRows,
   registerImportedSessions,
   reindexImportedEvidence,
   verifyBundleArchive
@@ -17,7 +18,7 @@ import { archiveDir, caseArchivePath, caseDir } from './paths'
 import { sidecarPath } from './lineIndex'
 import { EVIDENCE_DIR, ARTIFACTS_DIR } from '../../shared/evidenceScope'
 import { RCA_REPORT_FILENAMES } from './rca/artifacts'
-import type { BundleManifest } from '../../shared/bundle'
+import type { BundleManifest, BundleRows } from '../../shared/bundle'
 
 /** Trees whose bytes the bundle now holds. Everything else in the case dir — case.json,
  *  summary.md — stays, so an archived case still renders from disk as well as from the
@@ -282,21 +283,38 @@ async function archiveFrozenCase(
  *  check for every bundle already on disk.
  *
  *  Deterministic and order-independent: the file lines are sorted, and the slug is a fixed
- *  header line, so a manifest that lists the same files in a different order digests the same. */
+ *  header line, so a manifest that lists the same files in a different order digests the same.
+ *
+ *  The row sidecar's digest joins as a second header line, and ONLY when the manifest declares
+ *  one. That conditional is deliberate: a bundle written before the sidecar existed must still
+ *  digest to the value already stored in its case's `archive_sha256`, or this check would refuse
+ *  every archive currently on disk. A bundle that carries rows has them covered — swapping,
+ *  truncating or dropping `rows.json` changes this digest and the restore is refused. */
 export function manifestHash(manifest: BundleManifest): string {
   const joined = [
     `slug:${manifest.slug}`,
+    ...(manifest.rows ? [`rows:${manifest.rows.sha256}`] : []),
     ...manifest.files.map((f) => `${f.path}:${f.sha256}`).sort()
   ].join('\n')
   return crypto.createHash('sha256').update(joined).digest('hex')
 }
 
-/** Injected seam, test-only. `afterExtract` runs inside the restore's freeze, with the trees
- *  back on disk and the archived flag not yet cleared — the window a concurrent restore or a
- *  user write would have to be refused in. No real fs or timing state can be relied on to
- *  produce that window from outside. */
+/** Injected seams, test-only — neither is ever supplied on the production path.
+ *
+ *  `afterExtract` runs inside the restore's freeze, with the trees back on disk and the
+ *  archived flag not yet cleared — the window a concurrent restore or a user write would have
+ *  to be refused in. No real fs or timing state can be relied on to produce that window from
+ *  outside.
+ *
+ *  `afterRebuild` runs one step later and is the DANGEROUS window: the evidence and session
+ *  rows are rebuilt but the archived flag is still set. A failure there used to leave the case
+ *  permanently unrestorable (every retry hit the evidence UNIQUE constraint) and
+ *  unre-archivable ("already archived"). It exists so a test can inject a failure exactly
+ *  there and prove the case is still restorable afterwards; `afterExtract` fires too early to
+ *  reach it, because everything before the rebuild is idempotent anyway. */
 export interface RestoreDeps {
   afterExtract?: () => void | Promise<void>
+  afterRebuild?: () => void | Promise<void>
 }
 
 export interface RestoreResult {
@@ -327,6 +345,114 @@ function restoreTree(from: string, to: string): void {
 }
 
 /**
+ * Put back the bundle's copy of any NON-archived file that is not on disk — `case.json`,
+ * `summary.md`, the RCA report — and nothing else.
+ *
+ * The rule is one line long: the live copy always wins, and a file that is not there is not a
+ * live copy. Archiving leaves these files alone, so ordinarily every one of them exists and
+ * this copies nothing; the case it exists for is a case dir the user deleted (or partly
+ * deleted) while the case was archived, which otherwise could not be restored at all — the
+ * first tree rename threw ENOENT even though the bundle carried the whole tree. It never
+ * overwrites, so an edit made since the archive is still safe.
+ */
+function restoreMissingFiles(from: string, to: string): void {
+  const walk = (rel: string): void => {
+    const abs = rel ? path.join(from, ...rel.split('/')) : from
+    for (const ent of fs.readdirSync(abs, { withFileTypes: true })) {
+      if (!rel && ARCHIVED_TREES.includes(ent.name)) continue // handled by restoreTree
+      const childRel = rel ? `${rel}/${ent.name}` : ent.name
+      if (ent.isDirectory()) {
+        walk(childRel)
+        continue
+      }
+      if (!ent.isFile()) continue
+      const dest = path.join(to, ...childRel.split('/'))
+      if (fs.existsSync(dest)) continue
+      fs.mkdirSync(path.dirname(dest), { recursive: true })
+      fs.copyFileSync(path.join(abs, ent.name), dest)
+    }
+  }
+  walk('')
+}
+
+/**
+ * Rebuild the rows that live only in the database — `turns`, `tool_calls`, and the findings'
+ * session/turn pointers — from the bundle's verified row sidecar.
+ *
+ * Every id in the sidecar is stale by construction: archiving deleted those rows, and
+ * `registerImportedSessions` has just assigned brand-new session ids. `sessionIds` is that ONE
+ * mapping, handed in rather than recomputed here, and the turn mapping built below is derived
+ * from the rows this function itself inserts — so a finding's pointer and its turn's row can
+ * never disagree about which turn they mean.
+ *
+ * A row whose session did not come back (a bundle written without transcripts) is skipped:
+ * `turns.session_id` and `tool_calls.session_id` are NOT NULL and a value pointing at a session
+ * that does not exist is worse than an absent row.
+ */
+function rebuildCaseRows(
+  db: DatabaseSync,
+  caseId: number,
+  rows: BundleRows,
+  sessionIds: Map<number, number>
+): void {
+  const turnIds = new Map<number, number>()
+  const insertTurn = db.prepare(
+    `INSERT INTO turns (case_id, session_id, turn_index, status, input_tokens, output_tokens,
+                        cost_usd, duration_ms, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+  for (const t of rows.turns) {
+    const sessionId = sessionIds.get(t.sessionId)
+    if (sessionId == null) continue
+    const res = insertTurn.run(
+      caseId,
+      sessionId,
+      t.turnIndex,
+      t.status,
+      t.inputTokens,
+      t.outputTokens,
+      t.costUsd,
+      t.durationMs,
+      t.createdAt
+    )
+    turnIds.set(t.id, Number(res.lastInsertRowid))
+  }
+  const insertCall = db.prepare(
+    `INSERT INTO tool_calls (case_id, session_id, turn_id, tool, args_hash, risk, decision,
+                             duration_ms, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+  for (const c of rows.toolCalls) {
+    const sessionId = sessionIds.get(c.sessionId)
+    if (sessionId == null) continue
+    insertCall.run(
+      caseId,
+      sessionId,
+      c.turnId == null ? null : (turnIds.get(c.turnId) ?? null),
+      c.tool,
+      c.argsHash,
+      c.risk,
+      c.decision,
+      c.durationMs,
+      c.createdAt
+    )
+  }
+  // The findings themselves never left — only the ids they pointed at did, which archiveCase
+  // nulled rather than leave dangling. Point them back at the rebuilt rows so "jump to turn"
+  // resolves again. Scoped by case_id as well as id: a pointer entry naming another case's
+  // finding must not repoint it.
+  const repoint = db.prepare(
+    `UPDATE findings SET session_id = ?, turn_id = ? WHERE id = ? AND case_id = ?`
+  )
+  for (const p of rows.findingPointers) {
+    const sessionId = p.sessionId == null ? null : (sessionIds.get(p.sessionId) ?? null)
+    const turnId = p.turnId == null ? null : (turnIds.get(p.turnId) ?? null)
+    if (sessionId == null && turnId == null) continue
+    repoint.run(sessionId, turnId, p.id, caseId)
+  }
+}
+
+/**
  * Rehydrate an archived case in place.
  *
  * NOT importCase: that creates a NEW case through proposeSlug with collision handling, so
@@ -350,6 +476,13 @@ function restoreTree(from: string, to: string): void {
  * Restore's own rebuild does not go through that guard (`reindexImportedEvidence` and
  * `registerImportedSessions` write rows and index entries directly), which is what lets it
  * work inside its own freeze.
+ *
+ * The rebuild and the flag clear share ONE transaction, so a failure anywhere in them leaves
+ * the case exactly as archived and therefore still restorable — see `restoreFrozenCase`.
+ *
+ * A case whose directory was deleted while it was archived IS restorable: the trees come out
+ * of the bundle, and `restoreMissingFiles` puts back `case.json`, `summary.md` and the RCA
+ * report — but only files that are absent, never over a live copy.
  */
 export async function restoreCase(
   db: DatabaseSync,
@@ -411,34 +544,101 @@ async function restoreFrozenCase(
   }
 
   const dir = caseDir(argusHome, slug)
+  fs.mkdirSync(dir, { recursive: true })
   // Staging beside cases/ so restoreTree's rename is a rename rather than a cross-volume copy.
   // realpathSync for the same reason importCase does it: zip-lib's safeSymlinksOnly guard
   // compares an extracted file's realpath against the unresolved target.
   const staging = fs.realpathSync(fs.mkdtempSync(path.join(path.dirname(dir), '.restore-')))
+  let rows: BundleRows | null
   try {
     await extract(bundlePath, staging, { safeSymlinksOnly: true })
+    // Hashed against the manifest again on THIS extraction, for the same reason archiving
+    // verifies the archive rather than the sources: the copy about to be consumed is the one
+    // that has to prove itself. Null for any bundle written before the sidecar existed.
+    rows = readBundleRows(staging, manifest)
     const staged = path.join(staging, 'case')
     // Move only the trees archiveCase removed. Anything else in the bundle (case.json, the
     // RCA, summary.md) is already on disk and is the live copy — the archived copy of a file
-    // that never left must not overwrite edits made since.
+    // that never left must not overwrite edits made since. The one exception is a file that
+    // is not there at all; see restoreMissingFiles.
     for (const tree of ARCHIVED_TREES) {
       const from = path.join(staged, tree)
       if (fs.existsSync(from)) restoreTree(from, path.join(dir, tree))
     }
+    restoreMissingFiles(staged, dir)
   } finally {
     fs.rmSync(staging, { recursive: true, force: true })
   }
 
   if (deps.afterExtract) await deps.afterExtract()
 
-  const evidenceRestored = reindexImportedEvidence(db, argusHome, caseId, dir)
-  const sessionsRestored = registerImportedSessions(db, caseId, slug, dir)
+  // ONE transaction for the whole rebuild AND the flag, exactly as archiveFrozenCase wraps its
+  // deletes and its flag.
+  //
+  // Without it the three steps autocommitted independently, and any throw between the evidence
+  // inserts and the UPDATE — an EPERM from a watcher during the transcript rewrites, SQLITE_BUSY,
+  // a full disk, the app being killed — left `archived_at` set with the evidence rows already
+  // present. Every later restore then died on `UNIQUE constraint failed: evidence.case_id,
+  // evidence.rel_path` and every later archive refused with "already archived": the case could
+  // neither be restored nor re-archived, ever. A failed restore has to be retryable.
+  //
+  // The tree merge above stays outside on purpose — it is idempotent, and files cannot join a
+  // database transaction anyway. The two rebuild functions do write files (sidecars rewritten
+  // to new ids, transcripts rewritten to new session ids), and a rollback leaves those rewrites
+  // in place; both are self-consistent afterwards, so the retry reads them as its starting
+  // state and remaps them again.
+  let evidenceRestored = 0
+  let sessionsRestored = 0
+  let sessionIds = new Map<number, number>()
+  db.exec('BEGIN')
+  try {
+    // Belt to the transaction's braces, and the thing that heals a case wedged by a build
+    // without it: clear whatever this case still holds of what the rebuild is about to write.
+    // On the ordinary path every one of these is a no-op — archiving deleted them all.
+    deleteEvidenceFtsForCase(db, caseId)
+    deleteMessagesFtsForCase(db, caseId)
+    db.prepare(`DELETE FROM tool_calls WHERE case_id = ?`).run(caseId)
+    db.prepare(`DELETE FROM turns WHERE case_id = ?`).run(caseId)
+    db.prepare(`DELETE FROM sessions WHERE case_id = ?`).run(caseId)
+    db.prepare(`DELETE FROM evidence WHERE case_id = ?`).run(caseId)
 
-  // Last, and only once the trees and rows are actually back: this is what reopens the case
-  // to ordinary writes.
-  db.prepare(
-    `UPDATE cases SET archived_at = NULL, archive_path = NULL, archive_sha256 = NULL WHERE id = ?`
-  ).run(caseId)
+    evidenceRestored = reindexImportedEvidence(db, argusHome, caseId, dir)
+    sessionIds = registerImportedSessions(db, caseId, slug, dir)
+    sessionsRestored = sessionIds.size
+    // The database-only rows: the tool-call audit trail and the findings' deep-links, both of
+    // which one archive/restore cycle used to destroy outright.
+    if (rows) rebuildCaseRows(db, caseId, rows, sessionIds)
+
+    if (deps.afterRebuild) await deps.afterRebuild()
+
+    // Last, and only once the trees and rows are actually back: this is what reopens the case
+    // to ordinary writes.
+    db.prepare(
+      `UPDATE cases SET archived_at = NULL, archive_path = NULL, archive_sha256 = NULL WHERE id = ?`
+    ).run(caseId)
+    db.exec('COMMIT')
+  } catch (err) {
+    db.exec('ROLLBACK')
+    // Put the transcript file names back with the rows they belong to.
+    //
+    // The rollback undoes the sessions rows but not the renames `registerImportedSessions`
+    // made, and the bundle's row sidecar names sessions by their ORIGINAL id — which is the
+    // transcript's file name. Leaving `<newId>.jsonl` behind would therefore cost the retry its
+    // turns and tool calls: the sidecar would name a session id no file carries any more. The
+    // envelopes inside are rewritten again by the next run, so only the names matter here.
+    // Best-effort by design: a failure to rename must not replace the real error.
+    for (const [oldId, newId] of sessionIds) {
+      try {
+        const sessions = path.join(dir, 'sessions')
+        const from = path.join(sessions, `${newId}.jsonl`)
+        const to = path.join(sessions, `${oldId}.jsonl`)
+        if (fs.existsSync(from) && !fs.existsSync(to)) fs.renameSync(from, to)
+      } catch (renameErr) {
+        console.warn(`[archive] failed to unwind a restored transcript for ${slug}:`, renameErr)
+      }
+    }
+    throw err
+  }
 
   return { evidenceRestored, sessionsRestored }
 }

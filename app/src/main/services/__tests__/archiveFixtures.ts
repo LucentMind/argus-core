@@ -58,9 +58,29 @@ export async function seedArchivableCase(): Promise<{
   insertMessageFts(db, 'the needle came up in chat too', caseId, sessionId, turnId, 'user')
 
   fs.mkdirSync(path.join(caseDir(home, slug), 'sessions'), { recursive: true })
+  // A transcript the rebuild can actually read: registerImportedSessions only indexes
+  // `turn.started` and `assistant.message`, so a single {type:'message'} event produced a
+  // session with title '', turn_count 0 and ZERO chat-FTS rows — meaning no test anywhere
+  // could prove chat search comes back after a restore. These two events give it a title, a
+  // turn count and two indexed messages.
   fs.writeFileSync(
     path.join(caseDir(home, slug), 'sessions', `${sessionId}.jsonl`),
-    JSON.stringify({ type: 'message', role: 'user', text: 'transcript line' }) + '\n'
+    [
+      JSON.stringify({
+        type: 'turn.started',
+        caseId,
+        caseSlug: slug,
+        sessionId,
+        payload: { userText: 'why does the needle keep coming back?' }
+      }),
+      JSON.stringify({
+        type: 'assistant.message',
+        caseId,
+        caseSlug: slug,
+        sessionId,
+        payload: { text: 'the haystack answer, at length' }
+      })
+    ].join('\n') + '\n'
   )
 
   db.prepare(
