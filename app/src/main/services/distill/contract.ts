@@ -4,6 +4,7 @@ import type {
   CaseDistillSummary
 } from '../../../shared/distill'
 import type { PromptTextSpecs } from '../../../shared/promptSpec'
+import { reviewTag } from '../../../shared/findingTag'
 
 export { CASE_DISTILL_CONTRACT } from './caseDistillContract'
 import { CASE_DISTILL_CONTRACT } from './caseDistillContract'
@@ -58,7 +59,7 @@ export function buildCaseDistillPrompt(
 ): string {
   const m = input.caseMeta
   const findings = input.findings
-    .map((f) => `### [${f.reviewState}${f.role ? ` · ${f.role}` : ''}] ${f.summary}\n${f.body}`)
+    .map((f) => `### [${reviewTag(f)}${f.role ? ` · ${f.role}` : ''}] ${f.summary}\n${f.body}`)
     .join('\n\n')
   const captured =
     input.alreadyCaptured.proposals

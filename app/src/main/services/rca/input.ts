@@ -113,6 +113,8 @@ export function assembleRcaInput(
         summary: f.summary,
         body: f.body ?? '',
         reviewState: f.reviewState,
+        reviewReason: f.reviewReason,
+        reviewActor: f.reviewActor,
         role: f.role
       })),
     evidence: evidenceRows.map((e) => ({

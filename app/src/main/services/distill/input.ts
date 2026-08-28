@@ -196,6 +196,8 @@ export function assembleDistillInput(
       id: f.id,
       summary: f.summary,
       reviewState: f.reviewState,
+      reviewReason: f.reviewReason,
+      reviewActor: f.reviewActor,
       role: f.role,
       body: f.body ?? ''
     })),

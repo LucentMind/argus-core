@@ -102,6 +102,11 @@ export interface CaseRcaInput {
     summary: string
     body: string
     reviewState: string
+    /** Why it was rejected. Optional: absent on every snapshot taken before retraction
+     *  existed, and a retry replays its original snapshot verbatim. */
+    reviewReason?: string | null
+    /** Who rejected it. 'agent' means the agent withdrew its own finding. */
+    reviewActor?: 'agent' | 'human' | null
     role: string | null
   }[]
   evidence: { relPath: string; artifactType: string; size: number }[]
