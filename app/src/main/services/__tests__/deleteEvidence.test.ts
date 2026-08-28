@@ -29,9 +29,8 @@ afterEach(() => {
 const evDir = (slug: string): string => path.join(argusHome, 'cases', slug, 'evidence')
 
 // Counts locators in evidence_index_map, the table indexEvidenceText/indexEvidenceFile
-// now write to (Task 2). deleteEvidence's own FTS cleanup still only clears the legacy
-// evidence_fts/evidence_fts_map tables — Task 3 teaches it about evidence_index too — so
-// this file does not yet assert that a delete empties evidence_index_map.
+// write to (Task 2). deleteEvidence's own FTS cleanup clears both index generations
+// (Task 3), so a delete is expected to empty this too.
 function indexMapCount(evidenceId: number): number {
   return Number(
     (
@@ -45,7 +44,7 @@ function indexMapCount(evidenceId: number): number {
 }
 
 describe('deleteEvidence', () => {
-  it('deletes the file, .meta sidecar, and DB row; audits relPath + sha256', () => {
+  it('deletes the file, .meta sidecar, FTS rows, and DB row; audits relPath + sha256', () => {
     const rec = ingestContent(
       db,
       argusHome,
@@ -63,6 +62,7 @@ describe('deleteEvidence', () => {
     expect(r.deleted).toEqual([{ id: rec.id, relPath: 'evidence/log.txt', sha256: rec.sha256 }])
     expect(fs.existsSync(path.join(evDir('NAV-1'), 'log.txt'))).toBe(false)
     expect(fs.existsSync(path.join(evDir('NAV-1'), '.meta', 'log.txt.json'))).toBe(false)
+    expect(indexMapCount(rec.id)).toBe(0)
     expect(listEvidence(db, 'NAV-1')).toHaveLength(0)
     const audit = readDeletionAudit(argusHome)
     expect(audit).toHaveLength(1)
@@ -115,7 +115,8 @@ describe('deleteEvidence', () => {
     expect(
       fs.existsSync(path.join(evDir('NAV-1'), '.meta', '.derived', 'trace.extracted.txt.json'))
     ).toBe(false)
-    // evidence_index cleanup on cascade delete is Task 3's job (see indexMapCount above).
+    expect(indexMapCount(child.id)).toBe(0)
+    expect(indexMapCount(grandchild.id)).toBe(0)
   })
 
   it('deleting a derived child leaves the parent alone', async () => {

@@ -93,52 +93,45 @@ describe('requeuePendingIndexes', () => {
     expect(meta.indexState).toBe('pending')
   })
 
-  // Healing pass for databases written before the FTS insert / map insert pair was
-  // made atomic. A crash between the two statements left an evidence_fts row no map
-  // row pointed at; boot's map-driven delete could not see it, so it survived, the
-  // re-index added the same chunk_index again (duplicate search hits), and nothing
-  // could ever reclaim it. Boot must delete without consulting the map.
-  it('clears an unmapped fts row left by a crash, so the re-index duplicates nothing', () => {
+  // Healing pass for a crash landing between the evidence_index insert and its
+  // evidence_index_map insert (the pair the write path now uses -- Task 2 moved
+  // indexEvidenceText/File off evidence_fts, so that legacy table can no longer gain
+  // new orphans in production). The orphan row is invisible to a map-driven delete,
+  // so boot runs the global sweep (deleteOrphanEvidenceIndexRows, Task 3) once before
+  // any row is re-queued, ahead of the ordinary per-row delete.
+  it('clears an unmapped index row left by a crash, so the re-index duplicates nothing', () => {
     const id = insert('evidence/crashed.txt', 'indexing')
-    // residue: an fts row for chunk 0 with NO map row (the crash landed between the
+    // residue: an index row for chunk 0 with NO map row (the crash landed between the
     // two inserts), plus a normal mapped row for chunk 1 from the same partial run
-    db.prepare(
-      `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
-       VALUES ('data', ?, 0, 1, 1)`
-    ).run(id)
+    db.prepare(`INSERT INTO evidence_index (content) VALUES ('data')`).run()
     const mapped = db
-      .prepare(
-        `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
-         VALUES ('data', ?, 1, 2, 2)`
-      )
-      .run(id).lastInsertRowid
-    db.prepare(`INSERT INTO evidence_fts_map (fts_rowid, evidence_id) VALUES (?, ?)`).run(
-      mapped,
-      id
-    )
+      .prepare(`INSERT INTO evidence_index (content) VALUES ('data')`)
+      .run().lastInsertRowid
+    db.prepare(
+      `INSERT INTO evidence_index_map (fts_rowid, evidence_id, chunk_index, start_line, end_line)
+       VALUES (?, ?, 1, 2, 2)`
+    ).run(mapped, id)
 
-    // createImmediateQueue indexes inline, so this is boot's delete followed by the
-    // real re-index of the (one-line) file.
+    // createImmediateQueue indexes inline, so this is boot's global sweep plus the
+    // per-row delete, followed by the real re-index of the (one-line) file.
     expect(requeuePendingIndexes(db, argusHome, createImmediateQueue(db, argusHome))).toBe(1)
 
     const unmapped = db
       .prepare(
-        `SELECT COUNT(*) AS n FROM evidence_fts f
-         WHERE NOT EXISTS (SELECT 1 FROM evidence_fts_map m WHERE m.fts_rowid = f.rowid)`
+        `SELECT COUNT(*) AS n FROM evidence_index f
+         WHERE NOT EXISTS (SELECT 1 FROM evidence_index_map m WHERE m.fts_rowid = f.rowid)`
       )
       .get() as { n: number }
     expect(unmapped.n).toBe(0)
 
     const dupes = db
       .prepare(
-        `SELECT chunk_index, COUNT(*) AS n FROM evidence_fts
+        `SELECT chunk_index, COUNT(*) AS n FROM evidence_index_map
          WHERE evidence_id = ? GROUP BY chunk_index HAVING n > 1`
       )
       .all(id)
     expect(dupes).toEqual([])
-    // exactly the fresh index of a one-line file, nothing inherited from the crash. The
-    // re-index itself lands in evidence_index_map now (Task 2); evidence_fts stays empty
-    // for this row because the thorough delete above already cleared its legacy residue.
+    // exactly the fresh index of a one-line file, nothing inherited from the crash.
     const total = db
       .prepare(`SELECT COUNT(*) AS n FROM evidence_index_map WHERE evidence_id = ?`)
       .get(id) as { n: number }
