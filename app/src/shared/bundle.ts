@@ -57,6 +57,26 @@ export const bundleRowsSchema = z.looseObject({
       })
     )
     .default([]),
+  /**
+   * The REAL index lifecycle state of every evidence row at export time, keyed by rel path.
+   *
+   * This is the only trustworthy record of it. The `.meta` sidecar on disk is written once at
+   * INGEST time, when the row is still 'pending', and is never rewritten when the queue moves
+   * the row to 'indexed' — so a restore reading the sidecars either resurrects a stale
+   * 'pending' for every file (re-running the up-to-ten-minute extractor over all of them) or
+   * guesses 'indexed' for every file, which buries a genuinely-pending extraction: the boot
+   * sweep only re-queues pending/errored rows, so that file's pack extractor never runs again
+   * and its derived evidence is lost for good.
+   */
+  evidence: z
+    .array(
+      z.looseObject({
+        id: z.number(),
+        relPath: z.string(),
+        indexState: z.string()
+      })
+    )
+    .default([]),
   /** One entry per finding that pointed at a session/turn when the bundle was written. */
   findingPointers: z
     .array(
@@ -83,10 +103,16 @@ export const bundleManifestSchema = z.looseObject({
   workspaces: z.array(bundleWorkspaceRefSchema).default([]),
   files: z.array(z.looseObject({ path: z.string().min(1), sha256: z.string(), size: z.number() })),
   /**
-   * Integrity record for `rows.json`, absent in every bundle written before the sidecar
-   * existed. It lives in the manifest — rather than the sidecar being trusted on sight —
-   * so the sidecar gets exactly the verification the case files get, and so `manifestHash`
-   * (the archive identity digest) covers it too.
+   * Integrity record for `rows.json`. Absent in every bundle written before the sidecar
+   * existed AND in every ordinary user-facing export: only `archiveCase` asks for the sidecar
+   * (`exportCase`'s `includeRows`), because only a restore into this same installation may
+   * replay another machine's turn-by-turn token/cost record and its per-tool risk and
+   * allow/deny verdicts. A shared bundle must not carry them, least of all when the user
+   * unchecked "include transcripts".
+   *
+   * It lives in the manifest — rather than the sidecar being trusted on sight — so the sidecar
+   * gets exactly the verification the case files get, and so `manifestHash` (the archive
+   * identity digest) covers it too.
    */
   rows: z.looseObject({ sha256: z.string(), size: z.number() }).optional()
 })

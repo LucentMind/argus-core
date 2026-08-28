@@ -23,7 +23,8 @@ import {
   type CaseRecord,
   type CaseResolution,
   type CaseStatus,
-  type EvidenceRecord
+  type EvidenceRecord,
+  type IndexState
 } from '../../shared/types'
 import type { BundleInspection } from '../../shared/bundle'
 import { caseDir } from './paths'
@@ -112,6 +113,10 @@ async function workspaceRefs(
  * None of these have a file representation, so before this sidecar existed an archive/restore
  * cycle destroyed the whole tool-call audit trail and left every finding's deep-link dead.
  * Read here, at export time, because archiving deletes these rows immediately afterwards.
+ *
+ * The `evidence` entries carry no file bytes — only each row's REAL index lifecycle state,
+ * which exists nowhere else: the `.meta` sidecars travel with the files but were frozen at
+ * ingest time. See `bundleRowsSchema`.
  */
 export function collectCaseRows(db: DatabaseSync, caseId: number): BundleRows {
   const turns = db
@@ -136,7 +141,20 @@ export function collectCaseRows(db: DatabaseSync, caseId: number): BundleRows {
        ORDER BY id`
     )
     .all(caseId) as unknown[]
-  return bundleRowsSchema.parse({ turns, toolCalls, findingPointers })
+  const evidence = (
+    db
+      .prepare(`SELECT id, rel_path AS relPath, meta FROM evidence WHERE case_id = ? ORDER BY id`)
+      .all(caseId) as unknown as { id: number; relPath: string; meta: string }[]
+  ).map((r) => {
+    let meta: Record<string, unknown> = {}
+    try {
+      meta = JSON.parse(r.meta) as Record<string, unknown>
+    } catch {
+      // unparseable meta — readIndexState's own default ('skipped') is the honest answer
+    }
+    return { id: Number(r.id), relPath: r.relPath, indexState: readIndexState(meta) }
+  })
+  return bundleRowsSchema.parse({ turns, toolCalls, evidence, findingPointers })
 }
 
 export async function exportCase(
@@ -144,16 +162,24 @@ export async function exportCase(
   argusHome: string,
   slug: string,
   destFile: string,
-  opts: { includeTranscripts: boolean },
+  opts: { includeTranscripts: boolean; includeRows?: boolean },
   deps: { argusVersion: string }
 ): Promise<BundleManifest> {
   const kase = getCase(db, slug)
   if (!kase) throw new Error(`Unknown case: ${slug}`)
   const dir = caseDir(argusHome, slug)
   const rels = collectCaseFiles(dir, opts)
+  // The row sidecar ships ONLY when the caller asks for it, and `archiveCase` is the only
+  // caller that does. It exists so a restore into this same installation can put back rows that
+  // have no file representation — but it is also the complete tool-call audit trail (tool,
+  // args_hash, risk, decision) and every turn's token counts, cost and timing. Shipping that in
+  // the ordinary "export this case" a user shares is pure disclosure: no importer reads the
+  // file (importCase deliberately ignores it), and it routes around `includeTranscripts: false`
+  // — withholding the conversation while still handing over its turn-by-turn shape and every
+  // tool the agent ran.
   // Serialized before the manifest is built: the manifest records the sidecar's hash, which
   // is what makes a tampered or truncated sidecar detectable at all.
-  const rowsBody = JSON.stringify(collectCaseRows(db, kase.id), null, 2)
+  const rowsBody = opts.includeRows ? JSON.stringify(collectCaseRows(db, kase.id), null, 2) : null
   const manifest: BundleManifest = bundleManifestSchema.parse({
     format: BUNDLE_FORMAT,
     slug,
@@ -166,18 +192,23 @@ export async function exportCase(
       const abs = path.join(dir, ...rel.split('/'))
       return { path: rel, sha256: sha256File(abs), size: fs.statSync(abs).size }
     }),
-    rows: {
-      sha256: crypto.createHash('sha256').update(rowsBody).digest('hex'),
-      size: Buffer.byteLength(rowsBody)
-    }
+    rows:
+      rowsBody == null
+        ? undefined
+        : {
+            sha256: crypto.createHash('sha256').update(rowsBody).digest('hex'),
+            size: Buffer.byteLength(rowsBody)
+          }
   })
   const zip = new Zip()
   for (const rel of rels) zip.addFile(path.join(dir, ...rel.split('/')), `case/${rel}`)
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'arguscase-'))
   try {
-    const rowsFile = path.join(tmp, BUNDLE_ROWS_FILE)
-    fs.writeFileSync(rowsFile, rowsBody)
-    zip.addFile(rowsFile, BUNDLE_ROWS_FILE)
+    if (rowsBody != null) {
+      const rowsFile = path.join(tmp, BUNDLE_ROWS_FILE)
+      fs.writeFileSync(rowsFile, rowsBody)
+      zip.addFile(rowsFile, BUNDLE_ROWS_FILE)
+    }
     const manifestFile = path.join(tmp, 'manifest.json')
     fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2))
     zip.addFile(manifestFile, 'manifest.json')
@@ -342,12 +373,17 @@ export async function verifyBundleArchive(zipPath: string): Promise<BundleManife
  * Exported for `restoreCase`, which faces the identical problem — a case dir full of files
  * whose evidence rows are gone — and must reuse this rather than grow a second copy of the
  * two-pass derivedFrom remap.
+ *
+ * `indexStates` (rel path → the state that row ACTUALLY held) is restore's: it comes from the
+ * bundle's row sidecar, the only record of the truth. Import has no such record and keeps the
+ * old inference. See the comment at the `recorded` branch below for why inferring is unsound.
  */
 export function reindexImportedEvidence(
   db: DatabaseSync,
   argusHome: string,
   caseId: number,
-  dir: string
+  dir: string,
+  indexStates?: ReadonlyMap<string, IndexState>
 ): number {
   // Both trees are re-registered from their own sidecars; a case may hold either or both,
   // and a directory that does not exist simply contributes nothing.
@@ -392,15 +428,40 @@ export function reindexImportedEvidence(
         if (mapped != null) meta.derivedFrom = mapped
       }
       const abs = path.join(dir, ...rec.relPath.split('/'))
+      const exists = fs.existsSync(abs)
       // The sidecars on disk were written at INGEST time, when the row was still 'pending',
       // and were never rewritten when the queue set 'indexed' on the row — so replaying them
       // verbatim resurrects a stale 'pending' for a file this function is about to index
       // inline. requeuePendingIndexes then re-queues every one of them, and the production
       // queue's phase 2 re-runs the (up to ten-minute) extractor over files whose derived rows
-      // the bundle already carries. Record the state this function actually leaves the row in.
-      const willIndex = readIndexState(meta) !== 'skipped' && fs.existsSync(abs)
-      if (willIndex) {
-        meta.indexState = 'indexed'
+      // the bundle already carries.
+      //
+      // Neither value on disk is trustworthy, so the inference below (anything not 'skipped'
+      // becomes 'indexed') is a GUESS, and it is wrong in one direction that costs data: a row
+      // that was still 'pending' at export time BECAUSE ITS EXTRACTION HAD NEVER RUN comes back
+      // stamped 'indexed', requeuePendingIndexes only sweeps pending/errored, and that file's
+      // pack extractor never runs again. When the caller can supply the state the row really
+      // held — restore, from the bundle's verified row sidecar — reinstate it instead of
+      // guessing.
+      const recorded = indexStates?.get(rec.relPath)
+      let state: IndexState
+      if (recorded) {
+        // 'indexing' records a run that was interrupted; nothing is in flight after a restore,
+        // so it comes back as the retryable state the sweep understands.
+        state = recorded === 'indexing' ? 'pending' : recorded
+        // An 'indexed' row whose file did not come back cannot be re-indexed inline. 'pending'
+        // sends it to the sweep, which turns a missing file into 'error' — rather than leaving
+        // an 'indexed' claim on a row with nothing behind it.
+        if (state === 'indexed' && !exists) state = 'pending'
+      } else {
+        state = readIndexState(meta) !== 'skipped' && exists ? 'indexed' : readIndexState(meta)
+      }
+      const willIndex = state === 'indexed' && exists
+      // With a recorded state the row is stamped either way — the record is authoritative even
+      // when it says "not indexed". Without one, only the inferred 'indexed' is written, which
+      // is exactly what import did before and still does.
+      if (recorded || willIndex) {
+        meta.indexState = state
         delete meta.indexed // never leave both representations on one row
       }
       const res = insert.run(
@@ -526,10 +587,16 @@ export function registerImportedSessions(
  * app being killed) used to leave `*.jsonl.import` files that nothing could ever see again: a
  * retry restored zero transcripts and silently orphaned them.
  *
- * Recovery is unambiguous because of when it runs. If any `.import` file is present, a previous
- * run staged everything and did not finish, so the ONLY plain `<digits>.jsonl` files that can
- * exist are that dead run's own outputs — whose database rows are gone (restore rolls its
- * rebuild back; import deletes the whole case dir). Drop those and put the originals back.
+ * The premise — if any `.import` file is present, the only plain `<digits>.jsonl` files that can
+ * exist are that dead run's own unclaimed outputs — holds for IMPORT, whose failure path deletes
+ * the whole case dir and whose transcripts have no other source on this machine.
+ *
+ * It is FALSE for restore, and this heuristic must never be relied on there: `restoreTree`
+ * re-supplies every transcript from the bundle immediately before this runs, so on a retry the
+ * plain-name files are the bundle's own originals and deleting them destroys them. Restore
+ * therefore reconciles `sessions/` against the verified manifest first (`reconcileSessions` in
+ * caseArchive.ts), which removes every `.import` file along with the dead run's outputs — so by
+ * the time this is reached from a restore there is nothing stale left and it is a no-op.
  */
 function recoverStagedTranscripts(sessionsDir: string): void {
   const entries = fs.readdirSync(sessionsDir)

@@ -110,6 +110,43 @@ describe('exportCase', () => {
     })
   })
 
+  it('omits the row sidecar unless the caller asks for it', async () => {
+    // `rows.json` is the tool-call audit trail (tool, args_hash, risk, decision) plus per-turn
+    // token counts and cost. Only archiveCase asks for it, because only a restore into this same
+    // installation reads it; a bundle a user shares must not carry it. This is the unit-level
+    // half of that gate — bundle:export (IPC) passes no includeRows.
+    const shared = path.join(home, 'shared.arguscase')
+    const sharedManifest = await exportCase(
+      db,
+      home,
+      'NAV-100',
+      shared,
+      { includeTranscripts: true },
+      { argusVersion: '1.0.0' }
+    )
+    expect(sharedManifest.rows).toBeUndefined()
+    const archived = path.join(home, 'archived.arguscase')
+    const archivedManifest = await exportCase(
+      db,
+      home,
+      'NAV-100',
+      archived,
+      { includeTranscripts: true, includeRows: true },
+      { argusVersion: '1.0.0' }
+    )
+    expect(typeof archivedManifest.rows?.sha256).toBe('string')
+
+    const out = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-unzip-')))
+    try {
+      await extract(shared, path.join(out, 'shared'))
+      expect(fs.existsSync(path.join(out, 'shared', 'rows.json'))).toBe(false)
+      await extract(archived, path.join(out, 'archived'))
+      expect(fs.existsSync(path.join(out, 'archived', 'rows.json'))).toBe(true)
+    } finally {
+      fs.rmSync(out, { recursive: true, force: true })
+    }
+  })
+
   it('throws on an unknown case', async () => {
     await expect(
       exportCase(
