@@ -283,30 +283,49 @@ export function seedCases(ctx, { repos, anchors }) {
     const cfg = CASES[slug]
     const isRepoCase = ctx.REPO_SLUGS.includes(slug)
 
-    // Mirror deleteCase(): clear FTS rows through their map tables BEFORE the cascade, since
-    // neither the FTS virtual tables nor their map side tables carry a foreign key to cases.
+    // Mirror deleteCase(): clear index rows through their map tables BEFORE the cascade,
+    // since neither the FTS virtual tables nor their map side tables carry a foreign key to
+    // cases. BOTH evidence generations are cleared — the current contentless
+    // evidence_index (which is what a Rescan writes) and, only where a database is old
+    // enough to still have them, the legacy evidence_fts pair. Clearing just the legacy one
+    // strands evidence_index rows whose map rows name cascade-deleted evidence ids:
+    // invisible to search and never reclaimed by the orphan sweep, which only removes index
+    // rows that have no map row at all.
     const prior = ctx.db.prepare('SELECT id FROM cases WHERE slug = ?').get(slug)
     if (prior) {
+      const hasTable = (name) =>
+        !!ctx.db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name)
       const msgRows = ctx.db
         .prepare('SELECT fts_rowid FROM messages_fts_map WHERE case_id = ?')
         .all(prior.id)
       const delMsg = ctx.db.prepare('DELETE FROM messages_fts WHERE rowid = ?')
       for (const r of msgRows) delMsg.run(r.fts_rowid)
       ctx.db.prepare('DELETE FROM messages_fts_map WHERE case_id = ?').run(prior.id)
-      const evRows = ctx.db
+
+      const evidenceOfCase = 'SELECT id FROM evidence WHERE case_id = ?'
+      const idxRows = ctx.db
         .prepare(
-          `SELECT fts_rowid FROM evidence_fts_map
-           WHERE evidence_id IN (SELECT id FROM evidence WHERE case_id = ?)`
+          `SELECT fts_rowid FROM evidence_index_map WHERE evidence_id IN (${evidenceOfCase})`
         )
         .all(prior.id)
-      const delEv = ctx.db.prepare('DELETE FROM evidence_fts WHERE rowid = ?')
-      for (const r of evRows) delEv.run(r.fts_rowid)
+      const delIdx = ctx.db.prepare('DELETE FROM evidence_index WHERE rowid = ?')
+      for (const r of idxRows) delIdx.run(r.fts_rowid)
       ctx.db
-        .prepare(
-          `DELETE FROM evidence_fts_map
-           WHERE evidence_id IN (SELECT id FROM evidence WHERE case_id = ?)`
-        )
+        .prepare(`DELETE FROM evidence_index_map WHERE evidence_id IN (${evidenceOfCase})`)
         .run(prior.id)
+
+      if (hasTable('evidence_fts') && hasTable('evidence_fts_map')) {
+        const evRows = ctx.db
+          .prepare(
+            `SELECT fts_rowid FROM evidence_fts_map WHERE evidence_id IN (${evidenceOfCase})`
+          )
+          .all(prior.id)
+        const delEv = ctx.db.prepare('DELETE FROM evidence_fts WHERE rowid = ?')
+        for (const r of evRows) delEv.run(r.fts_rowid)
+        ctx.db
+          .prepare(`DELETE FROM evidence_fts_map WHERE evidence_id IN (${evidenceOfCase})`)
+          .run(prior.id)
+      }
     }
     ctx.db.prepare('DELETE FROM cases WHERE slug = ?').run(slug)
     // Not reached by the cases cascade — case_slug is plain TEXT with no FK.

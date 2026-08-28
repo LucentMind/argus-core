@@ -78,7 +78,9 @@ describe('deleteCase', () => {
     expect(
       Number(
         (
-          db.prepare(`SELECT COUNT(*) AS n FROM evidence_fts WHERE evidence_id = ?`).get(ev.id) as {
+          db
+            .prepare(`SELECT COUNT(*) AS n FROM evidence_index_map WHERE evidence_id = ?`)
+            .get(ev.id) as {
             n: number
           }
         ).n

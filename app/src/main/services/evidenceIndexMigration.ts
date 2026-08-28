@@ -1,5 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { withFtsSavepoint } from './ftsIndex'
+import {
+  anyLegacyEvidenceTableExists,
+  legacyEvidenceIndexExists,
+  withFtsSavepoint
+} from './ftsIndex'
 
 /**
  * Moves evidence chunks from the legacy contentful `evidence_fts` into the contentless
@@ -32,16 +36,15 @@ interface LegacyChunk {
 }
 
 /**
- * Whether the legacy tables are still around. Finalize drops both together, so
- * `evidence_fts_map` existing or not is the single fact every other function in this file
- * derives its "already finalized?" answer from — no separate bookkeeping to fall out of
- * step with it.
+ * Whether the legacy tables are still around — the single fact every function in this file
+ * derives its "already finalized?" answer from, so there is no separate bookkeeping to
+ * fall out of step with it.
+ *
+ * ftsIndex owns the probe (ftsIndex.legacyEvidenceIndexExists); this file, search.ts and
+ * ftsIndex's own delete paths all ask the same question, and the version of this bug that
+ * shipped was three places forgetting to ask it at all.
  */
-function legacyTablesExist(db: DatabaseSync): boolean {
-  return !!db
-    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'evidence_fts_map'`)
-    .get()
-}
+const legacyTablesExist = legacyEvidenceIndexExists
 
 /**
  * Distinct evidence ids still holding legacy rows.
@@ -153,6 +156,15 @@ export async function runEvidenceIndexMigration(
  * re-run `VACUUM` on every single startup forever, which on the installation this
  * migration targets is a full pass over a multi-gigabyte database each launch.
  *
+ * That guard only holds because db.ts no longer declares the legacy tables. While it did,
+ * openDb recreated both of them, empty, on the very next start — the guard passed again,
+ * zero rows remained, and the DROP/DROP/VACUUM ran at every launch anyway. The two facts
+ * are one mechanism; neither is safe to change alone.
+ *
+ * The guard is the loose `anyLegacyEvidenceTableExists`, not the strict predicate the
+ * readers use: the two DROPs below are separate statements, and a crash between them
+ * leaves one table behind that only this function will ever clean up.
+ *
  * VACUUM is what actually shrinks the file: the migration frees ~26 GB of pages, but
  * SQLite reuses freed pages rather than truncating, so without this the file stays at its
  * high-water mark forever. It needs free disk roughly equal to the FINAL size (~10 GB),
@@ -161,7 +173,7 @@ export async function runEvidenceIndexMigration(
  * (case deletion, archiving) return space without another full VACUUM.
  */
 export function finalizeEvidenceIndexMigration(db: DatabaseSync): boolean {
-  if (!legacyTablesExist(db)) return false
+  if (!anyLegacyEvidenceTableExists(db)) return false
   if (legacyIndexRemaining(db) > 0) return false
   db.exec(`DROP TABLE IF EXISTS evidence_fts`)
   db.exec(`DROP TABLE IF EXISTS evidence_fts_map`)

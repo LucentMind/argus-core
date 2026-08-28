@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -10,20 +10,39 @@ import {
   migrateOneEvidence,
   runEvidenceIndexMigration
 } from '../evidenceIndexMigration'
-import { withFtsSavepoint } from '../ftsIndex'
+import { backfillFtsMaps, deleteEvidenceFtsForCase, withFtsSavepoint } from '../ftsIndex'
+import { deleteEvidenceIndex } from '../indexer'
+import { createLegacyEvidenceFts } from './legacyFts'
 
 let tmp: string
 let seq = 0
 const opened: DatabaseSync[] = []
 
+beforeEach(() => {
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-migration-'))
+})
+
 afterEach(() => {
-  for (const d of opened.splice(0)) d.close()
+  // Every handle must be closed before the directory goes: on Windows an open sqlite file
+  // survives rmSync and fails it outright with EBUSY.
+  for (const d of opened.splice(0)) {
+    try {
+      d.close()
+    } catch {
+      /* already closed by the test itself */
+    }
+  }
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
 })
 
+/** The one database file every open in a test shares — reopening THIS path is what makes a
+ *  boot a boot. */
+function dbFile(): string {
+  return path.join(tmp, 'argus.db')
+}
+
 function openTestDb(): DatabaseSync {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-migration-'))
-  const database = openDb(path.join(tmp, 'argus.db'))
+  const database = openDb(dbFile())
   opened.push(database)
   return database
 }
@@ -43,11 +62,20 @@ function seedEvidence(db: DatabaseSync): number {
   return Number(res.lastInsertRowid)
 }
 
+/**
+ * Put this database into the shape an older release left behind: the legacy contentful
+ * pair, with rows in it.
+ *
+ * db.ts no longer declares those tables, so they have to be created explicitly — that
+ * removal is the fix for the finalize-every-boot defect, and it means "fresh install" and
+ * "existing install" are now genuinely different fixtures. See __tests__/legacyFts.ts.
+ */
 function seedLegacy(
   db: DatabaseSync,
   evidenceId: number,
   chunks: { text: string; from: number; to: number }[]
 ): void {
+  createLegacyEvidenceFts(db)
   chunks.forEach((c, i) => {
     withFtsSavepoint(db, () => {
       const rowid = db
@@ -214,6 +242,33 @@ describe('finalize', () => {
     )
   })
 
+  it('does nothing at all on a database that never had the legacy tables', () => {
+    // A fresh install. There is no migration to complete and nothing to reclaim, so
+    // finalize must not DROP, must not VACUUM, and must not throw.
+    const db = openTestDb()
+    const sql = recordExec(db)
+    expect(finalizeEvidenceIndexMigration(db)).toBe(false)
+    expect(sql.filter(isVacuum)).toHaveLength(0)
+  })
+
+  it('still cleans up when a crash left only one of the two legacy tables', () => {
+    // The two DROPs are separate statements; a crash between them leaves evidence_fts_map
+    // behind with no content table to join. Readers treat that as "legacy gone" (they
+    // would throw on the missing half); finalize is the one caller that must still fire,
+    // or the residue is never reclaimed.
+    const db = openTestDb()
+    seedLegacy(db, seedEvidence(db), [{ text: 'half dropped', from: 1, to: 1 }])
+    while (migrateOneEvidence(db) !== null) {
+      /* drain */
+    }
+    db.exec(`DROP TABLE evidence_fts`)
+
+    expect(finalizeEvidenceIndexMigration(db)).toBe(true)
+    expect(db.prepare(`SELECT name FROM sqlite_master WHERE name = 'evidence_fts_map'`).get()).toBe(
+      undefined
+    )
+  })
+
   it('leaves the migrated content searchable afterwards', async () => {
     const db = openTestDb()
     seedLegacy(db, seedEvidence(db), [{ text: 'survivor token', from: 1, to: 1 }])
@@ -227,56 +282,166 @@ describe('finalize', () => {
 
   it('enables incremental auto_vacuum', async () => {
     const db = openTestDb()
+    // auto_vacuum only changes across a VACUUM, so finalize has to actually run -- which
+    // means this database needs legacy tables to drop.
+    seedLegacy(db, seedEvidence(db), [{ text: 'move me', from: 1, to: 1 }])
     await runEvidenceIndexMigration(db)
-    finalizeEvidenceIndexMigration(db)
     const mode = db.prepare(`PRAGMA auto_vacuum`).get() as { auto_vacuum: number }
     expect(mode.auto_vacuum).toBe(2) // 2 = INCREMENTAL
   })
+})
 
-  describe('steady state: every boot after migration has already finished', () => {
-    it('migrateOneEvidence returns null rather than throwing once the legacy tables are gone', async () => {
-      const db = openTestDb()
-      seedLegacy(db, seedEvidence(db), [{ text: 'move me', from: 1, to: 1 }])
-      await runEvidenceIndexMigration(db)
-      expect(
-        db.prepare(`SELECT name FROM sqlite_master WHERE name = 'evidence_fts_map'`).get()
-      ).toBe(undefined)
+// — what actually happens at startup —
+//
+// Nothing above this point describes a boot: they all hold ONE handle open for the whole
+// test. The defect this block exists to catch lived precisely in the gap between those two
+// things. finalize's "have I already run?" question is "do the legacy tables exist?", and
+// db.ts's schema -- which openDb execs on EVERY open -- used to declare both of them. So
+// the next time the process opened the file, the tables finalize had just dropped came
+// back, empty; the guard passed again; zero rows remained; and DROP/DROP/PRAGMA/VACUUM ran
+// again. On the multi-gigabyte installation this migration targets that is a full rewrite
+// of the database at every single launch, forever. A single-handle test cannot see it,
+// because openDb never runs a second time.
+//
+// So each "boot" here closes the handle and reopens the same path through the real openDb,
+// then makes the call main/index.ts makes. And the assertions are on the SQL actually
+// issued, not on return values: finalize returning false is not the same fact as VACUUM
+// not running.
+describe('boots: the same database file, closed and reopened through openDb', () => {
+  interface Boot {
+    db: DatabaseSync
+    sql: string[]
+  }
 
-      expect(() => migrateOneEvidence(db)).not.toThrow()
-      expect(migrateOneEvidence(db)).toBeNull()
-    })
+  /** One application start: open the file, then run the migration exactly as
+   *  main/index.ts does. The caller closes `db` to end the boot. */
+  async function boot(): Promise<Boot> {
+    const db = openDb(dbFile())
+    opened.push(db)
+    const sql = recordExec(db)
+    await runEvidenceIndexMigration(db)
+    return { db, sql }
+  }
 
-    it('a second runEvidenceIndexMigration resolves normally and reports zero rows moved', async () => {
-      const db = openTestDb()
-      seedLegacy(db, seedEvidence(db), [{ text: 'move me', from: 1, to: 1 }])
-      await runEvidenceIndexMigration(db)
+  function tableNames(db: DatabaseSync): string[] {
+    return (
+      db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as {
+        name: string
+      }[]
+    ).map((r) => r.name)
+  }
 
-      await expect(runEvidenceIndexMigration(db)).resolves.toBe(0)
-    })
+  /** Build the file an older release would have left: legacy tables, with rows. */
+  function seedExistingInstall(): number {
+    const db = openTestDb()
+    const id = seedEvidence(db)
+    seedLegacy(db, id, [
+      { text: 'boot marker alpha', from: 1, to: 10 },
+      { text: 'boot marker bravo', from: 11, to: 20 }
+    ])
+    db.close()
+    return id
+  }
 
-    it('a second runEvidenceIndexMigration does not run VACUUM again', async () => {
-      const db = openTestDb()
-      seedLegacy(db, seedEvidence(db), [{ text: 'move me', from: 1, to: 1 }])
-      await runEvidenceIndexMigration(db)
+  it('fresh install: two boots, and VACUUM is never issued', async () => {
+    const first = await boot()
+    expect(first.sql.filter(isVacuum)).toHaveLength(0)
+    expect(first.sql.filter(isLegacyDrop)).toHaveLength(0)
+    // openDb must not have created them in the first place
+    expect(tableNames(first.db)).not.toContain('evidence_fts')
+    expect(tableNames(first.db)).not.toContain('evidence_fts_map')
+    first.db.close()
 
-      const execCalls: string[] = []
-      const originalExec = db.exec.bind(db)
-      db.exec = ((sql: string) => {
-        execCalls.push(sql)
-        return originalExec(sql)
-      }) as typeof db.exec
+    const second = await boot()
+    expect(second.sql.filter(isVacuum)).toHaveLength(0)
+    expect(second.sql.filter(isLegacyDrop)).toHaveLength(0)
+    expect(tableNames(second.db)).not.toContain('evidence_fts')
+    second.db.close()
+  })
 
-      await runEvidenceIndexMigration(db)
+  it('existing install: boot 1 migrates and VACUUMs once, boot 2 does neither', async () => {
+    seedExistingInstall()
 
-      expect(execCalls.some((sql) => /VACUUM/i.test(sql))).toBe(false)
-    })
+    const first = await boot()
+    expect(first.sql.filter(isVacuum)).toHaveLength(1)
+    expect(first.sql.filter(isLegacyDrop)).toHaveLength(2)
+    expect(tableNames(first.db)).not.toContain('evidence_fts')
+    // the content moved rather than being discarded
+    expect(matchCount(first.db, 'bravo')).toBe(1)
+    first.db.close()
 
-    it('finalizeEvidenceIndexMigration itself refuses once the legacy tables are already gone', async () => {
-      const db = openTestDb()
-      seedLegacy(db, seedEvidence(db), [{ text: 'move me', from: 1, to: 1 }])
-      await runEvidenceIndexMigration(db)
+    const second = await boot()
+    // This is the assertion the shipped code failed: openDb had recreated both tables, so
+    // finalize dropped and VACUUMed all over again.
+    expect(second.sql.filter(isVacuum)).toHaveLength(0)
+    expect(second.sql.filter(isLegacyDrop)).toHaveLength(0)
+    expect(tableNames(second.db)).not.toContain('evidence_fts')
+    expect(tableNames(second.db)).not.toContain('evidence_fts_map')
+    expect(matchCount(second.db, 'bravo')).toBe(1)
+    second.db.close()
+  })
 
-      expect(finalizeEvidenceIndexMigration(db)).toBe(false)
-    })
+  it('a third boot is still quiet: this does not settle after two', async () => {
+    seedExistingInstall()
+    for (let i = 0; i < 2; i++) {
+      const b = await boot()
+      b.db.close()
+    }
+    const third = await boot()
+    expect(third.sql.filter(isVacuum)).toHaveLength(0)
+    third.db.close()
+  })
+
+  it('after finalize and a reopen, the evidence delete paths still work', async () => {
+    // Every one of these queried evidence_fts_map unconditionally. Once the tables are
+    // gone they threw "no such table" — breaking delete evidence (inside a BEGIN, so the
+    // deletion ROLLBACKs), update evidence content, Rescan, delete case and bundle-import
+    // rollback. backfillFtsMaps is worse still: openDb calls it, so a throw there fails
+    // startup outright — which means simply reaching the line after openDb below is
+    // already part of the assertion.
+    const evidenceId = seedExistingInstall()
+    const migrating = await boot()
+    migrating.db.close()
+
+    const db = openTestDb() // the reopen: openDb -> backfillFtsMaps over a legacy-less DB
+    expect(tableNames(db)).not.toContain('evidence_fts_map')
+
+    expect(() => deleteEvidenceIndex(db, evidenceId)).not.toThrow()
+    expect(() => deleteEvidenceFtsForCase(db, 1)).not.toThrow()
+    expect(() => backfillFtsMaps(db)).not.toThrow()
+
+    // and the delete actually did its job on the surviving generation
+    expect(
+      (
+        db
+          .prepare(`SELECT count(*) AS n FROM evidence_index_map WHERE evidence_id = ?`)
+          .get(evidenceId) as { n: number }
+      ).n
+    ).toBe(0)
   })
 })
+
+/** Record every `exec` on this handle, still executing it. Return values lie about this
+ *  bug — finalize returning false and VACUUM not running are different facts — so the
+ *  boot assertions read the SQL that was actually issued. */
+function recordExec(db: DatabaseSync): string[] {
+  const seen: string[] = []
+  const original = db.exec.bind(db)
+  db.exec = ((sql: string) => {
+    seen.push(sql)
+    return original(sql)
+  }) as typeof db.exec
+  return seen
+}
+
+/** `PRAGMA auto_vacuum = INCREMENTAL` must not count as a VACUUM. */
+const isVacuum = (sql: string): boolean => /^\s*VACUUM\b/i.test(sql)
+const isLegacyDrop = (sql: string): boolean => /^\s*DROP TABLE.*\bevidence_fts(_map)?\b/i.test(sql)
+
+function matchCount(db: DatabaseSync, term: string): number {
+  return (
+    db.prepare(`SELECT rowid FROM evidence_index WHERE evidence_index MATCH ?`).all(term) as {
+      rowid: number
+    }[]
+  ).length
+}
