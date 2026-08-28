@@ -281,6 +281,17 @@ describe('searchEvidence over a contentless index', () => {
     expect(hits[0].snippet).toBe('[file missing — rescan or remove]')
   })
 
+  it('marks a hit whose file becomes unreadable after indexing', () => {
+    const { db, argusHome, absPath } = seedCaseWithFile('readable.log', 'findable content\n')
+    // Replace the file with a directory at the same path. This passes existsSync
+    // but throws EISDIR on open, testing the catch block in chunkText.
+    fs.rmSync(absPath)
+    fs.mkdirSync(absPath)
+    const hits = searchEvidence(db, argusHome, 'findable')
+    expect(hits).toHaveLength(1)
+    expect(hits[0].snippet).toBe('[file missing — rescan or remove]')
+  })
+
   it('one unreadable file does not lose the other hits', () => {
     const a = seedCaseWithFile('a.log', 'shared token here\n')
     const b = seedCaseWithFile('b.log', 'shared token also\n', a)
