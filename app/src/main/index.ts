@@ -155,8 +155,11 @@ import {
   setCaseJiraDeselected,
   setCaseJiraLinkDeselected,
   setCaseMode,
-  getCase
+  getCase,
+  touchCaseOpened
 } from './services/caseService'
+import { archiveCase, restoreCase } from './services/caseArchive'
+import { caseHasLiveWork } from './services/caseLiveWork'
 import { OnboardingService, resolveSampleAssetsDir } from './services/onboarding'
 import {
   ingestArtifact,
@@ -2797,14 +2800,67 @@ function registerIpc(): void {
     }
   })
 
-  ipcMain.handle(IPC.casesDelete, async (_e, slug: string) => {
+  ipcMain.handle(IPC.casesDelete, async (_e, slug: string, opts?: { deleteArchive?: boolean }) => {
     assertSlug(slug)
     // strict order: live sessions → watcher → DB/audit/filesystem (in deleteCase)
     await agentService!.stopAllForCase(slug)
     caseWatch.unwatch(slug)
-    deleteCase(db, argusHome, slug)
+    // `opts ?? {}` rather than `opts!`: every caller that predates archiving passes nothing, and
+    // `deleteArchive` defaults to false there — deleting a case must not silently destroy an
+    // archive bundle nobody asked about. deleteCase also REFUSES a case that is currently frozen
+    // (mid-archive); that throw travels back through this handler's rejection to the delete
+    // dialog's existing catch, which is where the user is already shown why a delete failed.
+    deleteCase(db, argusHome, slug, opts ?? {})
     panelHost?.closeCase(slug)
     externalAppHost?.closeCase(slug)
+  })
+
+  // — archive / restore (a case's bulk moves to a verified bundle; its knowledge stays live) —
+  //
+  // Deliberately NOT the `stopAllForCase` that cases:delete opens with. Archiving works only on
+  // a STABLE case: `hasLiveWork` REFUSES a case with work in progress rather than stopping that
+  // work behind the user's back and sealing a bundle underneath it. See caseLiveWork.ts for why
+  // the routine half of that check cannot be read off AgentService's session map. It is
+  // check-then-act and does not pretend otherwise — the freeze `archiveCase` takes immediately
+  // afterwards (caseFreeze.ts) is the actual safety property; this check is what turns the
+  // common case into a sentence the user can act on instead of a race.
+  ipcMain.handle(IPC.casesArchive, async (_e, slug: string) => {
+    assertSlug(slug)
+    const res = await archiveCase(
+      db,
+      argusHome,
+      slug,
+      { argusVersion: app.getVersion() },
+      {
+        hasLiveWork: () =>
+          caseHasLiveWork(db, slug, {
+            liveCaseSlugs: () => agentService!.states().map((s) => s.caseSlug)
+          })
+      }
+    )
+    // Deliberately NO `caseWatch.unwatch(slug)` here, unlike cases:delete. A deleted case stops
+    // existing, so its watcher is watching nothing; an ARCHIVED case keeps its directory,
+    // `case.json`, `summary.md` and its RCA report, and stays open and viewable. Leaving the
+    // watcher on is what makes the file pane show the evidence and session trees disappearing —
+    // unwatching would freeze it on a listing of files that are no longer there.
+    return res
+  })
+
+  ipcMain.handle(IPC.casesRestore, async (_e, slug: string) => {
+    assertSlug(slug)
+    // The real ingest queue, not a fresh one: restore hands back the evidence rows whose
+    // extraction has to be re-run, and they must land in the same background queue whose
+    // progress the renderer is already subscribed to.
+    return restoreCase(db, argusHome, slug, ingestQueue)
+  })
+
+  // Fire-and-forget telemetry from a UI event, and silent on an unknown slug BY DESIGN (see
+  // touchCaseOpened): a stamp on `last_opened_at` is not something to interrupt the user about,
+  // so this must never become an error dialog in the renderer. `assertSlug` still runs — a
+  // malformed slug is a bug on the calling side, not a missing row.
+  ipcMain.handle(IPC.casesTouchOpened, (_e, slug: string) => {
+    assertSlug(slug)
+    touchCaseOpened(db, slug)
   })
 
   // — case-close distillation (part 3a) —
