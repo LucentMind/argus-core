@@ -12,6 +12,7 @@ import {
 import { sidecarPath, ensureIndex, __clearIndexCacheForTests } from '../lineIndex'
 import { MAX_READ_BYTES } from '../search'
 import type { DatabaseSync } from 'node:sqlite'
+import { createLegacyEvidenceFts } from './legacyFts'
 
 function freshDb(): DatabaseSync {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-idx-'))
@@ -218,11 +219,19 @@ describe('contentless evidence_index', () => {
     expect(phrase).toHaveLength(1)
   })
 
-  it('writes nothing to the legacy evidence_fts table', () => {
+  it('writes nothing to the legacy evidence_fts table, even where one still exists', () => {
     const db = freshDb()
+    // A fresh database has no legacy table at all (db.ts stopped declaring it), so build
+    // the pre-migration shape explicitly -- otherwise this asserts nothing more than that
+    // the table is absent, which db.test.ts already covers.
+    createLegacyEvidenceFts(db)
     indexEvidenceText(db, 102, 'alpha\n', 400)
     const legacy = db.prepare(`SELECT count(*) AS n FROM evidence_fts`).get() as { n: number }
     expect(legacy.n).toBe(0)
+    // and the write did land, in the current generation
+    expect(
+      (db.prepare(`SELECT count(*) AS n FROM evidence_index_map`).get() as { n: number }).n
+    ).toBe(1)
   })
 
   it('leaves no FTS row without its map row when the map insert throws', () => {

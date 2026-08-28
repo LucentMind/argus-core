@@ -7,12 +7,18 @@ import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { ingestArtifact } from '../ingest'
 import { createDetection } from '../packs/detection'
-import { searchEvidence, readEvidenceText, readEvidenceSnippet } from '../search'
+import {
+  searchEvidence,
+  readEvidenceText,
+  readEvidenceSnippet,
+  MISSING_FILE_SNIPPET
+} from '../search'
 import { indexEvidenceFile } from '../indexer'
 import { withFtsSavepoint } from '../ftsIndex'
 import { SNIPPET_BEFORE, SNIPPET_AFTER, MAX_SNIPPET_LINES } from '../../../shared/snippets'
 import type { DatabaseSync } from 'node:sqlite'
 import { createImmediateQueue } from '../ingestQueue'
+import { createLegacyEvidenceFts } from './legacyFts'
 
 const FIXTURE = path.resolve(__dirname, '../../../../../tests/fixtures/sample-applog.txt')
 
@@ -304,6 +310,9 @@ describe('searchEvidence over a contentless index', () => {
 
   it('finds rows still living in the legacy table', () => {
     const { db, argusHome, evidenceId } = seedCaseWithFile('legacy.log', 'legacy phrase here\n')
+    // An install that has not migrated yet: db.ts no longer declares the legacy pair, so a
+    // pre-migration database has to be built explicitly (see __tests__/legacyFts.ts).
+    createLegacyEvidenceFts(db)
     // move this evidence's chunks back to the legacy shape, as a pre-migration row
     db.exec(`DELETE FROM evidence_index`)
     db.exec(`DELETE FROM evidence_index_map`)
@@ -326,6 +335,7 @@ describe('searchEvidence over a contentless index', () => {
 
   it('still searches after the legacy table has been dropped', () => {
     const { db, argusHome } = seedCaseWithFile('post.log', 'survives the drop\n')
+    createLegacyEvidenceFts(db) // pre-migration shape, so the DROP below is a real drop
     db.exec(`DROP TABLE evidence_fts`)
     db.exec(`DROP TABLE evidence_fts_map`)
     const hits = searchEvidence(db, argusHome, 'survives')
@@ -335,6 +345,7 @@ describe('searchEvidence over a contentless index', () => {
 
   it('does not return the same evidence twice when it exists in both tables', () => {
     const { db, argusHome, evidenceId } = seedCaseWithFile('dup.log', 'duplicated token\n')
+    createLegacyEvidenceFts(db) // mid-migration: the same chunk in both generations
     withFtsSavepoint(db, () => {
       const rowid = db
         .prepare(
@@ -349,5 +360,45 @@ describe('searchEvidence over a contentless index', () => {
     })
     const hits = searchEvidence(db, argusHome, 'duplicated')
     expect(hits.filter((h) => h.evidenceId === evidenceId)).toHaveLength(1)
+  })
+})
+
+// — a file that still exists but got SHORTER —
+//
+// Reachable on the normal path, not just under tampering: updateEvidenceContent
+// (ingest.ts) and Rescan (scan.ts) both rewrite the file and then re-index in the
+// background, so any search in that window runs stale chunks against the new, shorter
+// file. existsSync passes and the read succeeds — it just returns nothing — so neither the
+// missing-file check nor the catch fires, and renderSnippet('') is ''. A blank snippet is
+// the exact contentless-snippet() NULL lookalike this whole read-from-disk design exists
+// to avoid.
+describe('stale chunk against a file that shrank', () => {
+  it('renders the missing marker, not a blank snippet', () => {
+    // 900 lines chunks into three (400/400/100); the token sits in the last chunk, so its
+    // window starts at line 801.
+    const lines = Array.from({ length: 900 }, (_, i) => `line ${i + 1}`)
+    lines[849] = 'quaternion beacon'
+    const { db, argusHome, absPath } = seedCaseWithFile('shrank.log', lines.join('\n') + '\n')
+
+    // Truncate to ten lines: the file is still there and still readable, but nothing
+    // remains at the indexed chunk's line range.
+    fs.writeFileSync(absPath, lines.slice(0, 10).join('\n') + '\n')
+
+    const hits = searchEvidence(db, argusHome, 'quaternion')
+    expect(hits).toHaveLength(1)
+    expect(hits[0].startLine).toBeGreaterThan(10)
+    expect(hits[0].snippet).toBe(MISSING_FILE_SNIPPET)
+    expect(hits[0].snippet).not.toBe('')
+  })
+
+  it('a chunk whose lines DO still exist is unaffected', () => {
+    const lines = Array.from({ length: 900 }, (_, i) => `line ${i + 1}`)
+    lines[2] = 'quaternion beacon'
+    const { db, argusHome, absPath } = seedCaseWithFile('kept.log', lines.join('\n') + '\n')
+    fs.writeFileSync(absPath, lines.slice(0, 10).join('\n') + '\n')
+
+    const hits = searchEvidence(db, argusHome, 'quaternion')
+    expect(hits).toHaveLength(1)
+    expect(hits[0].snippet).toContain('«quaternion»')
   })
 })

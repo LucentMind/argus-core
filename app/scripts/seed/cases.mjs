@@ -131,17 +131,28 @@ export function seedCases(ctx, { repos }) {
     // deleteCase() (caseService.ts) deletes both explicitly inside the same
     // transaction as the cases row — mirrored below for the same reason.
     //
-    // It also does NOT reach messages_fts/messages_fts_map or evidence_fts/evidence_fts_map:
-    // the _fts tables are FTS5 virtual tables and the _map side tables are plain
-    // tables, and neither carries a foreign key to cases (see ftsIndex.ts). Left
-    // alone, re-running the seed would leave the previous run's chat-search rows
-    // behind (duplicate hits) plus map rows pointing at session/evidence ids that no
-    // longer exist. The evidence side is not hypothetical: the documented fixture
-    // workflow is seed -> boot -> Rescan (which writes evidence + evidence_fts +
-    // evidence_fts_map) -> possibly re-seed, so a second seed run will reliably hit
-    // evidence FTS rows the seed itself never wrote.
+    // It also does NOT reach messages_fts/messages_fts_map, evidence_index/
+    // evidence_index_map, or the legacy evidence_fts/evidence_fts_map pair: the _fts and
+    // _index tables are FTS5 virtual tables and the _map side tables are plain tables, and
+    // none of them carries a foreign key to cases (see ftsIndex.ts). Left alone,
+    // re-running the seed would leave the previous run's chat-search rows behind
+    // (duplicate hits) plus map rows pointing at session/evidence ids that no longer
+    // exist. The evidence side is not hypothetical: the documented fixture workflow is
+    // seed -> boot -> Rescan (which writes evidence + evidence_index + evidence_index_map;
+    // it stopped writing the legacy evidence_fts pair when the contentless index landed)
+    // -> possibly re-seed, so a second seed run will reliably hit evidence index rows the
+    // seed itself never wrote.
     //
-    // Mirror caseService.ts's deleteCase(): clear the FTS rows BEFORE the cascade,
+    // BOTH generations are cleared. Clearing only the legacy one would leave
+    // evidence_index rows plus map rows pointing at cascade-deleted evidence ids — which
+    // search never surfaces (its `evidence` join drops them) and the boot orphan sweep
+    // never reclaims (deleteOrphanEvidenceIndex only removes index rows with NO map row,
+    // and these still have theirs).
+    //
+    // The legacy pair is skipped when it is not there. db.ts no longer declares it, so a
+    // database created fresh, or one the migration has finalized, does not have it at all.
+    //
+    // Mirror caseService.ts's deleteCase(): clear the index rows BEFORE the cascade,
     // resolving each row's rowid through its map table (FTS5 only addresses a row
     // cheaply by `rowid = ?` — deleting by the UNINDEXED key column scans the whole
     // index) and delete each by rowid. Do this here (not by importing deleteCase, a
@@ -150,6 +161,9 @@ export function seedCases(ctx, { repos }) {
     const priorCase = ctx.db.prepare('SELECT id FROM cases WHERE slug = ?').get(slug)
     if (priorCase) {
       const priorCaseId = priorCase.id
+      const hasTable = (name) =>
+        !!ctx.db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name)
+
       const msgFtsRows = ctx.db
         .prepare('SELECT fts_rowid FROM messages_fts_map WHERE case_id = ?')
         .all(priorCaseId)
@@ -157,20 +171,32 @@ export function seedCases(ctx, { repos }) {
       for (const r of msgFtsRows) delMsgFts.run(r.fts_rowid)
       ctx.db.prepare('DELETE FROM messages_fts_map WHERE case_id = ?').run(priorCaseId)
 
-      const evFtsRows = ctx.db
+      const evidenceOfCase = 'SELECT id FROM evidence WHERE case_id = ?'
+      // current generation (contentless)
+      const evIdxRows = ctx.db
         .prepare(
-          `SELECT fts_rowid FROM evidence_fts_map
-           WHERE evidence_id IN (SELECT id FROM evidence WHERE case_id = ?)`
+          `SELECT fts_rowid FROM evidence_index_map WHERE evidence_id IN (${evidenceOfCase})`
         )
         .all(priorCaseId)
-      const delEvFts = ctx.db.prepare('DELETE FROM evidence_fts WHERE rowid = ?')
-      for (const r of evFtsRows) delEvFts.run(r.fts_rowid)
+      const delEvIdx = ctx.db.prepare('DELETE FROM evidence_index WHERE rowid = ?')
+      for (const r of evIdxRows) delEvIdx.run(r.fts_rowid)
       ctx.db
-        .prepare(
-          `DELETE FROM evidence_fts_map
-           WHERE evidence_id IN (SELECT id FROM evidence WHERE case_id = ?)`
-        )
+        .prepare(`DELETE FROM evidence_index_map WHERE evidence_id IN (${evidenceOfCase})`)
         .run(priorCaseId)
+
+      // legacy generation (contentful), only on a database old enough to still have it
+      if (hasTable('evidence_fts') && hasTable('evidence_fts_map')) {
+        const evFtsRows = ctx.db
+          .prepare(
+            `SELECT fts_rowid FROM evidence_fts_map WHERE evidence_id IN (${evidenceOfCase})`
+          )
+          .all(priorCaseId)
+        const delEvFts = ctx.db.prepare('DELETE FROM evidence_fts WHERE rowid = ?')
+        for (const r of evFtsRows) delEvFts.run(r.fts_rowid)
+        ctx.db
+          .prepare(`DELETE FROM evidence_fts_map WHERE evidence_id IN (${evidenceOfCase})`)
+          .run(priorCaseId)
+      }
     }
     ctx.db.prepare('DELETE FROM cases WHERE slug = ?').run(slug)
     // Not covered by the cases cascade (see the comment above) — delete explicitly,

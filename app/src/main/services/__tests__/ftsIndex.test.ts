@@ -15,6 +15,7 @@ import {
   withFtsSavepoint
 } from '../ftsIndex'
 import { indexEvidenceText, indexEvidenceFile } from '../indexer'
+import { createLegacyEvidenceFts } from './legacyFts'
 
 let tmp: string, db: DatabaseSync
 const n = (sql: string, ...p: SQLInputValue[]): number =>
@@ -103,6 +104,9 @@ describe('evidence_fts map', () => {
   }
 
   beforeEach(() => {
+    // These cases are about the LEGACY generation, which db.ts no longer declares — so an
+    // "existing install" has to be built explicitly. See __tests__/legacyFts.ts.
+    createLegacyEvidenceFts(db)
     db.prepare(
       `INSERT INTO cases (id, slug, title, created_at, updated_at) VALUES (1,'A','A','','')`
     ).run()
@@ -213,6 +217,7 @@ describe('unmapped evidence_index rows', () => {
 describe('backfillFtsMaps', () => {
   it('populates both maps from FTS rows when the maps are empty', () => {
     // simulate a DB written before the fix: fts rows exist, maps do not
+    createLegacyEvidenceFts(db)
     db.prepare(
       `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line) VALUES ('a', 42, 0, 1, 1)`
     ).run()
@@ -282,6 +287,7 @@ describe('evidence delete across both index generations', () => {
 
   it('clears legacy and contentless rows for one evidence id', () => {
     const db = openTestDb()
+    createLegacyEvidenceFts(db) // an install that has not migrated yet
     const id = seedEvidence(db)
     // legacy row, written the pre-migration way
     withFtsSavepoint(db, () => {
@@ -335,5 +341,109 @@ describe('evidence delete across both index generations', () => {
     const db = openTestDb()
     indexEvidenceText(db, seedEvidence(db), 'a\nb\nc\n', 1)
     expect(deleteOrphanEvidenceIndex(db)).toBe(0)
+  })
+})
+
+// — after finalize (and on every fresh install) the legacy tables are simply not there —
+//
+// db.ts no longer declares evidence_fts / evidence_fts_map, so `db` in these tests is a
+// database that has never had them — exactly the shape of a fresh install, and of any
+// install the migration has already finalized. Every function here queried them
+// unconditionally, which turned each of these calls into "no such table: evidence_fts_map".
+// The callers are delete evidence (inside a BEGIN — the throw ROLLBACKs the deletion),
+// update evidence content, Rescan, deleteCase and bundle-import rollback.
+describe('legacy tables absent (fresh install, or after finalize)', () => {
+  function seedIndexedEvidence(evidenceId: number, caseId = 1): void {
+    db.prepare(
+      `INSERT OR IGNORE INTO cases (id, slug, title, created_at, updated_at)
+       VALUES (?, ?, 'L', '', '')`
+    ).run(caseId, `L${caseId}`)
+    db.prepare(
+      `INSERT INTO evidence (id, case_id, rel_path, sha256, artifact_type, size, created_at)
+       VALUES (?, ?, ?, 'h', 'log', 1, '')`
+    ).run(evidenceId, caseId, `evidence/l${evidenceId}.log`)
+    indexEvidenceText(db, evidenceId, 'absent generation text\n', 400)
+  }
+
+  it('is the shape under test: neither legacy table exists', () => {
+    expect(
+      db.prepare(`SELECT name FROM sqlite_master WHERE name = 'evidence_fts'`).get()
+    ).toBeUndefined()
+    expect(
+      db.prepare(`SELECT name FROM sqlite_master WHERE name = 'evidence_fts_map'`).get()
+    ).toBeUndefined()
+  })
+
+  it('deleteEvidenceFtsForEvidence still clears the current generation', () => {
+    seedIndexedEvidence(70)
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_index_map WHERE evidence_id = ?`, 70)).toBe(1)
+
+    expect(() => deleteEvidenceFtsForEvidence(db, 70)).not.toThrow()
+
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_index_map WHERE evidence_id = ?`, 70)).toBe(0)
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_index`)).toBe(0)
+  })
+
+  it('deleteEvidenceFtsForEvidence survives being called inside an open transaction', () => {
+    // ingest.ts deleteEvidence wraps the whole deletion in BEGIN; a throw in here rolled the
+    // evidence row's deletion back with it, so the file could never be removed.
+    seedIndexedEvidence(71)
+    db.exec(`BEGIN`)
+    expect(() => deleteEvidenceFtsForEvidence(db, 71)).not.toThrow()
+    db.exec(`COMMIT`)
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_index_map WHERE evidence_id = ?`, 71)).toBe(0)
+  })
+
+  it('deleteEvidenceFtsForCase still clears the current generation', () => {
+    seedIndexedEvidence(72, 2)
+    seedIndexedEvidence(73, 3)
+
+    expect(() => deleteEvidenceFtsForCase(db, 2)).not.toThrow()
+
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_index_map WHERE evidence_id = ?`, 72)).toBe(0)
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_index_map WHERE evidence_id = ?`, 73)).toBe(1)
+  })
+
+  it('backfillFtsMaps does not throw, and still backfills the messages map', () => {
+    insertMessageFts(db, 'msg', 5, 50, 1, 'user')
+    db.exec(`DELETE FROM messages_fts_map`)
+
+    expect(() => backfillFtsMaps(db)).not.toThrow()
+
+    expect(n(`SELECT COUNT(*) AS n FROM messages_fts_map`)).toBe(1)
+  })
+})
+
+// — index row and map row are deleted together or not at all —
+describe('deleteEvidenceFtsForEvidence atomicity', () => {
+  it('leaves the map row when the index delete fails, never a map row alone', () => {
+    db.prepare(
+      `INSERT INTO cases (id, slug, title, created_at, updated_at) VALUES (7,'S','S','','')`
+    ).run()
+    db.prepare(
+      `INSERT INTO evidence (id, case_id, rel_path, sha256, artifact_type, size, created_at)
+       VALUES (90, 7, 'evidence/s.log', 'h', 'log', 1, '')`
+    ).run()
+    indexEvidenceText(db, 90, 'atomic delete text\n', 400)
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_index_map WHERE evidence_id = ?`, 90)).toBe(1)
+
+    // Stand in for a crash between the index delete and the map delete. Without one
+    // savepoint around both, the index row is already gone when this fires and the map row
+    // survives it -- and FTS5 reissues freed rowids, so the next file handed that rowid can
+    // never insert its own map row (PRIMARY KEY conflict), permanently.
+    db.exec(
+      `CREATE TRIGGER argus_test_block_map_delete BEFORE DELETE ON evidence_index_map
+       BEGIN SELECT RAISE(ABORT, 'crash before the map delete'); END`
+    )
+
+    expect(() => deleteEvidenceFtsForEvidence(db, 90)).toThrow(/crash before the map delete/)
+
+    db.exec(`DROP TRIGGER argus_test_block_map_delete`)
+    // Both halves rolled back together: the map row still has its index row.
+    const mapped = db
+      .prepare(`SELECT fts_rowid FROM evidence_index_map WHERE evidence_id = ?`)
+      .get(90) as { fts_rowid: number } | undefined
+    expect(mapped).toBeDefined()
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_index WHERE rowid = ?`, mapped!.fts_rowid)).toBe(1)
   })
 })

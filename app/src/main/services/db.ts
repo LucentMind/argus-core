@@ -29,20 +29,24 @@ CREATE TABLE IF NOT EXISTS evidence (
   created_at TEXT NOT NULL,
   UNIQUE (case_id, rel_path)
 );
--- Legacy contentful table, superseded by evidence_index below. Kept here deliberately:
--- finalizeEvidenceIndexMigration (evidenceIndexMigration.ts) drops this table once a given
--- database has no legacy rows left, but openDb runs this CREATE TABLE IF NOT EXISTS on
--- every start and would silently recreate what finalize just dropped. Do not remove this
--- block until every supported upgrade path is confirmed to have finalized (no install can
--- still be mid-migration) -- that removal is a deliberate follow-up, not part of this
--- change.
-CREATE VIRTUAL TABLE IF NOT EXISTS evidence_fts USING fts5(
-  content,
-  evidence_id UNINDEXED,
-  chunk_index UNINDEXED,
-  start_line UNINDEXED,
-  end_line UNINDEXED
-);
+-- The legacy contentful pair -- evidence_fts (fts5) and its evidence_fts_map side table --
+-- is INTENTIONALLY NOT DECLARED HERE, and must not be added back.
+--
+-- openDb execs this schema on every single start. While the CREATEs lived here, the boot
+-- after finalizeEvidenceIndexMigration (evidenceIndexMigration.ts) dropped the pair simply
+-- recreated both, empty: the finalize guard ("do the legacy tables exist?") passed again,
+-- "how many legacy rows remain?" answered 0, and finalize re-ran DROP/DROP/VACUUM at every
+-- launch, forever -- a full rewrite of a multi-gigabyte database on each start. Not
+-- declaring them is what makes the drop stick.
+--
+-- Consequences, all deliberate:
+--   * A fresh install never has the pair at all. Every legacy read is probe-guarded
+--     (ftsIndex.legacyEvidenceIndexExists), so nothing runs and nothing throws.
+--   * An OLDER database still HAS the pair, created by a previous release, with its rows.
+--     The migration is now the only thing that removes them, and it runs once.
+--   * Anything that touches evidence_fts / evidence_fts_map must therefore probe first;
+--     see ftsIndex.ts and search.ts. Their historical column list lives only in the test
+--     helper __tests__/legacyFts.ts, which stands in for that older release's schema.
 -- Contentless replacement for evidence_fts. FTS5's default (contentful) mode keeps a
 -- verbatim copy of every indexed line in its _content shadow table on top of the
 -- inverted index, which on a real 50-case install cost 36.7 GB — a second copy of
@@ -268,14 +272,9 @@ CREATE INDEX IF NOT EXISTS idx_findings_case_id      ON findings(case_id);
 -- key -> fts rowid side tables (see ftsIndex.ts): the FTS key columns are
 -- UNINDEXED, so deleting by them scanned the whole index. These let deletes
 -- resolve rowids by index and delete each by rowid.
--- Same deferred-removal rule as evidence_fts above: finalizeEvidenceIndexMigration drops
--- this table too, and openDb would recreate it on the next start if this block were
--- removed before every supported upgrade path has finalized.
-CREATE TABLE IF NOT EXISTS evidence_fts_map (
-  fts_rowid INTEGER PRIMARY KEY,
-  evidence_id INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_evidence_fts_map_evidence_id ON evidence_fts_map(evidence_id);
+-- evidence_fts_map is deliberately absent here, together with evidence_fts -- see the
+-- comment beside evidence_index above for why re-declaring either would resurrect the
+-- VACUUM-every-boot bug. evidence_index_map (declared above) is its replacement.
 CREATE TABLE IF NOT EXISTS messages_fts_map (
   fts_rowid INTEGER PRIMARY KEY,
   case_id INTEGER NOT NULL,
