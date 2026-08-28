@@ -6,7 +6,6 @@ import { openDb } from '../db'
 import {
   indexEvidenceText,
   indexEvidenceFile,
-  deleteEvidenceIndex,
   FtsChunkWriter,
   CheckpointRecorder
 } from '../indexer'
@@ -45,7 +44,7 @@ describe('indexEvidenceText', () => {
     expect(chunks).toBe(3)
     const rows = db
       .prepare(
-        `SELECT chunk_index, start_line, end_line FROM evidence_fts WHERE evidence_id = 7 ORDER BY chunk_index`
+        `SELECT chunk_index, start_line, end_line FROM evidence_index_map WHERE evidence_id = 7 ORDER BY chunk_index`
       )
       .all() as { chunk_index: number; start_line: number; end_line: number }[]
     expect(rows).toEqual([
@@ -55,18 +54,20 @@ describe('indexEvidenceText', () => {
     ])
   })
 
-  it('is searchable and deletable', () => {
+  // deleteEvidenceIndex still only targets the legacy evidence_fts/evidence_fts_map
+  // tables in this increment (Task 3 wires it to evidence_index too), so delete
+  // coverage for the new table is not asserted here yet.
+  it('is searchable via evidence_index', () => {
     const db = freshDb()
     indexEvidenceText(db, 3, 'alpha beta\ngamma TileStore error here\n', 400)
     const hit = db
-      .prepare(`SELECT evidence_id FROM evidence_fts WHERE evidence_fts MATCH ?`)
-      .get('"TileStore error"') as { evidence_id: number } | undefined
-    expect(hit?.evidence_id).toBe(3)
-    deleteEvidenceIndex(db, 3)
-    const after = db
-      .prepare(`SELECT count(*) AS n FROM evidence_fts WHERE evidence_id = 3`)
-      .get() as { n: number }
-    expect(after.n).toBe(0)
+      .prepare(
+        `SELECT m.evidence_id AS evidenceId FROM evidence_index
+         JOIN evidence_index_map m ON m.fts_rowid = evidence_index.rowid
+         WHERE evidence_index MATCH ?`
+      )
+      .get('"TileStore error"') as { evidenceId: number } | undefined
+    expect(hit?.evidenceId).toBe(3)
   })
 })
 
@@ -101,7 +102,7 @@ describe('indexEvidenceFile', () => {
     expect(chunks).toBe(3)
     const rows = db
       .prepare(
-        `SELECT chunk_index, start_line, end_line FROM evidence_fts WHERE evidence_id = 9 ORDER BY chunk_index`
+        `SELECT chunk_index, start_line, end_line FROM evidence_index_map WHERE evidence_id = 9 ORDER BY chunk_index`
       )
       .all() as { chunk_index: number; start_line: number; end_line: number }[]
     expect(rows).toEqual([
@@ -149,7 +150,7 @@ describe('FtsChunkWriter', () => {
     expect(w.chunkCount).toBe(3)
     const rows = db
       .prepare(
-        `SELECT chunk_index, start_line, end_line FROM evidence_fts WHERE evidence_id = 42 ORDER BY chunk_index`
+        `SELECT chunk_index, start_line, end_line FROM evidence_index_map WHERE evidence_id = 42 ORDER BY chunk_index`
       )
       .all() as { chunk_index: number; start_line: number; end_line: number }[]
     expect(rows).toEqual([
@@ -159,13 +160,13 @@ describe('FtsChunkWriter', () => {
     ])
   })
 
-  it('writes an evidence_fts_map row for every chunk', () => {
+  it('writes an evidence_index_map row for every chunk', () => {
     const db = freshDb()
     const w = new FtsChunkWriter(db, 43, 2)
     for (let i = 1; i <= 4; i++) w.add(`x${i}`, i)
     w.flush()
     const n = db
-      .prepare(`SELECT count(*) AS n FROM evidence_fts_map WHERE evidence_id = 43`)
+      .prepare(`SELECT count(*) AS n FROM evidence_index_map WHERE evidence_id = 43`)
       .get() as { n: number }
     expect(n.n).toBe(2)
   })
@@ -175,6 +176,74 @@ describe('FtsChunkWriter', () => {
     const w = new FtsChunkWriter(db, 44, 400)
     w.flush()
     expect(w.chunkCount).toBe(0)
+  })
+})
+
+describe('contentless evidence_index', () => {
+  it('writes content to evidence_index and locators to evidence_index_map', () => {
+    const db = freshDb()
+    indexEvidenceText(db, 100, 'alpha beta\ngamma delta\n', 1)
+
+    const rows = db
+      .prepare(
+        `SELECT fts_rowid, evidence_id, chunk_index, start_line, end_line
+         FROM evidence_index_map ORDER BY chunk_index`
+      )
+      .all() as unknown as {
+      fts_rowid: number
+      evidence_id: number
+      chunk_index: number
+      start_line: number
+      end_line: number
+    }[]
+
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({ evidence_id: 100, chunk_index: 0, start_line: 1, end_line: 1 })
+    expect(rows[1]).toMatchObject({ evidence_id: 100, chunk_index: 1, start_line: 2, end_line: 2 })
+
+    const hit = db
+      .prepare(`SELECT rowid FROM evidence_index WHERE evidence_index MATCH ?`)
+      .all('gamma') as unknown as { rowid: number }[]
+    expect(hit).toHaveLength(1)
+    expect(hit[0].rowid).toBe(rows[1].fts_rowid)
+  })
+
+  it('supports phrase queries, which detail=column would have broken', () => {
+    const db = freshDb()
+    indexEvidenceText(db, 101, 'connection refused by peer\nrefused a connection later\n', 400)
+
+    const phrase = db
+      .prepare(`SELECT rowid FROM evidence_index WHERE evidence_index MATCH ?`)
+      .all('"connection refused"') as unknown as { rowid: number }[]
+    expect(phrase).toHaveLength(1)
+  })
+
+  it('writes nothing to the legacy evidence_fts table', () => {
+    const db = freshDb()
+    indexEvidenceText(db, 102, 'alpha\n', 400)
+    const legacy = db.prepare(`SELECT count(*) AS n FROM evidence_fts`).get() as { n: number }
+    expect(legacy.n).toBe(0)
+  })
+
+  it('leaves no FTS row without its map row when the map insert throws', () => {
+    const db = freshDb()
+    // Force the map insert to fail on the second chunk: a NOT NULL violation inside the
+    // savepoint must roll the FTS row back with it.
+    db.exec(`DROP TABLE evidence_index_map`)
+    db.exec(`CREATE TABLE evidence_index_map (
+      fts_rowid INTEGER PRIMARY KEY, evidence_id INTEGER NOT NULL,
+      chunk_index INTEGER NOT NULL, start_line INTEGER NOT NULL,
+      end_line INTEGER NOT NULL CHECK (end_line < 2))`)
+
+    expect(() => indexEvidenceText(db, 103, 'a\nb\n', 1)).toThrow()
+
+    const orphans = db
+      .prepare(
+        `SELECT count(*) AS n FROM evidence_index
+         WHERE rowid NOT IN (SELECT fts_rowid FROM evidence_index_map)`
+      )
+      .get() as { n: number }
+    expect(orphans.n).toBe(0)
   })
 })
 

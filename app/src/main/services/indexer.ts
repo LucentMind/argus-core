@@ -12,9 +12,11 @@ import {
 
 const READ_CHUNK_BYTES = 1024 * 1024
 
-/** Accumulates lines into fixed-size chunks and writes each to evidence_fts plus
- *  the evidence_fts_map side table (see ftsIndex.ts — the map is what makes
- *  per-evidence deletes O(deleted rows) instead of a full-table scan).
+/** Accumulates lines into fixed-size chunks and writes each to the contentless
+ *  evidence_index plus the evidence_index_map side table, which carries the
+ *  evidence_id/chunk_index/start_line/end_line locators a contentless table cannot
+ *  return (see db.ts and ftsIndex.ts — the map is also what makes per-evidence
+ *  deletes O(deleted rows) instead of a full-table scan).
  *  Shared by the sync and async indexers so the two cannot drift. */
 export class FtsChunkWriter {
   private readonly db: DatabaseSync
@@ -31,11 +33,11 @@ export class FtsChunkWriter {
     private readonly chunkLines: number
   ) {
     this.db = db
-    this.ins = db.prepare(
-      `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
+    this.ins = db.prepare(`INSERT INTO evidence_index (content) VALUES (?)`)
+    this.insMap = db.prepare(
+      `INSERT INTO evidence_index_map (fts_rowid, evidence_id, chunk_index, start_line, end_line)
        VALUES (?, ?, ?, ?, ?)`
     )
-    this.insMap = db.prepare(`INSERT INTO evidence_fts_map (fts_rowid, evidence_id) VALUES (?, ?)`)
   }
 
   add(line: string, lineNo: number): void {
@@ -61,14 +63,14 @@ export class FtsChunkWriter {
   flush(): void {
     if (this.pending.length === 0) return
     withFtsSavepoint(this.db, () => {
-      const rowid = this.ins.run(
-        this.pending.join('\n'),
+      const rowid = this.ins.run(this.pending.join('\n')).lastInsertRowid
+      this.insMap.run(
+        rowid,
         this.evidenceId,
         this.chunkIndex,
         this.chunkStart,
         this.chunkStart + this.pending.length - 1
-      ).lastInsertRowid
-      this.insMap.run(rowid, this.evidenceId)
+      )
     })
     this.chunkIndex++
     this.chunkStart = this.lastLineNo + 1
@@ -189,29 +191,13 @@ export function indexEvidenceText(
   const lines = text.split('\n')
   // trailing newline produces a final empty element — drop it
   if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
-  const ins = db.prepare(
-    `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
-     VALUES (?, ?, ?, ?, ?)`
-  )
-  const insMap = db.prepare(`INSERT INTO evidence_fts_map (fts_rowid, evidence_id) VALUES (?, ?)`)
-  let chunkIndex = 0
-  for (let start = 0; start < lines.length; start += chunkLines) {
-    const chunk = lines.slice(start, start + chunkLines)
-    // Same atomicity requirement as FtsChunkWriter.flush: never leave an FTS row
-    // without the map row that is the only handle any delete has on it.
-    withFtsSavepoint(db, () => {
-      const rowid = ins.run(
-        chunk.join('\n'),
-        evidenceId,
-        chunkIndex,
-        start + 1,
-        start + chunk.length
-      ).lastInsertRowid
-      insMap.run(rowid, evidenceId)
-    })
-    chunkIndex++
-  }
-  return chunkIndex
+  // Delegates to FtsChunkWriter rather than repeating its insert pair, savepoint and
+  // chunk arithmetic: a second copy would have to be kept in step with it by hand,
+  // and the compiler cannot see when it drifts.
+  const writer = new FtsChunkWriter(db, evidenceId, chunkLines)
+  lines.forEach((line, i) => writer.add(line, i + 1))
+  writer.flush()
+  return writer.chunkCount
 }
 
 export function deleteEvidenceIndex(db: DatabaseSync, evidenceId: number): void {
