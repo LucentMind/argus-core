@@ -1,5 +1,5 @@
 import { z } from './zodConfig'
-import type { CaseRecord } from './types'
+import { INDEX_STATES, type CaseRecord } from './types'
 
 /** .arguscase container format version. Import refuses bundles with format > BUNDLE_FORMAT. */
 export const BUNDLE_FORMAT = 1
@@ -71,9 +71,11 @@ export const bundleRowsSchema = z.looseObject({
   evidence: z
     .array(
       z.looseObject({
-        id: z.number(),
         relPath: z.string(),
-        indexState: z.string()
+        // The lifecycle is a closed set (shared/types.ts); an unenumerated string would round-trip
+        // verbatim into meta.indexState on restore and strand that row forever — it matches
+        // neither the inline-index branch nor requeuePendingIndexes' pending/error sweep.
+        indexState: z.enum(INDEX_STATES)
       })
     )
     .default([]),

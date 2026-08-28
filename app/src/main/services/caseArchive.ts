@@ -415,6 +415,13 @@ function restoreMissingFiles(from: string, to: string): void {
  */
 function reconcileSessions(manifest: BundleManifest, sessionsDir: string): void {
   if (!fs.existsSync(sessionsDir)) return
+  // A bundle written with includeTranscripts: false lists NO sessions/ files at all — not
+  // "the empty set for this case", but "transcripts were deliberately withheld". Reconciling
+  // against that manifest would read as "delete everything", wiping every transcript the case
+  // actually has. Today only archiveFrozenCase calls this, and it always asks for transcripts,
+  // but `ArchiveDeps.exportTo` is a supported seam a caller could point at a transcript-less
+  // bundle — this function's safety must not depend on a literal three files away.
+  if (!manifest.includesTranscripts) return
   const prefix = 'sessions/'
   const keep = new Set(
     manifest.files
@@ -665,7 +672,7 @@ async function restoreFrozenCase(
     // frozen at ingest time — and the guess buries a row that was genuinely still 'pending'
     // because its extraction had never run, so its pack extractor never runs again.
     const indexStates = new Map<string, IndexState>(
-      (rows?.evidence ?? []).map((e) => [e.relPath, e.indexState as IndexState])
+      (rows?.evidence ?? []).map((e) => [e.relPath, e.indexState])
     )
     evidenceRestored = reindexImportedEvidence(db, argusHome, caseId, dir, indexStates)
     sessionIds = registerImportedSessions(db, caseId, slug, dir)
