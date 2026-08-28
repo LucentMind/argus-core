@@ -12,6 +12,67 @@ export const bundleWorkspaceRefSchema = z.looseObject({
 })
 export type BundleWorkspaceRef = z.infer<typeof bundleWorkspaceRefSchema>
 
+/**
+ * The bundle's row sidecar: the agent-run rows that live ONLY in the database and would
+ * otherwise be destroyed by one archive/restore cycle.
+ *
+ * The bundle is otherwise files-only, so `turns`, `tool_calls` and the findings' session/turn
+ * pointers had nowhere to travel: archiving deletes them, restore had nothing to rebuild them
+ * from, and the tool-call audit trail (tool, risk, decision) plus every finding's "jump to
+ * turn" deep-link died on the first round trip.
+ *
+ * The ids in here are the EXPORTING machine's autoincrements. They are carried so the rows can
+ * be re-linked to each other on the far side, never re-used verbatim — `registerImportedSessions`
+ * assigns fresh session ids, and the rebuild remaps turns, tool calls and finding pointers
+ * through that one mapping.
+ */
+export const bundleRowsSchema = z.looseObject({
+  turns: z
+    .array(
+      z.looseObject({
+        id: z.number(),
+        sessionId: z.number(),
+        turnIndex: z.number(),
+        status: z.string(),
+        inputTokens: z.number().nullable().default(null),
+        outputTokens: z.number().nullable().default(null),
+        costUsd: z.number().nullable().default(null),
+        durationMs: z.number().nullable().default(null),
+        createdAt: z.string()
+      })
+    )
+    .default([]),
+  toolCalls: z
+    .array(
+      z.looseObject({
+        id: z.number(),
+        sessionId: z.number(),
+        turnId: z.number().nullable().default(null),
+        tool: z.string(),
+        argsHash: z.string(),
+        risk: z.string(),
+        decision: z.string(),
+        durationMs: z.number().nullable().default(null),
+        createdAt: z.string()
+      })
+    )
+    .default([]),
+  /** One entry per finding that pointed at a session/turn when the bundle was written. */
+  findingPointers: z
+    .array(
+      z.looseObject({
+        id: z.number(),
+        sessionId: z.number().nullable().default(null),
+        turnId: z.number().nullable().default(null)
+      })
+    )
+    .default([])
+})
+export type BundleRows = z.infer<typeof bundleRowsSchema>
+
+/** Fixed name of the row sidecar inside a bundle, beside `manifest.json`. */
+export const BUNDLE_ROWS_FILE = 'rows.json'
+
 export const bundleManifestSchema = z.looseObject({
   format: z.number().int().min(1),
   slug: z.string().min(1),
@@ -20,7 +81,14 @@ export const bundleManifestSchema = z.looseObject({
   createdAt: z.string(),
   includesTranscripts: z.boolean(),
   workspaces: z.array(bundleWorkspaceRefSchema).default([]),
-  files: z.array(z.looseObject({ path: z.string().min(1), sha256: z.string(), size: z.number() }))
+  files: z.array(z.looseObject({ path: z.string().min(1), sha256: z.string(), size: z.number() })),
+  /**
+   * Integrity record for `rows.json`, absent in every bundle written before the sidecar
+   * existed. It lives in the manifest — rather than the sidecar being trusted on sight —
+   * so the sidecar gets exactly the verification the case files get, and so `manifestHash`
+   * (the archive identity digest) covers it too.
+   */
+  rows: z.looseObject({ sha256: z.string(), size: z.number() }).optional()
 })
 export type BundleManifest = z.infer<typeof bundleManifestSchema>
 

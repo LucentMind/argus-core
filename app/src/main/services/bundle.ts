@@ -1,15 +1,19 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { Zip, extract } from 'zip-lib'
 import type { DatabaseSync } from 'node:sqlite'
 import {
   BUNDLE_FORMAT,
+  BUNDLE_ROWS_FILE,
   bundleManifestSchema,
+  bundleRowsSchema,
   bundleWorkspaceRefSchema,
   type BundleManifest,
+  type BundleRows,
   type BundleWorkspaceRef
 } from '../../shared/bundle'
 import {
@@ -101,6 +105,40 @@ async function workspaceRefs(
   return refs
 }
 
+/**
+ * The database-only rows a bundle carries beside its files: `turns`, `tool_calls`, and every
+ * finding's session/turn pointer.
+ *
+ * None of these have a file representation, so before this sidecar existed an archive/restore
+ * cycle destroyed the whole tool-call audit trail and left every finding's deep-link dead.
+ * Read here, at export time, because archiving deletes these rows immediately afterwards.
+ */
+export function collectCaseRows(db: DatabaseSync, caseId: number): BundleRows {
+  const turns = db
+    .prepare(
+      `SELECT id, session_id AS sessionId, turn_index AS turnIndex, status,
+              input_tokens AS inputTokens, output_tokens AS outputTokens, cost_usd AS costUsd,
+              duration_ms AS durationMs, created_at AS createdAt
+       FROM turns WHERE case_id = ? ORDER BY id`
+    )
+    .all(caseId) as unknown[]
+  const toolCalls = db
+    .prepare(
+      `SELECT id, session_id AS sessionId, turn_id AS turnId, tool, args_hash AS argsHash,
+              risk, decision, duration_ms AS durationMs, created_at AS createdAt
+       FROM tool_calls WHERE case_id = ? ORDER BY id`
+    )
+    .all(caseId) as unknown[]
+  const findingPointers = db
+    .prepare(
+      `SELECT id, session_id AS sessionId, turn_id AS turnId
+       FROM findings WHERE case_id = ? AND (session_id IS NOT NULL OR turn_id IS NOT NULL)
+       ORDER BY id`
+    )
+    .all(caseId) as unknown[]
+  return bundleRowsSchema.parse({ turns, toolCalls, findingPointers })
+}
+
 export async function exportCase(
   db: DatabaseSync,
   argusHome: string,
@@ -113,6 +151,9 @@ export async function exportCase(
   if (!kase) throw new Error(`Unknown case: ${slug}`)
   const dir = caseDir(argusHome, slug)
   const rels = collectCaseFiles(dir, opts)
+  // Serialized before the manifest is built: the manifest records the sidecar's hash, which
+  // is what makes a tampered or truncated sidecar detectable at all.
+  const rowsBody = JSON.stringify(collectCaseRows(db, kase.id), null, 2)
   const manifest: BundleManifest = bundleManifestSchema.parse({
     format: BUNDLE_FORMAT,
     slug,
@@ -124,12 +165,19 @@ export async function exportCase(
     files: rels.map((rel) => {
       const abs = path.join(dir, ...rel.split('/'))
       return { path: rel, sha256: sha256File(abs), size: fs.statSync(abs).size }
-    })
+    }),
+    rows: {
+      sha256: crypto.createHash('sha256').update(rowsBody).digest('hex'),
+      size: Buffer.byteLength(rowsBody)
+    }
   })
   const zip = new Zip()
   for (const rel of rels) zip.addFile(path.join(dir, ...rel.split('/')), `case/${rel}`)
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'arguscase-'))
   try {
+    const rowsFile = path.join(tmp, BUNDLE_ROWS_FILE)
+    fs.writeFileSync(rowsFile, rowsBody)
+    zip.addFile(rowsFile, BUNDLE_ROWS_FILE)
     const manifestFile = path.join(tmp, 'manifest.json')
     fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2))
     zip.addFile(manifestFile, 'manifest.json')
@@ -232,6 +280,33 @@ export function verifyStagedBundle(stagedCaseDir: string, manifest: BundleManife
 }
 
 /**
+ * Read and verify the row sidecar out of an EXTRACTED bundle root (the dir holding
+ * `manifest.json`), returning null when the bundle predates the sidecar.
+ *
+ * The sidecar is verified exactly as the case files are — against a hash the manifest records
+ * — so a tampered or truncated `rows.json` is a hard failure rather than a silent rebuild of
+ * the wrong audit trail. A bundle with no `rows` entry in its manifest is not an error: every
+ * bundle exported before this existed is one, and `importCase` must keep reading them.
+ * The converse (a `rows` entry with no readable file) IS an error: the bundle claims rows it
+ * cannot produce.
+ */
+export function readBundleRows(rootDir: string, manifest: BundleManifest): BundleRows | null {
+  if (!manifest.rows) return null
+  const file = path.join(rootDir, BUNDLE_ROWS_FILE)
+  if (!fs.existsSync(file)) throw new Error(`Bundle is corrupt: missing ${BUNDLE_ROWS_FILE}`)
+  const body = fs.readFileSync(file)
+  const sha = crypto.createHash('sha256').update(body).digest('hex')
+  if (sha !== manifest.rows.sha256) {
+    throw new Error(`Bundle is corrupt: checksum mismatch on ${BUNDLE_ROWS_FILE}`)
+  }
+  try {
+    return bundleRowsSchema.parse(JSON.parse(body.toString('utf8')))
+  } catch (err) {
+    throw new Error(`Bundle is corrupt: unreadable ${BUNDLE_ROWS_FILE} (${(err as Error).message})`)
+  }
+}
+
+/**
  * Extract a bundle to a temp dir, verify every file in it, and return its manifest.
  *
  * Verifies the ARCHIVE, not the source files it was built from: a hash computed from the
@@ -250,6 +325,10 @@ export async function verifyBundleArchive(zipPath: string): Promise<BundleManife
     }
     const manifest = readManifest(manifestFile)
     verifyStagedBundle(path.join(tmp, 'case'), manifest)
+    // The sidecar rides the same verification the case files get; a bundle that claims rows
+    // it cannot produce, or produces ones that do not hash, fails here rather than in the
+    // middle of a restore's rebuild.
+    readBundleRows(tmp, manifest)
     return manifest
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true })
@@ -312,6 +391,18 @@ export function reindexImportedEvidence(
         const mapped = idMap.get(Number(meta.derivedFrom))
         if (mapped != null) meta.derivedFrom = mapped
       }
+      const abs = path.join(dir, ...rec.relPath.split('/'))
+      // The sidecars on disk were written at INGEST time, when the row was still 'pending',
+      // and were never rewritten when the queue set 'indexed' on the row — so replaying them
+      // verbatim resurrects a stale 'pending' for a file this function is about to index
+      // inline. requeuePendingIndexes then re-queues every one of them, and the production
+      // queue's phase 2 re-runs the (up to ten-minute) extractor over files whose derived rows
+      // the bundle already carries. Record the state this function actually leaves the row in.
+      const willIndex = readIndexState(meta) !== 'skipped' && fs.existsSync(abs)
+      if (willIndex) {
+        meta.indexState = 'indexed'
+        delete meta.indexed // never leave both representations on one row
+      }
       const res = insert.run(
         caseId,
         rec.relPath,
@@ -324,9 +415,7 @@ export function reindexImportedEvidence(
       )
       const newId = Number(res.lastInsertRowid)
       idMap.set(rec.id, newId)
-      const abs = path.join(dir, ...rec.relPath.split('/'))
-      if (readIndexState(meta) !== 'skipped' && fs.existsSync(abs))
-        indexEvidenceFile(db, newId, abs, 400, argusHome)
+      if (willIndex) indexEvidenceFile(db, newId, abs, 400, argusHome)
       fs.writeFileSync(sidecarAbs, JSON.stringify({ ...rec, id: newId, caseId, meta }, null, 2))
     }
   }
@@ -345,7 +434,10 @@ const SESSION_TITLE_MAX = 40
  * against the local identity. Without this, imported transcripts are
  * unreachable: files on disk, nothing in the chat.
  *
- * Returns how many transcripts were registered.
+ * Returns the OLD session id (the transcript's file name) → new session id mapping. That map is
+ * the single representation of the remap: `restoreCase` rebuilds `turns`, `tool_calls` and the
+ * findings' pointers through this very map rather than recomputing the correspondence, because
+ * a second derivation of the same fact is precisely how the two drift apart.
  *
  * Exported for `restoreCase`: archiving deletes the `sessions` rows and their chat index while
  * the transcripts travel in the bundle, so a restore lands in exactly this state — jsonl files
@@ -359,9 +451,11 @@ export function registerImportedSessions(
   caseId: number,
   caseSlug: string,
   dir: string
-): number {
+): Map<number, number> {
+  const sessionIds = new Map<number, number>()
   const sessionsDir = path.join(dir, 'sessions')
-  if (!fs.existsSync(sessionsDir)) return 0
+  if (!fs.existsSync(sessionsDir)) return sessionIds
+  recoverStagedTranscripts(sessionsDir)
   const files = fs
     .readdirSync(sessionsDir)
     .filter((f) => /^\d+\.jsonl$/.test(f))
@@ -408,6 +502,7 @@ export function registerImportedSessions(
     }
     const res = insert.run(caseId, title, turnCount, now, now)
     const newId = Number(res.lastInsertRowid)
+    sessionIds.set(parseInt(path.basename(tmp), 10), newId)
     // Without this the imported transcript is on disk and in the chat but invisible to
     // chatSearch — insertMessageFts's only other caller is the live mirror, which never
     // runs for an imported session.
@@ -420,7 +515,32 @@ export function registerImportedSessions(
     fs.writeFileSync(path.join(sessionsDir, `${newId}.jsonl`), rewritten ? rewritten + '\n' : '')
     fs.rmSync(tmp)
   }
-  return staged.length
+  return sessionIds
+}
+
+/**
+ * Undo a previous run of `registerImportedSessions` that died part-way through.
+ *
+ * The staging rename takes every transcript OUT of the `<digits>.jsonl` namespace this
+ * function's own filter matches, so a throw mid-loop (an EPERM from a watcher, a full disk, the
+ * app being killed) used to leave `*.jsonl.import` files that nothing could ever see again: a
+ * retry restored zero transcripts and silently orphaned them.
+ *
+ * Recovery is unambiguous because of when it runs. If any `.import` file is present, a previous
+ * run staged everything and did not finish, so the ONLY plain `<digits>.jsonl` files that can
+ * exist are that dead run's own outputs — whose database rows are gone (restore rolls its
+ * rebuild back; import deletes the whole case dir). Drop those and put the originals back.
+ */
+function recoverStagedTranscripts(sessionsDir: string): void {
+  const entries = fs.readdirSync(sessionsDir)
+  const stale = entries.filter((f) => /^\d+\.jsonl\.import$/.test(f))
+  if (stale.length === 0) return
+  for (const f of entries.filter((f) => /^\d+\.jsonl$/.test(f))) {
+    fs.rmSync(path.join(sessionsDir, f), { force: true })
+  }
+  for (const f of stale) {
+    fs.renameSync(path.join(sessionsDir, f), path.join(sessionsDir, f.slice(0, -'.import'.length)))
+  }
 }
 
 export async function importCase(
@@ -544,6 +664,13 @@ export async function importCase(
         )
       )
       reindexImportedEvidence(db, argusHome, caseId, dir)
+      // The session-id remap is returned but not needed here: import deliberately does NOT
+      // consume the bundle's `rows.json`. `turns` and `tool_calls` are a record of what an
+      // agent did on the EXPORTING machine under that machine's permission policy — its risk
+      // verdicts and allow/deny decisions — and replaying them here would present another
+      // operator's audit trail as this installation's own. Findings do not travel in a bundle
+      // at all, so the pointer half would be a no-op regardless. Restore is the opposite case:
+      // the rows are this machine's, deleted moments earlier by its own archive.
       registerImportedSessions(db, caseId, slug, dir)
       // Restore case_jira_links from the mirrored jiraSources array (see caseService.ts's
       // mirrorJiraSources) — without this, an imported case LOOKS linked (case.json still
