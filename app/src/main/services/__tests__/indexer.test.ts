@@ -55,9 +55,6 @@ describe('indexEvidenceText', () => {
     ])
   })
 
-  // deleteEvidenceIndex still only targets the legacy evidence_fts/evidence_fts_map
-  // tables in this increment (Task 3 wires it to evidence_index too), so delete
-  // coverage for the new table is not asserted here yet.
   it('is searchable via evidence_index', () => {
     const db = freshDb()
     indexEvidenceText(db, 3, 'alpha beta\ngamma TileStore error here\n', 400)
@@ -217,6 +214,25 @@ describe('contentless evidence_index', () => {
       .prepare(`SELECT rowid FROM evidence_index WHERE evidence_index MATCH ?`)
       .all('"connection refused"') as unknown as { rowid: number }[]
     expect(phrase).toHaveLength(1)
+  })
+
+  // detail=full is retained specifically so phrase AND NEAR queries keep working;
+  // detail=column and detail=none both raise on them. The phrase case above guards half
+  // of that -- this guards the other half, positively and negatively, so a NEAR that had
+  // silently stopped discriminating distance would fail here too.
+  it('supports NEAR queries, which detail=column would have broken', () => {
+    const db = freshDb()
+    indexEvidenceText(db, 103, 'alpha one two three four five six seven omega\n', 400)
+
+    const near = db
+      .prepare(`SELECT rowid FROM evidence_index WHERE evidence_index MATCH ?`)
+      .all('NEAR(alpha omega, 10)') as unknown as { rowid: number }[]
+    expect(near).toHaveLength(1)
+
+    const tooFar = db
+      .prepare(`SELECT rowid FROM evidence_index WHERE evidence_index MATCH ?`)
+      .all('NEAR(alpha omega, 2)') as unknown as { rowid: number }[]
+    expect(tooFar).toHaveLength(0)
   })
 
   it('writes nothing to the legacy evidence_fts table, even where one still exists', () => {
