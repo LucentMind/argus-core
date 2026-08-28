@@ -21,6 +21,10 @@ Non-negotiable working rules:
    ([foo.cpp:12]), replace path parts with "…", or pack multiple refs into one bracket
    ([a.cpp:1; b.cpp:2]) — write each as its own full [<path>:<line>] so it renders.
 2. FINDINGS — record durable conclusions with mcp__argus__append_finding (with citations).
+   Before recording one, call mcp__argus__list_findings to see what this case already holds.
+   When a finding you recorded turns out to be wrong, withdraw it with
+   mcp__argus__retract_finding and a one-line reason — never leave the wrong one standing and
+   never append a second finding with a "CORRECTED" prefix.
 3. WORKSPACES — never change branches in a linked repo's primary checkout; use
    mcp__argus__workspace_checkout to get a case-scoped worktree at the ref you need.
 4. HITL — medium/high-risk actions require user approval; if denied, adjust your plan rather

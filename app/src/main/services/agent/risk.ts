@@ -105,6 +105,13 @@ export const NATIVE_RISK: Record<string, RiskVerdict> = {
   mcp__argus__grep_lines: { action: 'allow', risk: 'LOW' },
   mcp__argus__ingest_artifact: { action: 'allow', risk: 'LOW' },
   mcp__argus__append_finding: { action: 'allow', risk: 'LOW' },
+  mcp__argus__list_findings: { action: 'allow', risk: 'LOW' },
+  // Same tier as append_finding, and for the same reason: it writes one row on this case,
+  // the change is visible in the findings pane, a human can undo it by re-reviewing, and it
+  // cannot touch a finding a human accepted. Without an entry here the taxonomy fallback
+  // reads the name as write-capable and ASKS — an approval card on every self-correction is
+  // enough friction that the agent goes back to appending CORRECTED duplicates instead.
+  mcp__argus__retract_finding: { action: 'allow', risk: 'LOW' },
   mcp__argus__read_memory: { action: 'allow', risk: 'LOW' },
   // NOT sandboxed: the PTC child is a plain ELECTRON_RUN_AS_NODE process (env-scrubbed, but
   // otherwise full user-level fs/network access) — the script's own code runs unsandboxed as
