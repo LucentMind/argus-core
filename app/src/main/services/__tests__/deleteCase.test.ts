@@ -15,6 +15,7 @@ import { upsertCaseSummary, searchCaseSummaries } from '../distill/summaries'
 import { CAPTURE_DIR_REL } from '../prompts/capture'
 import { createImmediateQueue } from '../ingestQueue'
 import { archiveCase } from '../caseArchive'
+import { freezeCase } from '../caseFreeze'
 import {
   seedArchivableCase,
   cleanupArchiveFixtures,
@@ -266,6 +267,26 @@ describe('deleteCase and the archive bundle', () => {
     deleteCase(db, home, slug, { deleteArchive: true })
     const audit = readDeletionAudit(home)
     expect(audit.at(-1)).toMatchObject({ detail: { archiveRetained: false } })
+  })
+
+  it('refuses to delete a FROZEN case, leaving the row, dir, bundle and audit untouched', async () => {
+    // Simulates deleteCase racing an in-flight archiveCase: the archive already produced a
+    // verified bundle and is (in the real defect) suspended at an await inside its own
+    // transaction, still holding the freeze. A concurrent delete must not be able to pull
+    // the case out from under it.
+    const { db, home, slug } = await seedArchivableCase()
+    const res = await archiveCase(db, home, slug, { argusVersion: 'test' })
+    const handle = freezeCase(slug) // archiveCase already released its own; re-freeze to simulate the race
+    try {
+      expect(() => deleteCase(db, home, slug, { deleteArchive: true })).toThrow(/being archived/i)
+    } finally {
+      handle.release()
+    }
+
+    expect(getCase(db, slug)).not.toBeNull()
+    expect(fs.existsSync(path.join(home, 'cases', slug))).toBe(true)
+    expect(fs.existsSync(res.bundlePath)).toBe(true)
+    expect(readDeletionAudit(home)).toHaveLength(0)
   })
 
   it('never touches proposals', async () => {
