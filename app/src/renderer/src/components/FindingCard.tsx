@@ -133,6 +133,16 @@ export function FindingCard({
         )}
       </div>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pr-2 pb-1.5 pl-3">
+        {rejected && f.reviewActor === 'agent' && (
+          <>
+            <span className="shrink-0 rounded-r1 border border-danger/35 px-1 text-[10px] whitespace-nowrap text-mute">
+              retracted by agent
+            </span>
+            {f.reviewReason && (
+              <span className="min-w-0 text-[10px] leading-snug text-mute">{f.reviewReason}</span>
+            )}
+          </>
+        )}
         {selectable && (
           <input
             type="checkbox"
