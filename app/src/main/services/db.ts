@@ -569,6 +569,17 @@ export function openDb(file: string): DatabaseSync {
   if (!findingCols.some((c) => c.name === 'role')) {
     db.exec(`ALTER TABLE findings ADD COLUMN role TEXT`)
   }
+  // Finding retraction. `review_reason` is why the finding was rejected or withdrawn;
+  // `review_actor` is WHO did it ('human' | 'agent'), which is what lets one `rejected`
+  // state carry two authorities without adding a fourth ReviewState value. NULL on every
+  // pre-existing row and read as 'human' everywhere: until this change the agent had no
+  // way to reject anything, so every rejection on disk is a human's.
+  if (!findingCols.some((c) => c.name === 'review_reason')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN review_reason TEXT`)
+  }
+  if (!findingCols.some((c) => c.name === 'review_actor')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN review_actor TEXT`)
+  }
   const turnCols = db.prepare(`PRAGMA table_info(turns)`).all() as { name: string }[]
   if (!turnCols.some((c) => c.name === 'model')) {
     db.exec(`ALTER TABLE turns ADD COLUMN model TEXT`)
