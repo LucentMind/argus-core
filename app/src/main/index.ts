@@ -3016,7 +3016,7 @@ function registerIpc(): void {
     if (!getCase(db, slug)) throw new Error(`Unknown case: ${slug}`)
     if (kind !== 'exec' && kind !== 'tech') throw new Error(`invalid report kind: ${String(kind)}`)
     if (typeof body !== 'string') throw new Error('report body must be a string')
-    writeReportMarkdown(argusHome, slug, kind, body)
+    writeReportMarkdown(db, argusHome, slug, kind, body)
   })
 
   ipcMain.handle(IPC.rcaHandEdited, (_e, slug: string) => {

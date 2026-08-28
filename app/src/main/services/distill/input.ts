@@ -10,7 +10,7 @@ import { listSessions } from '../agent/sessionStore'
 import { listProposals, listArchivedProposals } from '../proposals'
 import { refTitle, refBody, refTier } from '../refSync/refFrontmatter'
 import { sharedReferencesDir } from '../skillsDir'
-import { artifactsDir } from '../paths'
+import { structureFile } from '../rca/artifacts'
 import { buildWorld, clampText } from './world'
 
 /** Per-session cap on verbatim user turns fed to the agentic distiller's raw-quote source. */
@@ -68,7 +68,7 @@ export function buildReferencesIndex(
  * structure to fold in" — never throw, always fall back to null.
  */
 function readConfirmedRcaStructure(argusHome: string, slug: string): RcaDraft | null {
-  const file = path.join(artifactsDir(argusHome, slug), 'rca-structure.json')
+  const file = structureFile(argusHome, slug)
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8')) as RcaDraft
   } catch {
