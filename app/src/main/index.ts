@@ -166,6 +166,7 @@ import {
 } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
 import { IngestQueue, requeuePendingIndexes } from './services/ingestQueue'
+import { runEvidenceIndexMigration } from './services/evidenceIndexMigration'
 import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
 import { createCaseWatchHub } from './services/caseWatch'
 import { createProposalsWatch } from './services/proposalsWatch'
@@ -864,6 +865,13 @@ function registerIpc(): void {
   // A crash mid-index leaves rows stuck at 'pending'/'indexing' and silently unsearchable.
   const requeued = requeuePendingIndexes(db, argusHome, ingestQueue)
   if (requeued > 0) console.log(`[ingest] re-queued ${requeued} unfinished index(es) after restart`)
+
+  // Fire-and-forget: the migration yields between rows and search reads both generations
+  // until it finishes, so nothing waits on it. A quit mid-run loses no completed work —
+  // each evidence row moves in one savepoint and progress is the legacy table itself.
+  void runEvidenceIndexMigration(db, { shouldStop: () => quitting }).catch((err) => {
+    console.warn('[evidence-index] migration paused:', (err as Error).message)
+  })
 
   const secretStore = new SecretStore(argusHome, safeStorage)
 
