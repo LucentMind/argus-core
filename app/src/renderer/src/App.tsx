@@ -79,6 +79,19 @@ function App(): React.JSX.Element {
     return window.argus.routines.onChanged(() => void reload())
   }, [reload])
 
+  // `cases:changed` — a case row was archived, restored or deleted, in THIS window or any other.
+  // This one `cases` array feeds both the grid's Archived marker and the case view's
+  // Archive/Restore/Delete affordances, so refetching it here is what stops a second window
+  // offering writes the main process now refuses (an archived case rejects ingest, scan and new
+  // sessions; archiveCase itself refuses an already-archived one). The initiating window would
+  // also learn from its own invoke resolving — that path is not enough, which is the whole
+  // reason the broadcast exists. Guarded like the subscription above: a test's stub bridge need
+  // not populate it.
+  useEffect(() => {
+    if (!window.argus?.cases?.onChanged) return
+    return window.argus.cases.onChanged(() => void reload())
+  }, [reload])
+
   // Mirrors the window's OS full-screen state onto `<html>` for main.css. Here rather than in a
   // component that could unmount: the attribute is document-wide chrome state, and the header
   // that reads it (via CSS) is present on every view.
@@ -324,6 +337,7 @@ function App(): React.JSX.Element {
                 jiraKey={cases.find((c) => c.slug === view.slug)?.jiraKey ?? null}
                 jiraSyncedAt={cases.find((c) => c.slug === view.slug)?.jiraSyncedAt ?? null}
                 ticketProvider={cases.find((c) => c.slug === view.slug)?.ticketProvider}
+                archivedAt={cases.find((c) => c.slug === view.slug)?.archivedAt ?? null}
                 onModeSwitched={() => void reload()}
                 onOpenHit={handleOpenHit}
                 onOpenCitation={(id, start, end) =>

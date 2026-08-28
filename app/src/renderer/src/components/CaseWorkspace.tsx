@@ -20,6 +20,7 @@ import { agentStore, wireAgentStore } from '../lib/agentStore'
 import { uiStore, CHAT_MIN_WIDTH, FINDINGS_MIN_WIDTH, EVIDENCE_MIN_WIDTH } from '../lib/uiStore'
 import { panelsStore, wirePanelsStore, CHAT_TAB } from '../lib/panelsStore'
 import { wireExternalAppsStore } from '../lib/externalAppsStore'
+import { notice } from '../lib/noticeStore'
 import { reposStore } from '../lib/reposStore'
 import { sessionsStore } from '../lib/sessionsStore'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
@@ -39,6 +40,7 @@ export function CaseWorkspace({
   jiraKey,
   jiraSyncedAt,
   ticketProvider,
+  archivedAt,
   onModeSwitched,
   onOpenHit,
   onOpenCitation,
@@ -66,6 +68,11 @@ export function CaseWorkspace({
    *  Optional (default 'jira') so callers that predate GitHub support, including tests, keep
    *  working unchanged. */
   ticketProvider?: TicketProviderId
+  /** `CaseRecord.archivedAt`, passed down the same way as the fields above. Non-null means the
+   *  case's evidence, artifacts and transcripts are in a bundle rather than on disk — the
+   *  evidence pane says so instead of showing an empty list that would read as "never had
+   *  any". Optional so callers that predate archiving, tests included, keep working. */
+  archivedAt?: string | null
   /** A mode switch persisted `CaseRecord.activeMode` in the DB (ModeSwitcher already called
    *  `cases.setMode`); this tells the parent to refetch its `cases` array so the `activeMode`
    *  prop above stops being stale — same contract as `onStatusChanged`, just for the mode
@@ -172,6 +179,14 @@ export function CaseWorkspace({
   const currentSlugRef = useRef(slug)
   useEffect(() => {
     currentSlugRef.current = slug
+  }, [slug])
+
+  // `last_opened_at`, stamped once per case the workspace mounts for. Genuinely fire-and-forget:
+  // the bridge already swallows its own rejection (see `touchOpened` in preload/index.ts), so a
+  // usage stamp can never surface as an error in the case view. Optional-chained because a
+  // test's stub bridge need not supply it.
+  useEffect(() => {
+    void window.argus?.cases?.touchOpened?.(slug)
   }, [slug])
 
   useEffect(() => {
@@ -672,6 +687,16 @@ export function CaseWorkspace({
                 caseSlug={slug}
                 label={activeMode === 'review' ? 'Code review artifacts' : 'Evidence'}
                 mode={activeMode}
+                archivedAt={archivedAt ?? null}
+                // The restore call itself, not a route back to the anchor's menu: the pane is
+                // where the user is looking when they find out the evidence is gone. The
+                // `cases:changed` broadcast the handler emits is what clears `archivedAt` here
+                // (App refetches), so nothing local has to be reconciled on success.
+                onRestore={() => {
+                  void window.argus.cases.restore(slug).catch((err: Error) => {
+                    notice(err.message, 'danger')
+                  })
+                }}
                 onSuggest={setPrefill}
                 onOpenFile={onOpenFile}
                 panelDecls={panels.decls}

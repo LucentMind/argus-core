@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CaseAnchor } from '../CaseAnchor'
@@ -12,6 +12,9 @@ let statusMock: ReturnType<typeof vi.fn>
 let redistillMock: ReturnType<typeof vi.fn>
 let cancelMock: ReturnType<typeof vi.fn>
 let needsRunMock: ReturnType<typeof vi.fn>
+let deleteMock: ReturnType<typeof vi.fn>
+let archiveMock: ReturnType<typeof vi.fn>
+let restoreMock: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   noticeStore.reset()
@@ -30,8 +33,19 @@ beforeEach(() => {
   cancelMock.mockResolvedValue(undefined)
   needsRunMock = vi.fn()
   needsRunMock.mockResolvedValue(true)
+  deleteMock = vi.fn()
+  deleteMock.mockResolvedValue(undefined)
+  archiveMock = vi.fn()
+  archiveMock.mockResolvedValue({ slug: 'NN-5187', bundlePath: '/a/NN-5187.zip' })
+  restoreMock = vi.fn()
+  restoreMock.mockResolvedValue({ slug: 'NN-5187' })
   window.argus = {
-    cases: { setStatus: setStatusMock },
+    cases: {
+      setStatus: setStatusMock,
+      delete: deleteMock,
+      archive: archiveMock,
+      restore: restoreMock
+    },
     bundle: { export: exportMock },
     distill: {
       status: statusMock,
@@ -46,6 +60,7 @@ beforeEach(() => {
 function renderAnchor(overrides?: {
   status?: 'open' | 'closed'
   resolution?: string | null
+  archivedAt?: string | null
   onStatusChanged?: () => void
   onHome?: () => void
 }): void {
@@ -55,12 +70,18 @@ function renderAnchor(overrides?: {
         slug="NN-5187"
         status={(overrides?.status ?? 'open') as never}
         resolution={(overrides?.resolution ?? null) as never}
+        archivedAt={overrides?.archivedAt ?? null}
         onStatusChanged={overrides?.onStatusChanged ?? vi.fn()}
         onHome={overrides?.onHome ?? vi.fn()}
       />
       <ConfirmHost />
     </>
   )
+}
+
+/** The menu trigger is the case id itself — see the anchor's own docblock. */
+async function openMenu(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
 }
 
 describe('CaseAnchor', () => {
@@ -563,5 +584,128 @@ describe('CaseAnchor', () => {
     await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
     const row = screen.getByText('Dry run (compare)…').closest('button')!
     expect(row.hasAttribute('disabled')).toBe(false)
+  })
+})
+
+describe('archive actions', () => {
+  it('offers Archive on a live case and Restore on an archived one', async () => {
+    const user = userEvent.setup()
+    renderAnchor({ archivedAt: null })
+    await openMenu(user)
+    expect(screen.getByText(/archive case/i)).toBeTruthy()
+    expect(screen.queryByText(/restore from archive/i)).toBeNull()
+
+    cleanup()
+    renderAnchor({ archivedAt: '2026-08-28T00:00:00Z' })
+    await openMenu(user)
+    expect(screen.getByText(/restore from archive/i)).toBeTruthy()
+    expect(screen.queryByText(/archive case/i)).toBeNull()
+  })
+
+  it('archives only after the operator confirms', async () => {
+    const user = userEvent.setup()
+    renderAnchor({ archivedAt: null })
+    await openMenu(user)
+    // Leaf row inside the open menu — fireEvent, per the hover-menu convention above.
+    fireEvent.click(screen.getByText('Archive case…'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(archiveMock).not.toHaveBeenCalled()
+
+    // Selecting a row closed the menu; reopen it for the second run.
+    await openMenu(user)
+    fireEvent.click(screen.getByText('Archive case…'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive' }))
+    await vi.waitFor(() => expect(archiveMock).toHaveBeenCalledWith('NN-5187'))
+  })
+
+  it('surfaces the live-work refusal as the sentence the main process wrote', async () => {
+    archiveMock.mockRejectedValue(
+      new Error('Case NN-5187 has an agent session still running. Stop it before archiving.')
+    )
+    const user = userEvent.setup()
+    renderAnchor({ archivedAt: null })
+    await openMenu(user)
+    fireEvent.click(screen.getByText('Archive case…'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive' }))
+    await vi.waitFor(() => expect(noticeStore.get().notices).toHaveLength(1))
+    expect(noticeStore.get().notices[0].message).toBe(
+      'Case NN-5187 has an agent session still running. Stop it before archiving.'
+    )
+    expect(noticeStore.get().notices[0].tone).toBe('danger')
+  })
+
+  it('surfaces a failed restore rather than swallowing it', async () => {
+    restoreMock.mockRejectedValue(new Error('bundle checksum mismatch'))
+    const user = userEvent.setup()
+    renderAnchor({ archivedAt: '2026-08-28T00:00:00Z' })
+    await openMenu(user)
+    fireEvent.click(screen.getByText('Restore from archive'))
+    await vi.waitFor(() => expect(noticeStore.get().notices).toHaveLength(1))
+    expect(noticeStore.get().notices[0].message).toBe('bundle checksum mismatch')
+    expect(noticeStore.get().notices[0].tone).toBe('danger')
+  })
+
+  it('deletes everything when the operator picks the danger button', async () => {
+    const user = userEvent.setup()
+    renderAnchor({ archivedAt: '2026-08-28T00:00:00Z' })
+    await openMenu(user)
+    fireEvent.click(screen.getByText(/delete case/i))
+    fireEvent.click(await screen.findByRole('button', { name: /delete everything/i }))
+    await vi.waitFor(() =>
+      expect(deleteMock).toHaveBeenCalledWith('NN-5187', { deleteArchive: true })
+    )
+  })
+
+  it('keeps the archive when the operator picks the alt button', async () => {
+    const user = userEvent.setup()
+    renderAnchor({ archivedAt: '2026-08-28T00:00:00Z' })
+    await openMenu(user)
+    fireEvent.click(screen.getByText(/delete case/i))
+    fireEvent.click(await screen.findByRole('button', { name: /keep the archive/i }))
+    await vi.waitFor(() =>
+      expect(deleteMock).toHaveBeenCalledWith('NN-5187', { deleteArchive: false })
+    )
+  })
+
+  it('offers no archive choice at all on a case that was never archived', async () => {
+    const user = userEvent.setup()
+    renderAnchor({ archivedAt: null })
+    await openMenu(user)
+    fireEvent.click(screen.getByText(/delete case/i))
+    expect(screen.queryByRole('button', { name: /keep the archive/i })).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: /^delete$/i }))
+    await vi.waitFor(() =>
+      expect(deleteMock).toHaveBeenCalledWith('NN-5187', { deleteArchive: false })
+    )
+  })
+
+  it('leaves the case alone when the delete prompt is cancelled', async () => {
+    const user = userEvent.setup()
+    const onHome = vi.fn()
+    uiStore.openTab('NN-5187')
+    renderAnchor({ archivedAt: '2026-08-28T00:00:00Z', onHome })
+    await openMenu(user)
+    fireEvent.click(screen.getByText(/delete case/i))
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(deleteMock).not.toHaveBeenCalled()
+    expect(onHome).not.toHaveBeenCalled()
+    expect(uiStore.get().recentTabs).toEqual(['NN-5187'])
+  })
+
+  it('surfaces a refused delete instead of navigating home as if it worked', async () => {
+    deleteMock.mockRejectedValue(new Error('Case NN-5187 is being archived.'))
+    const user = userEvent.setup()
+    const onHome = vi.fn()
+    uiStore.openTab('NN-5187')
+    renderAnchor({ archivedAt: null, onHome })
+    await openMenu(user)
+    fireEvent.click(screen.getByText(/delete case/i))
+    fireEvent.click(await screen.findByRole('button', { name: /^delete$/i }))
+    await vi.waitFor(() => expect(noticeStore.get().notices).toHaveLength(1))
+    expect(noticeStore.get().notices[0].message).toBe('Case NN-5187 is being archived.')
+    expect(onHome).not.toHaveBeenCalled()
+    expect(uiStore.get().recentTabs).toEqual(['NN-5187'])
   })
 })

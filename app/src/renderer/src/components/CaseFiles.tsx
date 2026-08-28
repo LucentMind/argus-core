@@ -76,6 +76,8 @@ export function CaseFiles({
   caseSlug,
   label,
   mode,
+  archivedAt = null,
+  onRestore,
   onSuggest,
   onOpenFile,
   panelDecls = [],
@@ -95,6 +97,13 @@ export function CaseFiles({
   /** Which mode's material this list shows. Investigation evidence and review artifacts
    *  live in separate directories and are never mixed. */
   mode: ModeId
+  /** `CaseRecord.archivedAt`. Non-null means this case's evidence and artifacts are in a bundle
+   *  and not on this machine — the empty list below then says that instead of "No evidence
+   *  yet.", which on an archived case is a false claim about a case that had plenty. */
+  archivedAt?: string | null
+  /** Restore the case from its bundle. Rendered as the archived state's only action, so the
+   *  user who just learned the evidence is gone can get it back without hunting for a menu. */
+  onRestore?: () => void
   onSuggest?: (text: string) => void
   onOpenFile: (node: FileNode) => void
   panelDecls?: PanelDecl[]
@@ -503,9 +512,34 @@ export function CaseFiles({
           ) : (
             <>
               {visible.map(renderRow)}
-              {loaded && visible.length === 0 && pending.items.length === 0 && (
-                <li className="py-2 text-mute">No evidence yet.</li>
-              )}
+              {loaded &&
+                visible.length === 0 &&
+                pending.items.length === 0 &&
+                (archivedAt ? (
+                  // "No evidence yet." here would be indistinguishable from a case that never
+                  // had any, which is the failure this state exists to prevent: an archived case
+                  // is precisely one that HAD evidence, and every row was removed on purpose.
+                  <li
+                    data-testid="evidence-archived"
+                    className="flex flex-col items-start gap-2 py-2 text-mute"
+                  >
+                    <p>
+                      Evidence was archived on {new Date(archivedAt).toLocaleDateString()} and is
+                      not on this machine. Restore the case to search and read it again.
+                    </p>
+                    {onRestore && (
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim transition-colors hover:bg-overlay hover:text-ink"
+                        onClick={onRestore}
+                      >
+                        Restore from archive
+                      </button>
+                    )}
+                  </li>
+                ) : (
+                  <li className="py-2 text-mute">No evidence yet.</li>
+                ))}
             </>
           )}
         </ul>

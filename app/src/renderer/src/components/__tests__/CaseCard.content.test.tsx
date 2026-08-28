@@ -260,3 +260,20 @@ describe('routine origin', () => {
     expect(screen.getByText('Analyzing')).toBeInTheDocument()
   })
 })
+
+describe('archived marker', () => {
+  it('marks an archived case and leaves a live one unmarked', () => {
+    renderCard(mkCase({ archivedAt: '2026-08-28T00:00:00Z' }))
+    expect(screen.getByText('Archived')).toBeInTheDocument()
+    cleanup()
+    renderCard(mkCase({ archivedAt: null }))
+    expect(screen.queryByText('Archived')).not.toBeInTheDocument()
+  })
+
+  it('marks an archived routine case too, which has no phase readout to sit beside', () => {
+    // The phase band is suppressed for routine cases, so a marker placed inside it would
+    // silently vanish for exactly the cases a routine archived.
+    renderCard(mkCase({ origin: 'routine', archivedAt: '2026-08-28T00:00:00Z' }))
+    expect(screen.getByText('Archived')).toBeInTheDocument()
+  })
+})
