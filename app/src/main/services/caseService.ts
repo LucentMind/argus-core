@@ -16,7 +16,7 @@ import { CASE_PHASE_PINS, type CasePhase, type CasePhasePin } from '../../shared
 import { deriveActionItems, triageRank } from '../../shared/triage'
 import { ARTIFACTS_LIKE } from './evidenceScopeSql'
 import { DEFAULT_MODE, MODES, type ModeId } from '../../shared/modes'
-import { caseDir } from './paths'
+import { caseDir, caseArchivePath } from './paths'
 import { appendDeletionAudit } from './deletionAudit'
 import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase } from './ftsIndex'
 import { CAPTURE_DIR_REL } from './prompts/capture'
@@ -1186,11 +1186,19 @@ export async function setCaseMode(
  * case_slug, not case_id, so the cascade above doesn't touch them → audit →
  * case directory → dev-tools prompt capture directory (best-effort; a captured
  * systemAppend includes the persona, pack fragments and the agent-access-filtered
- * memory index, so a deleted case's prompt text must not survive it). Callers must
- * first stop live sessions (AgentService.stopAllForCase) and close the case's file
- * watcher. rmSync removes the .claude junctions as links, never their targets.
+ * memory index, so a deleted case's prompt text must not survive it) → archive bundle
+ * (opt-in via `opts.deleteArchive`; the bundle lives outside caseDir under
+ * `<argusHome>/archive`, so it is retained by default — the audit's `archiveRetained`
+ * field records which way it went either way). Callers must first stop live sessions
+ * (AgentService.stopAllForCase) and close the case's file watcher. rmSync removes the
+ * .claude junctions as links, never their targets.
  */
-export function deleteCase(db: DatabaseSync, argusHome: string, slug: string): void {
+export function deleteCase(
+  db: DatabaseSync,
+  argusHome: string,
+  slug: string,
+  opts: { deleteArchive?: boolean } = {}
+): void {
   if (!SLUG_RE.test(slug)) throw new Error(`Invalid case slug: ${JSON.stringify(slug)}`)
   const rec = getCase(db, slug)
   if (!rec) throw new Error(`Unknown case: ${slug}`)
@@ -1206,7 +1214,10 @@ export function deleteCase(db: DatabaseSync, argusHome: string, slug: string): v
     title: rec.title,
     evidence: count('evidence'),
     sessions: count('sessions'),
-    findings: count('findings')
+    findings: count('findings'),
+    // Recorded either way: an audit line saying "case deleted" while several hundred MB of
+    // its evidence still sits in archive/ is a false record.
+    archiveRetained: !opts.deleteArchive
   }
   db.exec('BEGIN')
   try {
@@ -1226,6 +1237,13 @@ export function deleteCase(db: DatabaseSync, argusHome: string, slug: string): v
   }
   appendDeletionAudit(argusHome, 'case.delete', slug, detail)
   fs.rmSync(caseDir(argusHome, slug), { recursive: true, force: true })
+  // The bundle is a SECOND home for this case's bytes, outside caseDir, so removing the case
+  // dir alone would orphan it — a multi-hundred-megabyte file with no row pointing at it and
+  // nothing left to restore it into. Removing it is opt-in: "case gone from Argus, archive
+  // kept" is a legitimate outcome the caller chooses.
+  if (opts.deleteArchive) {
+    fs.rmSync(caseArchivePath(argusHome, slug), { force: true })
+  }
   // Best-effort: case deletion is the more important operation, so a failure to remove the
   // capture directory (locked file, permissions) must not surface as a failed case deletion.
   try {
