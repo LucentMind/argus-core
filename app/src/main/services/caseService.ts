@@ -17,6 +17,7 @@ import { deriveActionItems, triageRank } from '../../shared/triage'
 import { ARTIFACTS_LIKE } from './evidenceScopeSql'
 import { DEFAULT_MODE, MODES, type ModeId } from '../../shared/modes'
 import { caseDir, caseArchivePath } from './paths'
+import { isCaseFrozen } from './caseFreeze'
 import { appendDeletionAudit } from './deletionAudit'
 import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase } from './ftsIndex'
 import { CAPTURE_DIR_REL } from './prompts/capture'
@@ -1192,6 +1193,20 @@ export async function setCaseMode(
  * field records which way it went either way). Callers must first stop live sessions
  * (AgentService.stopAllForCase) and close the case's file watcher. rmSync removes the
  * .claude junctions as links, never their targets.
+ *
+ * Refuses a FROZEN case, but deliberately does NOT call `assertCaseWritable` (which would
+ * also refuse an ARCHIVED case): archiving a case only to make it permanently undeletable
+ * would defeat the reason this function takes `opts.deleteArchive` at all. The two states
+ * need different answers. `archiveCase` holds its freeze across `await` points (export,
+ * then a verify pass that can take seconds to minutes) before its own transaction commits;
+ * without this check, a concurrent `deleteCase` for the same slug can run to completion
+ * while an archive is suspended mid-freeze — cascade-deleting the `cases` row and the case
+ * dir, and possibly the bundle too, out from under an archive that is about to `UPDATE
+ * cases … WHERE id = ?` and rename its verified zip into place. That archive then "succeeds"
+ * against a case that no longer exists, and can even race `deleteCase(..., { deleteArchive:
+ * true })`'s bundle removal and leave the orphaned bundle back on disk. A freeze is always
+ * transient (seconds to minutes), so refusing during it makes nothing permanently
+ * undeletable — unlike gating on `assertCaseWritable`, which would.
  */
 export function deleteCase(
   db: DatabaseSync,
@@ -1200,6 +1215,11 @@ export function deleteCase(
   opts: { deleteArchive?: boolean } = {}
 ): void {
   if (!SLUG_RE.test(slug)) throw new Error(`Invalid case slug: ${JSON.stringify(slug)}`)
+  if (isCaseFrozen(slug)) {
+    throw new Error(
+      `Case ${slug} is being archived. Wait for that operation to finish before deleting it.`
+    )
+  }
   const rec = getCase(db, slug)
   if (!rec) throw new Error(`Unknown case: ${slug}`)
   const count = (table: string): number =>
