@@ -14,7 +14,7 @@ import {
 } from '../lineIndex'
 
 let tmp: string, argusHome: string
-let wtfCounter = 0
+let tmpFileCounter = 0
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-li-'))
@@ -32,7 +32,7 @@ function writeLines(name: string, count: number, width = 10): string {
 }
 
 function writeTempFile(content: string): { argusHome: string; absPath: string } {
-  const absPath = path.join(tmp, `wtf-${++wtfCounter}.txt`)
+  const absPath = path.join(tmp, `tmpf-${++tmpFileCounter}.txt`)
   fs.writeFileSync(absPath, content)
   return { argusHome, absPath }
 }
