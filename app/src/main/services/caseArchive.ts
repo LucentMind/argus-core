@@ -18,6 +18,7 @@ import { archiveDir, caseArchivePath, caseDir } from './paths'
 import { sidecarPath } from './lineIndex'
 import { EVIDENCE_DIR, ARTIFACTS_DIR } from '../../shared/evidenceScope'
 import { RCA_REPORT_FILENAMES } from './rca/artifacts'
+import type { ArchiveResult, RestoreResult } from '../../shared/archive'
 import type { BundleManifest, BundleRows } from '../../shared/bundle'
 import type { IndexState } from '../../shared/types'
 
@@ -40,14 +41,9 @@ const ARCHIVED_TREES = [EVIDENCE_DIR, ARTIFACTS_DIR, 'sessions']
  */
 const KEPT_ARTIFACT_FILES = new Set<string>(RCA_REPORT_FILENAMES)
 
-export interface ArchiveResult {
-  slug: string
-  bundlePath: string
-  /** Bytes removed from cases/<slug> — what the operator actually got back. */
-  bytesFreed: number
-  evidenceRemoved: number
-  sessionsRemoved: number
-}
+// Declared in shared/ because the preload bridge and the renderer name them too; re-exported
+// here so every existing importer of these types is untouched.
+export type { ArchiveResult, RestoreResult }
 
 /** Injected seams. `exportTo`/`verify` are where the ordering tests inject failures;
  *  `hasLiveWork` is a production seam — `archiveCase` is a database-level function with no
@@ -273,6 +269,13 @@ async function archiveFrozenCase(
     }
   }
 
+  // Archiving frees a large number of pages. Without this they are reused but never returned
+  // to the filesystem, so the file would never shrink no matter how much is archived. This is
+  // a no-op unless auto_vacuum is INCREMENTAL, which the contentless-index migration sets —
+  // if that has not run yet, archiving still works and the file shrinks at the next VACUUM.
+  // Outside the transaction above on purpose: incremental_vacuum cannot run inside one.
+  db.exec(`PRAGMA incremental_vacuum`)
+
   return {
     slug,
     bundlePath,
@@ -327,14 +330,6 @@ export function manifestHash(manifest: BundleManifest): string {
 export interface RestoreDeps {
   afterExtract?: () => void | Promise<void>
   afterRebuild?: () => void | Promise<void>
-}
-
-export interface RestoreResult {
-  slug: string
-  evidenceRestored: number
-  sessionsRestored: number
-  /** How many evidence rows were handed to the ingest queue for re-indexing. */
-  queuedForIndex: number
 }
 
 /**

@@ -129,6 +129,7 @@ import type {
 } from '../shared/packs'
 import type { CoreUpdatePayload, UpdateStatus } from '../shared/updates'
 import type { AdapterId, CurrencyPayload } from '../shared/currency'
+import type { ArchiveResult, RestoreResult } from '../shared/archive'
 import type { SeedSampleResult } from '../shared/onboarding'
 import type { PrBinding, PrRef, PrSearchResult } from '../shared/pr'
 import type { ReviewRunComposition } from '../shared/reviewCompose'
@@ -211,7 +212,18 @@ const argus = {
     list: () => invoke(IPC.casesList),
     cost: (caseSlug: string) => invoke(IPC.caseCost, caseSlug),
     readFindings: (caseSlug: string) => invoke(IPC.caseReadFindings, caseSlug),
-    delete: (slug: string): Promise<void> => invoke(IPC.casesDelete, slug),
+    /** `opts.deleteArchive` also removes the case's archive bundle. Omitted means false: an
+     *  archive is a separate artefact and is KEPT unless the caller explicitly asks. */
+    delete: (slug: string, opts?: { deleteArchive?: boolean }): Promise<void> =>
+      invoke(IPC.casesDelete, slug, opts),
+    /** Move the case's evidence, artifacts and transcripts out to a verified bundle. Rejects if
+     *  the case still has work in progress — the message says what to do about it. */
+    archive: (slug: string): Promise<ArchiveResult> => invoke(IPC.casesArchive, slug),
+    /** Rehydrate an archived case in place from its bundle. */
+    restore: (slug: string): Promise<RestoreResult> => invoke(IPC.casesRestore, slug),
+    /** Stamp last_opened_at. Fire-and-forget: silent on an unknown slug by design, so callers
+     *  must not surface a failure here as an error. */
+    touchOpened: (slug: string): Promise<void> => invoke(IPC.casesTouchOpened, slug),
     setStatus: (
       slug: string,
       status: CaseStatus,
