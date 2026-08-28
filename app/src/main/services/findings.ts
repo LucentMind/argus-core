@@ -1,7 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
-import { isFindingRole, type FindingRow, type ReviewState } from '../../shared/observability'
+import {
+  isFindingRole,
+  type FindingRow,
+  type ReviewState,
+  type ReviewActor
+} from '../../shared/observability'
 import { isReviewLayerId, isReviewSeverity } from '../../shared/reviewLayers'
 import { DEFAULT_MODE, type ModeId } from '../../shared/modes'
 import type { RoleAssignment } from '../../shared/rca'
@@ -34,6 +39,8 @@ interface Raw {
   head_sha: string | null
   mode: string | null
   role: string | null
+  review_reason: string | null
+  review_actor: string | null
 }
 
 function toRow(r: Raw): FindingRow {
@@ -59,7 +66,15 @@ function toRow(r: Raw): FindingRow {
     // to join — it is investigation by the same rule that made investigation the implicit
     // default for every pre-existing case (spec §3).
     mode: (r.mode as ModeId | null) ?? DEFAULT_MODE,
-    role: isFindingRole(r.role) ? r.role : null
+    role: isFindingRole(r.role) ? r.role : null,
+    reviewReason: r.review_reason,
+    // Anything other than the literal 'agent' — including NULL on every pre-retraction row —
+    // reads as the human review path, which is what it was.
+    reviewActor: (r.review_actor === 'agent'
+      ? 'agent'
+      : r.review_actor
+        ? 'human'
+        : null) as ReviewActor | null
   }
 }
 
@@ -122,15 +137,51 @@ export function reviewFinding(db: DatabaseSync, id: number, state: ReviewState):
   if (!REVIEW_STATES.includes(state))
     throw new Error(`Invalid review state: ${JSON.stringify(state)}`)
   const reviewedAt = state === 'pending' ? null : new Date().toISOString()
-  db.prepare(`UPDATE findings SET review_state = ?, reviewed_at = ? WHERE id = ?`).run(
-    state,
-    reviewedAt,
-    id
-  )
+  db.prepare(
+    `UPDATE findings SET review_state = ?, reviewed_at = ?, review_actor = 'human' WHERE id = ?`
+  ).run(state, reviewedAt, id)
   const row = db
     .prepare(`SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE} WHERE f.id = ?`)
     .get(id) as unknown as Raw | undefined
   return row ? toRow(row) : null
+}
+
+export type RetractResult =
+  { ok: true; row: FindingRow; changed: boolean } | { ok: false; reason: 'accepted' | 'unknown' }
+
+/**
+ * The agent withdrawing its own finding. Folds into the existing `rejected` state — a
+ * retraction and a human reject land on the same state — and records WHO and WHY in
+ * `review_actor` / `review_reason`.
+ *
+ * Two rules the caller cannot enforce for itself:
+ *  - An `accepted` finding is refused outright. A human's accept is not the agent's to
+ *    overturn; disagreement belongs in chat, not in a silent state flip.
+ *  - A finding a HUMAN already rejected is left exactly as it is (`changed: false`). The
+ *    call still succeeds, because the finding is already in the state the agent wanted —
+ *    but the human's reason and authorship survive. An agent's own earlier retraction IS
+ *    overwritten: the newer reason is the better one.
+ *
+ * Returns a result rather than throwing so this module needs no prompt-registry resolver;
+ * the tool layer owns the user-facing wording.
+ */
+export function retractFinding(db: DatabaseSync, id: number, reason: string): RetractResult {
+  const cur = db.prepare(`SELECT review_state, review_actor FROM findings WHERE id = ?`).get(id) as
+    { review_state: string; review_actor: string | null } | undefined
+  if (!cur) return { ok: false, reason: 'unknown' }
+  if (cur.review_state === 'accepted') return { ok: false, reason: 'accepted' }
+  const humanRejected = cur.review_state === 'rejected' && cur.review_actor !== 'agent'
+  if (!humanRejected) {
+    db.prepare(
+      `UPDATE findings
+          SET review_state = 'rejected', review_actor = 'agent', review_reason = ?, reviewed_at = ?
+        WHERE id = ?`
+    ).run(reason, new Date().toISOString(), id)
+  }
+  const row = db
+    .prepare(`SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE} WHERE f.id = ?`)
+    .get(id) as unknown as Raw
+  return { ok: true, row: toRow(row), changed: !humanRejected }
 }
 
 /** findings.md minus the marker segments for `ids` — mode-scoped clear must leave the other

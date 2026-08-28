@@ -42,6 +42,10 @@ export interface LangfuseConfig {
 
 export type ReviewState = 'pending' | 'accepted' | 'rejected'
 
+/** Who set `reviewState`. NULL on rows written before retraction existed — read as 'human',
+ *  because until then the agent could not reject anything. */
+export type ReviewActor = 'agent' | 'human'
+
 export type FindingRole = 'root-cause' | 'contributing' | 'symptom' | 'ruled-out' | 'duplicate'
 export const FINDING_ROLES: FindingRole[] = [
   'root-cause',
@@ -82,6 +86,10 @@ export interface FindingRow {
   commentBody: string | null
   /** PR head sha the finding was recorded against (Plan 6 staleness); null when unknown. */
   headSha: string | null
+  /** Why the finding was rejected or withdrawn; null when no reason was recorded. */
+  reviewReason: string | null
+  /** Who rejected it. 'agent' means the agent withdrew its own finding. */
+  reviewActor: ReviewActor | null
   /** Derived from the finding's session (sessions.mode), never stored on the row.
    *  A finding with no session reads as the default mode. */
   mode: ModeId

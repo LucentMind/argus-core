@@ -36,6 +36,8 @@ function row(over: Partial<FindingRow>): FindingRow {
     pushedSha: null,
     commentBody: null,
     headSha: null,
+    reviewReason: null,
+    reviewActor: null,
     mode: 'investigation',
     role: null,
     ...over
