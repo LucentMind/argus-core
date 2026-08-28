@@ -319,7 +319,7 @@ describe('archiveCase refuses an unstable case and freezes a stable one', () => 
     await archiveCase(db, home, slug, { argusVersion: 'test' })
     const { dest, run } = await tryIngest(db, home, slug, 'after-archive.log')
 
-    await expect(run()).rejects.toThrow(/archived/i)
+    await expect(run()).rejects.toThrow(/is archived and cannot accept new files/i)
     expect(fs.existsSync(dest)).toBe(false)
   })
 
@@ -543,7 +543,9 @@ describe('a frozen or archived case cannot acquire a transcript writer', () => {
     await archiveCase(db, home, slug, { argusVersion: 'test' })
     const caseId = getCase(db, slug)!.id
 
-    expect(() => createSession(db, slug, 'claude-agent-sdk')).toThrow(/archived/i)
+    expect(() => createSession(db, slug, 'claude-agent-sdk')).toThrow(
+      /is archived and cannot accept new files/i
+    )
     const n = (
       db.prepare(`SELECT count(*) AS n FROM sessions WHERE case_id = ?`).get(caseId) as {
         n: number
@@ -599,7 +601,7 @@ describe('a frozen or archived case cannot acquire a transcript writer', () => {
           sessionId: 7,
           caseSlug: slug
         })
-    ).toThrow(/archived/i)
+    ).toThrow(/is archived and cannot accept new files/i)
 
     // the constructor's mkdirSync is what would otherwise resurrect the deleted tree
     expect(fs.existsSync(sessionsDir), 'sessions/ was recreated by the mirror').toBe(false)

@@ -86,8 +86,11 @@ export function isCaseArchived(db: DatabaseSync, slug: string): boolean {
  *
  * Refuses BOTH states that make a write unsafe:
  *  - frozen: an archive is in flight, and anything written now is outside the bundle.
- *  - archived: the bundle is already sealed, so a new file would not be in it — and it would
- *    also collide with the directory rename a later restore performs.
+ *  - archived: the bundle is already sealed, so a new file would not be in it — and a restore
+ *    replaces the case tree from that bundle, so anything written after archiving is silently
+ *    discarded the moment the case comes back. (It is NOT that a write would collide with a
+ *    rename: archiving deliberately leaves the RCA report files in `artifacts/`, so the
+ *    directory survives. See the same argument at `rca/artifacts.ts`'s writeReportMarkdown.)
  *
  * NOTE: an UNKNOWN slug passes silently. This guard answers "may this case be written?", not
  * "does this case exist?" — callers that need the case to exist check that themselves (every

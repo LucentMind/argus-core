@@ -94,7 +94,10 @@ export function SessionSwitcher({
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<ChatSearchHit[]>([])
   const [searchError, setSearchError] = useState<string | null>(null)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
+  // One line for whatever the popup's actions failed at — a delete, or a create the main
+  // process refused (a frozen or archived case is refused by `createSession`). Named for the
+  // panel rather than for `deleteChat` because both writers render into the same place.
+  const [actionError, setActionError] = useState<string | null>(null)
   const settingsPayload = useSettingsPayload()
   const activeDriverKind = settingsPayload
     ? activeDriver(settingsPayload.settings)?.kind
@@ -128,7 +131,7 @@ export function SessionSwitcher({
       setHits([])
       setSearchError(null)
       setRenamingId(null)
-      setDeleteError(null)
+      setActionError(null)
     }
   }
 
@@ -191,7 +194,19 @@ export function SessionSwitcher({
       onSwitch(empty.id)
       return
     }
-    const created = await window.argus.sessions.create(slug)
+    // `sessions.create` can genuinely be REFUSED, not just fail transiently: `createSession`
+    // throws for a case that is frozen (an archive is in flight) or already archived. Report it
+    // on the same line `deleteChat` uses and keep the popup open, rather than letting the
+    // rejection escape the fire-and-forget `void createChat()` at the click site as an
+    // unhandled rejection with nothing on screen.
+    setActionError(null)
+    let created: SessionSummary
+    try {
+      created = await window.argus.sessions.create(slug)
+    } catch (err) {
+      setActionError((err as Error).message)
+      return
+    }
     // Adopt the row BEFORE selecting it, and synchronously — `onSwitch` makes this the active
     // chat, and everything derived from the active row (the composer's chips) is dead until
     // the row is present. A fire-and-forget `sessions.list()` here is what used to leave that
@@ -227,18 +242,20 @@ export function SessionSwitcher({
       }))
     )
       return
-    setDeleteError(null)
+    setActionError(null)
     let ok = true
     try {
       await window.argus.sessions.delete(slug, s.id)
     } catch (err) {
       ok = false
-      setDeleteError((err as Error).message)
+      setActionError((err as Error).message)
     } finally {
       const list = await sessionsStore.load(slug)
-      // deleted the active chat → land on the newest remaining one (listSessions
-      // auto-creates when none are left, so list[0] always exists) — only on success,
-      // else we'd close the popup and hide the error we just set
+      // deleted the active chat → land on the newest remaining one, and only on success,
+      // else we'd close the popup and hide the error we just set. The `list.length > 0`
+      // guard is load-bearing, not defensive: `listSessions` used to auto-create whenever
+      // none were left, so `list[0]` always existed; it no longer does that for an ARCHIVED
+      // case, which reports an empty list honestly.
       if (ok && s.id === sessionId && list.length > 0) {
         setOpen(false)
         onSwitch(list[0].id)
@@ -339,7 +356,7 @@ export function SessionSwitcher({
                   <MessageSquarePlus size={12} strokeWidth={1.5} aria-hidden="true" />
                   <span>New chat</span>
                 </button>
-                {deleteError && <p className="px-1.5 py-1 text-xs text-danger">{deleteError}</p>}
+                {actionError && <p className="px-1.5 py-1 text-xs text-danger">{actionError}</p>}
                 {sorted.map((s) => {
                   const title = displayTitle(s)
                   const isRenaming = renamingId === s.id
