@@ -14,7 +14,7 @@ import {
 import { ingestContent, ingestDerived, listEvidence, sha256File } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { searchEvidence } from '../search'
-import { exportCase, importCase, inspectBundle, proposeSlug } from '../bundle'
+import { exportCase, importCase, inspectBundle, proposeSlug, verifyBundleArchive } from '../bundle'
 import { caseDir } from '../paths'
 import { sidecarPath } from '../lineIndex'
 import { MAX_READ_BYTES } from '../search'
@@ -184,6 +184,45 @@ async function bundleWithCaseJson(patch: Record<string, unknown>): Promise<strin
   zip.addFolder(path.join(tmp, 'case'), 'case')
   await zip.archive(out)
   return out
+}
+
+/**
+ * Extract `zipPath` to a temp dir, let `mutate` edit the extracted tree (manifest.json
+ * and/or the `case/` folder), then rebuild the zip in place from the edited tree —
+ * mirroring how bundleWithCaseJson and the tamper tests above rebuild an archive.
+ */
+async function rewriteZipEntry(
+  zipPath: string,
+  mutate: (extractedRoot: string) => void
+): Promise<void> {
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-vzip-')))
+  await extract(zipPath, tmp)
+  mutate(tmp)
+  const rebuilt = path.join(tmp, 'rebuilt.arguscase')
+  const zip = new Zip()
+  zip.addFile(path.join(tmp, 'manifest.json'), 'manifest.json')
+  zip.addFolder(path.join(tmp, 'case'), 'case')
+  await zip.archive(rebuilt)
+  fs.copyFileSync(rebuilt, zipPath)
+  fs.rmSync(tmp, { recursive: true, force: true })
+}
+
+/** Replace one zip entry's content (e.g. 'case/evidence/boot.txt') without touching its manifest hash. */
+async function tamperWithZipEntry(
+  zipPath: string,
+  entryName: string,
+  content: string
+): Promise<void> {
+  await rewriteZipEntry(zipPath, (tmp) => {
+    fs.writeFileSync(path.join(tmp, ...entryName.split('/')), content)
+  })
+}
+
+/** Drop one zip entry (e.g. 'case/evidence/boot.txt') while leaving it listed in the manifest. */
+async function removeZipEntry(zipPath: string, entryName: string): Promise<void> {
+  await rewriteZipEntry(zipPath, (tmp) => {
+    fs.rmSync(path.join(tmp, ...entryName.split('/')))
+  })
 }
 
 // Fix 1: exportCase/importCase must restore case_jira_links, not just the mirrored
@@ -382,6 +421,31 @@ describe('importCase', () => {
     dbC.close()
     fs.rmSync(homeC, { recursive: true, force: true })
     fs.rmSync(tmp, { recursive: true, force: true })
+  })
+})
+
+// Extracted from importCase's inline integrity loop (Task 2 of case-archiving) so the
+// archive rail can verify a written .arguscase archive the same way import does, before
+// deleting the case's originals on the strength of the check.
+describe('verifyBundleArchive', () => {
+  it('returns the manifest for an intact bundle', async () => {
+    const manifest = await verifyBundleArchive(bundle)
+    expect(manifest.slug).toBe('NAV-100')
+    expect(manifest.files.length).toBeGreaterThan(0)
+  })
+
+  it('throws naming the file whose content does not match its recorded hash', async () => {
+    const zip = path.join(homeA, 'verify-bad.arguscase')
+    fs.copyFileSync(bundle, zip)
+    await tamperWithZipEntry(zip, 'case/evidence/boot.txt', 'corrupted content\n')
+    await expect(verifyBundleArchive(zip)).rejects.toThrow(/evidence\/boot\.txt/)
+  })
+
+  it('throws when a manifest entry is missing from the archive entirely', async () => {
+    const zip = path.join(homeA, 'verify-missing.arguscase')
+    fs.copyFileSync(bundle, zip)
+    await removeZipEntry(zip, 'case/evidence/boot.txt')
+    await expect(verifyBundleArchive(zip)).rejects.toThrow(/missing/i)
   })
 })
 
