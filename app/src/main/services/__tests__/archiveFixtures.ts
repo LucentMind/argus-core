@@ -11,7 +11,8 @@ import { createDetection } from '../packs/detection'
 import { createSession } from '../agent/sessionStore'
 import { insertMessageFts } from '../ftsIndex'
 import { upsertCaseSummary } from '../distill/summaries'
-import { caseDir } from '../paths'
+import { caseDir, proposalsDir } from '../paths'
+import { writeProposal, rejectProposal } from '../proposals'
 
 /** Homes + handles opened by seedArchivableCase(), torn down by cleanupArchiveFixtures(). */
 const opened: Array<{ db: DatabaseSync; home: string }> = []
@@ -176,6 +177,49 @@ export function cleanupArchiveFixtures(): void {
     }
     fs.rmSync(home, { recursive: true, force: true })
   }
+}
+
+/** One pending proposal and one archived (rejected) proposal for `slug`, so a test can assert
+ *  `deleteCase` never touches `<home>/proposals` — the pending one because that inbox is a
+ *  global surface unrelated to any one case, and the archived reject because removing it would
+ *  make `digestStale`'s subtraction go permanently negative (see rejectDigest.ts). */
+export function seedProposals(home: string, slug: string): void {
+  writeProposal(home, slug, {
+    type: 'reference-edit',
+    target: 'pending-ref',
+    title: 'a pending proposal',
+    content: 'pending body\n'
+  })
+  const file = writeProposal(home, slug, {
+    type: 'reference-edit',
+    target: 'rejected-ref',
+    title: 'a rejected proposal',
+    content: 'rejected body\n'
+  })
+  rejectProposal(home, file, { tag: 'wrong', note: 'not needed for this fixture' })
+}
+
+/** Hash of every file under `<home>/proposals` (pending + archive), by relative path. Used to
+ *  prove a whole subtree is byte-identical before and after some other operation. */
+export function snapshotProposals(home: string): Record<string, string> {
+  const dir = proposalsDir(home)
+  const out: Record<string, string> = {}
+  const walk = (d: string, base = ''): void => {
+    if (!fs.existsSync(d)) return
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const rel = `${base}${e.name}`
+      if (e.isDirectory()) {
+        walk(path.join(d, e.name), `${rel}/`)
+      } else {
+        out[rel] = crypto
+          .createHash('sha256')
+          .update(fs.readFileSync(path.join(d, e.name)))
+          .digest('hex')
+      }
+    }
+  }
+  walk(dir)
+  return out
 }
 
 /** Everything an ordering test must find unchanged after a FAILED archive. Compared by value,
