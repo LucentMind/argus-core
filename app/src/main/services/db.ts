@@ -36,6 +36,30 @@ CREATE VIRTUAL TABLE IF NOT EXISTS evidence_fts USING fts5(
   start_line UNINDEXED,
   end_line UNINDEXED
 );
+-- Contentless replacement for evidence_fts. FTS5's default (contentful) mode keeps a
+-- verbatim copy of every indexed line in its _content shadow table on top of the
+-- inverted index, which on a real 50-case install cost 36.7 GB — a second copy of
+-- evidence files that already exist on disk under caseDir(). Storing only the index
+-- costs 0.38x the raw text instead of 1.40x (measured).
+--
+-- content='' means NO column value can ever be read back: SELECT content, and
+-- snippet(), return NULL rather than raising. Locators therefore live in
+-- evidence_index_map, and snippets are rendered from the file (services/snippet.ts).
+-- contentless_delete=1 is what makes DELETE ... WHERE rowid = ? legal, which every
+-- delete helper in ftsIndex.ts relies on. detail stays full: detail=column/none raise
+-- on phrase and NEAR queries.
+CREATE VIRTUAL TABLE IF NOT EXISTS evidence_index USING fts5(
+  content, content='', contentless_delete=1
+);
+CREATE TABLE IF NOT EXISTS evidence_index_map (
+  fts_rowid   INTEGER PRIMARY KEY,
+  evidence_id INTEGER NOT NULL,
+  chunk_index INTEGER NOT NULL,
+  start_line  INTEGER NOT NULL,
+  end_line    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_evidence_index_map_evidence_id
+  ON evidence_index_map(evidence_id);
 CREATE TABLE IF NOT EXISTS sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,

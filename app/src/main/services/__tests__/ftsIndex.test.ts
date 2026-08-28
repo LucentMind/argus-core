@@ -11,7 +11,8 @@ import {
   deleteEvidenceFtsForEvidence,
   deleteEvidenceFtsForCase,
   deleteEvidenceFtsThorough,
-  backfillFtsMaps
+  backfillFtsMaps,
+  withFtsSavepoint
 } from '../ftsIndex'
 import { indexEvidenceText, indexEvidenceFile } from '../indexer'
 
@@ -130,24 +131,27 @@ describe('evidence_fts map', () => {
   })
 })
 
-// — the residue class: an evidence_fts row with no map row —
+// — the residue class: an evidence_index row with no map row —
 //
-// The map is the ONLY handle deleteEvidenceFtsForEvidence has on an FTS row. A row
-// written without its map row is therefore invisible to every delete in the app: it
-// survives crash recovery, comes back as a duplicate chunk_index after the re-index,
-// and is never reclaimed, not even when the evidence itself is deleted. Reproduced
-// live by SIGKILLing the app mid-index of a 199MB file, landing between the FTS
-// insert and the map insert.
-describe('unmapped evidence_fts rows', () => {
+// The map is the ONLY handle any delete has on an FTS row. A row written without its
+// map row is therefore invisible to every map-driven delete in the app: it survives
+// crash recovery, comes back as a duplicate chunk_index after the re-index, and is
+// never reclaimed, not even when the evidence itself is deleted. Reproduced live by
+// SIGKILLing the app mid-index of a 199MB file, landing between the FTS insert and the
+// map insert.
+//
+// indexEvidenceText/indexEvidenceFile write evidence_index + evidence_index_map now
+// (Task 2), so the write-path atomicity guard moved here from the legacy tables.
+describe('unmapped evidence_index rows', () => {
   const unmapped = (): number =>
-    n(`SELECT COUNT(*) AS n FROM evidence_fts f
-       WHERE NOT EXISTS (SELECT 1 FROM evidence_fts_map m WHERE m.fts_rowid = f.rowid)`)
+    n(`SELECT COUNT(*) AS n FROM evidence_index f
+       WHERE NOT EXISTS (SELECT 1 FROM evidence_index_map m WHERE m.fts_rowid = f.rowid)`)
 
   /** Make the map insert fail, standing in for the crash that landed between the
    *  two statements. Whatever interrupts it, the FTS row must not be left behind. */
   function breakMapInserts(): void {
     db.exec(
-      `CREATE TRIGGER argus_test_block_map BEFORE INSERT ON evidence_fts_map
+      `CREATE TRIGGER argus_test_block_map BEFORE INSERT ON evidence_index_map
        BEGIN SELECT RAISE(ABORT, 'interrupted between the two inserts'); END`
     )
   }
@@ -158,7 +162,7 @@ describe('unmapped evidence_fts rows', () => {
     // The whole pair rolled back: no orphan, so nothing the map-driven delete
     // would miss. (Without the savepoint the fts row survives and is unreclaimable.)
     expect(unmapped()).toBe(0)
-    expect(n(`SELECT COUNT(*) AS n FROM evidence_fts WHERE evidence_id = ?`, 77)).toBe(0)
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_index_map WHERE evidence_id = ?`, 77)).toBe(0)
   })
 
   it('indexEvidenceFile leaves NO fts row behind when the map insert fails', () => {
@@ -167,13 +171,12 @@ describe('unmapped evidence_fts rows', () => {
     breakMapInserts()
     expect(() => indexEvidenceFile(db, 78, f, 4)).toThrow(/interrupted/)
     expect(unmapped()).toBe(0)
-    expect(n(`SELECT COUNT(*) AS n FROM evidence_fts WHERE evidence_id = ?`, 78)).toBe(0)
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_index_map WHERE evidence_id = ?`, 78)).toBe(0)
   })
 
   it('a healthy write still produces one map row per fts row', () => {
     indexEvidenceText(db, 79, 'alpha\nbravo\ncharlie\ndelta\n', 2)
-    expect(n(`SELECT COUNT(*) AS n FROM evidence_fts WHERE evidence_id = ?`, 79)).toBe(2)
-    expect(n(`SELECT COUNT(*) AS n FROM evidence_fts_map WHERE evidence_id = ?`, 79)).toBe(2)
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_index_map WHERE evidence_id = ?`, 79)).toBe(2)
     expect(unmapped()).toBe(0)
   })
 
@@ -183,24 +186,43 @@ describe('unmapped evidence_fts rows', () => {
     db.exec('BEGIN')
     expect(() => indexEvidenceText(db, 80, 'alpha\nbravo\n', 1)).not.toThrow()
     db.exec('COMMIT')
-    expect(n(`SELECT COUNT(*) AS n FROM evidence_fts WHERE evidence_id = ?`, 80)).toBe(2)
+    expect(n(`SELECT COUNT(*) AS n FROM evidence_index_map WHERE evidence_id = ?`, 80)).toBe(2)
     expect(unmapped()).toBe(0)
   })
 
   it('deleteEvidenceFtsThorough clears residue the map-driven delete cannot see', () => {
-    indexEvidenceText(db, 81, 'alpha\nbravo\n', 1)
+    // deleteEvidenceFtsThorough/deleteEvidenceFtsForEvidence still operate on the
+    // legacy evidence_fts/evidence_fts_map tables only in this increment (Task 3
+    // teaches them about evidence_index too), so this exercises them directly
+    // against a legacy-shaped row rather than through indexEvidenceText, which no
+    // longer writes there.
+    const unmappedLegacy = (): number =>
+      n(`SELECT COUNT(*) AS n FROM evidence_fts f
+         WHERE NOT EXISTS (SELECT 1 FROM evidence_fts_map m WHERE m.fts_rowid = f.rowid)`)
+    withFtsSavepoint(db, () => {
+      const rowid = db
+        .prepare(
+          `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
+           VALUES ('healthy bearing', 81, 0, 1, 1)`
+        )
+        .run().lastInsertRowid
+      db.prepare(`INSERT INTO evidence_fts_map (fts_rowid, evidence_id) VALUES (?, ?)`).run(
+        rowid,
+        81
+      )
+    })
     // pre-fix residue: an fts row with no map row
     db.prepare(
       `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
-       VALUES ('orphan bearing', 81, 0, 1, 1)`
+       VALUES ('orphan bearing', 81, 1, 2, 2)`
     ).run()
-    expect(unmapped()).toBe(1)
+    expect(unmappedLegacy()).toBe(1)
 
     deleteEvidenceFtsForEvidence(db, 81) // map-driven: structurally blind to it
-    expect(unmapped()).toBe(1)
+    expect(unmappedLegacy()).toBe(1)
 
     deleteEvidenceFtsThorough(db, 81)
-    expect(unmapped()).toBe(0)
+    expect(unmappedLegacy()).toBe(0)
     expect(n(`SELECT COUNT(*) AS n FROM evidence_fts WHERE evidence_id = ?`, 81)).toBe(0)
   })
 })

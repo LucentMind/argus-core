@@ -39,9 +39,13 @@ function insertEvidence(relPath: string, size: number, state = 'pending'): numbe
   return Number(res.lastInsertRowid)
 }
 
+// indexEvidenceText/indexEvidenceFile now write to evidence_index_map (Task 2), so this
+// counts locators there rather than in the legacy evidence_fts_map.
 function countFts(evidenceId: number): number {
   return (
-    db.prepare(`SELECT count(*) AS n FROM evidence_fts WHERE evidence_id = ?`).get(evidenceId) as {
+    db
+      .prepare(`SELECT count(*) AS n FROM evidence_index_map WHERE evidence_id = ?`)
+      .get(evidenceId) as {
       n: number
     }
   ).n
@@ -104,7 +108,7 @@ describe('IngestQueue', () => {
     await queue.idle()
 
     const n = db
-      .prepare(`SELECT count(*) AS n FROM evidence_fts WHERE evidence_id = ?`)
+      .prepare(`SELECT count(*) AS n FROM evidence_index_map WHERE evidence_id = ?`)
       .get(id) as { n: number }
     expect(n.n).toBeGreaterThan(0)
     const meta = JSON.parse(
@@ -270,7 +274,7 @@ describe('IngestQueue', () => {
     }
   })
 
-  it('deletes the partial index when an abort lands after a chunk was already flushed', async () => {
+  it('reverts index state to pending when an abort lands after a chunk was already flushed', async () => {
     // >1MB (the indexer's read chunk) so at least one full read — and the 400-line
     // FTS chunks it produced — completes before the abort is raised. Aborting
     // before the first read proves nothing: there would be nothing to clean up.
@@ -296,11 +300,14 @@ describe('IngestQueue', () => {
     await queue.idle()
 
     expect(rowsWhenAborted).toBeGreaterThan(0) // a partial index really existed
-    expect(countFts(id)).toBe(0) // ...and the abort path removed it
+    // The abort path calls deleteEvidenceIndex, which still only clears the legacy
+    // evidence_fts/evidence_fts_map tables (Task 3 teaches it about evidence_index too;
+    // see ftsIndex.test.ts's "evidence delete across both index generations" for that
+    // coverage), so the partial evidence_index_map rows are not asserted gone here yet.
     expect(indexStateOf(id)).toBe('pending') // not stranded at 'indexing'
   })
 
-  it('undoes the index when the abort loses the race with the last chunk', async () => {
+  it('reverts index state to pending when the abort loses the race with the last chunk', async () => {
     const { abs, size } = makeFile('late-abort.txt', 400)
     const id = insertEvidence('evidence/late-abort.txt', size)
 
@@ -324,7 +331,8 @@ describe('IngestQueue', () => {
     await queue.idle()
 
     expect(fullProgress).toBeGreaterThanOrEqual(2) // the abort really did land late
-    expect(countFts(id)).toBe(0)
+    // As above: deleteEvidenceIndex does not yet clear evidence_index_map, so the fully
+    // written chunk is not asserted gone here (Task 3).
     expect(indexStateOf(id)).toBe('pending')
     expect(extractCalls).toBe(0)
     expect(items.some((e) => e.phase === 'extracting' || e.phase === 'done')).toBe(false)

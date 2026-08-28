@@ -42,14 +42,17 @@ describe('indexEvidenceFileAsync', () => {
     const asyncChunks = await indexEvidenceFileAsync(db, 2, p, 400)
     expect(asyncChunks).toBe(syncChunks)
 
+    // evidence_index is contentless: content can never be read back (it always
+    // returns NULL), so parity is checked on the locators the map stores instead.
     const read = (id: number): unknown[] =>
       db
         .prepare(
-          `SELECT chunk_index, start_line, end_line, content FROM evidence_fts
+          `SELECT chunk_index, start_line, end_line FROM evidence_index_map
            WHERE evidence_id = ? ORDER BY chunk_index`
         )
         .all(id)
     expect(read(2)).toEqual(read(1))
+    expect(read(1).length).toBeGreaterThan(0)
   })
 
   it('yields to the event loop between chunks', async () => {
@@ -109,7 +112,9 @@ describe('indexEvidenceFileAsync', () => {
 
     // Partial rows may exist; the queue is responsible for clearing them (Task 4).
     // What matters here is that the read loop stopped early rather than finishing.
-    const n = db.prepare(`SELECT count(*) AS n FROM evidence_fts WHERE evidence_id = 6`).get() as {
+    const n = db
+      .prepare(`SELECT count(*) AS n FROM evidence_index_map WHERE evidence_id = 6`)
+      .get() as {
       n: number
     }
     const full = await indexEvidenceFileAsync(db, 7, p, 400)
