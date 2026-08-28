@@ -78,7 +78,7 @@ it('wave-1 part-2 exit shape: binary → derived text → FTS hit → viewer tex
   )
   expect(derived).not.toBeNull()
 
-  const hits = searchEvidence(db, 'bearing jump', { caseSlug: 'NAV-9' })
+  const hits = searchEvidence(db, argusHome, 'bearing jump', { caseSlug: 'NAV-9' })
   expect(hits).toHaveLength(1)
   expect(hits[0].matchLine).toBe(2) // exact line for the citation deep-link
   expect(hits[0].relPath).toBe('evidence/.derived/drive.binlog.txt')

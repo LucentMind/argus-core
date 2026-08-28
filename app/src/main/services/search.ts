@@ -13,6 +13,8 @@ import { MAX_WHOLE_FILE_BYTES } from '../../shared/textdoc'
 import { caseDir } from './paths'
 import { scopeClause } from './evidenceScopeSql'
 import { countPendingIndex } from './indexState'
+import { renderSnippet } from './snippet'
+import { getLines, loadIndexSync } from './lineIndex'
 
 export const MAX_READ_BYTES = MAX_WHOLE_FILE_BYTES
 // window around a citation's target line, for files too big to load whole
@@ -51,19 +53,68 @@ function findMatchLine(chunkContent: string, startLine: number, query: string): 
   return anyTermIdx >= 0 ? startLine + anyTermIdx : startLine
 }
 
-interface HitRow {
+interface LocatorRow {
   evidenceId: number
   caseSlug: string
   relPath: string
   artifactType: string
-  snippet: string
   startLine: number
   endLine: number
-  chunkContent: string
+  rank: number
+}
+
+/** Marker shown when the indexed file is no longer on disk. The index still knows the
+ *  chunk matched; only the text to quote is gone. Silence here would be indistinguishable
+ *  from a chunk that legitimately rendered empty. */
+export const MISSING_FILE_SNIPPET = '[file missing — rescan or remove]'
+
+/** Whether the pre-migration contentful table is still present.
+ *
+ *  Not cached: finalizeEvidenceIndexMigration drops it mid-process, and a cached `true`
+ *  would make every subsequent search throw "no such table". Deliberately checked per
+ *  call — this reads the in-memory schema and costs nothing next to an FTS MATCH. */
+function legacyIndexTableExists(db: DatabaseSync): boolean {
+  return !!db
+    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'evidence_fts'`)
+    .get()
+}
+
+/**
+ * Fetch one chunk's text back off disk.
+ *
+ * Prefers lineIndex.getLines, which seeks to the nearest checkpoint and reads at most
+ * (checkpoint gap + range) lines. readLineWindow is the fallback and scans from byte 0 —
+ * fine here only because sidecars are written for every file over MAX_READ_BYTES (2 MB,
+ * see indexer.ts `wantSidecar`), so anything reaching the fallback is small by
+ * construction. Using readLineWindow unconditionally would mean a 27 MB scan per hit on
+ * the average artifact in the installation this targets.
+ *
+ * Never throws: a hit with no snippet is worth more than an exception that loses the
+ * other 49.
+ */
+function chunkText(
+  argusHome: string,
+  caseSlug: string,
+  relPath: string,
+  startLine: number,
+  endLine: number
+): { text: string; missing: boolean } {
+  const abs = path.join(caseDir(argusHome, caseSlug), ...relPath.split('/'))
+  if (!fs.existsSync(abs)) return { text: '', missing: true }
+  try {
+    const index = loadIndexSync(argusHome, abs)
+    if (index) {
+      return { text: getLines(index, abs, startLine, endLine).lines.join('\n'), missing: false }
+    }
+    return { text: readLineWindow(abs, startLine, endLine).content, missing: false }
+  } catch {
+    return { text: '', missing: false }
+  }
 }
 
 export function searchEvidence(
   db: DatabaseSync,
+  argusHome: string,
   query: string,
   filters: SearchFilters = {}
 ): SearchHit[] {
@@ -74,43 +125,96 @@ export function searchEvidence(
   // WHERE rather than filtering the result array, so an investigation search never spends
   // its 50 slots on artifact rows that are then discarded.
   const scope = scopeClause(filters.evidenceScope ?? 'investigation')
-  const rows = db
+  const match = escapeFtsQuery(query)
+
+  // Two generations are queried and merged while the migration runs (see
+  // evidenceIndexMigration.ts). bm25 is per-table, so the merged ordering is approximate
+  // for the duration; once the legacy table is empty this collapses to one query and the
+  // approximation disappears. Both sides carry the same filters so neither can spend its
+  // 50 slots on rows the other would have excluded.
+  const current = db
     .prepare(
-      `SELECT evidence_fts.evidence_id AS evidenceId,
-              c.slug                    AS caseSlug,
-              e.rel_path                AS relPath,
-              e.artifact_type           AS artifactType,
-              snippet(evidence_fts, 0, '«', '»', '…', 12) AS snippet,
-              evidence_fts.start_line   AS startLine,
-              evidence_fts.end_line     AS endLine,
-              evidence_fts.content      AS chunkContent
+      `SELECT m.evidence_id      AS evidenceId,
+              c.slug             AS caseSlug,
+              e.rel_path         AS relPath,
+              e.artifact_type    AS artifactType,
+              m.start_line       AS startLine,
+              m.end_line         AS endLine,
+              bm25(evidence_index) AS rank
+       FROM evidence_index
+       JOIN evidence_index_map m ON m.fts_rowid = evidence_index.rowid
+       JOIN evidence e ON e.id = m.evidence_id
+       JOIN cases c    ON c.id = e.case_id
+       WHERE evidence_index MATCH ?
+         AND (? IS NULL OR c.slug = ?)
+         AND (? IS NULL OR e.artifact_type = ?)${scope.sql}
+       ORDER BY rank
+       LIMIT 50`
+    )
+    .all(
+      match,
+      caseSlug,
+      caseSlug,
+      artifactType,
+      artifactType,
+      ...scope.params
+    ) as unknown as LocatorRow[]
+
+  // Task 6 DROPs the legacy tables once migration finishes, and preparing a statement
+  // against a dropped table throws "no such table" — which would break every search in the
+  // same process run that finalized. Probe first; the lookup is against the in-memory
+  // schema and is negligible beside the FTS query.
+  const legacy = !legacyIndexTableExists(db)
+    ? []
+    : (db
+        .prepare(
+          `SELECT evidence_fts.evidence_id AS evidenceId,
+              c.slug                   AS caseSlug,
+              e.rel_path               AS relPath,
+              e.artifact_type          AS artifactType,
+              evidence_fts.start_line  AS startLine,
+              evidence_fts.end_line    AS endLine,
+              bm25(evidence_fts)       AS rank
        FROM evidence_fts
        JOIN evidence e ON e.id = evidence_fts.evidence_id
        JOIN cases c    ON c.id = e.case_id
        WHERE evidence_fts MATCH ?
          AND (? IS NULL OR c.slug = ?)
          AND (? IS NULL OR e.artifact_type = ?)${scope.sql}
-       ORDER BY bm25(evidence_fts)
+       ORDER BY rank
        LIMIT 50`
-    )
-    .all(
-      escapeFtsQuery(query),
-      caseSlug,
-      caseSlug,
-      artifactType,
-      artifactType,
-      ...scope.params
-    ) as unknown as HitRow[]
-  return rows.map((r) => ({
-    evidenceId: Number(r.evidenceId),
-    caseSlug: r.caseSlug,
-    relPath: r.relPath,
-    artifactType: r.artifactType as ArtifactType,
-    snippet: r.snippet,
-    startLine: Number(r.startLine),
-    endLine: Number(r.endLine),
-    matchLine: findMatchLine(r.chunkContent, Number(r.startLine), query)
-  }))
+        )
+        .all(
+          match,
+          caseSlug,
+          caseSlug,
+          artifactType,
+          artifactType,
+          ...scope.params
+        ) as unknown as LocatorRow[])
+
+  const merged = [...current, ...legacy].sort((a, b) => a.rank - b.rank).slice(0, 50)
+
+  const seen = new Set<string>()
+  const hits: SearchHit[] = []
+  for (const r of merged) {
+    // A row mid-migration can exist in both tables; the same chunk must not be shown twice.
+    const key = `${r.evidenceId}:${r.startLine}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const { text, missing } = chunkText(argusHome, r.caseSlug, r.relPath, r.startLine, r.endLine)
+    hits.push({
+      evidenceId: Number(r.evidenceId),
+      caseSlug: r.caseSlug,
+      relPath: r.relPath,
+      artifactType: r.artifactType as ArtifactType,
+      snippet: missing ? MISSING_FILE_SNIPPET : renderSnippet(text, query),
+      startLine: Number(r.startLine),
+      endLine: Number(r.endLine),
+      matchLine: findMatchLine(text, Number(r.startLine), query)
+    })
+  }
+  return hits
 }
 
 /**
@@ -122,11 +226,12 @@ export function searchEvidence(
  */
 export function searchEvidenceWithStatus(
   db: DatabaseSync,
+  argusHome: string,
   query: string,
   filters: SearchFilters = {}
 ): SearchResult {
   return {
-    hits: searchEvidence(db, query, filters),
+    hits: searchEvidence(db, argusHome, query, filters),
     pendingIndexCount: countPendingIndex(db, filters.caseSlug ?? null)
   }
 }
@@ -192,6 +297,18 @@ export function readEvidenceText(
     .get(evidenceId) as { relPath: string; caseSlug: string } | undefined
   if (!row) throw new Error(`Unknown evidence id: ${evidenceId}`)
   const abs = path.join(caseDir(argusHome, row.caseSlug), row.relPath)
+  // A file removed from under the case dir must not surface as an unhandled ENOENT: the
+  // evidence row still exists and the viewer needs something to show. evidence:scan marks
+  // such rows meta.missing, and readEvidenceSnippet already reports rather than throws.
+  if (!fs.existsSync(abs)) {
+    return {
+      relPath: row.relPath,
+      caseSlug: row.caseSlug,
+      content: MISSING_FILE_SNIPPET,
+      startLine: 1,
+      truncated: false
+    }
+  }
   const stat = fs.statSync(abs)
   if (stat.size <= MAX_READ_BYTES) {
     const content = fs.readFileSync(abs, 'utf8')

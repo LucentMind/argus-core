@@ -40,7 +40,7 @@ describe('searchEvidenceWithStatus', () => {
     insert('evidence/waiting.txt', 'pending')
     insert('evidence/running.txt', 'indexing')
 
-    const res = searchEvidenceWithStatus(db, 'TileStore', { caseSlug: 'SP-1' })
+    const res = searchEvidenceWithStatus(db, argusHome, 'TileStore', { caseSlug: 'SP-1' })
     expect(res.hits).toHaveLength(1)
     expect(res.pendingIndexCount).toBe(2)
   })
@@ -48,13 +48,13 @@ describe('searchEvidenceWithStatus', () => {
   it('reports zero once everything is indexed', () => {
     const done = insert('evidence/all.txt', 'indexed')
     indexEvidenceText(db, done, 'TileStore failure here\n', 400)
-    const res = searchEvidenceWithStatus(db, 'TileStore', { caseSlug: 'SP-1' })
+    const res = searchEvidenceWithStatus(db, argusHome, 'TileStore', { caseSlug: 'SP-1' })
     expect(res.pendingIndexCount).toBe(0)
   })
 
   it('still reports pending files when the query matches nothing yet', () => {
     insert('evidence/waiting.txt', 'pending')
-    const res = searchEvidenceWithStatus(db, 'TileStore', { caseSlug: 'SP-1' })
+    const res = searchEvidenceWithStatus(db, argusHome, 'TileStore', { caseSlug: 'SP-1' })
     expect(res.hits).toHaveLength(0)
     expect(res.pendingIndexCount).toBe(1)
   })

@@ -9,10 +9,12 @@ import {
   __clearIndexCacheForTests,
   getLines,
   MAX_LINES_PER_READ,
-  searchLines
+  searchLines,
+  loadIndexSync
 } from '../lineIndex'
 
 let tmp: string, argusHome: string
+let wtfCounter = 0
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-li-'))
@@ -27,6 +29,12 @@ function writeLines(name: string, count: number, width = 10): string {
   for (let i = 1; i <= count; i++) fs.writeSync(fd, `${String(i).padStart(width, '0')}\n`)
   fs.closeSync(fd)
   return p
+}
+
+function writeTempFile(content: string): { argusHome: string; absPath: string } {
+  const absPath = path.join(tmp, `wtf-${++wtfCounter}.txt`)
+  fs.writeFileSync(absPath, content)
+  return { argusHome, absPath }
 }
 
 describe('ensureIndex', () => {
@@ -206,6 +214,30 @@ describe('ensureIndex', () => {
     // others[0] was evicted → re-ensure yields a fresh object, not the cached one
     const rebuilt = await ensureIndex(argusHome, others[0])
     expect(rebuilt).not.toBe(otherIdx[0])
+  })
+})
+
+describe('loadIndexSync', () => {
+  it('returns null when no sidecar exists and never builds one', () => {
+    const { argusHome, absPath } = writeTempFile('a\nb\nc\n')
+    expect(loadIndexSync(argusHome, absPath)).toBeNull()
+    expect(fs.existsSync(sidecarPath(argusHome, absPath))).toBe(false)
+  })
+
+  it('returns the index once ensureIndex has written a sidecar', async () => {
+    const { argusHome, absPath } = writeTempFile('a\nb\nc\n')
+    await ensureIndex(argusHome, absPath)
+    __clearIndexCacheForTests()
+    const index = loadIndexSync(argusHome, absPath)
+    expect(index?.totalLines).toBe(3)
+  })
+
+  it('returns null when the file changed after the sidecar was written', async () => {
+    const { argusHome, absPath } = writeTempFile('a\nb\nc\n')
+    await ensureIndex(argusHome, absPath)
+    __clearIndexCacheForTests()
+    fs.appendFileSync(absPath, 'd\n')
+    expect(loadIndexSync(argusHome, absPath)).toBeNull()
   })
 })
 

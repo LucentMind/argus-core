@@ -177,7 +177,7 @@ export function createPanelBridge(binding: PanelBridgeBinding): PanelBridge {
   if (granted.has('requestEvidence')) {
     bridge.requestEvidence = (query: string): SearchHit[] => {
       const filters: SearchFilters = { caseSlug } // case-bound; never other cases
-      return searchEvidence(db, query, filters)
+      return searchEvidence(db, argusHome, query, filters)
     }
   }
 
