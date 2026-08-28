@@ -13,6 +13,7 @@ import {
 import { DEFAULT_MODE, type ModeId } from '../../shared/modes'
 import { caseDir, modeDir } from './paths'
 import { getCase } from './caseService'
+import { assertCaseWritable } from './caseFreeze'
 import type { Detection } from './packs/detection'
 import { deleteEvidenceIndex } from './indexer'
 import { copyAndHash, hashFile } from './copyHash'
@@ -175,6 +176,9 @@ export async function ingestArtifact(
 ): Promise<EvidenceRecord> {
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
+  // Nothing may land in a case that is mid-archive (the bundle is already sealed) or archived
+  // (the file would not be in the bundle at all). See caseFreeze.ts.
+  assertCaseWritable(db, caseSlug)
   const destDir = modeDir(argusHome, caseSlug, mode)
   fs.mkdirSync(destDir, { recursive: true })
   const destName = collisionFreeName(destDir, path.basename(sourcePath), detection.compoundExts())
@@ -239,6 +243,9 @@ export function ingestContent(
 ): EvidenceRecord {
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
+  // Nothing may land in a case that is mid-archive (the bundle is already sealed) or archived
+  // (the file would not be in the bundle at all). See caseFreeze.ts.
+  assertCaseWritable(db, caseSlug)
   const destDir = modeDir(argusHome, caseSlug, mode)
   fs.mkdirSync(destDir, { recursive: true })
   const destName = collisionFreeName(destDir, fileName, detection.compoundExts())
@@ -286,6 +293,9 @@ export function ingestBytes(
 ): { record: EvidenceRecord; deduped: boolean } {
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
+  // Nothing may land in a case that is mid-archive (the bundle is already sealed) or archived
+  // (the file would not be in the bundle at all). See caseFreeze.ts.
+  assertCaseWritable(db, caseSlug)
 
   const sha256 = crypto.createHash('sha256').update(bytes).digest('hex')
   const existing = db
@@ -327,6 +337,9 @@ export function updateEvidenceContent(
     )
     .get(evidenceId) as unknown as (EvidenceRow & { case_slug: string }) | undefined
   if (!row) throw new Error(`Unknown evidence id: ${evidenceId}`)
+  // Overwriting a file in place is a write into the case tree like any other: refuse it while
+  // the case is mid-archive or archived. See caseFreeze.ts.
+  assertCaseWritable(db, row.case_slug)
   const rec = rowToEvidence(row)
   const absPath = path.join(caseDir(argusHome, row.case_slug), ...rec.relPath.split('/'))
   const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8')
@@ -378,6 +391,9 @@ export async function ingestDerived(
 ): Promise<EvidenceRecord> {
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
+  // Nothing may land in a case that is mid-archive (the bundle is already sealed) or archived
+  // (the file would not be in the bundle at all). See caseFreeze.ts.
+  assertCaseWritable(db, caseSlug)
   // The derived file belongs to whichever tree its parent lives in — a CI log's extracted
   // text is review material exactly as the log is.
   const parent = listEvidence(db, caseSlug, 'all').find((e) => e.id === derivedFromId)
