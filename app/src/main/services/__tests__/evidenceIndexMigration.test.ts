@@ -196,10 +196,15 @@ describe('finalize', () => {
     ).toBeTruthy()
   })
 
-  it('drops both legacy tables once nothing is left', async () => {
+  it('drops both legacy tables once nothing is left', () => {
     const db = openTestDb()
     seedLegacy(db, seedEvidence(db), [{ text: 'move me', from: 1, to: 1 }])
-    await runEvidenceIndexMigration(db)
+    // Drain via migrateOneEvidence directly (not runEvidenceIndexMigration, which already
+    // auto-finalizes once it drains) so this exercises finalizeEvidenceIndexMigration's own
+    // true-returning path in isolation.
+    while (migrateOneEvidence(db) !== null) {
+      /* drain */
+    }
     expect(finalizeEvidenceIndexMigration(db)).toBe(true)
     expect(db.prepare(`SELECT name FROM sqlite_master WHERE name = 'evidence_fts'`).get()).toBe(
       undefined
@@ -226,5 +231,52 @@ describe('finalize', () => {
     finalizeEvidenceIndexMigration(db)
     const mode = db.prepare(`PRAGMA auto_vacuum`).get() as { auto_vacuum: number }
     expect(mode.auto_vacuum).toBe(2) // 2 = INCREMENTAL
+  })
+
+  describe('steady state: every boot after migration has already finished', () => {
+    it('migrateOneEvidence returns null rather than throwing once the legacy tables are gone', async () => {
+      const db = openTestDb()
+      seedLegacy(db, seedEvidence(db), [{ text: 'move me', from: 1, to: 1 }])
+      await runEvidenceIndexMigration(db)
+      expect(
+        db.prepare(`SELECT name FROM sqlite_master WHERE name = 'evidence_fts_map'`).get()
+      ).toBe(undefined)
+
+      expect(() => migrateOneEvidence(db)).not.toThrow()
+      expect(migrateOneEvidence(db)).toBeNull()
+    })
+
+    it('a second runEvidenceIndexMigration resolves normally and reports zero rows moved', async () => {
+      const db = openTestDb()
+      seedLegacy(db, seedEvidence(db), [{ text: 'move me', from: 1, to: 1 }])
+      await runEvidenceIndexMigration(db)
+
+      await expect(runEvidenceIndexMigration(db)).resolves.toBe(0)
+    })
+
+    it('a second runEvidenceIndexMigration does not run VACUUM again', async () => {
+      const db = openTestDb()
+      seedLegacy(db, seedEvidence(db), [{ text: 'move me', from: 1, to: 1 }])
+      await runEvidenceIndexMigration(db)
+
+      const execCalls: string[] = []
+      const originalExec = db.exec.bind(db)
+      db.exec = ((sql: string) => {
+        execCalls.push(sql)
+        return originalExec(sql)
+      }) as typeof db.exec
+
+      await runEvidenceIndexMigration(db)
+
+      expect(execCalls.some((sql) => /VACUUM/i.test(sql))).toBe(false)
+    })
+
+    it('finalizeEvidenceIndexMigration itself refuses once the legacy tables are already gone', async () => {
+      const db = openTestDb()
+      seedLegacy(db, seedEvidence(db), [{ text: 'move me', from: 1, to: 1 }])
+      await runEvidenceIndexMigration(db)
+
+      expect(finalizeEvidenceIndexMigration(db)).toBe(false)
+    })
   })
 })
