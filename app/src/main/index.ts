@@ -2858,15 +2858,20 @@ function registerIpc(): void {
     )
     // Deliberately NO `caseWatch.unwatch(slug)` here, unlike cases:delete. A deleted case stops
     // existing, so its watcher is watching nothing; an ARCHIVED case keeps its directory,
-    // `case.json`, `summary.md` and its RCA report, and stays open and viewable. Leaving the
-    // watcher on is what makes the file pane show the evidence and session trees disappearing —
-    // unwatching would freeze it on a listing of files that are no longer there.
+    // `case.json`, `summary.md` and its RCA report, and stays open and viewable — so it keeps a
+    // watcher for the writes that come AFTER this call — a scan, a drop, a restore.
     //
-    // Archiving is the LARGEST evidence mutation in the app — every evidence row for the case
-    // is gone — and `evidence:delete`, a single-row delete, already announces itself here. An
-    // archived case stays open and viewable, so without this the evidence pane in this window
-    // and in every other one keeps rendering rows whose files and rows no longer exist. The
-    // paired `caseWatch.suppress` is right: the tree removals above were our own writes.
+    // The watcher is NOT what shows the evidence and session trees disappearing: `suppress()`
+    // inside `evidenceChangedB` below deliberately swallows exactly those removal events,
+    // because they were our own writes and the staleness dot means "someone else changed the
+    // folder". The renderer learns from the `evidence:changed` broadcast instead — `CaseFiles`
+    // does a full reload of its list on it.
+    //
+    // Which is why that broadcast is not optional here. Archiving is the LARGEST evidence
+    // mutation in the app — every evidence row for the case is gone — and `evidence:delete`, a
+    // single-row delete, already announces itself. An archived case stays open and viewable, so
+    // without this the evidence pane in this window and in every other one keeps rendering rows
+    // whose files and database rows no longer exist.
     evidenceChangedB(slug)
     // And the `archived_at` flag itself, which no evidence event carries: the archived badge
     // and the write affordances a second window must stop offering.

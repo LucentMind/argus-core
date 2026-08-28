@@ -787,3 +787,66 @@ describe('CaseFiles "Open in"', () => {
     expect(within(row).queryByRole('button', { name: /Open in/i })).toBeNull()
   })
 })
+
+describe('archived case', () => {
+  it('says the evidence was archived instead of claiming there never was any', async () => {
+    window.argus.evidence.list = vi.fn(async () => [])
+    render(
+      <CaseFiles
+        caseSlug="c1"
+        label="Evidence"
+        mode="investigation"
+        archivedAt="2026-08-28T00:00:00Z"
+        onRestore={vi.fn()}
+        {...requiredProps}
+      />
+    )
+    await screen.findByTestId('evidence-archived')
+    expect(screen.getByTestId('evidence-archived')).toHaveTextContent(
+      /Evidence was archived on .+ and is not on this machine/
+    )
+    // The whole point: the ordinary empty state must NOT be what an archived case shows.
+    expect(screen.queryByText('No evidence yet.')).toBeNull()
+  })
+
+  it('restores from the archived state itself', async () => {
+    const onRestore = vi.fn()
+    window.argus.evidence.list = vi.fn(async () => [])
+    render(
+      <CaseFiles
+        caseSlug="c1"
+        label="Evidence"
+        mode="investigation"
+        archivedAt="2026-08-28T00:00:00Z"
+        onRestore={onRestore}
+        {...requiredProps}
+      />
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Restore from archive' }))
+    expect(onRestore).toHaveBeenCalledTimes(1)
+  })
+
+  it('still shows restored rows, not the archived state, once evidence is back', async () => {
+    // `archivedAt` is cleared by App's cases:changed refetch; until it is, rows win. Guards the
+    // inverse mistake: an archived-state branch placed ahead of the list would hide real rows.
+    render(
+      <CaseFiles
+        caseSlug="c1"
+        label="Evidence"
+        mode="investigation"
+        archivedAt="2026-08-28T00:00:00Z"
+        onRestore={vi.fn()}
+        {...requiredProps}
+      />
+    )
+    await screen.findByText('trace.binlog')
+    expect(screen.queryByTestId('evidence-archived')).toBeNull()
+  })
+
+  it('keeps the ordinary empty state on a live case that simply has no evidence', async () => {
+    window.argus.evidence.list = vi.fn(async () => [])
+    render(<CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />)
+    await screen.findByText('No evidence yet.')
+    expect(screen.queryByTestId('evidence-archived')).toBeNull()
+  })
+})

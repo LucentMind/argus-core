@@ -284,6 +284,7 @@ export function TopBar({
                 slug={activeSlug}
                 status={activeCase?.status ?? 'open'}
                 resolution={activeCase?.resolution ?? null}
+                archivedAt={activeCase?.archivedAt ?? null}
                 onStatusChanged={onStatusChanged}
                 onHome={onHome}
               />

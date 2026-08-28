@@ -3,7 +3,7 @@ import { MenuButton, Checkbox } from './ui'
 import { DistillRunPanel } from './DistillRunPanel'
 import { uiStore } from '../lib/uiStore'
 import { notice } from '../lib/noticeStore'
-import { confirm } from '../lib/confirmStore'
+import { choose, confirm } from '../lib/confirmStore'
 import { useDistillJob, distillMenuLabel, isDistillInFlight } from '../lib/distillJob'
 import { CASE_RESOLUTIONS } from '../../../shared/types'
 import type { CaseResolution, CaseStatus } from '../../../shared/types'
@@ -53,12 +53,19 @@ export function CaseAnchor({
   slug,
   status,
   resolution,
+  archivedAt,
   onStatusChanged,
   onHome
 }: {
   slug: string
   status: CaseStatus
   resolution: CaseResolution | null
+  /** `CaseRecord.archivedAt` — non-null once the case's evidence, artifacts and transcripts
+   *  live in a bundle instead of on disk. It decides which of Archive/Restore this menu offers,
+   *  and whether deleting the case has an archive to ask about at all. Kept fresh by App.tsx's
+   *  `cases:changed` subscription, so a case archived in ANOTHER window stops offering Archive
+   *  here too. */
+  archivedAt: string | null
   /** The status moved in the DB; the owner of the `cases` array must refetch so `status` and
    *  `resolution` above stop being stale. */
   onStatusChanged: () => void
@@ -131,6 +138,86 @@ export function CaseAnchor({
     if (!r) return // save dialog canceled
     if (r.ok) notice(`exported ${r.fileCount} files`)
     else notice(r.error, 'danger')
+  }
+
+  /**
+   * Archiving is REFUSED — not queued, not forced — while the case still has an agent turn, a
+   * routine run or an external app window live in it, and the main process answers with a
+   * sentence naming exactly what to finish (caseLiveWork.ts). That sentence is the one error on
+   * this menu the user can actually act on, so it goes to the notice slot beside the mode
+   * switch, the same place a failed export reports. Swallowing it would leave a menu row that
+   * silently does nothing.
+   */
+  async function archiveCase(): Promise<void> {
+    const ok = await confirm({
+      title: `Archive ${slug}?`,
+      // Deliberately not "frees space in the database": archiving frees the case's FILES, which
+      // is the bulk of it. The SQLite file itself does not shrink (its incremental vacuum is a
+      // no-op on an ordinary installation), and promising otherwise would be a measurable lie.
+      message:
+        'Evidence, artifacts and transcripts move to a zip in your archive folder, freeing ' +
+        'their disk space. Findings, RCA and the case summary stay — the case keeps helping ' +
+        'future cases. You can restore it any time.',
+      confirmLabel: 'Archive'
+    })
+    if (!ok) return
+    setPending(true)
+    try {
+      await window.argus.cases.archive(slug)
+    } catch (err) {
+      notice((err as Error).message, 'danger')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  async function restoreCase(): Promise<void> {
+    setPending(true)
+    try {
+      await window.argus.cases.restore(slug)
+    } catch (err) {
+      notice((err as Error).message, 'danger')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  async function deleteCase(): Promise<void> {
+    // Three buttons rather than a checkbox: confirmStore has no checkbox primitive, and
+    // `choose` exists for exactly this shape — "no" and "yes, but differently" as separate
+    // answers. The archive branch only appears when there IS an archive to keep.
+    const message =
+      'This removes its findings, RCA and summary permanently. Future cases will no longer ' +
+      'see it in related history.'
+    const choice = archivedAt
+      ? await choose({
+          title: `Delete ${slug}?`,
+          message,
+          confirmLabel: 'Delete everything',
+          danger: true,
+          altLabel: 'Delete, keep the archive',
+          altDanger: true
+        })
+      : (await confirm({ title: `Delete ${slug}?`, message, confirmLabel: 'Delete', danger: true }))
+        ? 'confirm'
+        : 'cancel'
+    if (choice === 'cancel') return
+    try {
+      // `archivedAt ?` guard, not a bare `choice === 'confirm'`: on a case that was never
+      // archived the only reachable answer IS 'confirm', and passing `deleteArchive: true`
+      // there would claim to delete a bundle that does not exist. The flag says what it means.
+      await window.argus.cases.delete(slug, {
+        deleteArchive: archivedAt ? choice === 'confirm' : false
+      })
+    } catch (err) {
+      // Navigating home on a REFUSED delete (deleteCase rejects a case that is mid-archive)
+      // would present the failure as a success — the case is still there, just no longer on
+      // screen. Report it and stay put.
+      notice((err as Error).message, 'danger')
+      return
+    }
+    uiStore.closeTab(slug)
+    onHome()
   }
 
   const statusItems = [
@@ -239,12 +326,39 @@ export function CaseAnchor({
                   .finally(() => setPending(false))
               }
             },
+            ...(archivedAt
+              ? [
+                  {
+                    label: 'Restore from archive',
+                    onSelect: () => {
+                      if (pending) return
+                      void restoreCase()
+                    }
+                  }
+                ]
+              : [
+                  {
+                    label: 'Archive case…',
+                    onSelect: () => {
+                      if (pending) return
+                      void archiveCase()
+                    }
+                  }
+                ]),
             {
               label: 'Close case',
               onSelect: () => {
                 uiStore.closeTab(slug)
                 onHome()
               }
+            },
+            {
+              // The only delete affordance for the case you are LOOKING at — the dashboard's
+              // card menu still owns deleting a case from the list. Kept here because the
+              // archive question ("keep the bundle?") can only be asked where `archivedAt` is
+              // known, and this is the surface that knows it.
+              label: 'Delete case…',
+              onSelect: () => void deleteCase()
             }
           ]}
         />
