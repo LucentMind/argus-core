@@ -6,7 +6,7 @@ import { sidecarPath, CHECKPOINT_LINES, CHECKPOINT_BYTES } from './lineIndex'
 import { MAX_READ_BYTES } from './search'
 import {
   deleteEvidenceFtsForEvidence,
-  deleteEvidenceFtsThorough,
+  deleteOrphanEvidenceIndex,
   withFtsSavepoint
 } from './ftsIndex'
 
@@ -204,13 +204,10 @@ export function deleteEvidenceIndex(db: DatabaseSync, evidenceId: number): void 
   deleteEvidenceFtsForEvidence(db, evidenceId)
 }
 
-/**
- * Crash-recovery variant of deleteEvidenceIndex. Boot-only — see
- * deleteEvidenceFtsThorough for why the deliberately slow, map-independent delete is
- * the correct one on that one path and must not be used anywhere else.
- */
-export function deleteEvidenceIndexThorough(db: DatabaseSync, evidenceId: number): void {
-  deleteEvidenceFtsThorough(db, evidenceId)
+/** Boot-only: clear index rows an interrupted run left with no locator. Global, so it
+ *  runs once rather than per recovered row — see ftsIndex.deleteOrphanEvidenceIndex. */
+export function deleteOrphanEvidenceIndexRows(db: DatabaseSync): number {
+  return deleteOrphanEvidenceIndex(db)
 }
 
 /** Thrown by indexEvidenceFileAsync when its shouldAbort predicate goes true.

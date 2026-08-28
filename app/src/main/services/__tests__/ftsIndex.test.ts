@@ -10,7 +10,7 @@ import {
   deleteMessagesFtsForCase,
   deleteEvidenceFtsForEvidence,
   deleteEvidenceFtsForCase,
-  deleteEvidenceFtsThorough,
+  deleteOrphanEvidenceIndex,
   backfillFtsMaps,
   withFtsSavepoint
 } from '../ftsIndex'
@@ -190,40 +190,22 @@ describe('unmapped evidence_index rows', () => {
     expect(unmapped()).toBe(0)
   })
 
-  it('deleteEvidenceFtsThorough clears residue the map-driven delete cannot see', () => {
-    // deleteEvidenceFtsThorough/deleteEvidenceFtsForEvidence still operate on the
-    // legacy evidence_fts/evidence_fts_map tables only in this increment (Task 3
-    // teaches them about evidence_index too), so this exercises them directly
-    // against a legacy-shaped row rather than through indexEvidenceText, which no
-    // longer writes there.
-    const unmappedLegacy = (): number =>
-      n(`SELECT COUNT(*) AS n FROM evidence_fts f
-         WHERE NOT EXISTS (SELECT 1 FROM evidence_fts_map m WHERE m.fts_rowid = f.rowid)`)
-    withFtsSavepoint(db, () => {
-      const rowid = db
-        .prepare(
-          `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
-           VALUES ('healthy bearing', 81, 0, 1, 1)`
-        )
-        .run().lastInsertRowid
-      db.prepare(`INSERT INTO evidence_fts_map (fts_rowid, evidence_id) VALUES (?, ?)`).run(
-        rowid,
-        81
-      )
-    })
-    // pre-fix residue: an fts row with no map row
-    db.prepare(
-      `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
-       VALUES ('orphan bearing', 81, 1, 2, 2)`
-    ).run()
-    expect(unmappedLegacy()).toBe(1)
+  it('deleteOrphanEvidenceIndex clears residue the map-driven delete cannot see', () => {
+    // deleteEvidenceFtsForEvidence resolves rowids THROUGH the map, so it is
+    // structurally blind to a row with no map entry — only the global sweep (Task 3's
+    // replacement for the old map-independent deleteEvidenceFtsThorough) can reach it.
+    // Exercised against evidence_index directly: indexEvidenceText always writes a
+    // matched pair, so an orphan there only ever comes from a torn write.
+    indexEvidenceText(db, 81, 'healthy bearing\n', 400)
+    // pre-fix residue: an index row with no map row
+    db.prepare(`INSERT INTO evidence_index (content) VALUES ('orphan bearing')`).run()
+    expect(unmapped()).toBe(1)
 
     deleteEvidenceFtsForEvidence(db, 81) // map-driven: structurally blind to it
-    expect(unmappedLegacy()).toBe(1)
+    expect(unmapped()).toBe(1)
 
-    deleteEvidenceFtsThorough(db, 81)
-    expect(unmappedLegacy()).toBe(0)
-    expect(n(`SELECT COUNT(*) AS n FROM evidence_fts WHERE evidence_id = ?`, 81)).toBe(0)
+    expect(deleteOrphanEvidenceIndex(db)).toBe(1)
+    expect(unmapped()).toBe(0)
   })
 })
 
@@ -256,5 +238,102 @@ describe('backfillFtsMaps', () => {
     insertMessageFts(db, 'm', 3, 30, 1, 'user')
     backfillFtsMaps(db) // map already in sync → no-op
     expect(n(`SELECT COUNT(*) AS n FROM messages_fts_map`)).toBe(1)
+  })
+})
+
+// — Task 3: deletes clear both index generations, and the orphan sweep is global —
+describe('evidence delete across both index generations', () => {
+  let seq = 0
+  // Each test opens its own db via openTestDb() rather than reusing the shared
+  // module-level `db`, so its sqlite file must be closed explicitly before the
+  // outer afterEach removes `tmp` -- an open handle survives fs.rmSync as a stray
+  // file on Windows and fails it outright with EBUSY.
+  const opened: DatabaseSync[] = []
+
+  afterEach(() => {
+    for (const d of opened.splice(0)) d.close()
+  })
+
+  /** A fresh db, nested inside this test's `tmp` so the outer afterEach's
+   *  recursive rmSync still reclaims it. */
+  function openTestDb(): DatabaseSync {
+    const sub = fs.mkdtempSync(path.join(tmp, 'sub-'))
+    const database = openDb(path.join(sub, 'argus.db'))
+    opened.push(database)
+    return database
+  }
+
+  function seedEvidence(database: DatabaseSync): number {
+    seq++
+    database
+      .prepare(
+        `INSERT OR IGNORE INTO cases (id, slug, title, created_at, updated_at)
+         VALUES (1,'D','D','','')`
+      )
+      .run()
+    const res = database
+      .prepare(
+        `INSERT INTO evidence (case_id, rel_path, sha256, artifact_type, size, created_at)
+         VALUES (1, ?, 'h', 'log', 1, '')`
+      )
+      .run(`evidence/e${seq}.log`)
+    return Number(res.lastInsertRowid)
+  }
+
+  it('clears legacy and contentless rows for one evidence id', () => {
+    const db = openTestDb()
+    const id = seedEvidence(db)
+    // legacy row, written the pre-migration way
+    withFtsSavepoint(db, () => {
+      const rowid = db
+        .prepare(
+          `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
+           VALUES ('legacy text', ?, 0, 1, 1)`
+        )
+        .run(id).lastInsertRowid
+      db.prepare(`INSERT INTO evidence_fts_map (fts_rowid, evidence_id) VALUES (?, ?)`).run(
+        rowid,
+        id
+      )
+    })
+    indexEvidenceText(db, id, 'new text\n', 400)
+
+    deleteEvidenceFtsForEvidence(db, id)
+
+    expect((db.prepare(`SELECT count(*) AS n FROM evidence_fts`).get() as { n: number }).n).toBe(0)
+    expect(
+      (db.prepare(`SELECT count(*) AS n FROM evidence_fts_map`).get() as { n: number }).n
+    ).toBe(0)
+    expect((db.prepare(`SELECT count(*) AS n FROM evidence_index`).get() as { n: number }).n).toBe(
+      0
+    )
+    expect(
+      (db.prepare(`SELECT count(*) AS n FROM evidence_index_map`).get() as { n: number }).n
+    ).toBe(0)
+  })
+
+  it('sweeps an FTS row whose map row is missing', () => {
+    const db = openTestDb()
+    const id = seedEvidence(db)
+    indexEvidenceText(db, id, 'keepme\n', 400)
+    // Simulate a torn pre-savepoint write: content with no locator.
+    db.prepare(`INSERT INTO evidence_index (content) VALUES ('orphaned')`).run()
+
+    expect(deleteOrphanEvidenceIndex(db)).toBe(1)
+
+    const left = db
+      .prepare(`SELECT rowid FROM evidence_index WHERE evidence_index MATCH ?`)
+      .all('orphaned OR keepme') as unknown as { rowid: number }[]
+    expect(left).toHaveLength(1)
+    const mapped = db
+      .prepare(`SELECT count(*) AS n FROM evidence_index_map WHERE fts_rowid = ?`)
+      .get(left[0].rowid) as { n: number }
+    expect(mapped.n).toBe(1)
+  })
+
+  it('sweeps nothing when every row is mapped', () => {
+    const db = openTestDb()
+    indexEvidenceText(db, seedEvidence(db), 'a\nb\nc\n', 1)
+    expect(deleteOrphanEvidenceIndex(db)).toBe(0)
   })
 })

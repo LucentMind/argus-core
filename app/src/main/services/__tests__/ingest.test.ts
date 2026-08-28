@@ -197,13 +197,16 @@ describe('ingestArtifact', () => {
     expect(upd.relPath).toBe(rec.relPath) // same file, no new evidence row
     expect(upd.sha256).not.toBe(rec.sha256)
     expect((upd.meta.jira as { status: string }).status).toBe('Resolved')
-    // updateEvidenceContent calls deleteEvidenceIndex before re-indexing, which still
-    // only clears the legacy evidence_fts/evidence_fts_map tables (Task 3 teaches it
-    // about evidence_index too), so the stale chunk is not asserted gone here yet —
-    // only that the fresh content was indexed.
+    // updateEvidenceContent calls deleteEvidenceIndex before re-indexing, which now
+    // clears both index generations (Task 3), so re-indexing leaves no stale rows
+    // behind in the table indexEvidenceText actually writes to.
+    const stale = db
+      .prepare(`SELECT count(*) c FROM evidence_index WHERE evidence_index MATCH 'alpha'`)
+      .get() as { c: number }
     const fresh = db
       .prepare(`SELECT count(*) c FROM evidence_index WHERE evidence_index MATCH 'omega'`)
       .get() as { c: number }
+    expect(stale.c).toBe(0)
     expect(fresh.c).toBe(1)
   })
 })
