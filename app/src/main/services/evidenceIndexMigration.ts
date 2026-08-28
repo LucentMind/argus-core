@@ -27,9 +27,10 @@ interface CountRow {
 interface IdRow {
   evidence_id: number
 }
-interface LegacyChunk {
+/** One legacy chunk's LOCATOR only. `content` is deliberately not part of this: see
+ *  migrateOneEvidence for why the text is fetched a chunk at a time instead. */
+interface LegacyChunkLocator {
   fts_rowid: number
-  content: string
   chunk_index: number
   start_line: number
   end_line: number
@@ -85,17 +86,26 @@ export function migrateOneEvidence(db: DatabaseSync): number | null {
   const evidenceId = next?.evidence_id
   if (evidenceId === null || evidenceId === undefined) return null
 
+  // Locators only — four integers per chunk. Selecting `content` here as well would
+  // materialise the entire evidence file in main-process memory in one array: this
+  // codebase already ingests 199 MB artifacts, which chunk to ~3,945 rows, and the
+  // migration runs on the main process while the app is in use. The text is fetched one
+  // chunk at a time inside the savepoint below, so peak memory tracks the largest single
+  // chunk (400 lines) rather than the largest evidence file.
   const chunks = db
     .prepare(
-      `SELECT m.fts_rowid, f.content, f.chunk_index, f.start_line, f.end_line
+      `SELECT m.fts_rowid, f.chunk_index, f.start_line, f.end_line
        FROM evidence_fts_map m
        JOIN evidence_fts f ON f.rowid = m.fts_rowid
        WHERE m.evidence_id = ?
        ORDER BY f.chunk_index`
     )
-    .all(evidenceId) as unknown as LegacyChunk[]
+    .all(evidenceId) as unknown as LegacyChunkLocator[]
 
+  // The savepoint's scope is unchanged by that: the whole evidence row still moves
+  // atomically, so a torn migration can never split one file across both generations.
   withFtsSavepoint(db, () => {
+    const readContent = db.prepare(`SELECT content AS content FROM evidence_fts WHERE rowid = ?`)
     const ins = db.prepare(`INSERT INTO evidence_index (content) VALUES (?)`)
     const insMap = db.prepare(
       `INSERT INTO evidence_index_map (fts_rowid, evidence_id, chunk_index, start_line, end_line)
@@ -103,7 +113,8 @@ export function migrateOneEvidence(db: DatabaseSync): number | null {
     )
     const del = db.prepare(`DELETE FROM evidence_fts WHERE rowid = ?`)
     for (const c of chunks) {
-      const rowid = ins.run(c.content).lastInsertRowid
+      const content = (readContent.get(c.fts_rowid) as { content: string } | undefined)?.content
+      const rowid = ins.run(content ?? '').lastInsertRowid
       insMap.run(rowid, evidenceId, c.chunk_index, c.start_line, c.end_line)
       del.run(c.fts_rowid)
     }
