@@ -17,7 +17,7 @@ export const CASE_DISTILL_CONTRACT = `You are distilling a root-cause-analysis c
 
 Rules — follow every one:
 1. SUMMARY ONLY IF RECURRENCE-RELEVANT: emit "summary" only when this case could recur or attract near-duplicate defects in the future. Otherwise omit the key entirely.
-2. WEIGHT BY REVIEW STATE: findings marked [accepted] are confirmed; [rejected] means ruled out — usable only as "what turned out to be wrong"; [pending] is unreviewed.
+2. WEIGHT BY REVIEW STATE: findings marked [accepted] are confirmed; [rejected] means ruled out — usable only as "what turned out to be wrong"; [rejected · retracted by agent: <reason>] means the assistant recorded it and then withdrew it for that reason — treat it as ruled out, and treat the reason as the record of how; [pending] is unreviewed.
 3. WEIGHT BY STATUS AND RESOLUTION: "status" is open or closed; "resolution" (closed cases only) is how it was closed — distill accordingly:
    - open: the case is still open, so the investigation is still running and nothing here is final. Distill ONLY what is already firmly established — accepted findings and a confirmed root cause. Never present a working hypothesis as a fix, and never write a summary that implies the case was resolved. If you do emit a summary, its "fix" MUST state that no fix is confirmed yet. When nothing is settled yet, return {}.
    - solved: the root cause was found and fixed here — the richest source of durable knowledge.

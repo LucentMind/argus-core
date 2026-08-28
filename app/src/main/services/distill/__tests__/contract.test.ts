@@ -112,9 +112,12 @@ describe('prompt builder', () => {
 
   it('without a role or a confirmed RCA structure, the prompt is byte-identical to before', () => {
     const p = buildCaseDistillPrompt(INPUT)
-    // No role → no ' · ' annotation anywhere in the finding header.
+    // No role → no ' · ' annotation in the finding header itself (the contract's rule 2 now
+    // legitimately mentions ' · ' in its retraction-tag example, so the check is scoped to the
+    // findings section rather than the whole prompt).
     expect(p).toContain('[accepted] F1')
-    expect(p).not.toContain(' · ')
+    const findingsSection = p.slice(p.indexOf('# Findings'), p.indexOf('# Evidence inventory'))
+    expect(findingsSection).not.toContain(' · ')
     // No confirmed structure → the section is omitted entirely, not rendered as "(none)".
     expect(p).not.toContain('Confirmed RCA structure')
   })
