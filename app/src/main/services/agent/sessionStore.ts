@@ -6,6 +6,7 @@ import { DEFAULT_MODE, MODES, type ModeId } from '../../../shared/modes'
 import { caseDir } from '../paths'
 import { appendDeletionAudit } from '../deletionAudit'
 import { deleteMessagesFtsForSession } from '../ftsIndex'
+import { assertCaseWritable } from '../caseFreeze'
 import type { RunOptionSelection } from '../../../shared/runOptions'
 import { PERMISSION_MODES, type PermissionMode } from '../../../shared/settings'
 
@@ -73,6 +74,16 @@ export function createSession(
   provider: string | SessionProvider
 ): SessionSummary {
   const p: SessionProvider = typeof provider === 'string' ? { driverKind: provider } : provider
+  // A session is a transcript writer: it appends sessions/<id>.jsonl, turns, tool_calls and
+  // message-FTS rows. None of that may start against a case whose bundle is being sealed or
+  // is already sealed — the archive deletes exactly those rows and that tree.
+  //
+  // Here rather than at the callers because this is the one chokepoint they all pass through:
+  // the sessions:create IPC handler, listSessions' auto-create, createCase, and — the reason
+  // this guard exists at all — RoutinesService's BACKGROUND session, which the scheduler can
+  // start on a timer at any moment and which never enters AgentService's live session map, so
+  // no `hasLiveWork` check built on that map can see it.
+  assertCaseWritable(db, caseSlug)
   const caseId = caseIdOf(db, caseSlug)
   const now = new Date().toISOString()
   const res = db

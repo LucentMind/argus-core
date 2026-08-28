@@ -4,7 +4,7 @@ import crypto from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import { exportCase, verifyBundleArchive } from './bundle'
 import { getCase } from './caseService'
-import { freezeCase, unfreezeCase } from './caseFreeze'
+import { freezeCase } from './caseFreeze'
 import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase } from './ftsIndex'
 import { archiveDir, caseArchivePath, caseDir } from './paths'
 import { sidecarPath } from './lineIndex'
@@ -90,11 +90,20 @@ export async function archiveCase(
   // Freeze BEFORE the export, and release in a finally so no throw can leave a case
   // permanently unwritable. On success the durable guard takes over: archived_at, stamped in
   // the transaction below, is what assertCaseWritable checks from then on.
-  freezeCase(slug)
+  //
+  // freezeCase THROWS when the case is already frozen, which is what refuses a second,
+  // overlapping archive of the same slug — a double-clicked button, a second window, or a
+  // retry over a slow first attempt. That refusal has to live in the freeze rather than in an
+  // `isCaseFrozen` check here, because only the registry can decide it atomically, and only
+  // the returned handle may release: a slug-keyed release let the first archive to finish
+  // unfreeze the SECOND one mid-verify, reopening the exact write window this all exists to
+  // close. It throws before anything is created, so a refused attempt leaves the case
+  // untouched.
+  const freeze = freezeCase(slug)
   try {
     return await archiveFrozenCase(db, argusHome, slug, rec.id, opts, deps)
   } finally {
-    unfreezeCase(slug)
+    freeze.release()
   }
 }
 

@@ -4,6 +4,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { SessionMirrorLike } from './session'
 import { insertMessageFts } from '../ftsIndex'
+import { assertCaseWritable } from '../caseFreeze'
 
 /** Replay a single session's mirror JSONL file (transcript history) in write order. */
 export function readSessionEvents(caseDir: string, sessionId: number): AgentEvent[] {
@@ -29,11 +30,23 @@ export class SessionMirror implements SessionMirrorLike {
   private buffer: string[] = []
   private timer: NodeJS.Timeout | null = null
 
+  /**
+   * `caseSlug` is required, not derived from `filePath`, because it is what the freeze
+   * registry is keyed on — and constructing a mirror is the act this guard refuses.
+   *
+   * Every transcript writer in the app acquires its mirror here: `index.ts` builds ONE
+   * `mirrorFactory` and hands it to both `AgentService` (foreground chat, registry.ts) and
+   * `runBackgroundTurn` (routines, background.ts). Guarding session CREATION alone would miss
+   * the case where an existing session is resumed inside the archive window — no new sessions
+   * row, but the constructor below `mkdirSync`s `sessions/` back into existence and the
+   * appends land in a tree the archive is about to delete.
+   */
   constructor(
     private db: DatabaseSync,
     private filePath: string,
-    private ids: { caseId: number; sessionId: number }
+    private ids: { caseId: number; sessionId: number; caseSlug: string }
   ) {
+    assertCaseWritable(db, ids.caseSlug)
     fs.mkdirSync(path.dirname(filePath), { recursive: true })
   }
 

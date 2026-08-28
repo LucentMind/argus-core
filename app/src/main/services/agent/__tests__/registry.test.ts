@@ -553,7 +553,8 @@ describe('AgentService', () => {
           path.join(caseDir(argusHome, caseSlug), 'sessions', `${sessionId}.jsonl`),
           {
             caseId: 1,
-            sessionId
+            sessionId,
+            caseSlug
           }
         )
     })
