@@ -38,6 +38,16 @@ export function caseDir(argusHome: string, slug: string): string {
   return path.join(argusHome, 'cases', slug)
 }
 
+/** Where archived case bundles live. A managed location rather than a save dialog: the app
+ *  has to be able to find a case's bundle again to restore or delete it. */
+export function archiveDir(argusHome: string): string {
+  return path.join(argusHome, 'archive')
+}
+
+export function caseArchivePath(argusHome: string, slug: string): string {
+  return path.join(archiveDir(argusHome), `${slug}.argus.zip`)
+}
+
 export function configDir(argusHome: string): string {
   return path.join(argusHome, 'config')
 }
