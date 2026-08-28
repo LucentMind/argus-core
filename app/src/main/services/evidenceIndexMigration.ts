@@ -31,8 +31,19 @@ interface LegacyChunk {
   end_line: number
 }
 
-/** Distinct evidence ids still holding legacy rows. */
+/**
+ * Distinct evidence ids still holding legacy rows.
+ *
+ * Treats a missing `evidence_fts_map` (finalize already dropped it) as zero remaining
+ * rather than letting the query throw "no such table" — finalize is called automatically
+ * once the migration loop drains, and callers (including finalize itself) must be able to
+ * ask this again afterwards without special-casing whether that already happened.
+ */
 export function legacyIndexRemaining(db: DatabaseSync): number {
+  const tableExists = db
+    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'evidence_fts_map'`)
+    .get()
+  if (!tableExists) return 0
   return Number(
     (
       db
@@ -107,5 +118,32 @@ export async function runEvidenceIndexMigration(
     opts.onProgress?.(done, total)
     await new Promise((resolve) => setImmediate(resolve))
   }
+  // Only when the loop drained rather than being stopped: finalize drops tables and runs a
+  // VACUUM, neither of which should happen on the way to a quit.
+  if (!opts.shouldStop?.() && legacyIndexRemaining(db) === 0) finalizeEvidenceIndexMigration(db)
   return done
+}
+
+/**
+ * One-shot completion: drop the legacy tables and return their pages to the filesystem.
+ *
+ * Refuses while any legacy row survives — dropping `evidence_fts` mid-migration would
+ * discard content that has no other copy in the database (the file on disk is the only
+ * other copy, and re-indexing 26 GB from it is exactly what this migration exists to
+ * avoid).
+ *
+ * VACUUM is what actually shrinks the file: the migration frees ~26 GB of pages, but
+ * SQLite reuses freed pages rather than truncating, so without this the file stays at its
+ * high-water mark forever. It needs free disk roughly equal to the FINAL size (~10 GB),
+ * not the current one, and cannot run inside a transaction. auto_vacuum=INCREMENTAL is set
+ * first because it only takes effect across a VACUUM, and it is what lets later deletes
+ * (case deletion, archiving) return space without another full VACUUM.
+ */
+export function finalizeEvidenceIndexMigration(db: DatabaseSync): boolean {
+  if (legacyIndexRemaining(db) > 0) return false
+  db.exec(`DROP TABLE IF EXISTS evidence_fts`)
+  db.exec(`DROP TABLE IF EXISTS evidence_fts_map`)
+  db.exec(`PRAGMA auto_vacuum = INCREMENTAL`)
+  db.exec(`VACUUM`)
+  return true
 }

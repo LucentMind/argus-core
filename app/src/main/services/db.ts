@@ -29,6 +29,13 @@ CREATE TABLE IF NOT EXISTS evidence (
   created_at TEXT NOT NULL,
   UNIQUE (case_id, rel_path)
 );
+-- Legacy contentful table, superseded by evidence_index below. Kept here deliberately:
+-- finalizeEvidenceIndexMigration (evidenceIndexMigration.ts) drops this table once a given
+-- database has no legacy rows left, but openDb runs this CREATE TABLE IF NOT EXISTS on
+-- every start and would silently recreate what finalize just dropped. Do not remove this
+-- block until every supported upgrade path is confirmed to have finalized (no install can
+-- still be mid-migration) -- that removal is a deliberate follow-up, not part of this
+-- change.
 CREATE VIRTUAL TABLE IF NOT EXISTS evidence_fts USING fts5(
   content,
   evidence_id UNINDEXED,
@@ -261,6 +268,9 @@ CREATE INDEX IF NOT EXISTS idx_findings_case_id      ON findings(case_id);
 -- key -> fts rowid side tables (see ftsIndex.ts): the FTS key columns are
 -- UNINDEXED, so deleting by them scanned the whole index. These let deletes
 -- resolve rowids by index and delete each by rowid.
+-- Same deferred-removal rule as evidence_fts above: finalizeEvidenceIndexMigration drops
+-- this table too, and openDb would recreate it on the next start if this block were
+-- removed before every supported upgrade path has finalized.
 CREATE TABLE IF NOT EXISTS evidence_fts_map (
   fts_rowid INTEGER PRIMARY KEY,
   evidence_id INTEGER NOT NULL
