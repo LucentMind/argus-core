@@ -99,11 +99,14 @@ export function FindingsPane({
     const cur = findings.find((f) => f.id === id)?.reviewState
     const state: ReviewState = cur === next ? 'pending' : next
     const row = await window.argus.findings.review(id, state)
-    // Merge the full row the IPC returns rather than hand-patching reviewState alone: a
+    // Merge onto the existing local finding rather than replacing it wholesale: the row
+    // reviewFinding returns comes straight from the findings table, with no `body` (only
+    // listFindings joins findings.md to attach one). A wholesale replace would silently drop
+    // the body from every finding the instant it's reviewed. Server-authoritative fields
+    // (reviewState/reviewActor/reviewReason/reviewedAt) still win via the spread order — a
     // human review also changes reviewActor/reviewReason (e.g. overwriting an agent
-    // retraction), and patching only reviewState would leave the stale actor/reason from
-    // whatever review preceded it on screen until the pane refetches or remounts.
-    if (row) setFindings((prev) => prev.map((f) => (f.id === id ? row : f)))
+    // retraction), and this keeps that while preserving body and anything else local-only.
+    if (row) setFindings((prev) => prev.map((f) => (f.id === id ? { ...f, ...row } : f)))
   }
 
   /**

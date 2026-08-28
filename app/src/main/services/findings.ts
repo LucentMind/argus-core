@@ -68,8 +68,9 @@ function toRow(r: Raw): FindingRow {
     mode: (r.mode as ModeId | null) ?? DEFAULT_MODE,
     role: isFindingRole(r.role) ? r.role : null,
     reviewReason: r.review_reason,
-    // Anything other than the literal 'agent' — including NULL on every pre-retraction row —
-    // reads as the human review path, which is what it was.
+    // Anything other than the literal 'agent' — including NULL on every pre-retraction row,
+    // and on a reset to `pending` — takes the same path as the human review path, which is
+    // what `toRow` here actually returns: `null` is preserved, not mapped to 'human'.
     reviewActor: (r.review_actor === 'agent'
       ? 'agent'
       : r.review_actor
@@ -137,14 +138,19 @@ export function reviewFinding(db: DatabaseSync, id: number, state: ReviewState):
   if (!REVIEW_STATES.includes(state))
     throw new Error(`Invalid review state: ${JSON.stringify(state)}`)
   const reviewedAt = state === 'pending' ? null : new Date().toISOString()
-  // A reset to `pending` has no reviewer and no reason — clear both rather than leaving a
-  // stale actor/reason from whatever review (human or agent-retraction) preceded it. A
-  // reject or accept stamps the human and clears review_reason: reviewFinding takes no
-  // reason of its own, and leaving an agent's retraction reason in place would attribute
-  // it to this human decision.
+  // A reset to `pending` has no reviewer — clear the actor. An accept/reject stamps the
+  // human as the actor. `review_reason` is deliberately left untouched here: it is the only
+  // record of WHAT was wrong with a finding (retractFinding is the sole writer of it, and
+  // the v3 dossier contract treats it as the record of how a hypothesis was ruled out), and
+  // attribution is governed entirely by `review_actor`, not by whether the reason column
+  // still holds text. FindingCard and reviewTag() both gate the label AND the reason on
+  // `reviewActor === 'agent'` — once a human's click makes the actor 'human' (or a reset to
+  // pending makes it null), the old reason is invisible at every display/prompt site
+  // regardless of whether the column still has it. Clearing it here would just destroy the
+  // agent's stated reasoning with no undo and no audit trail, for no visible benefit.
   const reviewActor = state === 'pending' ? null : 'human'
   db.prepare(
-    `UPDATE findings SET review_state = ?, reviewed_at = ?, review_actor = ?, review_reason = NULL WHERE id = ?`
+    `UPDATE findings SET review_state = ?, reviewed_at = ?, review_actor = ? WHERE id = ?`
   ).run(state, reviewedAt, reviewActor, id)
   const row = db
     .prepare(`SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE} WHERE f.id = ?`)
