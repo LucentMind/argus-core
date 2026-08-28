@@ -28,7 +28,7 @@ afterEach(() => {
 describe('memory compounding mechanics (spec §1.6)', () => {
   it('the fixture pair shares the defect signature across both cases (cross-case FTS)', async () => {
     await seedMemoryPair(db, argusHome)
-    const hits = searchEvidence(db, 'BLOCKED_VERSION')
+    const hits = searchEvidence(db, argusHome, 'BLOCKED_VERSION')
     const slugs = new Set(hits.map((h) => h.caseSlug))
     expect(slugs).toEqual(new Set(['NAV-100', 'NAV-200']))
   })

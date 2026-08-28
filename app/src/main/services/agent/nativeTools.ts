@@ -405,7 +405,7 @@ export function argusToolHandlers(
       // built without a real sessions row (a driver test double) doesn't pay for it here.
       const caseFilter = args.scope === 'all' ? undefined : caseSlug
       const scopeAll = caseFilter === undefined
-      const res = searchEvidenceWithStatus(db, String(args.query ?? ''), {
+      const res = searchEvidenceWithStatus(db, argusHome, String(args.query ?? ''), {
         caseSlug: caseFilter,
         artifactType: args.artifact_type as never,
         evidenceScope: sessionMode(db, deps.sessionId)
