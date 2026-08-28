@@ -1,10 +1,9 @@
 import fs from 'node:fs'
-import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { PostResults } from '../../../shared/rca'
 import type { AppSettings } from '../../../shared/settings'
 import { getCase } from '../caseService'
-import { artifactsDir } from '../paths'
+import { reportFile } from './artifacts'
 import { applyWatermark } from '../../../shared/watermark'
 import { providerFor, type TicketProviderRegistry } from '../tickets/provider'
 import { postRcaToGithub } from './postGithub'
@@ -99,9 +98,12 @@ export async function postRcaReport(deps: PostRcaDeps, slug: string): Promise<Po
     .get(slug) as JobRow | undefined
   if (!job) throw new Error('No confirmed RCA report to post — confirm the draft first.')
 
-  const dir = artifactsDir(deps.argusHome, slug)
-  const execMd = fs.readFileSync(path.join(dir, 'rca-exec.md'), 'utf8')
-  const techMd = fs.readFileSync(path.join(dir, 'rca-tech.md'), 'utf8')
+  // Through `reportFile`, never a hand-typed filename: `rca/artifacts.ts` owns these names and
+  // `caseArchive`'s keep-set is derived from the same constants. A second copy here would let a
+  // rename move the file archiving keeps while this path kept reading the old one — i.e.
+  // archiving would delete the very file posting depends on.
+  const execMd = fs.readFileSync(reportFile(deps.argusHome, slug, 'exec'), 'utf8')
+  const techMd = fs.readFileSync(reportFile(deps.argusHome, slug, 'tech'), 'utf8')
 
   const results: PostResults = job.post_results ? (JSON.parse(job.post_results) as PostResults) : {}
   const cfg = deps.settings().rca

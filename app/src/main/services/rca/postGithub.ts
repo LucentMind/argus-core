@@ -1,11 +1,10 @@
 import fs from 'node:fs'
-import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { PostResults } from '../../../shared/rca'
 import type { AppSettings } from '../../../shared/settings'
 import { applyWatermark } from '../../../shared/watermark'
 import { getCase } from '../caseService'
-import { artifactsDir } from '../paths'
+import { reportFile } from './artifacts'
 import type { TicketProvider } from '../tickets/provider'
 
 export interface PostGithubDeps {
@@ -45,9 +44,9 @@ export async function postRcaToGithub(deps: PostGithubDeps, slug: string): Promi
     .get(slug) as JobRow | undefined
   if (!job) throw new Error('No confirmed RCA report to post — confirm the draft first.')
 
-  const dir = artifactsDir(deps.argusHome, slug)
-  const execMd = fs.readFileSync(path.join(dir, 'rca-exec.md'), 'utf8')
-  const techMd = fs.readFileSync(path.join(dir, 'rca-tech.md'), 'utf8')
+  // Through `reportFile`, never a hand-typed filename — see the same read in `post.ts`.
+  const execMd = fs.readFileSync(reportFile(deps.argusHome, slug, 'exec'), 'utf8')
+  const techMd = fs.readFileSync(reportFile(deps.argusHome, slug, 'tech'), 'utf8')
 
   const results: PostResults = job.post_results ? (JSON.parse(job.post_results) as PostResults) : {}
 

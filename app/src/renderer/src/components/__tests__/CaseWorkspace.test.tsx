@@ -494,6 +494,26 @@ describe('CaseWorkspace session bootstrap', () => {
     })
     renderWorkspace()
     expect(await screen.findByText('Could not load chat sessions.')).toBeTruthy()
+    // a genuine failure must NOT be dressed up as "this case has no chats"
+    expect(screen.queryByText(/no chat sessions/i)).toBeNull()
+  })
+
+  // An ARCHIVED case has exactly zero sessions: archiving deletes them, and
+  // sessionStore.listSessions reports that honestly instead of auto-creating one. The
+  // bootstrap used to index `list[0].id` unconditionally, so the empty list threw a
+  // TypeError inside the .then, the .catch above caught it, and the case rendered the red
+  // load-failure line with no chat pane at all. `uiStore.activeSessions` is not persisted, so
+  // this is the ordinary path after any restart — not an edge case. A fresh slug is used so
+  // no earlier test's remembered session short-circuits the selection.
+  it('renders an empty state, not the error banner, when the case has no chat sessions', async () => {
+    window.argus.sessions.list = vi.fn(async () => [])
+
+    render(workspace('NAV-ARCHIVED'))
+
+    expect(await screen.findByText(/this case has no chat sessions/i)).toBeInTheDocument()
+    expect(screen.queryByText('Could not load chat sessions.')).toBeNull()
+    // and no chat pane was mounted over it (the composer is ChatPane's own child)
+    expect(screen.queryByPlaceholderText('Message the analyst — / for skills')).toBeNull()
   })
 })
 

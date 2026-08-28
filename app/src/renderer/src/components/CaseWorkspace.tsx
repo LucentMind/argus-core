@@ -114,6 +114,12 @@ export function CaseWorkspace({
     () => sessionsStore.get(slug)
   )
   const [sessionsError, setSessionsError] = useState<string | null>(null)
+  // "the list came back EMPTY" is a different fact from "the load failed", and from "the load
+  // has not landed yet" — all three used to be indistinguishable here, so an archived case (whose
+  // session list is legitimately empty, see sessionStore.listSessions) rendered the red failure
+  // banner. Tracked as its own flag rather than inferred from `sessionId === null`, which is also
+  // the pre-load state and would flash an empty state under every case open.
+  const [sessionsEmpty, setSessionsEmpty] = useState(false)
   const [prPicker, setPrPicker] = useState<PrSearchResult | null>(null)
   // The binding the picker was opened over, so it can warn before silently replacing one —
   // the picker is reachable via "Find PRs" (PrCompanionSection) regardless of whether a PR is
@@ -140,6 +146,7 @@ export function CaseWorkspace({
     setPrefill('')
     setSessionId(null)
     setSessionsError(null)
+    setSessionsEmpty(false)
     // CaseWorkspace is never remounted on a slug change, so a find left open on case A
     // (findOpen lives here, lifted out of ChatPane — see the state declaration above)
     // would otherwise reopen unbidden on case B, which never asked for it.
@@ -178,6 +185,19 @@ export function CaseWorkspace({
         // The store write itself is unconditional and keyed by slug, so a late-resolving
         // load can only ever refresh its OWN case. Only the selection below is stale-gated.
         if (stale) return
+        // An empty list is a legitimate answer, not a failure: an ARCHIVED case has no
+        // sessions at all (archiving deletes them and `listSessions` reports that honestly
+        // rather than auto-creating one). Indexing `list[0]` here threw a TypeError that the
+        // .catch below turned into the load-failure banner — so an archived case, which is
+        // exactly the case this feature promises still reads well, showed red where the chat
+        // pane belongs. `activeSessions` is not persisted, so this is the ordinary path after
+        // any restart, not an edge case.
+        if (list.length === 0) {
+          setSessionsEmpty(true)
+          setSessionId(null)
+          return
+        }
+        setSessionsEmpty(false)
         // Reconcile the chat with the case's mode. `activeSessions` is deliberately not
         // persisted (uiStore.ts), so after a restart the remembered id is gone and
         // `list[0]` is the newest chat of ANY mode while `activeMode` comes from the DB.
@@ -192,7 +212,10 @@ export function CaseWorkspace({
         setSessionId(
           remembered !== undefined && matchesMode(remembered)
             ? remembered
-            : (forMode ?? remembered ?? list[0].id)
+            : // `list[0]?.id` and not `list[0].id`: the empty case is handled above, and an
+              // index access that can throw inside a .then whose .catch renders an error is
+              // how the archived-case banner happened in the first place.
+              (forMode ?? remembered ?? list[0]?.id ?? null)
         )
       })
       .catch(() => {
@@ -338,6 +361,9 @@ export function CaseWorkspace({
     // sessionsError blanks the whole chat, so a stale one from an earlier failed switch
     // would keep hiding the transcript of the switch that just succeeded.
     setSessionsError(null)
+    // A mode switch just created/selected a chat, so the "no chats" state is stale by
+    // construction — clear it for the same reason the error line is cleared.
+    setSessionsEmpty(false)
     handleSwitchSession(newSessionId)
     onModeSwitched()
     void sessionsStore.load(slug).catch(() => setSessionsError('Could not load chat sessions.'))
@@ -739,6 +765,15 @@ export function CaseWorkspace({
                 className={`flex h-full min-h-0 flex-col ${panels.activeTab === CHAT_TAB ? '' : 'hidden'}`}
               >
                 {sessionsError && <p className="p-3 text-xs text-danger">{sessionsError}</p>}
+                {/* Empty and failed are different facts and read differently: muted prose for
+                    a case that simply has no chats (an archived one never will until it is
+                    restored), the danger line above only for a load that actually failed. */}
+                {!sessionsError && sessionsEmpty && (
+                  <p className="p-3 text-xs text-mute">
+                    This case has no chat sessions. Its findings, summary and RCA report are
+                    unaffected.
+                  </p>
+                )}
                 {!sessionsError && sessionId !== null && (
                   <ChatPane
                     slug={slug}
