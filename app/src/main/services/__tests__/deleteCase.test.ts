@@ -14,6 +14,13 @@ import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import { upsertCaseSummary, searchCaseSummaries } from '../distill/summaries'
 import { CAPTURE_DIR_REL } from '../prompts/capture'
 import { createImmediateQueue } from '../ingestQueue'
+import { archiveCase } from '../caseArchive'
+import {
+  seedArchivableCase,
+  cleanupArchiveFixtures,
+  seedProposals,
+  snapshotProposals
+} from './archiveFixtures'
 
 let tmp: string, argusHome: string, db: DatabaseSync
 const detection = createDetection(samplePackRegistry())
@@ -221,5 +228,55 @@ describe('deleteCase', () => {
     expect(() => deleteCase(db, argusHome, 'NOPE')).toThrow(/unknown case/i)
     expect(() => deleteCase(db, argusHome, '..')).toThrow(/invalid case slug/i)
     expect(() => deleteCase(db, argusHome, '../cases')).toThrow(/invalid case slug/i)
+  })
+})
+
+describe('deleteCase and the archive bundle', () => {
+  afterEach(() => {
+    cleanupArchiveFixtures()
+  })
+
+  it('removes the bundle when asked', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    const res = await archiveCase(db, home, slug, { argusVersion: 'test' })
+    expect(fs.existsSync(res.bundlePath)).toBe(true)
+
+    deleteCase(db, home, slug, { deleteArchive: true })
+
+    expect(fs.existsSync(res.bundlePath)).toBe(false)
+    expect(getCase(db, slug)).toBeNull()
+  })
+
+  it('keeps the bundle by default, and the audit says so', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    const res = await archiveCase(db, home, slug, { argusVersion: 'test' })
+
+    deleteCase(db, home, slug)
+
+    // asserting only that the case is gone would pass either way — the point is the bundle
+    expect(fs.existsSync(res.bundlePath)).toBe(true)
+    expect(getCase(db, slug)).toBeNull()
+    const audit = readDeletionAudit(home)
+    expect(audit.at(-1)).toMatchObject({ detail: { archiveRetained: true } })
+  })
+
+  it('records that the archive was deleted when it was', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    deleteCase(db, home, slug, { deleteArchive: true })
+    const audit = readDeletionAudit(home)
+    expect(audit.at(-1)).toMatchObject({ detail: { archiveRetained: false } })
+  })
+
+  it('never touches proposals', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    seedProposals(home, slug) // one pending, one archived reject
+    const before = snapshotProposals(home)
+
+    deleteCase(db, home, slug, { deleteArchive: true })
+
+    // byte-identical: removing archived rejects makes digestStale's subtraction permanently
+    // negative and the global reject digest can never rebuild again
+    expect(snapshotProposals(home)).toEqual(before)
   })
 })
