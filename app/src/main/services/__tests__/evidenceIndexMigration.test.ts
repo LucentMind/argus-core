@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
 import {
+  finalizeEvidenceIndexMigration,
   legacyIndexRemaining,
   migrateOneEvidence,
   runEvidenceIndexMigration
@@ -182,5 +183,48 @@ describe('evidence index migration', () => {
           .get(id) as { n: number }
       ).n
     ).toBe(0)
+  })
+})
+
+describe('finalize', () => {
+  it('refuses to drop anything while legacy rows remain', () => {
+    const db = openTestDb()
+    seedLegacy(db, seedEvidence(db), [{ text: 'still here', from: 1, to: 1 }])
+    expect(finalizeEvidenceIndexMigration(db)).toBe(false)
+    expect(
+      db.prepare(`SELECT name FROM sqlite_master WHERE name = 'evidence_fts'`).get()
+    ).toBeTruthy()
+  })
+
+  it('drops both legacy tables once nothing is left', async () => {
+    const db = openTestDb()
+    seedLegacy(db, seedEvidence(db), [{ text: 'move me', from: 1, to: 1 }])
+    await runEvidenceIndexMigration(db)
+    expect(finalizeEvidenceIndexMigration(db)).toBe(true)
+    expect(db.prepare(`SELECT name FROM sqlite_master WHERE name = 'evidence_fts'`).get()).toBe(
+      undefined
+    )
+    expect(db.prepare(`SELECT name FROM sqlite_master WHERE name = 'evidence_fts_map'`).get()).toBe(
+      undefined
+    )
+  })
+
+  it('leaves the migrated content searchable afterwards', async () => {
+    const db = openTestDb()
+    seedLegacy(db, seedEvidence(db), [{ text: 'survivor token', from: 1, to: 1 }])
+    await runEvidenceIndexMigration(db)
+    finalizeEvidenceIndexMigration(db)
+    const hits = db
+      .prepare(`SELECT rowid FROM evidence_index WHERE evidence_index MATCH ?`)
+      .all('survivor') as unknown as { rowid: number }[]
+    expect(hits).toHaveLength(1)
+  })
+
+  it('enables incremental auto_vacuum', async () => {
+    const db = openTestDb()
+    await runEvidenceIndexMigration(db)
+    finalizeEvidenceIndexMigration(db)
+    const mode = db.prepare(`PRAGMA auto_vacuum`).get() as { auto_vacuum: number }
+    expect(mode.auto_vacuum).toBe(2) // 2 = INCREMENTAL
   })
 })
