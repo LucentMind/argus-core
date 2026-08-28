@@ -1208,6 +1208,29 @@ export async function setCaseMode(
  * transient (seconds to minutes), so refusing during it makes nothing permanently
  * undeletable — unlike gating on `assertCaseWritable`, which would.
  */
+/**
+ * The frozen-case half of `deleteCase`'s precondition, as ONE definition both the function and
+ * its IPC caller share.
+ *
+ * `cases:delete` opens by stopping every live session for the case and tearing down its file
+ * watcher — irreversible side effects — and only then calls `deleteCase`. When `deleteCase`
+ * refuses a frozen case, those side effects have already happened: the user's chats are dead
+ * and the watcher is gone, and the delete they asked for did not occur. So the handler has to
+ * ask this question FIRST. Exported rather than re-inlined there because a second copy of the
+ * rule (and its message) is precisely the two-representations drift this codebase keeps paying
+ * for: change the rule here and both callers move together.
+ *
+ * Deliberately NOT `assertCaseWritable` — see `deleteCase`'s docblock for why an ARCHIVED case
+ * must stay deletable.
+ */
+export function assertCaseDeletable(slug: string): void {
+  if (isCaseFrozen(slug)) {
+    throw new Error(
+      `Case ${slug} is being archived. Wait for that operation to finish before deleting it.`
+    )
+  }
+}
+
 export function deleteCase(
   db: DatabaseSync,
   argusHome: string,
@@ -1215,11 +1238,7 @@ export function deleteCase(
   opts: { deleteArchive?: boolean } = {}
 ): void {
   if (!SLUG_RE.test(slug)) throw new Error(`Invalid case slug: ${JSON.stringify(slug)}`)
-  if (isCaseFrozen(slug)) {
-    throw new Error(
-      `Case ${slug} is being archived. Wait for that operation to finish before deleting it.`
-    )
-  }
+  assertCaseDeletable(slug)
   const rec = getCase(db, slug)
   if (!rec) throw new Error(`Unknown case: ${slug}`)
   const count = (table: string): number =>
