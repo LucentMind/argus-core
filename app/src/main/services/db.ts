@@ -572,8 +572,9 @@ export function openDb(file: string): DatabaseSync {
   // Finding retraction. `review_reason` is why the finding was rejected or withdrawn;
   // `review_actor` is WHO did it ('human' | 'agent'), which is what lets one `rejected`
   // state carry two authorities without adding a fourth ReviewState value. NULL on every
-  // pre-existing row and read as 'human' everywhere: until this change the agent had no
-  // way to reject anything, so every rejection on disk is a human's.
+  // pre-existing row: until this change the agent had no way to reject anything, so every
+  // rejection on disk is a human's. Nothing compares against the literal 'human', so a
+  // NULL actor simply takes the same path a human reject does — it is never mapped to it.
   if (!findingCols.some((c) => c.name === 'review_reason')) {
     db.exec(`ALTER TABLE findings ADD COLUMN review_reason TEXT`)
   }
