@@ -152,7 +152,7 @@ export function collectCaseRows(db: DatabaseSync, caseId: number): BundleRows {
     } catch {
       // unparseable meta — readIndexState's own default ('skipped') is the honest answer
     }
-    return { id: Number(r.id), relPath: r.relPath, indexState: readIndexState(meta) }
+    return { relPath: r.relPath, indexState: readIndexState(meta) }
   })
   return bundleRowsSchema.parse({ turns, toolCalls, evidence, findingPointers })
 }

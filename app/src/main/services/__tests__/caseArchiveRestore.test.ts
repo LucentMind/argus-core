@@ -488,6 +488,60 @@ describe('restoreCase', () => {
     expect(contentSnapshot(db, home, slug).transcripts).toEqual(before.transcripts)
   })
 
+  it('does not wipe existing transcripts when the archive bundle carries none', async () => {
+    // reconcileSessions deletes every file in sessions/ the manifest does not list. That is
+    // sound when the manifest is exhaustive, but a bundle written with includeTranscripts:
+    // false lists NO sessions/ files at all — not "this case has none", but "transcripts were
+    // withheld". archiveFrozenCase always asks for transcripts, but ArchiveDeps.exportTo is a
+    // supported seam that can hand back one that doesn't, and this function's safety must not
+    // depend on a literal three files away from the code that deletes.
+    const { db, home, slug } = await seedArchivableCase()
+    const caseId = getCase(db, slug)!.id
+    const sessionsDir = path.join(caseDir(home, slug), 'sessions')
+    const before = fs.readdirSync(sessionsDir).sort()
+    expect(before.length, 'the fixture seeds a real transcript').toBeGreaterThan(0)
+    const beforeBody = fs.readFileSync(path.join(sessionsDir, before[0]), 'utf8')
+
+    // Build a transcript-less bundle directly with exportCase — the shape ArchiveDeps.exportTo
+    // could hand archiveCase — and point the case at it as though it had just been archived
+    // from it, without going through archiveCase (which always removes sessions/ regardless of
+    // what its bundle carries, and would leave nothing on disk for this guard to protect).
+    const bundlePath = caseArchivePath(home, slug)
+    fs.mkdirSync(path.dirname(bundlePath), { recursive: true })
+    const manifest = await exportCase(
+      db,
+      home,
+      slug,
+      bundlePath,
+      { includeTranscripts: false },
+      { argusVersion: 'test' }
+    )
+    expect(manifest.includesTranscripts).toBe(false)
+    db.prepare(
+      `UPDATE cases SET archived_at = ?, archive_path = ?, archive_sha256 = ? WHERE id = ?`
+    ).run(new Date().toISOString(), bundlePath, manifestHash(manifest), caseId)
+
+    await restoreCase(db, home, slug, createImmediateQueue(db, home))
+
+    // The transcript was never deleted, and registerImportedSessions (which runs unconditionally,
+    // independent of the manifest) picked it back up under a fresh session id.
+    const after = fs.readdirSync(sessionsDir).filter((f) => f.endsWith('.jsonl'))
+    expect(after).toHaveLength(1)
+    const afterBody = fs.readFileSync(path.join(sessionsDir, after[0]), 'utf8')
+    const stripIds = (body: string): unknown[] =>
+      body
+        .split('\n')
+        .filter((l) => l.trim())
+        .map((l) => {
+          const e = JSON.parse(l) as Record<string, unknown>
+          delete e.caseId
+          delete e.caseSlug
+          delete e.sessionId
+          return e
+        })
+    expect(stripIds(afterBody)).toEqual(stripIds(beforeBody))
+  })
+
   it('heals a case left half-rebuilt by a build without the transaction', async () => {
     // The state Finding 1 describes, reproduced directly rather than through a seam: archived_at
     // still set, with evidence rows for this case already present. Restore used to die on
@@ -788,6 +842,61 @@ describe('restoreCase', () => {
       ).id
     )
     expect(queued).toEqual([restoredId])
+  })
+
+  it('reinstates a recorded pending state even though the on-disk .meta sidecar still says indexed', async () => {
+    // The `.meta` sidecar shipped in the bundle's file tree is rewritten to 'indexed' by the
+    // FIRST restore (reindexImportedEvidence stamps it onto the freshly inserted row). If the
+    // row is then set back to 'pending' — a re-run of the extractor, a manual reset, anything
+    // that only touches the DB row — the on-disk sidecar is stale by construction. A second
+    // archive/restore round trip must trust the row sidecar's recorded value over that stale
+    // file, or the row is silently re-buried as 'indexed' with nothing behind it: never
+    // re-queued, its derived evidence never extracted.
+    const { db, home, slug } = await seedArchivableCase()
+
+    // Restore #1: stamps both the DB row's meta AND the on-disk .meta sidecar to 'indexed'.
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    await restoreCase(db, home, slug, createImmediateQueue(db, home))
+    const idAfterFirstRestore = Number(
+      (
+        db
+          .prepare(`SELECT id FROM evidence WHERE case_id = ? AND rel_path = 'evidence/sample.log'`)
+          .get(getCase(db, slug)!.id) as { id: number }
+      ).id
+    )
+    expect(indexStates(db, slug)['evidence/sample.log']).toBe('indexed')
+
+    // Only the DB row moves back to pending — the .meta sidecar on disk is left exactly as
+    // restore #1 wrote it: 'indexed'.
+    setIndexState(db, idAfterFirstRestore, 'pending')
+
+    // Archive #2 ships the CURRENT db state ('pending') in rows.json, alongside the stale
+    // on-disk sidecar (still 'indexed') as part of the ordinary file tree.
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+
+    const queued: number[] = []
+    const recording: IngestQueueLike = {
+      enqueue: (job) => {
+        queued.push(job.evidenceId)
+      },
+      abort: () => {},
+      isIdle: () => true
+    }
+    const res = await restoreCase(db, home, slug, recording)
+
+    expect(
+      indexStates(db, slug)['evidence/sample.log'],
+      'the recorded pending state must win over the stale on-disk sidecar'
+    ).toBe('pending')
+    expect(res.queuedForIndex, 'a row wrongly stamped indexed is never re-queued').toBe(1)
+    const idAfterSecondRestore = Number(
+      (
+        db
+          .prepare(`SELECT id FROM evidence WHERE case_id = ? AND rel_path = 'evidence/sample.log'`)
+          .get(getCase(db, slug)!.id) as { id: number }
+      ).id
+    )
+    expect(queued).toEqual([idAfterSecondRestore])
   })
 
   it('never overwrites a file that stayed on disk with the bundle’s older copy', async () => {
