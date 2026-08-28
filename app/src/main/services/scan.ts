@@ -11,6 +11,7 @@ import { DEFAULT_MODE, type ModeId } from '../../shared/modes'
 import { modeDir, caseDir } from './paths'
 import { getCase } from './caseService'
 import { listEvidence, sha256File, deleteEvidence } from './ingest'
+import { assertCaseWritable } from './caseFreeze'
 import { deleteEvidenceIndex } from './indexer'
 import type { IngestQueueLike } from './ingestQueue'
 import type { Detection } from './packs/detection'
@@ -152,6 +153,18 @@ export function scanEvidence(
 ): ScanSummary {
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
+  // This module is an INDEPENDENT writer into evidence/ and artifacts/: it never routes
+  // through ingest.ts, so it carries none of ingest's guards. Run mid-archive (the Rescan
+  // button is live for as long as verification takes) it would register files created after
+  // the bundle snapshot, which the archive then deletes from disk and from the database with
+  // no copy in the bundle. On an already-archived case it would also silently recreate the
+  // deleted evidence/ directory with the mkdirSync below.
+  //
+  // ONE guard for the whole file: `scanEvidence` is its only export, and `registerScanned`,
+  // `rescanModified`, `writeSidecar` and `setMissing` are module-private with no other
+  // caller — every write in this file is downstream of this line. It sits before the
+  // mkdirSync deliberately: a refused scan must leave the filesystem exactly as it found it.
+  assertCaseWritable(db, caseSlug)
   const scanDir = modeDir(argusHome, caseSlug, mode)
   fs.mkdirSync(scanDir, { recursive: true })
   const topDir = dirForMode(mode)

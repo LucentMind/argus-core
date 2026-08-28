@@ -6,6 +6,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { EvidenceRecord } from '../../shared/types'
 import type { Extractors } from './packs/extractors'
 import { ingestDerived } from './ingest'
+import { assertCaseWritable } from './caseFreeze'
 import type { IngestQueueLike } from './ingestQueue'
 import { caseDir } from './paths'
 import { dirForMode, scopeOfRelPath } from '../../shared/evidenceScope'
@@ -33,6 +34,12 @@ export async function extractDerivedText(
   const slugRow = db.prepare(`SELECT slug FROM cases WHERE id = ?`).get(rec.caseId) as
     { slug: string } | undefined
   if (!slugRow) return null
+  // Before the mkdirSync below, not just inside ingestDerived at the end: the extractor writes
+  // its output file first, so a guard that fires only at registration time still leaves an
+  // orphan `.derived/*.txt` inside a frozen or archived tree with no row pointing at it.
+  // Throwing rather than returning null: the queue's runExtraction warns and moves on, and a
+  // silent null would be indistinguishable from "this type has no extractor".
+  assertCaseWritable(db, slugRow.slug)
   const dir = caseDir(argusHome, slugRow.slug)
   const srcAbs = path.join(dir, rec.relPath)
   const derivedDir = path.join(dir, dirForMode(scopeOfRelPath(rec.relPath)), '.derived')
