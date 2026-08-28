@@ -139,10 +139,12 @@ export function listSessions(
   if (rows.length === 0) {
     // An ARCHIVED case has exactly zero sessions — archiving deleted them — and createSession
     // refuses it, so auto-creating here would turn every read of an archived case's session
-    // list into a throw: `sessions:list` renders an error banner where the chat pane was, and
-    // `assembleDistillInput` fails outright, breaking distillation of archived cases, which
-    // this design deliberately keeps working. A read must not mutate, and must not throw:
-    // report the truth, which is that there are none.
+    // list into a THROW: `sessions:list` would reject, and `assembleDistillInput` would fail
+    // outright, breaking distillation of archived cases, which this design deliberately keeps
+    // working. What this branch delivers is exactly that: no throw, and no session row created
+    // for a case whose sessions were just deleted. A read must not mutate. How the renderer
+    // presents an empty list is the renderer's business (CaseWorkspace renders an empty state
+    // for it, distinct from its load-failure banner) — this branch does not remove any banner.
     if (isCaseArchived(db, caseSlug)) return []
     const p: SessionProvider = typeof provider === 'string' ? { driverKind: provider } : provider
     return [createSession(db, caseSlug, mode !== undefined ? { ...p, mode } : p)]

@@ -93,7 +93,9 @@ describe('writeReportMarkdown refuses a case whose bundle is being or has been s
       new Date().toISOString(),
       'case-g'
     )
-    expect(() => writeReportMarkdown(db, home, 'case-g', 'exec', '# snuck in')).toThrow(/archived/i)
+    expect(() => writeReportMarkdown(db, home, 'case-g', 'exec', '# snuck in')).toThrow(
+      /is archived and cannot accept new files/i
+    )
     expect(readReportMarkdown(home, 'case-g')!.exec).toBe('# exec')
   })
 })

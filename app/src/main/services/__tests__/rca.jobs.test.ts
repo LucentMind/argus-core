@@ -189,9 +189,17 @@ describe('RcaJobs', () => {
         db.prepare(`UPDATE cases SET archived_at = ? WHERE slug = ?`).run('2026-01-02', slug)
       }
       try {
-        expect(() =>
-          jobs.confirm(slug, job.id, [{ findingId, role: 'root-cause' }], validDraft(findingId))
-        ).toThrow(slug === 'case-frozen' ? /being archived/i : /archived/i)
+        expect(
+          () =>
+            jobs.confirm(slug, job.id, [{ findingId, role: 'root-cause' }], validDraft(findingId))
+          // Each branch matches ITS OWN message and not the other's: a bare /archived/i also
+          // matches "is being archived right now", so the archived case would have passed
+          // while actually being refused for the frozen reason.
+        ).toThrow(
+          slug === 'case-frozen'
+            ? /is being archived right now/i
+            : /is archived and cannot accept new files/i
+        )
       } finally {
         freeze?.release()
       }

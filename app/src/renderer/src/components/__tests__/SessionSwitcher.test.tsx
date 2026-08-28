@@ -279,6 +279,28 @@ describe('SessionSwitcher', () => {
     )
   })
 
+  // `sessions.create` is genuinely REFUSABLE, not just transiently failing: the main process
+  // throws for a case that is frozen (an archive is in flight) or already archived. The click
+  // handler is `void createChat()`, so an uncaught rejection here is an unhandled rejection
+  // with nothing on screen — the user clicks New chat and simply nothing happens.
+  it('shows an inline error when sessions.create rejects, and switches to nothing', async () => {
+    const onSwitch = vi.fn()
+    window.argus.sessions.create = vi.fn(async () => {
+      throw new Error('Case NAV-1 is archived and cannot accept new files. Restore it first.')
+    }) as never
+    render(
+      <SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={onSwitch} onJumpToTurn={vi.fn()} />
+    )
+    // both seeded chats have turns, so New chat really does mint one (the reuse path above)
+    fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
+    fireEvent.click(await screen.findByRole('button', { name: 'New chat' }))
+
+    expect(await screen.findByText(/is archived and cannot accept new files/i)).toBeTruthy()
+    expect(onSwitch).not.toHaveBeenCalled()
+    // the popup stays open, so the message it just rendered is actually readable
+    expect(screen.getByRole('button', { name: 'New chat' })).toBeInTheDocument()
+  })
+
   it('notifies onOpenChange(true) on open and onOpenChange(false) on close', async () => {
     const onOpenChange = vi.fn()
     render(
