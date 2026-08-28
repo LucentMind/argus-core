@@ -45,14 +45,23 @@ const KEPT_ARTIFACT_FILES = new Set<string>(RCA_REPORT_FILENAMES)
 // here so every existing importer of these types is untouched.
 export type { ArchiveResult, RestoreResult }
 
+/**
+ * A sentence completing "Case <slug> …" and naming the work in progress plus what to do about
+ * it, or `null` when the case is idle. A REASON rather than a boolean because the categories
+ * are not interchangeable to the user: an agent chat, a background routine run and an external
+ * editor spawned into the case dir each need a different thing closed, and "has live work" is
+ * not an instruction anyone can act on.
+ */
+export type LiveWorkReason = string | null
+
 /** Injected seams. `exportTo`/`verify` are where the ordering tests inject failures;
- *  `hasLiveWork` is a production seam — `archiveCase` is a database-level function with no
+ *  `liveWorkReason` is a production seam — `archiveCase` is a database-level function with no
  *  access to the agent service, so the caller (the IPC handler) supplies the answer. */
 export interface ArchiveDeps {
   exportTo?: (zipPath: string) => Promise<BundleManifest>
   verify?: (zipPath: string) => Promise<BundleManifest>
-  /** True when an agent session is still running for this case. Absent means "no live work". */
-  hasLiveWork?: () => boolean | Promise<boolean>
+  /** Why this case cannot be archived right now, or null. Absent means "no live work". */
+  liveWorkReason?: () => LiveWorkReason | Promise<LiveWorkReason>
   /** Removes one archived tree. A seam only so a test can make it fail: the failure happens
    *  AFTER the commit, where the tolerated-failure behaviour lives, and no real fs state can
    *  be relied on to produce it (Node unlinks even a file another handle holds open). */
@@ -134,12 +143,10 @@ export async function archiveCase(
   if (rec.archivedAt) throw new Error(`Case ${slug} is already archived`)
   // Archiving works only on a STABLE case. A running agent writes evidence, transcripts and
   // turns for as long as it runs, and every one of those lands after the bundle snapshot and
-  // before the deletes. Refuse rather than race it or stop it behind the user's back.
-  if (deps.hasLiveWork && (await deps.hasLiveWork())) {
-    throw new Error(
-      `Case ${slug} has an agent session still running. Stop it before archiving, so nothing is written after the bundle is sealed.`
-    )
-  }
+  // before the deletes. Refuse rather than race it or stop it behind the user's back. The
+  // reason string comes from the seam so the message names the specific thing to close.
+  const liveWork = deps.liveWorkReason ? await deps.liveWorkReason() : null
+  if (liveWork) throw new Error(`Case ${slug} ${liveWork}`)
 
   // Freeze BEFORE the export, and release in a finally so no throw can leave a case
   // permanently unwritable. On success the durable guard takes over: archived_at, stamped in
@@ -269,10 +276,23 @@ async function archiveFrozenCase(
     }
   }
 
-  // Archiving frees a large number of pages. Without this they are reused but never returned
-  // to the filesystem, so the file would never shrink no matter how much is archived. This is
-  // a no-op unless auto_vacuum is INCREMENTAL, which the contentless-index migration sets —
-  // if that has not run yet, archiving still works and the file shrinks at the next VACUUM.
+  // Archiving frees a large number of database pages. Without this they are reused but never
+  // returned to the filesystem, so `argus.db` would never shrink no matter how much is archived.
+  //
+  // BE HONEST ABOUT WHAT THIS DOES TODAY: `incremental_vacuum` reclaims pages only on a database
+  // whose `auto_vacuum` is INCREMENTAL, and nothing sets that on a fresh install. `openDb` sets
+  // only `journal_mode` and `foreign_keys` (db.ts), and the one production writer of the pragma
+  // is `reclaimEvidenceIndexSpace` (evidenceIndexMigration.ts), which returns early unless the
+  // legacy index is fully drained AND the freelist is already at least 1 GiB. So on essentially
+  // every installation `auto_vacuum` stays 0, this statement is a no-op, and there is no "next
+  // VACUUM" to pick the pages up either — `VACUUM` has that same single gated call site.
+  //
+  // That is a gap, not a bug in this line: archiving still frees the case's FILES from disk,
+  // which is the bulk of what it reclaims. Changing how every database initialises `auto_vacuum`
+  // is out of scope here and is recorded for the final review instead. Keep the pragma: it costs
+  // nothing where it is a no-op, and it is correct on the databases that have been through
+  // `reclaimEvidenceIndexSpace`.
+  //
   // Outside the transaction above on purpose: incremental_vacuum cannot run inside one.
   db.exec(`PRAGMA incremental_vacuum`)
 

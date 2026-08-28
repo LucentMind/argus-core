@@ -245,6 +245,12 @@ export const IPC = {
   casesArchive: 'cases:archive',
   casesRestore: 'cases:restore',
   casesTouchOpened: 'cases:touch-opened',
+  /** Broadcast (main → every window) when a case's own row changed in a way every window has
+   *  to re-read: archived, restored, or deleted. Unlike `cases:delete`'s renderer callback,
+   *  which only ever reaches the window that initiated it, this reaches SECOND windows — an
+   *  archived case stays open and viewable, so a window that is not the initiator would
+   *  otherwise keep offering write affordances the main process now refuses. */
+  casesChanged: 'cases:changed',
   onboardingSeedSample: 'onboarding:seed-sample',
   evidenceDelete: 'evidence:delete',
   evidenceScan: 'evidence:scan',

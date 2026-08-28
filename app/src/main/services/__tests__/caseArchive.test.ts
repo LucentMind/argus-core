@@ -249,9 +249,17 @@ describe('archiveCase refuses an unstable case and freezes a stable one', () => 
     const { db, home, slug } = await seedArchivableCase()
     const before = snapshotCase(db, home, slug)
 
+    // The seam supplies the REASON and archiveCase prefixes the slug: the user has to be told
+    // which case and what to close, so a bare "live work" boolean was never enough.
     await expect(
-      archiveCase(db, home, slug, { argusVersion: 'test' }, { hasLiveWork: () => true })
-    ).rejects.toThrow(/agent session still running/i)
+      archiveCase(
+        db,
+        home,
+        slug,
+        { argusVersion: 'test' },
+        { liveWorkReason: () => 'has an agent session still running. Stop it first.' }
+      )
+    ).rejects.toThrow(`Case ${slug} has an agent session still running. Stop it first.`)
 
     expect(snapshotCase(db, home, slug)).toEqual(before)
     expect(fs.existsSync(caseArchivePath(home, slug))).toBe(false)
@@ -265,7 +273,7 @@ describe('archiveCase refuses an unstable case and freezes a stable one', () => 
       home,
       slug,
       { argusVersion: 'test' },
-      { hasLiveWork: () => false }
+      { liveWorkReason: () => null }
     )
     expect(fs.existsSync(res.bundlePath)).toBe(true)
   })
@@ -820,7 +828,7 @@ describe('archiveCase ordering: a failure before the delete step removes nothing
   })
 })
 
-describe('reclaiming space after an archive', () => {
+describe('reclaiming space after an archive (INCREMENTAL databases only)', () => {
   /**
    * Asserts the EFFECT — freed pages actually leave the database file — rather than that a
    * particular statement was issued.
@@ -837,8 +845,17 @@ describe('reclaiming space after an archive', () => {
    * only takes effect across a VACUUM — see evidenceIndexMigration.ts) and then making some
    * garbage gives a genuine before/after. Deleting the pragma from `archiveCase` leaves the
    * count exactly where the bloat put it, so this test cannot pass without the fix.
+   *
+   * READ THIS AS NARROWLY AS IT IS WRITTEN. It pins the INCREMENTAL case ONLY, and it
+   * MANUFACTURES that precondition below — it is not evidence that production reclaims
+   * anything. `openDb` never sets `auto_vacuum`, and the sole production setter is
+   * `reclaimEvidenceIndexSpace` (evidenceIndexMigration.ts), gated behind a fully drained legacy
+   * index AND a freelist of at least 1 GiB. On an installation that has not been through that,
+   * `auto_vacuum` is 0, the pragma is a no-op, and archiving frees the case's FILES from disk
+   * but does not shrink `argus.db`. Remove the two `PRAGMA auto_vacuum`/`VACUUM` lines below and
+   * this test fails — which is the honest shape of the gap, recorded for the final review.
    */
-  it('returns freed pages to the filesystem when the database supports it', async () => {
+  it('drives the freelist to zero on an auto_vacuum=INCREMENTAL database (a fixture-only precondition)', async () => {
     const { db, home, slug } = await seedArchivableCase()
 
     // What the contentless-index migration does to a real installation's database.
