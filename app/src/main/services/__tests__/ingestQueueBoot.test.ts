@@ -136,9 +136,11 @@ describe('requeuePendingIndexes', () => {
       )
       .all(id)
     expect(dupes).toEqual([])
-    // exactly the fresh index of a one-line file, nothing inherited from the crash
+    // exactly the fresh index of a one-line file, nothing inherited from the crash. The
+    // re-index itself lands in evidence_index_map now (Task 2); evidence_fts stays empty
+    // for this row because the thorough delete above already cleared its legacy residue.
     const total = db
-      .prepare(`SELECT COUNT(*) AS n FROM evidence_fts WHERE evidence_id = ?`)
+      .prepare(`SELECT COUNT(*) AS n FROM evidence_index_map WHERE evidence_id = ?`)
       .get(id) as { n: number }
     expect(total.n).toBe(1)
   })
