@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-177 commits since v2.3.0, 207 files changed (+21,386 / −1,193).
+229 commits since v2.3.0, 319 files changed (+29,709 / −1,818).
 
 ### Added
 
@@ -120,6 +120,66 @@
   row now offers a picker over the connected site's own link-type
   catalogue instead of free text.
 
+**GitHub issues as a case source**
+
+- A case's ticket is no longer assumed to be Jira: a new ticket-provider
+  registry (a Jira provider and a gh-CLI-backed GitHub issue provider,
+  resolved by id) is the sole authority on which tracker a case belongs
+  to, recorded explicitly on the case rather than inferred from the ref's
+  shape. A case can now be created directly from a GitHub issue,
+  alongside Jira.
+- A GitHub-bound case can be refreshed like a Jira one, and correctly
+  follows an issue transferred to another repo — the case rebinds to the
+  new ref and its existing evidence moves with it instead of forking into
+  a duplicate copy. Linked-PR discovery now asks GitHub's own
+  issue-linkage data for a GitHub case instead of running a Jira-shaped
+  search that silently returned nothing.
+- An RCA report can now post to a GitHub issue as its destination, not
+  only Jira — one comment carrying the executive summary plus the full
+  technical report in a collapsed section, since GitHub has no
+  comment-attachment API. The post-confirm dialog warns when the target
+  repo is public or its visibility can't be confirmed. The case UI names
+  which tracker a case's ticket actually resolved through (case card, New
+  Case dialog, RCA post target) instead of always saying Jira.
+- Shipped with several whole-branch hardening waves closing real defects
+  found by re-review: RCA drafts silently missing the issue body and
+  comments for any GitHub ref, GitHub-bound cases displaying "Jira:
+  closed" and posting RCA comments that called the issue a Jira ticket,
+  and a zero-padded GitHub issue number (`#007`) now canonicalizing to
+  the same ticket instead of reading as a different one.
+
+**Slack connector with confidential-client OAuth**
+
+- Argus's OAuth previously assumed a public, PKCE-only client; Connectors
+  settings now supports confidential clients (client ID + secret) with a
+  Slack preset, so Slack — whose OAuth requires a registered confidential
+  client — can be connected. Statically configured credentials skip
+  Dynamic Client Registration entirely once a client is pre-registered in
+  Slack's own app console.
+- The loopback OAuth redirect now binds both 127.0.0.1 and ::1 per RFC
+  8252 §7.3, since the system browser resolves "localhost" independently
+  of Node's own `dns.lookup` and may land on whichever loopback family
+  Argus isn't listening on; a supplied redirect URL must now also name an
+  explicit port, so the reported callback address can't silently disagree
+  with the one actually bound.
+- When a loopback redirect isn't reachable — remote or headless use — a
+  "paste the code" fallback completes the OAuth exchange by hand instead
+  of failing outright.
+
+**Contentless evidence index**
+
+- The evidence full-text-search index now tracks rows without storing
+  the source text redundantly inside the index (a "contentless" FTS5
+  table), rendering search snippets by reading the matched lines back off
+  disk through a new locator map connecting each indexed row to its
+  source file — a smaller, faster index instead of a second on-disk copy
+  of every evidence file's text.
+- Existing installations migrate in place, one evidence row at a time,
+  entirely inside the database with no re-read of files from disk. Search
+  keeps working throughout: it queries both the new and legacy tables and
+  merges results until the migration finishes, at which point a finalize
+  step drops the legacy tables and reclaims the freed disk space.
+
 ### Changed
 
 - Expandable settings rows — Appearance, Default repositories, each
@@ -160,6 +220,50 @@
   the same change events the manual buttons already did, so the Packs
   and HiveMind pages and the "relaunch to finish" prompt update live
   instead of only after a reload.
+- Slack's OAuth quirk of returning HTTP 200 with an error payload instead
+  of a real HTTP error code is now normalized into a proper OAuth error;
+  a loopback-bind failure during authorization no longer deletes an
+  existing connector's valid refresh token before a new authorization is
+  even attempted; an emptied Slack scopes field now floors to Slack's own
+  default scope set instead of requesting everything the SDK advertises;
+  a token refresh with no stored refresh token no longer clobbers an
+  in-flight paste-the-code exchange; and Dynamic Client Registration is
+  now blocked when no Client ID is configured, instead of falling through
+  to a confusing SDK error.
+- One failing linked-PR lookup for a GitHub case (a deleted/private repo,
+  a transient error) no longer discards every other linked PR alongside
+  it.
+- The evidence-index migration blocked the whole app for its duration on
+  a large database (measured against a real 36.7 GB install): it moved a
+  whole evidence row inside one synchronous savepoint and only yielded
+  between rows, so a single large artifact could hold the event loop for
+  seconds at a stretch. Atomicity moves to the chunk instead of the row —
+  the migration now yields between chunks, matching how ordinary indexing
+  already worked — and logs periodic progress so a long migration no
+  longer looks like a hang.
+- Finalizing the evidence-index migration (dropping the legacy tables,
+  then running VACUUM) kept re-running to completion on every subsequent
+  boot: the app's own schema setup was still recreating both legacy
+  tables, empty, on every open, which fooled the "already finalized"
+  check into thinking migration hadn't happened and triggered a full
+  multi-gigabyte VACUUM at every launch. Once the tables were genuinely
+  gone for good, several evidence-delete paths (delete evidence, update
+  evidence content, Rescan, delete a case, a bundle-import rollback) began
+  failing outright instead, since they queried the legacy tables
+  unconditionally rather than checking whether migration had removed
+  them; an interrupted VACUUM's freed disk space is now reclaimed on a
+  later boot instead of being lost silently.
+- A file that returned a read error while rendering a search snippet
+  (e.g. a permission error, or the file vanishing mid-read) rendered a
+  blank snippet instead of the missing-file marker.
+- A distill v3 run now drops a single malformed candidate instead of
+  failing the entire run and losing every other candidate alongside it.
+- A HiveMind-synced reference from the Confluence subfolder read as
+  permanently stale with no real update behind it, while its actual
+  update indicator stayed invisible; removing a HiveMind-installed
+  reference could also leave its pin behind under a different (namespaced)
+  key, so the file silently reappeared on the next sync as if it had
+  never been removed.
 
 ## v2.3.0 — 2026-08-19
 
