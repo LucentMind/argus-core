@@ -221,9 +221,26 @@ const argus = {
     archive: (slug: string): Promise<ArchiveResult> => invoke(IPC.casesArchive, slug),
     /** Rehydrate an archived case in place from its bundle. */
     restore: (slug: string): Promise<RestoreResult> => invoke(IPC.casesRestore, slug),
-    /** Stamp last_opened_at. Fire-and-forget: silent on an unknown slug by design, so callers
-     *  must not surface a failure here as an error. */
-    touchOpened: (slug: string): Promise<void> => invoke(IPC.casesTouchOpened, slug),
+    /**
+     * Stamp last_opened_at. Genuinely fire-and-forget, and the `.catch` is what makes that
+     * true: the handler's `assertSlug` REJECTS on a malformed slug, so returning the raw
+     * invoke promise handed a caller writing `void window.argus.cases.touchOpened(slug)` — the
+     * shape this doc comment asks for — an unhandled rejection. Swallowed here rather than at
+     * every call site, because a `last_opened_at` stamp is never worth interrupting the user.
+     */
+    touchOpened: (slug: string): Promise<void> =>
+      invoke(IPC.casesTouchOpened, slug).catch(() => undefined),
+    /**
+     * Broadcast to EVERY window when a case's own row changed — archived, restored or deleted.
+     * The delete dialog's callback only ever reaches the window that opened it; an archived
+     * case stays open and viewable, so a second window has no other way to learn that its write
+     * affordances are now refused by the main process.
+     */
+    onChanged: (cb: (caseSlug: string) => void): (() => void) => {
+      const listener = (_e: unknown, caseSlug: string): void => cb(caseSlug)
+      ipcRenderer.on(IPC.casesChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.casesChanged, listener)
+    },
     setStatus: (
       slug: string,
       status: CaseStatus,

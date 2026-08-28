@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
-import { createCase, deleteCase, getCase, listCases } from '../caseService'
+import { createCase, deleteCase, getCase, listCases, assertCaseDeletable } from '../caseService'
 import { ingestContent } from '../ingest'
 import { createSession } from '../agent/sessionStore'
 import { readDeletionAudit } from '../deletionAudit'
@@ -287,6 +287,45 @@ describe('deleteCase and the archive bundle', () => {
     expect(fs.existsSync(path.join(home, 'cases', slug))).toBe(true)
     expect(fs.existsSync(res.bundlePath)).toBe(true)
     expect(readDeletionAudit(home)).toHaveLength(0)
+  })
+
+  it('exposes the frozen refusal as ONE rule the IPC handler can check before any side effect', async () => {
+    // `cases:delete` stops every live session for the case and unwatches it BEFORE calling
+    // deleteCase — both irreversible. Refusing only inside deleteCase therefore killed the
+    // user's chats and tore down the watcher and then deleted nothing. The handler now calls
+    // this same exported assert first (ordering pinned in main/__tests__/caseArchiveIpc.test.ts).
+    const { db, home, slug } = await seedArchivableCase()
+    const handle = freezeCase(slug)
+    try {
+      // Same rule, same message — not a second copy that can drift from deleteCase's.
+      const direct = (() => {
+        try {
+          assertCaseDeletable(slug)
+          return null
+        } catch (e) {
+          return (e as Error).message
+        }
+      })()
+      const viaDelete = (() => {
+        try {
+          deleteCase(db, home, slug)
+          return null
+        } catch (e) {
+          return (e as Error).message
+        }
+      })()
+      expect(direct).toMatch(/being archived/i)
+      expect(viaDelete).toBe(direct)
+
+      // Callable with nothing but a slug, which is what makes "check it FIRST" possible: it
+      // needs no db handle and no existing row, so the handler can ask before it touches
+      // AgentService or the watcher.
+      expect(() => assertCaseDeletable('NO-SUCH-CASE-AT-ALL')).not.toThrow()
+    } finally {
+      handle.release()
+    }
+    // and it stops refusing the moment the archive releases
+    expect(() => assertCaseDeletable(slug)).not.toThrow()
   })
 
   it('never touches proposals', async () => {

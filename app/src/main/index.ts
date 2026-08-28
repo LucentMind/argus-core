@@ -151,6 +151,7 @@ import {
   createCase,
   listCases,
   deleteCase,
+  assertCaseDeletable,
   setCaseStatus,
   setCaseJiraDeselected,
   setCaseJiraLinkDeselected,
@@ -159,7 +160,7 @@ import {
   touchCaseOpened
 } from './services/caseService'
 import { archiveCase, restoreCase } from './services/caseArchive'
-import { caseHasLiveWork } from './services/caseLiveWork'
+import { caseLiveWorkReason, busyCaseSlugsOf } from './services/caseLiveWork'
 import { OnboardingService, resolveSampleAssetsDir } from './services/onboarding'
 import {
   ingestArtifact,
@@ -2802,6 +2803,11 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.casesDelete, async (_e, slug: string, opts?: { deleteArchive?: boolean }) => {
     assertSlug(slug)
+    // BEFORE any side effect. `deleteCase` refuses a case that is mid-archive, but the two
+    // steps below are irreversible: stopping the case's chats and tearing down its watcher and
+    // then refusing would leave the user with dead sessions, no watcher, and no delete. Same
+    // exported rule `deleteCase` itself enforces (caseService.ts), not a second copy of it.
+    assertCaseDeletable(slug)
     // strict order: live sessions → watcher → DB/audit/filesystem (in deleteCase)
     await agentService!.stopAllForCase(slug)
     caseWatch.unwatch(slug)
@@ -2813,6 +2819,10 @@ function registerIpc(): void {
     deleteCase(db, argusHome, slug, opts ?? {})
     panelHost?.closeCase(slug)
     externalAppHost?.closeCase(slug)
+    // Every window, not just the initiator: the delete dialog's `onDeleted()` callback reaches
+    // only the window that opened it, and a second window showing this case must stop offering
+    // it. See IPC.casesChanged.
+    broadcast(IPC.casesChanged, slug)
   })
 
   // — archive / restore (a case's bulk moves to a verified bundle; its knowledge stays live) —
@@ -2832,9 +2842,17 @@ function registerIpc(): void {
       slug,
       { argusVersion: app.getVersion() },
       {
-        hasLiveWork: () =>
-          caseHasLiveWork(db, slug, {
-            liveCaseSlugs: () => agentService!.states().map((s) => s.caseSlug)
+        liveWorkReason: () =>
+          caseLiveWorkReason(db, slug, {
+            // `busyCaseSlugsOf`, NOT a bare map over states(): an entry stays in the session
+            // map long after its turn ends (there is no idle timer), so an unfiltered map would
+            // refuse every case whose chat has ever been opened. Same `activeTurn` vocabulary
+            // as getBusyOwners and the updater's isQuiet, defined once in caseLiveWork.ts.
+            busyCaseSlugs: () => busyCaseSlugsOf(agentService!),
+            // An external editor/terminal spawned into the case dir writes files with no
+            // database handle, so neither assertCaseWritable nor the freeze can see it.
+            openExternalApps: () =>
+              (externalAppHost?.list(slug) ?? []).filter((a) => a.status === 'running')
           })
       }
     )
@@ -2843,6 +2861,16 @@ function registerIpc(): void {
     // `case.json`, `summary.md` and its RCA report, and stays open and viewable. Leaving the
     // watcher on is what makes the file pane show the evidence and session trees disappearing —
     // unwatching would freeze it on a listing of files that are no longer there.
+    //
+    // Archiving is the LARGEST evidence mutation in the app — every evidence row for the case
+    // is gone — and `evidence:delete`, a single-row delete, already announces itself here. An
+    // archived case stays open and viewable, so without this the evidence pane in this window
+    // and in every other one keeps rendering rows whose files and rows no longer exist. The
+    // paired `caseWatch.suppress` is right: the tree removals above were our own writes.
+    evidenceChangedB(slug)
+    // And the `archived_at` flag itself, which no evidence event carries: the archived badge
+    // and the write affordances a second window must stop offering.
+    broadcast(IPC.casesChanged, slug)
     return res
   })
 
@@ -2851,7 +2879,12 @@ function registerIpc(): void {
     // The real ingest queue, not a fresh one: restore hands back the evidence rows whose
     // extraction has to be re-run, and they must land in the same background queue whose
     // progress the renderer is already subscribed to.
-    return restoreCase(db, argusHome, slug, ingestQueue)
+    const res = await restoreCase(db, argusHome, slug, ingestQueue)
+    // The mirror image of archive's announcement above: every evidence row is BACK, and the
+    // case is writable again. Same two channels, for the same two reasons.
+    evidenceChangedB(slug)
+    broadcast(IPC.casesChanged, slug)
+    return res
   })
 
   // Fire-and-forget telemetry from a UI event, and silent on an unknown slug BY DESIGN (see
