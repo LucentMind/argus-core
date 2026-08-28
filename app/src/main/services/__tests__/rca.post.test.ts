@@ -208,7 +208,7 @@ describe('postRcaReport', () => {
     // hand-edit save path (rca:save-markdown) does — proving THAT function's output, not a
     // hand-written fs.writeFileSync, is what reaches the Jira comment body.
     writeArtifacts('case-k')
-    writeReportMarkdown(home, 'case-k', 'exec', '# exec via writeReportMarkdown\n\nline two.')
+    writeReportMarkdown(db, home, 'case-k', 'exec', '# exec via writeReportMarkdown\n\nline two.')
     insertJob('case-k')
     const calls: { tool: string; instanceId: string; args: Record<string, unknown> }[] = []
 

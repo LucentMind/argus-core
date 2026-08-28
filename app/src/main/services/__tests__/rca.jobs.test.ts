@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
 import { createCase, getCase } from '../caseService'
+import { freezeCase } from '../caseFreeze'
 import { artifactsDir } from '../paths'
 import { RcaJobs, type RcaJobsDeps } from '../rca/jobs'
 import { expectedSectionIds, RcaParseError } from '../rca/parse'
@@ -165,6 +166,47 @@ describe('RcaJobs', () => {
       role: string | null
     }
     expect(finding.role).toBe('root-cause')
+  })
+
+  it('confirm refuses a frozen case and an archived one, writing neither roles nor artifacts', async () => {
+    // The same loss class the freeze exists for, one directory over: confirm drops three files
+    // into artifacts/ AFTER the bundle would have been sealed. It also refuses an ARCHIVED
+    // case — the RCA files survive archiving now, so a post-archive confirm would leave them
+    // disagreeing with the sealed copy a restore puts back.
+    for (const slug of ['case-frozen', 'case-archived']) {
+      createCase(db, home, { slug, title: slug })
+      const caseId = getCase(db, slug)!.id
+      const findingId = insertFinding(caseId, 'root cause finding')
+      const { jobs } = mkJobs({
+        run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE, validDraft(findingId)) })
+      })
+      const job = jobs.generate(slug)
+      await jobs.idle()
+      expect(jobs.statusFor(slug).job!.state).toBe('done')
+
+      const freeze = slug === 'case-frozen' ? freezeCase(slug) : null
+      if (!freeze) {
+        db.prepare(`UPDATE cases SET archived_at = ? WHERE slug = ?`).run('2026-01-02', slug)
+      }
+      try {
+        expect(() =>
+          jobs.confirm(slug, job.id, [{ findingId, role: 'root-cause' }], validDraft(findingId))
+        ).toThrow(slug === 'case-frozen' ? /being archived/i : /archived/i)
+      } finally {
+        freeze?.release()
+      }
+
+      // nothing was written: not the files, not the roles, not confirmed_at
+      const dir = artifactsDir(home, slug)
+      expect(fs.existsSync(path.join(dir, 'rca-structure.json'))).toBe(false)
+      expect(fs.existsSync(path.join(dir, 'rca-exec.md'))).toBe(false)
+      expect(fs.existsSync(path.join(dir, 'rca-tech.md'))).toBe(false)
+      const finding = db.prepare(`SELECT role FROM findings WHERE id = ?`).get(findingId) as {
+        role: string | null
+      }
+      expect(finding.role).toBeNull()
+      expect(jobs.statusFor(slug).job!.confirmedAt).toBeNull()
+    }
   })
 
   it('confirm throws for a job that is not done, or belongs to a different case', async () => {

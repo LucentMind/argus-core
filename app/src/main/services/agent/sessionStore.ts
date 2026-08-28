@@ -6,7 +6,7 @@ import { DEFAULT_MODE, MODES, type ModeId } from '../../../shared/modes'
 import { caseDir } from '../paths'
 import { appendDeletionAudit } from '../deletionAudit'
 import { deleteMessagesFtsForSession } from '../ftsIndex'
-import { assertCaseWritable } from '../caseFreeze'
+import { assertCaseWritable, isCaseArchived } from '../caseFreeze'
 import type { RunOptionSelection } from '../../../shared/runOptions'
 import { PERMISSION_MODES, type PermissionMode } from '../../../shared/settings'
 
@@ -114,7 +114,8 @@ export function createSession(
   }
 }
 
-/** Newest-first summaries; guarantees every case has at least one session. The provider
+/** Newest-first summaries; guarantees every LIVE case has at least one session (an archived
+ *  case reports none — see the auto-create branch). The provider
  *  only matters for the (rare) auto-create path — a case with zero sessions — so it
  *  defaults to the Claude driver (matching the sessions.driver_kind column default);
  *  callers with live provider context (e.g. AgentService) may still pass the default one.
@@ -136,6 +137,13 @@ export function listSessions(
     )
     .all(caseId) as never[]
   if (rows.length === 0) {
+    // An ARCHIVED case has exactly zero sessions — archiving deleted them — and createSession
+    // refuses it, so auto-creating here would turn every read of an archived case's session
+    // list into a throw: `sessions:list` renders an error banner where the chat pane was, and
+    // `assembleDistillInput` fails outright, breaking distillation of archived cases, which
+    // this design deliberately keeps working. A read must not mutate, and must not throw:
+    // report the truth, which is that there are none.
+    if (isCaseArchived(db, caseSlug)) return []
     const p: SessionProvider = typeof provider === 'string' ? { driverKind: provider } : provider
     return [createSession(db, caseSlug, mode !== undefined ? { ...p, mode } : p)]
   }

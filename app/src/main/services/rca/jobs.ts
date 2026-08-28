@@ -1,5 +1,4 @@
 import fs from 'node:fs'
-import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type {
   CaseRcaInput,
@@ -14,6 +13,8 @@ import type {
 import { getCase } from '../caseService'
 import { applyReportRoles } from '../findings'
 import { artifactsDir } from '../paths'
+import { assertCaseWritable } from '../caseFreeze'
+import { reportFile, structureFile } from './artifacts'
 import { buildCaseRcaPrompt } from './contract'
 import { expectedSectionIds, parseRcaOutput, validateRcaDraft, RcaParseError } from './parse'
 import { renderExecReport, renderTechReport, templateFromSnapshot, toIdSet } from './render'
@@ -154,7 +155,7 @@ function toPayload(r: JobDbRow, argusHome: string): RcaStatusPayload {
  * (mirroring how distill's `enqueue` snapshot failures are guarded) see the throw too.
  */
 function readPriorDraft(argusHome: string, slug: string): RcaDraft | null {
-  const file = path.join(artifactsDir(argusHome, slug), 'rca-structure.json')
+  const file = structureFile(argusHome, slug)
   let raw: string
   try {
     raw = fs.readFileSync(file, 'utf8')
@@ -272,6 +273,12 @@ export class RcaJobs {
       throw new Error(`rca job ${jobId} is not a done job for ${slug}`)
     const kase = getCase(this.deps.db, slug)
     if (!kase) throw new Error(`Unknown case: ${slug}`)
+    // Before applyReportRoles, so a refused confirm writes NOTHING — not roles, not files.
+    // Confirming mid-archive would drop three files into `artifacts/` after the bundle was
+    // sealed, and the archive deletes everything in that tree it did not keep; confirming
+    // AFTER archiving would leave reports on disk that the sealed bundle does not contain, so
+    // a restore would silently replace them. Both are refused (see writeReportMarkdown).
+    assertCaseWritable(this.deps.db, slug)
     applyReportRoles(this.deps.db, kase.id, assignments)
     const dir = artifactsDir(this.deps.argusHome, slug)
     fs.mkdirSync(dir, { recursive: true })
@@ -284,15 +291,21 @@ export class RcaJobs {
       createdAt: kase.createdAt,
       ticketProvider: kase.ticketProvider
     }
-    fs.writeFileSync(path.join(dir, 'rca-structure.json'), JSON.stringify(edited, null, 2))
+    fs.writeFileSync(structureFile(this.deps.argusHome, slug), JSON.stringify(edited, null, 2))
     // `toIdSet` (the same coercion the `rca:render-preview` handler uses) makes a malformed
     // payload render as "nothing dropped" rather than throwing mid-confirm, after roles have
     // already been written.
     const template = templateFromSnapshot(row!.template_snapshot)
     const execOpts = { template, dropped: toIdSet(dropped?.exec) }
     const techOpts = { template, dropped: toIdSet(dropped?.tech) }
-    fs.writeFileSync(path.join(dir, 'rca-exec.md'), renderExecReport(edited, meta, execOpts))
-    fs.writeFileSync(path.join(dir, 'rca-tech.md'), renderTechReport(edited, meta, techOpts))
+    fs.writeFileSync(
+      reportFile(this.deps.argusHome, slug, 'exec'),
+      renderExecReport(edited, meta, execOpts)
+    )
+    fs.writeFileSync(
+      reportFile(this.deps.argusHome, slug, 'tech'),
+      renderTechReport(edited, meta, techOpts)
+    )
     // Persisted so a later re-render (e.g. "has this report been hand-edited?") can reproduce
     // the confirmed bytes after a window reload. Absent → NULL, i.e. byte-identical to before.
     // `meta` is snapshotted alongside it, in the SAME write as the bytes it produced: `title`

@@ -13,8 +13,10 @@ import { caseArchivePath, caseDir } from '../paths'
 import { getCase } from '../caseService'
 import { searchEvidence } from '../search'
 import { scanEvidence } from '../scan'
-import { createSession } from '../agent/sessionStore'
+import { createSession, listSessions } from '../agent/sessionStore'
 import { SessionMirror } from '../agent/mirror'
+import { readReportMarkdown } from '../rca/artifacts'
+import { assembleDistillInput } from '../distill/input'
 import type { BundleManifest } from '../../../shared/bundle'
 import { cleanupArchiveFixtures, seedArchivableCase, snapshotCase } from './archiveFixtures'
 import { createLegacyEvidenceFts } from './legacyFts'
@@ -576,7 +578,11 @@ describe('a frozen or archived case cannot acquire a transcript writer', () => {
     } finally {
       freeze.release()
     }
-    expect(fs.existsSync(file)).toBe(false)
+    // Nothing is asserted about `file` on purpose: the constructor only mkdirSyncs the
+    // transcript's PARENT directory, which the fixture already created, so "the file does not
+    // exist" would hold with or without the guard. The `toThrow` above is the whole assertion
+    // here; the directory-creation seam is covered by the archived sibling test below, where
+    // sessions/ really is gone.
   })
 
   it('a mirror cannot be constructed for an archived case, and does not recreate sessions/', async () => {
@@ -597,6 +603,111 @@ describe('a frozen or archived case cannot acquire a transcript writer', () => {
 
     // the constructor's mkdirSync is what would otherwise resurrect the deleted tree
     expect(fs.existsSync(sessionsDir), 'sessions/ was recreated by the mirror').toBe(false)
+  })
+})
+
+describe('the RCA report survives archiving', () => {
+  // Owner decision: the RCA report files are knowledge, not bulk — the same category as
+  // findings and case_summaries, which already survive. They stay on disk so an archived case
+  // still renders its RCA, and they are STILL sealed in the bundle: a bundle missing them
+  // would be a lossy archive.
+  const RCA_FILES: Array<[string, string]> = [
+    ['rca-structure.json', '{"rootCause":{"statement":"the cache key omitted the tenant id"}}'],
+    ['rca-exec.md', '# exec report'],
+    ['rca-tech.md', '# tech report']
+  ]
+
+  it('keeps the three report files on disk, seals them in the bundle, and still removes the bulk artifact', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    const artifacts = path.join(caseDir(home, slug), 'artifacts')
+    for (const [name, body] of RCA_FILES) fs.writeFileSync(path.join(artifacts, name), body)
+    // the fixture's review artifact — bulk, and the thing that must still leave
+    const bulk = path.join(artifacts, 'ci-verify.log')
+    expect(fs.existsSync(bulk), 'fixture bulk artifact').toBe(true)
+
+    const res = await archiveCase(db, home, slug, { argusVersion: 'test' })
+
+    // still on disk, byte for byte, and readable through the same functions the case view uses
+    for (const [name, body] of RCA_FILES) {
+      expect(fs.readFileSync(path.join(artifacts, name), 'utf8'), name).toBe(body)
+    }
+    expect(readReportMarkdown(home, slug)).toEqual({
+      exec: '# exec report',
+      tech: '# tech report'
+    })
+
+    // and sealed in the bundle all the same
+    const manifest = await verifyBundleArchive(res.bundlePath)
+    const inBundle = manifest.files.map((f) => f.path)
+    for (const [name] of RCA_FILES) expect(inBundle, name).toContain(`artifacts/${name}`)
+
+    // the bulk artifact left disk, and its only copy is the bundle
+    expect(fs.existsSync(bulk), 'bulk artifact still on disk').toBe(false)
+    expect(inBundle).toContain('artifacts/ci-verify.log')
+  })
+
+  it('removes artifacts/ entirely when the case has no RCA report', async () => {
+    // the pre-existing behaviour, unchanged: nothing kept → the directory itself goes
+    const { db, home, slug } = await seedArchivableCase()
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    expect(fs.existsSync(path.join(caseDir(home, slug), 'artifacts'))).toBe(false)
+  })
+
+  it('bytesFreed counts only what actually left', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    const artifacts = path.join(caseDir(home, slug), 'artifacts')
+    const kept = 'x'.repeat(5000)
+    fs.writeFileSync(path.join(artifacts, 'rca-exec.md'), kept)
+    fs.writeFileSync(path.join(artifacts, 'rca-tech.md'), kept)
+    fs.writeFileSync(path.join(artifacts, 'rca-structure.json'), kept)
+
+    const res = await archiveCase(db, home, slug, { argusVersion: 'test' })
+    // a blanket dirBytes over artifacts/ would have counted the 15000 kept bytes as freed
+    expect(res.bytesFreed).toBeLessThan(15000)
+    expect(res.bytesFreed).toBeGreaterThan(0)
+  })
+})
+
+describe('listSessions on an archived case', () => {
+  // Archiving deletes every sessions row, and createSession refuses an archived case, so
+  // listSessions' auto-create turned every read into a throw: the case view's chat pane and
+  // assembleDistillInput (distilling an archived case is a first-class workflow) both failed.
+  it('returns [] and creates no row', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    const caseId = getCase(db, slug)!.id
+
+    expect(listSessions(db, slug)).toEqual([])
+
+    const n = (
+      db.prepare(`SELECT count(*) AS n FROM sessions WHERE case_id = ?`).get(caseId) as {
+        n: number
+      }
+    ).n
+    expect(n, 'a session was created for an archived case').toBe(0)
+  })
+
+  it('lets assembleDistillInput run on an archived case — the symptom that found this', async () => {
+    // distill_jobs and case_summaries deliberately survive archiving, so distilling an
+    // archived case is a first-class workflow. It threw here before, from listSessions.
+    const { db, home, slug } = await seedArchivableCase()
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    expect(assembleDistillInput(db, home, slug).sessionTitles).toEqual([])
+  })
+
+  it('still auto-creates on an ordinary live case with zero sessions', async () => {
+    const { db, slug } = await seedArchivableCase()
+    const caseId = getCase(db, slug)!.id
+    db.prepare(`DELETE FROM sessions WHERE case_id = ?`).run(caseId)
+
+    const sessions = listSessions(db, slug)
+    expect(sessions).toHaveLength(1)
+    const n = (
+      db.prepare(`SELECT count(*) AS n FROM sessions WHERE case_id = ?`).get(caseId) as {
+        n: number
+      }
+    ).n
+    expect(n).toBe(1)
   })
 })
 
