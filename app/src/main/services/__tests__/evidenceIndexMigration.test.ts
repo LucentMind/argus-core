@@ -115,6 +115,36 @@ describe('evidence index migration', () => {
     ])
   })
 
+  it('carries each chunk’s text across, not just its locator', () => {
+    // The text is fetched one chunk at a time rather than selected in bulk (bounded
+    // memory: a whole 199 MB evidence file would otherwise be materialised in one array).
+    // This is the guard that the per-chunk read is actually wired to the right row.
+    const db = openTestDb()
+    const id = seedEvidence(db)
+    seedLegacy(db, id, [
+      { text: 'alpha unique marker', from: 1, to: 10 },
+      { text: 'bravo unique marker', from: 11, to: 20 },
+      { text: 'charlie unique marker', from: 21, to: 30 }
+    ])
+
+    migrateOneEvidence(db)
+
+    for (const [term, chunkIndex] of [
+      ['alpha', 0],
+      ['bravo', 1],
+      ['charlie', 2]
+    ] as const) {
+      const hit = db
+        .prepare(
+          `SELECT m.chunk_index AS chunkIndex FROM evidence_index
+           JOIN evidence_index_map m ON m.fts_rowid = evidence_index.rowid
+           WHERE evidence_index MATCH ?`
+        )
+        .get(term) as { chunkIndex: number } | undefined
+      expect(hit?.chunkIndex).toBe(chunkIndex)
+    }
+  })
+
   it('leaves the legacy table empty for the migrated row', () => {
     const db = openTestDb()
     const id = seedEvidence(db)

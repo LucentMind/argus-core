@@ -73,11 +73,14 @@ export const MISSING_FILE_SNIPPET = '[file missing — rescan or remove]'
  * Fetch one chunk's text back off disk.
  *
  * Prefers lineIndex.getLines, which seeks to the nearest checkpoint and reads at most
- * (checkpoint gap + range) lines. readLineWindow is the fallback and scans from byte 0 —
- * fine here only because sidecars are written for every file over MAX_READ_BYTES (2 MB,
- * see indexer.ts `wantSidecar`), so anything reaching the fallback is small by
- * construction. Using readLineWindow unconditionally would mean a 27 MB scan per hit on
- * the average artifact in the installation this targets.
+ * (checkpoint gap + range) lines. readLineWindow is the fallback and scans from byte 0.
+ * That fallback is NOT bounded by file size: loadIndexSync returns null whenever no
+ * sidecar exists OR the sidecar disagrees with the file's current mtime/size, and a
+ * multi-hundred-megabyte file that has just been rewritten hits exactly that case. The
+ * preference is therefore a large win on the common path (the average artifact in the
+ * installation this targets would otherwise cost a 27 MB scan per hit) and not a
+ * guarantee; the fallback's worst case is one full scan of the file, once per hit, until
+ * the re-index rewrites the sidecar.
  *
  * Never throws: a hit with no snippet is worth more than an exception that loses the
  * other 49.
