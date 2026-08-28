@@ -325,7 +325,9 @@ describe('importCase', () => {
     await expect(importCase(dbB, homeB, bad, 'NAV-100')).rejects.toThrow()
     expect(getCase(dbB, 'NAV-100')).toBeNull()
     expect(fs.existsSync(path.join(homeB, 'cases', 'NAV-100'))).toBe(false)
-    const ftsCount = dbB.prepare('SELECT COUNT(*) AS n FROM evidence_fts').get() as { n: number }
+    const ftsCount = dbB.prepare('SELECT COUNT(*) AS n FROM evidence_index_map').get() as {
+      n: number
+    }
     expect(ftsCount.n).toBe(0)
     fs.rmSync(tmp, { recursive: true, force: true })
   })
@@ -371,10 +373,10 @@ describe('importCase', () => {
     const dbC = openDb(path.join(homeC, 'argus.db'))
     await importCase(dbC, homeC, bundle, 'NAV-100')
     const cleanCount = (
-      dbC.prepare('SELECT COUNT(*) AS n FROM evidence_fts').get() as { n: number }
+      dbC.prepare('SELECT COUNT(*) AS n FROM evidence_index_map').get() as { n: number }
     ).n
     const hostileCount = (
-      dbB.prepare('SELECT COUNT(*) AS n FROM evidence_fts').get() as { n: number }
+      dbB.prepare('SELECT COUNT(*) AS n FROM evidence_index_map').get() as { n: number }
     ).n
     expect(hostileCount).toBe(cleanCount)
     dbC.close()

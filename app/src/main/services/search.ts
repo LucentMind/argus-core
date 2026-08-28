@@ -15,6 +15,7 @@ import { scopeClause } from './evidenceScopeSql'
 import { countPendingIndex } from './indexState'
 import { renderSnippet } from './snippet'
 import { getLines, loadIndexSync } from './lineIndex'
+import { legacyEvidenceIndexExists } from './ftsIndex'
 
 export const MAX_READ_BYTES = MAX_WHOLE_FILE_BYTES
 // window around a citation's target line, for files too big to load whole
@@ -68,17 +69,6 @@ interface LocatorRow {
  *  from a chunk that legitimately rendered empty. */
 export const MISSING_FILE_SNIPPET = '[file missing — rescan or remove]'
 
-/** Whether the pre-migration contentful table is still present.
- *
- *  Not cached: finalizeEvidenceIndexMigration drops it mid-process, and a cached `true`
- *  would make every subsequent search throw "no such table". Deliberately checked per
- *  call — this reads the in-memory schema and costs nothing next to an FTS MATCH. */
-function legacyIndexTableExists(db: DatabaseSync): boolean {
-  return !!db
-    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'evidence_fts'`)
-    .get()
-}
-
 /**
  * Fetch one chunk's text back off disk.
  *
@@ -91,6 +81,13 @@ function legacyIndexTableExists(db: DatabaseSync): boolean {
  *
  * Never throws: a hit with no snippet is worth more than an exception that loses the
  * other 49.
+ *
+ * Reports `missing` for an EMPTY result from an otherwise successful read, not just for a
+ * failed one. A file that still exists but got SHORTER — evidence content updated, or a
+ * Rescan, both of which rewrite the file before the background re-index catches up —
+ * leaves stale chunks whose window is entirely past EOF. existsSync passes, the read
+ * succeeds and returns nothing, and renderSnippet('') is '': a blank snippet, which is the
+ * exact NULL-lookalike reading from disk exists to avoid.
  */
 function chunkText(
   argusHome: string,
@@ -103,10 +100,12 @@ function chunkText(
   if (!fs.existsSync(abs)) return { text: '', missing: true }
   try {
     const index = loadIndexSync(argusHome, abs)
-    if (index) {
-      return { text: getLines(index, abs, startLine, endLine).lines.join('\n'), missing: false }
-    }
-    return { text: readLineWindow(abs, startLine, endLine).content, missing: false }
+    const text = index
+      ? getLines(index, abs, startLine, endLine).lines.join('\n')
+      : readLineWindow(abs, startLine, endLine).content
+    // An indexed chunk always had text; nothing coming back means the lines it points at
+    // are no longer there.
+    return text === '' ? { text: '', missing: true } : { text, missing: false }
   } catch {
     // Any read failure renders the marker, never a blank. A blank snippet is
     // indistinguishable from the contentless snippet() NULL this whole read-from-disk
@@ -164,11 +163,13 @@ export function searchEvidence(
       ...scope.params
     ) as unknown as LocatorRow[]
 
-  // Task 6 DROPs the legacy tables once migration finishes, and preparing a statement
-  // against a dropped table throws "no such table" — which would break every search in the
-  // same process run that finalized. Probe first; the lookup is against the in-memory
-  // schema and is negligible beside the FTS query.
-  const legacy = !legacyIndexTableExists(db)
+  // finalizeEvidenceIndexMigration DROPs the legacy tables once the migration finishes, and
+  // db.ts no longer recreates them — so on a fresh install they never existed, and on a
+  // migrated one they are gone for good. Preparing a statement against a table that is not
+  // there throws "no such table", which would break every search from that point on. Probe
+  // first, through the one shared predicate in ftsIndex.ts; the lookup is against the
+  // in-memory schema and is negligible beside the FTS query.
+  const legacy = !legacyEvidenceIndexExists(db)
     ? []
     : (db
         .prepare(

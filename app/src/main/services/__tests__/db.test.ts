@@ -22,8 +22,26 @@ describe('openDb', () => {
     const names = tables.map((t) => t.name)
     expect(names).toContain('cases')
     expect(names).toContain('evidence')
-    expect(names).toContain('evidence_fts')
+    expect(names).toContain('evidence_index')
+    expect(names).toContain('evidence_index_map')
     db2.close()
+  })
+
+  // The legacy contentful pair must NOT be in the schema: openDb execs it on every start,
+  // so declaring either table would recreate what finalizeEvidenceIndexMigration dropped
+  // and hand finalize a reason to DROP/DROP/VACUUM the whole database again at every
+  // launch. A fresh install has never had them.
+  it('does not declare the legacy evidence_fts pair', () => {
+    const p = tmpDbPath()
+    const db = openDb(p)
+    const names = (
+      db.prepare(`SELECT name FROM sqlite_master WHERE type IN ('table','view')`).all() as {
+        name: string
+      }[]
+    ).map((t) => t.name)
+    expect(names).not.toContain('evidence_fts')
+    expect(names).not.toContain('evidence_fts_map')
+    db.close()
   })
 
   it('adds a nullable turns.model column', () => {
