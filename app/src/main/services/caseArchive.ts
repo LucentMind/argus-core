@@ -2,9 +2,16 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
-import { exportCase, verifyBundleArchive } from './bundle'
+import { extract } from 'zip-lib'
+import {
+  exportCase,
+  registerImportedSessions,
+  reindexImportedEvidence,
+  verifyBundleArchive
+} from './bundle'
 import { getCase } from './caseService'
 import { freezeCase } from './caseFreeze'
+import { requeuePendingIndexes, type IngestQueueLike } from './ingestQueue'
 import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase } from './ftsIndex'
 import { archiveDir, caseArchivePath, caseDir } from './paths'
 import { sidecarPath } from './lineIndex'
@@ -282,4 +289,156 @@ export function manifestHash(manifest: BundleManifest): string {
     ...manifest.files.map((f) => `${f.path}:${f.sha256}`).sort()
   ].join('\n')
   return crypto.createHash('sha256').update(joined).digest('hex')
+}
+
+/** Injected seam, test-only. `afterExtract` runs inside the restore's freeze, with the trees
+ *  back on disk and the archived flag not yet cleared — the window a concurrent restore or a
+ *  user write would have to be refused in. No real fs or timing state can be relied on to
+ *  produce that window from outside. */
+export interface RestoreDeps {
+  afterExtract?: () => void | Promise<void>
+}
+
+export interface RestoreResult {
+  slug: string
+  evidenceRestored: number
+  sessionsRestored: number
+  /** How many evidence rows were handed to the ingest queue for re-indexing. */
+  queuedForIndex: number
+}
+
+/**
+ * Put one archived tree back.
+ *
+ * A plain rename only works when the target is absent, which is true of `evidence/` and
+ * `sessions/` but NOT of `artifacts/`: archiving deliberately leaves the RCA report files
+ * behind, so that directory is still there and non-empty, and `renameSync` onto it throws
+ * ENOTEMPTY — which would have skipped the entire artifacts tree. Merging over it is safe
+ * rather than merely tolerable: every write path into a kept RCA file goes through
+ * `assertCaseWritable`, which refuses an archived case, so the files still on disk are
+ * byte-identical to the bundle's copies of them.
+ */
+function restoreTree(from: string, to: string): void {
+  if (!fs.existsSync(to)) {
+    fs.renameSync(from, to)
+    return
+  }
+  fs.cpSync(from, to, { recursive: true, force: true })
+}
+
+/**
+ * Rehydrate an archived case in place.
+ *
+ * NOT importCase: that creates a NEW case through proposeSlug with collision handling, so
+ * running it here would leave a duplicate beside the archived original. The case row never
+ * left — only its bulk did — so restore refills the trees and rebuilds the rows that
+ * archiveCase removed, then clears the flag.
+ *
+ * Verifies before extracting, and touches nothing on failure: an archive that has been
+ * swapped, truncated or deleted on disk must leave the case exactly as archived rather than
+ * half-restored. Verification is in two parts, because they answer different questions:
+ *   - `verifyBundleArchive` proves the bundle is internally consistent (integrity)
+ *   - the `manifestHash` comparison against `cases.archive_sha256` proves it is THIS case's
+ *     bundle (identity). A perfectly valid bundle belonging to a different case, renamed into
+ *     this case's archive path, passes the first check and must fail the second.
+ *
+ * The case stays FROZEN for the whole operation, and the archived flag is cleared LAST. That
+ * ordering is the entire concurrency argument: `assertCaseWritable` refuses a case that is
+ * frozen OR archived, so between here and the final UPDATE every user write path is closed —
+ * there is no window in which the flag is clear but the trees are not yet back, and no window
+ * in which a real write can land in a tree that is about to be overwritten from the bundle.
+ * Restore's own rebuild does not go through that guard (`reindexImportedEvidence` and
+ * `registerImportedSessions` write rows and index entries directly), which is what lets it
+ * work inside its own freeze.
+ */
+export async function restoreCase(
+  db: DatabaseSync,
+  argusHome: string,
+  slug: string,
+  queue: IngestQueueLike,
+  deps: RestoreDeps = {}
+): Promise<RestoreResult> {
+  const rec = getCase(db, slug)
+  if (!rec) throw new Error(`Unknown case: ${slug}`)
+  if (!rec.archivedAt || !rec.archivePath) throw new Error(`Case ${slug} is not archived`)
+  const bundlePath = rec.archivePath
+  if (!fs.existsSync(bundlePath)) {
+    throw new Error(`Case ${slug} archive is missing from disk: ${bundlePath}`)
+  }
+
+  // Frozen for the whole operation, verification included: freezeCase also refuses a second,
+  // overlapping restore of the same slug, the same way it refuses a second archive.
+  const freeze = freezeCase(slug)
+  let counts: { evidenceRestored: number; sessionsRestored: number }
+  try {
+    counts = await restoreFrozenCase(db, argusHome, slug, rec.id, bundlePath, deps)
+  } finally {
+    freeze.release()
+  }
+
+  // Re-indexing rides the existing background queue rather than blocking the restore: the
+  // case is usable immediately and searchEvidenceWithStatus already reports the pending
+  // count, so the gap is visible rather than silent. Deliberately AFTER the freeze is
+  // released and the flag cleared — the queue's phase 2 runs `extractDerivedText`, which
+  // calls assertCaseWritable and would refuse a case still marked frozen or archived.
+  const queuedForIndex = requeuePendingIndexes(db, argusHome, queue)
+
+  return { slug, ...counts, queuedForIndex }
+}
+
+/** The body of `restoreCase`, running with the case frozen. Split out only so the freeze can
+ *  be released in one `finally` without re-indenting the whole rail. */
+async function restoreFrozenCase(
+  db: DatabaseSync,
+  argusHome: string,
+  slug: string,
+  caseId: number,
+  bundlePath: string,
+  deps: RestoreDeps
+): Promise<{ evidenceRestored: number; sessionsRestored: number }> {
+  // Verify first: nothing is written until the bundle proves itself, in both senses.
+  const manifest = await verifyBundleArchive(bundlePath)
+  const stored =
+    (
+      db.prepare(`SELECT archive_sha256 AS h FROM cases WHERE id = ?`).get(caseId) as
+        { h: string | null } | undefined
+    )?.h ?? null
+  if (!stored || manifestHash(manifest) !== stored) {
+    throw new Error(
+      `Case ${slug} archive does not belong to this case: manifest digest mismatch on ${bundlePath}. ` +
+        `The bundle is intact but is not the one recorded when this case was archived.`
+    )
+  }
+
+  const dir = caseDir(argusHome, slug)
+  // Staging beside cases/ so restoreTree's rename is a rename rather than a cross-volume copy.
+  // realpathSync for the same reason importCase does it: zip-lib's safeSymlinksOnly guard
+  // compares an extracted file's realpath against the unresolved target.
+  const staging = fs.realpathSync(fs.mkdtempSync(path.join(path.dirname(dir), '.restore-')))
+  try {
+    await extract(bundlePath, staging, { safeSymlinksOnly: true })
+    const staged = path.join(staging, 'case')
+    // Move only the trees archiveCase removed. Anything else in the bundle (case.json, the
+    // RCA, summary.md) is already on disk and is the live copy — the archived copy of a file
+    // that never left must not overwrite edits made since.
+    for (const tree of ARCHIVED_TREES) {
+      const from = path.join(staged, tree)
+      if (fs.existsSync(from)) restoreTree(from, path.join(dir, tree))
+    }
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true })
+  }
+
+  if (deps.afterExtract) await deps.afterExtract()
+
+  const evidenceRestored = reindexImportedEvidence(db, argusHome, caseId, dir)
+  const sessionsRestored = registerImportedSessions(db, caseId, slug, dir)
+
+  // Last, and only once the trees and rows are actually back: this is what reopens the case
+  // to ordinary writes.
+  db.prepare(
+    `UPDATE cases SET archived_at = NULL, archive_path = NULL, archive_sha256 = NULL WHERE id = ?`
+  ).run(caseId)
+
+  return { evidenceRestored, sessionsRestored }
 }
