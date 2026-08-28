@@ -256,13 +256,20 @@ export async function verifyBundleArchive(zipPath: string): Promise<BundleManife
   }
 }
 
-/** Rebuild evidence rows + FTS from the bundled .meta sidecars (old ids remapped). */
-function reindexImportedEvidence(
+/**
+ * Rebuild evidence rows + FTS from the bundled .meta sidecars (old ids remapped).
+ * Returns how many sidecar-backed rows were registered.
+ *
+ * Exported for `restoreCase`, which faces the identical problem — a case dir full of files
+ * whose evidence rows are gone — and must reuse this rather than grow a second copy of the
+ * two-pass derivedFrom remap.
+ */
+export function reindexImportedEvidence(
   db: DatabaseSync,
   argusHome: string,
   caseId: number,
   dir: string
-): void {
+): number {
   // Both trees are re-registered from their own sidecars; a case may hold either or both,
   // and a directory that does not exist simply contributes nothing.
   const records = [EVIDENCE_DIR, ARTIFACTS_DIR].flatMap((top) => {
@@ -323,6 +330,7 @@ function reindexImportedEvidence(
       fs.writeFileSync(sidecarAbs, JSON.stringify({ ...rec, id: newId, caseId, meta }, null, 2))
     }
   }
+  return records.length
 }
 
 /** Matches sessionStore's first-user-message title cap. */
@@ -336,15 +344,24 @@ const SESSION_TITLE_MAX = 40
  * switcher (DB) and the renderer's hydrate keying (event envelopes) resolve
  * against the local identity. Without this, imported transcripts are
  * unreachable: files on disk, nothing in the chat.
+ *
+ * Returns how many transcripts were registered.
+ *
+ * Exported for `restoreCase`: archiving deletes the `sessions` rows and their chat index while
+ * the transcripts travel in the bundle, so a restore lands in exactly this state — jsonl files
+ * on disk with no rows behind them — and the rebuild must be the same code, not a copy. The
+ * ids in a restored bundle are this machine's own former autoincrements rather than a foreign
+ * machine's, but they are equally stale (their rows were deleted), so the remap is the same
+ * operation either way.
  */
-function registerImportedSessions(
+export function registerImportedSessions(
   db: DatabaseSync,
   caseId: number,
   caseSlug: string,
   dir: string
-): void {
+): number {
   const sessionsDir = path.join(dir, 'sessions')
-  if (!fs.existsSync(sessionsDir)) return
+  if (!fs.existsSync(sessionsDir)) return 0
   const files = fs
     .readdirSync(sessionsDir)
     .filter((f) => /^\d+\.jsonl$/.test(f))
@@ -403,6 +420,7 @@ function registerImportedSessions(
     fs.writeFileSync(path.join(sessionsDir, `${newId}.jsonl`), rewritten ? rewritten + '\n' : '')
     fs.rmSync(tmp)
   }
+  return staged.length
 }
 
 export async function importCase(
