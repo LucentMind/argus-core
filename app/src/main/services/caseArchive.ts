@@ -19,6 +19,7 @@ import { sidecarPath } from './lineIndex'
 import { EVIDENCE_DIR, ARTIFACTS_DIR } from '../../shared/evidenceScope'
 import { RCA_REPORT_FILENAMES } from './rca/artifacts'
 import type { BundleManifest, BundleRows } from '../../shared/bundle'
+import type { IndexState } from '../../shared/types'
 
 /** Trees whose bytes the bundle now holds. Everything else in the case dir — case.json,
  *  summary.md — stays, so an archived case still renders from disk as well as from the
@@ -187,7 +188,18 @@ async function archiveFrozenCase(
     // includeTranscripts is always true: the originals are about to be removed, and an
     // archive without them is data loss rather than a smaller archive.
     if (deps.exportTo) await deps.exportTo(tmpZip)
-    else await exportCase(db, argusHome, slug, tmpZip, { includeTranscripts: true }, opts)
+    // includeRows: the row sidecar is an ARCHIVE-only payload. Restore is the only consumer —
+    // it puts back rows this same installation deleted moments ago — and an ordinary export is
+    // a file a user shares, which must not carry the tool-call audit trail or per-turn cost.
+    else
+      await exportCase(
+        db,
+        argusHome,
+        slug,
+        tmpZip,
+        { includeTranscripts: true, includeRows: true },
+        opts
+      )
 
     // 2. verify the ARCHIVE. The manifest kept is the one read back out of the zip, not the
     // one exportCase computed from the source files.
@@ -373,6 +385,49 @@ function restoreMissingFiles(from: string, to: string): void {
     }
   }
   walk('')
+}
+
+/**
+ * Bring `sessions/` to EXACTLY the set of transcripts the verified bundle carries: delete every
+ * file in it the manifest does not list.
+ *
+ * This replaces inferring a dead run's intent from leftover file names, which restore cannot do
+ * soundly in either direction:
+ *
+ *   - A throw INSIDE `registerImportedSessions`'s loop leaves a staged `<old>.jsonl.import` and
+ *     an unclaimed `<new>.jsonl` output. `recoverStagedTranscripts` then deletes every plain
+ *     `<digits>.jsonl` — but `restoreTree` has just re-supplied all of them from the bundle, so
+ *     it deletes the ORIGINALS and the retry restores only the sessions that happened to still
+ *     be staged. On a multi-session case that silently loses whole conversations, their turns
+ *     and tool calls, and a finding's deep-link — on a restore reported as successful.
+ *   - A hard kill just AFTER that loop leaves no `.import` file at all, so the heuristic is a
+ *     no-op and the catch-side unwind never runs. The retry's tree merge re-supplies
+ *     `<old>.jsonl` beside the surviving `<new>.jsonl` and every session is registered twice.
+ *
+ * Both collapse here because restore does not have to infer anything: the manifest is verified,
+ * and it lists exactly the transcripts that belong to this case. Anything else in the directory
+ * is a previous attempt's debris — a `<newId>.jsonl` output or a `.jsonl.import` staging file —
+ * and the bundle's own copy of the real transcript is put back by the tree merge either way.
+ *
+ * Restore-only, deliberately. `importCase` shares `registerImportedSessions` but not this: it
+ * lands into a brand-new case dir it deletes on failure, so it has no bundle-vs-debris question
+ * to answer and its behaviour must not change.
+ */
+function reconcileSessions(manifest: BundleManifest, sessionsDir: string): void {
+  if (!fs.existsSync(sessionsDir)) return
+  const prefix = 'sessions/'
+  const keep = new Set(
+    manifest.files
+      .filter((f) => f.path.startsWith(prefix))
+      .map((f) => f.path.slice(prefix.length))
+      .filter((name) => name !== '' && !name.includes('/'))
+  )
+  for (const ent of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
+    // Files only: a nested directory is not something either the archive rail or this rebuild
+    // creates, and removing one would be a delete this function cannot justify.
+    if (!ent.isFile() || keep.has(ent.name)) continue
+    fs.rmSync(path.join(sessionsDir, ent.name), { force: true })
+  }
 }
 
 /**
@@ -566,6 +621,9 @@ async function restoreFrozenCase(
       if (fs.existsSync(from)) restoreTree(from, path.join(dir, tree))
     }
     restoreMissingFiles(staged, dir)
+    // AFTER the merge, never before: the merge is what re-supplies the bundle's transcripts, and
+    // this removes everything else a previous, failed attempt left in sessions/.
+    reconcileSessions(manifest, path.join(dir, 'sessions'))
   } finally {
     fs.rmSync(staging, { recursive: true, force: true })
   }
@@ -602,7 +660,14 @@ async function restoreFrozenCase(
     db.prepare(`DELETE FROM sessions WHERE case_id = ?`).run(caseId)
     db.prepare(`DELETE FROM evidence WHERE case_id = ?`).run(caseId)
 
-    evidenceRestored = reindexImportedEvidence(db, argusHome, caseId, dir)
+    // The index lifecycle state each evidence row REALLY held, straight from the verified row
+    // sidecar. Without it the rebuild has to guess from the `.meta` sidecars on disk, which are
+    // frozen at ingest time — and the guess buries a row that was genuinely still 'pending'
+    // because its extraction had never run, so its pack extractor never runs again.
+    const indexStates = new Map<string, IndexState>(
+      (rows?.evidence ?? []).map((e) => [e.relPath, e.indexState as IndexState])
+    )
+    evidenceRestored = reindexImportedEvidence(db, argusHome, caseId, dir, indexStates)
     sessionIds = registerImportedSessions(db, caseId, slug, dir)
     sessionsRestored = sessionIds.size
     // The database-only rows: the tool-call audit trail and the findings' deep-links, both of
@@ -627,6 +692,12 @@ async function restoreFrozenCase(
     // turns and tool calls: the sidecar would name a session id no file carries any more. The
     // envelopes inside are rewritten again by the next run, so only the names matter here.
     // Best-effort by design: a failure to rename must not replace the real error.
+    //
+    // Belt to `reconcileSessions`'s braces since it landed: the retry deletes every file the
+    // manifest does not list and the tree merge re-supplies the originals, so correctness no
+    // longer depends on this unwind running — which matters because a hard kill never runs it,
+    // and because a throw INSIDE registerImportedSessions leaves `sessionIds` unassigned here
+    // and this loop iterating an empty map.
     for (const [oldId, newId] of sessionIds) {
       try {
         const sessions = path.join(dir, 'sessions')

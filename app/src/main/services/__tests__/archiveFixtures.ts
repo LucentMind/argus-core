@@ -105,6 +105,65 @@ export async function seedArchivableCase(): Promise<{
   return { db, home, slug }
 }
 
+/**
+ * Add a SECOND session to a seeded case — its own transcript, turn, tool call and chat-index
+ * row — and return its id.
+ *
+ * Multi-session is not decoration. Every interesting failure of the restore rebuild needs one
+ * session already consumed and another still to go: a throw mid-loop, a kill after the loop.
+ * The single-session fixture is precisely what hid two Critical defects, because with one
+ * session there is no "the rest" to lose or to duplicate.
+ *
+ * Its chat text deliberately contains no "needle": tests that assert the FIRST session came
+ * back use `searchMessages(…, 'needle')` as the probe, and a second hit would make the count
+ * ambiguous.
+ */
+export function seedSecondSession(db: DatabaseSync, home: string, slug: string): number {
+  const caseId = getCase(db, slug)!.id
+  const now = new Date().toISOString()
+  const sessionId = createSession(db, slug, 'claude-agent-sdk').id
+  const turnId = Number(
+    db
+      .prepare(
+        `INSERT INTO turns (case_id, session_id, turn_index, status, created_at)
+         VALUES (?, ?, 0, 'done', ?)`
+      )
+      .run(caseId, sessionId, now).lastInsertRowid
+  )
+  db.prepare(
+    `INSERT INTO tool_calls (case_id, session_id, turn_id, tool, args_hash, risk, decision, created_at)
+     VALUES (?, ?, ?, 'Bash', 'h2', 'medium', 'allow', ?)`
+  ).run(caseId, sessionId, turnId, now)
+  insertMessageFts(
+    db,
+    'a second conversation about the haystack',
+    caseId,
+    sessionId,
+    turnId,
+    'user'
+  )
+  fs.writeFileSync(
+    path.join(caseDir(home, slug), 'sessions', `${sessionId}.jsonl`),
+    [
+      JSON.stringify({
+        type: 'turn.started',
+        caseId,
+        caseSlug: slug,
+        sessionId,
+        payload: { userText: 'a second conversation about the haystack' }
+      }),
+      JSON.stringify({
+        type: 'assistant.message',
+        caseId,
+        caseSlug: slug,
+        sessionId,
+        payload: { text: 'a second answer, also at length' }
+      })
+    ].join('\n') + '\n'
+  )
+  return sessionId
+}
+
 /** Close every seeded database and remove its home. Call from afterEach: on Windows an open
  *  handle inside the tree makes fs.rmSync throw, so the close has to come first. */
 export function cleanupArchiveFixtures(): void {
