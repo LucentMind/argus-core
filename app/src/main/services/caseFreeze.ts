@@ -70,12 +70,28 @@ export function isCaseFrozen(slug: string): boolean {
 }
 
 /**
+ * True once a case's bundle is sealed. The durable half of the guard below, exported so read
+ * paths that must DEGRADE rather than throw on an archived case (`listSessions`, which would
+ * otherwise auto-create a session into a case whose sessions were just deleted) can ask the
+ * same question without catching an exception. Unknown slug → false, same as the guard.
+ */
+export function isCaseArchived(db: DatabaseSync, slug: string): boolean {
+  const rec = db.prepare(`SELECT archived_at FROM cases WHERE slug = ?`).get(slug) as
+    { archived_at: string | null } | undefined
+  return Boolean(rec?.archived_at)
+}
+
+/**
  * Throw unless new files may be written into this case's tree.
  *
  * Refuses BOTH states that make a write unsafe:
  *  - frozen: an archive is in flight, and anything written now is outside the bundle.
  *  - archived: the bundle is already sealed, so a new file would not be in it — and it would
  *    also collide with the directory rename a later restore performs.
+ *
+ * NOTE: an UNKNOWN slug passes silently. This guard answers "may this case be written?", not
+ * "does this case exist?" — callers that need the case to exist check that themselves (every
+ * IPC handler already does, via `getCase`). So a passing call does not prove there is a row.
  */
 export function assertCaseWritable(db: DatabaseSync, slug: string): void {
   if (frozen.has(slug)) {
@@ -83,9 +99,7 @@ export function assertCaseWritable(db: DatabaseSync, slug: string): void {
       `Case ${slug} is being archived right now and cannot accept new files. Try again once archiving finishes.`
     )
   }
-  const rec = db.prepare(`SELECT archived_at FROM cases WHERE slug = ?`).get(slug) as
-    { archived_at: string | null } | undefined
-  if (rec?.archived_at) {
+  if (isCaseArchived(db, slug)) {
     throw new Error(`Case ${slug} is archived and cannot accept new files. Restore it first.`)
   }
 }

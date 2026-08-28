@@ -1,11 +1,9 @@
 import fs from 'node:fs'
-import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { RcaDraft, RcaDroppedSections } from '../../../shared/rca'
 import type { CaseRcaInput } from '../../../shared/rca'
 import { getCase } from '../caseService'
-import { artifactsDir } from '../paths'
-import { readReportMarkdown } from './artifacts'
+import { readReportMarkdown, structureFile } from './artifacts'
 import { renderExecReport, renderTechReport, templateFromSnapshot, toIdSet } from './render'
 
 export interface HandEditedDeps {
@@ -93,7 +91,7 @@ export function handEditedReports(
     if (!onDisk) return none
 
     const structure = JSON.parse(
-      fs.readFileSync(path.join(artifactsDir(deps.argusHome, slug), 'rca-structure.json'), 'utf8')
+      fs.readFileSync(structureFile(deps.argusHome, slug), 'utf8')
     ) as RcaDraft
 
     // The exact meta rendered at confirm — NOT the live case row, which may have moved since

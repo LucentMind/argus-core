@@ -9,12 +9,27 @@ import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase } from './ftsIndex'
 import { archiveDir, caseArchivePath, caseDir } from './paths'
 import { sidecarPath } from './lineIndex'
 import { EVIDENCE_DIR, ARTIFACTS_DIR } from '../../shared/evidenceScope'
+import { RCA_REPORT_FILENAMES } from './rca/artifacts'
 import type { BundleManifest } from '../../shared/bundle'
 
-/** Trees whose bytes the bundle now holds. Everything else in the case dir — case.json, the
- *  RCA, summary.md — stays, so an archived case still renders from disk as well as from the
- *  database. */
+/** Trees whose bytes the bundle now holds. Everything else in the case dir — case.json,
+ *  summary.md — stays, so an archived case still renders from disk as well as from the
+ *  database. `artifacts/` is the one partial case: see KEPT_ARTIFACT_FILES. */
 const ARCHIVED_TREES = [EVIDENCE_DIR, ARTIFACTS_DIR, 'sessions']
+
+/**
+ * Files inside `artifacts/` that SURVIVE archiving, even though the bundle also carries them.
+ *
+ * The RCA report is knowledge, not bulk — the same category as `findings` and
+ * `case_summaries`, which already survive — and it is what the case view renders. A blanket
+ * `artifacts/` removal took it away, so an archived case lost the report it is largely about.
+ * They are three small markdown/JSON files; the bulk review artifacts (CI logs, captures)
+ * still leave with the bundle.
+ *
+ * Derived from `rca/artifacts.ts`, which owns these names — a second hand-typed copy here is
+ * exactly the drift this project keeps getting bitten by.
+ */
+const KEPT_ARTIFACT_FILES = new Set<string>(RCA_REPORT_FILENAMES)
 
 export interface ArchiveResult {
   slug: string
@@ -49,6 +64,40 @@ function dirBytes(dir: string): number {
   return total
 }
 
+/** Bytes at one removal target, file or directory. */
+function pathBytes(p: string): number {
+  if (!fs.existsSync(p)) return 0
+  return fs.statSync(p).isDirectory() ? dirBytes(p) : fs.statSync(p).size
+}
+
+/**
+ * The absolute paths archiving deletes, computed ONCE so `bytesFreed` and the deletes can
+ * never disagree about what left.
+ *
+ * Two whole trees, plus `artifacts/`: when that directory holds an RCA report the report
+ * files stay and its other entries are removed one by one; when it holds none, the directory
+ * itself goes, exactly as before. Safe to compute up front — the case is frozen, so nothing
+ * may be written into these trees between here and the deletes.
+ */
+function removalTargets(dir: string): string[] {
+  const out: string[] = []
+  for (const t of ARCHIVED_TREES) {
+    const target = path.join(dir, t)
+    if (t !== ARTIFACTS_DIR) {
+      out.push(target)
+      continue
+    }
+    if (!fs.existsSync(target)) continue
+    const entries = fs.readdirSync(target)
+    if (!entries.some((e) => KEPT_ARTIFACT_FILES.has(e))) {
+      out.push(target)
+      continue
+    }
+    for (const e of entries) if (!KEPT_ARTIFACT_FILES.has(e)) out.push(path.join(target, e))
+  }
+  return out
+}
+
 /**
  * Move a case's bulk out to a verified bundle, keeping its knowledge layer live.
  *
@@ -60,13 +109,13 @@ function dirBytes(dir: string): number {
  *      about the thing being kept
  *   3. move the verified bundle into <argusHome>/archive/
  *   4. only now delete the FTS rows, the evidence/session/turn/tool_call rows, the line-index
- *      sidecars, and the three on-disk trees
+ *      sidecars, and the on-disk bulk (see `removalTargets`)
  *   5. mark the case archived
  *
  * What deliberately SURVIVES: the cases row, findings, case_summaries(+fts), rca_jobs,
- * distill_jobs, case_jira_links, pr_bindings. Those are the cross-case corpus behind
- * related-history and the distillation count — deleting them is the mistake this design
- * exists to prevent. Proposals under <argusHome>/proposals are not touched at all.
+ * distill_jobs, case_jira_links, pr_bindings, and the RCA report files on disk. Those are the
+ * cross-case corpus behind related-history and the distillation count — deleting them is the
+ * mistake this design exists to prevent. Proposals under <argusHome>/proposals are not touched at all.
  */
 export async function archiveCase(
   db: DatabaseSync,
@@ -118,7 +167,8 @@ async function archiveFrozenCase(
   deps: ArchiveDeps
 ): Promise<ArchiveResult> {
   const dir = caseDir(argusHome, slug)
-  const bytesFreed = ARCHIVED_TREES.reduce((n, t) => n + dirBytes(path.join(dir, t)), 0)
+  const targets = removalTargets(dir)
+  const bytesFreed = targets.reduce((n, p) => n + pathBytes(p), 0)
 
   // 1. export to a temp path on the same volume as the archive dir, so step 3 is a rename
   fs.mkdirSync(archiveDir(argusHome), { recursive: true })
@@ -191,13 +241,15 @@ async function archiveFrozenCase(
   // IS archived — rows gone, archived_at stamped, bundle in place — so a Windows open handle
   // (EBUSY/EPERM) must not report "archive failed" and send the user into a retry that can
   // only ever hit "already archived". Leftover bytes are a warning, not a failure.
-  for (const t of ARCHIVED_TREES) {
+  for (const target of targets) {
     try {
-      const target = path.join(dir, t)
       if (deps.removeTree) deps.removeTree(target)
       else fs.rmSync(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })
     } catch (err) {
-      console.warn(`[archive] failed to remove ${t}/ for archived case ${slug}:`, err)
+      console.warn(
+        `[archive] failed to remove ${path.relative(dir, target)} for archived case ${slug}:`,
+        err
+      )
     }
   }
 
