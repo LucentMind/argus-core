@@ -32,6 +32,18 @@ interface LegacyChunk {
 }
 
 /**
+ * Whether the legacy tables are still around. Finalize drops both together, so
+ * `evidence_fts_map` existing or not is the single fact every other function in this file
+ * derives its "already finalized?" answer from — no separate bookkeeping to fall out of
+ * step with it.
+ */
+function legacyTablesExist(db: DatabaseSync): boolean {
+  return !!db
+    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'evidence_fts_map'`)
+    .get()
+}
+
+/**
  * Distinct evidence ids still holding legacy rows.
  *
  * Treats a missing `evidence_fts_map` (finalize already dropped it) as zero remaining
@@ -40,10 +52,7 @@ interface LegacyChunk {
  * ask this again afterwards without special-casing whether that already happened.
  */
 export function legacyIndexRemaining(db: DatabaseSync): number {
-  const tableExists = db
-    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'evidence_fts_map'`)
-    .get()
-  if (!tableExists) return 0
+  if (!legacyTablesExist(db)) return 0
   return Number(
     (
       db
@@ -60,8 +69,14 @@ export function legacyIndexRemaining(db: DatabaseSync): number {
  * One savepoint for the whole evidence row: a torn migration must not leave half a file's
  * chunks in each table, which would make search return the same file twice with different
  * line ranges.
+ *
+ * Returns null, rather than throwing, when the legacy tables are gone entirely — "no
+ * legacy tables" and "no rows left in them" mean the same thing to every caller: nothing
+ * to migrate. Without this guard, every boot after finalize has run would throw "no such
+ * table: evidence_fts_map" from the very first query below.
  */
 export function migrateOneEvidence(db: DatabaseSync): number | null {
+  if (!legacyTablesExist(db)) return null
   const next = db.prepare(`SELECT MIN(evidence_id) AS evidence_id FROM evidence_fts_map`).get() as
     IdRow | undefined
   const evidenceId = next?.evidence_id
@@ -132,6 +147,12 @@ export async function runEvidenceIndexMigration(
  * other copy, and re-indexing 26 GB from it is exactly what this migration exists to
  * avoid).
  *
+ * Also refuses once the legacy tables are already gone — i.e. a previous boot already
+ * finalized. Without this, `runEvidenceIndexMigration` calling this again on every
+ * subsequent boot (its "did the loop drain?" check reads 0 remaining either way) would
+ * re-run `VACUUM` on every single startup forever, which on the installation this
+ * migration targets is a full pass over a multi-gigabyte database each launch.
+ *
  * VACUUM is what actually shrinks the file: the migration frees ~26 GB of pages, but
  * SQLite reuses freed pages rather than truncating, so without this the file stays at its
  * high-water mark forever. It needs free disk roughly equal to the FINAL size (~10 GB),
@@ -140,6 +161,7 @@ export async function runEvidenceIndexMigration(
  * (case deletion, archiving) return space without another full VACUUM.
  */
 export function finalizeEvidenceIndexMigration(db: DatabaseSync): boolean {
+  if (!legacyTablesExist(db)) return false
   if (legacyIndexRemaining(db) > 0) return false
   db.exec(`DROP TABLE IF EXISTS evidence_fts`)
   db.exec(`DROP TABLE IF EXISTS evidence_fts_map`)
