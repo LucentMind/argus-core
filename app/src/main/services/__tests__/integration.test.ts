@@ -29,7 +29,7 @@ describe('wave 0 exit criterion (service level)', () => {
     )
     expect(ev.artifactType).toBe('applog')
 
-    const hits = searchEvidence(db, 'TileStore error', { caseSlug: 'NAVAPI-777' })
+    const hits = searchEvidence(db, home, 'TileStore error', { caseSlug: 'NAVAPI-777' })
     expect(hits).toHaveLength(1)
     expect(hits[0].evidenceId).toBe(ev.id)
 

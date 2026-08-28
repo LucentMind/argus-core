@@ -262,7 +262,7 @@ describe('importCase', () => {
     // junction farm re-scaffolded, not imported (skills target absent in temp home -> skipped, no throw)
     expect(fs.existsSync(path.join(dir, '.claude'))).toBe(true)
     // FTS is live immediately
-    const hits = searchEvidence(dbB, 'BLOCKED_VERSION', { caseSlug: 'NAV-100' })
+    const hits = searchEvidence(dbB, homeB, 'BLOCKED_VERSION', { caseSlug: 'NAV-100' })
     expect(hits.length).toBeGreaterThan(0)
     // derived remap: derivedFrom points at the NEW parent id
     const evs = listEvidence(dbB, 'NAV-100')

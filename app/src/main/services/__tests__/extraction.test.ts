@@ -81,7 +81,7 @@ describe('extraction pipeline', () => {
     expect(derived!.relPath).toBe('evidence/.derived/trace.binlog.txt')
     expect(derived!.meta.derivedFrom).toBe(rec.id)
 
-    const hits = searchEvidence(db, 'TunnelExit', { caseSlug: 'NAV-1' })
+    const hits = searchEvidence(db, argusHome, 'TunnelExit', { caseSlug: 'NAV-1' })
     expect(hits).toHaveLength(1)
     expect(hits[0].relPath).toBe('evidence/.derived/trace.binlog.txt')
     expect(hits[0].matchLine).toBe(1)
@@ -108,7 +108,7 @@ describe('extraction pipeline', () => {
     )
     expect(derived).not.toBeNull()
 
-    const hits = searchEvidence(db, 'TunnelExit', { caseSlug: 'NAV-1' })
+    const hits = searchEvidence(db, argusHome, 'TunnelExit', { caseSlug: 'NAV-1' })
     expect(hits).toHaveLength(1)
     expect(hits[0].relPath).toBe('evidence/.derived/copy.binlog.txt')
   })

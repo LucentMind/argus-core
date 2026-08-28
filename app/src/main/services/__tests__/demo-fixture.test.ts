@@ -29,14 +29,14 @@ describe('demo fixture (multi-chunk deep-link)', () => {
     expect(ev.artifactType).toBe('applog')
 
     // marker planted at line 857 — inside the third 400-line chunk (801–1200)
-    const blocked = searchEvidence(db, 'BLOCKED_VERSION', { caseSlug: 'DEMO-1' })
+    const blocked = searchEvidence(db, home, 'BLOCKED_VERSION', { caseSlug: 'DEMO-1' })
     expect(blocked).toHaveLength(1)
     expect(blocked[0].startLine).toBe(801)
     expect(blocked[0].endLine).toBe(1200)
     expect(blocked[0].matchLine).toBe(857)
 
     // multi-term query, marker at line 1101
-    const binder = searchEvidence(db, 'binder transaction failed', { caseSlug: 'DEMO-1' })
+    const binder = searchEvidence(db, home, 'binder transaction failed', { caseSlug: 'DEMO-1' })
     expect(binder).toHaveLength(1)
     expect(binder[0].matchLine).toBe(1101)
   })
