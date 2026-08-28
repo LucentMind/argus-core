@@ -4,6 +4,7 @@ import crypto from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import { exportCase, verifyBundleArchive } from './bundle'
 import { getCase } from './caseService'
+import { freezeCase, unfreezeCase } from './caseFreeze'
 import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase } from './ftsIndex'
 import { archiveDir, caseArchivePath, caseDir } from './paths'
 import { sidecarPath } from './lineIndex'
@@ -24,10 +25,18 @@ export interface ArchiveResult {
   sessionsRemoved: number
 }
 
-/** Seams the ordering tests inject failures at. Production passes none of these. */
+/** Injected seams. `exportTo`/`verify` are where the ordering tests inject failures;
+ *  `hasLiveWork` is a production seam — `archiveCase` is a database-level function with no
+ *  access to the agent service, so the caller (the IPC handler) supplies the answer. */
 export interface ArchiveDeps {
   exportTo?: (zipPath: string) => Promise<BundleManifest>
   verify?: (zipPath: string) => Promise<BundleManifest>
+  /** True when an agent session is still running for this case. Absent means "no live work". */
+  hasLiveWork?: () => boolean | Promise<boolean>
+  /** Removes one archived tree. A seam only so a test can make it fail: the failure happens
+   *  AFTER the commit, where the tolerated-failure behaviour lives, and no real fs state can
+   *  be relied on to produce it (Node unlinks even a file another handle holds open). */
+  removeTree?: (absPath: string) => void
 }
 
 function dirBytes(dir: string): number {
@@ -69,7 +78,36 @@ export async function archiveCase(
   const rec = getCase(db, slug)
   if (!rec) throw new Error(`Unknown case: ${slug}`)
   if (rec.archivedAt) throw new Error(`Case ${slug} is already archived`)
+  // Archiving works only on a STABLE case. A running agent writes evidence, transcripts and
+  // turns for as long as it runs, and every one of those lands after the bundle snapshot and
+  // before the deletes. Refuse rather than race it or stop it behind the user's back.
+  if (deps.hasLiveWork && (await deps.hasLiveWork())) {
+    throw new Error(
+      `Case ${slug} has an agent session still running. Stop it before archiving, so nothing is written after the bundle is sealed.`
+    )
+  }
 
+  // Freeze BEFORE the export, and release in a finally so no throw can leave a case
+  // permanently unwritable. On success the durable guard takes over: archived_at, stamped in
+  // the transaction below, is what assertCaseWritable checks from then on.
+  freezeCase(slug)
+  try {
+    return await archiveFrozenCase(db, argusHome, slug, rec.id, opts, deps)
+  } finally {
+    unfreezeCase(slug)
+  }
+}
+
+/** The body of `archiveCase`, running with the case frozen. Split out only so the freeze can
+ *  be released in one `finally` without re-indenting the whole rail. */
+async function archiveFrozenCase(
+  db: DatabaseSync,
+  argusHome: string,
+  slug: string,
+  caseId: number,
+  opts: { argusVersion: string },
+  deps: ArchiveDeps
+): Promise<ArchiveResult> {
   const dir = caseDir(argusHome, slug)
   const bytesFreed = ARCHIVED_TREES.reduce((n, t) => n + dirBytes(path.join(dir, t)), 0)
 
@@ -100,31 +138,31 @@ export async function archiveCase(
   // 4. now, and only now, remove what the bundle holds
   const evidenceRows = db
     .prepare(`SELECT id, rel_path FROM evidence WHERE case_id = ?`)
-    .all(rec.id) as unknown as { id: number; rel_path: string }[]
+    .all(caseId) as unknown as { id: number; rel_path: string }[]
   const sessionRows = db
     .prepare(`SELECT id FROM sessions WHERE case_id = ?`)
-    .all(rec.id) as unknown as { id: number }[]
+    .all(caseId) as unknown as { id: number }[]
 
   db.exec('BEGIN')
   try {
     // FTS first: the evidence map lookup joins evidence rows, so it must run before they go.
-    deleteEvidenceFtsForCase(db, rec.id)
-    deleteMessagesFtsForCase(db, rec.id)
+    deleteEvidenceFtsForCase(db, caseId)
+    deleteMessagesFtsForCase(db, caseId)
     // findings SURVIVE, but their session/turn pointers would dangle into deleted rows and
     // make a "jump to turn" deep-link resolve to nothing. Null them rather than leaving ids
     // that no longer identify anything.
     db.prepare(`UPDATE findings SET session_id = NULL, turn_id = NULL WHERE case_id = ?`).run(
-      rec.id
+      caseId
     )
-    db.prepare(`DELETE FROM tool_calls WHERE case_id = ?`).run(rec.id)
-    db.prepare(`DELETE FROM turns WHERE case_id = ?`).run(rec.id)
-    db.prepare(`DELETE FROM sessions WHERE case_id = ?`).run(rec.id)
-    db.prepare(`DELETE FROM evidence WHERE case_id = ?`).run(rec.id)
+    db.prepare(`DELETE FROM tool_calls WHERE case_id = ?`).run(caseId)
+    db.prepare(`DELETE FROM turns WHERE case_id = ?`).run(caseId)
+    db.prepare(`DELETE FROM sessions WHERE case_id = ?`).run(caseId)
+    db.prepare(`DELETE FROM evidence WHERE case_id = ?`).run(caseId)
     // 5. mark it archived in the same transaction: a crash between the deletes and the mark
     // would leave a case with no evidence and no record of why.
     db.prepare(
       `UPDATE cases SET archived_at = ?, archive_path = ?, archive_sha256 = ? WHERE id = ?`
-    ).run(new Date().toISOString(), bundlePath, manifestHash(manifest), rec.id)
+    ).run(new Date().toISOString(), bundlePath, manifestHash(manifest), caseId)
     db.exec('COMMIT')
   } catch (err) {
     db.exec('ROLLBACK')
@@ -140,7 +178,19 @@ export async function archiveCase(
       /* ignore */
     }
   }
-  for (const t of ARCHIVED_TREES) fs.rmSync(path.join(dir, t), { recursive: true, force: true })
+  // Best-effort, exactly like deleteCase's capture-directory removal: by this point the case
+  // IS archived — rows gone, archived_at stamped, bundle in place — so a Windows open handle
+  // (EBUSY/EPERM) must not report "archive failed" and send the user into a retry that can
+  // only ever hit "already archived". Leftover bytes are a warning, not a failure.
+  for (const t of ARCHIVED_TREES) {
+    try {
+      const target = path.join(dir, t)
+      if (deps.removeTree) deps.removeTree(target)
+      else fs.rmSync(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })
+    } catch (err) {
+      console.warn(`[archive] failed to remove ${t}/ for archived case ${slug}:`, err)
+    }
+  }
 
   return {
     slug,
@@ -151,14 +201,24 @@ export async function archiveCase(
   }
 }
 
-/** Stable digest of the manifest's own file hashes — what a later restore compares against to
- *  tell this case's bundle from one swapped or truncated on disk. Exported because restoreCase
- *  recomputes it from the restored bundle's manifest and compares it to cases.archive_sha256:
- *  a valid bundle belonging to a DIFFERENT case, renamed into place, must not restore silently. */
+/** Stable digest of the manifest's slug plus its own file hashes — what a later restore
+ *  compares against to tell this case's bundle from one swapped or truncated on disk. Exported
+ *  because restoreCase recomputes it from the restored bundle's manifest and compares it to
+ *  cases.archive_sha256: a valid bundle belonging to a DIFFERENT case, renamed into place, must
+ *  not restore silently.
+ *
+ *  The slug is IN the digest, and must stay in it. Without it the "different case" guarantee
+ *  rests on two cases never having byte-identical trees, which is a coincidence rather than a
+ *  check. It is fixed now rather than in Task 4 because every archived case persists this value
+ *  in `cases.archive_sha256`: changing the algorithm later silently invalidates the restore
+ *  check for every bundle already on disk.
+ *
+ *  Deterministic and order-independent: the file lines are sorted, and the slug is a fixed
+ *  header line, so a manifest that lists the same files in a different order digests the same. */
 export function manifestHash(manifest: BundleManifest): string {
-  const joined = manifest.files
-    .map((f) => `${f.path}:${f.sha256}`)
-    .sort()
-    .join('\n')
+  const joined = [
+    `slug:${manifest.slug}`,
+    ...manifest.files.map((f) => `${f.path}:${f.sha256}`).sort()
+  ].join('\n')
   return crypto.createHash('sha256').update(joined).digest('hex')
 }
