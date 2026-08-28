@@ -515,4 +515,35 @@ describe('openDb', () => {
       })
     })
   })
+
+  it('adds the archive columns to a cases table that predates them', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-mig-'))
+    const file = path.join(dir, 'argus.db')
+    // an "old" database: the cases table without any archive column
+    const old = new DatabaseSync(file)
+    old.exec(`CREATE TABLE cases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE, title TEXT NOT NULL,
+    jira_key TEXT, status TEXT NOT NULL DEFAULT 'open', tags TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`)
+    old.exec(`INSERT INTO cases (slug, title, created_at, updated_at)
+            VALUES ('OLD-1','pre-existing','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`)
+    old.close()
+
+    const db = openDb(file)
+    const cols = (db.prepare(`PRAGMA table_info(cases)`).all() as { name: string }[]).map(
+      (c) => c.name
+    )
+    for (const c of ['archived_at', 'archive_path', 'archive_sha256', 'last_opened_at']) {
+      expect(cols).toContain(c)
+    }
+    // the pre-existing row survives, with NULLs rather than a fabricated value
+    const row = db
+      .prepare(`SELECT archived_at, last_opened_at FROM cases WHERE slug='OLD-1'`)
+      .get() as {
+      archived_at: string | null
+      last_opened_at: string | null
+    }
+    expect(row.archived_at).toBeNull()
+    expect(row.last_opened_at).toBeNull()
+  })
 })

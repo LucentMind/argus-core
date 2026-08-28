@@ -84,6 +84,10 @@ interface CaseRow {
   tags: string
   created_at: string
   updated_at: string
+  archived_at: string | null
+  archive_path: string | null
+  archive_sha256: string | null
+  last_opened_at: string | null
 }
 
 function rowToCase(r: CaseRow): CaseRecord {
@@ -126,7 +130,10 @@ function rowToCase(r: CaseRow): CaseRecord {
     actionItems: [],
     // Derived like `phase` above; listCases overwrites it from the turn signals. A bare
     // rowToCase caller gets the honest "unknown", not a guess at `updated_at`.
-    lastWorkedAt: null
+    lastWorkedAt: null,
+    archivedAt: r.archived_at ?? null,
+    archivePath: r.archive_path ?? null,
+    lastOpenedAt: r.last_opened_at ?? null
   }
 }
 
@@ -220,7 +227,10 @@ export function createCase(
       createdAt: now,
       updatedAt: now,
       actionItems: [],
-      lastWorkedAt: null
+      lastWorkedAt: null,
+      archivedAt: null,
+      archivePath: null,
+      lastOpenedAt: null
     }
     fs.writeFileSync(
       path.join(dir, 'case.json'),
@@ -531,6 +541,22 @@ export function findCaseByJiraKey(db: DatabaseSync, key: string): CaseRecord | n
  */
 export function ensureCaseOrigin(db: DatabaseSync, slug: string, origin: CaseOrigin): void {
   db.prepare(`UPDATE cases SET origin = ? WHERE slug = ?`).run(origin, slug)
+}
+
+/**
+ * Record that a case was opened. Deliberately does NOT touch `updated_at`: that column is a
+ * modification timestamp, and several paths in this file already avoid moving it for the same
+ * reason (`ensureCaseOrigin`, `setCaseReviewState`). Plan B's archiving eligibility reads both,
+ * and conflating them would make merely viewing a case indistinguishable from editing it.
+ *
+ * Silent on an unknown slug: this is fire-and-forget telemetry from a UI event, and a case
+ * deleted in another window must not turn opening a stale tab into an error dialog.
+ */
+export function touchCaseOpened(db: DatabaseSync, slug: string): void {
+  db.prepare(`UPDATE cases SET last_opened_at = ? WHERE slug = ?`).run(
+    new Date().toISOString(),
+    slug
+  )
 }
 
 export interface JiraBinding {
