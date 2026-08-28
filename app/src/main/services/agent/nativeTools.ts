@@ -756,14 +756,11 @@ export function argusToolHandlers(
       // Mode-scope the WRITE the same way list_findings scopes the READ: a review-mode
       // session must not be able to retract a finding it could never see through
       // list_findings, and vice versa. Same opaque error as a cross-case id, so the two
-      // are indistinguishable from the outside.
-      const findingMode = (
-        db
-          .prepare(
-            `SELECT s.mode AS mode FROM findings f LEFT JOIN sessions s ON s.id = f.session_id
-           WHERE f.id = ?`
-          )
-          .get(findingId) as { mode: string | null } | undefined
+      // are indistinguishable from the outside. Derived from the same source list_findings
+      // reads (listFindings' toRow) rather than a second inline JOIN, so the read scoping
+      // and the write scoping can never drift apart.
+      const findingMode = listFindings(db, argusHome, caseSlug).find(
+        (f) => f.id === findingId
       )?.mode
       if ((findingMode ?? DEFAULT_MODE) !== sessionMode(db, deps.sessionId)) {
         throw new Error(wf(wdeps, 'review_write.unknown-finding'))

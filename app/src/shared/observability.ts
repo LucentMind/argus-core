@@ -42,8 +42,9 @@ export interface LangfuseConfig {
 
 export type ReviewState = 'pending' | 'accepted' | 'rejected'
 
-/** Who set `reviewState`. NULL on rows written before retraction existed — read as 'human',
- *  because until then the agent could not reject anything. */
+/** Who set `reviewState`. NULL on rows written before retraction existed (and after a reset
+ *  to `pending`). Nothing compares against the literal 'human' — a NULL actor simply takes
+ *  the same path a human reject does at every display and prompt site. */
 export type ReviewActor = 'agent' | 'human'
 
 export type FindingRole = 'root-cause' | 'contributing' | 'symptom' | 'ruled-out' | 'duplicate'

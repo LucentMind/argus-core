@@ -107,8 +107,8 @@ Findings cannot be edited once recorded, so put this section _inside_ the RCA fi
 you call `mcp__argus__append_finding` rather than planning to patch it in after. If the RCA
 is already filed (you were asked "what changed?" after the fact), record a **separate**
 finding titled `Regression localized: …` carrying this section — never re-file the whole
-RCA to attach it. To point at the RCA, call `list_findings` for its id and quote its heading
-verbatim in your first line ("Localizes the RCA recorded as: <heading>#<id>"); if instead
+RCA to attach it. To point at the RCA, call `list_findings` for its id and quote the line it
+prints verbatim in your first line ("Localizes the RCA recorded as: #<id> · <heading>"); if instead
 the RCA finding itself turns out wrong, withdraw it with `retract_finding` and a reason
 rather than leaving it standing beside a correction. Never edit findings.md directly.
 
