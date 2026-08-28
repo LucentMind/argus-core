@@ -215,4 +215,67 @@ describe('FindingsPane review flavor', () => {
     const metaRow = within(item).getByTestId('finding-trailing').parentElement as HTMLElement
     expect(metaRow).toHaveClass('flex-wrap')
   })
+
+  it('drops the "retracted by agent" chip once a human overwrites the retraction', async () => {
+    // Finding 2 repro: agent retracts #4 (actor 'agent', a reason) → human clicks
+    // thumbs-down twice (toggle to pending, then to rejected again). The IPC round-trip
+    // for a human review returns the fresh row (actor 'human', reason cleared) — the pane
+    // must adopt that whole row, not hand-patch reviewState alone, or the card keeps
+    // showing the agent's stale chip over a rejection the human just made.
+    list.mockResolvedValue([
+      row({
+        id: 4,
+        summary: 'Retracted by the agent',
+        reviewState: 'rejected',
+        reviewActor: 'agent',
+        reviewReason: 'the guard is in the caller'
+      })
+    ])
+    const review = vi.fn()
+    window.argus = {
+      findings: { list, review, clear: vi.fn() },
+      cases: { readFindings: vi.fn().mockResolvedValue('') },
+      review: { worktreeHead: vi.fn().mockResolvedValue(null) },
+      rca: { onRcaChanged: vi.fn(() => () => {}) }
+    } as never
+
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+    const item = (await screen.findByText('Retracted by the agent')).closest('li') as HTMLElement
+    expect(within(item).getByText('retracted by agent')).toBeInTheDocument()
+
+    // First click: toggle the active (rejected) thumb back to pending.
+    review.mockResolvedValueOnce(
+      row({
+        id: 4,
+        summary: 'Retracted by the agent',
+        reviewState: 'pending',
+        reviewActor: null,
+        reviewReason: null
+      })
+    )
+    await userEvent.click(within(item).getByRole('button', { name: 'Mark finding not useful' }))
+    await waitFor(() =>
+      expect(within(item).queryByText('retracted by agent')).not.toBeInTheDocument()
+    )
+
+    // Second click: human rejects it for real.
+    review.mockResolvedValueOnce(
+      row({
+        id: 4,
+        summary: 'Retracted by the agent',
+        reviewState: 'rejected',
+        reviewActor: 'human',
+        reviewReason: null
+      })
+    )
+    await userEvent.click(within(item).getByRole('button', { name: 'Mark finding not useful' }))
+    await waitFor(() =>
+      expect(within(item).getByRole('button', { name: 'Mark finding not useful' })).toHaveAttribute(
+        'aria-pressed',
+        'true'
+      )
+    )
+    expect(within(item).queryByText('retracted by agent')).not.toBeInTheDocument()
+    expect(within(item).queryByText('the guard is in the caller')).not.toBeInTheDocument()
+  })
 })

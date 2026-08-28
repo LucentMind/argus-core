@@ -128,6 +128,39 @@ it('retract_finding cannot reach another case findings', async () => {
     db.prepare(`SELECT id FROM findings ORDER BY id DESC LIMIT 1`).get() as { id: number }
   ).id
   const mine = handlersFor(sessionFor(caseId, 'investigation'))
-  await expect(mine.retract_finding({ finding_id: id, reason: 'wrong' })).rejects.toThrow()
+  await expect(mine.retract_finding({ finding_id: id, reason: 'wrong' })).rejects.toThrow(
+    /^Unknown finding id\.$/
+  )
   expect(listFindings(db, home, 'CASE-B').find((f) => f.id === id)?.reviewState).toBe('pending')
+})
+
+it('retract_finding refuses a finding already rejected by a human without overwriting it', async () => {
+  const s = sessionFor(caseId, 'investigation')
+  const h = handlersFor(s)
+  await h.append_finding({ title: 'Bad guess', markdown: 'see [src/a.ts:1]' })
+  const id = (
+    db.prepare(`SELECT id FROM findings ORDER BY id DESC LIMIT 1`).get() as { id: number }
+  ).id
+  db.prepare(
+    `UPDATE findings SET review_state = 'rejected', review_actor = 'human', review_reason = ?, reviewed_at = ? WHERE id = ?`
+  ).run('not what the log says', new Date().toISOString(), id)
+  const out = await h.retract_finding({ finding_id: id, reason: 'agent wording' })
+  expect(out).toMatch(/already.*rejected by a human/i)
+  expect(emitFindingUpdated).not.toHaveBeenCalled()
+  const row = listFindings(db, home, 'CASE-A').find((f) => f.id === id)
+  expect(row?.reviewActor).toBe('human')
+  expect(row?.reviewReason).toBe('not what the log says')
+})
+
+it('retract_finding cannot reach an investigation finding from a review session', async () => {
+  const inv = sessionFor(caseId, 'investigation')
+  await handlersFor(inv).append_finding({ title: 'Investigation finding', markdown: 'x' })
+  const id = (
+    db.prepare(`SELECT id FROM findings ORDER BY id DESC LIMIT 1`).get() as { id: number }
+  ).id
+  const review = handlersFor(sessionFor(caseId, 'review'))
+  await expect(review.retract_finding({ finding_id: id, reason: 'wrong' })).rejects.toThrow(
+    /^Unknown finding id\.$/
+  )
+  expect(listFindings(db, home, 'CASE-A').find((f) => f.id === id)?.reviewState).toBe('pending')
 })

@@ -103,13 +103,14 @@ window was bounded.
 
 ## Output
 
-Findings are immutable once recorded, so put this section _inside_ the RCA finding when
-you call `mcp__argus__append_finding`. If the RCA is already filed (you were asked "what
-changed?" after the fact), record a **separate** finding titled `Regression localized: …`
-carrying this section — never re-file the whole RCA to attach it. To point at the RCA,
-read `findings.md` in the case dir and quote its heading verbatim in your first line
-("Localizes the RCA recorded as: <heading>"); there is no finding-id you can reference,
-since `append_finding` does not return one. Read `findings.md`, never edit it.
+Findings cannot be edited once recorded, so put this section _inside_ the RCA finding when
+you call `mcp__argus__append_finding` rather than planning to patch it in after. If the RCA
+is already filed (you were asked "what changed?" after the fact), record a **separate**
+finding titled `Regression localized: …` carrying this section — never re-file the whole
+RCA to attach it. To point at the RCA, call `list_findings` for its id and quote its heading
+verbatim in your first line ("Localizes the RCA recorded as: <heading>#<id>"); if instead
+the RCA finding itself turns out wrong, withdraw it with `retract_finding` and a reason
+rather than leaving it standing beside a correction. Never edit findings.md directly.
 
 The shape below is a parse contract. Keep the two field lines verbatim, one candidate
 per bullet, and use no parentheses or semicolons inside the anchor and window values:

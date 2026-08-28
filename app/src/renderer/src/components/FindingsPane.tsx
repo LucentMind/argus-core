@@ -98,8 +98,12 @@ export function FindingsPane({
   async function setReview(id: number, next: 'accepted' | 'rejected'): Promise<void> {
     const cur = findings.find((f) => f.id === id)?.reviewState
     const state: ReviewState = cur === next ? 'pending' : next
-    await window.argus.findings.review(id, state)
-    setFindings((prev) => prev.map((f) => (f.id === id ? { ...f, reviewState: state } : f)))
+    const row = await window.argus.findings.review(id, state)
+    // Merge the full row the IPC returns rather than hand-patching reviewState alone: a
+    // human review also changes reviewActor/reviewReason (e.g. overwriting an agent
+    // retraction), and patching only reviewState would leave the stale actor/reason from
+    // whatever review preceded it on screen until the pane refetches or remounts.
+    if (row) setFindings((prev) => prev.map((f) => (f.id === id ? row : f)))
   }
 
   /**

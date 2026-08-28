@@ -67,10 +67,12 @@ describe('retractFinding', () => {
     expect(db.prepare(`SELECT * FROM findings WHERE id = ?`).get(id)).toEqual(before)
   })
 
-  it('does not overwrite a human rejection: succeeds, keeps actor and reason', () => {
+  it('does not overwrite a human rejection: succeeds, keeps actor, reason and reviewed_at', () => {
     const id = seed('rejected', 'human', 'not what the log says')
+    const before = db.prepare(`SELECT * FROM findings WHERE id = ?`).get(id)
     const res = retractFinding(db, id, 'agent wording')
     expect(res).toMatchObject({ ok: true, changed: false })
+    expect(db.prepare(`SELECT * FROM findings WHERE id = ?`).get(id)).toEqual(before)
     const row = listFindings(db, home, 'CASE-A').find((f) => f.id === id)
     expect(row?.reviewActor).toBe('human')
     expect(row?.reviewReason).toBe('not what the log says')
@@ -95,5 +97,23 @@ describe('reviewFinding', () => {
     reviewFinding(db, id, 'rejected')
     const row = listFindings(db, home, 'CASE-A').find((f) => f.id === id)
     expect(row?.reviewActor).toBe('human')
+  })
+
+  it('a reset to pending clears review_actor and review_reason', () => {
+    const id = seed('rejected', 'agent', 'agent reason')
+    reviewFinding(db, id, 'pending')
+    const row = listFindings(db, home, 'CASE-A').find((f) => f.id === id)
+    expect(row?.reviewState).toBe('pending')
+    expect(row?.reviewActor).toBeNull()
+    expect(row?.reviewReason).toBeNull()
+    expect(row?.reviewedAt).toBeNull()
+  })
+
+  it('a human reject over an agent retraction replaces the actor and clears the reason', () => {
+    const id = seed('rejected', 'agent', 'agent reason')
+    reviewFinding(db, id, 'rejected')
+    const row = listFindings(db, home, 'CASE-A').find((f) => f.id === id)
+    expect(row?.reviewActor).toBe('human')
+    expect(row?.reviewReason).toBeNull()
   })
 })

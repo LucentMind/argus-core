@@ -44,8 +44,10 @@ import {
   prWorktreeHead,
   pushReviewChange,
   findingForCase,
+  wf,
   type GitRunner
 } from './reviewWrites'
+import { DEFAULT_MODE } from '../../../shared/modes'
 import { fetchCheckLogs, ciFeedback } from './ciLogs'
 import { defaultGhRunner, type Runner } from '../github'
 import { listFindings, parseFindingBodies, retractFinding } from '../findings'
@@ -273,7 +275,7 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
   },
   'retract_finding.ok': {
     title: 'retract_finding — success',
-    text: 'Finding retracted. It is now marked rejected with your reason, and is excluded from every conclusion the case distiller may draw.'
+    text: 'Finding retracted. It is now marked rejected with your reason. It is tagged as withdrawn wherever the case is summarized, so the distiller treats it as ruled out rather than as a conclusion, with your reason as the record of how.'
   },
   'retract_finding.empty-reason': {
     title: 'retract_finding — no reason given',
@@ -283,6 +285,10 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
     title: 'retract_finding — the finding was accepted by a human',
     text: 'Finding {id} was ACCEPTED by a human reviewer, so you cannot retract it. If you now believe it is wrong, say so in your reply and explain why — the human decides.',
     placeholders: ['id']
+  },
+  'retract_finding.already-rejected': {
+    title: 'retract_finding — a human already rejected this finding',
+    text: 'This finding was already rejected by a human reviewer. Their reason stands and yours was not recorded — if you disagree with how it was rejected, say so in your reply.'
   },
   'propose_case_triage.no-item': {
     title: 'propose_case_triage — not processing an item',
@@ -742,12 +748,40 @@ export function argusToolHandlers(
       // Validate BEFORE the ownership lookup and before any write: a reasonless retraction is
       // exactly the unexplained state change this tool exists to replace.
       if (!reason) throw new Error(fb('retract_finding.empty-reason'))
+      const wdeps = { db, argusHome, resolve: deps.resolve }
       // Scopes the id to this case and throws the same opaque unknown-finding error
       // read_findings throws — an id from another case must not be distinguishable from one
       // that does not exist.
-      findingForCase({ db, argusHome, resolve: deps.resolve }, caseSlug, findingId)
+      findingForCase(wdeps, caseSlug, findingId)
+      // Mode-scope the WRITE the same way list_findings scopes the READ: a review-mode
+      // session must not be able to retract a finding it could never see through
+      // list_findings, and vice versa. Same opaque error as a cross-case id, so the two
+      // are indistinguishable from the outside.
+      const findingMode = (
+        db
+          .prepare(
+            `SELECT s.mode AS mode FROM findings f LEFT JOIN sessions s ON s.id = f.session_id
+           WHERE f.id = ?`
+          )
+          .get(findingId) as { mode: string | null } | undefined
+      )?.mode
+      if ((findingMode ?? DEFAULT_MODE) !== sessionMode(db, deps.sessionId)) {
+        throw new Error(wf(wdeps, 'review_write.unknown-finding'))
+      }
       const res = retractFinding(db, findingId, reason)
-      if (!res.ok) throw new Error(fb('retract_finding.accepted', { id: String(findingId) }))
+      if (!res.ok) {
+        throw new Error(
+          res.reason === 'accepted'
+            ? fb('retract_finding.accepted', { id: String(findingId) })
+            : wf(wdeps, 'review_write.unknown-finding')
+        )
+      }
+      // A finding a human already rejected is left exactly as it is (retractFinding's
+      // `changed: false`) — the call still succeeds (the finding IS in the state the agent
+      // wanted), so this is a normal return, not a throw. But it must not claim the
+      // agent's reason was recorded (it wasn't), and must not fire emitFindingUpdated for a
+      // row that did not change.
+      if (!res.changed) return fb('retract_finding.already-rejected')
       deps.emitFindingUpdated?.(findingId)
       return fb('retract_finding.ok')
     },

@@ -137,9 +137,15 @@ export function reviewFinding(db: DatabaseSync, id: number, state: ReviewState):
   if (!REVIEW_STATES.includes(state))
     throw new Error(`Invalid review state: ${JSON.stringify(state)}`)
   const reviewedAt = state === 'pending' ? null : new Date().toISOString()
+  // A reset to `pending` has no reviewer and no reason — clear both rather than leaving a
+  // stale actor/reason from whatever review (human or agent-retraction) preceded it. A
+  // reject or accept stamps the human and clears review_reason: reviewFinding takes no
+  // reason of its own, and leaving an agent's retraction reason in place would attribute
+  // it to this human decision.
+  const reviewActor = state === 'pending' ? null : 'human'
   db.prepare(
-    `UPDATE findings SET review_state = ?, reviewed_at = ?, review_actor = 'human' WHERE id = ?`
-  ).run(state, reviewedAt, id)
+    `UPDATE findings SET review_state = ?, reviewed_at = ?, review_actor = ?, review_reason = NULL WHERE id = ?`
+  ).run(state, reviewedAt, reviewActor, id)
   const row = db
     .prepare(`SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE} WHERE f.id = ?`)
     .get(id) as unknown as Raw | undefined
