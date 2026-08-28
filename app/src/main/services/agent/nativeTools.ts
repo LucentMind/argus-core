@@ -48,7 +48,8 @@ import {
 } from './reviewWrites'
 import { fetchCheckLogs, ciFeedback } from './ciLogs'
 import { defaultGhRunner, type Runner } from '../github'
-import { parseFindingBodies } from '../findings'
+import { listFindings, parseFindingBodies, retractFinding } from '../findings'
+import { reviewTag } from '../../../shared/findingTag'
 import { sessionMode } from './sessionStore'
 import { readSessionEvents } from './mirror'
 import { transcriptTurns, renderTurn, OPEN_TAG, CLOSE_TAG, DIGEST_BUDGET } from './historyDigest'
@@ -265,6 +266,23 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
   'read_findings.no-body': {
     title: 'read_findings — finding has no recorded body',
     text: '(no body recorded in findings.md for this finding)'
+  },
+  'list_findings.none': {
+    title: 'list_findings — nothing recorded yet',
+    text: '(no findings recorded on this case yet)'
+  },
+  'retract_finding.ok': {
+    title: 'retract_finding — success',
+    text: 'Finding retracted. It is now marked rejected with your reason, and is excluded from every conclusion the case distiller may draw.'
+  },
+  'retract_finding.empty-reason': {
+    title: 'retract_finding — no reason given',
+    text: 'A retraction needs a reason: one line saying what was wrong about the finding. Nothing was changed.'
+  },
+  'retract_finding.accepted': {
+    title: 'retract_finding — the finding was accepted by a human',
+    text: 'Finding {id} was ACCEPTED by a human reviewer, so you cannot retract it. If you now believe it is wrong, say so in your reply and explain why — the human decides.',
+    placeholders: ['id']
   },
   'propose_case_triage.no-item': {
     title: 'propose_case_triage — not processing an item',
@@ -701,6 +719,39 @@ export function argusToolHandlers(
         .join('\n\n')
     },
 
+    async list_findings() {
+      // Same mode axis as list_evidence: a review session must not be shown the
+      // investigation tree's findings, and vice versa. Read at call time, so a deps object
+      // built without a real sessions row does not pay for it unless the tool is invoked.
+      const mode = sessionMode(db, deps.sessionId)
+      const rows = listFindings(db, argusHome, caseSlug).filter((f) => f.mode === mode)
+      if (rows.length === 0) return fb('list_findings.none')
+      return rows
+        .map((f) => {
+          const flavor =
+            f.severity && f.layer ? `${f.severity}/${f.layer}` : (f.severity ?? f.layer)
+          const anchor = f.diffPath ? `${f.diffPath}:${f.diffLine}` : null
+          return [`#${f.id}`, reviewTag(f), flavor, anchor, f.summary].filter(Boolean).join(' · ')
+        })
+        .join('\n')
+    },
+
+    async retract_finding(args) {
+      const findingId = num(args.finding_id, 'finding_id')
+      const reason = String(args.reason ?? '').trim()
+      // Validate BEFORE the ownership lookup and before any write: a reasonless retraction is
+      // exactly the unexplained state change this tool exists to replace.
+      if (!reason) throw new Error(fb('retract_finding.empty-reason'))
+      // Scopes the id to this case and throws the same opaque unknown-finding error
+      // read_findings throws — an id from another case must not be distinguishable from one
+      // that does not exist.
+      findingForCase({ db, argusHome, resolve: deps.resolve }, caseSlug, findingId)
+      const res = retractFinding(db, findingId, reason)
+      if (!res.ok) throw new Error(fb('retract_finding.accepted', { id: String(findingId) }))
+      deps.emitFindingUpdated?.(findingId)
+      return fb('retract_finding.ok')
+    },
+
     async post_review_comment(args) {
       const findingId = Number(args.finding_id)
       const out = await postReviewComment(
@@ -1036,7 +1087,7 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'append_finding',
     description:
-      "Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim. In review mode also pass layer and severity — the first citation becomes the finding's diff anchor — suggested_change when you know the concrete fix (what the user's Apply action will implement), and comment_body: the finding rewritten for the PR author in your reviewer's voice, a few sentences, publishable as-is. comment_body must NOT restate the citation (the posted comment is already anchored at that line) and must not reference other findings or internal ids — it is posted verbatim when the user presses Post comment.",
+      "Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim. In review mode also pass layer and severity — the first citation becomes the finding's diff anchor — suggested_change when you know the concrete fix (what the user's Apply action will implement), and comment_body: the finding rewritten for the PR author in your reviewer's voice, a few sentences, publishable as-is. comment_body must NOT restate the citation (the posted comment is already anchored at that line) and must not reference other findings or internal ids — it is posted verbatim when the user presses Post comment. Before recording, call list_findings: if this finding contradicts or supersedes one that is already recorded, retract that one with retract_finding rather than appending a second, corrected finding beside it.",
     schema: {
       title: z.string(),
       markdown: z.string(),
@@ -1051,6 +1102,18 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
     description:
       'Read recorded findings by id: summary, severity/layer, diff anchor, suggested change and the full findings.md body. Use this when a turn names finding ids instead of inlining their text — read them before acting on them.',
     schema: { finding_ids: z.array(z.number()).min(1) }
+  },
+  {
+    name: 'list_findings',
+    description:
+      'List the findings already recorded on this case: id, review state, severity/layer, diff anchor and title, one per line. Call this BEFORE recording a new finding, so you can see whether you are about to contradict or duplicate something you already recorded. Bodies are not included — read those with read_findings.',
+    schema: {}
+  },
+  {
+    name: 'retract_finding',
+    description:
+      'Withdraw a finding you recorded that has turned out to be wrong. Pass the finding_id from list_findings and a one-line reason saying what was wrong about it. The finding is marked rejected and stops counting as a conclusion, while the reason is kept as the record of what was ruled out and how. Use this instead of recording a second, corrected finding beside the wrong one. A finding a human has ACCEPTED cannot be retracted — if you believe an accepted finding is wrong, say so in your reply instead.',
+    schema: { finding_id: z.number(), reason: z.string().min(1) }
   },
   {
     name: 'post_review_comment',

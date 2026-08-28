@@ -33,6 +33,8 @@ describe('classifyToolCall — native and FS tools', () => {
     ['mcp__argus__search_evidence', 'allow', 'LOW'],
     ['mcp__argus__search_known_defects', 'allow', 'LOW'],
     ['mcp__argus__append_finding', 'allow', 'LOW'],
+    ['mcp__argus__list_findings', 'allow', 'LOW'],
+    ['mcp__argus__retract_finding', 'allow', 'LOW'],
     ['mcp__argus__update_case_status', 'ask', 'MEDIUM'],
     ['mcp__argus__workspace_checkout', 'ask', 'MEDIUM']
   ] as const)('%s → %s/%s', (tool, action, risk) => {
