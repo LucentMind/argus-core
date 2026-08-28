@@ -819,3 +819,48 @@ describe('archiveCase ordering: a failure before the delete step removes nothing
     expect(fs.existsSync(caseArchivePath(home, slug))).toBe(false)
   })
 })
+
+describe('reclaiming space after an archive', () => {
+  /**
+   * Asserts the EFFECT — freed pages actually leave the database file — rather than that a
+   * particular statement was issued.
+   *
+   * The plan's version of this test monkey-patched `db.exec` and asserted an
+   * `/incremental_vacuum/i` statement went past it, on the grounds that a fixture database is
+   * too small for a size assertion to mean anything. That pins the implementation, not the
+   * result: it stays green if the pragma is issued into a database where it is a no-op, and it
+   * would go red on a correct rewrite that reclaimed the same space another way.
+   *
+   * It is testable as an effect for one cheap reason: `PRAGMA freelist_count` reports the pages
+   * SQLite is holding but not using, and it is the number `incremental_vacuum` exists to drive
+   * to zero. The fixture is a real file database, so enabling `auto_vacuum = INCREMENTAL` (which
+   * only takes effect across a VACUUM — see evidenceIndexMigration.ts) and then making some
+   * garbage gives a genuine before/after. Deleting the pragma from `archiveCase` leaves the
+   * count exactly where the bloat put it, so this test cannot pass without the fix.
+   */
+  it('returns freed pages to the filesystem when the database supports it', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+
+    // What the contentless-index migration does to a real installation's database.
+    db.exec(`PRAGMA auto_vacuum = INCREMENTAL`)
+    db.exec(`VACUUM`)
+    expect((db.prepare(`PRAGMA auto_vacuum`).get() as { auto_vacuum: number }).auto_vacuum).toBe(2)
+
+    // Enough churn that the free pages are unambiguous. The archive's own row deletes free a
+    // handful of pages in a fixture this size; this makes the reclaim measurable rather than
+    // arguable.
+    db.exec(`CREATE TABLE bloat (a TEXT)`)
+    const ins = db.prepare(`INSERT INTO bloat VALUES (?)`)
+    for (let i = 0; i < 4000; i++) ins.run('x'.repeat(500))
+    db.exec(`DROP TABLE bloat`)
+    const freeBefore = (db.prepare(`PRAGMA freelist_count`).get() as { freelist_count: number })
+      .freelist_count
+    expect(freeBefore).toBeGreaterThan(100)
+
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+
+    expect(
+      (db.prepare(`PRAGMA freelist_count`).get() as { freelist_count: number }).freelist_count
+    ).toBe(0)
+  })
+})

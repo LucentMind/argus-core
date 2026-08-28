@@ -107,6 +107,43 @@ export function runningRoutineForSession(db: DatabaseSync, sessionId: number): s
 }
 
 /**
+ * The routine id of a run CURRENTLY executing against `caseSlug`, or null.
+ *
+ * The slug-keyed counterpart to `runningRoutineForSession`, and it exists because
+ * `AgentService`'s live-session map cannot answer this question: a routine's background session
+ * never enters that map (registry.ts's `getOrCreate` guard, and sessionStore.ts's
+ * `createSession` note say so outright), so anything built only on that map reports a case as
+ * idle while a routine is writing evidence and transcripts into it.
+ *
+ * Both tables are consulted because a run records its case in exactly one of them, decided by
+ * whether the routine is scoped (service.ts's `execute`):
+ *   - unscoped: `routine_runs.case_slug` is the `routine-<id>` case the run opens.
+ *   - scoped: `routine_runs.case_slug` is NULL and each item's own case lands on
+ *     `routine_run_items.case_slug`.
+ * Reading only the first would miss every scoped run, which is the common shape.
+ *
+ * Reads the run tables rather than asking `RoutinesService`, for the same reason
+ * `runningRoutineForSession` does: the answer is durable and available to anything holding the
+ * db. `reconcileInterruptedRuns` at boot is what stops a crashed run's row from reading
+ * `running` forever.
+ */
+export function runningRoutineForCase(db: DatabaseSync, caseSlug: string): string | null {
+  const row = db
+    .prepare(
+      `SELECT r.routine_id AS routine_id
+         FROM routine_runs r
+        WHERE r.status = 'running'
+          AND (r.case_slug = ?
+               OR EXISTS (SELECT 1 FROM routine_run_items i
+                           WHERE i.run_id = r.id AND i.status = 'running' AND i.case_slug = ?))
+        ORDER BY r.id DESC
+        LIMIT 1`
+    )
+    .get(caseSlug, caseSlug) as { routine_id: string } | undefined
+  return row?.routine_id ?? null
+}
+
+/**
  * When this routine was last ATTEMPTED, whatever the outcome — the schedule's anchor.
  *
  * Attempts, not successes, and the distinction is load-bearing: anchoring on success would
