@@ -216,7 +216,8 @@ export interface ScanSummary {
  *  'indexing' — partially indexed; searches over this file are incomplete.
  *  'indexed'  — complete.
  *  'error'    — indexing failed; the file is present but unsearchable. */
-export type IndexState = 'skipped' | 'pending' | 'indexing' | 'indexed' | 'error'
+export const INDEX_STATES = ['skipped', 'pending', 'indexing', 'indexed', 'error'] as const
+export type IndexState = (typeof INDEX_STATES)[number]
 
 export interface EvidenceRecord {
   id: number

@@ -8,7 +8,7 @@ import { createCase } from '../caseService'
 import { ingestContent, sha256File } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { collectCaseFiles, exportCase } from '../bundle'
-import { bundleManifestSchema } from '../../../shared/bundle'
+import { bundleManifestSchema, bundleRowsSchema } from '../../../shared/bundle'
 import type { DatabaseSync } from 'node:sqlite'
 import { createImmediateQueue } from '../ingestQueue'
 
@@ -160,5 +160,35 @@ describe('exportCase', () => {
         }
       )
     ).rejects.toThrow(/Unknown case/)
+  })
+})
+
+describe('bundleRowsSchema', () => {
+  it('rejects an evidence row carrying an indexState outside the lifecycle enum', () => {
+    // The cast at caseArchive.ts (`e.indexState as IndexState`) is only honest if the schema
+    // already refused anything the lifecycle doesn't recognize. An unenumerated string would
+    // otherwise round-trip verbatim into meta.indexState on restore, matching neither the
+    // inline-index branch nor requeuePendingIndexes' pending/error sweep — stranding the row.
+    const result = bundleRowsSchema.safeParse({
+      turns: [],
+      toolCalls: [],
+      findingPointers: [],
+      evidence: [{ relPath: 'evidence/sample.log', indexState: 'archived' }]
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts a real lifecycle state, with no id field required', () => {
+    const result = bundleRowsSchema.safeParse({
+      turns: [],
+      toolCalls: [],
+      findingPointers: [],
+      evidence: [{ relPath: 'evidence/sample.log', indexState: 'pending' }]
+    })
+    expect(result.success).toBe(true)
+    expect(result.success && result.data.evidence[0]).toEqual({
+      relPath: 'evidence/sample.log',
+      indexState: 'pending'
+    })
   })
 })
