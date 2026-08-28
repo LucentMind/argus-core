@@ -55,50 +55,65 @@ export function withFtsSavepoint<T>(db: DatabaseSync, fn: () => T): T {
 //  chunk loop for large-file streaming; it writes the evidence_fts_map row inline
 //  with the same rowid. Deletes route through the helpers below.)
 
-/** Delete every evidence_fts row for one evidence id (plus its map rows). */
+/** Delete every indexed chunk for one evidence id, from both index generations.
+ *
+ *  Both, deliberately: until the migration in evidenceIndexMigration.ts finishes, one
+ *  evidence row's chunks can sit in the legacy contentful table, in the contentless one,
+ *  or briefly in both. Clearing only one leaves searchable rows behind for evidence that
+ *  no longer exists. */
 export function deleteEvidenceFtsForEvidence(db: DatabaseSync, evidenceId: number): void {
-  const rows = db
+  const legacy = db
     .prepare(`SELECT fts_rowid FROM evidence_fts_map WHERE evidence_id = ?`)
     .all(evidenceId) as unknown as RowidRow[]
-  const del = db.prepare(`DELETE FROM evidence_fts WHERE rowid = ?`)
-  for (const r of rows) del.run(r.fts_rowid)
+  const delLegacy = db.prepare(`DELETE FROM evidence_fts WHERE rowid = ?`)
+  for (const r of legacy) delLegacy.run(r.fts_rowid)
   db.prepare(`DELETE FROM evidence_fts_map WHERE evidence_id = ?`).run(evidenceId)
+
+  const current = db
+    .prepare(`SELECT fts_rowid FROM evidence_index_map WHERE evidence_id = ?`)
+    .all(evidenceId) as unknown as RowidRow[]
+  const delCurrent = db.prepare(`DELETE FROM evidence_index WHERE rowid = ?`)
+  for (const r of current) delCurrent.run(r.fts_rowid)
+  db.prepare(`DELETE FROM evidence_index_map WHERE evidence_id = ?`).run(evidenceId)
 }
 
 /**
- * Delete every evidence_fts row for one evidence id WITHOUT consulting the map.
+ * Remove every contentless index row that no map row points at, and report how many.
  *
- * This is the slow path the comment at the top of this file exists to avoid: the FTS
- * key columns are UNINDEXED, so this scans the entire index and its cost grows with
- * the whole database rather than with the rows removed. DO NOT use it on any hot path
- * (ingest, delete, re-index) — `deleteEvidenceFtsForEvidence` is the one for those.
+ * Replaces the old map-independent `deleteEvidenceFtsThorough`, which filtered on
+ * `evidence_id` — a column a contentless table does not have. This is the better
+ * definition anyway: an orphan is a row with no locator, whichever evidence it came
+ * from, so one global sweep at boot replaces a per-row full-index scan.
  *
- * It is correct HERE, and only here, because crash recovery is the one caller that
- * must clear rows the map cannot see. A pre-fix crash (before the FTS insert and its
- * map insert were made atomic) could land between the two statements, leaving an FTS
- * row no map row points at: invisible to the map-driven delete, so it survived boot's
- * cleanup, duplicated its chunk_index on the re-index, and was unreclaimable forever.
- * Boot runs this for the handful of rows an interrupted run left behind, once, so the
- * scan cost is irrelevant against permanently corrupt search results.
+ * Contentless FTS5 tables support rowid scans and rowid deletes (verified on SQLite
+ * 3.50.4); only column reads and snippet() are unavailable.
  */
-export function deleteEvidenceFtsThorough(db: DatabaseSync, evidenceId: number): void {
-  db.prepare(`DELETE FROM evidence_fts WHERE evidence_id = ?`).run(evidenceId)
-  db.prepare(`DELETE FROM evidence_fts_map WHERE evidence_id = ?`).run(evidenceId)
+export function deleteOrphanEvidenceIndex(db: DatabaseSync): number {
+  const res = db
+    .prepare(
+      `DELETE FROM evidence_index
+       WHERE rowid NOT IN (SELECT fts_rowid FROM evidence_index_map)`
+    )
+    .run()
+  return Number(res.changes)
 }
 
-/** Delete every evidence_fts row for all evidence of one case (plus map rows). */
+/** Delete every indexed chunk for all evidence of one case, from both generations. */
 export function deleteEvidenceFtsForCase(db: DatabaseSync, caseId: number): void {
-  const rows = db
-    .prepare(
-      `SELECT fts_rowid FROM evidence_fts_map
-       WHERE evidence_id IN (SELECT id FROM evidence WHERE case_id = ?)`
-    )
+  const inCase = `SELECT id FROM evidence WHERE case_id = ?`
+  const legacy = db
+    .prepare(`SELECT fts_rowid FROM evidence_fts_map WHERE evidence_id IN (${inCase})`)
     .all(caseId) as unknown as RowidRow[]
-  const del = db.prepare(`DELETE FROM evidence_fts WHERE rowid = ?`)
-  for (const r of rows) del.run(r.fts_rowid)
-  db.prepare(
-    `DELETE FROM evidence_fts_map WHERE evidence_id IN (SELECT id FROM evidence WHERE case_id = ?)`
-  ).run(caseId)
+  const delLegacy = db.prepare(`DELETE FROM evidence_fts WHERE rowid = ?`)
+  for (const r of legacy) delLegacy.run(r.fts_rowid)
+  db.prepare(`DELETE FROM evidence_fts_map WHERE evidence_id IN (${inCase})`).run(caseId)
+
+  const current = db
+    .prepare(`SELECT fts_rowid FROM evidence_index_map WHERE evidence_id IN (${inCase})`)
+    .all(caseId) as unknown as RowidRow[]
+  const delCurrent = db.prepare(`DELETE FROM evidence_index WHERE rowid = ?`)
+  for (const r of current) delCurrent.run(r.fts_rowid)
+  db.prepare(`DELETE FROM evidence_index_map WHERE evidence_id IN (${inCase})`).run(caseId)
 }
 
 // — messages_fts —
