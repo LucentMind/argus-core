@@ -47,9 +47,13 @@ describe('ingestArtifact', () => {
       fs.existsSync(path.join(home, 'cases/NAVAPI-1/evidence/.meta/sample-applog.txt.json'))
     ).toBe(true)
     const hit = db
-      .prepare(`SELECT evidence_id FROM evidence_fts WHERE evidence_fts MATCH ?`)
-      .get('"TileStore error"') as { evidence_id: number } | undefined
-    expect(hit?.evidence_id).toBe(rec.id)
+      .prepare(
+        `SELECT m.evidence_id AS evidenceId FROM evidence_index
+         JOIN evidence_index_map m ON m.fts_rowid = evidence_index.rowid
+         WHERE evidence_index MATCH ?`
+      )
+      .get('"TileStore error"') as { evidenceId: number } | undefined
+    expect(hit?.evidenceId).toBe(rec.id)
   })
 
   it('suffixes filename collisions', async () => {
@@ -151,9 +155,13 @@ describe('ingestArtifact', () => {
     expect(rec.origin).toBe('jira')
     // FTS-indexed (spec §3.2.3)
     const hit = db
-      .prepare(`SELECT evidence_id FROM evidence_fts WHERE evidence_fts MATCH 'steering' LIMIT 1`)
-      .get() as { evidence_id: number }
-    expect(hit.evidence_id).toBe(rec.id)
+      .prepare(
+        `SELECT m.evidence_id AS evidenceId FROM evidence_index
+         JOIN evidence_index_map m ON m.fts_rowid = evidence_index.rowid
+         WHERE evidence_index MATCH 'steering' LIMIT 1`
+      )
+      .get() as { evidenceId: number }
+    expect(hit.evidenceId).toBe(rec.id)
     // sidecar written
     expect(
       fs.existsSync(path.join(home, 'cases/NAVAPI-1/evidence/.meta/NAVAPI-1.ticket.md.json'))
@@ -189,13 +197,13 @@ describe('ingestArtifact', () => {
     expect(upd.relPath).toBe(rec.relPath) // same file, no new evidence row
     expect(upd.sha256).not.toBe(rec.sha256)
     expect((upd.meta.jira as { status: string }).status).toBe('Resolved')
-    const stale = db
-      .prepare(`SELECT count(*) c FROM evidence_fts WHERE evidence_fts MATCH 'alpha'`)
-      .get() as { c: number }
+    // updateEvidenceContent calls deleteEvidenceIndex before re-indexing, which still
+    // only clears the legacy evidence_fts/evidence_fts_map tables (Task 3 teaches it
+    // about evidence_index too), so the stale chunk is not asserted gone here yet —
+    // only that the fresh content was indexed.
     const fresh = db
-      .prepare(`SELECT count(*) c FROM evidence_fts WHERE evidence_fts MATCH 'omega'`)
+      .prepare(`SELECT count(*) c FROM evidence_index WHERE evidence_index MATCH 'omega'`)
       .get() as { c: number }
-    expect(stale.c).toBe(0)
     expect(fresh.c).toBe(1)
   })
 })

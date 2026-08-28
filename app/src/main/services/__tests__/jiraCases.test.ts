@@ -180,7 +180,7 @@ describe('JiraCases.createFromTicket', () => {
     expect(body).toContain('desc body')
     // FTS-indexed
     const hit = db
-      .prepare(`SELECT count(*) c FROM evidence_fts WHERE evidence_fts MATCH 'flickers'`)
+      .prepare(`SELECT count(*) c FROM evidence_index WHERE evidence_index MATCH 'flickers'`)
       .get() as { c: number }
     expect(hit.c).toBeGreaterThan(0)
     // case.json linked

@@ -66,7 +66,7 @@ describe('scanEvidence', () => {
     )
     // FTS-indexed
     const hit = db
-      .prepare(`SELECT count(*) c FROM evidence_fts WHERE evidence_fts MATCH 'nested'`)
+      .prepare(`SELECT count(*) c FROM evidence_index WHERE evidence_index MATCH 'nested'`)
       .get() as { c: number }
     expect(hit.c).toBeGreaterThan(0)
     expect(changed).toEqual(['C1'])
@@ -90,7 +90,7 @@ describe('scanEvidence', () => {
     expect(after.sha256).not.toBe(rec.sha256)
     expect(after.meta.priorSha256).toBe(rec.sha256)
     const hit = db
-      .prepare(`SELECT count(*) c FROM evidence_fts WHERE evidence_fts MATCH 'zzqy'`)
+      .prepare(`SELECT count(*) c FROM evidence_index WHERE evidence_index MATCH 'zzqy'`)
       .get() as { c: number }
     expect(hit.c).toBeGreaterThan(0)
   })

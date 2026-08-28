@@ -50,7 +50,7 @@ describe('ingest enqueues instead of indexing inline', () => {
 
     expect(readIndexState(rec.meta)).toBe('pending')
     const n = db
-      .prepare(`SELECT count(*) AS n FROM evidence_fts WHERE evidence_id = ?`)
+      .prepare(`SELECT count(*) AS n FROM evidence_index_map WHERE evidence_id = ?`)
       .get(rec.id) as { n: number }
     expect(n.n).toBe(0)
     expect(q.jobs).toHaveLength(1)
@@ -110,7 +110,7 @@ describe('ingest enqueues instead of indexing inline', () => {
     expect(changed).toContain('IQ-1')
     // the derived text IS indexable, so the queue indexed it in its own job
     const n = db
-      .prepare(`SELECT count(*) AS n FROM evidence_fts WHERE evidence_id = ?`)
+      .prepare(`SELECT count(*) AS n FROM evidence_index_map WHERE evidence_id = ?`)
       .get(derived[0].id) as { n: number }
     expect(n.n).toBeGreaterThan(0)
   })
