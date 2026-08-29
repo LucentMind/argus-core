@@ -449,3 +449,129 @@ describe('the deletion audit tells the truth about the bundle (I3)', () => {
     expect(detail.archiveBytes).toBeNull()
   })
 })
+
+/**
+ * The live-run defect: on Windows, `fs.rmSync(caseDir)` threw EBUSY seconds after the same case
+ * had been archived and restored. It was the only unwrapped step in a post-commit sequence, so
+ * it aborted the bundle removal and the capture-directory removal behind it AND surfaced as a
+ * thrown "delete failed" — for an operation whose `DELETE FROM cases` had already committed.
+ * End state: no row, an audit claiming the case was deleted, the case dir still on disk and the
+ * bundle still in `archive/`, both unreachable from the UI forever, because a retry can only
+ * ever hit `Unknown case`.
+ *
+ * The failure is injected through the `removeTree` seam rather than through real filesystem
+ * state on purpose: it lives after the commit, and on this platform an open file handle does not
+ * block `unlink`, so a test that "locks" a file proves nothing (a previous wave shipped exactly
+ * that vacuous test).
+ */
+describe('a post-commit removal failure strands nothing (live-gate)', () => {
+  afterEach(() => {
+    cleanupArchiveFixtures()
+  })
+
+  const realRemove = (p: string): void =>
+    fs.rmSync(p, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })
+
+  /** Fails on exactly one target, does the real removal for the rest — so a test that asserts a
+   *  later removal happened is asserting resilience, not a no-op fake. */
+  const failOnly = (doomed: string): { seen: string[]; removeTree: (absPath: string) => void } => {
+    const seen: string[] = []
+    return {
+      seen,
+      removeTree: (p: string): void => {
+        seen.push(p)
+        if (p === doomed)
+          throw Object.assign(new Error(`EBUSY: resource busy, rmdir '${p}'`), {
+            code: 'EBUSY'
+          })
+        realRemove(p)
+      }
+    }
+  }
+
+  function seedCapture(home: string, slug: string): string {
+    const capDir = path.join(home, CAPTURE_DIR_REL, slug)
+    fs.mkdirSync(capDir, { recursive: true })
+    fs.writeFileSync(path.join(capDir, '1.json'), '{}', 'utf8')
+    return capDir
+  }
+
+  it('still removes the bundle and the capture dir when the case dir cannot be removed', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    const res = await archiveCase(db, home, slug, { argusVersion: 'test' })
+    const dir = path.join(home, 'cases', slug)
+    const capDir = seedCapture(home, slug)
+    const fake = failOnly(dir)
+
+    expect(() =>
+      deleteCase(db, home, slug, { deleteArchive: true }, { removeTree: fake.removeTree })
+    ).not.toThrow()
+
+    // The stranded-bundle orphan the option exists to prevent — the explicit "delete
+    // everything" must survive an unrelated locked file in the case dir.
+    expect(fs.existsSync(res.bundlePath), 'the bundle must still be deleted').toBe(false)
+    expect(fs.existsSync(capDir), 'the capture dir must still be deleted').toBe(false)
+    // and the injection really did fire, so the assertions above are not vacuous
+    expect(fs.existsSync(dir)).toBe(true)
+    expect(fake.seen).toEqual([dir, res.bundlePath, capDir])
+    expect(getCase(db, slug)).toBeNull()
+  })
+
+  it('records what it left behind rather than leaving the audit asserting a clean delete', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    const dir = path.join(home, 'cases', slug)
+
+    deleteCase(db, home, slug, { deleteArchive: true }, { removeTree: failOnly(dir).removeTree })
+
+    const audit = readDeletionAudit(home)
+    expect(audit.map((e) => e.op)).toEqual(['case.archive', 'case.delete', 'case.delete.residue'])
+    const residue = audit.at(-1)!
+    expect(residue.caseSlug).toBe(slug)
+    expect(residue.detail.residualPaths).toEqual([dir])
+    // the bundle DID go, so the delete entry's archiveDeleted claim stands
+    expect(residue.detail.archiveDeleted).toBe(true)
+  })
+
+  it('corrects the delete entry when it is the BUNDLE that survived', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    const res = await archiveCase(db, home, slug, { argusVersion: 'test' })
+    expect(
+      readDeletionAudit(home).length,
+      'the archive entry is the baseline this test counts from'
+    ).toBe(1)
+
+    deleteCase(
+      db,
+      home,
+      slug,
+      { deleteArchive: true },
+      { removeTree: failOnly(res.bundlePath).removeTree }
+    )
+
+    const audit = readDeletionAudit(home)
+    // The `case.delete` entry claimed the archive was deleted, off the option; it was not.
+    expect(audit.at(-2)!.detail.archiveDeleted).toBe(true)
+    expect(fs.existsSync(res.bundlePath)).toBe(true)
+    expect(audit.at(-1)!.op).toBe('case.delete.residue')
+    expect(audit.at(-1)!.detail.residualPaths).toEqual([res.bundlePath])
+    expect(
+      audit.at(-1)!.detail.archiveDeleted,
+      'the correction must contradict the delete entry, not repeat it'
+    ).toBe(false)
+  })
+
+  it('leaves the ordinary path untouched: everything goes, and no residue entry is written', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    const res = await archiveCase(db, home, slug, { argusVersion: 'test' })
+    const dir = path.join(home, 'cases', slug)
+    const capDir = seedCapture(home, slug)
+
+    deleteCase(db, home, slug, { deleteArchive: true })
+
+    expect(fs.existsSync(dir)).toBe(false)
+    expect(fs.existsSync(res.bundlePath)).toBe(false)
+    expect(fs.existsSync(capDir)).toBe(false)
+    expect(readDeletionAudit(home).map((e) => e.op)).toEqual(['case.archive', 'case.delete'])
+  })
+})

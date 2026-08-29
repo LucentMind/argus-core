@@ -8,8 +8,18 @@ import { deletionAuditPath } from './paths'
  * It belongs in this journal for exactly the reason `case.delete` does — the journal has to
  * outlive the data — and its detail names the bundle those bytes moved into.
  */
+/**
+ * `case.delete.residue` CORRECTS the `case.delete` line immediately before it. The delete's own
+ * entry is written straight after the COMMIT, before the on-disk removals, so that a crash
+ * mid-removal still leaves a record of the destruction the database has already made permanent —
+ * the journal has to outlive the data. That ordering means the entry cannot yet know whether the
+ * bytes actually went, and on Windows a transient EBUSY says they did not. This second entry
+ * names what is still on disk, so a reader of the journal is never left with an unqualified
+ * "case deleted" over bytes that survived it.
+ */
 export type DeletionOp =
   | 'case.delete'
+  | 'case.delete.residue'
   | 'case.archive'
   | 'evidence.delete'
   | 'session.delete'

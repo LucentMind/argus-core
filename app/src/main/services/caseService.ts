@@ -1208,19 +1208,33 @@ export function assertCaseDeletable(slug: string): void {
 }
 
 /**
+ * Injected seam for `deleteCase`, mirroring `ArchiveDeps.removeTree`. Removes one path. A seam
+ * only so a test can make a removal fail: every removal it covers happens AFTER the commit,
+ * which is where the tolerated-failure behaviour lives, and no real filesystem state can be
+ * relied on to produce that failure (Node unlinks even a file another handle holds open).
+ * Receives the absolute path so a fake can fail one target and let the others through.
+ */
+export interface DeleteCaseDeps {
+  removeTree?: (absPath: string) => void
+}
+
+/**
  * Hard-delete a case. Order: FTS rows (evidence_fts/messages_fts have no FK — the
  * evidence map lookup joins evidence rows, so clean it BEFORE the cascade destroys
  * those rows) → cases row (FK cascade takes evidence/sessions/turns/tool_calls/
  * findings; their case_id columns are now indexed) → distill
  * tables (case_summaries, case_summaries_fts, distill_jobs) and rca_jobs — all keyed by
  * case_slug, not case_id, so the cascade above doesn't touch them → audit →
- * case directory → dev-tools prompt capture directory (best-effort; a captured
+ * case directory → archive bundle → dev-tools prompt capture directory (a captured
  * systemAppend includes the persona, pack fragments and the agent-access-filtered
- * memory index, so a deleted case's prompt text must not survive it) → archive bundle
- * (opt-in via `opts.deleteArchive`; the bundle lives outside caseDir under
+ * memory index, so a deleted case's prompt text must not survive it). Every step past the
+ * COMMIT is best-effort and independent: one failing removal neither skips the others nor
+ * fails the call, and whatever is left behind is warned about and written to the journal as a
+ * `case.delete.residue` entry. The bundle removal is
+ * opt-in via `opts.deleteArchive`; the bundle lives outside caseDir under
  * `<argusHome>/archive`, so it is retained by default — the audit's `archivePath`,
  * `archiveBytes`, `archiveRetained` and `archiveDeleted` fields record which way it went and
- * how many bytes were involved, all read off the file rather than off the option). Callers
+ * how many bytes were involved, all read off the file rather than off the option. Callers
  * must first stop live sessions
  * (AgentService.stopAllForCase) and close the case's file watcher. rmSync removes the
  * .claude junctions as links, never their targets.
@@ -1243,7 +1257,8 @@ export function deleteCase(
   db: DatabaseSync,
   argusHome: string,
   slug: string,
-  opts: { deleteArchive?: boolean } = {}
+  opts: { deleteArchive?: boolean } = {},
+  deps: DeleteCaseDeps = {}
 ): void {
   if (!SLUG_RE.test(slug)) throw new Error(`Invalid case slug: ${JSON.stringify(slug)}`)
   assertCaseDeletable(slug)
@@ -1299,20 +1314,65 @@ export function deleteCase(
     db.exec('ROLLBACK')
     throw err
   }
-  appendDeletionAudit(argusHome, 'case.delete', slug, detail)
-  fs.rmSync(caseDir(argusHome, slug), { recursive: true, force: true })
+  // Written BEFORE the removals below, and best-effort like every other post-commit step: the
+  // rows are already gone and cannot be brought back, so a locked journal file must not report
+  // "delete failed" for work that has committed, and a crash partway through a multi-hundred-
+  // megabyte rmSync must still leave a record of the destruction. What this entry cannot yet
+  // know — whether the bytes actually went — is corrected by the `case.delete.residue` entry at
+  // the bottom.
+  try {
+    appendDeletionAudit(argusHome, 'case.delete', slug, detail)
+  } catch (err) {
+    console.warn(`[cases] failed to write the deletion audit for ${slug}:`, err)
+  }
+
+  // Every removal past this point is post-commit and INDEPENDENT. Each one is tried on its own
+  // and its failure recorded rather than thrown, for two reasons a live Windows run demonstrated
+  // when an unwrapped `rmSync(caseDir)` threw EBUSY seconds after an archive/restore of the same
+  // case:
+  //   - it aborted the two removals AFTER it, so the bundle the caller had explicitly asked to
+  //     delete was stranded — the exact orphan `opts.deleteArchive` exists to prevent; and
+  //   - it surfaced as a thrown "delete failed" for an operation whose database work had already
+  //     committed, so the retry it invited could only ever hit `Unknown case: <slug>`.
+  // Same posture, retry options and warning style as `archiveCase`'s tree removal, which solved
+  // this hazard first. `removeTree` is the injected seam: the failure lives after the commit and
+  // no real filesystem state can produce it on demand (Node unlinks even a file another handle
+  // holds open).
+  const residualPaths: string[] = []
+  const remove = (target: string, what: string): void => {
+    try {
+      if (deps.removeTree) deps.removeTree(target)
+      else fs.rmSync(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })
+    } catch (err) {
+      console.warn(`[cases] failed to remove the ${what} for deleted case ${slug}:`, err)
+      residualPaths.push(target)
+    }
+  }
+
+  remove(caseDir(argusHome, slug), 'case directory')
   // The bundle is a SECOND home for this case's bytes, outside caseDir, so removing the case
   // dir alone would orphan it — a multi-hundred-megabyte file with no row pointing at it and
   // nothing left to restore it into. Removing it is opt-in: "case gone from Argus, archive
-  // kept" is a legitimate outcome the caller chooses.
-  if (opts.deleteArchive) {
-    fs.rmSync(bundlePath, { force: true })
-  }
-  // Best-effort: case deletion is the more important operation, so a failure to remove the
-  // capture directory (locked file, permissions) must not surface as a failed case deletion.
-  try {
-    fs.rmSync(path.join(argusHome, CAPTURE_DIR_REL, slug), { recursive: true, force: true })
-  } catch (err) {
-    console.warn(`[prompts] failed to remove capture directory for deleted case ${slug}:`, err)
+  // kept" is a legitimate outcome the caller chooses. Unconditional on the case-dir removal
+  // having worked: an explicit "delete everything" is precisely the request that must not be
+  // silently downgraded to "leave the bundle behind" by an unrelated locked file.
+  if (opts.deleteArchive) remove(bundlePath, 'archive bundle')
+  // A captured systemAppend includes the persona, pack fragments and the agent-access-filtered
+  // memory index, so a deleted case's prompt text must not survive it.
+  remove(path.join(argusHome, CAPTURE_DIR_REL, slug), 'prompt capture directory')
+
+  // The correction. Without it the journal's last word on this case is an unqualified "deleted"
+  // over bytes that are still on disk — the same false record §7 rejects for a retained bundle.
+  if (residualPaths.length > 0) {
+    try {
+      appendDeletionAudit(argusHome, 'case.delete.residue', slug, {
+        residualPaths,
+        // Named explicitly because the `case.delete` entry above may have claimed
+        // `archiveDeleted: true` on the strength of the option alone.
+        archiveDeleted: opts.deleteArchive === true && !residualPaths.includes(bundlePath)
+      })
+    } catch (err) {
+      console.warn(`[cases] failed to record leftover files for deleted case ${slug}:`, err)
+    }
   }
 }
