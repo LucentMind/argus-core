@@ -244,6 +244,9 @@ export const IPC = {
   casesDelete: 'cases:delete',
   casesArchive: 'cases:archive',
   casesRestore: 'cases:restore',
+  /** Bytes of the case's archive bundle on disk, or null when there is none — what the delete
+   *  confirmation names before it destroys it. */
+  casesArchiveSize: 'cases:archive-size',
   casesTouchOpened: 'cases:touch-opened',
   /** Broadcast (main → every window) when a case's own row changed in a way every window has
    *  to re-read: archived, restored, or deleted. Unlike `cases:delete`'s renderer callback,

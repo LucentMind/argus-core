@@ -8,8 +8,16 @@ import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 
 afterEach(() => __resetEscapeLayersForTest())
 
+let archiveSizeMock: ReturnType<typeof vi.fn>
+
 beforeEach(() => {
-  window.argus = { cases: { delete: vi.fn(async () => undefined) } } as never
+  archiveSizeMock = vi.fn()
+  // 412.0 MB exactly, so the assertions below name a number a human would read off the dialog
+  // rather than a rounding artefact.
+  archiveSizeMock.mockResolvedValue(431_984_640)
+  window.argus = {
+    cases: { delete: vi.fn(async () => undefined), archiveSize: archiveSizeMock }
+  } as never
 })
 
 describe('DeleteCaseDialog', () => {
@@ -106,6 +114,78 @@ describe('DeleteCaseDialog: what the delete actually destroys', () => {
     expect(screen.getByRole('button', { name: 'Delete everything' })).toBeDisabled()
     await userEvent.type(screen.getByLabelText('Confirm slug'), 'C-')
     expect(screen.getByRole('button', { name: 'Delete everything' })).toBeDisabled()
+  })
+
+  it('names the bundle’s actual size, read off disk', async () => {
+    // Spec §7: the archived branch "states the bundle's actual size" — a confirmation that does
+    // not name what it destroys is not a confirmation. "the archive bundle" alone let the
+    // operator press "Delete everything" with no idea whether that was 4 MB or 4 GB.
+    render(
+      <DeleteCaseDialog
+        slug="C-1"
+        archivedAt="2026-08-28T00:00:00Z"
+        onCancel={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
+    const body = await screen.findByText(/412\.0 MB/)
+    expect(body.textContent).toMatch(/archive bundle \(412\.0 MB\)/)
+    // Off the FILE, for this slug — not off `CaseRecord`, which carries a path and no size.
+    expect(archiveSizeMock).toHaveBeenCalledWith('C-1')
+  })
+
+  it('says a kept bundle only comes back as a NEW case', async () => {
+    // Spec §7 again: the bundle is "recoverable later only through importCase, i.e. as a new
+    // case, which the dialog says". "Keep the archive" otherwise reads as an undo.
+    render(
+      <DeleteCaseDialog
+        slug="C-1"
+        archivedAt="2026-08-28T00:00:00Z"
+        onCancel={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
+    const body = await screen.findByText(/archive bundle/i)
+    expect(body.textContent).toMatch(/importing it, as a new case, never as this one/i)
+  })
+
+  it('degrades to size-free copy when the bundle is not on disk', async () => {
+    // `archiveSize` answers null when there is no file to stat — an archived row whose zip was
+    // moved or removed behind the app's back. The dialog must say so, not render "undefined MB".
+    archiveSizeMock.mockResolvedValue(null)
+    render(
+      <DeleteCaseDialog
+        slug="C-1"
+        archivedAt="2026-08-28T00:00:00Z"
+        onCancel={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
+    const body = await screen.findByText(/no longer on disk/i)
+    expect(body.textContent).not.toMatch(/undefined|null|NaN/)
+    // Still fully operable: the archive choice is exactly what clears a stale row.
+    expect(screen.getByRole('button', { name: 'Delete everything' })).toBeInTheDocument()
+  })
+
+  it('degrades the same way when the size lookup itself fails', async () => {
+    archiveSizeMock.mockRejectedValue(new Error('EPERM'))
+    render(
+      <DeleteCaseDialog
+        slug="C-1"
+        archivedAt="2026-08-28T00:00:00Z"
+        onCancel={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
+    const body = await screen.findByText(/no longer on disk/i)
+    expect(body.textContent).not.toMatch(/undefined|null|NaN/)
+  })
+
+  it('asks for no size on a case that was never archived', async () => {
+    render(<DeleteCaseDialog slug="C-1" onCancel={vi.fn()} onDeleted={vi.fn()} />)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(archiveSizeMock).not.toHaveBeenCalled()
+    expect(screen.queryByText(/MB|no longer on disk/)).toBeNull()
   })
 
   it('takes the archive-keeping branch on Enter, never the lossy one', async () => {
