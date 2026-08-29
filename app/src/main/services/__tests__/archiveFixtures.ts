@@ -89,6 +89,25 @@ export async function seedArchivableCase(): Promise<{
      VALUES (?, ?, ?, 'a reviewed conclusion', 'accepted', ?)`
   ).run(caseId, sessionId, turnId, now)
 
+  // The other four tables the design promises survive archiving. Seeded here and counted by the
+  // "KEEPS the knowledge layer" test for one reason: without a row in each, a `DELETE FROM
+  // rca_jobs WHERE case_slug = ?` added inside archiveCase's transaction would pass every test
+  // in the suite. `case_summaries` and `findings` were the only pinned members of a seven-table
+  // constraint list, so five sevenths of it was documentation rather than a test.
+  db.prepare(
+    `INSERT INTO rca_jobs (case_slug, state, input_snapshot, created_at) VALUES (?, 'done', '{}', ?)`
+  ).run(slug, now)
+  db.prepare(
+    `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at) VALUES (?, 'done', '{}', ?)`
+  ).run(slug, now)
+  db.prepare(
+    `INSERT INTO case_jira_links (case_id, jira_key, role, added_at) VALUES (?, 'KAN-99', 'primary', ?)`
+  ).run(caseId, now)
+  db.prepare(
+    `INSERT INTO pr_bindings (case_id, owner, repo, number, url, source, detected_at)
+     VALUES (?, 'acme', 'widgets', 7, 'https://example.invalid/pr/7', 'manual', ?)`
+  ).run(caseId, now)
+
   upsertCaseSummary(
     db,
     home,
@@ -163,6 +182,29 @@ export function seedSecondSession(db: DatabaseSync, home: string, slug: string):
     ].join('\n') + '\n'
   )
   return sessionId
+}
+
+/**
+ * Count every KNOWLEDGE-LAYER row the design promises survives archiving, by table.
+ *
+ * Returned as a map rather than asserted here so a test can compare the whole shape before and
+ * after in one `toEqual` — a per-table assertion list is where "and rca_jobs" quietly stops being
+ * checked. `findings` and `case_summaries` join the four seeded above so the constraint list in
+ * `archiveCase`'s docblock is pinned in ONE place.
+ */
+export function knowledgeLayerCounts(db: DatabaseSync, slug: string): Record<string, number> {
+  const caseId = getCase(db, slug)!.id
+  const n = (sql: string, param: number | string): number =>
+    Number((db.prepare(sql).get(param) as { n: number }).n)
+  return {
+    findings: n(`SELECT count(*) AS n FROM findings WHERE case_id = ?`, caseId),
+    caseSummaries: n(`SELECT count(*) AS n FROM case_summaries WHERE case_slug = ?`, slug),
+    caseSummariesFts: n(`SELECT count(*) AS n FROM case_summaries_fts WHERE case_slug = ?`, slug),
+    rcaJobs: n(`SELECT count(*) AS n FROM rca_jobs WHERE case_slug = ?`, slug),
+    distillJobs: n(`SELECT count(*) AS n FROM distill_jobs WHERE case_slug = ?`, slug),
+    caseJiraLinks: n(`SELECT count(*) AS n FROM case_jira_links WHERE case_id = ?`, caseId),
+    prBindings: n(`SELECT count(*) AS n FROM pr_bindings WHERE case_id = ?`, caseId)
+  }
 }
 
 /** Close every seeded database and remove its home. Call from afterEach: on Windows an open

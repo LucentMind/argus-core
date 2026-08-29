@@ -11,6 +11,7 @@ import {
   verifyBundleArchive
 } from './bundle'
 import { getCase } from './caseService'
+import { appendDeletionAudit, bundleBytes } from './deletionAudit'
 import { freezeCase } from './caseFreeze'
 import { requeuePendingIndexes, type IngestQueueLike } from './ingestQueue'
 import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase } from './ftsIndex'
@@ -113,6 +114,75 @@ function removalTargets(dir: string): string[] {
 }
 
 /**
+ * The dot-prefixed staging directories the three bundle operations create, as `<parent>` →
+ * `<prefix>` pairs. ONE list, read both by the sweep below and by the tests that pin it, so a
+ * fourth staging prefix cannot be added without this sweep learning about it.
+ */
+const STAGING_PREFIXES: ReadonlyArray<{ parent: (home: string) => string; prefix: string }> = [
+  // archiveFrozenCase's export target — the big one: a killed archive of an 850 MB case leaves
+  // 850 MB of zip here.
+  { parent: (home) => archiveDir(home), prefix: '.staging-' },
+  // restoreFrozenCase's extraction target.
+  { parent: (home) => path.join(home, 'cases'), prefix: '.restore-' },
+  // importCase's, which predates archiving and has never been swept either.
+  { parent: (home) => path.join(home, 'cases'), prefix: '.import-' }
+]
+
+/**
+ * Remove staging directories left behind by an archive, restore or import that never finished.
+ *
+ * SAFE ONLY AT STARTUP — the same contract as `reconcileInterruptedRuns` (routines/runs.ts),
+ * and for the same reason. Each of the three operations removes its own staging directory on
+ * both its success path and its synchronous catch, so the only way one survives is a hard kill,
+ * an OOM or a power loss: a directory that is here at boot cannot belong to an operation of THIS
+ * process. Call it before the IPC handlers are registered, which is the only way `cases:archive`,
+ * `cases:restore` or the import path can be reached — then the predicate "this is debris" is true
+ * by construction rather than by a timing guess, and no mtime heuristic is needed.
+ *
+ * A SECOND Argus process sharing the same home is the only way that argument fails, and it is
+ * ruled out for real installations by `app.requestSingleInstanceLock()` in index.ts. That lock
+ * is skipped when `ARGUS_HOME` is set — the dev/verification path — so two dev instances pointed
+ * at one home could, in principle, have the later one's boot sweep remove the earlier one's live
+ * staging directory. Deliberately not defended against with an mtime cutoff: that would trade a
+ * true-by-construction predicate for a timing guess in the ONLY configuration where the
+ * predicate is not already true, and the loss is a failed archive on a home two developers are
+ * sharing, not data (the case is untouched until its bundle is verified and moved).
+ *
+ * In a feature whose entire purpose is bounding the data root, the alternative was a
+ * multi-hundred-megabyte directory that appears nowhere in the UI, is referenced by no row, and
+ * is never cleaned for the life of the installation.
+ *
+ * Returns how many it removed, so the caller can say so in the log. Best-effort per entry: one
+ * locked directory must not stop the rest, and must never fail startup.
+ */
+export function sweepStaleStagingDirs(argusHome: string): number {
+  let removed = 0
+  for (const { parent, prefix } of STAGING_PREFIXES) {
+    const dir = parent(argusHome)
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      continue // the directory does not exist yet — nothing to sweep
+    }
+    for (const e of entries) {
+      // Directories only, and only ones whose name really starts with the prefix. `mkdtempSync`
+      // appends six random characters, so a bare `.staging-` with nothing after it is not
+      // something this app creates — but removing it too is harmless and the length check would
+      // be a second, driftable copy of mkdtemp's contract.
+      if (!e.isDirectory() || !e.name.startsWith(prefix)) continue
+      try {
+        fs.rmSync(path.join(dir, e.name), { recursive: true, force: true })
+        removed++
+      } catch (err) {
+        console.warn(`[archive] failed to sweep stale staging dir ${e.name}:`, err)
+      }
+    }
+  }
+  return removed
+}
+
+/**
  * Move a case's bulk out to a verified bundle, keeping its knowledge layer live.
  *
  * The ORDER is the entire safety argument, and every step before the deletes is reversible
@@ -131,6 +201,7 @@ function removalTargets(dir: string): string[] {
  * cross-case corpus behind related-history and the distillation count — deleting them is the
  * mistake this design exists to prevent. Proposals under <argusHome>/proposals are not touched at all.
  */
+
 export async function archiveCase(
   db: DatabaseSync,
   argusHome: string,
@@ -248,8 +319,48 @@ async function archiveFrozenCase(
     db.exec('COMMIT')
   } catch (err) {
     db.exec('ROLLBACK')
+    // The rename above put a VERIFIED bundle in `archive/` before this transaction opened, which
+    // is the ordering rail — nothing is deleted until the bundle exists and has proved itself.
+    // The cost of that ordering is this window: the transaction can still throw (SQLITE_BUSY, a
+    // full disk, a constraint), and the rollback leaves the case whole with a full second copy
+    // of its evidence sitting in `archive/` that NOTHING points at. `archived_at` is NULL, so
+    // `CaseAnchor`'s delete flow takes its never-archived branch ("there is no archive bundle to
+    // fall back on", `deleteArchive: false` hard-coded) and `deleteCase` removes only `caseDir` —
+    // leaving the complete evidence corpus of a case the user believes they permanently deleted
+    // alive in an unreferenced zip.
+    //
+    // Closed by removing the bundle here rather than by moving the rename after the COMMIT. The
+    // rename must stay before the deletes: moving it after would mean the rows are already gone
+    // when the bundle is still in staging, so a failed rename would leave a case marked archived
+    // whose `archive_path` points at nothing — trading a disk-space-and-privacy leak for
+    // unrecoverable loss, on the exact rail this feature is built around.
+    //
+    // Safe to remove unconditionally: `restoreCase` deletes a bundle on a successful restore, so
+    // the only file that can be at this path is the one this archive renamed into place moments
+    // ago (and the rename would have destroyed any other one regardless). Best-effort — the
+    // transaction's error is the one the user needs, and a Windows open handle here must not
+    // replace it.
+    try {
+      fs.rmSync(bundlePath, { force: true })
+    } catch (rmErr) {
+      console.warn(`[archive] failed to remove the orphaned bundle for ${slug}:`, rmErr)
+    }
     throw err
   }
+
+  // The destruction record, in the same journal `deleteCase` writes to and after the commit for
+  // the same reason. Archiving deletes every evidence, session, turn and tool-call row for the
+  // case and the on-disk bulk behind them — strictly MORE destruction than the `case.delete` this
+  // journal already audits — and until now it wrote nothing at all. The bundle path and its size
+  // are recorded because the whole point of an archive audit line is that the bytes went
+  // somewhere: an entry that cannot say where is the same false record §7 rejects for deletes.
+  appendDeletionAudit(argusHome, 'case.archive', slug, {
+    bundlePath,
+    bundleBytes: bundleBytes(bundlePath),
+    bytesFreed,
+    evidence: evidenceRows.length,
+    sessions: sessionRows.length
+  })
 
   // Sidecars are a derived cache keyed on the absolute file path; the files are gone, so the
   // checkpoints are dead weight. Best-effort: a locked sidecar must not fail the archive.
@@ -410,11 +521,14 @@ function restoreMissingFiles(from: string, to: string): void {
  * soundly in either direction:
  *
  *   - A throw INSIDE `registerImportedSessions`'s loop leaves a staged `<old>.jsonl.import` and
- *     an unclaimed `<new>.jsonl` output. `recoverStagedTranscripts` then deletes every plain
- *     `<digits>.jsonl` — but `restoreTree` has just re-supplied all of them from the bundle, so
- *     it deletes the ORIGINALS and the retry restores only the sessions that happened to still
- *     be staged. On a multi-session case that silently loses whole conversations, their turns
- *     and tool calls, and a finding's deep-link — on a restore reported as successful.
+ *     an unclaimed `<new>.jsonl` output. The obvious unwind — if any `.import` file is present,
+ *     delete every plain `<digits>.jsonl` as that dead run's output — is wrong here, because
+ *     `restoreTree` has just re-supplied all of them from the bundle: it would delete the
+ *     ORIGINALS and the retry would restore only the sessions that happened to still be staged.
+ *     On a multi-session case that silently loses whole conversations, their turns and tool
+ *     calls, and a finding's deep-link — on a restore reported as successful. (`bundle.ts` used
+ *     to carry exactly that unwind, as `recoverStagedTranscripts`; it was removed once this
+ *     function made it unreachable on both the restore and the import path.)
  *   - A hard kill just AFTER that loop leaves no `.import` file at all, so the heuristic is a
  *     no-op and the catch-side unwind never runs. The retry's tree merge re-supplies
  *     `<old>.jsonl` beside the surviving `<new>.jsonl` and every session is registered twice.
@@ -586,6 +700,27 @@ export async function restoreCase(
     freeze.release()
   }
 
+  // The bundle goes, and only once the restore has actually committed.
+  //
+  // `restoreFrozenCase` nulls `archive_path` in the same transaction that puts the rows back, so
+  // from here on NOTHING in the database points at this file. Leaving it meant the `bytesFreed`
+  // the operator was shown when they archived was never actually returned — the case's bulk was
+  // back on disk under `cases/` AND still in `archive/` — and the next archive of the same slug
+  // silently renamed over it, so it was never even a stable second copy.
+  //
+  // Deliberately AFTER the transaction, never inside `restoreFrozenCase`: a rollback there
+  // leaves the case archived and still restorable, and that retry needs this exact file. A
+  // failure here is best-effort and reported rather than thrown — the restore has committed and
+  // must not be reported as failed over a Windows open handle — which is what `bundleRemoved`
+  // in the result is for: the operator is told plainly when the bytes were NOT reclaimed.
+  let bundleRemoved = true
+  try {
+    fs.rmSync(bundlePath, { force: true })
+  } catch (err) {
+    bundleRemoved = false
+    console.warn(`[archive] restored ${slug} but could not remove its bundle:`, err)
+  }
+
   // Re-indexing rides the existing background queue rather than blocking the restore: the
   // case is usable immediately and searchEvidenceWithStatus already reports the pending
   // count, so the gap is visible rather than silent. Deliberately AFTER the freeze is
@@ -593,7 +728,7 @@ export async function restoreCase(
   // calls assertCaseWritable and would refuse a case still marked frozen or archived.
   const queuedForIndex = requeuePendingIndexes(db, argusHome, queue)
 
-  return { slug, ...counts, queuedForIndex }
+  return { slug, ...counts, queuedForIndex, bundleRemoved }
 }
 
 /** The body of `restoreCase`, running with the case frozen. Split out only so the freeze can

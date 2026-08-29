@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
-import { archiveCase, manifestHash } from '../caseArchive'
+import { archiveCase, manifestHash, sweepStaleStagingDirs } from '../caseArchive'
 import { freezeCase, isCaseFrozen } from '../caseFreeze'
 import { verifyBundleArchive } from '../bundle'
 import { ingestArtifact, listEvidence } from '../ingest'
@@ -9,8 +9,9 @@ import { extractDerivedText } from '../extraction'
 import type { Extractors } from '../packs/extractors'
 import { createImmediateQueue } from '../ingestQueue'
 import { createDetection } from '../packs/detection'
-import { caseArchivePath, caseDir } from '../paths'
+import { archiveDir, caseArchivePath, caseDir } from '../paths'
 import { getCase } from '../caseService'
+import { readDeletionAudit } from '../deletionAudit'
 import { searchEvidence } from '../search'
 import { scanEvidence } from '../scan'
 import { createSession, listSessions } from '../agent/sessionStore'
@@ -18,7 +19,14 @@ import { SessionMirror } from '../agent/mirror'
 import { readReportMarkdown } from '../rca/artifacts'
 import { assembleDistillInput } from '../distill/input'
 import type { BundleManifest } from '../../../shared/bundle'
-import { cleanupArchiveFixtures, seedArchivableCase, snapshotCase } from './archiveFixtures'
+import {
+  cleanupArchiveFixtures,
+  knowledgeLayerCounts,
+  seedArchivableCase,
+  seedProposals,
+  snapshotCase,
+  snapshotProposals
+} from './archiveFixtures'
 import { createLegacyEvidenceFts } from './legacyFts'
 
 afterEach(() => {
@@ -185,24 +193,32 @@ describe('archiveCase', () => {
     expect(rec!.archivedAt).not.toBeNull()
     expect(rec!.archivePath).toBe(caseArchivePath(home, slug))
 
-    const summaries = (
-      db.prepare(`SELECT count(*) AS n FROM case_summaries WHERE case_slug = ?`).get(slug) as {
-        n: number
-      }
-    ).n
-    expect(summaries).toBe(1)
-    const summaryFts = (
-      db.prepare(`SELECT count(*) AS n FROM case_summaries_fts WHERE case_slug = ?`).get(slug) as {
-        n: number
-      }
-    ).n
-    expect(summaryFts).toBe(1)
-    const findings = (
-      db.prepare(`SELECT count(*) AS n FROM findings WHERE case_id = ?`).get(rec!.id) as {
-        n: number
-      }
-    ).n
-    expect(findings).toBeGreaterThan(0)
+    // All SEVEN tables the docblock's constraint list names, not just the two that used to be
+    // seeded. `case_summaries`/`findings` were the only ones with rows, so a `DELETE FROM
+    // rca_jobs` (or distill_jobs, case_jira_links, pr_bindings) added inside archiveCase's
+    // transaction passed this suite unchanged.
+    expect(knowledgeLayerCounts(db, slug)).toEqual({
+      findings: 1,
+      caseSummaries: 1,
+      caseSummariesFts: 1,
+      rcaJobs: 1,
+      distillJobs: 1,
+      caseJiraLinks: 1,
+      prBindings: 1
+    })
+  })
+
+  it('leaves <argusHome>/proposals byte-identical', async () => {
+    // The global proposal inbox is unrelated to any one case, and removing an archived case's
+    // rejected proposals makes rejectDigest's `totalRejects - builtAtCount` subtraction
+    // permanently negative — the digest can then never rebuild. Only deleteCase asserted this;
+    // archiveCase touches the same home and asserted nothing.
+    const { db, home, slug } = await seedArchivableCase()
+    seedProposals(home, slug)
+    const before = snapshotProposals(home)
+    expect(Object.keys(before).length).toBeGreaterThan(0)
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    expect(snapshotProposals(home)).toEqual(before)
   })
 
   it('records the manifest digest so a restore can tell this bundle from another', async () => {
@@ -879,5 +895,182 @@ describe('reclaiming space after an archive (INCREMENTAL databases only)', () =>
     expect(
       (db.prepare(`PRAGMA freelist_count`).get() as { freelist_count: number }).freelist_count
     ).toBe(0)
+  })
+})
+
+describe('a killed archive/restore/import leaves no staging directory behind forever (I1)', () => {
+  /**
+   * `mkdtempSync(archive/.staging-…)` (and `cases/.restore-…`, `cases/.import-…`) is removed on
+   * the success path and in the synchronous catch — and by neither on a hard kill, an OOM or a
+   * power loss. Nothing else ever revisits them: no row references one, no UI lists one, and
+   * before this there was no boot sweep. A killed archive of an 850 MB case therefore left 850 MB
+   * of zip inside the very directory this feature exists to bound.
+   */
+  it('sweeps all three stale staging prefixes and nothing else', async () => {
+    const { home } = await seedArchivableCase()
+    const archive = archiveDir(home)
+    const cases = path.join(home, 'cases')
+    fs.mkdirSync(archive, { recursive: true })
+
+    const stale = [
+      path.join(archive, '.staging-aB3xY9'),
+      path.join(cases, '.restore-Qq7z10'),
+      path.join(cases, '.import-Zz0091')
+    ]
+    for (const d of stale) {
+      fs.mkdirSync(d, { recursive: true })
+      fs.writeFileSync(path.join(d, 'half-written.zip'), 'x'.repeat(1024))
+    }
+    // Bystanders that must survive: a real bundle, an unrelated dot-directory, a real case dir,
+    // and a FILE whose name happens to start with the prefix. A sweep that took any of these
+    // would be worse than the leak it fixes.
+    const bundle = caseArchivePath(home, 'SOME-1')
+    fs.writeFileSync(bundle, 'a real bundle\n')
+    const unrelated = path.join(archive, '.notes')
+    fs.mkdirSync(unrelated)
+    const prefixedFile = path.join(archive, '.staging-not-a-directory')
+    fs.writeFileSync(prefixedFile, 'file, not dir\n')
+
+    expect(sweepStaleStagingDirs(home)).toBe(3)
+    for (const d of stale) expect(fs.existsSync(d), `${d} was not swept`).toBe(false)
+    expect(fs.existsSync(bundle), 'a real bundle was swept').toBe(true)
+    expect(fs.existsSync(unrelated), 'an unrelated dot-directory was swept').toBe(true)
+    expect(fs.existsSync(prefixedFile), 'a prefixed FILE was swept').toBe(true)
+    expect(fs.existsSync(caseDir(home, 'KAN-1')), 'a real case dir was swept').toBe(true)
+  })
+
+  it('is a no-op on a clean home, and never creates the archive dir', async () => {
+    const { home } = await seedArchivableCase()
+    expect(sweepStaleStagingDirs(home)).toBe(0)
+    expect(fs.existsSync(archiveDir(home)), 'the sweep must not CREATE the archive dir').toBe(false)
+  })
+
+  it('leaves nothing behind after a successful archive — the sweep has nothing to find', async () => {
+    // Pins the pairing: the happy path already cleans up, so a boot sweep run immediately after
+    // one must remove zero. A sweep that matched a live or complete archive's output shows here.
+    const { db, home, slug } = await seedArchivableCase()
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    expect(sweepStaleStagingDirs(home)).toBe(0)
+    expect(fs.existsSync(caseArchivePath(home, slug))).toBe(true)
+  })
+})
+
+/**
+ * Make the archive's transaction fail the way a real one does, by throwing on the
+ * `DELETE FROM evidence` prepare — the last statement before the archived-at UPDATE, so the
+ * transaction has already done real work when it dies. Returns the undo.
+ */
+function busyOnEvidenceDelete(db: Parameters<typeof archiveCase>[0]): () => void {
+  const realPrepare = db.prepare.bind(db)
+  const patched = (sql: string): ReturnType<typeof realPrepare> => {
+    if (sql.includes('DELETE FROM evidence WHERE case_id')) {
+      throw new Error('SQLITE_BUSY (injected)')
+    }
+    return realPrepare(sql)
+  }
+  ;(db as unknown as { prepare: unknown }).prepare = patched
+  return () => {
+    ;(db as unknown as { prepare: unknown }).prepare = realPrepare
+  }
+}
+
+describe('a failed archive transaction leaves no orphaned bundle (I2)', () => {
+  /**
+   * The rename into `archive/` happens BEFORE the transaction, which is the ordering rail: the
+   * bundle is written and verified before anything is deleted. The cost is that a transaction
+   * failure (SQLITE_BUSY, a full disk, a constraint) rolls back and rethrows with a verified
+   * bundle already on disk and `archived_at` NULL — so nothing points at it, `CaseAnchor` offers
+   * the never-archived delete branch with `deleteArchive: false` hard-coded, and the complete
+   * evidence corpus of a case the user believes they permanently deleted survives in an
+   * unreferenced zip.
+   */
+  it('removes the bundle when the transaction rolls back, and leaves the case untouched', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    const before = snapshotCase(db, home, slug)
+    const undo = busyOnEvidenceDelete(db)
+    try {
+      await expect(archiveCase(db, home, slug, { argusVersion: 'test' })).rejects.toThrow(
+        /SQLITE_BUSY/
+      )
+    } finally {
+      undo()
+    }
+
+    const rec = getCase(db, slug)!
+    expect(rec.archivedAt, 'the rollback must leave the case unarchived').toBeNull()
+    expect(rec.archivePath).toBeNull()
+    expect(
+      fs.existsSync(caseArchivePath(home, slug)),
+      'a verified bundle was left in archive/ with nothing pointing at it'
+    ).toBe(false)
+    // No staging debris either. The failure is after the staging removal, but assert it so the
+    // two cleanups cannot drift apart unnoticed.
+    expect(sweepStaleStagingDirs(home)).toBe(0)
+    // And the case itself is byte-for-byte as it was: this is still the ordering rail.
+    expect(snapshotCase(db, home, slug)).toEqual(before)
+  })
+
+  it('the case is still archivable on a retry after the failure', async () => {
+    // The point of REMOVING the bundle rather than leaving it: a retry must not be renaming over,
+    // or later restoring from, a zip belonging to a run that never committed.
+    const { db, home, slug } = await seedArchivableCase()
+    const undo = busyOnEvidenceDelete(db)
+    try {
+      await expect(archiveCase(db, home, slug, { argusVersion: 'test' })).rejects.toThrow(
+        /SQLITE_BUSY/
+      )
+    } finally {
+      undo()
+    }
+    const res = await archiveCase(db, home, slug, { argusVersion: 'test' })
+    expect(res.bundlePath).toBe(caseArchivePath(home, slug))
+    expect(getCase(db, slug)!.archivedAt).not.toBeNull()
+  })
+})
+
+describe('archiving writes a deletion-audit entry (I3)', () => {
+  /**
+   * `archiveCase` deletes every evidence, session, turn and tool-call row for the case and the
+   * on-disk bulk behind them — strictly more destruction than the `case.delete` this journal
+   * already audits — and wrote nothing at all. An entry that cannot say WHERE the bytes went is
+   * the same false record spec §7 rejects for deletes, so the bundle path and its size are in it.
+   */
+  it('records the bundle, its size and what was removed', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    expect(readDeletionAudit(home)).toEqual([])
+    const res = await archiveCase(db, home, slug, { argusVersion: 'test' })
+
+    const entries = readDeletionAudit(home)
+    expect(entries).toHaveLength(1)
+    const [entry] = entries
+    expect(entry.op).toBe('case.archive')
+    expect(entry.caseSlug).toBe(slug)
+    expect(entry.detail.bundlePath).toBe(caseArchivePath(home, slug))
+    // The real size on disk, not a placeholder — compared against the file, so a hard-coded 0
+    // or a null cannot pass.
+    expect(entry.detail.bundleBytes).toBe(fs.statSync(caseArchivePath(home, slug)).size)
+    expect(entry.detail.bundleBytes as number).toBeGreaterThan(0)
+    expect(entry.detail.evidence).toBe(res.evidenceRemoved)
+    expect(entry.detail.sessions).toBe(res.sessionsRemoved)
+    expect(entry.detail.bytesFreed).toBe(res.bytesFreed)
+  })
+
+  it('writes NO audit entry when the archive fails', async () => {
+    // The journal records destruction that happened. A failed archive destroyed nothing.
+    const { db, home, slug } = await seedArchivableCase()
+    await expect(
+      archiveCase(
+        db,
+        home,
+        slug,
+        { argusVersion: 'test' },
+        {
+          verify: async () => {
+            throw new Error('bundle verification failed')
+          }
+        }
+      )
+    ).rejects.toThrow(/verification failed/)
+    expect(readDeletionAudit(home)).toEqual([])
   })
 })

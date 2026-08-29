@@ -24,4 +24,13 @@ export interface RestoreResult {
   sessionsRestored: number
   /** How many evidence rows were handed to the ingest queue for re-indexing. */
   queuedForIndex: number
+  /**
+   * Whether the archive bundle was removed from `<argusHome>/archive` once the restore
+   * committed. A successful restore deletes it — the case's bulk is back under `cases/`, nothing
+   * in the database points at the zip any more, and a later archive of the same slug would
+   * silently overwrite it. False means the delete failed (a Windows open handle, permissions):
+   * the restore still succeeded, but those bytes were NOT reclaimed and the operator has to be
+   * told rather than left with a `bytesFreed` figure that never came back.
+   */
+  bundleRemoved: boolean
 }

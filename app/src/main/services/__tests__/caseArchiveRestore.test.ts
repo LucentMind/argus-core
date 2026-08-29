@@ -11,12 +11,18 @@ import { ingestArtifact, sha256File } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { createImmediateQueue, type IngestQueueLike } from '../ingestQueue'
 import { setIndexState } from '../indexState'
-import { caseArchivePath, caseDir } from '../paths'
+import { archiveDir, caseArchivePath, caseDir } from '../paths'
 import { searchEvidence } from '../search'
 import { searchMessages } from '../chatSearch'
 import { assertCaseWritable, isCaseFrozen } from '../caseFreeze'
 import { readReportMarkdown } from '../rca/artifacts'
-import { cleanupArchiveFixtures, seedArchivableCase, seedSecondSession } from './archiveFixtures'
+import {
+  cleanupArchiveFixtures,
+  seedArchivableCase,
+  seedProposals,
+  seedSecondSession,
+  snapshotProposals
+} from './archiveFixtures'
 
 afterEach(() => {
   cleanupArchiveFixtures()
@@ -941,5 +947,86 @@ describe('restoreCase', () => {
     await restoreCase(db, home, slug, createImmediateQueue(db, home))
 
     expect(fs.readFileSync(summary, 'utf8')).toBe('# edited while archived\n')
+  })
+})
+
+describe('a successful restore reclaims the bundle (carried minor 13)', () => {
+  /**
+   * `restoreFrozenCase` nulls `archive_path` in the same transaction that puts the rows back, so
+   * from that moment nothing in the database points at the zip. Leaving it meant the `bytesFreed`
+   * the operator was shown when they archived was never actually returned — the bulk was back
+   * under `cases/` AND still in `archive/` — and the next archive of the same slug silently
+   * renamed over it, so it was not even a stable second copy.
+   */
+  it('deletes the bundle and says so in the result', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    const bundle = caseArchivePath(home, slug)
+    expect(fs.existsSync(bundle)).toBe(true)
+
+    const res = await restoreCase(db, home, slug, createImmediateQueue(db, home))
+
+    expect(res.bundleRemoved).toBe(true)
+    expect(fs.existsSync(bundle), 'the bundle survived a successful restore').toBe(false)
+    // The archive dir itself stays — other cases' bundles live there.
+    expect(fs.existsSync(archiveDir(home))).toBe(true)
+    // And the restore really did restore: an empty case would "pass" the delete assertion above.
+    expect(res.evidenceRestored).toBe(2)
+    expect(getCase(db, slug)!.archivedAt).toBeNull()
+  })
+
+  it('KEEPS the bundle when the restore transaction fails, so the retry can use it', async () => {
+    // The interaction that makes the delete safe: it happens only after the rebuild has
+    // committed. A rollback leaves the case archived and still restorable, and that retry needs
+    // this exact file — deleting it inside restoreFrozenCase would make a failed restore
+    // permanent.
+    const { db, home, slug } = await seedArchivableCase()
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    const bundle = caseArchivePath(home, slug)
+
+    await expect(
+      restoreCase(db, home, slug, createImmediateQueue(db, home), {
+        afterRebuild: () => {
+          throw new Error('injected failure after the rebuild')
+        }
+      })
+    ).rejects.toThrow(/injected failure/)
+
+    expect(fs.existsSync(bundle), 'a failed restore threw its bundle away').toBe(true)
+    expect(getCase(db, slug)!.archivedAt, 'the case must still be archived').not.toBeNull()
+    // and the retry works off that kept bundle
+    const res = await restoreCase(db, home, slug, createImmediateQueue(db, home))
+    expect(res.bundleRemoved).toBe(true)
+    expect(res.evidenceRestored).toBe(2)
+  })
+
+  it('a later archive of the same case writes a fresh bundle rather than inheriting one', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    await restoreCase(db, home, slug, createImmediateQueue(db, home))
+    expect(fs.existsSync(caseArchivePath(home, slug))).toBe(false)
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    expect(fs.existsSync(caseArchivePath(home, slug))).toBe(true)
+  })
+})
+
+describe('archive and restore never touch <argusHome>/proposals', () => {
+  /**
+   * The proposal inbox is a GLOBAL surface unrelated to any one case, and removing an archived
+   * case's rejected proposals makes rejectDigest's `totalRejects - builtAtCount` subtraction
+   * permanently negative — after which the global reject digest can never rebuild. Only
+   * `deleteCase` asserted this; the two operations that walk the same home asserted nothing.
+   */
+  it('leaves the proposals tree byte-identical across a full archive/restore round trip', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    seedProposals(home, slug)
+    const before = snapshotProposals(home)
+    expect(Object.keys(before).length).toBeGreaterThan(0)
+
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    expect(snapshotProposals(home), 'archiveCase touched proposals').toEqual(before)
+
+    await restoreCase(db, home, slug, createImmediateQueue(db, home))
+    expect(snapshotProposals(home), 'restoreCase touched proposals').toEqual(before)
   })
 })

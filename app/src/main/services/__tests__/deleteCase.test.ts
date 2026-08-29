@@ -14,8 +14,9 @@ import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import { upsertCaseSummary, searchCaseSummaries } from '../distill/summaries'
 import { CAPTURE_DIR_REL } from '../prompts/capture'
 import { createImmediateQueue } from '../ingestQueue'
-import { archiveCase } from '../caseArchive'
+import { archiveCase, restoreCase } from '../caseArchive'
 import { freezeCase } from '../caseFreeze'
+import { caseArchivePath } from '../paths'
 import {
   seedArchivableCase,
   cleanupArchiveFixtures,
@@ -276,6 +277,12 @@ describe('deleteCase and the archive bundle', () => {
     // the case out from under it.
     const { db, home, slug } = await seedArchivableCase()
     const res = await archiveCase(db, home, slug, { argusVersion: 'test' })
+    // Snapshot rather than `toHaveLength(0)`: `archiveCase` now writes its OWN `case.archive`
+    // entry (whole-branch finding I3), so the journal is legitimately non-empty by this point.
+    // What this test is about is that the REFUSED DELETE appends nothing, which is exactly what
+    // comparing the whole journal before and after says — and says more strongly than a count.
+    const auditBefore = readDeletionAudit(home)
+    expect(auditBefore.map((e) => e.op)).toEqual(['case.archive'])
     const handle = freezeCase(slug, 'archive') // archiveCase already released its own; re-freeze to simulate the race
     try {
       expect(() => deleteCase(db, home, slug, { deleteArchive: true })).toThrow(/being archived/i)
@@ -286,7 +293,7 @@ describe('deleteCase and the archive bundle', () => {
     expect(getCase(db, slug)).not.toBeNull()
     expect(fs.existsSync(path.join(home, 'cases', slug))).toBe(true)
     expect(fs.existsSync(res.bundlePath)).toBe(true)
-    expect(readDeletionAudit(home)).toHaveLength(0)
+    expect(readDeletionAudit(home)).toEqual(auditBefore)
   })
 
   it('exposes the frozen refusal as ONE rule the IPC handler can check before any side effect', async () => {
@@ -364,5 +371,81 @@ describe('deleteCase and the archive bundle', () => {
     // byte-identical: removing archived rejects makes digestStale's subtraction permanently
     // negative and the global reject digest can never rebuild again
     expect(snapshotProposals(home)).toEqual(before)
+  })
+})
+
+describe('the deletion audit tells the truth about the bundle (I3)', () => {
+  afterEach(() => {
+    cleanupArchiveFixtures()
+  })
+
+  /**
+   * Spec §7: "`appendDeletionAudit` gains the bundle path, its size, and whether it was deleted
+   * or retained. An audit that says 'case deleted' while 412 MB of its evidence sits in
+   * `archive/` is a false record." What shipped was `archiveRetained: !opts.deleteArchive` and
+   * nothing else — no path, no size, and derived from the OPTION rather than from disk, so an
+   * ordinary delete of a case that was never archived asserted the retention of a bundle that
+   * does not exist.
+   */
+  it('records the bundle path and its real size when the bundle is retained', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    const res = await archiveCase(db, home, slug, { argusVersion: 'test' })
+    const size = fs.statSync(res.bundlePath).size
+
+    deleteCase(db, home, slug)
+
+    const detail = readDeletionAudit(home).at(-1)!.detail
+    expect(detail.archivePath).toBe(res.bundlePath)
+    // The real size, compared against the file — a hard-coded 0 or a null cannot pass.
+    expect(detail.archiveBytes).toBe(size)
+    expect(detail.archiveBytes as number).toBeGreaterThan(0)
+    expect(detail.archiveRetained).toBe(true)
+    expect(detail.archiveDeleted).toBe(false)
+  })
+
+  it('records the size the deleted bundle HAD, read before it was removed', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    const res = await archiveCase(db, home, slug, { argusVersion: 'test' })
+    const size = fs.statSync(res.bundlePath).size
+
+    deleteCase(db, home, slug, { deleteArchive: true })
+
+    const detail = readDeletionAudit(home).at(-1)!.detail
+    expect(detail.archivePath).toBe(res.bundlePath)
+    expect(detail.archiveBytes).toBe(size)
+    expect(detail.archiveRetained).toBe(false)
+    expect(detail.archiveDeleted).toBe(true)
+    expect(fs.existsSync(res.bundlePath)).toBe(false)
+  })
+
+  it('claims NO retained bundle for a case that was never archived', async () => {
+    // The defect the option-derived flag produced: an ordinary delete recorded
+    // `archiveRetained: true`, asserting the retention of a bundle that never existed.
+    const { db, home, slug } = await seedArchivableCase()
+    expect(fs.existsSync(caseArchivePath(home, slug))).toBe(false)
+
+    deleteCase(db, home, slug)
+
+    const detail = readDeletionAudit(home).at(-1)!.detail
+    expect(detail.archiveRetained, 'a bundle that does not exist cannot be retained').toBe(false)
+    expect(detail.archiveDeleted).toBe(false)
+    expect(detail.archivePath).toBeNull()
+    expect(detail.archiveBytes).toBeNull()
+  })
+
+  it('claims NO retained bundle for a case whose archive was already restored', async () => {
+    // The end-to-end version of the same question, and the one that ties this to minor 13: a
+    // restore removes the bundle, so a delete afterwards must report exactly what a
+    // never-archived case reports.
+    const { db, home, slug } = await seedArchivableCase()
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    await restoreCase(db, home, slug, createImmediateQueue(db, home))
+
+    deleteCase(db, home, slug)
+
+    const detail = readDeletionAudit(home).at(-1)!.detail
+    expect(detail.archiveRetained).toBe(false)
+    expect(detail.archivePath).toBeNull()
+    expect(detail.archiveBytes).toBeNull()
   })
 })

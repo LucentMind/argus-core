@@ -160,7 +160,7 @@ import {
   getCase,
   touchCaseOpened
 } from './services/caseService'
-import { archiveCase, restoreCase } from './services/caseArchive'
+import { archiveCase, restoreCase, sweepStaleStagingDirs } from './services/caseArchive'
 import { caseLiveWorkReason, busyCaseSlugsOf } from './services/caseLiveWork'
 import { OnboardingService, resolveSampleAssetsDir } from './services/onboarding'
 import {
@@ -2251,6 +2251,18 @@ function registerIpc(): void {
       `[routines] marked ${strandedRuns} run(s) failed: still 'running' from a previous session`
     )
   }
+  // Startup housekeeping of the OTHER thing a crash strands: the dot-prefixed staging directories
+  // archive/restore/import extract into. Each removes its own on success and in its catch, so
+  // anything still here was killed hard — and nothing in the UI, no database row and no other
+  // cleanup path has ever referred to them, so a killed archive of a large case left a full
+  // duplicate of its bulk under `archive/.staging-*` for the life of the installation. Placed
+  // beside `reconcileInterruptedRuns` and before the `ipcMain.handle` calls below for exactly the
+  // same reason it is: `cases:archive` / `cases:restore` / the import handler are the only ways to
+  // create one, so no operation of this process can be in flight yet and every match is debris.
+  const sweptStaging = sweepStaleStagingDirs(argusHome)
+  if (sweptStaging > 0) {
+    console.warn(`[archive] swept ${sweptStaging} stale staging director(ies) from a killed run`)
+  }
 
   // `jiraCases` is constructed HERE — hoisted up from its old spot near the rest of the "jira
   // case lifecycle" handlers below — specifically so `buildJiraScopeResolver` (right after) can
@@ -2850,7 +2862,7 @@ function registerIpc(): void {
   // — archive / restore (a case's bulk moves to a verified bundle; its knowledge stays live) —
   //
   // Deliberately NOT the `stopAllForCase` that cases:delete opens with. Archiving works only on
-  // a STABLE case: `hasLiveWork` REFUSES a case with work in progress rather than stopping that
+  // a STABLE case: `liveWorkReason` REFUSES a case with work in progress rather than stopping that
   // work behind the user's back and sealing a bundle underneath it. See caseLiveWork.ts for why
   // the routine half of that check cannot be read off AgentService's session map. It is
   // check-then-act and does not pretend otherwise — the freeze `archiveCase` takes immediately
