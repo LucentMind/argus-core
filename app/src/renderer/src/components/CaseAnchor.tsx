@@ -1,9 +1,10 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { MenuButton, Checkbox } from './ui'
 import { DistillRunPanel } from './DistillRunPanel'
+import { DeleteCaseDialog } from './DeleteCaseDialog'
 import { uiStore } from '../lib/uiStore'
 import { notice } from '../lib/noticeStore'
-import { choose, confirm } from '../lib/confirmStore'
+import { confirm } from '../lib/confirmStore'
 import { useDistillJob, distillMenuLabel, isDistillInFlight } from '../lib/distillJob'
 import { CASE_RESOLUTIONS } from '../../../shared/types'
 import type { CaseResolution, CaseStatus } from '../../../shared/types'
@@ -93,6 +94,7 @@ export function CaseAnchor({
   //    else clears it.
   const [archiveBusy, setArchiveBusy] = useState<'archive' | 'restore' | null>(null)
   const [runsOpen, setRunsOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   // adjust-state-during-render: any broadcast (tracked) supersedes the optimistic cancel/
   // redistill result — same idiom as DistillChip, whose adoption-over-swallowed-broadcast
   // comment explains why: DistillQueue.emit() swallows broadcast failures, so the row a
@@ -198,59 +200,6 @@ export function CaseAnchor({
     } finally {
       setArchiveBusy(null)
     }
-  }
-
-  async function deleteCase(): Promise<void> {
-    // Three buttons rather than a checkbox: confirmStore has no checkbox primitive, and
-    // `choose` exists for exactly this shape — "no" and "yes, but differently" as separate
-    // answers. The archive branch only appears when there IS an archive to keep.
-    //
-    // The two branches destroy DIFFERENT things, so they get different sentences. One shared
-    // message was written for the archived case — where the evidence and transcripts genuinely
-    // survive in the bundle unless the user says otherwise — and on a never-archived case that
-    // same silence hides the whole of the loss: there is no bundle anywhere, and the evidence,
-    // transcripts and case directory go with the row.
-    const choice = archivedAt
-      ? await choose({
-          title: `Delete ${slug}?`,
-          message:
-            'Its findings, RCA and summary are removed permanently, and future cases will no ' +
-            'longer see it in related history. Its evidence and transcripts are in the archive ' +
-            'bundle — choose whether that goes too.',
-          confirmLabel: 'Delete everything',
-          danger: true,
-          altLabel: 'Delete, keep the archive',
-          altDanger: true
-        })
-      : (await confirm({
-            title: `Delete ${slug}?`,
-            message:
-              'This deletes everything: every evidence file, every transcript and the case ' +
-              'directory itself, along with its findings, RCA and summary. There is no archive ' +
-              'bundle to fall back on, and future cases will no longer see it in related ' +
-              'history.',
-            confirmLabel: 'Delete',
-            danger: true
-          }))
-        ? 'confirm'
-        : 'cancel'
-    if (choice === 'cancel') return
-    try {
-      // `archivedAt ?` guard, not a bare `choice === 'confirm'`: on a case that was never
-      // archived the only reachable answer IS 'confirm', and passing `deleteArchive: true`
-      // there would claim to delete a bundle that does not exist. The flag says what it means.
-      await window.argus.cases.delete(slug, {
-        deleteArchive: archivedAt ? choice === 'confirm' : false
-      })
-    } catch (err) {
-      // Navigating home on a REFUSED delete (deleteCase rejects a case that is mid-archive)
-      // would present the failure as a success — the case is still there, just no longer on
-      // screen. Report it and stay put.
-      notice((err as Error).message, 'danger')
-      return
-    }
-    uiStore.closeTab(slug)
-    onHome()
   }
 
   const statusItems = [
@@ -396,9 +345,16 @@ export function CaseAnchor({
             },
             {
               // The only delete affordance for the case you are LOOKING at — the dashboard
-              // card's hover trash icon still owns deleting a case from the list. Kept here
-              // because the archive question ("keep the bundle?") is asked where `archivedAt`
-              // is known, and this is the surface that knows it.
+              // card's hover trash icon still owns deleting a case from the list. Both open the
+              // SAME `DeleteCaseDialog`.
+              //
+              // It used to own a confirm of its own — a `choose()` prompt — and that made the
+              // app's highest-blast-radius action its least-guarded one: a menu item one row
+              // under the benign `Close case`, then a single button, with no type-the-slug step,
+              // and it was the only surface offering "delete the bundle too". The dialog asks the
+              // archive question just as well (it takes `archivedAt`) and names the bundle's size
+              // while doing it, so nothing is lost by deferring to it — and the two delete
+              // surfaces stop having different amounts of friction.
               //
               // `danger` tone, like every other destructive row in the app (see
               // ConnectorsSettings' Remove): this is the app's highest-blast-radius menu item
@@ -406,12 +362,29 @@ export function CaseAnchor({
               // `Close case`.
               label: 'Delete case…',
               tone: 'danger',
-              onSelect: () => void deleteCase()
+              onSelect: () => setDeleteOpen(true)
             }
           ]}
         />
       </div>
       {runsOpen && <DistillRunPanel slug={slug} onClose={() => setRunsOpen(false)} />}
+      {deleteOpen && (
+        <DeleteCaseDialog
+          slug={slug}
+          // Same prop the dashboard passes: without it an archived case gets the never-archived
+          // copy and no way to remove its bundle.
+          archivedAt={archivedAt}
+          onCancel={() => setDeleteOpen(false)}
+          onDeleted={() => {
+            // Only ever reached on a delete that actually succeeded — the dialog keeps a REFUSED
+            // delete (a case mid-archive) on screen with the main process's sentence inline,
+            // rather than navigating home as if it had worked.
+            setDeleteOpen(false)
+            uiStore.closeTab(slug)
+            onHome()
+          }}
+        />
+      )}
     </>
   )
 }

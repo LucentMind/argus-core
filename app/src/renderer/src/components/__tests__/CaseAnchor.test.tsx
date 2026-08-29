@@ -15,6 +15,7 @@ let needsRunMock: ReturnType<typeof vi.fn>
 let deleteMock: ReturnType<typeof vi.fn>
 let archiveMock: ReturnType<typeof vi.fn>
 let restoreMock: ReturnType<typeof vi.fn>
+let archiveSizeMock: ReturnType<typeof vi.fn>
 /** The default bridge's `distill.onChanged` callback, captured so a test can fire an unrelated
  *  distill broadcast at a component that is busy doing something else. */
 let distillOnChangedCb: ((p: DistillStatusPayload) => void) | undefined
@@ -42,6 +43,8 @@ beforeEach(() => {
   needsRunMock.mockResolvedValue(true)
   deleteMock = vi.fn()
   deleteMock.mockResolvedValue(undefined)
+  archiveSizeMock = vi.fn()
+  archiveSizeMock.mockResolvedValue(431_820_800)
   archiveMock = vi.fn()
   archiveMock.mockResolvedValue({ slug: 'NN-5187', bundlePath: '/a/NN-5187.zip' })
   restoreMock = vi.fn()
@@ -51,7 +54,8 @@ beforeEach(() => {
       setStatus: setStatusMock,
       delete: deleteMock,
       archive: archiveMock,
-      restore: restoreMock
+      restore: restoreMock,
+      archiveSize: archiveSizeMock
     },
     bundle: { export: exportMock },
     distill: {
@@ -653,23 +657,63 @@ describe('archive actions', () => {
     expect(noticeStore.get().notices[0].tone).toBe('danger')
   })
 
-  it('deletes everything when the operator picks the danger button', async () => {
+  // The anchor's `Delete case…` row no longer carries a confirm of its own. It opens the SAME
+  // `DeleteCaseDialog` the dashboard's trash icon opens, so the app's highest-blast-radius action
+  // has ONE guard — type the slug — rather than two surfaces with different amounts of friction,
+  // the weaker of which happened to be the only one offering "delete the bundle too".
+  //
+  // These tests were written against the old three-way `choose()` prompt. What survives the
+  // rewrite unchanged is the asserted BEHAVIOUR: a never-archived case forwards
+  // `{ deleteArchive: false }`, an archived case can forward either value, each option is
+  // forwarded as the user chose it, a cancel leaves the case alone, and a REFUSED delete does not
+  // navigate home. Only the clicks that get there changed.
+  async function openDeleteDialog(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+    await openMenu(user)
+    // Leaf row inside the open menu — fireEvent, per the hover-menu convention.
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete case…' }))
+    await screen.findByLabelText('Confirm slug')
+  }
+
+  it('opens the type-the-slug guard rather than a one-click confirm', async () => {
     const user = userEvent.setup()
     renderAnchor({ archivedAt: '2026-08-28T00:00:00Z' })
-    await openMenu(user)
-    fireEvent.click(screen.getByText(/delete case/i))
-    fireEvent.click(await screen.findByRole('button', { name: /delete everything/i }))
+    await openDeleteDialog(user)
+    // Every delete button in the dialog is inert until the slug is typed. Without this the row
+    // is one click from destroying the case AND its bundle.
+    for (const name of ['Delete everything', 'Keep the archive']) {
+      const btn = screen.getByRole('button', { name }) as HTMLButtonElement
+      expect(btn.disabled).toBe(true)
+      fireEvent.click(btn)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(deleteMock).not.toHaveBeenCalled()
+  })
+
+  it('deletes everything when the operator picks the danger button', async () => {
+    const user = userEvent.setup()
+    const onHome = vi.fn()
+    uiStore.openTab('NN-5187')
+    renderAnchor({ archivedAt: '2026-08-28T00:00:00Z', onHome })
+    await openDeleteDialog(user)
+    await user.type(screen.getByLabelText('Confirm slug'), 'NN-5187')
+    fireEvent.click(screen.getByRole('button', { name: 'Delete everything' }))
+    // Asserted on the ARGUMENT, not on the call: a test that only checked `delete` ran would
+    // pass with both buttons wired to the same value.
     await vi.waitFor(() =>
       expect(deleteMock).toHaveBeenCalledWith('NN-5187', { deleteArchive: true })
     )
+    // A delete that succeeded still closes the tab and goes home — the anchor's own job, and the
+    // one thing routing through the dialog could have dropped.
+    await vi.waitFor(() => expect(onHome).toHaveBeenCalled())
+    expect(uiStore.get().recentTabs).toEqual([])
   })
 
   it('keeps the archive when the operator picks the alt button', async () => {
     const user = userEvent.setup()
     renderAnchor({ archivedAt: '2026-08-28T00:00:00Z' })
-    await openMenu(user)
-    fireEvent.click(screen.getByText(/delete case/i))
-    fireEvent.click(await screen.findByRole('button', { name: /keep the archive/i }))
+    await openDeleteDialog(user)
+    await user.type(screen.getByLabelText('Confirm slug'), 'NN-5187')
+    fireEvent.click(screen.getByRole('button', { name: 'Keep the archive' }))
     await vi.waitFor(() =>
       expect(deleteMock).toHaveBeenCalledWith('NN-5187', { deleteArchive: false })
     )
@@ -678,10 +722,13 @@ describe('archive actions', () => {
   it('offers no archive choice at all on a case that was never archived', async () => {
     const user = userEvent.setup()
     renderAnchor({ archivedAt: null })
-    await openMenu(user)
-    fireEvent.click(screen.getByText(/delete case/i))
-    expect(screen.queryByRole('button', { name: /keep the archive/i })).toBeNull()
-    fireEvent.click(await screen.findByRole('button', { name: /^delete$/i }))
+    await openDeleteDialog(user)
+    // `archivedAt` reaches the dialog: without it every case would get the archived two-button
+    // shape and a promise about a bundle that does not exist.
+    expect(screen.queryByRole('button', { name: 'Keep the archive' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Delete everything' })).toBeNull()
+    await user.type(screen.getByLabelText('Confirm slug'), 'NN-5187')
+    fireEvent.click(screen.getByRole('button', { name: 'Delete case' }))
     await vi.waitFor(() =>
       expect(deleteMock).toHaveBeenCalledWith('NN-5187', { deleteArchive: false })
     )
@@ -692,9 +739,8 @@ describe('archive actions', () => {
     const onHome = vi.fn()
     uiStore.openTab('NN-5187')
     renderAnchor({ archivedAt: '2026-08-28T00:00:00Z', onHome })
-    await openMenu(user)
-    fireEvent.click(screen.getByText(/delete case/i))
-    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+    await openDeleteDialog(user)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(deleteMock).not.toHaveBeenCalled()
     expect(onHome).not.toHaveBeenCalled()
@@ -707,11 +753,12 @@ describe('archive actions', () => {
     const onHome = vi.fn()
     uiStore.openTab('NN-5187')
     renderAnchor({ archivedAt: null, onHome })
-    await openMenu(user)
-    fireEvent.click(screen.getByText(/delete case/i))
-    fireEvent.click(await screen.findByRole('button', { name: /^delete$/i }))
-    await vi.waitFor(() => expect(noticeStore.get().notices).toHaveLength(1))
-    expect(noticeStore.get().notices[0].message).toBe('Case NN-5187 is being archived.')
+    await openDeleteDialog(user)
+    await user.type(screen.getByLabelText('Confirm slug'), 'NN-5187')
+    fireEvent.click(screen.getByRole('button', { name: 'Delete case' }))
+    // The main process's sentence, now inline in the dialog that stays open for a retry rather
+    // than in the notice slot behind a dialog that closed.
+    await screen.findByText('Case NN-5187 is being archived.')
     expect(onHome).not.toHaveBeenCalled()
     expect(uiStore.get().recentTabs).toEqual(['NN-5187'])
   })
@@ -723,21 +770,22 @@ describe('archive actions: honest copy and gated rows', () => {
   // the user says otherwise — and reusing it verbatim on a never-archived case hid the whole of
   // the loss: there is no bundle anywhere, and the evidence, transcripts and the case directory
   // go with the row.
-  it('names the evidence and transcripts when there is no bundle to fall back on', async () => {
+  it('tells a never-archived case there is nothing to fall back on', async () => {
     const user = userEvent.setup()
     renderAnchor({ archivedAt: null })
     await openMenu(user)
-    fireEvent.click(screen.getByText(/delete case/i))
-    const body = await screen.findByText(/every evidence file/i)
-    expect(body.textContent).toMatch(/every transcript/i)
-    expect(body.textContent).toMatch(/no archive bundle/i)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete case…' }))
+    const body = await screen.findByText(/no archive bundle for this case/i)
+    expect(body.textContent).toMatch(/its evidence, chats, and findings/i)
+    // `archiveSize` is not even asked for: there is no bundle to weigh.
+    expect(archiveSizeMock).not.toHaveBeenCalled()
   })
 
   it('says the bundle is the thing being chosen about on an archived case', async () => {
     const user = userEvent.setup()
     renderAnchor({ archivedAt: '2026-08-28T00:00:00Z' })
     await openMenu(user)
-    fireEvent.click(screen.getByText(/delete case/i))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete case…' }))
     const body = await screen.findByText(/archive bundle/i)
     // It must NOT claim the evidence is destroyed outright — that is exactly what the shared
     // copy did on the branch where it is optional.
