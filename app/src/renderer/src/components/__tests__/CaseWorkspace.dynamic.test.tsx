@@ -194,6 +194,7 @@ function renderWorkspace(): ReturnType<typeof render> {
         slug="NAV-1"
         activeMode={DEFAULT_MODE}
         caseTitle=""
+        archivedAt={null}
         jiraKey={null}
         jiraSyncedAt={null}
         onModeSwitched={vi.fn()}
@@ -316,6 +317,7 @@ describe('DynamicScope — case variant', () => {
           slug="NAV-1"
           activeMode={DEFAULT_MODE}
           caseTitle=""
+          archivedAt={null}
           jiraKey={null}
           jiraSyncedAt={null}
           onModeSwitched={vi.fn()}

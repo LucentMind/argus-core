@@ -71,8 +71,14 @@ export function CaseWorkspace({
   /** `CaseRecord.archivedAt`, passed down the same way as the fields above. Non-null means the
    *  case's evidence, artifacts and transcripts are in a bundle rather than on disk — the
    *  evidence pane says so instead of showing an empty list that would read as "never had
-   *  any". Optional so callers that predate archiving, tests included, keep working. */
-  archivedAt?: string | null
+   *  any".
+   *
+   *  REQUIRED, deliberately, unlike `ticketProvider` above. This one line in App.tsx is the top
+   *  of the whole archived-case chain: delete it and the archived pane, its gated drop target
+   *  and its gated rescan all become unreachable in the real app. While the prop was optional
+   *  tsc could not see that deletion at all. There are only four render sites, so the cost of
+   *  requiring it is four words. */
+  archivedAt: string | null
   /** A mode switch persisted `CaseRecord.activeMode` in the DB (ModeSwitcher already called
    *  `cases.setMode`); this tells the parent to refetch its `cases` array so the `activeMode`
    *  prop above stops being stale — same contract as `onStatusChanged`, just for the mode
@@ -687,7 +693,7 @@ export function CaseWorkspace({
                 caseSlug={slug}
                 label={activeMode === 'review' ? 'Code review artifacts' : 'Evidence'}
                 mode={activeMode}
-                archivedAt={archivedAt ?? null}
+                archivedAt={archivedAt}
                 // The restore call itself, not a route back to the anchor's menu: the pane is
                 // where the user is looking when they find out the evidence is gone. The
                 // `cases:changed` broadcast the handler emits is what clears `archivedAt` here

@@ -85,6 +85,29 @@ export function isCaseFrozen(slug: string): boolean {
 }
 
 /**
+ * Which operation currently holds this case's freeze, or null if it is not frozen.
+ *
+ * `isCaseFrozen` above discards the operation, so every caller that builds a USER-FACING
+ * refusal from it had to guess — and `assertCaseDeletable` guessed "archived", telling a user
+ * mid-RESTORE to wait for an archive nobody started. That is the same wrong-operation defect
+ * `freezeCase` and `assertCaseWritable` already fixed by reading `IN_PROGRESS`; this reader
+ * exists so the third message can be built from that ONE map too, rather than a third copy of
+ * the fact drifting on its own.
+ */
+export function frozenOperation(slug: string): FreezeOperation | null {
+  return frozen.get(slug)?.operation ?? null
+}
+
+/**
+ * The past participle a refusal message should use for an operation: 'archived' / 'restored'.
+ * Exported so the messages built outside this module (`assertCaseDeletable`) read from the same
+ * table as the two built inside it.
+ */
+export function inProgressWord(operation: FreezeOperation): string {
+  return IN_PROGRESS[operation]
+}
+
+/**
  * True once a case's bundle is sealed. The durable half of the guard below, exported so read
  * paths that must DEGRADE rather than throw on an archived case (`listSessions`, which would
  * otherwise auto-create a session into a case whose sessions were just deleted) can ask the
