@@ -56,6 +56,25 @@ describe('main/index.ts wires the archive handlers', () => {
     }
   })
 
+  it('sweeps stale staging directories before any archive/restore/import handler is registered', () => {
+    // The whole "safe by construction" argument for the stale-staging fix (and the plan's exit
+    // check #6) is that `sweepStaleStagingDirs` runs at startup, before `cases:archive`,
+    // `cases:restore` or the bundle-import handler can create a NEW staging directory of their
+    // own — otherwise the sweep could race a fresh one and delete live work. Source-position is
+    // the only thing that can pin an ordering fact; nothing else in this file exercises it.
+    const sweep = indexSrc.indexOf('sweepStaleStagingDirs(')
+    const archive = indexSrc.indexOf('ipcMain.handle(IPC.casesArchive')
+    const restore = indexSrc.indexOf('ipcMain.handle(IPC.casesRestore')
+    const bundleImport = indexSrc.indexOf('ipcMain.handle(IPC.bundleImport')
+    expect(sweep).toBeGreaterThan(-1)
+    expect(archive).toBeGreaterThan(-1)
+    expect(restore).toBeGreaterThan(-1)
+    expect(bundleImport).toBeGreaterThan(-1)
+    expect(sweep).toBeLessThan(archive)
+    expect(sweep).toBeLessThan(restore)
+    expect(sweep).toBeLessThan(bundleImport)
+  })
+
   it('the archive handler REFUSES live work rather than stopping it', () => {
     const body = handlerBody('IPC.casesArchive')
     expect(body).toContain('assertSlug(slug)')

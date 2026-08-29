@@ -8,9 +8,9 @@ import { formatMb } from '../lib/evidenceDisplay'
  * Two shapes, because archiving made "what a delete destroys" case-dependent:
  *  - never archived: one action. Everything goes — evidence, transcripts, the case directory,
  *    the findings/RCA/summary — and there is nothing anywhere to fall back on.
- *  - archived: two actions, the SAME pair the case anchor's `choose()` prompt offers. The
- *    bundle in `<argusHome>/archive/` holds precisely the evidence and chats the old single
- *    sentence claimed were "permanently deleted", and `cases.delete` defaults `deleteArchive`
+ *  - archived: two actions. The bundle in `<argusHome>/archive/` holds precisely the evidence
+ *    and chats the old single sentence claimed were "permanently deleted", and `cases.delete`
+ *    defaults `deleteArchive`
  *    to false — so without this choice the dashboard could never remove the bundle, and once
  *    the row was gone the case appeared nowhere and the orphan was reachable only from the
  *    filesystem.

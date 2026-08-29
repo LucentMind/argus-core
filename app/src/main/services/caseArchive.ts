@@ -201,7 +201,6 @@ export function sweepStaleStagingDirs(argusHome: string): number {
  * cross-case corpus behind related-history and the distillation count — deleting them is the
  * mistake this design exists to prevent. Proposals under <argusHome>/proposals are not touched at all.
  */
-
 export async function archiveCase(
   db: DatabaseSync,
   argusHome: string,
@@ -354,13 +353,22 @@ async function archiveFrozenCase(
   // journal already audits — and until now it wrote nothing at all. The bundle path and its size
   // are recorded because the whole point of an archive audit line is that the bytes went
   // somewhere: an entry that cannot say where is the same false record §7 rejects for deletes.
-  appendDeletionAudit(argusHome, 'case.archive', slug, {
-    bundlePath,
-    bundleBytes: bundleBytes(bundlePath),
-    bytesFreed,
-    evidence: evidenceRows.length,
-    sessions: sessionRows.length
-  })
+  //
+  // Best-effort, same posture as the sidecar and on-disk-bulk removal just below: by this point
+  // the case IS archived — rows gone, archived_at stamped, bundle in place — so a locked journal
+  // file (EBUSY/EPERM) or a missing `<argusHome>` must not report "archive failed" and send the
+  // user into a retry that can only ever hit "already archived".
+  try {
+    appendDeletionAudit(argusHome, 'case.archive', slug, {
+      bundlePath,
+      bundleBytes: bundleBytes(bundlePath),
+      bytesFreed,
+      evidence: evidenceRows.length,
+      sessions: sessionRows.length
+    })
+  } catch (err) {
+    console.warn(`[archive] failed to write the deletion audit for ${slug}:`, err)
+  }
 
   // Sidecars are a derived cache keyed on the absolute file path; the files are gone, so the
   // checkpoints are dead weight. Best-effort: a locked sidecar must not fail the archive.
@@ -710,25 +718,27 @@ export async function restoreCase(
   //
   // Deliberately AFTER the transaction, never inside `restoreFrozenCase`: a rollback there
   // leaves the case archived and still restorable, and that retry needs this exact file. A
-  // failure here is best-effort and reported rather than thrown — the restore has committed and
-  // must not be reported as failed over a Windows open handle — which is what `bundleRemoved`
-  // in the result is for: the operator is told plainly when the bytes were NOT reclaimed.
-  let bundleRemoved = true
+  // failure here is best-effort and swallowed, not thrown — the restore has committed and must
+  // not be reported as failed over a Windows open handle. Nothing in the result reports this
+  // outcome: no caller reads it (both `restoreCase` call sites discard everything but the
+  // rejection), and the boot sweep's stale-staging cleanup does not cover a leftover
+  // `<slug>.argus.zip` either, so a field claiming to convey this would be a claim the code
+  // doesn't keep. A stuck bundle here is a warning in the log, same as every other best-effort
+  // cleanup in this file.
   try {
     fs.rmSync(bundlePath, { force: true })
   } catch (err) {
-    bundleRemoved = false
     console.warn(`[archive] restored ${slug} but could not remove its bundle:`, err)
   }
 
   // Re-indexing rides the existing background queue rather than blocking the restore: the
   // case is usable immediately and searchEvidenceWithStatus already reports the pending
   // count, so the gap is visible rather than silent. Deliberately AFTER the freeze is
-  // released and the flag cleared — the queue's phase 2 runs `extractDerivedText`, which
-  // calls assertCaseWritable and would refuse a case still marked frozen or archived.
+  // released — the queue's phase 2 runs `extractDerivedText`, which calls assertCaseWritable
+  // and would refuse a case still marked frozen or archived.
   const queuedForIndex = requeuePendingIndexes(db, argusHome, queue)
 
-  return { slug, ...counts, queuedForIndex, bundleRemoved }
+  return { slug, ...counts, queuedForIndex }
 }
 
 /** The body of `restoreCase`, running with the case frozen. Split out only so the freeze can
