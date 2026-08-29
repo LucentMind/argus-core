@@ -82,7 +82,7 @@ export function createSession(
   // the sessions:create IPC handler, listSessions' auto-create, createCase, and — the reason
   // this guard exists at all — RoutinesService's BACKGROUND session, which the scheduler can
   // start on a timer at any moment and which never enters AgentService's live session map, so
-  // no `hasLiveWork` check built on that map can see it.
+  // no `liveWorkReason` check built on that map can see it.
   assertCaseWritable(db, caseSlug)
   const caseId = caseIdOf(db, caseSlug)
   const now = new Date().toISOString()

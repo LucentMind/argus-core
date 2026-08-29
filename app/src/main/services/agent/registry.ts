@@ -27,6 +27,7 @@ import {
   requestedPermissionMode
 } from './sessionStore'
 import { getCase } from '../caseService'
+import { assertCaseWritable } from '../caseFreeze'
 import { workspaceSandboxRoots } from '../workspaces'
 import { materializeSessionSkills } from './skillsResolver'
 import { assembleMode } from './modeAssembly'
@@ -219,6 +220,40 @@ export class AgentService {
     // which is the only place the user can be told why their message went nowhere.
     const unavailable = this.deps.sessionUnavailable?.(sessionId)
     if (unavailable) throw new Error(unavailable)
+
+    // The case must be writable RIGHT NOW, on every entry into this method — not only when a
+    // CaseSession is constructed.
+    //
+    // Everything below `return existing` is the construction branch, and the transcript freeze
+    // used to live there only: `SessionMirror`'s constructor, reached through `mirrorFactory` at
+    // the bottom of this function. A session that is already `state === 'running'` with an
+    // unchanged fingerprint/model/mode/options — the NORMAL state after any chat, since there is
+    // no idle timer and entries leave the map only on an explicit stop, a driver exit or the LRU
+    // reap — never reaches that line again. It keeps the mirror it was handed on its first send,
+    // so the freeze was never consulted for the rest of that session's life.
+    //
+    // That is exactly the flow archiving is designed around: finish a turn (so `activeTurn` is
+    // false and `liveWorkReason` correctly reports the case idle), click Archive, then keep
+    // typing into the chat pane that is still open. Those appends landed in
+    // `sessions/<id>.jsonl`, `turns`, `tool_calls` and `messages_fts` AFTER the bundle snapshot,
+    // and the archive's step 4 deleted all four — with no copy in the bundle and nothing for a
+    // restore to bring back. The same hole applied to `restoreCase`, whose appends are clobbered
+    // by the tree merge or removed by `reconcileSessions`.
+    //
+    // Guarding HERE rather than in `SessionMirror.append` or `CaseSession.send` because this is
+    // the single entry point every write into a case's transcript rows passes through — `send`,
+    // `emitPanelFinding`, `postFindingComment`, `ingestPanelEvidence` — so one call covers the
+    // warm branch and the construction branch at once, and covers the DB rows (turns,
+    // tool_calls) that a mirror-level guard would not see at all. Placed after the ownership and
+    // routine-ownership checks (a bogus request still gets the more specific error) and before
+    // `composeMcp` (which can perform a network OAuth refresh) and the reap, so a refused request
+    // has no side effects. It THROWS, like the guard above it, because the rejection of the send
+    // is what the chat surface renders as its inline, actionable error; a silent no-op would make
+    // the user's message vanish unexplained.
+    //
+    // `SessionMirror`'s own constructor guard STAYS: `runBackgroundTurn` (routines) builds a
+    // mirror through the same factory without ever entering this map.
+    assertCaseWritable(this.deps.db, caseSlug)
 
     const as = this.deps.agentSettings?.()
     // Composed on EVERY call (spec §1/§2): connector config and credentials are re-derived

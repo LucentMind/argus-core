@@ -18,7 +18,7 @@ import { ARTIFACTS_LIKE } from './evidenceScopeSql'
 import { DEFAULT_MODE, MODES, type ModeId } from '../../shared/modes'
 import { caseDir, caseArchivePath } from './paths'
 import { frozenOperation, inProgressWord } from './caseFreeze'
-import { appendDeletionAudit } from './deletionAudit'
+import { appendDeletionAudit, bundleBytes } from './deletionAudit'
 import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase } from './ftsIndex'
 import { CAPTURE_DIR_REL } from './prompts/capture'
 import { createSession, latestSessionForMode, type SessionProvider } from './agent/sessionStore'
@@ -1218,8 +1218,10 @@ export function assertCaseDeletable(slug: string): void {
  * systemAppend includes the persona, pack fragments and the agent-access-filtered
  * memory index, so a deleted case's prompt text must not survive it) → archive bundle
  * (opt-in via `opts.deleteArchive`; the bundle lives outside caseDir under
- * `<argusHome>/archive`, so it is retained by default — the audit's `archiveRetained`
- * field records which way it went either way). Callers must first stop live sessions
+ * `<argusHome>/archive`, so it is retained by default — the audit's `archivePath`,
+ * `archiveBytes`, `archiveRetained` and `archiveDeleted` fields record which way it went and
+ * how many bytes were involved, all read off the file rather than off the option). Callers
+ * must first stop live sessions
  * (AgentService.stopAllForCase) and close the case's file watcher. rmSync removes the
  * .claude junctions as links, never their targets.
  *
@@ -1255,14 +1257,31 @@ export function deleteCase(
         }
       ).n
     )
+  // Spec §7: the audit records the bundle PATH, its SIZE, and whether it was deleted or
+  // retained. `archiveRetained: !opts.deleteArchive` alone failed that clause twice over. It
+  // carried neither the path nor the size, so a reader could not tell where the retained bytes
+  // went or how many there were — the "412 MB sits in archive/" the clause is written about. And
+  // it was derived from the OPTION rather than from disk, so an ordinary delete of a case that
+  // was never archived recorded `archiveRetained: true`, asserting the retention of a bundle
+  // that does not exist. All three now come from the file itself: `bundleBytes` returns null
+  // when there is nothing there, which is also what distinguishes "no bundle" from "an empty
+  // one" for every field below.
+  const bundlePath = caseArchivePath(argusHome, slug)
+  const bundleSize = bundleBytes(bundlePath)
   const detail = {
     title: rec.title,
     evidence: count('evidence'),
     sessions: count('sessions'),
     findings: count('findings'),
+    // Null when the case had no bundle at all — the honest answer, and the one that makes the
+    // flag below unambiguous.
+    archivePath: bundleSize === null ? null : bundlePath,
+    archiveBytes: bundleSize,
     // Recorded either way: an audit line saying "case deleted" while several hundred MB of
-    // its evidence still sits in archive/ is a false record.
-    archiveRetained: !opts.deleteArchive
+    // its evidence still sits in archive/ is a false record. A bundle that was never there can
+    // be neither retained nor deleted, so both flags are false in that case.
+    archiveRetained: bundleSize !== null && !opts.deleteArchive,
+    archiveDeleted: bundleSize !== null && opts.deleteArchive === true
   }
   db.exec('BEGIN')
   try {
@@ -1287,7 +1306,7 @@ export function deleteCase(
   // nothing left to restore it into. Removing it is opt-in: "case gone from Argus, archive
   // kept" is a legitimate outcome the caller chooses.
   if (opts.deleteArchive) {
-    fs.rmSync(caseArchivePath(argusHome, slug), { force: true })
+    fs.rmSync(bundlePath, { force: true })
   }
   // Best-effort: case deletion is the more important operation, so a failure to remove the
   // capture directory (locked file, permissions) must not surface as a failed case deletion.

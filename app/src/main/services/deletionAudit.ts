@@ -2,8 +2,19 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { deletionAuditPath } from './paths'
 
+/**
+ * `case.archive` is a destruction record like the rest, not a lifecycle event: archiving deletes
+ * every evidence, session, turn and tool-call row for a case and the on-disk trees behind them.
+ * It belongs in this journal for exactly the reason `case.delete` does — the journal has to
+ * outlive the data — and its detail names the bundle those bytes moved into.
+ */
 export type DeletionOp =
-  'case.delete' | 'evidence.delete' | 'session.delete' | 'findings.clear' | 'finding.delete'
+  | 'case.delete'
+  | 'case.archive'
+  | 'evidence.delete'
+  | 'session.delete'
+  | 'findings.clear'
+  | 'finding.delete'
 
 export interface DeletionAuditEntry {
   ts: string
@@ -28,6 +39,25 @@ export function appendDeletionAudit(
   fs.mkdirSync(path.dirname(p), { recursive: true })
   fs.appendFileSync(p, JSON.stringify(entry) + '\n')
   return entry
+}
+
+/**
+ * Size of a case's archive bundle on disk, or null when there is none.
+ *
+ * Lives here rather than in `caseArchive.ts` because both of its callers are audit lines —
+ * `archiveCase`'s `case.archive` entry and `deleteCase`'s `case.delete` entry — and
+ * `caseArchive` imports `caseService`, so a helper owned by the former and used by the latter
+ * would close an import cycle. Null rather than 0 for an absent file: an audit reader must be
+ * able to tell "there was no bundle" from "there was an empty one", and both callers derive
+ * their retained/deleted flags from exactly that distinction. Best-effort — a stat failure must
+ * never fail the operation being audited.
+ */
+export function bundleBytes(bundlePath: string): number | null {
+  try {
+    return fs.statSync(bundlePath).size
+  } catch {
+    return null
+  }
 }
 
 export function readDeletionAudit(argusHome: string): DeletionAuditEntry[] {

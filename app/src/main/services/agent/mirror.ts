@@ -40,6 +40,15 @@ export class SessionMirror implements SessionMirrorLike {
    * the case where an existing session is resumed inside the archive window — no new sessions
    * row, but the constructor below `mkdirSync`s `sessions/` back into existence and the
    * appends land in a tree the archive is about to delete.
+   *
+   * THIS GUARD IS NOT SUFFICIENT ON ITS OWN, and must not be read as covering the foreground
+   * chat. A mirror is constructed ONCE per CaseSession; a session already warm in
+   * `AgentService`'s map is handed back by `getOrCreate`'s `return existing` without ever
+   * building a second one, so nothing here fires for its second and later sends. The guard
+   * that covers those is `assertCaseWritable` at the top of `getOrCreate` (registry.ts) — see
+   * the argument there. What remains load-bearing here is `runBackgroundTurn`: a routine's
+   * background session never enters that map, so this constructor is the only freeze check on
+   * its path.
    */
   constructor(
     private db: DatabaseSync,

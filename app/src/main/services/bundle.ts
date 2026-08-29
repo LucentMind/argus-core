@@ -516,7 +516,6 @@ export function registerImportedSessions(
   const sessionIds = new Map<number, number>()
   const sessionsDir = path.join(dir, 'sessions')
   if (!fs.existsSync(sessionsDir)) return sessionIds
-  recoverStagedTranscripts(sessionsDir)
   const files = fs
     .readdirSync(sessionsDir)
     .filter((f) => /^\d+\.jsonl$/.test(f))
@@ -577,37 +576,6 @@ export function registerImportedSessions(
     fs.rmSync(tmp)
   }
   return sessionIds
-}
-
-/**
- * Undo a previous run of `registerImportedSessions` that died part-way through.
- *
- * The staging rename takes every transcript OUT of the `<digits>.jsonl` namespace this
- * function's own filter matches, so a throw mid-loop (an EPERM from a watcher, a full disk, the
- * app being killed) used to leave `*.jsonl.import` files that nothing could ever see again: a
- * retry restored zero transcripts and silently orphaned them.
- *
- * The premise — if any `.import` file is present, the only plain `<digits>.jsonl` files that can
- * exist are that dead run's own unclaimed outputs — holds for IMPORT, whose failure path deletes
- * the whole case dir and whose transcripts have no other source on this machine.
- *
- * It is FALSE for restore, and this heuristic must never be relied on there: `restoreTree`
- * re-supplies every transcript from the bundle immediately before this runs, so on a retry the
- * plain-name files are the bundle's own originals and deleting them destroys them. Restore
- * therefore reconciles `sessions/` against the verified manifest first (`reconcileSessions` in
- * caseArchive.ts), which removes every `.import` file along with the dead run's outputs — so by
- * the time this is reached from a restore there is nothing stale left and it is a no-op.
- */
-function recoverStagedTranscripts(sessionsDir: string): void {
-  const entries = fs.readdirSync(sessionsDir)
-  const stale = entries.filter((f) => /^\d+\.jsonl\.import$/.test(f))
-  if (stale.length === 0) return
-  for (const f of entries.filter((f) => /^\d+\.jsonl$/.test(f))) {
-    fs.rmSync(path.join(sessionsDir, f), { force: true })
-  }
-  for (const f of stale) {
-    fs.renameSync(path.join(sessionsDir, f), path.join(sessionsDir, f.slice(0, -'.import'.length)))
-  }
 }
 
 export async function importCase(
