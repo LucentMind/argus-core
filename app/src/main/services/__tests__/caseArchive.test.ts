@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { archiveCase, manifestHash, sweepStaleStagingDirs } from '../caseArchive'
@@ -1010,9 +1010,13 @@ describe('a failed archive transaction leaves no orphaned bundle (I2)', () => {
     expect(snapshotCase(db, home, slug)).toEqual(before)
   })
 
-  it('the case is still archivable on a retry after the failure', async () => {
-    // The point of REMOVING the bundle rather than leaving it: a retry must not be renaming over,
-    // or later restoring from, a zip belonging to a run that never committed.
+  it('a retry after the failure still succeeds', async () => {
+    // This does NOT pin why the retry succeeds — `renameSync` overwrites whatever orphan sits at
+    // `bundlePath` regardless of whether the rollback cleanup removed it first, so this test
+    // passes identically with that cleanup deleted. It only pins that a retry is not permanently
+    // wedged by a prior failed attempt. The property that the rollback actually REMOVES the
+    // orphaned bundle (rather than merely tolerating its later overwrite) is pinned by the
+    // sibling test above, 'removes the bundle when the transaction rolls back...'.
     const { db, home, slug } = await seedArchivableCase()
     const undo = busyOnEvidenceDelete(db)
     try {
@@ -1071,6 +1075,27 @@ describe('archiving writes a deletion-audit entry (I3)', () => {
         }
       )
     ).rejects.toThrow(/verification failed/)
+    expect(readDeletionAudit(home)).toEqual([])
+  })
+
+  it('does not fail the archive when the audit write itself throws', async () => {
+    // By this point in `archiveCase` the case IS archived: rows gone, `archived_at` stamped,
+    // bundle in place — the same posture as the sidecar and on-disk-bulk removal a few lines
+    // below it. A locked journal file (EBUSY/EPERM) must not turn a completed archive into a
+    // reported failure that sends the user into a retry that can only ever hit
+    // "already archived".
+    const { db, home, slug } = await seedArchivableCase()
+    const spy = vi.spyOn(fs, 'appendFileSync').mockImplementation(() => {
+      throw new Error('EBUSY (injected)')
+    })
+    try {
+      const res = await archiveCase(db, home, slug, { argusVersion: 'test' })
+      expect(res.bundlePath).toBe(caseArchivePath(home, slug))
+      expect(getCase(db, slug)!.archivedAt).not.toBeNull()
+    } finally {
+      spy.mockRestore()
+    }
+    // And the throwing write really did nothing: no entry was ever recorded.
     expect(readDeletionAudit(home)).toEqual([])
   })
 })
