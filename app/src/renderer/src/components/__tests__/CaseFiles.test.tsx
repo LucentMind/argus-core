@@ -849,4 +849,141 @@ describe('archived case', () => {
     await screen.findByText('No evidence yet.')
     expect(screen.queryByTestId('evidence-archived')).toBeNull()
   })
+
+  it('shows the restore as busy for the whole operation and swallows a second click', async () => {
+    // A restore is unzip + verify + reindex — seconds to minutes. With no busy state the button
+    // looked idle throughout, and a second click reached freezeCase, whose collision refusal
+    // then surfaced as a red danger notice DURING a restore the user started once.
+    let finish: () => void = () => {}
+    const onRestore = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        })
+    )
+    window.argus.evidence.list = vi.fn(async () => [])
+    render(
+      <CaseFiles
+        caseSlug="c1"
+        label="Evidence"
+        mode="investigation"
+        archivedAt="2026-08-28T00:00:00Z"
+        onRestore={onRestore}
+        {...requiredProps}
+      />
+    )
+    const button = await screen.findByRole('button', { name: 'Restore from archive' })
+    fireEvent.click(button)
+    // Asserted on the RELABELLED button, which only exists after the busy state is set — not on
+    // the call count, which would be 1 whether or not the click was gated.
+    const busy = await screen.findByRole('button', { name: 'Restoring…' })
+    expect(busy).toBeDisabled()
+    fireEvent.click(busy)
+    expect(onRestore).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      finish()
+    })
+    expect(await screen.findByRole('button', { name: 'Restore from archive' })).toBeEnabled()
+  })
+
+  it('clears the busy state when the restore fails, so it can be retried', async () => {
+    let fail: (e: Error) => void = () => {}
+    const onRestore = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          fail = reject
+        })
+    )
+    window.argus.evidence.list = vi.fn(async () => [])
+    render(
+      <CaseFiles
+        caseSlug="c1"
+        label="Evidence"
+        mode="investigation"
+        archivedAt="2026-08-28T00:00:00Z"
+        onRestore={onRestore}
+        {...requiredProps}
+      />
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Restore from archive' }))
+    await screen.findByRole('button', { name: 'Restoring…' })
+    await act(async () => {
+      fail(new Error('bundle checksum mismatch'))
+      // let the rejection settle inside the component's own .finally
+      await Promise.resolve()
+    })
+    expect(await screen.findByRole('button', { name: 'Restore from archive' })).toBeEnabled()
+  })
+
+  it('withholds the rescan on an archived case, and keeps it on a live one', async () => {
+    // A scan registers newly-found files as evidence — the same write `assertCaseWritable`
+    // refuses on an archived case, whose evidence folder is not on disk at all.
+    window.argus.evidence.list = vi.fn(async () => [])
+    const { unmount } = render(
+      <CaseFiles
+        caseSlug="c1"
+        label="Evidence"
+        mode="investigation"
+        archivedAt="2026-08-28T00:00:00Z"
+        onRestore={vi.fn()}
+        {...requiredProps}
+      />
+    )
+    const scan = (await screen.findByRole('button', {
+      name: 'Rescan evidence folder'
+    })) as HTMLButtonElement
+    expect(scan.disabled).toBe(true)
+    fireEvent.click(scan)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(window.argus.evidence.scan).not.toHaveBeenCalled()
+
+    unmount()
+    render(<CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />)
+    const live = (await screen.findByRole('button', {
+      name: 'Rescan evidence folder'
+    })) as HTMLButtonElement
+    expect(live.disabled).toBe(false)
+    fireEvent.click(live)
+    await vi.waitFor(() => expect(window.argus.evidence.scan).toHaveBeenCalled())
+  })
+
+  it('withholds the drop target on an archived case, and keeps it on a live one', async () => {
+    // `assertCaseWritable` REFUSES an ingest into an archived case, so a live drop zone here is
+    // an invitation to a red error. Both halves asserted: the footer must still invite a drop
+    // on a live case, or "gating" would just be a broken drop zone everywhere.
+    window.argus.evidence.list = vi.fn(async () => [])
+    const { unmount } = render(
+      <CaseFiles
+        caseSlug="c1"
+        label="Evidence"
+        mode="investigation"
+        archivedAt="2026-08-28T00:00:00Z"
+        onRestore={vi.fn()}
+        {...requiredProps}
+      />
+    )
+    await screen.findByTestId('evidence-archived')
+    expect(screen.getByTestId('evidence-drop-footer')).toHaveTextContent(
+      'restore the case to add evidence'
+    )
+    // and the handler itself is gone, not merely relabelled
+    const dropped = new File(['x'], 'log.txt')
+    fireEvent.drop(screen.getByTestId('evidence-drop-footer').parentElement as HTMLElement, {
+      dataTransfer: { files: [dropped] }
+    })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(window.argus.evidence.ingest).not.toHaveBeenCalled()
+
+    unmount()
+    render(<CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />)
+    await screen.findByText('No evidence yet.')
+    expect(screen.getByTestId('evidence-drop-footer')).toHaveTextContent(
+      'drop files to add evidence'
+    )
+    fireEvent.drop(screen.getByTestId('evidence-drop-footer').parentElement as HTMLElement, {
+      dataTransfer: { files: [dropped] }
+    })
+    await vi.waitFor(() => expect(window.argus.evidence.ingest).toHaveBeenCalled())
+  })
 })

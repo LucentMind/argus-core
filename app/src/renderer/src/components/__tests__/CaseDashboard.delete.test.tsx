@@ -121,7 +121,9 @@ describe('CaseDashboard delete', () => {
     fireEvent.change(screen.getByLabelText('Confirm slug'), { target: { value: 'NAV-1' } })
     expect((confirmBtn as HTMLButtonElement).disabled).toBe(false)
     fireEvent.click(confirmBtn)
-    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('NAV-1'))
+    // The dialog now always states the archive flag rather than relying on `cases.delete`'s
+    // default — `false` here is the same outcome this assertion always described, said out loud.
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('NAV-1', { deleteArchive: false }))
     await waitFor(() => expect(onDeleted).toHaveBeenCalled())
   })
 
@@ -202,6 +204,45 @@ describe('CaseDashboard delete', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete NAV-1' }))
     expect(await screen.findByLabelText('Confirm slug')).toBeTruthy()
     expect(deleteMock).not.toHaveBeenCalled()
+  })
+
+  // The dashboard is the ONLY surface a listed case can be deleted from, so if the dialog does
+  // not learn `archivedAt` from the record, an archived case's bundle can never be removed from
+  // the UI at all — and the dialog's own copy ("permanently deletes … its evidence, chats") is
+  // false about a case whose evidence is sitting in that surviving zip.
+  it('asks the archive question for an archived case and forwards the answer', async () => {
+    const archived = [{ ...cases[0], archivedAt: '2026-08-28T00:00:00Z', archivePath: '/a/z.zip' }]
+    render(
+      <CaseDashboard
+        cases={archived}
+        onOpen={vi.fn()}
+        onNew={vi.fn()}
+        onImport={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Delete NAV-1' }))
+    fireEvent.change(await screen.findByLabelText('Confirm slug'), { target: { value: 'NAV-1' } })
+    // Asserted on the ARGUMENT: a check that `delete` was merely called would pass with the
+    // record's `archivedAt` never reaching the dialog at all.
+    fireEvent.click(screen.getByRole('button', { name: 'Delete everything' }))
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('NAV-1', { deleteArchive: true }))
+  })
+
+  it('offers no archive question for a case that was never archived', async () => {
+    render(
+      <CaseDashboard
+        cases={cases}
+        onOpen={vi.fn()}
+        onNew={vi.fn()}
+        onImport={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Delete NAV-1' }))
+    await screen.findByLabelText('Confirm slug')
+    expect(screen.queryByRole('button', { name: 'Delete everything' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Keep the archive' })).toBeNull()
   })
 
   it('opens the dialog even with a legacy confirmCaseDelete:false on disk', async () => {

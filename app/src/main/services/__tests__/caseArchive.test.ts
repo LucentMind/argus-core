@@ -311,7 +311,7 @@ describe('archiveCase refuses an unstable case and freezes a stable one', () => 
     const { dest, run } = await tryIngest(db, home, slug, 'frozen.log')
     const rowsBefore = evidenceCount(db, slug)
 
-    const freeze = freezeCase(slug)
+    const freeze = freezeCase(slug, 'archive')
     try {
       await expect(run()).rejects.toThrow(/being archived/i)
     } finally {
@@ -402,11 +402,11 @@ describe('the freeze is owner-scoped and non-reentrant', () => {
   })
 
   it('a stale handle cannot release a later freeze of the same slug', () => {
-    const first = freezeCase('FREEZE-OWNER-1')
-    expect(() => freezeCase('FREEZE-OWNER-1')).toThrow(/already being archived/i)
+    const first = freezeCase('FREEZE-OWNER-1', 'archive')
+    expect(() => freezeCase('FREEZE-OWNER-1', 'archive')).toThrow(/already being archived/i)
     first.release()
 
-    const second = freezeCase('FREEZE-OWNER-1')
+    const second = freezeCase('FREEZE-OWNER-1', 'archive')
     first.release() // the previous owner's handle: must be inert now
     expect(isCaseFrozen('FREEZE-OWNER-1'), 'a stale handle released someone else’s freeze').toBe(
       true
@@ -438,7 +438,7 @@ describe('scanEvidence is a write path too, and obeys the freeze', () => {
     const planted = plantUntracked(home, slug, 'rescan-me.log')
     const rowsBefore = evidenceCount(db, slug)
 
-    const freeze = freezeCase(slug)
+    const freeze = freezeCase(slug, 'archive')
     try {
       expect(() => scanEvidence(db, home, createDetection(), scanDeps(db, home), slug)).toThrow(
         /being archived/i
@@ -499,7 +499,7 @@ describe('extraction does not write into a frozen tree before its guard fires', 
       extractFor: () => ({ command: 'no-such-extractor', args: ['{input}', '{output}'] })
     } as unknown as Extractors
 
-    const freeze = freezeCase(slug)
+    const freeze = freezeCase(slug, 'archive')
     try {
       await expect(
         extractDerivedText(db, home, createImmediateQueue(db, home), rec, extractors)
@@ -526,7 +526,7 @@ describe('a frozen or archived case cannot acquire a transcript writer', () => {
       }
     ).n
 
-    const freeze = freezeCase(slug)
+    const freeze = freezeCase(slug, 'archive')
     try {
       // exactly the call RoutinesService makes for an unattended background run
       // (routines/service.ts) — the session the scheduler can start on a timer at any point
@@ -575,7 +575,7 @@ describe('a frozen or archived case cannot acquire a transcript writer', () => {
     )
     const file = path.join(caseDir(home, slug), 'sessions', `${existing + 100}.jsonl`)
 
-    const freeze = freezeCase(slug)
+    const freeze = freezeCase(slug, 'archive')
     try {
       expect(
         () =>

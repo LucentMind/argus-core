@@ -99,11 +99,15 @@ export function CaseFiles({
   mode: ModeId
   /** `CaseRecord.archivedAt`. Non-null means this case's evidence and artifacts are in a bundle
    *  and not on this machine — the empty list below then says that instead of "No evidence
-   *  yet.", which on an archived case is a false claim about a case that had plenty. */
+   *  yet.", which on an archived case is a false claim about a case that had plenty. It also
+   *  turns the drop target off: `assertCaseWritable` REFUSES an ingest into an archived case,
+   *  so a live "drop files to add evidence" footer here is an invitation to a red error. */
   archivedAt?: string | null
   /** Restore the case from its bundle. Rendered as the archived state's only action, so the
-   *  user who just learned the evidence is gone can get it back without hunting for a menu. */
-  onRestore?: () => void
+   *  user who just learned the evidence is gone can get it back without hunting for a menu.
+   *  Return the restore's promise so this component can show a busy state for its whole
+   *  duration — a restore is unzip + verify + reindex, seconds to minutes. */
+  onRestore?: () => void | Promise<void>
   onSuggest?: (text: string) => void
   onOpenFile: (node: FileNode) => void
   panelDecls?: PanelDecl[]
@@ -112,6 +116,7 @@ export function CaseFiles({
   const [rows, setRows] = useState<EvidenceRecord[]>([])
   const [progress, setProgress] = useState<Map<number, RowProgress>>(new Map())
   const [dragOver, setDragOver] = useState(false)
+  const [restoring, setRestoring] = useState(false)
   const [artifactMeta, setArtifactMeta] = useState<ArtifactTypeMeta[]>([])
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [scanning, setScanning] = useState(false)
@@ -424,9 +429,18 @@ export function CaseFiles({
         )}
         <button
           aria-label="Rescan evidence folder"
-          title={scanNote ? `Rescan — last run: ${scanNote}` : 'Rescan evidence folder'}
-          disabled={scanning}
-          className="relative inline-flex h-6 w-6 items-center justify-center rounded-r1 text-dim transition-colors hover:bg-hair hover:text-ink"
+          // Gated on `archivedAt` for the same reason the drop target below is: a scan
+          // registers newly-found files as evidence, which `assertCaseWritable` refuses on an
+          // archived case — and there is no evidence folder on disk to scan in the first place.
+          title={
+            archivedAt
+              ? 'The evidence is archived — restore the case to scan it'
+              : scanNote
+                ? `Rescan — last run: ${scanNote}`
+                : 'Rescan evidence folder'
+          }
+          disabled={scanning || Boolean(archivedAt)}
+          className="relative inline-flex h-6 w-6 items-center justify-center rounded-r1 text-dim transition-colors hover:bg-hair hover:text-ink disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-dim"
           onClick={() => void scan()}
         >
           <RefreshCw
@@ -453,13 +467,21 @@ export function CaseFiles({
       </div>
       {search}
       {deleteError && <p className="text-xs text-danger">{deleteError}</p>}
+      {/* The drop target is withheld entirely on an archived case rather than left live and
+          allowed to fail: `assertCaseWritable` refuses the ingest, so every drop here ends in a
+          red error the user could not have predicted from a footer that said "drop files to add
+          evidence". No handler, no highlight, no invitation. */}
       <div
-        onDragOver={(e) => {
-          e.preventDefault()
-          setDragOver(true)
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => void handleDrop(e)}
+        onDragOver={
+          archivedAt
+            ? undefined
+            : (e) => {
+                e.preventDefault()
+                setDragOver(true)
+              }
+        }
+        onDragLeave={archivedAt ? undefined : () => setDragOver(false)}
+        onDrop={archivedAt ? undefined : (e) => void handleDrop(e)}
         className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-r3 border bg-panel transition-colors ${
           dragOver ? 'border-signal/60 bg-signal/10' : 'border-hair'
         }`}
@@ -528,12 +550,29 @@ export function CaseFiles({
                       not on this machine. Restore the case to search and read it again.
                     </p>
                     {onRestore && (
+                      // Disabled + relabelled for the whole restore, not just optimistically:
+                      // a restore is unzip + verify + reindex, and a second click during it
+                      // hits `freezeCase`, which refuses with a collision error about an
+                      // operation the user did not start twice. `disabled` is what makes that
+                      // unreachable; the label is what stops the first click looking ignored.
                       <button
                         type="button"
-                        className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim transition-colors hover:bg-overlay hover:text-ink"
-                        onClick={onRestore}
+                        disabled={restoring}
+                        className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim transition-colors hover:bg-overlay hover:text-ink disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-dim"
+                        onClick={() => {
+                          if (restoring) return
+                          setRestoring(true)
+                          // The handler owns its own error reporting (CaseWorkspace sends it to
+                          // the notice slot); this only has to clear the busy state either way.
+                          // `.catch` before `.finally` because `finally` re-throws what it was
+                          // handed — without it a rejecting handler leaves an unhandled
+                          // rejection behind on top of the notice it already raised.
+                          void Promise.resolve(onRestore())
+                            .catch(() => undefined)
+                            .finally(() => setRestoring(false))
+                        }}
                       >
-                        Restore from archive
+                        {restoring ? 'Restoring…' : 'Restore from archive'}
                       </button>
                     )}
                   </li>
@@ -544,11 +583,12 @@ export function CaseFiles({
           )}
         </ul>
         <div
+          data-testid="evidence-drop-footer"
           className={`flex h-6 shrink-0 items-center justify-center border-t border-dashed text-[10px] transition-colors ${
             dragOver ? 'border-signal/60 text-signal' : 'border-hair text-mute'
           }`}
         >
-          drop files to add evidence
+          {archivedAt ? 'restore the case to add evidence' : 'drop files to add evidence'}
         </div>
       </div>
     </section>

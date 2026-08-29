@@ -372,6 +372,11 @@ export function CaseDashboard({
       {deleting && (
         <DeleteCaseDialog
           slug={deleting}
+          // Without this the dialog would show its never-archived copy for an ARCHIVED case —
+          // claiming to permanently delete evidence and chats that `cases.delete` leaves
+          // sitting in the bundle — and offer no way to remove that bundle from the only
+          // surface a listed case can be deleted from.
+          archivedAt={cases.find((c) => c.slug === deleting)?.archivedAt ?? null}
           onCancel={() => setDeleting(null)}
           onDeleted={() => {
             setDeleting(null)

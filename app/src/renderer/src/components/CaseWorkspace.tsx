@@ -692,11 +692,17 @@ export function CaseWorkspace({
                 // where the user is looking when they find out the evidence is gone. The
                 // `cases:changed` broadcast the handler emits is what clears `archivedAt` here
                 // (App refetches), so nothing local has to be reconciled on success.
-                onRestore={() => {
-                  void window.argus.cases.restore(slug).catch((err: Error) => {
-                    notice(err.message, 'danger')
-                  })
-                }}
+                // Returned, not fire-and-forget: CaseFiles keeps its Restore button disabled
+                // for exactly as long as this promise is pending, which is what stops a second
+                // click reaching freezeCase's collision refusal mid-restore.
+                onRestore={() =>
+                  window.argus.cases.restore(slug).then(
+                    () => undefined,
+                    (err: Error) => {
+                      notice(err.message, 'danger')
+                    }
+                  )
+                }
                 onSuggest={setPrefill}
                 onOpenFile={onOpenFile}
                 panelDecls={panels.decls}

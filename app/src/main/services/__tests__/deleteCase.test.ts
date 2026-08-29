@@ -276,7 +276,7 @@ describe('deleteCase and the archive bundle', () => {
     // the case out from under it.
     const { db, home, slug } = await seedArchivableCase()
     const res = await archiveCase(db, home, slug, { argusVersion: 'test' })
-    const handle = freezeCase(slug) // archiveCase already released its own; re-freeze to simulate the race
+    const handle = freezeCase(slug, 'archive') // archiveCase already released its own; re-freeze to simulate the race
     try {
       expect(() => deleteCase(db, home, slug, { deleteArchive: true })).toThrow(/being archived/i)
     } finally {
@@ -295,7 +295,7 @@ describe('deleteCase and the archive bundle', () => {
     // user's chats and tore down the watcher and then deleted nothing. The handler now calls
     // this same exported assert first (ordering pinned in main/__tests__/caseArchiveIpc.test.ts).
     const { db, home, slug } = await seedArchivableCase()
-    const handle = freezeCase(slug)
+    const handle = freezeCase(slug, 'archive')
     try {
       // Same rule, same message — not a second copy that can drift from deleteCase's.
       const direct = (() => {

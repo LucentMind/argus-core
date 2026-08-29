@@ -80,17 +80,42 @@ function App(): React.JSX.Element {
   }, [reload])
 
   // `cases:changed` — a case row was archived, restored or deleted, in THIS window or any other.
-  // This one `cases` array feeds both the grid's Archived marker and the case view's
-  // Archive/Restore/Delete affordances, so refetching it here is what stops a second window
-  // offering writes the main process now refuses (an archived case rejects ingest, scan and new
-  // sessions; archiveCase itself refuses an already-archived one). The initiating window would
-  // also learn from its own invoke resolving — that path is not enough, which is the whole
-  // reason the broadcast exists. Guarded like the subscription above: a test's stub bridge need
-  // not populate it.
+  // This one `cases` array is the only source of `archivedAt` in the renderer, and every
+  // affordance that reads it lives downstream of here: the grid's Archived marker (CaseCard), the
+  // anchor's Archive/Restore pair and the shape of its delete prompt (CaseAnchor), and the
+  // evidence pane's archived state and its now-disabled drop target and rescan (CaseFiles).
+  // Refetching is what stops a SECOND window still offering Archive on a case this one just
+  // archived, and still inviting a drop or a rescan the main process would refuse
+  // (assertCaseWritable). It does NOT gate starting a new session: SessionSwitcher and the
+  // composer never receive `archivedAt`, so that refusal still surfaces as an error after the
+  // fact rather than as a withheld affordance.
+  //
+  // The payload is the changed slug, and it is load-bearing: after a DELETE in another window
+  // this window's `view` would otherwise stay on a case that no longer exists — `cases.find()`
+  // returns undefined, the workspace renders an empty title with a defaulted `status: 'open'`
+  // and `archivedAt: null`, and the anchor offers to Archive a phantom. Leave that case.
+  //
+  // The initiating window would also learn from its own invoke resolving — that path is not
+  // enough, which is the whole reason the broadcast exists. Guarded like the subscription
+  // above: a test's stub bridge need not populate it.
   useEffect(() => {
     if (!window.argus?.cases?.onChanged) return
-    return window.argus.cases.onChanged(() => void reload())
-  }, [reload])
+    return window.argus.cases.onChanged((slug) => {
+      void window.argus.cases.list().then((next) => {
+        setCases(next)
+        // Absent from the refetched list ⇒ the change was a delete (archive and restore both
+        // keep the row). Derived from the list rather than from a payload flag so this stays
+        // correct for any future reason a row disappears.
+        if (next.some((c) => c.slug === slug)) return
+        uiStore.closeTab(slug)
+        setViewer((v) => (v && v.kind !== 'evidence' && v.slug === slug ? null : v))
+        setView((v) => (v.kind === 'case' && v.slug === slug ? { kind: 'home' } : v))
+        // prevView is where Settings/Related History return to; a deleted case there would
+        // strand the very same phantom one Escape later.
+        setPrevView((v) => (v.kind === 'case' && v.slug === slug ? { kind: 'home' } : v))
+      })
+    })
+  }, [])
 
   // Mirrors the window's OS full-screen state onto `<html>` for main.css. Here rather than in a
   // component that could unmount: the attribute is document-wide chrome state, and the header
