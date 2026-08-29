@@ -149,6 +149,32 @@ describe('DeleteCaseDialog: what the delete actually destroys', () => {
     expect(body.textContent).toMatch(/importing it, as a new case, never as this one/i)
   })
 
+  it('shows the plain noun while the size is still being weighed, not the no-longer-on-disk copy', async () => {
+    // Three states, not two: `undefined` (still loading) must render distinctly from `null` (no
+    // honest number, e.g. the file is gone). Since the size always arrives over IPC, this loading
+    // render is what every user sees on first paint — collapsing it into the `null` copy would
+    // tell the operator the bundle is missing before the lookup has even returned.
+    let resolveSize: (n: number | null) => void = () => {}
+    archiveSizeMock.mockReturnValue(
+      new Promise<number | null>((resolve) => {
+        resolveSize = resolve
+      })
+    )
+    render(
+      <DeleteCaseDialog
+        slug="C-1"
+        archivedAt="2026-08-28T00:00:00Z"
+        onCancel={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
+    const body = screen.getByText(/archive bundle/i)
+    expect(body.textContent).toMatch(/in the archive bundle:/)
+    expect(body.textContent).not.toMatch(/no longer on disk|MB/)
+    resolveSize(431_984_640)
+    await screen.findByText(/412\.0 MB/)
+  })
+
   it('degrades to size-free copy when the bundle is not on disk', async () => {
     // `archiveSize` answers null when there is no file to stat — an archived row whose zip was
     // moved or removed behind the app's back. The dialog must say so, not render "undefined MB".

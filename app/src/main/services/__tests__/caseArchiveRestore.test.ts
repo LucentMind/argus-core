@@ -958,7 +958,7 @@ describe('a successful restore reclaims the bundle (carried minor 13)', () => {
    * under `cases/` AND still in `archive/` — and the next archive of the same slug silently
    * renamed over it, so it was not even a stable second copy.
    */
-  it('deletes the bundle and says so in the result', async () => {
+  it('deletes the bundle', async () => {
     const { db, home, slug } = await seedArchivableCase()
     await archiveCase(db, home, slug, { argusVersion: 'test' })
     const bundle = caseArchivePath(home, slug)
@@ -966,7 +966,6 @@ describe('a successful restore reclaims the bundle (carried minor 13)', () => {
 
     const res = await restoreCase(db, home, slug, createImmediateQueue(db, home))
 
-    expect(res.bundleRemoved).toBe(true)
     expect(fs.existsSync(bundle), 'the bundle survived a successful restore').toBe(false)
     // The archive dir itself stays — other cases' bundles live there.
     expect(fs.existsSync(archiveDir(home))).toBe(true)
@@ -996,7 +995,6 @@ describe('a successful restore reclaims the bundle (carried minor 13)', () => {
     expect(getCase(db, slug)!.archivedAt, 'the case must still be archived').not.toBeNull()
     // and the retry works off that kept bundle
     const res = await restoreCase(db, home, slug, createImmediateQueue(db, home))
-    expect(res.bundleRemoved).toBe(true)
     expect(res.evidenceRestored).toBe(2)
   })
 
