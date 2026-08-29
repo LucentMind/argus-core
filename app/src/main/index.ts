@@ -27,6 +27,7 @@ import {
   resolveArgusHome,
   dbPath,
   caseDir,
+  caseArchivePath,
   settingsPath,
   configDir,
   writeRootOverride
@@ -161,6 +162,7 @@ import {
   touchCaseOpened
 } from './services/caseService'
 import { archiveCase, restoreCase, sweepStaleStagingDirs } from './services/caseArchive'
+import { bundleBytes } from './services/deletionAudit'
 import { caseLiveWorkReason, busyCaseSlugsOf } from './services/caseLiveWork'
 import { OnboardingService, resolveSampleAssetsDir } from './services/onboarding'
 import {
@@ -2924,6 +2926,25 @@ function registerIpc(): void {
     evidenceChangedB(slug)
     broadcast(IPC.casesChanged, slug)
     return res
+  })
+
+  /**
+   * Size of the case's archive bundle on disk, in bytes, or null when there is no bundle there.
+   *
+   * Exists for the delete confirmation (spec §7: a confirmation that does not name what it
+   * destroys is not a confirmation — the checkbox/choice "states the bundle's actual size").
+   * `CaseRecord` carries `archivePath` but no size, and a size stored on the row would be a
+   * second representation of a fact that lives on the filesystem and can change under us.
+   *
+   * `bundleBytes` is the SAME helper `deleteCase` derives the deletion audit's `archiveBytes`
+   * from, and the path comes from the same `caseArchivePath(argusHome, slug)` that call uses —
+   * so the number the dialog names and the number the audit records cannot drift. Null covers
+   * every "no honest number" case (never archived, bundle moved or deleted behind our back, stat
+   * failure); the renderer degrades to copy that names no size rather than rendering "undefined".
+   */
+  ipcMain.handle(IPC.casesArchiveSize, (_e, slug: string) => {
+    assertSlug(slug)
+    return bundleBytes(caseArchivePath(argusHome, slug))
   })
 
   // Fire-and-forget telemetry from a UI event, and silent on an unknown slug BY DESIGN (see

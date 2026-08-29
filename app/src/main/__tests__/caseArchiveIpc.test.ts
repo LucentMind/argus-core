@@ -33,17 +33,19 @@ describe('the archive IPC channels', () => {
   it('are distinct, real channel strings (guards against a vacuous pass below)', () => {
     expect(IPC.casesArchive).toBe('cases:archive')
     expect(IPC.casesRestore).toBe('cases:restore')
+    expect(IPC.casesArchiveSize).toBe('cases:archive-size')
     expect(IPC.casesTouchOpened).toBe('cases:touch-opened')
     expect(IPC.casesChanged).toBe('cases:changed')
     expect(
       new Set([
         IPC.casesArchive,
         IPC.casesRestore,
+        IPC.casesArchiveSize,
         IPC.casesTouchOpened,
         IPC.casesDelete,
         IPC.casesChanged
       ]).size
-    ).toBe(5)
+    ).toBe(6)
   })
 })
 
@@ -130,6 +132,18 @@ describe('main/index.ts wires the archive handlers', () => {
     expect(body.slice(0, body.indexOf('deleteCase('))).not.toContain('isCaseFrozen')
   })
 
+  it('cases:archive-size reads the SAME bundle path and helper the deletion audit does', () => {
+    // Spec §7's "states the bundle's actual size" is only true if it is the size of the file the
+    // delete would actually remove. `deleteCase` derives its audit's `archiveBytes` from
+    // `bundleBytes(caseArchivePath(argusHome, slug))`; a second derivation here — a stored
+    // column, a `rec.archivePath` read, a fresh statSync — is a second representation of one
+    // fact, and this repo's recurring defect is exactly those two drifting apart.
+    const body = handlerBody('IPC.casesArchiveSize')
+    expect(body).toContain('assertSlug(slug)')
+    expect(body).toContain('bundleBytes(caseArchivePath(argusHome, slug))')
+    expect(body).not.toMatch(/statSync|getCase\(|archivePath/)
+  })
+
   it('cases:delete announces the case-row change to every window', () => {
     // The delete dialog's `onDeleted()` callback reaches only the window that opened it.
     expect(handlerBody('IPC.casesDelete')).toContain('broadcast(IPC.casesChanged, slug)')
@@ -150,6 +164,12 @@ describe('preload/index.ts bridges them', () => {
 
   it('passes delete options through instead of dropping them at the bridge', () => {
     expect(preloadSrc).toMatch(/invoke\(IPC\.casesDelete, slug, opts\)/)
+  })
+
+  it('exposes archiveSize, the number the delete confirmation names', () => {
+    expect(preloadSrc).toMatch(
+      /archiveSize: \(slug: string\): Promise<number \| null> =>\s*\n?\s*invoke\(IPC\.casesArchiveSize, slug\)/
+    )
   })
 
   it('makes touchOpened genuinely fire-and-forget instead of only claiming to be', () => {

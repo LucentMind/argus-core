@@ -221,6 +221,10 @@ const argus = {
     archive: (slug: string): Promise<ArchiveResult> => invoke(IPC.casesArchive, slug),
     /** Rehydrate an archived case in place from its bundle. */
     restore: (slug: string): Promise<RestoreResult> => invoke(IPC.casesRestore, slug),
+    /** Bytes of this case's archive bundle on disk, or null when there is no bundle to weigh —
+     *  never archived, or the zip has since moved. Read off the file, never off the row, so it
+     *  cannot drift from what a delete would actually destroy. */
+    archiveSize: (slug: string): Promise<number | null> => invoke(IPC.casesArchiveSize, slug),
     /**
      * Stamp last_opened_at. Genuinely fire-and-forget, and the `.catch` is what makes that
      * true: the handler's `assertSlug` REJECTS on a malformed slug, so returning the raw
