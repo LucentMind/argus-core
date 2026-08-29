@@ -75,7 +75,7 @@ describe('writeReportMarkdown refuses a case whose bundle is being or has been s
   it('throws while the case is frozen, and leaves the file byte-identical', () => {
     createCase(db, home, { slug: 'case-f', title: 'Case F' })
     seed('case-f', '# exec', '# tech')
-    const freeze = freezeCase('case-f')
+    const freeze = freezeCase('case-f', 'archive')
     try {
       expect(() => writeReportMarkdown(db, home, 'case-f', 'exec', '# snuck in')).toThrow(
         /being archived/i

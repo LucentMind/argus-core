@@ -113,20 +113,25 @@ export function CaseCard({
             c.jiraPriority && <Chip tone="neutral">{c.jiraPriority}</Chip>
           )}
         </span>
-        {/* Triage-phase vocabulary (open/analyzing/etc.) never applied to a routine case — it was
-            never a defect under analysis, so "Analyzing" here would claim work no human started.
-            The Routine chip below already says what this card actually is. */}
-        {/* Beside the phase readout rather than down in the action-items row: that row renders
-            only when there is something to say, and an archived case must never be
-            indistinguishable from a live one. Neutral, not a warning tone — archiving is a
-            normal end state, and it is reversible. */}
-        {c.archivedAt && <Chip tone="neutral">Archived</Chip>}
-        {c.origin !== 'routine' && (
-          <span className={`flex shrink-0 items-center gap-1.5 text-xs ${PHASE_COLOR[c.phase]}`}>
-            <StatusDot color={PHASE_COLOR[c.phase]} />
-            {phaseLabel(c)}
-          </span>
-        )}
+        {/* One right-hand group, not two more children of the justify-between row: a third
+            child there put the chip in the MIDDLE of the row on a non-routine card, nowhere
+            near the phase readout its own comment claims it sits beside. */}
+        <span className="flex shrink-0 items-center gap-1.5">
+          {/* Beside the phase readout rather than down in the action-items row: that row renders
+              only when there is something to say, and an archived case must never be
+              indistinguishable from a live one. Neutral, not a warning tone — archiving is a
+              normal end state, and it is reversible. */}
+          {c.archivedAt && <Chip tone="neutral">Archived</Chip>}
+          {/* Triage-phase vocabulary (open/analyzing/etc.) never applied to a routine case — it
+              was never a defect under analysis, so "Analyzing" here would claim work no human
+              started. The Routine chip below already says what this card actually is. */}
+          {c.origin !== 'routine' && (
+            <span className={`flex shrink-0 items-center gap-1.5 text-xs ${PHASE_COLOR[c.phase]}`}>
+              <StatusDot color={PHASE_COLOR[c.phase]} />
+              {phaseLabel(c)}
+            </span>
+          )}
+        </span>
       </div>
       <h2
         data-testid="case-title"

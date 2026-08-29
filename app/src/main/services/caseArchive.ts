@@ -160,7 +160,7 @@ export async function archiveCase(
   // unfreeze the SECOND one mid-verify, reopening the exact write window this all exists to
   // close. It throws before anything is created, so a refused attempt leaves the case
   // untouched.
-  const freeze = freezeCase(slug)
+  const freeze = freezeCase(slug, 'archive')
   try {
     return await archiveFrozenCase(db, argusHome, slug, rec.id, opts, deps)
   } finally {
@@ -578,7 +578,7 @@ export async function restoreCase(
 
   // Frozen for the whole operation, verification included: freezeCase also refuses a second,
   // overlapping restore of the same slug, the same way it refuses a second archive.
-  const freeze = freezeCase(slug)
+  const freeze = freezeCase(slug, 'restore')
   let counts: { evidenceRestored: number; sessionsRestored: number }
   try {
     counts = await restoreFrozenCase(db, argusHome, slug, rec.id, bundlePath, deps)

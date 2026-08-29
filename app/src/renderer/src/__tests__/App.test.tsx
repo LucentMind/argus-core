@@ -12,6 +12,42 @@ import { uiStore } from '../lib/uiStore'
 import { proposalsStore } from '../lib/proposalsStore'
 import { __resetEscapeLayersForTest } from '../lib/escapeLayer'
 import { defaultSettings, type SettingsPayload } from '../../../shared/settings'
+import { DEFAULT_MODE } from '../../../shared/modes'
+import type { CaseRecord } from '../../../shared/types'
+
+/** Minimal live case row — only the fields App itself threads matter here. */
+function mkCase(patch: Partial<CaseRecord> = {}): CaseRecord {
+  return {
+    id: 1,
+    slug: 'ARC-1',
+    origin: 'user',
+    reviewState: null,
+    title: 'a case',
+    jiraKey: null,
+    ticketProvider: 'jira',
+    jiraSyncedAt: null,
+    jiraDeselected: [],
+    jiraStatus: null,
+    jiraPriority: null,
+    jiraCommentCount: null,
+    jiraAttachmentIds: [],
+    reviewBaseline: null,
+    lastSyncError: null,
+    status: 'open',
+    resolution: null,
+    phase: 'open',
+    activeMode: DEFAULT_MODE,
+    tags: [],
+    createdAt: '2026-07-01T00:00:00.000Z',
+    updatedAt: '2026-08-01T00:00:00.000Z',
+    actionItems: [],
+    lastWorkedAt: null,
+    archivedAt: null,
+    archivePath: null,
+    lastOpenedAt: null,
+    ...patch
+  }
+}
 
 /**
  * A thin pass-through wrapper, not a behaviour change: every call delegates straight to the real
@@ -54,6 +90,22 @@ vi.mock('../components/onboarding/OnboardingProvider', () => ({
   }
 }))
 
+/**
+ * The case view is mocked to a props capture for the same reason OnboardingProvider is: what
+ * App owns at a case view is the WIRING — which slug it shows and which case record it threads
+ * — not the workspace's own internals, which `CaseWorkspace.test.tsx` covers against its own
+ * bridge. Mounting the real one here would drag in the entire agent/sessions/pr/panels surface
+ * for a navigation assertion. `TopBar` (and therefore `CaseAnchor`) is NOT mocked, so the
+ * archive affordances this suite asserts on are the real components.
+ */
+let lastCaseWorkspaceSlug: string | null = null
+vi.mock('../components/CaseWorkspace', () => ({
+  CaseWorkspace: (props: { slug: string }) => {
+    lastCaseWorkspaceSlug = props.slug
+    return null
+  }
+}))
+
 function settingsPayload(): SettingsPayload {
   const settings = defaultSettings()
   settings.onboarding.completedAt = '2026-01-01T00:00:00.000Z'
@@ -92,10 +144,47 @@ beforeEach(() => {
   uiStore.setDynamicTheme(false)
   lastAmbientCanvasProps = null
   lastOnboardingNavigate = null
+  lastCaseWorkspaceSlug = null
   fireFocusInbox = null
+  // uiStore is a module-level singleton; a case tab opened by one test would otherwise leak
+  // into the next one's recentTabs assertions.
+  for (const t of [...uiStore.get().recentTabs]) uiStore.closeTab(t)
   window.argus = {
     cases: {
-      list: vi.fn(async () => [])
+      list: vi.fn(async () => [] as CaseRecord[]),
+      // App subscribes to the all-window `cases:changed` broadcast (archive/restore/delete).
+      // Populated here on purpose: with this key absent the subscription's
+      // `if (!window.argus?.cases?.onChanged) return` guard returns before the body, and the
+      // whole mechanism could be deleted with this suite still green.
+      onChanged: vi.fn(() => () => {}),
+      // CaseAnchor (rendered by the real TopBar at a case view) acts on these.
+      setStatus: vi.fn(async () => undefined),
+      delete: vi.fn(async () => undefined),
+      archive: vi.fn(async () => ({ slug: 'ARC-1', bundlePath: '/a/ARC-1.zip' })),
+      restore: vi.fn(async () => ({ slug: 'ARC-1' }))
+    },
+    // CaseAnchor's distill row (useDistillJob) subscribes on mount.
+    distill: {
+      status: vi.fn(async () => null),
+      onChanged: vi.fn(() => () => {}),
+      redistill: vi.fn(async () => null),
+      cancel: vi.fn(async () => null),
+      needsRun: vi.fn(async () => true)
+    },
+    bundle: {
+      export: vi.fn(async () => ({ ok: true, fileCount: 0 })),
+      inspect: vi.fn(async () => null)
+    },
+    // CaseDashboard's prStatusStore reads the PR cache for every listed case; with an empty
+    // case list this was never reached, so the stub only became necessary once the tests below
+    // started listing real rows.
+    pr: {
+      statusList: vi.fn(async () => []),
+      onStatusChanged: vi.fn(() => () => {})
+    },
+    // TopBar's ModeSwitcher, rendered beside CaseAnchor at a case view.
+    modes: {
+      available: vi.fn(async () => ['investigation'])
     },
     panels: {
       onCite: vi.fn(() => () => {}),
@@ -474,5 +563,103 @@ describe('App: routines focus-inbox channel', () => {
     await userEvent.click(screen.getByLabelText('Settings'))
 
     expect(screen.getByLabelText('Settings sections')).toBeInTheDocument()
+  })
+})
+
+describe('App: cases refetch on the cases:changed broadcast', () => {
+  // The whole per-window mechanism for archiving. `cases` is the ONLY source of `archivedAt` in
+  // the renderer: it feeds the grid's Archived chip, the anchor's Archive/Restore pair and the
+  // shape of its delete prompt, and the evidence pane's archived state and disabled drop target.
+  // Without this subscription a second window keeps offering Archive on a case this one just
+  // archived. Nothing else in the renderer suite populates `cases.onChanged`, so before these
+  // tests the effect's own bridge guard meant its body never ran anywhere.
+  it('refetches the case list when a case is archived, restored or deleted', async () => {
+    render(<App />)
+    // Not necessarily 1 — OnboardingProvider is mocked out here but the dashboard and others
+    // still read the list. Measure the delta, the way the routines test above does.
+    await waitFor(() => expect(window.argus.cases.list as Mock).toHaveBeenCalled())
+    const before = (window.argus.cases.list as Mock).mock.calls.length
+    const onChangedMock = window.argus.cases.onChanged as Mock
+    expect(onChangedMock.mock.calls.length).toBeGreaterThan(0)
+    await act(async () => {
+      onChangedMock.mock.calls.forEach(([cb]) => (cb as (slug: string) => void)('ARC-1'))
+    })
+    await waitFor(() =>
+      expect((window.argus.cases.list as Mock).mock.calls.length).toBeGreaterThan(before)
+    )
+  })
+
+  // A broadcast whose slug survives the refetch is an archive or a restore: the row is still
+  // there, only its `archivedAt` moved. The window must stay exactly where it is — this is the
+  // guard against "clear the view on any broadcast", which would eject a user from a case
+  // someone else merely archived.
+  it('stays on a case that was archived rather than deleted', async () => {
+    ;(window.argus.cases.list as Mock).mockResolvedValue([mkCase()])
+    render(<App />)
+    await waitFor(() => expect(lastOnboardingNavigate).not.toBeNull())
+    await act(async () => lastOnboardingNavigate!('case', 'ARC-1'))
+    expect(screen.getByRole('button', { name: 'Case actions · ARC-1' })).toBeInTheDocument()
+
+    ;(window.argus.cases.list as Mock).mockResolvedValue([
+      mkCase({ archivedAt: '2026-08-28T00:00:00Z', archivePath: '/a/ARC-1.zip' })
+    ])
+    await act(async () => {
+      ;(window.argus.cases.onChanged as Mock).mock.calls.forEach(([cb]) =>
+        (cb as (slug: string) => void)('ARC-1')
+      )
+    })
+    expect(screen.getByRole('button', { name: 'Case actions · ARC-1' })).toBeInTheDocument()
+    // and the fresh `archivedAt` reached the anchor: Archive is gone, Restore is offered
+    await userEvent.click(screen.getByRole('button', { name: 'Case actions · ARC-1' }))
+    expect(screen.getByText('Restore from archive')).toBeInTheDocument()
+    expect(screen.queryByText('Archive case…')).toBeNull()
+  })
+
+  // The delete case. `cases.find(slug)` now returns undefined, so the workspace would render an
+  // empty title with a defaulted `status: 'open'` and `archivedAt: null` — an anchor offering to
+  // Archive a case that no longer exists. The broadcast carries the slug precisely so this
+  // window can leave.
+  it('leaves a case that was deleted in another window instead of showing a phantom', async () => {
+    ;(window.argus.cases.list as Mock).mockResolvedValue([mkCase()])
+    render(<App />)
+    await waitFor(() => expect(lastOnboardingNavigate).not.toBeNull())
+    await act(async () => lastOnboardingNavigate!('case', 'ARC-1'))
+    expect(screen.getByRole('button', { name: 'Case actions · ARC-1' })).toBeInTheDocument()
+    expect(lastCaseWorkspaceSlug).toBe('ARC-1')
+    expect(uiStore.get().recentTabs).toContain('ARC-1')
+
+    // the other window's delete: the row is gone from the refetched list
+    ;(window.argus.cases.list as Mock).mockResolvedValue([])
+    await act(async () => {
+      ;(window.argus.cases.onChanged as Mock).mock.calls.forEach(([cb]) =>
+        (cb as (slug: string) => void)('ARC-1')
+      )
+    })
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Case actions · ARC-1' })).toBeNull()
+    )
+    // and the deleted case is not left sitting in the tab strip either
+    expect(uiStore.get().recentTabs).not.toContain('ARC-1')
+  })
+
+  // Guards the over-broad fix: a delete of some OTHER case must not eject this window from the
+  // case it is showing. Without the slug comparison, "the list changed" alone would.
+  it('stays put when a different case is deleted elsewhere', async () => {
+    ;(window.argus.cases.list as Mock).mockResolvedValue([
+      mkCase(),
+      mkCase({ id: 2, slug: 'OTHER-9' })
+    ])
+    render(<App />)
+    await waitFor(() => expect(lastOnboardingNavigate).not.toBeNull())
+    await act(async () => lastOnboardingNavigate!('case', 'ARC-1'))
+    expect(screen.getByRole('button', { name: 'Case actions · ARC-1' })).toBeInTheDocument()
+
+    ;(window.argus.cases.list as Mock).mockResolvedValue([mkCase()])
+    await act(async () => {
+      ;(window.argus.cases.onChanged as Mock).mock.calls.forEach(([cb]) =>
+        (cb as (slug: string) => void)('OTHER-9')
+      )
+    })
+    expect(screen.getByRole('button', { name: 'Case actions · ARC-1' })).toBeInTheDocument()
   })
 })

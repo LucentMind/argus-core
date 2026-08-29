@@ -7,6 +7,7 @@ import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm } from '../../lib/confirmStore'
 import { caseBarStore } from '../../lib/caseBarStore'
+import { noticeStore } from '../../lib/noticeStore'
 import { sessionsStore } from '../../lib/sessionsStore'
 import { clearCatalogStore } from '../../lib/catalogStore'
 import { defaultSettings, settingsSchema, type SettingsPayload } from '../../../../shared/settings'
@@ -232,11 +233,13 @@ function workspace(
   overrides?: {
     activeMode?: ModeId
     onModeSwitched?: () => void
+    archivedAt?: string | null
   }
 ): React.JSX.Element {
   return (
     <CaseWorkspace
       slug={slug}
+      archivedAt={overrides?.archivedAt ?? null}
       activeMode={overrides?.activeMode ?? DEFAULT_MODE}
       caseTitle="a case"
       jiraKey={null}
@@ -253,6 +256,7 @@ function workspace(
 function renderWorkspace(overrides?: {
   activeMode?: ModeId
   onModeSwitched?: () => void
+  archivedAt?: string | null
 }): ReturnType<typeof render> {
   return render(workspace('NAV-1', overrides))
 }
@@ -1521,5 +1525,38 @@ describe('evidence section per mode', () => {
     render(workspace('NAV-1', { activeMode: 'investigation' }))
     expect(await screen.findByText('Evidence')).toBeInTheDocument()
     expect(screen.getByPlaceholderText(/search evidence/i)).toBeInTheDocument()
+  })
+})
+
+describe('CaseWorkspace: archived case', () => {
+  // `archivedAt` is OPTIONAL on both CaseWorkspace and CaseFiles, so the one line that threads
+  // it (`archivedAt={archivedAt ?? null}` on the CaseFiles element) could be deleted with the
+  // whole renderer suite and `tsc -p tsconfig.web.json` still green — while the archived
+  // evidence pane became unreachable in the real app. These two tests are the wire.
+  it('threads archivedAt down to the evidence pane', async () => {
+    renderWorkspace({ archivedAt: '2026-08-28T00:00:00Z' })
+    // The archived state is CaseFiles' own; seeing it here proves the value arrived.
+    expect(await screen.findByTestId('evidence-archived')).toBeInTheDocument()
+    expect(screen.queryByText('No evidence yet.')).toBeNull()
+  })
+
+  it('leaves the ordinary empty state alone on a live case', async () => {
+    renderWorkspace()
+    expect(await screen.findByText('No evidence yet.')).toBeInTheDocument()
+    expect(screen.queryByTestId('evidence-archived')).toBeNull()
+  })
+
+  it('restores through the evidence pane and reports a failure as a notice', async () => {
+    // The other half of the same wire: the pane's Restore action must reach the IPC bridge, and
+    // its rejection must surface rather than being swallowed into a button that just re-enables.
+    window.argus.cases.restore = vi.fn(async () => {
+      throw new Error('bundle checksum mismatch')
+    })
+    noticeStore.reset()
+    renderWorkspace({ archivedAt: '2026-08-28T00:00:00Z' })
+    fireEvent.click(await screen.findByRole('button', { name: 'Restore from archive' }))
+    await vi.waitFor(() => expect(window.argus.cases.restore).toHaveBeenCalledWith('NAV-1'))
+    await vi.waitFor(() => expect(noticeStore.get().notices).toHaveLength(1))
+    expect(noticeStore.get().notices[0].message).toBe('bundle checksum mismatch')
   })
 })

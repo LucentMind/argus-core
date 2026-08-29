@@ -26,7 +26,10 @@ export function Chip({
   'aria-label'?: string
   children: ReactNode
 }): React.JSX.Element {
-  const cls = `inline-flex items-center gap-1 rounded-r1 border bg-hair/50 px-1.5 py-0.5 font-mono text-[10.5px] uppercase tracking-wide ${CHIP_TONES[tone]}`
+  // `shrink-0` on the primitive, not per call site: a chip is a fixed label, and every one of
+  // them lives in a flex row that would otherwise squash it to an ellipsis under pressure.
+  // Chip takes no `className`, so this is the only place it can be said.
+  const cls = `inline-flex shrink-0 items-center gap-1 rounded-r1 border bg-hair/50 px-1.5 py-0.5 font-mono text-[10.5px] uppercase tracking-wide ${CHIP_TONES[tone]}`
   if (onClick) {
     return (
       <button

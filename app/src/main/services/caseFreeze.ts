@@ -26,7 +26,19 @@ import type { DatabaseSync } from 'node:sqlite'
  * inside. `freezeCase` now refuses a slug that is already frozen, and only the returned
  * handle can release it.
  */
-const frozen = new Map<string, symbol>()
+const frozen = new Map<string, { token: symbol; operation: FreezeOperation }>()
+
+/**
+ * Which long operation holds (or would hold) the freeze. Recorded with the token because the
+ * refusal messages below are USER-FACING and previously said "already being archived" for both
+ * — a second Restore click reported a collision with an archive nobody started.
+ */
+export type FreezeOperation = 'archive' | 'restore'
+
+const IN_PROGRESS: Record<FreezeOperation, string> = {
+  archive: 'archived',
+  restore: 'restored'
+}
 
 /** A freeze that only its owner can release. Returned by `freezeCase`; call `release()` in a
  *  `finally` so no throw can leave a case permanently unwritable. */
@@ -42,24 +54,27 @@ export interface FreezeHandle {
  * freeze plus a slug-keyed release means whichever holder finishes first unfreezes the case
  * for everybody, including a concurrent archive still inside its verify window. The message
  * is user-facing — a double-clicked archive button, two windows, or a retry over a slow
- * first attempt all land here.
+ * first attempt all land here — so it names the operation ALREADY RUNNING (the holder's), not
+ * the one being attempted: "wait for that operation to finish" is only actionable if the user
+ * can tell which operation that is.
  *
  * Callers MUST pair this with `handle.release()` in a `finally`.
  */
-export function freezeCase(slug: string): FreezeHandle {
-  if (frozen.has(slug)) {
+export function freezeCase(slug: string, operation: FreezeOperation): FreezeHandle {
+  const held = frozen.get(slug)
+  if (held) {
     throw new Error(
-      `Case ${slug} is already being archived. Wait for that operation to finish before starting another.`
+      `Case ${slug} is already being ${IN_PROGRESS[held.operation]}. Wait for that operation to finish before starting another.`
     )
   }
   const token = Symbol(slug)
-  frozen.set(slug, token)
+  frozen.set(slug, { token, operation })
   return {
     slug,
     release(): void {
       // Identity-checked: a stale handle from an earlier, already-released freeze must never
       // release the freeze a LATER archive of the same slug now holds.
-      if (frozen.get(slug) === token) frozen.delete(slug)
+      if (frozen.get(slug)?.token === token) frozen.delete(slug)
     }
   }
 }
@@ -97,9 +112,13 @@ export function isCaseArchived(db: DatabaseSync, slug: string): boolean {
  * IPC handler already does, via `getCase`). So a passing call does not prove there is a row.
  */
 export function assertCaseWritable(db: DatabaseSync, slug: string): void {
-  if (frozen.has(slug)) {
+  const held = frozen.get(slug)
+  if (held) {
+    // Names the operation actually holding the freeze, for the same reason `freezeCase`'s
+    // refusal does: "try again once archiving finishes" during a RESTORE tells the user to wait
+    // for something that is not running.
     throw new Error(
-      `Case ${slug} is being archived right now and cannot accept new files. Try again once archiving finishes.`
+      `Case ${slug} is being ${IN_PROGRESS[held.operation]} right now and cannot accept new files. Try again once that operation finishes.`
     )
   }
   if (isCaseArchived(db, slug)) {
