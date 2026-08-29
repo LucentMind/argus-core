@@ -328,6 +328,32 @@ describe('deleteCase and the archive bundle', () => {
     expect(() => assertCaseDeletable(slug)).not.toThrow()
   })
 
+  it('names RESTORING, not archiving, when the delete is refused during a restore', async () => {
+    // The wrong-operation defect, third door. `freezeCase` and `assertCaseWritable` were both
+    // taught to name the operation actually holding the freeze; this refusal still hardcoded
+    // "archived". A user clicks Restore (unzip + verify + reindex — a visible window), opens
+    // the anchor, picks `Delete case…`, and is told to wait for an archive nobody started.
+    // Asserted BOTH ways: saying "restored" is not enough if it also still says "archived".
+    const { db, home, slug } = await seedArchivableCase()
+    const handle = freezeCase(slug, 'restore')
+    try {
+      const msg = (() => {
+        try {
+          assertCaseDeletable(slug)
+          return null
+        } catch (e) {
+          return (e as Error).message
+        }
+      })()
+      expect(msg).toMatch(/being restored/i)
+      expect(msg).not.toMatch(/archiv/i)
+      // and deleteCase's own refusal is the same sentence, not a second copy
+      expect(() => deleteCase(db, home, slug)).toThrow(/being restored/i)
+    } finally {
+      handle.release()
+    }
+  })
+
   it('never touches proposals', async () => {
     const { db, home, slug } = await seedArchivableCase()
     seedProposals(home, slug) // one pending, one archived reject

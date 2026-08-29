@@ -99,9 +99,16 @@ vi.mock('../components/onboarding/OnboardingProvider', () => ({
  * archive affordances this suite asserts on are the real components.
  */
 let lastCaseWorkspaceSlug: string | null = null
+// Captured too, and asserted on below: `archivedAt` is the TOP of the archived-case chain
+// (App → CaseWorkspace → CaseFiles → the archived pane, its gated drop target and its gated
+// rescan). The prop is now required on `CaseWorkspaceProps`, so deleting App's one line is a
+// type error as well — but a capture-and-assert is what proves the RIGHT value arrives, which
+// no type can say.
+let lastCaseWorkspaceArchivedAt: string | null | undefined = undefined
 vi.mock('../components/CaseWorkspace', () => ({
-  CaseWorkspace: (props: { slug: string }) => {
+  CaseWorkspace: (props: { slug: string; archivedAt: string | null }) => {
     lastCaseWorkspaceSlug = props.slug
+    lastCaseWorkspaceArchivedAt = props.archivedAt
     return null
   }
 }))
@@ -145,6 +152,7 @@ beforeEach(() => {
   lastAmbientCanvasProps = null
   lastOnboardingNavigate = null
   lastCaseWorkspaceSlug = null
+  lastCaseWorkspaceArchivedAt = undefined
   fireFocusInbox = null
   // uiStore is a module-level singleton; a case tab opened by one test would otherwise leak
   // into the next one's recentTabs assertions.
@@ -599,6 +607,8 @@ describe('App: cases refetch on the cases:changed broadcast', () => {
     await waitFor(() => expect(lastOnboardingNavigate).not.toBeNull())
     await act(async () => lastOnboardingNavigate!('case', 'ARC-1'))
     expect(screen.getByRole('button', { name: 'Case actions · ARC-1' })).toBeInTheDocument()
+    // Before: a live case reaches the workspace as archivedAt null, not undefined.
+    expect(lastCaseWorkspaceArchivedAt).toBeNull()
 
     ;(window.argus.cases.list as Mock).mockResolvedValue([
       mkCase({ archivedAt: '2026-08-28T00:00:00Z', archivePath: '/a/ARC-1.zip' })
@@ -609,6 +619,10 @@ describe('App: cases refetch on the cases:changed broadcast', () => {
       )
     })
     expect(screen.getByRole('button', { name: 'Case actions · ARC-1' })).toBeInTheDocument()
+    // The fresh `archivedAt` reached the WORKSPACE — the wire that carries the archived
+    // evidence pane, its gated drop target and its gated rescan. Asserted on the value, not
+    // merely on it being non-null: this is the only test that pins App.tsx's one line.
+    expect(lastCaseWorkspaceArchivedAt).toBe('2026-08-28T00:00:00Z')
     // and the fresh `archivedAt` reached the anchor: Archive is gone, Restore is offered
     await userEvent.click(screen.getByRole('button', { name: 'Case actions · ARC-1' }))
     expect(screen.getByText('Restore from archive')).toBeInTheDocument()

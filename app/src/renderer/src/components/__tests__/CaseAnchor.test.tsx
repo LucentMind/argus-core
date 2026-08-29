@@ -15,6 +15,9 @@ let needsRunMock: ReturnType<typeof vi.fn>
 let deleteMock: ReturnType<typeof vi.fn>
 let archiveMock: ReturnType<typeof vi.fn>
 let restoreMock: ReturnType<typeof vi.fn>
+/** The default bridge's `distill.onChanged` callback, captured so a test can fire an unrelated
+ *  distill broadcast at a component that is busy doing something else. */
+let distillOnChangedCb: ((p: DistillStatusPayload) => void) | undefined
 
 beforeEach(() => {
   noticeStore.reset()
@@ -25,8 +28,12 @@ beforeEach(() => {
   exportMock.mockResolvedValue({ ok: true, fileCount: 12 })
   statusMock = vi.fn()
   statusMock.mockResolvedValue(null)
-  const onChangedMock = vi.fn()
-  onChangedMock.mockReturnValue(() => {})
+  distillOnChangedCb = undefined
+  // Same disposer contract as before; it only also records the callback.
+  const onChangedMock = vi.fn((cb: (p: DistillStatusPayload) => void) => {
+    distillOnChangedCb = cb
+    return () => {}
+  })
   redistillMock = vi.fn()
   redistillMock.mockResolvedValue(undefined)
   cancelMock = vi.fn()
@@ -765,7 +772,10 @@ describe('archive actions: honest copy and gated rows', () => {
     // This file has no jest-dom matchers; read the property directly.
     const row = screen.getByRole('menuitem', { name: 'Archive case…' }) as HTMLButtonElement
     expect(row.disabled).toBe(true)
-    expect(row.getAttribute('title')).toBe('An archive or restore is already running')
+    // The title names the operation ACTUALLY in flight. It used to read off the shared
+    // `pending` flag — which the distill and dry-run rows also set — and say "an archive or
+    // restore is already running" during a plain distillation, which was false.
+    expect(row.getAttribute('title')).toBe('An archive is already running for this case')
   })
 
   it('disables the restore row while a restore is already running', async () => {
@@ -778,5 +788,64 @@ describe('archive actions: honest copy and gated rows', () => {
     await openMenu(user)
     const row = screen.getByRole('menuitem', { name: 'Restore from archive' }) as HTMLButtonElement
     expect(row.disabled).toBe(true)
+    // Symmetric with the archive twin above, and load-bearing for the same reason: the title is
+    // the half that catches the row describing an operation that is not the one running.
+    expect(row.getAttribute('title')).toBe('A restore is already running for this case')
+  })
+
+  it('does not offer archive/restore as busy merely because a distillation is running', async () => {
+    // `pending` is set by the Re-distill row and the Dry run row. While it was shared, starting
+    // a distillation disabled Archive under a tooltip asserting an archive was running.
+    redistillMock.mockReturnValue(new Promise(() => {}))
+    const user = userEvent.setup()
+    renderAnchor({ archivedAt: null })
+    await openMenu(user)
+    fireEvent.click(screen.getByText('Distill'))
+    await vi.waitFor(() => expect(redistillMock).toHaveBeenCalled())
+    await openMenu(user)
+    const row = screen.getByRole('menuitem', { name: 'Archive case…' }) as HTMLButtonElement
+    expect(row.disabled).toBe(false)
+    expect(row.getAttribute('title')).toBeNull()
+  })
+
+  it('keeps the archive row disabled when an unrelated distill broadcast lands mid-archive', async () => {
+    // The render-adjust block clears `pending` whenever the tracked distill job changes
+    // identity — a stuck-forever guard is the hazard it exists for. While archive shared that
+    // flag, ANY `distill:changed` broadcast for this case re-enabled the Archive row in the
+    // middle of a running archive, undoing the guard entirely. Archive/restore now own a flag
+    // nothing else writes.
+    archiveMock.mockReturnValue(new Promise(() => {}))
+    const user = userEvent.setup()
+    renderAnchor({ archivedAt: null })
+    await openMenu(user)
+    fireEvent.click(screen.getByText('Archive case…'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive' }))
+    await vi.waitFor(() => expect(archiveMock).toHaveBeenCalled())
+
+    // an unrelated distillation for this same case starts and is broadcast
+    act(() => {
+      distillOnChangedCb?.({
+        caseSlug: 'NN-5187',
+        job: {
+          id: 42,
+          caseSlug: 'NN-5187',
+          state: 'running',
+          error: null,
+          itemCount: null,
+          createdAt: 't',
+          finishedAt: null,
+          costUsd: null,
+          turnCount: null,
+          toolCallCount: null,
+          promptChars: null,
+          dryRun: false
+        }
+      })
+    })
+
+    await openMenu(user)
+    const row = screen.getByRole('menuitem', { name: 'Archive case…' }) as HTMLButtonElement
+    expect(row.disabled).toBe(true)
+    expect(row.getAttribute('title')).toBe('An archive is already running for this case')
   })
 })

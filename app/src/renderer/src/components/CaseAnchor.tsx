@@ -25,6 +25,14 @@ import type { DistillJobRow } from '../../../shared/distill'
  * have no `×` — the active case is not in the tab strip any more, so there is no `×` to press.
  */
 
+/** The tooltip on a disabled Archive/Restore row, keyed on the operation actually in flight.
+ *  One table so the two rows cannot drift into describing different operations, and so neither
+ *  can assert an archive when what is running is a restore. */
+const BUSY_TITLE: Record<'archive' | 'restore', string> = {
+  archive: 'An archive is already running for this case',
+  restore: 'A restore is already running for this case'
+}
+
 /** The confirm dialog's checkbox content. Its own `useState` gives it independent re-renders
  *  inside `ConfirmHost`'s static `message` tree; `onChange` reports the current value back to
  *  the caller via closure, since `confirm()` itself only ever resolves accept/cancel. */
@@ -74,6 +82,16 @@ export function CaseAnchor({
   const tracked = useDistillJob(slug)
   const [override, setOverride] = useState<DistillJobRow | null>(null)
   const [pending, setPending] = useState(false)
+  // Archive/restore get their OWN busy flag rather than sharing `pending` with the distill and
+  // dry-run rows. Two reasons, and both are real defects the shared flag had:
+  //  - the tooltip. `pending` is set by the distill row and the dry-run row, so during a
+  //    distillation these rows rendered disabled under "An archive or restore is already
+  //    running", which was simply false.
+  //  - the guard. The render-adjust block below calls `setPending(false)` whenever the tracked
+  //    distill job changes identity, so an unrelated `distill:changed` broadcast RE-ENABLED the
+  //    Archive row mid-archive. This flag is owned by these two handlers alone and nothing
+  //    else clears it.
+  const [archiveBusy, setArchiveBusy] = useState<'archive' | 'restore' | null>(null)
   const [runsOpen, setRunsOpen] = useState(false)
   // adjust-state-during-render: any broadcast (tracked) supersedes the optimistic cancel/
   // redistill result — same idiom as DistillChip, whose adoption-over-swallowed-broadcast
@@ -161,24 +179,24 @@ export function CaseAnchor({
       confirmLabel: 'Archive'
     })
     if (!ok) return
-    setPending(true)
+    setArchiveBusy('archive')
     try {
       await window.argus.cases.archive(slug)
     } catch (err) {
       notice((err as Error).message, 'danger')
     } finally {
-      setPending(false)
+      setArchiveBusy(null)
     }
   }
 
   async function restoreCase(): Promise<void> {
-    setPending(true)
+    setArchiveBusy('restore')
     try {
       await window.argus.cases.restore(slug)
     } catch (err) {
       notice((err as Error).message, 'danger')
     } finally {
-      setPending(false)
+      setArchiveBusy(null)
     }
   }
 
@@ -347,10 +365,13 @@ export function CaseAnchor({
                     // `disabled`/`title` as well as the guard, matching the Dry run row above:
                     // the guard alone left a row that looked live and silently did nothing.
                     label: 'Restore from archive',
-                    disabled: pending,
-                    title: pending ? 'An archive or restore is already running' : undefined,
+                    disabled: archiveBusy !== null,
+                    // Names what is ACTUALLY running. The tooltip used to read off `pending`,
+                    // which the distill and dry-run rows also set, so a distillation in flight
+                    // asserted an archive was running.
+                    title: archiveBusy ? BUSY_TITLE[archiveBusy] : undefined,
                     onSelect: () => {
-                      if (pending) return
+                      if (archiveBusy) return
                       void restoreCase()
                     }
                   }
@@ -358,10 +379,10 @@ export function CaseAnchor({
               : [
                   {
                     label: 'Archive case…',
-                    disabled: pending,
-                    title: pending ? 'An archive or restore is already running' : undefined,
+                    disabled: archiveBusy !== null,
+                    title: archiveBusy ? BUSY_TITLE[archiveBusy] : undefined,
                     onSelect: () => {
-                      if (pending) return
+                      if (archiveBusy) return
                       void archiveCase()
                     }
                   }
