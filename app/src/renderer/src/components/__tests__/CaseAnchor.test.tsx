@@ -709,3 +709,74 @@ describe('archive actions', () => {
     expect(uiStore.get().recentTabs).toEqual(['NN-5187'])
   })
 })
+
+describe('archive actions: honest copy and gated rows', () => {
+  // The two delete branches destroy DIFFERENT things. One shared sentence was written for the
+  // ARCHIVED case — where the evidence and transcripts genuinely survive in the bundle unless
+  // the user says otherwise — and reusing it verbatim on a never-archived case hid the whole of
+  // the loss: there is no bundle anywhere, and the evidence, transcripts and the case directory
+  // go with the row.
+  it('names the evidence and transcripts when there is no bundle to fall back on', async () => {
+    const user = userEvent.setup()
+    renderAnchor({ archivedAt: null })
+    await openMenu(user)
+    fireEvent.click(screen.getByText(/delete case/i))
+    const body = await screen.findByText(/every evidence file/i)
+    expect(body.textContent).toMatch(/every transcript/i)
+    expect(body.textContent).toMatch(/no archive bundle/i)
+  })
+
+  it('says the bundle is the thing being chosen about on an archived case', async () => {
+    const user = userEvent.setup()
+    renderAnchor({ archivedAt: '2026-08-28T00:00:00Z' })
+    await openMenu(user)
+    fireEvent.click(screen.getByText(/delete case/i))
+    const body = await screen.findByText(/archive bundle/i)
+    // It must NOT claim the evidence is destroyed outright — that is exactly what the shared
+    // copy did on the branch where it is optional.
+    expect(body.textContent).not.toMatch(/every evidence file/i)
+    expect(screen.getByRole('button', { name: /keep the archive/i })).toBeTruthy()
+  })
+
+  it('renders the delete row in the danger tone every other destructive row uses', async () => {
+    const user = userEvent.setup()
+    renderAnchor()
+    await openMenu(user)
+    const row = screen.getByRole('menuitem', { name: 'Delete case…' })
+    expect(row.className).toContain('text-danger')
+    // and the benign neighbour it sits under is NOT in that tone — otherwise the assertion
+    // above would pass on a menu that painted every row red.
+    expect(screen.getByRole('menuitem', { name: 'Close case' }).className).not.toContain(
+      'text-danger'
+    )
+  })
+
+  it('disables the archive row while an archive is already running', async () => {
+    // The row guarded with `if (pending) return` but never said so: a click that silently does
+    // nothing, unlike the Dry run row two entries above which sets disabled + title.
+    archiveMock.mockReturnValue(new Promise(() => {}))
+    const user = userEvent.setup()
+    renderAnchor({ archivedAt: null })
+    await openMenu(user)
+    fireEvent.click(screen.getByText('Archive case…'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive' }))
+    await vi.waitFor(() => expect(archiveMock).toHaveBeenCalled())
+    await openMenu(user)
+    // This file has no jest-dom matchers; read the property directly.
+    const row = screen.getByRole('menuitem', { name: 'Archive case…' }) as HTMLButtonElement
+    expect(row.disabled).toBe(true)
+    expect(row.getAttribute('title')).toBe('An archive or restore is already running')
+  })
+
+  it('disables the restore row while a restore is already running', async () => {
+    restoreMock.mockReturnValue(new Promise(() => {}))
+    const user = userEvent.setup()
+    renderAnchor({ archivedAt: '2026-08-28T00:00:00Z' })
+    await openMenu(user)
+    fireEvent.click(screen.getByText('Restore from archive'))
+    await vi.waitFor(() => expect(restoreMock).toHaveBeenCalled())
+    await openMenu(user)
+    const row = screen.getByRole('menuitem', { name: 'Restore from archive' }) as HTMLButtonElement
+    expect(row.disabled).toBe(true)
+  })
+})

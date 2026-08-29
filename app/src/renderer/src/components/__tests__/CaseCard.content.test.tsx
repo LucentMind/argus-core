@@ -276,4 +276,18 @@ describe('archived marker', () => {
     renderCard(mkCase({ origin: 'routine', archivedAt: '2026-08-28T00:00:00Z' }))
     expect(screen.getByText('Archived')).toBeInTheDocument()
   })
+
+  it('groups the chip with the phase readout instead of stranding it mid-row', () => {
+    // The header row is `flex justify-between` with a left group (slug + priority) and a right
+    // group. A chip added as a THIRD child of that row lands between them — visually mid-card,
+    // nowhere near the phase readout its own comment says it sits beside. jsdom resolves no
+    // layout, so this asserts the structure that produces the layout: one shared parent.
+    renderCard(mkCase({ archivedAt: '2026-08-28T00:00:00Z' }))
+    const chip = screen.getByText('Archived')
+    const phase = screen.getByText('Open')
+    expect(chip.parentElement).toBe(phase.parentElement)
+    // and that shared parent is not the header row itself — i.e. they are a group, not two
+    // siblings of the justify-between row
+    expect(chip.parentElement?.tagName).toBe('SPAN')
+  })
 })

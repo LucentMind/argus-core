@@ -184,7 +184,7 @@ describe('RcaJobs', () => {
       await jobs.idle()
       expect(jobs.statusFor(slug).job!.state).toBe('done')
 
-      const freeze = slug === 'case-frozen' ? freezeCase(slug) : null
+      const freeze = slug === 'case-frozen' ? freezeCase(slug, 'archive') : null
       if (!freeze) {
         db.prepare(`UPDATE cases SET archived_at = ? WHERE slug = ?`).run('2026-01-02', slug)
       }

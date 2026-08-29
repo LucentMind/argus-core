@@ -357,7 +357,11 @@ describe('restoreCase', () => {
     })
 
     expect(frozenDuringRestore, 'restore did not freeze the case').toBe(true)
-    expect(String(second)).toMatch(/already being archived/i)
+    // "already being RESTORED", not "archived": the refusal names the operation that actually
+    // holds the freeze. This assertion previously pinned the wrong word — a message telling the
+    // user to wait for an archive that was never started is a defect, not a contract.
+    expect(String(second)).toMatch(/already being restored/i)
+    expect(String(second)).not.toMatch(/being archived/i)
     // and the overlapping attempt duplicated nothing
     const caseId = getCase(db, slug)!.id
     const evidence = (

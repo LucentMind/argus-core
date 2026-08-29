@@ -186,19 +186,34 @@ export function CaseAnchor({
     // Three buttons rather than a checkbox: confirmStore has no checkbox primitive, and
     // `choose` exists for exactly this shape — "no" and "yes, but differently" as separate
     // answers. The archive branch only appears when there IS an archive to keep.
-    const message =
-      'This removes its findings, RCA and summary permanently. Future cases will no longer ' +
-      'see it in related history.'
+    //
+    // The two branches destroy DIFFERENT things, so they get different sentences. One shared
+    // message was written for the archived case — where the evidence and transcripts genuinely
+    // survive in the bundle unless the user says otherwise — and on a never-archived case that
+    // same silence hides the whole of the loss: there is no bundle anywhere, and the evidence,
+    // transcripts and case directory go with the row.
     const choice = archivedAt
       ? await choose({
           title: `Delete ${slug}?`,
-          message,
+          message:
+            'Its findings, RCA and summary are removed permanently, and future cases will no ' +
+            'longer see it in related history. Its evidence and transcripts are in the archive ' +
+            'bundle — choose whether that goes too.',
           confirmLabel: 'Delete everything',
           danger: true,
           altLabel: 'Delete, keep the archive',
           altDanger: true
         })
-      : (await confirm({ title: `Delete ${slug}?`, message, confirmLabel: 'Delete', danger: true }))
+      : (await confirm({
+            title: `Delete ${slug}?`,
+            message:
+              'This deletes everything: every evidence file, every transcript and the case ' +
+              'directory itself, along with its findings, RCA and summary. There is no archive ' +
+              'bundle to fall back on, and future cases will no longer see it in related ' +
+              'history.',
+            confirmLabel: 'Delete',
+            danger: true
+          }))
         ? 'confirm'
         : 'cancel'
     if (choice === 'cancel') return
@@ -329,7 +344,11 @@ export function CaseAnchor({
             ...(archivedAt
               ? [
                   {
+                    // `disabled`/`title` as well as the guard, matching the Dry run row above:
+                    // the guard alone left a row that looked live and silently did nothing.
                     label: 'Restore from archive',
+                    disabled: pending,
+                    title: pending ? 'An archive or restore is already running' : undefined,
                     onSelect: () => {
                       if (pending) return
                       void restoreCase()
@@ -339,6 +358,8 @@ export function CaseAnchor({
               : [
                   {
                     label: 'Archive case…',
+                    disabled: pending,
+                    title: pending ? 'An archive or restore is already running' : undefined,
                     onSelect: () => {
                       if (pending) return
                       void archiveCase()
@@ -353,11 +374,17 @@ export function CaseAnchor({
               }
             },
             {
-              // The only delete affordance for the case you are LOOKING at — the dashboard's
-              // card menu still owns deleting a case from the list. Kept here because the
-              // archive question ("keep the bundle?") can only be asked where `archivedAt` is
-              // known, and this is the surface that knows it.
+              // The only delete affordance for the case you are LOOKING at — the dashboard
+              // card's hover trash icon still owns deleting a case from the list. Kept here
+              // because the archive question ("keep the bundle?") is asked where `archivedAt`
+              // is known, and this is the surface that knows it.
+              //
+              // `danger` tone, like every other destructive row in the app (see
+              // ConnectorsSettings' Remove): this is the app's highest-blast-radius menu item
+              // and it sat in the same default ink as `Export`, one row under the benign
+              // `Close case`.
               label: 'Delete case…',
+              tone: 'danger',
               onSelect: () => void deleteCase()
             }
           ]}
