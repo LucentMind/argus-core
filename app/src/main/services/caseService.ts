@@ -17,7 +17,7 @@ import { deriveActionItems, triageRank } from '../../shared/triage'
 import { ARTIFACTS_LIKE } from './evidenceScopeSql'
 import { DEFAULT_MODE, MODES, type ModeId } from '../../shared/modes'
 import { caseDir, caseArchivePath } from './paths'
-import { isCaseFrozen } from './caseFreeze'
+import { frozenOperation, inProgressWord } from './caseFreeze'
 import { appendDeletionAudit } from './deletionAudit'
 import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase } from './ftsIndex'
 import { CAPTURE_DIR_REL } from './prompts/capture'
@@ -1194,9 +1194,15 @@ export async function setCaseMode(
  * must stay deletable.
  */
 export function assertCaseDeletable(slug: string): void {
-  if (isCaseFrozen(slug)) {
+  // Reads WHICH operation holds the freeze rather than the bare boolean `isCaseFrozen` returns.
+  // Hardcoding "archived" here told a user who had just clicked Restore — a visible, seconds-to-
+  // minutes window — to wait for an archive nobody started. Same fact, third copy: the wording
+  // comes from `caseFreeze`'s one IN_PROGRESS table, so it can never drift from the other two
+  // messages again.
+  const operation = frozenOperation(slug)
+  if (operation) {
     throw new Error(
-      `Case ${slug} is being archived. Wait for that operation to finish before deleting it.`
+      `Case ${slug} is being ${inProgressWord(operation)}. Wait for that operation to finish before deleting it.`
     )
   }
 }

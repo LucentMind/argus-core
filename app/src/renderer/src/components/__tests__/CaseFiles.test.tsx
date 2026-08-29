@@ -916,6 +916,50 @@ describe('archived case', () => {
     expect(await screen.findByRole('button', { name: 'Restore from archive' })).toBeEnabled()
   })
 
+  it('leaves no unhandled rejection behind when the restore fails', async () => {
+    // The reason the source gives for putting `.catch()` BEFORE `.finally()`. The busy-state
+    // test above cannot see it: `finally` runs its callback before re-throwing, so
+    // `setRestoring(false)` fires with or without the catch and that test passes either way.
+    // What the catch actually buys is that the rejection is consumed rather than escaping the
+    // `void`ed chain — on top of the danger notice the handler already raised.
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason)
+    }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      let fail: (e: Error) => void = () => {}
+      const onRestore = vi.fn(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            fail = reject
+          })
+      )
+      window.argus.evidence.list = vi.fn(async () => [])
+      render(
+        <CaseFiles
+          caseSlug="c1"
+          label="Evidence"
+          mode="investigation"
+          archivedAt="2026-08-28T00:00:00Z"
+          onRestore={onRestore}
+          {...requiredProps}
+        />
+      )
+      fireEvent.click(await screen.findByRole('button', { name: 'Restore from archive' }))
+      await screen.findByRole('button', { name: 'Restoring…' })
+      await act(async () => {
+        fail(new Error('bundle checksum mismatch'))
+        // Node decides a rejection is unhandled once the microtask queue has drained, which is
+        // a macrotask away — awaiting a microtask alone would pass vacuously.
+        await new Promise((r) => setTimeout(r, 0))
+      })
+      expect(unhandled).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
+
   it('withholds the rescan on an archived case, and keeps it on a live one', async () => {
     // A scan registers newly-found files as evidence — the same write `assertCaseWritable`
     // refuses on an archived case, whose evidence folder is not on disk at all.

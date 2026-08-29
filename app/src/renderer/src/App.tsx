@@ -108,6 +108,12 @@ function App(): React.JSX.Element {
         // correct for any future reason a row disappears.
         if (next.some((c) => c.slug === slug)) return
         uiStore.closeTab(slug)
+        // `kind: 'evidence'` is excluded deliberately, and it is a KNOWN gap, not an oversight:
+        // that variant carries an `evidenceId` and no slug, so there is nothing here to compare
+        // against the deleted case. An evidence viewer open on a case deleted in another window
+        // therefore stays on screen over a row that no longer exists. Closing it would need the
+        // viewer to carry its case slug (or a reverse lookup that the delete has already made
+        // impossible) — new surface beyond this task. Recorded for the whole-branch review.
         setViewer((v) => (v && v.kind !== 'evidence' && v.slug === slug ? null : v))
         setView((v) => (v.kind === 'case' && v.slug === slug ? { kind: 'home' } : v))
         // prevView is where Settings/Related History return to; a deleted case there would

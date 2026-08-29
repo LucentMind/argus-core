@@ -14,7 +14,7 @@ import { setIndexState } from '../indexState'
 import { caseArchivePath, caseDir } from '../paths'
 import { searchEvidence } from '../search'
 import { searchMessages } from '../chatSearch'
-import { isCaseFrozen } from '../caseFreeze'
+import { assertCaseWritable, isCaseFrozen } from '../caseFreeze'
 import { readReportMarkdown } from '../rca/artifacts'
 import { cleanupArchiveFixtures, seedArchivableCase, seedSecondSession } from './archiveFixtures'
 
@@ -377,6 +377,33 @@ describe('restoreCase', () => {
     ).n
     expect(sessions).toBe(1)
     expect(isCaseFrozen(slug)).toBe(false)
+  })
+
+  it('tells a writer mid-restore that the case is being RESTORED, not archived', async () => {
+    // `assertCaseWritable`'s restore wording had no test at all: only `freezeCase`'s
+    // "already being restored" was asserted, so this second message could be hardcoded back to
+    // "archived" and the whole suite stayed green. This is the message an evidence drop, a
+    // scan or an agent session write hits during a restore — a window a user can now SEE,
+    // because restore has a busy state.
+    const { db, home, slug } = await seedArchivableCase()
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    let msg: string | null = null
+
+    await restoreCase(db, home, slug, createImmediateQueue(db, home), {
+      afterExtract: async () => {
+        try {
+          assertCaseWritable(db, slug)
+        } catch (e) {
+          msg = (e as Error).message
+        }
+      }
+    })
+
+    expect(msg, 'assertCaseWritable did not refuse mid-restore').not.toBeNull()
+    expect(msg!).toMatch(/is being restored right now and cannot accept new files/i)
+    expect(msg!).not.toMatch(/archiv/i)
+    // and it stops refusing once the restore releases its freeze
+    expect(() => assertCaseWritable(db, slug)).not.toThrow()
   })
 
   it('merges artifacts/ back around the RCA report that never left', async () => {
