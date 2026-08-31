@@ -4,6 +4,7 @@ import { settingsStore } from '../../lib/settingsStore'
 import { IconBtn, Chip, Btn } from '../ui'
 import { FIELD } from './settingsLayout'
 import {
+  canonicalizePreferences,
   catalogModelRows,
   catalogRowNames,
   modelsForSettingsPanel
@@ -51,7 +52,21 @@ export function ProviderModels({
   const favSet = new Set(prefs.favoriteModels)
   const hiddenSet = new Set(prefs.hiddenModels)
 
-  function patchPrefs(next: ModelPreferences): void {
+  /**
+   * The one place preferences leave this panel — and therefore the one place they are
+   * canonicalized.
+   *
+   * Everything above works in ROW space: `prefs` comes back from `modelsForSettingsPanel`
+   * already translated onto the displayed rows, and the star/hide/arrow handlers compare and
+   * rebuild the lists in those rows' own slugs. Under a loaded catalog those slugs are CLI
+   * ALIASES (`opus[1m]`, `haiku`), which is the right key to render by and the wrong one to
+   * store by: `defaultModelRef` seeds a new case off the STATIC list, where no alias matches,
+   * so a favourite starred here was silently dropped and the seed fell through to whatever
+   * sorted first. Converting on the way out keeps the panel's row-space logic intact and still
+   * writes something every later reader can interpret.
+   */
+  function patchPrefs(rowKeyed: ModelPreferences): void {
+    const next = canonicalizePreferences(models, rowKeyed)
     const allEmpty =
       next.hiddenModels.length === 0 &&
       next.favoriteModels.length === 0 &&

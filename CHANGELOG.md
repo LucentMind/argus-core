@@ -190,6 +190,14 @@
 
 ### Fixed
 
+- Favouriting a model in Settings while the runtime catalog was loaded
+  stored the CLI's own alias for it (`opus[1m]`) rather than the model's
+  wire slug. New cases are seeded from the static model list, where no
+  alias resolves, so the favourite was silently dropped and each new case
+  started on whatever model happened to sort first — Opus 4.8, or Fable 5
+  where no favourite resolved at all. Preferences are now stored by wire
+  slug, and existing alias-keyed ones are rewritten once, at the first
+  launch that can reach the CLI to ask what the alias meant.
 - A chained shell command running two skill scripts — one already
   approved for the session — could silently auto-run the second,
   unreviewed one with no approval card; a related hole let a skill-asset

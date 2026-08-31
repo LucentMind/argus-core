@@ -246,6 +246,8 @@ import {
 } from '../shared/drivers'
 import { defaultCreateQuery as createClaudeQuery } from './services/agent/drivers/claude'
 import { fetchCatalog } from './services/agent/drivers/claude/catalog'
+import { migrateModelPrefs } from './services/agent/modelPrefs'
+import type { ModelOptionInfo } from '../shared/runOptions'
 import { composeReviewRunPrompt } from './services/agent/reviewRunCompose'
 import { annotateHistoryOrphaned } from './services/agent/reviewFraming'
 import { composeReviewActionPrompt } from './services/agent/reviewActionCompose'
@@ -1989,7 +1991,10 @@ function registerIpc(): void {
   // adaptive thinking) before any session/query exists. Only the Claude driver has a
   // runtime catalog; every other instance returns [] rather than something speculative,
   // so option controls never appear on a model that cannot honour them.
-  ipcMain.handle(IPC.modelsCatalog, async (_e, instanceId: string) => {
+  // One resolver for "this instance's runtime catalog", shared by the IPC handler below and the
+  // boot-time preference migration — they must agree on which CLI is asked, or the migration
+  // would rewrite preferences against a catalog the composer never sees.
+  const claudeCatalogFor = async (instanceId: string): Promise<ModelOptionInfo[]> => {
     const settings = settingsService.get()
     const inst = settings.agent.providerInstances[instanceId]
     if (!inst?.enabled) return []
@@ -1997,7 +2002,15 @@ function registerIpc(): void {
     if (resolved.driver.kind !== 'claude-agent-sdk') return []
     const cfg = driverConfig<AgentDriverConfig>(resolved.driver.kind, inst.config)
     return fetchCatalog(createClaudeQuery, cfg.cliPath ? { cliPath: cfg.cliPath } : {})
-  })
+  }
+  ipcMain.handle(IPC.modelsCatalog, (_e, instanceId: string) => claudeCatalogFor(instanceId))
+  // A stored preference keyed by a CLI ALIAS (`opus[1m]`) is invisible to `defaultModelRef`,
+  // which seeds every new case off the STATIC model list — so a favourited Opus 5 was silently
+  // dropped and the seed fell through to whatever sorted first. Only a fetched catalog can say
+  // what an alias stands for, so the rewrite cannot be a settings-load migration; it runs here,
+  // once per boot, gated on there actually being an unresolvable slug (no spawn otherwise).
+  // Deliberately not awaited: nothing below depends on it, and a slow CLI must not delay boot.
+  void migrateModelPrefs(settingsService, claudeCatalogFor)
   // A new chat is seeded with the DEFAULT provider instance and its default model, pinned
   // at creation. The user can re-pin it from the composer's model picker afterwards.
   const newSessionProvider = (): {

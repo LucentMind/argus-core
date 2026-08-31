@@ -8,7 +8,13 @@ import {
   type ProviderInstance
 } from './settings'
 import type { ModelOptionInfo } from './runOptions'
-import { findModelEntry, modelMatches, resolvesToId, type ModelIdentity } from './modelIdentity'
+import {
+  canonicalSlug,
+  findModelEntry,
+  modelMatches,
+  resolvesToId,
+  type ModelIdentity
+} from './modelIdentity'
 
 export interface FieldAnnotation {
   control: 'text' | 'password' | 'textarea' | 'select' | 'switch' | 'number'
@@ -917,6 +923,80 @@ function translatePreferences(
     favoriteModels: mapped(prefs.favoriteModels),
     modelOrder: mapped(prefs.modelOrder)
   }
+}
+
+/**
+ * Rewrite one instance's stored preferences into their CANONICAL slugs — the write-side and
+ * migration counterpart to {@link translatePreferences}.
+ *
+ * `translatePreferences` reads: it maps a stored slug onto whatever rows a given catalog
+ * offers. This one writes: it maps a slug naming a row back to the catalog-independent wire
+ * slug that row stands for ({@link canonicalSlug}), so what lands in settings.json means the
+ * same thing to every later reader — the loaded catalog, the static list, a future CLI.
+ *
+ * That distinction is the whole defect. The Settings panel wrote preferences keyed by the row
+ * it displayed, which under a loaded catalog is a CLI alias (`opus[1m]`). `defaultModelRef` and
+ * `orderedVisibleModels` sort the STATIC list, which contains no aliases, so
+ * `translatePreferences` mapped that favourite to nothing and dropped it — and a new case was
+ * seeded with whatever sorted first instead of the user's starred model. Storing the wire slug
+ * fixes both directions at once, because `modelMatches` accepts it against alias rows AND
+ * static ones.
+ *
+ * A slug that names no row here is kept VERBATIM, not dropped: this runs against whatever
+ * catalog happens to be reachable, and a fetch that failed (or a catalog that no longer lists a
+ * model) must never be a reason to delete a preference the user set. Duplicates that collapse
+ * onto one canonical slug — `default` and `opus[1m]` are one model — are deduped, first
+ * position wins. Both properties make the function idempotent, which it has to be: it runs on
+ * every catalog fetch, not once behind a migration flag.
+ */
+export function canonicalizePreferences(
+  rows: readonly CatalogModel[],
+  prefs: ModelPreferences
+): ModelPreferences {
+  const canon = (slugs: readonly string[]): string[] => {
+    const out: string[] = []
+    for (const slug of slugs) {
+      const row = findModelEntry(rows, slug, rowIdentity)
+      const next = row === null ? slug : canonicalSlug(rowIdentity(row))
+      if (!out.includes(next)) out.push(next)
+    }
+    return out
+  }
+  return {
+    ...prefs,
+    hiddenModels: canon(prefs.hiddenModels),
+    favoriteModels: canon(prefs.favoriteModels),
+    modelOrder: canon(prefs.modelOrder)
+  }
+}
+
+/**
+ * True when some stored preference for this instance names NO row in its catalog-independent
+ * model list (the static built-ins plus this instance's custom models) — which is to say: it
+ * can only be a CLI alias, and only a fetched catalog can tell us what it stands for.
+ *
+ * This is the gate on the boot-time migration (`migrateModelPrefs`). Fetching a catalog spawns
+ * the CLI; doing that on every launch to service a one-time rewrite would be a boot-cost
+ * regression for every user with nothing stale to rewrite. Answering the question from settings
+ * alone costs nothing, and is false for anyone whose preferences are already canonical — which
+ * is everyone, once the migration has run.
+ *
+ * Custom models count as resolved even though no catalog will ever list them — otherwise the
+ * gate would stay open forever for anyone who added one, and spawn a probe every boot.
+ *
+ * It is deliberately a MAY-be-stale test, not a proof: a preference naming a model shipped
+ * after this build's static list was written looks identical to an alias from here, so the gate
+ * stays open for it and the migration re-fetches each boot. That is one background fetch, which
+ * is cached process-wide and which the composer would make on the first case regardless, after
+ * which the rewrite finds nothing to change and writes nothing. Pinned by a test.
+ */
+export function hasUnresolvedPreferences(s: AppSettings, instanceId: string): boolean {
+  const prefs = s.agent.modelPreferences[instanceId]
+  if (!prefs) return false
+  const rows = instanceModels(s, instanceId)
+  return [...prefs.hiddenModels, ...prefs.favoriteModels, ...prefs.modelOrder].some(
+    (slug) => findModelRow(rows, slug) === null
+  )
 }
 
 /** `orderedVisibleModels`' hide-then-sort step, applied to rows supplied by the caller —
