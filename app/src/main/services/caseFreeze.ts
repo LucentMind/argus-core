@@ -79,6 +79,26 @@ export function freezeCase(slug: string, operation: FreezeOperation): FreezeHand
   }
 }
 
+/**
+ * Drop every freeze. **Tests only** — never call this from production code.
+ *
+ * The registry is keyed on slug alone, which is correct in production: there is one
+ * `argusHome` per process, so a slug names one case. A test worker runs many temp homes
+ * through one module instance, so a freeze leaked by one test collides with an unrelated case
+ * that merely reuses the slug.
+ *
+ * That is not hypothetical. On 2026-08-31 a slow Windows CI runner timed out the reclaim test
+ * mid-`archiveCase`; vitest abandons the test but cannot cancel the in-flight promise, so the
+ * freeze was never released, and the eight following tests all failed in `seedArchivableCase`
+ * with "is being archived right now" — pointing at the fixture instead of at the one test that
+ * actually hung. Clearing the registry between tests models exactly what a process restart
+ * does (the freeze is deliberately in-process and must not survive a crash), and keeps a hang
+ * legible as one failure.
+ */
+export function resetFreezeRegistryForTests(): void {
+  frozen.clear()
+}
+
 /** Test/diagnostic reader. Production code should call `assertCaseWritable` instead. */
 export function isCaseFrozen(slug: string): boolean {
   return frozen.has(slug)

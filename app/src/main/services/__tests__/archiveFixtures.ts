@@ -10,6 +10,7 @@ import { createImmediateQueue } from '../ingestQueue'
 import { createDetection } from '../packs/detection'
 import { createSession } from '../agent/sessionStore'
 import { insertMessageFts } from '../ftsIndex'
+import { resetFreezeRegistryForTests } from '../caseFreeze'
 import { upsertCaseSummary } from '../distill/summaries'
 import { caseDir, proposalsDir } from '../paths'
 import { writeProposal, rejectProposal } from '../proposals'
@@ -210,6 +211,10 @@ export function knowledgeLayerCounts(db: DatabaseSync, slug: string): Record<str
 /** Close every seeded database and remove its home. Call from afterEach: on Windows an open
  *  handle inside the tree makes fs.rmSync throw, so the close has to come first. */
 export function cleanupArchiveFixtures(): void {
+  // A test that abandons an in-flight archive (a timeout, an injected failure) leaves its freeze
+  // held; the registry is slug-keyed and module-scoped, so it would then refuse every later test
+  // that reuses the slug in a DIFFERENT home. See resetFreezeRegistryForTests.
+  resetFreezeRegistryForTests()
   while (opened.length) {
     const { db, home } = opened.pop()!
     try {
