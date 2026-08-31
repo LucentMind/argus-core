@@ -882,9 +882,16 @@ describe('reclaiming space after an archive (INCREMENTAL databases only)', () =>
     // Enough churn that the free pages are unambiguous. The archive's own row deletes free a
     // handful of pages in a fixture this size; this makes the reclaim measurable rather than
     // arguable.
+    // ONE transaction, not 4000. Unbatched, each run() is its own implicit commit and fsync:
+    // ~1.1s on a fast local disk but past the 60s test timeout on a contended Windows CI runner,
+    // where it timed out and — because the abandoned archive never released its freeze — took
+    // the other eight tests in this file down with it. The bloat and the freelist it produces
+    // are identical either way; only the commit count changes.
     db.exec(`CREATE TABLE bloat (a TEXT)`)
     const ins = db.prepare(`INSERT INTO bloat VALUES (?)`)
+    db.exec('BEGIN')
     for (let i = 0; i < 4000; i++) ins.run('x'.repeat(500))
+    db.exec('COMMIT')
     db.exec(`DROP TABLE bloat`)
     const freeBefore = (db.prepare(`PRAGMA freelist_count`).get() as { freelist_count: number })
       .freelist_count
@@ -1097,5 +1104,36 @@ describe('archiving writes a deletion-audit entry (I3)', () => {
     }
     // And the throwing write really did nothing: no entry was ever recorded.
     expect(readDeletionAudit(home)).toEqual([])
+  })
+})
+
+describe('a leaked freeze must not poison the rest of a test worker', () => {
+  /**
+   * The CI failure this pins (2026-08-31, windows-latest): the reclaim test above spent >60s on
+   * 4000 unbatched inserts and vitest timed it out mid-`archiveCase`. Vitest abandons the test
+   * but cannot cancel the in-flight promise, so its `finally` never ran and the freeze stayed
+   * held. The registry is keyed on slug alone and lives at module scope, so the EIGHT following
+   * tests — each seeding `KAN-1` in its OWN temp home — all failed in `seedArchivableCase` with
+   * "is being archived right now", blaming the fixture instead of the one test that hung.
+   *
+   * Slug-only keying is correct in production (one `argusHome` per process, so a slug names one
+   * case); it is only a test worker that runs many homes through one module instance. Clearing
+   * the registry in `cleanupArchiveFixtures` models exactly what a process restart does — the
+   * freeze is deliberately in-process and must not survive a crash — and keeps a hang legible
+   * as one failure instead of nine.
+   */
+  it('clears an abandoned freeze so a later case reusing the slug is still writable', async () => {
+    const { slug } = await seedArchivableCase()
+    // Exactly what an abandoned archive leaves behind: a held freeze, no release.
+    freezeCase(slug, 'archive')
+    expect(isCaseFrozen(slug)).toBe(true)
+
+    cleanupArchiveFixtures()
+
+    expect(isCaseFrozen(slug)).toBe(false)
+    // The real symptom was the NEXT seed throwing, not the flag — assert the thing that broke.
+    const next = await seedArchivableCase()
+    expect(next.slug).toBe(slug)
+    expect(listEvidence(next.db, next.slug).length).toBeGreaterThan(0)
   })
 })
