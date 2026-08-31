@@ -299,7 +299,12 @@ const migrationsSchema = z.looseObject({
   defaultRepoToList: z.string().default(''),
   /** When `general.similarPastCasesEnabled` was split into `relatedSearchOnOpen` (new master)
    *  and `relatedIncludeLocalCases` (the old meaning). */
-  relatedSearchSwitches: z.string().default('')
+  relatedSearchSwitches: z.string().default(''),
+  /** When each instance's `agent.modelPreferences.*.favoriteModels` was rewritten into the
+   *  order the PREVIOUS rule displayed it in, at the point that list started ranking itself
+   *  instead of being an unordered set. Absent until every stored preference resolves offline —
+   *  an alias-keyed one cannot be ranked, and this stamp is one-shot. */
+  favoritesRankByList: z.string().default('')
 })
 
 /** Jira's own built-in clone link type. Exported so the REST client's fallback and the schema

@@ -19,6 +19,7 @@ import {
   mergeBuiltinRows,
   canonicalizePreferences,
   hasUnresolvedPreferences,
+  favoritesInLegacyOrder,
   resolveModelInfo,
   type CatalogModel,
   type ClaudeDriverConfig
@@ -280,13 +281,37 @@ describe('model ordering helpers', () => {
     )
   })
 
-  it('favorites win over modelOrder for grouping; modelOrder ranks within the favorites group', () => {
+  // Favourites rank by their OWN list order, and `modelOrder` does not get a vote among them.
+  // It used to: `modelOrder` ranked inside the favourites group and `favoriteModels` was a set
+  // whose order was dead data — which is exactly what made "Opus 5 is top of my favourites"
+  // untrue, invisibly, for the user who stored it that way. One list, one authority.
+  it('favourites rank by their own list order, not by modelOrder', () => {
     const s = withPrefs({
       favoriteModels: ['claude-opus-4-8', 'claude-haiku-4-5'],
+      // deliberately the opposite order — it must not win, and must not even tie-break
       modelOrder: ['claude-haiku-4-5', 'claude-opus-4-8']
     })
     const slugs = orderedVisibleModels(s).map((m) => m.slug)
-    expect(slugs.slice(0, 2)).toEqual(['claude-haiku-4-5', 'claude-opus-4-8'])
+    expect(slugs.slice(0, 2)).toEqual(['claude-opus-4-8', 'claude-haiku-4-5'])
+  })
+
+  it('reordering the favourites list moves the new-case seed with it', () => {
+    const a = withPrefs({ favoriteModels: ['claude-opus-5', 'claude-opus-4-8'] })
+    const b = withPrefs({ favoriteModels: ['claude-opus-4-8', 'claude-opus-5'] })
+    expect(defaultModelRef(a)?.slug).toBe('claude-opus-5')
+    expect(defaultModelRef(b)?.slug).toBe('claude-opus-4-8')
+  })
+
+  // The favourites list orders favourites; `modelOrder` still orders everything else. A model
+  // that is both listed in modelOrder and favourited takes its rank from the favourites list.
+  it('modelOrder still ranks the non-favourites', () => {
+    const s = withPrefs({
+      favoriteModels: ['claude-haiku-4-5'],
+      modelOrder: ['claude-sonnet-5', 'claude-opus-4-8']
+    })
+    const slugs = orderedVisibleModels(s).map((m) => m.slug)
+    expect(slugs[0]).toBe('claude-haiku-4-5')
+    expect(slugs.slice(1, 3)).toEqual(['claude-sonnet-5', 'claude-opus-4-8'])
   })
 
   it('hidden models are excluded from orderedVisibleModels but present in orderedModels', () => {
@@ -863,14 +888,24 @@ describe('canonicalizePreferences', () => {
       expect(defaultModelRef(withPrefs(stored))?.slug).toBe('claude-opus-4-8')
     })
 
-    it('canonicalized, the seed is Opus 5', () => {
-      const migrated = canonicalizePreferences(
+    // Canonicalizing alone is NOT enough now that the favourites list ranks itself: it recovers
+    // the lost favourite but appends it, leaving 4.8 — which happens to have been starred first
+    // — on top. The ranking migration is what puts it back where the old catalog-order rule had
+    // it. Both steps, in this order, are what the boot path runs.
+    it('canonicalized AND re-ranked, the seed is Opus 5', () => {
+      const canonical = canonicalizePreferences(
         catalogModelRows(CLI_CATALOG as ModelOptionInfo[]),
         stored
       )
-      expect(migrated.favoriteModels).toEqual(['claude-opus-4-8', 'claude-opus-5'])
-      // Both favourites now resolve, so the favourites group holds two models and the static
-      // catalog order decides between them — Opus 5 sits above 4.8 there.
+      expect(canonical.favoriteModels).toEqual(['claude-opus-4-8', 'claude-opus-5'])
+
+      const s = withPrefs(canonical)
+      const migrated = {
+        ...canonical,
+        favoriteModels: favoritesInLegacyOrder(instanceModels(s, 'claude-default'), canonical)
+      }
+      // the order the old rule produced — Opus 5 above 4.8, from the static catalog
+      expect(migrated.favoriteModels).toEqual(['claude-opus-5', 'claude-opus-4-8'])
       expect(
         orderedVisibleModels(withPrefs(migrated))
           .map((m) => m.slug)
@@ -939,4 +974,61 @@ describe('hasUnresolvedPreferences', () => {
 it('stays open for a preference naming a model this build does not know statically', () => {
   const s = withPrefs({ favoriteModels: ['claude-opus-6'] })
   expect(hasUnresolvedPreferences(s, 'claude-default')).toBe(true)
+})
+
+// ── favoritesInLegacyOrder: preserving today's effective ranking across the semantic change ──
+//
+// Making the favourites list rank itself silently re-orders every existing user's favourites,
+// because until now that list held them in the order they were STARRED and the effective order
+// came from `modelOrder`/catalog position. Reproducing the old rule once, at migration time, is
+// what keeps the change invisible to anyone who was happy — including the reporter, whose
+// favourites were starred 4.8-then-5 but displayed (and seeded) 5-then-4.8.
+describe('favoritesInLegacyOrder', () => {
+  const rows = instanceModels(withPrefs(), 'claude-default')
+
+  it('reproduces the old rule: modelOrder rank, then catalog order', () => {
+    expect(
+      favoritesInLegacyOrder(rows, {
+        hiddenModels: [],
+        favoriteModels: ['claude-haiku-4-5', 'claude-opus-5', 'claude-sonnet-5'],
+        modelOrder: ['claude-sonnet-5']
+      })
+    ).toEqual([
+      'claude-sonnet-5', // ranked by modelOrder
+      'claude-opus-5', // then catalog order: opus-5 (index 1) …
+      'claude-haiku-4-5' // … before haiku (index 6)
+    ])
+  })
+
+  it("with no modelOrder it is pure catalog order — the reporter's case", () => {
+    expect(
+      favoritesInLegacyOrder(rows, {
+        hiddenModels: [],
+        favoriteModels: ['claude-opus-4-8', 'claude-opus-5'],
+        modelOrder: []
+      })
+    ).toEqual(['claude-opus-5', 'claude-opus-4-8'])
+  })
+
+  // A slug naming no row cannot be placed by a rule that reads row positions. Dropping it would
+  // delete a preference; hoisting it would invent a ranking. It keeps its relative order, last.
+  it('keeps unknown slugs, in their existing relative order, at the end', () => {
+    expect(
+      favoritesInLegacyOrder(rows, {
+        hiddenModels: [],
+        favoriteModels: ['zzz-unknown', 'claude-haiku-4-5', 'aaa-unknown'],
+        modelOrder: []
+      })
+    ).toEqual(['claude-haiku-4-5', 'zzz-unknown', 'aaa-unknown'])
+  })
+
+  it('is idempotent', () => {
+    const prefs = {
+      hiddenModels: [],
+      favoriteModels: ['claude-haiku-4-5', 'claude-opus-5'],
+      modelOrder: []
+    }
+    const once = favoritesInLegacyOrder(rows, prefs)
+    expect(favoritesInLegacyOrder(rows, { ...prefs, favoriteModels: once })).toEqual(once)
+  })
 })

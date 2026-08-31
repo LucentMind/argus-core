@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { SettingsService } from '../../settings'
+import { migrateFavoritesRanking } from '../../settingsMigrations'
 import { settingsPath } from '../../paths'
 import { defaultModelRef } from '../../../../shared/drivers'
 import {
@@ -148,20 +149,24 @@ describe('canonicalizeStoredModelPrefs through the real SettingsService', () => 
     expect(defaultModelRef(svc.get())?.slug).toBe('claude-opus-4-8')
 
     expect(canonicalizeStoredModelPrefs(svc, 'claude-agent-sdk-1', CATALOG)).toBe(true)
+    // The second half of what boot runs, in the same order. Canonicalizing alone would leave
+    // 4.8 on top — it was starred first, and the favourites list now ranks itself — so the two
+    // migrations are only correct together, and only in this order.
+    migrateFavoritesRanking(svc)
 
     // on disk, not just in memory — stripDefaults must not have eaten it
     const onDisk = JSON.parse(fs.readFileSync(settingsPath(home), 'utf-8'))
     expect(onDisk.agent.modelPreferences['claude-agent-sdk-1'].favoriteModels).toEqual([
-      'claude-opus-4-8',
-      'claude-opus-5'
+      'claude-opus-5',
+      'claude-opus-4-8'
     ])
     svc.close()
 
     // and it re-parses on the next launch into the same thing
     const reopened = open(home)
     expect(reopened.get().agent.modelPreferences['claude-agent-sdk-1'].favoriteModels).toEqual([
-      'claude-opus-4-8',
-      'claude-opus-5'
+      'claude-opus-5',
+      'claude-opus-4-8'
     ])
     expect(reopened.get().agent.modelPreferences['claude-agent-sdk-1'].hiddenModels).toEqual([
       'claude-sonnet-4-6',

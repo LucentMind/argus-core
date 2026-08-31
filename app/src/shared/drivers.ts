@@ -871,17 +871,30 @@ export function resolveModelInfo(
 }
 
 /**
- * t3code `sortModelsForProviderInstance` ordering, ported as plain TS (no effect library):
- * favorites grouped first, then explicit modelOrder rank, then original catalog order — all stable.
+ * Favourites first, in the order they appear in `favoriteModels`; then everyone else by
+ * `modelOrder` rank, then original catalog order. Stable throughout.
+ *
+ * Adapted from t3code's `sortModelsForProviderInstance`, with one deliberate divergence: there
+ * (and here, until this change) `favoriteModels` was a SET whose array order was ignored, and
+ * `modelOrder` ranked inside the favourites group as well as outside it. That made the
+ * favourites list an ordered structure whose order was dead data — a user who arranged their
+ * favourites with Opus 5 on top had that arrangement silently discarded, and the model a new
+ * case actually opened on was decided by the catalog's order instead. Two lists that both look
+ * like they rank favourites, only one of which does, is the same defect in miniature.
+ *
+ * So the favourites list ranks favourites and nothing else does. `modelOrder` still ranks the
+ * rest; entries in it for a favourited model are inert until that model is unfavourited, which
+ * is what lets a model unstarred later fall back to roughly where it used to sit.
  */
 function sortModels(models: readonly CatalogModel[], prefs: ModelPreferences): CatalogModel[] {
+  const favRank = new Map(prefs.favoriteModels.map((slug, i) => [slug, i]))
   const orderRank = new Map(prefs.modelOrder.map((slug, i) => [slug, i]))
   const originalRank = new Map(models.map((m, i) => [m.slug, i]))
-  const favorites = new Set(prefs.favoriteModels)
   return [...models].sort((a, b) => {
-    const favA = favorites.has(a.slug) ? 0 : 1
-    const favB = favorites.has(b.slug) ? 0 : 1
-    if (favA !== favB) return favA - favB
+    const favA = favRank.get(a.slug)
+    const favB = favRank.get(b.slug)
+    if ((favA === undefined) !== (favB === undefined)) return favA === undefined ? 1 : -1
+    if (favA !== undefined && favB !== undefined) return favA - favB
     const oa = orderRank.get(a.slug) ?? Number.POSITIVE_INFINITY
     const ob = orderRank.get(b.slug) ?? Number.POSITIVE_INFINITY
     if (oa !== ob) return oa - ob
@@ -923,6 +936,45 @@ function translatePreferences(
     favoriteModels: mapped(prefs.favoriteModels),
     modelOrder: mapped(prefs.modelOrder)
   }
+}
+
+/**
+ * The favourites list, re-sorted the way the PREVIOUS ordering rule would have displayed it:
+ * `modelOrder` rank first, then position in `rows`. A one-shot migration helper, not a sort
+ * anything reads at runtime.
+ *
+ * It exists because {@link sortModels} changed what `favoriteModels`' order MEANS. Before, that
+ * order was simply the order things were starred in and had no effect; the effective ranking
+ * came from `modelOrder` and the catalog. Switching the list to rank itself without this would
+ * silently re-order every existing user's favourites — and move which model their next case
+ * opens on — the first time they launched. Reproducing the old rule once, at migration time,
+ * makes the change invisible to anyone who was already happy with what they saw.
+ *
+ * A slug naming no row keeps its relative order at the end: it cannot be placed by a rule that
+ * reads row positions, and neither dropping it (deleting a preference) nor hoisting it
+ * (inventing a ranking) would be honest. This is also why the migration that calls it waits
+ * until preferences are resolvable — an alias-keyed `opus[1m]` is exactly such a slug, and
+ * ordering it before {@link canonicalizePreferences} has run would strand it at the bottom.
+ */
+export function favoritesInLegacyOrder(
+  rows: readonly CatalogModel[],
+  prefs: ModelPreferences
+): string[] {
+  const orderRank = new Map(prefs.modelOrder.map((slug, i) => [slug, i]))
+  const rowRank = new Map(rows.map((m, i) => [m.slug, i]))
+  const rankOf = (slug: string): [number, number] => {
+    const row = findModelRow(rows, slug)
+    if (row === null) return [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY]
+    return [
+      orderRank.get(row.slug) ?? Number.POSITIVE_INFINITY,
+      rowRank.get(row.slug) ?? Number.POSITIVE_INFINITY
+    ]
+  }
+  return [...prefs.favoriteModels].sort((a, b) => {
+    const [oa, ra] = rankOf(a)
+    const [ob, rb] = rankOf(b)
+    return oa !== ob ? oa - ob : ra - rb
+  })
 }
 
 /**

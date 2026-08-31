@@ -3,6 +3,7 @@ import {
   migrateBypassDefault,
   migrateDefaultRepoToList,
   migrateRelatedSearchSwitches,
+  migrateFavoritesRanking,
   type MigratableSettings
 } from '../settingsMigrations'
 import {
@@ -188,5 +189,110 @@ describe('migrateRelatedSearchSwitches', () => {
     migrateRelatedSearchSwitches(s, NOW)
     expect(s.writes).toBe(writesAfterFirst + 1) // only the explicit patch above
     expect(s.get().general.relatedIncludeLocalCases).toBe(false)
+  })
+})
+
+// ── migrateFavoritesRanking ─────────────────────────────────────────────────────────────────
+//
+// `sortModels` now ranks favourites by their own list order; before, that order was just the
+// order they were starred in and the effective ranking came from `modelOrder`/catalog position.
+// Without this migration the semantic change would silently re-order every existing user's
+// favourites — and move which model their next case opens on — at the first launch.
+describe('migrateFavoritesRanking', () => {
+  function withFavourites(
+    prefs: { hiddenModels?: string[]; favoriteModels?: string[]; modelOrder?: string[] },
+    enabled = true
+  ): ReturnType<typeof fakeSettings> {
+    return fakeSettings((v) => {
+      v.agent.providerInstances['claude-1'] = {
+        driver: 'claude-agent-sdk',
+        enabled,
+        config: {}
+      }
+      v.agent.modelPreferences['claude-1'] = {
+        hiddenModels: prefs.hiddenModels ?? [],
+        favoriteModels: prefs.favoriteModels ?? [],
+        modelOrder: prefs.modelOrder ?? []
+      }
+    })
+  }
+
+  // The reporter's case: starred 4.8 first, but the old rule displayed (and seeded) Opus 5
+  // first, from the static catalog's order. The list has to be rewritten to say so.
+  it('rewrites the list into the order the old rule displayed, and stamps', () => {
+    const s = withFavourites({ favoriteModels: ['claude-opus-4-8', 'claude-opus-5'] })
+    migrateFavoritesRanking(s, NOW)
+    expect(s.get().agent.modelPreferences['claude-1'].favoriteModels).toEqual([
+      'claude-opus-5',
+      'claude-opus-4-8'
+    ])
+    expect(s.get().migrations.favoritesRankByList).toBe('2026-08-01T00:00:00.000Z')
+  })
+
+  it('carries across a ranking the user had set with the arrows', () => {
+    const s = withFavourites({
+      favoriteModels: ['claude-opus-5', 'claude-haiku-4-5'],
+      // the old rule ranked favourites by modelOrder, so this is what they actually saw
+      modelOrder: ['claude-haiku-4-5', 'claude-opus-5']
+    })
+    migrateFavoritesRanking(s, NOW)
+    expect(s.get().agent.modelPreferences['claude-1'].favoriteModels).toEqual([
+      'claude-haiku-4-5',
+      'claude-opus-5'
+    ])
+  })
+
+  it('runs once — a later hand-ranking is not undone at the next launch', () => {
+    const s = withFavourites({ favoriteModels: ['claude-opus-4-8', 'claude-opus-5'] })
+    migrateFavoritesRanking(s, NOW)
+    const writes = s.writes
+    // the user then drags 4.8 back to the top
+    s.patch({
+      agent: {
+        modelPreferences: {
+          'claude-1': {
+            hiddenModels: [],
+            favoriteModels: ['claude-opus-4-8', 'claude-opus-5'],
+            modelOrder: []
+          }
+        }
+      }
+    })
+    migrateFavoritesRanking(s, NOW)
+    expect(s.get().agent.modelPreferences['claude-1'].favoriteModels).toEqual([
+      'claude-opus-4-8',
+      'claude-opus-5'
+    ])
+    expect(s.writes).toBe(writes + 1) // the user's own write, and nothing from the migration
+  })
+
+  // The interaction with the alias migration, and the reason this one waits. An alias names no
+  // static row, so ordering it would strand it at the bottom — permanently, since the stamp
+  // makes this a one-shot. Better to do nothing and retry next launch.
+  it('does nothing and does NOT stamp while a preference is still alias-keyed', () => {
+    const s = withFavourites({ favoriteModels: ['claude-opus-4-8', 'opus[1m]'] })
+    migrateFavoritesRanking(s, NOW)
+    expect(s.get().agent.modelPreferences['claude-1'].favoriteModels).toEqual([
+      'claude-opus-4-8',
+      'opus[1m]'
+    ])
+    expect(s.get().migrations.favoritesRankByList).toBe('')
+    expect(s.writes).toBe(0)
+  })
+
+  it('stamps with nothing to do when there are no preferences at all', () => {
+    const s = fakeSettings()
+    migrateFavoritesRanking(s, NOW)
+    expect(s.get().migrations.favoritesRankByList).toBe('2026-08-01T00:00:00.000Z')
+  })
+
+  it('leaves an already-correctly-ordered list untouched but still stamps', () => {
+    const s = withFavourites({ favoriteModels: ['claude-opus-5', 'claude-opus-4-8'] })
+    migrateFavoritesRanking(s, NOW)
+    expect(s.get().agent.modelPreferences['claude-1'].favoriteModels).toEqual([
+      'claude-opus-5',
+      'claude-opus-4-8'
+    ])
+    expect(s.get().migrations.favoritesRankByList).toBe('2026-08-01T00:00:00.000Z')
   })
 })

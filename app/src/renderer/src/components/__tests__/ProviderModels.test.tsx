@@ -2,7 +2,11 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ProviderModels } from '../settings/ProviderModels'
-import { defaultSettings, type AppSettings } from '../../../../shared/settings'
+import {
+  defaultSettings,
+  type AppSettings,
+  type ModelPreferences
+} from '../../../../shared/settings'
 import { clearCatalogStore } from '../../lib/catalogStore'
 import type { ModelOptionInfo } from '../../../../shared/runOptions'
 // The real captured CLI catalog — same fixture Composer.test.tsx and modelIdentity.test.ts use,
@@ -343,5 +347,92 @@ describe('ProviderModels runtime catalog (Claude instance)', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Add' }))
     expect(screen.getByText('That model is already built in.')).toBeTruthy()
+  })
+})
+
+// ── favourites rank by their own list order ─────────────────────────────────────────────────
+//
+// `sortModels` used to rank inside the favourites group by `modelOrder`, leaving
+// `favoriteModels`' own order as dead data. Now the favourites list ranks favourites, so the
+// arrows have to write THAT list when the row they move is a favourite — otherwise the button
+// is visibly enabled and does nothing, which is worse than the bug it replaced.
+describe('ProviderModels favourite ranking', () => {
+  function favSettings(favoriteModels: string[]): AppSettings {
+    return settings((s) => {
+      s.agent.modelPreferences['claude-default'] = {
+        hiddenModels: [],
+        favoriteModels,
+        modelOrder: []
+      }
+    })
+  }
+
+  it('moving a favourite up reorders favoriteModels, not modelOrder', () => {
+    render(
+      <ProviderModels
+        settings={favSettings(['claude-opus-5', 'claude-opus-4-8'])}
+        instanceId="claude-default"
+      />
+    )
+    fireEvent.click(screen.getByLabelText('Move Claude Opus 4.8 up'))
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      agent: {
+        modelPreferences: {
+          'claude-default': {
+            hiddenModels: [],
+            favoriteModels: ['claude-opus-4-8', 'claude-opus-5'],
+            // untouched: modelOrder ranks the non-favourites and has no say here
+            modelOrder: []
+          }
+        }
+      }
+    })
+  })
+
+  it('moving a favourite down reorders favoriteModels the other way', () => {
+    render(
+      <ProviderModels
+        settings={favSettings(['claude-opus-5', 'claude-opus-4-8'])}
+        instanceId="claude-default"
+      />
+    )
+    fireEvent.click(screen.getByLabelText('Move Claude Opus 5 down'))
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      agent: {
+        modelPreferences: {
+          'claude-default': {
+            hiddenModels: [],
+            favoriteModels: ['claude-opus-4-8', 'claude-opus-5'],
+            modelOrder: []
+          }
+        }
+      }
+    })
+  })
+
+  // Moving a NON-favourite is unchanged: modelOrder still ranks everything outside the group.
+  it('moving a non-favourite still writes modelOrder and leaves favourites alone', () => {
+    render(<ProviderModels settings={favSettings(['claude-opus-5'])} instanceId="claude-default" />)
+    fireEvent.click(screen.getByLabelText('Move Claude Opus 4.8 up'))
+    const patched = (window.argus.settings.patch as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0]
+      .agent.modelPreferences['claude-default'] as ModelPreferences
+    expect(patched.favoriteModels).toEqual(['claude-opus-5'])
+    expect(patched.modelOrder.length).toBeGreaterThan(0)
+    // it moved above Fable, which is the first non-favourite
+    expect(patched.modelOrder.indexOf('claude-opus-4-8')).toBeLessThan(
+      patched.modelOrder.indexOf('claude-fable-5')
+    )
+  })
+
+  // The displayed order has to follow the stored list, or ranking is invisible until restart.
+  it('renders favourites in their stored list order', () => {
+    const { container } = render(
+      <ProviderModels
+        settings={favSettings(['claude-opus-4-8', 'claude-opus-5'])}
+        instanceId="claude-default"
+      />
+    )
+    const names = [...container.querySelectorAll('.truncate')].map((n) => n.textContent)
+    expect(names.slice(0, 2)).toEqual(['Claude Opus 4.8', 'Claude Opus 5'])
   })
 })
