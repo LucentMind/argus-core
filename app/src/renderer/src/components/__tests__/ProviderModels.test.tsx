@@ -244,7 +244,14 @@ describe('ProviderModels runtime catalog (Claude instance)', () => {
     expect(window.argus.models.catalog).not.toHaveBeenCalled()
   })
 
-  it("hiding a catalog row patches hiddenModels with the ROW's own (alias) slug", async () => {
+  // This used to assert the opposite — that the ROW's own alias slug (`haiku`) was stored —
+  // and that was the defect, not a design: an alias means nothing outside the catalog version
+  // that minted it, and `defaultModelRef`/`orderedVisibleModels` sort the STATIC list, where it
+  // matches nothing at all. A favourite starred here as `opus[1m]` was therefore dropped by
+  // `translatePreferences` on the seed path, and every new case picked whatever sorted first.
+  // The panel still WORKS in row space (it has to — that is what it renders); only the write
+  // is canonicalized, by `patchPrefs`.
+  it('hiding a catalog row stores the canonical WIRE slug, not the row alias', async () => {
     window.argus.models.catalog = vi.fn(async () => CLI_CATALOG as ModelOptionInfo[])
     render(<ProviderModels settings={settings()} instanceId="claude-default" />)
     // Wait for a name only the loaded catalog can produce (the static fallback also renders
@@ -256,10 +263,49 @@ describe('ProviderModels runtime catalog (Claude instance)', () => {
     expect(window.argus.settings.patch).toHaveBeenCalledWith({
       agent: {
         modelPreferences: {
-          'claude-default': { hiddenModels: ['haiku'], favoriteModels: [], modelOrder: [] }
+          'claude-default': {
+            // `haiku` resolves to the DATED `claude-haiku-4-5-20251001`; storing that would
+            // break on the CLI's next Haiku build, so the date goes too.
+            hiddenModels: ['claude-haiku-4-5'],
+            favoriteModels: [],
+            modelOrder: []
+          }
         }
       }
     })
+  })
+
+  // The reported bug at its source: this is the click that produced the `opus[1m]` found in the
+  // reporter's settings.json, and the model it names is exactly the one the static list calls
+  // `claude-opus-5`.
+  it('favouriting Opus 5 from the catalog stores claude-opus-5, so the new-case seed sees it', async () => {
+    window.argus.models.catalog = vi.fn(async () => CLI_CATALOG as ModelOptionInfo[])
+    render(<ProviderModels settings={settings()} instanceId="claude-default" />)
+    await screen.findByText('Claude Opus 5')
+    fireEvent.click(screen.getByLabelText('Add Claude Opus 5 to favorites'))
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      agent: {
+        modelPreferences: {
+          'claude-default': {
+            hiddenModels: [],
+            favoriteModels: ['claude-opus-5'],
+            modelOrder: []
+          }
+        }
+      }
+    })
+  })
+
+  // Reordering writes the whole displayed list, so it is the widest alias leak of the three.
+  it('reordering stores the whole modelOrder in wire slugs', async () => {
+    window.argus.models.catalog = vi.fn(async () => CLI_CATALOG as ModelOptionInfo[])
+    render(<ProviderModels settings={settings()} instanceId="claude-default" />)
+    await screen.findByText('Claude Opus 5')
+    fireEvent.click(screen.getByLabelText('Move Claude Fable 5 down'))
+    const order = (window.argus.settings.patch as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0]
+      .agent.modelPreferences['claude-default'].modelOrder as string[]
+    expect(order.every((s) => s.startsWith('claude-'))).toBe(true)
+    expect(order).toContain('claude-opus-5')
   })
 
   it('translates a preference stored as the OLD static wire slug onto the loaded alias row', async () => {

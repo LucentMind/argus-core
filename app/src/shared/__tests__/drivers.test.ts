@@ -17,6 +17,8 @@ import {
   defaultModelRef,
   capabilitiesFor,
   mergeBuiltinRows,
+  canonicalizePreferences,
+  hasUnresolvedPreferences,
   resolveModelInfo,
   type CatalogModel,
   type ClaudeDriverConfig
@@ -780,4 +782,161 @@ describe('codex driver', () => {
     expect(d.capabilities.permissionModes).toEqual(BASE_PERMISSION_MODES)
     expect(d.capabilities.planMode).toBe(true)
   })
+})
+
+// ── canonicalizePreferences: storing prefs by a catalog-independent slug ────────────────────
+//
+// The reported bug, in one sentence: a favourite starred while the runtime catalog was loaded
+// was stored as that catalog's ALIAS (`opus[1m]`), and `defaultModelRef` sorts the STATIC list,
+// where no alias matches anything — so the favourite was dropped and a new case was seeded with
+// whatever sorted first instead. `canonicalizePreferences` is the write-side + migration fix:
+// every stored slug becomes the wire slug (`shared/modelIdentity.ts`'s `canonicalSlug`), which
+// matches in the static list, in this catalog, and in a later one.
+describe('canonicalizePreferences', () => {
+  const rows = catalogModelRows(CLI_CATALOG as ModelOptionInfo[])
+
+  it('rewrites alias-keyed slugs to wire slugs in all three lists', () => {
+    expect(
+      canonicalizePreferences(rows, {
+        hiddenModels: ['haiku'],
+        favoriteModels: ['opus[1m]'],
+        modelOrder: ['fable', 'sonnet']
+      })
+    ).toEqual({
+      // note the date suffix is gone too — `claude-haiku-4-5-20251001` would stop matching
+      // the moment the CLI ships a new Haiku build
+      hiddenModels: ['claude-haiku-4-5'],
+      favoriteModels: ['claude-opus-5'],
+      modelOrder: ['claude-fable-5', 'claude-sonnet-5']
+    })
+  })
+
+  // The critical difference from `translatePreferences`, which DROPS what it cannot map: a
+  // migration that ran while the catalog was unreachable, or against a catalog that no longer
+  // lists a model, must not delete the user's preference for it.
+  it('leaves a slug no row names untouched rather than dropping it', () => {
+    expect(
+      canonicalizePreferences(rows, {
+        hiddenModels: [],
+        // neither is in the fixture's alias menu; both are real models the CLI still runs
+        favoriteModels: ['claude-opus-4-8', 'claude-opus-4-7'],
+        modelOrder: []
+      }).favoriteModels
+    ).toEqual(['claude-opus-4-8', 'claude-opus-4-7'])
+  })
+
+  // `default` and `opus[1m]` are one model (catalogModelRows already dedupes the rows); two
+  // prefs naming it must not become two identical entries.
+  it('dedupes slugs that canonicalize to the same model, keeping the first position', () => {
+    expect(
+      canonicalizePreferences(rows, {
+        hiddenModels: [],
+        favoriteModels: ['opus[1m]', 'claude-sonnet-5', 'claude-opus-5'],
+        modelOrder: []
+      }).favoriteModels
+    ).toEqual(['claude-opus-5', 'claude-sonnet-5'])
+  })
+
+  // It runs on every catalog fetch, not once behind a flag, so a second pass has to be a no-op.
+  it('is idempotent', () => {
+    const prefs = {
+      hiddenModels: ['haiku'],
+      favoriteModels: ['opus[1m]'],
+      modelOrder: ['fable']
+    }
+    const once = canonicalizePreferences(rows, prefs)
+    expect(canonicalizePreferences(rows, once)).toEqual(once)
+  })
+
+  // The regression proper, with the exact prefs found in the reporter's settings.json.
+  // Opus 5 was starred while the catalog was loaded (`opus[1m]`), Opus 4.8 while it was not
+  // (the fixture's alias menu never names 4.8, so its row keeps the wire slug) — which is why
+  // 4.8 survived to seed every new case and Opus 5 did not.
+  describe('the reported defect: a new case seeded with Opus 4.8 instead of Opus 5', () => {
+    const stored = {
+      hiddenModels: ['claude-sonnet-4-6', 'claude-opus-4-7'],
+      favoriteModels: ['claude-opus-4-8', 'opus[1m]'],
+      modelOrder: []
+    }
+
+    it('as stored, the alias favourite is invisible to the seed and 4.8 wins', () => {
+      expect(defaultModelRef(withPrefs(stored))?.slug).toBe('claude-opus-4-8')
+    })
+
+    it('canonicalized, the seed is Opus 5', () => {
+      const migrated = canonicalizePreferences(
+        catalogModelRows(CLI_CATALOG as ModelOptionInfo[]),
+        stored
+      )
+      expect(migrated.favoriteModels).toEqual(['claude-opus-4-8', 'claude-opus-5'])
+      // Both favourites now resolve, so the favourites group holds two models and the static
+      // catalog order decides between them — Opus 5 sits above 4.8 there.
+      expect(
+        orderedVisibleModels(withPrefs(migrated))
+          .map((m) => m.slug)
+          .slice(0, 2)
+      ).toEqual(['claude-opus-5', 'claude-opus-4-8'])
+      expect(defaultModelRef(withPrefs(migrated))?.slug).toBe('claude-opus-5')
+    })
+  })
+})
+
+// ── hasUnresolvedPreferences: the gate on the boot-time migration ───────────────────────────
+//
+// Migrating needs a fetched catalog, and fetching means spawning the CLI. Doing that on every
+// launch to service a one-time rewrite is a boot-cost regression for everyone who has nothing
+// to migrate — so the migration first asks, from settings alone, whether anything CAN be
+// stale. A slug that already names a static (or custom) row needs no catalog to interpret;
+// one that names nothing can only be an alias, and only a catalog can say what it means.
+describe('hasUnresolvedPreferences', () => {
+  it('is true for the reported alias-keyed favourite', () => {
+    const s = withPrefs({ favoriteModels: ['claude-opus-4-8', 'opus[1m]'] })
+    expect(hasUnresolvedPreferences(s, 'claude-default')).toBe(true)
+  })
+
+  it('is false once those prefs are canonical — so the migration never spawns again', () => {
+    const s = withPrefs({
+      hiddenModels: ['claude-sonnet-4-6', 'claude-opus-4-7'],
+      favoriteModels: ['claude-opus-4-8', 'claude-opus-5'],
+      modelOrder: []
+    })
+    expect(hasUnresolvedPreferences(s, 'claude-default')).toBe(false)
+  })
+
+  it('is false with no stored preferences at all', () => {
+    expect(hasUnresolvedPreferences(withPrefs(), 'claude-default')).toBe(false)
+  })
+
+  // A custom model exists only in this instance's config, never in any CLI catalog. Ignoring
+  // that would leave the gate permanently open and spawn a probe on every single boot.
+  it('counts a custom model as resolved', () => {
+    const s = withPrefs(
+      { favoriteModels: ['my-custom-model'] },
+      { customModels: ['my-custom-model'] }
+    )
+    expect(hasUnresolvedPreferences(s, 'claude-default')).toBe(false)
+  })
+
+  it('checks all three lists, not just favourites', () => {
+    expect(hasUnresolvedPreferences(withPrefs({ hiddenModels: ['haiku'] }), 'claude-default')).toBe(
+      true
+    )
+    expect(hasUnresolvedPreferences(withPrefs({ modelOrder: ['fable'] }), 'claude-default')).toBe(
+      true
+    )
+  })
+})
+
+// The gate's one honest limitation, pinned so it is a known property rather than a surprise:
+// a preference naming a model that exists ONLY in a runtime catalog — a model shipped after
+// this build's static list was written — is indistinguishable from an alias by this test, so
+// the gate stays open and the migration re-fetches on every boot. That costs one background
+// catalog fetch, which is cached process-wide and is the same fetch the composer makes on the
+// first case anyway; `canonicalizeStoredModelPrefs` then finds nothing to change and writes
+// nothing. The alternative — a "migrated" marker in settings — would close the gate for good
+// but also stop a genuinely stale alias (hand-edited in, or synced from another machine) from
+// ever being repaired.
+it('stays open for a preference naming a model this build does not know statically', () => {
+  const s = withPrefs({ favoriteModels: ['claude-opus-6'] })
+  expect(hasUnresolvedPreferences(s, 'claude-default')).toBe(true)
 })

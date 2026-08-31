@@ -32,6 +32,32 @@ function bare(slug: string): string {
 }
 
 /**
+ * The catalog-INDEPENDENT identity of a row — what a stored preference (favourite, hidden,
+ * order) must be keyed by.
+ *
+ * A row's `value` is whatever the CLI called it at the moment it was read: `opus[1m]` on
+ * 2.1.220, something else on the next release, and nothing at all when the catalog cannot be
+ * reached. Storing a preference under it produces a pref that only the catalog that minted it
+ * can interpret — and `defaultModelRef`/`orderedVisibleModels` sort the STATIC list, which has
+ * no aliases at all. A favourite starred as `opus[1m]` therefore mapped to no row there and was
+ * dropped, silently seeding every new case with whatever model happened to sort first instead.
+ *
+ * The canonical form is the wire slug with BOTH version-dependent suffixes removed — `[1m]`
+ * (added by `apiModelId`, see `bare`) and the CLI's `-YYYYMMDD` build date. That is exactly the
+ * shape `CLAUDE_MODEL_SPECS` already uses, so a canonical pref names the same model in the
+ * static list, in today's catalog, and in next month's. `modelMatches` accepts it against all
+ * three — the round trip is pinned by a test.
+ *
+ * A row with no `resolvedModel` (the static/offline shape, and every custom model) is returned
+ * untouched: its `value` is already the wire slug, and stripping `[1m]` there would conflate an
+ * explicitly-added `claude-sonnet-5[1m]` custom model with the base one (see `resolvesToId`).
+ */
+export function canonicalSlug(row: ModelIdentity): string {
+  if (row.resolvedModel === undefined) return row.value
+  return bare(row.resolvedModel).replace(/-\d{8}$/, '')
+}
+
+/**
  * True when `resolved` IS `id`, or `id` with a trailing `-YYYYMMDD` date segment appended —
  * the shape the Claude CLI catalog uses for dated model ids (`claude-haiku-4-5-20251001`)
  * against Argus's static, undated slug (`claude-haiku-4-5`).
