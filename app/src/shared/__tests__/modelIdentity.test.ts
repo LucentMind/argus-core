@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { findModelEntry, modelMatches, type ModelIdentity } from '../modelIdentity'
+import { canonicalSlug, findModelEntry, modelMatches, type ModelIdentity } from '../modelIdentity'
 // The real captured CLI catalog — the whole point of this module is that it agrees with what
 // the CLI actually emits, so asserting against a hand-written approximation would be circular.
 import CLI_CATALOG from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-220.json'
@@ -98,5 +98,54 @@ describe('modelMatches', () => {
     expect(
       modelMatches({ value: 'opus-4-8', resolvedModel: 'claude-opus-4-8' }, 'claude-opus-4')
     ).toBe(false)
+  })
+})
+
+// ── canonicalSlug: the identity a stored PREFERENCE must use ────────────────────────────────
+//
+// A row's `value` is catalog-version-dependent (`opus[1m]` today, whatever the CLI recommends
+// tomorrow) and means nothing without the catalog that produced it. Storing a preference under
+// it is what made a favourited Opus 5 invisible to `defaultModelRef`, which sorts the STATIC
+// list. `canonicalSlug` is the stable counterpart: the wire slug, stripped of the two
+// version-dependent suffixes the CLI adds.
+describe('canonicalSlug', () => {
+  it('resolves a CLI alias to its wire slug', () => {
+    expect(canonicalSlug({ value: 'fable', resolvedModel: 'claude-fable-5' })).toBe(
+      'claude-fable-5'
+    )
+  })
+
+  it('strips the [1m] suffix — the bug: opus[1m] must store as claude-opus-5', () => {
+    expect(canonicalSlug({ value: 'opus[1m]', resolvedModel: 'claude-opus-5[1m]' })).toBe(
+      'claude-opus-5'
+    )
+  })
+
+  // A dated slug is as version-dependent as an alias: stored verbatim it stops matching the
+  // moment the CLI ships a new Haiku build, which is the same defect one layer down.
+  it('strips a -YYYYMMDD date segment', () => {
+    expect(canonicalSlug({ value: 'haiku', resolvedModel: 'claude-haiku-4-5-20251001' })).toBe(
+      'claude-haiku-4-5'
+    )
+  })
+
+  it('strips both suffixes together', () => {
+    expect(canonicalSlug({ value: 'x', resolvedModel: 'claude-haiku-4-5-20251001[1m]' })).toBe(
+      'claude-haiku-4-5'
+    )
+  })
+
+  // The static/offline shape and custom models: `value` already IS the wire slug, and an
+  // explicit `claude-sonnet-5[1m]` custom model is a model in its own right (see
+  // `resolvesToId`'s docblock), so nothing is stripped when there is no resolvedModel.
+  it('keeps a row with no resolvedModel exactly as it is', () => {
+    expect(canonicalSlug({ value: 'claude-opus-4-8' })).toBe('claude-opus-4-8')
+    expect(canonicalSlug({ value: 'claude-sonnet-5[1m]' })).toBe('claude-sonnet-5[1m]')
+  })
+
+  // The round trip that makes storage safe: whatever canonicalSlug emits must still match the
+  // row it came from, or hiding/favouriting would silently stop applying to that row.
+  it('every real catalog row still matches its own canonical slug', () => {
+    for (const r of rows) expect(modelMatches(r, canonicalSlug(r))).toBe(true)
   })
 })
