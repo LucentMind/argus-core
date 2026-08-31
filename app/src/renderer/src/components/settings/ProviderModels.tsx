@@ -96,6 +96,15 @@ export function ProviderModels({
     patchPrefs({ ...prefs, hiddenModels })
   }
 
+  /**
+   * Move one row a slot, writing whichever list actually ranks it.
+   *
+   * Favourites rank by their own list order (see `sortModels`), everything else by
+   * `modelOrder` — so a move inside the favourites group has to rewrite `favoriteModels` or the
+   * arrow would be enabled and inert. `canMoveUp`/`canMoveDown` already refuse to cross the
+   * group boundary, so re-filtering the swapped display order by `favSet` yields the
+   * favourites in exactly their new relative order.
+   */
   function handleMove(slug: string, direction: -1 | 1): void {
     const slugs = models.map((m) => m.slug)
     const index = slugs.indexOf(slug)
@@ -103,7 +112,11 @@ export function ProviderModels({
     if (index < 0 || nextIndex < 0 || nextIndex >= slugs.length) return
     const next = [...slugs]
     ;[next[index], next[nextIndex]] = [next[nextIndex], next[index]]
-    patchPrefs({ ...prefs, modelOrder: next })
+    patchPrefs(
+      favSet.has(slug)
+        ? { ...prefs, favoriteModels: next.filter((s) => favSet.has(s)) }
+        : { ...prefs, modelOrder: next }
+    )
   }
 
   function handleRemove(slug: string): void {
