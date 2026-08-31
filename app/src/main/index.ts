@@ -36,6 +36,7 @@ import { openDb } from './services/db'
 import { SettingsService } from './services/settings'
 import {
   migrateBypassDefault,
+  migrateFavoritesRanking,
   migrateDefaultRepoToList,
   migrateRelatedSearchSwitches
 } from './services/settingsMigrations'
@@ -2010,7 +2011,15 @@ function registerIpc(): void {
   // what an alias stands for, so the rewrite cannot be a settings-load migration; it runs here,
   // once per boot, gated on there actually being an unresolvable slug (no spawn otherwise).
   // Deliberately not awaited: nothing below depends on it, and a slow CLI must not delay boot.
-  void migrateModelPrefs(settingsService, claudeCatalogFor)
+  //
+  // Chained, not run alongside: `migrateFavoritesRanking` ranks favourites by looking up each
+  // stored slug in the STATIC model list, and an alias is not in it. Run first, it would strand
+  // `opus[1m]` at the bottom of the list — permanently, since it stamps and never runs again.
+  // It has its own gate for the case where the catalog never arrives (it declines to stamp), so
+  // this ordering is belt-and-braces rather than the only thing keeping them apart.
+  void migrateModelPrefs(settingsService, claudeCatalogFor).then(() =>
+    migrateFavoritesRanking(settingsService)
+  )
   // A new chat is seeded with the DEFAULT provider instance and its default model, pinned
   // at creation. The user can re-pin it from the composer's model picker afterwards.
   const newSessionProvider = (): {

@@ -1,4 +1,10 @@
-import type { AppSettings } from '../../shared/settings'
+import type { AppSettings, ModelPreferences } from '../../shared/settings'
+import {
+  enabledInstances,
+  favoritesInLegacyOrder,
+  hasUnresolvedPreferences,
+  instanceModels
+} from '../../shared/drivers'
 
 /** The slice of `SettingsService` a migration needs. Injected rather than imported so these
  *  stay unit-testable without an Electron app object — same shape `ensureTrackingStarted`
@@ -113,5 +119,52 @@ export function migrateRelatedSearchSwitches(
       similarPastCasesEnabled: null,
       ...(legacy ? { relatedIncludeLocalCases: true } : {})
     }
+  })
+}
+
+/**
+ * One-time upgrade: rewrite each instance's `favoriteModels` into the order the PREVIOUS
+ * ordering rule displayed it in.
+ *
+ * `sortModels` used to treat that list as an unordered set and rank inside the favourites group
+ * by `modelOrder`, falling back to catalog position. It now ranks by the list's own order, which
+ * is what makes the arrows able to rank favourites at all. Without this, the change would
+ * silently re-shuffle every existing user's favourites the first time they launched — and with
+ * them the model a new case opens on — because that list currently holds them in the order they
+ * happened to be STARRED. Reproducing the old rule once makes the switch invisible to anyone
+ * already happy with what they saw.
+ *
+ * It waits, WITHOUT stamping, while any enabled instance still has a preference that names no
+ * row offline — i.e. an alias like `opus[1m]`, which only `migrateModelPrefs` can resolve once
+ * it has a catalog. Ordering an alias would strand it at the bottom (see
+ * `favoritesInLegacyOrder`), and the stamp is one-shot, so getting there first would be
+ * permanent. Retrying next launch costs nothing.
+ *
+ * Only enabled instances are considered: a disabled one has no model list to rank against
+ * (`instanceModels` returns `[]` for it), so including it would hold the gate shut forever. The
+ * accepted cost is that an instance disabled across this upgrade and re-enabled later keeps its
+ * favourites in star order — one arrow click to fix, versus a migration that never runs.
+ */
+export function migrateFavoritesRanking(
+  settings: MigratableSettings,
+  now: () => Date = () => new Date()
+): void {
+  const current = settings.get()
+  if (current.migrations.favoritesRankByList) return
+  const instances = enabledInstances(current)
+  if (instances.some(({ id }) => hasUnresolvedPreferences(current, id))) return
+
+  const rewritten: Record<string, ModelPreferences> = {}
+  for (const { id } of instances) {
+    const prefs = current.agent.modelPreferences[id]
+    if (!prefs || prefs.favoriteModels.length < 2) continue
+    const favoriteModels = favoritesInLegacyOrder(instanceModels(current, id), prefs)
+    if (favoriteModels.some((slug, i) => slug !== prefs.favoriteModels[i])) {
+      rewritten[id] = { ...prefs, favoriteModels }
+    }
+  }
+  settings.patch({
+    migrations: { favoritesRankByList: now().toISOString() },
+    ...(Object.keys(rewritten).length > 0 ? { agent: { modelPreferences: rewritten } } : {})
   })
 }

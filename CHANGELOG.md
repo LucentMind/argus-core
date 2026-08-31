@@ -190,6 +190,14 @@
 
 ### Fixed
 
+- The favourites list in Settings → a provider's models is now ordered:
+  the up/down arrows rank favourites among themselves, and the top one is
+  what a new case opens on. Until now that list was an unordered set
+  whose arrangement was silently ignored — ranking came from a separate
+  order that also governed the non-favourites — so arranging your
+  favourites appeared to do nothing. Existing favourites are rewritten
+  once into the order they were previously displayed in, so nothing moves
+  on upgrade.
 - Favouriting a model in Settings while the runtime catalog was loaded
   stored the CLI's own alias for it (`opus[1m]`) rather than the model's
   wire slug. New cases are seeded from the static model list, where no
