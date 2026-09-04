@@ -5,7 +5,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
-import { DistillQueue, reconcileAndEnqueue, needsDistillRun, TRAJECTORY_JSON_CAP } from '../queue'
+import {
+  DistillQueue,
+  reconcileAndEnqueue,
+  needsDistillRun,
+  TRAJECTORY_JSON_CAP,
+  pipelineOf
+} from '../queue'
 import { DistillParseError } from '../contract'
 import { DistillAgentRunError } from '../caseDistiller'
 import { DIGEST_CASE_SLUG, readRejectDigest } from '../rejectDigest'
@@ -1664,5 +1670,58 @@ describe('dry run', () => {
     const cancelledQueued = q.cancel(queued.id)
     expect(cancelledQueued.state).toBe('cancelled')
     expect(cancelledQueued.dryRun).toBe(true)
+  })
+
+  it('stamps the pipeline id on the row when the job starts running, from the per-call dep', async () => {
+    const { q } = makeQueue({ pipelineId: () => 'v3' })
+    q.enqueue('case-a')
+    await q.idle()
+    const row = db.prepare(`SELECT pipeline FROM distill_jobs WHERE case_slug='case-a'`).get() as {
+      pipeline: string | null
+    }
+    expect(row.pipeline).toBe('v3')
+  })
+
+  it('retry() clears the stamp so the re-run is stamped by whatever pipeline actually runs it', async () => {
+    let calls = 0
+    let flag: 'v2' | 'v3' = 'v3'
+    const { q } = makeQueue({
+      pipelineId: () => flag,
+      distill: async () => {
+        calls++
+        if (calls === 1) throw new DistillParseError('bad', 'RAW')
+        return { raw: '```json\n{}\n```', output: {} }
+      }
+    })
+    q.enqueue('case-a')
+    await q.idle()
+    const failed = q.statusFor('case-a')!
+    flag = 'v2'
+    q.retry(failed.id)
+    await q.idle()
+    const row = db.prepare(`SELECT pipeline FROM distill_jobs WHERE id=?`).get(failed.id) as {
+      pipeline: string | null
+    }
+    expect(row.pipeline).toBe('v2')
+  })
+})
+
+describe('pipelineOf', () => {
+  it('prefers the stamped column', () => {
+    expect(pipelineOf({ pipeline: 'v2', has_stages: true, state: 'done' })).toBe('v2')
+  })
+  it('falls back to v3 when a pre-column row carries stages_json', () => {
+    expect(pipelineOf({ pipeline: null, has_stages: true, state: 'done' })).toBe('v3')
+  })
+  it('falls back to v2 for a terminal pre-column row with no stages', () => {
+    expect(pipelineOf({ pipeline: null, has_stages: false, state: 'done' })).toBe('v2')
+    expect(pipelineOf({ pipeline: null, has_stages: false, state: 'failed' })).toBe('v2')
+  })
+  it('is null for a queued/running row that has not been stamped', () => {
+    expect(pipelineOf({ pipeline: null, has_stages: false, state: 'queued' })).toBeNull()
+    expect(pipelineOf({ pipeline: null, has_stages: false, state: 'running' })).toBeNull()
+  })
+  it('ignores an unknown column value rather than trusting it', () => {
+    expect(pipelineOf({ pipeline: 'v9', has_stages: false, state: 'done' })).toBe('v2')
   })
 })
