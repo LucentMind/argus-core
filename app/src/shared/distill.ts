@@ -223,6 +223,11 @@ export interface DistillRunDetail {
   /** Stage outputs parsed in main with the pipeline's own parsers. A field is null when the stage
    *  is absent OR its raw output does not parse (the card then shows raw only). Never throws. */
   parsed: {
+    /** Pruned against this run's OWN `input_snapshot` via `pruneUnknownCites`, same gate
+     *  `runCaseDistillPipeline` runs before any downstream stage ever sees the dossier — so this
+     *  never shows a cite chip for a finding/session/evidence path the run's frozen input never
+     *  had. Un-pruned only when `input_snapshot` fails to parse or prune (a corrupt/pre-shape
+     *  row) — see `readRunDetail`'s `pruneDossierAgainstSnapshot`. */
     dossier: Dossier | null
     /** Distinguishes "stage ran and said null" (true, summary null) from "not reached" (false). */
     summaryPresent: boolean

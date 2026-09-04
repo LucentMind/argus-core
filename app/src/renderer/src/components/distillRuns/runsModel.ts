@@ -113,11 +113,12 @@ export interface StripNode {
   error?: string
 }
 
-/** `bad-name` is produced by both the veto pass and the validators (see `ValidatorReason` in
- *  `shared/distillV3.ts`), but `PreStageDrop` carries no field saying which stage produced a
- *  given drop. A `bad-name` drop therefore always buckets under veto here, even on the (rarer)
- *  path where a validator produced it. Known approximation — fixing it needs a stage-origin field
- *  on `PreStageDrop`, which is main-process/shared surface out of scope for this view. */
+/** Fallback ONLY for a `PreStageDrop` with no `stage` (a row written before that field existed).
+ *  `bad-name` is produced by both the veto pass and the validators (see `ValidatorReason` in
+ *  `shared/distillV3.ts`), and `cap` is both a VetoReason AND a staging-drop reason — reason
+ *  alone can't disambiguate those, so a legacy `bad-name`/`cap` drop always buckets under veto
+ *  here, even on the path where a validator or staging produced it. Any row carrying `stage`
+ *  bypasses this heuristic entirely (see `stripNodes` below). */
 const VETO_REASONS: ReadonlySet<string> = new Set<VetoReason>([
   'malformed',
   'unknown-target',
@@ -128,6 +129,15 @@ const VETO_REASONS: ReadonlySet<string> = new Set<VetoReason>([
   'kind-type-mismatch',
   'cap'
 ])
+/** True for anything the v3 strip should render: pipeline is stamped 'v3', OR the row already has
+ *  stages recorded (pipeline can be null while a row is queued/running — stamped only once the
+ *  run actually starts — so `stages` catches an in-flight v3 job before its pipeline column is
+ *  set). NOTE: a QUEUED v3 job has `pipeline: null` AND no `stages` yet, so this is false for it —
+ *  by construction, not a bug, it renders the v2 strip until the run actually starts. */
+export function isV3Shape(detail: DistillRunDetail): boolean {
+  return detail.pipeline === 'v3' || Boolean(detail.stages)
+}
+
 const V3_ORDER: { id: string; label: string; phase: DistillPhase | null }[] = [
   { id: 'input', label: 'input', phase: null },
   { id: 'dossier', label: 'dossier', phase: 'dossier' },
@@ -190,7 +200,7 @@ export function stripNodes(
     state: 'done'
   }
 
-  if (detail.pipeline !== 'v3' && !detail.stages) {
+  if (!isV3Shape(detail)) {
     const agent: StripNode = live
       ? {
           id: 'agent',
@@ -239,8 +249,16 @@ export function stripNodes(
         ? { stat, state: 'error', error: r.error }
         : { stat, state: 'done' }
       : { stat: '—', state: 'not-reached' }
-  const veto = detail.dropped.filter((d) => VETO_REASONS.has(d.reason))
-  const validators = detail.dropped.filter((d) => !VETO_REASONS.has(d.reason))
+  // A drop's `stage` (when present) is authoritative: it says exactly which node produced it, so
+  // a staging drop (cap/basis, merged in by queue.ts) is excluded from both veto and validators
+  // rather than mis-attributed to whichever one shares its reason string. Only a `stage`-less
+  // (legacy) drop falls back to the reason heuristic.
+  const veto = detail.dropped.filter((d) =>
+    d.stage ? d.stage === 'veto' : VETO_REASONS.has(d.reason)
+  )
+  const validators = detail.dropped.filter((d) =>
+    d.stage ? d.stage === 'materialize' || d.stage === 'validators' : !VETO_REASONS.has(d.reason)
+  )
   const mats = Array.isArray(s.materialize) ? s.materialize : []
   const matCost = mats.reduce((a, m) => a + (m.usage?.costUsd ?? 0), 0)
   const matErr = mats.find((m) => m.error)

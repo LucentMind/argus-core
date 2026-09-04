@@ -822,7 +822,7 @@ describe('DistillQueue', () => {
     })
   })
 
-  it("(d) persists dropped_json on a done job, matching stage()'s dropped array exactly", async () => {
+  it("(d) persists dropped_json on a done job, tagging stage()'s drops with stage: 'staging'", async () => {
     const dropped = [
       { type: 'reference-edit', target: 'topic-4', title: 'T4', reason: 'cap' as const },
       { type: 'reference-edit', target: 'short-basis', title: 'Short', reason: 'basis' as const }
@@ -837,7 +837,9 @@ describe('DistillQueue', () => {
     const row = db.prepare(`SELECT dropped_json FROM distill_jobs WHERE id = ?`).get(job.id) as {
       dropped_json: string | null
     }
-    expect(JSON.parse(row.dropped_json!)).toEqual(dropped)
+    // Every field of stage()'s own drop survives verbatim, plus the origin tag queue.ts adds so a
+    // reader can't confuse a staging cap/basis drop for a same-named veto/validator one.
+    expect(JSON.parse(row.dropped_json!)).toEqual(dropped.map((d) => ({ ...d, stage: 'staging' })))
   })
 
   it('persists stages_json and merges pre-stage drops AHEAD of staging drops in dropped_json on a done job', async () => {
@@ -877,9 +879,18 @@ describe('DistillQueue', () => {
     // Pre-stage drops (veto/validator, recorded before staging ever ran) come FIRST, in the
     // order the pipeline recorded them; staging's own drops follow. A reader walking this array
     // sees the run's chronology, and the widened reason set ('case-identifiers' here) survives.
-    const drops = JSON.parse(row.dropped_json) as { reason: string; target: string }[]
+    const drops = JSON.parse(row.dropped_json) as {
+      reason: string
+      target: string
+      stage?: string
+    }[]
     expect(drops.map((d) => d.reason)).toEqual(['cap', 'case-identifiers', 'basis'])
     expect(drops.map((d) => d.target)).toEqual(['t', 'u', 'topic-9'])
+    // The pipeline's own preStageDropped entries here carry no `stage` (synthetic fixture, as a
+    // pre-origin-field row would) and pass through unchanged; only staging's OWN drop — merged in
+    // by queue.ts, not the pipeline — is tagged with its origin, so a reader can't mistake a
+    // staging cap/basis drop for a veto/validator one.
+    expect(drops.map((d) => d.stage)).toEqual([undefined, undefined, 'staging'])
   })
 
   it('persists stages_json on a failed agentic job', async () => {

@@ -1,5 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { DistillRunDetail, CaseDistillSummary } from '../../../shared/distill'
+import type {
+  CaseDistillInput,
+  DistillRunDetail,
+  CaseDistillSummary
+} from '../../../shared/distill'
 import type {
   Dossier,
   KnowledgeCandidate,
@@ -9,7 +13,7 @@ import type {
   ProposalOutType
 } from '../../../shared/distillV3'
 import { toRow, pipelineOf, type JobDbRow } from './queue'
-import { parseDossier } from './v3/dossier'
+import { parseDossier, pruneUnknownCites } from './v3/dossier'
 import { parseSummary } from './v3/summary'
 import { parseCandidates } from './v3/candidates'
 import { parseMaterializeOutput } from './v3/materialize'
@@ -49,9 +53,30 @@ function tryParse<T>(fn: () => T): T | null {
 
 const OUT_TYPES = new Set<string>(['skill-new', 'skill-edit', 'reference-edit'])
 
+/** Prunes a parsed dossier against the run's OWN input snapshot, the same gate
+ *  `runCaseDistillPipeline` runs (`pruneUnknownCites`, v3/dossier.ts) before any downstream stage
+ *  ever sees the dossier — without this, the card can show a cite chip for a finding/session/
+ *  evidence path that never existed in this run's frozen input. `inputSnapshot` is untrusted
+ *  (hand-serialized JSON on a row this panel exists to diagnose broken runs from), so both the
+ *  parse and the prune are wrapped: an unreadable or wrong-shaped snapshot keeps the un-pruned
+ *  dossier rather than throwing the whole detail read. */
+function pruneDossierAgainstSnapshot(
+  dossier: Dossier | null,
+  inputSnapshot: string
+): Dossier | null {
+  if (!dossier) return null
+  try {
+    const input = JSON.parse(inputSnapshot) as CaseDistillInput
+    return pruneUnknownCites(dossier, input).dossier
+  } catch {
+    return dossier
+  }
+}
+
 function parseStages(
   stages: PipelineStages | null,
-  deps: RunDetailDeps
+  deps: RunDetailDeps,
+  inputSnapshot: string
 ): DistillRunDetail['parsed'] {
   const none: DistillRunDetail['parsed'] = {
     dossier: null,
@@ -62,7 +87,10 @@ function parseStages(
   }
   if (!stages) return none
   const dossier: Dossier | null = stages.dossier
-    ? tryParse(() => parseDossier(stages.dossier!.rawOutput).dossier)
+    ? pruneDossierAgainstSnapshot(
+        tryParse(() => parseDossier(stages.dossier!.rawOutput).dossier),
+        inputSnapshot
+      )
     : null
   const summaryPresent = stages.summary !== undefined
   const summary: CaseDistillSummary | null = stages.summary
@@ -119,6 +147,6 @@ export function readRunDetail(
       has_stages: r.stages_json !== null,
       state: r.state
     }),
-    parsed: parseStages(stages, deps)
+    parsed: parseStages(stages, deps, r.input_snapshot)
   }
 }

@@ -173,9 +173,16 @@ describe('v3 distillation end to end (snapshot → pipeline → staging → inbo
     expect((stages.dossier as { rawOutput: string }).rawOutput).toBe(DOSSIER_FOR(input))
     // dossier 0.5 + summary 0.01 + candidates 0.01 + 1 materialize 0.01
     expect(row.cost_usd).toBeGreaterThan(0)
-    // the veto's own drop reaches the job row, not just the pipeline's return value
+    // the veto's own drop reaches the job row, not just the pipeline's return value, tagged with
+    // its origin so a reader can't mistake it for a staging cap/basis drop.
     expect(JSON.parse(row.dropped_json as string)).toEqual([
-      { type: 'skill-new', target: 'diagnose-x', title: 'dup', reason: 'target-exists' }
+      {
+        type: 'skill-new',
+        target: 'diagnose-x',
+        title: 'dup',
+        reason: 'target-exists',
+        stage: 'veto'
+      }
     ])
 
     const skillEdit = pending.find((p) => p.type === 'skill-edit')!
