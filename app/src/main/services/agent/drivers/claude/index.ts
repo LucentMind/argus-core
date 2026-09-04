@@ -1,4 +1,4 @@
-import { query } from '@anthropic-ai/claude-agent-sdk'
+import { query, forkSession, getSessionMessages } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentEvent } from '../../../../../shared/agent-events'
 import { PERMISSION_MODES } from '../../../../../shared/settings'
 import { AsyncQueue } from '../../asyncQueue'
@@ -22,10 +22,24 @@ import { normalizeSdkMessage } from './normalize'
 import { createTurnCostTracker, type TurnCost } from './turnCost'
 import { runClaudeHeadless } from './headless'
 import { runClaudeHeadlessAgent } from './headlessAgent'
+import { createClaudeBranching, type ForkFn, type MessagesFn } from './branch'
 
 // Relocated from session.ts (Task 4 removed the copies there); registry.ts and existing
 // tests import these from the driver module.
-export type QueryHandle = AsyncIterable<unknown> & { interrupt(): Promise<void> }
+export type QueryHandle = AsyncIterable<unknown> & {
+  interrupt(): Promise<void>
+  /** Control methods used only by branch.ts; absent on the test fakes that never branch. */
+  rewindFiles?(
+    userMessageId: string,
+    opts?: { dryRun?: boolean }
+  ): Promise<{
+    canRewind: boolean
+    error?: string
+    filesChanged?: string[]
+    skippedLinks?: number
+  }>
+  close?(): void
+}
 export type CreateQueryFn = (args: {
   prompt: AsyncIterable<unknown>
   options: Record<string, unknown>
@@ -87,7 +101,19 @@ export function isAuthFailure(text: string): boolean {
   return AUTH_FAILURE_RE.test(text)
 }
 
-export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQuery): AgentDriver {
+export function createClaudeDriver(
+  createQuery: CreateQueryFn = defaultCreateQuery,
+  branchDeps: { fork?: ForkFn; messages?: MessagesFn } = {}
+): AgentDriver {
+  // Session branching (spec §6.3). The SDK's `forkSession`/`getSessionMessages` are
+  // standalone calls over the CLI transcript store, injected here so branch.test.ts can
+  // drive them without a live CLI.
+  const branching = createClaudeBranching({
+    createQuery,
+    fork: branchDeps.fork ?? (forkSession as ForkFn),
+    messages: branchDeps.messages ?? (getSessionMessages as MessagesFn),
+    spawnEnv: claudeSpawnEnv
+  })
   return {
     kind: 'claude-agent-sdk',
     toolTaxonomy: CLAUDE_TOOL_TAXONOMY,
@@ -233,6 +259,9 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
             // instead of ~/.claude/projects/<cwd>/memory/. See claudeSpawnEnv for the full why.
             env: claudeSpawnEnv(),
             includePartialMessages: true,
+            // File checkpointing so a later rewind can restore edits (spec §6.3). Sessions
+            // created before this flag existed have no backups; their preview says so.
+            enableFileCheckpointing: true,
             systemPrompt: {
               type: 'preset',
               preset: 'claude_code',
@@ -488,6 +517,10 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
     // sites see exactly what the pre-driver probe gave them: HealthService's `detail`
     // text is unchanged, and AuthCache/the renderer still get email/subscription/version
     // as distinct fields.
+    forkAt: branching.forkAt,
+    rewindTo: branching.rewindTo,
+    previewRewind: branching.previewRewind,
+
     async probeAuth(config: { cliPath?: string; timeoutMs?: number }): Promise<ProbeAuthResult> {
       const st = await probeAuth(createQuery, config)
       return {
