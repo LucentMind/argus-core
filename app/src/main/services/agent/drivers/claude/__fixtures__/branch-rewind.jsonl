@@ -1,0 +1,6 @@
+{"scenario":"rewind","t":0,"kind":"input","data":{"userMessageId":"8149c0d1-4f27-407e-99bb-f38162acdd40","source":"transcript","resume":"21dbb5fd-345c-481c-8040-27fff0a198a2"}}
+{"scenario":"rewind-idle","t":1356,"kind":"dryRun","data":{"canRewind":true,"filesChanged":["C:\\Users\\<user>\\AppData\\Local\\Temp\\argus-branch-spike-9aRTJZ\\note.txt"],"insertions":1,"deletions":1}}
+{"scenario":"rewind-idle","t":1931,"kind":"error","data":{"message":"Query closed before response received"}}
+{"scenario":"rewind-heldopen","t":3223,"kind":"dryRun","data":{"canRewind":true,"filesChanged":["C:\\Users\\<user>\\AppData\\Local\\Temp\\argus-branch-spike-9aRTJZ\\note.txt"],"insertions":1,"deletions":1}}
+{"scenario":"rewind-heldopen","t":3231,"kind":"real","data":{"canRewind":true,"skippedLinks":0}}
+{"scenario":"rewind-heldopen","t":3232,"kind":"file","data":{"before":"v2","after":"v1"}}
