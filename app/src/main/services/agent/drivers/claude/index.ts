@@ -421,16 +421,17 @@ export function createClaudeDriver(
       }
     },
 
+    // Session branching (spec §6.3): forkAt/rewindTo/previewRewind are implemented in branch.ts.
+    forkAt: branching.forkAt,
+    rewindTo: branching.rewindTo,
+    previewRewind: branching.previewRewind,
+
     // Delegates to probe.ts (colocated Task 6). AuthStatus carries a few more optional
     // fields (email/subscription/version) than the driver-agnostic core of
     // ProbeAuthResult — passed through as-is (not folded into detail) so index.ts call
     // sites see exactly what the pre-driver probe gave them: HealthService's `detail`
     // text is unchanged, and AuthCache/the renderer still get email/subscription/version
     // as distinct fields.
-    forkAt: branching.forkAt,
-    rewindTo: branching.rewindTo,
-    previewRewind: branching.previewRewind,
-
     async probeAuth(config: { cliPath?: string; timeoutMs?: number }): Promise<ProbeAuthResult> {
       const st = await probeAuth(createQuery, config)
       return {
