@@ -110,9 +110,12 @@ describe('DistillRunsView', () => {
     expect(screen.getByTestId('compare-columns')).toBeInTheDocument()
   })
   it('a progress broadcast updates the in-flight row and the strip', async () => {
-    rows = [row({ id: 9, state: 'running', itemCount: null, costUsd: null })]
+    rows = [
+      row({ id: 9, state: 'running', itemCount: null, costUsd: null }),
+      row({ id: 10, caseSlug: 'b', caseTitle: 'Beta', jiraKey: null, state: 'done' })
+    ]
     render(<DistillRunsView onClose={() => {}} onOpenCase={() => {}} />)
-    await screen.findByTestId('run-row')
+    await screen.findAllByTestId('run-row')
     act(() =>
       onProgress({
         jobId: 9,
@@ -123,10 +126,14 @@ describe('DistillRunsView', () => {
         detail: 'read_transcript s1'
       })
     )
-    expect(screen.getByTestId('run-row')).toHaveTextContent(
-      'dossier · 3 tool calls · read_transcript s1'
-    )
+    const runningRow = screen
+      .getAllByTestId('run-row')
+      .find((el) => el.textContent?.includes('#9'))!
+    const doneRow = screen.getAllByTestId('run-row').find((el) => el.textContent?.includes('#10'))!
+    expect(runningRow).toHaveTextContent('dossier · 3 tool calls · read_transcript s1')
     expect(screen.getByTestId('strip-dossier').dataset.state).toBe('running')
+    expect(runningRow.querySelector('.animate-spin')).toBeInTheDocument()
+    expect(doneRow.querySelector('.animate-spin')).not.toBeInTheDocument()
   })
   it('a terminal broadcast refetches the list and the selected run', async () => {
     rows = [row({ id: 9, state: 'running', itemCount: null })]
@@ -144,5 +151,20 @@ describe('DistillRunsView', () => {
     expect(viewTitleStore.get()?.label).toBe('Distillation runs')
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(onClose).toHaveBeenCalled()
+  })
+  it('Run again opens the popover pinned to the selected case, and a started job is selected', async () => {
+    const user = userEvent.setup()
+    ;(window.argus.distill.redistill as ReturnType<typeof vi.fn>).mockResolvedValue(
+      row({ id: 50, state: 'queued', itemCount: null })
+    )
+    render(<DistillRunsView initialSlug="a" onClose={() => {}} onOpenCase={() => {}} />)
+    await screen.findByText('RAW 2')
+    await user.click(screen.getByRole('button', { name: 'Run again' }))
+    expect(screen.getByRole('dialog', { name: 'New distillation run' })).toHaveTextContent('a')
+    rows = [row({ id: 50, state: 'queued', itemCount: null }), ...rows]
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    expect(window.argus.distill.redistill).toHaveBeenCalledWith('a')
+    await waitFor(() => expect(screen.getByTestId('strip-input')).toBeInTheDocument())
+    expect(window.argus.distill.run).toHaveBeenLastCalledWith(50)
   })
 })

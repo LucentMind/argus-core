@@ -10,6 +10,7 @@ import { useEscapeLayer } from '../../lib/escapeLayer'
 import { viewTitleStore } from '../../lib/viewTitleStore'
 import { RunsRail } from './RunsRail'
 import { RunDetail } from './RunDetail'
+import { NewRunPopover } from './NewRunPopover'
 import { EMPTY_FILTERS, type RunFilters } from './runsModel'
 
 const TERMINAL = new Set(['done', 'failed', 'cancelled'])
@@ -36,6 +37,8 @@ export function DistillRunsView({
   const [compareDetail, setCompareDetail] = useState<DistillRunDetail | null>(null)
   const [progress, setProgress] = useState<ReadonlyMap<number, DistillProgress>>(new Map())
   const [refetchTick, setRefetchTick] = useState(0)
+  const [newRun, setNewRun] = useState<{ fixedSlug?: string } | null>(null)
+  const [cancelling, setCancelling] = useState(false)
 
   useEscapeLayer({ onEscape: onClose })
   // Two effects rather than one with a cleanup keyed on `rows` (ProposalsStandalone's pattern):
@@ -130,9 +133,23 @@ export function DistillRunsView({
       ),
     [rows, selectedRow]
   )
+  const inFlightSlugs = useMemo(
+    () =>
+      new Set(
+        (rows ?? [])
+          .filter((r) => r.state === 'queued' || r.state === 'running')
+          .map((r) => r.caseSlug)
+      ),
+    [rows]
+  )
   const select = (id: number): void => {
     setSelectedId(id)
     setCompareId(null)
+  }
+  const cancelSelected = (): void => {
+    if (cancelling || !selectedRow) return
+    setCancelling(true)
+    void window.argus.distill.cancel(selectedRow.id).finally(() => setCancelling(false))
   }
 
   return (
@@ -147,9 +164,18 @@ export function DistillRunsView({
           onFilters={setFilters}
           selectedId={selectedId}
           onSelect={select}
+          header={
+            <button
+              type="button"
+              className="rounded-r1 bg-hi px-2 py-1 text-xs text-ink"
+              onClick={() => setNewRun({})}
+            >
+              New run…
+            </button>
+          }
         />
       )}
-      <main className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto">
+      <main className="relative flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-semibold text-ink">
             Distillation runs{' '}
@@ -182,6 +208,29 @@ export function DistillRunsView({
                   >
                     Open case
                   </button>
+                  <button
+                    type="button"
+                    className="rounded-r1 px-2 py-0.5 text-dim hover:bg-hair disabled:opacity-40"
+                    disabled={inFlightSlugs.has(selectedRow.caseSlug)}
+                    title={
+                      inFlightSlugs.has(selectedRow.caseSlug)
+                        ? 'A distillation is already running for this case'
+                        : undefined
+                    }
+                    onClick={() => setNewRun({ fixedSlug: selectedRow.caseSlug })}
+                  >
+                    Run again
+                  </button>
+                  {(selectedRow.state === 'queued' || selectedRow.state === 'running') && (
+                    <button
+                      type="button"
+                      className="rounded-r1 px-2 py-0.5 text-dim hover:bg-hair disabled:opacity-40"
+                      disabled={cancelling}
+                      onClick={cancelSelected}
+                    >
+                      Cancel
+                    </button>
+                  )}
                   <label className="flex items-center gap-1 text-dim">
                     Compare with
                     <select
@@ -209,6 +258,23 @@ export function DistillRunsView({
                 compact
               />
             )}
+          </div>
+        )}
+        {newRun && (
+          <div className="absolute right-6 top-16 z-20">
+            <NewRunPopover
+              fixedSlug={newRun.fixedSlug}
+              inFlightSlugs={inFlightSlugs}
+              onStarted={(job) => {
+                setSelectedId(job.id)
+                setCompareId(null)
+                // The list state won't otherwise include the new job until the main process's
+                // `distill:changed` broadcast lands; bump the same tick that broadcast drives so
+                // the rail and the freshly-selected run's detail both refetch right away.
+                setRefetchTick((t) => t + 1)
+              }}
+              onClose={() => setNewRun(null)}
+            />
           </div>
         )}
       </main>
