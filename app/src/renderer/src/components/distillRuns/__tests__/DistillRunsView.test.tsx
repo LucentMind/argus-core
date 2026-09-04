@@ -152,6 +152,30 @@ describe('DistillRunsView', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(onClose).toHaveBeenCalled()
   })
+  it('Escape closes the "New run…" popover first, then the view (escape-layer stacking)', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(<DistillRunsView onClose={onClose} onOpenCase={() => {}} />)
+    await screen.findAllByTestId('case-group')
+    await user.click(screen.getByRole('button', { name: 'New run…' }))
+    expect(screen.getByRole('dialog', { name: 'New distillation run' })).toBeInTheDocument()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'New distillation run' })).not.toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalled()
+  })
+  it('the detail header Cancel calls window.argus.distill.cancel exactly once even on a double click', async () => {
+    rows = [row({ id: 9, state: 'running', itemCount: null })]
+    ;(window.argus.distill.cancel as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+    render(<DistillRunsView onClose={() => {}} onOpenCase={() => {}} />)
+    const cancelBtn = await screen.findByRole('button', { name: 'Cancel' })
+    fireEvent.click(cancelBtn)
+    fireEvent.click(cancelBtn)
+    expect(window.argus.distill.cancel).toHaveBeenCalledTimes(1)
+  })
   it('Run again opens the popover pinned to the selected case, and a started job is selected', async () => {
     const user = userEvent.setup()
     ;(window.argus.distill.redistill as ReturnType<typeof vi.fn>).mockResolvedValue(
