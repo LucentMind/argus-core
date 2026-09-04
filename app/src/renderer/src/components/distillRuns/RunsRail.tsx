@@ -1,3 +1,4 @@
+import { Loader2 } from 'lucide-react'
 import type { DistillProgress, DistillRunListRow } from '../../../../shared/distill'
 import { applyFilters, groupByCase, phaseLine, runRowLabel, type RunFilters } from './runsModel'
 
@@ -89,9 +90,14 @@ export function RunsRail({
                   onClick={() => onSelect(r.id)}
                   className={`block w-full truncate rounded-r1 px-2 py-1 text-left font-mono text-[11px] ${r.id === selectedId ? 'bg-hi text-ink' : 'text-dim hover:bg-hair'}`}
                 >
-                  {live
-                    ? `#${r.id} · ${r.pipeline ?? '?'}${r.dryRun ? ' · dry' : ''} · ${p ? phaseLine(p) : r.state}`
-                    : runRowLabel(r)}
+                  {live ? (
+                    <>
+                      <Loader2 size={11} className="inline animate-spin" aria-hidden="true" />{' '}
+                      {`#${r.id} · ${r.pipeline ?? '?'}${r.dryRun ? ' · dry' : ''} · ${p ? phaseLine(p) : r.state}`}
+                    </>
+                  ) : (
+                    runRowLabel(r)
+                  )}
                 </button>
               )
             })}
