@@ -85,9 +85,6 @@ export function filterLiveEvents(
   return { events: kept, gaps: dropped.size }
 }
 
-export const GAP_MARKER = (n: number): string =>
-  `[${n} turn${n === 1 ? '' : 's'} rewound by the user — not part of this conversation]`
-
 const cap = (s: string, n: number): string => (s.length <= n ? s : `${s.slice(0, n)}… [truncated]`)
 
 /** Content is bundle-authored: it must never be able to close its own block. */
