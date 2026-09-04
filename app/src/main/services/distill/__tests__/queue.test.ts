@@ -1716,6 +1716,40 @@ describe('dry run', () => {
     expect(row.state).toBe('queued')
     expect(row.pipeline).toBeNull()
   })
+
+  it('listAllRuns: every case job across cases, newest first, joined to case title/jira, digest rows excluded, dry rows included', async () => {
+    createCase(db, home, { slug: 'case-a', title: 'Alpha', jiraKey: 'NAV-1' })
+    const { q } = makeQueue({ pipelineId: () => 'v3' })
+    q.enqueue('case-a')
+    await q.idle()
+    q.enqueueDryRun('case-a')
+    await q.idle()
+    q.enqueue('case-b') // no cases row: title falls back to the slug
+    await q.idle()
+    db.prepare(
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at, kind) VALUES (?, 'done', '{}', 'x', 'reject-digest')`
+    ).run(DIGEST_CASE_SLUG)
+    const rows = q.listAllRuns()
+    expect(rows.map((r) => r.caseSlug)).toEqual(['case-b', 'case-a', 'case-a'])
+    expect(rows[1].dryRun).toBe(true)
+    expect(rows[1].caseTitle).toBe('Alpha')
+    expect(rows[1].jiraKey).toBe('NAV-1')
+    expect(rows[0].caseTitle).toBe('case-b')
+    expect(rows[0].jiraKey).toBeNull()
+    expect(rows.every((r) => r.pipeline === 'v3')).toBe(true)
+    expect(rows.every((r) => r.progress === undefined)).toBe(true)
+  })
+
+  it('listAllRuns honours limit and falls back pipeline from stages_json for a pre-column row', () => {
+    for (let i = 0; i < 3; i++)
+      db.prepare(
+        `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at, stages_json) VALUES ('c', 'done', '{}', 'x', ?)`
+      ).run(i === 0 ? '{"dossier":{}}' : null)
+    const { q } = makeQueue()
+    expect(q.listAllRuns(2)).toHaveLength(2)
+    const all = q.listAllRuns()
+    expect(all.map((r) => r.pipeline)).toEqual(['v2', 'v2', 'v3'])
+  })
 })
 
 describe('pipelineOf', () => {

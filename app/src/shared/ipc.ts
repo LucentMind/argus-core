@@ -352,6 +352,9 @@ export const IPC = {
   distillRuns: 'distill:runs',
   distillRun: 'distill:run',
   distillDryRun: 'distill:dry-run',
+  distillRunsAll: 'distill:runs-all',
+  /** main → renderer: DistillProgress for an in-flight job. */
+  distillProgress: 'distill:progress',
   // — defect corpus —
   defectsSearch: 'defects:search',
   defectsTest: 'defects:test',
