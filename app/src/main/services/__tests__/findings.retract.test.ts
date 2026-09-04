@@ -86,6 +86,14 @@ describe('retractFinding', () => {
     expect(row?.reviewActor).toBe('agent')
   })
 
+  it('actor: human records a human retraction that reviewTag renders as plain rejected', () => {
+    const id = seed('pending')
+    const r = retractFinding(db, id, 'rewound', { actor: 'human' })
+    expect(r.ok).toBe(true)
+    const row = db.prepare(`SELECT review_actor, review_reason FROM findings WHERE id = ?`).get(id)
+    expect(row).toEqual({ review_actor: 'human', review_reason: 'rewound' })
+  })
+
   it('reports an unknown id rather than throwing', () => {
     expect(retractFinding(db, 9999, 'nope')).toEqual({ ok: false, reason: 'unknown' })
   })
