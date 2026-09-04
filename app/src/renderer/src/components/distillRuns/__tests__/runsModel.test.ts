@@ -8,6 +8,7 @@ import {
   stripNodes,
   classifyCandidates,
   citeLabel,
+  isV3Shape,
   EMPTY_FILTERS
 } from '../runsModel'
 import type {
@@ -218,6 +219,35 @@ describe('stripNodes', () => {
     const n = stripNodes(d, null)
     expect(n.find((x) => x.id === 'validators')!.stat).toBe('−1 · basis')
   })
+  it('buckets by `stage` when present (staging drops are excluded from veto/validators), legacy no-stage drops still bucket by reason', () => {
+    const withStage = detail({
+      pipeline: 'v3',
+      stages: {
+        dossier: { promptHash: 'h', promptChars: 1, rawOutput: '' },
+        summary: { promptHash: 'h', promptChars: 1, rawOutput: '' },
+        candidates: { promptHash: 'h', promptChars: 1, rawOutput: '' },
+        materialize: [
+          { promptHash: 'h', promptChars: 1, rawOutput: '', type: 'reference-edit', target: 'x' }
+        ]
+      },
+      dropped: [
+        // A staging 'cap' drop must NOT land on the veto node just because 'cap' is also a
+        // VetoReason — its `stage` says where it actually happened.
+        { type: 'reference-edit', target: 's', title: 't', reason: 'cap', stage: 'staging' },
+        {
+          type: 'reference-edit',
+          target: 'b',
+          title: 't',
+          reason: 'bad-name',
+          stage: 'validators'
+        },
+        { type: 'skill-new', target: 'd', title: 't', reason: 'duplicate', stage: 'veto' }
+      ]
+    })
+    const n = stripNodes(withStage, null)
+    expect(n.find((x) => x.id === 'veto')!.stat).toBe('−1 · duplicate')
+    expect(n.find((x) => x.id === 'validators')!.stat).toBe('−1 · bad-name')
+  })
   it('a dry run marks staged as skipped; a failed stage carries its error; an unreached stage says so', () => {
     const d = detail({
       pipeline: 'v3',
@@ -266,6 +296,21 @@ describe('stripNodes', () => {
       stat: 'cancelled'
     })
     expect(n.find((x) => x.id === 'staged')!.state).toBe('not-reached')
+  })
+})
+
+describe('isV3Shape', () => {
+  it('is true for pipeline v3, true for any row that recorded stages, false otherwise', () => {
+    expect(isV3Shape(detail({ pipeline: 'v3', stages: null }))).toBe(true)
+    expect(
+      isV3Shape(
+        detail({
+          pipeline: null,
+          stages: { dossier: { promptHash: 'h', promptChars: 1, rawOutput: '' } }
+        })
+      )
+    ).toBe(true)
+    expect(isV3Shape(detail({ pipeline: 'v2', stages: null }))).toBe(false)
   })
 })
 

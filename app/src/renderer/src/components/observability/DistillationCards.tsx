@@ -30,7 +30,9 @@ export function DistillationCards({
       live = false
     }
   }, [since])
-  if (!d || d.jobCount + d.dryRunCount === 0) return null
+  // failedCount is included: a corpus of only failed runs (jobCount 0) must not read as "nothing
+  // ever ran" and hide its own spend.
+  if (!d || d.jobCount + d.failedCount + d.dryRunCount === 0) return null
   const hidden = (id: string): boolean => hiddenCards.includes(id)
   return (
     <section className="flex flex-col gap-2">
@@ -51,7 +53,9 @@ export function DistillationCards({
           <StatCard
             id="distill.runs"
             label="Distillation runs"
-            value={String(d.jobCount)}
+            // Every run, done or failed — jobCount alone (done only) made the sub read as a
+            // second, disjoint count instead of the true subset it is.
+            value={String(d.jobCount + d.failedCount)}
             sub={`${d.failedCount} failed`}
           />
         )}

@@ -238,7 +238,7 @@ export async function runCaseDistillPipeline(
     // ── veto ─────────────────────────────────────────────────────────────────────────────────
     report({ phase: 'veto' })
     const { kept, dropped } = vetoCandidates(cand.value.candidates, dossier, input)
-    const preStageDropped: PreStageDrop[] = [...dropped]
+    const preStageDropped: PreStageDrop[] = dropped.map((d) => ({ ...d, stage: 'veto' as const }))
 
     // ── stage 3: materialize (parallel) → validators ─────────────────────────────────────────
     const matRecords: NonNullable<PipelineStages['materialize']> = []
@@ -286,7 +286,8 @@ export async function runCaseDistillPipeline(
           type: c.type,
           target: c.target,
           title: c.title,
-          reason: 'materialize-error'
+          reason: 'materialize-error',
+          stage: 'materialize'
         })
         continue
       }
@@ -297,7 +298,8 @@ export async function runCaseDistillPipeline(
           type: c.type,
           target: c.target,
           title: c.title,
-          reason: 'patch-error'
+          reason: 'patch-error',
+          stage: 'materialize'
         })
         continue
       }
@@ -314,7 +316,13 @@ export async function runCaseDistillPipeline(
       )
       if (!v.ok) {
         rec.error = `validator: ${v.reason}`
-        preStageDropped.push({ type: c.type, target: c.target, title: c.title, reason: v.reason })
+        preStageDropped.push({
+          type: c.type,
+          target: c.target,
+          title: c.title,
+          reason: v.reason,
+          stage: 'validators'
+        })
         continue
       }
       // A flag is not a failure — it rides its own channel so a KEPT proposal is never persisted

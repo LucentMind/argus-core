@@ -735,7 +735,16 @@ export class DistillQueue {
         // reason set is wider than staging's own `'cap' | 'basis'` (it now also carries every
         // VetoReason/ValidatorReason); nothing reads this column back today, so no reader type
         // needed widening — a future reader must treat `reason` as an open string.
-        JSON.stringify([...(run.preStageDropped ?? []), ...res.dropped]),
+        //
+        // Staging's own drops are tagged `stage: 'staging'` here (the pipeline already tags its
+        // own veto/materialize/validators drops before this point) — `'cap'` and `'bad-name'` are
+        // ambiguous by reason alone (both a VetoReason AND, respectively, a staging reason / a
+        // ValidatorReason), so a reader bucketing by reason would mis-attribute a staging drop to
+        // the wrong pipeline node. See PreStageDrop's doc comment.
+        JSON.stringify([
+          ...(run.preStageDropped ?? []),
+          ...res.dropped.map((d) => ({ ...d, stage: 'staging' as const }))
+        ]),
         run.stages ? JSON.stringify(run.stages) : null
       )
     } catch (err) {

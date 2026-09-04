@@ -2994,9 +2994,14 @@ function registerIpc(): void {
     assertDevTools(devTools)
     return distillQueue.listAllRuns(limit)
   })
-  ipcMain.handle(IPC.distillDryRun, (_e, slug: string, ignorePriorProposals: boolean) =>
-    distillQueue.enqueueDryRun(slug, { ignorePriorProposals })
-  )
+  ipcMain.handle(IPC.distillDryRun, (_e, slug: string, ignorePriorProposals: boolean) => {
+    // Spend-incurring like a real run (see queue.ts's dry-run finish comment), and both its
+    // callers (the case-menu row, the runs view popover) are already dev-only — refuse the same
+    // way the read channels above do, so the preload can't be used to trigger spend from outside
+    // dev tools.
+    assertDevTools(devTools)
+    return distillQueue.enqueueDryRun(slug, { ignorePriorProposals })
+  })
 
   // — defect corpus —
   ipcMain.handle(IPC.defectsSearch, (_e, req: CorpusSearchInput) => defectCorpus.searchAll(req))
