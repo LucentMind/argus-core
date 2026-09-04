@@ -361,7 +361,11 @@ function App(): React.JSX.Element {
             // surfaces reached from the top bar, they carry a title row of their own, and without a
             // scope they rendered in classic tokens while every neighbouring view was ambient.
             <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>
-              <ObservabilityView onOpenCase={openCase} onClose={closeObservability} />
+              <ObservabilityView
+                onOpenCase={openCase}
+                onClose={closeObservability}
+                onOpenRuns={devTools ? () => openDistillRuns() : undefined}
+              />
             </DynamicScope>
           ) : view.kind === 'relatedHistory' ? (
             <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>
