@@ -1318,7 +1318,8 @@ export class CaseSession {
     if (this.currentTurnRow != null) {
       this.deps.db
         .prepare(
-          `UPDATE turns SET status = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, duration_ms = ?, model = ?
+          `UPDATE turns SET status = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, duration_ms = ?, model = ?,
+                            provider_anchor_id = ?
            WHERE id = ?`
         )
         .run(
@@ -1328,6 +1329,7 @@ export class CaseSession {
           r.costUsd,
           r.durationMs,
           r.model,
+          r.providerAnchorId ?? null,
           this.currentTurnRow
         )
     }

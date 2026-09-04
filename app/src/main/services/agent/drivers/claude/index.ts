@@ -317,10 +317,15 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // session.error emission; the driver deliberately does NOT swallow them.
       async function* events(): AsyncIterable<AgentEvent> {
         const handle = await handleReady
+        let lastAssistantUuid: string | null = null
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         for await (const msg of handle as AsyncIterable<any>) {
           updateCursor(msg)
-          if (msg.type === 'result') ctx.onTurnResult(extractTurnResult(msg))
+          if (msg.type === 'assistant' && typeof msg.uuid === 'string') lastAssistantUuid = msg.uuid
+          if (msg.type === 'result') {
+            ctx.onTurnResult({ ...extractTurnResult(msg), providerAnchorId: lastAssistantUuid })
+            lastAssistantUuid = null // the next turn starts clean
+          }
           // Finished assistant messages are the ONE place a tool_use block carries its
           // full input (stream partials arrive before input_json_deltas assemble), and
           // each toolCallId appears in exactly one finished message — top-level and

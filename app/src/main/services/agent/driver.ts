@@ -26,6 +26,9 @@ export interface TurnResult {
   durationMs: number | null
   model: string | null
   authFailure: boolean
+  /** Provider id of the turn's LAST assistant message — the fork/resume-at anchor (Claude
+   *  `SDKAssistantMessage.uuid`). Absent/null on drivers without native branching. */
+  providerAnchorId?: string | null
 }
 
 export type ToolDecision =
