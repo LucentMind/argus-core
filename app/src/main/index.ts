@@ -2620,12 +2620,13 @@ function registerIpc(): void {
   ipcMain.handle(IPC.metricsCase, (_e, caseSlug: string, q?: MetricsQuery) =>
     caseMetrics(db, caseSlug, q)
   )
-  ipcMain.handle(IPC.usageStats, () =>
+  ipcMain.handle(IPC.usageStats, (_e, q?: { since?: string }) =>
     usageStats({
       db,
       argusHome,
       access: agentAccessStore.get(),
-      hygiene: settingsService.get().memoryHygiene
+      hygiene: settingsService.get().memoryHygiene,
+      since: q?.since
     })
   )
   ipcMain.handle(IPC.findingsList, (_e, caseSlug: string) => listFindings(db, argusHome, caseSlug))

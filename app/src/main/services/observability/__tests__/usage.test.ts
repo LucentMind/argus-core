@@ -59,13 +59,14 @@ function seedDistillJob(
     toolCallCount?: number | null
     promptChars?: number | null
     dryRun?: boolean
+    finishedAt?: string
   } = {}
 ): void {
   db.prepare(
     `INSERT INTO distill_jobs
        (case_slug, state, input_snapshot, kind, cost_usd, turn_count, tool_call_count,
-        prompt_chars, created_at, dry_run)
-     VALUES (?, ?, '{}', ?, ?, ?, ?, ?, ?, ?)`
+        prompt_chars, created_at, dry_run, finished_at)
+     VALUES (?, ?, '{}', ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     caseSlug,
     over.state ?? 'done',
@@ -75,7 +76,8 @@ function seedDistillJob(
     over.toolCallCount ?? null,
     over.promptChars ?? null,
     '2026-07-01T00:00:00.000Z',
-    over.dryRun ? 1 : 0
+    over.dryRun ? 1 : 0,
+    over.finishedAt ?? null
   )
 }
 
@@ -223,7 +225,10 @@ describe('usageStats', () => {
         avgCostUsd: 1,
         avgPromptChars: 3000,
         avgTurnCount: 15,
-        failedCostUsd: null
+        failedCostUsd: null,
+        failedCount: 0,
+        dryRunCount: 0,
+        dryRunCostUsd: null
       })
     })
 
@@ -250,7 +255,10 @@ describe('usageStats', () => {
         avgCostUsd: 1,
         avgPromptChars: 100,
         avgTurnCount: 5,
-        failedCostUsd: 9
+        failedCostUsd: 9,
+        failedCount: 1,
+        dryRunCount: 0,
+        dryRunCostUsd: null
       })
     })
 
@@ -271,7 +279,10 @@ describe('usageStats', () => {
         avgCostUsd: null,
         avgPromptChars: null,
         avgTurnCount: null,
-        failedCostUsd: null
+        failedCostUsd: null,
+        failedCount: 0,
+        dryRunCount: 0,
+        dryRunCostUsd: null
       })
     })
 
@@ -291,7 +302,10 @@ describe('usageStats', () => {
         avgCostUsd: null,
         avgPromptChars: null,
         avgTurnCount: null,
-        failedCostUsd: null
+        failedCostUsd: null,
+        failedCount: 0,
+        dryRunCount: 0,
+        dryRunCostUsd: null
       })
     })
 
@@ -324,7 +338,10 @@ describe('usageStats', () => {
         avgCostUsd: 1,
         avgPromptChars: 100,
         avgTurnCount: 5,
-        failedCostUsd: null
+        failedCostUsd: null,
+        failedCount: 0,
+        dryRunCount: 1,
+        dryRunCostUsd: 1000
       })
     })
 
@@ -342,6 +359,62 @@ describe('usageStats', () => {
       })
       expect(s.distillation.jobCount).toBe(0)
       expect(s.distillation.failedCostUsd).toBe(5)
+      expect(s.distillation.failedCount).toBe(2)
+    })
+  })
+
+  describe('distillationStats — range and dry runs', () => {
+    it('counts only rows finished at/after since, and reports dry-run spend separately', () => {
+      const db = openDb(path.join(tmp, 'a.db'))
+      seedCase(db)
+      seedDistillJob(db, 'c', { state: 'done', costUsd: 1, finishedAt: '2026-07-01T00:00:00.000Z' })
+      seedDistillJob(db, 'c', { state: 'done', costUsd: 2, finishedAt: '2026-07-15T00:00:00.000Z' })
+      seedDistillJob(db, 'c', {
+        state: 'done',
+        costUsd: 4,
+        dryRun: true,
+        finishedAt: '2026-07-15T00:00:00.000Z'
+      })
+      seedDistillJob(db, 'c', {
+        state: 'failed',
+        costUsd: 8,
+        dryRun: true,
+        finishedAt: '2026-07-16T00:00:00.000Z'
+      })
+      // real (non-dry) failed run — its spend must land in failedCostUsd/failedCount but not
+      // in totalCostUsd (which stays scoped to `done` rows).
+      seedDistillJob(db, 'c', {
+        state: 'failed',
+        costUsd: 0.5,
+        finishedAt: '2026-07-15T00:00:00.000Z'
+      })
+      const all = usageStats({
+        db,
+        argusHome: tmp,
+        access: defaultAgentAccess(),
+        hygiene: HYG,
+        now: NOW
+      }).distillation
+      expect(all.jobCount).toBe(2)
+      expect(all.totalCostUsd).toBe(3)
+      expect(all.dryRunCount).toBe(2)
+      expect(all.dryRunCostUsd).toBe(12)
+      expect(all.failedCount).toBe(1)
+      expect(all.failedCostUsd).toBe(0.5)
+      const recent = usageStats({
+        db,
+        argusHome: tmp,
+        access: defaultAgentAccess(),
+        hygiene: HYG,
+        now: NOW,
+        since: '2026-07-10T00:00:00.000Z'
+      }).distillation
+      expect(recent.jobCount).toBe(1)
+      expect(recent.totalCostUsd).toBe(2)
+      expect(recent.dryRunCostUsd).toBe(12)
+      expect(recent.failedCount).toBe(1)
+      expect(recent.failedCostUsd).toBe(0.5)
+      db.close()
     })
   })
 })

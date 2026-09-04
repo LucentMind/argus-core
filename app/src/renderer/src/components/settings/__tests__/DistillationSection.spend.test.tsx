@@ -27,9 +27,12 @@ const NO_RUNS: DistillationUsageStats = {
   jobCount: 0,
   totalCostUsd: null,
   failedCostUsd: null,
+  failedCount: 0,
   avgCostUsd: null,
   avgTurnCount: null,
-  avgPromptChars: null
+  avgPromptChars: null,
+  dryRunCount: 0,
+  dryRunCostUsd: null
 }
 
 function payload(): SettingsPayload {
@@ -66,7 +69,10 @@ describe('DistillationSection spend row', () => {
         avgCostUsd: 1,
         avgPromptChars: 3000,
         avgTurnCount: 15,
-        failedCostUsd: null
+        failedCostUsd: null,
+        failedCount: 0,
+        dryRunCount: 0,
+        dryRunCostUsd: null
       })
     )
     render(<DistillationSection payload={payload()} />)
@@ -87,7 +93,10 @@ describe('DistillationSection spend row', () => {
         avgCostUsd: null,
         avgPromptChars: null,
         avgTurnCount: null,
-        failedCostUsd: null
+        failedCostUsd: null,
+        failedCount: 0,
+        dryRunCount: 0,
+        dryRunCostUsd: null
       })
     )
     render(<DistillationSection payload={payload()} />)
@@ -104,7 +113,10 @@ describe('DistillationSection spend row', () => {
         avgCostUsd: 1,
         avgPromptChars: 3000,
         avgTurnCount: 15,
-        failedCostUsd: 4.5
+        failedCostUsd: 4.5,
+        failedCount: 1,
+        dryRunCount: 0,
+        dryRunCostUsd: null
       })
     )
     render(<DistillationSection payload={payload()} />)

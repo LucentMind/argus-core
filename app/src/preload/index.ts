@@ -1092,7 +1092,7 @@ const argus = {
       invoke(IPC.metricsCase, slug, q)
   },
   usage: {
-    stats: (): Promise<UsageStatsPayload> => invoke(IPC.usageStats)
+    stats: (q?: { since?: string }): Promise<UsageStatsPayload> => invoke(IPC.usageStats, q)
   },
   findings: {
     list: (slug: string): Promise<FindingRow[]> => invoke(IPC.findingsList, slug),
