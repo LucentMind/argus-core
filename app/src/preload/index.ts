@@ -144,6 +144,7 @@ import type {
 } from '../shared/panels'
 import type {
   DistillJobRow,
+  DistillProgress,
   DistillRunDetail,
   DistillRunListRow,
   DistillStatusPayload,
@@ -473,6 +474,11 @@ const argus = {
       const listener = (_e: unknown, p: DistillStatusPayload): void => cb(p)
       ipcRenderer.on(IPC.distillChanged, listener)
       return () => ipcRenderer.removeListener(IPC.distillChanged, listener)
+    },
+    onProgress: (cb: (p: DistillProgress) => void): (() => void) => {
+      const listener = (_e: unknown, p: DistillProgress): void => cb(p)
+      ipcRenderer.on(IPC.distillProgress, listener)
+      return () => ipcRenderer.removeListener(IPC.distillProgress, listener)
     }
   },
   rca: {
