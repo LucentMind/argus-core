@@ -60,8 +60,7 @@ import {
   OPEN_TAG,
   CLOSE_TAG,
   DIGEST_BUDGET,
-  filterLiveEvents,
-  GAP_MARKER
+  filterLiveEvents
 } from './historyDigest'
 import { liveTurnIds } from './liveTurns'
 import type { CorpusSearchInput, SourceSearchResult } from '../../../shared/defectCorpus'
@@ -194,6 +193,11 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
     title: 'read_session_transcript — byte budget reached',
     text: '[capped — continue with fromTurn: {next}]',
     placeholders: ['next']
+  },
+  'read_session_transcript.gap-marker': {
+    title: 'read_session_transcript — rewound-turns gap marker',
+    text: '[{n} turn{plural} rewound by the user — not part of this conversation]',
+    placeholders: ['n', 'plural']
   },
   'read_lines.out-of-range': {
     title: 'read_lines — start past end of file',
@@ -495,7 +499,17 @@ export function argusToolHandlers(
         liveTurnIds(db, deps.sessionId)
       )
       const turns = transcriptTurns(events)
-      const gapNote = gaps > 0 ? GAP_MARKER(gaps) + '\n' : ''
+      // Same asymmetry as the framing/capped feedback below: this marker labels data (how many
+      // turns were rewound), it does not assert anything about untrusted bytes, so it is safe to
+      // let an operator reword it through the Prompts surface — unlike historyDigest.ts's
+      // preamble and omission note, which stay hard-coded constants.
+      const gapNote =
+        gaps > 0
+          ? fb('read_session_transcript.gap-marker', {
+              n: String(gaps),
+              plural: gaps === 1 ? '' : 's'
+            }) + '\n'
+          : ''
       const from =
         args.fromTurn == null ? 1 : Math.max(1, Math.floor(num(args.fromTurn, 'fromTurn')))
       const limit = Math.min(
