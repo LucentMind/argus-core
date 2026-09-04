@@ -9,6 +9,7 @@ import { listFindings } from '../findings'
 import { listEvidence } from '../ingest'
 import { caseDir } from '../paths'
 import { findJiraEvidence, jiraMeta } from '../jiraEvidenceMeta'
+import { TURN_STATUS_REWOUND } from '../../../shared/branching'
 
 /** Tail cap per session; RCA needs the conclusion of a conversation, not its start. */
 export const TRANSCRIPT_CAP = 8000
@@ -82,9 +83,11 @@ export function assembleRcaInput(
     .map((s) => {
       const rows = db
         .prepare(
-          `SELECT content, role FROM messages_fts
-           WHERE case_id = ? AND session_id = ? AND role IN ('user','assistant')
-           ORDER BY rowid ASC`
+          `SELECT m.content, m.role FROM messages_fts m
+             LEFT JOIN turns t ON t.id = m.turn_id
+            WHERE m.case_id = ? AND m.session_id = ? AND m.role IN ('user','assistant')
+              AND (t.status IS NULL OR t.status != '${TURN_STATUS_REWOUND}')
+            ORDER BY m.rowid ASC`
         )
         .all(c.id, s.id) as { content: string; role: string }[]
       const text = rows.map((r) => `${r.role}: ${r.content}`).join('\n')
