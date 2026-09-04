@@ -382,10 +382,12 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
 
       async function* events(): AsyncIterable<AgentEvent> {
         const handle = await handleReady
+        let lastAssistantUuid: string | null = null
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         for await (const msg of handle as AsyncIterable<any>) {
           updateCursor(msg)
           if (isReplayedFrame(msg)) continue
+          if (msg.type === 'assistant' && typeof msg.uuid === 'string') lastAssistantUuid = msg.uuid
           // Computed once so the DB row and the turn.completed event agree on the cost.
           let resultCost: TurnCost | undefined
           if (msg.type === 'result') {
@@ -394,7 +396,11 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
               Boolean(msg.is_error),
               resultConversation(msg)
             )
-            ctx.onTurnResult(extractTurnResult(msg, resultCost))
+            ctx.onTurnResult({
+              ...extractTurnResult(msg, resultCost),
+              providerAnchorId: lastAssistantUuid
+            })
+            lastAssistantUuid = null // the next turn starts clean
           }
           // Finished assistant messages are the ONE place a tool_use block carries its
           // full input (stream partials arrive before input_json_deltas assemble), and
