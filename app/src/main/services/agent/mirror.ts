@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { SessionMirrorLike } from './session'
@@ -24,6 +25,40 @@ export function readSessionEvents(caseDir: string, sessionId: number): AgentEven
     }
   }
   return events
+}
+
+/**
+ * Seed a fork's mirror from its parent (spec §3.5): only lines of the turns in `turnIdMap`
+ * (the inherited, non-rewound ones), `sessionId`/`turnId` rewritten, fresh eventIds, and the
+ * parent's `session.started` dropped — the fork emits its own on first connect. Synchronous
+ * write so the caller's DB transaction can follow it (persist-before-adopt).
+ */
+export function copySessionMirror(
+  caseDir: string,
+  from: number,
+  to: number,
+  turnIdMap: Map<number, number>,
+  ids: { caseId: number; caseSlug: string }
+): number {
+  const lines: string[] = []
+  for (const e of readSessionEvents(caseDir, from)) {
+    if (e.type === 'session.started') continue
+    if (e.turnId == null || !turnIdMap.has(e.turnId)) continue
+    lines.push(
+      JSON.stringify({
+        ...e,
+        eventId: crypto.randomUUID(),
+        caseId: ids.caseId,
+        caseSlug: ids.caseSlug,
+        sessionId: to,
+        turnId: turnIdMap.get(e.turnId)
+      })
+    )
+  }
+  const dir = path.join(caseDir, 'sessions')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, `${to}.jsonl`), lines.length ? lines.join('\n') + '\n' : '')
+  return lines.length
 }
 
 export class SessionMirror implements SessionMirrorLike {

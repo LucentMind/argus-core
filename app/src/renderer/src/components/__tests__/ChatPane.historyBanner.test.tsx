@@ -21,7 +21,9 @@ const baseSession: SessionSummary = {
   mode: 'investigation',
   runOptions: [],
   permissionMode: null,
-  historyOrphaned: false
+  historyOrphaned: false,
+  rewound: [],
+  forkedFrom: null
 }
 
 beforeEach(() => {
@@ -76,12 +78,16 @@ function renderChatPane(
 
 describe('ChatPane history-orphaned banner', () => {
   it('warns when the chat shows history the agent does not have', () => {
-    renderChatPane({ session: { ...baseSession, historyOrphaned: true } })
+    renderChatPane({
+      session: { ...baseSession, historyOrphaned: true, rewound: [], forkedFrom: null }
+    })
     expect(screen.getByText(/does not have it as context/i)).toBeInTheDocument()
   })
 
   it('says nothing for a healthy chat', () => {
-    renderChatPane({ session: { ...baseSession, historyOrphaned: false } })
+    renderChatPane({
+      session: { ...baseSession, historyOrphaned: false, rewound: [], forkedFrom: null }
+    })
     expect(screen.queryByText(/does not have it as context/i)).not.toBeInTheDocument()
   })
 
@@ -111,7 +117,7 @@ describe('ChatPane history-orphaned banner', () => {
         slug={slug}
         sessionId={1}
         onCite={vi.fn()}
-        session={{ ...baseSession, historyOrphaned: true }}
+        session={{ ...baseSession, historyOrphaned: true, rewound: [], forkedFrom: null }}
       />
     )
 
@@ -130,14 +136,18 @@ describe('ChatPane history-orphaned banner', () => {
   })
 
   it('does not refetch for a healthy chat', async () => {
-    renderChatPane({ session: { ...baseSession, historyOrphaned: false } })
+    renderChatPane({
+      session: { ...baseSession, historyOrphaned: false, rewound: [], forkedFrom: null }
+    })
     await Promise.resolve()
     expect(window.argus.sessions.list).not.toHaveBeenCalled()
   })
 
   it('can be dismissed', async () => {
     const user = userEvent.setup()
-    renderChatPane({ session: { ...baseSession, historyOrphaned: true } })
+    renderChatPane({
+      session: { ...baseSession, historyOrphaned: true, rewound: [], forkedFrom: null }
+    })
     await user.click(screen.getByRole('button', { name: /dismiss/i }))
     expect(screen.queryByText(/does not have it as context/i)).not.toBeInTheDocument()
   })

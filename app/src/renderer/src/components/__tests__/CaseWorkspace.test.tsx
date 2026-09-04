@@ -548,6 +548,8 @@ function sessionRow(over: Partial<SessionSummary>): SessionSummary {
     runOptions: [],
     permissionMode: null,
     historyOrphaned: false,
+    rewound: [],
+    forkedFrom: null,
     ...over
   }
 }
@@ -688,7 +690,9 @@ describe('CaseWorkspace mode switching', () => {
         mode: 'investigation',
         runOptions: [],
         permissionMode: null,
-        historyOrphaned: false
+        historyOrphaned: false,
+        rewound: [],
+        forkedFrom: null
       },
       {
         id: 7,
@@ -701,7 +705,9 @@ describe('CaseWorkspace mode switching', () => {
         mode: 'review',
         runOptions: [],
         permissionMode: null,
-        historyOrphaned: false
+        historyOrphaned: false,
+        rewound: [],
+        forkedFrom: null
       }
     ])
   }
@@ -724,7 +730,9 @@ describe('CaseWorkspace mode switching', () => {
         mode: 'investigation',
         runOptions: [],
         permissionMode: null,
-        historyOrphaned: false
+        historyOrphaned: false,
+        rewound: [],
+        forkedFrom: null
       },
       {
         id: 7,
@@ -737,7 +745,9 @@ describe('CaseWorkspace mode switching', () => {
         mode: 'review',
         runOptions: [],
         permissionMode: null,
-        historyOrphaned: false
+        historyOrphaned: false,
+        rewound: [],
+        forkedFrom: null
       }
     ])
 
