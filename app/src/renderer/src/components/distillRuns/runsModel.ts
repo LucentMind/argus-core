@@ -70,16 +70,14 @@ export function groupByCase(rows: DistillRunListRow[]): CaseGroup[] {
   return [...map.values()]
 }
 
-/** `2026-09-04T13:06:00.000Z` → `2026-09-04 13:06`. UTC, not local: the runs list is a shared,
- *  cross-machine audit surface (unlike DistillRunPanel's per-case detail, which stays local time
- *  since the reader is comparing runs they started themselves), so the stamp must read the same
- *  regardless of which machine renders it. */
+/** `2026-08-19T10:04:00.000Z` → `2026-08-19 10:04`. Local time, since the reader is comparing
+ *  runs they started themselves (same convention as DistillRunPanel.tsx). */
 export function stamp(iso: string | null): string {
   if (!iso) return '—'
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   const pad = (n: number): string => String(n).padStart(2, '0')
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 const usd = (n: number | null | undefined): string => (n == null ? '$—' : `$${n.toFixed(2)}`)
@@ -115,6 +113,11 @@ export interface StripNode {
   error?: string
 }
 
+/** `bad-name` is produced by both the veto pass and the validators (see `ValidatorReason` in
+ *  `shared/distillV3.ts`), but `PreStageDrop` carries no field saying which stage produced a
+ *  given drop. A `bad-name` drop therefore always buckets under veto here, even on the (rarer)
+ *  path where a validator produced it. Known approximation — fixing it needs a stage-origin field
+ *  on `PreStageDrop`, which is main-process/shared surface out of scope for this view. */
 const VETO_REASONS: ReadonlySet<string> = new Set<VetoReason>([
   'malformed',
   'unknown-target',
@@ -144,17 +147,14 @@ const PHASE_INDEX: Record<DistillPhase, number> = {
   validators: 4,
   staging: 5
 }
-const NODE_PHASE_INDEX: Record<string, number> = {
-  input: -1,
-  dossier: 0,
-  summary: 1,
-  candidates: 1,
-  veto: 2,
-  materialize: 3,
-  validators: 4,
-  staged: 5,
-  agent: 0
-}
+/** Derived from `V3_ORDER` rather than hand-maintained: each node's index is its phase's slot in
+ *  `PHASE_INDEX` (`input`, which has no phase, sorts before everything at -1). `agent` isn't part
+ *  of `V3_ORDER` (it only appears on the v2 strip), so it's added separately at the same slot as
+ *  the v3 `dossier`/`veto`-adjacent `agent` phase. */
+const NODE_PHASE_INDEX: Record<string, number> = Object.fromEntries([
+  ...V3_ORDER.map((n) => [n.id, n.phase === null ? -1 : PHASE_INDEX[n.phase]] as const),
+  ['agent', PHASE_INDEX.agent]
+])
 
 function reasonsLine(drops: PreStageDrop[]): string {
   const seen: string[] = []
@@ -201,8 +201,12 @@ export function stripNodes(
       : {
           id: 'agent',
           label: 'agent',
-          stat: `${job.turnCount ?? 0} turns · ${job.toolCallCount ?? 0} tool calls · ${usd(job.costUsd)}`,
-          state: job.state === 'failed' ? 'error' : 'done',
+          stat:
+            job.state === 'cancelled'
+              ? 'cancelled'
+              : `${job.turnCount ?? 0} turns · ${job.toolCallCount ?? 0} tool calls · ${usd(job.costUsd)}`,
+          state:
+            job.state === 'failed' ? 'error' : job.state === 'cancelled' ? 'not-reached' : 'done',
           ...(job.error ? { error: job.error } : {})
         }
     return [
@@ -219,7 +223,7 @@ export function stripNodes(
         : {
             id: n.id,
             label: n.label,
-            stat: n.id === 'staged' && job.dryRun ? 'skipped (dry run)' : '…',
+            stat: n.id === 'staged' && job.dryRun ? 'not staged (dry run)' : '…',
             state: liveState(n.id)
           }
     )
@@ -236,12 +240,11 @@ export function stripNodes(
         : { stat, state: 'done' }
       : { stat: '—', state: 'not-reached' }
   const veto = detail.dropped.filter((d) => VETO_REASONS.has(d.reason))
-  const validators = detail.dropped.filter(
-    (d) => !VETO_REASONS.has(d.reason) && d.reason !== 'cap' && d.reason !== 'basis'
-  )
+  const validators = detail.dropped.filter((d) => !VETO_REASONS.has(d.reason))
   const mats = Array.isArray(s.materialize) ? s.materialize : []
   const matCost = mats.reduce((a, m) => a + (m.usage?.costUsd ?? 0), 0)
   const matErr = mats.find((m) => m.error)
+  const candidatesOk = s.candidates && !s.candidates.error
   return [
     input,
     {
@@ -269,23 +272,13 @@ export function stripNodes(
       id: 'veto',
       label: 'veto',
       stat: reasonsLine(veto),
-      state: s.candidates && !s.candidates.error ? 'done' : 'not-reached'
+      state: candidatesOk ? 'done' : 'not-reached'
     },
     {
       id: 'materialize',
       label: 'materialize',
-      stat: mats.length
-        ? `×${mats.length} · ${usd(matCost)}`
-        : s.candidates && !s.candidates.error
-          ? '×0'
-          : '—',
-      state: mats.length
-        ? matErr
-          ? 'error'
-          : 'done'
-        : s.candidates && !s.candidates.error
-          ? 'done'
-          : 'not-reached',
+      stat: mats.length ? `×${mats.length} · ${usd(matCost)}` : candidatesOk ? '×0' : '—',
+      state: mats.length ? (matErr ? 'error' : 'done') : candidatesOk ? 'done' : 'not-reached',
       ...(matErr?.error ? { error: matErr.error } : {})
     },
     {
