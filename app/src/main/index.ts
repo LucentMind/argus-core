@@ -331,7 +331,7 @@ import { usageStats, ensureTrackingStarted } from './services/observability/usag
 import { listFindings, reviewFinding, clearFindings, deleteFinding } from './services/findings'
 import type { MetricsQuery, ReviewState } from '../shared/observability'
 import { DistillQueue, reconcileAndEnqueue, needsDistillRun } from './services/distill/queue'
-import { assembleDistillInput } from './services/distill/input'
+import { assembleDistillInput, buildReferencesIndex } from './services/distill/input'
 import { runCaseDistillAgent } from './services/distill/caseDistiller'
 import { DISTILL_AGENT_TIMEOUT_MS } from './services/distill/worldTools'
 import { stageDistillOutput } from './services/distill/staging'
@@ -2980,7 +2980,12 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.distillRun, (_e, jobId: number) => {
     assertDevTools(devTools)
-    return readRunDetail(db, jobId)
+    return readRunDetail(db, jobId, {
+      currentTarget: (type, name) =>
+        type === 'reference-edit'
+          ? (buildReferencesIndex(argusHome).find((x) => x.name === name)?.content ?? null)
+          : (skillsIndexForDistill().find((s) => s.name === name)?.content ?? null)
+    })
   })
   ipcMain.handle(IPC.distillRunsAll, (_e, limit?: number) => {
     assertDevTools(devTools)
