@@ -1374,7 +1374,8 @@ export class CaseSession {
           `UPDATE turns SET status = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, duration_ms = ?, model = ?,
              sdk_cost_cursor = CASE WHEN ? IS NULL OR ? IS NULL THEN sdk_cost_cursor ELSE ? END,
              sdk_total_cost_usd =
-               CASE WHEN ? IS NULL OR ? IS NULL THEN sdk_total_cost_usd ELSE ? END
+               CASE WHEN ? IS NULL OR ? IS NULL THEN sdk_total_cost_usd ELSE ? END,
+             provider_anchor_id = ?
            WHERE id = ?`
         )
         .run(
@@ -1390,6 +1391,7 @@ export class CaseSession {
           total,
           cursor,
           total,
+          r.providerAnchorId ?? null,
           this.currentTurnRow
         )
     }
