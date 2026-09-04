@@ -4,6 +4,7 @@ import type {
   CaseDistillOutput,
   DistillJobRow,
   DistillProgress,
+  DistillProgressUpdate,
   DistillRunListRow,
   DistillStatusPayload
 } from '../../../shared/distill'
@@ -46,9 +47,15 @@ export interface DistillQueueDeps {
   /** Throws → caller sees the throw; nothing is enqueued (guarded by callers). `opts` carries
    *  the dry-run input switches; omitted for a normal run. */
   assembleInput: (slug: string, opts?: { ignorePriorProposals?: boolean }) => CaseDistillInput
-  distill: (input: CaseDistillInput, signal: AbortSignal) => Promise<CaseDistillRun>
+  distill: (
+    input: CaseDistillInput,
+    signal: AbortSignal,
+    onProgress: (u: DistillProgressUpdate) => void
+  ) => Promise<CaseDistillRun>
   stage: (caseSlug: string, jobId: number, output: CaseDistillOutput) => StageResult
   broadcast: (payload: DistillStatusPayload) => void
+  /** main → renderer `distill:progress`. Advisory: swallowed on throw like `broadcast`. */
+  broadcastProgress?: (p: DistillProgress) => void
   /** Version hash of the static distill prompt parts, stamped at enqueue. Absent in tests. */
   promptHash?: () => string
   /** Home dir passed straight to rejectDigest's file I/O (reads/writes reject-patterns.md). */
@@ -185,7 +192,9 @@ export class DistillQueue {
   /** AbortController for the job currently in `runJob`, keyed by job id. At most one entry
    *  exists (the runner is single in-flight); it is deleted in runJob's `finally`. */
   private controllers = new Map<number, AbortController>()
-  /** Latest in-memory progress per job id, used by `listAllRuns` (Task 5 populates it). */
+  /** Latest in-memory progress per job id, used by `listAllRuns`. Populated by `setProgress`
+   *  (called from `runJob`'s `onProgress` callback and its own staging-phase report) and cleared
+   *  in `runJob`'s `finally` once the job leaves `running`. */
   private progress = new Map<number, DistillProgress>()
 
   constructor(private deps: DistillQueueDeps) {}
@@ -489,6 +498,11 @@ export class DistillQueue {
     })
   }
 
+  /** Latest progress for an in-flight job, or null. */
+  progressFor(jobId: number): DistillProgress | null {
+    return this.progress.get(jobId) ?? null
+  }
+
   /** Test helper: resolves once nothing is queued or running. See class docs for race analysis. */
   idle(): Promise<void> {
     if (!this.running && !this.nextQueued()) return Promise.resolve()
@@ -549,6 +563,23 @@ export class DistillQueue {
       this.deps.broadcast({ caseSlug: raw.case_slug, job: toRow(raw) })
     } catch (err) {
       console.error('[distill] broadcast failed', err)
+    }
+  }
+
+  /** Records and broadcasts one progress update for the currently running job `r`. Same
+   *  never-throws invariant as `emit()`: a broadcast failure is advisory, not load-bearing. */
+  private setProgress(r: JobDbRow, u: DistillProgressUpdate): void {
+    const p: DistillProgress = {
+      ...u,
+      jobId: r.id,
+      caseSlug: r.case_slug,
+      at: new Date().toISOString()
+    }
+    this.progress.set(r.id, p)
+    try {
+      this.deps.broadcastProgress?.(p)
+    } catch (err) {
+      console.error('[distill] progress broadcast failed', err)
     }
   }
 
@@ -654,7 +685,7 @@ export class DistillQueue {
           r.id
         )
       }
-      const run = await this.deps.distill(input, ac.signal)
+      const run = await this.deps.distill(input, ac.signal, (u) => this.setProgress(r, u))
       // A driver can resolve normally even though its signal was already aborted — it lost or
       // ignored the abort race (e.g. its CLI process happened to finish right as cancel() fired).
       // Honour the cancellation anyway: the user pressed cancel, so nothing from this run reaches
@@ -683,6 +714,7 @@ export class DistillQueue {
         )
         return
       }
+      this.setProgress(r, { phase: 'staging' })
       const res = this.deps.stage(r.case_slug, r.id, run.output)
       finish(
         `state='done', raw_output=?, item_count=?, input_tokens=?, output_tokens=?, cost_usd=?, duration_ms=?, prompt_chars=?, turn_count=?, tool_call_count=?, trajectory_json=?, dropped_json=?, stages_json=?`,
@@ -747,6 +779,7 @@ export class DistillQueue {
       }
     } finally {
       this.controllers.delete(r.id)
+      this.progress.delete(r.id)
     }
   }
 }

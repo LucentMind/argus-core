@@ -1098,17 +1098,19 @@ function registerIpc(): void {
     // boot and lives for the process lifetime, so capturing the flag here would make the setting
     // require a restart. The pipeline needs BOTH runners — `distillAgentRun` for the tool-using
     // dossier stage, `headlessRun` for the one-shot stages.
-    distill: (input, signal) =>
+    distill: (input, signal, onProgress) =>
       settingsService.get().distill.pipeline === 'v3'
         ? runCaseDistillPipeline(
             input,
             { agent: distillAgentRun, oneShot: headlessRun },
             resolvePrompt,
-            signal
+            signal,
+            { onProgress }
           )
-        : runCaseDistillAgent(input, distillAgentRun, resolvePrompt, signal),
+        : runCaseDistillAgent(input, distillAgentRun, resolvePrompt, signal, onProgress),
     stage: (slug, jobId, output) => stageDistillOutput(db, argusHome, slug, jobId, output),
     broadcast: (p) => broadcast(IPC.distillChanged, p),
+    broadcastProgress: (p) => broadcast(IPC.distillProgress, p),
     // Same flag, same per-call read: a v3 job must be stamped with the v3 hash (which covers all
     // four stage prompts) or every eval/replay read would attribute it to the v2 prompt version.
     promptHash: () =>
