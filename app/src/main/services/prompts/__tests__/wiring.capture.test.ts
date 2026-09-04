@@ -216,7 +216,8 @@ describe('CaseSession assembles the prompt capture', () => {
         costReporting: true,
         headlessOneShot: false,
         systemPromptTransport: 'systemPrompt.append',
-        subagents: 'configurable'
+        subagents: 'configurable',
+        branching: 'native'
       },
       createSession: (ctx) => {
         seen.push(ctx)

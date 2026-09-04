@@ -122,7 +122,9 @@ export function createCodexDriver(
       // v2 scope: Claude only (recorded follow-up) — see DriverCapabilities.headlessAgent.
       headlessAgent: false,
       systemPromptTransport: 'developerInstructions',
-      subagents: 'promptable'
+      subagents: 'promptable',
+      // No native fork/rewind surface — a fresh provider session plus Argus's history digest.
+      branching: 'digest'
     },
 
     runHeadless: (prompt, opts) => runCodexHeadless(prompt, opts, clientFactory, config.cliPath),
