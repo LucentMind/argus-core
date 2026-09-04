@@ -70,6 +70,24 @@ export function transcriptTurns(events: AgentEvent[]): Turn[] {
   return turns
 }
 
+/** Drop every event of a rewound turn. Session-level events (turnId null) are kept. Returns
+ *  how many DISTINCT rewound turns were dropped so a reader can mark the gap. */
+export function filterLiveEvents(
+  events: AgentEvent[],
+  live: Set<number>
+): { events: AgentEvent[]; gaps: number } {
+  const dropped = new Set<number>()
+  const kept = events.filter((e) => {
+    if (e.turnId == null || live.has(e.turnId)) return true
+    dropped.add(e.turnId)
+    return false
+  })
+  return { events: kept, gaps: dropped.size }
+}
+
+export const GAP_MARKER = (n: number): string =>
+  `[${n} turn${n === 1 ? '' : 's'} rewound by the user — not part of this conversation]`
+
 const cap = (s: string, n: number): string => (s.length <= n ? s : `${s.slice(0, n)}… [truncated]`)
 
 /** Content is bundle-authored: it must never be able to close its own block. */

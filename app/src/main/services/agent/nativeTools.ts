@@ -54,7 +54,16 @@ import { listFindings, parseFindingBodies, retractFinding } from '../findings'
 import { reviewTag } from '../../../shared/findingTag'
 import { sessionMode } from './sessionStore'
 import { readSessionEvents } from './mirror'
-import { transcriptTurns, renderTurn, OPEN_TAG, CLOSE_TAG, DIGEST_BUDGET } from './historyDigest'
+import {
+  transcriptTurns,
+  renderTurn,
+  OPEN_TAG,
+  CLOSE_TAG,
+  DIGEST_BUDGET,
+  filterLiveEvents,
+  GAP_MARKER
+} from './historyDigest'
+import { liveTurnIds } from './liveTurns'
 import type { CorpusSearchInput, SourceSearchResult } from '../../../shared/defectCorpus'
 import { saveItemSuggestion } from '../routines/runItems'
 import type { TriageSuggestion } from '../../../shared/routines'
@@ -481,7 +490,12 @@ export function argusToolHandlers(
       // history digest elided from this session's own transcript, and that is all it may reach.
       // Accepting a session id would let a session read another mode's full transcript, which is
       // exactly what list_evidence above scopes by mode to prevent.
-      const turns = transcriptTurns(readSessionEvents(dir, deps.sessionId))
+      const { events, gaps } = filterLiveEvents(
+        readSessionEvents(dir, deps.sessionId),
+        liveTurnIds(db, deps.sessionId)
+      )
+      const turns = transcriptTurns(events)
+      const gapNote = gaps > 0 ? GAP_MARKER(gaps) + '\n' : ''
       const from =
         args.fromTurn == null ? 1 : Math.max(1, Math.floor(num(args.fromTurn, 'fromTurn')))
       const limit = Math.min(
@@ -523,12 +537,22 @@ export function argusToolHandlers(
         total: String(turns.length)
       })
       // Nothing to fence: an empty OPEN_TAG/CLOSE_TAG pair is noise the model has to interpret.
-      if (shownTurns.length === 0) return header
+      if (shownTurns.length === 0) return gapNote + header
       const tail =
         nextTurn === null
           ? ''
           : '\n' + fb('read_session_transcript.capped', { next: String(nextTurn) })
-      return header + '\n' + OPEN_TAG + '\n' + shownTurns.join('\n\n') + '\n' + CLOSE_TAG + tail
+      return (
+        gapNote +
+        header +
+        '\n' +
+        OPEN_TAG +
+        '\n' +
+        shownTurns.join('\n\n') +
+        '\n' +
+        CLOSE_TAG +
+        tail
+      )
     },
 
     async search_case_history(args) {
