@@ -25,7 +25,8 @@ function stubDriver(subagents: SubagentSupport): AgentDriver {
       costReporting: true,
       headlessOneShot: false,
       systemPromptTransport: 'systemPrompt.append',
-      subagents
+      subagents,
+      branching: 'native'
     },
     createSession(): DriverSession {
       throw new Error('not used in these tests')

@@ -268,5 +268,17 @@ export function runDriverContractSuite(
       delete (ctx as { capturePrompt?: unknown }).capturePrompt
       expect(() => makeDriver().createSession(ctx)).not.toThrow()
     })
+
+    // 11. Branching capability ⇔ method presence. `native` MUST have all three methods;
+    //     `digest` MUST have none (the harness treats absence as "null cursor").
+    it('declared branching capability matches forkAt/rewindTo/previewRewind presence', () => {
+      const d = makeDriver()
+      const has = ['forkAt', 'rewindTo', 'previewRewind'].map(
+        (m) => typeof (d as unknown as Record<string, unknown>)[m] === 'function'
+      )
+      if (d.capabilities.branching === 'native') expect(has).toEqual([true, true, true])
+      else expect(has).toEqual([false, false, false])
+      expect(DRIVERS[d.kind].capabilities.branching).toBe(d.capabilities.branching)
+    })
   })
 }
