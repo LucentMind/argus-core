@@ -1,7 +1,13 @@
 import type { CaseResolution, CaseStatus } from './types'
 import type { ReviewState } from './observability'
 import type { RcaDraft } from './rca'
-import type { PipelineStages, PreStageDrop } from './distillV3'
+import type {
+  Dossier,
+  KnowledgeCandidate,
+  MaterializeOutput,
+  PipelineStages,
+  PreStageDrop
+} from './distillV3'
 
 export type DistillJobState = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
 
@@ -211,4 +217,27 @@ export interface DistillRunDetail {
   /** Length of `input_snapshot`, not its content — the snapshot embeds every session transcript
    *  and is far too large to ship to the renderer. Enough to answer "did this run get any input". */
   inputSnapshotChars: number
+  /** From the `pipeline` column; a pre-column row falls back to stages_json presence
+   *  (`pipelineOf`); null for an unstamped in-flight row. */
+  pipeline: 'v2' | 'v3' | null
+  /** Stage outputs parsed in main with the pipeline's own parsers. A field is null when the stage
+   *  is absent OR its raw output does not parse (the card then shows raw only). Never throws. */
+  parsed: {
+    dossier: Dossier | null
+    /** Distinguishes "stage ran and said null" (true, summary null) from "not reached" (false). */
+    summaryPresent: boolean
+    summary: CaseDistillSummary | null
+    candidates: KnowledgeCandidate[] | null
+    materialized:
+      | {
+          type: string
+          target: string
+          output: MaterializeOutput | null
+          /** For edits: the CURRENT target text and the ops applied to it (labelled "against
+           *  current file" in the UI — the at-run-time text is not stored). Null when the target
+           *  no longer exists, the ops fail to apply, or the entry is a skill-new. */
+          diff: { current: string; applied: string } | null
+        }[]
+      | null
+  }
 }

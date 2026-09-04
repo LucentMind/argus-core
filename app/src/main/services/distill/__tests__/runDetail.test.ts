@@ -84,3 +84,92 @@ describe('readRunDetail', () => {
     expect(d.dropped).toEqual([])
   })
 })
+
+const DOSSIER_RAW =
+  '```json\n{"scope":{"status":"closed","resolution":"solved","settled":true,"note":"n"},"root_cause":{"text":"rc","cites":[{"finding":7}]},"confirmed_fix":null,"rejected_hypotheses":[],"diagnostic_path":[],"durable_facts":[],"user_corrections":[]}\n```'
+const CANDS_RAW =
+  '```json\n{"candidates":[{"kind":"procedure","type":"skill-edit","target":"diagnose-x","title":"t","outline":"o","evidence":["root_cause"],"related":[],"generalization":"g","routing_rationale":"r","confidence":0.9}]}\n```'
+const MAT_RAW =
+  '```json\n{"ops":[{"op":"append-section","heading":"## Steps","content":"2. b"}],"basis":"a real basis of twenty+ chars"}\n```'
+const SKILL = `---\nname: diagnose-x\ndescription: when X\n---\n# diagnose-x\n\n## Steps\n1. a\n`
+
+describe('readRunDetail.parsed', () => {
+  it('parses dossier, summary, candidates and materialize outputs with the pipeline parsers', () => {
+    const id = insertJob({
+      pipeline: 'v3',
+      stages_json: JSON.stringify({
+        dossier: { promptHash: 'h', promptChars: 1, rawOutput: DOSSIER_RAW },
+        summary: { promptHash: 'h', promptChars: 1, rawOutput: '```json\n{"summary":null}\n```' },
+        candidates: { promptHash: 'h', promptChars: 1, rawOutput: CANDS_RAW },
+        materialize: [
+          {
+            promptHash: 'h',
+            promptChars: 1,
+            rawOutput: MAT_RAW,
+            type: 'skill-edit',
+            target: 'diagnose-x'
+          }
+        ]
+      })
+    })
+    const d = readRunDetail(db, id, { currentTarget: () => SKILL })!
+    expect(d.pipeline).toBe('v3')
+    expect(d.parsed.dossier!.root_cause!.text).toBe('rc')
+    expect(d.parsed.summaryPresent).toBe(true)
+    expect(d.parsed.summary).toBeNull()
+    expect(d.parsed.candidates![0].target).toBe('diagnose-x')
+    const m = d.parsed.materialized![0]
+    expect(m.output!.ops![0].heading).toBe('## Steps')
+    expect(m.diff!.current).toBe(SKILL)
+    expect(m.diff!.applied).toContain('2. b')
+  })
+
+  it('yields null per stage on unparseable raw output, without failing the others', () => {
+    const id = insertJob({
+      stages_json: JSON.stringify({
+        dossier: { promptHash: 'h', promptChars: 1, rawOutput: 'not json at all' },
+        candidates: { promptHash: 'h', promptChars: 1, rawOutput: CANDS_RAW }
+      })
+    })
+    const d = readRunDetail(db, id)!
+    expect(d.parsed.dossier).toBeNull()
+    expect(d.parsed.candidates).toHaveLength(1)
+    expect(d.parsed.summaryPresent).toBe(false)
+    expect(d.parsed.materialized).toBeNull()
+  })
+
+  it('a v2 row has no parsed stages and pipeline v2', () => {
+    const d = readRunDetail(db, insertJob())!
+    expect(d.pipeline).toBe('v2')
+    expect(d.parsed).toEqual({
+      dossier: null,
+      summaryPresent: false,
+      summary: null,
+      candidates: null,
+      materialized: null
+    })
+  })
+
+  it('diff is null when the target no longer exists or the ops do not apply', () => {
+    const id = insertJob({
+      stages_json: JSON.stringify({
+        materialize: [
+          {
+            promptHash: 'h',
+            promptChars: 1,
+            rawOutput: MAT_RAW,
+            type: 'skill-edit',
+            target: 'gone'
+          }
+        ]
+      })
+    })
+    expect(
+      readRunDetail(db, id, { currentTarget: () => null })!.parsed.materialized![0].diff
+    ).toBeNull()
+    expect(
+      readRunDetail(db, id, { currentTarget: () => '# no such heading\n' })!.parsed.materialized![0]
+        .diff
+    ).toBeNull()
+  })
+})
