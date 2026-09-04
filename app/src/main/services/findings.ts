@@ -178,12 +178,17 @@ export type { RetractResult }
  *
  * Returns a result rather than throwing so this module needs no prompt-registry resolver;
  * the tool layer owns the user-facing wording.
+ *
+ * `opts.actor` (default `'agent'`) names who is retracting. A rewind passes `'human'`: the
+ * user's gesture discarded the turn that produced the finding, so the retraction is theirs,
+ * not the agent's — and the display gates keyed on `reviewActor === 'agent'` must therefore
+ * render it as a plain rejection rather than attributing a reason to the model.
  */
 export function retractFinding(
   db: DatabaseSync,
   id: number,
   reason: string,
-  hooks: { onOverride?: (row: AttributionRow) => void } = {}
+  opts: { actor?: 'agent' | 'human'; onOverride?: (row: AttributionRow) => void } = {}
 ): RetractResult {
   const cur = db.prepare(`SELECT review_state, review_actor FROM findings WHERE id = ?`).get(id) as
     { review_state: string; review_actor: string | null } | undefined
@@ -193,14 +198,14 @@ export function retractFinding(
   if (!humanRejected) {
     db.prepare(
       `UPDATE findings
-          SET review_state = 'rejected', review_actor = 'agent', review_reason = ?, reviewed_at = ?
+          SET review_state = 'rejected', review_actor = ?, review_reason = ?, reviewed_at = ?
         WHERE id = ?`
-    ).run(reason, new Date().toISOString(), id)
+    ).run(opts.actor ?? 'agent', reason, new Date().toISOString(), id)
     // Spec §4.7: a retraction that names an asset of the case is an implicit human-grade
     // override. Only when the row actually changed; a failure here never fails the retraction.
     try {
       const overridden = overrideFromRetraction(db, id, reason)
-      if (overridden) hooks.onOverride?.(overridden)
+      if (overridden) opts.onOverride?.(overridden)
     } catch (err) {
       console.error('[attribution] retraction override failed', err)
     }

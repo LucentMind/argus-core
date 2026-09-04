@@ -7,6 +7,7 @@ import { caseDir } from '../paths'
 import { appendDeletionAudit } from '../deletionAudit'
 import { deleteMessagesFtsForSession } from '../ftsIndex'
 import { assertCaseWritable, isCaseArchived } from '../caseFreeze'
+import { rewoundTurnsOf } from './liveTurns'
 import type { RunOptionSelection } from '../../../shared/runOptions'
 import { PERMISSION_MODES, type PermissionMode } from '../../../shared/settings'
 
@@ -34,11 +35,16 @@ interface SessionRow {
   mode: string
   run_options: string | null
   permission_mode: string | null
+  forked_from_session_id: number | null
+  forked_at_turn_id: number | null
+  forked_inherited_turns: number | null
 }
 
-const SESSION_COLS = `id, title, turn_count, updated_at, driver_kind, instance_id, model, mode, run_options, permission_mode`
+const SESSION_COLS = `id, title, turn_count, updated_at, driver_kind, instance_id, model, mode, run_options, permission_mode, forked_from_session_id, forked_at_turn_id, forked_inherited_turns`
 
-function rowToSummary(r: SessionRow): SessionSummary {
+/** Takes `db` because the two branching fields are not columns of this row: `rewound` is a
+ *  query over the session's turns, and only `liveTurns.ts` states what "rewound" means. */
+function rowToSummary(db: DatabaseSync, r: SessionRow): SessionSummary {
   return {
     id: r.id,
     title: r.title,
@@ -50,7 +56,16 @@ function rowToSummary(r: SessionRow): SessionSummary {
     mode: r.mode as ModeId,
     runOptions: parseRunOptions(r.run_options),
     permissionMode: parsePermissionMode(r.permission_mode),
-    historyOrphaned: false
+    historyOrphaned: false,
+    rewound: rewoundTurnsOf(db, r.id),
+    forkedFrom:
+      r.forked_from_session_id == null
+        ? null
+        : {
+            sessionId: r.forked_from_session_id,
+            turnId: r.forked_at_turn_id!,
+            inheritedTurns: r.forked_inherited_turns ?? 0
+          }
   }
 }
 
@@ -110,7 +125,9 @@ export function createSession(
     mode: p.mode ?? DEFAULT_MODE,
     runOptions: [],
     permissionMode: null,
-    historyOrphaned: false
+    historyOrphaned: false,
+    rewound: [],
+    forkedFrom: null
   }
 }
 
@@ -149,7 +166,7 @@ export function listSessions(
     const p: SessionProvider = typeof provider === 'string' ? { driverKind: provider } : provider
     return [createSession(db, caseSlug, mode !== undefined ? { ...p, mode } : p)]
   }
-  return (rows as SessionRow[]).map(rowToSummary)
+  return (rows as SessionRow[]).map((r) => rowToSummary(db, r))
 }
 
 /** The provider/model a session is pinned to, or nulls when it predates multi-provider. */
@@ -221,7 +238,14 @@ export function latestSessionForMode(
       `SELECT ${SESSION_COLS} FROM sessions WHERE case_id = ? AND mode = ? ORDER BY updated_at DESC, id DESC LIMIT 1`
     )
     .get(caseId, mode) as SessionRow | undefined
-  return row ? rowToSummary(row) : null
+  return row ? rowToSummary(db, row) : null
+}
+
+/** One session's summary by id — the shape rewind/fork hand back to the renderer. */
+export function sessionSummary(db: DatabaseSync, sessionId: number): SessionSummary | null {
+  const row = db.prepare(`SELECT ${SESSION_COLS} FROM sessions WHERE id = ?`).get(sessionId) as
+    SessionRow | undefined
+  return row ? rowToSummary(db, row) : null
 }
 
 export function renameSession(db: DatabaseSync, sessionId: number, title: string): void {

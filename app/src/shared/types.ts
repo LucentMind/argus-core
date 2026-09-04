@@ -4,6 +4,7 @@ import type { EvidenceScope } from './evidenceScope'
 import type { RunOptionSelection } from './runOptions'
 import type { PermissionMode } from './settings'
 import type { TicketProviderId } from './ticketRef'
+import type { ForkOrigin, RewoundTurn } from './branching'
 
 /**
  * The DECLARED lifecycle — the only case state a human or an agent states outright.
@@ -200,6 +201,11 @@ export interface SessionSummary {
    *  switch that invalidated the resume cursor. The next turn carries a digest instead
    *  (agent/historyDigest.ts), and the chat says so. Cleared once a fresh cursor is stored. */
   historyOrphaned: boolean
+  /** Turns the user rewound away, oldest first. Nothing is deleted by a rewind — these rows
+   *  still exist and the transcript greys them; the model never sees them again. */
+  rewound: RewoundTurn[]
+  /** Where this chat was forked from, or null for a chat that was started normally. */
+  forkedFrom: ForkOrigin | null
 }
 
 /** Result of a manual evidence-folder scan (evidence:scan). Lists are relPaths. */
