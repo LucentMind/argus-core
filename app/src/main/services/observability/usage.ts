@@ -63,7 +63,9 @@ interface DistillationRow {
  *  part of that — mixing it in would make the per-case cost/turn/prompt averages misleading (dry
  *  spend is reported separately via `dryRunCount`/`dryRunCostUsd`). `since` (when given) bounds
  *  both this query and the dry-run query below on `finished_at`, so a "recent" window can't
- *  include a job that finished before it. */
+ *  include a job that finished before it. With `since` set, a done/failed row whose
+ *  `finished_at` is NULL is excluded (`NULL >= ?` is not true); every real terminal transition
+ *  in `queue.ts` writes `finished_at`, so this only affects rows predating that write path. */
 function distillationStats(db: DatabaseSync, since?: string): DistillationUsageStats {
   const row = db
     .prepare(

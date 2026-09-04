@@ -381,6 +381,14 @@ describe('usageStats', () => {
         dryRun: true,
         finishedAt: '2026-07-16T00:00:00.000Z'
       })
+      // dry row finished BEFORE the cutoff — pins the `since` bound on the dry-run query
+      // itself: without it this row would still be counted in the `recent` window.
+      seedDistillJob(db, 'c', {
+        state: 'done',
+        costUsd: 16,
+        dryRun: true,
+        finishedAt: '2026-07-05T00:00:00.000Z'
+      })
       // real (non-dry) failed run — its spend must land in failedCostUsd/failedCount but not
       // in totalCostUsd (which stays scoped to `done` rows).
       seedDistillJob(db, 'c', {
@@ -397,8 +405,8 @@ describe('usageStats', () => {
       }).distillation
       expect(all.jobCount).toBe(2)
       expect(all.totalCostUsd).toBe(3)
-      expect(all.dryRunCount).toBe(2)
-      expect(all.dryRunCostUsd).toBe(12)
+      expect(all.dryRunCount).toBe(3)
+      expect(all.dryRunCostUsd).toBe(28)
       expect(all.failedCount).toBe(1)
       expect(all.failedCostUsd).toBe(0.5)
       const recent = usageStats({
@@ -411,6 +419,7 @@ describe('usageStats', () => {
       }).distillation
       expect(recent.jobCount).toBe(1)
       expect(recent.totalCostUsd).toBe(2)
+      expect(recent.dryRunCount).toBe(2)
       expect(recent.dryRunCostUsd).toBe(12)
       expect(recent.failedCount).toBe(1)
       expect(recent.failedCostUsd).toBe(0.5)
