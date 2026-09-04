@@ -773,6 +773,23 @@ export function openDb(file: string): DatabaseSync {
   if (!caseCols.some((c) => c.name === 'review_state')) {
     db.exec(`ALTER TABLE cases ADD COLUMN review_state TEXT`)
   }
+  // Session rewind + fork (spec 2026-09-04). All nullable: no backfill, no rebuild.
+  const branchTurnCols = db.prepare(`PRAGMA table_info(turns)`).all() as { name: string }[]
+  const addTurn = (name: string, ddl: string): void => {
+    if (!branchTurnCols.some((c) => c.name === name)) db.exec(`ALTER TABLE turns ADD COLUMN ${ddl}`)
+  }
+  addTurn('rewound_at', `rewound_at TEXT`)
+  addTurn('rewound_to_turn_id', `rewound_to_turn_id INTEGER`)
+  addTurn('provider_anchor_id', `provider_anchor_id TEXT`)
+  const branchSessCols = db.prepare(`PRAGMA table_info(sessions)`).all() as { name: string }[]
+  const addSess = (name: string, ddl: string): void => {
+    if (!branchSessCols.some((c) => c.name === name))
+      db.exec(`ALTER TABLE sessions ADD COLUMN ${ddl}`)
+  }
+  addSess('forked_from_session_id', `forked_from_session_id INTEGER`)
+  addSess('forked_at_turn_id', `forked_at_turn_id INTEGER`)
+  addSess('forked_inherited_turns', `forked_inherited_turns INTEGER`)
+  addSess('pre_rewind_cursor', `pre_rewind_cursor TEXT`)
   // `rca_jobs.case_slug` carries no FK (see the SCHEMA above), and `deleteCase` did not clean
   // the table until this migration's sibling fix — so existing databases hold job rows, report
   // bodies (`raw_output`) and template snapshots for slugs whose case and case directory are
@@ -782,22 +799,6 @@ export function openDb(file: string): DatabaseSync {
   // at most a handful of rows per case. Deliberately NOT extended to repo_usage/routine_runs:
   // those two document their surviving-the-case behaviour as intentional.
   db.exec(`DELETE FROM rca_jobs WHERE case_slug NOT IN (SELECT slug FROM cases)`)
-  // Session rewind + fork (spec 2026-09-04). All nullable: no backfill, no rebuild.
-  const turnCols2 = db.prepare(`PRAGMA table_info(turns)`).all() as { name: string }[]
-  const addTurn = (name: string, ddl: string): void => {
-    if (!turnCols2.some((c) => c.name === name)) db.exec(`ALTER TABLE turns ADD COLUMN ${ddl}`)
-  }
-  addTurn('rewound_at', `rewound_at TEXT`)
-  addTurn('rewound_to_turn_id', `rewound_to_turn_id INTEGER`)
-  addTurn('provider_anchor_id', `provider_anchor_id TEXT`)
-  const sessCols2 = db.prepare(`PRAGMA table_info(sessions)`).all() as { name: string }[]
-  const addSess = (name: string, ddl: string): void => {
-    if (!sessCols2.some((c) => c.name === name)) db.exec(`ALTER TABLE sessions ADD COLUMN ${ddl}`)
-  }
-  addSess('forked_from_session_id', `forked_from_session_id INTEGER`)
-  addSess('forked_at_turn_id', `forked_at_turn_id INTEGER`)
-  addSess('forked_inherited_turns', `forked_inherited_turns INTEGER`)
-  addSess('pre_rewind_cursor', `pre_rewind_cursor TEXT`)
   // Populate the FTS map tables for DBs that already held FTS rows before the
   // side-table fix landed (one-time; gated on the maps being empty).
   backfillFtsMaps(db)
