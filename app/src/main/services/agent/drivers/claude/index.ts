@@ -321,7 +321,14 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         for await (const msg of handle as AsyncIterable<any>) {
           updateCursor(msg)
-          if (msg.type === 'assistant' && typeof msg.uuid === 'string') lastAssistantUuid = msg.uuid
+          // Sub-agent (Task tool) assistant messages arrive on the same stream tagged
+          // with `parent_tool_use_id` — gated out here the same way normalize.ts gates
+          // them (see its ~lines 86 and 108), because the anchor must be a top-level
+          // assistant message of the session's own conversation chain: forkSession's
+          // `upToMessageId` slices at it, and a sub-agent id does not exist in that chain.
+          if (msg.type === 'assistant' && typeof msg.uuid === 'string' && !msg.parent_tool_use_id) {
+            lastAssistantUuid = msg.uuid
+          }
           if (msg.type === 'result') {
             ctx.onTurnResult({ ...extractTurnResult(msg), providerAnchorId: lastAssistantUuid })
             lastAssistantUuid = null // the next turn starts clean
