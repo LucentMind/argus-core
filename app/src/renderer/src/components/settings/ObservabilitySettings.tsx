@@ -23,7 +23,13 @@ const DASHBOARD_CARDS = [
   { id: 'findingAcceptance', label: 'Finding acceptance' },
   { id: 'turnErrorRate', label: 'Turn error rate' },
   { id: 'turnLatency', label: 'Turn latency p50 / p95' },
-  { id: 'costPerCase', label: 'Cost / resolved case' }
+  { id: 'costPerCase', label: 'Cost / resolved case' },
+  // Ids below must match the `StatCard` `id`s rendered by DistillationCards.tsx (Task 13) —
+  // two representations of one fact; keep them in sync.
+  { id: 'distill.runs', label: 'Distillation runs' },
+  { id: 'distill.spend', label: 'Distillation spend' },
+  { id: 'distill.failedSpend', label: 'Failed-run spend' },
+  { id: 'distill.drySpend', label: 'Dry-run spend' }
 ] as const
 
 /**
