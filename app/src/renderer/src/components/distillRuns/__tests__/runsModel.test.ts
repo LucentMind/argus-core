@@ -4,6 +4,7 @@ import {
   groupByCase,
   runRowLabel,
   phaseLine,
+  stamp,
   stripNodes,
   classifyCandidates,
   citeLabel,
@@ -14,6 +15,14 @@ import type {
   DistillRunDetail,
   DistillProgress
 } from '../../../../../shared/distill'
+
+/** Mirrors `stamp`'s own local-getter math, so expectations hold regardless of which timezone
+ *  runs the test. */
+const expectStamp = (iso: string): string => {
+  const d = new Date(iso)
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
 
 const row = (over: Partial<DistillRunListRow>): DistillRunListRow => ({
   id: 1,
@@ -100,12 +109,17 @@ describe('groupByCase', () => {
 describe('labels', () => {
   it('runRowLabel keeps null itemCount apart from zero', () => {
     expect(runRowLabel(row({ id: 142, dryRun: true, itemCount: null }))).toBe(
-      '#142 · v3 · dry · 2026-09-04 13:06 · $1.63 · not staged'
+      `#142 · v3 · dry · ${expectStamp('2026-09-04T13:06:00.000Z')} · $1.63 · not staged`
     )
     expect(runRowLabel(row({ id: 4, itemCount: 0 }))).toContain('0 staged')
     expect(runRowLabel(row({ id: 3, state: 'failed', itemCount: null, costUsd: null }))).toBe(
-      '#3 · v3 · 2026-09-04 13:06 · failed'
+      `#3 · v3 · ${expectStamp('2026-09-04T13:06:00.000Z')} · failed`
     )
+  })
+  it('stamp renders local time, and falls back for missing/unparsable input', () => {
+    expect(stamp(null)).toBe('—')
+    expect(stamp('garbage')).toBe('garbage')
+    expect(stamp('2026-09-04T13:06:00.000Z')).toBe(expectStamp('2026-09-04T13:06:00.000Z'))
   })
   it('phaseLine names the tool call inside the dossier and the materialize target', () => {
     const p = (over: Partial<DistillProgress>): DistillProgress => ({
@@ -182,6 +196,28 @@ describe('stripNodes', () => {
     expect(nodes[6].stat).toBe('−1 · steps-in-reference')
     expect(nodes[7].stat).toBe('2 staged')
   })
+  it('validators keeps basis drops (only cap is a veto reason, not every non-veto reason)', () => {
+    const d = detail({
+      pipeline: 'v3',
+      stages: {
+        dossier: { promptHash: 'h', promptChars: 1, rawOutput: '' },
+        summary: { promptHash: 'h', promptChars: 1, rawOutput: '' },
+        candidates: { promptHash: 'h', promptChars: 1, rawOutput: '' },
+        materialize: [
+          {
+            promptHash: 'h',
+            promptChars: 1,
+            rawOutput: '',
+            type: 'reference-edit',
+            target: 'x'
+          }
+        ]
+      },
+      dropped: [{ type: 'reference-edit', target: 'y', title: 't', reason: 'basis' }]
+    })
+    const n = stripNodes(d, null)
+    expect(n.find((x) => x.id === 'validators')!.stat).toBe('−1 · basis')
+  })
   it('a dry run marks staged as skipped; a failed stage carries its error; an unreached stage says so', () => {
     const d = detail({
       pipeline: 'v3',
@@ -218,6 +254,18 @@ describe('stripNodes', () => {
     const n = stripNodes(detail({ pipeline: 'v2' }), null)
     expect(n.map((x) => x.id)).toEqual(['input', 'agent', 'staged'])
     expect(n[1].stat).toBe('8 turns · 7 tool calls · $1.63')
+  })
+  it('a cancelled v2 job renders the agent node as not-reached, not done', () => {
+    const d = detail({
+      pipeline: 'v2',
+      job: row({ state: 'cancelled', itemCount: null })
+    })
+    const n = stripNodes(d, null)
+    expect(n.find((x) => x.id === 'agent')).toMatchObject({
+      state: 'not-reached',
+      stat: 'cancelled'
+    })
+    expect(n.find((x) => x.id === 'staged')!.state).toBe('not-reached')
   })
 })
 
