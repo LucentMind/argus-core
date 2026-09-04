@@ -22,7 +22,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { query, forkSession } from '@anthropic-ai/claude-agent-sdk'
+import { execFileSync } from 'node:child_process'
+import { query, forkSession, getSessionMessages } from '@anthropic-ai/claude-agent-sdk'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const FIX = path.resolve(HERE, '../../src/main/services/agent/drivers/claude/__fixtures__')
@@ -122,6 +123,195 @@ const read = () => {
   } catch (err) {
     return `<unreadable: ${err?.code ?? err}>`
   }
+}
+
+/**
+ * Every live CLI child, as {pid, name}. The SDK spawns the Claude Code executable as a
+ * child of this node process; disposal is proved by that pid disappearing, so the census
+ * must come from the OS, not from anything the SDK reports about itself.
+ */
+function cliProcesses() {
+  try {
+    if (process.platform === 'win32') {
+      const ps =
+        "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'claude' } | " +
+        'ForEach-Object { "$($_.ProcessId)|$($_.Name)" }'
+      const out = execFileSync('powershell', ['-NoProfile', '-Command', ps], {
+        encoding: 'utf8',
+        maxBuffer: 16 * 1024 * 1024
+      })
+      return out
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .map((l) => {
+          const [pid, name] = l.split('|')
+          return { pid: Number(pid), name }
+        })
+    }
+    const out = execFileSync('ps', ['-eo', 'pid=,comm='], {
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024
+    })
+    return out
+      .split('\n')
+      .filter((l) => /claude|node/i.test(l))
+      .map((l) => l.trim().split(/\s+/))
+      .map(([pid, name]) => ({ pid: Number(pid), name }))
+  } catch (err) {
+    console.error(`census failed: ${err?.message ?? err}`)
+    return []
+  }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/** An AsyncQueue-equivalent held-open prompt — the exact shape branch.ts's controlQuery uses. */
+function heldQueue() {
+  let resolve = null
+  let ended = false
+  return {
+    end: () => {
+      ended = true
+      if (resolve) resolve({ value: undefined, done: true })
+    },
+    [Symbol.asyncIterator]: () => ({
+      next: () =>
+        ended
+          ? Promise.resolve({ value: undefined, done: true })
+          : new Promise((r) => (resolve = r))
+    })
+  }
+}
+
+/**
+ * Step 6: does the disposal sequence branch.ts ships actually end the CLI child?
+ * Task 1 recorded that after `close()` a live child was left behind. Each candidate gets
+ * its OWN control query (branch.ts's shape: held-open prompt, resumed, dry-run rewind),
+ * then the sequence, then a 5 s poll of the pids that query spawned.
+ */
+async function disposeScenario() {
+  const rec = recorder('branch-dispose.jsonl')
+  // A one-turn seed session so the control query has something real to resume and a real
+  // user-message id to dry-run against. Cheap: one sentence, no tools.
+  const seedPrompt = gatedPrompts(['Reply with exactly: ok'])
+  const seed = query({ prompt: seedPrompt.iter, options: base })
+  let sessionId = null
+  for await (const msg of seed) {
+    if (msg.type === 'system' && msg.subtype === 'init') sessionId = msg.session_id
+    if (msg.type === 'result') break
+  }
+  const msgs = await getSessionMessages(sessionId, { dir: cwd })
+  const userMessageId = msgs.find((m) => m.type === 'user')?.uuid ?? null
+  rec.log('dispose', 'seed', { sessionId, userMessageId, messageCount: msgs.length })
+  await sleep(2000) // let the seed query's own child settle so it is not mistaken for ours
+
+  const candidates = [
+    {
+      name: 'end-then-close',
+      run: async (held, ctl) => {
+        held.end()
+        ctl.close()
+      }
+    },
+    {
+      name: 'end-tick-close',
+      run: async (held, ctl) => {
+        held.end()
+        await sleep(0)
+        ctl.close()
+      }
+    },
+    {
+      name: 'end-drain-close',
+      run: async (held, ctl) => {
+        held.end()
+        await Promise.race([
+          (async () => {
+            for await (const _ of ctl) void _
+          })().catch(() => undefined),
+          sleep(3000)
+        ])
+        ctl.close()
+      }
+    },
+    {
+      name: 'interrupt-then-close',
+      run: async (held, ctl) => {
+        held.end()
+        await ctl.interrupt().catch(() => undefined)
+        ctl.close()
+      }
+    },
+    {
+      name: 'close-then-end',
+      run: async (held, ctl) => {
+        ctl.close()
+        held.end()
+      }
+    },
+    // The falsification control, and the reason the verdicts above mean anything: a
+    // control query that is NOT released must still be alive at the end of the same 5 s
+    // poll. If this one exited too, the poll would be measuring something other than
+    // disposal (an idle timeout, a bad census) and every "EXITED" above would be vacuous.
+    {
+      name: 'control-no-release',
+      run: async (held, ctl) => {
+        void held
+        void ctl
+      },
+      after: async (held, ctl) => {
+        held.end()
+        ctl.close()
+      }
+    }
+  ]
+
+  for (const c of candidates) {
+    const before = new Set(cliProcesses().map((p) => p.pid))
+    const held = heldQueue()
+    const ctl = query({ prompt: held, options: { ...base, resume: sessionId } })
+    let dry = null
+    try {
+      dry = await ctl.rewindFiles(userMessageId, { dryRun: true })
+    } catch (err) {
+      dry = { threw: String(err?.message ?? err) }
+    }
+    const spawned = cliProcesses().filter((p) => !before.has(p.pid))
+    await c.run(held, ctl)
+    // Poll for up to 5 s: are any of the pids this query spawned still alive?
+    let survivors = spawned.map((p) => p.pid)
+    let waitedMs = 0
+    while (survivors.length > 0 && waitedMs < 5000) {
+      await sleep(500)
+      waitedMs += 500
+      const live = new Set(cliProcesses().map((p) => p.pid))
+      survivors = survivors.filter((pid) => live.has(pid))
+    }
+    await c.after?.(held, ctl) // the control's own cleanup, so nothing is orphaned
+    rec.log('dispose', c.name, {
+      dryRun: dry,
+      pidsBefore: before.size,
+      spawned,
+      survivorsAfter: survivors,
+      exited: survivors.length === 0,
+      waitedMs
+    })
+    console.log(
+      `dispose ${c.name}: spawned ${JSON.stringify(spawned.map((p) => `${p.pid}/${p.name}`))} -> ` +
+        `${survivors.length === 0 ? 'EXITED' : `SURVIVED ${JSON.stringify(survivors)}`} after ${waitedMs}ms`
+    )
+    await sleep(500)
+  }
+  await rec.close()
+  console.log(`dispose fixture written to ${FIX}; scratch cwd ${cwd}`)
+}
+
+// `--dispose-only` runs Step 6 alone, so the (already committed) Q1-Q3 fixtures are not
+// re-captured — that costs money and would churn three redacted files for nothing.
+if (process.argv.includes('--dispose-only')) {
+  await disposeScenario()
+  process.exit(0)
 }
 
 // ---- Scenario A: a two-turn session that edits a file in each turn ----
