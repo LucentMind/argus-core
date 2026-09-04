@@ -1,7 +1,13 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { DistillJobRow } from '../../../shared/distill'
 import { Chip } from './ui'
-import { useDistillJob, distillCostLine } from '../lib/distillJob'
+import {
+  useDistillJob,
+  useDistillProgress,
+  isDistillInFlight,
+  distillCostLine
+} from '../lib/distillJob'
+import { phaseLine } from './distillRuns/runsModel'
 
 /**
  * Distillation, but only while it needs the bar's attention. The resting `done` states
@@ -44,6 +50,7 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
     cancelEpochRef.current += 1
   }, [tracked])
   const job = override ?? tracked
+  const progress = useDistillProgress(job && isDistillInFlight(job) ? job.id : null)
 
   if (!job) return null
 
@@ -87,7 +94,9 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
               : 'Cancel distillation'
         }
       >
-        {cancelling ? 'cancelling…' : job.dryRun ? 'dry run… ✕' : 'distilling… ✕'}
+        {cancelling
+          ? 'cancelling…'
+          : `${job.dryRun ? 'dry run' : 'distilling'}${progress ? ` · ${phaseLine(progress)}` : '…'} ✕`}
       </Chip>
     )
   }
