@@ -47,4 +47,22 @@ describe('ObservabilitySettings', () => {
     render(<ObservabilitySettings payload={payload as never} />)
     expect(await screen.findByText(/confidential/i)).toBeInTheDocument()
   })
+
+  it('renders toggles for the distillation dashboard cards and hides one via a patch', async () => {
+    render(<ObservabilitySettings payload={payload as never} />)
+    expect(await screen.findByLabelText('Show Distillation runs')).toBeInTheDocument()
+    expect(screen.getByLabelText('Show Distillation spend')).toBeInTheDocument()
+    expect(screen.getByLabelText('Show Failed-run spend')).toBeInTheDocument()
+    const toggle = screen.getByLabelText('Show Dry-run spend')
+    fireEvent.click(toggle)
+    expect(window.argus.settings.patch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        observability: expect.objectContaining({
+          dashboard: expect.objectContaining({
+            hiddenCards: expect.arrayContaining(['distill.drySpend'])
+          })
+        })
+      })
+    )
+  })
 })
