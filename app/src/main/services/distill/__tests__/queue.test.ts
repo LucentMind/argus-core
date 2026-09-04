@@ -16,7 +16,11 @@ import { DistillParseError } from '../contract'
 import { DistillAgentRunError } from '../caseDistiller'
 import { DIGEST_CASE_SLUG, readRejectDigest } from '../rejectDigest'
 import { proposalsArchiveDir } from '../../paths'
-import type { CaseDistillInput, DistillStatusPayload } from '../../../../shared/distill'
+import type {
+  CaseDistillInput,
+  DistillProgress,
+  DistillStatusPayload
+} from '../../../../shared/distill'
 import type { TrajectoryEntry } from '../../agent/driver'
 import { listArchivedProposals } from '../../proposals'
 
@@ -1389,6 +1393,63 @@ describe('DistillQueue', () => {
       ).run(DIGEST_CASE_SLUG, new Date().toISOString())
       expect(q.statusFor(DIGEST_CASE_SLUG)).toBeNull()
     })
+  })
+
+  it('stores and broadcasts progress for the running job, stamps staging itself, and clears on finish', async () => {
+    const progress: DistillProgress[] = []
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const { q } = makeQueue({
+      broadcastProgress: (p) => progress.push(p),
+      distill: async (_input, _signal, onProgress) => {
+        onProgress({ phase: 'dossier', toolCalls: 2, detail: 'read_transcript s1' })
+        await gate
+        return { raw: '```json\n{}\n```', output: {} }
+      }
+    })
+    const job = q.enqueue('case-a')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(q.progressFor(job.id)).toMatchObject({
+      jobId: job.id,
+      caseSlug: 'case-a',
+      phase: 'dossier',
+      toolCalls: 2
+    })
+    expect(q.listAllRuns()[0].progress?.phase).toBe('dossier')
+    release()
+    await q.idle()
+    expect(progress.map((p) => p.phase)).toEqual(['dossier', 'staging'])
+    expect(q.progressFor(job.id)).toBeNull()
+    expect(q.listAllRuns()[0].progress).toBeUndefined()
+  })
+
+  it('a throwing progress broadcaster never fails the job', async () => {
+    const { q } = makeQueue({
+      broadcastProgress: () => {
+        throw new Error('renderer gone')
+      },
+      distill: async (_i, _s, onProgress) => {
+        onProgress({ phase: 'agent' })
+        return { raw: '```json\n{}\n```', output: {} }
+      }
+    })
+    q.enqueue('case-a')
+    await q.idle()
+    expect(q.statusFor('case-a')!.state).toBe('done')
+  })
+
+  it('a dry run reports no staging phase', async () => {
+    const progress: DistillProgress[] = []
+    const { q } = makeQueue({
+      broadcastProgress: (p) => progress.push(p),
+      distill: async (_i, _s, onProgress) => {
+        onProgress({ phase: 'agent' })
+        return { raw: '```json\n{}\n```', output: {} }
+      }
+    })
+    q.enqueueDryRun('case-a')
+    await q.idle()
+    expect(progress.map((p) => p.phase)).toEqual(['agent'])
   })
 })
 
