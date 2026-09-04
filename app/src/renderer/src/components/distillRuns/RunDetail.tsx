@@ -21,11 +21,17 @@ export function RunDetail({
   const s = detail.stages
   const mats = Array.isArray(s?.materialize) ? s!.materialize : []
   const scrollTo = (id: string): void => {
-    const target = id === 'materialize' && mats.length > 0 ? 'materialize-0' : id
-    document.getElementById(`card-${target}`)?.scrollIntoView({ block: 'start' })
+    const target =
+      id === 'materialize' ? (mats.length > 0 ? 'materialize-0' : 'materialize-none') : id
+    document.getElementById(`card-${job.id}-${target}`)?.scrollIntoView({ block: 'start' })
   }
-  const trajectory = detail.trajectory as
-    { turn: number; tool: string; argsSummary: string; resultBytes?: number }[] | null
+  const isTrajectoryEntry = (
+    e: unknown
+  ): e is { turn: number; tool: string; argsSummary: string; resultBytes?: number } =>
+    typeof e === 'object' && e !== null && typeof (e as { tool?: unknown }).tool === 'string'
+  const trajectory = Array.isArray(detail.trajectory)
+    ? detail.trajectory.filter(isTrajectoryEntry)
+    : null
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <header className="flex flex-wrap items-center gap-2 font-mono text-xs">
@@ -60,6 +66,7 @@ export function RunDetail({
         <>
           <StageCard
             id="dossier"
+            jobId={job.id}
             name="dossier"
             record={s?.dossier}
             structured={detail.parsed.dossier !== null}
@@ -70,6 +77,7 @@ export function RunDetail({
           </StageCard>
           <StageCard
             id="summary"
+            jobId={job.id}
             name="summary"
             record={s?.summary}
             structured={detail.parsed.summaryPresent}
@@ -91,6 +99,7 @@ export function RunDetail({
           </StageCard>
           <StageCard
             id="candidates"
+            jobId={job.id}
             name="candidates"
             record={s?.candidates}
             structured={detail.parsed.candidates !== null}
@@ -103,10 +112,10 @@ export function RunDetail({
               />
             )}
           </StageCard>
-          <div id="card-veto" />
+          <div id={`card-${job.id}-veto`} />
           {mats.length === 0 && (
             <section
-              id="card-materialize"
+              id={`card-${job.id}-materialize-none`}
               data-testid="card-materialize-none"
               className="rounded-r2 surface-card p-3 font-mono text-[11px] text-dim"
             >
@@ -120,6 +129,7 @@ export function RunDetail({
             <StageCard
               key={i}
               id={`materialize-${i}`}
+              jobId={job.id}
               name={`materialize · ${m.type} · ${m.target}`}
               record={m}
               structured={Boolean(detail.parsed.materialized?.[i]?.output)}
@@ -129,11 +139,12 @@ export function RunDetail({
               )}
             </StageCard>
           ))}
-          <div id="card-validators" />
+          <div id={`card-${job.id}-validators`} />
         </>
       ) : (
         <StageCard
           id="agent"
+          jobId={job.id}
           name="agent"
           record={
             detail.rawOutput !== null

@@ -184,4 +184,39 @@ describe('RunDetail', () => {
     render(<RunDetail detail={detail()} progress={null} />)
     expect(screen.getByText(/Trajectory \(1 tool call\)/)).toBeInTheDocument()
   })
+  it('re-syncs a stage card from raw to structured when a running job finishes and re-fetches', () => {
+    const d1 = detail()
+    d1.parsed.dossier = null
+    const { rerender } = render(<RunDetail detail={d1} progress={null} />)
+    expect(screen.getByTestId('card-dossier')).toHaveTextContent(DOSSIER_RAW)
+    expect(screen.queryByText('Checked reroute-vs-clear ordering')).not.toBeInTheDocument()
+
+    const d2 = detail()
+    rerender(<RunDetail detail={d2} progress={null} />)
+    expect(screen.getByTestId('card-dossier')).toHaveTextContent(
+      'Checked reroute-vs-clear ordering'
+    )
+    expect(screen.queryByText(DOSSIER_RAW)).not.toBeInTheDocument()
+  })
+  it('drops malformed trajectory entries instead of throwing', () => {
+    const d = detail()
+    // deliberately malformed wire data for the guard — trajectory is `unknown[] | null`
+    d.trajectory = [{ turn: 1, tool: 'x', argsSummary: '{}' }, null, 'junk']
+    expect(() => render(<RunDetail detail={d} progress={null} />)).not.toThrow()
+    expect(screen.getByText(/Trajectory \(1 tool call\)/)).toBeInTheDocument()
+  })
+  it('namespaces card ids by job so two RunDetails can render side by side without id collisions', () => {
+    render(
+      <>
+        <RunDetail detail={{ ...detail(), job: job({ id: 1, itemCount: null }) }} progress={null} />
+        <RunDetail detail={{ ...detail(), job: job({ id: 2, itemCount: null }) }} progress={null} />
+      </>
+    )
+    const job1Ids = document.querySelectorAll('[id^="card-1-"]')
+    const job2Ids = document.querySelectorAll('[id^="card-2-"]')
+    expect(job1Ids.length).toBeGreaterThan(0)
+    expect(job2Ids.length).toBeGreaterThan(0)
+    const allIds = [...document.querySelectorAll('[id^="card-"]')].map((el) => el.id)
+    expect(new Set(allIds).size).toBe(allIds.length)
+  })
 })
