@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CaseRecord } from '../../../../shared/types'
 import type { DistillJobRow } from '../../../../shared/distill'
 import { Btn, Checkbox } from '../ui'
+import { useEscapeLayer } from '../../lib/escapeLayer'
 
 const IN_FLIGHT_TITLE = 'A distillation is already running for this case'
 
@@ -27,6 +28,8 @@ export function NewRunPopover({
   const [ignorePrior, setIgnorePrior] = useState(true)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEscapeLayer({ onEscape: onClose })
 
   useEffect(() => {
     if (fixedSlug) return
@@ -140,7 +143,7 @@ export function NewRunPopover({
       )}
       {error && <div className="text-danger">{error}</div>}
       <div className="flex justify-end gap-2">
-        <Btn onClick={onClose}>Cancel</Btn>
+        <Btn onClick={onClose}>Close</Btn>
         <Btn
           variant="primary"
           disabled={pending || slug === null || blocked}

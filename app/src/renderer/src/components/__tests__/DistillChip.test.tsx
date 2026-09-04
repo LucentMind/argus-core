@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { DistillChip } from '../DistillChip'
 import type { DistillJobRow } from '../../../../shared/distill'
-import type { DistillStatusPayload } from '../../../../shared/distill'
+import type { DistillProgress, DistillStatusPayload } from '../../../../shared/distill'
 
 const job = (over: Partial<DistillJobRow>): DistillJobRow => ({
   id: 1,
@@ -24,15 +24,21 @@ const job = (over: Partial<DistillJobRow>): DistillJobRow => ({
 
 let retry: ReturnType<typeof vi.fn>
 let cancel: ReturnType<typeof vi.fn>
+let progressCb: ((p: DistillProgress) => void) | undefined
 function setup(j: DistillJobRow | null): ReturnType<typeof render> {
   retry = vi.fn().mockResolvedValue(job({ state: 'queued' }))
   cancel = vi.fn().mockResolvedValue(job({ state: 'cancelled' }))
+  progressCb = undefined
   ;(window as unknown as { argus: unknown }).argus = {
     distill: {
       status: vi.fn().mockResolvedValue(j),
       retry,
       cancel,
-      onChanged: vi.fn().mockReturnValue(() => undefined)
+      onChanged: vi.fn().mockReturnValue(() => undefined),
+      onProgress: vi.fn((cb: (p: DistillProgress) => void) => {
+        progressCb = cb
+        return () => undefined
+      })
     }
   }
   return render(<DistillChip slug="c1" />)
@@ -54,6 +60,34 @@ describe('DistillChip', () => {
     setup(job({ state: 'running', dryRun: true }))
     await waitFor(() => expect(window.argus.distill.status).toHaveBeenCalled())
     expect(await screen.findByText(/dry run…/)).toBeInTheDocument()
+  })
+
+  it('shows the live phase line while running, and the plain label before any progress lands', async () => {
+    setup(job({ id: 5, state: 'running', itemCount: null }))
+    expect(await screen.findByText('distilling… ✕')).toBeInTheDocument()
+    act(() =>
+      progressCb!({
+        jobId: 5,
+        caseSlug: 'c1',
+        at: 'x',
+        phase: 'materialize',
+        detail: 'android-sdk-log-patterns'
+      })
+    )
+    expect(
+      screen.getByText('distilling · materializing android-sdk-log-patterns ✕')
+    ).toBeInTheDocument()
+    act(() => progressCb!({ jobId: 6, caseSlug: 'c1', at: 'x', phase: 'dossier' }))
+    expect(
+      screen.getByText('distilling · materializing android-sdk-log-patterns ✕')
+    ).toBeInTheDocument()
+  })
+
+  it('a dry run reads "dry run · …"', async () => {
+    setup(job({ id: 5, state: 'running', itemCount: null, dryRun: true }))
+    await screen.findByText('dry run… ✕')
+    act(() => progressCb!({ jobId: 5, caseSlug: 'c1', at: 'x', phase: 'dossier', toolCalls: 2 }))
+    expect(screen.getByText('dry run · dossier · 2 tool calls ✕')).toBeInTheDocument()
   })
 
   it('F2: renders no resting state for a FAILED dry run — the case\'s real distillation may be fine, only the comparison run failed (regression: the loud red "distill failed — retry" chip rendered for a case whose real distillation was untouched)', async () => {
@@ -154,7 +188,8 @@ describe('DistillChip', () => {
         onChanged: vi.fn((cb: (p: DistillStatusPayload) => void) => {
           onChangedCb = cb
           return () => undefined
-        })
+        }),
+        onProgress: vi.fn(() => () => undefined)
       }
     }
     render(<DistillChip slug="c1" />)
@@ -195,7 +230,8 @@ describe('DistillChip', () => {
         onChanged: vi.fn((cb: (p: DistillStatusPayload) => void) => {
           onChangedCb = cb
           return () => undefined
-        })
+        }),
+        onProgress: vi.fn(() => () => undefined)
       }
     }
     render(<DistillChip slug="c1" />)
@@ -245,7 +281,8 @@ describe('DistillChip', () => {
         onChanged: vi.fn((cb: (p: DistillStatusPayload) => void) => {
           onChangedCb = cb
           return () => undefined
-        })
+        }),
+        onProgress: vi.fn(() => () => undefined)
       }
     }
     render(<DistillChip slug="c1" />)
@@ -273,7 +310,8 @@ describe('DistillChip', () => {
         onChanged: vi.fn((cb: (p: DistillStatusPayload) => void) => {
           onChangedCb = cb
           return () => undefined
-        })
+        }),
+        onProgress: vi.fn(() => () => undefined)
       }
     }
     render(<DistillChip slug="c1" />)
