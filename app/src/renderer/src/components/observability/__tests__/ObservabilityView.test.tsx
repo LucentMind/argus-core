@@ -47,6 +47,21 @@ beforeEach(() => {
       get: vi.fn().mockResolvedValue(settingsPayloadWith([])),
       patch: vi.fn(),
       onChanged: vi.fn(() => () => {})
+    },
+    usage: {
+      stats: vi.fn(async () => ({
+        distillation: {
+          jobCount: 0,
+          failedCount: 0,
+          dryRunCount: 0,
+          totalCostUsd: null,
+          avgCostUsd: null,
+          avgPromptChars: null,
+          avgTurnCount: null,
+          failedCostUsd: null,
+          dryRunCostUsd: null
+        }
+      }))
     }
   } as never
 })

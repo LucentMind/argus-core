@@ -6,6 +6,7 @@ import { blurOnEscape, useEscapeLayer } from '../../lib/escapeLayer'
 import { useAmbientAnchors } from '../../lib/ambientAnchors'
 import { useCaseMetrics, useGlobalMetrics } from '../../lib/metricsStore'
 import { useSettingsPayload } from '../../lib/settingsStore'
+import { DistillationCards } from './DistillationCards'
 import { StatCard, StatCardsSkeleton, pct, usd } from './MetricCards'
 
 const RANGES = [
@@ -38,10 +39,12 @@ function hitlApproval(byDecision: Record<string, number>): {
 
 export function ObservabilityView({
   onOpenCase,
-  onClose
+  onClose,
+  onOpenRuns
 }: {
   onOpenCase: (slug: string) => void
   onClose: () => void
+  onOpenRuns?: () => void
 }): React.JSX.Element {
   // onOpenCase wires per-case drilldown, added in Task 6; kept as a prop now
   // so App.tsx's call site doesn't change shape between tasks.
@@ -234,6 +237,9 @@ export function ObservabilityView({
             />
           )}
         </div>
+      )}
+      {scope === 'global' && data && (
+        <DistillationCards since={since} hiddenCards={hiddenCards} onOpenRuns={onOpenRuns} />
       )}
     </div>
   )
