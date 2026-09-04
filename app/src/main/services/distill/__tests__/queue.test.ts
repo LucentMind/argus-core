@@ -1682,27 +1682,39 @@ describe('dry run', () => {
     expect(row.pipeline).toBe('v3')
   })
 
-  it('retry() clears the stamp so the re-run is stamped by whatever pipeline actually runs it', async () => {
-    let calls = 0
-    let flag: 'v2' | 'v3' = 'v3'
+  it('retry() clears the pipeline stamp while the re-queued row waits for the slot', async () => {
     const { q } = makeQueue({
-      pipelineId: () => flag,
-      distill: async () => {
-        calls++
-        if (calls === 1) throw new DistillParseError('bad', 'RAW')
-        return { raw: '```json\n{}\n```', output: {} }
+      pipelineId: () => 'v3',
+      assembleInput: (slug) => ({ caseMeta: { slug } }) as unknown as CaseDistillInput,
+      distill: async (input) => {
+        const slug = (input as CaseDistillInput).caseMeta.slug
+        if (slug === 'case-a') throw new DistillParseError('bad', 'RAW')
+        return new Promise(() => {}) // case-b occupies the single in-flight slot forever
       }
     })
     q.enqueue('case-a')
     await q.idle()
     const failed = q.statusFor('case-a')!
-    flag = 'v2'
-    q.retry(failed.id)
-    await q.idle()
-    const row = db.prepare(`SELECT pipeline FROM distill_jobs WHERE id=?`).get(failed.id) as {
+    expect(failed.state).toBe('failed')
+    const failedRow = db.prepare(`SELECT pipeline FROM distill_jobs WHERE id=?`).get(failed.id) as {
       pipeline: string | null
     }
-    expect(row.pipeline).toBe('v2')
+    expect(failedRow.pipeline).toBe('v3') // sanity: the failed run really was stamped
+
+    // Occupy the queue's single in-flight slot with an unrelated, never-resolving job BEFORE
+    // retrying, so the retried row cannot reach runJob's re-stamp — see the class doc comment
+    // and the analogous idiom in "retry() resets every v2 column to NULL..." above.
+    q.enqueue('case-b')
+    await vi.waitFor(() => expect(q.statusFor('case-b')!.state).toBe('running'), {
+      timeout: 5000
+    })
+
+    q.retry(failed.id)
+    const row = db
+      .prepare(`SELECT state, pipeline FROM distill_jobs WHERE id=?`)
+      .get(failed.id) as { state: string; pipeline: string | null }
+    expect(row.state).toBe('queued')
+    expect(row.pipeline).toBeNull()
   })
 })
 
@@ -1716,6 +1728,7 @@ describe('pipelineOf', () => {
   it('falls back to v2 for a terminal pre-column row with no stages', () => {
     expect(pipelineOf({ pipeline: null, has_stages: false, state: 'done' })).toBe('v2')
     expect(pipelineOf({ pipeline: null, has_stages: false, state: 'failed' })).toBe('v2')
+    expect(pipelineOf({ pipeline: null, has_stages: false, state: 'cancelled' })).toBe('v2')
   })
   it('is null for a queued/running row that has not been stamped', () => {
     expect(pipelineOf({ pipeline: null, has_stages: false, state: 'queued' })).toBeNull()
