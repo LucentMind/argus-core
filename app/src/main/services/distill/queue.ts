@@ -61,6 +61,9 @@ export interface DistillQueueDeps {
    *  not a tool-using agent run, so this is deliberately NOT `distill` (the case-job agentic
    *  runner). */
   runOneShot: (prompt: string, opts?: { signal?: AbortSignal }) => Promise<HeadlessResult>
+  /** 'v2' | 'v3' as the runner dep resolves it, read per call — stamped on the row at run start.
+   *  Absent in tests that do not care; the column then stays NULL. */
+  pipelineId?: () => 'v2' | 'v3'
 }
 
 export interface JobDbRow {
@@ -85,6 +88,7 @@ export interface JobDbRow {
   dropped_json: string | null
   stages_json: string | null
   dry_run: number
+  pipeline: string | null
 }
 
 export function toRow(r: JobDbRow): DistillJobRow {
@@ -102,6 +106,19 @@ export function toRow(r: JobDbRow): DistillJobRow {
     promptChars: r.prompt_chars,
     dryRun: r.dry_run === 1
   }
+}
+
+/** The pipeline a row ran under. Column first; a pre-column row is v3 iff it recorded stages;
+ *  a terminal pre-column row with no stages is v2; an unstamped in-flight row is unknown. */
+export function pipelineOf(r: {
+  pipeline: string | null
+  has_stages: boolean
+  state: string
+}): 'v2' | 'v3' | null {
+  if (r.pipeline === 'v2' || r.pipeline === 'v3') return r.pipeline
+  if (r.has_stages) return 'v3'
+  if (r.state === 'done' || r.state === 'failed' || r.state === 'cancelled') return 'v2'
+  return null
 }
 
 /**
@@ -324,7 +341,7 @@ export class DistillQueue {
         `UPDATE distill_jobs SET state='queued', error=NULL, raw_output=NULL, item_count=NULL,
          finished_at=NULL, input_tokens=NULL, output_tokens=NULL, cost_usd=NULL, duration_ms=NULL,
          prompt_chars=NULL, turn_count=NULL, tool_call_count=NULL, trajectory_json=NULL,
-         dropped_json=NULL, stages_json=NULL, prompt_hash=? WHERE id=?`
+         dropped_json=NULL, stages_json=NULL, pipeline=NULL, prompt_hash=? WHERE id=?`
       )
       .run(this.deps.promptHash?.() ?? null, jobId)
     const fresh = this.get(jobId)!
@@ -528,7 +545,10 @@ export class DistillQueue {
       // yet), so a prologue failure lands in the plain-error branch and is recorded as a normal
       // `finish(state='failed', ...)`, same as any other mid-run failure.
       this.controllers.set(r.id, ac)
-      db.prepare(`UPDATE distill_jobs SET state='running' WHERE id=?`).run(r.id)
+      db.prepare(`UPDATE distill_jobs SET state='running', pipeline=? WHERE id=?`).run(
+        r.kind === 'case' ? (this.deps.pipelineId?.() ?? null) : null,
+        r.id
+      )
       this.emit(this.getRaw(r.id)!)
       // Reject-digest rows never reach the agentic case runner below — their input shape (`{}`)
       // doesn't match what it expects, and rebuilding the digest is a single one-shot LLM call,

@@ -175,7 +175,12 @@ CREATE TABLE IF NOT EXISTS distill_jobs (
   -- re-fetches status(slug) (going through statusFor, hence the filter above) instead of
   -- adopting the dry broadcast directly. New DB readers of this table: grep for dry_run = 0
   -- across this list and add yourself, so this comment doesn't go stale again.
-  dry_run INTEGER NOT NULL DEFAULT 0
+  dry_run INTEGER NOT NULL DEFAULT 0,
+  -- Which case-distill pipeline ran this row: 'v2' | 'v3'. Stamped in runJob when the row flips
+  -- to 'running' (the flag is read per call, so enqueue time would be a guess), NULL until then
+  -- and NULL on every row written before this column existed — pipelineOf() falls back to
+  -- stages_json presence for those. retry() clears it so the re-run re-stamps.
+  pipeline TEXT
 );
 CREATE TABLE IF NOT EXISTS rca_jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -632,6 +637,7 @@ export function openDb(file: string): DatabaseSync {
   addDistill('dropped_json', `dropped_json TEXT`)
   addDistill('stages_json', `stages_json TEXT`)
   addDistill('dry_run', `dry_run INTEGER NOT NULL DEFAULT 0`)
+  addDistill('pipeline', 'pipeline TEXT')
   const rcaJobCols = db.prepare(`PRAGMA table_info(rca_jobs)`).all() as { name: string }[]
   if (!rcaJobCols.some((c) => c.name === 'template_snapshot')) {
     db.exec(`ALTER TABLE rca_jobs ADD COLUMN template_snapshot TEXT`)
