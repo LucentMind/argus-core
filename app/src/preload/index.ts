@@ -145,6 +145,7 @@ import type {
 import type {
   DistillJobRow,
   DistillRunDetail,
+  DistillRunListRow,
   DistillStatusPayload,
   RejectDigest
 } from '../shared/distill'
@@ -467,6 +468,7 @@ const argus = {
     run: (jobId: number): Promise<DistillRunDetail | null> => invoke(IPC.distillRun, jobId),
     dryRun: (slug: string, ignorePriorProposals: boolean): Promise<DistillJobRow> =>
       invoke(IPC.distillDryRun, slug, ignorePriorProposals),
+    runsAll: (limit?: number): Promise<DistillRunListRow[]> => invoke(IPC.distillRunsAll, limit),
     onChanged: (cb: (p: DistillStatusPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: DistillStatusPayload): void => cb(p)
       ipcRenderer.on(IPC.distillChanged, listener)

@@ -3,6 +3,8 @@ import type {
   CaseDistillInput,
   CaseDistillOutput,
   DistillJobRow,
+  DistillProgress,
+  DistillRunListRow,
   DistillStatusPayload
 } from '../../../shared/distill'
 import type { CaseDistillRun } from './caseDistiller'
@@ -91,7 +93,25 @@ export interface JobDbRow {
   pipeline: string | null
 }
 
-export function toRow(r: JobDbRow): DistillJobRow {
+/** The columns `toRow` reads — `listAllRuns` selects exactly these plus its join columns, so one
+ *  mapper serves both the full-row readers and the list. */
+export type JobRowCore = Pick<
+  JobDbRow,
+  | 'id'
+  | 'case_slug'
+  | 'state'
+  | 'error'
+  | 'item_count'
+  | 'created_at'
+  | 'finished_at'
+  | 'cost_usd'
+  | 'turn_count'
+  | 'tool_call_count'
+  | 'prompt_chars'
+  | 'dry_run'
+>
+
+export function toRow(r: JobRowCore): DistillJobRow {
   return {
     id: r.id,
     caseSlug: r.case_slug,
@@ -165,6 +185,8 @@ export class DistillQueue {
   /** AbortController for the job currently in `runJob`, keyed by job id. At most one entry
    *  exists (the runner is single in-flight); it is deleted in runJob's `finally`. */
   private controllers = new Map<number, AbortController>()
+  /** Latest in-memory progress per job id, used by `listAllRuns` (Task 5 populates it). */
+  private progress = new Map<number, DistillProgress>()
 
   constructor(private deps: DistillQueueDeps) {}
 
@@ -428,6 +450,43 @@ export class DistillQueue {
       .prepare(`SELECT * FROM distill_jobs WHERE case_slug = ? AND kind='case' ORDER BY id DESC`)
       .all(slug) as unknown as JobDbRow[]
     return rows.map(toRow)
+  }
+
+  /**
+   * Every CASE job across every case, newest first — the dev runs browser's rail. Dry rows are
+   * first-class (as in `listRuns`); digest rows are not case history. Never selects
+   * `input_snapshot`, `raw_output` or the `*_json` columns: a row here is a label, and the
+   * snapshot alone can be megabytes. LEFT JOIN so a deleted case's runs still list.
+   */
+  listAllRuns(limit = 500): DistillRunListRow[] {
+    const rows = this.deps.db
+      .prepare(
+        `SELECT j.id, j.case_slug, j.state, j.error, j.item_count, j.created_at, j.finished_at,
+                j.cost_usd, j.turn_count, j.tool_call_count, j.prompt_chars, j.dry_run, j.pipeline,
+                (j.stages_json IS NOT NULL) AS has_stages, c.title AS case_title, c.jira_key
+         FROM distill_jobs j LEFT JOIN cases c ON c.slug = j.case_slug
+         WHERE j.kind = 'case' ORDER BY j.id DESC LIMIT ?`
+      )
+      .all(limit) as unknown as (JobRowCore & {
+      pipeline: string | null
+      has_stages: number
+      case_title: string | null
+      jira_key: string | null
+    })[]
+    return rows.map((r) => {
+      const progress = this.progress.get(r.id)
+      return {
+        ...toRow(r),
+        caseTitle: r.case_title ?? r.case_slug,
+        jiraKey: r.jira_key,
+        pipeline: pipelineOf({
+          pipeline: r.pipeline,
+          has_stages: r.has_stages === 1,
+          state: r.state
+        }),
+        ...(progress ? { progress } : {})
+      }
+    })
   }
 
   /** Test helper: resolves once nothing is queued or running. See class docs for race analysis. */

@@ -1115,6 +1115,7 @@ function registerIpc(): void {
       settingsService.get().distill.pipeline === 'v3'
         ? caseDistillPipelineHash(resolvePrompt)
         : caseDistillPromptHash(resolvePrompt),
+    pipelineId: () => settingsService.get().distill.pipeline,
     argusHome,
     listArchivedProposalsFn: () => listArchivedProposals(argusHome),
     // The digest LLM step is one batch prompt, not a tool-using agent run — Task 10's one-shot
@@ -2970,8 +2971,21 @@ function registerIpc(): void {
     reconcileAndEnqueue(distillQueue, slug)
   )
   ipcMain.handle(IPC.distillCancel, (_e, jobId: number) => distillQueue.cancel(jobId))
-  ipcMain.handle(IPC.distillRuns, (_e, slug: string) => distillQueue.listRuns(slug))
-  ipcMain.handle(IPC.distillRun, (_e, jobId: number) => readRunDetail(db, jobId))
+  // Read channels are dev-only: their only consumers are the dev runs browser and the dev
+  // Prompts page. The preload is reachable from the devtools console regardless of what the
+  // renderer renders, so main refuses rather than trusting it (same posture as devPrompts*).
+  ipcMain.handle(IPC.distillRuns, (_e, slug: string) => {
+    assertDevTools(devTools)
+    return distillQueue.listRuns(slug)
+  })
+  ipcMain.handle(IPC.distillRun, (_e, jobId: number) => {
+    assertDevTools(devTools)
+    return readRunDetail(db, jobId)
+  })
+  ipcMain.handle(IPC.distillRunsAll, (_e, limit?: number) => {
+    assertDevTools(devTools)
+    return distillQueue.listAllRuns(limit)
+  })
   ipcMain.handle(IPC.distillDryRun, (_e, slug: string, ignorePriorProposals: boolean) =>
     distillQueue.enqueueDryRun(slug, { ignorePriorProposals })
   )
