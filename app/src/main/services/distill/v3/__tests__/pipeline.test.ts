@@ -111,6 +111,41 @@ describe('runCaseDistillPipeline', () => {
     expect(run.raw).toContain('```json')
   })
 
+  it('reports each phase in order, and a tool tick inside the dossier stage', async () => {
+    const seen: { phase: string; detail?: string; toolCalls?: number }[] = []
+    await runCaseDistillPipeline(
+      INPUT,
+      {
+        agent: async (_p, opts) => {
+          // Simulate the agent calling one world tool through the server we were handed.
+          const server = opts.mcpServer as { instance: { connect: (t: unknown) => Promise<void> } }
+          const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
+          const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js')
+          const [ct, st] = InMemoryTransport.createLinkedPair()
+          const client = new Client({ name: 't', version: '1' })
+          await Promise.all([client.connect(ct), server.instance.connect(st)])
+          await client.callTool({ name: 'list_sessions', arguments: {} })
+          await client.close()
+          return agentOk(DOSSIER)()
+        },
+        oneShot: oneShotBy(route)
+      },
+      undefined,
+      undefined,
+      { onProgress: (u) => seen.push(u) }
+    )
+    expect(seen.map((u) => u.phase)).toEqual([
+      'dossier',
+      'dossier',
+      'summary+candidates',
+      'veto',
+      'materialize',
+      'validators'
+    ])
+    expect(seen[1]).toEqual({ phase: 'dossier', detail: 'list_sessions', toolCalls: 1 })
+    expect(seen[4].detail).toBe('diagnose-x')
+  })
+
   it('dossier failure throws DistillAgentRunError carrying stages', async () => {
     const err = await runCaseDistillPipeline(INPUT, {
       agent: agentOk('no fence'),

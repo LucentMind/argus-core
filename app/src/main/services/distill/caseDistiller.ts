@@ -1,4 +1,8 @@
-import type { CaseDistillInput, CaseDistillOutput } from '../../../shared/distill'
+import type {
+  CaseDistillInput,
+  CaseDistillOutput,
+  DistillProgressUpdate
+} from '../../../shared/distill'
 import { buildCaseDistillPrompt, parseCaseDistillOutput, DistillParseError } from './contract'
 import type {
   HeadlessAgentResult,
@@ -6,7 +10,7 @@ import type {
   HeadlessUsage,
   TrajectoryEntry
 } from '../agent/driver'
-import { createDistillMcpServer } from './mcp'
+import { createDistillMcpServer, toolCallSummary } from './mcp'
 import { DISTILL_ALLOWED_TOOLS, DISTILL_MAX_ITERATIONS } from './worldTools'
 import type { PipelineStages, PreStageDrop } from '../../../shared/distillV3'
 
@@ -117,11 +121,19 @@ export async function runCaseDistillAgent(
   input: CaseDistillInput,
   runAgent: HeadlessAgentRunnerFn,
   resolve?: (id: string) => string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onProgress?: (u: DistillProgressUpdate) => void
 ): Promise<CaseDistillRun> {
   const prompt = buildCaseDistillPrompt(input, resolve)
   const promptChars = prompt.length
-  const server = createDistillMcpServer(input.world ?? { sessions: [] })
+  let toolCalls = 0
+  onProgress?.({ phase: 'agent', toolCalls: 0 })
+  const server = createDistillMcpServer(input.world ?? { sessions: [] }, undefined, {
+    onToolCall: (name, args) => {
+      toolCalls++
+      onProgress?.({ phase: 'agent', detail: toolCallSummary(name, args), toolCalls })
+    }
+  })
   const res = await runAgent(prompt, {
     mcpServer: server,
     allowedTools: DISTILL_ALLOWED_TOOLS,

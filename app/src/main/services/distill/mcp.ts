@@ -52,17 +52,37 @@ export interface PtcDistillCaps {
   timeoutMs: number
 }
 
+export interface DistillMcpHooks {
+  /** Fired at the top of every TOP-LEVEL tool handler (not for a script's own sub-calls): the
+   *  progress line's only per-turn signal inside the agentic stage. */
+  onToolCall?: (name: string, args: Record<string, unknown>) => void
+}
+
+/** One line for the progress readout: `read_transcript s1`, `search_transcript "…"`. Never the
+ *  script body — a script is a program, not a label. */
+export function toolCallSummary(name: string, args: Record<string, unknown>): string {
+  if (name === 'read_transcript' && typeof args.session_id === 'number')
+    return `read_transcript s${args.session_id}`
+  if (name === 'search_transcript' && typeof args.query === 'string') {
+    const q = args.query
+    return `search_transcript "${q.length > 40 ? q.slice(0, 40) + '…' : q}"`
+  }
+  return name
+}
+
 /** mirrors createArgusMcpServer (nativeTools.ts) -- same createSdkMcpServer/tool/asText shape,
  *  but every handler reads the SAME frozen `world` snapshot instead of the live DB. */
 export function createDistillMcpServer(
   world: DistillWorld,
-  ptcDispatchless?: PtcDistillCaps
+  ptcDispatchless?: PtcDistillCaps,
+  hooks: DistillMcpHooks = {}
 ): ReturnType<typeof createSdkMcpServer> {
   const caps: PtcDistillCaps = ptcDispatchless ?? {
     maxCalls: PTC_DISTILL_MAX_CALLS,
     stdoutCapBytes: PTC_DISTILL_STDOUT_CAP,
     timeoutMs: PTC_DISTILL_TIMEOUT_MS
   }
+  const tick = (name: string, args: Record<string, unknown>): void => hooks.onToolCall?.(name, args)
 
   const dispatch = async (toolName: string, args: Record<string, unknown>): Promise<unknown> => {
     switch (toolName) {
@@ -81,16 +101,20 @@ export function createDistillMcpServer(
     name: 'argus',
     version: '1.0.0',
     tools: [
-      tool('list_sessions', descByName.list_sessions, listSessionsSchema, async () =>
-        asText(JSON.stringify(listSessionsTool(world)))
-      ),
-      tool('read_transcript', descByName.read_transcript, readTranscriptSchema, async (a) =>
-        asText(JSON.stringify(readTranscript(world, a)))
-      ),
-      tool('search_transcript', descByName.search_transcript, searchTranscriptSchema, async (a) =>
-        asText(JSON.stringify(searchTranscript(world, a)))
-      ),
+      tool('list_sessions', descByName.list_sessions, listSessionsSchema, async () => {
+        tick('list_sessions', {})
+        return asText(JSON.stringify(listSessionsTool(world)))
+      }),
+      tool('read_transcript', descByName.read_transcript, readTranscriptSchema, async (a) => {
+        tick('read_transcript', a)
+        return asText(JSON.stringify(readTranscript(world, a)))
+      }),
+      tool('search_transcript', descByName.search_transcript, searchTranscriptSchema, async (a) => {
+        tick('search_transcript', a)
+        return asText(JSON.stringify(searchTranscript(world, a)))
+      }),
       tool('run_tool_script', descByName.run_tool_script, runToolScriptSchema, async (a) => {
+        tick('run_tool_script', a)
         const res = await runToolScript({
           script: a.script,
           allowedTools: [...PTC_DISTILL_TOOLS],

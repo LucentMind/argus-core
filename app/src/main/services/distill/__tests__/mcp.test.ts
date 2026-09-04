@@ -7,7 +7,7 @@ import {
   PTC_DISTILL_STDOUT_CAP,
   PTC_DISTILL_TIMEOUT_MS
 } from '../../ptc/run'
-import { createDistillMcpServer } from '../mcp'
+import { createDistillMcpServer, toolCallSummary, type DistillMcpHooks } from '../mcp'
 
 function world(): DistillWorld {
   return {
@@ -25,9 +25,10 @@ function world(): DistillWorld {
 }
 
 async function connectedClient(
-  w: DistillWorld
+  w: DistillWorld,
+  hooks?: DistillMcpHooks
 ): Promise<{ client: Client; close: () => Promise<void> }> {
-  const server = createDistillMcpServer(w)
+  const server = createDistillMcpServer(w, undefined, hooks)
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   const client = new Client({ name: 'test-distill-client', version: '1.0.0' })
   await Promise.all([client.connect(clientTransport), server.instance.connect(serverTransport)])
@@ -120,4 +121,25 @@ describe('createDistillMcpServer', () => {
       await client.close()
     }
   }, 60_000)
+
+  it('fires onToolCall for every top-level tool call with a one-line summary', async () => {
+    const seen: string[] = []
+    const hooks: DistillMcpHooks = { onToolCall: (n, a) => seen.push(toolCallSummary(n, a)) }
+    const { client, close } = await connectedClient(world(), hooks)
+    try {
+      await client.callTool({ name: 'list_sessions', arguments: {} })
+      await client.callTool({ name: 'read_transcript', arguments: { session_id: 1 } })
+      await client.callTool({ name: 'search_transcript', arguments: { query: 'NEEDLE test' } })
+    } finally {
+      await close()
+    }
+    expect(seen).toEqual(['list_sessions', 'read_transcript s1', 'search_transcript "NEEDLE test"'])
+  })
+
+  it('toolCallSummary truncates a long query and names a script call without its body', () => {
+    expect(toolCallSummary('search_transcript', { query: 'x'.repeat(60) })).toBe(
+      `search_transcript "${'x'.repeat(40)}…"`
+    )
+    expect(toolCallSummary('run_tool_script', { script: 'console.log(1)' })).toBe('run_tool_script')
+  })
 })

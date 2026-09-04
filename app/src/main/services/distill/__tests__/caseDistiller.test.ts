@@ -133,6 +133,18 @@ describe('runCaseDistillAgent', () => {
     expect(result.trajectory).toHaveLength(1)
   })
 
+  it('reports the agent phase once before the run', async () => {
+    const seen: string[] = []
+    await runCaseDistillAgent(
+      INPUT,
+      async () => agentResult(),
+      undefined,
+      undefined,
+      (u) => seen.push(u.phase)
+    )
+    expect(seen).toEqual(['agent'])
+  })
+
   it('defaults the MCP world to {sessions: []} when input.world is absent', async () => {
     let mcpServer: unknown
     await runCaseDistillAgent(INPUT, async (_p, opts) => {
