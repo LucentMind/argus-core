@@ -8,12 +8,14 @@ export type View =
   | { kind: 'observability' }
   | { kind: 'relatedHistory' }
   | { kind: 'proposals'; types?: readonly ProposalType[] }
+  | { kind: 'distillRuns'; slug?: string }
 
 export type ViewAction =
   | { kind: 'settings'; page?: SettingsDeepLink }
   | { kind: 'observability' }
   | { kind: 'relatedHistory' }
   | { kind: 'proposals'; types?: readonly ProposalType[] }
+  | { kind: 'distillRuns'; slug?: string }
 
 /**
  * Pure view-transition logic shared by the Settings, Observability,
@@ -42,6 +44,10 @@ export type ViewAction =
  *    no `types` returns to `prevView` (toggles shut). But opening Proposals
  *    with a preset `types` while already open re-presets instead of closing
  *    (this is what the Library banner's deep link does).
+ *  - Distillation runs (dev-only): same carve-out as Proposals, copied for
+ *    `slug` -- a bare click while already on the view toggles shut, but a
+ *    `slug` re-targets the already-open view instead of closing it (the case
+ *    menu's "Distillation details…" deep link).
  *
  * `prevView` bookkeeping (recording the view being left, and not overwriting
  * it when re-entering a view already active) stays the caller's job -- this
@@ -63,6 +69,12 @@ export function nextView(cur: View, prevView: View, action: ViewAction): View {
     // than slamming the view shut (the Library banner's deep link).
     if (cur.kind === 'proposals' && action.types === undefined) return prevView
     return { kind: 'proposals', types: action.types }
+  }
+  if (action.kind === 'distillRuns') {
+    // Same carve-out as Proposals' `types`: a slug re-targets an open view (the case menu's
+    // "Distillation details…"), a bare click toggles shut.
+    if (cur.kind === 'distillRuns' && action.slug === undefined) return prevView
+    return { kind: 'distillRuns', slug: action.slug }
   }
   if (cur.kind === 'settings' && action.page === undefined) return prevView
   return { kind: 'settings', page: action.page }

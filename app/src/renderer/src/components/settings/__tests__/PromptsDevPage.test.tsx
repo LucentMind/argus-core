@@ -139,8 +139,7 @@ beforeEach(() => {
     },
     // Untouched unless a test opens the job picker — lazy by design (see JobIdPicker), so an
     // empty default here never fires for the other describe blocks in this file.
-    cases: { list: vi.fn(async () => []) },
-    distill: { runs: vi.fn(async () => []) }
+    distill: { runsAll: vi.fn(async () => []) }
   }
 })
 
@@ -552,15 +551,13 @@ describe('PromptsDevPage — distill eval export', () => {
   })
 
   it('checking a job in the picker exports exactly that id', async () => {
-    ;(
-      window as unknown as { argus: { cases: { list: ReturnType<typeof vi.fn> } } }
-    ).argus.cases.list = vi.fn(async () => [{ slug: 'nav-1', title: 'Nav bug' }])
-    ;(
-      window as unknown as { argus: { distill: { runs: ReturnType<typeof vi.fn> } } }
-    ).argus.distill.runs = vi.fn(async () => [
+    const runsAllMock = vi.fn(async () => [
       {
         id: 5,
         caseSlug: 'nav-1',
+        caseTitle: 'Nav bug',
+        jiraKey: null,
+        pipeline: 'v3',
         state: 'done',
         error: null,
         itemCount: 2,
@@ -573,6 +570,9 @@ describe('PromptsDevPage — distill eval export', () => {
         dryRun: false
       }
     ])
+    ;(
+      window as unknown as { argus: { distill: { runsAll: ReturnType<typeof vi.fn> } } }
+    ).argus.distill.runsAll = runsAllMock
     const api = (
       window as unknown as {
         argus: { devPrompts: { exportDistillEval: ReturnType<typeof vi.fn> } }
@@ -581,8 +581,17 @@ describe('PromptsDevPage — distill eval export', () => {
 
     render(<PromptsDevPage />)
     fireEvent.click(await screen.findByRole('button', { name: 'Choose specific jobs (optional)' }))
+    // The picker fetches every case's runs in one shot — no N+1 `distill.runs(slug)` calls.
+    await waitFor(() => expect(runsAllMock).toHaveBeenCalledTimes(1))
+    expect(
+      (window as unknown as { argus: { distill: { runs?: unknown } } }).argus.distill.runs
+    ).toBeUndefined()
     fireEvent.click(await screen.findByText('Nav bug'))
-    fireEvent.click(await screen.findByText(/done · 2026-08-19 · 2 items/))
+    // Timezone-agnostic: `stamp()` renders `finishedAt` in local time, so match on the parts
+    // that do not shift with the runner's TZ rather than the full `runRowLabel` string.
+    fireEvent.click(
+      await screen.findByText((text) => text.startsWith('#5') && text.includes('2 staged'))
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Export distill eval bundle' }))
 
     await waitFor(() => expect(api.exportDistillEval).toHaveBeenCalledWith([5]))

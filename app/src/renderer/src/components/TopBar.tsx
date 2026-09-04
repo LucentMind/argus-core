@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react'
-import { Settings, Timeline, Home, Inbox } from 'lucide-react'
+import { Settings, Timeline, Home, Inbox, FlaskConical } from 'lucide-react'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { uiStore } from '../lib/uiStore'
 import { caseBarStore } from '../lib/caseBarStore'
@@ -43,7 +43,8 @@ export function TopBar({
   onSettings,
   onStatusChanged,
   onRelatedHistory,
-  onProposals
+  onProposals,
+  onDistillRuns
 }: {
   activeSlug: string | null
   /** The active case's record, or null while `cases` is still loading. `activeSlug` comes
@@ -57,6 +58,12 @@ export function TopBar({
   onStatusChanged: () => void
   onRelatedHistory?: () => void
   onProposals?: () => void
+  /** Dev-only Distillation runs view. Presence IS the dev gate: App passes this only when
+   *  `payload.devTools` is true (see App.tsx's `openDistillRuns`) -- TopBar itself cannot read
+   *  settings (its test suite doesn't mock `window.argus.settings`, and `useSettingsPayload()`
+   *  here would throw inside `settingsStore.start()`). Also forwarded to CaseAnchor, which gates
+   *  its own "Distillation details…"/"Dry run (compare)…" rows on the same presence check. */
+  onDistillRuns?: (slug?: string) => void
 }): React.JSX.Element {
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -287,6 +294,7 @@ export function TopBar({
                 archivedAt={activeCase?.archivedAt ?? null}
                 onStatusChanged={onStatusChanged}
                 onHome={onHome}
+                onDistillRuns={onDistillRuns}
               />
               {/* No Jira pill here any more (user-directed, 2026-08-02): the bar was crowded,
                   and of everything in the group the pill was the one thing that is a *source*
@@ -378,6 +386,16 @@ export function TopBar({
             onClick={onRelatedHistory}
           >
             <Timeline size={19} strokeWidth={1.5} />
+          </button>
+        )}
+        {onDistillRuns && (
+          <button
+            className={ACTION_BTN}
+            aria-label="Distillation runs"
+            title="Distillation runs"
+            onClick={() => onDistillRuns()}
+          >
+            <FlaskConical size={19} strokeWidth={1.5} />
           </button>
         )}
         <button

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { CaseDashboard } from './components/CaseDashboard'
 import { CaseWorkspace } from './components/CaseWorkspace'
 import { ConfirmHost } from './components/ConfirmHost'
+import { DistillRunsView } from './components/distillRuns/DistillRunsView'
 import { DynamicScope } from './components/DynamicScope'
 import { ImportCaseDialog, type ImportDialogState } from './components/ImportCaseDialog'
 import { FileViewer } from './components/FileViewer'
@@ -21,6 +22,7 @@ import { viewerForFileNode } from './lib/fileRouting'
 import { watchFullScreen } from './lib/fullScreen'
 import { composerDraft } from './lib/composerDraft'
 import { panelsStore } from './lib/panelsStore'
+import { useSettingsPayload } from './lib/settingsStore'
 import { uiStore } from './lib/uiStore'
 import { nextView, type View } from './lib/viewReducer'
 import type { CaseRecord, NewCaseInput, UnifiedHit } from '../../shared/types'
@@ -47,6 +49,14 @@ function App(): React.JSX.Element {
   const [viewer, setViewer] = useState<Viewer>(null)
   const [newCaseOpen, setNewCaseOpen] = useState(false)
   const [importDialog, setImportDialog] = useState<ImportDialogState | null>(null)
+
+  // Gates the Distillation runs view (TopBar's flask button and the case menu's "Distillation
+  // details…"/"Dry run (compare)…" rows) -- a dev-only surface. TopBar and CaseAnchor cannot read
+  // this themselves: their existing test suites don't mock `window.argus.settings`, and
+  // `useSettingsPayload()` there would throw inside `settingsStore.start()`. So the gate lives
+  // here, and reaches those components only as the PRESENCE of a callback prop.
+  const settingsPayload = useSettingsPayload()
+  const devTools = Boolean(settingsPayload?.devTools)
 
   // The dynamic theme's light anchors. Owned here rather than in DynamicScope because in Settings
   // the light source is the page title in TopBar — a sibling of the scope, not a descendant
@@ -292,6 +302,12 @@ function App(): React.JSX.Element {
     setView(nextView(view, prevView, { kind: 'relatedHistory' }))
   }
 
+  function openDistillRuns(slug?: string): void {
+    if (!devTools) return // a stale caller must not open a dev surface
+    recordPrevView()
+    setView(nextView(view, prevView, { kind: 'distillRuns', slug }))
+  }
+
   // A native panel view paints above the DOM, so hide docked panels whenever a
   // modal/dialog is up or the front view is not the active case.
   const occluded = viewer !== null || newCaseOpen || importDialog !== null || view.kind !== 'case'
@@ -313,6 +329,7 @@ function App(): React.JSX.Element {
           onStatusChanged={() => void reload()}
           onRelatedHistory={openRelatedHistory}
           onProposals={() => openProposalsView()}
+          onDistillRuns={devTools ? openDistillRuns : undefined}
         />
         <UpdateBanner />
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -357,6 +374,15 @@ function App(): React.JSX.Element {
                 initialTypes={view.types}
                 onClose={() => setView(prevView)}
                 onNavigateSettings={(page) => gotoSettings(page)}
+              />
+            </DynamicScope>
+          ) : view.kind === 'distillRuns' ? (
+            <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>
+              <DistillRunsView
+                key={view.slug ?? 'all'}
+                initialSlug={view.slug}
+                onClose={() => setView(prevView)}
+                onOpenCase={openCase}
               />
             </DynamicScope>
           ) : (
