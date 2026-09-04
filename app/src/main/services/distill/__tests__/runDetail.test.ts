@@ -138,6 +138,42 @@ describe('readRunDetail.parsed', () => {
     expect(d.parsed.materialized).toBeNull()
   })
 
+  it('prunes the dossier against the run input_snapshot — a cite to a finding the snapshot never had is dropped', () => {
+    // The model's dossier cites finding #999; the input snapshot it was actually built from only
+    // ever had finding #7. The pipeline itself prunes this via pruneUnknownCites before any
+    // downstream stage sees the dossier — readRunDetail must apply the same prune, or the card
+    // shows a cite chip for a finding that never existed.
+    const invented = DOSSIER_RAW.replace('{"finding":7}', '{"finding":999}')
+    const id = insertJob({
+      pipeline: 'v3',
+      input_snapshot: JSON.stringify({
+        caseMeta: { slug: 'c1' },
+        findings: [{ id: 7, summary: 'f', reviewState: 'accepted', role: 'root-cause', body: '' }],
+        evidence: []
+      }),
+      stages_json: JSON.stringify({
+        dossier: { promptHash: 'h', promptChars: 1, rawOutput: invented }
+      })
+    })
+    const d = readRunDetail(db, id)!
+    // root_cause loses its only cite and is pruned to null, same as pruneUnknownCites' own
+    // semantics (see v3/dossier.ts and dossier.test.ts) — an item with zero surviving cites is
+    // dropped, not left with an empty cites array.
+    expect(d.parsed.dossier!.root_cause).toBeNull()
+  })
+
+  it('keeps the dossier un-pruned when input_snapshot does not parse as JSON', () => {
+    const id = insertJob({
+      pipeline: 'v3',
+      input_snapshot: 'not json',
+      stages_json: JSON.stringify({
+        dossier: { promptHash: 'h', promptChars: 1, rawOutput: DOSSIER_RAW }
+      })
+    })
+    const d = readRunDetail(db, id)!
+    expect(d.parsed.dossier!.root_cause!.text).toBe('rc')
+  })
+
   it('a v2 row has no parsed stages and pipeline v2', () => {
     const d = readRunDetail(db, insertJob())!
     expect(d.pipeline).toBe('v2')

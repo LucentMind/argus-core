@@ -2,7 +2,7 @@ import { Fragment } from 'react'
 import type { DistillProgress, DistillRunDetail } from '../../../../shared/distill'
 import { PipelineStrip } from './PipelineStrip'
 import { StageCard, DossierBody, CandidatesBody, MaterializeBody } from './StageCards'
-import { dropBreakdown, stamp, stripNodes } from './runsModel'
+import { dropBreakdown, isV3Shape, stamp, stripNodes } from './runsModel'
 
 export function RunDetail({
   detail,
@@ -62,7 +62,7 @@ export function RunDetail({
         </div>
       )}
 
-      {detail.pipeline === 'v3' || s ? (
+      {isV3Shape(detail) ? (
         <>
           {!s && detail.rawOutput !== null && (
             // A v3 job with no parsed stages at all (a corrupt `stages_json` column, or a

@@ -381,6 +381,9 @@ function App(): React.JSX.Element {
               />
             </DynamicScope>
           ) : view.kind === 'distillRuns' ? (
+            // No explicit devTools guard here: `devTools` is boot-immutable on both sides (main's
+            // ipcGate.ts and the renderer's own gate for the entry point that produces this view
+            // kind), so the opener already can't reach this branch with devTools off.
             <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>
               <DistillRunsView
                 key={view.slug ?? 'all'}

@@ -99,7 +99,13 @@ describe('runCaseDistillPipeline', () => {
     expect(run.output.proposals?.[0].content).toContain('1. a\n2. b')
     expect(run.output.proposals?.[0].evidence).toBe('[{"finding":7}]')
     expect(run.preStageDropped).toEqual([
-      { type: 'skill-new', target: 'diagnose-x', title: 'dup', reason: 'target-exists' }
+      {
+        type: 'skill-new',
+        target: 'diagnose-x',
+        title: 'dup',
+        reason: 'target-exists',
+        stage: 'veto'
+      }
     ])
     expect(run.stages?.dossier?.rawOutput).toBe(DOSSIER)
     expect(run.stages?.summary?.promptHash).toMatch(/^[0-9a-f]{12}$/)
@@ -248,9 +254,11 @@ describe('runCaseDistillPipeline', () => {
       oneShot: oneShotBy((p) => (p.includes('# Candidate') ? 'garbage' : route(p)))
     })
     expect(run.output.proposals).toEqual([])
-    expect(run.preStageDropped?.find((d) => d.reason === 'materialize-error')?.target).toBe(
-      'diagnose-x'
-    )
+    const drop = run.preStageDropped?.find((d) => d.reason === 'materialize-error')
+    expect(drop?.target).toBe('diagnose-x')
+    // Origin, not just reason: a materialize-error happens inside the materialize stage, not the
+    // veto pass — `stripNodes` uses this to bucket the drop onto the right pipeline node.
+    expect(drop?.stage).toBe('materialize')
     expect(run.stages?.materialize?.[0].error).toBeTruthy()
   })
 
@@ -262,6 +270,8 @@ describe('runCaseDistillPipeline', () => {
     })
     expect(run.output.proposals).toEqual([])
     expect(run.preStageDropped?.map((d) => d.reason)).toContain('case-identifiers')
+    const drop = run.preStageDropped?.find((d) => d.reason === 'case-identifiers')
+    expect(drop?.stage).toBe('validators')
   })
 
   it('a validator FLAG keeps the proposal and is recorded on flags, not error', async () => {

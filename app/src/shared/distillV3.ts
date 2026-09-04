@@ -106,6 +106,13 @@ export interface PreStageDrop {
   target: string
   title: string
   reason: VetoReason | ValidatorReason
+  /** Which stage actually produced this drop — needed because the reason alone is ambiguous:
+   *  `'cap'` is both a VetoReason and a staging drop reason, `'bad-name'` is both a VetoReason
+   *  and a ValidatorReason. `'staging'` marks a drop merged in from staging's own `dropped` list
+   *  (queue.ts), not the pipeline. Absent on a row written before this field existed (or on a
+   *  synthetic/legacy fixture) — a reader must then fall back to bucketing by `reason`, same as
+   *  before this field existed. */
+  stage?: 'veto' | 'materialize' | 'validators' | 'staging'
 }
 
 export interface PipelineStages {

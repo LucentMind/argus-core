@@ -14,7 +14,7 @@ const SECRET_NAME = 'observability/langfuse/secret-key'
  * without renaming settings already saved by users. Not yet consumed there —
  * out of scope for this settings page.
  */
-const DASHBOARD_CARDS = [
+export const DASHBOARD_CARDS = [
   { id: 'cost', label: 'Total cost' },
   { id: 'tokens', label: 'Tokens (in/out)' },
   { id: 'hitlApproval', label: 'HITL approval' },
