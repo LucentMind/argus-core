@@ -253,6 +253,55 @@ the app, a control query must not be assumed to be reaped on its own.
 
 As for Q1 — same run, same harness, same account-name substitution.
 
+### Disposal — does `release()` actually end the CLI child? (`branch-dispose.jsonl`)
+
+Recorded 2026-09-05, SDK 0.3.220, Windows. Q2 above ended with a warning that "after
+`close()` the SDK leaves a live CLI child behind". That observation was made about a run
+whose _session_ and _fork_ queries were never closed at all, so it did not actually say
+anything about a control query that IS released. This capture asks the narrow question:
+after `branch.ts`'s `release()`, does the process that control query spawned exit?
+
+Harness: `node scripts/spike-claude-branch/run.mjs --dispose-only` from `app/` (the flag
+skips Q1-Q3 so the committed fixtures are not re-captured). It seeds a one-turn session,
+then for each candidate disposal sequence opens its own control query in `branch.ts`'s
+exact shape (held-open prompt iterable, `resume`, `enableFileCheckpointing`), issues a
+**dry-run `rewindFiles`**, censuses the OS for pids the query spawned, applies the
+sequence, and polls for 5 s.
+
+Every candidate's dry run returned `{"canRewind":true,…}`, so in every row the child was
+demonstrably live and serving control requests before the sequence ran — the exit is not
+a child that died on arrival.
+
+```
+end-then-close        spawned 62848/claude.exe  -> EXITED   within 500ms
+end-tick-close        spawned 55964/claude.exe  -> EXITED   within 500ms
+end-drain-close       spawned 32500/claude.exe  -> EXITED   within 500ms
+interrupt-then-close  spawned 89460/claude.exe  -> EXITED   within 500ms
+close-then-end        spawned 51236/claude.exe  -> EXITED   within 500ms
+control-no-release    spawned 65380/claude.exe  -> SURVIVED all 5000ms
+```
+
+The last row is the falsification control and the reason the other five mean anything: a
+control query that is **not** released is still alive at the end of the same poll. Without
+it, "EXITED" could have been an idle timeout or a broken census, and all five verdicts
+would have been vacuous.
+
+**Verdict: `end()` then `close()` is sufficient — the child exits.** Q2's warning does not
+apply to a released control query; it applies to queries that are simply abandoned (which
+is what that run did to its session and fork queries, and why it needed `process.exit(0)`).
+
+**What ships** (`branch.ts`, `controlQuery().release`): `held.end()`, then **one event-loop
+tick**, then `q.close?.()`. The tick is not what reaps the child — `end-then-close` reaps it
+too. It is ordering hygiene: `AsyncQueue.end()` only resolves the pending `next()`, and the
+consumer resumes on a later tick, so closing in the same tick tears the query down before
+the prompt stream is observably finished. `branch.test.ts` pins that ordering (it asserts
+the prompt iterable had ended _before_ `close()` was called), and it fails without the tick.
+
+#### Redactions
+
+None. `branch-dispose.jsonl` carries pids, process names, session/message uuids and the
+dry-run results only — no paths, no account name, no `system`/`init` inventories.
+
 ### Q3 — `forkSession` + resume (`branch-fork.jsonl`)
 
 #### The question it answers
