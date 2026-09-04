@@ -64,6 +64,24 @@ export function RunDetail({
 
       {detail.pipeline === 'v3' || s ? (
         <>
+          {!s && detail.rawOutput !== null && (
+            // A v3 job with no parsed stages at all (a corrupt `stages_json` column, or a
+            // terminal job that failed before writing any stage — see the `stages` field's own
+            // doc comment: "the panel is the tool for diagnosing a broken run"). Every per-stage
+            // card below renders "not reached" with nothing to show, so without this the raw
+            // output — the one thing that DID get recorded — would be invisible.
+            <StageCard
+              id="raw"
+              jobId={job.id}
+              name="raw output"
+              record={{
+                promptHash: '',
+                promptChars: job.promptChars ?? 0,
+                rawOutput: detail.rawOutput
+              }}
+              structured={false}
+            />
+          )}
           <StageCard
             id="dossier"
             jobId={job.id}

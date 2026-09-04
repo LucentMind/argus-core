@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { DistillJobRow } from '../../../shared/distill'
+import type { DistillJobRow, DistillProgress } from '../../../shared/distill'
 
 /** Subscribes to a case's distillation job. Extracted from DistillChip so the case-actions
  *  menu can label its Re-distill row with the same state the chip used to occupy bar width
@@ -150,4 +150,19 @@ export function distillCostLine(job: DistillJobRow | null): string {
   if (job.toolCallCount !== null) parts.push(`${job.toolCallCount} tool calls`)
   if (job.costUsd !== null) parts.push(`$${job.costUsd.toFixed(2)}`)
   return parts.join(' · ')
+}
+
+/** Latest progress for one job, from `distill:progress`. Resets when `jobId` changes; a broadcast
+ *  for another job is ignored. Advisory — a missed broadcast only means a stale phase line. */
+export function useDistillProgress(jobId: number | null): DistillProgress | null {
+  const [p, setP] = useState<DistillProgress | null>(null)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setP(null)
+    if (jobId === null) return
+    return window.argus.distill.onProgress((u) => {
+      if (u.jobId === jobId) setP(u)
+    })
+  }, [jobId])
+  return p
 }
