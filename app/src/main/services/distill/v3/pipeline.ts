@@ -14,8 +14,9 @@ import {
   type DistillAgentRunMeta,
   type HeadlessAgentRunnerFn
 } from '../caseDistiller'
+import type { DistillProgressUpdate } from '../../../../shared/distill'
 import { DistillParseError } from '../contract'
-import { createDistillMcpServer } from '../mcp'
+import { createDistillMcpServer, toolCallSummary } from '../mcp'
 import { DISTILL_ALLOWED_TOOLS, DISTILL_MAX_ITERATIONS } from '../worldTools'
 import { buildDossierPrompt, parseDossier, pruneUnknownCites } from './dossier'
 import { buildSummaryPrompt, parseSummary } from './summary'
@@ -135,16 +136,24 @@ export async function runCaseDistillPipeline(
   runners: PipelineRunners,
   resolve?: (id: string) => string,
   signal?: AbortSignal,
-  opts: { concurrency?: number } = {}
+  opts: { concurrency?: number; onProgress?: (u: DistillProgressUpdate) => void } = {}
 ): Promise<CaseDistillRun> {
   const stages: PipelineStages = {}
   let usage: StageUsage | undefined
   let promptChars = 0
+  const report = (u: DistillProgressUpdate): void => opts.onProgress?.(u)
 
   // ── stage 1: dossier ─────────────────────────────────────────────────────────────────────
   const dossierPrompt = buildDossierPrompt(input, resolve)
   promptChars += dossierPrompt.length
-  const server = createDistillMcpServer(input.world ?? { sessions: [] })
+  let toolCalls = 0
+  report({ phase: 'dossier', toolCalls: 0 })
+  const server = createDistillMcpServer(input.world ?? { sessions: [] }, undefined, {
+    onToolCall: (name, args) => {
+      toolCalls++
+      report({ phase: 'dossier', detail: toolCallSummary(name, args), toolCalls })
+    }
+  })
   const res = await runners.agent(dossierPrompt, {
     mcpServer: server,
     // Two layers, one name. The SDK-level `allowedTools` option is pinned to [] INSIDE the driver
@@ -209,6 +218,7 @@ export async function runCaseDistillPipeline(
     const summaryPrompt = buildSummaryPrompt(input, dossier, resolve)
     const candidatesPrompt = buildCandidatesPrompt(input, dossier, resolve)
     promptChars += summaryPrompt.length + candidatesPrompt.length
+    report({ phase: 'summary+candidates' })
     const [sum, cand] = await Promise.all([
       oneShotStage(runners, 'summary', summaryPrompt, parseSummary, resolve, signal),
       oneShotStage(runners, 'candidates', candidatesPrompt, parseCandidates, resolve, signal)
@@ -226,6 +236,7 @@ export async function runCaseDistillPipeline(
     if (cand.value.malformedDropped) stages.candidatesMalformedDropped = cand.value.malformedDropped
 
     // ── veto ─────────────────────────────────────────────────────────────────────────────────
+    report({ phase: 'veto' })
     const { kept, dropped } = vetoCandidates(cand.value.candidates, dossier, input)
     const preStageDropped: PreStageDrop[] = [...dropped]
 
@@ -245,6 +256,7 @@ export async function runCaseDistillPipeline(
       kept,
       width,
       async (c: KnowledgeCandidate) => {
+        report({ phase: 'materialize', detail: c.target })
         const prompt = buildMaterializePrompt(input, dossier, c, resolve)
         const r = await oneShotStage(
           runners,
@@ -262,6 +274,7 @@ export async function runCaseDistillPipeline(
       },
       signal
     )
+    report({ phase: 'validators' })
     for (const item of results) {
       // Holes = slots a cancel stopped before they started (see mapLimit).
       if (!item) continue
