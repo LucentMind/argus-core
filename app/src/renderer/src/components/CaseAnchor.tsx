@@ -1,6 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { MenuButton, Checkbox } from './ui'
-import { DistillRunPanel } from './DistillRunPanel'
 import { DeleteCaseDialog } from './DeleteCaseDialog'
 import { uiStore } from '../lib/uiStore'
 import { notice } from '../lib/noticeStore'
@@ -64,7 +63,8 @@ export function CaseAnchor({
   resolution,
   archivedAt,
   onStatusChanged,
-  onHome
+  onHome,
+  onDistillRuns
 }: {
   slug: string
   status: CaseStatus
@@ -79,6 +79,11 @@ export function CaseAnchor({
    *  `resolution` above stop being stale. */
   onStatusChanged: () => void
   onHome: () => void
+  /** Dev-only Distillation runs view opener, forwarded from TopBar. Its PRESENCE is the gate for
+   *  both developer rows below ("Distillation details…" and "Dry run (compare)…") — decided in
+   *  App.tsx from `payload.devTools`, not read here, since this component's own test suite does
+   *  not mock `window.argus.settings`. */
+  onDistillRuns?: (slug: string) => void
 }): React.JSX.Element {
   const tracked = useDistillJob(slug)
   const [override, setOverride] = useState<DistillJobRow | null>(null)
@@ -93,7 +98,6 @@ export function CaseAnchor({
   //    Archive row mid-archive. This flag is owned by these two handlers alone and nothing
   //    else clears it.
   const [archiveBusy, setArchiveBusy] = useState<'archive' | 'restore' | null>(null)
-  const [runsOpen, setRunsOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   // adjust-state-during-render: any broadcast (tracked) supersedes the optimistic cancel/
   // redistill result — same idiom as DistillChip, whose adoption-over-swallowed-broadcast
@@ -275,39 +279,45 @@ export function CaseAnchor({
                   .finally(() => setPending(false))
               }
             },
-            {
-              // A noun beside the verb above: that row starts/stops a run, this one reads the last
-              // one. Kept separate so neither has to change meaning by state.
-              label: 'Distillation details…',
-              onSelect: () => setRunsOpen(true)
-            },
-            {
-              // Non-destructive to the KNOWLEDGE CORPUS by construction: the pipeline runs,
-              // staging does not, and `ignorePriorProposals` keeps this case's own prior
-              // proposals out of the input so the veto does not drop every candidate as
-              // `duplicate` before v3 is exercised. It is NOT non-destructive to an in-flight
-              // job, though: `enqueueDryRun` takes the same one-job-per-case slot as a real
-              // distill and calls the same `cancelOtherInFlight` enqueue() does — with no guard
-              // here, clicking this row while a REAL distillation is running would silently
-              // cancel it (losing real agent time/spend) from a row explicitly framed as the
-              // safe one. Disabled while anything is in flight (dry run included — a second dry
-              // run only replaces the first, still not something to do silently) rather than
-              // confirmed: this row's whole premise is "nothing to lose by clicking it", and a
-              // confirm dialog would only be needed for a genuinely destructive action.
-              label: 'Dry run (compare)…',
-              disabled: isDistillInFlight(distillJob),
-              title: isDistillInFlight(distillJob)
-                ? 'A distillation is already running for this case'
-                : undefined,
-              onSelect: () => {
-                if (pending || isDistillInFlight(distillJob)) return
-                setPending(true)
-                void window.argus.distill
-                  .dryRun(slug, true)
-                  .catch(() => undefined)
-                  .finally(() => setPending(false))
-              }
-            },
+            ...(onDistillRuns
+              ? [
+                  {
+                    // Dev-only (presence of the opener IS the gate, decided in App from
+                    // payload.devTools). A noun beside the verb above: opens the cross-case runs
+                    // view filtered to this case with its newest run selected.
+                    label: 'Distillation details…',
+                    onSelect: () => onDistillRuns(slug)
+                  },
+                  {
+                    // Non-destructive to the KNOWLEDGE CORPUS by construction: the pipeline runs,
+                    // staging does not, and `ignorePriorProposals` keeps this case's own prior
+                    // proposals out of the input so the veto does not drop every candidate as
+                    // `duplicate` before v3 is exercised. It is NOT non-destructive to an
+                    // in-flight job, though: `enqueueDryRun` takes the same one-job-per-case slot
+                    // as a real distill and calls the same `cancelOtherInFlight` enqueue() does —
+                    // with no guard here, clicking this row while a REAL distillation is running
+                    // would silently cancel it (losing real agent time/spend) from a row
+                    // explicitly framed as the safe one. Disabled while anything is in flight (dry
+                    // run included — a second dry run only replaces the first, still not something
+                    // to do silently) rather than confirmed: this row's whole premise is "nothing
+                    // to lose by clicking it", and a confirm dialog would only be needed for a
+                    // genuinely destructive action.
+                    label: 'Dry run (compare)…',
+                    disabled: isDistillInFlight(distillJob),
+                    title: isDistillInFlight(distillJob)
+                      ? 'A distillation is already running for this case'
+                      : undefined,
+                    onSelect: () => {
+                      if (pending || isDistillInFlight(distillJob)) return
+                      setPending(true)
+                      void window.argus.distill
+                        .dryRun(slug, true)
+                        .catch(() => undefined)
+                        .finally(() => setPending(false))
+                    }
+                  }
+                ]
+              : []),
             ...(archivedAt
               ? [
                   {
@@ -367,7 +377,6 @@ export function CaseAnchor({
           ]}
         />
       </div>
-      {runsOpen && <DistillRunPanel slug={slug} onClose={() => setRunsOpen(false)} />}
       {deleteOpen && (
         <DeleteCaseDialog
           slug={slug}

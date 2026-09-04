@@ -43,7 +43,11 @@ beforeEach(() => {
   uiStore.setDynamicTheme(false)
   window.argus = {
     modes: { available: vi.fn(async () => ['investigation', 'review']) },
-    distill: { status: vi.fn(async () => null), onChanged: vi.fn(() => () => {}) },
+    distill: {
+      status: vi.fn(async () => null),
+      onChanged: vi.fn(() => () => {}),
+      onProgress: vi.fn(() => () => {})
+    },
     proposals: {
       list: vi.fn(async () => ({ proposals: [] })),
       onChanged: vi.fn(() => () => {})
@@ -210,6 +214,23 @@ describe('TopBar', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'Proposals' }))
     expect(onProposals).toHaveBeenCalled()
+  })
+
+  it('renders the Distillation runs button only when the callback is present (the dev gate)', () => {
+    const base = {
+      activeSlug: null,
+      activeCase: null,
+      onHome: vi.fn(),
+      onSelect: vi.fn(),
+      onSettings: vi.fn(),
+      onStatusChanged: vi.fn()
+    }
+    const { rerender } = render(<TopBar {...base} />)
+    expect(screen.queryByRole('button', { name: 'Distillation runs' })).toBeNull()
+    const onDistillRuns = vi.fn()
+    rerender(<TopBar {...base} onDistillRuns={onDistillRuns} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Distillation runs' }))
+    expect(onDistillRuns).toHaveBeenCalledWith()
   })
 
   // The Related history glyph is lucide's `timeline`, not `history` (user-directed, 2026-08-08).

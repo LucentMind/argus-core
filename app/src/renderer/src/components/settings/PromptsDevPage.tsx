@@ -9,10 +9,11 @@ import {
   type PromptPreview
 } from '../../../../shared/promptsIpc'
 import type { DistillEvalExportResult } from '../../../../shared/distillEval'
-import type { DistillJobRow } from '../../../../shared/distill'
+import type { DistillRunListRow } from '../../../../shared/distill'
 import { SettingsSection, SettingsSkeleton, SelectField, TEXTAREA_FIELD } from './settingsLayout'
 import { Chip } from '../ui'
 import { confirm } from '../../lib/confirmStore'
+import { groupByCase, runRowLabel } from '../distillRuns/runsModel'
 
 /** Fixed display order. Iterating this rather than the PromptCategory union is deliberate: the
  *  union is a type, and a heading rendered per union member would advertise a section even
@@ -452,15 +453,6 @@ function CaptureTab(): React.JSX.Element {
   )
 }
 
-/** `done · 2026-08-19 · 3 items`. Mirrors DistillRunPanel's own run label — `dryRun`/`itemCount
- *  === null` are different facts (never ran staging vs. ran and staged nothing) and must not be
- *  collapsed into the same "no result" text. */
-function jobPickerLabel(r: DistillJobRow): string {
-  const items = r.dryRun ? 'dry run' : r.itemCount === null ? 'no result' : `${r.itemCount} items`
-  const date = (r.finishedAt ?? r.createdAt).slice(0, 10)
-  return `${r.state} · ${date} · ${items}`
-}
-
 /**
  * Explicit job-id picker for the distill eval export (dev-tools only). Collapsed by default and
  * lazy in both dimensions — the case list is fetched only once opened, and a case's runs only
@@ -479,35 +471,26 @@ function JobIdPicker({
   onToggleJob: (id: number) => void
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
-  const [cases, setCases] = useState<{ slug: string; title: string }[] | null>(null)
+  const [rows, setRows] = useState<DistillRunListRow[] | null>(null)
   const [openSlug, setOpenSlug] = useState<string | null>(null)
-  const [runsBySlug, setRunsBySlug] = useState<Record<string, DistillJobRow[]>>({})
 
+  // One fetch for every case's runs, grouped in memory — replaces the old N+1 shape (a
+  // `cases.list()` fetch, then a `distill.runs(slug)` fetch PER case as it was expanded).
   useEffect(() => {
-    if (!open || cases !== null) return
-    let live = true
-    void window.argus.cases
-      .list()
-      .then((cs: { slug: string; title: string }[]) => live && setCases(cs))
-      // Same fallback as DistillRunPanel's own runs() fetch: an empty list reads as "nothing to
-      // pick from" rather than leaving the picker stuck on "Loading…" forever.
-      .catch(() => live && setCases([]))
-    return () => {
-      live = false
-    }
-  }, [open, cases])
-
-  useEffect(() => {
-    if (!openSlug || runsBySlug[openSlug]) return
+    if (!open || rows !== null) return
     let live = true
     void window.argus.distill
-      .runs(openSlug)
-      .then((rs: DistillJobRow[]) => live && setRunsBySlug((prev) => ({ ...prev, [openSlug]: rs })))
-      .catch(() => live && setRunsBySlug((prev) => ({ ...prev, [openSlug]: [] })))
+      .runsAll()
+      .then((rs) => live && setRows(rs))
+      // Same fallback as before: an empty list reads as "nothing to pick from" rather than
+      // leaving the picker stuck on "Loading…" forever.
+      .catch(() => live && setRows([]))
     return () => {
       live = false
     }
-  }, [openSlug, runsBySlug])
+  }, [open, rows])
+
+  const groups = rows ? groupByCase(rows) : null
 
   return (
     <div className="flex flex-col gap-2">
@@ -520,36 +503,34 @@ function JobIdPicker({
       </button>
       {open && (
         <div className="rounded-r2 border border-hair">
-          {cases === null ? (
+          {groups === null ? (
             <p className="px-2 py-1.5 text-[11px] text-mute">Loading cases…</p>
-          ) : cases.length === 0 ? (
+          ) : groups.length === 0 ? (
             <p className="px-2 py-1.5 text-[11px] text-mute">No cases yet.</p>
           ) : (
-            cases.map((c) => (
-              <div key={c.slug} className="border-b border-hair last:border-b-0">
+            groups.map((g) => (
+              <div key={g.slug} className="border-b border-hair last:border-b-0">
                 <button
                   type="button"
                   className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] hover:bg-hair/40"
-                  onClick={() => setOpenSlug(openSlug === c.slug ? null : c.slug)}
+                  onClick={() => setOpenSlug(openSlug === g.slug ? null : g.slug)}
                 >
-                  <span className="flex-1 text-ink">{c.title}</span>
-                  <span className="font-mono text-[10px] text-faint">{c.slug}</span>
+                  <span className="flex-1 text-ink">{g.title}</span>
+                  <span className="font-mono text-[10px] text-faint">{g.slug}</span>
                 </button>
-                {openSlug === c.slug && (
+                {openSlug === g.slug && (
                   <div className="flex flex-col gap-1 px-2 pb-2">
-                    {!runsBySlug[c.slug] ? (
-                      <p className="text-[10px] text-mute">Loading runs…</p>
-                    ) : runsBySlug[c.slug].length === 0 ? (
+                    {g.runs.length === 0 ? (
                       <p className="text-[10px] text-mute">No distill runs for this case.</p>
                     ) : (
-                      runsBySlug[c.slug].map((r) => (
+                      g.runs.map((r) => (
                         <label key={r.id} className="flex items-center gap-2 text-[10px] text-ink">
                           <input
                             type="checkbox"
                             checked={selectedJobIds.has(r.id)}
                             onChange={() => onToggleJob(r.id)}
                           />
-                          <span className="font-mono">{jobPickerLabel(r)}</span>
+                          <span className="font-mono">{runRowLabel(r)}</span>
                         </label>
                       ))
                     )}

@@ -74,6 +74,7 @@ function renderAnchor(overrides?: {
   archivedAt?: string | null
   onStatusChanged?: () => void
   onHome?: () => void
+  onDistillRuns?: (slug: string) => void
 }): void {
   render(
     <>
@@ -84,6 +85,7 @@ function renderAnchor(overrides?: {
         archivedAt={overrides?.archivedAt ?? null}
         onStatusChanged={overrides?.onStatusChanged ?? vi.fn()}
         onHome={overrides?.onHome ?? vi.fn()}
+        onDistillRuns={overrides?.onDistillRuns}
       />
       <ConfirmHost />
     </>
@@ -542,7 +544,7 @@ describe('CaseAnchor', () => {
     const dryRunMock = vi.fn().mockResolvedValue(null)
     window.argus.distill.dryRun = dryRunMock
     const user = userEvent.setup()
-    renderAnchor({ status: 'open' })
+    renderAnchor({ status: 'open', onDistillRuns: vi.fn() })
     await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
     await user.click(screen.getByText('Dry run (compare)…'))
     await vi.waitFor(() => expect(dryRunMock).toHaveBeenCalledWith('NN-5187', true))
@@ -572,7 +574,7 @@ describe('CaseAnchor', () => {
       }
     } as never
     const user = userEvent.setup()
-    renderAnchor({ status: 'open' })
+    renderAnchor({ status: 'open', onDistillRuns: vi.fn() })
     await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
     await screen.findByText('Cancel distillation') // sanity: the real job is being tracked as running
 
@@ -591,10 +593,33 @@ describe('CaseAnchor', () => {
     const dryRunMock = vi.fn().mockResolvedValue(null)
     window.argus.distill.dryRun = dryRunMock
     const user = userEvent.setup()
-    renderAnchor({ status: 'open' })
+    renderAnchor({ status: 'open', onDistillRuns: vi.fn() })
     await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
     const row = screen.getByText('Dry run (compare)…').closest('button')!
     expect(row.hasAttribute('disabled')).toBe(false)
+  })
+
+  it('hides the developer rows unless the view opener is supplied', async () => {
+    const user = userEvent.setup()
+    renderAnchor()
+    await openMenu(user)
+    expect(screen.queryByText('Distillation details…')).toBeNull()
+    expect(screen.queryByText('Dry run (compare)…')).toBeNull()
+  })
+
+  it('Distillation details… deep-links into the runs view for this case', async () => {
+    const user = userEvent.setup()
+    const onDistillRuns = vi.fn()
+    renderAnchor({ onDistillRuns })
+    await openMenu(user)
+    // Both developer rows render together under the same gate -- checked here, before the
+    // click, because MenuButton closes on ANY leaf select (ui.tsx: `setOpen(false)` runs
+    // unconditionally), so `Dry run (compare)…` is gone from the DOM the instant this fires.
+    expect(screen.getByText('Dry run (compare)…')).toBeTruthy()
+    // Leaf row inside the open menu — fireEvent, per this file's hover-menu convention (a
+    // userEvent click's simulated pointer travel can hover an ancestor's submenu open first).
+    fireEvent.click(screen.getByText('Distillation details…'))
+    expect(onDistillRuns).toHaveBeenCalledWith('NN-5187')
   })
 })
 

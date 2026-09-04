@@ -92,3 +92,18 @@ describe('nextView: proposals', () => {
     })
   })
 })
+
+describe('nextView: distillRuns', () => {
+  it('Distillation runs toggles shut on a second no-arg click; a slug re-targets instead of closing', () => {
+    const cur: View = { kind: 'distillRuns' }
+    expect(nextView(cur, CASE, { kind: 'distillRuns' })).toEqual(CASE)
+    expect(nextView(cur, CASE, { kind: 'distillRuns', slug: 'NAV-1' })).toEqual({
+      kind: 'distillRuns',
+      slug: 'NAV-1'
+    })
+    expect(nextView(HOME, CASE, { kind: 'distillRuns' })).toEqual({
+      kind: 'distillRuns',
+      slug: undefined
+    })
+  })
+})

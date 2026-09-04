@@ -71,7 +71,7 @@ export function groupByCase(rows: DistillRunListRow[]): CaseGroup[] {
 }
 
 /** `2026-08-19T10:04:00.000Z` → `2026-08-19 10:04`. Local time, since the reader is comparing
- *  runs they started themselves (same convention as DistillRunPanel.tsx). */
+ *  runs they started themselves. */
 export function stamp(iso: string | null): string {
   if (!iso) return '—'
   const d = new Date(iso)
