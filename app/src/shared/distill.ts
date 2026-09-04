@@ -46,6 +46,39 @@ export interface DistillJobRow {
   dryRun: boolean
 }
 
+/** Progress phases. v2 has one model call ('agent'); v3 has one per stage; 'staging' is the
+ *  queue's own step after either. Filled in by the pipeline/distiller `onProgress` seam. */
+export type DistillPhase =
+  'agent' | 'dossier' | 'summary+candidates' | 'veto' | 'materialize' | 'validators' | 'staging'
+
+/** What a distiller reports at a phase boundary or on a world-tool call inside the agentic stage. */
+export interface DistillProgressUpdate {
+  phase: DistillPhase
+  /** The materialize target, or the latest tool call ("read_transcript s1"). */
+  detail?: string
+  /** Running count of world-tool calls inside the agentic stage. */
+  toolCalls?: number
+}
+
+/** The update as broadcast: stamped with the job it belongs to. Advisory only, never persisted. */
+export interface DistillProgress extends DistillProgressUpdate {
+  jobId: number
+  caseSlug: string
+  at: string
+}
+
+/** One row of the cross-case runs browser. `DistillJobRow` plus what the rail needs to label it. */
+export interface DistillRunListRow extends DistillJobRow {
+  /** Case title, or the slug when the case row is gone. */
+  caseTitle: string
+  jiraKey: string | null
+  /** From the `pipeline` column; a pre-column row falls back to stages_json presence
+   *  (`pipelineOf`); null for an unstamped in-flight row. */
+  pipeline: 'v2' | 'v3' | null
+  /** The queue's latest in-memory progress — present only while queued/running. */
+  progress?: DistillProgress
+}
+
 export interface CaseDistillInput {
   caseMeta: {
     slug: string
