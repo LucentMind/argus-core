@@ -36,6 +36,14 @@ const detail = (over: Partial<DistillRunDetail> = {}): DistillRunDetail => ({
   trajectory: null,
   rawOutput: '{}',
   inputSnapshotChars: 4096,
+  pipeline: 'v3',
+  parsed: {
+    dossier: null,
+    summaryPresent: false,
+    summary: null,
+    candidates: null,
+    materialized: null
+  },
   ...over
 })
 

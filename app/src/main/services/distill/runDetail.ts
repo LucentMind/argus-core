@@ -1,7 +1,19 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { DistillRunDetail } from '../../../shared/distill'
-import type { PipelineStages, PreStageDrop } from '../../../shared/distillV3'
-import { toRow, type JobDbRow } from './queue'
+import type { DistillRunDetail, CaseDistillSummary } from '../../../shared/distill'
+import type {
+  Dossier,
+  KnowledgeCandidate,
+  MaterializeOutput,
+  PipelineStages,
+  PreStageDrop,
+  ProposalOutType
+} from '../../../shared/distillV3'
+import { toRow, pipelineOf, type JobDbRow } from './queue'
+import { parseDossier } from './v3/dossier'
+import { parseSummary } from './v3/summary'
+import { parseCandidates } from './v3/candidates'
+import { parseMaterializeOutput } from './v3/materialize'
+import { applyPatch } from './v3/patch'
 
 // `JobDbRow` and `toRow` are reused from queue.ts (both exported there) rather than redeclared
 // here. A second copy of the column→field mapping would be one fact in two places: adding a
@@ -19,7 +31,73 @@ function parseOr<T>(json: string | null): T | null {
   }
 }
 
-export function readRunDetail(db: DatabaseSync, jobId: number): DistillRunDetail | null {
+export interface RunDetailDeps {
+  /** The CURRENT text of a skill (`skill-edit`) or reference (`reference-edit`) by name, or null
+   *  when it no longer exists. Used only to render an edit's ops as a diff — the at-run-time text
+   *  is not stored, and the UI labels the diff accordingly. */
+  currentTarget?: (type: ProposalOutType, name: string) => string | null
+}
+
+/** Run a stage parser; a parse failure is a null field, never a thrown IPC. */
+function tryParse<T>(fn: () => T): T | null {
+  try {
+    return fn()
+  } catch {
+    return null
+  }
+}
+
+const OUT_TYPES = new Set<string>(['skill-new', 'skill-edit', 'reference-edit'])
+
+function parseStages(
+  stages: PipelineStages | null,
+  deps: RunDetailDeps
+): DistillRunDetail['parsed'] {
+  const none: DistillRunDetail['parsed'] = {
+    dossier: null,
+    summaryPresent: false,
+    summary: null,
+    candidates: null,
+    materialized: null
+  }
+  if (!stages) return none
+  const dossier: Dossier | null = stages.dossier
+    ? tryParse(() => parseDossier(stages.dossier!.rawOutput).dossier)
+    : null
+  const summaryPresent = stages.summary !== undefined
+  const summary: CaseDistillSummary | null = stages.summary
+    ? tryParse(() => parseSummary(stages.summary!.rawOutput))
+    : null
+  const candidates: KnowledgeCandidate[] | null = stages.candidates
+    ? tryParse(() => parseCandidates(stages.candidates!.rawOutput).candidates)
+    : null
+  const materialized = Array.isArray(stages.materialize)
+    ? stages.materialize.map((m) => {
+        const type = OUT_TYPES.has(m.type) ? (m.type as ProposalOutType) : null
+        const output: MaterializeOutput | null = type
+          ? tryParse(() => parseMaterializeOutput(m.rawOutput, type))
+          : null
+        let diff: { current: string; applied: string } | null = null
+        if (type && type !== 'skill-new' && output && deps.currentTarget) {
+          const current = deps.currentTarget(type, m.target)
+          if (current !== null) {
+            const res = output.whole_file
+              ? { ok: true as const, text: output.whole_file }
+              : applyPatch(current, output.ops ?? [], output.frontmatter)
+            if (res.ok) diff = { current, applied: res.text }
+          }
+        }
+        return { type: m.type, target: m.target, output, diff }
+      })
+    : null
+  return { dossier, summaryPresent, summary, candidates, materialized }
+}
+
+export function readRunDetail(
+  db: DatabaseSync,
+  jobId: number,
+  deps: RunDetailDeps = {}
+): DistillRunDetail | null {
   // SELECT * because `toRow` needs every column `JobDbRow` declares, and the detail fields
   // (input_snapshot, raw_output, *_json) are on the same row.
   const r = db.prepare(`SELECT * FROM distill_jobs WHERE id = ?`).get(jobId) as JobDbRow | undefined
@@ -28,12 +106,19 @@ export function readRunDetail(db: DatabaseSync, jobId: number): DistillRunDetail
   // otherwise reach the renderer and be `.map`ped, throwing inside the panel's render.
   const dropped = parseOr<PreStageDrop[]>(r.dropped_json)
   const trajectory = parseOr<unknown[]>(r.trajectory_json)
+  const stages = parseOr<PipelineStages>(r.stages_json)
   return {
     job: toRow(r),
-    stages: parseOr<PipelineStages>(r.stages_json),
+    stages,
     dropped: Array.isArray(dropped) ? dropped : [],
     trajectory: Array.isArray(trajectory) ? trajectory : null,
     rawOutput: r.raw_output,
-    inputSnapshotChars: r.input_snapshot.length
+    inputSnapshotChars: r.input_snapshot.length,
+    pipeline: pipelineOf({
+      pipeline: r.pipeline,
+      has_stages: r.stages_json !== null,
+      state: r.state
+    }),
+    parsed: parseStages(stages, deps)
   }
 }
