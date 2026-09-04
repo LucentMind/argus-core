@@ -34,7 +34,8 @@ function fakeDriver(kind: string, probe: () => Promise<ProbeAuthResult>): AgentD
       costReporting: true,
       headlessOneShot: false,
       systemPromptTransport: 'systemPrompt.append',
-      subagents: 'promptable'
+      subagents: 'promptable',
+      branching: 'digest'
     },
     createSession: () => ({}) as never,
     probeAuth: probe

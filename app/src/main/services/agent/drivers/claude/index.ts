@@ -75,7 +75,9 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // v2 scope: Claude only — see DriverCapabilities.headlessAgent's doc comment.
       headlessAgent: true,
       systemPromptTransport: 'systemPrompt.append',
-      subagents: 'configurable'
+      subagents: 'configurable',
+      // The only driver whose provider can slice its own transcript (SDK fork + file rewind).
+      branching: 'native'
     },
 
     runHeadless: (prompt, opts) => runClaudeHeadless(prompt, opts, createQuery),

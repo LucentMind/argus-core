@@ -1,6 +1,7 @@
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { PermissionMode } from '../../../shared/settings'
 import type { SubagentSupport, SystemPromptTransport } from '../../../shared/drivers'
+import type { Branching } from '../../../shared/branching'
 import type { ToolTaxonomy } from './risk'
 import type { NativeToolDeps } from './nativeTools'
 import type { PanelCommandDecl } from './panelCommands'
@@ -195,6 +196,11 @@ export interface DriverCapabilities {
   systemPromptTransport: SystemPromptTransport
   /** Explicit and required, like `headlessOneShot`: absence has no safe default here. */
   subagents: SubagentSupport
+  /** How this driver branches a conversation (shared/branching.ts). Required — every driver
+   *  and every test fake must declare it. `'native'` MUST pair with `forkAt`/`rewindTo`/
+   *  `previewRewind` all present; `'digest'` MUST pair with all three absent (contract
+   *  invariant, `__tests__/driverContract.ts`). */
+  branching: Branching
 }
 
 /** Inputs for a tool-less one-shot run with no case and no session (distillation).
@@ -291,6 +297,22 @@ export function abortRacer(signal?: AbortSignal): Promise<never> {
   })
 }
 
+export interface BranchArgs {
+  /** The session's current provider cursor. */
+  cursor: string
+  /** `turns.provider_anchor_id` of the anchor turn (last assistant message kept). */
+  anchor: string
+  /** The cwd the session ran under — the SDK's transcript store is keyed by it. */
+  caseDir: string
+  cliPath?: string
+}
+
+export interface RewindFilesPreview {
+  restored: string[]
+  skipped: number
+  error?: string
+}
+
 export interface ProbeAuthResult {
   ok: boolean
   detail: string
@@ -336,4 +358,21 @@ export interface AgentDriver {
    * absent, callers fall back to the Claude `isAuthFailure` heuristic.
    */
   isAuthErrorMessage?(message: string): boolean
+  /**
+   * Fork the session at `args.anchor`, returning the new provider cursor. Optional: presence
+   * MUST match `capabilities.branching === 'native'`. V9: the driver resolves the file anchor
+   * itself (e.g. from the SDK's own session transcript) — there is no separate file-anchor
+   * argument.
+   */
+  forkAt?(args: BranchArgs): Promise<string>
+  /**
+   * Rewind the session's own transcript/cursor back to `args.anchor` in place, returning the
+   * new provider cursor. Optional: presence MUST match `capabilities.branching === 'native'`.
+   */
+  rewindTo?(args: BranchArgs): Promise<string>
+  /**
+   * Preview which files a rewind to `args.anchor` would restore, without mutating anything.
+   * Optional: presence MUST match `capabilities.branching === 'native'`.
+   */
+  previewRewind?(args: BranchArgs): Promise<RewindFilesPreview>
 }

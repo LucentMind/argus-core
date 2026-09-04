@@ -35,7 +35,8 @@ function recordingDriver(): {
       costReporting: true,
       headlessOneShot: false,
       systemPromptTransport: 'systemPrompt.append',
-      subagents: 'configurable'
+      subagents: 'configurable',
+      branching: 'native'
     },
     // The context is captured, not ignored: `onCursor`/`onTurnResult` are how a real driver
     // tells CaseSession a turn landed, and the replay seam now keys on exactly that.
@@ -172,13 +173,11 @@ describe('CaseSession first-turn history replay', () => {
     expect(sent[0]).not.toBe('what now?') // guard: the split is only meaningful if it fired
 
     const started = events.find((e) => e.type === 'turn.started') as
-      | { payload: { userText: string } }
-      | undefined
+      { payload: { userText: string } } | undefined
     expect(started?.payload.userText).toBe('what now?')
 
     const mirroredStart = mirrored.find((e) => e.type === 'turn.started') as
-      | { payload: { userText: string } }
-      | undefined
+      { payload: { userText: string } } | undefined
     expect(mirroredStart?.payload.userText).toBe('what now?')
 
     expect(indexed).toEqual([{ role: 'user', content: 'what now?' }])

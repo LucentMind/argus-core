@@ -296,7 +296,9 @@ export function createCopilotDriver(
       // v2 scope: Claude only (recorded follow-up) — see DriverCapabilities.headlessAgent.
       headlessAgent: false,
       systemPromptTransport: 'systemMessage.append',
-      subagents: 'configurable'
+      subagents: 'configurable',
+      // No native fork/rewind surface — a fresh provider session plus Argus's history digest.
+      branching: 'digest'
     },
 
     isAuthErrorMessage: isCopilotAuthErrorMessage,

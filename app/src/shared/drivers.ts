@@ -7,6 +7,7 @@ import {
   type PermissionMode,
   type ProviderInstance
 } from './settings'
+import type { Branching } from './branching'
 import type { ModelOptionInfo } from './runOptions'
 import {
   canonicalSlug,
@@ -111,6 +112,11 @@ export interface DriverCapabilities {
   systemPromptTransport: SystemPromptTransport
   /** Explicit and required, like `headlessOneShot`: absence has no safe default here. */
   subagents: SubagentSupport
+  /** How this driver branches a conversation. Mirrors
+   *  `main/services/agent/driver.ts` `DriverCapabilities.branching`. Explicit and required,
+   *  like `headlessOneShot` and `subagents` — every driver and every test fake must declare
+   *  it. */
+  branching: Branching
 }
 
 export interface DriverDefinition {
@@ -265,7 +271,9 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       headlessAgent: true,
       // options.systemPrompt = { type:'preset', preset:'claude_code', append: ctx.systemAppend }
       systemPromptTransport: 'systemPrompt.append',
-      subagents: 'configurable'
+      subagents: 'configurable',
+      // The only driver whose provider can slice its own transcript (SDK fork + file rewind).
+      branching: 'native'
     }
   },
   'github-copilot': {
@@ -296,7 +304,9 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       headlessAgent: false,
       // sessionConfig.systemMessage = { mode:'append', content: ctx.systemAppend }
       systemPromptTransport: 'systemMessage.append',
-      subagents: 'configurable'
+      subagents: 'configurable',
+      // No native fork/rewind surface — a fresh provider session plus Argus's history digest.
+      branching: 'digest'
     }
   },
   codex: {
@@ -334,7 +344,9 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       headlessAgent: false,
       // startParams.developerInstructions, omitted entirely when systemAppend is empty
       systemPromptTransport: 'developerInstructions',
-      subagents: 'promptable'
+      subagents: 'promptable',
+      // No native fork/rewind surface — a fresh provider session plus Argus's history digest.
+      branching: 'digest'
     }
   },
   cursor: {
@@ -368,7 +380,9 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       // index / memory index all go nowhere. Fixing it (a first-turn preamble) is its own plan;
       // this declaration is what makes the loss visible instead of silent.
       systemPromptTransport: 'none',
-      subagents: 'promptable'
+      subagents: 'promptable',
+      // No native fork/rewind surface — a fresh provider session plus Argus's history digest.
+      branching: 'digest'
     }
   },
   grok: {
@@ -397,7 +411,9 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       // index / memory index all go nowhere. Fixing it (a first-turn preamble) is its own plan;
       // this declaration is what makes the loss visible instead of silent.
       systemPromptTransport: 'none',
-      subagents: 'promptable'
+      subagents: 'promptable',
+      // No native fork/rewind surface — a fresh provider session plus Argus's history digest.
+      branching: 'digest'
     }
   }
 }
@@ -452,7 +468,10 @@ const DEFAULT_CAPABILITIES: DriverCapabilities = {
   headlessOneShot: false,
   // No driver resolved, so we genuinely do not know. 'none' would be a claim, not a default.
   systemPromptTransport: 'unknown',
-  subagents: 'promptable'
+  subagents: 'promptable',
+  // Conservative default, like the rest of this fallback: no driver resolved, so no native
+  // branching surface may be assumed.
+  branching: 'digest'
 }
 
 /** An enabled provider instance paired with its resolved driver, in settings key order. */
