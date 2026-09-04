@@ -22,12 +22,15 @@ function Raw({ text }: { text: string }): React.JSX.Element {
 /** Card shell: header line (name · prompt chars · cost · flags · error), structured|raw toggle. */
 export function StageCard({
   id,
+  jobId,
   name,
   record,
   structured,
   children
 }: {
   id: string
+  /** Namespaces this card's DOM id — compare mode (Task 9) renders two RunDetails side by side. */
+  jobId: number
   name: string
   record: StageRecord | undefined
   /** false when nothing parsed — the card is raw-only and the toggle is hidden. */
@@ -35,9 +38,19 @@ export function StageCard({
   children?: React.ReactNode
 }): React.JSX.Element {
   const [raw, setRaw] = useState(!structured)
+  // adjust-state-during-render: a re-fetch of `detail` for a still-mounted card (a running job
+  // finishing) can flip `structured` without remounting this component. Land on the structured
+  // view when a stage just became parseable, and fall back to raw when it lost its parse — a
+  // user's manual toggle still survives unrelated renders (see DistillChip's `prevTracked` for
+  // the same idiom).
+  const [prevStructured, setPrevStructured] = useState(structured)
+  if (structured !== prevStructured) {
+    setPrevStructured(structured)
+    setRaw(!structured)
+  }
   return (
     <section
-      id={`card-${id}`}
+      id={`card-${jobId}-${id}`}
       data-testid={`card-${id}`}
       className="flex flex-col gap-2 rounded-r2 surface-card p-3"
     >
