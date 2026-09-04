@@ -86,9 +86,12 @@ beforeEach(() => {
           jobCount: 0,
           totalCostUsd: null,
           failedCostUsd: null,
+          failedCount: 0,
           avgCostUsd: null,
           avgTurnCount: null,
-          avgPromptChars: null
+          avgPromptChars: null,
+          dryRunCount: 0,
+          dryRunCostUsd: null
         }
       }))
     }

@@ -143,6 +143,11 @@ export interface DistillationUsageStats {
    *  Separate from `totalCostUsd` (done-only): `jobCount`/every average above stay scoped to
    *  completed jobs, this is the one field that also sees failed spend. */
   failedCostUsd: number | null
+  /** Count of `failed` (non-dry) case-distill jobs — the row-count twin of `failedCostUsd`. */
+  failedCount: number
+  /** Comparison (dry) runs, done+failed. Spend is real even though nothing was staged. */
+  dryRunCount: number
+  dryRunCostUsd: number | null
 }
 
 export interface UsageStatsPayload {

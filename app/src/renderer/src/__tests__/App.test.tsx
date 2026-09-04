@@ -245,7 +245,10 @@ beforeEach(() => {
           avgCostUsd: null,
           avgPromptChars: null,
           avgTurnCount: null,
-          failedCostUsd: null
+          failedCostUsd: null,
+          failedCount: 0,
+          dryRunCount: 0,
+          dryRunCostUsd: null
         }
       }))
     },
