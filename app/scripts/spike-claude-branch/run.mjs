@@ -133,8 +133,11 @@ const read = () => {
 function cliProcesses() {
   try {
     if (process.platform === 'win32') {
+      // Filtered to the CLI executable itself, not a CommandLine substring match — the
+      // latter also matches THIS census's own `powershell -Command ...claude...` process,
+      // double-counting a survivor that was never one of the SDK's spawned children.
       const ps =
-        "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'claude' } | " +
+        "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'claude.exe' } | " +
         'ForEach-Object { "$($_.ProcessId)|$($_.Name)" }'
       const out = execFileSync('powershell', ['-NoProfile', '-Command', ps], {
         encoding: 'utf8',
