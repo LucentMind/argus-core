@@ -65,6 +65,7 @@ describe('DistillChip', () => {
   it('shows the live phase line while running, and the plain label before any progress lands', async () => {
     setup(job({ id: 5, state: 'running', itemCount: null }))
     expect(await screen.findByText('distilling… ✕')).toBeInTheDocument()
+    await waitFor(() => expect(progressCb).toBeDefined())
     act(() =>
       progressCb!({
         jobId: 5,
@@ -86,6 +87,7 @@ describe('DistillChip', () => {
   it('a dry run reads "dry run · …"', async () => {
     setup(job({ id: 5, state: 'running', itemCount: null, dryRun: true }))
     await screen.findByText('dry run… ✕')
+    await waitFor(() => expect(progressCb).toBeDefined())
     act(() => progressCb!({ jobId: 5, caseSlug: 'c1', at: 'x', phase: 'dossier', toolCalls: 2 }))
     expect(screen.getByText('dry run · dossier · 2 tool calls ✕')).toBeInTheDocument()
   })
