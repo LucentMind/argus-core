@@ -17,6 +17,7 @@ import { buildAssetInventory } from './inventory'
 import { deriveCaseOutcome } from '../../../shared/caseOutcome'
 import { deriveCaseDomain } from '../../../shared/caseDomain'
 import { listStoredWorkspaces } from '../workspaces'
+import { TURN_STATUS_REWOUND } from '../../../shared/branching'
 
 /** Per-session cap on verbatim user turns fed to the agentic distiller's raw-quote source. */
 export const USER_MSGS_PER_SESSION = 25
@@ -115,7 +116,11 @@ function collectUserMessages(
     if (total >= USER_MSGS_TOTAL) break
     const rows = db
       .prepare(
-        `SELECT content FROM messages_fts WHERE case_id = ? AND session_id = ? AND role = 'user' ORDER BY rowid ASC`
+        `SELECT m.content FROM messages_fts m
+           LEFT JOIN turns t ON t.id = m.turn_id
+          WHERE m.case_id = ? AND m.session_id = ? AND m.role = 'user'
+            AND (t.status IS NULL OR t.status != '${TURN_STATUS_REWOUND}')
+          ORDER BY m.rowid ASC`
       )
       .all(caseId, s.id) as { content: string }[]
     if (rows.length === 0) continue
@@ -226,15 +231,17 @@ export function assembleDistillInput(
       createdAt: c.createdAt,
       closedAt: c.updatedAt
     },
-    findings: findings.map((f) => ({
-      id: f.id,
-      summary: f.summary,
-      reviewState: f.reviewState,
-      reviewReason: f.reviewReason,
-      reviewActor: f.reviewActor,
-      role: f.role,
-      body: f.body ?? ''
-    })),
+    findings: findings
+      .filter((f) => f.reviewReason !== 'rewound')
+      .map((f) => ({
+        id: f.id,
+        summary: f.summary,
+        reviewState: f.reviewState,
+        reviewReason: f.reviewReason,
+        reviewActor: f.reviewActor,
+        role: f.role,
+        body: f.body ?? ''
+      })),
     evidence: listEvidence(db, slug).map((e) => ({
       relPath: e.relPath,
       artifactType: e.artifactType,

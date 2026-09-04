@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { DistillWorld, WorldMessage, WorldSession } from '../../../shared/distill'
+import { TURN_STATUS_REWOUND } from '../../../shared/branching'
 
 export const WORLD_MSG_CLAMP = 8_000
 const CLAMP_HEAD = 6_000
@@ -52,7 +53,11 @@ export function buildWorld(
   const sessions: WorldSession[] = sessionRows.map((s) => {
     const rows = db
       .prepare(
-        `SELECT role, content FROM messages_fts WHERE case_id = ? AND session_id = ? ORDER BY rowid ASC`
+        `SELECT m.role, m.content FROM messages_fts m
+           LEFT JOIN turns t ON t.id = m.turn_id
+          WHERE m.case_id = ? AND m.session_id = ?
+            AND (t.status IS NULL OR t.status != '${TURN_STATUS_REWOUND}')
+          ORDER BY m.rowid ASC`
       )
       .all(c.id, s.id) as { role: string; content: string }[]
     let kept = rows
