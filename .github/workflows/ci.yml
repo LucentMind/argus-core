@@ -32,9 +32,13 @@ jobs:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     # A backstop, not a budget: a wedged subprocess-spawning test would otherwise
-    # hold the runner for six hours. The Windows job normally finishes in ~9
-    # minutes but has been observed at 17+ on a starved runner, so 20 was close
-    # enough to convert runner slowness into a job kill.
+    # hold the runner for six hours. The Windows job normally finishes in ~14
+    # minutes (macOS ~8). It crept to 25-30 and hit this kill on every other push in
+    # late Aug/early Sep 2026 — not a starved runner but SQLite fsyncing every
+    # autocommit under synchronous=FULL on the runner's slow disk (~1.7s per
+    # DB-fixture test); openDb now pairs WAL with synchronous=NORMAL. If Windows
+    # creeps toward this limit again, profile the Test step per file before
+    # raising it — the last time, the budget was hiding a fixable 3x.
     timeout-minutes: 30
     defaults:
       run:
