@@ -72,8 +72,18 @@ const TURN_OK = {
   authFailure: false
 }
 
-const ev = (type: string, payload: Record<string, unknown>): AgentEvent =>
-  ({ type, payload }) as unknown as AgentEvent
+/** A mirror line, shaped like one a real mirror writes: every turn-scoped event carries the
+ *  `turnId` of the turn row that produced it. The suite used to build `{ type, payload }` with
+ *  no `turnId` at all, which is the one shape `filterLiveEvents` passes through unconditionally
+ *  (session-level events) — so no filter defect could ever make these assertions fail. */
+const ev = (turnId: number | null, type: string, payload: Record<string, unknown>): AgentEvent =>
+  ({ turnId, type, payload }) as unknown as AgentEvent
+
+/** The turn ids an IMPORTED transcript carries: the SOURCE machine's autoincrements. Nothing
+ *  local names them — `registerImportedSessions` (bundle.ts) rewrites caseId/caseSlug/sessionId
+ *  on every line but never `turnId`, and an import creates no `turns` rows at all. */
+const IMPORTED_TURN_A = 5001
+const IMPORTED_TURN_B = 5002
 
 let tmp: string, argusHome: string, db: DatabaseSync
 let events: AgentEvent[]
@@ -87,15 +97,17 @@ const mirror = (): SessionMirrorLike => ({
   indexText: (role, content) => void indexed.push({ role, content })
 })
 
-/** Two turns of prior conversation, on disk where an imported case would leave them. */
+/** Two turns of prior conversation, on disk where an imported case would leave them — with the
+ *  turn ids such a transcript really carries (see IMPORTED_TURN_A/B): numeric, and matching no
+ *  `turns` row on this machine. */
 function writeMirrorFile(): void {
   const dir = path.join(caseDir(argusHome, 'NAV-1'), 'sessions')
   fs.mkdirSync(dir, { recursive: true })
   const lines = [
-    ev('turn.started', { userText: 'earlier question' }),
-    ev('assistant.message', { text: 'earlier answer' }),
-    ev('turn.started', { userText: 'second earlier question' }),
-    ev('assistant.message', { text: 'second earlier answer' })
+    ev(IMPORTED_TURN_A, 'turn.started', { userText: 'earlier question' }),
+    ev(IMPORTED_TURN_A, 'assistant.message', { text: 'earlier answer' }),
+    ev(IMPORTED_TURN_B, 'turn.started', { userText: 'second earlier question' }),
+    ev(IMPORTED_TURN_B, 'assistant.message', { text: 'second earlier answer' })
   ].map((e) => JSON.stringify(e))
   fs.writeFileSync(path.join(dir, `${sessionId}.jsonl`), `${lines.join('\n')}\n`)
 }
@@ -160,6 +172,43 @@ describe('CaseSession first-turn history replay', () => {
     expect(sent[0]).toContain('second earlier answer')
     expect(sent[0]).toContain('prior-conversation-record')
     expect(sent[0].endsWith('what now?')).toBe(true)
+  })
+
+  /**
+   * C1. The mirror of an imported case names turn ids from the machine that exported it, and
+   * `importCase` creates no `turns` rows at all — so "this id is not in `liveTurnIds`" and
+   * "this turn was rewound" are two different facts, and the digest filter must key on the
+   * second. Keying it on the first threw away the WHOLE history of every imported case on the
+   * first send, silently, while the banner still promised a summary.
+   *
+   * Belt and braces with the rewound half below: together they pin the filter to "drop what a
+   * rewind positively marked", which is the only reading that satisfies both.
+   */
+  it('keeps history whose turn ids name no local turns row (the imported-case shape)', () => {
+    writeMirrorFile()
+    expect(
+      db.prepare(`SELECT COUNT(*) AS n FROM turns WHERE session_id = ?`).get(sessionId)
+    ).toEqual({ n: 0 }) // guard: nothing local names IMPORTED_TURN_A/B
+    const { session, sent } = makeSession({ resumeCursor: null })
+    session.send('what now?')
+    expect(sent[0]).toContain('earlier question')
+    expect(sent[0]).toContain('second earlier answer')
+  })
+
+  it('still drops a turn this machine positively marked rewound', () => {
+    // The same mirror, but with real local rows behind its ids — one live, one rewound. The
+    // rewound turn's text must not reach the driver even though the live one does.
+    writeMirrorFile()
+    const insert = db.prepare(
+      `INSERT INTO turns (id, case_id, session_id, turn_index, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    insert.run(IMPORTED_TURN_A, caseId, sessionId, 1, 'success', '2026-09-05T00:00:00Z')
+    insert.run(IMPORTED_TURN_B, caseId, sessionId, 2, 'rewound', '2026-09-05T00:00:00Z')
+    const { session, sent } = makeSession({ resumeCursor: null })
+    session.send('what now?')
+    expect(sent[0]).toContain('earlier question')
+    expect(sent[0]).not.toContain('second earlier question')
+    expect(sent[0]).not.toContain('second earlier answer')
   })
 
   // The whole point of the task: the digest goes to the driver and to nothing that is
