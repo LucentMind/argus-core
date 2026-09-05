@@ -325,6 +325,15 @@ export function rewindSession(
       db.exec('ROLLBACK')
       throw err
     }
+    // 4b. Evict AGAIN, now that the row carries the new cursor. `evictLive` at step 1 only
+    //     closed the door for an instant: the driver round trip above takes real seconds, and a
+    //     `send` that both STARTS and COMPLETES inside it re-warms a `CaseSession` built from
+    //     the pre-rewind cursor. `registry.ts`'s reuse check keys on case+session+mode and
+    //     never compares cursors, so that warm object would be handed back to the next send and
+    //     would go on talking to the conversation this rewind just branched away from — with no
+    //     error anywhere. Awaited before the broadcasts so the renderer's reload cannot race a
+    //     session that is still being torn down.
+    await deps.evictLive(caseSlug, sessionId)
     // 5. broadcasts
     for (const id of retractedIds)
       deps.emitFindingUpdated({ caseId: session.case_id, caseSlug, sessionId }, id)
@@ -438,6 +447,10 @@ export function forkCaseSession(
       }
       throw err
     }
+    // Same reasoning as rewindSession's second eviction (I2): the parent's mirror is COPIED
+    // inside the transaction above, and a session re-warmed during the `forkAt` round trip is
+    // appending to the very file that copy read. Evict once more now the write has landed.
+    await deps.evictLive(caseSlug, sessionId)
     deps.sessionsChanged(caseSlug)
     // Important 1: `sessionSummary`/`rowToSummary` hard-code `historyOrphaned: false` — that
     // predicate needs `driverForSession` (reviewFraming.ts), which this DB-only module never
