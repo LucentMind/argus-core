@@ -5,6 +5,17 @@ export type Branching = 'native' | 'digest'
 
 export const TURN_STATUS_REWOUND = 'rewound'
 
+/**
+ * `findings.review_reason` on a finding a rewind retracted. Two modules have to agree on this
+ * string or the feature quietly half-works: `sessionBranch.ts` writes it, and `distill/input.ts`
+ * filters findings carrying it OUT of the rejected-finding learning signal (spec §7.1 — the
+ * user rewound the path, they did not judge the finding). A typo on either side is invisible:
+ * the rewind still succeeds and distillation still runs, it just learns from a rejection the
+ * user never made. Same value as TURN_STATUS_REWOUND, deliberately a separate constant — one
+ * names a turn's status, the other a finding's reason, and they are free to diverge.
+ */
+export const REWIND_REVIEW_REASON = 'rewound'
+
 /** A turn the user rewound away. `toTurnId` is the anchor kept; `at` is when. */
 export interface RewoundTurn {
   turnId: number
