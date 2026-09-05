@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-285 commits since v2.3.0, 428 files changed (+43,957 / −2,641).
+288 commits since v2.3.0, 429 files changed (+44,410 / −2,642).
 
 ### Added
 
@@ -412,6 +412,17 @@
   reference file, so a past, unrelated edit's numbered facts could block
   all future edits to the same reference; it now counts only the
   numbered lines the current edit itself adds.
+
+### Internal
+
+- macOS release builds were failing signing with
+  `SecKeychainUnlock: The user name or passphrase you entered is not
+  correct` — a confirmed upstream `electron-builder` bug
+  ([#10101](https://github.com/electron-userland/electron-builder/pull/10101),
+  merged but unreleased) that reuses the signing certificate's own
+  password for a step that needs the temporary keychain's password
+  instead. Patched locally via `patch-package` until upstream ships a
+  release containing the fix.
 
 ## v2.3.0 — 2026-08-19
 
