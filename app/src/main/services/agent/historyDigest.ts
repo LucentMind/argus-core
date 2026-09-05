@@ -70,15 +70,25 @@ export function transcriptTurns(events: AgentEvent[]): Turn[] {
   return turns
 }
 
-/** Drop every event of a rewound turn. Session-level events (turnId null) are kept. Returns
- *  how many DISTINCT rewound turns were dropped so a reader can mark the gap. */
+/**
+ * Drop every event of a rewound turn. Session-level events (turnId null) are kept, and so is
+ * every event whose turn id simply has no row on this machine.
+ *
+ * `rewound` is `rewoundTurnIds` (liveTurns.ts) — the ids a rewind POSITIVELY marked — not the
+ * complement of the live set. The two differ for an imported case and for an archive restored
+ * without its row sidecar, whose mirror lines carry the exporting machine's turn ids: dropping
+ * "not live" there erased the whole history and made the gap marker below announce turns the
+ * user never rewound. Unmatched id ⇒ not ours to judge ⇒ keep.
+ *
+ * Returns how many DISTINCT rewound turns were dropped so a reader can mark the gap.
+ */
 export function filterLiveEvents(
   events: AgentEvent[],
-  live: Set<number>
+  rewound: Set<number>
 ): { events: AgentEvent[]; gaps: number } {
   const dropped = new Set<number>()
   const kept = events.filter((e) => {
-    if (e.turnId == null || live.has(e.turnId)) return true
+    if (e.turnId == null || !rewound.has(e.turnId)) return true
     dropped.add(e.turnId)
     return false
   })
