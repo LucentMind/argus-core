@@ -582,9 +582,18 @@ const argus = {
     ): Promise<RewindPreview> =>
       invoke(IPC.sessionsRewindPreview, caseSlug, sessionId, anchorTurnId),
     /** Discard every turn after `anchorTurnId` in this chat. Resolves with the discarded tail's
-     *  first prompt, for prefilling the composer. */
-    rewind: (caseSlug: string, sessionId: number, anchorTurnId: number): Promise<RewindResult> =>
-      invoke(IPC.sessionsRewind, caseSlug, sessionId, anchorTurnId),
+     *  first prompt, for prefilling the composer.
+     *
+     *  `filesUnavailable`: the preview the user confirmed reported `files.error`, so main must
+     *  branch the conversation without attempting the file restore. Passed from here because
+     *  main no longer re-runs the driver's dry run — the dialog the user agreed to is the
+     *  authority on what was promised. */
+    rewind: (
+      caseSlug: string,
+      sessionId: number,
+      anchorTurnId: number,
+      opts?: { filesUnavailable?: boolean }
+    ): Promise<RewindResult> => invoke(IPC.sessionsRewind, caseSlug, sessionId, anchorTurnId, opts),
     /** What branching a branch at `anchorTurnId` would ACTUALLY get. Main decides this per
      *  anchor (driver hooks + cursor + that turn's provider id); the renderer's own
      *  `capabilitiesFor(...).branching` is a per-DRIVER fact and disagrees whenever the anchor

@@ -379,7 +379,11 @@ export function ChatPane({
         danger: true
       })
       if (!ok) return
-      const r = await window.argus.sessions.rewind(slug, sessionId, turnId)
+      // What the dialog the user just agreed to said about files. Main no longer re-runs the
+      // driver's dry run, so this preview is the only record of it — and a native preview that
+      // came back with an error is a rewind that must not attempt the file restore.
+      const filesUnavailable = preview.files.kind === 'native' && !!preview.files.error
+      const r = await window.argus.sessions.rewind(slug, sessionId, turnId, { filesUnavailable })
       if (r.composerText) composerDraft.set(slug, sessionId, r.composerText)
       await sessionsStore.load(slug)
     } catch (err) {
