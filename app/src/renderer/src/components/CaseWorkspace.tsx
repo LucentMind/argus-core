@@ -820,6 +820,7 @@ export function CaseWorkspace({
                     onRunOptionsChange={handleRunOptionsChange}
                     onPermissionModeChange={handlePermissionModeChange}
                     onCite={(c) => void handleCite(c)}
+                    onSwitchSession={handleSwitchSession}
                     focusTarget={focusTurn?.target ?? null}
                     onFocusConsumed={() => setFocusTurn(null)}
                     prefill={prefill}
