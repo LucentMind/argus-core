@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-229 commits since v2.3.0, 319 files changed (+29,709 / −1,818).
+285 commits since v2.3.0, 428 files changed (+43,957 / −2,641).
 
 ### Added
 
@@ -180,6 +180,98 @@
   merges results until the migration finishes, at which point a finalize
   step drops the legacy tables and reclaims the freed disk space.
 
+**Case archiving**
+
+- A case can now be archived from the case menu: it's exported to a
+  verified bundle — the same manifest-verify path bundle export and
+  import already share — then its evidence, session, and transcript rows
+  and on-disk files are deleted and the case is marked archived.
+  Findings, case summaries, RCA jobs, distillation jobs, source-ticket
+  links, PR bindings, and the RCA report itself are deliberately kept:
+  an archived case still renders its RCA and still counts toward
+  related-history and distillation stats. Only the bulk that made the
+  case take disk space goes.
+- Archiving and restoring each hold a transient, owner-scoped freeze for
+  the whole operation, so nothing can land after the bundle is
+  snapshotted and before the case's rows are deleted. Once archiving
+  finishes, the case stays read-only — no drop target, no Rescan, no RCA
+  confirm — until it's restored; it can still be opened and its existing
+  chat re-read.
+- Restore verifies the bundle's integrity and confirms it belongs to
+  this exact case before touching anything, then rehydrates the case's
+  rows and files in place — never as a newly imported case — reconciling
+  sessions and evidence against a manifest sealed inside the bundle
+  rather than trusting whatever a prior failed attempt left on disk.
+- Deleting a case is now three cases instead of one: an ordinary case
+  deletes exactly as before; an archived case can be deleted while
+  keeping its bundle (recoverable later only by importing it as a
+  brand-new case) or deleted along with the bundle for good; and a case
+  mid-archive or mid-restore refuses deletion outright rather than
+  racing it.
+
+**Finding retraction**
+
+- The agent can now see and withdraw its own findings instead of
+  appending a second "CORRECTED: ..." finding beside a wrong one: new
+  `list_findings` and `retract_finding` tools (scoped to the session's
+  own case and mode) let it review what it's already recorded and pull
+  one back with a required reason. Retracting an already-accepted
+  finding is refused.
+- Findings now record who rejected them — a human review or the agent's
+  own retraction — as a distinct actor, so an agent's stated reason
+  can't be mistaken for, or silently inherited by, a later plain human
+  reject. A retracted finding reaches distillation and RCA prompts
+  tagged as ruled out, with the agent's reason attached, instead of
+  reading as an ordinary rejected candidate.
+- The finding card now shows a retraction and its reason directly,
+  instead of only the plain rejected state.
+
+**Model preferences**
+
+- Favorite/hidden/order model preferences are now stored by a model's
+  catalog-independent identity instead of whatever the Settings panel
+  happened to be displaying — which, once the runtime catalog loads, is
+  often a CLI alias (`opus[1m]`) rather than the model's real slug. A
+  favorited model keyed by an alias the seed logic couldn't resolve was
+  silently invisible when picking a new case's default model; existing
+  installs migrate their stored preferences to the stable form at boot.
+- Reordering favorites now actually changes which one a new case opens
+  on — the favorites list previously recorded an order nothing read, and
+  new cases fell back to catalog order regardless of how favorites had
+  been arranged.
+
+**Cross-case distillation runs view (dev-tools)**
+
+- A new top-level view, behind the same dev-tools gate as the Prompts
+  page, lists every case's distillation runs together instead of one
+  case at a time: a rail groups runs by case, filterable by pipeline
+  (v2/v3), real vs. dry, and outcome, and searchable by case title or
+  Jira key. A "Compare with" picker puts a second run's detail side by
+  side with the selected one, replacing the old per-case "Distillation
+  details..." modal panel outright.
+- Each run's detail renders a pipeline strip of structured, stage-by-
+  stage cards, each with a raw-output toggle; a materialized edit's card
+  shows a diff of the edit's ops against the target's current text. Real
+  and dry runs can be started, and an in-flight one cancelled, directly
+  from the view; the case menu's "Distillation details..." and "Dry run
+  (compare)..." rows now sit behind the same dev-tools gate as the view.
+- Both distillers (v2 and v3) now report progress at every phase
+  boundary, and the materialize stage additionally reports each tool
+  call it makes, so the runs view updates live while a run is queued or
+  running rather than only once it finishes; the small in-progress chip
+  elsewhere in the app now names the live phase instead of a bare
+  "distilling…" ellipsis.
+
+**Observability: distillation cards**
+
+- The Observability dashboard gains a "Distillation" card group — run
+  count, spend, failed-run spend, and dry-run spend — with an "Open
+  runs" link into the new runs view when dev tools are on. Distillation
+  spend, which the previous release had just moved into Settings →
+  Agent → Background work, leaves Settings entirely and lives solely in
+  this card group beside the app's other cost metrics; the existing
+  show/hide toggles for dashboard cards cover these new cards too.
+
 ### Changed
 
 - Expandable settings rows — Appearance, Default repositories, each
@@ -280,6 +372,46 @@
   reference could also leave its pin behind under a different (namespaced)
   key, so the file silently reappeared on the next sync as if it had
   never been removed.
+- Archiving a case with a chat session already open in another window
+  could still let that session write new turns after the case's bundle
+  was snapshotted, so an archive could commit having permanently deleted
+  messages that were never captured anywhere; every write path a live
+  session can take now checks the freeze, warm sessions included.
+- A restore that failed partway through used to leave a case stuck —
+  neither cleanly archived nor cleanly restorable. Restore now rebuilds
+  a case's rows in one transaction and reconciles them against the
+  bundle's own manifest, so a failed restore is simply retryable.
+- Deleting an archived case could abort partway through removing its
+  files (a locked case directory was enough) after the case's row was
+  already gone, stranding the archive bundle with nothing pointing at
+  it; each on-disk removal now retries independently.
+- Reviewing a finding (a human accept/reject click) was overwriting the
+  card's body with nothing, since the review response doesn't carry a
+  finding's text; every review silently blanked the card until the next
+  reload. A human agreeing with or overriding an agent's retraction also
+  used to erase the agent's stated reason with no way to get it back.
+- SQLite ran under its default `synchronous=FULL`, fsyncing on every
+  autocommitted statement — schema setup alone issues around 80 of them
+  on every launch, and ordinary writes (ingest, distillation, archiving)
+  are almost all autocommits too, costing roughly 1.7 seconds apiece on
+  a slow disk. The database now opens in WAL mode with
+  `synchronous=NORMAL`, SQLite's own recommended pairing: still
+  crash-safe and never corrupting, at the cost that only an OS crash or
+  power loss (not an app crash) can drop the last few committed
+  transactions.
+- `distill:dry-run` was reachable from any renderer without the
+  dev-tools check its callers already enforced in the UI; it now refuses
+  the same way the other run-related IPC channels do.
+- A one-shot distillation stage (materialize, summary, candidates) could
+  fail outright with a max-turns error: disabling built-in tools by
+  denying them left the model free to reach for one anyway, spend its
+  single turn on the denial, and die with nothing to show for it. Tools
+  are now removed from what the model is offered at all for one-shot
+  runs, not just denied.
+- The `steps-in-reference` validator counted every numbered line in a
+  reference file, so a past, unrelated edit's numbered facts could block
+  all future edits to the same reference; it now counts only the
+  numbered lines the current edit itself adds.
 
 ## v2.3.0 — 2026-08-19
 
