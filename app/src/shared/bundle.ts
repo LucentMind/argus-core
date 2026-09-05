@@ -59,6 +59,9 @@ export const bundleRowsSchema = z.looseObject({
     .array(
       z.looseObject({
         id: z.number(),
+        /** Nullable with a null default so bundles written before titles were carried still
+         *  parse; restore then leaves the rebuilt (transcript-derived) title alone. */
+        title: z.string().nullable().default(null),
         driverKind: z.string(),
         instanceId: z.string().nullable().default(null),
         model: z.string().nullable().default(null),
