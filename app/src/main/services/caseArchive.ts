@@ -597,8 +597,8 @@ function rebuildCaseRows(
   const turnIds = new Map<number, number>()
   const insertTurn = db.prepare(
     `INSERT INTO turns (case_id, session_id, turn_index, status, input_tokens, output_tokens,
-                        cost_usd, duration_ms, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                        cost_usd, duration_ms, created_at, model, rewound_at, provider_anchor_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
   for (const t of rows.turns) {
     const sessionId = sessionIds.get(t.sessionId)
@@ -612,9 +612,23 @@ function rebuildCaseRows(
       t.outputTokens,
       t.costUsd,
       t.durationMs,
-      t.createdAt
+      t.createdAt,
+      t.model,
+      t.rewoundAt,
+      t.providerAnchorId
     )
     turnIds.set(t.id, Number(res.lastInsertRowid))
+  }
+  // rewound_to_turn_id can only be remapped once every turn has a new id — a rewound turn's
+  // exported id may sort before or after the anchor it points at, so this has to be a second
+  // pass rather than folded into the insert loop above.
+  const repointRewind = db.prepare(`UPDATE turns SET rewound_to_turn_id = ? WHERE id = ?`)
+  for (const t of rows.turns) {
+    if (t.rewoundToTurnId == null) continue
+    const newId = turnIds.get(t.id)
+    const target = turnIds.get(t.rewoundToTurnId)
+    if (newId == null || target == null) continue
+    repointRewind.run(target, newId)
   }
   const insertCall = db.prepare(
     `INSERT INTO tool_calls (case_id, session_id, turn_id, tool, args_hash, risk, decision,
@@ -648,6 +662,32 @@ function rebuildCaseRows(
     const turnId = p.turnId == null ? null : (turnIds.get(p.turnId) ?? null)
     if (sessionId == null && turnId == null) continue
     repoint.run(sessionId, turnId, p.id, caseId)
+  }
+
+  // registerImportedSessions rebuilds `sessions` purely from the mirrored transcript JSONL,
+  // which carries none of driver_kind/instance_id/model/mode or the fork lineage a session was
+  // created with — apply what the sidecar recorded on top of the freshly re-created rows.
+  // forkedFromSessionId/forkedAtTurnId are remapped through the same id maps as everything
+  // else here; pre_rewind_cursor and driver_cursor are deliberately left null (a cursor minted
+  // by another machine's provider session is meaningless on this one).
+  const meta = db.prepare(
+    `UPDATE sessions SET driver_kind = ?, instance_id = ?, model = ?, mode = ?,
+            forked_from_session_id = ?, forked_at_turn_id = ?, forked_inherited_turns = ?
+      WHERE id = ?`
+  )
+  for (const s of rows.sessions ?? []) {
+    const id = sessionIds.get(s.id)
+    if (id == null) continue
+    meta.run(
+      s.driverKind,
+      s.instanceId,
+      s.model,
+      s.mode,
+      s.forkedFromSessionId == null ? null : (sessionIds.get(s.forkedFromSessionId) ?? null),
+      s.forkedAtTurnId == null ? null : (turnIds.get(s.forkedAtTurnId) ?? null),
+      s.forkedInheritedTurns,
+      id
+    )
   }
 }
 
