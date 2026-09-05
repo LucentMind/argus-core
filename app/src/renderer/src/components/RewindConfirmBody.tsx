@@ -64,7 +64,18 @@ export function RewindConfirmBody({ preview }: { preview: RewindPreview }): Reac
           </ul>
         </div>
       )}
-      {files.kind === 'native' ? (
+      {files.kind === 'native' && files.error ? (
+        // M4. The driver could not resolve a file anchor (no checkpoints for this session, or
+        // the anchor is not in its transcript). Said plainly, and NOT under a "Files restored"
+        // heading with a "0 skipped" count, which reads as a restore that found nothing to do.
+        // The rewind still happens — main degrades it to a conversation-only branch.
+        <div>
+          <span className="font-medium text-ink">Files</span>
+          <span className="block text-mute">
+            Files cannot be restored: {files.error}. The conversation is still rewound.
+          </span>
+        </div>
+      ) : files.kind === 'native' ? (
         <div>
           <span className="font-medium text-ink">Files restored</span>
           {files.restored.length > 0 && (

@@ -179,33 +179,76 @@ export async function branchPreview(
   return { branching: nativeBranching(driver, session, anchorRow) ? 'native' : 'digest' }
 }
 
-export async function rewindPreview(
+interface TailFindingRow {
+  id: number
+  summary: string
+  review_state: string
+  review_actor: string | null
+}
+
+interface RewindPlan {
+  session: SessionRow
+  anchorRow: TurnRow
+  tail: TurnRow[]
+  native: boolean
+  findings: TailFindingRow[]
+  calls: { tool: string; count: number }[]
+}
+
+/**
+ * Everything a rewind at this anchor knows from the DATABASE alone: preflight, the tail, its
+ * findings and tool calls, and whether the provider will branch this natively.
+ *
+ * Split out because `rewindSession` used to call `rewindPreview` a second time "to
+ * re-validate" and then discard most of its result. On Claude that is not a database read —
+ * `rewindPreview` runs the driver's dry run, so the write path was spending a second
+ * `getSessionMessages` and starting a second CLI child, against a session that at that moment
+ * was still warm. The dry run belongs to the dialog; re-validation is what preflight (here) and
+ * the in-transaction `isTurnActive` re-check do.
+ */
+function rewindPlan(
   deps: BranchDeps,
   caseSlug: string,
   sessionId: number,
   anchorTurnId: number
-): Promise<RewindPreview> {
+): RewindPlan {
   const { session, anchorRow, tail } = preflight(deps, caseSlug, sessionId, anchorTurnId, 'rewind')
-  const driver = deps.driverFor(sessionId)
   const tailIds = tail.map((t) => t.id)
   const marks = tailIds.map(() => '?').join(',')
   const findings = deps.db
     .prepare(
       `SELECT id, summary, review_state, review_actor FROM findings WHERE session_id = ? AND turn_id IN (${marks}) ORDER BY id`
     )
-    .all(sessionId, ...tailIds) as {
-    id: number
-    summary: string
-    review_state: string
-    review_actor: string | null
-  }[]
+    .all(sessionId, ...tailIds) as unknown as TailFindingRow[]
   const calls = deps.db
     .prepare(
       `SELECT tool, COUNT(*) AS count FROM tool_calls WHERE session_id = ? AND turn_id IN (${marks})
           AND decision NOT IN ('denied', 'cancelled') GROUP BY tool ORDER BY tool`
     )
     .all(sessionId, ...tailIds) as { tool: string; count: number }[]
-  const native = nativeBranching(driver, session, anchorRow)
+  return {
+    session,
+    anchorRow,
+    tail,
+    native: nativeBranching(deps.driverFor(sessionId), session, anchorRow),
+    findings,
+    calls
+  }
+}
+
+export async function rewindPreview(
+  deps: BranchDeps,
+  caseSlug: string,
+  sessionId: number,
+  anchorTurnId: number
+): Promise<RewindPreview> {
+  const { session, anchorRow, tail, native, findings, calls } = rewindPlan(
+    deps,
+    caseSlug,
+    sessionId,
+    anchorTurnId
+  )
+  const driver = deps.driverFor(sessionId)
   const files: RewindPreview['files'] = native
     ? {
         kind: 'native',
@@ -253,31 +296,44 @@ export async function rewindPreview(
   }
 }
 
+/**
+ * `opts.filesUnavailable` — the renderer reporting that the preview THE USER CONFIRMED came
+ * back with `files.error` (no checkpoints for this session, or the anchor is not in the
+ * provider's transcript). The rewind then proceeds as a conversation-only branch: `forkAt`
+ * instead of `rewindTo`, same slice of the provider transcript, no file rewind attempted.
+ *
+ * It arrives as an argument rather than being re-derived here because this path deliberately no
+ * longer runs the driver's dry run (I4) — and re-deriving it would mean the write path could
+ * decide something different from the dialog the user actually agreed to.
+ */
 export function rewindSession(
   deps: BranchDeps,
   caseSlug: string,
   sessionId: number,
-  anchorTurnId: number
+  anchorTurnId: number,
+  opts?: { filesUnavailable?: boolean }
 ): Promise<RewindResult> {
   return withBranchLock(sessionId, async () => {
-    const { session, anchorRow } = preflight(deps, caseSlug, sessionId, anchorTurnId, 'rewind')
-    await rewindPreview(deps, caseSlug, sessionId, anchorTurnId) // re-validates (spec §5's belt-and-braces double check); its tail/files/findings are not reused below — see step 4's re-read
+    // Preflight + the tail/findings/tool-call reads, from the DATABASE only. No second
+    // `rewindPreview`: that would re-run the driver's dry run against a still-warm session (I4).
+    const { session, anchorRow, native } = rewindPlan(deps, caseSlug, sessionId, anchorTurnId)
     const driver = deps.driverFor(sessionId)
     const now = deps.now?.() ?? new Date().toISOString()
     // 1. evict the warm session (flushes the mirror; nothing appends during the write below)
     await deps.evictLive(caseSlug, sessionId)
-    // 2. the only irreversible external step — BEFORE any write. A preview that carried an
-    //    `error` is NOT pre-empted here: the driver owns the refusal, and duplicating the
-    //    decision on this side is how the two would drift.
-    const native = nativeBranching(driver, session, anchorRow)
+    // 2. the only irreversible external step — BEFORE any write.
     let newCursor: string | null = null
     if (native) {
-      newCursor = await driver.rewindTo!({
+      const args = {
         cursor: session.driver_cursor!,
         anchor: anchorRow.provider_anchor_id!,
         caseDir: caseDir(deps.argusHome, caseSlug),
         cliPath: deps.cliPathFor(sessionId)
-      })
+      }
+      // M4: `rewindTo` would fail on precisely the condition the preview already reported, and
+      // the user confirmed a dialog that said so. `forkAt` gives the same conversation branch
+      // without the file rewind — a degraded rewind rather than a refused one.
+      newCursor = opts?.filesUnavailable ? await driver.forkAt!(args) : await driver.rewindTo!(args)
     }
     // 3. re-validate right before the write: `evictLive` and the driver round trip above spend
     //    real time (seconds), long enough for a `send` to land in that window. `isTurnActive`

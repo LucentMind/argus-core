@@ -338,6 +338,56 @@ describe('rewindSession', () => {
       driver_cursor: null
     })
   })
+  /**
+   * I4. `rewindSession` used to call `rewindPreview` again "to re-validate", discarding most of
+   * the result. On Claude that preview is not a database read: it runs the driver's dry run,
+   * which means a second `getSessionMessages` and a second CLI child, started while the session
+   * being rewound is still warm. Re-validation is what preflight and the in-transaction
+   * `isTurnActive` re-check are for; the dry run belongs to the DIALOG.
+   */
+  it('does not run the driver dry run — that belongs to the preview, not the write path', async () => {
+    const drv = nativeDriver()
+    await rewindSession(deps(drv), SLUG, sessionId, turns[0])
+    expect(drv.previewRewind).not.toHaveBeenCalled()
+    expect(drv.rewindTo).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * M4. A native preview can come back with `files.error` — no checkpoints for this session, or
+   * the anchor is not in the provider transcript. The dialog says files cannot be restored, and
+   * the user can still want the conversation branched. `rewindTo` would fail on exactly the
+   * thing the preview already reported, so this degrades to `forkAt`: the same slice of the
+   * provider transcript, no file rewind attempted. The decision comes from the preview the USER
+   * saw (via the IPC arg), not from a second dry run this path deliberately no longer performs.
+   */
+  it('degrades to forkAt when the preview reported files cannot be restored', async () => {
+    const drv = nativeDriver()
+    await rewindSession(deps(drv), SLUG, sessionId, turns[0], { filesUnavailable: true })
+    expect(drv.forkAt).toHaveBeenCalledWith({
+      cursor: 'cur-0',
+      anchor: 'a-1',
+      caseDir: caseDir(tmp, SLUG),
+      cliPath: undefined
+    })
+    expect(drv.rewindTo).not.toHaveBeenCalled()
+    // …and it is still a real rewind: the tail is marked and the cursor is the fork's.
+    expect(db.prepare(`SELECT driver_cursor FROM sessions WHERE id = ?`).get(sessionId)).toEqual({
+      driver_cursor: 'fork-cursor'
+    })
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM turns WHERE status = 'rewound'`).get()).toEqual({
+      n: 2
+    })
+  })
+
+  it('ignores filesUnavailable on a digest driver (there is nothing to degrade from)', async () => {
+    await rewindSession(deps(digestDriver()), SLUG, sessionId, turns[0], {
+      filesUnavailable: true
+    })
+    expect(db.prepare(`SELECT driver_cursor FROM sessions WHERE id = ?`).get(sessionId)).toEqual({
+      driver_cursor: null
+    })
+  })
+
   it('writes nothing when the driver step throws', async () => {
     const drv = nativeDriver({
       rewindTo: vi.fn(async () => {
