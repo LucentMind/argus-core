@@ -8,6 +8,8 @@ import { createCase } from '../../caseService'
 import { caseDir } from '../../paths'
 import { readSessionEvents } from '../mirror'
 import { rewindPreview, rewindSession, forkCaseSession, type BranchDeps } from '../sessionBranch'
+import * as findingsModule from '../../findings'
+import { freezeCase, resetFreezeRegistryForTests } from '../../caseFreeze'
 import type { AgentDriver } from '../driver'
 import type { AgentEvent } from '../../../../shared/agent-events'
 
@@ -128,6 +130,41 @@ beforeEach(() => {
 afterEach(() => {
   db.close()
   fs.rmSync(tmp, { recursive: true, force: true })
+  resetFreezeRegistryForTests()
+})
+
+describe('preflight guards', () => {
+  it('refuses rewind/fork on a frozen (archiving) case', async () => {
+    const freeze = freezeCase(SLUG, 'archive')
+    try {
+      await expect(rewindPreview(deps(nativeDriver()), SLUG, sessionId, turns[0])).rejects.toThrow(
+        /archived right now|being archived/
+      )
+      await expect(rewindSession(deps(nativeDriver()), SLUG, sessionId, turns[0])).rejects.toThrow(
+        /archived right now|being archived/
+      )
+      await expect(
+        forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[0])
+      ).rejects.toThrow(/archived right now|being archived/)
+    } finally {
+      freeze.release()
+    }
+  })
+  it('refuses an anchor turn that is still running', async () => {
+    const runningId = Number(
+      db
+        .prepare(
+          `INSERT INTO turns (case_id, session_id, turn_index, status, created_at) VALUES (?, ?, 4, 'running', ?)`
+        )
+        .run(caseId, sessionId, now).lastInsertRowid
+    )
+    await expect(rewindSession(deps(nativeDriver()), SLUG, sessionId, runningId)).rejects.toThrow(
+      /has not finished/
+    )
+    await expect(forkCaseSession(deps(nativeDriver()), SLUG, sessionId, runningId)).rejects.toThrow(
+      /has not finished/
+    )
+  })
 })
 
 describe('rewindPreview', () => {
@@ -225,6 +262,54 @@ describe('rewindSession', () => {
       driver_cursor: 'cur-0'
     })
   })
+  it('marks a turn inserted during evictLive/the driver call too (the tail is re-read inside the transaction)', async () => {
+    const drv = nativeDriver()
+    let raceTurnId = 0
+    const d = deps(drv, {
+      evictLive: vi.fn(async () => {
+        // simulates a `send` landing in the window between the preflight snapshot and the
+        // write: a NEW turn, id > anchor, that preflight's stale `tail` never saw.
+        raceTurnId = Number(
+          db
+            .prepare(
+              `INSERT INTO turns (case_id, session_id, turn_index, status, created_at) VALUES (?, ?, 4, 'success', ?)`
+            )
+            .run(caseId, sessionId, now).lastInsertRowid
+        )
+      })
+    })
+    await rewindSession(d, SLUG, sessionId, turns[0])
+    expect(raceTurnId).toBeGreaterThan(0)
+    expect(db.prepare(`SELECT status FROM turns WHERE id = ?`).get(raceTurnId)).toEqual({
+      status: 'rewound'
+    })
+  })
+  it('only broadcasts findings whose retraction actually changed something', async () => {
+    const secondId = Number(
+      db
+        .prepare(
+          `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at) VALUES (?, ?, ?, 'pending2 in t2', 'pending', ?)`
+        )
+        .run(caseId, sessionId, turns[1], now).lastInsertRowid
+    )
+    const original = findingsModule.retractFinding
+    const spy = vi
+      .spyOn(findingsModule, 'retractFinding')
+      .mockImplementation((db_, id, reason, opts) => {
+        const r = original(db_, id, reason, opts)
+        // force the second finding's result to report "nothing changed", without undoing the
+        // row write `original` already made, so the assertion below is purely about the guard.
+        return id === secondId ? { ...r, changed: false } : r
+      })
+    try {
+      const d = deps(nativeDriver())
+      await rewindSession(d, SLUG, sessionId, turns[0])
+      expect(d.emitFindingUpdated).toHaveBeenCalledTimes(1)
+      expect(d.emitFindingUpdated).not.toHaveBeenCalledWith(expect.anything(), secondId)
+    } finally {
+      spy.mockRestore()
+    }
+  })
   it('refuses a concurrent branch operation on the same session', async () => {
     let release!: () => void
     const drv = nativeDriver({
@@ -298,5 +383,41 @@ describe('forkCaseSession', () => {
     await rewindSession(deps(nativeDriver()), SLUG, sessionId, turns[0])
     const s = await forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[0])
     expect(s.forkedFrom?.inheritedTurns).toBe(1)
+  })
+  it('stamps historyOrphaned true on a digest fork (no native cursor) and false on a native one', async () => {
+    const digest = await forkCaseSession(deps(digestDriver()), SLUG, sessionId, turns[1])
+    expect(digest.historyOrphaned).toBe(true)
+    const native = await forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[1])
+    expect(native.historyOrphaned).toBe(false)
+  })
+  it('titles a fork "<parent title> (fork)", falling back to "Chat" for an empty title, clamped to TITLE_MAX', async () => {
+    db.prepare(`UPDATE sessions SET title = '' WHERE id = ?`).run(sessionId)
+    const s1 = await forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[1])
+    expect(s1.title).toBe('Chat (fork)')
+
+    db.prepare(`UPDATE sessions SET title = ? WHERE id = ?`).run('x'.repeat(40), sessionId)
+    const s2 = await forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[1])
+    expect(s2.title.length).toBeLessThanOrEqual(40)
+  })
+  it('cleans up the ghost transcript file when the write transaction rolls back', async () => {
+    const nextId =
+      Number((db.prepare(`SELECT MAX(id) AS m FROM sessions`).get() as { m: number }).m) + 1
+    const throwingDb = new Proxy(db, {
+      get(target, prop) {
+        if (prop === 'exec') {
+          return (sql: string) => {
+            if (sql === 'COMMIT') throw new Error('commit boom')
+            return (target as unknown as { exec: (s: string) => unknown }).exec(sql)
+          }
+        }
+        const val = (target as unknown as Record<string | symbol, unknown>)[prop]
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(target) : val
+      }
+    }) as unknown as DatabaseSync
+    const file = path.join(caseDir(tmp, SLUG), 'sessions', `${nextId}.jsonl`)
+    await expect(
+      forkCaseSession(deps(nativeDriver(), { db: throwingDb }), SLUG, sessionId, turns[1])
+    ).rejects.toThrow(/commit boom/)
+    expect(fs.existsSync(file)).toBe(false)
   })
 })
