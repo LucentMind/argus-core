@@ -166,6 +166,34 @@ describe('sessionStore', () => {
     expect(after[0].id).not.toBe(only.id)
   })
 
+  /**
+   * M1. `forked_from_session_id` carries no FK (no column in this schema does), so deleting a
+   * parent left its children pointing at a row that no longer exists: the fork divider still
+   * rendered "Forked from chat 7" with an "open" button that switched to nothing. The lineage
+   * is cleared with the parent, in the same transaction that removes it — a child whose parent
+   * is gone is simply not a fork any more.
+   */
+  it('deleteSession clears the fork lineage of any child chats, in the same transaction', () => {
+    const argusHome = path.join(tmp, 'home')
+    const parent = listSessions(db, 'NAV-1')[0]
+    const child = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    const other = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    db.prepare(
+      `UPDATE sessions SET forked_from_session_id = ?, forked_at_turn_id = 4,
+              forked_inherited_turns = 2, forked_branching = 'native' WHERE id = ?`
+    ).run(parent.id, child.id)
+    db.prepare(
+      `UPDATE sessions SET forked_from_session_id = ?, forked_at_turn_id = 9 WHERE id = ?`
+    ).run(child.id, other.id)
+
+    deleteSession(db, argusHome, 'NAV-1', parent.id)
+
+    const rows = listSessions(db, 'NAV-1')
+    expect(rows.find((s) => s.id === child.id)!.forkedFrom).toBeNull()
+    // …and only the deleted parent's children: a fork of the SURVIVING child keeps its lineage.
+    expect(rows.find((s) => s.id === other.id)!.forkedFrom).toMatchObject({ sessionId: child.id })
+  })
+
   it('deleteSession rejects a session belonging to another case and non-integer ids', () => {
     const argusHome = path.join(tmp, 'home')
     createCase(db, argusHome, { slug: 'NAV-2', title: 't2' })

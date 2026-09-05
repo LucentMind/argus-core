@@ -15,7 +15,10 @@ describe('RewindConfirmBody', () => {
         { turnId: 3, userText: 'third' }
       ],
       findingsToRetract: [{ id: 10, summary: 'stale finding' }],
-      findingsStaying: [{ id: 11, summary: 'kept finding', reason: 'accepted' }],
+      findingsStaying: [
+        { id: 11, summary: 'kept finding', reason: 'accepted' },
+        { id: 12, summary: 'already rejected finding', reason: 'already-retracted' }
+      ],
       externalActions: [{ tool: 'jira_comment', count: 2 }],
       files: { kind: 'native', restored: ['a.txt'], skipped: 1 }
     }
@@ -24,6 +27,11 @@ describe('RewindConfirmBody', () => {
     expect(screen.getByText(/2 turns/)).toBeInTheDocument()
     expect(screen.getByText('stale finding')).toBeInTheDocument()
     expect(screen.getByText('kept finding')).toBeInTheDocument()
+    // M5: the list can hold both an accepted finding and one that was already rejected, so the
+    // heading cannot claim everything under it "stays accepted".
+    expect(screen.getByText('already rejected finding')).toBeInTheDocument()
+    expect(screen.getByText('(already retracted)')).toBeInTheDocument()
+    expect(screen.getByText('Stays as it is')).toBeInTheDocument()
     expect(screen.getByText(/jira_comment/)).toBeInTheDocument()
     expect(screen.getByText('a.txt')).toBeInTheDocument()
     expect(screen.getByText(/1 skipped/)).toBeInTheDocument()

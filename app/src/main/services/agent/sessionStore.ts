@@ -326,6 +326,16 @@ export function deleteSession(
     deleteMessagesFtsForSession(db, sessionId)
     db.prepare(`DELETE FROM tool_calls WHERE session_id = ?`).run(sessionId)
     db.prepare(`DELETE FROM turns WHERE session_id = ?`).run(sessionId)
+    // No column in this schema carries a foreign key, so nothing else clears the lineage of
+    // chats forked FROM this one. Left dangling, the fork divider went on announcing "Forked
+    // from chat 7" with an "open" button that switched to a chat that no longer exists. A fork
+    // whose parent is gone is not a fork any more: clear all four columns together, inside this
+    // transaction, so a rollback cannot leave the children half-detached.
+    db.prepare(
+      `UPDATE sessions SET forked_from_session_id = NULL, forked_at_turn_id = NULL,
+              forked_inherited_turns = NULL, forked_branching = NULL
+        WHERE forked_from_session_id = ?`
+    ).run(sessionId)
     db.prepare(`DELETE FROM sessions WHERE id = ?`).run(sessionId)
     db.exec('COMMIT')
   } catch (err) {

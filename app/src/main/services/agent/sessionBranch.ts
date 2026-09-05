@@ -3,7 +3,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { AgentDriver } from './driver'
 import type { Branching, RewindPreview, RewindResult } from '../../../shared/branching'
-import { TURN_STATUS_REWOUND } from '../../../shared/branching'
+import { REWIND_REVIEW_REASON, TURN_STATUS_REWOUND } from '../../../shared/branching'
 import type { SessionSummary } from '../../../shared/types'
 import type { AgentEvent } from '../../../shared/agent-events'
 import { caseDir } from '../paths'
@@ -186,6 +186,21 @@ interface TailFindingRow {
   review_actor: string | null
 }
 
+/**
+ * Which of a rewound tail's findings the rewind actually retracts: the PENDING ones, and only
+ * those. One predicate, used by the preview and by the transaction, so the dialog cannot list a
+ * finding under "stays as it is" while the write retracts it.
+ *
+ * M5: this used to also re-retract findings the AGENT had rejected. That overwrote a judgement
+ * the agent made ("not a real problem") with one the user never made ("rewound") — and
+ * `distill/input.ts` drops `review_reason = REWIND_REVIEW_REASON` findings from the
+ * rejected-finding learning signal precisely because a rewind is not a judgement (spec §7.1),
+ * so a genuine agent rejection was silently erased from what distillation learns from. A
+ * finding that is already rejected is already out of the case's conclusions; there is nothing
+ * for a rewind to do to it, whoever rejected it.
+ */
+const toRetract = (f: { review_state: string }): boolean => f.review_state === 'pending'
+
 interface RewindPlan {
   session: SessionRow
   anchorRow: TurnRow
@@ -272,19 +287,9 @@ export async function rewindPreview(
       turnId: t.id,
       userText: promptFrom(events, t.id)
     })),
-    findingsToRetract: findings
-      .filter(
-        (f) =>
-          f.review_state === 'pending' ||
-          (f.review_state === 'rejected' && f.review_actor === 'agent')
-      )
-      .map((f) => ({ id: f.id, summary: f.summary })),
+    findingsToRetract: findings.filter(toRetract).map((f) => ({ id: f.id, summary: f.summary })),
     findingsStaying: findings
-      .filter(
-        (f) =>
-          f.review_state === 'accepted' ||
-          (f.review_state === 'rejected' && f.review_actor !== 'agent')
-      )
+      .filter((f) => !toRetract(f))
       .map((f) => ({
         id: f.id,
         summary: f.summary,
@@ -358,19 +363,12 @@ export function rewindSession(
       const findings = tailIds.length
         ? (db
             .prepare(
-              `SELECT id, review_state, review_actor FROM findings WHERE session_id = ? AND turn_id IN (${marks})`
+              `SELECT id, review_state FROM findings WHERE session_id = ? AND turn_id IN (${marks})`
             )
-            .all(sessionId, ...tailIds) as {
-            id: number
-            review_state: string
-            review_actor: string | null
-          }[])
+            .all(sessionId, ...tailIds) as unknown as { id: number; review_state: string }[])
         : []
-      const toRetract = findings.filter(
-        (f) =>
-          f.review_state === 'pending' ||
-          (f.review_state === 'rejected' && f.review_actor === 'agent')
-      )
+      // The same predicate the preview showed the user — see `toRetract`'s docblock (M5).
+      const retracting = findings.filter(toRetract)
       const mark = db.prepare(
         `UPDATE turns SET status = ?, rewound_at = ?, rewound_to_turn_id = ? WHERE id = ?`
       )
@@ -393,11 +391,11 @@ export function rewindSession(
           `UPDATE turns SET provider_anchor_id = NULL WHERE session_id = ? AND status != ?`
         ).run(sessionId, TURN_STATUS_REWOUND)
       }
-      for (const f of toRetract) {
-        // M6: only findings retractFinding actually changed get broadcast below — a finding a
-        // human already rejected directly is left alone (`changed: false`) and must not fire a
-        // spurious update.
-        const r = retractFinding(db, f.id, 'rewound', { actor: 'human' })
+      for (const f of retracting) {
+        // Only findings `retractFinding` actually changed get broadcast: a `changed: false`
+        // result (the row was already in this state) must not fire a spurious update. Belt and
+        // braces with `toRetract` above, which no longer selects anything already rejected.
+        const r = retractFinding(db, f.id, REWIND_REVIEW_REASON, { actor: 'human' })
         if (r.ok && r.changed) retractedIds.push(f.id)
       }
       db.prepare(

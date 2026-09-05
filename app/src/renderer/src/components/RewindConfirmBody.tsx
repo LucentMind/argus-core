@@ -42,7 +42,9 @@ export function RewindConfirmBody({ preview }: { preview: RewindPreview }): Reac
       )}
       {findingsStaying.length > 0 && (
         <div>
-          <span className="font-medium text-ink">Stays accepted</span>
+          {/* Not "Stays accepted": this list holds accepted findings AND ones that were already
+              rejected before the rewind (M5), and the per-item label says which. */}
+          <span className="font-medium text-ink">Stays as it is</span>
           <ul className="list-disc pl-4">
             {findingsStaying.map((f) => (
               <li key={f.id}>
