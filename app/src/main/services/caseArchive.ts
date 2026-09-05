@@ -721,6 +721,44 @@ function rebuildCaseRows(
  * pointer to a turn that no longer exists is worse than no pointer, and null is exactly what an
  * un-turned session-level event already carries.
  */
+/**
+ * The turn ids of a FORK's inherited half, read off its own (already remapped) mirror: the
+ * first `forked_inherited_turns` distinct turn ids the file mentions, in order. Empty for a
+ * session that is not a fork.
+ *
+ * A fork's mirror is a byte copy of its parent's lines with the turn ids remapped
+ * (`copySessionMirror`), and the LIVE fork path deliberately leaves those lines out of
+ * `messages_fts` — spec §5.2, pinned by sessionBranch.test.ts's "0 fts rows for the fork". The
+ * restore rebuild reads every session's mirror without that distinction, so an archive
+ * round-trip indexed the inherited conversation a second time under the fork: chat search
+ * showed it twice, and the three model-facing `messages_fts` readers saw it twice.
+ *
+ * Derived from the mirror rather than from the fork's turn ROWS because the index keys on the
+ * ids the mirror carries; taking the first N distinct ids of the file is the same rule the
+ * renderer's fork divider uses to place itself (`forkDividerIndex`), so the two halves of
+ * "which turns are inherited" cannot drift.
+ */
+function inheritedTurnIds(
+  db: DatabaseSync,
+  sessionId: number,
+  events: Record<string, unknown>[]
+): Set<number> {
+  const row = db
+    .prepare(
+      `SELECT forked_from_session_id AS parent, forked_inherited_turns AS inherited
+         FROM sessions WHERE id = ?`
+    )
+    .get(sessionId) as { parent: number | null; inherited: number | null } | undefined
+  const n = row?.parent == null ? 0 : (row.inherited ?? 0)
+  if (n <= 0) return new Set()
+  const seen: number[] = []
+  for (const e of events) {
+    const t = e.turnId
+    if (typeof t === 'number' && !seen.includes(t)) seen.push(t)
+  }
+  return new Set(seen.slice(0, n))
+}
+
 function remapRestoredTurnIds(
   db: DatabaseSync,
   caseId: number,
@@ -749,7 +787,9 @@ function remapRestoredTurnIds(
     }
     const body = events.map((e) => JSON.stringify(e)).join('\n')
     fs.writeFileSync(file, body ? `${body}\n` : '')
+    const skip = inheritedTurnIds(db, sessionId, events)
     for (const m of indexableFromEvents(events)) {
+      if (m.turnId != null && skip.has(m.turnId)) continue
       if (m.content.trim()) insertMessageFts(db, m.content, caseId, sessionId, m.turnId, m.role)
     }
   }
