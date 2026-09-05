@@ -7,6 +7,7 @@ import { createImmediateQueue } from '../ingestQueue'
 import { createSession } from '../agent/sessionStore'
 import { caseDir } from '../paths'
 import { readSessionEvents } from '../agent/mirror'
+import { insertMessageFts } from '../ftsIndex'
 import { cleanupArchiveFixtures, seedArchivableCase } from './archiveFixtures'
 
 afterEach(() => {
@@ -176,5 +177,96 @@ describe('restoreCase — rewind, provider anchors and fork lineage', () => {
     expect(restoredChild.forkedAtTurnId).toBe(restoredAnchor.id)
     expect(restoredChild.forkedInheritedTurns).toBe(1)
     expect(restoredChild.driverKind).toBe('claude-agent-sdk')
+  })
+})
+
+/**
+ * I1. A fork's mirror is a byte copy of its parent's inherited lines (`copySessionMirror`), and
+ * the live fork path deliberately does NOT index those lines — spec §5.2, pinned by
+ * `sessionBranch.test.ts`'s "0 messages_fts rows for the fork". Restore rebuilt the chat index
+ * from EVERY restored session's mirror, so an archive round-trip silently indexed the inherited
+ * conversation a second time: chat search returned the same message twice, and every
+ * `messages_fts` reader that feeds the model (distill input, distill world, the RCA drafter)
+ * saw the parent's turns doubled — for a case whose only crime was being archived and restored.
+ */
+describe('restoreCase — a fork does not re-index its inherited turns', () => {
+  const INHERITED = 'INHERITEDLINE-belongs-to-the-parent'
+  const FORK_OWN = 'FORKOWNLINE-belongs-to-the-fork'
+
+  it('indexes the inherited conversation once (under the parent) and the fork’s own line', async () => {
+    const { db, home, slug } = await seedArchivableCase()
+    const caseId = getCase(db, slug)!.id
+    const parentId = Number(
+      (db.prepare(`SELECT id FROM sessions WHERE case_id = ?`).get(caseId) as { id: number }).id
+    )
+    const now = new Date().toISOString()
+    const addTurn = (sessionId: number, index: number): number =>
+      Number(
+        db
+          .prepare(
+            `INSERT INTO turns (case_id, session_id, turn_index, status, created_at)
+             VALUES (?, ?, ?, 'success', ?)`
+          )
+          .run(caseId, sessionId, index, now).lastInsertRowid
+      )
+    const line = (sessionId: number, turnId: number, type: string, payload: unknown): string =>
+      JSON.stringify({ type, caseId, caseSlug: slug, sessionId, turnId, payload })
+
+    // The parent: one turn, whose text is what the fork inherits.
+    const parentTurn = addTurn(parentId, 1)
+    fs.writeFileSync(
+      path.join(caseDir(home, slug), 'sessions', `${parentId}.jsonl`),
+      [
+        line(parentId, parentTurn, 'turn.started', { userText: INHERITED }),
+        line(parentId, parentTurn, 'assistant.message', { text: 'the inherited answer' })
+      ].join('\n') + '\n'
+    )
+
+    // The fork, exactly as forkCaseSession leaves it: its OWN copies of the parent's turn rows,
+    // a mirror whose inherited lines carry the fork's turn ids (copySessionMirror remaps them),
+    // one turn of its own — and no chat-index rows at all for the inherited half.
+    const fork = createSession(db, slug, 'claude-agent-sdk')
+    db.prepare(
+      `UPDATE sessions SET forked_from_session_id = ?, forked_at_turn_id = ?,
+              forked_inherited_turns = 1, title = ? WHERE id = ?`
+    ).run(parentId, parentTurn, 'archivable (fork)', fork.id)
+    const forkInherited = addTurn(fork.id, 1)
+    const forkOwn = addTurn(fork.id, 2)
+    fs.writeFileSync(
+      path.join(caseDir(home, slug), 'sessions', `${fork.id}.jsonl`),
+      [
+        line(fork.id, forkInherited, 'turn.started', { userText: INHERITED }),
+        line(fork.id, forkInherited, 'assistant.message', { text: 'the inherited answer' }),
+        line(fork.id, forkOwn, 'turn.started', { userText: FORK_OWN }),
+        line(fork.id, forkOwn, 'assistant.message', { text: 'the fork’s own answer' })
+      ].join('\n') + '\n'
+    )
+    insertMessageFts(db, INHERITED, caseId, parentId, parentTurn, 'user')
+    insertMessageFts(db, FORK_OWN, caseId, fork.id, forkOwn, 'user')
+
+    await archiveCase(db, home, slug, { argusVersion: 'test' })
+    await restoreCase(db, home, slug, createImmediateQueue(db, home))
+
+    const newCaseId = getCase(db, slug)!.id
+    const rowsFor = (content: string): { sessionId: number }[] =>
+      db
+        .prepare(
+          `SELECT session_id AS sessionId FROM messages_fts WHERE case_id = ? AND content = ?`
+        )
+        .all(newCaseId, content) as { sessionId: number }[]
+    const restoredFork = db
+      .prepare(`SELECT id FROM sessions WHERE case_id = ? AND forked_from_session_id IS NOT NULL`)
+      .get(newCaseId) as { id: number }
+    const restoredParent = db
+      .prepare(`SELECT id FROM sessions WHERE case_id = ? AND forked_from_session_id IS NULL`)
+      .get(newCaseId) as { id: number }
+
+    const inherited = rowsFor(INHERITED)
+    expect(inherited).toHaveLength(1)
+    expect(inherited[0].sessionId).toBe(restoredParent.id)
+    // …and the half that IS the fork's own conversation still comes back indexed.
+    const own = rowsFor(FORK_OWN)
+    expect(own).toHaveLength(1)
+    expect(own[0].sessionId).toBe(restoredFork.id)
   })
 })
