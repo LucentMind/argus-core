@@ -141,7 +141,8 @@ export function collectCaseRows(db: DatabaseSync, caseId: number): BundleRows {
     .prepare(
       `SELECT id, title, driver_kind AS driverKind, instance_id AS instanceId, model, mode,
               forked_from_session_id AS forkedFromSessionId, forked_at_turn_id AS forkedAtTurnId,
-              forked_inherited_turns AS forkedInheritedTurns
+              forked_inherited_turns AS forkedInheritedTurns,
+              forked_branching AS forkedBranching
          FROM sessions WHERE case_id = ? ORDER BY id`
     )
     .all(caseId) as unknown[]

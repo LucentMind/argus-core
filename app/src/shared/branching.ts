@@ -13,11 +13,19 @@ export interface RewoundTurn {
 }
 
 /** Where a forked session came from. `inheritedTurns` = how many of the fork's own turn rows
- *  were copied from the parent; the transcript divider sits after that many turns. */
+ *  were copied from the parent; the transcript divider sits after that many turns.
+ *
+ *  `branching` is what the fork ACTUALLY got, recorded at fork time (`sessions.forked_branching`)
+ *  — not a property of the driver, and not recomputable later. A Claude session forks natively
+ *  only when the anchor turn still carries a `provider_anchor_id`, which an inherited turn (V2)
+ *  and every turn surviving a native rewind (V14) do not; and the cursors that made it native
+ *  are deliberately not restored from an archive. The divider is permanent, so the fact has to
+ *  be stored, not derived. */
 export interface ForkOrigin {
   sessionId: number
   turnId: number
   inheritedTurns: number
+  branching: Branching
 }
 
 export interface RewindPreview {

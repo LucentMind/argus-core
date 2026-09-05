@@ -678,7 +678,8 @@ function rebuildCaseRows(
   // would leave those cases with nameless chats. A bundle that HAS the title always wins.
   const meta = db.prepare(
     `UPDATE sessions SET title = COALESCE(?, title), driver_kind = ?, instance_id = ?, model = ?,
-            mode = ?, forked_from_session_id = ?, forked_at_turn_id = ?, forked_inherited_turns = ?
+            mode = ?, forked_from_session_id = ?, forked_at_turn_id = ?, forked_inherited_turns = ?,
+            forked_branching = ?
       WHERE id = ?`
   )
   for (const s of rows.sessions ?? []) {
@@ -693,6 +694,7 @@ function rebuildCaseRows(
       s.forkedFromSessionId == null ? null : (sessionIds.get(s.forkedFromSessionId) ?? null),
       s.forkedAtTurnId == null ? null : (turnIds.get(s.forkedAtTurnId) ?? null),
       s.forkedInheritedTurns,
+      s.forkedBranching,
       id
     )
   }
