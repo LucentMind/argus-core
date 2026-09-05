@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ChatPane } from '../ChatPane'
@@ -107,6 +108,35 @@ describe('ChatPane branching UI', () => {
     expect(screen.queryByRole('button', { name: /turn actions/i, hidden: true })).toBeNull() // none inside the tail
   })
 
+  it('makes an expanded rewound turn keyboard-inert, not just visually muted', () => {
+    const slug = 'NAV-REWOUND-INERT'
+    apply(slug, 1, 'turn.started', { userText: 'keep me' })
+    apply(slug, 1, 'assistant.message', { text: 'kept' })
+    apply(slug, 2, 'turn.started', { userText: 'gone one' })
+    apply(slug, 2, 'tool.call.started', { toolCallId: 'tc1', name: 'Read' })
+    apply(slug, 2, 'assistant.message', { text: 'see [evidence/x.log:1]' })
+    sessionsStore.upsert(slug, {
+      ...baseSession,
+      id: 1,
+      rewound: [{ turnId: 2, toTurnId: 1, at: '2026-09-04T00:00:00Z' }],
+      forkedFrom: null
+    })
+    render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
+    const toggle = screen.getByRole('button', { name: /show rewound/i })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    const toolButton = screen.getByText('Read').closest('button')
+    const citeButton = screen.getByText(/x\.log:1/).closest('button')
+    expect(toolButton).toBeTruthy()
+    expect(citeButton).toBeTruthy()
+    const inertAncestor = toolButton?.closest('[inert]')
+    expect(inertAncestor).toBeTruthy()
+    expect(inertAncestor?.closest('[data-rewound]')).toBeTruthy()
+    expect(inertAncestor?.contains(citeButton!)).toBe(true)
+  })
+
   it('renders the fork divider after the inherited turns with a link to the parent', () => {
     const slug = 'NAV-FORK'
     apply(slug, 5, 'turn.started', { userText: 'inherited' })
@@ -126,5 +156,29 @@ describe('ChatPane branching UI', () => {
     ).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /open parent chat/i }))
     expect(onSwitch).toHaveBeenCalledWith(7)
+  })
+
+  it('still renders the fork divider when it falls inside a later-rewound run', () => {
+    const slug = 'NAV-FORK-REWOUND'
+    apply(slug, 1, 'turn.started', { userText: 'inherited one' })
+    apply(slug, 1, 'assistant.message', { text: 'r1' })
+    apply(slug, 2, 'turn.started', { userText: 'inherited two' })
+    apply(slug, 2, 'assistant.message', { text: 'r2' })
+    apply(slug, 3, 'turn.started', { userText: 'mine' })
+    apply(slug, 3, 'assistant.message', { text: 'r3' })
+    sessionsStore.upsert(slug, {
+      ...baseSession,
+      id: 1,
+      rewound: [{ turnId: 2, toTurnId: 1, at: '2026-09-04T00:00:00Z' }],
+      forkedFrom: { sessionId: 9, turnId: 4, inheritedTurns: 2 }
+    })
+    render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
+    expect(screen.queryByText(/Forked from chat 9/)).toBeNull() // inside the collapsed tail
+    fireEvent.click(screen.getByRole('button', { name: /show rewound/i }))
+    const divider = screen.getByText(/Forked from chat 9/)
+    expect(divider.closest('[data-rewound]')).toBeTruthy()
+    expect(
+      divider.compareDocumentPosition(screen.getByText('r2')) & Node.DOCUMENT_POSITION_PRECEDING
+    ).toBeTruthy()
   })
 })

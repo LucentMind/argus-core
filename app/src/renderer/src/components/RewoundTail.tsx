@@ -2,10 +2,14 @@ import { useState, type ReactNode } from 'react'
 
 /**
  * Collapses a run of rewound turns under a divider, expanding — muted and inert — on demand.
- * `pointer-events-none` on the expanded body plus rendering no per-item actions inside it (the
- * caller's `renderItem` is told `{ rewound: true }` so Task 11's TurnActions never mounts here)
- * is what removes every interactive affordance from a rewound turn: it is history, not a place
- * to click.
+ * The expanded body carries the HTML `inert` attribute, which Chromium (and React 19, which
+ * accepts `inert` as a plain boolean prop) removes from the tab order and blocks activation of
+ * entirely: a `ToolCallCard`'s toggle button and a `CitedText`/`MessageView` citation link inside
+ * a rewound turn cannot be tabbed to or activated, keyboard or otherwise. `pointer-events-none` +
+ * `opacity-50` cover the pointer/visual side for the same content, and the caller's `renderItem`
+ * is told `{ rewound: true }` here (`{ rewound: false }` for live items) so Task 11's TurnActions
+ * never mounts inside a rewound turn in the first place. Together: it is history, not a place to
+ * click.
  */
 export function RewoundTail({
   turnCount,
@@ -28,6 +32,7 @@ export function RewoundTail({
         <button
           type="button"
           aria-label={open ? 'hide rewound turns' : 'show rewound turns'}
+          aria-expanded={open}
           className="underline hover:text-dim"
           onClick={() => setOpen(!open)}
         >
@@ -35,7 +40,11 @@ export function RewoundTail({
         </button>
         <span className="h-px flex-1 bg-hair" />
       </div>
-      {open && <div className="pointer-events-none mt-2 space-y-3 opacity-50">{children}</div>}
+      {open && (
+        <div inert className="pointer-events-none mt-2 space-y-3 opacity-50">
+          {children}
+        </div>
+      )}
     </div>
   )
 }
