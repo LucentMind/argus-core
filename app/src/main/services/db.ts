@@ -369,6 +369,14 @@ export function openDb(file: string): DatabaseSync {
   fs.mkdirSync(path.dirname(file), { recursive: true })
   const db = new DatabaseSync(file)
   db.exec(`PRAGMA journal_mode = WAL;`)
+  // WAL + NORMAL is SQLite's recommended pairing: the WAL is synced at checkpoint, not on every
+  // commit. Durable against an app crash; only an OS crash or power loss can drop the last
+  // committed transactions, and the file can never be corrupted by it. Under the default FULL,
+  // every autocommit statement fsyncs — openDb alone is ~82 of them — which is what made each
+  // DB-fixture test cost ~1.7s on GitHub's Windows runners (fsync ≈ 20ms there) and the
+  // Windows CI job run 25-30 min against macOS's 8. Measured locally: 80 autocommits 29.5ms
+  // under FULL, 3.2ms under NORMAL.
+  db.exec(`PRAGMA synchronous = NORMAL;`)
   db.exec(`PRAGMA foreign_keys = ON;`)
   db.exec(SCHEMA)
   // One pull request per case (plan 2026-07-27-one-pr-per-case). The citation grammar findings
