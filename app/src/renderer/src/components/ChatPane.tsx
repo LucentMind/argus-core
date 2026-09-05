@@ -454,6 +454,14 @@ export function ChatPane({
   const dividerAt = session?.forkedFrom
     ? forkDividerIndex(state.items, session.forkedFrom.inheritedTurns)
     : -1
+  // M1. `deleteSession` clears the lineage of the chats it deletes, but this window's session
+  // list is a snapshot — a second window can delete the parent while this fork is on screen.
+  // The divider is history and stays; the "open" affordance is a promise this window cannot
+  // keep, so it is what goes. `onOpenParent` undefined = ForkDivider renders no button.
+  const openParent =
+    session?.forkedFrom && sessionsForCase.some((s) => s.id === session.forkedFrom!.sessionId)
+      ? onSwitchSession
+      : undefined
 
   // Index of each turn's last assistant item — TurnActions' mount seam. "Rewind to here" is
   // additionally disabled on the last LIVE turn: rewinding it would discard nothing, so the
@@ -572,7 +580,7 @@ export function ChatPane({
                 <Fragment key={index}>
                   {renderItem(item, index, { rewound: false })}
                   {index === dividerAt && session?.forkedFrom && (
-                    <ForkDivider origin={session.forkedFrom} onOpenParent={onSwitchSession} />
+                    <ForkDivider origin={session.forkedFrom} onOpenParent={openParent} />
                   )}
                 </Fragment>
               ))
@@ -585,7 +593,7 @@ export function ChatPane({
                         the divider still belongs after the Nth inherited turn's last item,
                         wherever that item ends up living. */}
                     {index === dividerAt && session?.forkedFrom && (
-                      <ForkDivider origin={session.forkedFrom} onOpenParent={onSwitchSession} />
+                      <ForkDivider origin={session.forkedFrom} onOpenParent={openParent} />
                     )}
                   </Fragment>
                 ))}

@@ -12,7 +12,8 @@ import { refTitle, refBody, refTier } from '../refSync/refFrontmatter'
 import { sharedReferencesDir } from '../skillsDir'
 import { structureFile } from '../rca/artifacts'
 import { buildWorld, clampText } from './world'
-import { TURN_STATUS_REWOUND } from '../../../shared/branching'
+import { REWIND_REVIEW_REASON } from '../../../shared/branching'
+import { liveTurnJoinSql } from '../agent/liveTurns'
 
 /** Per-session cap on verbatim user turns fed to the agentic distiller's raw-quote source. */
 export const USER_MSGS_PER_SESSION = 25
@@ -91,17 +92,18 @@ function collectUserMessages(
     .all(caseId) as { id: number; title: string }[]
   const out: { sessionTitle: string; messages: string[] }[] = []
   let total = 0
+  const live = liveTurnJoinSql('m') // the one statement of "not rewound" (spec §7.1)
   for (const s of sess) {
     if (total >= USER_MSGS_TOTAL) break
     const rows = db
       .prepare(
         `SELECT m.content FROM messages_fts m
-           LEFT JOIN turns t ON t.id = m.turn_id
+           ${live.join}
           WHERE m.case_id = ? AND m.session_id = ? AND m.role = 'user'
-            AND (t.status IS NULL OR t.status != '${TURN_STATUS_REWOUND}')
+            AND ${live.where}
           ORDER BY m.rowid ASC`
       )
-      .all(caseId, s.id) as { content: string }[]
+      .all(caseId, s.id, live.param) as { content: string }[]
     if (rows.length === 0) continue
     const take = Math.min(USER_MSGS_PER_SESSION, USER_MSGS_TOTAL - total)
     const msgs = rows.slice(-take).map((r) => clampText(r.content, USER_MSG_CLAMP).text)
@@ -198,7 +200,7 @@ export function assembleDistillInput(
       closedAt: c.updatedAt
     },
     findings: listFindings(db, argusHome, slug)
-      .filter((f) => f.reviewReason !== 'rewound')
+      .filter((f) => f.reviewReason !== REWIND_REVIEW_REASON)
       .map((f) => ({
         id: f.id,
         summary: f.summary,

@@ -35,6 +35,34 @@ export function rewoundTurnIds(db: DatabaseSync, sessionId: number): Set<number>
   return new Set(rows.map((r) => r.id))
 }
 
+/**
+ * The join + predicate every model-facing `messages_fts` reader needs, in one place.
+ *
+ * Three readers feed the model from that index — `distill/input.ts`'s user messages,
+ * `distill/world.ts`'s transcripts and `rca/input.ts`'s drafter input — and each carried its
+ * own copy of the same LEFT JOIN and the same `IS NULL OR != 'rewound'` predicate, with the
+ * status value interpolated into the SQL text. Three copies of one rule is three chances for
+ * one of them to stop matching, and nothing would fail loudly: a reader that silently stops
+ * filtering just starts feeding rewound turns back into the model, which is precisely what spec
+ * §7.1 exists to prevent (and what per-file review cannot see — memory
+ * `argus-two-representations-defect-class`).
+ *
+ * `alias` is the `messages_fts` alias in the caller's query. The status is BOUND, not
+ * interpolated — bind it as the LAST parameter of the statement, which is where `where` sits in
+ * all three callers. The turns alias is `lt`, chosen not to collide with anything the callers
+ * already use.
+ */
+export function liveTurnJoinSql(alias: string): { join: string; where: string; param: string } {
+  return {
+    join: `LEFT JOIN turns lt ON lt.id = ${alias}.turn_id`,
+    // `IS NULL` keeps a row no local turn matches, for the same reason `rewoundTurnIds` does:
+    // an imported case's index rows carry no turn id at all, and a restored one's could name a
+    // row that was rebuilt. Unmatched is not evidence of a rewind.
+    where: `(lt.status IS NULL OR lt.status != ?)`,
+    param: TURN_STATUS_REWOUND
+  }
+}
+
 export function rewoundTurnsOf(db: DatabaseSync, sessionId: number): RewoundTurn[] {
   const rows = db
     .prepare(

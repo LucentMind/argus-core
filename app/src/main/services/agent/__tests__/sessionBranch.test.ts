@@ -191,6 +191,30 @@ describe('rewindPreview', () => {
     expect(p.files).toEqual({ kind: 'counts', writes: [{ tool: 'Edit', count: 1 }] })
     expect(p.branching).toBe('digest')
   })
+
+  /**
+   * M5. A finding that is ALREADY rejected is already out of the case's conclusions, whoever
+   * rejected it. Re-retracting an agent-rejected one rewrote a judgement the agent made
+   * ("wrong") into one the user never made ("rewound") — and `distill/input.ts` drops
+   * `review_reason = 'rewound'` findings from the rejected-finding learning signal (spec §7.1),
+   * so a real agent rejection was silently deleted from what distillation learns from.
+   * `findingsToRetract` is pending-only; everything else stays, with why.
+   */
+  it('leaves an already-rejected finding alone, whoever rejected it', async () => {
+    for (const actor of ['agent', 'human']) {
+      db.prepare(
+        `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, review_actor, review_reason, created_at)
+         VALUES (?, ?, ?, ?, 'rejected', ?, 'not a real problem', ?)`
+      ).run(caseId, sessionId, turns[1], `rejected by ${actor}`, actor, now)
+    }
+    const p = await rewindPreview(deps(nativeDriver()), SLUG, sessionId, turns[0])
+    expect(p.findingsToRetract.map((f) => f.summary)).toEqual(['pending in t2'])
+    expect(p.findingsStaying).toEqual([
+      { id: expect.any(Number), summary: 'accepted in t3', reason: 'accepted' },
+      { id: expect.any(Number), summary: 'rejected by agent', reason: 'already-retracted' },
+      { id: expect.any(Number), summary: 'rejected by human', reason: 'already-retracted' }
+    ])
+  })
 })
 
 /**
@@ -479,6 +503,50 @@ describe('rewindSession', () => {
       spy.mockRestore()
     }
   })
+  /** M5's write half: the preview promised these stay as they are, and the transaction has to
+   *  agree — a preview that lists a finding under "stays" while the write retracts it is the
+   *  worse half of the same defect. */
+  it('does not rewrite an agent-rejected finding’s reason to "rewound"', async () => {
+    const id = Number(
+      db
+        .prepare(
+          `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, review_actor, review_reason, created_at)
+           VALUES (?, ?, ?, 'agent said no', 'rejected', 'agent', 'not a real problem', ?)`
+        )
+        .run(caseId, sessionId, turns[1], now).lastInsertRowid
+    )
+    const d = deps(nativeDriver())
+    await rewindSession(d, SLUG, sessionId, turns[0])
+    expect(
+      db.prepare(`SELECT review_actor, review_reason FROM findings WHERE id = ?`).get(id)
+    ).toEqual({ review_actor: 'agent', review_reason: 'not a real problem' })
+    // only the pending one was retracted, so only it was broadcast
+    expect(d.emitFindingUpdated).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * M7. The in-transaction `isTurnActive` re-check has never had a test: `evictLive` and the
+   * driver round trip spend real seconds, and a `send` landing in that window means the rewind
+   * would mark a turn that is mid-flight. First call (preflight) sees an idle session; the
+   * second (step 3, after the awaits) sees the race.
+   */
+  it('re-checks isTurnActive after the driver call and writes nothing when a turn started', async () => {
+    const isTurnActive = vi.fn().mockReturnValueOnce(false).mockReturnValue(true)
+    await expect(
+      rewindSession(deps(nativeDriver(), { isTurnActive }), SLUG, sessionId, turns[0])
+    ).rejects.toThrow(/turn is still running/)
+    expect(isTurnActive).toHaveBeenCalledTimes(2)
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM turns WHERE status = 'rewound'`).get()).toEqual({
+      n: 0
+    })
+    expect(db.prepare(`SELECT driver_cursor FROM sessions WHERE id = ?`).get(sessionId)).toEqual({
+      driver_cursor: 'cur-0'
+    })
+    expect(
+      db.prepare(`SELECT review_state FROM findings WHERE summary = 'pending in t2'`).get()
+    ).toEqual({ review_state: 'pending' })
+  })
+
   it('refuses a concurrent branch operation on the same session', async () => {
     let release!: () => void
     const drv = nativeDriver({
