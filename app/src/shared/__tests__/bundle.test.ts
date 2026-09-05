@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { BUNDLE_FORMAT, bundleManifestSchema } from '../bundle'
+import { BUNDLE_FORMAT, bundleManifestSchema, bundleRowsSchema } from '../bundle'
 
 describe('bundleManifestSchema', () => {
   const valid = {
@@ -28,5 +28,35 @@ describe('bundleManifestSchema', () => {
 
   it('rejects a manifest without files', () => {
     expect(() => bundleManifestSchema.parse({ ...valid, files: undefined })).toThrow()
+  })
+})
+
+describe('bundleRowsSchema', () => {
+  it('parses a pre-existing rows.json with no sessions key and turns missing the rewind/fork fields', () => {
+    // The shape every rows.json written before rewind/fork existed actually has: no `sessions`
+    // array at all, and turns with none of model/rewoundAt/rewoundToTurnId/providerAnchorId.
+    // A restore of an old archive bundle must not fail to parse just because those fields (and
+    // the whole sessions array) are absent.
+    const rows = bundleRowsSchema.parse({
+      turns: [
+        {
+          id: 1,
+          sessionId: 1,
+          turnIndex: 0,
+          status: 'done',
+          createdAt: '2026-01-01T00:00:00.000Z'
+        }
+      ],
+      toolCalls: [],
+      evidence: [],
+      findingPointers: []
+    })
+    expect(rows.sessions).toEqual([])
+    expect(rows.turns[0]).toMatchObject({
+      model: null,
+      rewoundAt: null,
+      rewoundToTurnId: null,
+      providerAnchorId: null
+    })
   })
 })
