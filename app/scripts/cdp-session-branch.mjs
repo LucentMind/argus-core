@@ -131,7 +131,7 @@ const turnsOf = (sessionId) =>
 const sessionRow = (id) =>
   q(
     `SELECT id, title, driver_cursor, pre_rewind_cursor, forked_from_session_id,
-            forked_at_turn_id, forked_inherited_turns
+            forked_at_turn_id, forked_inherited_turns, forked_branching
        FROM sessions WHERE id = ?`,
     id
   )[0] ?? null
@@ -413,6 +413,66 @@ const main = async () => {
     knowsTurn1(forkProbeText),
     forkProbeText.slice(0, 200)
   )
+
+  // ── 3b. fork AT a turn with no provider anchor — the digest branch, and the wording ──────
+  //
+  // I3 (whole-branch review). The fork's inherited turn carries `provider_anchor_id = NULL`
+  // (V2), so main takes the digest path even though the driver, the session's instance and the
+  // fork's own cursor are all native. The renderer used to derive both the confirm sentence and
+  // the permanent divider from `capabilitiesFor(settings, instanceId).branching` — the DRIVER's
+  // capability, 'native' here — so both stated the opposite of what happened, and nothing in
+  // jsdom could see it: the branching is a fixture value in every renderer test.
+  //
+  // Free: the digest path calls no driver method. The grandchild is deleted again below,
+  // because §8 asserts the case restores to exactly the two chats it archived.
+  const beforeG = new Set(
+    (await conn.evalJs(`window.argus.sessions.list(${JSON.stringify(SLUG)})`)).map((s) => s.id)
+  )
+  await pickTurnAction(0, 'Fork from here')
+  await waitFor(
+    'the digest fork confirm dialog',
+    async () => (await dialogLabel()) === 'Fork from here?',
+    30000
+  )
+  const gAsk = await dialogText()
+  if (!(await clickText('Fork'))) throw new Error('Fork button not in the digest fork dialog')
+  const gSummary = await waitFor(
+    'the grandchild fork to appear',
+    async () => {
+      const list = await conn.evalJs(`window.argus.sessions.list(${JSON.stringify(SLUG)})`)
+      return list.find((s) => !beforeG.has(s.id)) ?? null
+    },
+    60000
+  )
+  const gText = await waitFor(
+    'the grandchild transcript to render its divider',
+    async () => {
+      const t = await body()
+      return t.includes(`Forked from chat ${FID}`) ? t : null
+    },
+    30000
+  )
+  check(
+    'forking at a turn with no provider anchor promises, and then shows, the digest branch',
+    gAsk.includes('receives a summary of the history up to this point') &&
+      gText.includes('a summary of the history carried over') &&
+      !gText.includes('full context carried over') &&
+      gSummary.forkedFrom?.branching === 'digest' &&
+      sessionRow(gSummary.id)?.forked_branching === 'digest',
+    {
+      confirm: gAsk.split('\n')[1],
+      divider: gText.split('\n').find((l) => l.includes('Forked from chat')),
+      summary: gSummary.forkedFrom,
+      row: sessionRow(gSummary.id)?.forked_branching
+    }
+  )
+  // Back to the parent (the only row NOT ending in "(fork)" — unambiguous while two forks
+  // exist), drop the grandchild, then return to the fork for §4.
+  await switchTo(false)
+  await conn.evalJs(`window.argus.sessions.delete(${JSON.stringify(SLUG)}, ${gSummary.id})`)
+  await sleep(800)
+  await switchTo(true)
+  await waitFor('the fork transcript again', async () => (await turnActionCount()) === 2, 30000)
 
   // ── 4. rewind the FORK at an inherited turn — the digest path (spec §9.5 bullet 3) ───────
   //
