@@ -123,8 +123,27 @@ export function collectCaseRows(db: DatabaseSync, caseId: number): BundleRows {
     .prepare(
       `SELECT id, session_id AS sessionId, turn_index AS turnIndex, status,
               input_tokens AS inputTokens, output_tokens AS outputTokens, cost_usd AS costUsd,
-              duration_ms AS durationMs, created_at AS createdAt
+              duration_ms AS durationMs, created_at AS createdAt, model,
+              rewound_at AS rewoundAt, rewound_to_turn_id AS rewoundToTurnId,
+              provider_anchor_id AS providerAnchorId
        FROM turns WHERE case_id = ? ORDER BY id`
+    )
+    .all(caseId) as unknown[]
+  // registerImportedSessions rebuilds `sessions` purely from the mirrored transcript JSONL,
+  // which carries none of these — without this, driver_kind/instance_id/model/mode and the
+  // fork lineage a session was created with are lost on the first archive/restore round trip.
+  // `title` is in the list for the same reason and one worse: the rebuild DERIVES a title from
+  // the transcript's first user message, and a fork's mirror is a copy of its parent's, so two
+  // chats came back with the identical name and the "(fork)" marker was gone (found live
+  // 2026-09-05 by scripts/cdp-session-branch.mjs). A wrong value is harder to notice than a
+  // missing one.
+  const sessions = db
+    .prepare(
+      `SELECT id, title, driver_kind AS driverKind, instance_id AS instanceId, model, mode,
+              forked_from_session_id AS forkedFromSessionId, forked_at_turn_id AS forkedAtTurnId,
+              forked_inherited_turns AS forkedInheritedTurns,
+              forked_branching AS forkedBranching
+         FROM sessions WHERE case_id = ? ORDER BY id`
     )
     .all(caseId) as unknown[]
   const toolCalls = db
@@ -154,7 +173,7 @@ export function collectCaseRows(db: DatabaseSync, caseId: number): BundleRows {
     }
     return { relPath: r.relPath, indexState: readIndexState(meta) }
   })
-  return bundleRowsSchema.parse({ turns, toolCalls, evidence, findingPointers })
+  return bundleRowsSchema.parse({ turns, toolCalls, evidence, findingPointers, sessions })
 }
 
 export async function exportCase(
@@ -487,6 +506,32 @@ export function reindexImportedEvidence(
 const SESSION_TITLE_MAX = 40
 
 /**
+ * The `messages_fts` rows a mirrored transcript contributes, with the turn each one belongs to.
+ *
+ * One definition, two callers: the import-time index in `registerImportedSessions` below, and
+ * `restoreCase`'s re-index once `rebuildCaseRows` has assigned the real turn ids (caseArchive.ts).
+ * Written once because "which event types are indexable, and under which role" is a fact that
+ * must not exist in two places — the readers that join `messages_fts.turn_id` against
+ * `turns.status` to drop rewound content depend on both halves agreeing.
+ */
+export function indexableFromEvents(
+  events: { type?: string; turnId?: number | null; payload?: unknown }[]
+): { role: string; content: string; turnId: number | null }[] {
+  const out: { role: string; content: string; turnId: number | null }[] = []
+  for (const e of events) {
+    const turnId = typeof e.turnId === 'number' ? e.turnId : null
+    if (e.type === 'turn.started') {
+      const t = (e.payload as { userText?: unknown })?.userText
+      if (typeof t === 'string') out.push({ role: 'user', content: t, turnId })
+    } else if (e.type === 'assistant.message') {
+      const t = (e.payload as { text?: unknown })?.text
+      if (typeof t === 'string') out.push({ role: 'assistant', content: t, turnId })
+    }
+  }
+  return out
+}
+
+/**
  * Register imported transcripts under the multi-session model: each
  * sessions/<oldId>.jsonl becomes a fresh `sessions` row and its event
  * envelopes are rewritten to the new caseId/caseSlug/sessionId — the ids in
@@ -534,7 +579,6 @@ export function registerImportedSessions(
   )
   for (const tmp of staged) {
     const events: Record<string, unknown>[] = []
-    const indexable: { role: string; content: string }[] = []
     let title = ''
     let turnCount = 0
     for (const line of fs.readFileSync(tmp, 'utf8').split('\n')) {
@@ -547,13 +591,7 @@ export function registerImportedSessions(
         if (e.type === 'turn.started') {
           turnCount++
           const t = (e.payload as { userText?: unknown })?.userText
-          if (typeof t === 'string') {
-            if (!title) title = t.trim().slice(0, SESSION_TITLE_MAX)
-            indexable.push({ role: 'user', content: t })
-          }
-        } else if (e.type === 'assistant.message') {
-          const t = (e.payload as { text?: unknown })?.text
-          if (typeof t === 'string') indexable.push({ role: 'assistant', content: t })
+          if (typeof t === 'string' && !title) title = t.trim().slice(0, SESSION_TITLE_MAX)
         }
         events.push(e)
       } catch {
@@ -566,7 +604,12 @@ export function registerImportedSessions(
     // Without this the imported transcript is on disk and in the chat but invisible to
     // chatSearch — insertMessageFts's only other caller is the live mirror, which never
     // runs for an imported session.
-    for (const m of indexable) {
+    //
+    // `turnId: null` on purpose here: the transcript's turn ids are the SOURCE machine's, and
+    // an import (unlike a restore) never rebuilds `turns` at all, so there is no local row for
+    // one to name. A restore re-indexes these rows with the real ids once `rebuildCaseRows` has
+    // assigned them — see `remapRestoredTurnIds` in caseArchive.ts.
+    for (const m of indexableFromEvents(events)) {
       if (m.content.trim()) insertMessageFts(db, m.content, caseId, newId, null, m.role)
     }
     const rewritten = events

@@ -56,14 +56,14 @@ Message-kind census for the run (note the count of streaming tool starts):
    start timestamp, hence "Unnamed tool" with zero duration.
 
 2. **Top-level tool calls arrive TWICE** — once streaming (#10), once in the finished
-   message (#19) — with the *same* `tool_use_id`. This is why `normalize.ts` gates
+   message (#19) — with the _same_ `tool_use_id`. This is why `normalize.ts` gates
    sub-agent start emission on `parent_tool_use_id` rather than emitting for every
    `tool_use` block it sees: doing the latter would give top-level tools a second start
    whose later timestamp overwrites the real one, shortening their measured duration.
 
 ### The dependency this creates
 
-Because top-level starts come *only* from the streaming path, they depend on
+Because top-level starts come _only_ from the streaming path, they depend on
 `includePartialMessages` staying on. Turning it off would strip names and durations from
 every top-level tool with nothing pointing at the cause, so
 `__tests__/claudeDriver.test.ts` carries a guard test asserting the option is set.
@@ -80,7 +80,7 @@ The capture is real SDK output with three edits, none touching the `tool_use` /
   `slash_commands` / `skills` / `plugins` / `agents` inventories replaced. `normalize.ts`
   reads only `model` from this message.
 - Windows paths had the account name replaced with `<user>`, and the capturing session's
-  scratch directory with `<tmp>`. Path *shape* is preserved deliberately — this is a
+  scratch directory with `<tmp>`. Path _shape_ is preserved deliberately — this is a
   fixture, and realistic paths are part of what it demonstrates.
 
 Message count, ordering, ids, and every `parent_tool_use_id` are untouched, so the
@@ -135,3 +135,209 @@ No committed script. To recapture: call `query()` from the SDK with
 `options: { permissionMode: 'auto', includePartialMessages: true }`, a `canUseTool`
 callback that counts its own invocations, and a prompt that forces one tool call; assert
 the counter stays zero after the run completes.
+
+## Branching (fork + file rewind) — recorded 2026-09-04, SDK 0.3.220
+
+Harness: `app/scripts/spike-claude-branch/run.mjs` (rerun from `app/`). One live two-turn
+session in a scratch cwd, each turn editing `note.txt` (`v1` then `v2`), with
+`enableFileCheckpointing: true` and `permissionMode: 'bypassPermissions'`. Three fixtures:
+`branch-session.jsonl` (Q1), `branch-rewind.jsonl` (Q2), `branch-fork.jsonl` (Q3).
+
+**Before the answers, one thing the first attempt got wrong.** The plan's draft harness
+yielded both turn prompts from a single AsyncIterable without waiting. The CLI does not
+treat those as two turns — it **queues the second message and injects it into the turn
+already running**. The transcript held one `user` entry and one `result`, and the model's
+own reply said it had been asked for `v2` "mid-turn". There was no turn 2 to fork away from
+or rewind to, and the whole capture was vacuous. The committed harness gates prompt _i+1_
+on turn _i_'s `result`. Any driver code that sends a follow-up turn must do the same, or it
+is not starting a new turn at all.
+
+### Q1 — message ids on the stream (`branch-session.jsonl`)
+
+#### The question it answers
+
+Which uuid does the driver record as "end of turn N" for `forkSession({ upToMessageId })`,
+and can it get the user-message id that `rewindFiles(userMessageId)` needs off the stream?
+
+#### What the capture shows
+
+- Every `assistant` message carries `uuid` — 5 of 5 across the two turns, no exceptions.
+  Their key set is exactly
+  `["message","parent_tool_use_id","request_id","session_id","timestamp","type","uuid"]`.
+- **`result` does NOT carry `user_message_uuid`.** Both `result` lines log their full key
+  list and the field is simply absent:
+
+```
+keys: ["api_error_status","duration_api_ms","duration_ms","fast_mode_disabled_reason",
+       "fast_mode_state","is_error","modelUsage","num_turns","permission_denials",
+       "result","session_id","stop_reason","subtype","terminal_reason",
+       "time_to_request_ms","total_cost_usd","ttft_ms","ttft_stream_ms","type","usage","uuid"]
+```
+
+`sdk.d.ts` declares `user_message_uuid?: string` on `SDKResultSuccess`; this build never
+emits it. **No user-message uuid reaches the driver over the message stream at all** — the
+only `type:'user'` messages on the stream are `tool_result` carriers.
+
+- The uuid to record for a turn is **the LAST `assistant` uuid before that turn's `result`**
+  (`aa519bb6-…` for turn 1). `forkSession` accepted it (Q3), and the CLI transcript
+  independently corroborates that it is the turn boundary: turn 2's user entry is
+  `{"uuid":"8149c0d1-…","parentUuid":"aa519bb6-…"}` — its parent _is_ the turn-1 anchor.
+- Consequence: to rewind turn N+1 the driver needs `8149c0d1-…`, which exists only in the
+  CLI transcript at `~/.claude/projects/<slugged-cwd>/<sessionId>.jsonl`. The harness reads
+  it from there (the `transcript_user_entries` line in the fixture). **The driver cannot get
+  this id from the SDK stream** — it must either read the transcript itself, keyed on
+  `parentUuid === <recorded turn anchor>`, or restrict itself to `forkSession`, which needs
+  only the assistant anchor.
+- Incidental: a second `system`/`init` message arrives at the head of turn 2 with the _same_
+  `session_id`. `init` is per-turn, not per-session.
+
+#### Redactions
+
+`C:\Users\Power` → `C:\Users\<user>` in all three fixtures; nothing else was touched, so
+scratch dir name, uuids, session ids and key lists are the real captured values. The harness
+logs message _keys_ plus uuids/ids only — never `system`/`init` inventories or
+`hook_response` output — so the usual leak surfaces are not in these files, and no account
+email is captured (`accountInfo()` is never called).
+
+#### Reproducing
+
+`node scripts/spike-claude-branch/run.mjs` from `app/`. Costs a few cents. Then redact the
+account name out of the three fixtures before committing.
+
+### Q2 — control query + `rewindFiles` (`branch-rewind.jsonl`)
+
+#### The question it answers
+
+Task 7 wants a throwaway `query({ resume })` whose only job is to answer `rewindFiles` — a
+dry run, then the real rewind, then `close()`. Does the CLI stay alive for that if the
+prompt AsyncIterable has already ended?
+
+#### What the capture shows
+
+Both shapes were run against the same session with the same (valid) user-message id.
+
+_Already-ended prompt iterable_ — the shape the plan proposed:
+
+```
+{"scenario":"rewind-idle","kind":"dryRun","data":{"canRewind":true,"filesChanged":["…\\note.txt"],"insertions":1,"deletions":1}}
+{"scenario":"rewind-idle","kind":"error","data":{"message":"Query closed before response received"}}
+```
+
+The **first** control request is answered; the **second** throws. Closing stdin lets the CLI
+shut down as soon as it has flushed one response, so dry-run-then-rewind on one idle query
+is not available.
+
+_Held-open prompt iterable_ — an AsyncIterable that awaits a promise the caller resolves
+after the rewind:
+
+```
+{"scenario":"rewind-heldopen","kind":"dryRun","data":{"canRewind":true,"filesChanged":["…\\note.txt"],"insertions":1,"deletions":1}}
+{"scenario":"rewind-heldopen","kind":"real","data":{"canRewind":true,"skippedLinks":0}}
+{"scenario":"rewind-heldopen","kind":"file","data":{"before":"v2","after":"v1"}}
+```
+
+Both requests answered, and `note.txt` really went back to `v1` on disk. Note that the real
+rewind's result carries only `{canRewind, skippedLinks}` — `filesChanged`/`insertions`/
+`deletions` come from the **dry run**, so a UI reporting what changed must keep the dry-run
+result.
+
+**Consequence for Task 7: use the fallback shape.** The control query's prompt must be an
+AsyncIterable that stays open for the whole `rewindFiles` sequence and is released only
+after the last call, before `close()`.
+
+Also load-bearing: after `close()` the SDK leaves a live CLI child behind and the node
+process does not exit on its own — the harness ends with an explicit `process.exit(0)`. In
+the app, a control query must not be assumed to be reaped on its own.
+
+#### Redactions / Reproducing
+
+As for Q1 — same run, same harness, same account-name substitution.
+
+### Disposal — does `release()` actually end the CLI child? (`branch-dispose.jsonl`)
+
+Recorded 2026-09-05, SDK 0.3.220, Windows. Q2 above ended with a warning that "after
+`close()` the SDK leaves a live CLI child behind". That observation was made about a run
+whose _session_ and _fork_ queries were never closed at all, so it did not actually say
+anything about a control query that IS released. This capture asks the narrow question:
+after `branch.ts`'s `release()`, does the process that control query spawned exit?
+
+Harness: `node scripts/spike-claude-branch/run.mjs --dispose-only` from `app/` (the flag
+skips Q1-Q3 so the committed fixtures are not re-captured). It seeds a one-turn session,
+then for each candidate disposal sequence opens its own control query in `branch.ts`'s
+exact shape (held-open prompt iterable, `resume`, `enableFileCheckpointing`), issues a
+**dry-run `rewindFiles`**, censuses the OS for pids the query spawned, applies the
+sequence, and polls for 5 s.
+
+Every candidate's dry run returned `{"canRewind":true,…}`, so in every row the child was
+demonstrably live and serving control requests before the sequence ran — the exit is not
+a child that died on arrival.
+
+```
+end-then-close        spawned 62848/claude.exe  -> EXITED   within 500ms
+end-tick-close        spawned 55964/claude.exe  -> EXITED   within 500ms
+end-drain-close       spawned 32500/claude.exe  -> EXITED   within 500ms
+interrupt-then-close  spawned 89460/claude.exe  -> EXITED   within 500ms
+close-then-end        spawned 51236/claude.exe  -> EXITED   within 500ms
+control-no-release    spawned 65380/claude.exe  -> SURVIVED all 5000ms
+```
+
+The last row is the falsification control and the reason the other five mean anything: a
+control query that is **not** released is still alive at the end of the same poll. Without
+it, "EXITED" could have been an idle timeout or a broken census, and all five verdicts
+would have been vacuous.
+
+**Verdict: `end()` then `close()` is sufficient — the child exits.** Q2's warning does not
+apply to a released control query; it applies to queries that are simply abandoned (which
+is what that run did to its session and fork queries, and why it needed `process.exit(0)`).
+
+**What ships** (`branch.ts`, `controlQuery().release`): `held.end()`, then **one event-loop
+tick**, then `q.close?.()`. The tick is not what reaps the child — `end-then-close` reaps it
+too. It is ordering hygiene: `AsyncQueue.end()` only resolves the pending `next()`, and the
+consumer resumes on a later tick, so closing in the same tick tears the query down before
+the prompt stream is observably finished. `branch.test.ts` pins that ordering (it asserts
+the prompt iterable had ended _before_ `close()` was called), and it fails without the tick.
+
+#### Redactions
+
+None. `branch-dispose.jsonl` carries pids, process names, session/message uuids and the
+dry-run results only — no paths, no account name, no `system`/`init` inventories.
+
+### Q3 — `forkSession` + resume (`branch-fork.jsonl`)
+
+#### The question it answers
+
+Does `forkSession(sessionId, { upToMessageId, dir })` find the session and produce a branch
+that remembers turn 1 and has never heard of turn 2?
+
+#### What the capture shows
+
+```
+{"kind":"forked","data":{"from":"21dbb5fd-…","forkId":"e24f4fe7-…","anchor":"aa519bb6-…"}}
+```
+
+The fork's own transcript (the `fork_transcript` line) ends at the turn-1 `"done"` assistant
+— turn 2's user message and its edits are absent. Resuming the fork and asking what had been
+requested:
+
+> "The first thing you asked was to create note.txt containing exactly "v1" — and no, you
+> never asked for "v2"."
+
+So the slice is inclusive of the anchor assistant message and excludes everything after it,
+exactly as the driver needs. (The harness's regex verdict prints `check reply:` for this
+answer — `/asked.*v2/i` matches the model's own "never asked for v2" phrasing. The reply
+text is the evidence; the regex is a false negative.)
+
+`dir` must be the session's cwd: **no — `dir` is optional.** A second
+`forkSession(sessionId, { upToMessageId })` with **no `dir`**, called from a completely
+different working directory (`app/`) than the session's scratch cwd, succeeded and returned
+a fork id (the `fork-no-dir` line). The SDK locates the session without being told where it
+lives. Passing `dir` is still the more explicit call and costs nothing.
+
+Forks start with **no file-history snapshots** (per `sdk.d.ts`, and consistent with the fork
+transcript containing no `file-history-snapshot` entry), so `rewindFiles` on a fresh fork
+has nothing to rewind to. Fork and rewind are independent mechanisms, not composable in that
+order.
+
+#### Redactions / Reproducing
+
+As for Q1 — same run, same harness, same account-name substitution.

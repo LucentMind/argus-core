@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ChatJumpTarget, SessionSummary } from '../../../shared/types'
 import type { RunOptionSelection } from '../../../shared/runOptions'
 import type { PermissionMode } from '../../../shared/settings'
@@ -9,6 +9,12 @@ import { composerAttachments } from '../lib/composerAttachments'
 import { attachFiles } from '../lib/attachFiles'
 import { reposStore } from '../lib/reposStore'
 import { sessionsStore } from '../lib/sessionsStore'
+import { confirm } from '../lib/confirmStore'
+import {
+  segmentTranscript,
+  forkDividerIndex,
+  lastAssistantIndexByTurn
+} from '../lib/transcriptSegments'
 import type { CiteTarget } from '../lib/citations'
 import { CitedText } from './CitedText'
 import { uiStore } from '../lib/uiStore'
@@ -19,6 +25,10 @@ import { ApprovalCard } from './ApprovalCard'
 import { QuestionCard } from './QuestionCard'
 import { ChatFind } from './ChatFind'
 import { ThinkingIndicator } from './ThinkingIndicator'
+import { RewoundTail } from './RewoundTail'
+import { ForkDivider } from './ForkDivider'
+import { TurnActions } from './TurnActions'
+import { RewindConfirmBody } from './RewindConfirmBody'
 
 // The FTS snippet is a contiguous region of the indexed text with matched
 // terms wrapped in «» and boundary ellipses — stripping those yields a raw
@@ -66,11 +76,12 @@ function resolveFocusIndex(items: TranscriptItem[], target: ChatJumpTarget | nul
 export function ChatPane({
   slug,
   sessionId,
-  session = null,
+  session: sessionProp = null,
   onModelChange,
   onRunOptionsChange,
   onPermissionModeChange,
   onCite,
+  onSwitchSession,
   focusTarget = null,
   onFocusConsumed,
   prefill,
@@ -87,6 +98,9 @@ export function ChatPane({
   /** Pin this chat's permission mode. */
   onPermissionModeChange?: (mode: PermissionMode) => void
   onCite: (cite: CiteTarget) => void
+  /** Switch the active chat to another session in this case — used by the fork divider's
+   *  "open parent chat" affordance. */
+  onSwitchSession?: (id: number) => void
   focusTarget?: ChatJumpTarget | null
   onFocusConsumed?: () => void
   prefill?: string
@@ -99,6 +113,15 @@ export function ChatPane({
     (cb) => agentStore.subscribe(cb),
     () => agentStore.get(slug, sessionId)
   )
+  // `session` is normally the prop CaseWorkspace passes (itself sourced from sessionsStore —
+  // see CaseWorkspace's own `useSyncExternalStore(sessionsStore...)`), but a caller that skips
+  // the prop (a session-switcher affordance, a test) still needs the rewound/forkedFrom truth
+  // to render this transcript correctly — so fall back to a direct lookup by id.
+  const sessionsForCase = useSyncExternalStore(
+    (cb) => sessionsStore.subscribe(cb),
+    () => sessionsStore.get(slug)
+  )
+  const session = sessionProp ?? sessionsForCase.find((s) => s.id === sessionId) ?? null
   const showToolCalls = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
     () => uiStore.get().showToolCalls
@@ -338,6 +361,76 @@ export function ChatPane({
     }
   }
 
+  /**
+   * Preview then discard every turn after `turnId` in this chat. The confirm body (§8.2) shows
+   * what the tail carries — findings retracted vs. left as-is, irreversible external actions,
+   * and (native drivers) which files get restored — before anything actually happens. On
+   * confirm, the discarded tail's first prompt comes back as `composerText` so the user can
+   * re-send it rather than retyping it.
+   */
+  async function rewindTo(turnId: number): Promise<void> {
+    setSendError(null)
+    try {
+      const preview = await window.argus.sessions.rewindPreview(slug, sessionId, turnId)
+      const ok = await confirm({
+        title: `Rewind ${preview.tail.length} turn${preview.tail.length === 1 ? '' : 's'}?`,
+        message: <RewindConfirmBody preview={preview} />,
+        confirmLabel: 'Rewind',
+        danger: true
+      })
+      if (!ok) return
+      // What the dialog the user just agreed to said about files. Main no longer re-runs the
+      // driver's dry run, so this preview is the only record of it — and a native preview that
+      // came back with an error is a rewind that must not attempt the file restore.
+      const filesUnavailable = preview.files.kind === 'native' && !!preview.files.error
+      const r = await window.argus.sessions.rewind(slug, sessionId, turnId, { filesUnavailable })
+      if (r.composerText) composerDraft.set(slug, sessionId, r.composerText)
+      await sessionsStore.load(slug)
+    } catch (err) {
+      setSendError((err as Error).message)
+    }
+  }
+
+  /** Branch a new sibling chat inheriting everything up to and including `turnId`, then switch
+   *  to it.
+   *
+   *  The consequence sentence comes from MAIN (`sessions.branchPreview`), never from
+   *  `capabilitiesFor(...).branching`: that capability describes the DRIVER, while the answer
+   *  depends on this ANCHOR — a Claude turn with no `provider_anchor_id` (every inherited turn
+   *  of a fork, V2; every turn surviving a native rewind, V14) branches by digest even though
+   *  the driver is native, and the capability reads 'digest' while settings are still loading
+   *  or when the session has no pinned instance. Both directions were wrong on screen. */
+  async function forkFrom(turnId: number): Promise<void> {
+    setSendError(null)
+    let branching: 'native' | 'digest'
+    try {
+      branching = (await window.argus.sessions.branchPreview(slug, sessionId, turnId)).branching
+    } catch (err) {
+      // The preview runs the same preflight the fork does, so a refusal here (a running turn, a
+      // frozen case) is the fork's own refusal arriving early. Report it instead of asking the
+      // user to confirm an operation that cannot succeed.
+      setSendError((err as Error).message)
+      return
+    }
+    const ok = await confirm({
+      title: 'Fork from here?',
+      message: `A new chat branches after this reply. ${
+        branching === 'native'
+          ? 'The agent keeps its full context up to this point.'
+          : 'The agent receives a summary of the history up to this point.'
+      } Files continue from their current state.`,
+      confirmLabel: 'Fork'
+    })
+    if (!ok) return
+    try {
+      const created = await window.argus.sessions.fork(slug, sessionId, turnId)
+      sessionsStore.upsert(slug, created)
+      onSwitchSession?.(created.id)
+    } catch (err) {
+      setSendError((err as Error).message)
+    }
+  }
+
   function findRingClass(i: number): string {
     if (i === currentFindIndex) return 'ring-2 ring-signal'
     if (findMatches.includes(i)) return 'ring-1 ring-signal/40'
@@ -357,6 +450,95 @@ export function ChatPane({
     state.pendingDialogs.length === 0 &&
     !(lastItem?.kind === 'assistant' && lastItem.streaming) &&
     !(lastItem?.kind === 'tool' && !lastItem.done && showToolCalls)
+
+  const dividerAt = session?.forkedFrom
+    ? forkDividerIndex(state.items, session.forkedFrom.inheritedTurns)
+    : -1
+  // M1. `deleteSession` clears the lineage of the chats it deletes, but this window's session
+  // list is a snapshot — a second window can delete the parent while this fork is on screen.
+  // The divider is history and stays; the "open" affordance is a promise this window cannot
+  // keep, so it is what goes. `onOpenParent` undefined = ForkDivider renders no button.
+  const openParent =
+    session?.forkedFrom && sessionsForCase.some((s) => s.id === session.forkedFrom!.sessionId)
+      ? onSwitchSession
+      : undefined
+
+  // Index of each turn's last assistant item — TurnActions' mount seam. "Rewind to here" is
+  // additionally disabled on the last LIVE turn: rewinding it would discard nothing, so the
+  // action is a no-op the menu shouldn't offer.
+  const lastAssistant = lastAssistantIndexByTurn(state.items)
+  const rewoundTurnIds = new Set((session?.rewound ?? []).map((r) => r.turnId))
+  const lastLiveTurnId = state.items.reduce<number | null>((max, it) => {
+    if (it.turnId == null || rewoundTurnIds.has(it.turnId)) return max
+    return max == null || it.turnId > max ? it.turnId : max
+  }, null)
+
+  // `opts.rewound` tells the item it is being rendered inside a RewoundTail — history, not a
+  // place to click. TurnActions (this task) mounts only when `!opts.rewound`.
+  function renderItem(
+    item: TranscriptItem,
+    i: number,
+    opts: { rewound: boolean }
+  ): React.JSX.Element | null {
+    if (item.kind === 'user') {
+      return (
+        <div
+          key={i}
+          data-turn-id={item.turnId ?? undefined}
+          data-item-index={i}
+          data-rewound-item={opts.rewound || undefined}
+          className={`ml-12 min-w-0 ${item.composed ? '' : 'whitespace-pre-wrap'} break-words rounded-r3 border border-hair p-3 text-sm text-ink transition-colors ${
+            i === flashIndex ? 'bg-signal/20' : 'bg-hi'
+          } ${findRingClass(i)}`}
+        >
+          {item.composed ? (
+            <MessageView
+              markdown={item.text}
+              onCite={onCite}
+              caseSlug={slug}
+              repoNames={repoNames}
+            />
+          ) : (
+            <CitedText text={item.text} onCite={onCite} caseSlug={slug} repoNames={repoNames} />
+          )}
+        </div>
+      )
+    }
+    if (item.kind === 'assistant') {
+      const mountActions =
+        !opts.rewound && item.turnId != null && lastAssistant.get(item.turnId) === i
+      return (
+        <div
+          key={i}
+          data-item-index={i}
+          data-rewound-item={opts.rewound || undefined}
+          className={`mr-6 min-w-0 break-words rounded-r3 transition-colors ${
+            mountActions ? 'group/turn relative' : ''
+          } ${i === flashIndex ? 'bg-signal/20' : ''} ${findRingClass(i)}`}
+        >
+          <MessageView
+            markdown={item.text}
+            onCite={onCite}
+            caseSlug={slug}
+            repoNames={repoNames}
+            streaming={item.streaming}
+          />
+          {item.streaming && <span className="text-xs text-mute">…</span>}
+          {mountActions && (
+            <TurnActions
+              turnId={item.turnId!}
+              canRewind={item.turnId !== lastLiveTurnId}
+              disabledReason={state.running ? 'A turn is running' : null}
+              onRewind={(id) => void rewindTo(id)}
+              onFork={(id) => void forkFrom(id)}
+            />
+          )}
+        </div>
+      )
+    }
+    if (!showToolCalls) return null
+    return <ToolCallCard key={item.toolCallId} item={item} />
+  }
 
   return (
     <div ref={paneRef} className="relative flex min-h-0 flex-1 flex-col">
@@ -392,58 +574,32 @@ export function ChatPane({
             flex layout, so only this wrapper's height reports the transcript
             growing (mermaid SVGs, images) to the ResizeObserver above */}
         <div ref={contentRef} className="space-y-3">
-          {state.items.map((item, i) => {
-            if (item.kind === 'user') {
-              return (
-                <div
-                  key={i}
-                  data-turn-id={item.turnId ?? undefined}
-                  data-item-index={i}
-                  className={`ml-12 min-w-0 ${item.composed ? '' : 'whitespace-pre-wrap'} break-words rounded-r3 border border-hair p-3 text-sm text-ink transition-colors ${
-                    i === flashIndex ? 'bg-signal/20' : 'bg-hi'
-                  } ${findRingClass(i)}`}
-                >
-                  {item.composed ? (
-                    <MessageView
-                      markdown={item.text}
-                      onCite={onCite}
-                      caseSlug={slug}
-                      repoNames={repoNames}
-                    />
-                  ) : (
-                    <CitedText
-                      text={item.text}
-                      onCite={onCite}
-                      caseSlug={slug}
-                      repoNames={repoNames}
-                    />
+          {segmentTranscript(state.items, session?.rewound ?? []).map((seg, si) =>
+            seg.kind === 'live' ? (
+              seg.items.map(({ item, index }) => (
+                <Fragment key={index}>
+                  {renderItem(item, index, { rewound: false })}
+                  {index === dividerAt && session?.forkedFrom && (
+                    <ForkDivider origin={session.forkedFrom} onOpenParent={openParent} />
                   )}
-                </div>
-              )
-            }
-            if (item.kind === 'assistant') {
-              return (
-                <div
-                  key={i}
-                  data-item-index={i}
-                  className={`mr-6 min-w-0 break-words rounded-r3 transition-colors ${
-                    i === flashIndex ? 'bg-signal/20' : ''
-                  } ${findRingClass(i)}`}
-                >
-                  <MessageView
-                    markdown={item.text}
-                    onCite={onCite}
-                    caseSlug={slug}
-                    repoNames={repoNames}
-                    streaming={item.streaming}
-                  />
-                  {item.streaming && <span className="text-xs text-mute">…</span>}
-                </div>
-              )
-            }
-            if (!showToolCalls) return null
-            return <ToolCallCard key={item.toolCallId} item={item} />
-          })}
+                </Fragment>
+              ))
+            ) : (
+              <RewoundTail key={`rw-${si}`} turnCount={seg.turnIds.length} at={seg.at}>
+                {seg.items.map(({ item, index }) => (
+                  <Fragment key={index}>
+                    {renderItem(item, index, { rewound: true })}
+                    {/* A forked session's inherited turns can themselves later be rewound —
+                        the divider still belongs after the Nth inherited turn's last item,
+                        wherever that item ends up living. */}
+                    {index === dividerAt && session?.forkedFrom && (
+                      <ForkDivider origin={session.forkedFrom} onOpenParent={openParent} />
+                    )}
+                  </Fragment>
+                ))}
+              </RewoundTail>
+            )
+          )}
           {state.pending.map((p) => (
             <ApprovalCard
               key={p.requestId}

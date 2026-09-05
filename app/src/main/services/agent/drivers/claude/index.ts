@@ -1,4 +1,4 @@
-import { query } from '@anthropic-ai/claude-agent-sdk'
+import { query, forkSession, getSessionMessages } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentEvent } from '../../../../../shared/agent-events'
 import { PERMISSION_MODES } from '../../../../../shared/settings'
 import { AsyncQueue } from '../../asyncQueue'
@@ -21,10 +21,24 @@ import type {
 import { normalizeSdkMessage } from './normalize'
 import { runClaudeHeadless } from './headless'
 import { runClaudeHeadlessAgent } from './headlessAgent'
+import { createClaudeBranching, type ForkFn, type MessagesFn } from './branch'
 
 // Relocated from session.ts (Task 4 removed the copies there); registry.ts and existing
 // tests import these from the driver module.
-export type QueryHandle = AsyncIterable<unknown> & { interrupt(): Promise<void> }
+export type QueryHandle = AsyncIterable<unknown> & {
+  interrupt(): Promise<void>
+  /** Control methods used only by branch.ts; absent on the test fakes that never branch. */
+  rewindFiles?(
+    userMessageId: string,
+    opts?: { dryRun?: boolean }
+  ): Promise<{
+    canRewind: boolean
+    error?: string
+    filesChanged?: string[]
+    skippedLinks?: number
+  }>
+  close?(): void
+}
 export type CreateQueryFn = (args: {
   prompt: AsyncIterable<unknown>
   options: Record<string, unknown>
@@ -60,7 +74,19 @@ export function isAuthFailure(text: string): boolean {
   return AUTH_FAILURE_RE.test(text)
 }
 
-export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQuery): AgentDriver {
+export function createClaudeDriver(
+  createQuery: CreateQueryFn = defaultCreateQuery,
+  branchDeps: { fork?: ForkFn; messages?: MessagesFn } = {}
+): AgentDriver {
+  // Session branching (spec §6.3). The SDK's `forkSession`/`getSessionMessages` are
+  // standalone calls over the CLI transcript store, injected here so branch.test.ts can
+  // drive them without a live CLI.
+  const branching = createClaudeBranching({
+    createQuery,
+    fork: branchDeps.fork ?? (forkSession as ForkFn),
+    messages: branchDeps.messages ?? (getSessionMessages as MessagesFn),
+    spawnEnv: claudeSpawnEnv
+  })
   return {
     kind: 'claude-agent-sdk',
     toolTaxonomy: CLAUDE_TOOL_TAXONOMY,
@@ -75,7 +101,9 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // v2 scope: Claude only — see DriverCapabilities.headlessAgent's doc comment.
       headlessAgent: true,
       systemPromptTransport: 'systemPrompt.append',
-      subagents: 'configurable'
+      subagents: 'configurable',
+      // The only driver whose provider can slice its own transcript (SDK fork + file rewind).
+      branching: 'native'
     },
 
     runHeadless: (prompt, opts) => runClaudeHeadless(prompt, opts, createQuery),
@@ -194,6 +222,9 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
             // instead of ~/.claude/projects/<cwd>/memory/. See claudeSpawnEnv for the full why.
             env: claudeSpawnEnv(),
             includePartialMessages: true,
+            // File checkpointing so a later rewind can restore edits (spec §6.3). Sessions
+            // created before this flag existed have no backups; their preview says so.
+            enableFileCheckpointing: true,
             systemPrompt: {
               type: 'preset',
               preset: 'claude_code',
@@ -317,10 +348,22 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // session.error emission; the driver deliberately does NOT swallow them.
       async function* events(): AsyncIterable<AgentEvent> {
         const handle = await handleReady
+        let lastAssistantUuid: string | null = null
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         for await (const msg of handle as AsyncIterable<any>) {
           updateCursor(msg)
-          if (msg.type === 'result') ctx.onTurnResult(extractTurnResult(msg))
+          // Sub-agent (Task tool) assistant messages arrive on the same stream tagged
+          // with `parent_tool_use_id` — gated out here the same way normalize.ts gates
+          // them (see its ~lines 86 and 108), because the anchor must be a top-level
+          // assistant message of the session's own conversation chain: forkSession's
+          // `upToMessageId` slices at it, and a sub-agent id does not exist in that chain.
+          if (msg.type === 'assistant' && typeof msg.uuid === 'string' && !msg.parent_tool_use_id) {
+            lastAssistantUuid = msg.uuid
+          }
+          if (msg.type === 'result') {
+            ctx.onTurnResult({ ...extractTurnResult(msg), providerAnchorId: lastAssistantUuid })
+            lastAssistantUuid = null // the next turn starts clean
+          }
           // Finished assistant messages are the ONE place a tool_use block carries its
           // full input (stream partials arrive before input_json_deltas assemble), and
           // each toolCallId appears in exactly one finished message — top-level and
@@ -377,6 +420,11 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
         }
       }
     },
+
+    // Session branching (spec §6.3): forkAt/rewindTo/previewRewind are implemented in branch.ts.
+    forkAt: branching.forkAt,
+    rewindTo: branching.rewindTo,
+    previewRewind: branching.previewRewind,
 
     // Delegates to probe.ts (colocated Task 6). AuthStatus carries a few more optional
     // fields (email/subscription/version) than the driver-agnostic core of

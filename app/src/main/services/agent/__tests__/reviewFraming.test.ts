@@ -29,7 +29,8 @@ function stubDriver(kind: string, subagents: SubagentSupport): AgentDriver {
       costReporting: true,
       headlessOneShot: false,
       systemPromptTransport: 'systemPrompt.append',
-      subagents
+      subagents,
+      branching: 'digest'
     },
     createSession(): DriverSession {
       throw new Error('not used in these tests')

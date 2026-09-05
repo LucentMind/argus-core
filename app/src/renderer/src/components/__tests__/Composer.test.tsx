@@ -133,7 +133,9 @@ describe('Composer', () => {
           mode: 'investigation',
           runOptions: [],
           permissionMode: null,
-          historyOrphaned: false
+          historyOrphaned: false,
+          rewound: [],
+          forkedFrom: null
         }}
       />
     )
@@ -159,7 +161,9 @@ describe('Composer', () => {
           mode: 'investigation',
           runOptions: [],
           permissionMode: null,
-          historyOrphaned: false
+          historyOrphaned: false,
+          rewound: [],
+          forkedFrom: null
         }}
       />
     )
@@ -214,7 +218,9 @@ describe('Composer', () => {
           mode: 'investigation',
           runOptions: [],
           permissionMode: null,
-          historyOrphaned: false
+          historyOrphaned: false,
+          rewound: [],
+          forkedFrom: null
         }}
       />
     )
@@ -280,7 +286,9 @@ describe('Composer', () => {
           mode: 'investigation',
           runOptions: [],
           permissionMode: null,
-          historyOrphaned: false
+          historyOrphaned: false,
+          rewound: [],
+          forkedFrom: null
         }}
       />
     )
@@ -314,7 +322,9 @@ describe('Composer', () => {
     mode: 'investigation',
     runOptions: [],
     permissionMode: null,
-    historyOrphaned: false
+    historyOrphaned: false,
+    rewound: [],
+    forkedFrom: null
   })
 
   it('resolves a session pinned to a STATIC slug against the alias-keyed runtime catalog', async () => {
@@ -633,7 +643,9 @@ const SESSION: SessionSummary = {
   mode: 'investigation',
   runOptions: [],
   permissionMode: null,
-  historyOrphaned: false
+  historyOrphaned: false,
+  rewound: [],
+  forkedFrom: null
 }
 
 describe('Composer option chips', () => {

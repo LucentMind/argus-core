@@ -1,0 +1,730 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import type { DatabaseSync } from 'node:sqlite'
+import { openDb } from '../../db'
+import { createCase } from '../../caseService'
+import { caseDir } from '../../paths'
+import { readSessionEvents } from '../mirror'
+import {
+  branchPreview,
+  rewindPreview,
+  rewindSession,
+  forkCaseSession,
+  type BranchDeps
+} from '../sessionBranch'
+import { TITLE_MAX, sessionSummary } from '../sessionStore'
+import * as findingsModule from '../../findings'
+import { freezeCase, resetFreezeRegistryForTests } from '../../caseFreeze'
+import type { AgentDriver } from '../driver'
+import type { AgentEvent } from '../../../../shared/agent-events'
+
+const SLUG = 'SB-1'
+const now = '2026-09-04T00:00:00Z'
+let tmp: string, db: DatabaseSync, caseId: number, sessionId: number
+let turns: number[]
+
+function nativeDriver(over: Partial<AgentDriver> = {}): AgentDriver {
+  return {
+    kind: 'claude-agent-sdk',
+    toolTaxonomy: {
+      entries: {},
+      fallback: () => ({ action: 'allow', risk: 'LOW' })
+    } as never,
+    capabilities: {
+      permissionModes: ['default'],
+      editableApprovals: true,
+      costReporting: true,
+      headlessOneShot: false,
+      systemPromptTransport: 'systemPrompt.append',
+      subagents: 'configurable',
+      branching: 'native'
+    },
+    authFixHint: '',
+    createSession: () => {
+      throw new Error('unused')
+    },
+    probeAuth: async () => ({ ok: true }) as never,
+    forkAt: vi.fn(async () => 'fork-cursor'),
+    rewindTo: vi.fn(async () => 'rewound-cursor'),
+    previewRewind: vi.fn(async () => ({ restored: ['note.txt'], skipped: 0 })),
+    ...over
+  }
+}
+function digestDriver(): AgentDriver {
+  const d = nativeDriver()
+  delete (d as Partial<AgentDriver>).forkAt
+  delete (d as Partial<AgentDriver>).rewindTo
+  delete (d as Partial<AgentDriver>).previewRewind
+  return { ...d, kind: 'codex', capabilities: { ...d.capabilities, branching: 'digest' } }
+}
+function deps(driver: AgentDriver, over: Partial<BranchDeps> = {}): BranchDeps {
+  return {
+    db,
+    argusHome: tmp,
+    driverFor: () => driver,
+    cliPathFor: () => undefined,
+    isTurnActive: () => false,
+    evictLive: vi.fn(async () => undefined),
+    emitFindingUpdated: vi.fn(),
+    sessionsChanged: vi.fn(),
+    now: () => now,
+    ...over
+  }
+}
+function seed(): void {
+  sessionId = Number(
+    db
+      .prepare(
+        `INSERT INTO sessions (case_id, driver_cursor, driver_kind, title, turn_count, created_at, updated_at)
+     VALUES (?, 'cur-0', 'claude-agent-sdk', 'parent', 3, ?, ?)`
+      )
+      .run(caseId, now, now).lastInsertRowid
+  )
+  turns = [1, 2, 3].map((i) =>
+    Number(
+      db
+        .prepare(
+          `INSERT INTO turns (case_id, session_id, turn_index, status, created_at, provider_anchor_id)
+     VALUES (?, ?, ?, 'success', ?, ?)`
+        )
+        .run(caseId, sessionId, i, now, `a-${i}`).lastInsertRowid
+    )
+  )
+  const ev = (turnId: number, type: string, payload: unknown): AgentEvent =>
+    ({
+      eventId: `${turnId}${type}`,
+      caseId,
+      caseSlug: SLUG,
+      sessionId,
+      turnId,
+      ts: now,
+      type,
+      payload
+    }) as AgentEvent
+  const lines = turns.flatMap((t, i) => [
+    ev(t, 'turn.started', { userText: `prompt ${i + 1}` }),
+    ev(t, 'assistant.message', { text: `reply ${i + 1}` })
+  ])
+  const dir = path.join(caseDir(tmp, SLUG), 'sessions')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(
+    path.join(dir, `${sessionId}.jsonl`),
+    lines.map((e) => JSON.stringify(e)).join('\n') + '\n'
+  )
+  // findings: one pending in turn 2, one accepted in turn 3; a tool call in turn 3
+  db.prepare(
+    `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at) VALUES (?, ?, ?, 'pending in t2', 'pending', ?)`
+  ).run(caseId, sessionId, turns[1], now)
+  db.prepare(
+    `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at) VALUES (?, ?, ?, 'accepted in t3', 'accepted', ?)`
+  ).run(caseId, sessionId, turns[2], now)
+  db.prepare(
+    `INSERT INTO tool_calls (case_id, session_id, turn_id, tool, args_hash, risk, decision, created_at) VALUES (?, ?, ?, 'mcp__argus__post_review_comment', 'h', 'MEDIUM', 'allowed', ?)`
+  ).run(caseId, sessionId, turns[2], now)
+  db.prepare(
+    `INSERT INTO tool_calls (case_id, session_id, turn_id, tool, args_hash, risk, decision, created_at) VALUES (?, ?, ?, 'Edit', 'h', 'MEDIUM', 'allowed', ?)`
+  ).run(caseId, sessionId, turns[2], now)
+}
+
+beforeEach(() => {
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-branch-'))
+  db = openDb(path.join(tmp, 'argus.db'))
+  caseId = createCase(db, tmp, { slug: SLUG, title: 's' }).id
+  seed()
+})
+afterEach(() => {
+  db.close()
+  fs.rmSync(tmp, { recursive: true, force: true })
+  resetFreezeRegistryForTests()
+})
+
+describe('preflight guards', () => {
+  it('refuses rewind/fork on a frozen (archiving) case', async () => {
+    const freeze = freezeCase(SLUG, 'archive')
+    try {
+      await expect(rewindPreview(deps(nativeDriver()), SLUG, sessionId, turns[0])).rejects.toThrow(
+        /archived right now|being archived/
+      )
+      await expect(rewindSession(deps(nativeDriver()), SLUG, sessionId, turns[0])).rejects.toThrow(
+        /archived right now|being archived/
+      )
+      await expect(
+        forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[0])
+      ).rejects.toThrow(/archived right now|being archived/)
+    } finally {
+      freeze.release()
+    }
+  })
+  it('refuses an anchor turn that is still running', async () => {
+    const runningId = Number(
+      db
+        .prepare(
+          `INSERT INTO turns (case_id, session_id, turn_index, status, created_at) VALUES (?, ?, 4, 'running', ?)`
+        )
+        .run(caseId, sessionId, now).lastInsertRowid
+    )
+    await expect(rewindSession(deps(nativeDriver()), SLUG, sessionId, runningId)).rejects.toThrow(
+      /has not finished/
+    )
+    await expect(forkCaseSession(deps(nativeDriver()), SLUG, sessionId, runningId)).rejects.toThrow(
+      /has not finished/
+    )
+  })
+})
+
+describe('rewindPreview', () => {
+  it('lists the tail, the findings split, the external actions and native files', async () => {
+    const p = await rewindPreview(deps(nativeDriver()), SLUG, sessionId, turns[0])
+    expect(p.tail.map((t) => t.userText)).toEqual(['prompt 2', 'prompt 3'])
+    expect(p.findingsToRetract.map((f) => f.summary)).toEqual(['pending in t2'])
+    expect(p.findingsStaying).toEqual([
+      expect.objectContaining({ summary: 'accepted in t3', reason: 'accepted' })
+    ])
+    expect(p.externalActions).toEqual([{ tool: 'mcp__argus__post_review_comment', count: 1 }])
+    expect(p.files).toEqual({ kind: 'native', restored: ['note.txt'], skipped: 0 })
+    expect(p.branching).toBe('native')
+  })
+  it('on a digest driver reports write counts and no file restore', async () => {
+    const p = await rewindPreview(deps(digestDriver()), SLUG, sessionId, turns[0])
+    expect(p.files).toEqual({ kind: 'counts', writes: [{ tool: 'Edit', count: 1 }] })
+    expect(p.branching).toBe('digest')
+  })
+
+  /**
+   * M5. A finding that is ALREADY rejected is already out of the case's conclusions, whoever
+   * rejected it. Re-retracting an agent-rejected one rewrote a judgement the agent made
+   * ("wrong") into one the user never made ("rewound") — and `distill/input.ts` drops
+   * `review_reason = 'rewound'` findings from the rejected-finding learning signal (spec §7.1),
+   * so a real agent rejection was silently deleted from what distillation learns from.
+   * `findingsToRetract` is pending-only; everything else stays, with why.
+   */
+  it('leaves an already-rejected finding alone, whoever rejected it', async () => {
+    for (const actor of ['agent', 'human']) {
+      db.prepare(
+        `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, review_actor, review_reason, created_at)
+         VALUES (?, ?, ?, ?, 'rejected', ?, 'not a real problem', ?)`
+      ).run(caseId, sessionId, turns[1], `rejected by ${actor}`, actor, now)
+    }
+    const p = await rewindPreview(deps(nativeDriver()), SLUG, sessionId, turns[0])
+    expect(p.findingsToRetract.map((f) => f.summary)).toEqual(['pending in t2'])
+    expect(p.findingsStaying).toEqual([
+      { id: expect.any(Number), summary: 'accepted in t3', reason: 'accepted' },
+      { id: expect.any(Number), summary: 'rejected by agent', reason: 'already-retracted' },
+      { id: expect.any(Number), summary: 'rejected by human', reason: 'already-retracted' }
+    ])
+  })
+})
+
+/**
+ * I3. The renderer used to derive "will this fork carry full context or a summary?" from
+ * `capabilitiesFor(settings, instanceId).branching` — a DRIVER-level fact. Main decides it per
+ * ANCHOR (`nativeBranching`), and the two disagree in three ordinary situations: while settings
+ * are still loading, on a session whose `instanceId` is null, and on any turn with no
+ * `provider_anchor_id` (every inherited turn of a fork per V2; every surviving turn after a
+ * native rewind per V14). The dialog and the permanent divider both said "full context carried
+ * over" for forks that got a digest. This is main answering the question it actually decides.
+ */
+describe('branchPreview', () => {
+  it('reports native for an anchor the provider can slice at', async () => {
+    expect(await branchPreview(deps(nativeDriver()), SLUG, sessionId, turns[1])).toEqual({
+      branching: 'native'
+    })
+  })
+  it('reports digest when the anchor turn has no provider anchor (V2 / V14)', async () => {
+    db.prepare(`UPDATE turns SET provider_anchor_id = NULL WHERE id = ?`).run(turns[1])
+    expect(await branchPreview(deps(nativeDriver()), SLUG, sessionId, turns[1])).toEqual({
+      branching: 'digest'
+    })
+  })
+  it('reports digest on a driver without the branching hooks', async () => {
+    expect(await branchPreview(deps(digestDriver()), SLUG, sessionId, turns[1])).toEqual({
+      branching: 'digest'
+    })
+  })
+  it('runs FORK preflight: the last turn is a legal fork anchor, a rewound one is not', async () => {
+    await expect(
+      branchPreview(deps(nativeDriver()), SLUG, sessionId, turns[2])
+    ).resolves.toBeTruthy()
+    await rewindSession(deps(nativeDriver()), SLUG, sessionId, turns[0])
+    await expect(branchPreview(deps(nativeDriver()), SLUG, sessionId, turns[1])).rejects.toThrow(
+      /was rewound/
+    )
+  })
+  it('makes nothing happen: no driver call, no eviction, no write', async () => {
+    const drv = nativeDriver()
+    const d = deps(drv)
+    await branchPreview(d, SLUG, sessionId, turns[1])
+    expect(drv.forkAt).not.toHaveBeenCalled()
+    expect(drv.previewRewind).not.toHaveBeenCalled()
+    expect(d.evictLive).not.toHaveBeenCalled()
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM sessions`).get()).toEqual({ n: 1 })
+  })
+})
+
+describe('rewindSession', () => {
+  it('refuses while a turn is active, on an unknown anchor, on the last turn, and on a rewound anchor', async () => {
+    await expect(
+      rewindSession(deps(nativeDriver(), { isTurnActive: () => true }), SLUG, sessionId, turns[0])
+    ).rejects.toThrow(/turn is still running/)
+    await expect(rewindSession(deps(nativeDriver()), SLUG, sessionId, 999999)).rejects.toThrow(
+      /not a turn of this session/
+    )
+    await expect(rewindSession(deps(nativeDriver()), SLUG, sessionId, turns[2])).rejects.toThrow(
+      /already the last/
+    )
+    await rewindSession(deps(nativeDriver()), SLUG, sessionId, turns[0])
+    await expect(rewindSession(deps(nativeDriver()), SLUG, sessionId, turns[1])).rejects.toThrow(
+      /was rewound/
+    )
+  })
+  it('evicts, asks the driver, marks the tail, retracts findings, swaps the cursor, broadcasts, returns the prompt', async () => {
+    const drv = nativeDriver()
+    const d = deps(drv)
+    const r = await rewindSession(d, SLUG, sessionId, turns[0])
+    expect(d.evictLive).toHaveBeenCalledWith(SLUG, sessionId)
+    expect(drv.rewindTo).toHaveBeenCalledWith({
+      cursor: 'cur-0',
+      anchor: 'a-1',
+      caseDir: caseDir(tmp, SLUG),
+      cliPath: undefined
+    })
+    const rows = db
+      .prepare(
+        `SELECT id, status, rewound_to_turn_id, rewound_at FROM turns WHERE session_id = ? ORDER BY id`
+      )
+      .all(sessionId)
+    expect(rows).toEqual([
+      { id: turns[0], status: 'success', rewound_to_turn_id: null, rewound_at: null },
+      { id: turns[1], status: 'rewound', rewound_to_turn_id: turns[0], rewound_at: now },
+      { id: turns[2], status: 'rewound', rewound_to_turn_id: turns[0], rewound_at: now }
+    ])
+    expect(
+      db
+        .prepare(
+          `SELECT review_state, review_actor, review_reason FROM findings WHERE summary = 'pending in t2'`
+        )
+        .get()
+    ).toEqual({ review_state: 'rejected', review_actor: 'human', review_reason: 'rewound' })
+    expect(
+      db.prepare(`SELECT review_state FROM findings WHERE summary = 'accepted in t3'`).get()
+    ).toEqual({ review_state: 'accepted' })
+    expect(
+      db
+        .prepare(`SELECT driver_cursor, pre_rewind_cursor FROM sessions WHERE id = ?`)
+        .get(sessionId)
+    ).toEqual({ driver_cursor: 'rewound-cursor', pre_rewind_cursor: 'cur-0' })
+    expect(d.emitFindingUpdated).toHaveBeenCalledTimes(1)
+    expect(d.sessionsChanged).toHaveBeenCalledWith(SLUG)
+    expect(r).toEqual({ composerText: 'prompt 2' })
+  })
+  it("forgets the surviving turns' provider anchors when the cursor is replaced by a fork", async () => {
+    // Found live on 2026-09-05 by `scripts/cdp-session-branch.mjs`: after a real rewind,
+    // "Fork from here" on the anchor turn died with `Message <anchor> not found in session
+    // <new cursor>`. `rewindTo` hands back a FORK of the provider session, and the SDK remaps
+    // every message uuid across a fork (the same fact deviation V2 records for a fork's
+    // inherited turns) — so every turn that survives the rewind carries an id that names
+    // nothing in the session it now belongs to. Forgetting them makes a later branch at one of
+    // those turns take the digest path instead of calling the SDK with an unresolvable id.
+    // The rewound tail keeps its ids: they are still valid in `pre_rewind_cursor`, which the
+    // same statement preserves, and preflight refuses a rewound turn as an anchor anyway.
+    await rewindSession(deps(nativeDriver()), SLUG, sessionId, turns[0])
+    expect(
+      db
+        .prepare(`SELECT status, provider_anchor_id FROM turns WHERE session_id = ? ORDER BY id`)
+        .all(sessionId)
+    ).toEqual([
+      { status: 'success', provider_anchor_id: null },
+      { status: 'rewound', provider_anchor_id: 'a-2' },
+      { status: 'rewound', provider_anchor_id: 'a-3' }
+    ])
+  })
+  it("keeps the surviving turns' anchors when no new cursor was issued (digest driver)", async () => {
+    // The counterpart of the test above, and what stops the fix from being "null them always":
+    // a digest rewind never forks the provider session, so nothing about the recorded ids
+    // became stale. (They are unused on that path, but silently discarding provider evidence
+    // on a driver that did not fork is a different bug, not a smaller one.)
+    await rewindSession(deps(digestDriver()), SLUG, sessionId, turns[0])
+    expect(
+      db
+        .prepare(`SELECT provider_anchor_id FROM turns WHERE session_id = ? ORDER BY id`)
+        .all(sessionId)
+    ).toEqual([
+      { provider_anchor_id: 'a-1' },
+      { provider_anchor_id: 'a-2' },
+      { provider_anchor_id: 'a-3' }
+    ])
+  })
+  it('on a digest driver nulls the cursor so the next send replays the digest', async () => {
+    await rewindSession(deps(digestDriver()), SLUG, sessionId, turns[0])
+    expect(db.prepare(`SELECT driver_cursor FROM sessions WHERE id = ?`).get(sessionId)).toEqual({
+      driver_cursor: null
+    })
+  })
+  /**
+   * I4. `rewindSession` used to call `rewindPreview` again "to re-validate", discarding most of
+   * the result. On Claude that preview is not a database read: it runs the driver's dry run,
+   * which means a second `getSessionMessages` and a second CLI child, started while the session
+   * being rewound is still warm. Re-validation is what preflight and the in-transaction
+   * `isTurnActive` re-check are for; the dry run belongs to the DIALOG.
+   */
+  it('does not run the driver dry run — that belongs to the preview, not the write path', async () => {
+    const drv = nativeDriver()
+    await rewindSession(deps(drv), SLUG, sessionId, turns[0])
+    expect(drv.previewRewind).not.toHaveBeenCalled()
+    expect(drv.rewindTo).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * M4. A native preview can come back with `files.error` — no checkpoints for this session, or
+   * the anchor is not in the provider transcript. The dialog says files cannot be restored, and
+   * the user can still want the conversation branched. `rewindTo` would fail on exactly the
+   * thing the preview already reported, so this degrades to `forkAt`: the same slice of the
+   * provider transcript, no file rewind attempted. The decision comes from the preview the USER
+   * saw (via the IPC arg), not from a second dry run this path deliberately no longer performs.
+   */
+  it('degrades to forkAt when the preview reported files cannot be restored', async () => {
+    const drv = nativeDriver()
+    await rewindSession(deps(drv), SLUG, sessionId, turns[0], { filesUnavailable: true })
+    expect(drv.forkAt).toHaveBeenCalledWith({
+      cursor: 'cur-0',
+      anchor: 'a-1',
+      caseDir: caseDir(tmp, SLUG),
+      cliPath: undefined
+    })
+    expect(drv.rewindTo).not.toHaveBeenCalled()
+    // …and it is still a real rewind: the tail is marked and the cursor is the fork's.
+    expect(db.prepare(`SELECT driver_cursor FROM sessions WHERE id = ?`).get(sessionId)).toEqual({
+      driver_cursor: 'fork-cursor'
+    })
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM turns WHERE status = 'rewound'`).get()).toEqual({
+      n: 2
+    })
+  })
+
+  it('ignores filesUnavailable on a digest driver (there is nothing to degrade from)', async () => {
+    await rewindSession(deps(digestDriver()), SLUG, sessionId, turns[0], {
+      filesUnavailable: true
+    })
+    expect(db.prepare(`SELECT driver_cursor FROM sessions WHERE id = ?`).get(sessionId)).toEqual({
+      driver_cursor: null
+    })
+  })
+
+  it('writes nothing when the driver step throws', async () => {
+    const drv = nativeDriver({
+      rewindTo: vi.fn(async () => {
+        throw new Error('sdk down')
+      })
+    })
+    await expect(rewindSession(deps(drv), SLUG, sessionId, turns[0])).rejects.toThrow(/sdk down/)
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM turns WHERE status = 'rewound'`).get()).toEqual({
+      n: 0
+    })
+    expect(db.prepare(`SELECT driver_cursor FROM sessions WHERE id = ?`).get(sessionId)).toEqual({
+      driver_cursor: 'cur-0'
+    })
+  })
+  it('marks a turn inserted during evictLive/the driver call too (the tail is re-read inside the transaction)', async () => {
+    const drv = nativeDriver()
+    let raceTurnId = 0
+    const d = deps(drv, {
+      evictLive: vi.fn(async () => {
+        // simulates a `send` landing in the window between the preflight snapshot and the
+        // write: a NEW turn, id > anchor, that preflight's stale `tail` never saw. Only on the
+        // FIRST eviction — the second one (I2) runs after the write, where a fresh turn would
+        // be a different scenario entirely.
+        if (raceTurnId) return
+        raceTurnId = Number(
+          db
+            .prepare(
+              `INSERT INTO turns (case_id, session_id, turn_index, status, created_at) VALUES (?, ?, 4, 'success', ?)`
+            )
+            .run(caseId, sessionId, now).lastInsertRowid
+        )
+      })
+    })
+    await rewindSession(d, SLUG, sessionId, turns[0])
+    expect(raceTurnId).toBeGreaterThan(0)
+    expect(db.prepare(`SELECT status FROM turns WHERE id = ?`).get(raceTurnId)).toEqual({
+      status: 'rewound'
+    })
+  })
+  /**
+   * I2. `evictLive` ran ONCE, before the driver await. A `send` that starts and completes
+   * inside that window re-warms a `CaseSession` holding the OLD cursor, and registry.ts's reuse
+   * check does not compare cursors — so the next send would talk to the pre-rewind conversation
+   * as if the rewind had never happened. The second eviction has to come after the row shows
+   * the new cursor, which is what `seen` pins: an eviction that happened before the COMMIT
+   * would read 'cur-0' twice.
+   */
+  it('evicts the warm session again AFTER the cursor swap is committed', async () => {
+    const seen: (string | null)[] = []
+    const d = deps(nativeDriver(), {
+      evictLive: vi.fn(async () => {
+        seen.push(
+          (
+            db.prepare(`SELECT driver_cursor FROM sessions WHERE id = ?`).get(sessionId) as {
+              driver_cursor: string | null
+            }
+          ).driver_cursor
+        )
+      })
+    })
+    await rewindSession(d, SLUG, sessionId, turns[0])
+    expect(d.evictLive).toHaveBeenCalledTimes(2)
+    expect(seen).toEqual(['cur-0', 'rewound-cursor'])
+  })
+
+  it('only broadcasts findings whose retraction actually changed something', async () => {
+    const secondId = Number(
+      db
+        .prepare(
+          `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at) VALUES (?, ?, ?, 'pending2 in t2', 'pending', ?)`
+        )
+        .run(caseId, sessionId, turns[1], now).lastInsertRowid
+    )
+    const original = findingsModule.retractFinding
+    const spy = vi
+      .spyOn(findingsModule, 'retractFinding')
+      .mockImplementation((db_, id, reason, opts) => {
+        const r = original(db_, id, reason, opts)
+        // force the second finding's result to report "nothing changed", without undoing the
+        // row write `original` already made, so the assertion below is purely about the guard.
+        return id === secondId ? { ...r, changed: false } : r
+      })
+    try {
+      const d = deps(nativeDriver())
+      await rewindSession(d, SLUG, sessionId, turns[0])
+      expect(d.emitFindingUpdated).toHaveBeenCalledTimes(1)
+      expect(d.emitFindingUpdated).not.toHaveBeenCalledWith(expect.anything(), secondId)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+  /** M5's write half: the preview promised these stay as they are, and the transaction has to
+   *  agree — a preview that lists a finding under "stays" while the write retracts it is the
+   *  worse half of the same defect. */
+  it('does not rewrite an agent-rejected finding’s reason to "rewound"', async () => {
+    const id = Number(
+      db
+        .prepare(
+          `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, review_actor, review_reason, created_at)
+           VALUES (?, ?, ?, 'agent said no', 'rejected', 'agent', 'not a real problem', ?)`
+        )
+        .run(caseId, sessionId, turns[1], now).lastInsertRowid
+    )
+    const d = deps(nativeDriver())
+    await rewindSession(d, SLUG, sessionId, turns[0])
+    expect(
+      db.prepare(`SELECT review_actor, review_reason FROM findings WHERE id = ?`).get(id)
+    ).toEqual({ review_actor: 'agent', review_reason: 'not a real problem' })
+    // only the pending one was retracted, so only it was broadcast
+    expect(d.emitFindingUpdated).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * M7. The in-transaction `isTurnActive` re-check has never had a test: `evictLive` and the
+   * driver round trip spend real seconds, and a `send` landing in that window means the rewind
+   * would mark a turn that is mid-flight. First call (preflight) sees an idle session; the
+   * second (step 3, after the awaits) sees the race.
+   */
+  it('re-checks isTurnActive after the driver call and writes nothing when a turn started', async () => {
+    const isTurnActive = vi.fn().mockReturnValueOnce(false).mockReturnValue(true)
+    await expect(
+      rewindSession(deps(nativeDriver(), { isTurnActive }), SLUG, sessionId, turns[0])
+    ).rejects.toThrow(/turn is still running/)
+    expect(isTurnActive).toHaveBeenCalledTimes(2)
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM turns WHERE status = 'rewound'`).get()).toEqual({
+      n: 0
+    })
+    expect(db.prepare(`SELECT driver_cursor FROM sessions WHERE id = ?`).get(sessionId)).toEqual({
+      driver_cursor: 'cur-0'
+    })
+    expect(
+      db.prepare(`SELECT review_state FROM findings WHERE summary = 'pending in t2'`).get()
+    ).toEqual({ review_state: 'pending' })
+  })
+
+  it('refuses a concurrent branch operation on the same session', async () => {
+    let release!: () => void
+    const drv = nativeDriver({
+      rewindTo: vi.fn(
+        () =>
+          new Promise<string>((res) => {
+            release = () => res('x')
+          })
+      )
+    })
+    const first = rewindSession(deps(drv), SLUG, sessionId, turns[0])
+    await new Promise((r) => setTimeout(r, 0))
+    await expect(forkCaseSession(deps(drv), SLUG, sessionId, turns[0])).rejects.toThrow(
+      /already being rewound or forked/
+    )
+    release()
+    await first
+  })
+})
+
+describe('forkCaseSession', () => {
+  it('keeps the "(fork)" marker when the parent title is already at the length cap', async () => {
+    // Found live on 2026-09-05 by `scripts/cdp-session-branch.mjs`: the chat switcher showed two
+    // rows with the IDENTICAL name after a fork. `setTitleIfEmpty` truncates a chat's auto-title
+    // to exactly TITLE_MAX, so `\`${base} (fork)\`.slice(0, TITLE_MAX)` sliced the whole suffix
+    // back off — for every auto-titled chat, which is nearly all of them. The suffix is the only
+    // thing distinguishing a fork in the switcher, so the BASE has to give way, not the marker.
+    const long = 'x'.repeat(TITLE_MAX)
+    db.prepare(`UPDATE sessions SET title = ? WHERE id = ?`).run(long, sessionId)
+    const s = await forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[1])
+    expect(s.title.endsWith(' (fork)')).toBe(true)
+    expect(s.title.length).toBeLessThanOrEqual(TITLE_MAX)
+    expect(s.title).not.toBe(long)
+  })
+  it('creates a sibling with lineage, copied turns (provider ids nulled), a copied mirror, and nothing else', async () => {
+    const drv = nativeDriver()
+    const d = deps(drv)
+    const s = await forkCaseSession(d, SLUG, sessionId, turns[1])
+    expect(drv.forkAt).toHaveBeenCalledWith({
+      cursor: 'cur-0',
+      anchor: 'a-2',
+      caseDir: caseDir(tmp, SLUG),
+      cliPath: undefined
+    })
+    expect(s.title).toBe('parent (fork)')
+    expect(s.forkedFrom).toEqual({
+      sessionId,
+      turnId: turns[1],
+      inheritedTurns: 2,
+      branching: 'native'
+    })
+    expect(s.driverKind).toBe('claude-agent-sdk')
+    const row = db
+      .prepare(
+        `SELECT driver_cursor, turn_count, forked_inherited_turns FROM sessions WHERE id = ?`
+      )
+      .get(s.id)
+    expect(row).toEqual({ driver_cursor: 'fork-cursor', turn_count: 2, forked_inherited_turns: 2 })
+    const copied = db
+      .prepare(
+        `SELECT turn_index, status, provider_anchor_id FROM turns WHERE session_id = ? ORDER BY id`
+      )
+      .all(s.id)
+    expect(copied).toEqual([
+      { turn_index: 1, status: 'success', provider_anchor_id: null },
+      { turn_index: 2, status: 'success', provider_anchor_id: null }
+    ])
+    expect(
+      db.prepare(`SELECT COUNT(*) AS n FROM tool_calls WHERE session_id = ?`).get(s.id)
+    ).toEqual({ n: 0 })
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM findings WHERE session_id = ?`).get(s.id)).toEqual(
+      {
+        n: 0
+      }
+    )
+    expect(
+      db.prepare(`SELECT COUNT(*) AS n FROM messages_fts WHERE session_id = ?`).get(s.id)
+    ).toEqual({ n: 0 })
+    const ev = readSessionEvents(caseDir(tmp, SLUG), s.id)
+    expect(
+      ev
+        .filter((e) => e.type === 'turn.started')
+        .map((e) => (e.payload as { userText: string }).userText)
+    ).toEqual(['prompt 1', 'prompt 2'])
+    expect(new Set(ev.map((e) => e.sessionId))).toEqual(new Set([s.id]))
+    expect(d.sessionsChanged).toHaveBeenCalledWith(SLUG)
+  })
+  /** I2's fork half: the parent's mirror is COPIED inside the transaction, so a session
+   *  re-warmed during the (slow) `forkAt` round trip is appending to the very file the copy
+   *  read. Evicting again once the fork row exists closes that window the same way. */
+  it('evicts the parent again AFTER the fork row is committed', async () => {
+    const seen: number[] = []
+    const d = deps(nativeDriver(), {
+      evictLive: vi.fn(async () => {
+        seen.push(
+          Number(
+            (
+              db
+                .prepare(`SELECT COUNT(*) AS n FROM sessions WHERE forked_from_session_id = ?`)
+                .get(sessionId) as { n: number }
+            ).n
+          )
+        )
+      })
+    })
+    await forkCaseSession(d, SLUG, sessionId, turns[1])
+    expect(d.evictLive).toHaveBeenCalledTimes(2)
+    expect(seen).toEqual([0, 1])
+  })
+
+  it('skips rewound turns of the parent and allows forking from the last turn', async () => {
+    await rewindSession(deps(nativeDriver()), SLUG, sessionId, turns[0])
+    const s = await forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[0])
+    expect(s.forkedFrom?.inheritedTurns).toBe(1)
+  })
+  /**
+   * I3's persistence half. The divider is PERMANENT — it still has to say what happened long
+   * after the driver, the pinned instance or the anchor ids have moved on — so the branching a
+   * fork actually got is recorded on the row at fork time, not recomputed at render time from
+   * facts that no longer describe it.
+   */
+  it('records the branching the fork actually got, on the row and on the summary', async () => {
+    const native = await forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[1])
+    expect(native.forkedFrom?.branching).toBe('native')
+    expect(db.prepare(`SELECT forked_branching FROM sessions WHERE id = ?`).get(native.id)).toEqual(
+      { forked_branching: 'native' }
+    )
+
+    const digest = await forkCaseSession(deps(digestDriver()), SLUG, sessionId, turns[1])
+    expect(digest.forkedFrom?.branching).toBe('digest')
+    expect(db.prepare(`SELECT forked_branching FROM sessions WHERE id = ?`).get(digest.id)).toEqual(
+      { forked_branching: 'digest' }
+    )
+  })
+
+  it('reports digest for a fork row written before the column existed', async () => {
+    // Nullable column, no backfill (the house migration rule). A pre-existing fork row has no
+    // recorded branching, and 'digest' is the honest answer: the summary path is what the
+    // renderer must promise when it cannot prove full context was carried.
+    const s = await forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[1])
+    db.prepare(`UPDATE sessions SET forked_branching = NULL WHERE id = ?`).run(s.id)
+    expect(sessionSummary(db, s.id)!.forkedFrom?.branching).toBe('digest')
+  })
+
+  it('stamps historyOrphaned true on a digest fork (no native cursor) and false on a native one', async () => {
+    const digest = await forkCaseSession(deps(digestDriver()), SLUG, sessionId, turns[1])
+    expect(digest.historyOrphaned).toBe(true)
+    const native = await forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[1])
+    expect(native.historyOrphaned).toBe(false)
+  })
+  it('titles a fork "<parent title> (fork)", falling back to "Chat" for an empty title, clamped to TITLE_MAX', async () => {
+    db.prepare(`UPDATE sessions SET title = '' WHERE id = ?`).run(sessionId)
+    const s1 = await forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[1])
+    expect(s1.title).toBe('Chat (fork)')
+
+    db.prepare(`UPDATE sessions SET title = ? WHERE id = ?`).run('x'.repeat(40), sessionId)
+    const s2 = await forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[1])
+    expect(s2.title.length).toBeLessThanOrEqual(40)
+  })
+  it('cleans up the ghost transcript file when the write transaction rolls back', async () => {
+    const nextId =
+      Number((db.prepare(`SELECT MAX(id) AS m FROM sessions`).get() as { m: number }).m) + 1
+    const throwingDb = new Proxy(db, {
+      get(target, prop) {
+        if (prop === 'exec') {
+          return (sql: string) => {
+            if (sql === 'COMMIT') throw new Error('commit boom')
+            return (target as unknown as { exec: (s: string) => unknown }).exec(sql)
+          }
+        }
+        const val = (target as unknown as Record<string | symbol, unknown>)[prop]
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(target) : val
+      }
+    }) as unknown as DatabaseSync
+    const file = path.join(caseDir(tmp, SLUG), 'sessions', `${nextId}.jsonl`)
+    await expect(
+      forkCaseSession(deps(nativeDriver(), { db: throwingDb }), SLUG, sessionId, turns[1])
+    ).rejects.toThrow(/commit boom/)
+    expect(fs.existsSync(file)).toBe(false)
+  })
+})

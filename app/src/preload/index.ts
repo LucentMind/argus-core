@@ -159,6 +159,7 @@ import type {
   RcaDroppedSections
 } from '../shared/rca'
 import type { SnippetResult, RepoSnippetResult, RepoTextResult } from '../shared/snippets'
+import type { Branching, RewindPreview, RewindResult } from '../shared/branching'
 import type { ModeId } from '../shared/modes'
 import type { EvidenceScope } from '../shared/evidenceScope'
 import type { EvidenceProgressEvent, QueueProgressEvent } from '../shared/evidenceProgress'
@@ -570,7 +571,50 @@ const argus = {
     setPermissionMode: (sessionId: number, mode: PermissionMode): Promise<boolean> =>
       invoke(IPC.sessionsSetPermissionMode, sessionId, mode),
     delete: (caseSlug: string, sessionId: number): Promise<void> =>
-      invoke(IPC.sessionsDelete, caseSlug, sessionId)
+      invoke(IPC.sessionsDelete, caseSlug, sessionId),
+    /** What a rewind to `anchorTurnId` would do: the tail that would grey out, the findings
+     *  split, external actions that can't be undone, and (native drivers) what file restore
+     *  would look like. Read-only — makes nothing happen. */
+    rewindPreview: (
+      caseSlug: string,
+      sessionId: number,
+      anchorTurnId: number
+    ): Promise<RewindPreview> =>
+      invoke(IPC.sessionsRewindPreview, caseSlug, sessionId, anchorTurnId),
+    /** Discard every turn after `anchorTurnId` in this chat. Resolves with the discarded tail's
+     *  first prompt, for prefilling the composer.
+     *
+     *  `filesUnavailable`: the preview the user confirmed reported `files.error`, so main must
+     *  branch the conversation without attempting the file restore. Passed from here because
+     *  main no longer re-runs the driver's dry run — the dialog the user agreed to is the
+     *  authority on what was promised. */
+    rewind: (
+      caseSlug: string,
+      sessionId: number,
+      anchorTurnId: number,
+      opts?: { filesUnavailable?: boolean }
+    ): Promise<RewindResult> => invoke(IPC.sessionsRewind, caseSlug, sessionId, anchorTurnId, opts),
+    /** What branching a branch at `anchorTurnId` would ACTUALLY get. Main decides this per
+     *  anchor (driver hooks + cursor + that turn's provider id); the renderer's own
+     *  `capabilitiesFor(...).branching` is a per-DRIVER fact and disagrees whenever the anchor
+     *  carries no provider id (V2/V14) or settings have not loaded. Read-only. */
+    branchPreview: (
+      caseSlug: string,
+      sessionId: number,
+      anchorTurnId: number
+    ): Promise<{ branching: Branching }> =>
+      invoke(IPC.sessionsBranchPreview, caseSlug, sessionId, anchorTurnId),
+    /** Branch a new sibling chat that inherits everything up to and including
+     *  `anchorTurnId`, leaving this chat untouched. */
+    fork: (caseSlug: string, sessionId: number, anchorTurnId: number): Promise<SessionSummary> =>
+      invoke(IPC.sessionsFork, caseSlug, sessionId, anchorTurnId),
+    /** Broadcast: this case's chats/turns changed (a rewind or a fork happened, possibly in
+     *  another window) — re-read `sessions.list`. */
+    onChanged: (cb: (caseSlug: string) => void): (() => void) => {
+      const listener = (_e: unknown, caseSlug: string): void => cb(caseSlug)
+      ipcRenderer.on(IPC.sessionsChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.sessionsChanged, listener)
+    }
   },
   models: {
     /** The option-bearing model catalog this instance's CLI reports. Empty for

@@ -460,7 +460,8 @@ describe('CaseSession', () => {
         costReporting: true,
         headlessOneShot: false,
         systemPromptTransport: 'systemPrompt.append',
-        subagents: 'promptable'
+        subagents: 'promptable',
+        branching: 'native'
       },
       createSession: () => ({
         events: () => eventQueue,
@@ -1509,7 +1510,8 @@ describe('CaseSession', () => {
         costReporting: true,
         headlessOneShot: false,
         systemPromptTransport: 'systemPrompt.append',
-        subagents: 'configurable'
+        subagents: 'configurable',
+        branching: 'native'
       },
       createSession(ctx): DriverSession {
         captured = ctx
@@ -1549,7 +1551,8 @@ describe('CaseSession', () => {
         costReporting: false,
         headlessOneShot: false,
         systemPromptTransport: 'none',
-        subagents: 'promptable'
+        subagents: 'promptable',
+        branching: 'digest'
       },
       createSession(ctx): DriverSession {
         captured = ctx
@@ -1619,7 +1622,8 @@ describe('CaseSession', () => {
         costReporting: false,
         headlessOneShot: false,
         systemPromptTransport: 'none',
-        subagents: 'promptable'
+        subagents: 'promptable',
+        branching: 'digest'
       },
       createSession(ctx): DriverSession {
         captured = ctx
@@ -1687,7 +1691,8 @@ describe('CaseSession', () => {
         costReporting: false,
         headlessOneShot: false,
         systemPromptTransport: 'none',
-        subagents: 'promptable'
+        subagents: 'promptable',
+        branching: 'digest'
       },
       createSession(ctx): DriverSession {
         captured = ctx

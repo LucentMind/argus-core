@@ -122,7 +122,9 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
       // index / memory index all go nowhere. Fixing it (a first-turn preamble) is its own plan;
       // this declaration is what makes the loss visible instead of silent.
       systemPromptTransport: 'none',
-      subagents: 'promptable'
+      subagents: 'promptable',
+      // No native fork/rewind surface — a fresh provider session plus Argus's history digest.
+      branching: 'digest'
     },
 
     isAuthErrorMessage: isAcpAuthErrorMessage,

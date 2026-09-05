@@ -54,7 +54,15 @@ import { listFindings, parseFindingBodies, retractFinding } from '../findings'
 import { reviewTag } from '../../../shared/findingTag'
 import { sessionMode } from './sessionStore'
 import { readSessionEvents } from './mirror'
-import { transcriptTurns, renderTurn, OPEN_TAG, CLOSE_TAG, DIGEST_BUDGET } from './historyDigest'
+import {
+  transcriptTurns,
+  renderTurn,
+  OPEN_TAG,
+  CLOSE_TAG,
+  DIGEST_BUDGET,
+  filterLiveEvents
+} from './historyDigest'
+import { rewoundTurnIds } from './liveTurns'
 import type { CorpusSearchInput, SourceSearchResult } from '../../../shared/defectCorpus'
 import { saveItemSuggestion } from '../routines/runItems'
 import type { TriageSuggestion } from '../../../shared/routines'
@@ -185,6 +193,11 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
     title: 'read_session_transcript — byte budget reached',
     text: '[capped — continue with fromTurn: {next}]',
     placeholders: ['next']
+  },
+  'read_session_transcript.gap-marker': {
+    title: 'read_session_transcript — rewound-turns gap marker',
+    text: '[{n} turn{plural} rewound by the user — not part of this conversation]',
+    placeholders: ['n', 'plural']
   },
   'read_lines.out-of-range': {
     title: 'read_lines — start past end of file',
@@ -481,7 +494,22 @@ export function argusToolHandlers(
       // history digest elided from this session's own transcript, and that is all it may reach.
       // Accepting a session id would let a session read another mode's full transcript, which is
       // exactly what list_evidence above scopes by mode to prevent.
-      const turns = transcriptTurns(readSessionEvents(dir, deps.sessionId))
+      const { events, gaps } = filterLiveEvents(
+        readSessionEvents(dir, deps.sessionId),
+        rewoundTurnIds(db, deps.sessionId)
+      )
+      const turns = transcriptTurns(events)
+      // Same asymmetry as the framing/capped feedback below: this marker labels data (how many
+      // turns were rewound), it does not assert anything about untrusted bytes, so it is safe to
+      // let an operator reword it through the Prompts surface — unlike historyDigest.ts's
+      // preamble and omission note, which stay hard-coded constants.
+      const gapNote =
+        gaps > 0
+          ? fb('read_session_transcript.gap-marker', {
+              n: String(gaps),
+              plural: gaps === 1 ? '' : 's'
+            }) + '\n'
+          : ''
       const from =
         args.fromTurn == null ? 1 : Math.max(1, Math.floor(num(args.fromTurn, 'fromTurn')))
       const limit = Math.min(
@@ -523,12 +551,22 @@ export function argusToolHandlers(
         total: String(turns.length)
       })
       // Nothing to fence: an empty OPEN_TAG/CLOSE_TAG pair is noise the model has to interpret.
-      if (shownTurns.length === 0) return header
+      if (shownTurns.length === 0) return gapNote + header
       const tail =
         nextTurn === null
           ? ''
           : '\n' + fb('read_session_transcript.capped', { next: String(nextTurn) })
-      return header + '\n' + OPEN_TAG + '\n' + shownTurns.join('\n\n') + '\n' + CLOSE_TAG + tail
+      return (
+        gapNote +
+        header +
+        '\n' +
+        OPEN_TAG +
+        '\n' +
+        shownTurns.join('\n\n') +
+        '\n' +
+        CLOSE_TAG +
+        tail
+      )
     },
 
     async search_case_history(args) {

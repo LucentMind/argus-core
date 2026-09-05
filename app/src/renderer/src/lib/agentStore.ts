@@ -10,6 +10,7 @@ export type TranscriptItem =
       outputPreview: string
       done: boolean
       isError: boolean
+      turnId: number | null
     }
 
 export type PendingDialog = Extract<AgentEvent, { type: 'dialog.opened' }>['payload']
@@ -162,7 +163,8 @@ export class AgentStore {
                 name: e.payload.name,
                 outputPreview: '',
                 done: false,
-                isError: false
+                isError: false,
+                turnId: e.turnId
               }
             ]
           }

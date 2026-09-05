@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { DistillWorld, WorldMessage, WorldSession } from '../../../shared/distill'
+import { liveTurnJoinSql } from '../agent/liveTurns'
 
 export const WORLD_MSG_CLAMP = 8_000
 const CLAMP_HEAD = 6_000
@@ -49,12 +50,17 @@ export function buildWorld(
   const sessionRows = db
     .prepare(`SELECT id, title FROM sessions WHERE case_id = ? ORDER BY id ASC`)
     .all(c.id) as { id: number; title: string }[]
+  const live = liveTurnJoinSql('m') // the one statement of "not rewound" (spec §7.1)
   const sessions: WorldSession[] = sessionRows.map((s) => {
     const rows = db
       .prepare(
-        `SELECT role, content FROM messages_fts WHERE case_id = ? AND session_id = ? ORDER BY rowid ASC`
+        `SELECT m.role, m.content FROM messages_fts m
+           ${live.join}
+          WHERE m.case_id = ? AND m.session_id = ?
+            AND ${live.where}
+          ORDER BY m.rowid ASC`
       )
-      .all(c.id, s.id) as { role: string; content: string }[]
+      .all(c.id, s.id, live.param) as { role: string; content: string }[]
     let kept = rows
     let dropped = 0
     if (kept.length > clamps.sessionMaxMsgs) {

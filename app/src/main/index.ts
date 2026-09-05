@@ -256,7 +256,10 @@ import { fetchCatalog } from './services/agent/drivers/claude/catalog'
 import { migrateModelPrefs } from './services/agent/modelPrefs'
 import type { ModelOptionInfo } from '../shared/runOptions'
 import { composeReviewRunPrompt } from './services/agent/reviewRunCompose'
-import { annotateHistoryOrphaned } from './services/agent/reviewFraming'
+import { annotateHistoryOrphaned, driverForSession } from './services/agent/reviewFraming'
+import type { BranchDeps } from './services/agent/sessionBranch'
+import { registerSessionBranchIpc } from './ipc/sessionBranchIpc'
+import { makeEvent } from './services/agent/events'
 import { composeReviewActionPrompt } from './services/agent/reviewActionCompose'
 import { composeCiTriagePrompt } from './services/agent/ciTriageCompose'
 import { prWorktreeHead } from './services/agent/reviewWrites'
@@ -1959,6 +1962,45 @@ function registerIpc(): void {
         : panelHost!.dispatchToPanel({ caseSlug, packId, windowId }, cmd, args)
     },
     mirrorFactory
+  })
+  // Rebuilt on every call, not captured once — settingsService.get() and agentService.states()
+  // both need to read the CURRENT state, not what was true when registerIpc() ran (a re-pinned
+  // provider instance or a live turn that started since must both be visible immediately).
+  const branchDeps = (): BranchDeps => ({
+    db,
+    argusHome,
+    driverFor: (sessionId) =>
+      driverForSession(
+        {
+          db,
+          driverForInstance: (instanceId) =>
+            resolveInstanceDriver(settingsService.get().agent, instanceId).driver,
+          resolveDriver: () => getActiveDriver(settingsService.get().agent)
+        },
+        sessionId
+      ),
+    cliPathFor: (sessionId) => {
+      const pinned = sessionProvider(db, sessionId)
+      const inst = pinned?.instanceId
+        ? settingsService.get().agent.providerInstances[pinned.instanceId]
+        : undefined
+      return inst ? driverConfig<AgentDriverConfig>(inst.driver, inst.config).cliPath : undefined
+    },
+    isTurnActive: (caseSlug, sessionId) =>
+      (agentService?.states() ?? []).some(
+        (s) => s.caseSlug === caseSlug && s.sessionId === sessionId && s.activeTurn
+      ),
+    evictLive: (caseSlug, sessionId) => agentService!.stopSession(caseSlug, sessionId),
+    emitFindingUpdated: (ctx, findingId) =>
+      broadcast(
+        IPC.agentEventChannel,
+        makeEvent({ ...ctx, turnId: null }, 'case.finding.updated', { findingId })
+      ),
+    sessionsChanged: (caseSlug) => broadcast(IPC.sessionsChanged, caseSlug)
+  })
+  registerSessionBranchIpc({
+    handle: (channel, fn) => ipcMain.handle(channel, (_e, ...args) => fn(...args)),
+    branchDeps
   })
   ipcMain.handle(
     IPC.agentSend,

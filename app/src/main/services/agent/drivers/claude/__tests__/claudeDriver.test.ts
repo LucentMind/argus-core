@@ -258,6 +258,16 @@ describe('createClaudeDriver', () => {
     expect(sessionCallOptions(spy).includePartialMessages).toBe(true)
   })
 
+  // File checkpointing is what makes a later "rewind to here" able to restore edits
+  // (spec §6.3, branch.ts). It has to be on for the SESSION query, not just the throwaway
+  // control query the rewind opens — the backups are written as the session edits files.
+  it('keeps file checkpointing on so a later rewind has snapshots to restore', async () => {
+    const spy = vi.fn(fakeQuery([]))
+    const session = createClaudeDriver(spy).createSession(baseCtx())
+    for await (const _ of session.events()) void _
+    expect(sessionCallOptions(spy)).toMatchObject({ enableFileCheckpointing: true })
+  })
+
   it('omits the agents key when no subagents are configured', async () => {
     const spy = vi.fn(fakeQuery([]))
     const session = createClaudeDriver(spy).createSession(baseCtx())
