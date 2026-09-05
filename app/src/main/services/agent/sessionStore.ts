@@ -38,9 +38,10 @@ interface SessionRow {
   forked_from_session_id: number | null
   forked_at_turn_id: number | null
   forked_inherited_turns: number | null
+  forked_branching: string | null
 }
 
-const SESSION_COLS = `id, title, turn_count, updated_at, driver_kind, instance_id, model, mode, run_options, permission_mode, forked_from_session_id, forked_at_turn_id, forked_inherited_turns`
+const SESSION_COLS = `id, title, turn_count, updated_at, driver_kind, instance_id, model, mode, run_options, permission_mode, forked_from_session_id, forked_at_turn_id, forked_inherited_turns, forked_branching`
 
 /** Takes `db` because the two branching fields are not columns of this row: `rewound` is a
  *  query over the session's turns, and only `liveTurns.ts` states what "rewound" means. */
@@ -64,7 +65,11 @@ function rowToSummary(db: DatabaseSync, r: SessionRow): SessionSummary {
         : {
             sessionId: r.forked_from_session_id,
             turnId: r.forked_at_turn_id!,
-            inheritedTurns: r.forked_inherited_turns ?? 0
+            inheritedTurns: r.forked_inherited_turns ?? 0,
+            // 'digest' for anything but a recorded 'native': a fork row written before the
+            // column existed has NULL, and promising "full context carried over" on no evidence
+            // is the failure mode this whole field exists to end.
+            branching: r.forked_branching === 'native' ? 'native' : 'digest'
           }
   }
 }

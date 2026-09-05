@@ -2,7 +2,6 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternal
 import type { ChatJumpTarget, SessionSummary } from '../../../shared/types'
 import type { RunOptionSelection } from '../../../shared/runOptions'
 import type { PermissionMode } from '../../../shared/settings'
-import { capabilitiesFor } from '../../../shared/drivers'
 import { agentStore, type TranscriptItem } from '../lib/agentStore'
 import { citationsTray } from '../lib/citationsTray'
 import { composerDraft } from '../lib/composerDraft'
@@ -10,7 +9,6 @@ import { composerAttachments } from '../lib/composerAttachments'
 import { attachFiles } from '../lib/attachFiles'
 import { reposStore } from '../lib/reposStore'
 import { sessionsStore } from '../lib/sessionsStore'
-import { useSettingsPayload } from '../lib/settingsStore'
 import { confirm } from '../lib/confirmStore'
 import {
   segmentTranscript,
@@ -124,7 +122,6 @@ export function ChatPane({
     () => sessionsStore.get(slug)
   )
   const session = sessionProp ?? sessionsForCase.find((s) => s.id === sessionId) ?? null
-  const settingsPayload = useSettingsPayload()
   const showToolCalls = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
     () => uiStore.get().showToolCalls
@@ -391,11 +388,26 @@ export function ChatPane({
   }
 
   /** Branch a new sibling chat inheriting everything up to and including `turnId`, then switch
-   *  to it. `branching` picks which of the two consequence sentences the confirm shows — a
-   *  native driver keeps full context, a digest one gets a summary. */
+   *  to it.
+   *
+   *  The consequence sentence comes from MAIN (`sessions.branchPreview`), never from
+   *  `capabilitiesFor(...).branching`: that capability describes the DRIVER, while the answer
+   *  depends on this ANCHOR — a Claude turn with no `provider_anchor_id` (every inherited turn
+   *  of a fork, V2; every turn surviving a native rewind, V14) branches by digest even though
+   *  the driver is native, and the capability reads 'digest' while settings are still loading
+   *  or when the session has no pinned instance. Both directions were wrong on screen. */
   async function forkFrom(turnId: number): Promise<void> {
     setSendError(null)
-    const branching = session ? branchingOf(session) : 'digest'
+    let branching: 'native' | 'digest'
+    try {
+      branching = (await window.argus.sessions.branchPreview(slug, sessionId, turnId)).branching
+    } catch (err) {
+      // The preview runs the same preflight the fork does, so a refusal here (a running turn, a
+      // frozen case) is the fork's own refusal arriving early. Report it instead of asking the
+      // user to confirm an operation that cannot succeed.
+      setSendError((err as Error).message)
+      return
+    }
     const ok = await confirm({
       title: 'Fork from here?',
       message: `A new chat branches after this reply. ${
@@ -435,8 +447,6 @@ export function ChatPane({
     !(lastItem?.kind === 'assistant' && lastItem.streaming) &&
     !(lastItem?.kind === 'tool' && !lastItem.done && showToolCalls)
 
-  const branchingOf = (s: SessionSummary): 'native' | 'digest' =>
-    capabilitiesFor(settingsPayload?.settings, s.instanceId).branching
   const dividerAt = session?.forkedFrom
     ? forkDividerIndex(state.items, session.forkedFrom.inheritedTurns)
     : -1
@@ -558,11 +568,7 @@ export function ChatPane({
                 <Fragment key={index}>
                   {renderItem(item, index, { rewound: false })}
                   {index === dividerAt && session?.forkedFrom && (
-                    <ForkDivider
-                      origin={session.forkedFrom}
-                      branching={branchingOf(session)}
-                      onOpenParent={onSwitchSession}
-                    />
+                    <ForkDivider origin={session.forkedFrom} onOpenParent={onSwitchSession} />
                   )}
                 </Fragment>
               ))
@@ -575,11 +581,7 @@ export function ChatPane({
                         the divider still belongs after the Nth inherited turn's last item,
                         wherever that item ends up living. */}
                     {index === dividerAt && session?.forkedFrom && (
-                      <ForkDivider
-                        origin={session.forkedFrom}
-                        branching={branchingOf(session)}
-                        onOpenParent={onSwitchSession}
-                      />
+                      <ForkDivider origin={session.forkedFrom} onOpenParent={onSwitchSession} />
                     )}
                   </Fragment>
                 ))}

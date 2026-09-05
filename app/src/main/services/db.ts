@@ -789,6 +789,12 @@ export function openDb(file: string): DatabaseSync {
   addSess('forked_from_session_id', `forked_from_session_id INTEGER`)
   addSess('forked_at_turn_id', `forked_at_turn_id INTEGER`)
   addSess('forked_inherited_turns', `forked_inherited_turns INTEGER`)
+  // What branching the fork ACTUALLY got ('native' | 'digest'), recorded at fork time. Not
+  // derivable later: the anchor's provider id is cleared by a rewind (V14) and the cursors are
+  // not restored from an archive, yet the divider that reports it is permanent. Nullable with
+  // no backfill — an existing fork row reads as 'digest', the honest answer when full context
+  // cannot be proven (sessionStore.rowToSummary).
+  addSess('forked_branching', `forked_branching TEXT`)
   addSess('pre_rewind_cursor', `pre_rewind_cursor TEXT`)
   // `rca_jobs.case_slug` carries no FK (see the SCHEMA above), and `deleteCase` did not clean
   // the table until this migration's sibling fix — so existing databases hold job rows, report

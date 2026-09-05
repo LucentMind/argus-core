@@ -181,11 +181,37 @@ afterEach(() => {
 })
 
 describe('registerSessionBranchIpc', () => {
-  it('registers exactly the three request/response channels', () => {
+  it('registers exactly the four request/response channels', () => {
     const { handlers } = harness(nativeDriver(), idleAgentService())
     expect([...handlers.keys()].sort()).toEqual(
-      [IPC.sessionsRewindPreview, IPC.sessionsRewind, IPC.sessionsFork].sort()
+      [
+        IPC.sessionsRewindPreview,
+        IPC.sessionsRewind,
+        IPC.sessionsFork,
+        IPC.sessionsBranchPreview
+      ].sort()
     )
+  })
+
+  /** I3: the renderer must be able to ask MAIN what branching a fork at this anchor would get,
+   *  rather than guessing from driver capabilities it can see but main does not decide on. */
+  it('sessions:branch-preview answers native, and digest once the anchor loses its provider id', async () => {
+    const { handlers } = harness(nativeDriver(), idleAgentService())
+    expect(await handlers.get(IPC.sessionsBranchPreview)!(SLUG, sessionId, turns[1])).toEqual({
+      branching: 'native'
+    })
+    db.prepare(`UPDATE turns SET provider_anchor_id = NULL WHERE id = ?`).run(turns[1])
+    expect(await handlers.get(IPC.sessionsBranchPreview)!(SLUG, sessionId, turns[1])).toEqual({
+      branching: 'digest'
+    })
+  })
+
+  it('sessions:branch-preview validates its ids like the other three', () => {
+    const { handlers } = harness(nativeDriver(), idleAgentService())
+    expect(() => handlers.get(IPC.sessionsBranchPreview)!('not a slug!', sessionId, 1)).toThrow(
+      /Invalid case slug/
+    )
+    expect(() => handlers.get(IPC.sessionsBranchPreview)!(SLUG, 1.5, 1)).toThrow(/Invalid id/)
   })
 
   it('sessions:rewind rejects with the preflight message when a turn is still active', async () => {

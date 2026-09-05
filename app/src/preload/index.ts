@@ -159,7 +159,7 @@ import type {
   RcaDroppedSections
 } from '../shared/rca'
 import type { SnippetResult, RepoSnippetResult, RepoTextResult } from '../shared/snippets'
-import type { RewindPreview, RewindResult } from '../shared/branching'
+import type { Branching, RewindPreview, RewindResult } from '../shared/branching'
 import type { ModeId } from '../shared/modes'
 import type { EvidenceScope } from '../shared/evidenceScope'
 import type { EvidenceProgressEvent, QueueProgressEvent } from '../shared/evidenceProgress'
@@ -585,6 +585,16 @@ const argus = {
      *  first prompt, for prefilling the composer. */
     rewind: (caseSlug: string, sessionId: number, anchorTurnId: number): Promise<RewindResult> =>
       invoke(IPC.sessionsRewind, caseSlug, sessionId, anchorTurnId),
+    /** What branching a branch at `anchorTurnId` would ACTUALLY get. Main decides this per
+     *  anchor (driver hooks + cursor + that turn's provider id); the renderer's own
+     *  `capabilitiesFor(...).branching` is a per-DRIVER fact and disagrees whenever the anchor
+     *  carries no provider id (V2/V14) or settings have not loaded. Read-only. */
+    branchPreview: (
+      caseSlug: string,
+      sessionId: number,
+      anchorTurnId: number
+    ): Promise<{ branching: Branching }> =>
+      invoke(IPC.sessionsBranchPreview, caseSlug, sessionId, anchorTurnId),
     /** Branch a new sibling chat that inherits everything up to and including
      *  `anchorTurnId`, leaving this chat untouched. */
     fork: (caseSlug: string, sessionId: number, anchorTurnId: number): Promise<SessionSummary> =>
