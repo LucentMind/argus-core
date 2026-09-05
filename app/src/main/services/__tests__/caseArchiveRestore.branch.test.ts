@@ -6,6 +6,7 @@ import { getCase } from '../caseService'
 import { createImmediateQueue } from '../ingestQueue'
 import { createSession } from '../agent/sessionStore'
 import { caseDir } from '../paths'
+import { readSessionEvents } from '../agent/mirror'
 import { cleanupArchiveFixtures, seedArchivableCase } from './archiveFixtures'
 
 afterEach(() => {
@@ -43,18 +44,47 @@ describe('restoreCase — rewind, provider anchors and fork lineage', () => {
         .run(caseId, firstSessionId, now).lastInsertRowid
     )
     // A later turn rewound back to that anchor.
-    db.prepare(
-      `INSERT INTO turns (case_id, session_id, turn_index, status, rewound_at, rewound_to_turn_id, created_at)
+    const rewoundTurnId = Number(
+      db
+        .prepare(
+          `INSERT INTO turns (case_id, session_id, turn_index, status, rewound_at, rewound_to_turn_id, created_at)
        VALUES (?, ?, 2, 'rewound', ?, ?, ?)`
-    ).run(caseId, firstSessionId, now, anchorTurnId, now)
+        )
+        .run(caseId, firstSessionId, now, anchorTurnId, now).lastInsertRowid
+    )
+    // Give the parent's mirror real turn ids. The shared fixture's transcript carries none, and
+    // an event with `turnId: null` is exactly the shape that would let a broken remap look fine:
+    // nothing to rewrite, nothing to notice.
+    fs.writeFileSync(
+      path.join(caseDir(home, slug), 'sessions', `${firstSessionId}.jsonl`),
+      [
+        [anchorTurnId, 'turn.started', { userText: 'the live question' }],
+        [anchorTurnId, 'assistant.message', { text: 'the live answer' }],
+        [rewoundTurnId, 'turn.started', { userText: 'the discarded question' }],
+        [rewoundTurnId, 'assistant.message', { text: 'the discarded answer' }]
+      ]
+        .map(([turnId, type, payload]) =>
+          JSON.stringify({
+            type,
+            caseId,
+            caseSlug: slug,
+            sessionId: firstSessionId,
+            turnId,
+            payload
+          })
+        )
+        .join('\n') + '\n'
+    )
 
     // A second session forked from the first at the anchor turn. It needs its own transcript
     // file — registerImportedSessions only re-creates sessions it finds a mirrored .jsonl for.
     const secondSession = createSession(db, slug, 'claude-agent-sdk')
+    db.prepare(`UPDATE sessions SET title = ? WHERE id = ?`).run('parent chat', firstSessionId)
     db.prepare(
-      `UPDATE sessions SET forked_from_session_id = ?, forked_at_turn_id = ?, forked_inherited_turns = 1
+      `UPDATE sessions SET forked_from_session_id = ?, forked_at_turn_id = ?,
+              forked_inherited_turns = 1, title = ?
        WHERE id = ?`
-    ).run(firstSessionId, anchorTurnId, secondSession.id)
+    ).run(firstSessionId, anchorTurnId, 'parent chat (fork)', secondSession.id)
     fs.writeFileSync(
       path.join(caseDir(home, slug), 'sessions', `${secondSession.id}.jsonl`),
       JSON.stringify({
@@ -72,12 +102,13 @@ describe('restoreCase — rewind, provider anchors and fork lineage', () => {
     const newCaseId = getCase(db, slug)!.id
     const sessions = db
       .prepare(
-        `SELECT id, driver_kind AS driverKind, forked_from_session_id AS forkedFromSessionId,
+        `SELECT id, title, driver_kind AS driverKind, forked_from_session_id AS forkedFromSessionId,
                 forked_at_turn_id AS forkedAtTurnId, forked_inherited_turns AS forkedInheritedTurns
          FROM sessions WHERE case_id = ? ORDER BY id`
       )
       .all(newCaseId) as {
       id: number
+      title: string
       driverKind: string
       forkedFromSessionId: number | null
       forkedAtTurnId: number | null
@@ -85,6 +116,13 @@ describe('restoreCase — rewind, provider anchors and fork lineage', () => {
     }[]
     expect(sessions).toHaveLength(2)
     const [restoredParent, restoredChild] = sessions
+    // Titles are part of the sidecar for the same reason the lineage columns are:
+    // `registerImportedSessions` re-derives a title from the mirrored transcript's first user
+    // message, and a fork's mirror IS a copy of its parent's — so without this the two chats
+    // come back with the same name and the "(fork)" marker, which is the only thing telling
+    // them apart in the chat switcher, is gone. Found live 2026-09-05.
+    expect(restoredParent.title).toBe('parent chat')
+    expect(restoredChild.title).toBe('parent chat (fork)')
 
     const restoredAnchor = db
       .prepare(
@@ -109,6 +147,30 @@ describe('restoreCase — rewind, provider anchors and fork lineage', () => {
       .get(restoredParent.id) as { status: string; rewoundToTurnId: number | null }
     expect(restoredRewound.status).toBe('rewound')
     expect(restoredRewound.rewoundToTurnId).toBe(restoredAnchor.id)
+
+    // The mirror is what the renderer, the history digest and `read_session_transcript` all
+    // classify against, and it carries turn ids of its own. `registerImportedSessions` rewrites
+    // caseId/caseSlug/sessionId on every line but used to leave `turnId` at the EXPORTED value,
+    // which no longer names anything once `rebuildCaseRows` reassigns ids — so a restored case's
+    // rewound tail rendered as ordinary live turns (with rewind/fork menus on them) and both
+    // model-facing mirror readers stopped filtering it. Found live 2026-09-05.
+    const restoredEvents = readSessionEvents(caseDir(home, slug), restoredParent.id)
+    const restoredIds = new Set(
+      db
+        .prepare(`SELECT id FROM turns WHERE session_id = ?`)
+        .all(restoredParent.id)
+        .map((r) => (r as { id: number }).id)
+    )
+    const mirrorTurnIds = restoredEvents.map((e) => e.turnId).filter((t): t is number => t != null)
+    expect(mirrorTurnIds.length).toBeGreaterThan(0)
+    expect(mirrorTurnIds.every((t) => restoredIds.has(t))).toBe(true)
+    // …and the message index, which the distill/world/RCA readers join against `turns.status`
+    // to drop rewound content, has to point at the same rows.
+    const ftsTurnIds = db
+      .prepare(`SELECT turn_id AS turnId FROM messages_fts WHERE session_id = ?`)
+      .all(restoredParent.id) as { turnId: number | null }[]
+    expect(ftsTurnIds.length).toBeGreaterThan(0)
+    expect(ftsTurnIds.every((r) => r.turnId != null && restoredIds.has(r.turnId))).toBe(true)
 
     expect(restoredChild.forkedFromSessionId).toBe(restoredParent.id)
     expect(restoredChild.forkedAtTurnId).toBe(restoredAnchor.id)

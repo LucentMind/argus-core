@@ -5,6 +5,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { extract } from 'zip-lib'
 import {
   exportCase,
+  indexableFromEvents,
   readBundleRows,
   registerImportedSessions,
   reindexImportedEvidence,
@@ -14,7 +15,7 @@ import { getCase } from './caseService'
 import { appendDeletionAudit, bundleBytes } from './deletionAudit'
 import { freezeCase } from './caseFreeze'
 import { requeuePendingIndexes, type IngestQueueLike } from './ingestQueue'
-import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase } from './ftsIndex'
+import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase, insertMessageFts } from './ftsIndex'
 import { archiveDir, caseArchivePath, caseDir } from './paths'
 import { sidecarPath } from './lineIndex'
 import { EVIDENCE_DIR, ARTIFACTS_DIR } from '../../shared/evidenceScope'
@@ -593,7 +594,7 @@ function rebuildCaseRows(
   caseId: number,
   rows: BundleRows,
   sessionIds: Map<number, number>
-): void {
+): Map<number, number> {
   const turnIds = new Map<number, number>()
   const insertTurn = db.prepare(
     `INSERT INTO turns (case_id, session_id, turn_index, status, input_tokens, output_tokens,
@@ -666,19 +667,25 @@ function rebuildCaseRows(
 
   // registerImportedSessions rebuilds `sessions` purely from the mirrored transcript JSONL,
   // which carries none of driver_kind/instance_id/model/mode or the fork lineage a session was
-  // created with — apply what the sidecar recorded on top of the freshly re-created rows.
+  // created with, and DERIVES the title from the transcript's first user message — which for a
+  // fork is a copy of its parent's, so both chats came back identically named with the "(fork)"
+  // marker gone. Apply what the sidecar recorded on top of the freshly re-created rows.
   // forkedFromSessionId/forkedAtTurnId are remapped through the same id maps as everything
   // else here; pre_rewind_cursor and driver_cursor are deliberately left null (a cursor minted
   // by another machine's provider session is meaningless on this one).
+  // `title` is COALESCEd rather than assigned: a bundle written before titles were carried has
+  // `title: null` for every session, and overwriting the rebuild's derived title with NULL
+  // would leave those cases with nameless chats. A bundle that HAS the title always wins.
   const meta = db.prepare(
-    `UPDATE sessions SET driver_kind = ?, instance_id = ?, model = ?, mode = ?,
-            forked_from_session_id = ?, forked_at_turn_id = ?, forked_inherited_turns = ?
+    `UPDATE sessions SET title = COALESCE(?, title), driver_kind = ?, instance_id = ?, model = ?,
+            mode = ?, forked_from_session_id = ?, forked_at_turn_id = ?, forked_inherited_turns = ?
       WHERE id = ?`
   )
   for (const s of rows.sessions ?? []) {
     const id = sessionIds.get(s.id)
     if (id == null) continue
     meta.run(
+      s.title,
       s.driverKind,
       s.instanceId,
       s.model,
@@ -688,6 +695,63 @@ function rebuildCaseRows(
       s.forkedInheritedTurns,
       id
     )
+  }
+  return turnIds
+}
+
+/**
+ * Point the restored transcripts — the mirror JSONLs and the chat message index — at the turn
+ * rows `rebuildCaseRows` just created.
+ *
+ * `registerImportedSessions` rewrites `caseId`/`caseSlug`/`sessionId` on every mirror line but
+ * cannot touch `turnId`: at that point the turns do not exist yet. Left alone, every restored
+ * event names a turn id from before the archive, and everything that classifies transcript
+ * items by turn silently stops working — the renderer's greyed rewound tail (it renders as
+ * ordinary live turns, complete with rewind/fork menus), `filterLiveEvents`'s history digest,
+ * and `read_session_transcript`. The last two are the model-facing half: a restored case would
+ * feed rewound turns straight back into the agent's context, which is the one thing spec §7.1
+ * exists to prevent. Found live 2026-09-05 by `scripts/cdp-session-branch.mjs`.
+ *
+ * The message index is rebuilt rather than updated: `messages_fts` is an FTS5 table whose rowid
+ * is the key `messages_fts_map` (and every reader) joins on, and an UPDATE there is a
+ * delete-and-reinsert that moves it. Re-inserting through `insertMessageFts` — the single
+ * writer for this index — keeps the map correct by construction.
+ *
+ * A mirror line whose turn id is not in the map keeps `turnId: null` rather than a stale id: a
+ * pointer to a turn that no longer exists is worse than no pointer, and null is exactly what an
+ * un-turned session-level event already carries.
+ */
+function remapRestoredTurnIds(
+  db: DatabaseSync,
+  caseId: number,
+  dir: string,
+  sessionIds: Map<number, number>,
+  turnIds: Map<number, number>
+): void {
+  deleteMessagesFtsForCase(db, caseId)
+  for (const sessionId of sessionIds.values()) {
+    const file = path.join(dir, 'sessions', `${sessionId}.jsonl`)
+    if (!fs.existsSync(file)) continue
+    const events: Record<string, unknown>[] = []
+    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+      if (!line.trim()) continue
+      try {
+        const e = JSON.parse(line) as Record<string, unknown>
+        // Mutated in place, never `{ ...e, turnId }`: a spread would append the key to lines
+        // that legitimately have no `turnId` (session-level events) and move it to the end on
+        // the ones that do, rewriting the transcript for every event in the case rather than
+        // the ones this remap is actually about.
+        if (typeof e.turnId === 'number') e.turnId = turnIds.get(e.turnId) ?? null
+        events.push(e)
+      } catch {
+        // torn line — same tolerance as readSessionEvents
+      }
+    }
+    const body = events.map((e) => JSON.stringify(e)).join('\n')
+    fs.writeFileSync(file, body ? `${body}\n` : '')
+    for (const m of indexableFromEvents(events)) {
+      if (m.content.trim()) insertMessageFts(db, m.content, caseId, sessionId, m.turnId, m.role)
+    }
   }
 }
 
@@ -879,7 +943,10 @@ async function restoreFrozenCase(
     sessionsRestored = sessionIds.size
     // The database-only rows: the tool-call audit trail and the findings' deep-links, both of
     // which one archive/restore cycle used to destroy outright.
-    if (rows) rebuildCaseRows(db, caseId, rows, sessionIds)
+    if (rows) {
+      const turnIds = rebuildCaseRows(db, caseId, rows, sessionIds)
+      remapRestoredTurnIds(db, caseId, dir, sessionIds, turnIds)
+    }
 
     if (deps.afterRebuild) await deps.afterRebuild()
 
