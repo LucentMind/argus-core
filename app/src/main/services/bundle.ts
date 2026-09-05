@@ -123,8 +123,21 @@ export function collectCaseRows(db: DatabaseSync, caseId: number): BundleRows {
     .prepare(
       `SELECT id, session_id AS sessionId, turn_index AS turnIndex, status,
               input_tokens AS inputTokens, output_tokens AS outputTokens, cost_usd AS costUsd,
-              duration_ms AS durationMs, created_at AS createdAt
+              duration_ms AS durationMs, created_at AS createdAt, model,
+              rewound_at AS rewoundAt, rewound_to_turn_id AS rewoundToTurnId,
+              provider_anchor_id AS providerAnchorId
        FROM turns WHERE case_id = ? ORDER BY id`
+    )
+    .all(caseId) as unknown[]
+  // registerImportedSessions rebuilds `sessions` purely from the mirrored transcript JSONL,
+  // which carries none of these — without this, driver_kind/instance_id/model/mode and the
+  // fork lineage a session was created with are lost on the first archive/restore round trip.
+  const sessions = db
+    .prepare(
+      `SELECT id, driver_kind AS driverKind, instance_id AS instanceId, model, mode,
+              forked_from_session_id AS forkedFromSessionId, forked_at_turn_id AS forkedAtTurnId,
+              forked_inherited_turns AS forkedInheritedTurns
+         FROM sessions WHERE case_id = ? ORDER BY id`
     )
     .all(caseId) as unknown[]
   const toolCalls = db
@@ -154,7 +167,7 @@ export function collectCaseRows(db: DatabaseSync, caseId: number): BundleRows {
     }
     return { relPath: r.relPath, indexState: readIndexState(meta) }
   })
-  return bundleRowsSchema.parse({ turns, toolCalls, evidence, findingPointers })
+  return bundleRowsSchema.parse({ turns, toolCalls, evidence, findingPointers, sessions })
 }
 
 export async function exportCase(
