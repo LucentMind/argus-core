@@ -193,4 +193,36 @@ describe('claude runHeadless', () => {
       d.runHeadless!('prompt', { argusHome: os.tmpdir(), signal: ac.signal })
     ).rejects.toThrow('headless run cancelled')
   })
+
+  it('offers the model NO built-in tools (tools: []), not merely a permission allowlist that denies them', async () => {
+    // Live-verified (SDK 0.3.220): with only `allowedTools: []` the model still SEES Read/Bash/...
+    // in its prompt, calls one, and the denial spends the single turn → error_max_turns
+    // (num_turns=2, stop_reason=tool_use). With `tools: []` the same prompt completes in one
+    // turn. So the one-shot must pin BOTH: `tools` removes the offer, `allowedTools` the grant.
+    const q = scriptedQuery(['ok'])
+    const d = createClaudeDriver(q.fn)
+    await d.runHeadless!('prompt', { argusHome: '/tmp/argus' })
+    expect(q.opts()).toMatchObject({ tools: [], allowedTools: [], maxTurns: 1 })
+  })
+
+  it('surfaces num_turns/stop_reason/terminal_reason/errors on a non-success result, so a repeat of a cap hit is diagnosable', async () => {
+    const q = scriptedQuery(['partial'], {
+      subtype: 'error_max_turns',
+      num_turns: 2,
+      stop_reason: 'max_turns',
+      terminal_reason: 'turn_limit',
+      errors: ['model requested a continuation turn']
+    })
+    const d = createClaudeDriver(q.fn)
+    await expect(d.runHeadless!('prompt', { argusHome: '/tmp/argus' })).rejects.toThrow(
+      /error_max_turns.*num_turns=2.*stop_reason=max_turns.*terminal_reason=turn_limit.*model requested a continuation turn/
+    )
+  })
+
+  it('omits diagnostic fields the result message did not report, rather than printing "undefined"', async () => {
+    const q = scriptedQuery(['partial'], { subtype: 'error_during_execution' })
+    const d = createClaudeDriver(q.fn)
+    const err = await d.runHeadless!('prompt', { argusHome: '/tmp/argus' }).catch((e) => e)
+    expect((err as Error).message).toBe('headless run failed: error_during_execution')
+  })
 })
