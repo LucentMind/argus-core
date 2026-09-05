@@ -68,7 +68,11 @@ export const bundleRowsSchema = z.looseObject({
         mode: z.string(),
         forkedFromSessionId: z.number().nullable().default(null),
         forkedAtTurnId: z.number().nullable().default(null),
-        forkedInheritedTurns: z.number().nullable().default(null)
+        forkedInheritedTurns: z.number().nullable().default(null),
+        /** 'native' | 'digest' — what the fork actually got. Not recomputable after a restore
+         *  (the cursors and provider anchors that made it native are deliberately not put
+         *  back), and the divider that reports it is permanent, so it rides in the sidecar. */
+        forkedBranching: z.string().nullable().default(null)
       })
     )
     .default([]),

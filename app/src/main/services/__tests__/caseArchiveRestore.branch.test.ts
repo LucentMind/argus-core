@@ -83,7 +83,7 @@ describe('restoreCase — rewind, provider anchors and fork lineage', () => {
     db.prepare(`UPDATE sessions SET title = ? WHERE id = ?`).run('parent chat', firstSessionId)
     db.prepare(
       `UPDATE sessions SET forked_from_session_id = ?, forked_at_turn_id = ?,
-              forked_inherited_turns = 1, title = ?
+              forked_inherited_turns = 1, forked_branching = 'native', title = ?
        WHERE id = ?`
     ).run(firstSessionId, anchorTurnId, 'parent chat (fork)', secondSession.id)
     fs.writeFileSync(
@@ -104,7 +104,8 @@ describe('restoreCase — rewind, provider anchors and fork lineage', () => {
     const sessions = db
       .prepare(
         `SELECT id, title, driver_kind AS driverKind, forked_from_session_id AS forkedFromSessionId,
-                forked_at_turn_id AS forkedAtTurnId, forked_inherited_turns AS forkedInheritedTurns
+                forked_at_turn_id AS forkedAtTurnId, forked_inherited_turns AS forkedInheritedTurns,
+                forked_branching AS forkedBranching
          FROM sessions WHERE case_id = ? ORDER BY id`
       )
       .all(newCaseId) as {
@@ -114,6 +115,7 @@ describe('restoreCase — rewind, provider anchors and fork lineage', () => {
       forkedFromSessionId: number | null
       forkedAtTurnId: number | null
       forkedInheritedTurns: number | null
+      forkedBranching: string | null
     }[]
     expect(sessions).toHaveLength(2)
     const [restoredParent, restoredChild] = sessions
@@ -176,6 +178,10 @@ describe('restoreCase — rewind, provider anchors and fork lineage', () => {
     expect(restoredChild.forkedFromSessionId).toBe(restoredParent.id)
     expect(restoredChild.forkedAtTurnId).toBe(restoredAnchor.id)
     expect(restoredChild.forkedInheritedTurns).toBe(1)
+    // The divider's wording is permanent, so the branching the fork actually got has to survive
+    // the round trip: recomputing it after a restore is impossible (the cursors and provider
+    // anchors a native fork was cut from are deliberately not restored).
+    expect(restoredChild.forkedBranching).toBe('native')
     expect(restoredChild.driverKind).toBe('claude-agent-sdk')
   })
 })

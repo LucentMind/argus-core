@@ -26,13 +26,14 @@ describe('branching schema', () => {
     )
     expect(cols('turns')).not.toContain('provider_user_message_id') // V9: resolved at rewind time, never stored
   })
-  it('adds the four session columns', () => {
+  it('adds the five session columns', () => {
     expect(cols('sessions')).toEqual(
       expect.arrayContaining([
         'forked_from_session_id',
         'forked_at_turn_id',
         'forked_inherited_turns',
-        'pre_rewind_cursor'
+        'pre_rewind_cursor',
+        'forked_branching'
       ])
     )
   })

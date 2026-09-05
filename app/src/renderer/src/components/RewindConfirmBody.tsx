@@ -13,11 +13,22 @@ function stayingReasonLabel(reason: 'accepted' | 'already-retracted'): string {
  * summarized by tool + count instead, with a caveat that files are not restored.
  */
 export function RewindConfirmBody({ preview }: { preview: RewindPreview }): React.JSX.Element {
-  const { tail, findingsToRetract, findingsStaying, externalActions, files } = preview
+  const { tail, branching, findingsToRetract, findingsStaying, externalActions, files } = preview
   return (
     <div className="space-y-2 text-xs">
       <span className="block">
         {tail.length} turn{tail.length === 1 ? '' : 's'} will be discarded.
+      </span>
+      {/* What survives in the AGENT's head, from `preview.branching` — main's per-anchor answer.
+          Deliberately its own line rather than a clause inside the file-restore block below:
+          context and files are two different facts that merely correlate on the previews main
+          produces today, and burying the sentence in the native-files branch is what let a
+          digest rewind (native driver, anchor with no provider id — V2/V14) claim full context
+          was kept. */}
+      <span className="block text-mute">
+        {branching === 'native'
+          ? 'The agent keeps its full context up to this point.'
+          : 'The agent receives a summary of the history up to this point.'}
       </span>
       {findingsToRetract.length > 0 && (
         <div>
@@ -64,8 +75,7 @@ export function RewindConfirmBody({ preview }: { preview: RewindPreview }): Reac
             </ul>
           )}
           <span className="block text-mute">
-            {files.skipped} skipped{files.error ? ` — ${files.error}` : ''}. The agent keeps its
-            full context up to this point.
+            {files.skipped} skipped{files.error ? ` — ${files.error}` : ''}.
           </span>
         </div>
       ) : (

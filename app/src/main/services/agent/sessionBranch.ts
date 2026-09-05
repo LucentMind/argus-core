@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { AgentDriver } from './driver'
-import type { RewindPreview, RewindResult } from '../../../shared/branching'
+import type { Branching, RewindPreview, RewindResult } from '../../../shared/branching'
 import { TURN_STATUS_REWOUND } from '../../../shared/branching'
 import type { SessionSummary } from '../../../shared/types'
 import type { AgentEvent } from '../../../shared/agent-events'
@@ -150,6 +150,33 @@ function nativeBranching(driver: AgentDriver, session: SessionRow, anchorRow: Tu
     !!session.driver_cursor &&
     !!anchorRow.provider_anchor_id
   )
+}
+
+/**
+ * What branching a branch AT THIS ANCHOR would actually get — the one question the renderer
+ * cannot answer for itself.
+ *
+ * `capabilitiesFor(settings, instanceId).branching` is a DRIVER fact; `nativeBranching` is an
+ * ANCHOR fact, and they disagree routinely: the capability says 'digest' while settings are
+ * still loading or when `instanceId` is null, and 'native' on a Claude turn that carries no
+ * `provider_anchor_id` — which is every inherited turn of a fork (V2) and every turn surviving
+ * a native rewind (V14). Deriving the fork dialog's promise and the permanent divider's wording
+ * from the capability let both state the opposite of what happened.
+ *
+ * Read-only and cheap: preflight plus the predicate, no driver round trip (that is
+ * `rewindPreview`'s dry run) and no eviction. Preflight runs under the FORK rules — the last
+ * live turn is a legal fork anchor even though it is not a legal rewind anchor — so the same
+ * call serves the fork dialog; a rewind's own preview already reports `branching` itself.
+ */
+export async function branchPreview(
+  deps: BranchDeps,
+  caseSlug: string,
+  sessionId: number,
+  anchorTurnId: number
+): Promise<{ branching: Branching }> {
+  const { session, anchorRow } = preflight(deps, caseSlug, sessionId, anchorTurnId, 'fork')
+  const driver = deps.driverFor(sessionId)
+  return { branching: nativeBranching(driver, session, anchorRow) ? 'native' : 'digest' }
 }
 
 export async function rewindPreview(
@@ -398,8 +425,9 @@ export function forkCaseSession(
         db
           .prepare(
             `INSERT INTO sessions (case_id, driver_cursor, driver_kind, instance_id, model, title, turn_count, created_at, updated_at,
-                               mode, run_options, permission_mode, forked_from_session_id, forked_at_turn_id, forked_inherited_turns)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                               mode, run_options, permission_mode, forked_from_session_id, forked_at_turn_id, forked_inherited_turns,
+                               forked_branching)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .run(
             session.case_id,
@@ -416,7 +444,12 @@ export function forkCaseSession(
             session.permission_mode,
             sessionId,
             anchorTurnId,
-            inherited.length
+            inherited.length,
+            // What this fork ACTUALLY got, from the one fact that decides it: a cursor came
+            // back from the provider, or it did not. Recorded rather than recomputed at render
+            // time — the anchor's provider id can be cleared afterwards (V14) and archive
+            // restore never puts the cursors back, yet the divider quoting this is permanent.
+            cursor !== null ? 'native' : 'digest'
           ).lastInsertRowid
       )
       const copy = db.prepare(

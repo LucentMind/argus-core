@@ -27,6 +27,29 @@ describe('RewindConfirmBody', () => {
     expect(screen.getByText(/jira_comment/)).toBeInTheDocument()
     expect(screen.getByText('a.txt')).toBeInTheDocument()
     expect(screen.getByText(/1 skipped/)).toBeInTheDocument()
+    expect(screen.getByText(/keeps its full context up to this point/)).toBeInTheDocument()
+  })
+
+  /**
+   * I3. "What context survives" and "what happens to files" are two different facts. They
+   * correlate on every preview main produces today (both come from `nativeBranching`), which is
+   * exactly why the context sentence used to live inside the file-restore block and could not
+   * be told apart from it. This preview separates them: `branching` is the field that decides
+   * the sentence, and a rendering keyed on `files.kind` fails here.
+   */
+  it('takes the context sentence from preview.branching, not from the file block', () => {
+    const preview: RewindPreview = {
+      anchorTurnId: 1,
+      branching: 'digest',
+      tail: [{ turnId: 2, userText: 'second' }],
+      findingsToRetract: [],
+      findingsStaying: [],
+      externalActions: [],
+      files: { kind: 'native', restored: ['a.txt'], skipped: 0 }
+    }
+    render(<RewindConfirmBody preview={preview} />)
+    expect(screen.getByText(/receives a summary of the history/)).toBeInTheDocument()
+    expect(screen.queryByText(/keeps its full context/)).toBeNull()
   })
 
   it('renders the counts-only file summary and provider caveat for a digest driver', () => {
@@ -43,5 +66,6 @@ describe('RewindConfirmBody', () => {
 
     expect(screen.getByText(/Edit ×3/)).toBeInTheDocument()
     expect(screen.getByText(/files are not restored on this provider/)).toBeInTheDocument()
+    expect(screen.getByText(/receives a summary of the history/)).toBeInTheDocument()
   })
 })

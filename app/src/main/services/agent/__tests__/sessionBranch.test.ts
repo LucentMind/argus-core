@@ -7,8 +7,14 @@ import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { caseDir } from '../../paths'
 import { readSessionEvents } from '../mirror'
-import { rewindPreview, rewindSession, forkCaseSession, type BranchDeps } from '../sessionBranch'
-import { TITLE_MAX } from '../sessionStore'
+import {
+  branchPreview,
+  rewindPreview,
+  rewindSession,
+  forkCaseSession,
+  type BranchDeps
+} from '../sessionBranch'
+import { TITLE_MAX, sessionSummary } from '../sessionStore'
 import * as findingsModule from '../../findings'
 import { freezeCase, resetFreezeRegistryForTests } from '../../caseFreeze'
 import type { AgentDriver } from '../driver'
@@ -184,6 +190,52 @@ describe('rewindPreview', () => {
     const p = await rewindPreview(deps(digestDriver()), SLUG, sessionId, turns[0])
     expect(p.files).toEqual({ kind: 'counts', writes: [{ tool: 'Edit', count: 1 }] })
     expect(p.branching).toBe('digest')
+  })
+})
+
+/**
+ * I3. The renderer used to derive "will this fork carry full context or a summary?" from
+ * `capabilitiesFor(settings, instanceId).branching` — a DRIVER-level fact. Main decides it per
+ * ANCHOR (`nativeBranching`), and the two disagree in three ordinary situations: while settings
+ * are still loading, on a session whose `instanceId` is null, and on any turn with no
+ * `provider_anchor_id` (every inherited turn of a fork per V2; every surviving turn after a
+ * native rewind per V14). The dialog and the permanent divider both said "full context carried
+ * over" for forks that got a digest. This is main answering the question it actually decides.
+ */
+describe('branchPreview', () => {
+  it('reports native for an anchor the provider can slice at', async () => {
+    expect(await branchPreview(deps(nativeDriver()), SLUG, sessionId, turns[1])).toEqual({
+      branching: 'native'
+    })
+  })
+  it('reports digest when the anchor turn has no provider anchor (V2 / V14)', async () => {
+    db.prepare(`UPDATE turns SET provider_anchor_id = NULL WHERE id = ?`).run(turns[1])
+    expect(await branchPreview(deps(nativeDriver()), SLUG, sessionId, turns[1])).toEqual({
+      branching: 'digest'
+    })
+  })
+  it('reports digest on a driver without the branching hooks', async () => {
+    expect(await branchPreview(deps(digestDriver()), SLUG, sessionId, turns[1])).toEqual({
+      branching: 'digest'
+    })
+  })
+  it('runs FORK preflight: the last turn is a legal fork anchor, a rewound one is not', async () => {
+    await expect(
+      branchPreview(deps(nativeDriver()), SLUG, sessionId, turns[2])
+    ).resolves.toBeTruthy()
+    await rewindSession(deps(nativeDriver()), SLUG, sessionId, turns[0])
+    await expect(branchPreview(deps(nativeDriver()), SLUG, sessionId, turns[1])).rejects.toThrow(
+      /was rewound/
+    )
+  })
+  it('makes nothing happen: no driver call, no eviction, no write', async () => {
+    const drv = nativeDriver()
+    const d = deps(drv)
+    await branchPreview(d, SLUG, sessionId, turns[1])
+    expect(drv.forkAt).not.toHaveBeenCalled()
+    expect(drv.previewRewind).not.toHaveBeenCalled()
+    expect(d.evictLive).not.toHaveBeenCalled()
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM sessions`).get()).toEqual({ n: 1 })
   })
 })
 
@@ -422,7 +474,12 @@ describe('forkCaseSession', () => {
       cliPath: undefined
     })
     expect(s.title).toBe('parent (fork)')
-    expect(s.forkedFrom).toEqual({ sessionId, turnId: turns[1], inheritedTurns: 2 })
+    expect(s.forkedFrom).toEqual({
+      sessionId,
+      turnId: turns[1],
+      inheritedTurns: 2,
+      branching: 'native'
+    })
     expect(s.driverKind).toBe('claude-agent-sdk')
     const row = db
       .prepare(
@@ -487,6 +544,35 @@ describe('forkCaseSession', () => {
     const s = await forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[0])
     expect(s.forkedFrom?.inheritedTurns).toBe(1)
   })
+  /**
+   * I3's persistence half. The divider is PERMANENT — it still has to say what happened long
+   * after the driver, the pinned instance or the anchor ids have moved on — so the branching a
+   * fork actually got is recorded on the row at fork time, not recomputed at render time from
+   * facts that no longer describe it.
+   */
+  it('records the branching the fork actually got, on the row and on the summary', async () => {
+    const native = await forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[1])
+    expect(native.forkedFrom?.branching).toBe('native')
+    expect(db.prepare(`SELECT forked_branching FROM sessions WHERE id = ?`).get(native.id)).toEqual(
+      { forked_branching: 'native' }
+    )
+
+    const digest = await forkCaseSession(deps(digestDriver()), SLUG, sessionId, turns[1])
+    expect(digest.forkedFrom?.branching).toBe('digest')
+    expect(db.prepare(`SELECT forked_branching FROM sessions WHERE id = ?`).get(digest.id)).toEqual(
+      { forked_branching: 'digest' }
+    )
+  })
+
+  it('reports digest for a fork row written before the column existed', async () => {
+    // Nullable column, no backfill (the house migration rule). A pre-existing fork row has no
+    // recorded branching, and 'digest' is the honest answer: the summary path is what the
+    // renderer must promise when it cannot prove full context was carried.
+    const s = await forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[1])
+    db.prepare(`UPDATE sessions SET forked_branching = NULL WHERE id = ?`).run(s.id)
+    expect(sessionSummary(db, s.id)!.forkedFrom?.branching).toBe('digest')
+  })
+
   it('stamps historyOrphaned true on a digest fork (no native cursor) and false on a native one', async () => {
     const digest = await forkCaseSession(deps(digestDriver()), SLUG, sessionId, turns[1])
     expect(digest.historyOrphaned).toBe(true)
