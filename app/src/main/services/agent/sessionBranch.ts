@@ -42,6 +42,8 @@ export const EXTERNAL_TOOLS: readonly string[] = [
 ]
 const isExternal = (tool: string): boolean => EXTERNAL_TOOLS.includes(tool) || /jira/i.test(tool)
 export const WRITE_TOOLS: readonly string[] = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash']
+/** Appended to a fork's title (spec §5). Never truncated away — see `forkCaseSession`. */
+const FORK_SUFFIX = ' (fork)'
 
 // One in-process lock per session. Non-reentrant on purpose (caseFreeze.ts has the argument).
 const busy = new Set<number>()
@@ -290,6 +292,24 @@ export function rewindSession(
         `UPDATE turns SET status = ?, rewound_at = ?, rewound_to_turn_id = ? WHERE id = ?`
       )
       for (const t of tail) mark.run(TURN_STATUS_REWOUND, now, anchorTurnId, t.id)
+      // A native rewind replaces this session's cursor with a FORK of the provider session, and
+      // the SDK remaps every message uuid across a fork — the same fact deviation V2 records for
+      // a fork's inherited turns. So every turn that SURVIVES this rewind carries an anchor that
+      // names nothing in the session it now belongs to. Found live 2026-09-05
+      // (`scripts/cdp-session-branch.mjs`): after a rewind, "Fork from here" on the anchor turn
+      // failed with `Message <anchor> not found in session <new cursor>` — a hard error, not a
+      // degraded path. Forget them here, so a later branch at one of those turns takes the
+      // digest route (`nativeBranching` requires a non-null anchor) instead.
+      //
+      // Runs AFTER the mark loop so the rewound tail is already excluded by status: those ids
+      // stay valid in `pre_rewind_cursor`, which the statement below preserves, and preflight
+      // refuses a rewound turn as an anchor regardless. Guarded on `newCursor` because a digest
+      // rewind forks nothing and invalidates nothing.
+      if (newCursor) {
+        db.prepare(
+          `UPDATE turns SET provider_anchor_id = NULL WHERE session_id = ? AND status != ?`
+        ).run(sessionId, TURN_STATUS_REWOUND)
+      }
       for (const f of toRetract) {
         // M6: only findings retractFinding actually changed get broadcast below — a finding a
         // human already rejected directly is left alone (`changed: false`) and must not fire a
@@ -355,8 +375,16 @@ export function forkCaseSession(
       // tail re-read, kept symmetric even though (unlike the tail) a race turn's id is always
       // greater than anchorTurnId and so can never change what this filter selects.
       inherited = liveTurnRows(db, sessionId).filter((t) => t.id <= anchorTurnId)
+      // The suffix is the only thing that tells a fork apart from its parent in the chat
+      // switcher, so the BASE gives way to the cap, never the marker. Truncating the joined
+      // string instead sliced " (fork)" straight back off for every AUTO-titled chat —
+      // `setTitleIfEmpty` cuts a first message to exactly TITLE_MAX — leaving two identically
+      // named rows in the switcher. Found live 2026-09-05 (`scripts/cdp-session-branch.mjs`).
       const base = session.title.trim() || 'Chat'
-      const title = `${base} (fork)`.slice(0, TITLE_MAX)
+      const title =
+        base.length + FORK_SUFFIX.length <= TITLE_MAX
+          ? base + FORK_SUFFIX
+          : base.slice(0, TITLE_MAX - FORK_SUFFIX.length).trimEnd() + FORK_SUFFIX
       newId = Number(
         db
           .prepare(
