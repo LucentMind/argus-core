@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ChatJumpTarget, SessionSummary } from '../../../shared/types'
 import type { RunOptionSelection } from '../../../shared/runOptions'
 import type { PermissionMode } from '../../../shared/settings'
+import { capabilitiesFor } from '../../../shared/drivers'
 import { agentStore, type TranscriptItem } from '../lib/agentStore'
 import { citationsTray } from '../lib/citationsTray'
 import { composerDraft } from '../lib/composerDraft'
@@ -9,6 +10,8 @@ import { composerAttachments } from '../lib/composerAttachments'
 import { attachFiles } from '../lib/attachFiles'
 import { reposStore } from '../lib/reposStore'
 import { sessionsStore } from '../lib/sessionsStore'
+import { useSettingsPayload } from '../lib/settingsStore'
+import { segmentTranscript, forkDividerIndex } from '../lib/transcriptSegments'
 import type { CiteTarget } from '../lib/citations'
 import { CitedText } from './CitedText'
 import { uiStore } from '../lib/uiStore'
@@ -19,6 +22,8 @@ import { ApprovalCard } from './ApprovalCard'
 import { QuestionCard } from './QuestionCard'
 import { ChatFind } from './ChatFind'
 import { ThinkingIndicator } from './ThinkingIndicator'
+import { RewoundTail } from './RewoundTail'
+import { ForkDivider } from './ForkDivider'
 
 // The FTS snippet is a contiguous region of the indexed text with matched
 // terms wrapped in «» and boundary ellipses — stripping those yields a raw
@@ -66,11 +71,12 @@ function resolveFocusIndex(items: TranscriptItem[], target: ChatJumpTarget | nul
 export function ChatPane({
   slug,
   sessionId,
-  session = null,
+  session: sessionProp = null,
   onModelChange,
   onRunOptionsChange,
   onPermissionModeChange,
   onCite,
+  onSwitchSession,
   focusTarget = null,
   onFocusConsumed,
   prefill,
@@ -87,6 +93,9 @@ export function ChatPane({
   /** Pin this chat's permission mode. */
   onPermissionModeChange?: (mode: PermissionMode) => void
   onCite: (cite: CiteTarget) => void
+  /** Switch the active chat to another session in this case — used by the fork divider's
+   *  "open parent chat" affordance. */
+  onSwitchSession?: (id: number) => void
   focusTarget?: ChatJumpTarget | null
   onFocusConsumed?: () => void
   prefill?: string
@@ -99,6 +108,16 @@ export function ChatPane({
     (cb) => agentStore.subscribe(cb),
     () => agentStore.get(slug, sessionId)
   )
+  // `session` is normally the prop CaseWorkspace passes (itself sourced from sessionsStore —
+  // see CaseWorkspace's own `useSyncExternalStore(sessionsStore...)`), but a caller that skips
+  // the prop (a session-switcher affordance, a test) still needs the rewound/forkedFrom truth
+  // to render this transcript correctly — so fall back to a direct lookup by id.
+  const sessionsForCase = useSyncExternalStore(
+    (cb) => sessionsStore.subscribe(cb),
+    () => sessionsStore.get(slug)
+  )
+  const session = sessionProp ?? sessionsForCase.find((s) => s.id === sessionId) ?? null
+  const settingsPayload = useSettingsPayload()
   const showToolCalls = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
     () => uiStore.get().showToolCalls
@@ -358,6 +377,60 @@ export function ChatPane({
     !(lastItem?.kind === 'assistant' && lastItem.streaming) &&
     !(lastItem?.kind === 'tool' && !lastItem.done && showToolCalls)
 
+  const branchingOf = (s: SessionSummary): 'native' | 'digest' =>
+    capabilitiesFor(settingsPayload?.settings, s.instanceId).branching
+  const dividerAt = session?.forkedFrom
+    ? forkDividerIndex(state.items, session.forkedFrom.inheritedTurns)
+    : -1
+
+  function renderItem(item: TranscriptItem, i: number): React.JSX.Element | null {
+    if (item.kind === 'user') {
+      return (
+        <div
+          key={i}
+          data-turn-id={item.turnId ?? undefined}
+          data-item-index={i}
+          className={`ml-12 min-w-0 ${item.composed ? '' : 'whitespace-pre-wrap'} break-words rounded-r3 border border-hair p-3 text-sm text-ink transition-colors ${
+            i === flashIndex ? 'bg-signal/20' : 'bg-hi'
+          } ${findRingClass(i)}`}
+        >
+          {item.composed ? (
+            <MessageView
+              markdown={item.text}
+              onCite={onCite}
+              caseSlug={slug}
+              repoNames={repoNames}
+            />
+          ) : (
+            <CitedText text={item.text} onCite={onCite} caseSlug={slug} repoNames={repoNames} />
+          )}
+        </div>
+      )
+    }
+    if (item.kind === 'assistant') {
+      return (
+        <div
+          key={i}
+          data-item-index={i}
+          className={`mr-6 min-w-0 break-words rounded-r3 transition-colors ${
+            i === flashIndex ? 'bg-signal/20' : ''
+          } ${findRingClass(i)}`}
+        >
+          <MessageView
+            markdown={item.text}
+            onCite={onCite}
+            caseSlug={slug}
+            repoNames={repoNames}
+            streaming={item.streaming}
+          />
+          {item.streaming && <span className="text-xs text-mute">…</span>}
+        </div>
+      )
+    }
+    if (!showToolCalls) return null
+    return <ToolCallCard key={item.toolCallId} item={item} />
+  }
+
   return (
     <div ref={paneRef} className="relative flex min-h-0 flex-1 flex-col">
       {findOpen && (
@@ -392,58 +465,26 @@ export function ChatPane({
             flex layout, so only this wrapper's height reports the transcript
             growing (mermaid SVGs, images) to the ResizeObserver above */}
         <div ref={contentRef} className="space-y-3">
-          {state.items.map((item, i) => {
-            if (item.kind === 'user') {
-              return (
-                <div
-                  key={i}
-                  data-turn-id={item.turnId ?? undefined}
-                  data-item-index={i}
-                  className={`ml-12 min-w-0 ${item.composed ? '' : 'whitespace-pre-wrap'} break-words rounded-r3 border border-hair p-3 text-sm text-ink transition-colors ${
-                    i === flashIndex ? 'bg-signal/20' : 'bg-hi'
-                  } ${findRingClass(i)}`}
-                >
-                  {item.composed ? (
-                    <MessageView
-                      markdown={item.text}
-                      onCite={onCite}
-                      caseSlug={slug}
-                      repoNames={repoNames}
-                    />
-                  ) : (
-                    <CitedText
-                      text={item.text}
-                      onCite={onCite}
-                      caseSlug={slug}
-                      repoNames={repoNames}
+          {segmentTranscript(state.items, session?.rewound ?? []).map((seg, si) =>
+            seg.kind === 'live' ? (
+              seg.items.map(({ item, index }) => (
+                <Fragment key={index}>
+                  {renderItem(item, index)}
+                  {index === dividerAt && session?.forkedFrom && (
+                    <ForkDivider
+                      origin={session.forkedFrom}
+                      branching={branchingOf(session)}
+                      onOpenParent={onSwitchSession}
                     />
                   )}
-                </div>
-              )
-            }
-            if (item.kind === 'assistant') {
-              return (
-                <div
-                  key={i}
-                  data-item-index={i}
-                  className={`mr-6 min-w-0 break-words rounded-r3 transition-colors ${
-                    i === flashIndex ? 'bg-signal/20' : ''
-                  } ${findRingClass(i)}`}
-                >
-                  <MessageView
-                    markdown={item.text}
-                    onCite={onCite}
-                    caseSlug={slug}
-                    repoNames={repoNames}
-                    streaming={item.streaming}
-                  />
-                  {item.streaming && <span className="text-xs text-mute">…</span>}
-                </div>
-              )
-            }
-            if (!showToolCalls) return null
-            return <ToolCallCard key={item.toolCallId} item={item} />
-          })}
+                </Fragment>
+              ))
+            ) : (
+              <RewoundTail key={`rw-${si}`} turnCount={seg.turnIds.length} at={seg.at}>
+                {seg.items.map(({ item, index }) => renderItem(item, index))}
+              </RewoundTail>
+            )
+          )}
           {state.pending.map((p) => (
             <ApprovalCard
               key={p.requestId}

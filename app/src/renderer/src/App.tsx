@@ -22,6 +22,7 @@ import { viewerForFileNode } from './lib/fileRouting'
 import { watchFullScreen } from './lib/fullScreen'
 import { composerDraft } from './lib/composerDraft'
 import { panelsStore } from './lib/panelsStore'
+import { sessionsStore } from './lib/sessionsStore'
 import { useSettingsPayload } from './lib/settingsStore'
 import { uiStore } from './lib/uiStore'
 import { nextView, type View } from './lib/viewReducer'
@@ -137,6 +138,18 @@ function App(): React.JSX.Element {
   // component that could unmount: the attribute is document-wide chrome state, and the header
   // that reads it (via CSS) is present on every view.
   useEffect(() => watchFullScreen(), [])
+
+  // `sessions:changed` — a chat's turns changed via a rewind or a fork, possibly in another
+  // window. Refetching the case's session list is what lets an open ChatPane pick up the new
+  // `rewound`/`forkedFrom` state (and a fork's new sibling row) without the user having to
+  // switch away and back. Guarded like `cases.onChanged` above: a test's stub bridge need not
+  // populate it.
+  useEffect(() => {
+    if (!window.argus?.sessions?.onChanged) return
+    return window.argus.sessions.onChanged(
+      (slug) => void sessionsStore.load(slug).catch(() => undefined)
+    )
+  }, [])
 
   // single global subscriber: cite chips land in the tray regardless of which
   // pane/session is focused when the `cite` verb fires
