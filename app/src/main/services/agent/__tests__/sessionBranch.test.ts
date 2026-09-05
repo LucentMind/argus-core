@@ -306,7 +306,10 @@ describe('rewindSession', () => {
     const d = deps(drv, {
       evictLive: vi.fn(async () => {
         // simulates a `send` landing in the window between the preflight snapshot and the
-        // write: a NEW turn, id > anchor, that preflight's stale `tail` never saw.
+        // write: a NEW turn, id > anchor, that preflight's stale `tail` never saw. Only on the
+        // FIRST eviction — the second one (I2) runs after the write, where a fresh turn would
+        // be a different scenario entirely.
+        if (raceTurnId) return
         raceTurnId = Number(
           db
             .prepare(
@@ -322,6 +325,32 @@ describe('rewindSession', () => {
       status: 'rewound'
     })
   })
+  /**
+   * I2. `evictLive` ran ONCE, before the driver await. A `send` that starts and completes
+   * inside that window re-warms a `CaseSession` holding the OLD cursor, and registry.ts's reuse
+   * check does not compare cursors — so the next send would talk to the pre-rewind conversation
+   * as if the rewind had never happened. The second eviction has to come after the row shows
+   * the new cursor, which is what `seen` pins: an eviction that happened before the COMMIT
+   * would read 'cur-0' twice.
+   */
+  it('evicts the warm session again AFTER the cursor swap is committed', async () => {
+    const seen: (string | null)[] = []
+    const d = deps(nativeDriver(), {
+      evictLive: vi.fn(async () => {
+        seen.push(
+          (
+            db.prepare(`SELECT driver_cursor FROM sessions WHERE id = ?`).get(sessionId) as {
+              driver_cursor: string | null
+            }
+          ).driver_cursor
+        )
+      })
+    })
+    await rewindSession(d, SLUG, sessionId, turns[0])
+    expect(d.evictLive).toHaveBeenCalledTimes(2)
+    expect(seen).toEqual(['cur-0', 'rewound-cursor'])
+  })
+
   it('only broadcasts findings whose retraction actually changed something', async () => {
     const secondId = Number(
       db
@@ -430,6 +459,29 @@ describe('forkCaseSession', () => {
     expect(new Set(ev.map((e) => e.sessionId))).toEqual(new Set([s.id]))
     expect(d.sessionsChanged).toHaveBeenCalledWith(SLUG)
   })
+  /** I2's fork half: the parent's mirror is COPIED inside the transaction, so a session
+   *  re-warmed during the (slow) `forkAt` round trip is appending to the very file the copy
+   *  read. Evicting again once the fork row exists closes that window the same way. */
+  it('evicts the parent again AFTER the fork row is committed', async () => {
+    const seen: number[] = []
+    const d = deps(nativeDriver(), {
+      evictLive: vi.fn(async () => {
+        seen.push(
+          Number(
+            (
+              db
+                .prepare(`SELECT COUNT(*) AS n FROM sessions WHERE forked_from_session_id = ?`)
+                .get(sessionId) as { n: number }
+            ).n
+          )
+        )
+      })
+    })
+    await forkCaseSession(d, SLUG, sessionId, turns[1])
+    expect(d.evictLive).toHaveBeenCalledTimes(2)
+    expect(seen).toEqual([0, 1])
+  })
+
   it('skips rewound turns of the parent and allows forking from the last turn', async () => {
     await rewindSession(deps(nativeDriver()), SLUG, sessionId, turns[0])
     const s = await forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[0])
