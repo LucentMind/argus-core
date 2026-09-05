@@ -9,7 +9,7 @@ import { listFindings } from '../findings'
 import { listEvidence } from '../ingest'
 import { caseDir } from '../paths'
 import { findJiraEvidence, jiraMeta } from '../jiraEvidenceMeta'
-import { TURN_STATUS_REWOUND } from '../../../shared/branching'
+import { liveTurnJoinSql } from '../agent/liveTurns'
 
 /** Tail cap per session; RCA needs the conclusion of a conversation, not its start. */
 export const TRANSCRIPT_CAP = 8000
@@ -79,17 +79,18 @@ export function assembleRcaInput(
     )
     .all(c.id, DEFAULT_MODE, DEFAULT_MODE) as { id: number; title: string }[]
 
+  const live = liveTurnJoinSql('m') // the one statement of "not rewound" (spec §7.1)
   const transcripts = sessions
     .map((s) => {
       const rows = db
         .prepare(
           `SELECT m.content, m.role FROM messages_fts m
-             LEFT JOIN turns t ON t.id = m.turn_id
+             ${live.join}
             WHERE m.case_id = ? AND m.session_id = ? AND m.role IN ('user','assistant')
-              AND (t.status IS NULL OR t.status != '${TURN_STATUS_REWOUND}')
+              AND ${live.where}
             ORDER BY m.rowid ASC`
         )
-        .all(c.id, s.id) as { content: string; role: string }[]
+        .all(c.id, s.id, live.param) as { content: string; role: string }[]
       const text = rows.map((r) => `${r.role}: ${r.content}`).join('\n')
       return { title: s.title, text: text.slice(-TRANSCRIPT_CAP) }
     })

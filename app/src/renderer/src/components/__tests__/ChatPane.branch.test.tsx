@@ -149,6 +149,7 @@ describe('ChatPane branching UI', () => {
     apply(slug, 5, 'turn.started', { userText: 'inherited' })
     apply(slug, 5, 'assistant.message', { text: 'r' })
     apply(slug, 6, 'turn.started', { userText: 'mine' })
+    sessionsStore.upsert(slug, { ...baseSession, id: 7, rewound: [], forkedFrom: null })
     sessionsStore.upsert(slug, {
       ...baseSession,
       id: 1,
@@ -163,6 +164,25 @@ describe('ChatPane branching UI', () => {
     ).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /open parent chat/i }))
     expect(onSwitch).toHaveBeenCalledWith(7)
+  })
+
+  /** M1's renderer half. `deleteSession` clears the lineage of chats it deletes, but a second
+   *  window can be showing a fork whose parent has just gone, and the summary in this window's
+   *  store is a snapshot. The divider is history and still belongs on screen; the "open" button
+   *  is a promise this window cannot keep, so it is the part that goes. */
+  it('keeps the divider but drops the open button when the parent chat is gone', () => {
+    const slug = 'NAV-FORK-ORPHAN'
+    apply(slug, 5, 'turn.started', { userText: 'inherited' })
+    apply(slug, 5, 'assistant.message', { text: 'r' })
+    sessionsStore.upsert(slug, {
+      ...baseSession,
+      id: 1,
+      rewound: [],
+      forkedFrom: { sessionId: 42, turnId: 3, inheritedTurns: 1, branching: 'native' }
+    })
+    render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} onSwitchSession={vi.fn()} />)
+    expect(screen.getByText(/Forked from chat 42/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /open parent chat/i })).toBeNull()
   })
 
   it('still renders the fork divider when it falls inside a later-rewound run', () => {
