@@ -265,6 +265,24 @@ describe('registerSessionBranchIpc', () => {
     }
   )
 
+  /** M4: the renderer tells main what the dialog the user actually confirmed said about files,
+   *  because main no longer runs the dry run a second time (I4). */
+  it('sessions:rewind passes { filesUnavailable } through, degrading the rewind to a fork', async () => {
+    const drv = nativeDriver()
+    const { handlers } = harness(drv, idleAgentService())
+    await handlers.get(IPC.sessionsRewind)!(SLUG, sessionId, turns[0], { filesUnavailable: true })
+    expect(drv.forkAt).toHaveBeenCalled()
+    expect(drv.rewindTo).not.toHaveBeenCalled()
+  })
+
+  it('sessions:rewind without the options object still rewinds files', async () => {
+    const drv = nativeDriver()
+    const { handlers } = harness(drv, idleAgentService())
+    await handlers.get(IPC.sessionsRewind)!(SLUG, sessionId, turns[0])
+    expect(drv.rewindTo).toHaveBeenCalled()
+    expect(drv.forkAt).not.toHaveBeenCalled()
+  })
+
   it('sessions:rewind-preview reaches rewindPreview and reports the digest write counts', async () => {
     const { handlers } = harness(digestDriver(), idleAgentService())
     const preview = (await handlers.get(IPC.sessionsRewindPreview)!(SLUG, sessionId, turns[0])) as {

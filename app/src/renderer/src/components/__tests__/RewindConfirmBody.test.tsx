@@ -52,6 +52,27 @@ describe('RewindConfirmBody', () => {
     expect(screen.queryByText(/keeps its full context/)).toBeNull()
   })
 
+  /** M4. A native preview that reports `files.error` (no checkpoints, or the anchor is not in
+   *  the provider transcript) must say plainly that files stay as they are — not bury it after
+   *  a "Files restored" heading and a "0 skipped" count, which read as a successful restore. */
+  it('says files cannot be restored, and that the conversation is rewound anyway', () => {
+    const preview: RewindPreview = {
+      anchorTurnId: 1,
+      branching: 'native',
+      tail: [{ turnId: 2, userText: 'second' }],
+      findingsToRetract: [],
+      findingsStaying: [],
+      externalActions: [],
+      files: { kind: 'native', restored: [], skipped: 0, error: 'no checkpoints for this session' }
+    }
+    render(<RewindConfirmBody preview={preview} />)
+    expect(
+      screen.getByText(/Files cannot be restored: no checkpoints for this session/)
+    ).toBeInTheDocument()
+    expect(screen.getByText(/The conversation is still rewound/)).toBeInTheDocument()
+    expect(screen.queryByText('Files restored')).toBeNull()
+  })
+
   it('renders the counts-only file summary and provider caveat for a digest driver', () => {
     const preview: RewindPreview = {
       anchorTurnId: 1,

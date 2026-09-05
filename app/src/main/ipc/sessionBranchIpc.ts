@@ -41,11 +41,21 @@ export function registerSessionBranchIpc({ handle, branchDeps }: SessionBranchIp
     return rewindPreview(branchDeps(), caseSlug, sessionId, anchorTurnId)
   })
   handle(IPC.sessionsRewind, (...args: unknown[]): Promise<RewindResult> => {
-    const [caseSlug, sessionId, anchorTurnId] = args as [string, number, number]
+    const [caseSlug, sessionId, anchorTurnId, opts] = args as [
+      string,
+      number,
+      number,
+      { filesUnavailable?: unknown } | undefined
+    ]
     assertSlug(caseSlug)
     assertInt(sessionId)
     assertInt(anchorTurnId)
-    return rewindSession(branchDeps(), caseSlug, sessionId, anchorTurnId)
+    // Coerced to a real boolean rather than passed through: this crosses the renderer boundary,
+    // and `filesUnavailable` decides which driver call runs. Anything but literal `true` means
+    // "restore the files", which is the behaviour a caller that has not thought about it gets.
+    return rewindSession(branchDeps(), caseSlug, sessionId, anchorTurnId, {
+      filesUnavailable: opts?.filesUnavailable === true
+    })
   })
   handle(IPC.sessionsBranchPreview, (...args: unknown[]): Promise<{ branching: Branching }> => {
     const [caseSlug, sessionId, anchorTurnId] = args as [string, number, number]

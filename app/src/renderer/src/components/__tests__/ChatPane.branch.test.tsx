@@ -228,8 +228,51 @@ describe('ChatPane branching UI', () => {
     const confirmBtn = await screen.findByRole('button', { name: 'Rewind' })
     fireEvent.click(confirmBtn)
 
-    await waitFor(() => expect(window.argus.sessions.rewind).toHaveBeenCalledWith(slug, 1, 1))
+    await waitFor(() =>
+      expect(window.argus.sessions.rewind).toHaveBeenCalledWith(slug, 1, 1, {
+        filesUnavailable: false
+      })
+    )
     await waitFor(() => expect(composerDraft.get(slug, 1)).toBe('redo me'))
+  })
+
+  /** M4. Main no longer re-runs the driver's dry run (I4), so the decision to skip the file
+   *  restore has to travel from the preview the user actually saw and confirmed. */
+  it('tells main files are unavailable when the preview it showed reported a file error', async () => {
+    const slug = 'NAV-REWIND-FILES-ERR'
+    apply(slug, 1, 'turn.started', { userText: 'first' })
+    apply(slug, 1, 'assistant.message', { text: 'reply1' })
+    apply(slug, 1, 'turn.completed', {})
+    apply(slug, 2, 'turn.started', { userText: 'second' })
+    apply(slug, 2, 'assistant.message', { text: 'reply2' })
+    apply(slug, 2, 'turn.completed', {})
+    sessionsStore.upsert(slug, { ...baseSession, id: 1, rewound: [], forkedFrom: null })
+    ;(window.argus.sessions.rewindPreview as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      anchorTurnId: 1,
+      branching: 'native',
+      tail: [{ turnId: 2, userText: 'second' }],
+      findingsToRetract: [],
+      findingsStaying: [],
+      externalActions: [],
+      files: { kind: 'native', restored: [], skipped: 0, error: 'no checkpoints' }
+    } satisfies RewindPreview)
+    ;(window.argus.sessions.rewind as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      composerText: ''
+    })
+    render(
+      <>
+        <ConfirmHost />
+        <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
+      </>
+    )
+    fireEvent.click(screen.getAllByRole('button', { name: 'turn actions' })[0])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rewind to here' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Rewind' }))
+    await waitFor(() =>
+      expect(window.argus.sessions.rewind).toHaveBeenCalledWith(slug, 1, 1, {
+        filesUnavailable: true
+      })
+    )
   })
 
   /**
