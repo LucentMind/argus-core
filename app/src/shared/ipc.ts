@@ -258,6 +258,15 @@ export const IPC = {
   evidenceDelete: 'evidence:delete',
   evidenceScan: 'evidence:scan',
   sessionsDelete: 'sessions:delete',
+  sessionsRewindPreview: 'sessions:rewind-preview',
+  sessionsRewind: 'sessions:rewind',
+  sessionsFork: 'sessions:fork',
+  /** Broadcast (main → every window) when a case's chats/turns changed in a way every window
+   *  has to re-read: a rewind or a fork — payload = caseSlug; every window re-reads
+   *  `sessions.list`. Unlike `sessions:rewind`/`sessions:fork`'s renderer callback, which only
+   *  ever reaches the window that initiated it, this reaches SECOND windows — mirrors
+   *  `casesChanged` above. */
+  sessionsChanged: 'sessions:changed',
   findingsClear: 'findings:clear',
   findingsDelete: 'findings:delete',
   reviewComposeRunPrompt: 'review:compose-run-prompt',
