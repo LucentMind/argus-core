@@ -27,7 +27,7 @@ import type { Detection } from '../packs/detection'
 import { caseDir } from '../paths'
 import { readSessionEvents } from './mirror'
 import { buildHistoryDigest, filterLiveEvents } from './historyDigest'
-import { liveTurnIds } from './liveTurns'
+import { rewoundTurnIds } from './liveTurns'
 import { ingestContent } from '../ingest'
 import { createImmediateQueue, type IngestQueueLike } from '../ingestQueue'
 import { isEditableTool } from '../../../shared/editableTools'
@@ -737,7 +737,7 @@ export class CaseSession {
         caseDir(this.deps.argusHome, this.deps.caseSlug),
         this.sessionId
       )
-      const { events } = filterLiveEvents(all, liveTurnIds(this.deps.db, this.sessionId))
+      const { events } = filterLiveEvents(all, rewoundTurnIds(this.deps.db, this.sessionId))
       return buildHistoryDigest(events, {
         canReadTranscript: (NATIVE_TOOL_DRIVERS as readonly string[]).includes(
           this.deps.driver.kind

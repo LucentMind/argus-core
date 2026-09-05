@@ -62,7 +62,7 @@ import {
   DIGEST_BUDGET,
   filterLiveEvents
 } from './historyDigest'
-import { liveTurnIds } from './liveTurns'
+import { rewoundTurnIds } from './liveTurns'
 import type { CorpusSearchInput, SourceSearchResult } from '../../../shared/defectCorpus'
 import { saveItemSuggestion } from '../routines/runItems'
 import type { TriageSuggestion } from '../../../shared/routines'
@@ -496,7 +496,7 @@ export function argusToolHandlers(
       // exactly what list_evidence above scopes by mode to prevent.
       const { events, gaps } = filterLiveEvents(
         readSessionEvents(dir, deps.sessionId),
-        liveTurnIds(db, deps.sessionId)
+        rewoundTurnIds(db, deps.sessionId)
       )
       const turns = transcriptTurns(events)
       // Same asymmetry as the framing/capped feedback below: this marker labels data (how many
