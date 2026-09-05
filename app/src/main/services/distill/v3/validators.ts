@@ -19,26 +19,26 @@ export type ValidateResult =
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
+// Blank lines and bare `---`/`***` separators are filtered before any line-multiset comparison:
+// otherwise they match for free and dilute the counts, letting e.g. a full rewrite of a short
+// substantive block inside a filler-heavy file slip under a ratio threshold.
+const isFillerLine = (l: string): boolean => {
+  const t = l.trim()
+  return t === '' || t === '---' || t === '***'
+}
+const normalizeLines = (s: string): string[] =>
+  s
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .filter((l) => !isFillerLine(l))
+
 /** Coarse locality measure: number of changed hunks + deleted-line ratio, on a line LCS-free
  *  diff (set-difference by line). Good enough to catch a rewrite; not a real diff. Scattered
  *  small edits (>2 hunks) are flagged by design — a coarse heuristic, this false-positive shape
- *  (many tiny, genuinely-local edits) is an accepted tradeoff, not a bug.
- *  Blank lines and bare `---`/`***` separators are filtered out of both sides before comparing:
- *  otherwise they match for free in the multiset and dilute deletedRatio, letting a full rewrite
- *  of a short substantive block inside a filler-heavy file slip under the threshold. */
+ *  (many tiny, genuinely-local edits) is an accepted tradeoff, not a bug. */
 function editLocality(original: string, edited: string): { hunks: number; deletedRatio: number } {
-  const isFiller = (l: string): boolean => {
-    const t = l.trim()
-    return t === '' || t === '---' || t === '***'
-  }
-  const a = original
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .filter((l) => !isFiller(l))
-  const b = edited
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .filter((l) => !isFiller(l))
+  const a = normalizeLines(original)
+  const b = normalizeLines(edited)
   const bSet = new Map<string, number>()
   for (const l of b) bSet.set(l, (bSet.get(l) ?? 0) + 1)
   let deleted = 0
@@ -58,6 +58,25 @@ function editLocality(original: string, edited: string): { hunks: number; delete
     }
   }
   return { hunks, deletedRatio: a.length ? deleted / a.length : 0 }
+}
+
+/** Lines the edit ADDS: same coarse line-multiset diff as `editLocality`, but from the other
+ *  side — what's in `edited` that the multiset built from `original` can't absorb. Used to keep
+ *  `steps-in-reference` scoped to what THIS candidate contributes: a reference accumulates
+ *  content across many edits, and re-scanning the whole merged body would let numbered facts
+ *  from a past, unrelated edit permanently block every future edit to that same reference. */
+function addedLines(original: string, edited: string): string[] {
+  const a = normalizeLines(original)
+  const b = normalizeLines(edited)
+  const aSet = new Map<string, number>()
+  for (const l of a) aSet.set(l, (aSet.get(l) ?? 0) + 1)
+  const added: string[] = []
+  for (const l of b) {
+    const n = aSet.get(l) ?? 0
+    if (n > 0) aSet.set(l, n - 1)
+    else added.push(l)
+  }
+  return added
 }
 
 export function validateMaterialized(
@@ -83,8 +102,15 @@ export function validateMaterialized(
   // frontmatter: `name:` is the target, which may legitimately look id-ish.
   const description = fm ? (fmField(fm.fm, 'description') ?? '') : ''
   if (idRe.test(body) || idRe.test(description)) return { ok: false, reason: 'case-identifiers' }
-  if (p.type === 'reference-edit' && (body.match(/^\s*\d+\.\s/gm)?.length ?? 0) >= 3)
-    return { ok: false, reason: 'steps-in-reference' }
+  if (p.type === 'reference-edit') {
+    // Scoped to what THIS edit adds, not the whole merged file — see addedLines' doc.
+    const newBody =
+      p.original === undefined
+        ? body
+        : addedLines(fmBlock(p.original)?.body ?? p.original, body).join('\n')
+    if ((newBody.match(/^\s*\d+\.\s/gm)?.length ?? 0) >= 3)
+      return { ok: false, reason: 'steps-in-reference' }
+  }
   const flags: ValidatorReason[] = []
   if (p.original !== undefined) {
     const ofm = fmBlock(p.original)

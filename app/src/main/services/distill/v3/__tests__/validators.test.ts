@@ -70,6 +70,28 @@ describe('validateMaterialized', () => {
       flags: []
     })
   })
+  it('steps-in-reference only counts lines the edit ADDS — pre-existing numbered facts already in the reference do not block an unrelated edit', () => {
+    const original = '# R\n1. a\n2. b\n3. c\n'
+    expect(
+      ok({
+        type: 'reference-edit',
+        target: 'r',
+        original,
+        content: original + '\nSome new prose fact, no numbers here.\n'
+      })
+    ).toEqual({ ok: true, flags: [] })
+  })
+  it('steps-in-reference still catches ≥3 NEW numbered lines added on top of an existing reference', () => {
+    const original = '# R\nSome existing fact.\n'
+    expect(
+      ok({
+        type: 'reference-edit',
+        target: 'r',
+        original,
+        content: original + '\n1. x\n2. y\n3. z\n'
+      })
+    ).toEqual({ ok: false, reason: 'steps-in-reference' })
+  })
   it('basis too short', () =>
     expect(ok({ basis: 'short' })).toEqual({ ok: false, reason: 'basis' }))
   it('broad-edit: drop when ops produced it, flag when whole_file was used', () => {
