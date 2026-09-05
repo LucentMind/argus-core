@@ -11,7 +11,7 @@ import { rewoundTurnsOf } from './liveTurns'
 import type { RunOptionSelection } from '../../../shared/runOptions'
 import { PERMISSION_MODES, type PermissionMode } from '../../../shared/settings'
 
-const TITLE_MAX = 40
+export const TITLE_MAX = 40
 
 // A raw id lookup rather than caseService's getCase (which returns the full CaseRecord):
 // this module only ever needs the numeric id, and caseService imports createSession /
