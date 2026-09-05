@@ -11,7 +11,12 @@ import { attachFiles } from '../lib/attachFiles'
 import { reposStore } from '../lib/reposStore'
 import { sessionsStore } from '../lib/sessionsStore'
 import { useSettingsPayload } from '../lib/settingsStore'
-import { segmentTranscript, forkDividerIndex } from '../lib/transcriptSegments'
+import { confirm } from '../lib/confirmStore'
+import {
+  segmentTranscript,
+  forkDividerIndex,
+  lastAssistantIndexByTurn
+} from '../lib/transcriptSegments'
 import type { CiteTarget } from '../lib/citations'
 import { CitedText } from './CitedText'
 import { uiStore } from '../lib/uiStore'
@@ -24,6 +29,8 @@ import { ChatFind } from './ChatFind'
 import { ThinkingIndicator } from './ThinkingIndicator'
 import { RewoundTail } from './RewoundTail'
 import { ForkDivider } from './ForkDivider'
+import { TurnActions } from './TurnActions'
+import { RewindConfirmBody } from './RewindConfirmBody'
 
 // The FTS snippet is a contiguous region of the indexed text with matched
 // terms wrapped in «» and boundary ellipses — stripping those yields a raw
@@ -357,6 +364,57 @@ export function ChatPane({
     }
   }
 
+  /**
+   * Preview then discard every turn after `turnId` in this chat. The confirm body (§8.2) shows
+   * what the tail carries — findings retracted vs. left as-is, irreversible external actions,
+   * and (native drivers) which files get restored — before anything actually happens. On
+   * confirm, the discarded tail's first prompt comes back as `composerText` so the user can
+   * re-send it rather than retyping it.
+   */
+  async function rewindTo(turnId: number): Promise<void> {
+    setSendError(null)
+    try {
+      const preview = await window.argus.sessions.rewindPreview(slug, sessionId, turnId)
+      const ok = await confirm({
+        title: `Rewind ${preview.tail.length} turn${preview.tail.length === 1 ? '' : 's'}?`,
+        message: <RewindConfirmBody preview={preview} />,
+        confirmLabel: 'Rewind',
+        danger: true
+      })
+      if (!ok) return
+      const r = await window.argus.sessions.rewind(slug, sessionId, turnId)
+      if (r.composerText) composerDraft.set(slug, sessionId, r.composerText)
+      await sessionsStore.load(slug)
+    } catch (err) {
+      setSendError((err as Error).message)
+    }
+  }
+
+  /** Branch a new sibling chat inheriting everything up to and including `turnId`, then switch
+   *  to it. `branching` picks which of the two consequence sentences the confirm shows — a
+   *  native driver keeps full context, a digest one gets a summary. */
+  async function forkFrom(turnId: number): Promise<void> {
+    setSendError(null)
+    const branching = session ? branchingOf(session) : 'digest'
+    const ok = await confirm({
+      title: 'Fork from here?',
+      message: `A new chat branches after this reply. ${
+        branching === 'native'
+          ? 'The agent keeps its full context up to this point.'
+          : 'The agent receives a summary of the history up to this point.'
+      } Files continue from their current state.`,
+      confirmLabel: 'Fork'
+    })
+    if (!ok) return
+    try {
+      const created = await window.argus.sessions.fork(slug, sessionId, turnId)
+      sessionsStore.upsert(slug, created)
+      onSwitchSession?.(created.id)
+    } catch (err) {
+      setSendError((err as Error).message)
+    }
+  }
+
   function findRingClass(i: number): string {
     if (i === currentFindIndex) return 'ring-2 ring-signal'
     if (findMatches.includes(i)) return 'ring-1 ring-signal/40'
@@ -383,10 +441,18 @@ export function ChatPane({
     ? forkDividerIndex(state.items, session.forkedFrom.inheritedTurns)
     : -1
 
+  // Index of each turn's last assistant item — TurnActions' mount seam. "Rewind to here" is
+  // additionally disabled on the last LIVE turn: rewinding it would discard nothing, so the
+  // action is a no-op the menu shouldn't offer.
+  const lastAssistant = lastAssistantIndexByTurn(state.items)
+  const rewoundTurnIds = new Set((session?.rewound ?? []).map((r) => r.turnId))
+  const lastLiveTurnId = state.items.reduce<number | null>((max, it) => {
+    if (it.turnId == null || rewoundTurnIds.has(it.turnId)) return max
+    return max == null || it.turnId > max ? it.turnId : max
+  }, null)
+
   // `opts.rewound` tells the item it is being rendered inside a RewoundTail — history, not a
-  // place to click. Nothing here reads it yet (RewoundTail's own `inert` container already
-  // blocks activation), but per-turn actions (Task 11's TurnActions) will mount only when
-  // `!opts.rewound`, so the flag is threaded through now rather than bolted on later.
+  // place to click. TurnActions (this task) mounts only when `!opts.rewound`.
   function renderItem(
     item: TranscriptItem,
     i: number,
@@ -417,14 +483,16 @@ export function ChatPane({
       )
     }
     if (item.kind === 'assistant') {
+      const mountActions =
+        !opts.rewound && item.turnId != null && lastAssistant.get(item.turnId) === i
       return (
         <div
           key={i}
           data-item-index={i}
           data-rewound-item={opts.rewound || undefined}
           className={`mr-6 min-w-0 break-words rounded-r3 transition-colors ${
-            i === flashIndex ? 'bg-signal/20' : ''
-          } ${findRingClass(i)}`}
+            mountActions ? 'group/turn relative' : ''
+          } ${i === flashIndex ? 'bg-signal/20' : ''} ${findRingClass(i)}`}
         >
           <MessageView
             markdown={item.text}
@@ -434,6 +502,15 @@ export function ChatPane({
             streaming={item.streaming}
           />
           {item.streaming && <span className="text-xs text-mute">…</span>}
+          {mountActions && (
+            <TurnActions
+              turnId={item.turnId!}
+              canRewind={item.turnId !== lastLiveTurnId}
+              disabledReason={state.running ? 'A turn is running' : null}
+              onRewind={(id) => void rewindTo(id)}
+              onFork={(id) => void forkFrom(id)}
+            />
+          )}
         </div>
       )
     }

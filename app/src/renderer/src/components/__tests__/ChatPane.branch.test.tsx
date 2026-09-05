@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ChatPane } from '../ChatPane'
+import { ConfirmHost } from '../ConfirmHost'
 import { agentStore } from '../../lib/agentStore'
 import { sessionsStore } from '../../lib/sessionsStore'
 import { settingsStore } from '../../lib/settingsStore'
+import { composerDraft } from '../../lib/composerDraft'
 import { defaultSettings } from '../../../../shared/settings'
 import type { SessionSummary } from '../../../../shared/types'
+import type { RewindPreview } from '../../../../shared/branching'
 import type { AgentEvent } from '../../../../shared/agent-events'
 
 const baseSession: SessionSummary = {
@@ -104,8 +107,11 @@ describe('ChatPane branching UI', () => {
     expect(screen.getByText(/Rewound 1 turn/)).toBeTruthy()
     expect(screen.queryByText('gone one')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /show rewound/i }))
-    expect(screen.getByText('gone one').closest('[data-rewound]')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /turn actions/i, hidden: true })).toBeNull() // none inside the tail
+    const tail = screen.getByText('gone one').closest('[data-rewound]')
+    expect(tail).toBeTruthy()
+    // TurnActions mounts on the live turn's reply ("kept"), but never inside the rewound tail.
+    expect(screen.getByRole('button', { name: 'turn actions' })).toBeTruthy()
+    expect(within(tail as HTMLElement).queryByRole('button', { name: /turn actions/i })).toBeNull()
   })
 
   it('makes an expanded rewound turn keyboard-inert, not just visually muted', () => {
@@ -180,5 +186,77 @@ describe('ChatPane branching UI', () => {
     expect(
       divider.compareDocumentPosition(screen.getByText('r2')) & Node.DOCUMENT_POSITION_PRECEDING
     ).toBeTruthy()
+  })
+
+  it('rewinds to the first turn, confirms, and prefills the composer from the result', async () => {
+    const slug = 'NAV-REWIND-FLOW'
+    apply(slug, 1, 'turn.started', { userText: 'first' })
+    apply(slug, 1, 'assistant.message', { text: 'reply1' })
+    apply(slug, 1, 'turn.completed', {})
+    apply(slug, 2, 'turn.started', { userText: 'second' })
+    apply(slug, 2, 'assistant.message', { text: 'reply2' })
+    apply(slug, 2, 'turn.completed', {})
+    sessionsStore.upsert(slug, { ...baseSession, id: 1, rewound: [], forkedFrom: null })
+
+    const preview: RewindPreview = {
+      anchorTurnId: 1,
+      branching: 'digest',
+      tail: [{ turnId: 2, userText: 'second' }],
+      findingsToRetract: [],
+      findingsStaying: [],
+      externalActions: [],
+      files: { kind: 'counts', writes: [] }
+    }
+    ;(window.argus.sessions.rewindPreview as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      preview
+    )
+    ;(window.argus.sessions.rewind as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      composerText: 'redo me'
+    })
+
+    render(
+      <>
+        <ConfirmHost />
+        <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
+      </>
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'turn actions' })[0])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rewind to here' }))
+
+    const confirmBtn = await screen.findByRole('button', { name: 'Rewind' })
+    fireEvent.click(confirmBtn)
+
+    await waitFor(() => expect(window.argus.sessions.rewind).toHaveBeenCalledWith(slug, 1, 1))
+    await waitFor(() => expect(composerDraft.get(slug, 1)).toBe('redo me'))
+  })
+
+  it('disables Rewind to here (not Fork) on the last live turn, and both while a turn runs', async () => {
+    const slug = 'NAV-REWIND-DISABLED'
+    apply(slug, 1, 'turn.started', { userText: 'first' })
+    apply(slug, 1, 'assistant.message', { text: 'reply1' })
+    apply(slug, 1, 'turn.completed', {})
+    apply(slug, 2, 'turn.started', { userText: 'second' })
+    apply(slug, 2, 'assistant.message', { text: 'reply2' })
+    apply(slug, 2, 'turn.completed', {})
+    sessionsStore.upsert(slug, { ...baseSession, id: 1, rewound: [], forkedFrom: null })
+
+    render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
+
+    const triggers = screen.getAllByRole('button', { name: 'turn actions' })
+    expect(triggers).toHaveLength(2)
+    fireEvent.click(triggers[1]) // turn 2's menu — the last live turn
+    expect(screen.getByRole('menuitem', { name: 'Rewind to here' })).toBeDisabled()
+    expect(screen.getByRole('menuitem', { name: 'Fork from here' })).toBeEnabled()
+    fireEvent.click(triggers[1]) // close
+
+    apply(slug, 3, 'turn.started', { userText: 'third, still running' })
+    fireEvent.click(screen.getAllByRole('button', { name: 'turn actions' })[1]) // still turn 2's — turn 3 has no reply yet
+    const rewind = screen.getByRole('menuitem', { name: 'Rewind to here' })
+    const fork = screen.getByRole('menuitem', { name: 'Fork from here' })
+    expect(rewind).toBeDisabled()
+    expect(rewind).toHaveAttribute('title', 'A turn is running')
+    expect(fork).toBeDisabled()
+    expect(fork).toHaveAttribute('title', 'A turn is running')
   })
 })
