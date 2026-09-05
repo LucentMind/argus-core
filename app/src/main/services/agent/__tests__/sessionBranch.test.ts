@@ -8,6 +8,7 @@ import { createCase } from '../../caseService'
 import { caseDir } from '../../paths'
 import { readSessionEvents } from '../mirror'
 import { rewindPreview, rewindSession, forkCaseSession, type BranchDeps } from '../sessionBranch'
+import { TITLE_MAX } from '../sessionStore'
 import * as findingsModule from '../../findings'
 import { freezeCase, resetFreezeRegistryForTests } from '../../caseFreeze'
 import type { AgentDriver } from '../driver'
@@ -242,6 +243,43 @@ describe('rewindSession', () => {
     expect(d.sessionsChanged).toHaveBeenCalledWith(SLUG)
     expect(r).toEqual({ composerText: 'prompt 2' })
   })
+  it("forgets the surviving turns' provider anchors when the cursor is replaced by a fork", async () => {
+    // Found live on 2026-09-05 by `scripts/cdp-session-branch.mjs`: after a real rewind,
+    // "Fork from here" on the anchor turn died with `Message <anchor> not found in session
+    // <new cursor>`. `rewindTo` hands back a FORK of the provider session, and the SDK remaps
+    // every message uuid across a fork (the same fact deviation V2 records for a fork's
+    // inherited turns) — so every turn that survives the rewind carries an id that names
+    // nothing in the session it now belongs to. Forgetting them makes a later branch at one of
+    // those turns take the digest path instead of calling the SDK with an unresolvable id.
+    // The rewound tail keeps its ids: they are still valid in `pre_rewind_cursor`, which the
+    // same statement preserves, and preflight refuses a rewound turn as an anchor anyway.
+    await rewindSession(deps(nativeDriver()), SLUG, sessionId, turns[0])
+    expect(
+      db
+        .prepare(`SELECT status, provider_anchor_id FROM turns WHERE session_id = ? ORDER BY id`)
+        .all(sessionId)
+    ).toEqual([
+      { status: 'success', provider_anchor_id: null },
+      { status: 'rewound', provider_anchor_id: 'a-2' },
+      { status: 'rewound', provider_anchor_id: 'a-3' }
+    ])
+  })
+  it("keeps the surviving turns' anchors when no new cursor was issued (digest driver)", async () => {
+    // The counterpart of the test above, and what stops the fix from being "null them always":
+    // a digest rewind never forks the provider session, so nothing about the recorded ids
+    // became stale. (They are unused on that path, but silently discarding provider evidence
+    // on a driver that did not fork is a different bug, not a smaller one.)
+    await rewindSession(deps(digestDriver()), SLUG, sessionId, turns[0])
+    expect(
+      db
+        .prepare(`SELECT provider_anchor_id FROM turns WHERE session_id = ? ORDER BY id`)
+        .all(sessionId)
+    ).toEqual([
+      { provider_anchor_id: 'a-1' },
+      { provider_anchor_id: 'a-2' },
+      { provider_anchor_id: 'a-3' }
+    ])
+  })
   it('on a digest driver nulls the cursor so the next send replays the digest', async () => {
     await rewindSession(deps(digestDriver()), SLUG, sessionId, turns[0])
     expect(db.prepare(`SELECT driver_cursor FROM sessions WHERE id = ?`).get(sessionId)).toEqual({
@@ -331,6 +369,19 @@ describe('rewindSession', () => {
 })
 
 describe('forkCaseSession', () => {
+  it('keeps the "(fork)" marker when the parent title is already at the length cap', async () => {
+    // Found live on 2026-09-05 by `scripts/cdp-session-branch.mjs`: the chat switcher showed two
+    // rows with the IDENTICAL name after a fork. `setTitleIfEmpty` truncates a chat's auto-title
+    // to exactly TITLE_MAX, so `\`${base} (fork)\`.slice(0, TITLE_MAX)` sliced the whole suffix
+    // back off — for every auto-titled chat, which is nearly all of them. The suffix is the only
+    // thing distinguishing a fork in the switcher, so the BASE has to give way, not the marker.
+    const long = 'x'.repeat(TITLE_MAX)
+    db.prepare(`UPDATE sessions SET title = ? WHERE id = ?`).run(long, sessionId)
+    const s = await forkCaseSession(deps(nativeDriver()), SLUG, sessionId, turns[1])
+    expect(s.title.endsWith(' (fork)')).toBe(true)
+    expect(s.title.length).toBeLessThanOrEqual(TITLE_MAX)
+    expect(s.title).not.toBe(long)
+  })
   it('creates a sibling with lineage, copied turns (provider ids nulled), a copied mirror, and nothing else', async () => {
     const drv = nativeDriver()
     const d = deps(drv)
