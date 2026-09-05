@@ -383,13 +383,22 @@ export function ChatPane({
     ? forkDividerIndex(state.items, session.forkedFrom.inheritedTurns)
     : -1
 
-  function renderItem(item: TranscriptItem, i: number): React.JSX.Element | null {
+  // `opts.rewound` tells the item it is being rendered inside a RewoundTail — history, not a
+  // place to click. Nothing here reads it yet (RewoundTail's own `inert` container already
+  // blocks activation), but per-turn actions (Task 11's TurnActions) will mount only when
+  // `!opts.rewound`, so the flag is threaded through now rather than bolted on later.
+  function renderItem(
+    item: TranscriptItem,
+    i: number,
+    opts: { rewound: boolean }
+  ): React.JSX.Element | null {
     if (item.kind === 'user') {
       return (
         <div
           key={i}
           data-turn-id={item.turnId ?? undefined}
           data-item-index={i}
+          data-rewound-item={opts.rewound || undefined}
           className={`ml-12 min-w-0 ${item.composed ? '' : 'whitespace-pre-wrap'} break-words rounded-r3 border border-hair p-3 text-sm text-ink transition-colors ${
             i === flashIndex ? 'bg-signal/20' : 'bg-hi'
           } ${findRingClass(i)}`}
@@ -412,6 +421,7 @@ export function ChatPane({
         <div
           key={i}
           data-item-index={i}
+          data-rewound-item={opts.rewound || undefined}
           className={`mr-6 min-w-0 break-words rounded-r3 transition-colors ${
             i === flashIndex ? 'bg-signal/20' : ''
           } ${findRingClass(i)}`}
@@ -469,7 +479,7 @@ export function ChatPane({
             seg.kind === 'live' ? (
               seg.items.map(({ item, index }) => (
                 <Fragment key={index}>
-                  {renderItem(item, index)}
+                  {renderItem(item, index, { rewound: false })}
                   {index === dividerAt && session?.forkedFrom && (
                     <ForkDivider
                       origin={session.forkedFrom}
@@ -481,7 +491,21 @@ export function ChatPane({
               ))
             ) : (
               <RewoundTail key={`rw-${si}`} turnCount={seg.turnIds.length} at={seg.at}>
-                {seg.items.map(({ item, index }) => renderItem(item, index))}
+                {seg.items.map(({ item, index }) => (
+                  <Fragment key={index}>
+                    {renderItem(item, index, { rewound: true })}
+                    {/* A forked session's inherited turns can themselves later be rewound —
+                        the divider still belongs after the Nth inherited turn's last item,
+                        wherever that item ends up living. */}
+                    {index === dividerAt && session?.forkedFrom && (
+                      <ForkDivider
+                        origin={session.forkedFrom}
+                        branching={branchingOf(session)}
+                        onOpenParent={onSwitchSession}
+                      />
+                    )}
+                  </Fragment>
+                ))}
               </RewoundTail>
             )
           )}
