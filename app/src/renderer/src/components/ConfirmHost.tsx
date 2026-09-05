@@ -35,7 +35,12 @@ export function ConfirmHost(): React.JSX.Element | null {
       className="w-96"
     >
       <div className="flex flex-col gap-4 p-4">
-        {message != null && <p className="text-xs leading-relaxed text-dim">{message}</p>}
+        {message != null &&
+          (typeof message === 'string' ? (
+            <p className="text-xs leading-relaxed text-dim">{message}</p>
+          ) : (
+            <div className="text-xs leading-relaxed text-dim">{message}</div>
+          ))}
         {/* `flex-wrap` + `justify-end`: a three-button row can outgrow the w-96 dialog once the
             labels get long ("Discard & close" beside "Keep drafts & close"), and wrapping keeps
             the buttons at their natural width instead of squeezing every label to min-content. */}
