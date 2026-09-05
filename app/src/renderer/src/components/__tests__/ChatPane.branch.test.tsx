@@ -60,6 +60,7 @@ beforeEach(() => {
       })),
       rename: vi.fn(async () => undefined),
       rewindPreview: vi.fn(),
+      branchPreview: vi.fn(async () => ({ branching: 'digest' })),
       rewind: vi.fn(),
       fork: vi.fn(),
       onChanged: vi.fn(() => () => {})
@@ -152,7 +153,7 @@ describe('ChatPane branching UI', () => {
       ...baseSession,
       id: 1,
       rewound: [],
-      forkedFrom: { sessionId: 7, turnId: 3, inheritedTurns: 1 }
+      forkedFrom: { sessionId: 7, turnId: 3, inheritedTurns: 1, branching: 'native' }
     })
     const onSwitch = vi.fn()
     render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} onSwitchSession={onSwitch} />)
@@ -176,7 +177,7 @@ describe('ChatPane branching UI', () => {
       ...baseSession,
       id: 1,
       rewound: [{ turnId: 2, toTurnId: 1, at: '2026-09-04T00:00:00Z' }],
-      forkedFrom: { sessionId: 9, turnId: 4, inheritedTurns: 2 }
+      forkedFrom: { sessionId: 9, turnId: 4, inheritedTurns: 2, branching: 'digest' }
     })
     render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
     expect(screen.queryByText(/Forked from chat 9/)).toBeNull() // inside the collapsed tail
@@ -229,6 +230,57 @@ describe('ChatPane branching UI', () => {
 
     await waitFor(() => expect(window.argus.sessions.rewind).toHaveBeenCalledWith(slug, 1, 1))
     await waitFor(() => expect(composerDraft.get(slug, 1)).toBe('redo me'))
+  })
+
+  /**
+   * I3, renderer half. The fork confirm sentence used to come from
+   * `capabilitiesFor(settings, session.instanceId).branching` — the DRIVER's capability, which
+   * is 'native' for a Claude session even when the anchor turn has no `provider_anchor_id` and
+   * main will therefore take the digest path (V2/V14), and 'digest' whenever settings have not
+   * loaded or `instanceId` is null. Main answers the question it decides; the dialog quotes it.
+   */
+  it('asks main what branching this fork would get and says so in the confirm', async () => {
+    const slug = 'NAV-FORK-PREVIEW'
+    apply(slug, 1, 'turn.started', { userText: 'first' })
+    apply(slug, 1, 'assistant.message', { text: 'reply1' })
+    apply(slug, 1, 'turn.completed', {})
+    // No pinned instance and unloaded settings — the OLD derivation
+    // (`capabilitiesFor(settings, null).branching`) falls back to 'digest' here regardless of
+    // what main would actually do, so a 'native' answer from main is the falsifying case.
+    settingsStore.reset()
+    sessionsStore.upsert(slug, { ...baseSession, id: 1, rewound: [], forkedFrom: null })
+    ;(window.argus.sessions.branchPreview as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      branching: 'native'
+    })
+    render(
+      <>
+        <ConfirmHost />
+        <ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />
+      </>
+    )
+    fireEvent.click(screen.getAllByRole('button', { name: 'turn actions' })[0])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Fork from here' }))
+
+    await screen.findByText(/keeps its full context up to this point/)
+    expect(window.argus.sessions.branchPreview).toHaveBeenCalledWith(slug, 1, 1)
+    expect(screen.queryByText(/receives a summary of the history/)).toBeNull()
+  })
+
+  it('renders the divider wording from the fork’s recorded branching, not the driver’s', () => {
+    const slug = 'NAV-FORK-DIVIDER-NATIVE'
+    apply(slug, 5, 'turn.started', { userText: 'inherited' })
+    apply(slug, 5, 'assistant.message', { text: 'r' })
+    settingsStore.reset()
+    sessionsStore.upsert(slug, {
+      ...baseSession,
+      id: 1,
+      // No pinned instance, so the old `capabilitiesFor(settings, s.instanceId)` derivation read
+      // 'digest' — yet this fork really was cut natively, and the divider says so forever.
+      rewound: [],
+      forkedFrom: { sessionId: 7, turnId: 3, inheritedTurns: 1, branching: 'native' }
+    })
+    render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
+    expect(screen.getByText(/full context carried over/)).toBeTruthy()
   })
 
   it('disables Rewind to here (not Fork) on the last live turn, and both while a turn runs', async () => {

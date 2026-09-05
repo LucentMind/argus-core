@@ -1,12 +1,13 @@
 import { IPC } from '../../shared/ipc'
 import { assertSlug } from '../services/caseFiles'
 import {
+  branchPreview,
   rewindPreview,
   rewindSession,
   forkCaseSession,
   type BranchDeps
 } from '../services/agent/sessionBranch'
-import type { RewindPreview, RewindResult } from '../../shared/branching'
+import type { Branching, RewindPreview, RewindResult } from '../../shared/branching'
 import type { SessionSummary } from '../../shared/types'
 
 const assertInt = (n: number): void => {
@@ -26,7 +27,7 @@ export interface SessionBranchIpcDeps {
 }
 
 /**
- * Registers the three session-branching request/response channels (preview/rewind/fork).
+ * Registers the four session-branching request/response channels (branch-preview, rewind-preview, rewind, fork).
  * `sessions:changed` is deliberately NOT registered here: it's a broadcast the `BranchDeps`
  * passed in fires itself (via its `sessionsChanged` callback) on the write paths' success, not
  * a channel a renderer ever invokes.
@@ -45,6 +46,13 @@ export function registerSessionBranchIpc({ handle, branchDeps }: SessionBranchIp
     assertInt(sessionId)
     assertInt(anchorTurnId)
     return rewindSession(branchDeps(), caseSlug, sessionId, anchorTurnId)
+  })
+  handle(IPC.sessionsBranchPreview, (...args: unknown[]): Promise<{ branching: Branching }> => {
+    const [caseSlug, sessionId, anchorTurnId] = args as [string, number, number]
+    assertSlug(caseSlug)
+    assertInt(sessionId)
+    assertInt(anchorTurnId)
+    return branchPreview(branchDeps(), caseSlug, sessionId, anchorTurnId)
   })
   handle(IPC.sessionsFork, (...args: unknown[]): Promise<SessionSummary> => {
     const [caseSlug, sessionId, anchorTurnId] = args as [string, number, number]
