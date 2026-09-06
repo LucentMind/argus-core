@@ -65,7 +65,7 @@ export function driverForSession(deps: SessionDriverDeps, sessionId: number): Ag
  * True when a session shows conversation history the model cannot see: turns on the record,
  * but no cursor the next turn can resume from.
  *
- * Three unrelated paths land here, and it keys on the resulting STATE rather than on how the
+ * Four unrelated paths land here, and it keys on the resulting STATE rather than on how the
  * session got there, so one rule covers all of them and no `imported` flag is needed:
  *
  *  1. An imported case — bundle.ts leaves `driver_cursor` NULL, because the source machine's
@@ -78,13 +78,14 @@ export function driverForSession(deps: SessionDriverDeps, sessionId: number): Ag
  *     the `kind` this predicate resolves while the row still carries the old driver's cursor —
  *     and `sessionCursor`'s `driver_kind` guard then rejects a cursor `setSessionModel` never
  *     wrote to. This branch's own tests exercise it.
- *
- * A provider-INSTANCE switch is not a fourth path: `sessionCursor`'s instance guard compares
- * the row's `instance_id` against itself at every production call site (both here and
- * `registry.ts:300` read `instanceId` from the same session row they then check it against),
- * so that comparison is always self-consistent and can never observe a stale pin. Path 3 is
- * different precisely because it does NOT go through that guard — it trips the `driver_kind`
- * one, on a value that came from settings rather than from the row.
+ *  4. A provider-INSTANCE switch within the same driver kind. `setSessionModel` does NOT clear
+ *     the cursor on an instance-only change (switching back costs nothing), but `sessionCursor`'s
+ *     instance guard compares the row's CURRENT pin against `cursor_instance_id` — who actually
+ *     PRODUCED the cursor, stamped independently by `setSessionCursor` — so a re-pin to a
+ *     different account of the same kind now correctly orphans the history. (Before
+ *     `cursor_instance_id` existed, this guard compared the row's `instance_id` against itself,
+ *     which could never fire — see `sessionStore.ts`'s `sessionCursor` doc comment. That made an
+ *     instance switch invisible here; it no longer is.)
  *
  * Resolves the driver through `driverForSession` — the same call `registry.ts` makes before
  * fetching the cursor — so this can never disagree with what the next turn actually does.

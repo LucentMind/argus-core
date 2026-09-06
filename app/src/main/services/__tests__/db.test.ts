@@ -200,6 +200,36 @@ describe('openDb', () => {
       migrated.close()
     })
 
+    it('backfills cursor_instance_id from instance_id for rows that already have a cursor', () => {
+      const file = path.join(tmp, 'pre-cursor-owner.db')
+      const old = new DatabaseSync(file)
+      old.exec(`CREATE TABLE cases (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL, jira_key TEXT, status TEXT NOT NULL DEFAULT 'open',
+        tags TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE, driver_cursor TEXT, driver_kind TEXT NOT NULL DEFAULT 'claude-agent-sdk', instance_id TEXT, model TEXT, title TEXT NOT NULL DEFAULT '', turn_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);`)
+      old.exec(
+        `INSERT INTO cases (slug, title, created_at, updated_at) VALUES ('NAV-1','t','x','x')`
+      )
+      old.exec(`INSERT INTO sessions (case_id, driver_cursor, instance_id, created_at, updated_at)
+        VALUES (1,'cur-a','claude-work','x','x'),
+               (1, NULL, 'claude-work','x','x'),
+               (1,'legacy', NULL,'x','x')`)
+      old.close()
+      const migrated = openDb(file)
+      const rows = migrated
+        .prepare(`SELECT id, cursor_instance_id FROM sessions ORDER BY id`)
+        .all() as { id: number; cursor_instance_id: string | null }[]
+      expect(rows).toEqual([
+        // a cursor exists, so the row's instance is the best (and only) available owner
+        { id: 1, cursor_instance_id: 'claude-work' },
+        // no cursor — nothing to own, and a stamp here would validate a future cursor
+        { id: 2, cursor_instance_id: null },
+        // pre-multi-provider: stays unowned so it keeps resuming on driver kind alone
+        { id: 3, cursor_instance_id: null }
+      ])
+      migrated.close()
+    })
+
     it('adds tool_calls.detail to fresh and existing DBs (idempotent)', () => {
       const db = openDb(':memory:')
       const cols = db.prepare(`PRAGMA table_info(tool_calls)`).all() as { name: string }[]
