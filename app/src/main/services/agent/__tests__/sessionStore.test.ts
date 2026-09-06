@@ -12,6 +12,7 @@ import {
   renameSession,
   setTitleIfEmpty,
   sessionCursor,
+  setSessionCursor,
   sessionProvider,
   setSessionModel,
   deleteSession,
@@ -228,7 +229,7 @@ describe('sessionStore — per-session provider instance and model', () => {
       instanceId: 'claude-default',
       model: 'claude-opus-4-8'
     })
-    db.prepare(`UPDATE sessions SET driver_cursor = 'cur-1' WHERE id = ?`).run(s.id)
+    setSessionCursor(db, s.id, 'cur-1', 'claude-agent-sdk', 'claude-default')
 
     // same kind, different model — history is still resumable
     setSessionModel(db, s.id, {
@@ -256,7 +257,7 @@ describe('sessionStore — per-session provider instance and model', () => {
       instanceId: 'claude-work',
       model: 'claude-opus-4-8'
     })
-    db.prepare(`UPDATE sessions SET driver_cursor = 'cur-work' WHERE id = ?`).run(s.id)
+    setSessionCursor(db, s.id, 'cur-work', 'claude-agent-sdk', 'claude-work')
     expect(sessionCursor(db, s.id, 'claude-agent-sdk', 'claude-work')).toBe('cur-work')
     expect(sessionCursor(db, s.id, 'claude-agent-sdk', 'claude-personal')).toBeNull()
   })
@@ -266,6 +267,95 @@ describe('sessionStore — per-session provider instance and model', () => {
     const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
     db.prepare(`UPDATE sessions SET driver_cursor = 'legacy' WHERE id = ?`).run(s.id)
     expect(sessionCursor(db, s.id, 'claude-agent-sdk', 'claude-default')).toBe('legacy')
+  })
+
+  it('refuses the previous account cursor after re-pinning within one driver kind', () => {
+    // The regression this guard exists for: re-pinning between two Claude accounts moves
+    // instance_id but leaves driver_cursor, so the new account would be handed the old
+    // account's resume cursor. The guard could not catch it while it compared the row's
+    // instance_id against an id the caller had just read from that same row.
+    const s = createSession(db, 'NAV-1', {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-work',
+      model: 'claude-opus-4-8'
+    })
+    setSessionCursor(db, s.id, 'cur-work', 'claude-agent-sdk', 'claude-work')
+
+    setSessionModel(db, s.id, {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-personal',
+      model: 'claude-opus-4-8'
+    })
+
+    // resolved exactly as registry.ts does it — instance id read back off the session row
+    const pinned = sessionProvider(db, s.id)
+    expect(pinned?.instanceId).toBe('claude-personal')
+    expect(sessionCursor(db, s.id, 'claude-agent-sdk', pinned?.instanceId)).toBeNull()
+  })
+
+  it('restores history when the user re-pins back to the cursor owner', () => {
+    // Why the fix stamps ownership instead of clearing the cursor on an instance change:
+    // a mis-click on the model picker and a switch straight back must not cost the history.
+    const s = createSession(db, 'NAV-1', {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-work',
+      model: 'claude-opus-4-8'
+    })
+    setSessionCursor(db, s.id, 'cur-work', 'claude-agent-sdk', 'claude-work')
+
+    const repin = (instanceId: string): void => {
+      setSessionModel(db, s.id, {
+        driverKind: 'claude-agent-sdk',
+        instanceId,
+        model: 'claude-opus-4-8'
+      })
+    }
+    repin('claude-personal')
+    expect(sessionCursor(db, s.id, 'claude-agent-sdk', 'claude-personal')).toBeNull()
+    repin('claude-work')
+    expect(sessionCursor(db, s.id, 'claude-agent-sdk', 'claude-work')).toBe('cur-work')
+  })
+
+  it('stamps the running instance, not the row, when a re-pin lands mid-turn', () => {
+    // A re-pin never tears down a turn in flight, so the row can already name the new
+    // account by the time the old account's turn reports its cursor. The cursor belongs to
+    // the instance that produced it, which is why setSessionCursor takes it as an argument
+    // rather than reading sessions.instance_id back.
+    const s = createSession(db, 'NAV-1', {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-work',
+      model: 'claude-opus-4-8'
+    })
+    setSessionModel(db, s.id, {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-personal',
+      model: 'claude-opus-4-8'
+    })
+    // the in-flight turn, still on claude-work, now reports its cursor
+    setSessionCursor(db, s.id, 'cur-work', 'claude-agent-sdk', 'claude-work')
+
+    expect(sessionCursor(db, s.id, 'claude-agent-sdk', 'claude-personal')).toBeNull()
+    expect(sessionCursor(db, s.id, 'claude-agent-sdk', 'claude-work')).toBe('cur-work')
+  })
+
+  it('clears the cursor owner along with the cursor on a driver-kind change', () => {
+    const s = createSession(db, 'NAV-1', {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-work',
+      model: 'claude-opus-4-8'
+    })
+    setSessionCursor(db, s.id, 'cur-work', 'claude-agent-sdk', 'claude-work')
+    setSessionModel(db, s.id, {
+      driverKind: 'github-copilot',
+      instanceId: 'copilot-1',
+      model: null
+    })
+
+    const row = db
+      .prepare(`SELECT driver_cursor, cursor_instance_id FROM sessions WHERE id = ?`)
+      .get(s.id) as { driver_cursor: string | null; cursor_instance_id: string | null }
+    // a stale owner left behind would re-validate the cursor if the user ever switched back
+    expect(row).toEqual({ driver_cursor: null, cursor_instance_id: null })
   })
 
   it('setSessionModel is a no-op for an unknown session', () => {

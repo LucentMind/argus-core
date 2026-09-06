@@ -157,15 +157,25 @@ describe('sessionHistoryOrphaned', () => {
 
   function seed(
     db: DatabaseSync,
-    row: { turns: number; cursor: string | null; kind: string; instance: string | null }
+    row: {
+      turns: number
+      cursor: string | null
+      kind: string
+      instance: string | null
+      /** Who PRODUCED `cursor` — defaults to null (the legacy/pre-column shape: a row whose
+       *  cursor predates `cursor_instance_id`, matched on driver kind alone). Pass this
+       *  explicitly to seed a row the way `setSessionCursor` actually writes one in
+       *  production, with an independent owner distinct from the CURRENT pin (`instance`). */
+      cursorInstance?: string | null
+    }
   ): number {
     const now = new Date().toISOString()
     const r = db
       .prepare(
-        `INSERT INTO sessions (case_id, title, turn_count, driver_cursor, driver_kind, instance_id, created_at, updated_at)
-         VALUES (1, '', ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (case_id, title, turn_count, driver_cursor, driver_kind, instance_id, cursor_instance_id, created_at, updated_at)
+         VALUES (1, '', ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(row.turns, row.cursor, row.kind, row.instance, now, now)
+      .run(row.turns, row.cursor, row.kind, row.instance, row.cursorInstance ?? null, now, now)
     return Number(r.lastInsertRowid)
   }
 
@@ -184,14 +194,38 @@ describe('sessionHistoryOrphaned', () => {
     expect(sessionHistoryOrphaned(deps(db, copilot), id)).toBe(true)
   })
 
-  it('is false for an instance-pinned session — sessionCursor cannot detect an instance switch from here', () => {
+  it('is false for an instance-pinned session whose cursor predates cursor_instance_id (legacy null owner)', () => {
+    // No `cursorInstance` given — this is the pre-migration shape: a cursor written before
+    // the ownership column existed. `sessionCursor` matches these on driver kind alone
+    // (sessionStore.ts), so an instance pin alone does not orphan the history.
     const id = seed(db, { turns: 3, cursor: 'abc', kind: 'claude-agent-sdk', instance: 'inst-a' })
-    // `sessionCursor`'s instance guard compares the row's own `instance_id` (read via
-    // `sessionProvider` above) against itself — the same self-comparison every production
-    // call site performs (registry.ts:300 and this predicate). It is structurally incapable
-    // of observing a stale pin from here, so a session pinned to an instance whose driver
-    // kind still matches the stored cursor's kind is NOT orphaned.
     expect(sessionHistoryOrphaned(deps(db), id)).toBe(false)
+  })
+
+  it('is false when re-pinned back to the instance that actually produced the cursor', () => {
+    const id = seed(db, {
+      turns: 3,
+      cursor: 'abc',
+      kind: 'claude-agent-sdk',
+      instance: 'inst-a',
+      cursorInstance: 'inst-a'
+    })
+    expect(sessionHistoryOrphaned(deps(db), id)).toBe(false)
+  })
+
+  it('is true after a same-kind instance switch away from the cursor owner (path 4)', () => {
+    // The cursor was produced by inst-a (cursorInstance), but the row is now pinned to
+    // inst-b. Before cursor_instance_id existed, sessionCursor's instance guard compared
+    // instance_id against itself and could never observe this — see sessionStore.ts's
+    // sessionCursor doc comment. It now correctly flags the history as orphaned.
+    const id = seed(db, {
+      turns: 3,
+      cursor: 'abc',
+      kind: 'claude-agent-sdk',
+      instance: 'inst-b',
+      cursorInstance: 'inst-a'
+    })
+    expect(sessionHistoryOrphaned(deps(db), id)).toBe(true)
   })
 
   it('is false for a session that has no history to lose', () => {

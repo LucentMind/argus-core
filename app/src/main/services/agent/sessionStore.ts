@@ -170,6 +170,12 @@ export function sessionProvider(
  * `driver_cursor` when the driver kind changes — a cursor is only meaningful to the driver
  * that produced it, and leaving a stale one would let `sessionCursor`'s guard pass later if
  * the user switched back. Returns true when anything actually changed.
+ *
+ * Deliberately does NOT clear the cursor when only the INSTANCE changes. That switch is
+ * handled by ownership instead: `cursor_instance_id` still names the account that produced
+ * the cursor, so `sessionCursor` refuses to hand it to the new one, while a user who re-pins
+ * by mistake and switches straight back (before sending anything) keeps their history.
+ * Clearing here would destroy it on the spot.
  */
 export function setSessionModel(
   db: DatabaseSync,
@@ -189,7 +195,9 @@ export function setSessionModel(
   }
   const kindChanged = current.driverKind !== provider.driverKind
   db.prepare(
-    `UPDATE sessions SET driver_kind = ?, instance_id = ?, model = ?${kindChanged ? ', driver_cursor = NULL' : ''} WHERE id = ?`
+    `UPDATE sessions SET driver_kind = ?, instance_id = ?, model = ?${
+      kindChanged ? ', driver_cursor = NULL, cursor_instance_id = NULL' : ''
+    } WHERE id = ?`
   ).run(provider.driverKind, instanceId, model, sessionId)
   return true
 }
@@ -246,8 +254,14 @@ export function setTitleIfEmpty(db: DatabaseSync, sessionId: number, firstMessag
  *
  * When an `instanceId` is supplied the guard tightens to the instance: two instances of the
  * same driver kind are two different accounts, and a cursor from one is not resumable by the
- * other. A row with a null `instance_id` predates multi-provider, so it is matched on kind
- * alone rather than being invalidated — that would drop history for every existing session.
+ * other. The comparison is against `cursor_instance_id` — who PRODUCED the cursor — and NOT
+ * against the row's `instance_id`, which is only where the chat is pinned now. Comparing
+ * against the latter was a tautology, because every caller reads the id it passes from that
+ * same row (registry.ts resolves it via `sessionProvider`), so the guard could never fire.
+ *
+ * A row with a null `cursor_instance_id` is matched on kind alone rather than invalidated:
+ * that is a pre-multi-provider session, or one whose cursor predates the column (see the
+ * backfill in db.ts). Invalidating those would drop history for every existing session.
  */
 export function sessionCursor(
   db: DatabaseSync,
@@ -256,12 +270,35 @@ export function sessionCursor(
   instanceId?: string | null
 ): string | null {
   const row = db
-    .prepare(`SELECT driver_cursor, driver_kind, instance_id FROM sessions WHERE id = ?`)
+    .prepare(`SELECT driver_cursor, driver_kind, cursor_instance_id FROM sessions WHERE id = ?`)
     .get(sessionId) as
-    { driver_cursor: string | null; driver_kind: string; instance_id: string | null } | undefined
+    | { driver_cursor: string | null; driver_kind: string; cursor_instance_id: string | null }
+    | undefined
   if (!row || row.driver_kind !== driverKind) return null
-  if (instanceId && row.instance_id && row.instance_id !== instanceId) return null
+  if (instanceId && row.cursor_instance_id && row.cursor_instance_id !== instanceId) return null
   return row.driver_cursor
+}
+
+/**
+ * Record a resume cursor together with the driver kind AND provider instance that produced
+ * it — the pair `sessionCursor` gates every later resume on. The sole writer of
+ * `driver_cursor`: CaseSession's onCursor callback routes through here rather than issuing
+ * its own UPDATE, so a cursor can never be stored without its owner stamped alongside it.
+ *
+ * `instanceId` is the instance the RUNNING session was constructed for, threaded in by the
+ * registry — not re-read from the row, which a re-pin can move mid-turn (a turn in flight is
+ * never torn down, so the row can already name the new account when this fires).
+ */
+export function setSessionCursor(
+  db: DatabaseSync,
+  sessionId: number,
+  cursor: string,
+  driverKind: string,
+  instanceId: string | null
+): void {
+  db.prepare(
+    `UPDATE sessions SET driver_cursor = ?, driver_kind = ?, cursor_instance_id = ?, updated_at = ? WHERE id = ?`
+  ).run(cursor, driverKind, instanceId, new Date().toISOString(), sessionId)
 }
 
 export function touchSession(db: DatabaseSync, sessionId: number): void {
