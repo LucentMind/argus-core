@@ -80,6 +80,12 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- for it. Both nullable: pre-multi-provider rows have neither, and a null model means
   -- "whatever the instance's default is at send time".
   instance_id TEXT,
+  -- Which instance PRODUCED the cursor currently in driver_cursor. Distinct from instance_id,
+  -- which is where the chat is pinned RIGHT NOW: re-pinning to another account of the same
+  -- driver kind moves instance_id but leaves the cursor (and its owner) alone, so sessionCursor
+  -- has something independent to compare against. Null means "unknown owner" (a row whose
+  -- cursor predates this column, or no cursor at all) and is matched on driver kind alone.
+  cursor_instance_id TEXT,
   model TEXT,
   title TEXT NOT NULL DEFAULT '',
   turn_count INTEGER NOT NULL DEFAULT 0,
@@ -557,6 +563,18 @@ export function openDb(file: string): DatabaseSync {
   }
   if (!hasSessionCol('model')) {
     db.exec(`ALTER TABLE sessions ADD COLUMN model TEXT`)
+  }
+  // The cursor's owning instance. Without it, sessionCursor's instance guard could only
+  // compare the row's current instance_id against itself (both production call sites read the
+  // id from the same row), so it could never fire — and a chat re-pinned to a second account
+  // of the SAME driver kind kept, and was handed, the first account's resume cursor.
+  // Backfilled from instance_id: for an existing row the cursor was produced by whatever
+  // instance the row now names — the one case where that is wrong is the very bug being fixed,
+  // and nothing better is recoverable. Rows with no cursor stay null (nothing to own), as do
+  // pre-multi-provider rows (null instance_id), which keep resuming on driver kind alone.
+  if (!hasSessionCol('cursor_instance_id')) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN cursor_instance_id TEXT`)
+    db.exec(`UPDATE sessions SET cursor_instance_id = instance_id WHERE driver_cursor IS NOT NULL`)
   }
   // Review flavor (spec §6). All nullable: an investigation finding leaves them empty, and
   // mode is NOT stored — it joins from sessions.mode, which is already the session's binding.

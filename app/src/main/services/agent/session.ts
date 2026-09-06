@@ -33,7 +33,7 @@ import { isEditableTool } from '../../../shared/editableTools'
 import { composePersona } from './persona'
 import { filteredIndex } from '../memory'
 import { defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
-import { touchSession, setTitleIfEmpty, sessionCursor, sessionProvider } from './sessionStore'
+import { touchSession, setTitleIfEmpty, sessionCursor, setSessionCursor } from './sessionStore'
 import { extractToolDetail, type ToolDetailCtx } from './toolDetail'
 import { sharedReferencesDir } from '../skillsDir'
 import { DEFAULT_MODE, type ModeId } from '../../../shared/modes'
@@ -115,6 +115,14 @@ export interface SessionDeps {
   packCliNames?: string[]
   emit: (e: AgentEvent) => void
   driver: AgentDriver
+  /** The provider instance this session was CONSTRUCTED for, or null when it runs unpinned
+   *  (pre-multi-provider rows, which resolve the default provider at send time). Stamped onto
+   *  every cursor this session produces so a later re-pin to another account of the same
+   *  driver kind cannot resume it — see sessionStore.setSessionCursor. Deliberately the
+   *  construction-time value rather than a re-read of sessions.instance_id: a re-pin does not
+   *  tear down a turn in flight, so the row can name a different account by the time the
+   *  cursor arrives. */
+  instanceId?: string | null
   resumeCursor: string | null
   mirror?: SessionMirrorLike
   agentOptions?: SessionAgentOptions
@@ -608,14 +616,17 @@ export class CaseSession {
         }).risk
         this.logToolCall(toolName, input, risk, 'auto', 0)
       },
-      // Tag the cursor with the driver that produced it — sessionCursor gates resume on
-      // this match so a future Copilot driver can never resume a Claude session's cursor.
+      // Tag the cursor with the driver kind AND provider instance that produced it —
+      // sessionCursor gates resume on both, so neither a future Copilot driver nor a second
+      // Claude account can ever resume this session's cursor.
       onCursor: (cursor) => {
-        this.deps.db
-          .prepare(
-            `UPDATE sessions SET driver_cursor = ?, driver_kind = ?, updated_at = ? WHERE id = ?`
-          )
-          .run(cursor, this.deps.driver.kind, new Date().toISOString(), this.sessionId)
+        setSessionCursor(
+          this.deps.db,
+          this.sessionId,
+          cursor,
+          this.deps.driver.kind,
+          this.deps.instanceId ?? null
+        )
       },
       onTurnResult: (r) => this.handleTurnResult(r),
       // Tier-A diagnostics: the driver knows the spawned child's pid but not the case/session
@@ -699,14 +710,20 @@ export class CaseSession {
    * actually completed, a cursor is not evidence that the history is on the provider side, and
    * only the construction-time `resumeCursor` (which registry.ts read before this session
    * existed, so nothing this session did can have produced it) proves a real resume.
+   *
+   * Reads `this.deps.instanceId` — the instance this SESSION was constructed for — rather
+   * than re-reading `sessions.instance_id`, for the same reason `onCursor` does: a re-pin
+   * does not tear down a turn in flight, so a second `send()` dispatched onto this same
+   * live session (registry.ts never rebuilds while `activeTurn` is true) could otherwise
+   * compare a freshly-read *new* pin against a cursor this session itself owns, and wrongly
+   * report a healthy, uninterrupted conversation as needing a replay digest.
    */
   private needsHistoryReplay(): boolean {
-    const pinned = sessionProvider(this.deps.db, this.sessionId)
     const cursor = sessionCursor(
       this.deps.db,
       this.sessionId,
       this.deps.driver.kind,
-      pinned?.instanceId
+      this.deps.instanceId ?? null
     )
     if (cursor === null) return true
     return this.turnsCompleted === 0 && this.deps.resumeCursor === null

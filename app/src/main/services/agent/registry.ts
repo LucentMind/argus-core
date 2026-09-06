@@ -267,7 +267,8 @@ export class AgentService {
     // The provider/model this session is pinned to (nulls for pre-multi-provider rows,
     // which keep resolving from settings exactly as before).
     const pinned = sessionProvider(this.deps.db, sessionId)
-    const modelKey = `${pinned?.instanceId ?? ''}::${pinned?.model ?? ''}`
+    const instanceId = pinned?.instanceId ?? null
+    const modelKey = `${instanceId ?? ''}::${pinned?.model ?? ''}`
     // Read BEFORE the early-return guard below — mode must participate in the rebuild
     // decision exactly like modelKey and mcpFingerprint do.
     const mode = sessionMode(this.deps.db, sessionId)
@@ -372,6 +373,7 @@ export class AgentService {
       resolvePrompt: this.deps.resolvePrompt,
       emit: this.deps.onEvent,
       driver,
+      instanceId,
       resumeCursor: cursor,
       toolRisk: this.deps.toolRisk,
       agentAccess: this.deps.agentAccess,
