@@ -177,6 +177,7 @@ describe('Composer', () => {
     // `defaultModelRef` keeps seeding new chats with the same model as before.
     expect(items).toEqual([
       'Claude Fable 5',
+      'Claude Fable 5.1',
       'Claude Opus 5',
       'Claude Opus 4.8',
       'Claude Opus 4.7',
@@ -475,6 +476,7 @@ describe('Composer', () => {
     expect(items).toEqual([
       'Claude Sonnet 5',
       'Claude Fable 5',
+      'Claude Fable 5.1',
       'Claude Opus 5',
       'Claude Opus 4.8',
       'Claude Opus 4.7',

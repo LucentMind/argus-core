@@ -44,8 +44,16 @@ describe('replayCaseV3', () => {
     expect(r.stages?.dossier?.rawOutput).toBe(DOSSIER)
     expect(r.stages?.candidates?.rawOutput).toBe(CANDS)
     expect(r.stages?.materialize?.[0].target).toBe('diagnose-x')
+    // `stage: 'veto'` since app commit cd834ed0 (the pipeline tags every veto-stage drop so
+    // the runs view can tell it from staging's own cap/basis drops).
     expect(r.preStageDropped).toEqual([
-      { type: 'skill-new', target: 'diagnose-x', title: 'dup', reason: 'target-exists' }
+      {
+        type: 'skill-new',
+        target: 'diagnose-x',
+        title: 'dup',
+        reason: 'target-exists',
+        stage: 'veto'
+      }
     ])
   })
 

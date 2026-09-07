@@ -364,7 +364,7 @@ semantics.
   on your machine before suspecting the harness.
 - **Replay fidelity is version-sensitive.** `@anthropic-ai/claude-agent-sdk` and
   `@modelcontextprotocol/sdk` are pinned **exact** here to the versions in `app/package.json`
-  (0.3.220 / 1.29.0) so a replay drives the same SDK the live distiller does. They will drift the
+  (0.3.263 / 1.29.0) so a replay drives the same SDK the live distiller does. They will drift the
   moment `app/` bumps and this package doesn't — bump them together, and treat a version mismatch
   as a reason to distrust a surprising report, since SDK changes to turn accounting or tool
   plumbing move replay results without any prompt change.
