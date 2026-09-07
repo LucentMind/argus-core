@@ -72,7 +72,11 @@ export interface ModelOptionPolicy {
   /** Ultrathink is prompt text and costs nothing, so it defaults to ON wherever there is a
    *  Reasoning control. Only an explicit `false` withholds it. */
   ultrathink?: boolean
-  contextWindow?: boolean
+  /** `true`: offer the 200k/1M choice. `'native-1m'`: the model already runs at 1M on its
+   *  BARE slug (measured via `modelUsage.contextWindow` / the CLI's `/context`), so the only
+   *  honest option is a single 1M — a 200k position would be as inert as on a `[1m]`-pinned
+   *  slug. Absent/false: no control. */
+  contextWindow?: boolean | 'native-1m'
   fastMode?: boolean
   thinking?: boolean
 }
@@ -119,7 +123,11 @@ export interface ModelOptionPolicy {
  * options — it simply is not curated yet.
  */
 export const MODEL_OPTION_POLICY: Readonly<Record<string, ModelOptionPolicy>> = {
-  'claude-fable-5': { effortLevels: ALL_LEVELS, ultracode: true, contextWindow: true },
+  // `native-1m` for Fable 5 and Sonnet 5: measured 2026-09-07 against SDK 0.3.220, the bare
+  // slug's turn reports `modelUsage.contextWindow: 1000000` and `/context` prints "/ 1m",
+  // so the 200k position never described a real window. Opus 5 keeps the choice: its bare slug
+  // is unmeasured and the CLI ships a distinct `opus[1m]` alias.
+  'claude-fable-5': { effortLevels: ALL_LEVELS, ultracode: true, contextWindow: 'native-1m' },
   // Argus-originated (see above): t3code has no Opus 5 row.
   'claude-opus-5': {
     effortLevels: ALL_LEVELS,
@@ -130,7 +138,7 @@ export const MODEL_OPTION_POLICY: Readonly<Record<string, ModelOptionPolicy>> = 
   'claude-opus-4-8': { effortLevels: ALL_LEVELS, ultracode: true, fastMode: true },
   // t3code defaults this model to xhigh rather than high — ported as-is.
   'claude-opus-4-7': { effortLevels: ALL_LEVELS, defaultEffort: 'xhigh', fastMode: true },
-  'claude-sonnet-5': { effortLevels: ALL_LEVELS, contextWindow: true },
+  'claude-sonnet-5': { effortLevels: ALL_LEVELS, contextWindow: 'native-1m' },
   'claude-sonnet-4-6': {
     effortLevels: ['low', 'medium', 'high', 'max'],
     contextWindow: true
@@ -219,17 +227,24 @@ export function descriptorsFor(
     // A curated model shows this only when its policy row asks for it. That is how the port
     // takes Context Window away from Opus 4.8/4.7 — a deliberate, and the most questionable,
     // consequence of adopting t3code's table (see MODEL_OPTION_POLICY).
-    if (policy ? policy.contextWindow === true : true) {
+    //
+    // The same single-option shape applies to a model whose policy says it runs at 1M on the
+    // bare slug (`contextWindow: 'native-1m'`): there is no 200k to choose either, and the wire
+    // needs no suffix to get 1M — `apiModelId` only appends `[1m]` for an explicitly stored
+    // '1m', which is harmless (measured to succeed) and never required.
+    const cwPolicy = policy?.contextWindow
+    if (policy ? cwPolicy === true || cwPolicy === 'native-1m' : true) {
       out.push({
         type: 'select',
         id: 'contextWindow',
         label: 'Context Window',
-        options: forcesOneMillion(model)
-          ? [{ value: '1m', label: '1M', isDefault: true }]
-          : [
-              { value: '200k', label: '200k', isDefault: true },
-              { value: '1m', label: '1M' }
-            ]
+        options:
+          forcesOneMillion(model) || cwPolicy === 'native-1m'
+            ? [{ value: '1m', label: '1M', isDefault: true }]
+            : [
+                { value: '200k', label: '200k', isDefault: true },
+                { value: '1m', label: '1M' }
+              ]
       })
     }
   }

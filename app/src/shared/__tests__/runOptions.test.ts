@@ -208,7 +208,7 @@ describe('descriptorsFor', () => {
   })
 
   it('emits Context Window with exactly two choices in the correct order and defaults', () => {
-    const descriptor = descriptorsFor(FABLE).find((d) => d.id === 'contextWindow')
+    const descriptor = descriptorsFor(OPUS).find((d) => d.id === 'contextWindow')
     expect(descriptor?.type).toBe('select')
     if (descriptor?.type === 'select') {
       expect(descriptor.options).toEqual([
@@ -216,6 +216,41 @@ describe('descriptorsFor', () => {
         { value: '1m', label: '1M' }
       ])
     }
+  })
+
+  // Measured 2026-09-07 against SDK 0.3.220: the BARE slugs `claude-fable-5` and
+  // `claude-sonnet-5` already run at 1M — `modelUsage.contextWindow` is 1,000,000 and the
+  // CLI's own `/context` prints "/ 1m" — with no `[1m]` suffix sent. A 200k position there is
+  // as inert as on a suffix-pinned slug, and it produced a "High · 200k" chip over a session
+  // whose gauge read "4% of 1,000,000". Opus 5 is deliberately NOT in this set: its bare slug
+  // is unmeasured and the CLI ships a separate `opus[1m]` alias, which suggests the choice is
+  // real there.
+  describe('models that run at 1M on the bare slug', () => {
+    const SONNET: ModelOptionInfo = {
+      value: 'sonnet',
+      resolvedModel: 'claude-sonnet-5',
+      displayName: 'Sonnet',
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max']
+    }
+
+    it.each([
+      ['claude-fable-5', FABLE],
+      ['claude-sonnet-5', SONNET]
+    ])('%s offers 1M alone, as the default', (slug, info) => {
+      const d = descriptorsFor(info, slug).find((x) => x.id === 'contextWindow')
+      expect(d?.type).toBe('select')
+      if (d?.type === 'select') {
+        expect(d.options).toEqual([{ value: '1m', label: '1M', isDefault: true }])
+      }
+    })
+
+    it('reads 1M for a stored 200k, and persists nothing', () => {
+      const d = descriptorsFor(FABLE, 'claude-fable-5').find((x) => x.id === 'contextWindow')!
+      expect(selectionValue(d, [{ id: 'contextWindow', value: '200k' }])).toBe('1m')
+      expect(selectionLabel(d, [{ id: 'contextWindow', value: '200k' }])).toBe('1M')
+      expect(pruneSelections([d], [{ id: 'contextWindow', value: '200k' }])).toEqual([])
+    })
   })
 
   // A model pinned AT the [1m] suffix has no 200k position: `apiModelId` cannot strip a suffix
@@ -253,11 +288,11 @@ describe('descriptorsFor', () => {
       expect(pruneSelections([d], [{ id: 'contextWindow', value: '1m' }])).toEqual([])
     })
 
-    it('leaves the bare slug alone — that one really can choose', () => {
-      const d = descriptorsFor(FABLE, 'claude-fable-5').find((x) => x.id === 'contextWindow')
+    it('leaves a bare slug that really can choose alone', () => {
+      const d = descriptorsFor(OPUS, 'claude-opus-5').find((x) => x.id === 'contextWindow')
       if (d?.type === 'select') expect(d.options.map((o) => o.value)).toEqual(['200k', '1m'])
       // omitting the model entirely is the same as a bare one, so old call sites are unaffected
-      const noModel = descriptorsFor(FABLE).find((x) => x.id === 'contextWindow')
+      const noModel = descriptorsFor(OPUS).find((x) => x.id === 'contextWindow')
       expect(noModel).toEqual(d)
     })
   })
@@ -274,7 +309,9 @@ describe('descriptorsFor', () => {
 })
 
 describe('selectionValue', () => {
-  const [effort, ctx] = descriptorsFor(FABLE)
+  // OPUS, not FABLE: Fable's Context Window is a single 1M option now (it runs at 1M on the
+  // bare slug), and these cases need a descriptor with a real default-vs-stored distinction.
+  const [effort, ctx] = descriptorsFor(OPUS)
 
   it('returns the stored value when it is valid for this model', () => {
     expect(selectionValue(effort, [{ id: 'effort', value: 'max' }])).toBe('max')
