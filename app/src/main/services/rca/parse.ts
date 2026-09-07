@@ -41,16 +41,31 @@ const draftSchema = z.object({
     .default([]),
   impact: z.string().default(''),
   timeline: z.array(z.object({ at: z.string(), what: z.string() })).default([]),
-  remediation: z.object({
-    immediate: z.string().default(''),
-    followUps: z.array(z.string()).default([])
-  }),
-  execSummary: z.object({
-    whatBroke: z.string(),
-    impact: z.string(),
-    why: z.string(),
-    nextSteps: z.string()
-  }),
+  /** Defaulted as a whole for the same reason as `execSummary` below: its fields already
+   *  degrade to empty, but the object itself being required meant an omitted `remediation`
+   *  still failed the entire draft. It too feeds only legacy fallbacks (`exec-what-we-did`,
+   *  `exec-next-steps`). */
+  remediation: z
+    .object({
+      immediate: z.string().default(''),
+      followUps: z.array(z.string()).default([])
+    })
+    .default(() => ({ immediate: '', followUps: [] })),
+  /** Both the four keys and the object itself default, unlike the strict `z.string()`s this
+   *  replaced. `execSummary` is only the LEGACY fallback for `sections` (see `LEGACY_NARRATIVE`
+   *  in render.ts), and `narrativeBody` already skips a section whose body is empty — so a
+   *  missing key costs at most one section, where requiring it cost the whole report: the
+   *  drafting model routinely omits `nextSteps` (it reads as redundant with `remediation`) or
+   *  renames `why` to `rootCause`, and either failed the entire draft. A factory default for
+   *  the same reason `sections` uses one: a literal is handed out by reference every parse. */
+  execSummary: z
+    .object({
+      whatBroke: z.string().default(''),
+      impact: z.string().default(''),
+      why: z.string().default(''),
+      nextSteps: z.string().default('')
+    })
+    .default(() => ({ whatBroke: '', impact: '', why: '', nextSteps: '' })),
   techNarrative: z
     .array(
       z.object({
@@ -68,6 +83,20 @@ const draftSchema = z.object({
     .record(z.string(), z.object({ body: z.string(), citations: z.array(citation).default([]) }))
     .default(() => ({}))
 })
+
+/**
+ * The first schema failure, prefixed with the field that caused it. Zod's own message names
+ * only the type mismatch ("Invalid input: expected string, received undefined"), so a draft
+ * rejected for one drifted key produced a job error that pointed at nothing — the offending
+ * field could only be found by dumping `rca_jobs.raw_output` from the DB. The path makes the
+ * next drift readable straight off the RCA panel.
+ */
+function firstIssue(error: { issues: { path: PropertyKey[]; message: string }[] }): string {
+  const issue = error.issues[0]
+  if (!issue) return 'invalid draft'
+  const path = issue.path.map((k) => String(k)).join('.')
+  return path ? `${path}: ${issue.message}` : issue.message
+}
 
 /** The section ids the model must return for a template: every ENABLED narrative section,
  *  exec first then tech, in template order. Claims sections are excluded — they render fixed
@@ -95,7 +124,7 @@ export function parseRcaOutput(text: string, expectedIds?: string[]): RcaDraft {
     throw new RcaParseError(`invalid JSON: ${(e as Error).message}`, text)
   }
   const res = draftSchema.safeParse(obj)
-  if (!res.success) throw new RcaParseError(res.error.issues[0]?.message ?? 'invalid draft', text)
+  if (!res.success) throw new RcaParseError(firstIssue(res.error), text)
   const draft = res.data as RcaDraft
   if (expectedIds) {
     const missing = missingSections(draft, expectedIds)
@@ -115,7 +144,7 @@ export function parseRcaOutput(text: string, expectedIds?: string[]): RcaDraft {
  */
 export function validateRcaDraft(v: unknown, expectedIds?: string[]): RcaDraft {
   const res = draftSchema.safeParse(v)
-  if (!res.success) throw new Error(res.error.issues[0]?.message ?? 'invalid RCA draft')
+  if (!res.success) throw new Error(firstIssue(res.error))
   const draft = res.data as RcaDraft
   if (expectedIds) {
     const missing = missingSections(draft, expectedIds)
