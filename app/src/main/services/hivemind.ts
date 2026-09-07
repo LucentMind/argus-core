@@ -1566,9 +1566,12 @@ export class HivemindService {
    * after `fetch` + `worktree prune` and before any worktree is created, which is what closes
    * the same race window `push()`'s `reopenPrFor` doc comment describes.
    */
-  private async findOpenInitPr(): Promise<
-    { prUrl: string; branch: string; mine: boolean; author: string } | null
-  > {
+  private async findOpenInitPr(): Promise<{
+    prUrl: string
+    branch: string
+    mine: boolean
+    author: string
+  } | null> {
     const repo = this.deps.repo().trim()
     const receipt = this.state().pushes['init/hivemind']
     if (receipt && receipt.repo === repo) {
