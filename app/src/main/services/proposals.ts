@@ -447,7 +447,10 @@ export function listArchivedProposals(argusHome: string): {
   })
 }
 
-/** Delete a pending proposal outright — used by supersede flows; it is NOT archived. */
+/** Delete a pending proposal outright; it is NOT archived. Two callers: distill staging's
+ *  supersede step (a re-distill drops the previous run's job-stamped items), and the user-facing
+ *  `deleteProposal` below (spec 2026-09-07). Trusts `file` only as far as `path.basename` — the
+ *  user-facing path validates against the pending list first. */
 export function removePendingProposal(argusHome: string, file: string): void {
   const p = path.join(proposalsDir(argusHome), path.basename(file))
   if (fs.existsSync(p)) {
@@ -843,4 +846,19 @@ export function rejectProposal(
   }
   archive(argusHome, p.file, 'rejected', extra)
   announceChanged()
+}
+
+/**
+ * Remove a PENDING proposal with no archive record (spec 2026-09-07). Unlike reject, nothing is
+ * learned from it: no reject annotation, no prior-reject stamp, no digest input, no eval-corpus
+ * label — the distiller may propose the same thing again. Refuses anything that is not currently
+ * listed as pending: an archived file's name, an unknown name, or a traversal-shaped path all
+ * throw `Unknown proposal` BEFORE any filesystem call, so a bad IPC argument can never reach
+ * `rmSync`. Delegates to `removePendingProposal`, which handles the directory shape and fires
+ * the changed notifier exactly once — no second announcement here.
+ */
+export function deleteProposal(argusHome: string, file: string): void {
+  const p = listProposals(argusHome).find((x) => x.file === file)
+  if (!p) throw new Error(`Unknown proposal: ${file}`)
+  removePendingProposal(argusHome, p.file)
 }
