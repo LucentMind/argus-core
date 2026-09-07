@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-288 commits since v2.3.0, 429 files changed (+44,410 / −2,642).
+314 commits since v2.3.0, 471 files changed (+48,307 / −2,906).
 
 ### Added
 
@@ -272,6 +272,45 @@
   this card group beside the app's other cost metrics; the existing
   show/hide toggles for dashboard cards cover these new cards too.
 
+**Delete a pending proposal**
+
+- A pending proposal (not yet accepted) can now be deleted outright from
+  its detail pane or the inbox list, behind a confirm — a true hard
+  delete with no archive record, unlike rejecting one. Deleting from the
+  inbox advances selection to the next proposal and prunes any of its
+  own in-progress edits; deleting a proposal whose filename was recycled
+  from an already-deleted one is refused rather than silently removing
+  the wrong row.
+
+**Claude compaction: a real context gauge, and CLI slash commands**
+
+- The context gauge now survives `/compact` and no longer reads as
+  reset by a synthetic zero-usage reply from `/context` or a failed
+  compaction — those replies are recognized and skipped instead of
+  being treated as real usage. A quiet inline notice shows in chat while
+  compaction runs (~15s) and the chip reads "compacted — updates next
+  turn" until the new level is known; the reply the CLI replays
+  immediately after a compaction no longer renders twice.
+- The composer's slash picker now offers the Claude CLI's own `/compact`
+  and `/context` commands (tagged CLI, Claude sessions only) alongside
+  Argus's own skills.
+- Fable 5 and Sonnet 5 run at their native 1,000,000-token context on
+  the bare model slug (no `[1m]` suffix needed); the Context Window
+  control collapses to a single 1M option for them, and a second
+  position now acts as a real 200k compaction cap rather than an inert
+  choice that used to sit uselessly under a gauge already reading
+  against 1M.
+- The Claude Agent SDK bump to 0.3.263 exposes Fable 5.1 (gated
+  server-side on a newer bundled CLI version); existing Fable 5
+  favorites are not silently moved onto it.
+
+**Distillation: v3 is now the default pipeline**
+
+- The staged v3 pipeline (dossier → summary/candidates → materialize)
+  replaces the single-agentic-call v2 as the default for case
+  distillation, after running against real cases; v2 remains available
+  as a fallback.
+
 ### Changed
 
 - Expandable settings rows — Appearance, Default repositories, each
@@ -412,6 +451,32 @@
   reference file, so a past, unrelated edit's numbered facts could block
   all future edits to the same reference; it now counts only the
   numbered lines the current edit itself adds.
+- A case's header, dashboard card, and tab kept naming the ticket's old
+  key forever after the ticket moved to another project, since they all
+  draw the case's own internal slug rather than the live ticket key;
+  they now show the live key (slug on hover), and refreshing a moved
+  ticket relabels immediately instead of waiting for a restart.
+- A Claude session whose resume point the CLI had already discarded
+  (e.g. after a rebuild) kept resuming that same dead conversation on
+  every send and dying with "No conversation found" — the CLI's
+  rejection was being written back as if it were a valid new resume
+  point. A rejected resume now clears it instead, so the next send
+  starts a fresh session and replays Argus's own transcript into it.
+- A dossier step whose model-authored keys didn't match the schema
+  (a documented-only-in-prose shape, or an item with real citations but
+  every content field empty) used to parse to something silently blank
+  or get pushed with nothing in it, reaching the run panel, the case
+  summary, and RCA prompts as an empty or duplicate-reading row instead
+  of surfacing as the parse failure it actually was.
+- An RCA draft missing any one of a few legacy-fallback fields (only
+  ever used when the modern per-section format is absent) used to fail
+  validation and discard the entire report, even when the actual report
+  content was complete.
+- Seven characters across the distillation run panel — em dashes,
+  middle dots, a multiplication sign — rendered as garbled glyphs from a
+  file that had been round-tripped through the wrong encoding; the
+  corruption was well-formed UTF-8, so nothing but actually looking at
+  the running app caught it.
 
 ### Internal
 
