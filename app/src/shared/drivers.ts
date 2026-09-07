@@ -180,6 +180,14 @@ interface ClaudeModelSpec {
  */
 const CLAUDE_MODEL_SPECS: readonly ClaudeModelSpec[] = [
   { slug: 'claude-fable-5', name: 'Claude Fable 5', effort: true, adaptiveThinking: true },
+  // Fable 5.1 needs the bundled CLI at 2.1.251 or newer: on 2.1.220 the API rejected the slug
+  // outright ("Claude Code 2.1.220 does not support this model; version 2.1.251 or newer is
+  // required", HTTP 400) — the gate is keyed on the CLI version, not on the account. Measured
+  // 2026-09-07 on SDK 0.3.263 (CLI 2.1.263): the bare slug completes a turn with `modelUsage`
+  // keyed `claude-fable-5-1` and `contextWindow: 1000000`, and the CLI's `fable` alias now
+  // resolves here (Fable 5 is still served and still runs on its own bare slug). Deliberately
+  // NOT row 0 for the same reason as Opus 5 below: the seed for every new chat stays put.
+  { slug: 'claude-fable-5-1', name: 'Claude Fable 5.1', effort: true, adaptiveThinking: true },
   // Deliberately NOT first: row 0 is what `defaultModelRef` seeds a new chat with, and moving
   // Opus 5 there would silently change every new chat's model.
   //
@@ -767,7 +775,16 @@ function oneMillionAliasBase(resolvedModel: string | undefined): CatalogModel | 
  * nor its bare form `opus` matches `claude-opus-5`.
  */
 export function pinSlugFor(m: CatalogModel): string {
-  return oneMillionAliasBase(m.resolvedModel)?.slug ?? m.slug
+  return (
+    oneMillionAliasBase(m.resolvedModel)?.slug ??
+    // Observed once on CLI 2.1.263 (2026-09-07): a catalog row keyed by a SUFFIXED wire slug
+    // (`value: "claude-fable-5[1m]"`) whose `resolvedModel` is the bare `claude-fable-5`. The
+    // value is what goes on the wire, so picking that row pinned 1M and hid the 200k cap just
+    // as `opus[1m]` used to. Same rule, read off the key instead: bare pin when we ship a
+    // static row for it. A custom row has no `resolvedModel` and is never rewritten.
+    (m.resolvedModel === undefined ? undefined : oneMillionAliasBase(m.slug)?.slug) ??
+    m.slug
+  )
 }
 
 /**

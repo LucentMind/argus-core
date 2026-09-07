@@ -240,8 +240,20 @@ describe('descriptorsFor', () => {
     // CLI's own `/context` then reports "/ 200k" while `modelUsage.contextWindow` stays 1M.
     // Distinct value from the ordinary '200k' so `claudeSettingsFor` never has to look up a
     // policy to know which of the two it is holding.
+    // Fable 5.1: SDK 0.3.263 / CLI 2.1.263, measured 2026-09-07 — the bare slug's turn
+    // reports `modelUsage.contextWindow: 1000000`, and the CLI's `fable` alias now resolves
+    // here. It gets the same shape from its own policy row, not the uncurated fallback.
+    const FABLE_51: ModelOptionInfo = {
+      value: 'fable',
+      resolvedModel: 'claude-fable-5-1',
+      displayName: 'Fable',
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max']
+    }
+
     it.each([
       ['claude-fable-5', FABLE],
+      ['claude-fable-5-1', FABLE_51],
       ['claude-sonnet-5', SONNET]
     ])('%s offers 1M (default) and a 200k cap', (slug, info) => {
       const d = descriptorsFor(info, slug).find((x) => x.id === 'contextWindow')

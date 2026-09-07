@@ -185,6 +185,30 @@ describe('catalogModelRows', () => {
       )
     })
 
+    // Observed once on CLI 2.1.263 (2026-09-07, not reproduced on the next read): a row keyed
+    // by a SUFFIXED wire slug whose `resolvedModel` is bare. The key is what goes on the wire,
+    // so without the rewrite picking Fable 5 pinned 1M and lost the 200k cap. The row's own
+    // identity is untouched: a session pinned to either spelling still finds it.
+    it('pins bare for a catalog row keyed by a suffixed slug that resolves bare', () => {
+      const [row] = catalogModelRows([
+        {
+          value: 'claude-fable-5[1m]',
+          resolvedModel: 'claude-fable-5',
+          displayName: 'Fable',
+          supportsEffort: true,
+          supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max']
+        }
+      ])
+      expect(row.name).toBe('Claude Fable 5')
+      expect(pinSlugFor(row)).toBe('claude-fable-5')
+      expect(findModelRow([row], 'claude-fable-5')).toBe(row)
+      expect(findModelRow([row], 'claude-fable-5[1m]')).toBe(row)
+      const cw = descriptorsFor(resolveModelInfo([], pinSlugFor(row))!, pinSlugFor(row)).find(
+        (d) => d.id === 'contextWindow'
+      )
+      expect(cw?.type === 'select' && cw.options.map((o) => o.value)).toEqual(['1m', 'cap-200k'])
+    })
+
     // The rewrite is gated on shipping a static row for the bare model, because
     // CLAUDE_MODEL_SPECS is the only record of a slug having actually been run. An unknown
     // model keeps both the alias pin and — since it really does pin the window — the name

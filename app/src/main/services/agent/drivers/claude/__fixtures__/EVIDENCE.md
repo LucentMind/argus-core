@@ -135,3 +135,48 @@ No committed script. To recapture: call `query()` from the SDK with
 `options: { permissionMode: 'auto', includePartialMessages: true }`, a `canUseTool`
 callback that counts its own invocations, and a prompt that forces one tool call; assert
 the counter stays zero after the run completes.
+
+## `models-2-1-263.json`
+
+Captured 2026-09-07 from `@anthropic-ai/claude-agent-sdk@0.3.263` (bundled CLI 2.1.263),
+the version the floor moved to for Fable 5.1. `query({ prompt: 'hi', options: { cwd, maxTurns: 0 } })`
+then `await q.supportedModels()`, written verbatim — no redactions, the payload carries
+nothing operator-specific.
+
+### The question it answers
+
+Whether the new model can be reached without an SDK bump. It cannot: on 0.3.220 a turn on
+`claude-fable-5-1` returned `API Error: 400 Claude Code 2.1.220 does not support this
+model; version 2.1.251 or newer is required` — the API gates the model on the CLI's
+version header, so upgrading the global `claude` does nothing for Argus (the SDK spawns its
+own bundled binary). On 0.3.263 the same bare slug completes (`modelUsage` keyed
+`claude-fable-5-1`, `contextWindow: 1000000`, one 4-token reply costing $0.78 — Fable
+probes are not cheap; do not loop them).
+
+### What the capture shows
+
+Same five aliases as 2.1.220 with one change: `fable` now resolves to `claude-fable-5-1`
+(description "Fable 5.1 · Most capable for your hardest and longest-running tasks"). No
+alias resolves to `claude-fable-5` any more, so that model reaches the picker only through
+the static built-in row — the union in `mergeBuiltinRows` is what keeps it. Capability
+flags for the new row are identical to the old `fable` row: all five effort levels,
+adaptive thinking, no fast mode.
+
+### A row shape seen once, not in this file
+
+The first `supportedModels()` read on 2.1.263 (same options, seconds earlier) returned a
+SIXTH row: `{ value: "claude-fable-5[1m]", resolvedModel: "claude-fable-5", displayName: "Fable" }`
+— a key that is a full wire slug WITH the `[1m]` suffix, resolving to the BARE slug. It was
+gone on the next read and its origin is unconfirmed (this operator's `~/.claude.json` holds
+per-project `model` entries for `claude-fable-5`, so a "currently configured model" row is
+the likely source). Two assumptions it breaks: that no `value` ever starts with `claude-`,
+and that a suffix on `value` implies one on `resolvedModel`. `pinSlugFor` handles it
+(bare pin when a static row exists) and `catalogModels.test.ts` pins that; the fixture
+itself records the reproducible read.
+
+### Reproducing
+
+Session scratchpad script, not committed: import `query` from the installed SDK, call
+`supportedModels()` from an EMPTY cwd (a shared temp root makes CLI boot take 6–17s), and
+write the array. Requires an authenticated CLI — unauthenticated, the call returns a
+defaults list that looks real.
