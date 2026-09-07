@@ -216,3 +216,63 @@ describe('AgentStore Question dialogs', () => {
     expect(store.get('NAV-1', 1).pendingDialogs).toEqual([])
   })
 })
+
+describe('AgentStore — compaction', () => {
+  it('context.compacted forgets the stale level and flags the gauge as awaiting a turn', () => {
+    store.apply(ev('context.usage', { usedTokens: 180_000, contextWindow: 200_000 }))
+    store.apply(
+      ev('context.compacted', { trigger: 'manual', preTokens: 180_000, postTokens: 3_000 })
+    )
+    // NOT post_tokens: that figure excludes the system prompt and tools still in the window.
+    expect(store.get('NAV-1', 1).context).toEqual({
+      usedTokens: null,
+      contextWindow: 200_000,
+      compacted: true
+    })
+  })
+
+  it('the next real level clears the compacted flag; a window-only update does not', () => {
+    store.apply(ev('context.compacted', { trigger: 'auto', preTokens: null, postTokens: null }))
+    store.apply(ev('context.usage', { usedTokens: null, contextWindow: 200_000 }))
+    expect(store.get('NAV-1', 1).context.compacted).toBe(true)
+    store.apply(ev('context.usage', { usedTokens: 26_700, contextWindow: null }))
+    expect(store.get('NAV-1', 1).context).toEqual({
+      usedTokens: 26_700,
+      contextWindow: 200_000,
+      compacted: false
+    })
+  })
+
+  it('session.notice appends a notice item', () => {
+    store.apply(ev('turn.started', { userText: '/compact' }))
+    store.apply(ev('session.notice', { kind: 'compacting', text: 'Compacting context…' }))
+    const st = store.get('NAV-1', 1)
+    expect(st.items).toHaveLength(2)
+    expect(st.items[1]).toEqual({
+      kind: 'notice',
+      noticeKind: 'compacting',
+      text: 'Compacting context…'
+    })
+  })
+
+  it('a compacted or failed notice replaces a trailing compacting notice instead of stacking', () => {
+    store.apply(ev('session.notice', { kind: 'compacting', text: 'Compacting context…' }))
+    store.apply(ev('session.notice', { kind: 'compacted', text: 'Context compacted' }))
+    let items = store.get('NAV-1', 1).items
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ kind: 'notice', noticeKind: 'compacted' })
+
+    store = new AgentStore()
+    store.apply(ev('session.notice', { kind: 'compacting', text: 'Compacting context…' }))
+    store.apply(ev('session.notice', { kind: 'compact_failed', text: 'Compaction failed' }))
+    items = store.get('NAV-1', 1).items
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ kind: 'notice', noticeKind: 'compact_failed' })
+  })
+
+  it('a notice after an unrelated item does not overwrite that item', () => {
+    store.apply(ev('assistant.message', { text: 'hi' }))
+    store.apply(ev('session.notice', { kind: 'compacted', text: 'Context compacted' }))
+    expect(store.get('NAV-1', 1).items).toHaveLength(2)
+  })
+})

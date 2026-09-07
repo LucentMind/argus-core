@@ -91,6 +91,21 @@ export type AgentEvent = AgentEventBase &
         type: 'context.usage'
         payload: { usedTokens: number | null; contextWindow: number | null }
       }
+    | {
+        // The CLI compacted the conversation (SDK `compact_boundary`). The live level is now
+        // UNKNOWN until the next real API call reports it: `postTokens` counts only the
+        // surviving messages and omits the system prompt and tools that still fill the window
+        // (captured 2026-09-07: post_tokens 3,096 vs 26,700 on the next turn), so consumers
+        // must forget the stale level rather than paint `postTokens` as the new one.
+        type: 'context.compacted'
+        payload: { trigger: 'manual' | 'auto'; preTokens: number | null; postTokens: number | null }
+      }
+    | {
+        // A CLI-side lifecycle note shown inline in the transcript (compaction progress and
+        // outcome). Not assistant prose — nothing the model said — so it is its own item kind.
+        type: 'session.notice'
+        payload: { kind: 'compacting' | 'compacted' | 'compact_failed'; text: string }
+      }
     | { type: 'content.delta'; payload: { text: string } }
     | { type: 'assistant.message'; payload: { text: string } } // finalized text of the block(s)
     | { type: 'tool.call.started'; payload: { toolCallId: string; name: string } }

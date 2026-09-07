@@ -43,6 +43,44 @@ export function normalizeSdkMessage(msg: any, ctx: NormalizeCtx): AgentEvent[] {
           })
         ]
       }
+      // Compaction lifecycle, as SDK 0.3.220 really emits it (captured 2026-09-07): a
+      // `status: 'compacting'` first, then `status: null` carrying `compact_result`
+      // ('success' | 'failed', with `compact_error` on failure), then — on success only — a
+      // `compact_boundary` with the token figures. No assistant message accompanies any of
+      // these, so without this branch the UI showed nothing for the whole ~14s and kept the
+      // pre-compact gauge afterwards.
+      if (msg.subtype === 'status') {
+        if (msg.status === 'compacting') {
+          return [
+            makeEvent(ctx, 'session.notice', { kind: 'compacting', text: 'Compacting context…' })
+          ]
+        }
+        if (msg.compact_result === 'failed') {
+          const why = typeof msg.compact_error === 'string' ? msg.compact_error : 'unknown error'
+          return [
+            makeEvent(ctx, 'session.notice', {
+              kind: 'compact_failed',
+              text: `Compaction failed: ${why}`
+            })
+          ]
+        }
+        return []
+      }
+      if (msg.subtype === 'compact_boundary') {
+        const meta = msg.compact_metadata ?? {}
+        const num = (v: unknown): number | null => (typeof v === 'number' ? v : null)
+        const preTokens = num(meta.pre_tokens)
+        const postTokens = num(meta.post_tokens)
+        const trigger: 'manual' | 'auto' = meta.trigger === 'auto' ? 'auto' : 'manual'
+        const text =
+          preTokens !== null
+            ? `Context compacted — ${preTokens.toLocaleString('en-US')} tokens summarized`
+            : 'Context compacted'
+        return [
+          makeEvent(ctx, 'session.notice', { kind: 'compacted', text }),
+          makeEvent(ctx, 'context.compacted', { trigger, preTokens, postTokens })
+        ]
+      }
       return []
 
     case 'stream_event': {
@@ -104,19 +142,23 @@ export function normalizeSdkMessage(msg: any, ctx: NormalizeCtx): AgentEvent[] {
       //
       // Sub-agent messages (parent_tool_use_id set) are billed against their OWN window, not
       // the main thread's, so they must not overwrite it.
+      //
+      // Synthetic replies (`model: '<synthetic>'` — what `/context`, and a `/compact` that
+      // found nothing to compact, answer with; captured 2026-09-07) made no API call, and
+      // their usage is all zeros. Summing that reported "0% of the window" the moment a user
+      // typed a slash command. The zero-sum guard also covers any other bookkeeping message:
+      // a real API call is never free.
       const usage = msg.message?.usage
-      if (usage && !msg.parent_tool_use_id) {
+      if (usage && !msg.parent_tool_use_id && msg.message?.model !== '<synthetic>') {
         const n = (v: unknown): number => (typeof v === 'number' ? v : 0)
-        out.push(
-          makeEvent(ctx, 'context.usage', {
-            usedTokens:
-              n(usage.input_tokens) +
-              n(usage.cache_read_input_tokens) +
-              n(usage.cache_creation_input_tokens) +
-              n(usage.output_tokens),
-            contextWindow: null
-          })
-        )
+        const usedTokens =
+          n(usage.input_tokens) +
+          n(usage.cache_read_input_tokens) +
+          n(usage.cache_creation_input_tokens) +
+          n(usage.output_tokens)
+        if (usedTokens > 0) {
+          out.push(makeEvent(ctx, 'context.usage', { usedTokens, contextWindow: null }))
+        }
       }
 
       return out

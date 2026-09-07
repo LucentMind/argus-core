@@ -354,3 +354,106 @@ describe('normalizeSdkMessage', () => {
     expect(evs.map((e) => e.type)).toEqual(['assistant.message', 'tool.call.started'])
   })
 })
+
+// Shapes below were captured live against SDK 0.3.220 on 2026-09-07: `/context` and a
+// failed `/compact` answer with a `<synthetic>` assistant message whose usage is all zeros;
+// a successful `/compact` emits status → compact_boundary and NO assistant message at all.
+describe('normalizeSdkMessage — compaction and synthetic replies', () => {
+  const SYNTHETIC = {
+    type: 'assistant',
+    session_id: 'abc',
+    parent_tool_use_id: null,
+    message: {
+      id: '17e1a8e3',
+      model: '<synthetic>',
+      role: 'assistant',
+      content: [{ type: 'text', text: '## Context Usage\n\n**Tokens:** 25.1k / 200k (13%)' }],
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0
+      }
+    }
+  }
+
+  it('renders a synthetic reply as text but does NOT report its zero usage as the context level', () => {
+    const evs = normalizeSdkMessage(SYNTHETIC, ctx)
+    expect(evs.map((e) => e.type)).toEqual(['assistant.message'])
+  })
+
+  it('also skips an all-zero usage on a non-synthetic model — no real API call is ever free', () => {
+    const msg = { ...SYNTHETIC, message: { ...SYNTHETIC.message, model: 'claude-haiku-4-5' } }
+    expect(normalizeSdkMessage(msg, ctx).map((e) => e.type)).toEqual(['assistant.message'])
+  })
+
+  it('maps the compacting status to a transcript notice', () => {
+    const evs = normalizeSdkMessage(
+      { type: 'system', subtype: 'status', status: 'compacting', session_id: 'abc' },
+      ctx
+    )
+    expect(evs).toHaveLength(1)
+    expect(evs[0]).toMatchObject({ type: 'session.notice', payload: { kind: 'compacting' } })
+  })
+
+  it('maps a failed compaction to a notice carrying the CLI error text', () => {
+    const evs = normalizeSdkMessage(
+      {
+        type: 'system',
+        subtype: 'status',
+        status: null,
+        compact_result: 'failed',
+        compact_error: 'Not enough messages to compact.',
+        session_id: 'abc'
+      },
+      ctx
+    )
+    expect(evs).toHaveLength(1)
+    expect(evs[0]).toMatchObject({ type: 'session.notice', payload: { kind: 'compact_failed' } })
+    expect((evs[0].payload as { text: string }).text).toContain('Not enough messages to compact.')
+  })
+
+  it('emits nothing for the success status — the boundary that follows carries the numbers', () => {
+    expect(
+      normalizeSdkMessage(
+        { type: 'system', subtype: 'status', status: null, compact_result: 'success' },
+        ctx
+      )
+    ).toEqual([])
+  })
+
+  it('maps compact_boundary to a compacted notice plus a context.compacted level reset', () => {
+    const evs = normalizeSdkMessage(
+      {
+        type: 'system',
+        subtype: 'compact_boundary',
+        session_id: 'abc',
+        compact_metadata: {
+          trigger: 'manual',
+          pre_tokens: 28366,
+          post_tokens: 3096,
+          cumulative_dropped_tokens: 25270,
+          duration_ms: 13797
+        }
+      },
+      ctx
+    )
+    expect(evs.map((e) => e.type)).toEqual(['session.notice', 'context.compacted'])
+    expect(evs[0]).toMatchObject({ payload: { kind: 'compacted' } })
+    expect((evs[0].payload as { text: string }).text).toMatch(/28,366/)
+    expect(evs[1]).toMatchObject({
+      payload: { trigger: 'manual', preTokens: 28366, postTokens: 3096 }
+    })
+  })
+
+  it('tolerates a boundary with no metadata numbers', () => {
+    const evs = normalizeSdkMessage(
+      { type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'auto' } },
+      ctx
+    )
+    expect(evs[1]).toMatchObject({
+      type: 'context.compacted',
+      payload: { trigger: 'auto', preTokens: null, postTokens: null }
+    })
+  })
+})
