@@ -122,6 +122,9 @@ export interface PipelineStages {
   materialize?: (StageRecord & { type: string; target: string })[]
   /** Uncited dossier items the parser dropped, by array key. */
   dossierUncitedDropped?: Record<string, number>
+  /** Dossier items the parser could not read as content, by key: a scalar claim present but
+   *  without a usable `text`, or an item whose every content field came back empty. */
+  dossierMalformedDropped?: Record<string, number>
   /** Candidates the parser dropped for a malformed shape (e.g. a non-string outline). */
   candidatesMalformedDropped?: number
 }

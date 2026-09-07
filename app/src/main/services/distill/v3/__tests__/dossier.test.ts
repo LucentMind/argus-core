@@ -122,6 +122,33 @@ describe('parseDossier', () => {
       discriminated: 'd'
     })
   })
+  it('counts a root_cause whose text key was renamed instead of nulling it silently', () => {
+    const { dossier, malformedDropped } = parseDossier(
+      VALID.replace('"root_cause":{"text":"rc"', '"root_cause":{"cause":"rc"')
+    )
+    expect(dossier.root_cause).toBeNull()
+    expect(malformedDropped).toEqual({ root_cause: 1 })
+  })
+  it('drops and counts an array item whose every content field is empty', () => {
+    const { dossier, malformedDropped } = parseDossier(
+      VALID.replace(
+        '"user_corrections":[]',
+        '"user_corrections":[{"blah":"x","cites":[{"finding":7}]}]'
+      )
+    )
+    expect(dossier.user_corrections).toEqual([])
+    expect(malformedDropped).toEqual({ user_corrections: 1 })
+  })
+  it('accepts the prose key name for a user correction', () => {
+    const { dossier, malformedDropped } = parseDossier(
+      VALID.replace(
+        '"user_corrections":[]',
+        '"user_corrections":[{"gist":"check the flag","cites":[{"finding":7}]}]'
+      )
+    )
+    expect(dossier.user_corrections).toEqual([{ text: 'check the flag', cites: [{ finding: 7 }] }])
+    expect(malformedDropped).toEqual({})
+  })
   it('requires scope', () => {
     expect(() => parseDossier('```json\n{"root_cause":null}\n```')).toThrow(DistillParseError)
   })

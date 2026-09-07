@@ -157,6 +157,17 @@ describe('RunDetail', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show raw dossier' }))
     expect(screen.getByText(DOSSIER_RAW)).toBeInTheDocument()
   })
+  it('names the dossier items the parser could not read, so a null is not ambiguous', () => {
+    const base = detail()
+    const d: DistillRunDetail = {
+      ...base,
+      stages: { ...base.stages, dossierMalformedDropped: { root_cause: 1, user_corrections: 2 } }
+    }
+    render(<RunDetail detail={d} progress={null} />)
+    expect(screen.getByTestId('card-dossier')).toHaveTextContent(
+      'unreadable items dropped: root_cause ×1, user_corrections ×2'
+    )
+  })
   it('marks candidates kept or vetoed by joining the drop list', () => {
     render(<RunDetail detail={detail()} progress={null} />)
     const rows = screen.getAllByTestId('candidate-row')
