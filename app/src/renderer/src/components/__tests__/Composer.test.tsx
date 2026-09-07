@@ -550,6 +550,80 @@ describe('Composer', () => {
     expect(screen.queryByText('/analyze-applog')).toBeNull()
   })
 
+  describe('CLI slash commands in the picker', () => {
+    const sessionOn = (driverKind: string): SessionSummary => ({
+      id: 1,
+      title: '',
+      turnCount: 0,
+      updatedAt: '',
+      driverKind,
+      instanceId: 'claude-default',
+      model: null,
+      mode: 'investigation',
+      runOptions: [],
+      permissionMode: null,
+      historyOrphaned: false
+    })
+    const oneSkill = (): void => {
+      window.argus.skills.list = vi.fn(async () => ({
+        skills: [
+          {
+            name: 'context-pack',
+            tier: 'bundled' as const,
+            description: 'Bundle case context',
+            enabled: true,
+            shadows: [],
+            shadowDiverged: false,
+            author: null
+          }
+        ]
+      }))
+    }
+
+    it("offers the Claude CLI's /compact and /context, tagged as CLI commands, after the skills", async () => {
+      oneSkill()
+      render(<Composer disabled={false} onSend={vi.fn()} session={sessionOn('claude-agent-sdk')} />)
+      const textarea = screen.getByPlaceholderText(/message the analyst/i)
+      fireEvent.change(textarea, { target: { value: '/co' } })
+      const skill = await screen.findByText('/context-pack')
+      const compact = screen.getByText('/compact')
+      const context = screen.getByText('/context')
+      // Skills first: the CLI rows trail so a house skill is never pushed under a built-in.
+      expect(skill.compareDocumentPosition(compact) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(compact.closest('button')!.textContent).toMatch(/CLI/)
+      expect(context.closest('button')!.textContent).toMatch(/CLI/)
+      expect(skill.closest('button')!.textContent).not.toMatch(/CLI/)
+    })
+
+    it('Tab completes a CLI command like a skill', async () => {
+      oneSkill()
+      render(<Composer disabled={false} onSend={vi.fn()} session={sessionOn('claude-agent-sdk')} />)
+      const textarea = screen.getByPlaceholderText(/message the analyst/i) as HTMLTextAreaElement
+      fireEvent.change(textarea, { target: { value: '/comp' } })
+      await screen.findByText('/compact')
+      fireEvent.keyDown(textarea, { key: 'Tab' })
+      expect(textarea.value).toBe('/compact ')
+    })
+
+    it('does not offer CLI commands for a non-Claude session, nor before the session is known', async () => {
+      oneSkill()
+      const { unmount } = render(
+        <Composer disabled={false} onSend={vi.fn()} session={sessionOn('github-copilot')} />
+      )
+      let textarea = screen.getByPlaceholderText(/message the analyst/i)
+      fireEvent.change(textarea, { target: { value: '/co' } })
+      await screen.findByText('/context-pack')
+      expect(screen.queryByText('/compact')).toBeNull()
+      unmount()
+
+      render(<Composer disabled={false} onSend={vi.fn()} />)
+      textarea = screen.getByPlaceholderText(/message the analyst/i)
+      fireEvent.change(textarea, { target: { value: '/co' } })
+      await screen.findByText('/context-pack')
+      expect(screen.queryByText('/compact')).toBeNull()
+    })
+  })
+
   describe('skill popup keyboard completion', () => {
     const twoSkills = (): void => {
       window.argus.skills.list = vi.fn(async () => ({
