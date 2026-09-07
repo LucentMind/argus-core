@@ -87,7 +87,10 @@ describe('HivemindInitDialog', () => {
   })
 
   it('nothing missing disables the action button', async () => {
-    stubArgus(undefined, vi.fn(async () => ({ noCommits: false, readme: '', missing: [] })))
+    stubArgus(
+      undefined,
+      vi.fn(async () => ({ noCommits: false, readme: '', missing: [] }))
+    )
     render(<HivemindInitDialog onClose={vi.fn()} onDone={vi.fn()} />)
     expect(
       await screen.findByText('The layout is already complete — nothing to add.')
