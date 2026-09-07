@@ -84,7 +84,10 @@ describe('ChatPane', () => {
   it('renders a compaction notice as a quiet inline row, not as a chat bubble', () => {
     agentStore.apply(ev('turn.started', { userText: '/compact' }))
     agentStore.apply(
-      ev('session.notice', { kind: 'compacted', text: 'Context compacted — 28,366 tokens summarized' })
+      ev('session.notice', {
+        kind: 'compacted',
+        text: 'Context compacted — 28,366 tokens summarized'
+      })
     )
     render(<ChatPane slug="NAV-1" sessionId={1} onCite={vi.fn()} />)
     const row = screen.getByTestId('session-notice')
