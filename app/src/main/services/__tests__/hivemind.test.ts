@@ -3052,7 +3052,7 @@ describe('init', () => {
     expect(calls.some((c) => c[0] === 'worktree')).toBe(false)
   })
 
-  it('on a zero-commit clone with nothing missing, is a no-op', async () => {
+  it('on a zero-commit clone with leftover scaffold files from a prior failed attempt, still commits and pushes', async () => {
     const clone = seedCloneShell()
     for (const rel of [
       'README.md',
@@ -3068,11 +3068,74 @@ describe('init', () => {
       calls.push(args)
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') throw new Error('unknown revision')
       if (args[0] === 'symbolic-ref' && args[1] === '-q') return 'refs/heads/main'
+      if (args[0] === 'symbolic-ref' && args[1] === '--short') return 'main'
       return ''
     }
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git })
     const r = await svc.init()
-    expect(r).toEqual({ ok: true, outcome: 'unchanged', prUrl: null })
+    expect(r).toEqual({ ok: true, outcome: 'initialized', prUrl: null })
+    const flat = calls.map((c) => c.join(' '))
+    expect(flat).toContain('add -A')
+    expect(flat.some((c) => c.startsWith('commit -m Set up HiveMind directory structure'))).toBe(
+      true
+    )
+    expect(flat).toContain('push -u origin main')
+  })
+
+  it('a failed commit on a zero-commit clone leaves residue that a retry still pushes rather than reporting unchanged', async () => {
+    const clone = seedCloneShell()
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') throw new Error('unknown revision')
+      if (args[0] === 'symbolic-ref' && args[1] === '-q') return 'refs/heads/main'
+      if (args[0] === 'symbolic-ref' && args[1] === '--short') return 'main'
+      if (args[0] === 'commit') throw new Error('no git identity configured')
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git })
+
+    const r1 = await svc.init()
+    expect(r1.ok).toBe(false)
+    if (!r1.ok) expect(r1.error).toMatch(/no git identity configured/)
+    // The scaffold files were written to disk before the commit failed — this is the residue.
+    expect(fs.existsSync(path.join(clone, 'README.md'))).toBe(true)
+
+    calls.length = 0
+    const r2 = await svc.init()
+    expect(r2.ok).toBe(false)
+    if (!r2.ok) expect(r2.error).toMatch(/no git identity configured/)
+    const flat = calls.map((c) => c.join(' '))
+    // The regression: this must NOT short-circuit to `{ ok: true, outcome: 'unchanged' }` just
+    // because `missingScaffoldFiles` now finds nothing missing on disk.
+    expect(flat.some((c) => c.startsWith('commit -m Set up HiveMind directory structure'))).toBe(
+      true
+    )
+  })
+
+  it('refuses when the remote gains a commit during the zero-commit push race', async () => {
+    seedCloneShell()
+    const calls: string[][] = []
+    let fetched = false
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'fetch') {
+        fetched = true
+        return ''
+      }
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        if (fetched) return 'racedsha'
+        throw new Error('unknown revision')
+      }
+      if (args[0] === 'symbolic-ref' && args[1] === '-q') return 'refs/heads/main'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git })
+    const r = await svc.init()
+    expect(r).toEqual({
+      ok: false,
+      error: 'The repository gained a commit while pushing — Sync and try again.'
+    })
     expect(calls.some((c) => c[0] === 'commit' || c[0] === 'push')).toBe(false)
   })
 
@@ -3272,7 +3335,8 @@ describe('init', () => {
         return JSON.stringify([
           {
             url: 'https://github.com/acme/hivemind/pull/6',
-            headRefName: 'argus/init-hivemind-1700000000000'
+            headRefName: 'argus/init-hivemind-1700000000000',
+            author: { login: 'alice' }
           }
         ])
       return ''
@@ -3281,7 +3345,7 @@ describe('init', () => {
     const r = await svc.init()
     expect(r).toEqual({
       ok: false,
-      error: 'A teammate already has an open pull request setting up the HiveMind layout.',
+      error: 'alice already has an open pull request setting up the HiveMind layout.',
       blockedByPrUrl: 'https://github.com/acme/hivemind/pull/6'
     })
     expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'add')).toBe(false)

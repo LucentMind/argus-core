@@ -122,6 +122,23 @@ describe('HivemindInitDialog', () => {
     expect(screen.getByRole('button', { name: 'Open pull request' })).toBeInTheDocument()
   })
 
+  it('a failed preview surfaces the error and Retry refetches it in place', async () => {
+    const initPreview = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('preview exploded'))
+      .mockResolvedValueOnce({ noCommits: false, readme: '# Argus HiveMind\n', missing: ['README.md'] })
+    stubArgus(undefined, initPreview)
+    render(<HivemindInitDialog onClose={vi.fn()} onDone={vi.fn()} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('preview exploded')
+    expect(screen.getByRole('button', { name: 'Open pull request' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry preview' }))
+
+    expect(await screen.findByText('Adds: README.md')).toBeInTheDocument()
+    expect(initPreview).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('Cancel calls onClose without calling init()', async () => {
     const { init } = stubArgus()
     const onClose = vi.fn()
