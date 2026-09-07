@@ -25,11 +25,13 @@ const pending: ProposalRecord = {
 function renderDetail(over: Partial<Parameters<typeof ProposalDetail>[0]> = {}): {
   onAccept: ReturnType<typeof vi.fn>
   onReject: ReturnType<typeof vi.fn>
+  onDelete: ReturnType<typeof vi.fn>
   onToggleEdit: ReturnType<typeof vi.fn>
   onViewMode: ReturnType<typeof vi.fn>
 } {
   const onAccept = vi.fn()
   const onReject = vi.fn()
+  const onDelete = vi.fn()
   const onToggleEdit = vi.fn()
   const onViewMode = vi.fn()
   render(
@@ -49,13 +51,14 @@ function renderDetail(over: Partial<Parameters<typeof ProposalDetail>[0]> = {}):
       onOpenHivemind={vi.fn()}
       onAccept={onAccept}
       onReject={onReject}
+      onDelete={onDelete}
       selectedPath="SKILL.md"
       onSelectPath={vi.fn()}
       editedPaths={new Set()}
       {...over}
     />
   )
-  return { onAccept, onReject, onToggleEdit, onViewMode }
+  return { onAccept, onReject, onDelete, onToggleEdit, onViewMode }
 }
 
 // window.argus stub for SharePushDialog's lazy needs is added in the accepted-pane test only.
@@ -431,6 +434,7 @@ function renderFilesDetail(over: Record<string, unknown> = {}): {
       onOpenHivemind={vi.fn()}
       onAccept={vi.fn()}
       onReject={vi.fn()}
+      onDelete={vi.fn()}
       selectedPath="SKILL.md"
       onSelectPath={onSelectPath}
       editedPaths={new Set()}
@@ -565,5 +569,47 @@ describe('ProposalDetail with sibling files', () => {
     expect(screen.getByText('+ echo new')).toBeInTheDocument()
     expect(screen.getByText('- echo old')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Unified view' })).toBeInTheDocument()
+  })
+})
+
+describe('ProposalDetail: delete (spec 2026-09-07)', () => {
+  beforeEach(() => {
+    vi.mocked(confirm).mockClear()
+    vi.mocked(confirm).mockResolvedValue(true)
+  })
+
+  it('renders a Delete button beside Reject, disabled while busy', () => {
+    renderDetail({ busy: true })
+    expect(screen.getByRole('button', { name: 'Delete Sharpen step 4' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Reject Sharpen step 4' })).toBeDisabled()
+  })
+
+  it('confirms with the spec copy (confirmStore, never window.confirm), then calls onDelete', async () => {
+    const { onDelete, onReject } = renderDetail()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Sharpen step 4' }))
+    expect(confirm).toHaveBeenCalledWith({
+      title: 'Delete this proposal?',
+      message:
+        'It will be removed without recording a rejection, so nothing is learned from it — the distiller may propose the same thing again. This cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true
+    })
+    await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1))
+    // Delete is not a reject in disguise.
+    expect(onReject).not.toHaveBeenCalled()
+  })
+
+  it('declining the confirm calls nothing', async () => {
+    vi.mocked(confirm).mockResolvedValueOnce(false)
+    const { onDelete } = renderDetail()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Sharpen step 4' }))
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
+    expect(onDelete).not.toHaveBeenCalled()
+  })
+
+  it('does not open the reject-reason strip', () => {
+    renderDetail()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Sharpen step 4' }))
+    expect(screen.queryByLabelText('Reject note')).not.toBeInTheDocument()
   })
 })
