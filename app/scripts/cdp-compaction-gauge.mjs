@@ -108,7 +108,8 @@ const popup = await conn.evalJs(
 check('picker lists /compact and /context', popup.length === 2, JSON.stringify(popup))
 check(
   'both rows carry the CLI tag',
-  popup.every((t) => /\bCLI\b/.test(t)),
+  // textContent concatenates the spans ("/compactCLIFree up…"), so no word boundaries here.
+  popup.every((t) => /^\/\w+CLI/.test(t)),
   JSON.stringify(popup)
 )
 await shot('01-picker')
