@@ -96,3 +96,8 @@ export interface HivemindInitPreview {
   /** Repo-relative paths init() will create, recomputed live on every call. */
   missing: string[]
 }
+
+export type HivemindInitOutcome = 'initialized' | 'created' | 'updated' | 'unchanged'
+export type HivemindInitResult =
+  | { ok: true; outcome: HivemindInitOutcome; prUrl: string | null }
+  | { ok: false; error: string; blockedByPrUrl?: string }
