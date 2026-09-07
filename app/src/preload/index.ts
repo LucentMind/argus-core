@@ -812,6 +812,7 @@ const argus = {
       invoke(IPC.proposalsAccept, file, editedContent, editedFiles),
     reject: (file: string, reason?: RejectReason): Promise<ProposalsPayload> =>
       invoke(IPC.proposalsReject, file, reason),
+    delete: (file: string): Promise<ProposalsPayload> => invoke(IPC.proposalsDelete, file),
     onChanged: (cb: (c: ProposalCounts) => void): (() => void) => {
       const listener = (_e: unknown, c: ProposalCounts): void => cb(c)
       ipcRenderer.on(IPC.proposalsChanged, listener)
