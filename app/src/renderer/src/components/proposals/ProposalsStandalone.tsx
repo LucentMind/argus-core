@@ -344,19 +344,37 @@ export function ProposalsStandalone({
     })
   }
 
+  // Next pending row after p in the CURRENT display order (previous when p is last), computed
+  // BEFORE the refetch drops the row. Shared by reject and delete.
+  function advanceTarget(p: ProposalRecord): ProposalRecord | null {
+    const i = pendingSorted.findIndex((x) => x.file === p.file)
+    return pendingSorted[i + 1] ?? pendingSorted[i - 1] ?? null
+  }
+
   function rejectSelected(
     p: ProposalRecord,
     reason: Parameters<typeof window.argus.proposals.reject>[1]
   ): void {
     // Compute the advance target from the CURRENT pending order before the
     // refetch drops the row: next pending, else previous, else null.
-    const i = pendingSorted.findIndex((x) => x.file === p.file)
-    const next = pendingSorted[i + 1] ?? pendingSorted[i - 1] ?? null
+    const next = advanceTarget(p)
     void act(async () => {
       // Trust the IPC response the same way the old page's `act()` does — the
       // fresh `proposals` list is the source of truth (a distiller run may
       // have touched other rows too), not something to reconcile locally.
       const r = await window.argus.proposals.reject(p.file, reason)
+      pruneEditing(p.file)
+      setSelectedFile(next?.file ?? null)
+      return r
+    })
+  }
+
+  // Spec 2026-09-07: same advance/prune discipline as reject, different IPC. The confirm lives
+  // in ProposalDetail; by the time this runs the user has already said yes.
+  function deleteSelected(p: ProposalRecord): void {
+    const next = advanceTarget(p)
+    void act(async () => {
+      const r = await window.argus.proposals.delete(p.file)
       pruneEditing(p.file)
       setSelectedFile(next?.file ?? null)
       return r
@@ -423,6 +441,7 @@ export function ProposalsStandalone({
           onOpenHivemind={() => onNavigateSettings('team')}
           onAccept={() => selectedPending && acceptSelected(selectedPending)}
           onReject={(reason) => selectedPending && rejectSelected(selectedPending, reason)}
+          onDelete={() => selectedPending && deleteSelected(selectedPending)}
           selectedPath={selectedPath}
           onSelectPath={(path) =>
             effectiveSelected && setPathSel({ file: effectiveSelected, path })
