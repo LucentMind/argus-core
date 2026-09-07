@@ -39,6 +39,27 @@ export const defaultCreateQuery: CreateQueryFn = (args) =>
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
+ * The CLI's exact wording when `--resume <uuid>` names a conversation it does not hold. It
+ * arrives in `errors[]` on the error `result` (measured; the SDK also joins `errors[]` into the
+ * Error it throws afterwards, and folds a `subtype:'success'` error's text into `result`).
+ */
+const NO_CONVERSATION_RE = /No conversation found with session ID/i
+
+/** True for the CLI's "I don't have that conversation" error result — the one frame it emits
+ *  before the SDK throws, whose `session_id` merely echoes the requested resume uuid. */
+export function isRejectedResume(msg: {
+  type?: string
+  is_error?: boolean
+  errors?: unknown
+  result?: unknown
+}): boolean {
+  if (msg.type !== 'result' || !msg.is_error) return false
+  const texts = Array.isArray(msg.errors) ? msg.errors.map(String) : []
+  if (typeof msg.result === 'string') texts.push(msg.result)
+  return texts.some((t) => NO_CONVERSATION_RE.test(t))
+}
+
+/**
  * Auth-shaped failure detection (spec §5), calibrated against the real CLI (verified
  * 2026-07-16 — see .superpowers/sdd/auth-shape-evidence.md). Both real auth failures come
  * back as `subtype: 'success'` with `is_error: true` — the SDK does not use an error
@@ -272,6 +293,14 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
         }
         const durable = (msg.type === 'system' && msg.subtype === 'init') || msg.type === 'result'
         if (!durable || !msg.session_id || !UUID_RE.test(msg.session_id)) return
+        // A rejected resume (captured live 2026-09-07, CLI 2.1.220): the CLI's only frame is
+        // an error `result` whose `session_id` is the REQUESTED uuid echoed back, not a
+        // conversation it holds. Persisting that echo re-armed the same dead resume on every
+        // later send — a case stuck this way crashed identically for days. Invalidate instead.
+        if (isRejectedResume(msg)) {
+          ctx.onCursorLost?.()
+          return
+        }
         ctx.onCursor(msg.session_id)
       }
 
