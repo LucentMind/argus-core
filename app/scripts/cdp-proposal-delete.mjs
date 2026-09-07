@@ -25,8 +25,11 @@
  * exists, and every assertion is about the state this run produces, not about a fresh home.
  *
  * Port-collision trap: a busy debug port silently hands you ANOTHER worktree's app (Electron
- * does not fail when the port is taken). The identity gate below — this fixture's own case must
- * be listable through the connected page's `window.argus` — is what catches that.
+ * does not fail when the port is taken). The identity gate below — the files this script wrote
+ * DIRECTLY onto disk under `ARGUS_HOME` must be listable through the connected page's
+ * `window.argus.proposals.list()` — is what catches that: a case created *through* the connected
+ * page proves nothing (a colliding app on the same port would create it too, in ITS OWN home), but
+ * only the right app, pointed at the right `ARGUS_HOME`, can see files this script fsync'd itself.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -67,7 +70,10 @@ function seedJob() {
 const fm = (fields, body) =>
   ['---', ...Object.entries(fields).map(([k, v]) => `${k}: ${v}`), '---', '', body].join('\n')
 
-/** Three job-stamped proposals (two flat, one directory-shaped) + one human-authored one. */
+/** Three job-stamped proposals (two flat, one directory-shaped) + two human-authored ones — the
+ *  spec singles out human-authored proposals as the case only delete (never reject) can remove
+ *  outright with no archive row, so the fixture carries two of them: one used for the reject
+ *  contrast below, one deleted via the UI to prove that path directly. */
 function seedProposals(jobId) {
   fs.mkdirSync(PROPOSALS, { recursive: true })
   const date = '2026-09-07T10:00:00.000Z'
@@ -91,6 +97,12 @@ function seedProposals(jobId) {
       title: 'Human note',
       type: 'reference-edit',
       target: 'human-note'
+    },
+    {
+      file: `2026-09-07-${SLUG}-human-note-2.md`,
+      title: 'Human note 2',
+      type: 'reference-edit',
+      target: 'human-note-2'
     }
   ]
   for (const it of items) {
@@ -213,33 +225,49 @@ const main = async () => {
     )
     await sleep(800)
   }
-  // Identity gate (port-collision trap): the page we are talking to must see OUR fixture case.
+  // Plain guard, not a `check()`: whether the connected page can see a case IT JUST CREATED is
+  // vacuous on a port collision — a colliding app on the same port would create the case too, in
+  // its own ARGUS_HOME. This only aborts a fixture that clearly failed to bootstrap; the real
+  // identity gate is below, once files exist that only THIS script wrote to disk.
   const seesCase = await conn.evalJs(
     `window.argus.cases.list().then((l) => (l.cases ?? l).some((c) => c.slug === ${JSON.stringify(SLUG)}))`
   )
-  check('identity: connected page lists the fixture case (right app on this port)', seesCase)
-  if (!seesCase) report()
+  if (!seesCase) {
+    console.error('GATE ERROR: fixture case was not created (or not visible) — aborting')
+    process.exit(1)
+  }
 
   const jobId = seedJob()
   const seeded = seedProposals(jobId)
-  const beta = seeded.flat[1]
   const alpha = seeded.flat[0]
+  const beta = seeded.flat[1]
   const human = seeded.flat[2]
+  const human2 = seeded.flat[3]
+  const fixtureFiles = [alpha.file, beta.file, human.file, human2.file, seeded.dir]
 
   // The proposals dir watcher (300ms debounce) must surface externally written files.
   const listed = await waitFor(
-    'all 4 seeded proposals listed via IPC',
+    'all 5 seeded proposals listed via IPC',
     async () => {
       const l = await conn.evalJs(`window.argus.proposals.list()`)
       const files = new Set(l.proposals.map((p) => p.file))
-      return [alpha.file, beta.file, human.file, seeded.dir].every((f) => files.has(f)) ? l : null
+      return fixtureFiles.every((f) => files.has(f)) ? l : null
     },
     15000
   )
+  // Identity gate (port-collision trap): these 5 entries are files this script wrote DIRECTLY
+  // onto disk under ARGUS_HOME, moments ago, with names unique to this run. The connected page
+  // listing every one of them through `window.argus.proposals.list()` means it is reading the
+  // SAME `ARGUS_HOME` this script wrote to — the only way a colliding app on a stale port could
+  // pass this is by happening to share our exact ARGUS_HOME, which defeats the collision.
+  check(
+    'identity: files Node wrote into ARGUS_HOME are listed by the connected page (right app on this port)',
+    fixtureFiles.every((f) => new Set(listed.proposals.map((p) => p.file)).has(f))
+  )
   const pendingBefore = listed.proposals.length
   check(
-    'fixture: 4 pending proposals visible through the preload',
-    pendingBefore >= 4,
+    'fixture: 5 pending proposals visible through the preload',
+    pendingBefore >= 5,
     pendingBefore
   )
   const archiveBefore = archiveEntries()
@@ -322,6 +350,28 @@ const main = async () => {
     'confirm: selection advanced to a neighbouring row',
     current !== null && !current.endsWith(beta.title),
     current
+  )
+
+  // --- Confirm path (second human-authored proposal) --- the spec singles out human-authored
+  // proposals as the case only delete can remove with no archive row; prove it directly rather
+  // than only inferring it from the job-stamped `beta` deletion above.
+  await clickByLabel(conn, `Select proposal ${human2.title}`)
+  await sleep(300)
+  await clickByLabel(conn, `Delete ${human2.title}`)
+  await waitFor('confirm dialog (human2)', () => dialogOpen(conn), 5000)
+  await clickDialogButton(conn, 'Delete')
+  await waitFor(
+    'human2 row removed',
+    async () => !(await hasLabel(conn, `Select proposal ${human2.title}`)),
+    10000
+  )
+  check(
+    'human-authored delete: file removed from proposals/',
+    !fs.existsSync(path.join(PROPOSALS, human2.file))
+  )
+  check(
+    'human-authored delete: archive/ still unchanged',
+    archiveEntries().join('|') === archiveBefore.join('|')
   )
 
   // --- Confirm path (directory-shaped proposal) ---

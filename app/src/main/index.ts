@@ -3564,8 +3564,8 @@ function registerIpc(): void {
   })
   // Spec 2026-09-07: pending-only hard delete. No archive row, so — unlike reject — nothing
   // downstream (already-captured, index notes, prior-reject stamps, digest, eval export) sees it.
-  ipcMain.handle(IPC.proposalsDelete, (_e, file: string) => {
-    deleteProposal(argusHome, file)
+  ipcMain.handle(IPC.proposalsDelete, (_e, file: string, expectedDate?: string) => {
+    deleteProposal(argusHome, file, expectedDate)
     return { proposals: listProposals(argusHome) }
   })
   // Read-only digest viewer (spec §5): `null` when no digest has ever been built, which the

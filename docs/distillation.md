@@ -371,7 +371,7 @@ erDiagram
   CASES ||--o{ DISTILL_JOBS : "case_slug (no FK)"
   CASES ||--o| CASE_SUMMARIES : "case_slug"
   DISTILL_JOBS ||--o{ PROPOSAL_FILES : "job frontmatter stamp"
-  PROPOSAL_FILES ||--o| ARCHIVED_PROPOSALS : "accept or reject moves it"
+  PROPOSAL_FILES ||--o| ARCHIVED_PROPOSALS : "accept or reject only moves it"
   DISTILL_JOBS ||--o| REJECT_DIGEST : "kind reject-digest rebuilds it"
 
   DISTILL_JOBS {
@@ -777,6 +777,13 @@ the proposal's creation `date` — recency tie-breaks need to know when the *rej
 plus `reject_reason` when a tag was chosen (validated against `REJECT_REASON_TAGS`, since IPC
 arguments are untyped at runtime) and `reject_note` reduced to its first non-blank line, trimmed to
 200 chars.
+
+**Delete is a third terminal action** (spec 2026-09-07), pending-only: it hard-removes the file
+from `proposals/` with no archive row at all — not accepted, not rejected. Because nothing is
+written to `ARCHIVED_PROPOSALS`, a delete feeds none of the reject-driven steers a rejection would:
+it never joins the already-captured list, never annotates the case's index notes, never stamps a
+cross-case prior-reject, never contributes to the reject digest, and never appears in the eval
+export. The distiller has no memory of it and may re-propose the same target on the next run.
 
 ## 2.10 Cancel, retry, redistill, recovery
 

@@ -856,9 +856,21 @@ export function rejectProposal(
  * throw `Unknown proposal` BEFORE any filesystem call, so a bad IPC argument can never reach
  * `rmSync`. Delegates to `removePendingProposal`, which handles the directory shape and fires
  * the changed notifier exactly once — no second announcement here.
+ *
+ * `expectedDate` guards against a recycled filename: `writeProposal` uniquifies names only
+ * against files currently present, so while a confirm dialog sits open a re-distill's supersede
+ * step can remove the file underneath it and stage a fresh proposal under the identical name.
+ * `date` is the ISO write timestamp with milliseconds — unique per write — so when the caller
+ * passes the date it last saw, a recycled name whose `date` has moved on is refused with the same
+ * `Unknown proposal` error rather than silently deleting a proposal the user never saw. Optional
+ * so existing callers (and the supersede path, which has no prior render to compare against) are
+ * unaffected.
  */
-export function deleteProposal(argusHome: string, file: string): void {
+export function deleteProposal(argusHome: string, file: string, expectedDate?: string): void {
   const p = listProposals(argusHome).find((x) => x.file === file)
   if (!p) throw new Error(`Unknown proposal: ${file}`)
+  if (expectedDate !== undefined && p.date !== expectedDate) {
+    throw new Error(`Unknown proposal: ${file}`)
+  }
   removePendingProposal(argusHome, p.file)
 }
