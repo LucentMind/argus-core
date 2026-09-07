@@ -1,7 +1,8 @@
 import { Fragment } from 'react'
-import { diffLines, pairRows } from '../../lib/lineDiff'
+import { pairRows } from '../../lib/lineDiff'
 import type { DiffCell } from '../../lib/lineDiff'
 import { MessageView } from '../MessageView'
+import { DiffGapBar, DiffHiddenBar, useHunkedDiff } from '../DiffHunks'
 import { KIND_PREFIX, KIND_CLASS } from './diffUtils'
 
 /** Proposals carry no citations — `MessageView`'s cite handler has nothing to do here. */
@@ -18,19 +19,31 @@ export function UnifiedDiff({
   current: string | null
   content: string
 }): React.JSX.Element {
-  const lines = diffLines(current ?? '', content)
+  const d = useHunkedDiff(current ?? '', content)
   return (
-    // `break-words`: `whitespace-pre-wrap` only wraps at existing whitespace — an unbroken
-    // token (long URL/path/minified line, no spaces) has no break opportunity and needs
-    // overflow-wrap to avoid growing past the pane. jsdom cannot see this; live-verified 2026-08-08.
-    <pre className="whitespace-pre-wrap break-words px-4 py-3 font-mono text-xs">
-      {lines.map((l, i) => (
-        <div key={i} className={KIND_CLASS[l.kind]}>
-          {KIND_PREFIX[l.kind]}
-          {l.text}
-        </div>
-      ))}
-    </pre>
+    <div className="min-w-0">
+      <DiffHiddenBar hidden={d.hidden} onExpandAll={d.expandAll} />
+      {/* `break-words`: `whitespace-pre-wrap` only wraps at existing whitespace — an unbroken
+          token (long URL/path/minified line, no spaces) has no break opportunity and needs
+          overflow-wrap to avoid growing past the pane. jsdom cannot see this; live-verified
+          2026-08-08. */}
+      <pre className="whitespace-pre-wrap break-words px-4 py-3 font-mono text-xs">
+        {d.segments.map((seg, i) =>
+          seg.kind === 'gap' && !d.isExpanded(i) ? (
+            <DiffGapBar key={i} count={seg.count} onExpand={() => d.expand(i)} className="my-1" />
+          ) : (
+            <Fragment key={i}>
+              {seg.lines.map((l, j) => (
+                <div key={j} className={KIND_CLASS[l.kind]}>
+                  {KIND_PREFIX[l.kind]}
+                  {l.text}
+                </div>
+              ))}
+            </Fragment>
+          )
+        )}
+      </pre>
+    </div>
   )
 }
 
@@ -61,16 +74,30 @@ export function SplitDiff({
   current: string | null
   content: string
 }): React.JSX.Element {
-  const rows = pairRows(diffLines(current ?? '', content))
+  const d = useHunkedDiff(current ?? '', content)
   return (
     <div className="overflow-x-auto py-3 font-mono text-xs">
+      <DiffHiddenBar hidden={d.hidden} onExpandAll={d.expandAll} />
       <div className="grid min-w-fit grid-cols-[auto_1fr_auto_1fr]">
-        {rows.map((r, i) => (
-          <Fragment key={i}>
-            <SplitCell cell={r.left} />
-            <SplitCell cell={r.right} />
-          </Fragment>
-        ))}
+        {d.segments.map((seg, i) =>
+          seg.kind === 'gap' && !d.isExpanded(i) ? (
+            // The bar is a row of the grid, not a cell: `col-span-4` is what keeps the four
+            // columns sized by the code around it rather than by this one full-width child.
+            <div key={i} className="col-span-4">
+              <DiffGapBar count={seg.count} onExpand={() => d.expand(i)} />
+            </div>
+          ) : (
+            <Fragment key={i}>
+              {/* Real file line numbers: each hunk resumes where the gap before it left off. */}
+              {pairRows(seg.lines, seg.leftStart, seg.rightStart).map((r, j) => (
+                <Fragment key={j}>
+                  <SplitCell cell={r.left} />
+                  <SplitCell cell={r.right} />
+                </Fragment>
+              ))}
+            </Fragment>
+          )
+        )}
       </div>
     </div>
   )
