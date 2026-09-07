@@ -79,9 +79,26 @@ function renderCard(
 afterEach(cleanup)
 
 it('puts the ticket id in ink and the title in signal', () => {
-  render(<CaseCard c={mkCase({ slug: 'KAN-22', title: 'Aufgabe 22' })} {...noop} />)
+  render(
+    <CaseCard c={mkCase({ slug: 'KAN-22', jiraKey: 'KAN-22', title: 'Aufgabe 22' })} {...noop} />
+  )
   expect(screen.getByText('KAN-22').className).toContain('text-ink')
   expect(screen.getByTestId('case-title').className).toContain('text-signal')
+})
+
+// A ticket moved to another project keeps the case's slug (its id on disk and in every table)
+// but gets a new key. The card heads itself with the LIVE key, or it names a ticket that no
+// longer resolves; the slug stays reachable as the tooltip.
+it('heads the card with the live ticket key after a move, not the slug', () => {
+  render(<CaseCard c={mkCase({ slug: 'CORESDK-4917', jiraKey: 'NN-5401' })} {...noop} />)
+  expect(screen.getByText('NN-5401')).toBeTruthy()
+  expect(screen.queryByText('CORESDK-4917')).toBeNull()
+  expect(screen.getByText('NN-5401').getAttribute('title')).toBe('Case CORESDK-4917')
+})
+
+it('falls back to the slug when the case has no ticket at all', () => {
+  render(<CaseCard c={mkCase({ slug: 'local-repro', jiraKey: null })} {...noop} />)
+  expect(screen.getByText('local-repro').getAttribute('title')).toBeNull()
 })
 
 it('shows the upstream Jira status and the last-activity age', () => {

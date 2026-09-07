@@ -16,6 +16,7 @@ import { HeaderNotice } from './HeaderNotice'
 import { ModeSwitcher } from './ModeSwitcher'
 import { RecentTabs } from './RecentTabs'
 import { railTier } from '../lib/priorityRail'
+import { caseLabel, caseLabelTitle } from '../lib/caseLabel'
 import { DEFAULT_MODE } from '../../../shared/modes'
 import type { CaseRecord } from '../../../shared/types'
 
@@ -38,6 +39,7 @@ const ACTION_BTN =
 export function TopBar({
   activeSlug,
   activeCase,
+  labelFor,
   onHome,
   onSelect,
   onSettings,
@@ -51,6 +53,10 @@ export function TopBar({
    *  from the view and is the thing that decides whether the group renders at all, so the
    *  group does not blink out during a refetch. */
   activeCase: CaseRecord | null
+  /** Display label for ANY open case, not just the active one — the tab band needs the live
+   *  ticket key for cases whose records TopBar never sees. Supplied by App, which owns the
+   *  `cases` array; falls back to the slug for a tab whose case has not loaded (or is gone). */
+  labelFor?: (slug: string) => string
   onHome: () => void
   onSelect: (slug: string) => void
   onSettings: () => void
@@ -289,6 +295,12 @@ export function TopBar({
               <CaseAnchor
                 key={activeSlug}
                 slug={activeSlug}
+                // The live ticket key, not the slug: a ticket moved to another project keeps
+                // its slug (that is the case's identifier on disk) but gets a new key, and the
+                // header used to go on announcing the dead one. `activeCase` is null only
+                // while the list refetches, and the slug is the honest fallback there.
+                label={activeCase ? caseLabel(activeCase) : activeSlug}
+                labelTitle={caseLabelTitle(activeCase)}
                 status={activeCase?.status ?? 'open'}
                 resolution={activeCase?.resolution ?? null}
                 archivedAt={activeCase?.archivedAt ?? null}
@@ -358,7 +370,9 @@ export function TopBar({
             flag that hides the case group is the one that hides the band.
             The tabs themselves are NOT forgotten while hidden: `uiStore.recentTabs` outlives
             this, so reopening any case brings the whole band back as it was. */}
-        {activeSlug !== null && <RecentTabs activeSlug={activeSlug} onSelect={onSelect} />}
+        {activeSlug !== null && (
+          <RecentTabs activeSlug={activeSlug} onSelect={onSelect} labelFor={labelFor} />
+        )}
         {onProposals && (
           <button
             className={`${ACTION_BTN} relative`}

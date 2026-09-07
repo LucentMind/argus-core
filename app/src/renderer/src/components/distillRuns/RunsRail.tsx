@@ -1,5 +1,6 @@
-import { Loader2 } from 'lucide-react'
+import { Loader2, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import type { DistillProgress, DistillRunListRow } from '../../../../shared/distill'
+import { IconBtn } from '../ui'
 import { applyFilters, groupByCase, phaseLine, runRowLabel, type RunFilters } from './runsModel'
 
 const CHIPS: { group: keyof Omit<RunFilters, 'search'>; value: string; label: string }[] = [
@@ -19,7 +20,10 @@ export function RunsRail({
   onFilters,
   selectedId,
   onSelect,
-  header
+  header,
+  width,
+  collapsed = false,
+  onCollapsedChange
 }: {
   rows: DistillRunListRow[]
   progress: ReadonlyMap<number, DistillProgress>
@@ -29,6 +33,10 @@ export function RunsRail({
   onSelect: (id: number) => void
   /** The "New run…" control, owned by the view. */
   header?: React.ReactNode
+  /** Persisted rail width in px, from `uiStore`. The view owns the drag; this owns the box. */
+  width: number
+  collapsed?: boolean
+  onCollapsedChange?: (collapsed: boolean) => void
 }): React.JSX.Element {
   const toggle = (group: keyof Omit<RunFilters, 'search'>, value: string): void => {
     const next = new Set(filters[group] as ReadonlySet<string>)
@@ -36,10 +44,45 @@ export function RunsRail({
     else next.add(value)
     onFilters({ ...filters, [group]: next } as RunFilters)
   }
+
+  // Collapsed is a strip, not `display: none`: a rail that vanishes with no affordance left
+  // behind is a rail the user cannot get back without knowing a keyboard shortcut that does
+  // not exist. The strip keeps the run count visible so the view still says how much is here.
+  if (collapsed)
+    return (
+      <aside className="flex shrink-0 flex-col items-center gap-2 border-r border-hair pr-2">
+        <IconBtn
+          size="sm"
+          aria-label="Show runs"
+          title="Show runs"
+          onClick={() => onCollapsedChange?.(false)}
+        >
+          <PanelLeftOpen size={14} />
+        </IconBtn>
+        <span
+          className="select-none font-mono text-[10px] tracking-widest text-mute"
+          style={{ writingMode: 'vertical-rl' }}
+        >
+          {rows.length} runs
+        </span>
+      </aside>
+    )
+
   const groups = groupByCase(applyFilters(rows, filters))
   return (
-    <aside className="flex w-[34%] min-w-[260px] flex-col gap-2 border-r border-hair pr-3">
+    <aside
+      className="flex shrink-0 flex-col gap-2 border-r border-hair pr-3"
+      style={{ width, minWidth: width }}
+    >
       <div className="flex items-center gap-2">
+        <IconBtn
+          size="sm"
+          aria-label="Hide runs"
+          title="Hide runs"
+          onClick={() => onCollapsedChange?.(true)}
+        >
+          <PanelLeftClose size={14} />
+        </IconBtn>
         <input
           type="search"
           aria-label="Search cases"
@@ -60,7 +103,13 @@ export function RunsRail({
               aria-label={`Filter ${c.label}`}
               aria-pressed={on}
               onClick={() => toggle(c.group, c.value)}
-              className={`rounded-r1 px-2 py-0.5 font-mono text-[10.5px] ${on ? 'bg-hi text-ink' : 'text-dim hover:bg-hair'}`}
+              // A resting hairline, not a bare word: these read as inert labels otherwise, and
+              // there is nothing else in the row to tell a reader they can be pressed.
+              className={`rounded-r1 border px-2 py-0.5 font-mono text-[10.5px] transition-colors ${
+                on
+                  ? 'border-hair2 bg-hi text-ink'
+                  : 'border-hair text-dim hover:border-hair2 hover:bg-hair hover:text-ink'
+              }`}
             >
               {c.label}
             </button>

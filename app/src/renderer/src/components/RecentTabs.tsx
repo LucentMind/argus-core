@@ -27,10 +27,15 @@ import { uiStore } from '../lib/uiStore'
  */
 export function RecentTabs({
   activeSlug,
-  onSelect
+  onSelect,
+  labelFor
 }: {
   activeSlug: string | null
   onSelect: (slug: string) => void
+  /** Slug → what to draw. A tab shows the case's live ticket key, which a moved ticket changes
+   *  while the slug (the identifier this component still addresses cases by) stays put.
+   *  Optional: absent, or returning nothing for a slug, falls back to the slug itself. */
+  labelFor?: (slug: string) => string
 }): React.JSX.Element {
   const recentTabs = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -57,8 +62,12 @@ export function RecentTabs({
                   className="pointer-events-none absolute -left-0.5 h-4 w-px bg-hair"
                 />
               )}
-              <button className="argus-nodrag py-1.5 pl-3 font-mono" onClick={() => onSelect(slug)}>
-                {slug}
+              <button
+                className="argus-nodrag py-1.5 pl-3 font-mono"
+                title={slug}
+                onClick={() => onSelect(slug)}
+              >
+                {labelFor?.(slug) || slug}
               </button>
               <button
                 aria-label={`Close ${slug}`}

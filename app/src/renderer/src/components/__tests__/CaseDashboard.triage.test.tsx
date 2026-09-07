@@ -290,8 +290,14 @@ describe('CaseDashboard triage', () => {
     render(
       <CaseDashboard
         cases={[
-          mkCase({ slug: 'live' }),
-          mkCase({ slug: 'done', status: 'closed', resolution: 'solved', phase: 'closed' })
+          mkCase({ slug: 'live', jiraKey: 'live' }),
+          mkCase({
+            slug: 'done',
+            jiraKey: 'done',
+            status: 'closed',
+            resolution: 'solved',
+            phase: 'closed'
+          })
         ]}
         {...noopHandlers}
       />
@@ -319,8 +325,8 @@ describe('CaseDashboard triage', () => {
     render(
       <CaseDashboard
         cases={[
-          mkCase({ slug: 'A', phase: 'analyzing' }),
-          mkCase({ slug: 'B', phase: 'reviewing' })
+          mkCase({ slug: 'A', jiraKey: 'A', phase: 'analyzing' }),
+          mkCase({ slug: 'B', jiraKey: 'B', phase: 'reviewing' })
         ]}
         {...noopHandlers}
       />
@@ -335,7 +341,7 @@ describe('CaseDashboard triage', () => {
     render(
       <CaseDashboard
         cases={[
-          mkCase({ slug: 'alpha', title: 'One' }),
+          mkCase({ slug: 'alpha', title: 'One', jiraKey: 'alpha' }),
           mkCase({ slug: 'beta', title: 'Two', jiraKey: 'PROJ-9' })
         ]}
         {...noopHandlers}
@@ -343,7 +349,11 @@ describe('CaseDashboard triage', () => {
     )
     await userEvent.type(screen.getByPlaceholderText('Search cases…'), 'PROJ-9')
     expect(screen.queryByText('alpha')).not.toBeInTheDocument()
-    expect(screen.getByText('beta')).toBeInTheDocument()
+    // The surviving card is headed by its LIVE ticket key, which for this case is not its slug —
+    // searching still matches the slug (that is what this test is about), but the card that
+    // comes back says PROJ-9 on it. See `caseLabel`.
+    expect(screen.getByText('PROJ-9')).toBeInTheDocument()
+    expect(screen.getByTestId('case-title').textContent).toBe('Two')
   })
 
   it('shows counts by phase', () => {

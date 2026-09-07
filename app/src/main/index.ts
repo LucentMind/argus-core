@@ -3987,7 +3987,18 @@ function registerIpc(): void {
       jiraResult(() => jiraCases.ingestAttachments(caseSlug, jiraKey, atts))
   )
   ipcMain.handle(IPC.jiraRefreshCase, (_e, caseSlug: string) =>
-    jiraResult(() => jiraCases.refresh(caseSlug))
+    jiraResult(async () => {
+      const summary = await jiraCases.refresh(caseSlug)
+      // A rebound ticket (moved project, so a new key) is a change to the case ROW, not just to
+      // its evidence: `refresh` has already written the new `jira_key` via `setCaseJira`. Every
+      // surface that draws the case's identity — the header anchor, the tab band, the dashboard
+      // card — reads it out of the renderer's `cases` array, which is refetched on exactly this
+      // broadcast and on nothing else. Without it the app went on showing the dead key until
+      // the next restart, in this window as well as any other. Same posture as archive/restore
+      // and delete above; see IPC.casesChanged.
+      if (summary.rebound) broadcast(IPC.casesChanged, caseSlug)
+      return summary
+    })
   )
   ipcMain.handle(IPC.jiraMarkReviewed, (_e, caseSlug: string) =>
     jiraResult(async () => jiraCases.markReviewed(caseSlug))
