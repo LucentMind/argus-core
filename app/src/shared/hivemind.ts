@@ -87,3 +87,12 @@ export type HivemindPushResult =
   | { ok: true; prUrl: string; outcome: HivemindPushOutcome }
   | { ok: false; error: string; blockedByPrUrl?: string; blockedByAuthor?: string }
 export type HivemindCheckResult = { ok: true } | { ok: false; error: string }
+
+export interface HivemindInitPreview {
+  /** true when init() will push directly to the default branch instead of opening a PR —
+   *  the clone has no commits yet, so there is no base to open a PR against. */
+  noCommits: boolean
+  readme: string
+  /** Repo-relative paths init() will create, recomputed live on every call. */
+  missing: string[]
+}
