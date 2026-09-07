@@ -118,7 +118,7 @@ function DossierSection({
 }
 
 /** `root cause` and `confirmed fix` are the two answers the whole dossier exists to produce, so
- *  they are drawn as claims â an accent rule, the prose at reading weight â rather than as two
+ *  they are drawn as claims — an accent rule, the prose at reading weight — rather than as two
  *  more `label: value` lines indistinguishable from the metadata around them. A null one keeps
  *  the block (its absence is a finding) but drops the accent. */
 function DossierClaim({
@@ -158,8 +158,8 @@ export function DossierBody({
       <div className="rounded-r1 bg-hair/40 px-2 py-1 text-xs">
         <span className="text-dim">scope </span>
         {d.scope.status}
-        {d.scope.resolution ? ` / ${d.scope.resolution}` : ''} Â·{' '}
-        {d.scope.settled ? 'settled' : 'unsettled'} Â· {d.scope.note}
+        {d.scope.resolution ? ` / ${d.scope.resolution}` : ''} ·{' '}
+        {d.scope.settled ? 'settled' : 'unsettled'} · {d.scope.note}
       </div>
       <DossierClaim title="root cause" claim={d.root_cause} />
       <DossierClaim
@@ -177,8 +177,8 @@ export function DossierBody({
         <ol className="ml-4 list-decimal text-xs">
           {d.diagnostic_path.map((s, i) => (
             <li key={i}>
-              <span>{s.step}</span> <span className="text-dim">â {s.observation}</span>{' '}
-              <span className="text-mute">Â· {s.discriminated}</span> <Cites cites={s.cites} />
+              <span>{s.step}</span> <span className="text-dim">— {s.observation}</span>{' '}
+              <span className="text-mute">· {s.discriminated}</span> <Cites cites={s.cites} />
             </li>
           ))}
         </ol>
@@ -202,7 +202,7 @@ export function DossierBody({
           <ul className="ml-4 list-disc text-xs">
             {d.rejected_hypotheses.map((h, i) => (
               <li key={i}>
-                {h.text} <span className="text-dim">â {h.how_ruled_out}</span>{' '}
+                {h.text} <span className="text-dim">— {h.how_ruled_out}</span>{' '}
                 <Cites cites={h.cites} />
               </li>
             ))}
@@ -224,7 +224,7 @@ export function DossierBody({
         <div className="font-mono text-[10px] text-mute">
           uncited items dropped:{' '}
           {Object.entries(uncited)
-            .map(([k, n]) => `${k} Ã${n}`)
+            .map(([k, n]) => `${k} ×${n}`)
             .join(', ')}
         </div>
       )}
