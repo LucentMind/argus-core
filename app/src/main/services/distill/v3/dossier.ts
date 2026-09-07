@@ -23,12 +23,12 @@ RULES:
 1. ROOT CAUSE: the finding with role root-cause (assigned by a human-confirmed RCA) anchors "root_cause". If that finding is still [pending], record it and say so in scope.note. No root-cause role and no accepted causal finding → root_cause is null.
 2. OPEN CASE: status open ⇒ scope.settled=false, confirmed_fix MUST be null, root_cause only from [accepted] findings.
 3. RESOLUTION: wont-fix ⇒ confirmed_fix.applied=false with the reason in text; forwarded / duplicate / rejected / not-reproducible ⇒ usually only scope + rejected_hypotheses; that is a valid dossier.
-4. DIAGNOSTIC PATH: in investigation order, not importance. For each step record what was checked, what was observed, and which hypothesis it separated from which. This is what a future procedure will be built from — do not compress it into conclusions.
+4. DIAGNOSTIC PATH: in investigation order, not importance. For each step record what was checked ("step"), what was observed ("observation"), and which hypothesis it separated from which ("discriminated"). This is what a future procedure will be built from — do not compress it into conclusions.
 5. DURABLE FACTS: candidate facts a future agent might consult — thresholds, log signatures, schemas, component behaviour, version splits, product limitations. Keep a verbatim quote (≤ 300 chars) and the SCOPE (component / version / mode / flag / condition) — never generalize here; dropping scope may turn a true statement false. Session-local "X did not work" about the agent's own tools/environment is NOT a durable fact.
 6. USER CORRECTIONS: places the user corrected or steered the assistant — verbatim gist, cited.
 7. CITES: every array item and every non-null scalar has ≥ 1 cite of exactly one of {"finding": id}, {"session": id, "turn": n}, {"evidence": "relPath"}. An item you cannot cite does not go in the dossier.
 8. TOOLS: list_sessions / read_transcript / search_transcript read this case's conversation (snapshot at enqueue); run_tool_script sweeps across sessions. Do not re-read what the input already contains; read slices when a finding or user message references work you must see. Work in as many turns as you need.
-9. OUTPUT: your FINAL assistant message contains exactly one fenced \`\`\`json block with one object having exactly these keys: scope {status, resolution, settled, note}, root_cause, confirmed_fix {text, applied, cites}, rejected_hypotheses[], diagnostic_path[], durable_facts[], user_corrections[]. No other keys, no commentary inside the block. Intermediate turns are working turns and are not parsed.`
+9. OUTPUT: your FINAL assistant message contains exactly one fenced \`\`\`json block with one object having exactly these keys, with exactly these item keys: scope {status, resolution, settled, note}, root_cause {text, cites}, confirmed_fix {text, applied, cites}, rejected_hypotheses[] {text, how_ruled_out, cites}, diagnostic_path[] {step, observation, discriminated, cites}, durable_facts[] {fact, quote, scope, cites}, user_corrections[] {text, cites}. An item key you rename or invent is silently discarded, so use these names verbatim. No other keys, no commentary inside the block. Intermediate turns are working turns and are not parsed.`
 
 export const DOSSIER_SECTIONS: PromptTextSpecs = {
   case: { title: 'Dossier section — case metadata', text: '# Case' },
@@ -97,6 +97,17 @@ const ARRAY_KEYS = [
   'durable_facts',
   'user_corrections'
 ] as const
+/** Rule 4 of the contract describes a diagnostic step in prose ("what was checked, what was
+ *  observed, which hypothesis it separated from which") as well as naming the keys, and models
+ *  have been observed writing those prose words as the item keys instead — silently emptying
+ *  every step, because a missing key reads as ''. Rule 9 now names the keys verbatim; this
+ *  accepts the drifted spellings too, so a run against an overridden or older contract (the
+ *  contract is resolvable from the prompt registry) still keeps its diagnostic path. */
+const DIAGNOSTIC_ALIASES: Record<string, string[]> = {
+  step: ['checked'],
+  observation: ['observed'],
+  discriminated: ['separated', 'separates']
+}
 const isStr = (v: unknown): v is string => typeof v === 'string'
 const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -198,14 +209,17 @@ export function parseDossier(text: string): {
             cites
           })
           break
-        case 'diagnostic_path':
+        case 'diagnostic_path': {
+          const field = (k: string): string =>
+            [k, ...DIAGNOSTIC_ALIASES[k]].map(str).find((v) => v !== '') ?? ''
           dossier.diagnostic_path.push({
-            step: str('step'),
-            observation: str('observation'),
-            discriminated: str('discriminated'),
+            step: field('step'),
+            observation: field('observation'),
+            discriminated: field('discriminated'),
             cites
           })
           break
+        }
         case 'durable_facts':
           dossier.durable_facts.push({
             fact: str('fact'),

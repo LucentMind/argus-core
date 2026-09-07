@@ -69,6 +69,15 @@ describe('buildDossierPrompt', () => {
     const q = buildDossierPrompt({ ...INPUT, userMessages: undefined })
     expect(q).not.toContain(DOSSIER_SECTIONS['user-messages'].text)
   })
+  it('names the exact item keys for every dossier array in the contract', () => {
+    for (const shape of [
+      'rejected_hypotheses[] {text, how_ruled_out, cites}',
+      'diagnostic_path[] {step, observation, discriminated, cites}',
+      'durable_facts[] {fact, quote, scope, cites}',
+      'user_corrections[] {text, cites}'
+    ])
+      expect(p).toContain(shape)
+  })
   it('uses the resolver for contract and section headers', () => {
     const q = buildDossierPrompt(INPUT, (id) => `<<${id}>>`)
     expect(q.startsWith('<<headless.case-distill.dossier.contract>>')).toBe(true)
@@ -100,6 +109,18 @@ describe('parseDossier', () => {
     expect(() => parseDossier(VALID.replace('"scope"', '"extra":1,"scope"'))).toThrow(
       DistillParseError
     )
+  })
+  it('accepts the prose key names for diagnostic_path items', () => {
+    const drifted = VALID.replace(
+      '{"step":"s","observation":"o","discriminated":"d","cites":[{"evidence":"logs/a.txt"}]}',
+      '{"checked":"s","observed":"o","separated":"d","cites":[{"evidence":"logs/a.txt"}]}'
+    )
+    const { dossier } = parseDossier(drifted)
+    expect(dossier.diagnostic_path[0]).toMatchObject({
+      step: 's',
+      observation: 'o',
+      discriminated: 'd'
+    })
   })
   it('requires scope', () => {
     expect(() => parseDossier('```json\n{"root_cause":null}\n```')).toThrow(DistillParseError)
