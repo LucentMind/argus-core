@@ -35,11 +35,13 @@ import { descriptorsFor, type ModelOptionInfo } from '../runOptions'
 // against, so this test proves the fix end-to-end against real data, not a hand-written
 // approximation that could accidentally agree with a broken resolver.
 import CLI_CATALOG from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-220.json'
+import CLI_CATALOG_263 from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-263.json'
 
 const CATALOG_ORDER = [
   'claude-fable-5',
-  // Second, not first: row 0 seeds every new chat (`defaultModelRef`), so Opus 5 sits after
-  // Fable to leave that default alone.
+  // Second, not first: row 0 seeds every new chat (`defaultModelRef`), so Fable 5.1 and
+  // Opus 5 sit after Fable 5 to leave that default alone.
+  'claude-fable-5-1',
   'claude-opus-5',
   'claude-opus-4-8',
   'claude-opus-4-7',
@@ -848,6 +850,27 @@ describe('canonicalizePreferences', () => {
       hiddenModels: ['claude-haiku-4-5'],
       favoriteModels: ['claude-opus-5'],
       modelOrder: ['claude-fable-5', 'claude-sonnet-5']
+    })
+  })
+
+  // An SDK bump moves aliases: on 2.1.263 `fable` resolves to Fable 5.1 and nothing in the
+  // alias menu names Fable 5 any more. A favourite stored for Fable 5 must stay Fable 5 — the
+  // date-suffix rule is what keeps `claude-fable-5-1` from being read as "claude-fable-5 plus
+  // a suffix" — and the `opus[1m]` alias (still stored raw in at least one real settings file)
+  // must keep resolving to the same Opus 5 it always did.
+  it('does not move a favourite onto a successor model when an alias re-points after a bump', () => {
+    const rows263 = catalogModelRows(CLI_CATALOG_263 as ModelOptionInfo[])
+    expect(
+      canonicalizePreferences(rows263, {
+        hiddenModels: ['claude-sonnet-4-6'],
+        favoriteModels: ['claude-fable-5', 'opus[1m]'],
+        modelOrder: ['fable']
+      })
+    ).toEqual({
+      hiddenModels: ['claude-sonnet-4-6'],
+      favoriteModels: ['claude-fable-5', 'claude-opus-5'],
+      // only the raw alias itself follows the CLI's re-pointing — that IS what an alias means
+      modelOrder: ['claude-fable-5-1']
     })
   })
 

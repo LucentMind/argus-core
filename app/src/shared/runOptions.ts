@@ -134,6 +134,12 @@ export const MODEL_OPTION_POLICY: Readonly<Record<string, ModelOptionPolicy>> = 
   // so the 200k position never described a real window. Opus 5 keeps the choice: its bare slug
   // is unmeasured and the CLI ships a distinct `opus[1m]` alias.
   'claude-fable-5': { effortLevels: ALL_LEVELS, ultracode: true, contextWindow: 'native-1m' },
+  // Fable 5.1 (SDK 0.3.263 / CLI 2.1.263, measured 2026-09-07): the bare slug's turn reports
+  // `modelUsage.contextWindow: 1000000`, so the same `native-1m` shape applies — without this
+  // row the uncurated fallback would offer the inert "200k" position that was just removed
+  // from Fable 5. Effort levels are what the catalog reports for the `fable` alias; the
+  // `xhigh` pass-through and Ultracode are INHERITED from Fable 5's row, not re-captured.
+  'claude-fable-5-1': { effortLevels: ALL_LEVELS, ultracode: true, contextWindow: 'native-1m' },
   // Argus-originated (see above): t3code has no Opus 5 row.
   'claude-opus-5': {
     effortLevels: ALL_LEVELS,
