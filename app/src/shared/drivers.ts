@@ -179,23 +179,15 @@ interface ClaudeModelSpec {
  * stays `"off"` — silently ignored, so it is NOT support and the toggle must not be offered.
  */
 const CLAUDE_MODEL_SPECS: readonly ClaudeModelSpec[] = [
-  { slug: 'claude-fable-5', name: 'Claude Fable 5', effort: true, adaptiveThinking: true },
-  // Fable 5.1 needs the bundled CLI at 2.1.251 or newer: on 2.1.220 the API rejected the slug
-  // outright ("Claude Code 2.1.220 does not support this model; version 2.1.251 or newer is
-  // required", HTTP 400) — the gate is keyed on the CLI version, not on the account. Measured
-  // 2026-09-07 on SDK 0.3.263 (CLI 2.1.263): the bare slug completes a turn with `modelUsage`
-  // keyed `claude-fable-5-1` and `contextWindow: 1000000`, and the CLI's `fable` alias now
-  // resolves here (Fable 5 is still served and still runs on its own bare slug). Deliberately
-  // NOT row 0 for the same reason as Opus 5 below: the seed for every new chat stays put.
-  { slug: 'claude-fable-5-1', name: 'Claude Fable 5.1', effort: true, adaptiveThinking: true },
-  // Deliberately NOT first: row 0 is what `defaultModelRef` seeds a new chat with, and moving
-  // Opus 5 there would silently change every new chat's model.
-  //
-  // Post-load this row is deduped away by the catalog's `opus[1m]` alias (one model — see
-  // `mergeBuiltinRows`), so what it buys is the offline and pre-catalog case, where Opus 5 was
-  // previously unreachable despite being the CLI's own recommended default. Measured
-  // 2026-08-02: the BARE slug runs (`modelUsage: {"claude-opus-5"}`), takes `--effort`, the
-  // `[1m]` suffix, and fast mode — so unlike the alias row, this one can be run at 200k.
+  // Row 0 is the FRESH-INSTALL DEFAULT for new cases (and routines): `defaultModelRef` /
+  // `effectiveDefaultModel` / the registry seed all read the top ordered visible row, and with
+  // no preferences that is this one. Opus 5 on purpose (spec 2026-09-07-fresh-install-model-
+  // defaults): the CLI's own recommended default, half Fable's per-token price, 1M, fast mode.
+  // Favourites, reordering and hiding still override — the built-in order only decides what a
+  // user who has chosen nothing gets. Measured 2026-08-02: the BARE slug runs
+  // (`modelUsage: {"claude-opus-5"}`), takes `--effort`, the `[1m]` suffix and fast mode, so
+  // unlike the catalog's `opus[1m]` alias row (which dedupes this one post-load, see
+  // `mergeBuiltinRows`) it can be run at 200k.
   {
     slug: 'claude-opus-5',
     name: 'Claude Opus 5',
@@ -203,6 +195,14 @@ const CLAUDE_MODEL_SPECS: readonly ClaudeModelSpec[] = [
     adaptiveThinking: true,
     fastMode: true
   },
+  // Fable 5.1 needs the bundled CLI at 2.1.251 or newer: on 2.1.220 the API rejected the slug
+  // outright ("Claude Code 2.1.220 does not support this model; version 2.1.251 or newer is
+  // required", HTTP 400) — the gate is keyed on the CLI version, not on the account. Measured
+  // 2026-09-07 on SDK 0.3.263 (CLI 2.1.263): the bare slug completes a turn with `modelUsage`
+  // keyed `claude-fable-5-1` and `contextWindow: 1000000`, and the CLI's `fable` alias now
+  // resolves here (Fable 5 is still served and still runs on its own bare slug).
+  { slug: 'claude-fable-5-1', name: 'Claude Fable 5.1', effort: true, adaptiveThinking: true },
+  { slug: 'claude-fable-5', name: 'Claude Fable 5', effort: true, adaptiveThinking: true },
   {
     slug: 'claude-opus-4-8',
     name: 'Claude Opus 4.8',
