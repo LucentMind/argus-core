@@ -16,6 +16,7 @@ import {
 import { JsonFileStore } from './fileStore'
 import type {
   HivemindCheckResult,
+  HivemindInitPreview,
   HivemindItem,
   HivemindPayload,
   HivemindPushResult,
@@ -233,6 +234,34 @@ function cloneReferenceAuthor(file: string): string | null {
     return null
   }
 }
+
+/** Content Argus writes when scaffolding an empty HiveMind repo (spec 2026-09-07,
+ *  hivemind-init-pr) — self-contained, no external links, so it stays correct even if this
+ *  doc file moves. */
+const HIVE_README = `# Argus HiveMind
+
+This repository is synced by Argus as your team's shared skills and reference library.
+
+- \`skills/<name>/SKILL.md\` — one folder per skill. Anything else alongside \`SKILL.md\`
+  (scripts, templates) is copied along with it.
+- \`references/*.md\` — flat reference documents.
+- \`references/confluence/*.md\` — reserved for content synced in from Confluence.
+
+Point each teammate's Argus at this repo (Settings → Team → HiveMind repo) to pull this content
+down, and use Argus's Share action to propose new skills and references back here as pull
+requests.
+`
+
+/** Repo-relative paths \`init()\` creates, each only if missing (spec 2026-09-07). \`.gitkeep\`
+ *  files are invisible to \`listItems()\`'s scan by construction: a bare file directly under
+ *  \`skills/\` isn't a directory (skipped by the skills loop), and a \`.\`-prefixed name is already
+ *  excluded from the references scan. */
+const SCAFFOLD_FILES: { rel: string; content: string }[] = [
+  { rel: 'README.md', content: HIVE_README },
+  { rel: 'skills/.gitkeep', content: '' },
+  { rel: 'references/.gitkeep', content: '' },
+  { rel: 'references/confluence/.gitkeep', content: '' }
+]
 
 /** Pinned installs + last sync stamp + push receipts — app-managed, not user-edited. */
 interface HivemindStateFile {
@@ -1351,5 +1380,39 @@ export class HivemindService {
     const pr = await this.openPrFor(kind, name, me)
     if (!pr) throw new Error(`The open pull request for ${name} disappeared mid-push.`)
     return pr
+  }
+
+  /** Repo-relative scaffold paths not yet present under `root` — the clone root for a preview,
+   *  or a scratch worktree mid-`init()`. */
+  private missingScaffoldFiles(root: string): string[] {
+    return SCAFFOLD_FILES.map((f) => f.rel).filter((rel) => !fs.existsSync(path.join(root, rel)))
+  }
+
+  /** Writes exactly the given (already-missing) scaffold paths under `root`. */
+  private writeScaffold(root: string, rels: string[]): void {
+    for (const rel of rels) {
+      const dest = path.join(root, rel)
+      fs.mkdirSync(path.dirname(dest), { recursive: true })
+      fs.writeFileSync(dest, SCAFFOLD_FILES.find((f) => f.rel === rel)!.content)
+    }
+  }
+
+  /** What `init()` would do right now, for the Settings dialog's preview — recomputed live on
+   *  every call, never cached (spec 2026-09-07). */
+  async initPreview(): Promise<HivemindInitPreview> {
+    const clone = this.clone()
+    let headCommit: string | null
+    try {
+      headCommit = await this.readHeadCommit(clone)
+    } catch {
+      // Best-effort: a genuinely broken clone is surfaced by payload()'s own state:'error'
+      // banner; init() re-validates for real and returns a proper error if this was optimistic.
+      headCommit = null
+    }
+    return {
+      noCommits: headCommit === null,
+      readme: HIVE_README,
+      missing: this.missingScaffoldFiles(clone)
+    }
   }
 }
