@@ -64,6 +64,7 @@ export function ProposalDetail({
   onOpenHivemind,
   onAccept,
   onReject,
+  onDelete,
   selectedPath,
   onSelectPath,
   editedPaths
@@ -97,6 +98,10 @@ export function ProposalDetail({
   onOpenHivemind: () => void
   onAccept: () => void
   onReject: (reason: RejectReason | undefined) => void
+  /** Spec 2026-09-07: hard-delete the pending proposal with no rejection record. This component
+   *  owns the confirm (same `confirmStore` pattern as Discard edits); the callback performs the
+   *  delete and advances selection. */
+  onDelete: () => void
   /** Which file the rail has selected; `BODY_PATH` for the proposal body. */
   selectedPath: string
   onSelectPath: (path: string) => void
@@ -414,6 +419,24 @@ export function ProposalDetail({
           }}
         >
           Reject…
+        </Btn>
+        <Btn
+          variant="ghost"
+          aria-label={`Delete ${p.title}`}
+          disabled={busy}
+          title="Remove without recording a rejection — the distiller may propose it again"
+          onClick={async () => {
+            const ok = await confirm({
+              title: 'Delete this proposal?',
+              message:
+                'It will be removed without recording a rejection, so nothing is learned from it — the distiller may propose the same thing again. This cannot be undone.',
+              confirmLabel: 'Delete',
+              danger: true
+            })
+            if (ok) onDelete()
+          }}
+        >
+          Delete
         </Btn>
         {position && (
           <span className="ml-auto text-xs text-mute">
