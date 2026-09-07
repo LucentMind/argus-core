@@ -234,15 +234,43 @@ describe('descriptorsFor', () => {
       supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max']
     }
 
+    // 1M is the model's real window, so it leads and is the default. The second position is
+    // a CAP, not a smaller API window (no suffix or beta can request one): it sets the CLI's
+    // `autoCompactWindow` so the session compacts at 200k — verified live 2026-09-07, the
+    // CLI's own `/context` then reports "/ 200k" while `modelUsage.contextWindow` stays 1M.
+    // Distinct value from the ordinary '200k' so `claudeSettingsFor` never has to look up a
+    // policy to know which of the two it is holding.
     it.each([
       ['claude-fable-5', FABLE],
       ['claude-sonnet-5', SONNET]
-    ])('%s offers 1M alone, as the default', (slug, info) => {
+    ])('%s offers 1M (default) and a 200k cap', (slug, info) => {
       const d = descriptorsFor(info, slug).find((x) => x.id === 'contextWindow')
       expect(d?.type).toBe('select')
       if (d?.type === 'select') {
-        expect(d.options).toEqual([{ value: '1m', label: '1M', isDefault: true }])
+        expect(d.options).toEqual([
+          { value: '1m', label: '1M', isDefault: true },
+          { value: 'cap-200k', label: '200k cap' }
+        ])
       }
+    })
+
+    it('the cap becomes the CLI autoCompactWindow setting; 1M sends nothing', () => {
+      const ds = descriptorsFor(FABLE, 'claude-fable-5')
+      expect(claudeSettingsFor(ds, [{ id: 'contextWindow', value: 'cap-200k' }])).toEqual({
+        autoCompactWindow: 200_000
+      })
+      expect(claudeSettingsFor(ds, [{ id: 'contextWindow', value: '1m' }])).toEqual({})
+      expect(claudeSettingsFor(ds, [])).toEqual({})
+    })
+
+    it('an ordinary 200k (a model whose bare slug really is 200k) sets no cap', () => {
+      const ds = descriptorsFor(OPUS, 'claude-opus-5')
+      expect(claudeSettingsFor(ds, [{ id: 'contextWindow', value: '200k' }])).toEqual({})
+    })
+
+    it('a suffix-pinned slug stays 1M-only — a cap under a forced [1m] would contradict the pin', () => {
+      const d = descriptorsFor(FABLE, 'claude-fable-5[1m]').find((x) => x.id === 'contextWindow')
+      if (d?.type === 'select') expect(d.options.map((o) => o.value)).toEqual(['1m'])
     })
 
     it('reads 1M for a stored 200k, and persists nothing', () => {
