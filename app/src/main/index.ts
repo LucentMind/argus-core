@@ -3405,6 +3405,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC.hivemindPushExecutables, (_e, name: string) =>
     executableAssetsOf(argusHome, name)
   )
+  ipcMain.handle(IPC.hivemindInitPreview, () => hivemind.initPreview())
+  ipcMain.handle(IPC.hivemindInit, () => hivemind.init())
 
   // — keep everything up to date (spec 2026-08-20) —
   // Hoisted into a named const, rather than inlined at each of its two call sites below, so the

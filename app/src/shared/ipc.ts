@@ -181,6 +181,8 @@ export const IPC = {
   hivemindPush: 'hivemind:push',
   hivemindPushStatus: 'hivemind:push-status',
   hivemindPushExecutables: 'hivemind:push-executables',
+  hivemindInitPreview: 'hivemind:init-preview',
+  hivemindInit: 'hivemind:init',
   proposalsList: 'proposals:list',
   proposalsAccept: 'proposals:accept',
   proposalsReject: 'proposals:reject',
