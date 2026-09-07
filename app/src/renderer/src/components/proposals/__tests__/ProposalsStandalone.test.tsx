@@ -389,7 +389,12 @@ describe('ProposalsStandalone', () => {
         await screen.findByRole('button', { name: 'Select proposal New skill proposal' })
       )
       fireEvent.click(screen.getByRole('button', { name: 'Delete New skill proposal' }))
-      await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('2026-07-11-NAV-100-skill.md'))
+      await waitFor(() =>
+        expect(deleteMock).toHaveBeenCalledWith(
+          '2026-07-11-NAV-100-skill.md',
+          '2026-07-11T12:00:00.000Z'
+        )
+      )
       expect(rejectMock).not.toHaveBeenCalled()
       expect(
         screen.queryByRole('button', { name: 'Select proposal New skill proposal' })
@@ -403,7 +408,12 @@ describe('ProposalsStandalone', () => {
       renderShell()
       fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
       fireEvent.click(screen.getByRole('button', { name: 'Delete Sharpen step 4' }))
-      await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('2026-07-10-NAV-100-rca.md'))
+      await waitFor(() =>
+        expect(deleteMock).toHaveBeenCalledWith(
+          '2026-07-10-NAV-100-rca.md',
+          '2026-07-10T12:00:00.000Z'
+        )
+      )
       expect(
         screen.getByRole('button', { name: 'Select proposal New skill proposal' })
       ).toHaveAttribute('aria-current', 'true')
@@ -418,7 +428,10 @@ describe('ProposalsStandalone', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
       fireEvent.click(screen.getByRole('button', { name: 'Delete Sharpen step 4' }))
       await waitFor(() =>
-        expect(argus.proposals.delete).toHaveBeenCalledWith('2026-07-10-NAV-100-rca.md')
+        expect(argus.proposals.delete).toHaveBeenCalledWith(
+          '2026-07-10-NAV-100-rca.md',
+          '2026-07-10T12:00:00.000Z'
+        )
       )
       // Same empty-state copy as the 'empty payload shows the empty-state copy' test below.
       expect(await screen.findByText(/No pending proposals/)).toBeInTheDocument()

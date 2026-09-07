@@ -433,7 +433,13 @@ export function ProposalDetail({
               confirmLabel: 'Delete',
               danger: true
             })
-            if (ok) onDelete()
+            if (ok) {
+              // The shown proposal is about to advance out from under the reject strip; a strip
+              // left open would aim its reason field at whatever proposal lands next (spec
+              // 2026-09-07 review finding).
+              setRejecting(false)
+              onDelete()
+            }
           }}
         >
           Delete
