@@ -19,6 +19,7 @@ beforeEach(() => {
 afterEach(() => {
   setProposalsChangedNotifier(() => {})
   fs.rmSync(home, { recursive: true, force: true })
+  vi.useRealTimers()
 })
 
 function flatProposal(target = 'dlt-cmds'): string {
@@ -100,9 +101,15 @@ describe('deleteProposal', () => {
     // identical name (writeProposal uniquifies only against files currently present — same
     // case/day/target recycles the name exactly). Confirming must not hard-delete the second
     // proposal the user never saw.
+    // `date` is `new Date().toISOString()` at write time — on a fast or virtualized runner two
+    // writes this close together can land in the same millisecond, so the clock is pinned and
+    // advanced explicitly rather than trusting real wall-clock ticks to separate them.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date())
     const first = flatProposal('recycled')
     const firstDate = listProposals(home)[0].date
     deleteProposal(home, first) // simulates the supersede step's own delete, no expectedDate
+    vi.advanceTimersByTime(1)
     const second = flatProposal('recycled')
     expect(second).toBe(first) // same target/case/day => the name IS recycled
     expect(() => deleteProposal(home, first, firstDate)).toThrow(/Unknown proposal/)
