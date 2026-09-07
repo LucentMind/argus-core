@@ -2943,3 +2943,49 @@ describe('declined flag on items', () => {
     expect(p.items.find((i) => i.name === 'triage')?.declined).toBe(false)
   })
 })
+
+describe('initPreview', () => {
+  it('reports the missing scaffold files against a seeded-but-empty clone', async () => {
+    seedCloneShell()
+    const runner: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return 'headsha'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const preview = await svc.initPreview()
+    expect(preview.noCommits).toBe(false)
+    expect(preview.missing.sort()).toEqual(
+      [
+        'README.md',
+        'references/.gitkeep',
+        'references/confluence/.gitkeep',
+        'skills/.gitkeep'
+      ].sort()
+    )
+    expect(preview.readme).toContain('Argus HiveMind')
+  })
+
+  it('reports noCommits for an unborn-branch clone', async () => {
+    seedCloneShell()
+    const runner: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') throw new Error('unknown revision')
+      if (args[0] === 'symbolic-ref' && args[1] === '-q') return 'refs/heads/main'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    expect((await svc.initPreview()).noCommits).toBe(true)
+  })
+
+  it('excludes a scaffold file that already exists in the clone', async () => {
+    const clone = seedCloneShell()
+    fs.writeFileSync(path.join(clone, 'README.md'), '# custom readme\n')
+    const runner: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return 'headsha'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const preview = await svc.initPreview()
+    expect(preview.missing).not.toContain('README.md')
+    expect(preview.missing).toContain('skills/.gitkeep')
+  })
+})
