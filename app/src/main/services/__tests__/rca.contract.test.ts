@@ -219,3 +219,16 @@ describe('the exec report stays non-technical regardless of section instructions
     expect(rule).toMatch(/overrides?/i)
   })
 })
+
+/** The drafting model kept dropping `nextSteps` and renaming `why`; before this rule the four
+ *  keys appeared only in the bare interface, with nothing saying they were all mandatory. */
+describe('execSummary key rule', () => {
+  it('pins the four key names against the drift that was seen in practice', () => {
+    const p = buildCaseRcaPrompt(minimalInput(), DEFAULT_RCA_TEMPLATE)
+    const rule = p.slice(p.indexOf('execSummary must carry')).split(/\n\s*\n/)[0]
+    expect(rule).toMatch(/whatBroke/)
+    expect(rule).toMatch(/nextSteps/)
+    expect(rule).toMatch(/rootCause/)
+    expect(rule).toMatch(/impact/)
+  })
+})

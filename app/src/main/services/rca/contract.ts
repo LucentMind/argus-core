@@ -46,6 +46,9 @@ Rules:
    exactly as they appear in findings — never invent paths.
 8. Respect prior human edits: if a "previously confirmed structure" section is present,
    keep its role decisions unless the findings contradict them.
+9. execSummary must carry all four keys spelled exactly: whatBroke, impact, why, nextSteps.
+   Do not rename "why" to "rootCause", and do not drop "nextSteps" as redundant with
+   remediation — write it in the exec report's own non-technical wording.
 `.trim()
 
 export const RCA_SECTIONS: PromptTextSpecs = {
