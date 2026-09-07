@@ -355,8 +355,6 @@ export function ProposalsStandalone({
     p: ProposalRecord,
     reason: Parameters<typeof window.argus.proposals.reject>[1]
   ): void {
-    // Compute the advance target from the CURRENT pending order before the
-    // refetch drops the row: next pending, else previous, else null.
     const next = advanceTarget(p)
     void act(async () => {
       // Trust the IPC response the same way the old page's `act()` does — the
@@ -374,7 +372,7 @@ export function ProposalsStandalone({
   function deleteSelected(p: ProposalRecord): void {
     const next = advanceTarget(p)
     void act(async () => {
-      const r = await window.argus.proposals.delete(p.file)
+      const r = await window.argus.proposals.delete(p.file, p.date)
       pruneEditing(p.file)
       setSelectedFile(next?.file ?? null)
       return r

@@ -75,7 +75,39 @@ describe('deleteProposal', () => {
   })
 
   it('throws Unknown proposal for a file that is not pending, and touches nothing', () => {
+    const kept = flatProposal()
     expect(() => deleteProposal(home, 'nope.md')).toThrow(/Unknown proposal/)
+    expect(listProposals(home).map((p) => p.file)).toEqual([kept])
+  })
+
+  it('accepts a matching expectedDate and deletes as usual', () => {
+    const f = flatProposal()
+    const { date } = listProposals(home)[0]
+    deleteProposal(home, f, date)
+    expect(listProposals(home)).toHaveLength(0)
+  })
+
+  it('refuses a mismatched expectedDate and leaves the file on disk', () => {
+    const f = flatProposal()
+    expect(() => deleteProposal(home, f, '1999-01-01T00:00:00.000Z')).toThrow(/Unknown proposal/)
+    expect(fs.existsSync(path.join(proposalsDir(home), f))).toBe(true)
+    expect(listProposals(home)).toHaveLength(1)
+  })
+
+  it('refuses a delete aimed at a recycled filename that now belongs to a different proposal', () => {
+    // The confirm dialog captured `file` + `date` for the FIRST write. While it sat open, a
+    // re-distill's supersede step removed that file and staged a fresh proposal under the
+    // identical name (writeProposal uniquifies only against files currently present — same
+    // case/day/target recycles the name exactly). Confirming must not hard-delete the second
+    // proposal the user never saw.
+    const first = flatProposal('recycled')
+    const firstDate = listProposals(home)[0].date
+    deleteProposal(home, first) // simulates the supersede step's own delete, no expectedDate
+    const second = flatProposal('recycled')
+    expect(second).toBe(first) // same target/case/day => the name IS recycled
+    expect(() => deleteProposal(home, first, firstDate)).toThrow(/Unknown proposal/)
+    expect(fs.existsSync(path.join(proposalsDir(home), second))).toBe(true)
+    expect(listProposals(home)).toHaveLength(1)
   })
 
   it('refuses an already-archived file name (reject first, then try to delete it)', () => {

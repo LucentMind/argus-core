@@ -607,9 +607,21 @@ describe('ProposalDetail: delete (spec 2026-09-07)', () => {
     expect(onDelete).not.toHaveBeenCalled()
   })
 
-  it('does not open the reject-reason strip', () => {
-    renderDetail()
+  it('does not open the reject-reason strip', async () => {
+    const { onDelete } = renderDetail()
     fireEvent.click(screen.getByRole('button', { name: 'Delete Sharpen step 4' }))
+    // The confirm mock resolves asynchronously; without this wait the query below would run
+    // against the pre-click render and pass for the wrong reason (spec 2026-09-07 review finding).
+    await waitFor(() => expect(onDelete).toHaveBeenCalled())
+    expect(screen.queryByLabelText('Reject note')).not.toBeInTheDocument()
+  })
+
+  it('closes an already-open reject-reason strip when Delete is confirmed', async () => {
+    const { onDelete } = renderDetail()
+    fireEvent.click(screen.getByRole('button', { name: 'Reject Sharpen step 4' }))
+    expect(screen.getByLabelText('Reject note')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Sharpen step 4' }))
+    await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1))
     expect(screen.queryByLabelText('Reject note')).not.toBeInTheDocument()
   })
 })
