@@ -107,7 +107,17 @@ function mockArgus(payload: HivemindPayload): Record<string, unknown> {
       push: vi
         .fn()
         .mockResolvedValue({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/7' }),
-      check: vi.fn().mockResolvedValue({ ok: true })
+      check: vi.fn().mockResolvedValue({ ok: true }),
+      initPreview: vi.fn().mockResolvedValue({
+        noCommits: false,
+        readme: '# Argus HiveMind\n',
+        missing: ['README.md']
+      }),
+      init: vi.fn().mockResolvedValue({
+        ok: true,
+        outcome: 'created',
+        prUrl: 'https://github.com/acme/hivemind/pull/9'
+      })
     },
     sourceControl: {
       status: vi.fn().mockResolvedValue({
@@ -1571,5 +1581,49 @@ describe('a persisted sync error does not leak into unrelated operations', () =>
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     await userEvent.click(await screen.findByLabelText('Sync'))
     expect(await screen.findByRole('alert')).toHaveTextContent('divergent history')
+  })
+})
+
+describe('empty hive: set up directory structure (spec 2026-09-07)', () => {
+  it('shows the banner when the hive is synced but empty, with no filter', async () => {
+    renderHive({ items: [] })
+    expect(await screen.findByText('No skills or references yet.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Set up directory structure' })).toBeInTheDocument()
+  })
+
+  it('reads "no commits yet" for a zero-commit clone', async () => {
+    const payload: HivemindPayload = { ...ready, items: [], headCommit: null }
+    ;(window as unknown as { argus: unknown }).argus = mockArgus(payload)
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    expect(await screen.findByText('This repository has no commits yet.')).toBeInTheDocument()
+  })
+
+  it('a search filter hides the banner and falls back to the no-matches copy', async () => {
+    renderHive({ items: [] })
+    await screen.findByText('No skills or references yet.')
+    fireEvent.change(screen.getByLabelText('Filter HiveMind content'), { target: { value: 'x' } })
+    expect(screen.queryByText('No skills or references yet.')).not.toBeInTheDocument()
+    expect(screen.getByText('No HiveMind content matches "x".')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Filter HiveMind content'), { target: { value: '' } })
+    expect(await screen.findByText('No skills or references yet.')).toBeInTheDocument()
+  })
+
+  it('the banner is absent once the hive actually has content', async () => {
+    renderHive()
+    expect(screen.queryByText('No skills or references yet.')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Set up directory structure' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('opens the init dialog and refreshes the payload again on success', async () => {
+    renderHive({ items: [] })
+    const argus = (window as unknown as { argus: { hivemind: { get: ReturnType<typeof vi.fn> } } })
+      .argus
+    const callsBefore = argus.hivemind.get.mock.calls.length
+    fireEvent.click(await screen.findByRole('button', { name: 'Set up directory structure' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Open pull request' }))
+    await screen.findByText('PR opened')
+    await waitFor(() => expect(argus.hivemind.get.mock.calls.length).toBeGreaterThan(callsBefore))
   })
 })
