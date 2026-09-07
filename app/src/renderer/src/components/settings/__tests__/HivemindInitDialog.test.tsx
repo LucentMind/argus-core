@@ -126,7 +126,11 @@ describe('HivemindInitDialog', () => {
     const initPreview = vi
       .fn()
       .mockRejectedValueOnce(new Error('preview exploded'))
-      .mockResolvedValueOnce({ noCommits: false, readme: '# Argus HiveMind\n', missing: ['README.md'] })
+      .mockResolvedValueOnce({
+        noCommits: false,
+        readme: '# Argus HiveMind\n',
+        missing: ['README.md']
+      })
     stubArgus(undefined, initPreview)
     render(<HivemindInitDialog onClose={vi.fn()} onDone={vi.fn()} />)
     expect(await screen.findByRole('alert')).toHaveTextContent('preview exploded')
