@@ -320,27 +320,27 @@ describe('DistillationSection', () => {
     })
   })
 
-  it('shows the pipeline select defaulting to the single call and offers both pipelines', () => {
+  it('shows the pipeline select defaulting to the staged pipeline and offers both pipelines', () => {
     render(<DistillationSection payload={payload()} />)
-    expect(select('Distillation pipeline').value).toBe('Single call (v2)')
+    expect(select('Distillation pipeline').value).toBe('Staged pipeline (v3)')
     expect(optionsOf('Distillation pipeline')).toEqual(['Single call (v2)', 'Staged pipeline (v3)'])
   })
 
-  it('choosing the staged pipeline patches settings.distill.pipeline', () => {
+  it('choosing the single-call pipeline patches settings.distill.pipeline', () => {
     render(<DistillationSection payload={payload()} />)
-    choose('Distillation pipeline', 'Staged pipeline (v3)')
-    expect(patchSpy).toHaveBeenCalledWith({ distill: { pipeline: 'v3' } })
+    choose('Distillation pipeline', 'Single call (v2)')
+    expect(patchSpy).toHaveBeenCalledWith({ distill: { pipeline: 'v2' } })
   })
 
-  it('reflects a stored v3 pipeline and resets it to the default', () => {
+  it('reflects a stored v2 pipeline and resets it to the default', () => {
     render(
       <DistillationSection
         payload={payload((p) => {
-          p.settings.distill.pipeline = 'v3'
+          p.settings.distill.pipeline = 'v2'
         })}
       />
     )
-    expect(select('Distillation pipeline').value).toBe('Staged pipeline (v3)')
+    expect(select('Distillation pipeline').value).toBe('Single call (v2)')
     fireEvent.click(screen.getByLabelText('Reset Distillation pipeline'))
     expect(patchSpy).toHaveBeenCalledWith({ distill: { pipeline: null } })
   })
