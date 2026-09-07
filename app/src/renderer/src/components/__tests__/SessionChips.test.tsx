@@ -337,6 +337,30 @@ describe('SessionChips context gauge', () => {
     expect(screen.getByTestId('context-gauge').style.width).toBe('100%')
   })
 
+  it('after a compaction hides the stale gauge and says so, until the next real level', async () => {
+    render(<SessionChips slug="NAV-CTX-BOUNDARY" sessionId={1} />)
+    await screen.findByText('ready')
+    emit('context.usage', { usedTokens: 180_000, contextWindow: 200_000 }, 'NAV-CTX-BOUNDARY')
+    expect(screen.getByTestId('context-gauge').style.width).toBe('90%')
+
+    emit(
+      'context.compacted',
+      { trigger: 'manual', preTokens: 180_000, postTokens: 3_000 },
+      'NAV-CTX-BOUNDARY'
+    )
+    // No gauge: painting 90% would be stale and painting post_tokens would be wrong.
+    expect(screen.queryByTestId('context-gauge')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Session status' }))
+    const popover = screen.getByRole('dialog')
+    expect(popover.textContent).toMatch(/Context/)
+    expect(popover.textContent).toMatch(/compacted/i)
+    expect(popover.textContent).not.toMatch(/90%/)
+
+    emit('context.usage', { usedTokens: 30_000, contextWindow: null }, 'NAV-CTX-BOUNDARY')
+    expect(screen.getByTestId('context-gauge').style.width).toBe('15%')
+    expect(screen.getByRole('dialog').textContent).not.toMatch(/compacted/i)
+  })
+
   it('paints the clean CSS edge in the classic theme', async () => {
     render(<SessionChips slug="NAV-CTX-THEME" sessionId={1} />)
     await screen.findByText('ready')

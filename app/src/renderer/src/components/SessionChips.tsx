@@ -149,15 +149,20 @@ export function SessionChips({
 
   // Clamped, not just rounded: a window can be exceeded briefly before the CLI compacts, and a
   // bar wider than its own pill would paint outside the border radius.
-  const { usedTokens, contextWindow } = state.context
+  const { usedTokens, contextWindow, compacted } = state.context
   const contextPct =
     usedTokens !== null && contextWindow !== null && contextWindow > 0
       ? Math.min(100, Math.max(0, (usedTokens / contextWindow) * 100))
       : null
+  // After a compaction the store forgets the level (usedTokens null) — the CLI reports no
+  // trustworthy post-compaction figure — so the gauge disappears and the row says why,
+  // rather than holding the pre-compaction percentage or painting a wrong small one.
   const contextLabel =
-    contextPct === null || contextWindow === null
-      ? null
-      : `${Math.round(contextPct)}% of ${contextWindow.toLocaleString()}`
+    contextPct !== null && contextWindow !== null
+      ? `${Math.round(contextPct)}% of ${contextWindow.toLocaleString()}`
+      : compacted
+        ? 'compacted — updates next turn'
+        : null
 
   return (
     <div

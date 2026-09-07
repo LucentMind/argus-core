@@ -3,6 +3,8 @@ import type { AgentEvent } from '../../../shared/agent-events'
 export type TranscriptItem =
   | { kind: 'user'; text: string; turnId: number | null; composed?: boolean }
   | { kind: 'assistant'; text: string; streaming: boolean; turnId: number | null }
+  /** A CLI lifecycle note (compaction progress/outcome) — not prose from either party. */
+  | { kind: 'notice'; noticeKind: 'compacting' | 'compacted' | 'compact_failed'; text: string }
   | {
       kind: 'tool'
       toolCallId: string
@@ -24,8 +26,10 @@ export interface CaseAgentState {
   cost: { inputTokens: number; outputTokens: number; costUsd: number }
   /** Latest known context-window occupancy — a LEVEL, not an accumulator (see the
    *  `context.usage` event doc). The two halves arrive on different messages, so each keeps
-   *  its last non-null value independently. */
-  context: { usedTokens: number | null; contextWindow: number | null }
+   *  its last non-null value independently. `compacted` is set by `context.compacted`, which
+   *  also forgets `usedTokens` (the CLI reports no trustworthy post-compaction level), and is
+   *  cleared by the next real `usedTokens`. */
+  context: { usedTokens: number | null; contextWindow: number | null; compacted: boolean }
   sessionNote: string | null
   findingsBump: number
 }
@@ -36,7 +40,7 @@ export const EMPTY_CASE_AGENT_STATE: CaseAgentState = {
   pendingDialogs: [],
   running: false,
   cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
-  context: { usedTokens: null, contextWindow: null },
+  context: { usedTokens: null, contextWindow: null, compacted: false },
   sessionNote: null,
   findingsBump: 0
 }
@@ -207,9 +211,35 @@ export class AgentStore {
             ...s,
             context: {
               usedTokens: e.payload.usedTokens ?? s.context.usedTokens,
-              contextWindow: e.payload.contextWindow ?? s.context.contextWindow
+              contextWindow: e.payload.contextWindow ?? s.context.contextWindow,
+              // Only a real level ends the "compacted, awaiting a turn" state; a window-only
+              // update (from the end-of-turn result) says nothing about occupancy.
+              compacted: e.payload.usedTokens !== null ? false : s.context.compacted
             }
           }
+        case 'context.compacted':
+          return {
+            ...s,
+            context: { usedTokens: null, contextWindow: s.context.contextWindow, compacted: true }
+          }
+        case 'session.notice': {
+          const notice = {
+            kind: 'notice' as const,
+            noticeKind: e.payload.kind,
+            text: e.payload.text
+          }
+          // The outcome replaces its own "compacting…" row rather than stacking under it.
+          if (
+            last?.kind === 'notice' &&
+            last.noticeKind === 'compacting' &&
+            e.payload.kind !== 'compacting'
+          ) {
+            items[items.length - 1] = notice
+          } else {
+            items.push(notice)
+          }
+          return { ...s, items }
+        }
         case 'case.finding.added':
         case 'case.finding.updated':
           return { ...s, findingsBump: s.findingsBump + 1 }

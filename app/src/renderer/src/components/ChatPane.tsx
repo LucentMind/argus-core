@@ -441,6 +441,25 @@ export function ChatPane({
                 </div>
               )
             }
+            if (item.kind === 'notice') {
+              // A CLI lifecycle note, not a chat bubble: centred, quiet, and never hidden by
+              // the tool-card toggle — it is the only signal that a ~15s compaction is running.
+              return (
+                <div
+                  key={i}
+                  data-item-index={i}
+                  data-testid="session-notice"
+                  data-kind={item.noticeKind}
+                  className={`flex items-center gap-2 py-1 text-xs ${
+                    item.noticeKind === 'compact_failed' ? 'text-danger' : 'text-mute'
+                  }`}
+                >
+                  <span className="h-px flex-1 bg-hair" aria-hidden />
+                  <span className="shrink-0">{item.text}</span>
+                  <span className="h-px flex-1 bg-hair" aria-hidden />
+                </div>
+              )
+            }
             if (!showToolCalls) return null
             return <ToolCallCard key={item.toolCallId} item={item} />
           })}

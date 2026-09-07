@@ -81,6 +81,33 @@ describe('ChatPane', () => {
     expect(screen.getByText(/search_evidence/)).toBeTruthy()
   })
 
+  it('renders a compaction notice as a quiet inline row, not as a chat bubble', () => {
+    agentStore.apply(ev('turn.started', { userText: '/compact' }))
+    agentStore.apply(
+      ev('session.notice', { kind: 'compacted', text: 'Context compacted — 28,366 tokens summarized' })
+    )
+    render(<ChatPane slug="NAV-1" sessionId={1} onCite={vi.fn()} />)
+    const row = screen.getByTestId('session-notice')
+    expect(row.textContent).toContain('Context compacted — 28,366 tokens summarized')
+    expect(row.dataset.kind).toBe('compacted')
+  })
+
+  it('shows a compaction notice even with tool cards hidden', () => {
+    // uiStore is a singleton that survives between tests — restore the flag or later suites
+    // inherit it.
+    uiStore.setShowToolCalls(false)
+    try {
+      agentStore.apply({
+        ...ev('session.notice', { kind: 'compacting', text: 'Compacting context…' }),
+        caseSlug: 'NAV-NOTICE-HIDDEN'
+      })
+      render(<ChatPane slug="NAV-NOTICE-HIDDEN" sessionId={1} onCite={vi.fn()} />)
+      expect(screen.getByTestId('session-notice').textContent).toContain('Compacting context…')
+    } finally {
+      uiStore.setShowToolCalls(true)
+    }
+  })
+
   // Argus-composed turns (review run, apply, CI analyze prompts) render as markdown;
   // typed turns stay literal text. Mirrors CitedText.test.tsx's plain-text protection
   // (`3*4=12` must never be touched by a markdown/citation pass).
