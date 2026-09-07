@@ -1626,4 +1626,36 @@ describe('empty hive: set up directory structure (spec 2026-09-07)', () => {
     await screen.findByText('PR opened')
     await waitFor(() => expect(argus.hivemind.get.mock.calls.length).toBeGreaterThan(callsBefore))
   })
+
+  it('the banner is absent in the not-cloned state even with zero items', async () => {
+    const payload: HivemindPayload = { ...ready, state: 'not-cloned', items: [], headCommit: null }
+    ;(window as unknown as { argus: unknown }).argus = mockArgus(payload)
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    await screen.findByText('Not cloned yet — Sync to fetch the HiveMind.')
+    expect(screen.queryByText('This repository has no commits yet.')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Set up directory structure' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('the banner is absent in the error state even with zero items', async () => {
+    const payload: HivemindPayload = {
+      ...ready,
+      state: 'error',
+      error: 'divergent history',
+      items: []
+    }
+    ;(window as unknown as { argus: unknown }).argus = mockArgus(payload)
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    // The error text lives in the status chip's `title` attribute, not its visible text (which
+    // is just "error") — see 'shows the error status chip, not an alert' above for the same
+    // idiom. Waiting on the chip's own text is what actually confirms the error-state payload
+    // has settled in.
+    const chip = await screen.findByText('error')
+    expect(chip).toHaveAttribute('title', 'divergent history')
+    expect(screen.queryByText('No skills or references yet.')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Set up directory structure' })
+    ).not.toBeInTheDocument()
+  })
 })
