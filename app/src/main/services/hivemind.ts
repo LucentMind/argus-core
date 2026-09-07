@@ -1461,37 +1461,60 @@ export class HivemindService {
     try {
       await this.git(['fetch', 'origin'], clone)
       await this.git(['worktree', 'prune'], clone)
-      const defaultBranch = (
-        await this.git(['rev-parse', '--abbrev-ref', 'origin/HEAD'], clone)
-      ).replace(/^origin\//, '')
-      const branch = `argus/init-hivemind-${Date.now()}`
+      const existing = await this.findOpenInitPr()
+      if (existing && !existing.mine) {
+        return {
+          ok: false,
+          error: 'A teammate already has an open pull request setting up the HiveMind layout.',
+          blockedByPrUrl: existing.prUrl
+        }
+      }
+      const reusing = existing !== null
+      let branch = `argus/init-hivemind-${Date.now()}`
+      let reusedPrUrl = ''
       const treeParent = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-hivemind-init-'))
       tree = path.join(treeParent, 'wt')
-      await this.git(['worktree', 'add', '-b', branch, tree, `origin/${defaultBranch}`], clone)
+      if (reusing) {
+        branch = existing!.branch
+        reusedPrUrl = existing!.prUrl
+        await this.git(['worktree', 'add', '-B', branch, tree, `origin/${branch}`], clone)
+      } else {
+        const defaultBranch = (
+          await this.git(['rev-parse', '--abbrev-ref', 'origin/HEAD'], clone)
+        ).replace(/^origin\//, '')
+        await this.git(['worktree', 'add', '-b', branch, tree, `origin/${defaultBranch}`], clone)
+      }
       const missing = this.missingScaffoldFiles(tree)
-      if (missing.length === 0) return { ok: true, outcome: 'unchanged', prUrl: null }
+      if (missing.length === 0)
+        return { ok: true, outcome: 'unchanged', prUrl: reusing ? reusedPrUrl : null }
       this.writeScaffold(tree, missing)
       await this.git(['add', '-A'], tree)
       await this.git(['commit', '-m', 'Set up HiveMind directory structure (via Argus)'], tree)
-      await this.git(['push', '-u', 'origin', branch], tree)
-      const out = await this.gh(
-        [
-          'pr',
-          'create',
-          '--title',
-          'Set up HiveMind directory structure',
-          '--body',
-          'Adds the skills/ and references/ layout Argus expects (via Argus).',
-          '--head',
-          branch
-        ],
-        clone
-      )
-      const prUrl = out.split(/\s+/).find((t) => t.startsWith('https://')) ?? out
+      let prUrl: string
+      if (reusing) {
+        await this.git(['push', 'origin', branch], tree)
+        prUrl = reusedPrUrl
+      } else {
+        await this.git(['push', '-u', 'origin', branch], tree)
+        const out = await this.gh(
+          [
+            'pr',
+            'create',
+            '--title',
+            'Set up HiveMind directory structure',
+            '--body',
+            'Adds the skills/ and references/ layout Argus expects (via Argus).',
+            '--head',
+            branch
+          ],
+          clone
+        )
+        prUrl = out.split(/\s+/).find((t) => t.startsWith('https://')) ?? out
+      }
       const state = this.state()
       state.pushes['init/hivemind'] = { prUrl, pushedAt: new Date().toISOString(), repo }
       this.store.write(state)
-      return { ok: true, outcome: 'created', prUrl }
+      return { ok: true, outcome: reusing ? 'updated' : 'created', prUrl }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     } finally {
@@ -1514,5 +1537,60 @@ export class HivemindService {
         }
       }
     }
+  }
+
+  /** Is `headRefName` the branch `init()` generates? Fixed prefix + trailing digits, same
+   *  closed-boundary reasoning as `isShareBranchFor` — there is only one target here (the repo
+   *  layout itself), so no name-collision case exists, but the digit boundary still keeps a
+   *  manually created `argus/init-hivemind-notes` branch from being misread as ours. */
+  private isInitBranch(headRefName: string): boolean {
+    return /^argus\/init-hivemind-\d+$/.test(headRefName)
+  }
+
+  /**
+   * The open init PR, if any. `mine` is true only when our own stored receipt
+   * (`pushes['init/hivemind']`, repo-matched) still resolves via `gh pr view` to an open PR on
+   * an `isInitBranch`-shaped branch — mirrors `openPrFor`'s receipt path. Any open init-branch
+   * PR found the other way (via `gh pr list`, no matching receipt) is `mine: false`
+   * unconditionally: there is no way to prove it is ours, and per `openPrFor`'s own reasoning
+   * that ambiguity must resolve to "someone else's," never the reverse.
+   *
+   * Unlike `push()`/`SharePushDialog`, there is no separate renderer-facing status check before
+   * the dialog offers the button — this is the only place the lookup runs, called fresh right
+   * after `fetch` + `worktree prune` and before any worktree is created, which is what closes
+   * the same race window `push()`'s `reopenPrFor` doc comment describes.
+   */
+  private async findOpenInitPr(): Promise<{ prUrl: string; branch: string; mine: boolean } | null> {
+    const repo = this.deps.repo().trim()
+    const receipt = this.state().pushes['init/hivemind']
+    if (receipt && receipt.repo === repo) {
+      try {
+        const pr = JSON.parse(
+          await this.gh(['pr', 'view', receipt.prUrl, '--json', 'state,headRefName'])
+        ) as { state: string; headRefName: string }
+        if (pr.state === 'OPEN' && this.isInitBranch(pr.headRefName)) {
+          return { prUrl: receipt.prUrl, branch: pr.headRefName, mine: true }
+        }
+      } catch {
+        // receipt's PR no longer resolvable (deleted branch, bad url) — fall through to the
+        // general listing below.
+      }
+    }
+    const prs = JSON.parse(
+      await this.gh([
+        'pr',
+        'list',
+        '--repo',
+        repo,
+        '--state',
+        'open',
+        '--limit',
+        '100',
+        '--json',
+        'url,headRefName'
+      ])
+    ) as { url: string; headRefName: string }[]
+    const hit = prs.find((p) => this.isInitBranch(p.headRefName))
+    return hit ? { prUrl: hit.url, branch: hit.headRefName, mine: false } : null
   }
 }

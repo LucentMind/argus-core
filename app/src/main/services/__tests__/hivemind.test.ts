@@ -3147,6 +3147,146 @@ describe('init', () => {
     expect(calls.some((c) => c[0] === 'commit')).toBe(false)
   })
 
+  it('reuses an already-open init PR when nothing is newly missing', async () => {
+    seedCloneShell()
+    const statePath = path.join(home, 'config', 'hivemind-state.json')
+    fs.mkdirSync(path.dirname(statePath), { recursive: true })
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({
+        lastSynced: null,
+        skills: {},
+        references: {},
+        pushes: {
+          'init/hivemind': {
+            prUrl: 'https://github.com/acme/hivemind/pull/5',
+            pushedAt: '2026-09-01T00:00:00.000Z',
+            repo: 'acme/hivemind'
+          }
+        }
+      })
+    )
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return 'headsha'
+      if (args[0] === 'worktree' && args[1] === 'add') {
+        const tree = args[4]
+        for (const rel of [
+          'README.md',
+          'skills/.gitkeep',
+          'references/.gitkeep',
+          'references/confluence/.gitkeep'
+        ]) {
+          fs.mkdirSync(path.dirname(path.join(tree, rel)), { recursive: true })
+          fs.writeFileSync(path.join(tree, rel), '')
+        }
+      }
+      return ''
+    }
+    const gh: Runner = async (_c, args) => {
+      calls.push(['gh', ...args])
+      if (args[0] === 'pr' && args[1] === 'view')
+        return JSON.stringify({ state: 'OPEN', headRefName: 'argus/init-hivemind-1699999999999' })
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.init()
+    expect(r).toEqual({
+      ok: true,
+      outcome: 'unchanged',
+      prUrl: 'https://github.com/acme/hivemind/pull/5'
+    })
+    const flat = calls.map((c) => c.join(' '))
+    expect(
+      flat.some((c) => c.startsWith('worktree add -B argus/init-hivemind-1699999999999'))
+    ).toBe(true)
+    expect(flat.some((c) => c.startsWith('gh pr create'))).toBe(false)
+    expect(calls.some((c) => c[0] === 'commit')).toBe(false)
+  })
+
+  it('pushes a new commit onto an already-open init PR when something is newly missing', async () => {
+    seedCloneShell()
+    const statePath = path.join(home, 'config', 'hivemind-state.json')
+    fs.mkdirSync(path.dirname(statePath), { recursive: true })
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({
+        lastSynced: null,
+        skills: {},
+        references: {},
+        pushes: {
+          'init/hivemind': {
+            prUrl: 'https://github.com/acme/hivemind/pull/5',
+            pushedAt: '2026-09-01T00:00:00.000Z',
+            repo: 'acme/hivemind'
+          }
+        }
+      })
+    )
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return 'headsha'
+      // the reused branch only has the README so far, from an earlier partial init run
+      if (args[0] === 'worktree' && args[1] === 'add') {
+        const tree = args[4]
+        fs.mkdirSync(tree, { recursive: true })
+        fs.writeFileSync(path.join(tree, 'README.md'), '# Argus HiveMind\n')
+      }
+      return ''
+    }
+    const gh: Runner = async (_c, args) => {
+      calls.push(['gh', ...args])
+      if (args[0] === 'pr' && args[1] === 'view')
+        return JSON.stringify({ state: 'OPEN', headRefName: 'argus/init-hivemind-1699999999999' })
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.init()
+    expect(r).toEqual({
+      ok: true,
+      outcome: 'updated',
+      prUrl: 'https://github.com/acme/hivemind/pull/5'
+    })
+    const flat = calls.map((c) => c.join(' '))
+    expect(flat).toContain('add -A')
+    expect(flat.some((c) => c.startsWith('commit -m Set up HiveMind directory structure'))).toBe(
+      true
+    )
+    expect(flat).toContain('push origin argus/init-hivemind-1699999999999')
+    expect(flat.some((c) => c.startsWith('gh pr create'))).toBe(false)
+  })
+
+  it('refuses when a teammate already has an open init PR, and creates no worktree', async () => {
+    seedCloneShell()
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return 'headsha'
+      return ''
+    }
+    const gh: Runner = async (_c, args) => {
+      calls.push(['gh', ...args])
+      if (args[0] === 'pr' && args[1] === 'list')
+        return JSON.stringify([
+          {
+            url: 'https://github.com/acme/hivemind/pull/6',
+            headRefName: 'argus/init-hivemind-1700000000000'
+          }
+        ])
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.init()
+    expect(r).toEqual({
+      ok: false,
+      error: 'A teammate already has an open pull request setting up the HiveMind layout.',
+      blockedByPrUrl: 'https://github.com/acme/hivemind/pull/6'
+    })
+    expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'add')).toBe(false)
+  })
+
   it('init failures on the seeded-but-empty path surface as { ok: false } and still remove the worktree', async () => {
     seedCloneShell()
     const calls: string[][] = []
