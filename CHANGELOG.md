@@ -319,6 +319,18 @@
   The row's own controls (enable switches, Update/Uninstall, "Set as
   default") keep their own clicks.
 
+**Fresh-install model defaults for the Claude driver**
+
+- New cases (and routines) open on **Claude Opus 5** on a pristine install. The
+  static catalog's first row is that default on purpose; favourites, reordering
+  and hiding keep overriding it as before.
+- Distillation's "Automatic" model is now **Claude Sonnet 5**, and no longer
+  follows chat favourites. This also covers reference sync, the digest step,
+  RCA reports and the skill/reference editor's draft/improve, which share the
+  same runner. An explicit choice in Settings → Distillation still wins. Existing
+  installs that starred a chat model but never picked a distillation model move
+  from that favourite to Sonnet 5 on upgrade.
+
 ### Fixed
 
 - The favourites list in Settings → a provider's models is now ordered:
