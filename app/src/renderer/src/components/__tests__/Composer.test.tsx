@@ -172,13 +172,12 @@ describe('Composer', () => {
       .getAllByRole('menuitem')
       .map((el) => el.textContent)
     // the full static catalog is offered, unchanged — no catalog-only row leaked in.
-    // Opus 5 is in it, second: the CLI's recommended default used to be unreachable until the
-    // catalog landed (and entirely unreachable offline), while row 0 stays Fable 5 so
-    // `defaultModelRef` keeps seeding new chats with the same model as before.
+    // Opus 5 is row 0 on purpose: it is the fresh-install seed for new cases
+    // (spec 2026-09-07-fresh-install-model-defaults).
     expect(items).toEqual([
-      'Claude Fable 5',
-      'Claude Fable 5.1',
       'Claude Opus 5',
+      'Claude Fable 5.1',
+      'Claude Fable 5',
       'Claude Opus 4.8',
       'Claude Opus 4.7',
       'Claude Sonnet 5',
@@ -438,7 +437,7 @@ describe('Composer', () => {
     }))
     const onModelChange = vi.fn()
     render(<Composer disabled={false} onSend={vi.fn()} onModelChange={onModelChange} />)
-    fireEvent.click(await screen.findByText('Claude Fable 5 · Claude'))
+    fireEvent.click(await screen.findByText('Claude Opus 5 · Claude'))
     const menu = screen.getByRole('menu', { name: 'Model' })
     const items = within(menu)
       .getAllByRole('menuitem')
@@ -475,9 +474,9 @@ describe('Composer', () => {
       .map((el) => el.textContent)
     expect(items).toEqual([
       'Claude Sonnet 5',
-      'Claude Fable 5',
-      'Claude Fable 5.1',
       'Claude Opus 5',
+      'Claude Fable 5.1',
+      'Claude Fable 5',
       'Claude Opus 4.8',
       'Claude Opus 4.7',
       'Claude Sonnet 4.6'
