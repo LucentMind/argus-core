@@ -188,6 +188,56 @@ describe('createClaudeDriver', () => {
     expect(events).toContain('turn.completed')
   })
 
+  // Captured live 2026-09-07 (SDK 0.3.220): after a `compact_boundary` the CLI re-emits the
+  // preserved tail of the conversation — the last assistant message arrives a SECOND time
+  // with the SAME `uuid` and no `isReplay` flag. Without dedupe the transcript showed the
+  // /context report twice, once before and once after the "Context compacted" row.
+  it('drops an assistant message the CLI replays after a compaction (same uuid)', async () => {
+    const SID = '11111111-1111-4111-8111-111111111111'
+    const report = {
+      type: 'assistant',
+      uuid: '5fe02223-d658-410d-9958-c2ddd6e97b2d',
+      session_id: SID,
+      parent_tool_use_id: null,
+      message: {
+        model: '<synthetic>',
+        role: 'assistant',
+        content: [{ type: 'text', text: '## Context Usage' }],
+        usage: { input_tokens: 0, output_tokens: 0 }
+      }
+    }
+    const driver = createClaudeDriver(
+      fakeQuery([
+        { type: 'system', subtype: 'init', session_id: SID, model: 'claude-sonnet-5' },
+        report,
+        {
+          type: 'system',
+          subtype: 'compact_boundary',
+          session_id: SID,
+          compact_metadata: { trigger: 'manual', pre_tokens: 100, post_tokens: 10 }
+        },
+        { ...report }, // the replay: identical uuid, a fresh object
+        {
+          type: 'assistant',
+          uuid: 'bd486bb5-a17e-4e2d-ac0d-0ffcc63bd253',
+          session_id: SID,
+          parent_tool_use_id: null,
+          message: {
+            model: 'claude-sonnet-5',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'done' }],
+            usage: { input_tokens: 10, output_tokens: 1 }
+          }
+        }
+      ])
+    )
+    const texts: string[] = []
+    for await (const e of driver.createSession(baseCtx()).events()) {
+      if (e.type === 'assistant.message') texts.push(e.payload.text)
+    }
+    expect(texts).toEqual(['## Context Usage', 'done'])
+  })
+
   it('rejects a non-UUID resume cursor (Claude cursor validation lives in the driver)', async () => {
     const spy = vi.fn(fakeQuery([]))
     const session = createClaudeDriver(spy).createSession({
