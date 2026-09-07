@@ -315,11 +315,29 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // Stream loop: relocated from session.ts:597-615 (consume). Errors thrown by the
       // underlying query stream propagate out of events() — the harness (Task 4) handles
       // session.error emission; the driver deliberately does NOT swallow them.
+      // After a `compact_boundary` the CLI re-emits the preserved tail of the conversation
+      // (captured live 2026-09-07, SDK 0.3.220): the same assistant/user frames arrive a
+      // second time with the SAME `uuid` and no `isReplay` marker. Rendering them again
+      // duplicated the last reply under the "Context compacted" row. Frame identity is the
+      // uuid, so a frame seen once in this session's stream is dropped on re-arrival.
+      // Scoped to conversation frames — system/result/stream_event frames are not replayed
+      // and some of them legitimately repeat their uuid-less shape.
+      const seenFrames = new Set<string>()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const isReplayedFrame = (msg: any): boolean => {
+        if (msg.type !== 'assistant' && msg.type !== 'user') return false
+        if (typeof msg.uuid !== 'string' || !msg.uuid) return false
+        if (seenFrames.has(msg.uuid)) return true
+        seenFrames.add(msg.uuid)
+        return false
+      }
+
       async function* events(): AsyncIterable<AgentEvent> {
         const handle = await handleReady
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         for await (const msg of handle as AsyncIterable<any>) {
           updateCursor(msg)
+          if (isReplayedFrame(msg)) continue
           if (msg.type === 'result') ctx.onTurnResult(extractTurnResult(msg))
           // Finished assistant messages are the ONE place a tool_use block carries its
           // full input (stream partials arrive before input_json_deltas assemble), and
