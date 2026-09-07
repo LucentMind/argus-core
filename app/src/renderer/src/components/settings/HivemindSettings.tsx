@@ -5,6 +5,7 @@ import { ConfluenceSpaces, useConfluenceEnabled } from './ConfluenceSpaces'
 import { Btn, Chip, IconBtn } from '../ui'
 import { TierBadge } from './TierBadge'
 import { withByline } from './byline'
+import { HivemindInitDialog } from './HivemindInitDialog'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm as askConfirm } from '../../lib/confirmStore'
 import { UnifiedDiffView } from '../UnifiedDiffView'
@@ -244,6 +245,7 @@ export function HivemindSettings({
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
   const [updateConfirm, setUpdateConfirm] = useState<UpdateConfirm | null>(null)
+  const [showInit, setShowInit] = useState(false)
   const [check, setCheck] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle')
   const [checkError, setCheckError] = useState<string | null>(null)
   const [autoSyncing, setAutoSyncing] = useState(false)
@@ -699,7 +701,38 @@ export function HivemindSettings({
           onChange={(e) => setFilter(e.target.value)}
         />
 
-        {filter && skills.length === 0 && references.length === 0 ? (
+        {!filter && payload.items.length === 0 ? (
+          <SettingsSection title="Set up the HiveMind layout">
+            {showInit ? (
+              <HivemindInitDialog
+                onClose={() => setShowInit(false)}
+                onBusyChange={setBusy}
+                // Deliberately does NOT also setShowInit(false): the dialog's own success view
+                // (`result?.ok` in HivemindInitDialog) is what shows "PR opened"/the PR link, and
+                // it renders in the SAME React batch as this callback (both are fired from the
+                // same synchronous continuation after `init()` resolves). Closing the dialog here
+                // too would unmount it before that result view ever paints — the parent's
+                // re-render (with `showInit` now false) wins the tree, discarding the child's
+                // freshly-set `result` state. The dialog's own "Done" button (wired to onClose)
+                // is what the user clicks to dismiss it once they've seen the outcome.
+                onDone={() => void window.argus.hivemind.get().then(setPayload)}
+              />
+            ) : (
+              <SettingRow
+                label={
+                  payload.headCommit === null
+                    ? 'This repository has no commits yet.'
+                    : 'No skills or references yet.'
+                }
+                description="Argus can add the skills/ and references/ folders and a short README explaining the layout."
+              >
+                <Btn variant="outline" onClick={() => setShowInit(true)}>
+                  Set up directory structure
+                </Btn>
+              </SettingRow>
+            )}
+          </SettingsSection>
+        ) : filter && skills.length === 0 && references.length === 0 ? (
           <>
             <div className="px-1 py-2 text-sm text-dim">
               No HiveMind content matches &quot;{filter}&quot;.
