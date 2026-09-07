@@ -25,6 +25,7 @@ interface JobRow {
   dropped_json: string | null
   dry_run: number
   kind: string
+  item_count: number | null
 }
 
 /** Frontmatter + body of every proposal entry in dir (flat or directory-shaped, via
@@ -162,6 +163,24 @@ export function buildEvalBundle(
               ...(editedContent !== undefined ? { editedContent } : {})
             }
           })
+    // A hard-deleted pending proposal leaves no archive row by design (see
+    // proposals.deleteProposal), so a done job can carry fewer outcomes than it staged. Named
+    // rather than silent: without this the judge cannot tell "the reviewer removed items without
+    // labelling them" from "the run only produced this many reviewable items". Not a skip — the
+    // reviewed items it does carry are still judge-usable. Still-pending items count toward the
+    // staged total: under an explicit id they are exported with their own warning above, and
+    // are not "removed". `item_count` is NULL on rows that predate the column, which cannot be
+    // audited either way.
+    if (r.state === 'done' && r.item_count !== null) {
+      const accountedFor = items.length + (pending.get(String(r.id))?.length ?? 0)
+      if (accountedFor < r.item_count) {
+        warnings.push({
+          jobId: r.id,
+          caseSlug: r.case_slug,
+          reason: 'items removed without review'
+        })
+      }
+    }
     lines.push({
       job: {
         id: r.id,

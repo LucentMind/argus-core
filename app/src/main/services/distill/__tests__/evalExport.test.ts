@@ -4,7 +4,7 @@ import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
-import { writeProposal, acceptProposal, rejectProposal } from '../../proposals'
+import { writeProposal, acceptProposal, rejectProposal, deleteProposal } from '../../proposals'
 import { proposalsArchiveDir } from '../../paths'
 import { buildEvalBundle, exportEvalBundle } from '../evalExport'
 
@@ -24,8 +24,8 @@ const SNAPSHOT = JSON.stringify({ caseMeta: { slug: 'nav-1' } })
 function insertJob(over: Partial<Record<string, unknown>> = {}): number {
   const r = db
     .prepare(
-      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, raw_output, error, prompt_hash, created_at, kind, stages_json, dropped_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, raw_output, error, prompt_hash, created_at, kind, stages_json, dropped_json, item_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       (over.case_slug as string) ?? 'nav-1',
@@ -37,7 +37,8 @@ function insertJob(over: Partial<Record<string, unknown>> = {}): number {
       (over.created_at as string) ?? '2026-07-29T00:00:00.000Z',
       (over.kind as string) ?? 'case',
       (over.stages_json as string | null) ?? null,
-      (over.dropped_json as string | null) ?? null
+      (over.dropped_json as string | null) ?? null,
+      (over.item_count as number | null) ?? null
     )
   return Number(r.lastInsertRowid)
 }
@@ -68,11 +69,12 @@ function reviewedItem(
 
 describe('buildEvalBundle', () => {
   it('exports a fully-reviewed done job with outcomes and reject labels', () => {
-    const id = insertJob()
+    const id = insertJob({ item_count: 2 })
     reviewedItem(id, 'accepted')
     reviewedItem(id, 'rejected', { tag: 'overgeneric', note: 'too vague' })
-    const { lines, skipped } = buildEvalBundle(db, home, '1.0.0')
+    const { lines, skipped, warnings } = buildEvalBundle(db, home, '1.0.0')
     expect(skipped).toEqual([])
+    expect(warnings).toEqual([])
     expect(lines).toHaveLength(1)
     expect(lines[0].job.id).toBe(id)
     expect(lines[0].job.promptHash).toBe('abc123def456')
@@ -95,6 +97,41 @@ describe('buildEvalBundle', () => {
     const { lines, skipped } = buildEvalBundle(db, home, '1.0.0')
     expect(lines).toEqual([])
     expect(skipped).toEqual([{ jobId: id, caseSlug: 'nav-1', reason: 'items pending review' }])
+  })
+
+  it('warns when a done job exports fewer items than it staged (a pending item was deleted without review)', () => {
+    // A hard-deleted pending proposal leaves no archive row by design, so the exported line
+    // carries fewer outcomes than `item_count` says the run staged. Without a warning the judge
+    // cannot tell a silent drop from a run that produced only one reviewable item.
+    const id = insertJob({ item_count: 2 })
+    const kept = writeProposal(
+      home,
+      'nav-1',
+      {
+        type: 'skill-new',
+        target: 's-kept',
+        title: 't',
+        content: '---\ndescription: Use when exercising the eval-bundle export.\n---\n\n# s\n'
+      },
+      { job: String(id) }
+    )
+    const removed = writeProposal(
+      home,
+      'nav-1',
+      { type: 'skill-new', target: 's-removed', title: 't', content: '# s\n' },
+      { job: String(id) }
+    )
+    deleteProposal(home, removed)
+    acceptProposal(home, kept)
+
+    const { lines, skipped, warnings } = buildEvalBundle(db, home, '1.0.0')
+    // The line still exports, with the one reviewed item — the job is not skipped.
+    expect(skipped).toEqual([])
+    expect(lines.map((l) => l.job.id)).toEqual([id])
+    expect(lines[0].items.map((i) => [i.target, i.outcome])).toEqual([['s-kept', 'accepted']])
+    expect(warnings).toEqual([
+      { jobId: id, caseSlug: 'nav-1', reason: 'items removed without review' }
+    ])
   })
 
   it('exports a parse-failed job with empty items', () => {
@@ -404,7 +441,9 @@ describe('explicit job ids', () => {
   })
 
   it('exports a pending-review job with a warning instead of skipping it', () => {
-    const pendingReviewJobId = insertJob()
+    // item_count matches the one pending item: the shortfall in archived outcomes is fully
+    // explained by the pending item, so it must NOT also be reported as removed.
+    const pendingReviewJobId = insertJob({ item_count: 1 })
     writeProposal(
       home,
       'nav-1',
