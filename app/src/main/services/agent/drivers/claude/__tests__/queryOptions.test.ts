@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildRunOptionQueryFields } from '../queryOptions'
+import { buildRunOptionQueryFields, contextWindowCapFor } from '../queryOptions'
 import type { ModelOptionInfo } from '../../../../../../shared/runOptions'
 
 const FABLE: ModelOptionInfo = {
@@ -28,6 +28,34 @@ describe('buildRunOptionQueryFields', () => {
     )
     expect(f.model).toBe('claude-fable-5[1m]')
     expect(f).not.toHaveProperty('betas')
+  })
+
+  // Fable runs at 1M on its bare slug; "200k" there is a compaction CAP delivered through the
+  // CLI's `autoCompactWindow` setting (verified live 2026-09-07), NOT a model-string change.
+  describe('the 200k cap on a native-1M model', () => {
+    it('sends the bare slug plus settings.autoCompactWindow, and exposes the cap for the gauge', () => {
+      const sel = [{ id: 'contextWindow', value: 'cap-200k' }]
+      const f = buildRunOptionQueryFields(FABLE, 'claude-fable-5', sel, 'default')
+      expect(f.model).toBe('claude-fable-5')
+      expect(f.settings).toEqual({ autoCompactWindow: 200_000 })
+      expect(contextWindowCapFor(FABLE, 'claude-fable-5', sel)).toBe(200_000)
+    })
+
+    it('exposes no cap at the default, nor for a model whose 200k is a real window', () => {
+      expect(contextWindowCapFor(FABLE, 'claude-fable-5', [])).toBeUndefined()
+      const OPUS: ModelOptionInfo = {
+        value: 'claude-opus-5',
+        displayName: 'Claude Opus 5',
+        supportsEffort: true,
+        supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+        supportsFastMode: true
+      }
+      const sel = [{ id: 'contextWindow', value: '200k' }]
+      expect(contextWindowCapFor(OPUS, 'claude-opus-5', sel)).toBeUndefined()
+      expect(
+        buildRunOptionQueryFields(OPUS, 'claude-opus-5', sel, 'default').settings
+      ).toBeUndefined()
+    })
   })
 
   it('sends ultracode as xhigh effort plus the settings flag', () => {

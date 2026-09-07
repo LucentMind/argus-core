@@ -10,7 +10,7 @@ import { claudeSpawnEnv, resolveClaudeCliPath } from './cliPath'
 import { qualifySkill, skillPluginRoot } from '../../skillsResolver'
 import { claudeAgentsOption } from './subagentBinding'
 import { catalogFor } from './catalog'
-import { buildRunOptionQueryFields } from './queryOptions'
+import { buildRunOptionQueryFields, contextWindowCapFor } from './queryOptions'
 import type {
   AgentDriver,
   DriverSession,
@@ -126,8 +126,13 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // deferred behind this promise. `send()` does not need it: the prompt queue exists
       // immediately, so a message sent before the catalog resolves is simply buffered
       // until the query starts consuming it.
+      // The 200k cap, once the catalog has resolved (it is derived from the same descriptors
+      // the query fields are). Read by the events loop below to clamp the window the CLI
+      // reports — see `contextWindowCapFor`.
+      let contextCap: number | undefined
       const handleReady: Promise<QueryHandle> = (async () => {
         const modelInfo = await catalogFor(createQuery, cliPath ?? undefined, ctx.model)
+        contextCap = contextWindowCapFor(modelInfo, ctx.model, ctx.runOptions ?? [])
         if (cancelled) {
           // end()/stop() ran while the catalog fetch was in flight. Settle handleReady
           // without ever calling createQuery — no CLI process, no MCP servers built —
@@ -368,6 +373,16 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
             }
             if (ev.type === 'tool.call.completed' && !ev.payload.name) {
               ev.payload.name = toolNames.get(ev.payload.toolCallId) ?? ''
+            }
+            // Under the 200k cap the CLI compacts at 200k, but its `modelUsage` still
+            // reports the model's native window (1M measured on Fable 5). The gauge must
+            // show the window this session actually runs in.
+            if (
+              ev.type === 'context.usage' &&
+              contextCap !== undefined &&
+              ev.payload.contextWindow !== null
+            ) {
+              ev.payload.contextWindow = Math.min(contextCap, ev.payload.contextWindow)
             }
             yield ev
           }

@@ -1,8 +1,10 @@
 import {
   apiModelId,
   claudeSettingsFor,
+  contextWindowCap,
   descriptorsFor,
   effectiveEffort,
+  type ClaudeRunSettings,
   type ModelOptionInfo,
   type RunOptionSelection
 } from '../../../../../shared/runOptions'
@@ -11,9 +13,23 @@ import type { PermissionMode } from '../../../../../shared/settings'
 export interface RunOptionQueryFields {
   model?: string
   effort?: string
-  settings?: { ultracode?: true; fastMode?: true; alwaysThinkingEnabled?: boolean }
+  settings?: ClaudeRunSettings
   permissionMode?: PermissionMode
   allowDangerouslySkipPermissions?: true
+}
+
+/**
+ * The 200k cap in tokens for this session, or undefined. Kept OUT of `RunOptionQueryFields`
+ * because that object is spread straight into the SDK's `query()` options; this one is for
+ * the driver's own event loop, which clamps the window the CLI reports (its `modelUsage`
+ * keeps saying the model's native 1M even while `autoCompactWindow` holds it at 200k).
+ */
+export function contextWindowCapFor(
+  info: ModelOptionInfo | null,
+  model: string | undefined,
+  runOptions: readonly RunOptionSelection[]
+): number | undefined {
+  return info ? contextWindowCap(descriptorsFor(info, model), runOptions) : undefined
 }
 
 /**

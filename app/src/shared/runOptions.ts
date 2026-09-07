@@ -51,6 +51,12 @@ function forcesOneMillion(model: string | null | undefined): boolean {
   return typeof model === 'string' && model.endsWith('[1m]')
 }
 
+/** The Context Window value that means "cap this native-1M session at 200k" (see the
+ *  `native-1m` branch in {@link descriptorsFor}). Delivered as the CLI's `autoCompactWindow`
+ *  setting, worth {@link CONTEXT_CAP_TOKENS}. */
+export const CONTEXT_CAP_200K = 'cap-200k'
+export const CONTEXT_CAP_TOKENS = 200_000
+
 const EFFORT_LABELS: Record<string, string> = {
   low: 'Low',
   medium: 'Medium',
@@ -238,9 +244,18 @@ export function descriptorsFor(
         type: 'select',
         id: 'contextWindow',
         label: 'Context Window',
-        options:
-          forcesOneMillion(model) || cwPolicy === 'native-1m'
-            ? [{ value: '1m', label: '1M', isDefault: true }]
+        options: forcesOneMillion(model)
+          ? [{ value: '1m', label: '1M', isDefault: true }]
+          : cwPolicy === 'native-1m'
+            ? // 1M is this model's real window and leads. The second position is a CAP — the
+              // CLI's `autoCompactWindow` setting, so the session compacts at 200k (verified
+              // live 2026-09-07: `/context` then reports "/ 200k"). It is NOT a smaller API
+              // window, which no suffix or beta can request on a native-1M model; hence its
+              // own value, so `claudeSettingsFor` can tell it from an ordinary '200k'.
+              [
+                { value: '1m', label: '1M', isDefault: true },
+                { value: CONTEXT_CAP_200K, label: '200k cap' }
+              ]
             : [
                 { value: '200k', label: '200k', isDefault: true },
                 { value: '1m', label: '1M' }
@@ -405,12 +420,32 @@ export function apiModelId(slug: string, contextWindow: string | boolean | undef
   return slug.endsWith('[1m]') ? slug : `${slug}[1m]`
 }
 
+/** The 200k cap in tokens when this selection carries it, else undefined. Resolved through
+ *  `selectionValue`, so a stale or unsupported stored value never produces a cap. */
+export function contextWindowCap(
+  ds: readonly RunOptionDescriptor[],
+  stored: readonly RunOptionSelection[] | null | undefined
+): number | undefined {
+  const cw = ds.find((d) => d.id === 'contextWindow')
+  return cw && selectionValue(cw, stored) === CONTEXT_CAP_200K ? CONTEXT_CAP_TOKENS : undefined
+}
+
+export interface ClaudeRunSettings {
+  ultracode?: true
+  fastMode?: true
+  alwaysThinkingEnabled?: boolean
+  /** The CLI's auto-compaction ceiling in tokens — set only by the 200k cap. */
+  autoCompactWindow?: number
+}
+
 /** The SDK `settings` object for this selection. Empty means "pass nothing". */
 export function claudeSettingsFor(
   ds: readonly RunOptionDescriptor[],
   stored: readonly RunOptionSelection[] | null | undefined
-): { ultracode?: true; fastMode?: true; alwaysThinkingEnabled?: boolean } {
-  const out: { ultracode?: true; fastMode?: true; alwaysThinkingEnabled?: boolean } = {}
+): ClaudeRunSettings {
+  const out: ClaudeRunSettings = {}
+  const cap = contextWindowCap(ds, stored)
+  if (cap !== undefined) out.autoCompactWindow = cap
   const effort = ds.find((d) => d.id === 'effort')
   if (effort && selectionValue(effort, stored) === 'ultracode') out.ultracode = true
   const fast = ds.find((d) => d.id === 'fastMode')

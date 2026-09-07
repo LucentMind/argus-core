@@ -238,6 +238,44 @@ describe('createClaudeDriver', () => {
     expect(texts).toEqual(['## Context Usage', 'done'])
   })
 
+  // With the 200k cap selected the CLI compacts at 200k and its own `/context` reports
+  // "/ 200k", but the result's `modelUsage.contextWindow` still says the model's native 1M
+  // (measured 2026-09-07). The gauge must show the window the session actually runs in.
+  describe('the 200k cap and the reported window', () => {
+    const SID = '11111111-1111-4111-8111-111111111111'
+    const stream = [
+      { type: 'system', subtype: 'init', session_id: SID, model: 'claude-fable-5' },
+      {
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        usage: { input_tokens: 10, output_tokens: 5 },
+        modelUsage: { 'claude-fable-5': { contextWindow: 1_000_000 } },
+        session_id: SID
+      }
+    ]
+    const windowsFrom = async (runOptions: { id: string; value: string }[]) => {
+      const session = createClaudeDriver(fakeQuery(stream)).createSession({
+        ...baseCtx(),
+        model: 'claude-fable-5',
+        runOptions
+      })
+      const out: (number | null)[] = []
+      for await (const e of session.events()) {
+        if (e.type === 'context.usage') out.push(e.payload.contextWindow)
+      }
+      return out
+    }
+
+    it('clamps the reported window to the cap', async () => {
+      expect(await windowsFrom([{ id: 'contextWindow', value: 'cap-200k' }])).toEqual([200_000])
+    })
+
+    it('passes the native window through when no cap is selected', async () => {
+      expect(await windowsFrom([])).toEqual([1_000_000])
+    })
+  })
+
   it('rejects a non-UUID resume cursor (Claude cursor validation lives in the driver)', async () => {
     const spy = vi.fn(fakeQuery([]))
     const session = createClaudeDriver(spy).createSession({
