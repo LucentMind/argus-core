@@ -1444,8 +1444,14 @@ export class HivemindService {
 
     if (headCommit === null) {
       const missing = this.missingScaffoldFiles(clone)
-      if (missing.length === 0) return { ok: true, outcome: 'unchanged', prUrl: null }
       try {
+        await this.git(['fetch', 'origin'], clone)
+        if ((await this.readHeadCommit(clone)) !== null) {
+          return {
+            ok: false,
+            error: 'The repository gained a commit while pushing — Sync and try again.'
+          }
+        }
         this.writeScaffold(clone, missing)
         await this.git(['add', '-A'], clone)
         await this.git(['commit', '-m', 'Set up HiveMind directory structure (via Argus)'], clone)
@@ -1465,7 +1471,7 @@ export class HivemindService {
       if (existing && !existing.mine) {
         return {
           ok: false,
-          error: 'A teammate already has an open pull request setting up the HiveMind layout.',
+          error: `${existing.author} already has an open pull request setting up the HiveMind layout.`,
           blockedByPrUrl: existing.prUrl
         }
       }
@@ -1560,7 +1566,9 @@ export class HivemindService {
    * after `fetch` + `worktree prune` and before any worktree is created, which is what closes
    * the same race window `push()`'s `reopenPrFor` doc comment describes.
    */
-  private async findOpenInitPr(): Promise<{ prUrl: string; branch: string; mine: boolean } | null> {
+  private async findOpenInitPr(): Promise<
+    { prUrl: string; branch: string; mine: boolean; author: string } | null
+  > {
     const repo = this.deps.repo().trim()
     const receipt = this.state().pushes['init/hivemind']
     if (receipt && receipt.repo === repo) {
@@ -1569,7 +1577,7 @@ export class HivemindService {
           await this.gh(['pr', 'view', receipt.prUrl, '--json', 'state,headRefName'])
         ) as { state: string; headRefName: string }
         if (pr.state === 'OPEN' && this.isInitBranch(pr.headRefName)) {
-          return { prUrl: receipt.prUrl, branch: pr.headRefName, mine: true }
+          return { prUrl: receipt.prUrl, branch: pr.headRefName, mine: true, author: '' }
         }
       } catch {
         // receipt's PR no longer resolvable (deleted branch, bad url) — fall through to the
@@ -1587,10 +1595,12 @@ export class HivemindService {
         '--limit',
         '100',
         '--json',
-        'url,headRefName'
+        'url,headRefName,author'
       ])
-    ) as { url: string; headRefName: string }[]
+    ) as { url: string; headRefName: string; author: { login: string } }[]
     const hit = prs.find((p) => this.isInitBranch(p.headRefName))
-    return hit ? { prUrl: hit.url, branch: hit.headRefName, mine: false } : null
+    return hit
+      ? { prUrl: hit.url, branch: hit.headRefName, mine: false, author: hit.author.login }
+      : null
   }
 }

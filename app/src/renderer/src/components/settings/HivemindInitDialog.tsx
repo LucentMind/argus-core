@@ -35,6 +35,7 @@ export function HivemindInitDialog({
   const [error, setError] = useState<string | null>(null)
   const [blockedByPrUrl, setBlockedByPrUrl] = useState<string | null>(null)
   const [result, setResult] = useState<HivemindInitResult | null>(null)
+  const [previewAttempt, setPreviewAttempt] = useState(0)
 
   useEffect(() => {
     let mounted = true
@@ -45,7 +46,7 @@ export function HivemindInitDialog({
     return () => {
       mounted = false
     }
-  }, [])
+  }, [previewAttempt])
 
   useEffect(() => () => onBusyChange?.(false), [onBusyChange])
 
@@ -148,6 +149,17 @@ export function HivemindInitDialog({
               ? 'Push initial commit'
               : 'Open pull request'}
         </Btn>
+        {preview === null && error !== null && (
+          <Btn
+            variant="outline"
+            onClick={() => {
+              setError(null)
+              setPreviewAttempt((a) => a + 1)
+            }}
+          >
+            Retry preview
+          </Btn>
+        )}
         <Btn variant="dangerSolid" onClick={onClose}>
           Cancel
         </Btn>

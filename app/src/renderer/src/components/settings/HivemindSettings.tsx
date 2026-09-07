@@ -701,7 +701,7 @@ export function HivemindSettings({
           onChange={(e) => setFilter(e.target.value)}
         />
 
-        {!filter && payload.items.length === 0 ? (
+        {payload.state === 'ready' && !filter && payload.items.length === 0 ? (
           <SettingsSection title="Set up the HiveMind layout">
             {showInit ? (
               <HivemindInitDialog
