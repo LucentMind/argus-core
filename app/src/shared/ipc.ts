@@ -184,6 +184,7 @@ export const IPC = {
   proposalsList: 'proposals:list',
   proposalsAccept: 'proposals:accept',
   proposalsReject: 'proposals:reject',
+  proposalsDelete: 'proposals:delete',
   proposalsChanged: 'proposals:changed',
   proposalsRejectDigest: 'proposals:reject-digest',
   filesList: 'files:list',

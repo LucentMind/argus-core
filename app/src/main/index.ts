@@ -110,6 +110,7 @@ import {
   listProposals,
   listArchivedProposals,
   acceptProposal,
+  deleteProposal,
   rejectProposal,
   setProposalsChangedNotifier,
   proposalCounts
@@ -3559,6 +3560,12 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC.proposalsReject, (_e, file: string, reason?: RejectReason) => {
     rejectProposal(argusHome, file, reason)
+    return { proposals: listProposals(argusHome) }
+  })
+  // Spec 2026-09-07: pending-only hard delete. No archive row, so — unlike reject — nothing
+  // downstream (already-captured, index notes, prior-reject stamps, digest, eval export) sees it.
+  ipcMain.handle(IPC.proposalsDelete, (_e, file: string) => {
+    deleteProposal(argusHome, file)
     return { proposals: listProposals(argusHome) }
   })
   // Read-only digest viewer (spec §5): `null` when no digest has ever been built, which the
