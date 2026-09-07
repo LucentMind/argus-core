@@ -8,6 +8,11 @@ import { proposalsStore } from '../../../lib/proposalsStore'
 import { viewTitleStore } from '../../../lib/viewTitleStore'
 import type { ProposalsPayload } from '../../../../../shared/proposals'
 
+vi.mock('../../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
+
 const payload: ProposalsPayload = {
   proposals: [
     {
@@ -60,6 +65,7 @@ const payload: ProposalsPayload = {
 
 let acceptMock: ReturnType<typeof vi.fn>
 let rejectMock: ReturnType<typeof vi.fn>
+let deleteMock: ReturnType<typeof vi.fn>
 beforeEach(() => {
   settingsStore.reset()
   proposalsStore.reset()
@@ -77,11 +83,15 @@ beforeEach(() => {
   rejectMock = vi.fn((file: string) =>
     Promise.resolve({ proposals: payload.proposals.filter((p) => p.file !== file) })
   )
+  deleteMock = vi.fn((file: string) =>
+    Promise.resolve({ proposals: payload.proposals.filter((p) => p.file !== file) })
+  )
   ;(window as unknown as { argus: unknown }).argus = {
     proposals: {
       list: vi.fn().mockResolvedValue(payload),
       accept: acceptMock,
       reject: rejectMock,
+      delete: deleteMock,
       rejectDigest: vi.fn().mockResolvedValue(null),
       onChanged: vi.fn(() => () => {})
     },
@@ -369,6 +379,87 @@ describe('ProposalsStandalone', () => {
       'aria-current',
       'true'
     )
+  })
+
+  describe('delete (spec 2026-09-07)', () => {
+    it('calls proposals.delete (never reject) and advances to the next pending row', async () => {
+      renderShell()
+      // New skill proposal sits between Reference edit and Sharpen step 4 in display order.
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Select proposal New skill proposal' })
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Delete New skill proposal' }))
+      await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('2026-07-11-NAV-100-skill.md'))
+      expect(rejectMock).not.toHaveBeenCalled()
+      expect(
+        screen.queryByRole('button', { name: 'Select proposal New skill proposal' })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Select proposal Sharpen step 4' })
+      ).toHaveAttribute('aria-current', 'true')
+    })
+
+    it('deleting the last row (display order) advances to the previous one', async () => {
+      renderShell()
+      fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Sharpen step 4' }))
+      await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('2026-07-10-NAV-100-rca.md'))
+      expect(
+        screen.getByRole('button', { name: 'Select proposal New skill proposal' })
+      ).toHaveAttribute('aria-current', 'true')
+    })
+
+    it('deleting the only pending row falls back to the empty state', async () => {
+      const solo: ProposalsPayload = { proposals: [payload.proposals[0]] }
+      const argus = (window as unknown as { argus: { proposals: Record<string, unknown> } }).argus
+      argus.proposals.list = vi.fn().mockResolvedValue(solo)
+      argus.proposals.delete = vi.fn().mockResolvedValue({ proposals: [] })
+      renderShell()
+      fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Sharpen step 4' }))
+      await waitFor(() =>
+        expect(argus.proposals.delete).toHaveBeenCalledWith('2026-07-10-NAV-100-rca.md')
+      )
+      // Same empty-state copy as the 'empty payload shows the empty-state copy' test below.
+      expect(await screen.findByText(/No pending proposals/)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Select proposal/ })).not.toBeInTheDocument()
+    })
+
+    it('discards a draft edit, so a same-name re-proposal in the response shows its own content', async () => {
+      // The IPC response is the source of truth. Simulate a same-day re-distill regenerating
+      // the identical filename: the delete response still contains the file, but as a fresh
+      // proposal with different content. The old draft must not attach to it.
+      deleteMock.mockImplementationOnce(() =>
+        Promise.resolve({
+          proposals: payload.proposals.map((p) =>
+            p.file === '2026-07-10-NAV-100-rca.md' ? { ...p, content: '# rca\nfresh\n' } : p
+          )
+        })
+      )
+      renderShell()
+      fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Edit Sharpen step 4' }))
+      fireEvent.change(screen.getByLabelText('Edit proposal content'), {
+        target: { value: '# rca\nmy draft\n' }
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Sharpen step 4' }))
+      await waitFor(() => expect(deleteMock).toHaveBeenCalled())
+      fireEvent.click(screen.getByRole('button', { name: 'Select proposal Sharpen step 4' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Edit Sharpen step 4' }))
+      expect(screen.getByLabelText('Edit proposal content')).toHaveValue('# rca\nfresh\n')
+    })
+
+    it('a failed delete surfaces in the error banner and keeps the row', async () => {
+      deleteMock.mockRejectedValueOnce(new Error('Unknown proposal: 2026-07-10-NAV-100-rca.md'))
+      renderShell()
+      fireEvent.click(await screen.findByRole('button', { name: 'Select proposal Sharpen step 4' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Sharpen step 4' }))
+      await screen.findByRole('alert')
+      expect(screen.getByRole('alert')).toHaveTextContent('Unknown proposal')
+      expect(
+        screen.getByRole('button', { name: 'Select proposal Sharpen step 4' })
+      ).toBeInTheDocument()
+    })
   })
 
   it('empty payload shows the empty-state copy', async () => {
