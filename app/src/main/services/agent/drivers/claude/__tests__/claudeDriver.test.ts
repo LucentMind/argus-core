@@ -254,7 +254,9 @@ describe('createClaudeDriver', () => {
         session_id: SID
       }
     ]
-    const windowsFrom = async (runOptions: { id: string; value: string }[]) => {
+    const windowsFrom = async (
+      runOptions: { id: string; value: string }[]
+    ): Promise<(number | null)[]> => {
       const session = createClaudeDriver(fakeQuery(stream)).createSession({
         ...baseCtx(),
         model: 'claude-fable-5',
