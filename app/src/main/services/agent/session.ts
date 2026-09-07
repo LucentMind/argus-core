@@ -617,6 +617,15 @@ export class CaseSession {
           )
           .run(cursor, this.deps.driver.kind, new Date().toISOString(), this.sessionId)
       },
+      // The provider rejected the resume: the conversation behind `driver_cursor` is gone.
+      // Drop the cursor NOW, on the row, so registry.send's `sessionCursor` read for the next
+      // turn comes back null and the rebuild starts fresh (needsHistoryReplay then replays
+      // Argus's own transcript). Without this the same dead uuid was resumed on every send.
+      onCursorLost: () => {
+        this.deps.db
+          .prepare(`UPDATE sessions SET driver_cursor = NULL, updated_at = ? WHERE id = ?`)
+          .run(new Date().toISOString(), this.sessionId)
+      },
       onTurnResult: (r) => this.handleTurnResult(r),
       // Tier-A diagnostics: the driver knows the spawned child's pid but not the case/session
       // that owns it; CaseSession knows the case/session but not the pid. This callback is the

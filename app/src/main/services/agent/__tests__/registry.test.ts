@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -370,6 +370,79 @@ describe('AgentService', () => {
     }
     expect(sess.driver_cursor).toBe('22222222-2222-4222-8222-222222222222')
     await svc2.stopAll()
+  })
+
+  // The failure captured in a real case bundle (sessions/6.jsonl, 2026-09-02..04): after a
+  // `reconfigured` rebuild the CLI no longer held the conversation behind `driver_cursor`,
+  // and every send for two days resumed that same dead uuid and crashed identically.
+  // Mirrors the SDK exactly (measured 2026-09-07): ONE error `result` echoing the requested
+  // uuid, then the stream throws `Claude Code returned an error result: …`.
+  it('a resume the CLI rejects clears the cursor so the next send starts fresh', async () => {
+    const stale = '33333333-3333-4333-8333-333333333333'
+    const optionsLog: Record<string, unknown>[] = []
+    let rejectOnce = true
+    const createQuery: CreateQueryFn = (args) => {
+      const options = args.options as Record<string, unknown>
+      if (options.systemPrompt) optionsLog.push(options)
+      const q = new AsyncQueue<unknown>()
+      const reject = rejectOnce && options.systemPrompt
+      if (reject) rejectOnce = false
+      return Object.assign(
+        {
+          async *[Symbol.asyncIterator]() {
+            if (!reject) {
+              yield* q
+              return
+            }
+            yield {
+              type: 'result',
+              subtype: 'error_during_execution',
+              is_error: true,
+              num_turns: 0,
+              session_id: stale,
+              errors: [`No conversation found with session ID: ${stale}`]
+            }
+            throw new Error(
+              `Claude Code returned an error result: No conversation found with session ID: ${stale}`
+            )
+          }
+        },
+        { interrupt: async () => q.end() }
+      )
+    }
+    const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
+      onEvent: (e) => events.push(e),
+      createQuery
+    })
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    db.prepare(`UPDATE sessions SET driver_cursor = ? WHERE id = ?`).run(stale, s1.id)
+
+    await svc.send('NAV-1', s1.id, 'continue')
+    await vi.waitFor(() => {
+      expect(events.some((e) => e.type === 'session.exited')).toBe(true)
+    })
+    // The dead resume was attempted once…
+    expect(optionsLog[0].resume).toBe(stale)
+    // …surfaced as a crash (unchanged), and the cursor is gone from the row.
+    const exited = events.find((e) => e.type === 'session.exited')
+    expect(exited?.payload).toMatchObject({ reason: 'crashed' })
+    const row = db.prepare(`SELECT driver_cursor FROM sessions WHERE id = ?`).get(s1.id) as {
+      driver_cursor: string | null
+    }
+    expect(row.driver_cursor).toBeNull()
+
+    // The next send is the self-heal: a fresh session, no resume.
+    await svc.send('NAV-1', s1.id, 'what next')
+    expect(optionsLog).toHaveLength(2)
+    expect(optionsLog[1].resume).toBeUndefined()
+    await svc.stopAll()
   })
 
   it('reads maxSessions live from agentSettings and passes instance config to sessions', async () => {

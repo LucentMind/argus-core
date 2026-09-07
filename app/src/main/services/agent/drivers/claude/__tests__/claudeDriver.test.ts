@@ -298,6 +298,56 @@ describe('createClaudeDriver', () => {
     expect(sessionCallOptions(spy).resume).toBe('11111111-1111-4111-8111-111111111111')
   })
 
+  // Captured live 2026-09-07 (bundled CLI 2.1.220): `--resume <uuid>` for a conversation the
+  // CLI no longer holds emits ONE frame — an error `result` whose `session_id` is the requested
+  // uuid echoed straight back — and then the SDK throws. Persisting that echo as a cursor is
+  // what made a case unrecoverable: every later send resumed the same dead uuid, forever.
+  it('a resume the CLI rejects invalidates the cursor instead of re-persisting the echo', async () => {
+    const stale = '11111111-1111-4111-8111-111111111111'
+    const ctx = { ...baseCtx(), resumeCursor: stale, onCursorLost: vi.fn() }
+    const session = createClaudeDriver(
+      fakeQuery([
+        {
+          type: 'result',
+          subtype: 'error_during_execution',
+          duration_ms: 0,
+          is_error: true,
+          num_turns: 0,
+          session_id: stale,
+          total_cost_usd: 0,
+          usage: { input_tokens: 0, output_tokens: 0 },
+          modelUsage: {},
+          errors: [`No conversation found with session ID: ${stale}`]
+        }
+      ])
+    ).createSession(ctx)
+    for await (const _ of session.events()) void _
+    expect(ctx.onCursorLost).toHaveBeenCalledTimes(1)
+    expect(ctx.onCursor).not.toHaveBeenCalled()
+    // The turn still reports as an error — only the cursor bookkeeping changes.
+    expect(ctx.onTurnResult).toHaveBeenCalledWith(expect.objectContaining({ isError: true }))
+  })
+
+  it('an ordinary error result still persists its (live) cursor', async () => {
+    const live = '22222222-2222-4222-8222-222222222222'
+    const ctx = { ...baseCtx(), onCursorLost: vi.fn() }
+    const session = createClaudeDriver(
+      fakeQuery([
+        { type: 'system', subtype: 'init', session_id: live, model: 'claude-sonnet-5' },
+        {
+          type: 'result',
+          subtype: 'error_during_execution',
+          is_error: true,
+          session_id: live,
+          errors: ['API Error: 500 upstream hiccup']
+        }
+      ])
+    ).createSession(ctx)
+    for await (const _ of session.events()) void _
+    expect(ctx.onCursorLost).not.toHaveBeenCalled()
+    expect(ctx.onCursor).toHaveBeenCalledWith(live)
+  })
+
   // `session.started.resumed` drives observability: the Langfuse exporter opens a new
   // trace root for a fresh session and only a lightweight marker for a resumed one.
   // The flag must mirror the SAME condition that decides whether `resume` is actually

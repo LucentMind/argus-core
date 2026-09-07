@@ -104,6 +104,15 @@ export interface DriverSessionContext {
   /** Durable resume cursor observed on the stream. */
   onCursor: (cursor: string) => void
   /**
+   * The backend rejected `resumeCursor` outright — the conversation it names no longer exists
+   * on the provider side (Claude: `No conversation found with session ID`, captured live
+   * 2026-09-07). The harness drops the persisted cursor so the NEXT send constructs a fresh
+   * session (with history replayed from Argus's own transcript) instead of retrying the same
+   * dead resume forever. Optional: drivers whose backends never reject a resume this way
+   * (or tests) need not wire it.
+   */
+  onCursorLost?: () => void
+  /**
    * Fired for every finished tool_use block the driver sees on its stream, WITH the tool
    * input — including blocks the SDK executes without ever consulting onToolRequest (the
    * Claude SDK auto-allows `Skill` and sandboxed file reads, proven live 2026-07-20, and
