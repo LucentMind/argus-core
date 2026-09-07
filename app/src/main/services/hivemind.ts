@@ -319,6 +319,26 @@ export class HivemindService {
     return origin !== '' && origin !== cloneUrl(repo)
   }
 
+  /**
+   * The clone's current HEAD commit, or null when the current branch has no commits yet — a
+   * freshly created GitHub repo, cloned before any push (spec 2026-09-07, hivemind-init-pr).
+   * Distinguished from a genuinely broken clone by `symbolic-ref` still resolving to a branch
+   * name even though that branch has no commit: git always knows which branch HEAD points at,
+   * commits or not. Any other `rev-parse HEAD` failure rethrows unchanged.
+   */
+  private async readHeadCommit(clone: string): Promise<string | null> {
+    try {
+      return await this.git(['rev-parse', 'HEAD'], clone)
+    } catch (err) {
+      const unborn = await this.git(['symbolic-ref', '-q', 'HEAD'], clone).then(
+        () => true,
+        () => false
+      )
+      if (!unborn) throw err
+      return null
+    }
+  }
+
   async payload(): Promise<HivemindPayload> {
     const repo = this.deps.repo().trim()
     const st = this.state()
@@ -346,7 +366,7 @@ export class HivemindService {
     // read below even when a sync error is persisted — an `error` state must not empty the list
     // (Critical, fix-wave review of 84b09df0). Only a live read failure (the catch) zeroes them.
     try {
-      const headCommit = await this.git(['rev-parse', 'HEAD'], this.clone())
+      const headCommit = await this.readHeadCommit(this.clone())
       const items = await this.listItems()
       return st.lastSyncError
         ? { ...base, state: 'error', error: st.lastSyncError, headCommit, items }

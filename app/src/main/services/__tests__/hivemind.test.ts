@@ -116,6 +116,38 @@ describe('HivemindService states', () => {
     expect(calls).toEqual([])
   })
 
+  it('an unborn-branch clone (zero commits) reports ready with a null headCommit, not error', async () => {
+    seedCloneShell()
+    const runner: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD')
+        throw new Error(
+          "ambiguous argument 'HEAD': unknown revision or path not in the working tree."
+        )
+      if (args[0] === 'symbolic-ref' && args[1] === '-q') return 'refs/heads/main'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const p = await svc.payload()
+    expect(p.state).toBe('ready')
+    expect(p.headCommit).toBeNull()
+    expect(p.items).toEqual([])
+    expect(p.error).toBeNull()
+  })
+
+  it('a genuinely broken clone (rev-parse HEAD and symbolic-ref both fail) still reports error', async () => {
+    seedCloneShell()
+    const runner: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD')
+        throw new Error('fatal: not a git repository (or any of the parent directories)')
+      if (args[0] === 'symbolic-ref') throw new Error('fatal: ref HEAD is not a symbolic ref')
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const p = await svc.payload()
+    expect(p.state).toBe('error')
+    expect(p.error).toMatch(/not a git repository/)
+  })
+
   it('is not-cloned before the first sync; sync clones', async () => {
     const { runner, calls } = fakeGit()
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
