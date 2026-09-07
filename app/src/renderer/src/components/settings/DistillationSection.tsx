@@ -172,7 +172,7 @@ export function DistillationSection({ payload }: { payload: SettingsPayload }): 
       <SettingRow
         label="Distillation pipeline"
         description="Single call = one agentic prompt (v2). Staged = dossier → summary ‖ candidates → materialize, with per-stage records (v3)."
-        isDefault={s.distill.pipeline === 'v2'}
+        isDefault={s.distill.pipeline === 'v3'}
         onReset={() => void settingsStore.patch({ distill: { pipeline: null } })}
       >
         <SelectField

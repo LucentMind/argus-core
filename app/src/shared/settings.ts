@@ -334,10 +334,9 @@ const uiSchema = z.looseObject({
 const distillSchema = z.looseObject({
   guidance: z.string().default(''),
   /** Which case-distill pipeline runs: 'v2' = single agentic call; 'v3' = staged pipeline.
-   *  Defaults to 'v2' — v3 stays opt-in until it has run against real cases. Read at job-run
-   *  time (and at enqueue time for `prompt_hash`), so flipping it takes effect on the next job
-   *  with no restart. */
-  pipeline: z.enum(['v2', 'v3']).default('v2')
+   *  Defaults to 'v3'. Read at job-run time (and at enqueue time for `prompt_hash`), so
+   *  flipping it takes effect on the next job with no restart. */
+  pipeline: z.enum(['v2', 'v3']).default('v3')
 })
 
 const onboardingSchema = z.looseObject({
