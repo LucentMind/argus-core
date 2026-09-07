@@ -854,7 +854,11 @@ NDJSON line each. The exclusions encode real reasoning:
 - a `done` job with items **still pending review** is skipped (`items pending review`): an unlabelled
   outcome set is not an eval row;
 - a `failed` job **with** stored output is included — a parse failure is itself an eval case;
-  without output it is skipped.
+  without output it is skipped;
+- a `done` job that carries **fewer outcomes than it staged** (`item_count`, counting still-pending
+  items) is exported with an `items removed without review` warning: a hard-deleted pending
+  proposal leaves no archive row by design, and without the warning the judge cannot tell a
+  silent drop from a run that only produced that many reviewable items.
 
 Each line carries the frozen `inputSnapshot`, the `promptHash`, the `rawOutput`, v3's `stages`, the
 job's whole `dropped` list, and every item's outcome with its reject reason, note, basis and —
