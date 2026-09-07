@@ -1169,6 +1169,22 @@ export type DistillProviderResolution =
   | { ok: true; instanceId: string; driverKind: string; model?: string; cliPath?: string }
   | { ok: false; reason: string }
 
+/**
+ * Fresh-install model for the distillation runner (one-shot AND agentic — both resolvers route
+ * through `distillOk`), per driver kind. Spec 2026-09-07-fresh-install-model-defaults.
+ *
+ * Only Claude has one. Other drivers keep the top-ordered-visible fallback below: Copilot's
+ * catalog is the single `auto` router, so a Claude slug there would be a wire error.
+ *
+ * Deliberately NOT the top ordered row: that row is the user's first FAVOURITE the moment they
+ * star anything, which made "star Opus 4.8 for chat" silently move distillation, RCA reports,
+ * reference sync and the editor's draft/improve onto Opus 4.8. Background jobs get a default of
+ * their own; only the Distillation picker (or a hand-edited `config.model`) moves it.
+ */
+const DEFAULT_DISTILL_MODEL: Readonly<Record<string, string>> = {
+  'claude-agent-sdk': 'claude-sonnet-5'
+}
+
 function distillOk(
   s: AppSettings,
   instanceId: string,
@@ -1176,13 +1192,19 @@ function distillOk(
 ): DistillProviderResolution {
   const inst = s.agent.providerInstances[instanceId]
   const cfg = driverConfig<AgentDriverConfig>(inst.driver, inst.config)
+  // Hidden is the one preference still honoured: never run a model the user removed from
+  // their list. Same plain slug match `orderedVisibleModels` uses (prefs are stored
+  // canonically; the constant is a canonical slug).
+  const hidden = s.agent.modelPreferences[instanceId]?.hiddenModels ?? []
+  const builtIn = DEFAULT_DISTILL_MODEL[inst.driver]
+  const pinned = builtIn !== undefined && !hidden.includes(builtIn) ? builtIn : undefined
   return {
     ok: true,
     instanceId,
     driverKind: inst.driver,
     // Scoped to THIS instance. effectiveDefaultModel() resolves against the active
     // instance and is exactly what leaked Copilot's "auto" into the Claude SDK.
-    model: explicitModel ?? cfg.model ?? orderedVisibleModels(s, instanceId)[0]?.slug,
+    model: explicitModel ?? cfg.model ?? pinned ?? orderedVisibleModels(s, instanceId)[0]?.slug,
     cliPath: cfg.cliPath
   }
 }

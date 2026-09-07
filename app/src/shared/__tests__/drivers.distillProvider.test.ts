@@ -157,3 +157,107 @@ describe('resolveDistillAgentProvider', () => {
     })
   })
 })
+
+// ── the fresh-install default: Sonnet 5, decoupled from chat favourites ────────────────────
+//
+// Before this, "Automatic" resolved to the top ordered visible row of the instance — which is
+// row 0 of the static list on a pristine install and the FIRST FAVOURITE the moment the user
+// stars anything. So starring Opus 4.8 for chat silently moved distillation, RCA reports,
+// reference sync and the editor's draft/improve onto Opus 4.8. Spec
+// 2026-09-07-fresh-install-model-defaults: background jobs get their own built-in default and
+// only an explicit choice (the Distillation picker, or a hand-edited config.model) moves it.
+describe('distillation default model (spec 2026-09-07)', () => {
+  const claudeOnly = (over: Record<string, unknown> = {}): AppSettings =>
+    settingsSchema.parse({
+      agent: {
+        activeInstanceId: 'claude-agent-sdk-1',
+        providerInstances: {
+          'claude-agent-sdk-1': { driver: 'claude-agent-sdk', enabled: true, config: {} }
+        },
+        ...over
+      }
+    })
+
+  it('resolves to Sonnet 5 on a pristine install, for both the one-shot and the agent resolver', () => {
+    expect(resolveDistillProvider(claudeOnly())).toMatchObject({
+      ok: true,
+      instanceId: 'claude-agent-sdk-1',
+      model: 'claude-sonnet-5'
+    })
+    expect(resolveDistillAgentProvider(claudeOnly())).toMatchObject({
+      ok: true,
+      model: 'claude-sonnet-5'
+    })
+  })
+
+  it('does not follow chat favourites — the decoupling', () => {
+    const s = claudeOnly({
+      modelPreferences: {
+        'claude-agent-sdk-1': {
+          hiddenModels: [],
+          favoriteModels: ['claude-opus-4-8', 'claude-opus-5'],
+          modelOrder: ['claude-fable-5-1']
+        }
+      }
+    })
+    expect(resolveDistillProvider(s)).toMatchObject({ ok: true, model: 'claude-sonnet-5' })
+  })
+
+  it('an explicit Distillation-section choice wins over the built-in default', () => {
+    const s = claudeOnly({
+      distillProvider: { instanceId: 'claude-agent-sdk-1', model: 'claude-fable-5-1' }
+    })
+    expect(resolveDistillProvider(s)).toMatchObject({ ok: true, model: 'claude-fable-5-1' })
+  })
+
+  it('a hand-edited config.model wins over the built-in default', () => {
+    const s = claudeOnly({
+      providerInstances: {
+        'claude-agent-sdk-1': {
+          driver: 'claude-agent-sdk',
+          enabled: true,
+          config: { model: 'claude-opus-4-7' }
+        }
+      }
+    })
+    expect(resolveDistillProvider(s)).toMatchObject({ ok: true, model: 'claude-opus-4-7' })
+  })
+
+  // Hiding is the one preference that must still be honoured: never run a model the user
+  // removed from their list. Fall back to the top ordered VISIBLE row, exactly as before.
+  it('falls back to the top visible row when the user hid Sonnet 5', () => {
+    const s = claudeOnly({
+      modelPreferences: {
+        'claude-agent-sdk-1': {
+          hiddenModels: ['claude-sonnet-5'],
+          favoriteModels: ['claude-opus-4-8'],
+          modelOrder: []
+        }
+      }
+    })
+    const r = resolveDistillProvider(s)
+    expect(r).toMatchObject({ ok: true, model: 'claude-opus-4-8' })
+    if (!r.ok) throw new Error('unreachable')
+    expect(r.model).not.toBe('claude-sonnet-5')
+  })
+
+  // The constant is keyed by driver kind and only Claude has one. Copilot's catalog is the
+  // single `auto` router; a Claude slug there would be a wire error, not a default.
+  it('never applies the Claude default to an explicitly chosen non-Claude instance', () => {
+    const s = settingsSchema.parse({
+      agent: {
+        activeInstanceId: 'claude-agent-sdk-1',
+        providerInstances: {
+          'github-copilot-1': { driver: 'github-copilot', enabled: true, config: {} },
+          'claude-agent-sdk-1': { driver: 'claude-agent-sdk', enabled: true, config: {} }
+        },
+        distillProvider: { instanceId: 'github-copilot-1' }
+      }
+    })
+    expect(resolveDistillProvider(s)).toMatchObject({
+      ok: true,
+      instanceId: 'github-copilot-1',
+      model: 'auto'
+    })
+  })
+})
