@@ -200,6 +200,8 @@ export async function runCaseDistillPipeline(
     const uncited = { ...parsed.uncitedDropped }
     for (const [k, n] of Object.entries(pruned.dropped)) uncited[k] = (uncited[k] ?? 0) + n
     if (Object.keys(uncited).length) stages.dossierUncitedDropped = uncited
+    if (Object.keys(parsed.malformedDropped).length)
+      stages.dossierMalformedDropped = parsed.malformedDropped
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     dossierRecord.error = msg

@@ -148,10 +148,12 @@ function DossierClaim({
 
 export function DossierBody({
   d,
-  uncited
+  uncited,
+  malformed
 }: {
   d: Dossier
   uncited?: Record<string, number>
+  malformed?: Record<string, number>
 }): React.JSX.Element {
   return (
     <div className="flex flex-col gap-3">
@@ -219,6 +221,14 @@ export function DossierBody({
             ))}
           </ul>
         </DossierSection>
+      )}
+      {malformed && (
+        <div className="font-mono text-[10px] text-mute">
+          unreadable items dropped:{' '}
+          {Object.entries(malformed)
+            .map(([k, n]) => `${k} ×${n}`)
+            .join(', ')}
+        </div>
       )}
       {uncited && (
         <div className="font-mono text-[10px] text-mute">

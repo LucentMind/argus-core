@@ -97,16 +97,22 @@ const ARRAY_KEYS = [
   'durable_facts',
   'user_corrections'
 ] as const
-/** Rule 4 of the contract describes a diagnostic step in prose ("what was checked, what was
- *  observed, which hypothesis it separated from which") as well as naming the keys, and models
- *  have been observed writing those prose words as the item keys instead — silently emptying
- *  every step, because a missing key reads as ''. Rule 9 now names the keys verbatim; this
- *  accepts the drifted spellings too, so a run against an overridden or older contract (the
- *  contract is resolvable from the prompt registry) still keeps its diagnostic path. */
-const DIAGNOSTIC_ALIASES: Record<string, string[]> = {
-  step: ['checked'],
-  observation: ['observed'],
-  discriminated: ['separated', 'separates']
+/** Prose-vs-key drift, per array. The contract describes each item in prose as well as naming
+ *  its keys, and models have been observed writing the prose word as the key: a diagnostic step
+ *  arrived as checked/observed/separated (rule 4), and a user correction as the rule-6 word
+ *  "gist". A key the parser does not read is not an error — it reads as '' — so the item
+ *  survives cite validation and lands in the run panel as a bullet holding nothing but its
+ *  citation. Rule 9 now names every item key verbatim; these accept the drifted spellings too,
+ *  because the contract is overridable from the prompt registry and an override never sees it. */
+const ITEM_ALIASES: Record<string, Record<string, string[]>> = {
+  rejected_hypotheses: { text: ['hypothesis'], how_ruled_out: ['ruled_out', 'how'] },
+  diagnostic_path: {
+    step: ['checked'],
+    observation: ['observed'],
+    discriminated: ['separated', 'separates']
+  },
+  durable_facts: { fact: ['text', 'statement'] },
+  user_corrections: { text: ['gist', 'correction'] }
 }
 const isStr = (v: unknown): v is string => typeof v === 'string'
 const isObj = (v: unknown): v is Record<string, unknown> =>
@@ -141,6 +147,11 @@ function checkCites(item: unknown, text: string): DossierCite[] | null {
 export function parseDossier(text: string): {
   dossier: Dossier
   uncitedDropped: Record<string, number>
+  /** Items the parser could not read as content, by key: a scalar claim that is present but has
+   *  no usable `text`, or an array item whose every content field came back empty. Both used to
+   *  vanish in silence — a null claim looks exactly like a legitimately absent one (rules
+   *  1-3), and an empty item renders as a bullet holding nothing but its citation. */
+  malformedDropped: Record<string, number>
 } {
   let obj: unknown
   try {
@@ -160,6 +171,10 @@ export function parseDossier(text: string): {
   )
     throw new DistillParseError('scope invalid', text)
   const uncitedDropped: Record<string, number> = {}
+  const malformedDropped: Record<string, number> = {}
+  const malformed = (k: string): void => {
+    malformedDropped[k] = (malformedDropped[k] ?? 0) + 1
+  }
   const dossier: Dossier = {
     scope: {
       status: s.status,
@@ -174,20 +189,29 @@ export function parseDossier(text: string): {
     durable_facts: [],
     user_corrections: []
   }
-  if (isObj(obj.root_cause) && isStr(obj.root_cause.text)) {
-    const cites = checkCites(obj.root_cause, text)
-    if (cites) dossier.root_cause = { text: obj.root_cause.text, cites }
-    else uncitedDropped.root_cause = 1
+  // `null` here is the contract's own answer for an open case, a case with no accepted causal
+  // finding, or a forwarded/duplicate resolution (rules 1-3) - so a claim the parser cannot read
+  // must NOT come out looking the same. A present object without a usable `text` is counted.
+  if (isObj(obj.root_cause)) {
+    if (!isStr(obj.root_cause.text)) malformed('root_cause')
+    else {
+      const cites = checkCites(obj.root_cause, text)
+      if (cites) dossier.root_cause = { text: obj.root_cause.text, cites }
+      else uncitedDropped.root_cause = 1
+    }
   }
-  if (isObj(obj.confirmed_fix) && isStr(obj.confirmed_fix.text)) {
-    const cites = checkCites(obj.confirmed_fix, text)
-    if (cites)
-      dossier.confirmed_fix = {
-        text: obj.confirmed_fix.text,
-        applied: obj.confirmed_fix.applied !== false,
-        cites
-      }
-    else uncitedDropped.confirmed_fix = 1
+  if (isObj(obj.confirmed_fix)) {
+    if (!isStr(obj.confirmed_fix.text)) malformed('confirmed_fix')
+    else {
+      const cites = checkCites(obj.confirmed_fix, text)
+      if (cites)
+        dossier.confirmed_fix = {
+          text: obj.confirmed_fix.text,
+          applied: obj.confirmed_fix.applied !== false,
+          cites
+        }
+      else uncitedDropped.confirmed_fix = 1
+    }
   }
   for (const key of ARRAY_KEYS) {
     const arr = obj[key]
@@ -201,40 +225,57 @@ export function parseDossier(text: string): {
         continue
       }
       const str = (k: string): string => (isStr(item[k]) ? (item[k] as string) : '')
+      /** The declared key first, then the prose spellings; first non-empty wins. Reading the
+       *  declared key first also rescues a `step` that arrived as a bare ordinal number. */
+      const field = (k: string): string =>
+        [k, ...(ITEM_ALIASES[key]?.[k] ?? [])].map(str).find((v) => v !== '') ?? ''
+      /** An item every one of whose content fields is empty says nothing. Keeping it produced a
+       *  bullet holding only its citation; counting and dropping it says so out loud instead. */
+      const keep = (...content: string[]): boolean => {
+        if (content.some((v) => v !== '')) return true
+        malformed(key)
+        return false
+      }
       switch (key) {
-        case 'rejected_hypotheses':
-          dossier.rejected_hypotheses.push({
-            text: str('text'),
-            how_ruled_out: str('how_ruled_out'),
+        case 'rejected_hypotheses': {
+          const it = {
+            text: field('text'),
+            how_ruled_out: field('how_ruled_out'),
             cites
-          })
+          }
+          if (keep(it.text, it.how_ruled_out)) dossier.rejected_hypotheses.push(it)
           break
+        }
         case 'diagnostic_path': {
-          const field = (k: string): string =>
-            [k, ...DIAGNOSTIC_ALIASES[k]].map(str).find((v) => v !== '') ?? ''
-          dossier.diagnostic_path.push({
+          const it = {
             step: field('step'),
             observation: field('observation'),
             discriminated: field('discriminated'),
             cites
-          })
+          }
+          if (keep(it.step, it.observation, it.discriminated)) dossier.diagnostic_path.push(it)
           break
         }
-        case 'durable_facts':
-          dossier.durable_facts.push({
-            fact: str('fact'),
-            quote: str('quote').slice(0, 300),
+        case 'durable_facts': {
+          // `scope` is metadata, not content: a fact without one is still a fact.
+          const it = {
+            fact: field('fact'),
+            quote: field('quote').slice(0, 300),
             scope: isStr(item.scope) ? item.scope : null,
             cites
-          })
+          }
+          if (keep(it.fact, it.quote)) dossier.durable_facts.push(it)
           break
-        case 'user_corrections':
-          dossier.user_corrections.push({ text: str('text'), cites })
+        }
+        case 'user_corrections': {
+          const it = { text: field('text'), cites }
+          if (keep(it.text)) dossier.user_corrections.push(it)
           break
+        }
       }
     }
   }
-  return { dossier, uncitedDropped }
+  return { dossier, uncitedDropped, malformedDropped }
 }
 
 /**
