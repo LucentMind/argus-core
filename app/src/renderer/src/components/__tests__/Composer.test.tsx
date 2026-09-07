@@ -735,7 +735,9 @@ describe('Composer option chips', () => {
     // Thinking is deliberately absent: a model that HAS a Reasoning control does not also get
     // a thinking toggle (see descriptorsFor). Fable reports `supportsAdaptiveThinking`, so
     // this asserts the curation, not a capability gap.
-    expect(traits).toHaveTextContent('High · 200k')
+    // 1M, not 200k: Fable runs at 1M on its bare slug (measured 2026-09-07), so the chip must
+    // agree with the gauge popover's "of 1,000,000" instead of claiming a window not in use.
+    expect(traits).toHaveTextContent('High · 1M')
     expect(traits).not.toHaveTextContent('Thinking')
     // the old per-descriptor chips must be gone, not just relabelled
     expect(screen.queryByTitle('Reasoning')).not.toBeInTheDocument()
