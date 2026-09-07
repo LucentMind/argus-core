@@ -97,3 +97,73 @@ export function pairRows(lines: DiffLine[], leftStart = 1, rightStart = 1): Diff
   flush()
   return rows
 }
+
+/** Default number of unchanged lines kept on each side of a change. Git's own default. */
+export const DIFF_CONTEXT = 3
+
+/** A stretch of the diff that is rendered, with the real file line numbers it starts at. */
+export interface DiffHunk {
+  kind: 'hunk'
+  lines: DiffLine[]
+  leftStart: number
+  rightStart: number
+}
+
+/** A collapsed run of unchanged lines. `lines` is carried so a viewer can expand it in place
+ *  without re-diffing, and the starts let the expansion keep its real numbering. */
+export interface DiffGap {
+  kind: 'gap'
+  count: number
+  lines: DiffLine[]
+  leftStart: number
+  rightStart: number
+}
+
+export type DiffSegment = DiffHunk | DiffGap
+
+/**
+ * Split a linear diff into rendered hunks and collapsed gaps, so a one-line edit to a 600-line
+ * reference shows a one-line edit instead of 600 lines with a `+` somewhere in the middle.
+ *
+ * A line is kept when it is a change or sits within `context` lines of one; every other run of
+ * unchanged lines collapses to a gap. A diff with no changes at all is returned as a single
+ * hunk rather than one giant gap: a viewer opened on an unmodified file should show the file,
+ * not an invitation to click.
+ */
+export function hunks(lines: DiffLine[], context = DIFF_CONTEXT): DiffSegment[] {
+  if (lines.length === 0) return []
+  if (!lines.some((l) => l.kind !== 'same'))
+    return [{ kind: 'hunk', lines, leftStart: 1, rightStart: 1 }]
+
+  const keep = new Array<boolean>(lines.length).fill(false)
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].kind === 'same') continue
+    const from = Math.max(0, i - context)
+    const to = Math.min(lines.length - 1, i + context)
+    for (let j = from; j <= to; j++) keep[j] = true
+  }
+
+  const out: DiffSegment[] = []
+  let leftNo = 1
+  let rightNo = 1
+  let i = 0
+  while (i < lines.length) {
+    const wanted = keep[i]
+    const start = i
+    const leftStart = leftNo
+    const rightStart = rightNo
+    while (i < lines.length && keep[i] === wanted) {
+      // A del consumes a line on the left only, an add on the right only, a same both.
+      if (lines[i].kind !== 'add') leftNo++
+      if (lines[i].kind !== 'del') rightNo++
+      i++
+    }
+    const run = lines.slice(start, i)
+    out.push(
+      wanted
+        ? { kind: 'hunk', lines: run, leftStart, rightStart }
+        : { kind: 'gap', count: run.length, lines: run, leftStart, rightStart }
+    )
+  }
+  return out
+}

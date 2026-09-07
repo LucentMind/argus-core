@@ -7,7 +7,7 @@ import type {
   PreStageDrop,
   StageRecord
 } from '../../../../shared/distillV3'
-import { Chip } from '../ui'
+import { Btn, Chip } from '../ui'
 import { UnifiedDiff } from '../proposals/DiffViews'
 import { citeLabel, classifyCandidates } from './runsModel'
 
@@ -66,14 +66,15 @@ export function StageCard({
           <span>not reached</span>
         )}
         {record && structured && (
-          <button
-            type="button"
-            className="ml-auto text-dim underline decoration-dotted hover:text-ink"
+          <Btn
+            variant="ghost"
+            size="iconXs"
+            className="ml-auto w-auto px-2!"
             aria-label={`${raw ? 'Show structured' : 'Show raw'} ${name}`}
             onClick={() => setRaw(!raw)}
           >
             {raw ? 'structured' : 'raw'}
-          </button>
+          </Btn>
         )}
       </header>
       {record?.error && <div className="font-mono text-[11px] text-danger">{record.error}</div>}
@@ -94,6 +95,57 @@ export function Cites({ cites }: { cites: DossierCite[] }): React.JSX.Element {
   )
 }
 
+/** A titled block inside the dossier. The count rides in the heading rather than on a line of
+ *  its own, so a section is one thing on screen instead of two. */
+function DossierSection({
+  title,
+  count,
+  children
+}: {
+  title: string
+  count?: number
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <section className="flex flex-col gap-1">
+      <h4 className="flex items-baseline gap-2 border-b border-hair pb-1 font-mono text-[10px] uppercase tracking-widest text-dim">
+        {title}
+        {count !== undefined && <span className="text-mute">{count}</span>}
+      </h4>
+      {children}
+    </section>
+  )
+}
+
+/** `root cause` and `confirmed fix` are the two answers the whole dossier exists to produce, so
+ *  they are drawn as claims â an accent rule, the prose at reading weight â rather than as two
+ *  more `label: value` lines indistinguishable from the metadata around them. A null one keeps
+ *  the block (its absence is a finding) but drops the accent. */
+function DossierClaim({
+  title,
+  claim
+}: {
+  title: string
+  claim: { text: string; cites: DossierCite[] } | null
+}): React.JSX.Element {
+  return (
+    <section
+      className={`flex flex-col gap-1 rounded-r1 border-l-2 py-1 pl-2.5 ${
+        claim ? 'border-signal/50 bg-hair/20' : 'border-hair'
+      }`}
+    >
+      <h4 className="font-mono text-[10px] uppercase tracking-widest text-dim">{title}</h4>
+      {claim ? (
+        <div className="text-xs text-ink">
+          {claim.text} <Cites cites={claim.cites} />
+        </div>
+      ) : (
+        <div className="text-xs text-mute">null</div>
+      )}
+    </section>
+  )
+}
+
 export function DossierBody({
   d,
   uncited
@@ -101,79 +153,64 @@ export function DossierBody({
   d: Dossier
   uncited?: Record<string, number>
 }): React.JSX.Element {
-  const line = (
-    label: string,
-    x: { text: string; cites: DossierCite[] } | null
-  ): React.JSX.Element => (
-    <div className="text-xs">
-      <span className="text-dim">{label} </span>
-      {x ? (
-        <>
-          {x.text} <Cites cites={x.cites} />
-        </>
-      ) : (
-        <span className="text-mute">null</span>
-      )}
-    </div>
-  )
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
       <div className="rounded-r1 bg-hair/40 px-2 py-1 text-xs">
         <span className="text-dim">scope </span>
         {d.scope.status}
-        {d.scope.resolution ? ` / ${d.scope.resolution}` : ''} ·{' '}
-        {d.scope.settled ? 'settled' : 'unsettled'} · {d.scope.note}
+        {d.scope.resolution ? ` / ${d.scope.resolution}` : ''} Â·{' '}
+        {d.scope.settled ? 'settled' : 'unsettled'} Â· {d.scope.note}
       </div>
-      {line('root cause', d.root_cause)}
-      {line(
-        'confirmed fix',
-        d.confirmed_fix
-          ? {
-              text: `${d.confirmed_fix.text}${d.confirmed_fix.applied ? ' (applied)' : ''}`,
-              cites: d.confirmed_fix.cites
-            }
-          : null
-      )}
-      <div className="text-xs text-dim">diagnostic path ({d.diagnostic_path.length})</div>
-      <ol className="ml-4 list-decimal text-xs">
-        {d.diagnostic_path.map((s, i) => (
-          <li key={i}>
-            <span>{s.step}</span> <span className="text-dim">— {s.observation}</span>{' '}
-            <span className="text-mute">· {s.discriminated}</span> <Cites cites={s.cites} />
-          </li>
-        ))}
-      </ol>
-      <div className="text-xs text-dim">durable facts ({d.durable_facts.length})</div>
-      <ul className="ml-4 list-disc text-xs">
-        {d.durable_facts.map((f, i) => (
-          <li key={i}>
-            {f.fact}
-            {f.scope && <span className="text-dim"> [{f.scope}]</span>} <Cites cites={f.cites} />
-            <details className="text-mute">
-              <summary>quote</summary>
-              {f.quote}
-            </details>
-          </li>
-        ))}
-      </ul>
+      <DossierClaim title="root cause" claim={d.root_cause} />
+      <DossierClaim
+        title="confirmed fix"
+        claim={
+          d.confirmed_fix
+            ? {
+                text: `${d.confirmed_fix.text}${d.confirmed_fix.applied ? ' (applied)' : ''}`,
+                cites: d.confirmed_fix.cites
+              }
+            : null
+        }
+      />
+      <DossierSection title="diagnostic path" count={d.diagnostic_path.length}>
+        <ol className="ml-4 list-decimal text-xs">
+          {d.diagnostic_path.map((s, i) => (
+            <li key={i}>
+              <span>{s.step}</span> <span className="text-dim">â {s.observation}</span>{' '}
+              <span className="text-mute">Â· {s.discriminated}</span> <Cites cites={s.cites} />
+            </li>
+          ))}
+        </ol>
+      </DossierSection>
+      <DossierSection title="durable facts" count={d.durable_facts.length}>
+        <ul className="ml-4 list-disc text-xs">
+          {d.durable_facts.map((f, i) => (
+            <li key={i}>
+              {f.fact}
+              {f.scope && <span className="text-dim"> [{f.scope}]</span>} <Cites cites={f.cites} />
+              <details className="text-mute">
+                <summary>quote</summary>
+                {f.quote}
+              </details>
+            </li>
+          ))}
+        </ul>
+      </DossierSection>
       {d.rejected_hypotheses.length > 0 && (
-        <>
-          <div className="text-xs text-dim">
-            rejected hypotheses ({d.rejected_hypotheses.length})
-          </div>
+        <DossierSection title="rejected hypotheses" count={d.rejected_hypotheses.length}>
           <ul className="ml-4 list-disc text-xs">
             {d.rejected_hypotheses.map((h, i) => (
               <li key={i}>
-                {h.text} <span className="text-dim">— {h.how_ruled_out}</span>{' '}
+                {h.text} <span className="text-dim">â {h.how_ruled_out}</span>{' '}
                 <Cites cites={h.cites} />
               </li>
             ))}
           </ul>
-        </>
+        </DossierSection>
       )}
       {d.user_corrections.length > 0 && (
-        <>
-          <div className="text-xs text-dim">user corrections ({d.user_corrections.length})</div>
+        <DossierSection title="user corrections" count={d.user_corrections.length}>
           <ul className="ml-4 list-disc text-xs">
             {d.user_corrections.map((u, i) => (
               <li key={i}>
@@ -181,13 +218,13 @@ export function DossierBody({
               </li>
             ))}
           </ul>
-        </>
+        </DossierSection>
       )}
       {uncited && (
         <div className="font-mono text-[10px] text-mute">
           uncited items dropped:{' '}
           {Object.entries(uncited)
-            .map(([k, n]) => `${k} ×${n}`)
+            .map(([k, n]) => `${k} Ã${n}`)
             .join(', ')}
         </div>
       )}

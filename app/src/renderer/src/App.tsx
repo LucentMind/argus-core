@@ -24,6 +24,7 @@ import { composerDraft } from './lib/composerDraft'
 import { panelsStore } from './lib/panelsStore'
 import { useSettingsPayload } from './lib/settingsStore'
 import { uiStore } from './lib/uiStore'
+import { caseLabel } from './lib/caseLabel'
 import { nextView, type View } from './lib/viewReducer'
 import type { CaseRecord, NewCaseInput, UnifiedHit } from '../../shared/types'
 import type { ProposalType } from '../../shared/proposals'
@@ -308,6 +309,14 @@ function App(): React.JSX.Element {
     setView(nextView(view, prevView, { kind: 'distillRuns', slug }))
   }
 
+  // What a case is called in the chrome. Defined here because `cases` lives here and the tab
+  // band needs a label for slugs whose records TopBar never receives. A tab for a case that has
+  // been deleted (or a list still loading) falls back to the slug rather than blanking out.
+  const labelForSlug = useCallback(
+    (slug: string): string => caseLabel(cases.find((c) => c.slug === slug)) || slug,
+    [cases]
+  )
+
   // A native panel view paints above the DOM, so hide docked panels whenever a
   // modal/dialog is up or the front view is not the active case.
   const occluded = viewer !== null || newCaseOpen || importDialog !== null || view.kind !== 'case'
@@ -323,6 +332,7 @@ function App(): React.JSX.Element {
           activeCase={
             view.kind === 'case' ? (cases.find((c) => c.slug === view.slug) ?? null) : null
           }
+          labelFor={labelForSlug}
           onHome={goHome}
           onSelect={openCase}
           onSettings={() => openSettings()}

@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react'
-import { diffLines, pairRows, type DiffLine, type DiffRow } from '../../lib/lineDiff'
+import { pairRows, type DiffLine, type DiffRow } from '../../lib/lineDiff'
+import { DiffGapBar, DiffHiddenBar, useHunkedDiff } from '../DiffHunks'
 
 const KIND_PREFIX = { same: '  ', add: '+ ', del: '- ' } as const
 const KIND_CLASS = { same: 'text-dim', add: 'text-signal', del: 'text-danger' } as const
@@ -87,15 +88,22 @@ export function DiffView({
   newText: string
 }): React.JSX.Element {
   const [mode, setMode] = useState<DiffMode>('split')
-  const lines = diffLines(oldText ?? '', newText)
+  const d = useHunkedDiff(oldText ?? '', newText)
   return (
     <div className="flex flex-col gap-1">
-      <DiffModeToggle mode={mode} onChange={setMode} />
+      <div className="flex items-center justify-between gap-2">
+        <DiffModeToggle mode={mode} onChange={setMode} />
+        <DiffHiddenBar hidden={d.hidden} onExpandAll={d.expandAll} className="px-0" />
+      </div>
       <div className="max-h-64 overflow-auto rounded-r2 border border-hair">
-        {mode === 'split' ? (
-          <SplitDiffRows rows={pairRows(lines)} />
-        ) : (
-          <UnifiedLines lines={lines} />
+        {d.segments.map((seg, i) =>
+          seg.kind === 'gap' && !d.isExpanded(i) ? (
+            <DiffGapBar key={i} count={seg.count} onExpand={() => d.expand(i)} />
+          ) : mode === 'split' ? (
+            <SplitDiffRows key={i} rows={pairRows(seg.lines, seg.leftStart, seg.rightStart)} />
+          ) : (
+            <UnifiedLines key={i} lines={seg.lines} />
+          )
         )}
       </div>
     </div>

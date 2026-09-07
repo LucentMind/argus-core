@@ -7,6 +7,7 @@ import { PrFaceIcon } from './PrRollupDot'
 import { StatusDot } from './StatusDot'
 import { SyncBadge } from './SyncBadge'
 import { railTier } from '../lib/priorityRail'
+import { caseLabel, caseLabelTitle } from '../lib/caseLabel'
 import { priorityIconFor } from '../lib/priorityIcon'
 import { PHASE_COLOR, PHASE_WORD } from '../lib/casePhase'
 import { Download, Trash2, MessageSquare, Paperclip } from 'lucide-react'
@@ -93,7 +94,13 @@ export function CaseCard({
       )}
       <div className="flex items-start justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate font-mono text-sm text-ink">{c.slug}</span>
+          {/* The live ticket key, falling back to the slug for a case with no ticket. A ticket
+              moved to another project keeps this case's slug (its id everywhere durable) but
+              gets a new key, and a card headed by the dead key names a ticket that no longer
+              resolves. The slug stays on hover, and is still what every action here passes. */}
+          <span className="truncate font-mono text-sm text-ink" title={caseLabelTitle(c)}>
+            {caseLabel(c)}
+          </span>
           {/* Jira-style glyph where we recognise the scheme, the bare word where we don't —
               priority names are per-project, and an unmapped value must still be readable
               rather than silently vanishing. */}

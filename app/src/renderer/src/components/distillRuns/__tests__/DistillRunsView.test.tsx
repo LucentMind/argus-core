@@ -109,6 +109,39 @@ describe('DistillRunsView', () => {
     expect(screen.getByText('RAW 2')).toBeInTheDocument()
     expect(screen.getByTestId('compare-columns')).toBeInTheDocument()
   })
+  // Alignment is what compare mode is FOR: each stage of the left run must sit in the same grid
+  // row as the same stage of the right one. Two independent columns cannot promise that — a
+  // taller card on one side slid every stage below it out of line with its counterpart.
+  it('compare puts each stage of both runs in one row, and lifts the actions out of the columns', async () => {
+    const user = userEvent.setup()
+    render(<DistillRunsView initialSlug="a" onClose={() => {}} onOpenCase={() => {}} />)
+    await screen.findByText('RAW 2')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Compare with' }), '1')
+    await screen.findByText('RAW 1')
+    // These runs are stamped v3 but recorded no stages, so the raw-output card is the one
+    // stage both have (see `runSections`' first branch).
+    const left = screen.getByTestId('compare-left-raw')
+    const right = screen.getByTestId('compare-right-raw')
+    expect(left).toHaveTextContent('RAW 2')
+    expect(right).toHaveTextContent('RAW 1')
+    // Same parent = same grid, and the two cells are adjacent siblings = the same row.
+    expect(left.parentElement).toBe(right.parentElement)
+    expect(left.nextElementSibling).toBe(right)
+    // The actions belong to the selected run and are rendered above both columns; inside the
+    // left one they made it a row taller than the right.
+    expect(screen.getByRole('button', { name: 'Open case' }).closest('[data-testid]')).not.toBe(
+      screen.getByTestId('compare-columns')
+    )
+  })
+  it('the rail collapses to a strip and comes back', async () => {
+    render(<DistillRunsView onClose={() => {}} onOpenCase={() => {}} />)
+    await screen.findAllByTestId('run-row')
+    fireEvent.click(screen.getByRole('button', { name: 'Hide runs' }))
+    expect(screen.queryAllByTestId('run-row')).toHaveLength(0)
+    expect(screen.queryByRole('separator', { name: 'Resize runs list' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Show runs' }))
+    expect(screen.getAllByTestId('run-row').length).toBeGreaterThan(0)
+  })
   it('a progress broadcast updates the in-flight row and the strip', async () => {
     rows = [
       row({ id: 9, state: 'running', itemCount: null, costUsd: null }),

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { diffLines, pairRows } from '../lineDiff'
+import { diffLines, hunks, pairRows } from '../lineDiff'
 
 describe('diffLines', () => {
   it('marks unchanged, added and deleted lines', () => {
@@ -69,5 +69,66 @@ describe('pairRows', () => {
     expect(rows).toEqual([
       { left: { no: 10, text: 'ctx', kind: 'same' }, right: { no: 20, text: 'ctx', kind: 'same' } }
     ])
+  })
+})
+
+describe('hunks', () => {
+  const same = (n: number, tag = 'c'): string[] =>
+    Array.from({ length: n }, (_, i) => `${tag}${i + 1}`)
+
+  it('returns one hunk when nothing changed', () => {
+    const segs = hunks(diffLines('a\nb\nc', 'a\nb\nc'))
+    expect(segs).toHaveLength(1)
+    expect(segs[0].kind).toBe('hunk')
+    expect(segs[0].lines).toHaveLength(3)
+  })
+
+  it('collapses the unchanged middle of a long file', () => {
+    const before = ['head', ...same(20), 'tail'].join('\n')
+    const after = ['HEAD', ...same(20), 'TAIL'].join('\n')
+    const segs = hunks(diffLines(before, after), 3)
+    expect(segs.map((s) => s.kind)).toEqual(['hunk', 'gap', 'hunk'])
+    // 20 context lines, 3 kept at each end
+    expect((segs[1] as { count: number }).count).toBe(14)
+  })
+
+  it('numbers a gap and the hunk after it with real file line numbers', () => {
+    const before = ['head', ...same(20), 'tail'].join('\n')
+    const after = ['HEAD', ...same(20), 'TAIL'].join('\n')
+    const segs = hunks(diffLines(before, after), 3)
+    // hunk 1 is del "head" + add "HEAD" + c1..c3 -> left resumes at 5 (head + c1..c3)
+    expect(segs[1].leftStart).toBe(5)
+    expect(segs[1].rightStart).toBe(5)
+    // gap swallows c4..c17 (14 lines), so the trailing hunk starts at c18 = line 19
+    expect(segs[2].leftStart).toBe(19)
+  })
+
+  it('carries the collapsed lines so a viewer can expand in place', () => {
+    const before = ['head', ...same(20), 'tail'].join('\n')
+    const after = ['HEAD', ...same(20), 'TAIL'].join('\n')
+    const gap = hunks(diffLines(before, after), 3)[1]
+    expect(gap.lines).toHaveLength(14)
+    expect(gap.lines[0].text).toBe('c4')
+    expect(gap.lines.every((l) => l.kind === 'same')).toBe(true)
+  })
+
+  it('does not collapse a run that is only context', () => {
+    // 6 unchanged lines between two changes, context 3 -> every line is kept
+    const before = ['head', ...same(6), 'tail'].join('\n')
+    const after = ['HEAD', ...same(6), 'TAIL'].join('\n')
+    expect(hunks(diffLines(before, after), 3).map((s) => s.kind)).toEqual(['hunk'])
+  })
+
+  it('collapses a leading run with no preceding change', () => {
+    const before = [...same(20), 'tail'].join('\n')
+    const after = [...same(20), 'TAIL'].join('\n')
+    const segs = hunks(diffLines(before, after), 3)
+    expect(segs.map((s) => s.kind)).toEqual(['gap', 'hunk'])
+    expect((segs[0] as { count: number }).count).toBe(17)
+    expect(segs[1].leftStart).toBe(18)
+  })
+
+  it('returns nothing for an empty diff', () => {
+    expect(hunks([])).toEqual([])
   })
 })

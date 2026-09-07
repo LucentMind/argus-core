@@ -47,6 +47,10 @@ export interface UiState {
   railCollapsed: Record<RailPanelId, boolean>
   findingsWidth: number
   evidenceWidth: number
+  /** The dev Distillation runs view's case rail. A layout preference like the pane widths
+   *  above, so it is global and persisted rather than per-view state. */
+  distillRailWidth: number
+  distillRailCollapsed: boolean
   /** Case-grid ordering. A workspace preference like the pane widths, not case data, so it is
    *  global rather than per-case and persists across restarts. */
   caseSort: CaseSortField
@@ -68,7 +72,9 @@ const KEYS = {
   findingsWidth: 'argus.ui.findingsWidth',
   evidenceWidth: 'argus.ui.evidenceWidth',
   caseSort: 'argus.ui.caseSort',
-  caseSortDirection: 'argus.ui.caseSortDirection'
+  caseSortDirection: 'argus.ui.caseSortDirection',
+  distillRailWidth: 'argus.ui.distillRailWidth',
+  distillRailCollapsed: 'argus.ui.distillRailCollapsed'
 } as const
 
 export const FINDINGS_MIN_WIDTH = 240
@@ -82,6 +88,10 @@ export const EVIDENCE_MIN_WIDTH = 240
 export const EVIDENCE_MAX_WIDTH = 640
 /** Today's `w-80`, so nothing moves for an existing user on first run. */
 const EVIDENCE_DEFAULT_WIDTH = 320
+export const DISTILL_RAIL_MIN_WIDTH = 220
+export const DISTILL_RAIL_MAX_WIDTH = 620
+/** Roughly the old `w-[34%]` at a typical window width, so nothing jumps on first run. */
+const DISTILL_RAIL_DEFAULT_WIDTH = 360
 
 /**
  * Unlike every other persisted key this one holds a JSON object, so it has more ways to be
@@ -116,6 +126,7 @@ function readPersisted(): Omit<UiState, 'recentTabs' | 'activeSessions'> {
     stored === 'light' || stored === 'system' ? stored : 'dark'
   const width = Number(localStorage.getItem(KEYS.findingsWidth))
   const evidenceWidth = Number(localStorage.getItem(KEYS.evidenceWidth))
+  const distillRailWidth = Number(localStorage.getItem(KEYS.distillRailWidth))
   const scale = Number(localStorage.getItem(KEYS.uiScale))
   // Validated rather than cast: an unknown value (hand-edited storage, a key left by a future
   // build) must read as the default, or the dashboard renders an ordering nothing implements.
@@ -143,7 +154,14 @@ function readPersisted(): Omit<UiState, 'recentTabs' | 'activeSessions'> {
       evidenceWidth >= EVIDENCE_MIN_WIDTH &&
       evidenceWidth <= EVIDENCE_MAX_WIDTH
         ? evidenceWidth
-        : EVIDENCE_DEFAULT_WIDTH
+        : EVIDENCE_DEFAULT_WIDTH,
+    distillRailWidth:
+      Number.isFinite(distillRailWidth) &&
+      distillRailWidth >= DISTILL_RAIL_MIN_WIDTH &&
+      distillRailWidth <= DISTILL_RAIL_MAX_WIDTH
+        ? distillRailWidth
+        : DISTILL_RAIL_DEFAULT_WIDTH,
+    distillRailCollapsed: localStorage.getItem(KEYS.distillRailCollapsed) === 'true'
   }
 }
 
@@ -304,6 +322,21 @@ export class UiStore {
   setEvidenceCollapsed(collapsed: boolean): void {
     this.set({ evidenceCollapsed: collapsed })
     localStorage.setItem(KEYS.evidenceCollapsed, String(collapsed))
+  }
+
+  /** Mirrors `setEvidenceWidth`; same reasoning about not broadcasting. */
+  setDistillRailWidth(width: number): void {
+    const clamped = Math.min(
+      DISTILL_RAIL_MAX_WIDTH,
+      Math.max(DISTILL_RAIL_MIN_WIDTH, Math.round(width))
+    )
+    this.set({ distillRailWidth: clamped })
+    localStorage.setItem(KEYS.distillRailWidth, String(clamped))
+  }
+
+  setDistillRailCollapsed(collapsed: boolean): void {
+    this.set({ distillRailCollapsed: collapsed })
+    localStorage.setItem(KEYS.distillRailCollapsed, String(collapsed))
   }
 
   /** Deliberately not broadcast to other windows, exactly as the pane widths are not (see

@@ -59,6 +59,8 @@ function DistillOptIn({
 
 export function CaseAnchor({
   slug,
+  label,
+  labelTitle,
   status,
   resolution,
   archivedAt,
@@ -67,6 +69,14 @@ export function CaseAnchor({
   onDistillRuns
 }: {
   slug: string
+  /** What the anchor DRAWS — `caseLabel(activeCase)`, i.e. the live ticket key when there is
+   *  one. Separate from `slug` because a ticket that moves project gets a new key while the
+   *  slug (the case directory, every evidence row, every session) stays where it was; before
+   *  this the header went on showing the dead key forever. Defaults to `slug` for callers with
+   *  no record to hand (the anchor's own tests, and any surface that only has a slug). */
+  label?: string
+  /** Tooltip naming the slug the label stands in for; absent when they are the same string. */
+  labelTitle?: string
   status: CaseStatus
   resolution: CaseResolution | null
   /** `CaseRecord.archivedAt` — non-null once the case's evidence, artifacts and transcripts
@@ -232,8 +242,9 @@ export function CaseAnchor({
           // identifier, and the dashboard has always drawn it in signal blue (`CaseCard`'s slug).
           // The header drawing the SAME id in amber made one thing look like two, and spent the
           // attention colour on a label that is never a problem.
-          label={slug}
-          aria-label={`Case actions · ${slug}`}
+          label={label ?? slug}
+          aria-label={`Case actions · ${label ?? slug}`}
+          title={labelTitle}
           align="left"
           nocaret
           // `!` markers, not plain classes: an appended utility of equal specificity loses to

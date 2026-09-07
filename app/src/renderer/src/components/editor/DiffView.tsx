@@ -1,5 +1,6 @@
-import { useMemo } from 'react'
-import { diffLines, pairRows, type DiffRow } from '../../lib/lineDiff'
+import { Fragment } from 'react'
+import { pairRows, type DiffRow } from '../../lib/lineDiff'
+import { DiffGapBar, DiffHiddenBar, useHunkedDiff } from '../DiffHunks'
 
 const CELL_CLASS = {
   same: 'text-dim',
@@ -35,9 +36,9 @@ export function DiffView({
   afterLabel,
   actions
 }: DiffViewProps): React.JSX.Element {
-  // diffLines is O(n*m) with its own size guard; memoised so a parent re-render (a banner
-  // changing, say) does not recompute a 400k-cell table.
-  const rows = useMemo(() => pairRows(diffLines(before, after)), [before, after])
+  // diffLines is O(n*m) with its own size guard; the hook memoises it on the pair, so a parent
+  // re-render (a banner changing, say) does not recompute a 400k-cell table.
+  const d = useHunkedDiff(before, after)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -45,17 +46,26 @@ export function DiffView({
         <span className="bg-panel px-3 py-1.5 text-dim">{beforeLabel}</span>
         <span className="bg-panel px-3 py-1.5 text-dim">{afterLabel}</span>
       </div>
+      <DiffHiddenBar hidden={d.hidden} onExpandAll={d.expandAll} />
       <div
         role="group"
         aria-label={`${beforeLabel} compared with ${afterLabel}`}
         className="min-h-0 flex-1 overflow-auto font-mono text-xs leading-5"
       >
-        {rows.map((row, i) => (
-          <div key={i} className="grid grid-cols-2 gap-px">
-            <Side cell={row.left} />
-            <Side cell={row.right} />
-          </div>
-        ))}
+        {d.segments.map((seg, i) =>
+          seg.kind === 'gap' && !d.isExpanded(i) ? (
+            <DiffGapBar key={i} count={seg.count} onExpand={() => d.expand(i)} />
+          ) : (
+            <Fragment key={i}>
+              {pairRows(seg.lines, seg.leftStart, seg.rightStart).map((row, j) => (
+                <div key={j} className="grid grid-cols-2 gap-px">
+                  <Side cell={row.left} />
+                  <Side cell={row.right} />
+                </div>
+              ))}
+            </Fragment>
+          )
+        )}
       </div>
       {actions && (
         <div className="flex justify-end gap-2 border-t border-hair px-3 py-2">{actions}</div>

@@ -1,15 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { X } from 'lucide-react'
 import type {
   DistillProgress,
   DistillRunDetail,
   DistillRunListRow
 } from '../../../../shared/distill'
-import { IconBtn, SkeletonRows } from '../ui'
+import { Btn, IconBtn, SkeletonRows } from '../ui'
 import { useEscapeLayer } from '../../lib/escapeLayer'
 import { viewTitleStore } from '../../lib/viewTitleStore'
+import { uiStore, DISTILL_RAIL_MAX_WIDTH, DISTILL_RAIL_MIN_WIDTH } from '../../lib/uiStore'
 import { RunsRail } from './RunsRail'
 import { RunDetail } from './RunDetail'
+import { CompareColumns } from './CompareColumns'
 import { NewRunPopover } from './NewRunPopover'
 import { EMPTY_FILTERS, type RunFilters } from './runsModel'
 
@@ -39,6 +41,14 @@ export function DistillRunsView({
   const [refetchTick, setRefetchTick] = useState(0)
   const [newRun, setNewRun] = useState<{ fixedSlug?: string } | null>(null)
   const [cancelling, setCancelling] = useState(false)
+  const ui = useSyncExternalStore(
+    (cb) => uiStore.subscribe(cb),
+    () => uiStore.get()
+  )
+  // Rail drag, same shape as CaseWorkspace's pane separators: a ref (not state) so a move does
+  // not re-render, and an `e.buttons === 0` check so a drag whose button-up landed somewhere
+  // this element never saw cannot leave the next plain hover resizing the rail.
+  const railDrag = useRef<{ startX: number; startWidth: number } | null>(null)
 
   useEscapeLayer({ onEscape: onClose })
   // Two effects rather than one with a cleanup keyed on `rows` (ProposalsStandalone's pattern):
@@ -152,28 +162,93 @@ export function DistillRunsView({
     void window.argus.distill.cancel(selectedRow.id).finally(() => setCancelling(false))
   }
 
+  const caseBusy = Boolean(selectedRow && inFlightSlugs.has(selectedRow.caseSlug))
+  const actions = selectedRow && (
+    <>
+      <Btn variant="outline" onClick={() => onOpenCase(selectedRow.caseSlug)}>
+        Open case
+      </Btn>
+      <Btn
+        variant="outline"
+        disabled={caseBusy}
+        title={caseBusy ? 'A distillation is already running for this case' : undefined}
+        onClick={() => setNewRun({ fixedSlug: selectedRow.caseSlug })}
+      >
+        Run again
+      </Btn>
+      {(selectedRow.state === 'queued' || selectedRow.state === 'running') && (
+        <Btn variant="danger" disabled={cancelling} onClick={cancelSelected}>
+          Cancel
+        </Btn>
+      )}
+      <label className="flex items-center gap-1.5 text-xs text-dim">
+        Compare with
+        <select
+          aria-label="Compare with"
+          value={compareId ?? ''}
+          onChange={(e) => setCompareId(e.target.value ? Number(e.target.value) : null)}
+          className="h-7 rounded-r2 border border-hair2 bg-overlay px-1.5 text-xs text-ink"
+        >
+          <option value="">—</option>
+          {siblings.map((r) => (
+            <option key={r.id} value={r.id}>
+              #{r.id} · {r.pipeline ?? '?'}
+              {r.dryRun ? ' · dry' : ''} · {r.state}
+            </option>
+          ))}
+        </select>
+      </label>
+    </>
+  )
+
   return (
     <div className="mx-auto flex h-full w-full max-w-[1600px] gap-4 p-6">
       {rows === null ? (
         <SkeletonRows count={6} />
       ) : (
-        <RunsRail
-          rows={rows}
-          progress={progress}
-          filters={filters}
-          onFilters={setFilters}
-          selectedId={selectedId}
-          onSelect={select}
-          header={
-            <button
-              type="button"
-              className="rounded-r1 bg-hi px-2 py-1 text-xs text-ink"
-              onClick={() => setNewRun({})}
-            >
-              New run…
-            </button>
-          }
-        />
+        <>
+          <RunsRail
+            rows={rows}
+            progress={progress}
+            filters={filters}
+            onFilters={setFilters}
+            selectedId={selectedId}
+            onSelect={select}
+            width={ui.distillRailWidth}
+            collapsed={ui.distillRailCollapsed}
+            onCollapsedChange={(c) => uiStore.setDistillRailCollapsed(c)}
+            header={
+              <Btn variant="primary" onClick={() => setNewRun({})}>
+                New run…
+              </Btn>
+            }
+          />
+          {!ui.distillRailCollapsed && (
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize runs list"
+              className="-mx-2 w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-signal/40"
+              onPointerDown={(e) => {
+                railDrag.current = { startX: e.clientX, startWidth: ui.distillRailWidth }
+                e.currentTarget.setPointerCapture(e.pointerId)
+              }}
+              onPointerMove={(e) => {
+                if (!railDrag.current || e.buttons === 0) return
+                const next = railDrag.current.startWidth + (e.clientX - railDrag.current.startX)
+                uiStore.setDistillRailWidth(
+                  Math.min(DISTILL_RAIL_MAX_WIDTH, Math.max(DISTILL_RAIL_MIN_WIDTH, next))
+                )
+              }}
+              onPointerUp={() => {
+                railDrag.current = null
+              }}
+              onPointerCancel={() => {
+                railDrag.current = null
+              }}
+            />
+          )}
+        </>
       )}
       <main className="relative flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto">
         <div className="flex items-center justify-between">
@@ -190,76 +265,31 @@ export function DistillRunsView({
             No distillation has run yet.
           </div>
         )}
-        {detail && selectedRow && (
-          <div
-            data-testid={compareDetail ? 'compare-columns' : 'single-column'}
-            className={compareDetail ? 'grid grid-cols-2 gap-4' : ''}
-          >
-            <RunDetail
-              detail={detail}
-              progress={progress.get(detail.job.id) ?? null}
-              compact={Boolean(compareDetail)}
-              actions={
-                <>
-                  <button
-                    type="button"
-                    className="rounded-r1 px-2 py-0.5 text-dim hover:bg-hair"
-                    onClick={() => onOpenCase(selectedRow.caseSlug)}
-                  >
-                    Open case
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-r1 px-2 py-0.5 text-dim hover:bg-hair disabled:opacity-40"
-                    disabled={inFlightSlugs.has(selectedRow.caseSlug)}
-                    title={
-                      inFlightSlugs.has(selectedRow.caseSlug)
-                        ? 'A distillation is already running for this case'
-                        : undefined
-                    }
-                    onClick={() => setNewRun({ fixedSlug: selectedRow.caseSlug })}
-                  >
-                    Run again
-                  </button>
-                  {(selectedRow.state === 'queued' || selectedRow.state === 'running') && (
-                    <button
-                      type="button"
-                      className="rounded-r1 px-2 py-0.5 text-dim hover:bg-hair disabled:opacity-40"
-                      disabled={cancelling}
-                      onClick={cancelSelected}
-                    >
-                      Cancel
-                    </button>
-                  )}
-                  <label className="flex items-center gap-1 text-dim">
-                    Compare with
-                    <select
-                      aria-label="Compare with"
-                      value={compareId ?? ''}
-                      onChange={(e) => setCompareId(e.target.value ? Number(e.target.value) : null)}
-                      className="rounded-r1 border border-hair bg-overlay px-1 py-0.5 text-xs text-ink"
-                    >
-                      <option value="">—</option>
-                      {siblings.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          #{r.id} · {r.pipeline ?? '?'}
-                          {r.dryRun ? ' · dry' : ''} · {r.state}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </>
-              }
-            />
-            {compareDetail && (
-              <RunDetail
-                detail={compareDetail}
-                progress={progress.get(compareDetail.job.id) ?? null}
-                compact
+        {detail &&
+          selectedRow &&
+          // In compare mode the actions sit ABOVE both columns rather than in the left one:
+          // they act on the selected run either way, and inside a column they added a row to
+          // that side alone -- which is what pushed its stages out of line with the other
+          // run's (see CompareColumns).
+          (compareDetail ? (
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center justify-end gap-1.5">{actions}</div>
+              <CompareColumns
+                a={detail}
+                b={compareDetail}
+                progressA={progress.get(detail.job.id) ?? null}
+                progressB={progress.get(compareDetail.job.id) ?? null}
               />
-            )}
-          </div>
-        )}
+            </div>
+          ) : (
+            <div data-testid="single-column">
+              <RunDetail
+                detail={detail}
+                progress={progress.get(detail.job.id) ?? null}
+                actions={actions}
+              />
+            </div>
+          ))}
         {newRun && (
           <div className="absolute right-6 top-16 z-20">
             <NewRunPopover
