@@ -6,8 +6,8 @@ import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 
 /** Mirrors the real install that exposed the problem: an enabled claude-agent-sdk instance
- *  with an empty config and two models hidden, so the resolver falls through to the top of
- *  the catalog (claude-fable-5). */
+ *  with an empty config and two models hidden, so the resolver falls through to the
+ *  built-in distillation default (claude-sonnet-5). */
 function payload(mut?: (p: SettingsPayload) => void): SettingsPayload {
   const p: SettingsPayload = {
     settings: defaultSettings(),
@@ -102,7 +102,7 @@ describe('DistillationSection', () => {
   it('shows the RESOLVED default when nothing is set — the whole point of the section', () => {
     render(<DistillationSection payload={payload()} />)
     expect(select('Distillation provider').value).toBe('Automatic (Claude)')
-    expect(select('Distillation model').value).toBe('Automatic (claude-fable-5)')
+    expect(select('Distillation model').value).toBe('Automatic (claude-sonnet-5)')
   })
 
   it('offers only enabled, headless-capable instances', () => {
