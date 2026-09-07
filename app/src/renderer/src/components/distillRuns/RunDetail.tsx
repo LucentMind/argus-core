@@ -179,7 +179,11 @@ export function runSections(detail: DistillRunDetail): RunSection[] {
           structured={detail.parsed.dossier !== null}
         >
           {detail.parsed.dossier && (
-            <DossierBody d={detail.parsed.dossier} uncited={s?.dossierUncitedDropped} />
+            <DossierBody
+              d={detail.parsed.dossier}
+              uncited={s?.dossierUncitedDropped}
+              malformed={s?.dossierMalformedDropped}
+            />
           )}
         </StageCard>
       )
