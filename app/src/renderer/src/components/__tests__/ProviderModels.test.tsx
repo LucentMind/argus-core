@@ -112,10 +112,10 @@ describe('ProviderModels', () => {
             hiddenModels: [],
             favoriteModels: [],
             modelOrder: [
-              'claude-fable-5-1',
-              'claude-fable-5',
               'claude-opus-5',
+              'claude-fable-5-1',
               'claude-opus-4-8',
+              'claude-fable-5',
               'claude-opus-4-7',
               'claude-sonnet-5',
               'claude-sonnet-4-6',
@@ -129,7 +129,7 @@ describe('ProviderModels', () => {
 
   it('the first row cannot move up and the last row cannot move down', () => {
     render(<ProviderModels settings={settings()} instanceId="claude-default" />)
-    expect((screen.getByLabelText('Move Claude Fable 5 up') as HTMLButtonElement).disabled).toBe(
+    expect((screen.getByLabelText('Move Claude Opus 5 up') as HTMLButtonElement).disabled).toBe(
       true
     )
     expect(
@@ -421,12 +421,12 @@ describe('ProviderModels favourite ranking', () => {
       .agent.modelPreferences['claude-default'] as ModelPreferences
     expect(patched.favoriteModels).toEqual(['claude-opus-5'])
     expect(patched.modelOrder.length).toBeGreaterThan(0)
-    // it moved above its neighbour Fable 5.1 (Fable 5 above that stays put — one step)
+    // one step: above its neighbour Fable 5, still below Fable 5.1
     expect(patched.modelOrder.indexOf('claude-opus-4-8')).toBeLessThan(
-      patched.modelOrder.indexOf('claude-fable-5-1')
+      patched.modelOrder.indexOf('claude-fable-5')
     )
     expect(patched.modelOrder.indexOf('claude-opus-4-8')).toBeGreaterThan(
-      patched.modelOrder.indexOf('claude-fable-5')
+      patched.modelOrder.indexOf('claude-fable-5-1')
     )
   })
 
