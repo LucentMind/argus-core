@@ -17,6 +17,7 @@ import { JsonFileStore } from './fileStore'
 import type {
   HivemindCheckResult,
   HivemindInitPreview,
+  HivemindInitResult,
   HivemindItem,
   HivemindPayload,
   HivemindPushResult,
@@ -1413,6 +1414,105 @@ export class HivemindService {
       noCommits: headCommit === null,
       readme: HIVE_README,
       missing: this.missingScaffoldFiles(clone)
+    }
+  }
+
+  /**
+   * Scaffold an empty HiveMind repo's directory structure (spec 2026-09-07). Two write paths,
+   * chosen by whether the clone has any commits at all:
+   *
+   * - No commits yet: there is no base branch to open a pull request against, so this pushes
+   *   directly to the clone's own (unborn) default branch. Safe to write straight into the
+   *   clone's working tree — unlike `push()`, there is no HEAD, no pin, and no installed item
+   *   relative to a commit that a stray checkout here could disrupt.
+   * - At least one commit: mirrors `push()`'s worktree/branch/PR shape, generalized to a
+   *   repo-wide scaffold commit rather than one user asset.
+   */
+  async init(): Promise<HivemindInitResult> {
+    const repo = this.deps.repo().trim()
+    if (!repo) return { ok: false, error: 'No HiveMind repo configured (Settings → Team).' }
+    const clone = this.clone()
+    if (!fs.existsSync(path.join(clone, '.git')))
+      return { ok: false, error: 'HiveMind clone missing — Sync first.' }
+
+    let headCommit: string | null
+    try {
+      headCommit = await this.readHeadCommit(clone)
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+
+    if (headCommit === null) {
+      const missing = this.missingScaffoldFiles(clone)
+      if (missing.length === 0) return { ok: true, outcome: 'unchanged', prUrl: null }
+      try {
+        this.writeScaffold(clone, missing)
+        await this.git(['add', '-A'], clone)
+        await this.git(['commit', '-m', 'Set up HiveMind directory structure (via Argus)'], clone)
+        const branch = (await this.git(['symbolic-ref', '--short', 'HEAD'], clone)).trim()
+        await this.git(['push', '-u', 'origin', branch], clone)
+        return { ok: true, outcome: 'initialized', prUrl: null }
+      } catch (err) {
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+
+    let tree: string | null = null
+    try {
+      await this.git(['fetch', 'origin'], clone)
+      await this.git(['worktree', 'prune'], clone)
+      const defaultBranch = (
+        await this.git(['rev-parse', '--abbrev-ref', 'origin/HEAD'], clone)
+      ).replace(/^origin\//, '')
+      const branch = `argus/init-hivemind-${Date.now()}`
+      const treeParent = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-hivemind-init-'))
+      tree = path.join(treeParent, 'wt')
+      await this.git(['worktree', 'add', '-b', branch, tree, `origin/${defaultBranch}`], clone)
+      const missing = this.missingScaffoldFiles(tree)
+      if (missing.length === 0) return { ok: true, outcome: 'unchanged', prUrl: null }
+      this.writeScaffold(tree, missing)
+      await this.git(['add', '-A'], tree)
+      await this.git(['commit', '-m', 'Set up HiveMind directory structure (via Argus)'], tree)
+      await this.git(['push', '-u', 'origin', branch], tree)
+      const out = await this.gh(
+        [
+          'pr',
+          'create',
+          '--title',
+          'Set up HiveMind directory structure',
+          '--body',
+          'Adds the skills/ and references/ layout Argus expects (via Argus).',
+          '--head',
+          branch
+        ],
+        clone
+      )
+      const prUrl = out.split(/\s+/).find((t) => t.startsWith('https://')) ?? out
+      const state = this.state()
+      state.pushes['init/hivemind'] = { prUrl, pushedAt: new Date().toISOString(), repo }
+      this.store.write(state)
+      return { ok: true, outcome: 'created', prUrl }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    } finally {
+      if (tree) {
+        try {
+          await this.git(['worktree', 'remove', '--force', tree], clone)
+        } catch {
+          // Best-effort cleanup only, mirrors push()'s finally block: a completed result above
+          // must not be overridden by a cleanup failure.
+        }
+        try {
+          fs.rmSync(path.dirname(tree), {
+            recursive: true,
+            force: true,
+            maxRetries: 3,
+            retryDelay: 100
+          })
+        } catch {
+          // See comment above: intentionally swallowed.
+        }
+      }
     }
   }
 }
