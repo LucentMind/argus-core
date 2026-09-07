@@ -113,6 +113,13 @@ export interface DriverCapabilities {
   subagents: SubagentSupport
 }
 
+/** A slash command the backend CLI executes itself when it arrives as prompt text. Listed
+ *  in the composer's `/` picker next to Argus skills, tagged so the two are not confused. */
+export interface CliSlashCommand {
+  name: string
+  description: string
+}
+
 export interface DriverDefinition {
   kind: string
   label: string
@@ -122,6 +129,10 @@ export interface DriverDefinition {
   formAnnotations: Record<string, FieldAnnotation>
   models: readonly CatalogModel[]
   capabilities: DriverCapabilities
+  /** CLI-native slash commands worth offering in the composer. Absent = none. Only list a
+   *  command after checking, against the real CLI, both that it runs from prompt text and
+   *  that it does not mutate state Argus owns (model, permission mode, session identity). */
+  slashCommands?: readonly CliSlashCommand[]
 }
 
 /** Shared instance-config shape: every driver's config is `{ model?, cliPath?, customModels? }`. */
@@ -266,7 +277,16 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       // options.systemPrompt = { type:'preset', preset:'claude_code', append: ctx.systemAppend }
       systemPromptTransport: 'systemPrompt.append',
       subagents: 'configurable'
-    }
+    },
+    // Verified live against SDK 0.3.220 (2026-09-07): both run when sent as prompt text.
+    // /compact answers with status + compact_boundary (see claude/normalize.ts); /context
+    // answers with a synthetic assistant message that renders as ordinary text. The CLI
+    // lists more (/clear, /model, /effort, /usage…) but those either change state Argus
+    // pins per session or are unverified, so they are deliberately not offered.
+    slashCommands: [
+      { name: 'compact', description: 'Free up context by summarizing the conversation so far' },
+      { name: 'context', description: 'Show current context usage' }
+    ]
   },
   'github-copilot': {
     kind: 'github-copilot',

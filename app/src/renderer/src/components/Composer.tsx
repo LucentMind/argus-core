@@ -19,6 +19,7 @@ import {
   defaultInstanceId,
   defaultModelRef,
   findModelRow,
+  getDriver,
   instanceModels,
   pinSlugFor,
   resolveModelInfo,
@@ -542,7 +543,20 @@ export function Composer({
   }
 
   const showSkills = text.startsWith('/') && !text.includes(' ')
-  const matches = skills.filter((s) => s.name.startsWith(text.slice(1)) && s.enabled)
+  // Argus skills first, then the CLI's own slash commands (declared per driver in
+  // shared/drivers.ts) so a house skill is never pushed under a built-in. The CLI rows are
+  // gated on the session's driver: they only run where that CLI is the backend, and until
+  // the session is known the picker stays skills-only rather than guessing.
+  const cliCommands = session ? (getDriver(session.driverKind)?.slashCommands ?? []) : []
+  const prefix = text.slice(1)
+  const matches: Array<{ name: string; description: string; cli: boolean }> = [
+    ...skills
+      .filter((s) => s.name.startsWith(prefix) && s.enabled)
+      .map((s) => ({ name: s.name, description: s.description, cli: false })),
+    ...cliCommands
+      .filter((c) => c.name.startsWith(prefix))
+      .map((c) => ({ name: c.name, description: c.description, cli: true }))
+  ]
 
   // keyboard state for the skills popup: highlight follows Arrow keys, Tab
   // completes, Escape hides the popup until the text next changes
@@ -711,6 +725,11 @@ export function Composer({
               onClick={() => completeSkill(s.name)}
             >
               <span className="font-mono text-xs text-defect">/{s.name}</span>
+              {s.cli && (
+                <span className="ml-2 rounded-r1 border border-hair px-1 font-mono text-[10px] uppercase tracking-wide text-mute">
+                  CLI
+                </span>
+              )}
               <span className="ml-2 text-xs text-mute">{s.description}</span>
             </button>
           ))}

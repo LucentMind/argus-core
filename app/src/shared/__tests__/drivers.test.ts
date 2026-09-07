@@ -129,6 +129,21 @@ describe('driver registry', () => {
     expect(d.capabilities.planMode).toBeUndefined()
   })
 
+  // Only the two commands verified live against SDK 0.3.220 (2026-09-07): the CLI executes
+  // them when they arrive as prompt text. Others it lists (/clear, /model, /effort…) would
+  // change state Argus owns, so they stay out until each is checked.
+  it('claude-agent-sdk declares the CLI slash commands the composer may offer', () => {
+    const d = getDriver('claude-agent-sdk')!
+    expect(d.slashCommands?.map((c) => c.name)).toEqual(['compact', 'context'])
+    for (const c of d.slashCommands ?? []) expect(c.description.length).toBeGreaterThan(0)
+  })
+
+  it('non-Claude drivers declare no CLI slash commands', () => {
+    for (const kind of Object.keys(DRIVERS).filter((k) => k !== 'claude-agent-sdk')) {
+      expect(getDriver(kind)!.slashCommands ?? []).toEqual([])
+    }
+  })
+
   it('has github-copilot with an accepting config schema and a non-empty model list', () => {
     const d = getDriver('github-copilot')!
     expect(d.label).toBe('GitHub Copilot')
