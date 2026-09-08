@@ -251,7 +251,8 @@ describe('AgentStore — compaction', () => {
     expect(st.items[1]).toEqual({
       kind: 'notice',
       noticeKind: 'compacting',
-      text: 'Compacting context…'
+      text: 'Compacting context…',
+      turnId: 1
     })
   })
 
