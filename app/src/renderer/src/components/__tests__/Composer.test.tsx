@@ -573,7 +573,9 @@ describe('Composer', () => {
       mode: 'investigation',
       runOptions: [],
       permissionMode: null,
-      historyOrphaned: false
+      historyOrphaned: false,
+      rewound: [],
+      forkedFrom: null
     })
     const oneSkill = (): void => {
       window.argus.skills.list = vi.fn(async () => ({
