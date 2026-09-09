@@ -16,6 +16,8 @@ import {
 import { JsonFileStore } from './fileStore'
 import type {
   HivemindCheckResult,
+  HivemindInitPreview,
+  HivemindInitResult,
   HivemindItem,
   HivemindPayload,
   HivemindPushResult,
@@ -234,6 +236,34 @@ function cloneReferenceAuthor(file: string): string | null {
   }
 }
 
+/** Content Argus writes when scaffolding an empty HiveMind repo (spec 2026-09-07,
+ *  hivemind-init-pr) — self-contained, no external links, so it stays correct even if this
+ *  doc file moves. */
+const HIVE_README = `# Argus HiveMind
+
+This repository is synced by Argus as your team's shared skills and reference library.
+
+- \`skills/<name>/SKILL.md\` — one folder per skill. Anything else alongside \`SKILL.md\`
+  (scripts, templates) is copied along with it.
+- \`references/*.md\` — flat reference documents.
+- \`references/confluence/*.md\` — reserved for content synced in from Confluence.
+
+Point each teammate's Argus at this repo (Settings → Team → HiveMind repo) to pull this content
+down, and use Argus's Share action to propose new skills and references back here as pull
+requests.
+`
+
+/** Repo-relative paths \`init()\` creates, each only if missing (spec 2026-09-07). \`.gitkeep\`
+ *  files are invisible to \`listItems()\`'s scan by construction: a bare file directly under
+ *  \`skills/\` isn't a directory (skipped by the skills loop), and a \`.\`-prefixed name is already
+ *  excluded from the references scan. */
+const SCAFFOLD_FILES: { rel: string; content: string }[] = [
+  { rel: 'README.md', content: HIVE_README },
+  { rel: 'skills/.gitkeep', content: '' },
+  { rel: 'references/.gitkeep', content: '' },
+  { rel: 'references/confluence/.gitkeep', content: '' }
+]
+
 /** Pinned installs + last sync stamp + push receipts — app-managed, not user-edited. */
 interface HivemindStateFile {
   lastSynced: string | null
@@ -319,6 +349,26 @@ export class HivemindService {
     return origin !== '' && origin !== cloneUrl(repo)
   }
 
+  /**
+   * The clone's current HEAD commit, or null when the current branch has no commits yet — a
+   * freshly created GitHub repo, cloned before any push (spec 2026-09-07, hivemind-init-pr).
+   * Distinguished from a genuinely broken clone by `symbolic-ref` still resolving to a branch
+   * name even though that branch has no commit: git always knows which branch HEAD points at,
+   * commits or not. Any other `rev-parse HEAD` failure rethrows unchanged.
+   */
+  private async readHeadCommit(clone: string): Promise<string | null> {
+    try {
+      return await this.git(['rev-parse', 'HEAD'], clone)
+    } catch (err) {
+      const unborn = await this.git(['symbolic-ref', '-q', 'HEAD'], clone).then(
+        () => true,
+        () => false
+      )
+      if (!unborn) throw err
+      return null
+    }
+  }
+
   async payload(): Promise<HivemindPayload> {
     const repo = this.deps.repo().trim()
     const st = this.state()
@@ -346,7 +396,7 @@ export class HivemindService {
     // read below even when a sync error is persisted — an `error` state must not empty the list
     // (Critical, fix-wave review of 84b09df0). Only a live read failure (the catch) zeroes them.
     try {
-      const headCommit = await this.git(['rev-parse', 'HEAD'], this.clone())
+      const headCommit = await this.readHeadCommit(this.clone())
       const items = await this.listItems()
       return st.lastSyncError
         ? { ...base, state: 'error', error: st.lastSyncError, headCommit, items }
@@ -1331,5 +1381,229 @@ export class HivemindService {
     const pr = await this.openPrFor(kind, name, me)
     if (!pr) throw new Error(`The open pull request for ${name} disappeared mid-push.`)
     return pr
+  }
+
+  /** Repo-relative scaffold paths not yet present under `root` — the clone root for a preview,
+   *  or a scratch worktree mid-`init()`. */
+  private missingScaffoldFiles(root: string): string[] {
+    return SCAFFOLD_FILES.map((f) => f.rel).filter((rel) => !fs.existsSync(path.join(root, rel)))
+  }
+
+  /** Writes exactly the given (already-missing) scaffold paths under `root`. */
+  private writeScaffold(root: string, rels: string[]): void {
+    for (const rel of rels) {
+      const dest = path.join(root, rel)
+      fs.mkdirSync(path.dirname(dest), { recursive: true })
+      fs.writeFileSync(dest, SCAFFOLD_FILES.find((f) => f.rel === rel)!.content)
+    }
+  }
+
+  /** What `init()` would do right now, for the Settings dialog's preview — recomputed live on
+   *  every call, never cached (spec 2026-09-07). */
+  async initPreview(): Promise<HivemindInitPreview> {
+    const clone = this.clone()
+    let headCommit: string | null
+    try {
+      headCommit = await this.readHeadCommit(clone)
+    } catch {
+      // Best-effort: a genuinely broken clone is surfaced by payload()'s own state:'error'
+      // banner; init() re-validates for real and returns a proper error if this was optimistic.
+      headCommit = null
+    }
+    return {
+      noCommits: headCommit === null,
+      readme: HIVE_README,
+      missing: this.missingScaffoldFiles(clone)
+    }
+  }
+
+  /**
+   * Scaffold an empty HiveMind repo's directory structure (spec 2026-09-07). Two write paths,
+   * chosen by whether the clone has any commits at all:
+   *
+   * - No commits yet: there is no base branch to open a pull request against, so this pushes
+   *   directly to the clone's own (unborn) default branch. Safe to write straight into the
+   *   clone's working tree — unlike `push()`, there is no HEAD, no pin, and no installed item
+   *   relative to a commit that a stray checkout here could disrupt.
+   * - At least one commit: mirrors `push()`'s worktree/branch/PR shape, generalized to a
+   *   repo-wide scaffold commit rather than one user asset.
+   */
+  async init(): Promise<HivemindInitResult> {
+    const repo = this.deps.repo().trim()
+    if (!repo) return { ok: false, error: 'No HiveMind repo configured (Settings → Team).' }
+    const clone = this.clone()
+    if (!fs.existsSync(path.join(clone, '.git')))
+      return { ok: false, error: 'HiveMind clone missing — Sync first.' }
+
+    let headCommit: string | null
+    try {
+      headCommit = await this.readHeadCommit(clone)
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+
+    if (headCommit === null) {
+      const missing = this.missingScaffoldFiles(clone)
+      try {
+        await this.git(['fetch', 'origin'], clone)
+        if ((await this.readHeadCommit(clone)) !== null) {
+          return {
+            ok: false,
+            error: 'The repository gained a commit while pushing — Sync and try again.'
+          }
+        }
+        this.writeScaffold(clone, missing)
+        await this.git(['add', '-A'], clone)
+        await this.git(['commit', '-m', 'Set up HiveMind directory structure (via Argus)'], clone)
+        const branch = (await this.git(['symbolic-ref', '--short', 'HEAD'], clone)).trim()
+        await this.git(['push', '-u', 'origin', branch], clone)
+        return { ok: true, outcome: 'initialized', prUrl: null }
+      } catch (err) {
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+
+    let tree: string | null = null
+    try {
+      await this.git(['fetch', 'origin'], clone)
+      await this.git(['worktree', 'prune'], clone)
+      const existing = await this.findOpenInitPr()
+      if (existing && !existing.mine) {
+        return {
+          ok: false,
+          error: `${existing.author} already has an open pull request setting up the HiveMind layout.`,
+          blockedByPrUrl: existing.prUrl
+        }
+      }
+      const reusing = existing !== null
+      let branch = `argus/init-hivemind-${Date.now()}`
+      let reusedPrUrl = ''
+      const treeParent = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-hivemind-init-'))
+      tree = path.join(treeParent, 'wt')
+      if (reusing) {
+        branch = existing!.branch
+        reusedPrUrl = existing!.prUrl
+        await this.git(['worktree', 'add', '-B', branch, tree, `origin/${branch}`], clone)
+      } else {
+        const defaultBranch = (
+          await this.git(['rev-parse', '--abbrev-ref', 'origin/HEAD'], clone)
+        ).replace(/^origin\//, '')
+        await this.git(['worktree', 'add', '-b', branch, tree, `origin/${defaultBranch}`], clone)
+      }
+      const missing = this.missingScaffoldFiles(tree)
+      if (missing.length === 0)
+        return { ok: true, outcome: 'unchanged', prUrl: reusing ? reusedPrUrl : null }
+      this.writeScaffold(tree, missing)
+      await this.git(['add', '-A'], tree)
+      await this.git(['commit', '-m', 'Set up HiveMind directory structure (via Argus)'], tree)
+      let prUrl: string
+      if (reusing) {
+        await this.git(['push', 'origin', branch], tree)
+        prUrl = reusedPrUrl
+      } else {
+        await this.git(['push', '-u', 'origin', branch], tree)
+        const out = await this.gh(
+          [
+            'pr',
+            'create',
+            '--title',
+            'Set up HiveMind directory structure',
+            '--body',
+            'Adds the skills/ and references/ layout Argus expects (via Argus).',
+            '--head',
+            branch
+          ],
+          clone
+        )
+        prUrl = out.split(/\s+/).find((t) => t.startsWith('https://')) ?? out
+      }
+      const state = this.state()
+      state.pushes['init/hivemind'] = { prUrl, pushedAt: new Date().toISOString(), repo }
+      this.store.write(state)
+      return { ok: true, outcome: reusing ? 'updated' : 'created', prUrl }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    } finally {
+      if (tree) {
+        try {
+          await this.git(['worktree', 'remove', '--force', tree], clone)
+        } catch {
+          // Best-effort cleanup only, mirrors push()'s finally block: a completed result above
+          // must not be overridden by a cleanup failure.
+        }
+        try {
+          fs.rmSync(path.dirname(tree), {
+            recursive: true,
+            force: true,
+            maxRetries: 3,
+            retryDelay: 100
+          })
+        } catch {
+          // See comment above: intentionally swallowed.
+        }
+      }
+    }
+  }
+
+  /** Is `headRefName` the branch `init()` generates? Fixed prefix + trailing digits, same
+   *  closed-boundary reasoning as `isShareBranchFor` — there is only one target here (the repo
+   *  layout itself), so no name-collision case exists, but the digit boundary still keeps a
+   *  manually created `argus/init-hivemind-notes` branch from being misread as ours. */
+  private isInitBranch(headRefName: string): boolean {
+    return /^argus\/init-hivemind-\d+$/.test(headRefName)
+  }
+
+  /**
+   * The open init PR, if any. `mine` is true only when our own stored receipt
+   * (`pushes['init/hivemind']`, repo-matched) still resolves via `gh pr view` to an open PR on
+   * an `isInitBranch`-shaped branch — mirrors `openPrFor`'s receipt path. Any open init-branch
+   * PR found the other way (via `gh pr list`, no matching receipt) is `mine: false`
+   * unconditionally: there is no way to prove it is ours, and per `openPrFor`'s own reasoning
+   * that ambiguity must resolve to "someone else's," never the reverse.
+   *
+   * Unlike `push()`/`SharePushDialog`, there is no separate renderer-facing status check before
+   * the dialog offers the button — this is the only place the lookup runs, called fresh right
+   * after `fetch` + `worktree prune` and before any worktree is created, which is what closes
+   * the same race window `push()`'s `reopenPrFor` doc comment describes.
+   */
+  private async findOpenInitPr(): Promise<{
+    prUrl: string
+    branch: string
+    mine: boolean
+    author: string
+  } | null> {
+    const repo = this.deps.repo().trim()
+    const receipt = this.state().pushes['init/hivemind']
+    if (receipt && receipt.repo === repo) {
+      try {
+        const pr = JSON.parse(
+          await this.gh(['pr', 'view', receipt.prUrl, '--json', 'state,headRefName'])
+        ) as { state: string; headRefName: string }
+        if (pr.state === 'OPEN' && this.isInitBranch(pr.headRefName)) {
+          return { prUrl: receipt.prUrl, branch: pr.headRefName, mine: true, author: '' }
+        }
+      } catch {
+        // receipt's PR no longer resolvable (deleted branch, bad url) — fall through to the
+        // general listing below.
+      }
+    }
+    const prs = JSON.parse(
+      await this.gh([
+        'pr',
+        'list',
+        '--repo',
+        repo,
+        '--state',
+        'open',
+        '--limit',
+        '100',
+        '--json',
+        'url,headRefName,author'
+      ])
+    ) as { url: string; headRefName: string; author: { login: string } }[]
+    const hit = prs.find((p) => this.isInitBranch(p.headRefName))
+    return hit
+      ? { prUrl: hit.url, branch: hit.headRefName, mine: false, author: hit.author.login }
+      : null
   }
 }

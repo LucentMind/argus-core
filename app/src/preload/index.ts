@@ -93,6 +93,8 @@ import type {
   HivemindCheckResult,
   HivemindPayload,
   HivemindPushResult,
+  HivemindInitPreview,
+  HivemindInitResult,
   LocalDivergence,
   PushStatus
 } from '../shared/hivemind'
@@ -800,7 +802,9 @@ const argus = {
       invoke(IPC.hivemindPush, kind, name, title),
     pushStatus: (kind: 'skill' | 'reference', name: string): Promise<PushStatus> =>
       invoke(IPC.hivemindPushStatus, kind, name),
-    pushExecutables: (name: string): Promise<string[]> => invoke(IPC.hivemindPushExecutables, name)
+    pushExecutables: (name: string): Promise<string[]> => invoke(IPC.hivemindPushExecutables, name),
+    initPreview: (): Promise<HivemindInitPreview> => invoke(IPC.hivemindInitPreview),
+    init: (): Promise<HivemindInitResult> => invoke(IPC.hivemindInit)
   },
   proposals: {
     list: (): Promise<ProposalsPayload> => invoke(IPC.proposalsList),
