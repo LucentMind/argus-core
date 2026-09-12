@@ -38,7 +38,41 @@ export const bundleRowsSchema = z.looseObject({
         outputTokens: z.number().nullable().default(null),
         costUsd: z.number().nullable().default(null),
         durationMs: z.number().nullable().default(null),
-        createdAt: z.string()
+        createdAt: z.string(),
+        // Absent in every bundle written before rewind/fork existed — nullable with a null
+        // default lets those old rows.json shapes keep parsing (see the bundleRowsSchema test
+        // in shared/__tests__/bundle.test.ts).
+        model: z.string().nullable().default(null),
+        rewoundAt: z.string().nullable().default(null),
+        rewoundToTurnId: z.number().nullable().default(null),
+        providerAnchorId: z.string().nullable().default(null)
+      })
+    )
+    .default([]),
+  /**
+   * Per-session metadata the archive rebuild otherwise has no way to restore:
+   * `registerImportedSessions` re-creates sessions from the mirrored transcript JSONL alone,
+   * which carries none of `driver_kind`/`instance_id`/`model`/`mode` or the fork-lineage
+   * columns. Default `[]` because every bundle written before this field existed has none.
+   */
+  sessions: z
+    .array(
+      z.looseObject({
+        id: z.number(),
+        /** Nullable with a null default so bundles written before titles were carried still
+         *  parse; restore then leaves the rebuilt (transcript-derived) title alone. */
+        title: z.string().nullable().default(null),
+        driverKind: z.string(),
+        instanceId: z.string().nullable().default(null),
+        model: z.string().nullable().default(null),
+        mode: z.string(),
+        forkedFromSessionId: z.number().nullable().default(null),
+        forkedAtTurnId: z.number().nullable().default(null),
+        forkedInheritedTurns: z.number().nullable().default(null),
+        /** 'native' | 'digest' — what the fork actually got. Not recomputable after a restore
+         *  (the cursors and provider anchors that made it native are deliberately not put
+         *  back), and the divider that reports it is permanent, so it rides in the sidecar. */
+        forkedBranching: z.string().nullable().default(null)
       })
     )
     .default([]),

@@ -26,7 +26,8 @@ import { panelCommandRiskMap, type PanelCommandDecl } from './panelCommands'
 import type { Detection } from '../packs/detection'
 import { caseDir } from '../paths'
 import { readSessionEvents } from './mirror'
-import { buildHistoryDigest } from './historyDigest'
+import { buildHistoryDigest, filterLiveEvents } from './historyDigest'
+import { rewoundTurnIds } from './liveTurns'
 import { ingestContent } from '../ingest'
 import { createImmediateQueue, type IngestQueueLike } from '../ingestQueue'
 import { isEditableTool } from '../../../shared/editableTools'
@@ -741,10 +742,11 @@ export class CaseSession {
   private historyDigestForTurn(): string {
     if (!this.needsHistoryReplay()) return ''
     try {
-      const events = readSessionEvents(
+      const all = readSessionEvents(
         caseDir(this.deps.argusHome, this.deps.caseSlug),
         this.sessionId
       )
+      const { events } = filterLiveEvents(all, rewoundTurnIds(this.deps.db, this.sessionId))
       return buildHistoryDigest(events, {
         canReadTranscript: (NATIVE_TOOL_DRIVERS as readonly string[]).includes(
           this.deps.driver.kind
@@ -1327,7 +1329,8 @@ export class CaseSession {
     if (this.currentTurnRow != null) {
       this.deps.db
         .prepare(
-          `UPDATE turns SET status = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, duration_ms = ?, model = ?
+          `UPDATE turns SET status = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, duration_ms = ?, model = ?,
+                            provider_anchor_id = ?
            WHERE id = ?`
         )
         .run(
@@ -1337,6 +1340,7 @@ export class CaseSession {
           r.costUsd,
           r.durationMs,
           r.model,
+          r.providerAnchorId ?? null,
           this.currentTurnRow
         )
     }

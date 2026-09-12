@@ -4,7 +4,12 @@ export type TranscriptItem =
   | { kind: 'user'; text: string; turnId: number | null; composed?: boolean }
   | { kind: 'assistant'; text: string; streaming: boolean; turnId: number | null }
   /** A CLI lifecycle note (compaction progress/outcome) — not prose from either party. */
-  | { kind: 'notice'; noticeKind: 'compacting' | 'compacted' | 'compact_failed'; text: string }
+  | {
+      kind: 'notice'
+      noticeKind: 'compacting' | 'compacted' | 'compact_failed'
+      text: string
+      turnId: number | null
+    }
   | {
       kind: 'tool'
       toolCallId: string
@@ -12,6 +17,7 @@ export type TranscriptItem =
       outputPreview: string
       done: boolean
       isError: boolean
+      turnId: number | null
     }
 
 export type PendingDialog = Extract<AgentEvent, { type: 'dialog.opened' }>['payload']
@@ -166,7 +172,8 @@ export class AgentStore {
                 name: e.payload.name,
                 outputPreview: '',
                 done: false,
-                isError: false
+                isError: false,
+                turnId: e.turnId
               }
             ]
           }
@@ -226,7 +233,8 @@ export class AgentStore {
           const notice = {
             kind: 'notice' as const,
             noticeKind: e.payload.kind,
-            text: e.payload.text
+            text: e.payload.text,
+            turnId: e.turnId
           }
           // The outcome replaces its own "compacting…" row rather than stacking under it.
           if (

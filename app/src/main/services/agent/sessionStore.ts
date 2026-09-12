@@ -7,10 +7,11 @@ import { caseDir } from '../paths'
 import { appendDeletionAudit } from '../deletionAudit'
 import { deleteMessagesFtsForSession } from '../ftsIndex'
 import { assertCaseWritable, isCaseArchived } from '../caseFreeze'
+import { rewoundTurnsOf } from './liveTurns'
 import type { RunOptionSelection } from '../../../shared/runOptions'
 import { PERMISSION_MODES, type PermissionMode } from '../../../shared/settings'
 
-const TITLE_MAX = 40
+export const TITLE_MAX = 40
 
 // A raw id lookup rather than caseService's getCase (which returns the full CaseRecord):
 // this module only ever needs the numeric id, and caseService imports createSession /
@@ -34,11 +35,17 @@ interface SessionRow {
   mode: string
   run_options: string | null
   permission_mode: string | null
+  forked_from_session_id: number | null
+  forked_at_turn_id: number | null
+  forked_inherited_turns: number | null
+  forked_branching: string | null
 }
 
-const SESSION_COLS = `id, title, turn_count, updated_at, driver_kind, instance_id, model, mode, run_options, permission_mode`
+const SESSION_COLS = `id, title, turn_count, updated_at, driver_kind, instance_id, model, mode, run_options, permission_mode, forked_from_session_id, forked_at_turn_id, forked_inherited_turns, forked_branching`
 
-function rowToSummary(r: SessionRow): SessionSummary {
+/** Takes `db` because the two branching fields are not columns of this row: `rewound` is a
+ *  query over the session's turns, and only `liveTurns.ts` states what "rewound" means. */
+function rowToSummary(db: DatabaseSync, r: SessionRow): SessionSummary {
   return {
     id: r.id,
     title: r.title,
@@ -50,7 +57,20 @@ function rowToSummary(r: SessionRow): SessionSummary {
     mode: r.mode as ModeId,
     runOptions: parseRunOptions(r.run_options),
     permissionMode: parsePermissionMode(r.permission_mode),
-    historyOrphaned: false
+    historyOrphaned: false,
+    rewound: rewoundTurnsOf(db, r.id),
+    forkedFrom:
+      r.forked_from_session_id == null
+        ? null
+        : {
+            sessionId: r.forked_from_session_id,
+            turnId: r.forked_at_turn_id!,
+            inheritedTurns: r.forked_inherited_turns ?? 0,
+            // 'digest' for anything but a recorded 'native': a fork row written before the
+            // column existed has NULL, and promising "full context carried over" on no evidence
+            // is the failure mode this whole field exists to end.
+            branching: r.forked_branching === 'native' ? 'native' : 'digest'
+          }
   }
 }
 
@@ -110,7 +130,9 @@ export function createSession(
     mode: p.mode ?? DEFAULT_MODE,
     runOptions: [],
     permissionMode: null,
-    historyOrphaned: false
+    historyOrphaned: false,
+    rewound: [],
+    forkedFrom: null
   }
 }
 
@@ -149,7 +171,7 @@ export function listSessions(
     const p: SessionProvider = typeof provider === 'string' ? { driverKind: provider } : provider
     return [createSession(db, caseSlug, mode !== undefined ? { ...p, mode } : p)]
   }
-  return (rows as SessionRow[]).map(rowToSummary)
+  return (rows as SessionRow[]).map((r) => rowToSummary(db, r))
 }
 
 /** The provider/model a session is pinned to, or nulls when it predates multi-provider. */
@@ -221,7 +243,14 @@ export function latestSessionForMode(
       `SELECT ${SESSION_COLS} FROM sessions WHERE case_id = ? AND mode = ? ORDER BY updated_at DESC, id DESC LIMIT 1`
     )
     .get(caseId, mode) as SessionRow | undefined
-  return row ? rowToSummary(row) : null
+  return row ? rowToSummary(db, row) : null
+}
+
+/** One session's summary by id — the shape rewind/fork hand back to the renderer. */
+export function sessionSummary(db: DatabaseSync, sessionId: number): SessionSummary | null {
+  const row = db.prepare(`SELECT ${SESSION_COLS} FROM sessions WHERE id = ?`).get(sessionId) as
+    SessionRow | undefined
+  return row ? rowToSummary(db, row) : null
 }
 
 export function renameSession(db: DatabaseSync, sessionId: number, title: string): void {
@@ -297,6 +326,16 @@ export function deleteSession(
     deleteMessagesFtsForSession(db, sessionId)
     db.prepare(`DELETE FROM tool_calls WHERE session_id = ?`).run(sessionId)
     db.prepare(`DELETE FROM turns WHERE session_id = ?`).run(sessionId)
+    // No column in this schema carries a foreign key, so nothing else clears the lineage of
+    // chats forked FROM this one. Left dangling, the fork divider went on announcing "Forked
+    // from chat 7" with an "open" button that switched to a chat that no longer exists. A fork
+    // whose parent is gone is not a fork any more: clear all four columns together, inside this
+    // transaction, so a rollback cannot leave the children half-detached.
+    db.prepare(
+      `UPDATE sessions SET forked_from_session_id = NULL, forked_at_turn_id = NULL,
+              forked_inherited_turns = NULL, forked_branching = NULL
+        WHERE forked_from_session_id = ?`
+    ).run(sessionId)
     db.prepare(`DELETE FROM sessions WHERE id = ?`).run(sessionId)
     db.exec('COMMIT')
   } catch (err) {
