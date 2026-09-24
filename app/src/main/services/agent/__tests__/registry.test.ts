@@ -488,7 +488,89 @@ describe('AgentService', () => {
       expect(r.t).toBe(0.03)
     })
     expect(sum()).toBeCloseTo(0.03, 10)
+    // the first result's tokens and duration are summed in, not overwritten away
+    const last = db
+      .prepare(
+        `SELECT input_tokens AS i, output_tokens AS o, duration_ms AS d FROM turns
+         WHERE session_id = ? ORDER BY id DESC LIMIT 1`
+      )
+      .get(s1.id)
+    expect({ ...last }).toEqual({ i: 2, o: 2, d: 2 })
     await svc.stopAll()
+  })
+
+  // The tracker reports a zeroed crash/startup error result with no running total (see
+  // turnCost.ts). Landing on an already-finished row, it must not erase that row's stored
+  // total — the next resume's baseline — nor turn the finished turn's success into an error.
+  it('a zeroed error result on a finished row keeps its running total and status', async () => {
+    const SID = '77777777-7777-4777-8777-777777777777'
+    const result = (total: number): Record<string, unknown> => ({
+      type: 'result',
+      subtype: 'success',
+      session_id: SID,
+      usage: { input_tokens: 1, output_tokens: 1 },
+      total_cost_usd: total,
+      duration_ms: 1,
+      is_error: false
+    })
+    const { createQuery, queues, optionsLog } = fakeCreateQuery()
+    const mk = (): AgentService =>
+      new AgentService({
+        queue: createImmediateQueue(db, argusHome),
+        db,
+        argusHome,
+        detection,
+        skillsRoots: [],
+        agentAccess: () => defaultAgentAccess(),
+        githubWatermark: () => ({ enabled: false, text: '' }),
+        onEvent: () => undefined,
+        createQuery
+      })
+    const turnCount = (sessionId: number, n: number): Promise<void> =>
+      vi.waitFor(() => {
+        const r = db
+          .prepare(`SELECT turn_count AS n FROM sessions WHERE id = ?`)
+          .get(sessionId) as {
+          n: number
+        }
+        expect(r.n).toBe(n)
+      })
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    const svc = mk()
+    await svc.send('NAV-1', s1.id, 'a')
+    queues[0].push({ type: 'system', subtype: 'init', session_id: SID, model: 'm' })
+    queues[0].push(result(0.03))
+    await turnCount(s1.id, 1)
+    queues[0].push({
+      type: 'result',
+      subtype: 'error_during_execution',
+      session_id: SID,
+      usage: { input_tokens: 0, output_tokens: 0 },
+      total_cost_usd: 0,
+      duration_ms: 0,
+      is_error: true
+    })
+    await turnCount(s1.id, 2)
+    const row = db
+      .prepare(
+        `SELECT status AS s, cost_usd AS c, sdk_total_cost_usd AS t, sdk_cost_cursor AS k
+         FROM turns WHERE session_id = ?`
+      )
+      .get(s1.id)
+    expect({ ...row }).toEqual({ s: 'success', c: 0.03, t: 0.03, k: SID })
+    await svc.stopAll()
+
+    const svc2 = mk() // app restart: resumes SID from the 0.03 baseline
+    await svc2.send('NAV-1', s1.id, 'b')
+    expect(optionsLog[1].resume).toBe(SID)
+    queues[1].push(result(0.05))
+    await vi.waitFor(() => {
+      const r = db
+        .prepare(`SELECT cost_usd AS c FROM turns WHERE session_id = ? ORDER BY id DESC LIMIT 1`)
+        .get(s1.id) as { c: number | null }
+      expect(r.c).toBe(0.02)
+    })
+    await svc2.stopAll()
   })
 
   // The resume baseline belongs to the SDK conversation, not the Argus session. Here the

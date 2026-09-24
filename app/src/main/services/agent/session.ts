@@ -1333,30 +1333,47 @@ export class CaseSession {
       // result arrives (see send()), so that result and the new turn's can both land here.
       // The CLI may run the queued send as its own turn or fold it into the running one
       // (sdk.d.ts 0.3.281 `queued_turn_count`), so results cannot be paired with rows; a
-      // second result on an already-finished row ADDS its cost instead of overwriting it,
-      // keeping SUM(cost_usd) whole.
+      // second result on an already-finished row ADDS its cost, tokens and duration instead of
+      // overwriting them, keeping SUM(cost_usd) whole.
       const prior = this.deps.db
-        .prepare(`SELECT status, cost_usd AS c FROM turns WHERE id = ?`)
-        .get(this.currentTurnRow) as { status: string; c: number | null } | undefined
-      const costUsd =
-        prior && prior.status !== 'running' && prior.c != null
-          ? prior.c + (r.costUsd ?? 0)
-          : r.costUsd
+        .prepare(
+          `SELECT status, cost_usd AS c, input_tokens AS i, output_tokens AS o, duration_ms AS d
+           FROM turns WHERE id = ?`
+        )
+        .get(this.currentTurnRow) as
+        | { status: string; c: number | null; i: number | null; o: number | null; d: number | null }
+        | undefined
+      const finished = prior != null && prior.status !== 'running'
+      const add = (a: number | null | undefined, b: number | null): number | null =>
+        finished && a != null ? a + (b ?? 0) : b
+      // A no-cost error (the SDK's zeroed crash/startup result) says nothing about a turn that
+      // already finished, so it keeps that row's status; any other result sets it as before.
+      const status =
+        finished && r.isError && !(r.costUsd != null && r.costUsd > 0)
+          ? prior.status
+          : r.isError
+            ? 'error'
+            : 'success'
+      // The running total and its conversation are written as a pair, and only when the result
+      // carried a total: a null one (zeroed error) must not erase the next resume's baseline.
       this.deps.db
         .prepare(
           `UPDATE turns SET status = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, duration_ms = ?, model = ?,
-             sdk_total_cost_usd = ?, sdk_cost_cursor = ?
+             sdk_cost_cursor = CASE WHEN ? IS NULL THEN sdk_cost_cursor ELSE ? END,
+             sdk_total_cost_usd = CASE WHEN ? IS NULL THEN sdk_total_cost_usd ELSE ? END
            WHERE id = ?`
         )
         .run(
-          r.isError ? 'error' : 'success',
-          r.inputTokens,
-          r.outputTokens,
-          costUsd,
-          r.durationMs,
+          status,
+          add(prior?.i, r.inputTokens),
+          add(prior?.o, r.outputTokens),
+          add(prior?.c, r.costUsd),
+          add(prior?.d, r.durationMs),
           r.model,
           r.sdkTotalCostUsd ?? null,
           r.sdkCostCursor ?? null,
+          r.sdkTotalCostUsd ?? null,
+          r.sdkTotalCostUsd ?? null,
           this.currentTurnRow
         )
     }
