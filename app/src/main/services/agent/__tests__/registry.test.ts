@@ -440,6 +440,57 @@ describe('AgentService', () => {
     await svc2.stopAll()
   })
 
+  // A message sent while a turn runs gets its own row, and currentTurnRow moves to it, so the
+  // running turn's result and the new one's both land on the newer row. The CLI may run the
+  // queued send as its own turn (two results, as here) or fold/coalesce it into the running
+  // one (one result — sdk.d.ts 0.3.281 `queued_turn_count`), so results cannot be matched to
+  // rows one-for-one; what must hold is that no turn's cost is overwritten away.
+  it('keeps both turns’ cost when a message is sent mid-turn', async () => {
+    const SID = '66666666-6666-4666-8666-666666666666'
+    const result = (total: number): Record<string, unknown> => ({
+      type: 'result',
+      subtype: 'success',
+      session_id: SID,
+      usage: { input_tokens: 1, output_tokens: 1 },
+      total_cost_usd: total,
+      duration_ms: 1,
+      is_error: false
+    })
+    const { createQuery, queues } = fakeCreateQuery()
+    const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
+      onEvent: () => undefined,
+      createQuery
+    })
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    await svc.send('NAV-1', s1.id, 'a')
+    await svc.send('NAV-1', s1.id, 'b') // before a's result: the same live session
+    expect(queues).toHaveLength(1)
+    queues[0].push({ type: 'system', subtype: 'init', session_id: SID, model: 'm' })
+    queues[0].push(result(0.01))
+    queues[0].push(result(0.03))
+    const sum = (): number | null =>
+      (
+        db.prepare(`SELECT SUM(cost_usd) AS c FROM turns WHERE session_id = ?`).get(s1.id) as {
+          c: number | null
+        }
+      ).c
+    await vi.waitFor(() => {
+      const r = db
+        .prepare(`SELECT sdk_total_cost_usd AS t FROM turns WHERE session_id = ? ORDER BY id DESC`)
+        .get(s1.id) as { t: number | null }
+      expect(r.t).toBe(0.03)
+    })
+    expect(sum()).toBeCloseTo(0.03, 10)
+    await svc.stopAll()
+  })
+
   // The resume baseline belongs to the SDK conversation, not the Argus session. Here the
   // session's first conversation (SID1) is lost, a fresh one (SID2) starts, and the app dies
   // before SID2 reports any total. Resuming SID2 must not subtract SID1's total.

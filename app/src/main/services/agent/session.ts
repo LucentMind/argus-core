@@ -1329,6 +1329,19 @@ export class CaseSession {
   // (non-auth) error leaves the auth state untouched.
   private handleTurnResult(r: TurnResult): void {
     if (this.currentTurnRow != null) {
+      // A message sent mid-turn moves currentTurnRow to its own row before the running turn's
+      // result arrives (see send()), so that result and the new turn's can both land here.
+      // The CLI may run the queued send as its own turn or fold it into the running one
+      // (sdk.d.ts 0.3.281 `queued_turn_count`), so results cannot be paired with rows; a
+      // second result on an already-finished row ADDS its cost instead of overwriting it,
+      // keeping SUM(cost_usd) whole.
+      const prior = this.deps.db
+        .prepare(`SELECT status, cost_usd AS c FROM turns WHERE id = ?`)
+        .get(this.currentTurnRow) as { status: string; c: number | null } | undefined
+      const costUsd =
+        prior && prior.status !== 'running' && prior.c != null
+          ? prior.c + (r.costUsd ?? 0)
+          : r.costUsd
       this.deps.db
         .prepare(
           `UPDATE turns SET status = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, duration_ms = ?, model = ?,
@@ -1339,7 +1352,7 @@ export class CaseSession {
           r.isError ? 'error' : 'success',
           r.inputTokens,
           r.outputTokens,
-          r.costUsd,
+          costUsd,
           r.durationMs,
           r.model,
           r.sdkTotalCostUsd ?? null,
