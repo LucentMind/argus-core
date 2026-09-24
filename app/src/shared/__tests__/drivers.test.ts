@@ -36,6 +36,7 @@ import { descriptorsFor, type ModelOptionInfo } from '../runOptions'
 // approximation that could accidentally agree with a broken resolver.
 import CLI_CATALOG from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-220.json'
 import CLI_CATALOG_263 from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-263.json'
+import CLI_CATALOG_281 from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-281.json'
 
 const CATALOG_ORDER = [
   // Row 0 is the fresh-install seed for every new case (`defaultModelRef`): Opus 5.5, on
@@ -888,6 +889,24 @@ describe('canonicalizePreferences', () => {
       favoriteModels: ['claude-fable-5', 'claude-opus-5'],
       // only the raw alias itself follows the CLI's re-pointing — that IS what an alias means
       modelOrder: ['claude-fable-5-1']
+    })
+  })
+
+  // 2.1.281 re-points `opus[1m]` / `default` at Opus 5.5. A favourite stored by wire slug
+  // (`claude-opus-5`) stays Opus 5. Only a preference still stored as the raw alias follows the
+  // CLI to Opus 5.5 — that is what an alias means (spec 2026-09-24-opus-5-5-model-design).
+  it('keeps a claude-opus-5 favourite on Opus 5 when the opus alias moves to Opus 5.5', () => {
+    const rows281 = catalogModelRows(CLI_CATALOG_281 as ModelOptionInfo[])
+    expect(
+      canonicalizePreferences(rows281, {
+        hiddenModels: [],
+        favoriteModels: ['claude-opus-5', 'opus[1m]'],
+        modelOrder: []
+      })
+    ).toEqual({
+      hiddenModels: [],
+      favoriteModels: ['claude-opus-5', 'claude-opus-5-5'],
+      modelOrder: []
     })
   })
 

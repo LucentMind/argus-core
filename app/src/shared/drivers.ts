@@ -198,8 +198,9 @@ const CLAUDE_MODEL_SPECS: readonly ClaudeModelSpec[] = [
     fastMode: true
   },
   // Opus 5 was row 0 from spec 2026-09-07-fresh-install-model-defaults until Opus 5.5 took the
-  // slot. On CLI 2.1.281's alias menu no alias resolves here any more, so — like Fable 5 — it
-  // reaches the picker only through this static row (see `mergeBuiltinRows`). Measured
+  // slot. On CLI 2.1.281's alias menu no alias resolves here any more (the entitlement-list
+  // catalog still lists it by slug), so on that menu — like Fable 5 — it reaches the picker
+  // only through this static row (see `mergeBuiltinRows`). Measured
   // 2026-08-02: the BARE slug runs (`modelUsage: {"claude-opus-5"}`), takes `--effort`, the
   // `[1m]` suffix and fast mode.
   {
