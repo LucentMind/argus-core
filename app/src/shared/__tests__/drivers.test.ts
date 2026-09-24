@@ -38,8 +38,9 @@ import CLI_CATALOG from '../../main/services/agent/drivers/claude/__fixtures__/m
 import CLI_CATALOG_263 from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-263.json'
 
 const CATALOG_ORDER = [
-  // Row 0 is the fresh-install seed for every new case (`defaultModelRef`): Opus 5, on purpose
-  // — spec 2026-09-07-fresh-install-model-defaults. Favourites, order and hide still override.
+  // Row 0 is the fresh-install seed for every new case (`defaultModelRef`): Opus 5.5, on
+  // purpose — spec 2026-09-24-opus-5-5-model-design. Favourites, order and hide still override.
+  'claude-opus-5-5',
   'claude-opus-5',
   'claude-fable-5-1',
   'claude-fable-5',
@@ -726,24 +727,24 @@ describe('defaultModelRef', () => {
   it('is the default instance’s top model, instance-qualified', () => {
     expect(defaultModelRef(multi())).toEqual({
       instanceId: 'claude-default',
-      slug: 'claude-opus-5'
+      slug: 'claude-opus-5-5'
     })
   })
 
   // The fresh-install default is a property of the static order, not a stored value: with no
-  // preferences at all, both seeds read Opus 5 straight off row 0.
-  it('seeds Opus 5 on a pristine install (no favourites, no order, no hidden, no config.model)', () => {
+  // preferences at all, both seeds read Opus 5.5 straight off row 0.
+  it('seeds Opus 5.5 on a pristine install (no favourites, no order, no hidden, no config.model)', () => {
     const s = withPrefs()
-    expect(defaultModelRef(s)?.slug).toBe('claude-opus-5')
-    expect(effectiveDefaultModel(s)).toBe('claude-opus-5')
+    expect(defaultModelRef(s)?.slug).toBe('claude-opus-5-5')
+    expect(effectiveDefaultModel(s)).toBe('claude-opus-5-5')
   })
 
-  // Hiding is a preference like any other: a user who hides Opus 5 and nothing else must not
-  // be seeded with a model they hid. The next visible row is Fable 5.1.
-  it('a user who only hides Opus 5 is seeded with the next visible row, never the hidden one', () => {
-    const s = withPrefs({ hiddenModels: ['claude-opus-5'] })
-    expect(defaultModelRef(s)?.slug).toBe('claude-fable-5-1')
-    expect(effectiveDefaultModel(s)).toBe('claude-fable-5-1')
+  // Hiding is a preference like any other: a user who hides Opus 5.5 and nothing else must not
+  // be seeded with a model they hid. The next visible row is Opus 5.
+  it('a user who only hides Opus 5.5 is seeded with the next visible row, never the hidden one', () => {
+    const s = withPrefs({ hiddenModels: ['claude-opus-5-5'] })
+    expect(defaultModelRef(s)?.slug).toBe('claude-opus-5')
+    expect(effectiveDefaultModel(s)).toBe('claude-opus-5')
   })
 
   it('follows the default instance when it changes', () => {

@@ -172,9 +172,10 @@ describe('Composer', () => {
       .getAllByRole('menuitem')
       .map((el) => el.textContent)
     // the full static catalog is offered, unchanged — no catalog-only row leaked in.
-    // Opus 5 is row 0 on purpose: it is the fresh-install seed for new cases
-    // (spec 2026-09-07-fresh-install-model-defaults).
+    // Opus 5.5 is row 0 on purpose: it is the fresh-install seed for new cases
+    // (spec 2026-09-24-opus-5-5-model-design).
     expect(items).toEqual([
+      'Claude Opus 5.5',
       'Claude Opus 5',
       'Claude Fable 5.1',
       'Claude Fable 5',
@@ -437,7 +438,7 @@ describe('Composer', () => {
     }))
     const onModelChange = vi.fn()
     render(<Composer disabled={false} onSend={vi.fn()} onModelChange={onModelChange} />)
-    fireEvent.click(await screen.findByText('Claude Opus 5 · Claude'))
+    fireEvent.click(await screen.findByText('Claude Opus 5.5 · Claude'))
     const menu = screen.getByRole('menu', { name: 'Model' })
     const items = within(menu)
       .getAllByRole('menuitem')
@@ -474,6 +475,7 @@ describe('Composer', () => {
       .map((el) => el.textContent)
     expect(items).toEqual([
       'Claude Sonnet 5',
+      'Claude Opus 5.5',
       'Claude Opus 5',
       'Claude Fable 5.1',
       'Claude Fable 5',

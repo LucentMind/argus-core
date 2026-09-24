@@ -181,13 +181,27 @@ interface ClaudeModelSpec {
 const CLAUDE_MODEL_SPECS: readonly ClaudeModelSpec[] = [
   // Row 0 is the FRESH-INSTALL DEFAULT for new cases (and routines): `defaultModelRef` /
   // `effectiveDefaultModel` / the registry seed all read the top ordered visible row, and with
-  // no preferences that is this one. Opus 5 on purpose (spec 2026-09-07-fresh-install-model-
-  // defaults): the CLI's own recommended default, half Fable's per-token price, 1M, fast mode.
-  // Favourites, reordering and hiding still override — the built-in order only decides what a
-  // user who has chosen nothing gets. Measured 2026-08-02: the BARE slug runs
-  // (`modelUsage: {"claude-opus-5"}`), takes `--effort`, the `[1m]` suffix and fast mode, so
-  // unlike the catalog's `opus[1m]` alias row (which dedupes this one post-load, see
-  // `mergeBuiltinRows`) it can be run at 200k.
+  // no preferences that is this one. Opus 5.5 on purpose (spec 2026-09-24-opus-5-5-model-
+  // design): on SDK 0.3.281 (CLI 2.1.281) the CLI's own `opus`, `opus[1m]` and `default`
+  // aliases resolve here (on an account whose CLI has cached its org's model list, `default`
+  // may name another model — see EVIDENCE.md; the seed reads this order, not that alias), and
+  // it is priced below Opus 5. Favourites, reordering and hiding still override — the built-in
+  // order only decides what a user who has chosen nothing gets. Like Fable 5.1 it needs a newer
+  // bundled CLI than the one before it: the API gates the slug on the CLI version header. The
+  // probe turns behind these flags (bare slug, `[1m]`, `--effort xhigh`, fast mode) are in
+  // drivers/claude/__fixtures__/EVIDENCE.md.
+  {
+    slug: 'claude-opus-5-5',
+    name: 'Claude Opus 5.5',
+    effort: true,
+    adaptiveThinking: true,
+    fastMode: true
+  },
+  // Opus 5 was row 0 from spec 2026-09-07-fresh-install-model-defaults until Opus 5.5 took the
+  // slot. On CLI 2.1.281's alias menu no alias resolves here any more, so — like Fable 5 — it
+  // reaches the picker only through this static row (see `mergeBuiltinRows`). Measured
+  // 2026-08-02: the BARE slug runs (`modelUsage: {"claude-opus-5"}`), takes `--effort`, the
+  // `[1m]` suffix and fast mode.
   {
     slug: 'claude-opus-5',
     name: 'Claude Opus 5',

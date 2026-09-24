@@ -1032,7 +1032,7 @@ describe('AgentService — per-session provider and model', () => {
     const s = createSession(db, 'NAV-1', 'claude-agent-sdk') // nulls
     await svc.send('NAV-1', s.id, 'hi')
     await new Promise((r) => setTimeout(r, 10))
-    expect(optionsLog[0].model).toBe('claude-opus-5') // row 0 — the fresh-install seed
+    expect(optionsLog[0].model).toBe('claude-opus-5-5') // row 0 — the fresh-install seed
     await svc.stopAll()
   })
 })
