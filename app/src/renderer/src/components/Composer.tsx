@@ -841,9 +841,9 @@ export function Composer({
               value={model}
               onChange={(label) => {
                 const picked = models.find((m) => modelOptionLabel(m, showProvider) === label)
-                // `pinSlugFor`, not `picked.slug`: the CLI's only Opus 5 alias is `opus[1m]`,
-                // and pinning a session AT the suffix makes Context Window inert (see that
-                // function). The row's own slug stays its identity for matching.
+                // `pinSlugFor`, not `picked.slug`: on CLI 2.1.220 the only Opus 5 alias is
+                // `opus[1m]`, and pinning a session AT the suffix makes Context Window inert
+                // (see that function). The row's own slug stays its identity for matching.
                 if (picked) onModelChange?.(picked.instanceId, pinSlugFor(picked))
               }}
               options={modelOptions}

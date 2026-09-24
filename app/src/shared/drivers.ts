@@ -182,13 +182,13 @@ const CLAUDE_MODEL_SPECS: readonly ClaudeModelSpec[] = [
   // Row 0 is the FRESH-INSTALL DEFAULT for new cases (and routines): `defaultModelRef` /
   // `effectiveDefaultModel` / the registry seed all read the top ordered visible row, and with
   // no preferences that is this one. Opus 5.5 on purpose (spec 2026-09-24-opus-5-5-model-
-  // design): on SDK 0.3.281 (CLI 2.1.281) the CLI's own `opus`, `opus[1m]` and `default`
-  // aliases resolve here (on an account whose CLI has cached its org's model list, `default`
-  // may name another model — see EVIDENCE.md; the seed reads this order, not that alias), and
-  // it is priced below Opus 5. Favourites, reordering and hiding still override — the built-in
-  // order only decides what a user who has chosen nothing gets. Like Fable 5.1 it needs a newer
-  // bundled CLI than the one before it: the API gates the slug on the CLI version header. The
-  // probe turns behind these flags (bare slug, `[1m]`, `--effort xhigh`, fast mode) are in
+  // design): on SDK 0.3.281 (CLI 2.1.281) the alias menu's `opus[1m]` and `default` and the
+  // entitlement list's bare `opus` resolve here (that list's `default` may name another model;
+  // the seed reads this order, not that alias), and it is priced below Opus 5. Favourites,
+  // reordering and hiding still override — the built-in order only decides what a user who
+  // has chosen nothing gets. It needs the bundled CLI at 2.1.280 or newer: on 2.1.263 the API
+  // rejected the slug ("version 2.1.280 or newer is required", HTTP 400). The probe turns
+  // behind these flags (bare slug, `[1m]`, `--effort xhigh`, fast mode) are in
   // drivers/claude/__fixtures__/EVIDENCE.md.
   {
     slug: 'claude-opus-5-5',
@@ -752,10 +752,10 @@ function prettifyModelSlug(id: string): string {
 /**
  * The static row a 1M-pinning catalog alias is the 1M variant OF, when we ship one.
  *
- * `opus[1m]` resolves to `claude-opus-5[1m]`; this returns the `claude-opus-5` row. Undefined
- * for every other alias, and — critically — for a model we ship no static row for: there the
- * bare wire slug is an ASSUMPTION, and {@link CLAUDE_MODEL_SPECS} is the only place that
- * records a slug actually having been run. Opus 5's entry there carries the 2026-08-02
+ * On CLI 2.1.220 `opus[1m]` resolves to `claude-opus-5[1m]`; this returns the `claude-opus-5`
+ * row. Undefined for every other alias, and — critically — for a model we ship no static row
+ * for: there the bare wire slug is an ASSUMPTION, and {@link CLAUDE_MODEL_SPECS} is the only
+ * place that records a slug actually having been run. Opus 5's entry there carries the 2026-08-02
  * measurement that the bare slug runs (`modelUsage: {"claude-opus-5"}`), which is the whole
  * warrant for {@link pinSlugFor} handing it out.
  *
@@ -772,11 +772,11 @@ function oneMillionAliasBase(resolvedModel: string | undefined): CatalogModel | 
 /**
  * The slug to PIN when the user picks this row — which is NOT always the row's own `slug`.
  *
- * The CLI's only Opus 5 alias is `opus[1m]`, so picking that row used to pin the session at
- * the `[1m]` suffix. `apiModelId` cannot take a suffix back off, so Context Window collapsed
- * to a single inert "1M" position and every send went out at 1M — while the chip, matched
- * back to the same row, read "Claude Opus 5 (1M)" whatever the session was really pinned to.
- * A session pinned to the bare slug therefore showed a (1M) name over a 200k run.
+ * On CLI 2.1.220 the only Opus 5 alias is `opus[1m]`, so picking that row used to pin the
+ * session at the `[1m]` suffix. `apiModelId` cannot take a suffix back off, so Context Window
+ * collapsed to a single inert "1M" position and every send went out at 1M — while the chip,
+ * matched back to the same row, read "Claude Opus 5 (1M)" whatever the session was really
+ * pinned to. A session pinned to the bare slug therefore showed a (1M) name over a 200k run.
  *
  * The cause was context window being represented TWICE: once inside the model's identity
  * (the suffix, and the ` (1M)` name it earned) and once as a run option. This makes the run

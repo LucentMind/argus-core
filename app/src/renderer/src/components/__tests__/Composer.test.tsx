@@ -75,6 +75,8 @@ describe('Composer', () => {
   // after Opus 5 became the seed, and never listed Opus 5 or Fable 5.1 at all. It is now the
   // built-in catalog itself, so its first entry is the same row 0 the seed reads.
   it('renders the option chips, falling back to static labels before settings load', () => {
+    // never resolves: the component stays in its pre-settings state for the whole test
+    window.argus.settings.get = vi.fn(() => new Promise(() => undefined)) as never
     render(<Composer disabled={false} onSend={vi.fn()} />)
     expect(screen.getByText('Claude Opus 5.5')).toBeTruthy()
     expect(screen.getByText('Ask approvals')).toBeTruthy()

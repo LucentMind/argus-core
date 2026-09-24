@@ -281,7 +281,10 @@ describe('against the 2.1.281 entitlement-list catalog', () => {
     expect(merged.filter((m) => m.name === 'Claude Opus 5')).toHaveLength(1)
   })
 
-  // Neither `opus` nor `claude-opus-5-5` carries a `[1m]`, so `pinSlugFor` has nothing to strip.
+  // Records current behaviour, not a design decision: neither `opus` nor `claude-opus-5-5`
+  // carries a `[1m]`, so `pinSlugFor` has nothing to strip and pins the alias itself. A session
+  // picked from this row therefore follows the CLI's `opus` alias to future Opus releases,
+  // unlike the wire-slug rows, which stay pinned to one model.
   it('pins the opus alias itself for the bare opus row (no 1M to strip)', () => {
     expect(pinSlugFor(rows.find((m) => m.slug === 'opus')!)).toBe('opus')
   })
