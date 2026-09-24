@@ -17,7 +17,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { fingerprintServers, McpService } from '../../mcp'
 import { ConnectorRegistry } from '../../connectors'
 import { SecretStore, type SecretCrypto } from '../../secrets'
-import type { AgentDriver, DriverKind, DriverSession } from '../driver'
+import type { AgentDriver, DriverKind, DriverSession, DriverSessionContext } from '../driver'
 import { CLAUDE_TOOL_TAXONOMY } from '../risk'
 import { PERMISSION_MODES } from '../../../../shared/settings'
 import { clearCatalogCache } from '../drivers/claude/catalog'
@@ -573,6 +573,93 @@ describe('AgentService', () => {
     await svc2.stopAll()
   })
 
+  // Only a driver that reports a running total (Claude: sdkTotalCostUsd defined) merges a
+  // second result into an already-finished row. Any other driver keeps the pre-Opus-5.5
+  // behaviour: each result overwrites the row. Copilot, for one, reports once per
+  // `assistant.turn_end`, so a tool-using message delivers two results to one row.
+  it('a non-Claude driver’s second result on a finished row overwrites it, as before', async () => {
+    const { driver, ctx } = ctxCapturingDriver('github-copilot')
+    const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
+      onEvent: () => undefined,
+      driver
+    })
+    const s1 = createSession(db, 'NAV-1', 'github-copilot')
+    await svc.send('NAV-1', s1.id, 'a')
+    const base = { model: 'gpt', authFailure: false }
+    ctx()?.onTurnResult({
+      ...base,
+      isError: false,
+      inputTokens: 10,
+      outputTokens: 20,
+      costUsd: 0.1,
+      durationMs: 100
+    })
+    ctx()?.onTurnResult({
+      ...base,
+      isError: true,
+      inputTokens: 3,
+      outputTokens: 4,
+      costUsd: null,
+      durationMs: 5
+    })
+    const row = db
+      .prepare(
+        `SELECT status AS s, input_tokens AS i, output_tokens AS o, cost_usd AS c, duration_ms AS d
+         FROM turns WHERE session_id = ?`
+      )
+      .get(s1.id)
+    expect({ ...row }).toEqual({ s: 'error', i: 3, o: 4, c: null, d: 5 })
+    await svc.stopAll()
+  })
+
+  // The (running total, conversation) pair is written only whole: a result carrying a total
+  // but no cursor must leave both stored columns alone, or the next resume could match a
+  // baseline against the wrong conversation.
+  it('writes the running-total pair only when both the total and its cursor are present', async () => {
+    const { driver, ctx } = ctxCapturingDriver('claude-agent-sdk')
+    const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
+      onEvent: () => undefined,
+      driver
+    })
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    await svc.send('NAV-1', s1.id, 'a')
+    const base = {
+      model: 'm',
+      authFailure: false,
+      isError: false,
+      inputTokens: 1,
+      outputTokens: 1,
+      durationMs: 1
+    }
+    ctx()?.onTurnResult({ ...base, costUsd: 0.03, sdkTotalCostUsd: 0.03, sdkCostCursor: 'SID' })
+    ctx()?.onTurnResult({ ...base, costUsd: 0.02, sdkTotalCostUsd: 0.05, sdkCostCursor: null })
+    const pair = (): unknown => ({
+      ...db
+        .prepare(
+          `SELECT sdk_total_cost_usd AS t, sdk_cost_cursor AS k FROM turns WHERE session_id = ?`
+        )
+        .get(s1.id)
+    })
+    expect(pair()).toEqual({ t: 0.03, k: 'SID' })
+    ctx()?.onTurnResult({ ...base, costUsd: 0.02, sdkTotalCostUsd: null, sdkCostCursor: 'SID2' })
+    expect(pair()).toEqual({ t: 0.03, k: 'SID' })
+    await svc.stopAll()
+  })
+
   // The resume baseline belongs to the SDK conversation, not the Argus session. Here the
   // session's first conversation (SID1) is lost, a fresh one (SID2) starts, and the app dies
   // before SID2 reports any total. Resuming SID2 must not subtract SID1's total.
@@ -1106,6 +1193,24 @@ function stubDriver(kind: DriverKind, calls: DriverKind[]): AgentDriver {
     },
     probeAuth: async () => ({ ok: true, detail: '' })
   }
+}
+
+/** A stub AgentDriver that exposes the DriverSessionContext the harness hands its session,
+ *  so a test can deliver TurnResults through the real `onTurnResult` seam directly. */
+function ctxCapturingDriver(kind: DriverKind): {
+  driver: AgentDriver
+  ctx: () => DriverSessionContext | undefined
+} {
+  let captured: DriverSessionContext | undefined
+  const base = stubDriver(kind, [])
+  const driver: AgentDriver = {
+    ...base,
+    createSession(c: DriverSessionContext): DriverSession {
+      captured = c
+      return base.createSession(c)
+    }
+  }
+  return { driver, ctx: () => captured }
 }
 
 describe('AgentService driver resolution (Phase 3 checkpoint item 5)', () => {

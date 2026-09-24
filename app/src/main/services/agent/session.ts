@@ -1329,20 +1329,34 @@ export class CaseSession {
   // (non-auth) error leaves the auth state untouched.
   private handleTurnResult(r: TurnResult): void {
     if (this.currentTurnRow != null) {
-      // A message sent mid-turn moves currentTurnRow to its own row before the running turn's
+      // Claude only (a driver reporting a running total, sdkTotalCostUsd !== undefined): a
+      // message sent mid-turn moves currentTurnRow to its own row before the running turn's
       // result arrives (see send()), so that result and the new turn's can both land here.
       // The CLI may run the queued send as its own turn or fold it into the running one
       // (sdk.d.ts 0.3.281 `queued_turn_count`), so results cannot be paired with rows; a
       // second result on an already-finished row ADDS its cost, tokens and duration instead of
-      // overwriting them, keeping SUM(cost_usd) whole.
-      const prior = this.deps.db
-        .prepare(
-          `SELECT status, cost_usd AS c, input_tokens AS i, output_tokens AS o, duration_ms AS d
-           FROM turns WHERE id = ?`
-        )
-        .get(this.currentTurnRow) as
-        | { status: string; c: number | null; i: number | null; o: number | null; d: number | null }
-        | undefined
+      // overwriting them. Only SUM(cost_usd) over the session is exact then: the earlier row
+      // stays 'running' with no cost, and its spend lands on the later row.
+      // Every other driver keeps plain overwrite — e.g. Copilot reports once per
+      // `assistant.turn_end`, and its last result on a row is the one that stands.
+      const prior =
+        r.sdkTotalCostUsd === undefined
+          ? undefined
+          : (this.deps.db
+              .prepare(
+                `SELECT status, cost_usd AS c, input_tokens AS i, output_tokens AS o,
+                   duration_ms AS d
+                 FROM turns WHERE id = ?`
+              )
+              .get(this.currentTurnRow) as
+              | {
+                  status: string
+                  c: number | null
+                  i: number | null
+                  o: number | null
+                  d: number | null
+                }
+              | undefined)
       const finished = prior != null && prior.status !== 'running'
       const add = (a: number | null | undefined, b: number | null): number | null =>
         finished && a != null ? a + (b ?? 0) : b
@@ -1355,12 +1369,16 @@ export class CaseSession {
             ? 'error'
             : 'success'
       // The running total and its conversation are written as a pair, and only when the result
-      // carried a total: a null one (zeroed error) must not erase the next resume's baseline.
+      // carried both: a missing one (e.g. a zeroed error's null total) must not erase or split
+      // the next resume's baseline.
+      const total = r.sdkTotalCostUsd ?? null
+      const cursor = r.sdkCostCursor ?? null
       this.deps.db
         .prepare(
           `UPDATE turns SET status = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, duration_ms = ?, model = ?,
-             sdk_cost_cursor = CASE WHEN ? IS NULL THEN sdk_cost_cursor ELSE ? END,
-             sdk_total_cost_usd = CASE WHEN ? IS NULL THEN sdk_total_cost_usd ELSE ? END
+             sdk_cost_cursor = CASE WHEN ? IS NULL OR ? IS NULL THEN sdk_cost_cursor ELSE ? END,
+             sdk_total_cost_usd =
+               CASE WHEN ? IS NULL OR ? IS NULL THEN sdk_total_cost_usd ELSE ? END
            WHERE id = ?`
         )
         .run(
@@ -1370,10 +1388,12 @@ export class CaseSession {
           add(prior?.c, r.costUsd),
           add(prior?.d, r.durationMs),
           r.model,
-          r.sdkTotalCostUsd ?? null,
-          r.sdkCostCursor ?? null,
-          r.sdkTotalCostUsd ?? null,
-          r.sdkTotalCostUsd ?? null,
+          total,
+          cursor,
+          cursor,
+          total,
+          cursor,
+          total,
           this.currentTurnRow
         )
     }
