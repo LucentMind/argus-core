@@ -205,6 +205,59 @@ describe('descriptorsFor', () => {
       ])
       expect(effortValues(unknown)).toContain('ultracode')
     })
+
+    // Opus 5.5 (SDK 0.3.281 / CLI 2.1.281; spec 2026-09-24-opus-5-5-model-design). The CLI's
+    // baked catalog gives this model, alone among the current ones, `default_effort:
+    // "medium"`, and Argus follows it. Context Window and Fast Mode follow the probe turns in
+    // drivers/claude/__fixtures__/EVIDENCE.md.
+    describe('Opus 5.5', () => {
+      const OPUS_55 = curated('claude-opus-5-5', {
+        supportsAdaptiveThinking: true,
+        supportsFastMode: true
+      })
+
+      it('defaults Reasoning to medium, not the usual high', () => {
+        const d = descriptorsFor(OPUS_55).find((x) => x.id === 'effort')
+        expect(d?.type === 'select' && d.options.find((o) => o.isDefault)?.value).toBe('medium')
+      })
+
+      it('offers all five levels, Ultracode and Ultrathink', () => {
+        expect(effortValues(OPUS_55)).toEqual([
+          'low',
+          'medium',
+          'high',
+          'xhigh',
+          'max',
+          'ultracode',
+          'ultrathink'
+        ])
+      })
+
+      // The catalog flags `rejects_disabled_thinking`. Only the Thinking toggle can send
+      // `alwaysThinkingEnabled: false`, and it is offered only to models without Reasoning.
+      it('never offers the Thinking toggle', () => {
+        expect(descriptorsFor(OPUS_55).some((d) => d.id === 'thinking')).toBe(false)
+      })
+
+      // The bare slug already runs at 1M (EVIDENCE.md), so 1M is the default and 200k a cap.
+      it('offers 1M by default with a 200k cap', () => {
+        const d = descriptorsFor(OPUS_55, 'claude-opus-5-5').find((x) => x.id === 'contextWindow')
+        expect(d?.type === 'select' && d.options).toEqual([
+          { value: '1m', label: '1M', isDefault: true },
+          { value: 'cap-200k', label: '200k cap' }
+        ])
+      })
+
+      it('offers Fast Mode (the probe measured fast_mode_state "on")', () => {
+        expect(descriptorsFor(OPUS_55).some((d) => d.id === 'fastMode')).toBe(true)
+      })
+
+      // Does not collide with Opus 5's row: `claude-opus-5-5` is not a dated `claude-opus-5`.
+      it('leaves Opus 5 on the standard high default', () => {
+        const d = descriptorsFor(curated('claude-opus-5')).find((x) => x.id === 'effort')
+        expect(d?.type === 'select' && d.options.find((o) => o.isDefault)?.value).toBe('high')
+      })
+    })
   })
 
   it('emits Context Window with exactly two choices in the correct order and defaults', () => {
