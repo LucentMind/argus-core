@@ -16,6 +16,7 @@ import {
   allVisibleModels,
   capabilitiesFor,
   catalogModelRows,
+  DRIVERS,
   defaultInstanceId,
   defaultModelRef,
   findModelRow,
@@ -50,6 +51,16 @@ import {
   PERMISSION_MODE_DISABLED_TITLE,
   type CollapsedSection
 } from './OptionsMenu'
+
+/**
+ * What the model picker offers until the settings payload first arrives: the built-in Claude
+ * catalog, in its own order. Derived rather than typed out — the hand-written list this
+ * replaced fell three releases behind (no Opus 5, no Fable 5.1, led by a model that was no
+ * longer the default).
+ */
+const PRE_SETTINGS_MODEL_OPTIONS: readonly string[] = DRIVERS['claude-agent-sdk'].models.map(
+  (m) => m.name
+)
 
 /**
  * Session-option picker: model and permission mode. Reasoning, Context Window, Fast Mode and
@@ -369,7 +380,7 @@ export function Composer({
   const modelOptions = models.length
     ? models.map((m) => modelOptionLabel(m, showProvider))
     : // static fallback until the settings payload first arrives
-      ['Claude Fable 5', 'Claude Opus 4.8', 'Claude Sonnet 5', 'Claude Haiku 4.5']
+      [...PRE_SETTINGS_MODEL_OPTIONS]
 
   // What this chat is pinned to. A session created before multi-provider has a null model,
   // so fall back to the settings default (which still honours a hand-set config.model) —

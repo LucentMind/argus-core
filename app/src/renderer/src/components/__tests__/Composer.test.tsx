@@ -71,10 +71,25 @@ describe('Composer', () => {
     expect(container.querySelector('[data-onboarding-anchor="composer"]')).toBeTruthy()
   })
 
+  // The placeholder used to be a hand-typed list that went stale: it still led with Fable 5
+  // after Opus 5 became the seed, and never listed Opus 5 or Fable 5.1 at all. It is now the
+  // built-in catalog itself, so its first entry is the same row 0 the seed reads.
   it('renders the option chips, falling back to static labels before settings load', () => {
     render(<Composer disabled={false} onSend={vi.fn()} />)
-    expect(screen.getByText('Claude Fable 5')).toBeTruthy()
+    expect(screen.getByText('Claude Opus 5.5')).toBeTruthy()
     expect(screen.getByText('Ask approvals')).toBeTruthy()
+  })
+
+  it('offers exactly the built-in Claude catalog in the picker before settings load', () => {
+    // never resolves: the component stays in its pre-settings state for the whole test
+    window.argus.settings.get = vi.fn(() => new Promise(() => undefined)) as never
+    render(<Composer disabled={false} onSend={vi.fn()} />)
+    fireEvent.click(screen.getByText('Claude Opus 5.5'))
+    const menu = screen.getByRole('menu', { name: 'Model' })
+    const items = within(menu)
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent)
+    expect(items).toEqual(DRIVERS['claude-agent-sdk'].models.map((m) => m.name))
   })
 
   it('tool-results toggle flips uiStore.showToolCalls', () => {
@@ -416,7 +431,12 @@ describe('Composer', () => {
   it('picking a model re-pins the session rather than only changing local state', async () => {
     const onModelChange = vi.fn()
     render(<Composer disabled={false} onSend={vi.fn()} onModelChange={onModelChange} />)
-    fireEvent.click(await screen.findByText('Claude Fable 5'))
+    // Wait for settings explicitly: the pre-settings placeholder and the default seed both
+    // read "Claude Opus 5.5", so the chip's label alone cannot tell us the rows have loaded
+    // (before they do, the picker has no rows to resolve a pick against and fires nothing).
+    // This used to find "Claude Fable 5" — a label only the STALE placeholder rendered.
+    await waitFor(() => expect(settingsStore.get()).not.toBeNull())
+    fireEvent.click(screen.getByText('Claude Opus 5.5'))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Claude Sonnet 5' }))
     expect(onModelChange).toHaveBeenCalledWith('claude-default', 'claude-sonnet-5')
   })
