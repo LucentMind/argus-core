@@ -563,6 +563,8 @@ export class CaseSession {
       panelCommandDecls: deps.panelCommandDecls ?? [],
       dispatchPanelCommand: deps.dispatchPanelCommand,
       resumeCursor: deps.resumeCursor,
+      // Only meaningful with a cursor: a fresh conversation's running total starts at zero.
+      resumeCostBaseline: deps.resumeCursor ? lastSdkTotalCost(deps.db, this.sessionId) : null,
       eventCtx: () => this.ctx(),
       onToolRequest: this.handleToolRequest.bind(this),
       classifyOnly: this.classifyOnly.bind(this),
@@ -1327,7 +1329,8 @@ export class CaseSession {
     if (this.currentTurnRow != null) {
       this.deps.db
         .prepare(
-          `UPDATE turns SET status = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, duration_ms = ?, model = ?
+          `UPDATE turns SET status = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, duration_ms = ?, model = ?,
+             sdk_total_cost_usd = ?
            WHERE id = ?`
         )
         .run(
@@ -1337,6 +1340,7 @@ export class CaseSession {
           r.costUsd,
           r.durationMs,
           r.model,
+          r.sdkTotalCostUsd ?? null,
           this.currentTurnRow
         )
     }
@@ -1399,4 +1403,22 @@ export class CaseSession {
       this.releaseSpawnedPids()
     }
   }
+}
+
+/**
+ * The SDK running cost total that the latest recorded turn of this Argus session reported —
+ * the baseline a resumed query() continues from (see agent/drivers/claude/turnCost.ts). Null
+ * when no turn recorded one, i.e. every turn predates the `sdk_total_cost_usd` column. After a
+ * lost cursor the next conversation starts fresh, so by the time IT is resumed its own turns
+ * are the latest rows.
+ */
+function lastSdkTotalCost(db: DatabaseSync, sessionId: number): number | null {
+  const row = db
+    .prepare(
+      `SELECT sdk_total_cost_usd AS t FROM turns
+       WHERE session_id = ? AND sdk_total_cost_usd IS NOT NULL
+       ORDER BY id DESC LIMIT 1`
+    )
+    .get(sessionId) as { t: number } | undefined
+  return row?.t ?? null
 }

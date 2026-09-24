@@ -618,6 +618,12 @@ export function openDb(file: string): DatabaseSync {
   if (!turnCols.some((c) => c.name === 'model')) {
     db.exec(`ALTER TABLE turns ADD COLUMN model TEXT`)
   }
+  if (!turnCols.some((c) => c.name === 'sdk_total_cost_usd')) {
+    // The driver's own running cost total as the SDK reported it (Claude: total_cost_usd),
+    // kept only so a resumed session can subtract it. cost_usd is the turn's own spend. See
+    // agent/drivers/claude/turnCost.ts. NULL for turns recorded before this column existed.
+    db.exec(`ALTER TABLE turns ADD COLUMN sdk_total_cost_usd REAL`)
+  }
   const tcCols = db.prepare(`PRAGMA table_info(tool_calls)`).all() as { name: string }[]
   if (!tcCols.some((c) => c.name === 'detail')) {
     // Usage-stats capture: skill name / memory topic / reference relpath for the calls that

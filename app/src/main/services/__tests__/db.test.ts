@@ -56,6 +56,18 @@ describe('openDb', () => {
     db.close()
   })
 
+  it('adds a nullable REAL turns.sdk_total_cost_usd column', () => {
+    const db = openDb(tmpDbPath())
+    const cols = db.prepare(`PRAGMA table_info(turns)`).all() as {
+      name: string
+      type: string
+      notnull: number
+    }[]
+    const total = cols.find((c) => c.name === 'sdk_total_cost_usd')
+    expect(total).toMatchObject({ type: 'REAL', notnull: 0 })
+    db.close()
+  })
+
   it('cases table has a nullable resolution column', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-db-'))
     const db = openDb(path.join(dir, 'a.db'))

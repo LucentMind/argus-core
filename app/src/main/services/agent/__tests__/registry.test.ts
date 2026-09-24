@@ -372,6 +372,74 @@ describe('AgentService', () => {
     await svc2.stopAll()
   })
 
+  // End to end through the harness: per-turn cost across two turns of one live query(), then
+  // across an app restart whose resumed query() continues from the saved running total
+  // (sdk.d.ts 0.3.281). turns.cost_usd holds each turn's own spend; sdk_total_cost_usd holds
+  // the SDK's running total, which the next resume subtracts. See drivers/claude/turnCost.ts.
+  it('stores per-turn cost across turns and across an app-restart resume', async () => {
+    const SID = '22222222-2222-4222-8222-222222222222'
+    const result = (total: number): Record<string, unknown> => ({
+      type: 'result',
+      subtype: 'success',
+      session_id: SID,
+      usage: { input_tokens: 1, output_tokens: 1 },
+      total_cost_usd: total,
+      duration_ms: 1,
+      is_error: false
+    })
+    const { createQuery, queues, optionsLog } = fakeCreateQuery()
+    const mk = (): AgentService =>
+      new AgentService({
+        queue: createImmediateQueue(db, argusHome),
+        db,
+        argusHome,
+        detection,
+        skillsRoots: [],
+        agentAccess: () => defaultAgentAccess(),
+        githubWatermark: () => ({ enabled: false, text: '' }),
+        onEvent: () => undefined,
+        createQuery
+      })
+    const settled = (sessionId: number, n: number): Promise<void> =>
+      vi.waitFor(() => {
+        const row = db
+          .prepare(`SELECT COUNT(*) AS n FROM turns WHERE session_id = ? AND status != 'running'`)
+          .get(sessionId) as { n: number }
+        expect(row.n).toBe(n)
+      })
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    const svc = mk()
+    await svc.send('NAV-1', s1.id, 'a')
+    queues[0].push({ type: 'system', subtype: 'init', session_id: SID, model: 'm' })
+    queues[0].push(result(0.01))
+    await settled(s1.id, 1)
+    await svc.send('NAV-1', s1.id, 'b')
+    queues[0].push(result(0.03))
+    await settled(s1.id, 2)
+    await svc.stopAll()
+
+    const svc2 = mk() // app restart: resumes SID
+    await svc2.send('NAV-1', s1.id, 'c')
+    // The restart really resumed the saved conversation (one query() per service instance).
+    expect(optionsLog).toHaveLength(2)
+    expect(optionsLog[0].resume).toBeUndefined()
+    expect(optionsLog[1].resume).toBe(SID)
+    queues[1].push(result(0.07))
+    await settled(s1.id, 3)
+
+    const rows = db
+      .prepare(
+        `SELECT cost_usd AS c, sdk_total_cost_usd AS t FROM turns WHERE session_id = ? ORDER BY id`
+      )
+      .all(s1.id)
+    expect(rows.map((r) => ({ ...r }))).toEqual([
+      { c: 0.01, t: 0.01 },
+      { c: 0.02, t: 0.03 },
+      { c: 0.04, t: 0.07 }
+    ])
+    await svc2.stopAll()
+  })
+
   // The failure captured in a real case bundle (sessions/6.jsonl, 2026-09-02..04): after a
   // `reconfigured` rebuild the CLI no longer held the conversation behind `driver_cursor`,
   // and every send for two days resumed that same dead uuid and crashed identically.
