@@ -188,6 +188,54 @@ describe('createClaudeDriver', () => {
     expect(events).toContain('turn.completed')
   })
 
+  // sdk.d.ts (0.3.281): `total_cost_usd` is the query() call's RUNNING total, and one streaming
+  // query() spans every turn of a live session. Stored raw, SUM(cost_usd) counted turn 1 again
+  // inside turn 2, and so on. See turnCost.ts.
+  describe('per-turn cost', () => {
+    const SID = '11111111-1111-4111-8111-111111111111'
+    const result = (total: number): Record<string, unknown> => ({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      usage: { input_tokens: 1, output_tokens: 1 },
+      total_cost_usd: total,
+      duration_ms: 1,
+      session_id: SID
+    })
+    const drain = async (
+      ctx: ReturnType<typeof baseCtx>,
+      messages: unknown[]
+    ): Promise<(number | null)[]> => {
+      const session = createClaudeDriver(fakeQuery(messages)).createSession(ctx)
+      const completed: (number | null)[] = []
+      for await (const e of session.events()) {
+        if (e.type === 'turn.completed') completed.push(e.payload.costUsd)
+      }
+      return completed
+    }
+
+    it('reports each turn its own cost in TurnResult and turn.completed, plus the raw total', async () => {
+      const ctx = baseCtx()
+      expect(await drain(ctx, [result(0.01), result(0.03)])).toEqual([0.01, 0.02])
+      expect(
+        vi.mocked(ctx.onTurnResult).mock.calls.map(([r]) => [r.costUsd, r.sdkTotalCostUsd])
+      ).toEqual([
+        [0.01, 0.01],
+        [0.02, 0.03]
+      ])
+    })
+
+    it('subtracts resumeCostBaseline from the first result of a real resume', async () => {
+      const ctx = { ...baseCtx(), resumeCursor: SID, resumeCostBaseline: 0.05 }
+      expect(await drain(ctx, [result(0.07)])).toEqual([0.02])
+    })
+
+    it('ignores resumeCostBaseline when the session does not actually resume', async () => {
+      const ctx = { ...baseCtx(), resumeCursor: null, resumeCostBaseline: 0.05 }
+      expect(await drain(ctx, [result(0.01)])).toEqual([0.01])
+    })
+  })
+
   // Captured live 2026-09-07 (SDK 0.3.220): after a `compact_boundary` the CLI re-emits the
   // preserved tail of the conversation — the last assistant message arrives a SECOND time
   // with the SAME `uuid` and no `isReplay` flag. Without dedupe the transcript showed the

@@ -19,6 +19,7 @@ import type {
   TurnResult
 } from '../../driver'
 import { normalizeSdkMessage } from './normalize'
+import { createTurnCostTracker, type TurnCost } from './turnCost'
 import { runClaudeHeadless } from './headless'
 import { runClaudeHeadlessAgent } from './headlessAgent'
 
@@ -116,6 +117,9 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // trace root for a fresh session and only a marker for a resumed one, so a
       // hardcoded `false` here made every restart mint a second root.
       const isResume = Boolean(ctx.resumeCursor && UUID_RE.test(ctx.resumeCursor))
+      // One running-total tracker per query(). Seeded only on a REAL resume: a non-UUID cursor
+      // starts a fresh conversation whose total starts at zero. See turnCost.ts.
+      const turnCost = createTurnCostTracker(isResume ? (ctx.resumeCostBaseline ?? 0) : 0)
 
       // Declares WHICH field carries the prompt; the options bag below is the field, and
       // claudeDriver.test.ts asserts it actually holds ctx.systemAppend.
@@ -334,11 +338,13 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // api_error_status is 401 for a bad key but null when simply not logged in, so text
       // is still needed.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const extractTurnResult = (msg: any): TurnResult => ({
+      const extractTurnResult = (msg: any, cost: TurnCost): TurnResult => ({
         isError: Boolean(msg.is_error),
         inputTokens: msg.usage?.input_tokens ?? null,
         outputTokens: msg.usage?.output_tokens ?? null,
-        costUsd: msg.total_cost_usd ?? null,
+        // per-turn, not the SDK's running total — see turnCost.ts
+        costUsd: cost.costUsd,
+        sdkTotalCostUsd: cost.sdkTotalCostUsd,
         durationMs: msg.duration_ms ?? null,
         model: resolveTurnModel(msg),
         authFailure: Boolean(
@@ -372,7 +378,13 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
         for await (const msg of handle as AsyncIterable<any>) {
           updateCursor(msg)
           if (isReplayedFrame(msg)) continue
-          if (msg.type === 'result') ctx.onTurnResult(extractTurnResult(msg))
+          // Computed once per result: the DB row (via onTurnResult) and the turn.completed
+          // event the renderer sums must agree on the turn's cost.
+          let resultCost: TurnCost | undefined
+          if (msg.type === 'result') {
+            resultCost = turnCost(msg.total_cost_usd, Boolean(msg.is_error))
+            ctx.onTurnResult(extractTurnResult(msg, resultCost))
+          }
           // Finished assistant messages are the ONE place a tool_use block carries its
           // full input (stream partials arrive before input_json_deltas assemble), and
           // each toolCallId appears in exactly one finished message — top-level and
@@ -402,6 +414,10 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
             }
             if (ev.type === 'tool.call.completed' && !ev.payload.name) {
               ev.payload.name = toolNames.get(ev.payload.toolCallId) ?? ''
+            }
+            // normalize.ts copies the SDK's running total; replace it with this turn's own cost.
+            if (ev.type === 'turn.completed' && resultCost) {
+              ev.payload.costUsd = resultCost.costUsd
             }
             // Under the 200k cap the CLI compacts at 200k, but its `modelUsage` still
             // reports the model's native window (1M measured on Fable 5). The gauge must
