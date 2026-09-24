@@ -231,8 +231,42 @@ describe('createClaudeDriver', () => {
     })
 
     it('ignores resumeCostBaseline when the session does not actually resume', async () => {
-      const ctx = { ...baseCtx(), resumeCursor: null, resumeCostBaseline: 0.05 }
+      // A non-UUID cursor is the driver's own guard: the SDK starts a fresh conversation.
+      const ctx = { ...baseCtx(), resumeCursor: 'not-a-uuid', resumeCostBaseline: 0.05 }
       expect(await drain(ctx, [result(0.01)])).toEqual([0.01])
+      expect(lastOptions).not.toHaveProperty('resume')
+    })
+
+    it('tags the running total with the conversation it belongs to', async () => {
+      const ctx = baseCtx()
+      await drain(ctx, [
+        result(0.01),
+        { ...result(0.02), session_id: undefined },
+        { type: 'result', is_error: false, session_id: SID }
+      ])
+      expect(
+        vi.mocked(ctx.onTurnResult).mock.calls.map(([r]) => [r.sdkTotalCostUsd, r.sdkCostCursor])
+      ).toEqual([
+        [0.01, SID],
+        [0.02, null],
+        // no usable total → nothing to key
+        [null, null]
+      ])
+    })
+
+    // A /clear inside one query() starts a new session id whose total restarts at zero.
+    it('starts from zero when a result reports a different conversation', async () => {
+      const SID2 = '22222222-2222-4222-8222-222222222222'
+      const ctx = baseCtx()
+      expect(await drain(ctx, [result(0.01), { ...result(0.03), session_id: SID2 }])).toEqual([
+        0.01, 0.03
+      ])
+    })
+
+    it('does not subtract the baseline from a conversation other than the resumed one', async () => {
+      const SID2 = '22222222-2222-4222-8222-222222222222'
+      const ctx = { ...baseCtx(), resumeCursor: SID, resumeCostBaseline: 0.05 }
+      expect(await drain(ctx, [{ ...result(0.07), session_id: SID2 }])).toEqual([0.07])
     })
   })
 

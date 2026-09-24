@@ -60,6 +60,11 @@ export function isRejectedResume(msg: {
   return texts.some((t) => NO_CONVERSATION_RE.test(t))
 }
 
+/** The SDK conversation a result's running cost total belongs to, or null if it names none. */
+function resultConversation(msg: { session_id?: unknown }): string | null {
+  return typeof msg.session_id === 'string' && msg.session_id ? msg.session_id : null
+}
+
 /**
  * Auth-shaped failure detection (spec §5), calibrated against the real CLI (verified
  * 2026-07-16 — see .superpowers/sdd/auth-shape-evidence.md). Both real auth failures come
@@ -118,8 +123,11 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // hardcoded `false` here made every restart mint a second root.
       const isResume = Boolean(ctx.resumeCursor && UUID_RE.test(ctx.resumeCursor))
       // One running-total tracker per query(). Seeded only on a REAL resume: a non-UUID cursor
-      // starts a fresh conversation whose total starts at zero. See turnCost.ts.
-      const turnCost = createTurnCostTracker(isResume ? (ctx.resumeCostBaseline ?? 0) : 0)
+      // starts a fresh conversation whose total starts at zero. The baseline belongs to the
+      // resumed conversation, so a result from any other session id ignores it. See turnCost.ts.
+      const turnCost = isResume
+        ? createTurnCostTracker(ctx.resumeCostBaseline ?? 0, ctx.resumeCursor)
+        : createTurnCostTracker(0)
 
       // Declares WHICH field carries the prompt; the options bag below is the field, and
       // claudeDriver.test.ts asserts it actually holds ctx.systemAppend.
@@ -345,6 +353,7 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
         // per-turn, not the SDK's running total — see turnCost.ts
         costUsd: cost.costUsd,
         sdkTotalCostUsd: cost.sdkTotalCostUsd,
+        sdkCostCursor: cost.sdkTotalCostUsd === null ? null : resultConversation(msg),
         durationMs: msg.duration_ms ?? null,
         model: resolveTurnModel(msg),
         authFailure: Boolean(
@@ -382,7 +391,11 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
           // event the renderer sums must agree on the turn's cost.
           let resultCost: TurnCost | undefined
           if (msg.type === 'result') {
-            resultCost = turnCost(msg.total_cost_usd, Boolean(msg.is_error))
+            resultCost = turnCost(
+              msg.total_cost_usd,
+              Boolean(msg.is_error),
+              resultConversation(msg)
+            )
             ctx.onTurnResult(extractTurnResult(msg, resultCost))
           }
           // Finished assistant messages are the ONE place a tool_use block carries its

@@ -27,6 +27,10 @@ export interface TurnResult {
    *  driver has one. Persisted so a resumed session can subtract it — see
    *  drivers/claude/turnCost.ts. `costUsd` above is always this turn's own spend. */
   sdkTotalCostUsd?: number | null
+  /** The backend conversation `sdkTotalCostUsd` is the running total of (Claude:
+   *  `result.session_id`) — the key a resume matches its baseline on. Null whenever
+   *  `sdkTotalCostUsd` is. */
+  sdkCostCursor?: string | null
   durationMs: number | null
   model: string | null
   authFailure: boolean

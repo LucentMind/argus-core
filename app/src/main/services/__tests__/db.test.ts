@@ -56,7 +56,7 @@ describe('openDb', () => {
     db.close()
   })
 
-  it('adds a nullable REAL turns.sdk_total_cost_usd column', () => {
+  it('adds nullable turns.sdk_total_cost_usd (REAL) and turns.sdk_cost_cursor (TEXT) columns', () => {
     const db = openDb(tmpDbPath())
     const cols = db.prepare(`PRAGMA table_info(turns)`).all() as {
       name: string
@@ -65,6 +65,8 @@ describe('openDb', () => {
     }[]
     const total = cols.find((c) => c.name === 'sdk_total_cost_usd')
     expect(total).toMatchObject({ type: 'REAL', notnull: 0 })
+    const cursor = cols.find((c) => c.name === 'sdk_cost_cursor')
+    expect(cursor).toMatchObject({ type: 'TEXT', notnull: 0 })
     db.close()
   })
 

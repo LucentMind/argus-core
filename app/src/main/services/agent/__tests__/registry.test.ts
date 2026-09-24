@@ -440,6 +440,113 @@ describe('AgentService', () => {
     await svc2.stopAll()
   })
 
+  // The resume baseline belongs to the SDK conversation, not the Argus session. Here the
+  // session's first conversation (SID1) is lost, a fresh one (SID2) starts, and the app dies
+  // before SID2 reports any total. Resuming SID2 must not subtract SID1's total.
+  it('does not subtract an earlier conversation’s total when resuming a newer one', async () => {
+    const SID1 = '44444444-4444-4444-8444-444444444444'
+    const SID2 = '55555555-5555-4555-8555-555555555555'
+    const result = (sid: string, total: number): Record<string, unknown> => ({
+      type: 'result',
+      subtype: 'success',
+      session_id: sid,
+      usage: { input_tokens: 1, output_tokens: 1 },
+      total_cost_usd: total,
+      duration_ms: 1,
+      is_error: false
+    })
+    const queues: AsyncQueue<unknown>[] = []
+    const optionsLog: Record<string, unknown>[] = []
+    const createQuery: CreateQueryFn = (args) => {
+      const options = args.options as Record<string, unknown>
+      const q = new AsyncQueue<unknown>()
+      if (!options.systemPrompt) {
+        return Object.assign(
+          { [Symbol.asyncIterator]: () => q[Symbol.asyncIterator]() },
+          { interrupt: async () => q.end() }
+        )
+      }
+      optionsLog.push(options)
+      queues.push(q)
+      // The CLI no longer holds SID1: its one frame echoes the uuid, then the stream throws
+      // (see 'a resume the CLI rejects clears the cursor…' above).
+      const rejected = options.resume === SID1
+      return Object.assign(
+        {
+          async *[Symbol.asyncIterator]() {
+            if (!rejected) {
+              yield* q
+              return
+            }
+            yield {
+              type: 'result',
+              subtype: 'error_during_execution',
+              is_error: true,
+              num_turns: 0,
+              session_id: SID1,
+              errors: [`No conversation found with session ID: ${SID1}`]
+            }
+            throw new Error(`Claude Code returned an error result: No conversation found`)
+          }
+        },
+        { interrupt: async () => q.end() }
+      )
+    }
+    const mk = (): AgentService =>
+      new AgentService({
+        queue: createImmediateQueue(db, argusHome),
+        db,
+        argusHome,
+        detection,
+        skillsRoots: [],
+        agentAccess: () => defaultAgentAccess(),
+        githubWatermark: () => ({ enabled: false, text: '' }),
+        onEvent: (e) => events.push(e),
+        createQuery
+      })
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+
+    const svc = mk()
+    await svc.send('NAV-1', s1.id, 'a')
+    queues[0].push({ type: 'system', subtype: 'init', session_id: SID1, model: 'm' })
+    queues[0].push(result(SID1, 0.3))
+    await vi.waitFor(() => {
+      const r = db.prepare(`SELECT sdk_total_cost_usd AS t FROM turns`).get() as { t: number }
+      expect(r.t).toBe(0.3)
+    })
+    await svc.stopAll()
+
+    const svc2 = mk() // restart: the resume of SID1 is rejected, the cursor is dropped
+    await svc2.send('NAV-1', s1.id, 'b')
+    await vi.waitFor(() =>
+      expect(
+        events.some((e) => e.type === 'session.exited' && e.payload.reason === 'crashed')
+      ).toBe(true)
+    )
+    await svc2.send('NAV-1', s1.id, 'c') // fresh conversation SID2
+    expect(optionsLog[2].resume).toBeUndefined()
+    queues[2].push({ type: 'system', subtype: 'init', session_id: SID2, model: 'm' })
+    await vi.waitFor(() => {
+      const r = db.prepare(`SELECT driver_cursor AS c FROM sessions WHERE id = ?`).get(s1.id) as {
+        c: string | null
+      }
+      expect(r.c).toBe(SID2)
+    })
+    await svc2.stopAll() // the app dies before SID2's first result
+
+    const svc3 = mk()
+    await svc3.send('NAV-1', s1.id, 'd')
+    expect(optionsLog[3].resume).toBe(SID2)
+    queues[3].push(result(SID2, 0.5))
+    await vi.waitFor(() => {
+      const r = db
+        .prepare(`SELECT cost_usd AS c, sdk_cost_cursor AS k FROM turns ORDER BY id DESC LIMIT 1`)
+        .get() as { c: number | null; k: string | null }
+      expect(r).toEqual({ c: 0.5, k: SID2 })
+    })
+    await svc3.stopAll()
+  })
+
   // The failure captured in a real case bundle (sessions/6.jsonl, 2026-09-02..04): after a
   // `reconfigured` rebuild the CLI no longer held the conversation behind `driver_cursor`,
   // and every send for two days resumed that same dead uuid and crashed identically.

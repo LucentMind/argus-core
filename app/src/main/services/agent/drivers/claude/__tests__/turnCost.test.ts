@@ -17,14 +17,33 @@ describe('createTurnCostTracker', () => {
     expect(t(0.07, false)).toEqual({ costUsd: 0.02, sdkTotalCostUsd: 0.07 })
   })
 
-  // A resumed transcript that carried no saved total (written by an older CLI), or a
-  // mid-session /clear: the SDK's total restarted, so all of it belongs to this turn.
+  // Fallback when no conversation id tells us: a resumed transcript that carried no saved
+  // total (written by an older CLI) — the SDK's total restarted, so all of it is this turn's.
   it('treats a total below the previous one as a reset', () => {
     const resumed = createTurnCostTracker(0.05)
     expect(resumed(0.01, false)).toEqual({ costUsd: 0.01, sdkTotalCostUsd: 0.01 })
     const cleared = createTurnCostTracker(0)
     cleared(0.03, false)
     expect(cleared(0.004, false)).toEqual({ costUsd: 0.004, sdkTotalCostUsd: 0.004 })
+  })
+
+  // A result from a different conversation than the tracker last saw (e.g. /clear starts a
+  // new session id inside the same query()): its running total restarted from zero, even when
+  // it has already grown past the previous conversation's total.
+  it('starts from zero when the result belongs to a different conversation', () => {
+    const t = createTurnCostTracker(0)
+    expect(t(0.03, false, 'conv-1')).toEqual({ costUsd: 0.03, sdkTotalCostUsd: 0.03 })
+    expect(t(0.05, false, 'conv-2')).toEqual({ costUsd: 0.05, sdkTotalCostUsd: 0.05 })
+    expect(t(0.06, false, 'conv-2')).toEqual({ costUsd: 0.01, sdkTotalCostUsd: 0.06 })
+    // A result without a conversation id keeps the last one.
+    expect(t(0.08, false, null)).toEqual({ costUsd: 0.02, sdkTotalCostUsd: 0.08 })
+  })
+
+  it('subtracts the baseline only for the resumed conversation itself', () => {
+    const same = createTurnCostTracker(0.05, 'resumed')
+    expect(same(0.07, false, 'resumed')).toEqual({ costUsd: 0.02, sdkTotalCostUsd: 0.07 })
+    const other = createTurnCostTracker(0.05, 'resumed')
+    expect(other(0.07, false, 'fresh')).toEqual({ costUsd: 0.07, sdkTotalCostUsd: 0.07 })
   })
 
   // "Crash/startup-error results may carry zeroed values" — not a real total, so it must

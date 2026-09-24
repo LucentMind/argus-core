@@ -10,13 +10,20 @@
  * the renderer sums `turn.completed` costs), so storing the raw total over-counted. This turns
  * it back into the turn's own spend. Measured in drivers/claude/__fixtures__/EVIDENCE.md.
  *
+ * The total belongs to one SDK conversation (`result.session_id`), so the tracker keys it on
+ * that id. A resume-seeded tracker starts in the resumed conversation (the resume cursor); a
+ * fresh one starts in none.
+ *
  * Rules, in order:
  *  1. no finite, non-negative number → cost unknown (null), running total unchanged;
  *  2. a zeroed error result ("crash/startup-error results may carry zeroed values") → cost 0,
  *     running total unchanged, and nothing to persist (it is not a real total);
- *  3. total ≥ previous → the difference;
- *  4. total < previous → the SDK restarted its total (a mid-session /clear, or a resumed
- *     transcript that carried no saved total) → the whole total is this turn's.
+ *  3. a conversation id that differs from the last one seen → that conversation's total
+ *     started at zero (e.g. a /clear, which mints a new session id — Argus does not offer it,
+ *     but typed as prompt text it still reaches the CLI) → the whole total is this turn's;
+ *  4. total ≥ previous → the difference;
+ *  5. total < previous → the SDK restarted its total without a new id (a resumed transcript
+ *     that carried no saved total, or a result lacking a session id) → the whole total.
  */
 export interface TurnCost {
   /** This turn's own spend in USD, or null when the SDK reported none. */
@@ -26,15 +33,29 @@ export interface TurnCost {
   sdkTotalCostUsd: number | null
 }
 
-export type TurnCostTracker = (reportedTotal: unknown, isError: boolean) => TurnCost
+export type TurnCostTracker = (
+  reportedTotal: unknown,
+  isError: boolean,
+  conversationId?: string | null
+) => TurnCost
 
-export function createTurnCostTracker(baseline: number): TurnCostTracker {
+/** @param baseline the resumed conversation's saved total (0 for a fresh one)
+ *  @param initialConversationId the conversation `baseline` belongs to (the resume cursor) */
+export function createTurnCostTracker(
+  baseline: number,
+  initialConversationId?: string | null
+): TurnCostTracker {
   let previous = Number.isFinite(baseline) && baseline > 0 ? baseline : 0
-  return (reportedTotal, isError) => {
+  let conversation = initialConversationId || null
+  return (reportedTotal, isError, conversationId) => {
     if (typeof reportedTotal !== 'number' || !Number.isFinite(reportedTotal) || reportedTotal < 0) {
       return { costUsd: null, sdkTotalCostUsd: null }
     }
     if (isError && reportedTotal === 0) return { costUsd: 0, sdkTotalCostUsd: null }
+    if (conversationId && conversationId !== conversation) {
+      if (conversation !== null) previous = 0
+      conversation = conversationId
+    }
     const cost = reportedTotal >= previous ? reportedTotal - previous : reportedTotal
     previous = reportedTotal
     return { costUsd: roundUsd(cost), sdkTotalCostUsd: reportedTotal }
