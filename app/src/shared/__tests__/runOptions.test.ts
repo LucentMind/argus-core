@@ -13,6 +13,8 @@ import {
   type ModelOptionInfo,
   type RunOptionDescriptor
 } from '../runOptions'
+import CLI_CATALOG_281 from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-281.json'
+import CLI_CATALOG_281_ENTITLED from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-281-entitled.json'
 
 const FABLE: ModelOptionInfo = {
   value: 'fable',
@@ -252,10 +254,43 @@ describe('descriptorsFor', () => {
         expect(descriptorsFor(OPUS_55).some((d) => d.id === 'fastMode')).toBe(true)
       })
 
-      // Does not collide with Opus 5's row: `claude-opus-5-5` is not a dated `claude-opus-5`.
+      // Guards Opus 5's own row: adding the Opus 5.5 row must leave it unchanged.
       it('leaves Opus 5 on the standard high default', () => {
         const d = descriptorsFor(curated('claude-opus-5')).find((x) => x.id === 'effort')
         expect(d?.type === 'select' && d.options.find((o) => o.isDefault)?.value).toBe('high')
+      })
+
+      // The `-YYYYMMDD` rule in `resolvesToId`: a dated Opus 5.5 id is Opus 5.5, and a dated
+      // Opus 5 id is Opus 5 — `-5-20260901` is not a bare date suffix on `claude-opus-5`.
+      it('matches dated ids to the right row on each side of the 5 / 5.5 boundary', () => {
+        const defaultOf = (slug: string): string | undefined => {
+          const d = descriptorsFor(curated(slug)).find((x) => x.id === 'effort')
+          return d?.type === 'select' ? d.options.find((o) => o.isDefault)?.value : undefined
+        }
+        expect(defaultOf('claude-opus-5-5-20260901')).toBe('medium')
+        expect(defaultOf('claude-opus-5-20260101')).toBe('high')
+      })
+
+      // Real captured rows, not the synthetic one: the alias menu's `opus[1m]` and the
+      // entitled menu's bare `opus`, both resolving to Opus 5.5.
+      it('gives the captured catalog rows the same effort default and Context Window', () => {
+        const rows = [
+          (CLI_CATALOG_281 as ModelOptionInfo[]).find((r) => r.value === 'opus[1m]'),
+          (CLI_CATALOG_281_ENTITLED as ModelOptionInfo[]).find((r) => r.value === 'opus')
+        ]
+        for (const row of rows) {
+          expect(row).toBeDefined()
+          const ds = descriptorsFor(row!, 'claude-opus-5-5')
+          const effort = ds.find((x) => x.id === 'effort')
+          expect(effort?.type === 'select' && effort.options.find((o) => o.isDefault)?.value).toBe(
+            'medium'
+          )
+          const cw = ds.find((x) => x.id === 'contextWindow')
+          expect(cw?.type === 'select' && cw.options).toEqual([
+            { value: '1m', label: '1M', isDefault: true },
+            { value: 'cap-200k', label: '200k cap' }
+          ])
+        }
       })
     })
   })

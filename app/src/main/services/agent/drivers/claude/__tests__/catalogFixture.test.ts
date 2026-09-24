@@ -49,7 +49,7 @@ describe('captured claude catalog fixture — 2.1.263', () => {
 // Captured from SDK 0.3.281 (CLI 2.1.281); date and probe turns in EVIDENCE.md. The floor
 // moved because the API gates Opus 5.5 on the CLI version (spec 2026-09-24-opus-5-5-model-design).
 describe('captured claude catalog fixture — 2.1.281', () => {
-  it('keys the default and opus aliases to Opus 5.5 (1M), the reason the SDK floor is 0.3.281', () => {
+  it('keys the default and opus aliases to Opus 5.5 (1M)', () => {
     expect(models281.find((m) => m.value === 'default')?.resolvedModel).toBe('claude-opus-5-5[1m]')
     expect(models281.find((m) => m.value === 'opus[1m]')?.resolvedModel).toBe('claude-opus-5-5[1m]')
   })
