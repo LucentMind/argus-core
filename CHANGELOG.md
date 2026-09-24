@@ -14,7 +14,8 @@
   ships for this model; every level through Max, plus Ultracode and
   Ultrathink, stays available.
 - Older sessions that never stored a model follow the same default: their
-  next turn uses Opus 5.5 at Medium effort instead of Opus 5 at High.
+  next turn uses Opus 5.5 at Medium effort instead of Opus 5 at High, unless
+  the session set its own Reasoning level.
 - Routines with no model of their own do not read Argus's model list; they
   run on the Claude CLI's own default model at that model's default effort.
   With CLI 2.1.281 that is Opus 5.5 at Medium instead of Opus 5 at High,
