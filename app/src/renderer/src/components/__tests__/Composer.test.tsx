@@ -18,6 +18,7 @@ import type { ProviderStatus, SessionSummary } from '../../../../shared/types'
 // reason fourteen reviews all missed that a session pinned by wire slug matched no row at
 // all. Importing the fixture makes that class of divergence impossible to reintroduce.
 import CLI_CATALOG from '../../../../main/services/agent/drivers/claude/__fixtures__/models-2-1-220.json'
+import CLI_CATALOG_281_ENTITLED from '../../../../main/services/agent/drivers/claude/__fixtures__/models-2-1-281-entitled.json'
 
 // jsdom never fires a real ResizeObserver — this stub only needs to capture the callback
 // so setRowWidth (below) can drive it by hand; the lifecycle methods are intentionally inert.
@@ -436,6 +437,47 @@ describe('Composer', () => {
     fireEvent.click(screen.getByText('Claude Opus 5.5'))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Claude Sonnet 5' }))
     expect(onModelChange).toHaveBeenCalledWith('claude-default', 'claude-sonnet-5')
+  })
+
+  describe('a model switch and its stored run options', () => {
+    const switchOpus5To55 = async (
+      runOptions: SessionSummary['runOptions']
+    ): Promise<{
+      onModelChange: ReturnType<typeof vi.fn>
+      onRunOptionsChange: ReturnType<typeof vi.fn>
+    }> => {
+      window.argus.models.catalog = vi.fn(async () => CLI_CATALOG_281_ENTITLED as ModelOptionInfo[])
+      const onModelChange = vi.fn()
+      const onRunOptionsChange = vi.fn()
+      render(
+        <Composer
+          disabled={false}
+          onSend={vi.fn()}
+          onModelChange={onModelChange}
+          onRunOptionsChange={onRunOptionsChange}
+          session={{ ...pinnedToStaticSlug('claude-opus-5'), runOptions }}
+        />
+      )
+      fireEvent.click(await screen.findByText('Claude Opus 5'))
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Claude Opus 5.5' }))
+      return { onModelChange, onRunOptionsChange }
+    }
+
+    it('drops a 200k cap the old model was ignoring', async () => {
+      const { onModelChange, onRunOptionsChange } = await switchOpus5To55([
+        { id: 'contextWindow', value: 'cap-200k' }
+      ])
+      expect(onModelChange).toHaveBeenCalledWith('claude-default', 'claude-opus-5-5')
+      expect(onRunOptionsChange).toHaveBeenCalledWith([])
+    })
+
+    it('leaves selections both models accept alone', async () => {
+      const { onModelChange, onRunOptionsChange } = await switchOpus5To55([
+        { id: 'effort', value: 'max' }
+      ])
+      expect(onModelChange).toHaveBeenCalledWith('claude-default', 'claude-opus-5-5')
+      expect(onRunOptionsChange).not.toHaveBeenCalled()
+    })
   })
 
   it('aggregates models across every enabled provider, qualified by provider name', async () => {

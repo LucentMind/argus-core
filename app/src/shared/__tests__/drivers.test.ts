@@ -21,6 +21,7 @@ import {
   hasUnresolvedPreferences,
   favoritesInLegacyOrder,
   resolveModelInfo,
+  selectionsAfterModelSwitch,
   type CatalogModel,
   type ClaudeDriverConfig
 } from '../drivers'
@@ -30,7 +31,12 @@ import {
   PERMISSION_MODES,
   BASE_PERMISSION_MODES
 } from '../settings'
-import { descriptorsFor, type ModelOptionInfo } from '../runOptions'
+import {
+  descriptorsFor,
+  selectionValue,
+  type ModelOptionInfo,
+  type RunOptionDescriptor
+} from '../runOptions'
 // The real captured CLI catalog — same fixture modelIdentity.test.ts pins the resolver
 // against, so this test proves the fix end-to-end against real data, not a hand-written
 // approximation that could accidentally agree with a broken resolver.
@@ -721,6 +727,60 @@ describe('resolveModelInfo', () => {
   it('is null for a model nothing names', () => {
     expect(resolveModelInfo(catalog, 'gpt-5.4')).toBeNull()
     expect(resolveModelInfo(catalog, undefined)).toBeNull()
+  })
+})
+
+// A selection the old model ignored must not become live on the new one.
+describe('selectionsAfterModelSwitch', () => {
+  const catalog = CLI_CATALOG_281 as ModelOptionInfo[]
+  const on = (model: string): { catalog: ModelOptionInfo[]; model: string } => ({
+    catalog,
+    model
+  })
+  const contextWindowOf = (model: string): RunOptionDescriptor =>
+    descriptorsFor(resolveModelInfo(catalog, model)!, model).find((d) => d.id === 'contextWindow')!
+
+  it('drops a 200k cap Opus 5 was ignoring when switching to Opus 5.5', () => {
+    const stored = [{ id: 'contextWindow', value: 'cap-200k' }]
+    expect(selectionValue(contextWindowOf('claude-opus-5'), stored)).toBe('200k')
+    const next = selectionsAfterModelSwitch(stored, on('claude-opus-5'), on('claude-opus-5-5'))
+    expect(next).toEqual([])
+    expect(selectionValue(contextWindowOf('claude-opus-5-5'), next)).toBe('1m')
+  })
+
+  it('carries over a selection both models offer', () => {
+    const effort = [{ id: 'effort', value: 'max' }]
+    expect(selectionsAfterModelSwitch(effort, on('claude-opus-5'), on('claude-opus-5-5'))).toEqual(
+      effort
+    )
+    const cap = [{ id: 'contextWindow', value: 'cap-200k' }]
+    expect(selectionsAfterModelSwitch(cap, on('claude-fable-5'), on('claude-opus-5-5'))).toEqual(
+      cap
+    )
+  })
+
+  it('drops a selection the new model does not offer', () => {
+    const stored = [{ id: 'effort', value: 'max' }]
+    expect(selectionsAfterModelSwitch(stored, on('claude-opus-5'), on('claude-haiku-4-5'))).toEqual(
+      []
+    )
+  })
+
+  it('leaves selections unchanged when nothing describes the new model', () => {
+    const stored = [{ id: 'contextWindow', value: 'cap-200k' }]
+    expect(
+      selectionsAfterModelSwitch(stored, on('claude-opus-5'), { catalog: [], model: 'gpt-5.4' })
+    ).toEqual(stored)
+  })
+
+  it('prunes against the new model alone when nothing describes the old one', () => {
+    const stored = [
+      { id: 'contextWindow', value: 'cap-200k' },
+      { id: 'mode', value: 'x' }
+    ]
+    expect(
+      selectionsAfterModelSwitch(stored, { catalog: [], model: 'gpt-5.4' }, on('claude-opus-5-5'))
+    ).toEqual([{ id: 'contextWindow', value: 'cap-200k' }])
   })
 })
 

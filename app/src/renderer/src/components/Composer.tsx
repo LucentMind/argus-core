@@ -24,6 +24,7 @@ import {
   instanceModels,
   pinSlugFor,
   resolveModelInfo,
+  selectionsAfterModelSwitch,
   type AggregatedModel
 } from '../../../shared/drivers'
 import {
@@ -839,7 +840,17 @@ export function Composer({
                 const picked = models.find((m) => modelOptionLabel(m, showProvider) === label)
                 // `pinSlugFor`, not `picked.slug`: an alias row pins the model's own wire
                 // slug, bare, so the session neither follows the alias nor freezes 1M.
-                if (picked) onModelChange?.(picked.instanceId, pinSlugFor(picked))
+                if (!picked) return
+                const slug = pinSlugFor(picked)
+                onModelChange?.(picked.instanceId, slug)
+                // Another instance's catalog is not loaded here; the static info stands in.
+                const next = selectionsAfterModelSwitch(
+                  selections,
+                  { catalog, model: pinnedModel },
+                  { catalog: picked.instanceId === catalogInstanceId ? catalog : [], model: slug }
+                )
+                // Pruning only removes, so a length change is the only possible change.
+                if (next.length !== selections.length) onRunOptionsChange?.(next)
               }}
               options={modelOptions}
             />

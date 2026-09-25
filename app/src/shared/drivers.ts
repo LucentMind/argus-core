@@ -7,7 +7,12 @@ import {
   type PermissionMode,
   type ProviderInstance
 } from './settings'
-import type { ModelOptionInfo } from './runOptions'
+import {
+  descriptorsFor,
+  pruneSelections,
+  type ModelOptionInfo,
+  type RunOptionSelection
+} from './runOptions'
 import {
   canonicalSlug,
   findModelEntry,
@@ -879,6 +884,27 @@ export function resolveModelInfo(
   return (
     findModelEntry(catalog, model, (m) => m) ?? findModelEntry(CLAUDE_MODEL_INFO, model, (m) => m)
   )
+}
+
+/** A model as the composer resolves its run options: the instance's catalog plus the slug. */
+type OptionModel = { catalog: readonly ModelOptionInfo[]; model: string | null | undefined }
+
+/**
+ * The selections to keep across a model switch: those valid on both models. A value the old
+ * model was ignoring is dropped even when the new one accepts it, so it cannot come back to
+ * life. A model nothing describes constrains nothing; if that is the new one, selections are
+ * left as they are.
+ */
+export function selectionsAfterModelSwitch(
+  stored: readonly RunOptionSelection[],
+  from: OptionModel,
+  to: OptionModel
+): RunOptionSelection[] {
+  const toInfo = resolveModelInfo(to.catalog, to.model)
+  if (!toInfo) return [...stored]
+  const fromInfo = resolveModelInfo(from.catalog, from.model)
+  const live = fromInfo ? pruneSelections(descriptorsFor(fromInfo, from.model), stored) : stored
+  return pruneSelections(descriptorsFor(toInfo, to.model), live)
 }
 
 /**

@@ -39,6 +39,10 @@
   session (which, since SDK 0.3.281, starts from the saved total) and a
   message sent while a turn is still running. Costs recorded before this
   release are not rewritten.
+- Switching a chat's model now drops run options the new model cannot use,
+  or that the old one was ignoring. A 200k context cap saved under an
+  earlier model could otherwise come back into force after a switch to a
+  model that offers it, such as Opus 5 to Opus 5.5.
 - The model picker's placeholder list, shown for a moment before settings
   load, is now the built-in model list instead of a stale hand-written one.
 
