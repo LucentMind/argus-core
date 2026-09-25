@@ -99,6 +99,15 @@ describe('modelMatches', () => {
       modelMatches({ value: 'opus-4-8', resolvedModel: 'claude-opus-4-8' }, 'claude-opus-4')
     ).toBe(false)
   })
+
+  // `claude-opus-5-5` is not "claude-opus-5 plus a suffix" to a prefix rule.
+  it('does not match claude-opus-5 and claude-opus-5-5 against each other', () => {
+    expect(modelMatches({ value: 'claude-opus-5-5' }, 'claude-opus-5')).toBe(false)
+    expect(modelMatches({ value: 'claude-opus-5' }, 'claude-opus-5-5')).toBe(false)
+    expect(
+      modelMatches({ value: 'opus[1m]', resolvedModel: 'claude-opus-5-5[1m]' }, 'claude-opus-5')
+    ).toBe(false)
+  })
 })
 
 // ── canonicalSlug: the identity a stored PREFERENCE must use ────────────────────────────────

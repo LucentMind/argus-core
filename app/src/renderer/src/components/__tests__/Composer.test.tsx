@@ -18,6 +18,7 @@ import type { ProviderStatus, SessionSummary } from '../../../../shared/types'
 // reason fourteen reviews all missed that a session pinned by wire slug matched no row at
 // all. Importing the fixture makes that class of divergence impossible to reintroduce.
 import CLI_CATALOG from '../../../../main/services/agent/drivers/claude/__fixtures__/models-2-1-220.json'
+import CLI_CATALOG_281_ENTITLED from '../../../../main/services/agent/drivers/claude/__fixtures__/models-2-1-281-entitled.json'
 
 // jsdom never fires a real ResizeObserver — this stub only needs to capture the callback
 // so setRowWidth (below) can drive it by hand; the lifecycle methods are intentionally inert.
@@ -71,10 +72,25 @@ describe('Composer', () => {
     expect(container.querySelector('[data-onboarding-anchor="composer"]')).toBeTruthy()
   })
 
+  // The placeholder is the built-in catalog, so it leads with the same row 0 the seed reads.
   it('renders the option chips, falling back to static labels before settings load', () => {
+    // never resolves: stays pre-settings
+    window.argus.settings.get = vi.fn(() => new Promise(() => undefined)) as never
     render(<Composer disabled={false} onSend={vi.fn()} />)
-    expect(screen.getByText('Claude Fable 5')).toBeTruthy()
+    expect(screen.getByText('Claude Opus 5.5')).toBeTruthy()
     expect(screen.getByText('Ask approvals')).toBeTruthy()
+  })
+
+  it('offers exactly the built-in Claude catalog in the picker before settings load', () => {
+    // never resolves: stays pre-settings
+    window.argus.settings.get = vi.fn(() => new Promise(() => undefined)) as never
+    render(<Composer disabled={false} onSend={vi.fn()} />)
+    fireEvent.click(screen.getByText('Claude Opus 5.5'))
+    const menu = screen.getByRole('menu', { name: 'Model' })
+    const items = within(menu)
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent)
+    expect(items).toEqual(DRIVERS['claude-agent-sdk'].models.map((m) => m.name))
   })
 
   it('tool-results toggle flips uiStore.showToolCalls', () => {
@@ -172,9 +188,9 @@ describe('Composer', () => {
       .getAllByRole('menuitem')
       .map((el) => el.textContent)
     // the full static catalog is offered, unchanged — no catalog-only row leaked in.
-    // Opus 5 is row 0 on purpose: it is the fresh-install seed for new cases
-    // (spec 2026-09-07-fresh-install-model-defaults).
+    // Opus 5.5 is row 0 on purpose: it is the fresh-install seed for new cases.
     expect(items).toEqual([
+      'Claude Opus 5.5',
       'Claude Opus 5',
       'Claude Fable 5.1',
       'Claude Fable 5',
@@ -415,9 +431,53 @@ describe('Composer', () => {
   it('picking a model re-pins the session rather than only changing local state', async () => {
     const onModelChange = vi.fn()
     render(<Composer disabled={false} onSend={vi.fn()} onModelChange={onModelChange} />)
-    fireEvent.click(await screen.findByText('Claude Fable 5'))
+    // Placeholder and seed both read "Claude Opus 5.5", so wait for settings: before they load
+    // the picker has no rows to resolve a pick against.
+    await waitFor(() => expect(settingsStore.get()).not.toBeNull())
+    fireEvent.click(screen.getByText('Claude Opus 5.5'))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Claude Sonnet 5' }))
     expect(onModelChange).toHaveBeenCalledWith('claude-default', 'claude-sonnet-5')
+  })
+
+  describe('a model switch and its stored run options', () => {
+    const switchOpus5To55 = async (
+      runOptions: SessionSummary['runOptions']
+    ): Promise<{
+      onModelChange: ReturnType<typeof vi.fn>
+      onRunOptionsChange: ReturnType<typeof vi.fn>
+    }> => {
+      window.argus.models.catalog = vi.fn(async () => CLI_CATALOG_281_ENTITLED as ModelOptionInfo[])
+      const onModelChange = vi.fn()
+      const onRunOptionsChange = vi.fn()
+      render(
+        <Composer
+          disabled={false}
+          onSend={vi.fn()}
+          onModelChange={onModelChange}
+          onRunOptionsChange={onRunOptionsChange}
+          session={{ ...pinnedToStaticSlug('claude-opus-5'), runOptions }}
+        />
+      )
+      fireEvent.click(await screen.findByText('Claude Opus 5'))
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Claude Opus 5.5' }))
+      return { onModelChange, onRunOptionsChange }
+    }
+
+    it('drops a 200k cap the old model was ignoring', async () => {
+      const { onModelChange, onRunOptionsChange } = await switchOpus5To55([
+        { id: 'contextWindow', value: 'cap-200k' }
+      ])
+      expect(onModelChange).toHaveBeenCalledWith('claude-default', 'claude-opus-5-5')
+      expect(onRunOptionsChange).toHaveBeenCalledWith([])
+    })
+
+    it('leaves selections both models accept alone', async () => {
+      const { onModelChange, onRunOptionsChange } = await switchOpus5To55([
+        { id: 'effort', value: 'max' }
+      ])
+      expect(onModelChange).toHaveBeenCalledWith('claude-default', 'claude-opus-5-5')
+      expect(onRunOptionsChange).not.toHaveBeenCalled()
+    })
   })
 
   it('aggregates models across every enabled provider, qualified by provider name', async () => {
@@ -437,7 +497,7 @@ describe('Composer', () => {
     }))
     const onModelChange = vi.fn()
     render(<Composer disabled={false} onSend={vi.fn()} onModelChange={onModelChange} />)
-    fireEvent.click(await screen.findByText('Claude Opus 5 · Claude'))
+    fireEvent.click(await screen.findByText('Claude Opus 5.5 · Claude'))
     const menu = screen.getByRole('menu', { name: 'Model' })
     const items = within(menu)
       .getAllByRole('menuitem')
@@ -474,6 +534,7 @@ describe('Composer', () => {
       .map((el) => el.textContent)
     expect(items).toEqual([
       'Claude Sonnet 5',
+      'Claude Opus 5.5',
       'Claude Opus 5',
       'Claude Fable 5.1',
       'Claude Fable 5',

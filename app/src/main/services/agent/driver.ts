@@ -23,6 +23,12 @@ export interface TurnResult {
   inputTokens: number | null
   outputTokens: number | null
   costUsd: number | null
+  /** The backend's running total (Claude: `result.total_cost_usd`), persisted as the next
+   *  resume's baseline. `costUsd` is always this turn's own spend. */
+  sdkTotalCostUsd?: number | null
+  /** The conversation `sdkTotalCostUsd` belongs to (Claude: `result.session_id`); null
+   *  whenever `sdkTotalCostUsd` is. */
+  sdkCostCursor?: string | null
   durationMs: number | null
   model: string | null
   authFailure: boolean
@@ -86,6 +92,9 @@ export interface DriverSessionContext {
     args: unknown[]
   ) => Promise<unknown>
   resumeCursor: string | null
+  /** Claude only: the last running total recorded for `resumeCursor`'s conversation, which a
+   *  resumed query() continues from (subtracted from the first result). Null when none. */
+  resumeCostBaseline?: number | null
   /** Live per-message event context (turnId moves between turns). */
   eventCtx: () => EventCtx
   /** The harness approval pipeline; the driver adapts its SDK callback onto this.

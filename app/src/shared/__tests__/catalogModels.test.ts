@@ -1,9 +1,18 @@
 import { describe, it, expect } from 'vitest'
-import { catalogModelRows, findModelRow, pinSlugFor, resolveModelInfo } from '../drivers'
+import {
+  DRIVERS,
+  catalogModelRows,
+  findModelRow,
+  mergeBuiltinRows,
+  pinSlugFor,
+  resolveModelInfo
+} from '../drivers'
 import { descriptorsFor } from '../runOptions'
 // The real captured CLI catalog — the whole point of this module is that it agrees with what
 // the CLI actually emits, so asserting against a hand-written approximation would be circular.
 import CLI_CATALOG from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-220.json'
+import CLI_CATALOG_281 from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-281.json'
+import CLI_CATALOG_281_ENTITLED from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-281-entitled.json'
 import type { ModelOptionInfo } from '../runOptions'
 
 const CATALOG = [
@@ -158,11 +167,11 @@ describe('catalogModelRows', () => {
       expect(asAlias?.type === 'select' && asAlias.options.map((o) => o.value)).toEqual(['1m'])
     })
 
-    it('leaves every other row alone', () => {
+    it('pins every other alias row to its static slug', () => {
       expect(rows.filter((m) => m.slug !== 'opus[1m]').map(pinSlugFor)).toEqual([
-        'fable',
-        'sonnet',
-        'haiku'
+        'claude-fable-5',
+        'claude-sonnet-5',
+        'claude-haiku-4-5'
       ])
     })
 
@@ -220,5 +229,129 @@ describe('catalogModelRows', () => {
       expect(row.name).toBe('Claude Zeta 9 (1M)')
       expect(pinSlugFor(row)).toBe('zeta[1m]')
     })
+
+    it('keeps the alias pin for a bare alias resolving to a model we have no static row for', () => {
+      const [row] = catalogModelRows([
+        { value: 'zeta', resolvedModel: 'claude-zeta-9', displayName: 'Zeta' }
+      ])
+      expect(pinSlugFor(row)).toBe('zeta')
+    })
   })
+})
+
+// 2.1.281 re-points `opus[1m]` and `default` at Opus 5.5; Opus 5, which no alias names any
+// more, must survive as its own static row.
+describe('against the 2.1.281 catalog (Opus 5.5)', () => {
+  const rows = catalogModelRows(CLI_CATALOG_281 as ModelOptionInfo[])
+
+  it('dedupes default into the opus[1m] row and names it Claude Opus 5.5', () => {
+    const opus = rows.filter((m) => m.resolvedModel === 'claude-opus-5-5[1m]')
+    expect(opus).toHaveLength(1)
+    expect(opus[0].slug).toBe('opus[1m]')
+    expect(opus[0].name).toBe('Claude Opus 5.5')
+  })
+
+  it('pins the bare Opus 5.5 slug for that row, never Opus 5', () => {
+    const opus = rows.find((m) => m.slug === 'opus[1m]')!
+    expect(pinSlugFor(opus)).toBe('claude-opus-5-5')
+    expect(findModelRow(rows, 'claude-opus-5-5')).toBe(opus)
+    expect(findModelRow(rows, 'claude-opus-5')).toBeNull()
+  })
+
+  it('merges into exactly one Opus 5.5 row and keeps Opus 5 via its static row', () => {
+    const merged = mergeBuiltinRows(rows, DRIVERS['claude-agent-sdk'].models)
+    expect(merged.filter((m) => m.name === 'Claude Opus 5.5')).toHaveLength(1)
+    expect(merged.filter((m) => m.slug === 'claude-opus-5')).toHaveLength(1)
+  })
+})
+
+// The entitlement-list shape (EVIDENCE.md): `default` is Sonnet 5 and `opus` is bare.
+describe('against the 2.1.281 entitlement-list catalog', () => {
+  const rows = catalogModelRows(CLI_CATALOG_281_ENTITLED as ModelOptionInfo[])
+  const merged = mergeBuiltinRows(rows, DRIVERS['claude-agent-sdk'].models)
+
+  it('names the opus row Claude Opus 5.5 and dedupes default into sonnet', () => {
+    expect(rows.find((m) => m.slug === 'opus')?.name).toBe('Claude Opus 5.5')
+    expect(rows.filter((m) => m.resolvedModel === 'claude-sonnet-5')).toHaveLength(1)
+    expect(rows.some((m) => m.slug === 'default')).toBe(false)
+  })
+
+  it('resolves both Opus wire slugs to their own rows', () => {
+    expect(findModelRow(rows, 'claude-opus-5-5')?.slug).toBe('opus')
+    expect(findModelRow(rows, 'claude-opus-5')?.slug).toBe('claude-opus-5')
+  })
+
+  it('merges into exactly one row each for Opus 5.5 and Opus 5', () => {
+    expect(merged.filter((m) => m.name === 'Claude Opus 5.5')).toHaveLength(1)
+    expect(merged.filter((m) => m.name === 'Claude Opus 5')).toHaveLength(1)
+  })
+
+  // Pinning the alias would let the session follow `opus` to future releases.
+  it('pins the Opus 5.5 wire slug for the bare opus row, not the alias', () => {
+    expect(pinSlugFor(rows.find((m) => m.slug === 'opus')!)).toBe('claude-opus-5-5')
+  })
+
+  it('gives the pinned Opus 5.5 slug its own run options', () => {
+    const pin = pinSlugFor(rows.find((m) => m.slug === 'opus')!)
+    const info = resolveModelInfo(CLI_CATALOG_281_ENTITLED as ModelOptionInfo[], pin)!
+    const ds = descriptorsFor(info, pin)
+    const effort = ds.find((d) => d.id === 'effort')
+    const cw = ds.find((d) => d.id === 'contextWindow')
+    expect(effort?.type === 'select' && effort.options.find((o) => o.isDefault)?.value).toBe(
+      'medium'
+    )
+    expect(cw?.type === 'select' && cw.options).toEqual([
+      { value: '1m', label: '1M', isDefault: true },
+      { value: 'cap-200k', label: '200k cap' }
+    ])
+  })
+})
+
+describe('pinSlugFor across the 2.1.281 catalogs', () => {
+  const cases: [string, ModelOptionInfo[], Record<string, string>][] = [
+    [
+      'alias menu',
+      CLI_CATALOG_281 as ModelOptionInfo[],
+      {
+        'opus[1m]': 'claude-opus-5-5',
+        'claude-fable-5-1[1m]': 'claude-fable-5-1',
+        sonnet: 'claude-sonnet-5',
+        haiku: 'claude-haiku-4-5'
+      }
+    ],
+    [
+      'entitlement list',
+      CLI_CATALOG_281_ENTITLED as ModelOptionInfo[],
+      {
+        opus: 'claude-opus-5-5',
+        'claude-opus-5': 'claude-opus-5',
+        sonnet: 'claude-sonnet-5',
+        'claude-fable-5-1': 'claude-fable-5-1',
+        haiku: 'claude-haiku-4-5',
+        'claude-fable-5': 'claude-fable-5',
+        'claude-opus-4-8': 'claude-opus-4-8',
+        'claude-opus-4-7': 'claude-opus-4-7',
+        // No static row: nothing records the wire slug running, so the row keeps its own.
+        'claude-opus-4-6': 'claude-opus-4-6',
+        'claude-sonnet-4-6': 'claude-sonnet-4-6'
+      }
+    ]
+  ]
+
+  for (const [label, catalog, expected] of cases) {
+    const rows = catalogModelRows(catalog)
+    const merged = mergeBuiltinRows(rows, DRIVERS['claude-agent-sdk'].models)
+
+    it(`pins every ${label} row to the static slug when one exists`, () => {
+      expect(Object.fromEntries(rows.map((m) => [m.slug, pinSlugFor(m)]))).toEqual(expected)
+    })
+
+    // The chip must still land on the row that was picked.
+    it(`resolves every pinned ${label} slug back to the row it was picked from`, () => {
+      for (const row of rows) {
+        expect(findModelRow(rows, pinSlugFor(row))).toBe(row)
+        expect(findModelRow(merged, pinSlugFor(row))?.slug).toBe(row.slug)
+      }
+    })
+  }
 })

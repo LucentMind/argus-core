@@ -1,6 +1,7 @@
 # SDK API surface notes
 
-Verified against `@anthropic-ai/claude-agent-sdk@0.3.205`, file
+Verified against `@anthropic-ai/claude-agent-sdk@0.3.281` (re-checked
+2026-09-24 for the Opus 5.5 bump; first written against 0.3.205), file
 `app/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts` (the package's
 `main`/`types` entry — `package.json` maps `"."` to `sdk.d.ts` / `sdk.mjs`).
 
@@ -54,16 +55,26 @@ type CanUseTool = (
     signal: AbortSignal
     suggestions?: PermissionUpdate[]
     blockedPath?: string
+    mcpServer?: { name: string; source: string }
     decisionReason?: string
     title?: string
-    // + a few more optional UI-hint fields
+    displayName?: string
+    description?: string
+    defaultToNo?: boolean
+    suppressAlwaysAllowRule?: boolean
+    toolUseID: string
+    agentID?: string
+    requestId: string
+    matchedAskRule?: { source: string; toolName: string; ruleContent?: string }
   }
-) => Promise<PermissionResult>
+) => Promise<PermissionResult | null>
 ```
 
 Parameter name (`options` vs `opts`) is cosmetic — callers name it whatever
-they like. Only `signal` is required; the extra fields are optional metadata
-useful for approval-card copy (Task P1.T6) but not required to compile.
+they like. `signal`, `toolUseID` and `requestId` are always supplied; the rest
+is optional metadata, useful for approval-card copy but not
+required to compile. As of 0.3.281 the callback may also resolve to `null`;
+returning a `PermissionResult` still satisfies it.
 
 ## `SDKUserMessage` — `message` is the SDK's `MessageParam`, `session_id` is optional
 
@@ -82,7 +93,10 @@ type SDKUserMessage = {
   origin?: SDKMessageOrigin
   shouldQuery?: boolean
   timestamp?: string
+  client_composed?: true
   uuid?: UUID
+  pasted_content?: MessageParam['content'][]
+  inline_pastes?: string[]
   session_id?: string
   subagent_type?: string
   task_description?: string
@@ -103,6 +117,15 @@ Two real differences for the prompt-queue task (P1.T4):
   it is required. Outgoing user messages built for the prompt queue can omit
   it (the CLI assigns/threads the session), but code that reads
   `SDKUserMessage.session_id` back out of the stream must handle `undefined`.
+
+## `total_cost_usd` is a running total, not a per-turn cost
+
+`SDKResultSuccess.total_cost_usd` (and `modelUsage`) are cumulative for the whole `query()`
+call — every turn of a streaming-input session — and since 0.3.281 a resumed or forked session
+"continues from the total its transcript saved"; a mid-session `/clear` resets it. `usage` is
+per-turn. Argus derives per-turn cost in `drivers/claude/turnCost.ts` and keeps the raw total
+plus its conversation id (`turns.sdk_total_cost_usd`, `turns.sdk_cost_cursor`) only as the next
+resume's baseline; do not read `total_cost_usd` as a turn's cost anywhere else.
 
 ## Everything else: confirmed as specified
 

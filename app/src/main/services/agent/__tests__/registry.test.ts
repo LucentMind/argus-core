@@ -17,7 +17,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { fingerprintServers, McpService } from '../../mcp'
 import { ConnectorRegistry } from '../../connectors'
 import { SecretStore, type SecretCrypto } from '../../secrets'
-import type { AgentDriver, DriverKind, DriverSession } from '../driver'
+import type { AgentDriver, DriverKind, DriverSession, DriverSessionContext } from '../driver'
 import { CLAUDE_TOOL_TAXONOMY } from '../risk'
 import { PERMISSION_MODES } from '../../../../shared/settings'
 import { clearCatalogCache } from '../drivers/claude/catalog'
@@ -370,6 +370,386 @@ describe('AgentService', () => {
     }
     expect(sess.driver_cursor).toBe('22222222-2222-4222-8222-222222222222')
     await svc2.stopAll()
+  })
+
+  // cost_usd holds each turn's own spend; sdk_total_cost_usd the SDK running total a resume
+  // subtracts. See drivers/claude/turnCost.ts.
+  it('stores per-turn cost across turns and across an app-restart resume', async () => {
+    const SID = '22222222-2222-4222-8222-222222222222'
+    const result = (total: number): Record<string, unknown> => ({
+      type: 'result',
+      subtype: 'success',
+      session_id: SID,
+      usage: { input_tokens: 1, output_tokens: 1 },
+      total_cost_usd: total,
+      duration_ms: 1,
+      is_error: false
+    })
+    const { createQuery, queues, optionsLog } = fakeCreateQuery()
+    const mk = (): AgentService =>
+      new AgentService({
+        queue: createImmediateQueue(db, argusHome),
+        db,
+        argusHome,
+        detection,
+        skillsRoots: [],
+        agentAccess: () => defaultAgentAccess(),
+        githubWatermark: () => ({ enabled: false, text: '' }),
+        onEvent: () => undefined,
+        createQuery
+      })
+    const settled = (sessionId: number, n: number): Promise<void> =>
+      vi.waitFor(() => {
+        const row = db
+          .prepare(`SELECT COUNT(*) AS n FROM turns WHERE session_id = ? AND status != 'running'`)
+          .get(sessionId) as { n: number }
+        expect(row.n).toBe(n)
+      })
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    const svc = mk()
+    await svc.send('NAV-1', s1.id, 'a')
+    queues[0].push({ type: 'system', subtype: 'init', session_id: SID, model: 'm' })
+    queues[0].push(result(0.01))
+    await settled(s1.id, 1)
+    await svc.send('NAV-1', s1.id, 'b')
+    queues[0].push(result(0.03))
+    await settled(s1.id, 2)
+    await svc.stopAll()
+
+    const svc2 = mk() // app restart: resumes SID
+    await svc2.send('NAV-1', s1.id, 'c')
+    // One query() per service instance; the second resumes.
+    expect(optionsLog).toHaveLength(2)
+    expect(optionsLog[0].resume).toBeUndefined()
+    expect(optionsLog[1].resume).toBe(SID)
+    queues[1].push(result(0.07))
+    await settled(s1.id, 3)
+
+    const rows = db
+      .prepare(
+        `SELECT cost_usd AS c, sdk_total_cost_usd AS t FROM turns WHERE session_id = ? ORDER BY id`
+      )
+      .all(s1.id)
+    expect(rows.map((r) => ({ ...r }))).toEqual([
+      { c: 0.01, t: 0.01 },
+      { c: 0.02, t: 0.03 },
+      { c: 0.04, t: 0.07 }
+    ])
+    await svc2.stopAll()
+  })
+
+  // The CLI may run a mid-turn send as its own turn (as here) or fold it in, so results can't be
+  // matched to rows one-for-one; no turn's cost may be overwritten away.
+  it('keeps both turns’ cost when a message is sent mid-turn', async () => {
+    const SID = '66666666-6666-4666-8666-666666666666'
+    const result = (total: number): Record<string, unknown> => ({
+      type: 'result',
+      subtype: 'success',
+      session_id: SID,
+      usage: { input_tokens: 1, output_tokens: 1 },
+      total_cost_usd: total,
+      duration_ms: 1,
+      is_error: false
+    })
+    const { createQuery, queues } = fakeCreateQuery()
+    const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
+      onEvent: () => undefined,
+      createQuery
+    })
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    await svc.send('NAV-1', s1.id, 'a')
+    await svc.send('NAV-1', s1.id, 'b') // before a's result: the same live session
+    expect(queues).toHaveLength(1)
+    queues[0].push({ type: 'system', subtype: 'init', session_id: SID, model: 'm' })
+    queues[0].push(result(0.01))
+    queues[0].push(result(0.03))
+    const sum = (): number | null =>
+      (
+        db.prepare(`SELECT SUM(cost_usd) AS c FROM turns WHERE session_id = ?`).get(s1.id) as {
+          c: number | null
+        }
+      ).c
+    await vi.waitFor(() => {
+      const r = db
+        .prepare(`SELECT sdk_total_cost_usd AS t FROM turns WHERE session_id = ? ORDER BY id DESC`)
+        .get(s1.id) as { t: number | null }
+      expect(r.t).toBe(0.03)
+    })
+    expect(sum()).toBeCloseTo(0.03, 10)
+    // tokens and duration are summed too
+    const last = db
+      .prepare(
+        `SELECT input_tokens AS i, output_tokens AS o, duration_ms AS d FROM turns
+         WHERE session_id = ? ORDER BY id DESC LIMIT 1`
+      )
+      .get(s1.id)
+    expect({ ...last }).toEqual({ i: 2, o: 2, d: 2 })
+    await svc.stopAll()
+  })
+
+  // Its stored total is the next resume's baseline.
+  it('a zeroed error result on a finished row keeps its running total and status', async () => {
+    const SID = '77777777-7777-4777-8777-777777777777'
+    const result = (total: number): Record<string, unknown> => ({
+      type: 'result',
+      subtype: 'success',
+      session_id: SID,
+      usage: { input_tokens: 1, output_tokens: 1 },
+      total_cost_usd: total,
+      duration_ms: 1,
+      is_error: false
+    })
+    const { createQuery, queues, optionsLog } = fakeCreateQuery()
+    const mk = (): AgentService =>
+      new AgentService({
+        queue: createImmediateQueue(db, argusHome),
+        db,
+        argusHome,
+        detection,
+        skillsRoots: [],
+        agentAccess: () => defaultAgentAccess(),
+        githubWatermark: () => ({ enabled: false, text: '' }),
+        onEvent: () => undefined,
+        createQuery
+      })
+    const turnCount = (sessionId: number, n: number): Promise<void> =>
+      vi.waitFor(() => {
+        const r = db
+          .prepare(`SELECT turn_count AS n FROM sessions WHERE id = ?`)
+          .get(sessionId) as {
+          n: number
+        }
+        expect(r.n).toBe(n)
+      })
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    const svc = mk()
+    await svc.send('NAV-1', s1.id, 'a')
+    queues[0].push({ type: 'system', subtype: 'init', session_id: SID, model: 'm' })
+    queues[0].push(result(0.03))
+    await turnCount(s1.id, 1)
+    queues[0].push({
+      type: 'result',
+      subtype: 'error_during_execution',
+      session_id: SID,
+      usage: { input_tokens: 0, output_tokens: 0 },
+      total_cost_usd: 0,
+      duration_ms: 0,
+      is_error: true
+    })
+    await turnCount(s1.id, 2)
+    const row = db
+      .prepare(
+        `SELECT status AS s, cost_usd AS c, sdk_total_cost_usd AS t, sdk_cost_cursor AS k
+         FROM turns WHERE session_id = ?`
+      )
+      .get(s1.id)
+    expect({ ...row }).toEqual({ s: 'success', c: 0.03, t: 0.03, k: SID })
+    await svc.stopAll()
+
+    const svc2 = mk() // app restart: resumes SID from the 0.03 baseline
+    await svc2.send('NAV-1', s1.id, 'b')
+    expect(optionsLog[1].resume).toBe(SID)
+    queues[1].push(result(0.05))
+    await vi.waitFor(() => {
+      const r = db
+        .prepare(`SELECT cost_usd AS c FROM turns WHERE session_id = ? ORDER BY id DESC LIMIT 1`)
+        .get(s1.id) as { c: number | null }
+      expect(r.c).toBe(0.02)
+    })
+    await svc2.stopAll()
+  })
+
+  // Copilot reports once per `assistant.turn_end`, so a tool-using message delivers two results.
+  it('a non-Claude driver’s second result on a finished row overwrites it, as before', async () => {
+    const { driver, ctx } = ctxCapturingDriver('github-copilot')
+    const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
+      onEvent: () => undefined,
+      driver
+    })
+    const s1 = createSession(db, 'NAV-1', 'github-copilot')
+    await svc.send('NAV-1', s1.id, 'a')
+    const base = { model: 'gpt', authFailure: false }
+    ctx()?.onTurnResult({
+      ...base,
+      isError: false,
+      inputTokens: 10,
+      outputTokens: 20,
+      costUsd: 0.1,
+      durationMs: 100
+    })
+    ctx()?.onTurnResult({
+      ...base,
+      isError: true,
+      inputTokens: 3,
+      outputTokens: 4,
+      costUsd: null,
+      durationMs: 5
+    })
+    const row = db
+      .prepare(
+        `SELECT status AS s, input_tokens AS i, output_tokens AS o, cost_usd AS c, duration_ms AS d
+         FROM turns WHERE session_id = ?`
+      )
+      .get(s1.id)
+    expect({ ...row }).toEqual({ s: 'error', i: 3, o: 4, c: null, d: 5 })
+    await svc.stopAll()
+  })
+
+  // Otherwise a resume could match a baseline against the wrong conversation.
+  it('writes the running-total pair only when both the total and its cursor are present', async () => {
+    const { driver, ctx } = ctxCapturingDriver('claude-agent-sdk')
+    const svc = new AgentService({
+      queue: createImmediateQueue(db, argusHome),
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      githubWatermark: () => ({ enabled: false, text: '' }),
+      onEvent: () => undefined,
+      driver
+    })
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    await svc.send('NAV-1', s1.id, 'a')
+    const base = {
+      model: 'm',
+      authFailure: false,
+      isError: false,
+      inputTokens: 1,
+      outputTokens: 1,
+      durationMs: 1
+    }
+    ctx()?.onTurnResult({ ...base, costUsd: 0.03, sdkTotalCostUsd: 0.03, sdkCostCursor: 'SID' })
+    ctx()?.onTurnResult({ ...base, costUsd: 0.02, sdkTotalCostUsd: 0.05, sdkCostCursor: null })
+    const pair = (): unknown => ({
+      ...db
+        .prepare(
+          `SELECT sdk_total_cost_usd AS t, sdk_cost_cursor AS k FROM turns WHERE session_id = ?`
+        )
+        .get(s1.id)
+    })
+    expect(pair()).toEqual({ t: 0.03, k: 'SID' })
+    ctx()?.onTurnResult({ ...base, costUsd: 0.02, sdkTotalCostUsd: null, sdkCostCursor: 'SID2' })
+    expect(pair()).toEqual({ t: 0.03, k: 'SID' })
+    await svc.stopAll()
+  })
+
+  // SID1 is lost, SID2 starts, and the app dies before SID2 reports a total.
+  it('does not subtract an earlier conversation’s total when resuming a newer one', async () => {
+    const SID1 = '44444444-4444-4444-8444-444444444444'
+    const SID2 = '55555555-5555-4555-8555-555555555555'
+    const result = (sid: string, total: number): Record<string, unknown> => ({
+      type: 'result',
+      subtype: 'success',
+      session_id: sid,
+      usage: { input_tokens: 1, output_tokens: 1 },
+      total_cost_usd: total,
+      duration_ms: 1,
+      is_error: false
+    })
+    const queues: AsyncQueue<unknown>[] = []
+    const optionsLog: Record<string, unknown>[] = []
+    const createQuery: CreateQueryFn = (args) => {
+      const options = args.options as Record<string, unknown>
+      const q = new AsyncQueue<unknown>()
+      if (!options.systemPrompt) {
+        return Object.assign(
+          { [Symbol.asyncIterator]: () => q[Symbol.asyncIterator]() },
+          { interrupt: async () => q.end() }
+        )
+      }
+      optionsLog.push(options)
+      queues.push(q)
+      // A rejected resume: echo the uuid, then throw (as in 'a resume the CLI rejects…').
+      const rejected = options.resume === SID1
+      return Object.assign(
+        {
+          async *[Symbol.asyncIterator]() {
+            if (!rejected) {
+              yield* q
+              return
+            }
+            yield {
+              type: 'result',
+              subtype: 'error_during_execution',
+              is_error: true,
+              num_turns: 0,
+              session_id: SID1,
+              errors: [`No conversation found with session ID: ${SID1}`]
+            }
+            throw new Error(`Claude Code returned an error result: No conversation found`)
+          }
+        },
+        { interrupt: async () => q.end() }
+      )
+    }
+    const mk = (): AgentService =>
+      new AgentService({
+        queue: createImmediateQueue(db, argusHome),
+        db,
+        argusHome,
+        detection,
+        skillsRoots: [],
+        agentAccess: () => defaultAgentAccess(),
+        githubWatermark: () => ({ enabled: false, text: '' }),
+        onEvent: (e) => events.push(e),
+        createQuery
+      })
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+
+    const svc = mk()
+    await svc.send('NAV-1', s1.id, 'a')
+    queues[0].push({ type: 'system', subtype: 'init', session_id: SID1, model: 'm' })
+    queues[0].push(result(SID1, 0.3))
+    await vi.waitFor(() => {
+      const r = db.prepare(`SELECT sdk_total_cost_usd AS t FROM turns`).get() as { t: number }
+      expect(r.t).toBe(0.3)
+    })
+    await svc.stopAll()
+
+    const svc2 = mk() // restart: the resume of SID1 is rejected, the cursor is dropped
+    await svc2.send('NAV-1', s1.id, 'b')
+    await vi.waitFor(() =>
+      expect(
+        events.some((e) => e.type === 'session.exited' && e.payload.reason === 'crashed')
+      ).toBe(true)
+    )
+    await svc2.send('NAV-1', s1.id, 'c') // fresh conversation SID2
+    expect(optionsLog[2].resume).toBeUndefined()
+    queues[2].push({ type: 'system', subtype: 'init', session_id: SID2, model: 'm' })
+    await vi.waitFor(() => {
+      const r = db.prepare(`SELECT driver_cursor AS c FROM sessions WHERE id = ?`).get(s1.id) as {
+        c: string | null
+      }
+      expect(r.c).toBe(SID2)
+    })
+    await svc2.stopAll() // the app dies before SID2's first result
+
+    const svc3 = mk()
+    await svc3.send('NAV-1', s1.id, 'd')
+    expect(optionsLog[3].resume).toBe(SID2)
+    queues[3].push(result(SID2, 0.5))
+    await vi.waitFor(() => {
+      const r = db
+        .prepare(`SELECT cost_usd AS c, sdk_cost_cursor AS k FROM turns ORDER BY id DESC LIMIT 1`)
+        .get() as { c: number | null; k: string | null }
+      expect(r).toEqual({ c: 0.5, k: SID2 })
+    })
+    await svc3.stopAll()
   })
 
   // The failure captured in a real case bundle (sessions/6.jsonl, 2026-09-02..04): after a
@@ -800,6 +1180,23 @@ function stubDriver(kind: DriverKind, calls: DriverKind[]): AgentDriver {
   }
 }
 
+/** A stub driver exposing the DriverSessionContext, to call `onTurnResult` directly. */
+function ctxCapturingDriver(kind: DriverKind): {
+  driver: AgentDriver
+  ctx: () => DriverSessionContext | undefined
+} {
+  let captured: DriverSessionContext | undefined
+  const base = stubDriver(kind, [])
+  const driver: AgentDriver = {
+    ...base,
+    createSession(c: DriverSessionContext): DriverSession {
+      captured = c
+      return base.createSession(c)
+    }
+  }
+  return { driver, ctx: () => captured }
+}
+
 describe('AgentService driver resolution (Phase 3 checkpoint item 5)', () => {
   it('a thunk `deps.driver` is re-invoked at each getOrCreate, so the NEXT session picks up a provider switch', async () => {
     const calls: DriverKind[] = []
@@ -1032,7 +1429,7 @@ describe('AgentService — per-session provider and model', () => {
     const s = createSession(db, 'NAV-1', 'claude-agent-sdk') // nulls
     await svc.send('NAV-1', s.id, 'hi')
     await new Promise((r) => setTimeout(r, 10))
-    expect(optionsLog[0].model).toBe('claude-opus-5') // row 0 — the fresh-install seed
+    expect(optionsLog[0].model).toBe('claude-opus-5-5') // row 0 — the fresh-install seed
     await svc.stopAll()
   })
 })

@@ -25,10 +25,10 @@ function StarIcon({ filled }: { filled: boolean }): React.JSX.Element {
  * mirroring t3code's `canMoveUp`/`canMoveDown`.
  *
  * For a Claude instance this renders the same RUNTIME catalog the composer's model picker
- * offers (see `useModelCatalog` / `catalogModelRows`), not the static six-model fallback —
+ * offers (see `useModelCatalog` / `catalogModelRows`), not the static built-in fallback —
  * otherwise this panel and the composer chip disagree about what models exist (the static
- * list still names models the CLI dropped, like Opus 4.8/4.7, and omits ones it added, like
- * Opus 5). Non-Claude instances have no runtime catalog and keep their static list unchanged.
+ * list names models the CLI dropped and lags ones it adds). Non-Claude instances have no
+ * runtime catalog and keep their static list unchanged.
  */
 export function ProviderModels({
   settings,

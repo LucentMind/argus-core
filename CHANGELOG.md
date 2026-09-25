@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+### Added
+
+**Claude Opus 5.5**
+
+- Claude Opus 5.5 is available in the Claude driver and is now the model
+  new cases open on, both on a pristine install and on any install that
+  never starred, reordered or hid a model. Anyone who picked a model keeps
+  it; Opus 5 stays in the list, one row down.
+- Opus 5.5's Reasoning control defaults to Medium, the default Anthropic
+  ships for this model; every level through Max, plus Ultracode and
+  Ultrathink, stays available.
+- Older sessions that never stored a model follow the same default: their
+  next turn uses Opus 5.5 at Medium effort instead of Opus 5 at High, unless
+  the session set its own Reasoning level.
+- Routines with no model of their own do not read Argus's model list; they
+  run on the Claude CLI's own default model at that model's default effort.
+  With CLI 2.1.281 that is Opus 5.5 at Medium instead of Opus 5 at High,
+  except on accounts whose CLI has cached the organisation's model list,
+  where the CLI default is Sonnet 5 before and after this release. Pin a
+  model on a routine to keep the previous behaviour.
+- The Claude Agent SDK moves to 0.3.281 (bundled CLI 2.1.281), which the
+  API requires before it will serve Opus 5.5. The CLI's Opus aliases
+  (`opus[1m]`, and `opus` or `default` depending on the account) now point
+  to Opus 5.5. Picking a model from the list stores its model slug
+  (`claude-opus-5-5`) whenever Argus knows the model, so it never moves on
+  its own; only a session or preference already stored as a raw alias
+  follows the CLI.
+
+### Fixed
+
+- Per-turn cost for Claude sessions. The SDK reports a running total for
+  the whole session, and Argus stored that total as each turn's cost, so
+  usage views and the session cost chip counted earlier turns again. Each
+  turn now records its own spend, including the first turn of a resumed
+  session (which, since SDK 0.3.281, starts from the saved total) and a
+  message sent while a turn is still running. Costs recorded before this
+  release are not rewritten.
+- Switching a chat's model now drops run options the new model cannot use,
+  or that the old one was ignoring. A 200k context cap saved under an
+  earlier model could otherwise come back into force after a switch to a
+  model that offers it, such as Opus 5 to Opus 5.5.
+- The model picker's placeholder list, shown for a moment before settings
+  load, is now the built-in model list instead of a stale hand-written one.
+
 ## v2.4.0 — 2026-09-09
 
 322 commits since v2.3.0, 473 files changed (+48,196 / −2,929).

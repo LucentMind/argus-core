@@ -618,6 +618,16 @@ export function openDb(file: string): DatabaseSync {
   if (!turnCols.some((c) => c.name === 'model')) {
     db.exec(`ALTER TABLE turns ADD COLUMN model TEXT`)
   }
+  if (!turnCols.some((c) => c.name === 'sdk_total_cost_usd')) {
+    // The SDK's raw running cost total (Claude: total_cost_usd), kept only as the next resume's
+    // baseline; cost_usd is the turn's own spend. See agent/drivers/claude/turnCost.ts.
+    db.exec(`ALTER TABLE turns ADD COLUMN sdk_total_cost_usd REAL`)
+  }
+  if (!turnCols.some((c) => c.name === 'sdk_cost_cursor')) {
+    // The conversation (Claude: result.session_id) sdk_total_cost_usd belongs to; the resume
+    // baseline matches on it so an older conversation's total is never subtracted.
+    db.exec(`ALTER TABLE turns ADD COLUMN sdk_cost_cursor TEXT`)
+  }
   const tcCols = db.prepare(`PRAGMA table_info(tool_calls)`).all() as { name: string }[]
   if (!tcCols.some((c) => c.name === 'detail')) {
     // Usage-stats capture: skill name / memory topic / reference relpath for the calls that

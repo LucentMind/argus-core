@@ -140,6 +140,17 @@ export const MODEL_OPTION_POLICY: Readonly<Record<string, ModelOptionPolicy>> = 
   // from Fable 5. Effort levels are what the catalog reports for the `fable` alias; the
   // `xhigh` pass-through and Ultracode are INHERITED from Fable 5's row, not re-captured.
   'claude-fable-5-1': { effortLevels: ALL_LEVELS, ultracode: true, contextWindow: 'native-1m' },
+  // The CLI catalog gives Opus 5.5 alone `default_effort: "medium"`. Ultracode as on Opus 5
+  // (`--effort xhigh` accepted; its pass-through is INHERITED, not re-captured). Context Window
+  // and Fast Mode per the probe turns in drivers/claude/__fixtures__/EVIDENCE.md.
+  // `rejects_disabled_thinking` is harmless: Thinking is offered only to models without Reasoning.
+  'claude-opus-5-5': {
+    effortLevels: ALL_LEVELS,
+    defaultEffort: 'medium',
+    ultracode: true,
+    contextWindow: 'native-1m',
+    fastMode: true
+  },
   // Argus-originated (see above): t3code has no Opus 5 row.
   'claude-opus-5': {
     effortLevels: ALL_LEVELS,
@@ -388,8 +399,8 @@ const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max'] as const
  * level, preferring lower: it walks down first, and only when nothing supported
  * lies below the request does it take the model's lowest level. That floor case
  * deliberately lands ABOVE the request — returning undefined instead would omit
- * `effort` entirely and let the SDK apply its own default, which is `high`, and
- * therefore further from a `low` request than the floor value is.
+ * `effort` entirely and let the SDK apply the model's default (usually `high`; Opus 5.5
+ * `medium`), and therefore further from a `low` request than the floor value is.
  *
  * Keying off the model's reported set rather than a hardcoded table is what
  * stops this going stale when the catalog changes.
