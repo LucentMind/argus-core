@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.4.1 — 2026-09-26
+
 ### Added
 
 **Claude Opus 5.5**
