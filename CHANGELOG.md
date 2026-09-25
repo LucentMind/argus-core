@@ -25,9 +25,10 @@
 - The Claude Agent SDK moves to 0.3.281 (bundled CLI 2.1.281), which the
   API requires before it will serve Opus 5.5. The CLI's Opus aliases
   (`opus[1m]`, and `opus` or `default` depending on the account) now point
-  to Opus 5.5, so a session or preference still stored as one of those raw
-  aliases follows it; anything stored by model slug (`claude-opus-5`) does
-  not move.
+  to Opus 5.5. Picking a model from the list stores its model slug
+  (`claude-opus-5-5`) whenever Argus knows the model, so it never moves on
+  its own; only a session or preference already stored as a raw alias
+  follows the CLI.
 
 ### Fixed
 

@@ -167,11 +167,11 @@ describe('catalogModelRows', () => {
       expect(asAlias?.type === 'select' && asAlias.options.map((o) => o.value)).toEqual(['1m'])
     })
 
-    it('leaves every other row alone', () => {
+    it('pins every other alias row to its static slug', () => {
       expect(rows.filter((m) => m.slug !== 'opus[1m]').map(pinSlugFor)).toEqual([
-        'fable',
-        'sonnet',
-        'haiku'
+        'claude-fable-5',
+        'claude-sonnet-5',
+        'claude-haiku-4-5'
       ])
     })
 
@@ -229,6 +229,13 @@ describe('catalogModelRows', () => {
       expect(row.name).toBe('Claude Zeta 9 (1M)')
       expect(pinSlugFor(row)).toBe('zeta[1m]')
     })
+
+    it('keeps the alias pin for a bare alias resolving to a model we have no static row for', () => {
+      const [row] = catalogModelRows([
+        { value: 'zeta', resolvedModel: 'claude-zeta-9', displayName: 'Zeta' }
+      ])
+      expect(pinSlugFor(row)).toBe('zeta')
+    })
   })
 })
 
@@ -279,9 +286,72 @@ describe('against the 2.1.281 entitlement-list catalog', () => {
     expect(merged.filter((m) => m.name === 'Claude Opus 5')).toHaveLength(1)
   })
 
-  // Records current behaviour, not a design decision: with no `[1m]` to strip, a session picked
-  // here pins the `opus` alias and follows it to future Opus releases.
-  it('pins the opus alias itself for the bare opus row (no 1M to strip)', () => {
-    expect(pinSlugFor(rows.find((m) => m.slug === 'opus')!)).toBe('opus')
+  // Pinning the alias would let the session follow `opus` to future releases.
+  it('pins the Opus 5.5 wire slug for the bare opus row, not the alias', () => {
+    expect(pinSlugFor(rows.find((m) => m.slug === 'opus')!)).toBe('claude-opus-5-5')
   })
+
+  it('gives the pinned Opus 5.5 slug its own run options', () => {
+    const pin = pinSlugFor(rows.find((m) => m.slug === 'opus')!)
+    const info = resolveModelInfo(CLI_CATALOG_281_ENTITLED as ModelOptionInfo[], pin)!
+    const ds = descriptorsFor(info, pin)
+    const effort = ds.find((d) => d.id === 'effort')
+    const cw = ds.find((d) => d.id === 'contextWindow')
+    expect(effort?.type === 'select' && effort.options.find((o) => o.isDefault)?.value).toBe(
+      'medium'
+    )
+    expect(cw?.type === 'select' && cw.options).toEqual([
+      { value: '1m', label: '1M', isDefault: true },
+      { value: 'cap-200k', label: '200k cap' }
+    ])
+  })
+})
+
+describe('pinSlugFor across the 2.1.281 catalogs', () => {
+  const cases: [string, ModelOptionInfo[], Record<string, string>][] = [
+    [
+      'alias menu',
+      CLI_CATALOG_281 as ModelOptionInfo[],
+      {
+        'opus[1m]': 'claude-opus-5-5',
+        'claude-fable-5-1[1m]': 'claude-fable-5-1',
+        sonnet: 'claude-sonnet-5',
+        haiku: 'claude-haiku-4-5'
+      }
+    ],
+    [
+      'entitlement list',
+      CLI_CATALOG_281_ENTITLED as ModelOptionInfo[],
+      {
+        opus: 'claude-opus-5-5',
+        'claude-opus-5': 'claude-opus-5',
+        sonnet: 'claude-sonnet-5',
+        'claude-fable-5-1': 'claude-fable-5-1',
+        haiku: 'claude-haiku-4-5',
+        'claude-fable-5': 'claude-fable-5',
+        'claude-opus-4-8': 'claude-opus-4-8',
+        'claude-opus-4-7': 'claude-opus-4-7',
+        // No static row: nothing records the wire slug running, so the row keeps its own.
+        'claude-opus-4-6': 'claude-opus-4-6',
+        'claude-sonnet-4-6': 'claude-sonnet-4-6'
+      }
+    ]
+  ]
+
+  for (const [label, catalog, expected] of cases) {
+    const rows = catalogModelRows(catalog)
+    const merged = mergeBuiltinRows(rows, DRIVERS['claude-agent-sdk'].models)
+
+    it(`pins every ${label} row to the static slug when one exists`, () => {
+      expect(Object.fromEntries(rows.map((m) => [m.slug, pinSlugFor(m)]))).toEqual(expected)
+    })
+
+    // The chip must still land on the row that was picked.
+    it(`resolves every pinned ${label} slug back to the row it was picked from`, () => {
+      for (const row of rows) {
+        expect(findModelRow(rows, pinSlugFor(row))).toBe(row)
+        expect(findModelRow(merged, pinSlugFor(row))?.slug).toBe(row.slug)
+      }
+    })
+  }
 })

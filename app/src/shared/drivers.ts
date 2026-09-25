@@ -741,57 +741,26 @@ function prettifyModelSlug(id: string): string {
 }
 
 /**
- * The static row a 1M-pinning catalog alias is the 1M variant OF, when we ship one.
- *
- * On CLI 2.1.220 `opus[1m]` resolves to `claude-opus-5[1m]`; this returns the `claude-opus-5`
- * row. Undefined for every other alias, and — critically — for a model we ship no static row
- * for: there the bare wire slug is an ASSUMPTION, and {@link CLAUDE_MODEL_SPECS} is the only
- * place that records a slug actually having been run. Opus 5's entry there carries the 2026-08-02
- * measurement that the bare slug runs (`modelUsage: {"claude-opus-5"}`), which is the whole
- * warrant for {@link pinSlugFor} handing it out. On CLI 2.1.281 `opus[1m]` maps to the Opus
- * 5.5 row (bare-slug evidence in drivers/claude/__fixtures__/EVIDENCE.md).
- *
- * A custom row cannot reach this: `customModelRows` sets no `resolvedModel`, so a hand-added
- * `claude-sonnet-5[1m]` stays exactly what the user typed. That is deliberate — the suffix
- * there is a choice, not an artefact of how the CLI happens to key its catalog.
+ * The static row for a wire slug, ignoring a trailing `[1m]` and the CLI's `-YYYYMMDD` date.
+ * A static row is the only record of a slug actually having been run (see
+ * {@link CLAUDE_MODEL_SPECS}), so no match means the bare slug is unverified.
  */
-function oneMillionAliasBase(resolvedModel: string | undefined): CatalogModel | undefined {
-  if (resolvedModel === undefined || !resolvedModel.endsWith('[1m]')) return undefined
-  const bareModel = resolvedModel.slice(0, -'[1m]'.length)
+function builtinRowFor(wireSlug: string): CatalogModel | undefined {
+  const bareModel = wireSlug.replace(/\[1m\]$/, '')
   return CLAUDE_MODELS.find((m) => resolvesToId(bareModel, m.slug))
 }
 
 /**
- * The slug to PIN when the user picks this row — which is NOT always the row's own `slug`.
- *
- * On CLI 2.1.220 the only Opus 5 alias is `opus[1m]`, so picking that row used to pin the
- * session at the `[1m]` suffix. `apiModelId` cannot take a suffix back off, so Context Window
- * collapsed to a single inert "1M" position and every send went out at 1M — while the chip,
- * matched back to the same row, read "Claude Opus 5 (1M)" whatever the session was really
- * pinned to. A session pinned to the bare slug therefore showed a (1M) name over a 200k run.
- *
- * The cause was context window being represented TWICE: once inside the model's identity
- * (the suffix, and the ` (1M)` name it earned) and once as a run option. This makes the run
- * option the only representation — pin the bare slug, and let `apiModelId` add the suffix
- * back when, and only when, the user asks for 1M.
- *
- * Row IDENTITY is untouched: `slug` stays the CLI alias and `resolvedModel` stays as reported,
- * so a session already pinned to `opus[1m]` still matches this row (`modelMatches` compares
- * against `value`) and still, correctly, reports 1M — it really is pinned there. Rewriting the
- * row's own `slug` instead would have orphaned exactly those sessions, since neither `opus[1m]`
- * nor its bare form `opus` matches `claude-opus-5`.
+ * The slug to store when the user picks this row. A catalog row whose `resolvedModel` names a
+ * built-in model pins that model's static slug — never the alias (which would follow the CLI to
+ * future models) and never a `[1m]` suffix (context window is a run option; `apiModelId` adds
+ * it). Otherwise the row's own slug: a model with no static row, or a custom row (no
+ * `resolvedModel`, so a hand-typed `[1m]` stays). Row identity is untouched, so sessions
+ * already stored under an alias still match their row.
  */
 export function pinSlugFor(m: CatalogModel): string {
-  return (
-    oneMillionAliasBase(m.resolvedModel)?.slug ??
-    // Observed once on CLI 2.1.263 (2026-09-07): a catalog row keyed by a SUFFIXED wire slug
-    // (`value: "claude-fable-5[1m]"`) whose `resolvedModel` is the bare `claude-fable-5`. The
-    // value is what goes on the wire, so picking that row pinned 1M and hid the 200k cap just
-    // as `opus[1m]` used to. Same rule, read off the key instead: bare pin when we ship a
-    // static row for it. A custom row has no `resolvedModel` and is never rewritten.
-    (m.resolvedModel === undefined ? undefined : oneMillionAliasBase(m.slug)?.slug) ??
-    m.slug
-  )
+  const builtin = m.resolvedModel === undefined ? undefined : builtinRowFor(m.resolvedModel)
+  return builtin?.slug ?? m.slug
 }
 
 /**
@@ -807,12 +776,10 @@ export function pinSlugFor(m: CatalogModel): string {
  * Traits chip already reports, and restate it wrongly.
  */
 function displayNameForResolved(resolvedModel: string): string {
-  const base = oneMillionAliasBase(resolvedModel)
-  if (base) return base.name
+  const known = builtinRowFor(resolvedModel)
+  if (known) return known.name
   const isOneM = resolvedModel.endsWith('[1m]')
-  const bareModel = isOneM ? resolvedModel.slice(0, -'[1m]'.length) : resolvedModel
-  const known = CLAUDE_MODELS.find((m) => resolvesToId(bareModel, m.slug))
-  const name = known ? known.name : prettifyModelSlug(bareModel)
+  const name = prettifyModelSlug(isOneM ? resolvedModel.slice(0, -'[1m]'.length) : resolvedModel)
   return isOneM ? `${name} (1M)` : name
 }
 
