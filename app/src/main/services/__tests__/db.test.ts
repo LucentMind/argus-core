@@ -56,6 +56,20 @@ describe('openDb', () => {
     db.close()
   })
 
+  it('adds nullable turns.sdk_total_cost_usd (REAL) and turns.sdk_cost_cursor (TEXT) columns', () => {
+    const db = openDb(tmpDbPath())
+    const cols = db.prepare(`PRAGMA table_info(turns)`).all() as {
+      name: string
+      type: string
+      notnull: number
+    }[]
+    const total = cols.find((c) => c.name === 'sdk_total_cost_usd')
+    expect(total).toMatchObject({ type: 'REAL', notnull: 0 })
+    const cursor = cols.find((c) => c.name === 'sdk_cost_cursor')
+    expect(cursor).toMatchObject({ type: 'TEXT', notnull: 0 })
+    db.close()
+  })
+
   it('cases table has a nullable resolution column', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-db-'))
     const db = openDb(path.join(dir, 'a.db'))
@@ -197,6 +211,37 @@ describe('openDb', () => {
       expect(row).toEqual({ driver_cursor: 'u-u-i-d', driver_kind: 'claude-agent-sdk' })
       const cols = migrated.prepare(`PRAGMA table_info(sessions)`).all() as { name: string }[]
       expect(cols.some((c) => c.name === 'sdk_session_id')).toBe(false)
+      migrated.close()
+    })
+
+    it('adds turns.sdk_total_cost_usd and turns.sdk_cost_cursor to a pre-existing turns table; old rows read NULL', () => {
+      const file = path.join(tmp, 'pre-sdk-cost.db')
+      const old = new DatabaseSync(file)
+      old.exec(`CREATE TABLE cases (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL, jira_key TEXT, status TEXT NOT NULL DEFAULT 'open',
+        tags TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE turns (id INTEGER PRIMARY KEY AUTOINCREMENT, case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE, session_id INTEGER NOT NULL, turn_index INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'running', input_tokens INTEGER, output_tokens INTEGER, cost_usd REAL, duration_ms INTEGER, created_at TEXT NOT NULL, model TEXT);`)
+      old.exec(
+        `INSERT INTO cases (slug, title, created_at, updated_at) VALUES ('NAV-1','t','x','x')`
+      )
+      old.exec(
+        `INSERT INTO turns (case_id, session_id, turn_index, status, cost_usd, created_at)
+         VALUES (1, 1, 1, 'success', 0.25, 'x')`
+      )
+      old.close()
+      const migrated = openDb(file)
+      const cols = migrated.prepare(`PRAGMA table_info(turns)`).all() as { name: string }[]
+      expect(cols.map((c) => c.name)).toEqual(
+        expect.arrayContaining(['sdk_total_cost_usd', 'sdk_cost_cursor'])
+      )
+      const row = migrated
+        .prepare(`SELECT cost_usd, sdk_total_cost_usd, sdk_cost_cursor FROM turns`)
+        .get()
+      expect({ ...row }).toEqual({
+        cost_usd: 0.25,
+        sdk_total_cost_usd: null,
+        sdk_cost_cursor: null
+      })
       migrated.close()
     })
 

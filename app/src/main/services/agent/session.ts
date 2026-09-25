@@ -563,6 +563,10 @@ export class CaseSession {
       panelCommandDecls: deps.panelCommandDecls ?? [],
       dispatchPanelCommand: deps.dispatchPanelCommand,
       resumeCursor: deps.resumeCursor,
+      // Only meaningful with a cursor: a fresh conversation's running total starts at zero.
+      resumeCostBaseline: deps.resumeCursor
+        ? lastSdkTotalCost(deps.db, this.sessionId, deps.resumeCursor)
+        : null,
       eventCtx: () => this.ctx(),
       onToolRequest: this.handleToolRequest.bind(this),
       classifyOnly: this.classifyOnly.bind(this),
@@ -1325,18 +1329,64 @@ export class CaseSession {
   // (non-auth) error leaves the auth state untouched.
   private handleTurnResult(r: TurnResult): void {
     if (this.currentTurnRow != null) {
+      // Claude only (sdkTotalCostUsd defined): a mid-turn send moves currentTurnRow first, and
+      // the CLI may run it as its own turn or fold it in (`queued_turn_count`), so results can't
+      // be paired with rows. A second result on a finished row ADDS cost, tokens and duration;
+      // only the session SUM(cost_usd) is exact. Other drivers overwrite (Copilot reports once
+      // per `assistant.turn_end`; the last result stands).
+      const prior =
+        r.sdkTotalCostUsd === undefined
+          ? undefined
+          : (this.deps.db
+              .prepare(
+                `SELECT status, cost_usd AS c, input_tokens AS i, output_tokens AS o,
+                   duration_ms AS d
+                 FROM turns WHERE id = ?`
+              )
+              .get(this.currentTurnRow) as
+              | {
+                  status: string
+                  c: number | null
+                  i: number | null
+                  o: number | null
+                  d: number | null
+                }
+              | undefined)
+      const finished = prior != null && prior.status !== 'running'
+      const add = (a: number | null | undefined, b: number | null): number | null =>
+        finished && a != null ? a + (b ?? 0) : b
+      // A no-cost error (zeroed crash/startup result) keeps a finished row's status.
+      const status =
+        finished && r.isError && !(r.costUsd != null && r.costUsd > 0)
+          ? prior.status
+          : r.isError
+            ? 'error'
+            : 'success'
+      // Total and cursor are written only as a pair, so a missing one can't erase or split the
+      // next resume's baseline.
+      const total = r.sdkTotalCostUsd ?? null
+      const cursor = r.sdkCostCursor ?? null
       this.deps.db
         .prepare(
-          `UPDATE turns SET status = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, duration_ms = ?, model = ?
+          `UPDATE turns SET status = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, duration_ms = ?, model = ?,
+             sdk_cost_cursor = CASE WHEN ? IS NULL OR ? IS NULL THEN sdk_cost_cursor ELSE ? END,
+             sdk_total_cost_usd =
+               CASE WHEN ? IS NULL OR ? IS NULL THEN sdk_total_cost_usd ELSE ? END
            WHERE id = ?`
         )
         .run(
-          r.isError ? 'error' : 'success',
-          r.inputTokens,
-          r.outputTokens,
-          r.costUsd,
-          r.durationMs,
+          status,
+          add(prior?.i, r.inputTokens),
+          add(prior?.o, r.outputTokens),
+          add(prior?.c, r.costUsd),
+          add(prior?.d, r.durationMs),
           r.model,
+          total,
+          cursor,
+          cursor,
+          total,
+          cursor,
+          total,
           this.currentTurnRow
         )
     }
@@ -1399,4 +1449,21 @@ export class CaseSession {
       this.releaseSpawnedPids()
     }
   }
+}
+
+/**
+ * The last SDK running total recorded for conversation `cursor` — the baseline a resumed
+ * query() continues from (see agent/drivers/claude/turnCost.ts). Keyed on the conversation,
+ * not the session, because a session's cursor can move to a new conversation before it reports
+ * a total. Null when none was recorded (including rows from before `sdk_cost_cursor` existed).
+ */
+function lastSdkTotalCost(db: DatabaseSync, sessionId: number, cursor: string): number | null {
+  const row = db
+    .prepare(
+      `SELECT sdk_total_cost_usd AS t FROM turns
+       WHERE session_id = ? AND sdk_cost_cursor = ? AND sdk_total_cost_usd IS NOT NULL
+       ORDER BY id DESC LIMIT 1`
+    )
+    .get(sessionId, cursor) as { t: number } | undefined
+  return row?.t ?? null
 }

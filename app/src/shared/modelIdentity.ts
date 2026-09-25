@@ -98,7 +98,7 @@ export function modelMatches(row: ModelIdentity, model: string): boolean {
 /**
  * The row `model` names, or null. `value` matches win over `resolvedModel` matches (the
  * alias is the row's own identity, and two alias rows can share one `resolvedModel` — the
- * fixture's `default` and `opus[1m]` both resolve to `claude-opus-5[1m]`).
+ * CLI 2.1.220 fixture's `default` and `opus[1m]` both resolve to `claude-opus-5[1m]`).
  *
  * `identityOf` exists because the two sources spell the same fields differently:
  * `ModelOptionInfo` already IS a `ModelIdentity`, while a picker row (`CatalogModel`) calls

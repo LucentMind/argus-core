@@ -13,6 +13,8 @@ import {
   type ModelOptionInfo,
   type RunOptionDescriptor
 } from '../runOptions'
+import CLI_CATALOG_281 from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-281.json'
+import CLI_CATALOG_281_ENTITLED from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-281-entitled.json'
 
 const FABLE: ModelOptionInfo = {
   value: 'fable',
@@ -204,6 +206,86 @@ describe('descriptorsFor', () => {
         'fastMode'
       ])
       expect(effortValues(unknown)).toContain('ultracode')
+    })
+
+    // Opus 5.5 (CLI 2.1.281): the CLI catalog's `default_effort: "medium"`; Context Window and
+    // Fast Mode follow the probe turns in EVIDENCE.md.
+    describe('Opus 5.5', () => {
+      const OPUS_55 = curated('claude-opus-5-5', {
+        supportsAdaptiveThinking: true,
+        supportsFastMode: true
+      })
+
+      it('defaults Reasoning to medium, not the usual high', () => {
+        const d = descriptorsFor(OPUS_55).find((x) => x.id === 'effort')
+        expect(d?.type === 'select' && d.options.find((o) => o.isDefault)?.value).toBe('medium')
+      })
+
+      it('offers all five levels, Ultracode and Ultrathink', () => {
+        expect(effortValues(OPUS_55)).toEqual([
+          'low',
+          'medium',
+          'high',
+          'xhigh',
+          'max',
+          'ultracode',
+          'ultrathink'
+        ])
+      })
+
+      // `rejects_disabled_thinking`: the Thinking toggle is only for models without Reasoning.
+      it('never offers the Thinking toggle', () => {
+        expect(descriptorsFor(OPUS_55).some((d) => d.id === 'thinking')).toBe(false)
+      })
+
+      // The bare slug already runs at 1M, so 1M is the default and 200k a cap.
+      it('offers 1M by default with a 200k cap', () => {
+        const d = descriptorsFor(OPUS_55, 'claude-opus-5-5').find((x) => x.id === 'contextWindow')
+        expect(d?.type === 'select' && d.options).toEqual([
+          { value: '1m', label: '1M', isDefault: true },
+          { value: 'cap-200k', label: '200k cap' }
+        ])
+      })
+
+      it('offers Fast Mode (the probe measured fast_mode_state "on")', () => {
+        expect(descriptorsFor(OPUS_55).some((d) => d.id === 'fastMode')).toBe(true)
+      })
+
+      it('leaves Opus 5 on the standard high default', () => {
+        const d = descriptorsFor(curated('claude-opus-5')).find((x) => x.id === 'effort')
+        expect(d?.type === 'select' && d.options.find((o) => o.isDefault)?.value).toBe('high')
+      })
+
+      // `resolvesToId`'s `-YYYYMMDD` rule: `-5-20260901` is not a date suffix on `claude-opus-5`.
+      it('matches dated ids to the right row on each side of the 5 / 5.5 boundary', () => {
+        const defaultOf = (slug: string): string | undefined => {
+          const d = descriptorsFor(curated(slug)).find((x) => x.id === 'effort')
+          return d?.type === 'select' ? d.options.find((o) => o.isDefault)?.value : undefined
+        }
+        expect(defaultOf('claude-opus-5-5-20260901')).toBe('medium')
+        expect(defaultOf('claude-opus-5-20260101')).toBe('high')
+      })
+
+      // The alias menu's `opus[1m]` and the entitled menu's bare `opus`, both Opus 5.5.
+      it('gives the captured catalog rows the same effort default and Context Window', () => {
+        const rows = [
+          (CLI_CATALOG_281 as ModelOptionInfo[]).find((r) => r.value === 'opus[1m]'),
+          (CLI_CATALOG_281_ENTITLED as ModelOptionInfo[]).find((r) => r.value === 'opus')
+        ]
+        for (const row of rows) {
+          expect(row).toBeDefined()
+          const ds = descriptorsFor(row!, 'claude-opus-5-5')
+          const effort = ds.find((x) => x.id === 'effort')
+          expect(effort?.type === 'select' && effort.options.find((o) => o.isDefault)?.value).toBe(
+            'medium'
+          )
+          const cw = ds.find((x) => x.id === 'contextWindow')
+          expect(cw?.type === 'select' && cw.options).toEqual([
+            { value: '1m', label: '1M', isDefault: true },
+            { value: 'cap-200k', label: '200k cap' }
+          ])
+        }
+      })
     })
   })
 

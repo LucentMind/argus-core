@@ -5,7 +5,7 @@
  * Drives the REAL app over CDP against an EMPTY scratch ARGUS_HOME (no preferences, no
  * explicit distillation model) and reads what a pristine user actually gets:
  *
- *   1. a brand-new case's composer Model chip reads "Claude Opus 5" — the static row 0 seed
+ *   1. a brand-new case's composer Model chip reads "Claude Opus 5.5" — the static row 0 seed
  *      (`defaultModelRef`) reaching the real session row and the real chip, not a unit test's
  *      view of `orderedVisibleModels`;
  *   2. Settings → Distillation's model select reads "Automatic (claude-sonnet-5)" — the pinned
@@ -14,7 +14,7 @@
  * jsdom proves the functions; this proves the wiring (registry seed → sessions row → chip, and
  * resolver → IPC payload → SelectField) with the bundled CLI catalog actually loaded, which is
  * the one condition the unit tests cannot create: a live catalog whose `opus[1m]` alias row
- * dedupes the static Opus 5 row and could, if the naming or pinning regressed, relabel the chip.
+ * dedupes the static Opus 5.5 row and could, if the naming or pinning regressed, relabel the chip.
  *
  * Usage:
  *   ARGUS_HOME=<empty dir> npx electron-vite dev --remoteDebuggingPort <port>
@@ -72,8 +72,8 @@ await waitFor('composer', () =>
 const sessions = await conn.evalJs(`window.argus.sessions.list(${JSON.stringify(SLUG)})`)
 check('case has a session after opening', sessions.length >= 1, JSON.stringify(sessions[0]))
 check(
-  'session row is pinned to claude-opus-5 (the registry seed)',
-  sessions[0]?.model === 'claude-opus-5',
+  'session row is pinned to claude-opus-5-5 (the registry seed)',
+  sessions[0]?.model === 'claude-opus-5-5',
   `model=${sessions[0]?.model}`
 )
 // Let the live catalog land: the chip is derived from the merged rows, and the assertion is
@@ -82,7 +82,12 @@ await sleep(4000)
 const chip = await conn.evalJs(
   `document.querySelector('[data-composer-model]')?.textContent.replace(/\\s+/g, ' ').trim() ?? ''`
 )
-check('composer Model chip reads Claude Opus 5', chip.includes('Claude Opus 5'), `chip="${chip}"`)
+// Whole-name match: `includes('Claude Opus 5')` would also pass for Opus 5.5.
+check(
+  'composer Model chip reads Claude Opus 5.5',
+  /\bClaude Opus 5\.5\b/.test(chip),
+  `chip="${chip}"`
+)
 
 // ── 2. Settings → Distillation ──
 const clickButtonByText = (label) =>

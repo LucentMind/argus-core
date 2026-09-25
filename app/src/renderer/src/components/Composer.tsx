@@ -16,6 +16,7 @@ import {
   allVisibleModels,
   capabilitiesFor,
   catalogModelRows,
+  DRIVERS,
   defaultInstanceId,
   defaultModelRef,
   findModelRow,
@@ -23,6 +24,7 @@ import {
   instanceModels,
   pinSlugFor,
   resolveModelInfo,
+  selectionsAfterModelSwitch,
   type AggregatedModel
 } from '../../../shared/drivers'
 import {
@@ -50,6 +52,12 @@ import {
   PERMISSION_MODE_DISABLED_TITLE,
   type CollapsedSection
 } from './OptionsMenu'
+
+/** The picker's options until settings first load: the built-in Claude catalog, derived so it
+ *  can't go stale. */
+const PRE_SETTINGS_MODEL_OPTIONS: readonly string[] = DRIVERS['claude-agent-sdk'].models.map(
+  (m) => m.name
+)
 
 /**
  * Session-option picker: model and permission mode. Reasoning, Context Window, Fast Mode and
@@ -369,7 +377,7 @@ export function Composer({
   const modelOptions = models.length
     ? models.map((m) => modelOptionLabel(m, showProvider))
     : // static fallback until the settings payload first arrives
-      ['Claude Fable 5', 'Claude Opus 4.8', 'Claude Sonnet 5', 'Claude Haiku 4.5']
+      [...PRE_SETTINGS_MODEL_OPTIONS]
 
   // What this chat is pinned to. A session created before multi-provider has a null model,
   // so fall back to the settings default (which still honours a hand-set config.model) —
@@ -830,10 +838,19 @@ export function Composer({
               value={model}
               onChange={(label) => {
                 const picked = models.find((m) => modelOptionLabel(m, showProvider) === label)
-                // `pinSlugFor`, not `picked.slug`: the CLI's only Opus 5 alias is `opus[1m]`,
-                // and pinning a session AT the suffix makes Context Window inert (see that
-                // function). The row's own slug stays its identity for matching.
-                if (picked) onModelChange?.(picked.instanceId, pinSlugFor(picked))
+                // `pinSlugFor`, not `picked.slug`: an alias row pins the model's own wire
+                // slug, bare, so the session neither follows the alias nor freezes 1M.
+                if (!picked) return
+                const slug = pinSlugFor(picked)
+                onModelChange?.(picked.instanceId, slug)
+                // Another instance's catalog is not loaded here; the static info stands in.
+                const next = selectionsAfterModelSwitch(
+                  selections,
+                  { catalog, model: pinnedModel },
+                  { catalog: picked.instanceId === catalogInstanceId ? catalog : [], model: slug }
+                )
+                // Pruning only removes, so a length change is the only possible change.
+                if (next.length !== selections.length) onRunOptionsChange?.(next)
               }}
               options={modelOptions}
             />

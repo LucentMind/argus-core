@@ -180,3 +180,77 @@ Session scratchpad script, not committed: import `query` from the installed SDK,
 `supportedModels()` from an EMPTY cwd (a shared temp root makes CLI boot take 6–17s), and
 write the array. Requires an authenticated CLI — unauthenticated, the call returns a
 defaults list that looks real.
+
+## `models-2-1-281.json` and `models-2-1-281-entitled.json`
+
+Captured 2026-09-24 from `@anthropic-ai/claude-agent-sdk@0.3.281` (bundled CLI 2.1.281),
+the floor Opus 5.5 needs. Same method as `models-2-1-263.json`: `query({ prompt: 'hi',
+options: { cwd, maxTurns: 0 } })` from an empty cwd, then `await q.supportedModels()`, written
+verbatim. Account: claude.ai login on an enterprise org.
+
+### The question it answers
+
+Whether Opus 5.5 is reachable without an SDK bump. On 0.3.263 (CLI 2.1.263) a turn on the
+bare `claude-opus-5-5` slug returned:
+
+```json
+{"result":{"is_error":true,"subtype":"success","text":"API Error: 400 Claude Code 2.1.263 does not support this model; version 2.1.280 or newer is required. Run 'claude update', or update the Claude desktop app, then try again.","api_error_status":400,"total_cost_usd":0,"modelUsage":{}}}
+```
+
+### Two catalog shapes, one account, minutes apart
+
+Five reads in a row returned two different shapes:
+
+- **Reads 1–2 — the alias menu (`models-2-1-281.json`, 5 rows).** `default` and `opus[1m]`
+  resolve to `claude-opus-5-5[1m]`; `sonnet` to `claude-sonnet-5`. Fable is offered as the
+  wire-slug row `{ value: "claude-fable-5-1[1m]", resolvedModel: "claude-fable-5-1" }` — the
+  shape seen once on 2.1.263 (above), here on both reads — not as a `fable` alias. No row
+  resolves to `claude-opus-5`, so that model reaches the picker only through its static row,
+  the same way Fable 5 did after 2.1.263.
+- **Reads 3–5 — the entitlement list (`models-2-1-281-entitled.json`, 11 rows).** Once the
+  CLI's bootstrap call has cached the org's `modelAccessCache` in `~/.claude.json`, the
+  catalog is built from it: `default` resolves to `claude-sonnet-5`, `opus` (bare, no `[1m]`)
+  to `claude-opus-5-5`, and `claude-opus-5`, `claude-fable-5`, `claude-opus-4-8/4-7/4-6` and
+  `claude-sonnet-4-6` each get a row keyed by their wire slug. A fresh 0.3.263 install read
+  on the same account afterwards returned the same shape (10 rows, `opus` → `claude-opus-5`),
+  so this depends on account state, not on 2.1.281.
+
+Argus handles both: `catalogModelRows` + `mergeBuiltinRows` give exactly one Opus 5.5 row
+and keep Opus 5 in each (`catalogModels.test.ts`). The fresh-install seed is read off the
+static order, not the catalog's `default`, so it stays Opus 5.5 even where `default` is
+Sonnet 5.
+
+### Opus 5.5 probe turns (SDK 0.3.281)
+
+| Probe | `modelUsage` key → `contextWindow` | `fast_mode_state` | `total_cost_usd` |
+|---|---|---|---|
+| bare `claude-opus-5-5` | `claude-opus-5-5` → 1000000 | off (`sdk_opt_in_required`) | 0.094488 |
+| `claude-opus-5-5[1m]` | `claude-opus-5-5[1m]` → 1000000 | off (`sdk_opt_in_required`) | 0.0304448 |
+| `--effort xhigh` | `claude-opus-5-5` → 1000000 | off (`sdk_opt_in_required`) | 0.0303328 |
+| fast mode on | `claude-opus-5-5` → 1000000 | on | 0.0303428 |
+
+All four: `is_error: false`, `claude_code_version: "2.1.281"`. (Each `modelUsage` also has a
+`claude-haiku-4-5-20251001` entry, ~$0.001: the CLI's own side call.)
+
+Decisions: Context Window `native-1m` (the bare slug already runs at 1M), Fast Mode `keep`.
+
+### `total_cost_usd` is a running total
+
+One streaming query() on `claude-haiku-4-5` with two turns, then a second query() resuming it:
+
+```json
+{"session_id":"539efad2-aca1-43d0-854a-a56b99e8f52f","totals":[{"resumed":false,"total_cost_usd":0.02763,"usage_input_tokens":10},{"resumed":false,"total_cost_usd":0.030052099999999998,"usage_input_tokens":10},{"resumed":true,"total_cost_usd":0.031809899999999995,"usage_input_tokens":10}]}
+```
+
+The ratio between results is small because turn 1 pays the prompt-cache write; the transcript's
+per-message `usage` prices turn 2 at ≈ $0.0021 and turn 3 at ≈ $0.0017 (Haiku 4.5 list
+rates), which are the steps between the totals (0.00242, 0.00176). So totals are cumulative
+within a query(), and a resumed query() starts from the saved total. `drivers/claude/turnCost.ts`
+turns this back into per-turn cost.
+
+### Reproducing
+
+Session scratchpad script, not committed. `supportedModels()` as above; probe turns are single
+`query()` calls with `maxTurns: 1` and the option under test (`model`, `effort`,
+`settings: { fastMode: true }`). Requires an authenticated CLI. The alias-menu shape only
+appears before the CLI caches `modelAccessCache`; the caller cannot choose the shape.
