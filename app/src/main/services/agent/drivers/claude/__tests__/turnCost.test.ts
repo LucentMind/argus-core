@@ -1,10 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { createTurnCostTracker } from '../turnCost'
 
-// sdk.d.ts (0.3.281): `result.total_cost_usd` is the query() call's RUNNING total — "each result
-// carries the running total so far, so read the latest result rather than summing across
-// results" — and a resumed query() "continues from the total its transcript saved".
-// Measured in drivers/claude/__fixtures__/EVIDENCE.md.
+// `result.total_cost_usd` is the query()'s running total, and a resumed query() continues from
+// the saved total (sdk.d.ts 0.3.281; measured in EVIDENCE.md).
 describe('createTurnCostTracker', () => {
   it('turns a fresh session’s running totals into per-turn cost', () => {
     const t = createTurnCostTracker(0)
@@ -17,8 +15,7 @@ describe('createTurnCostTracker', () => {
     expect(t(0.07, false)).toEqual({ costUsd: 0.02, sdkTotalCostUsd: 0.07 })
   })
 
-  // Fallback when no conversation id tells us: a resumed transcript that carried no saved
-  // total (written by an older CLI) — the SDK's total restarted, so all of it is this turn's.
+  // e.g. a resumed transcript from an older CLI that saved no total.
   it('treats a total below the previous one as a reset', () => {
     const resumed = createTurnCostTracker(0.05)
     expect(resumed(0.01, false)).toEqual({ costUsd: 0.01, sdkTotalCostUsd: 0.01 })
@@ -27,9 +24,7 @@ describe('createTurnCostTracker', () => {
     expect(cleared(0.004, false)).toEqual({ costUsd: 0.004, sdkTotalCostUsd: 0.004 })
   })
 
-  // A result from a different conversation than the tracker last saw (e.g. /clear starts a
-  // new session id inside the same query()): its running total restarted from zero, even when
-  // it has already grown past the previous conversation's total.
+  // e.g. /clear mints a new session id; its total restarts even if it exceeds the previous one.
   it('starts from zero when the result belongs to a different conversation', () => {
     const t = createTurnCostTracker(0)
     expect(t(0.03, false, 'conv-1')).toEqual({ costUsd: 0.03, sdkTotalCostUsd: 0.03 })
@@ -46,8 +41,7 @@ describe('createTurnCostTracker', () => {
     expect(other(0.07, false, 'fresh')).toEqual({ costUsd: 0.07, sdkTotalCostUsd: 0.07 })
   })
 
-  // "Crash/startup-error results may carry zeroed values" — not a real total, so it must
-  // neither reset the running total nor be persisted as a resume baseline.
+  // "Crash/startup-error results may carry zeroed values" — not a real total.
   it('ignores a zeroed error result', () => {
     const t = createTurnCostTracker(0)
     t(0.03, false)
@@ -75,8 +69,7 @@ describe('createTurnCostTracker', () => {
     expect(t(0.3, false).costUsd).toBe(0.2)
   })
 
-  // The EVIDENCE.md Haiku run, fed through verbatim: two turns of one query(), then a resume
-  // seeded with the second total.
+  // The EVIDENCE.md Haiku run verbatim: two turns of one query(), then a resume.
   it('reproduces the measured Haiku session', () => {
     const live = createTurnCostTracker(0)
     expect(live(0.02763, false).costUsd).toBe(0.02763)

@@ -14,8 +14,7 @@
  * jsdom proves the functions; this proves the wiring (registry seed → sessions row → chip, and
  * resolver → IPC payload → SelectField) with the bundled CLI catalog actually loaded, which is
  * the one condition the unit tests cannot create: a live catalog whose `opus[1m]` alias row
- * dedupes the static Opus 5.5 row and could, if the naming or pinning regressed, relabel the chip
- * (spec 2026-09-24-opus-5-5-model-design).
+ * dedupes the static Opus 5.5 row and could, if the naming or pinning regressed, relabel the chip.
  *
  * Usage:
  *   ARGUS_HOME=<empty dir> npx electron-vite dev --remoteDebuggingPort <port>
@@ -83,8 +82,7 @@ await sleep(4000)
 const chip = await conn.evalJs(
   `document.querySelector('[data-composer-model]')?.textContent.replace(/\\s+/g, ' ').trim() ?? ''`
 )
-// A whole-name match: `includes('Claude Opus 5')` would pass for either default and so could
-// not tell Opus 5 from Opus 5.5.
+// Whole-name match: `includes('Claude Opus 5')` would also pass for Opus 5.5.
 check(
   'composer Model chip reads Claude Opus 5.5',
   /\bClaude Opus 5\.5\b/.test(chip),

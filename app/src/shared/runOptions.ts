@@ -140,15 +140,10 @@ export const MODEL_OPTION_POLICY: Readonly<Record<string, ModelOptionPolicy>> = 
   // from Fable 5. Effort levels are what the catalog reports for the `fable` alias; the
   // `xhigh` pass-through and Ultracode are INHERITED from Fable 5's row, not re-captured.
   'claude-fable-5-1': { effortLevels: ALL_LEVELS, ultracode: true, contextWindow: 'native-1m' },
-  // Opus 5.5 (SDK 0.3.281 / CLI 2.1.281; spec 2026-09-24-opus-5-5-model-design). The CLI's
-  // baked catalog gives this model, alone among the current ones, `default_effort: "medium"`,
-  // and Argus follows it. Ultracode as on Opus 5: xhigh is reported and accepted (the
-  // `--effort xhigh` probe turn succeeds); its pass-through to `output_config.effort` is
-  // INHERITED from Opus 5, not re-captured. Context Window and Fast Mode are what the probe
-  // turns in drivers/claude/__fixtures__/EVIDENCE.md measured: the bare slug runs at 1M, and
-  // fast mode turns on. The catalog also flags `rejects_disabled_thinking`: harmless here,
-  // because the Thinking toggle (the only thing that sends `alwaysThinkingEnabled: false`) is
-  // offered only to models without Reasoning.
+  // The CLI catalog gives Opus 5.5 alone `default_effort: "medium"`. Ultracode as on Opus 5
+  // (`--effort xhigh` accepted; its pass-through is INHERITED, not re-captured). Context Window
+  // and Fast Mode per the probe turns in drivers/claude/__fixtures__/EVIDENCE.md.
+  // `rejects_disabled_thinking` is harmless: Thinking is offered only to models without Reasoning.
   'claude-opus-5-5': {
     effortLevels: ALL_LEVELS,
     defaultEffort: 'medium',

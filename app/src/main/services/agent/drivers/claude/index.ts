@@ -122,9 +122,8 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // trace root for a fresh session and only a marker for a resumed one, so a
       // hardcoded `false` here made every restart mint a second root.
       const isResume = Boolean(ctx.resumeCursor && UUID_RE.test(ctx.resumeCursor))
-      // One running-total tracker per query(). Seeded only on a REAL resume: a non-UUID cursor
-      // starts a fresh conversation whose total starts at zero. The baseline belongs to the
-      // resumed conversation, so a result from any other session id ignores it. See turnCost.ts.
+      // One running-total tracker per query(), seeded only on a real resume (a non-UUID cursor
+      // starts fresh at zero). See turnCost.ts.
       const turnCost = isResume
         ? createTurnCostTracker(ctx.resumeCostBaseline ?? 0, ctx.resumeCursor)
         : createTurnCostTracker(0)
@@ -387,8 +386,7 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
         for await (const msg of handle as AsyncIterable<any>) {
           updateCursor(msg)
           if (isReplayedFrame(msg)) continue
-          // Computed once per result: the DB row (via onTurnResult) and the turn.completed
-          // event the renderer sums must agree on the turn's cost.
+          // Computed once so the DB row and the turn.completed event agree on the cost.
           let resultCost: TurnCost | undefined
           if (msg.type === 'result') {
             resultCost = turnCost(

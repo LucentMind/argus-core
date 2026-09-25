@@ -184,10 +184,9 @@ defaults list that looks real.
 ## `models-2-1-281.json` and `models-2-1-281-entitled.json`
 
 Captured 2026-09-24 from `@anthropic-ai/claude-agent-sdk@0.3.281` (bundled CLI 2.1.281),
-the version the floor moved to for Opus 5.5 (spec 2026-09-24-opus-5-5-model-design). Same
-method as `models-2-1-263.json`: `query({ prompt: 'hi', options: { cwd, maxTurns: 0 } })` from
-an empty cwd, then `await q.supportedModels()`, written verbatim. Account: claude.ai login on
-an enterprise org.
+the floor Opus 5.5 needs. Same method as `models-2-1-263.json`: `query({ prompt: 'hi',
+options: { cwd, maxTurns: 0 } })` from an empty cwd, then `await q.supportedModels()`, written
+verbatim. Account: claude.ai login on an enterprise org.
 
 ### The question it answers
 
@@ -245,15 +244,13 @@ One streaming query() on `claude-haiku-4-5` with two turns, then a second query(
 
 The ratio between results is small because turn 1 pays the prompt-cache write; the transcript's
 per-message `usage` prices turn 2 at ≈ $0.0021 and turn 3 at ≈ $0.0017 (Haiku 4.5 list
-rates), which are the steps between the totals (0.00242, 0.00176). So within a query() the
-second result carries the first turn's cost too (cumulative), and after a resume the first
-result starts from the saved total. `drivers/claude/turnCost.ts` turns this back into
-per-turn cost.
+rates), which are the steps between the totals (0.00242, 0.00176). So totals are cumulative
+within a query(), and a resumed query() starts from the saved total. `drivers/claude/turnCost.ts`
+turns this back into per-turn cost.
 
 ### Reproducing
 
 Session scratchpad script, not committed. `supportedModels()` as above; probe turns are single
 `query()` calls with `maxTurns: 1` and the option under test (`model`, `effort`,
-`settings: { fastMode: true }`). Requires an authenticated CLI. To get the alias-menu shape
-again, the CLI must not yet have cached `modelAccessCache`; which shape a read returns is not
-under the caller's control.
+`settings: { fastMode: true }`). Requires an authenticated CLI. The alias-menu shape only
+appears before the CLI caches `modelAccessCache`; the caller cannot choose the shape.

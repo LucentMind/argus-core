@@ -72,7 +72,7 @@ type CanUseTool = (
 
 Parameter name (`options` vs `opts`) is cosmetic — callers name it whatever
 they like. `signal`, `toolUseID` and `requestId` are always supplied; the rest
-is optional metadata, useful for approval-card copy (Task P1.T6) but not
+is optional metadata, useful for approval-card copy but not
 required to compile. As of 0.3.281 the callback may also resolve to `null`;
 returning a `PermissionResult` still satisfies it.
 

@@ -180,16 +180,10 @@ interface ClaudeModelSpec {
  */
 const CLAUDE_MODEL_SPECS: readonly ClaudeModelSpec[] = [
   // Row 0 is the FRESH-INSTALL DEFAULT for new cases: `defaultModelRef` /
-  // `effectiveDefaultModel` / the registry seed all read the top ordered visible row, and with
-  // no preferences that is this one. Opus 5.5 on purpose (spec 2026-09-24-opus-5-5-model-
-  // design): on SDK 0.3.281 (CLI 2.1.281) the alias menu's `opus[1m]` and `default` and the
-  // entitlement list's bare `opus` resolve here (that list's `default` may name another model;
-  // the seed reads this order, not that alias), and it is priced below Opus 5. Favourites,
-  // reordering and hiding still override — the built-in order only decides what a user who
-  // has chosen nothing gets. It needs the bundled CLI at 2.1.280 or newer: on 2.1.263 the API
-  // rejected the slug ("version 2.1.280 or newer is required", HTTP 400). The probe turns
-  // behind these flags (bare slug, `[1m]`, `--effort xhigh`, fast mode) are in
-  // drivers/claude/__fixtures__/EVIDENCE.md.
+  // `effectiveDefaultModel` / the registry seed read the top ordered visible row (not the
+  // catalog's `default`, which may name another model); favourites, order and hide override.
+  // Needs the bundled CLI ≥ 2.1.280 (the API rejects older ones with HTTP 400). Probe turns
+  // behind these flags are in drivers/claude/__fixtures__/EVIDENCE.md.
   {
     slug: 'claude-opus-5-5',
     name: 'Claude Opus 5.5',
@@ -197,12 +191,9 @@ const CLAUDE_MODEL_SPECS: readonly ClaudeModelSpec[] = [
     adaptiveThinking: true,
     fastMode: true
   },
-  // Opus 5 was row 0 from spec 2026-09-07-fresh-install-model-defaults until Opus 5.5 took the
-  // slot. On CLI 2.1.281's alias menu no alias resolves here any more (the entitlement-list
-  // catalog still lists it by slug), so on that menu — like Fable 5 — it reaches the picker
-  // only through this static row (see `mergeBuiltinRows`). Measured
-  // 2026-08-02: the BARE slug runs (`modelUsage: {"claude-opus-5"}`), takes `--effort`, the
-  // `[1m]` suffix and fast mode.
+  // On CLI 2.1.281's alias menu no alias resolves here, so — like Fable 5 — it reaches the
+  // picker only through this static row (see `mergeBuiltinRows`). Measured 2026-08-02: the
+  // BARE slug runs (`modelUsage: {"claude-opus-5"}`), takes `--effort`, `[1m]` and fast mode.
   {
     slug: 'claude-opus-5',
     name: 'Claude Opus 5',
@@ -758,8 +749,7 @@ function prettifyModelSlug(id: string): string {
  * place that records a slug actually having been run. Opus 5's entry there carries the 2026-08-02
  * measurement that the bare slug runs (`modelUsage: {"claude-opus-5"}`), which is the whole
  * warrant for {@link pinSlugFor} handing it out. On CLI 2.1.281 `opus[1m]` maps to the Opus
- * 5.5 row instead; its bare-slug evidence is the probe table in
- * drivers/claude/__fixtures__/EVIDENCE.md.
+ * 5.5 row (bare-slug evidence in drivers/claude/__fixtures__/EVIDENCE.md).
  *
  * A custom row cannot reach this: `customModelRows` sets no `resolvedModel`, so a hand-added
  * `claude-sonnet-5[1m]` stays exactly what the user typed. That is deliberate — the suffix
@@ -783,8 +773,7 @@ function oneMillionAliasBase(resolvedModel: string | undefined): CatalogModel | 
  * The cause was context window being represented TWICE: once inside the model's identity
  * (the suffix, and the ` (1M)` name it earned) and once as a run option. This makes the run
  * option the only representation — pin the bare slug, and let `apiModelId` add the suffix
- * back when, and only when, the user asks for 1M. (On CLI 2.1.281 `opus[1m]` maps to the Opus
- * 5.5 row; its bare-slug evidence is the probe table in drivers/claude/__fixtures__/EVIDENCE.md.)
+ * back when, and only when, the user asks for 1M.
  *
  * Row IDENTITY is untouched: `slug` stays the CLI alias and `resolvedModel` stays as reported,
  * so a session already pinned to `opus[1m]` still matches this row (`modelMatches` compares

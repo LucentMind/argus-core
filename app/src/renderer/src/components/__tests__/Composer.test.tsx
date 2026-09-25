@@ -71,11 +71,9 @@ describe('Composer', () => {
     expect(container.querySelector('[data-onboarding-anchor="composer"]')).toBeTruthy()
   })
 
-  // The placeholder used to be a hand-typed list that went stale: it still led with Fable 5
-  // after Opus 5 became the seed, and never listed Opus 5 or Fable 5.1 at all. It is now the
-  // built-in catalog itself, so its first entry is the same row 0 the seed reads.
+  // The placeholder is the built-in catalog, so it leads with the same row 0 the seed reads.
   it('renders the option chips, falling back to static labels before settings load', () => {
-    // never resolves: the component stays in its pre-settings state for the whole test
+    // never resolves: stays pre-settings
     window.argus.settings.get = vi.fn(() => new Promise(() => undefined)) as never
     render(<Composer disabled={false} onSend={vi.fn()} />)
     expect(screen.getByText('Claude Opus 5.5')).toBeTruthy()
@@ -83,7 +81,7 @@ describe('Composer', () => {
   })
 
   it('offers exactly the built-in Claude catalog in the picker before settings load', () => {
-    // never resolves: the component stays in its pre-settings state for the whole test
+    // never resolves: stays pre-settings
     window.argus.settings.get = vi.fn(() => new Promise(() => undefined)) as never
     render(<Composer disabled={false} onSend={vi.fn()} />)
     fireEvent.click(screen.getByText('Claude Opus 5.5'))
@@ -189,8 +187,7 @@ describe('Composer', () => {
       .getAllByRole('menuitem')
       .map((el) => el.textContent)
     // the full static catalog is offered, unchanged — no catalog-only row leaked in.
-    // Opus 5.5 is row 0 on purpose: it is the fresh-install seed for new cases
-    // (spec 2026-09-24-opus-5-5-model-design).
+    // Opus 5.5 is row 0 on purpose: it is the fresh-install seed for new cases.
     expect(items).toEqual([
       'Claude Opus 5.5',
       'Claude Opus 5',
@@ -433,10 +430,8 @@ describe('Composer', () => {
   it('picking a model re-pins the session rather than only changing local state', async () => {
     const onModelChange = vi.fn()
     render(<Composer disabled={false} onSend={vi.fn()} onModelChange={onModelChange} />)
-    // Wait for settings explicitly: the pre-settings placeholder and the default seed both
-    // read "Claude Opus 5.5", so the chip's label alone cannot tell us the rows have loaded
-    // (before they do, the picker has no rows to resolve a pick against and fires nothing).
-    // This used to find "Claude Fable 5" — a label only the STALE placeholder rendered.
+    // Placeholder and seed both read "Claude Opus 5.5", so wait for settings: before they load
+    // the picker has no rows to resolve a pick against.
     await waitFor(() => expect(settingsStore.get()).not.toBeNull())
     fireEvent.click(screen.getByText('Claude Opus 5.5'))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Claude Sonnet 5' }))

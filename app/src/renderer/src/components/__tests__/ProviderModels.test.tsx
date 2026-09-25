@@ -216,10 +216,8 @@ describe('ProviderModels runtime catalog (Claude instance)', () => {
   it('renders the same recognisable, deduped names the composer picker uses once the catalog loads', async () => {
     window.argus.models.catalog = vi.fn(async () => CLI_CATALOG as ModelOptionInfo[])
     render(<ProviderModels settings={settings()} instanceId="claude-default" />)
-    // 5 fixture rows, `default`/`opus[1m]` deduped to one -> 4, plus the 5 built-ins the
-    // fixture's alias menu never names (opus[1m]/fable/sonnet/haiku already cover Opus 5, Fable
-    // 5, Sonnet 5 and Haiku 4.5; the 2.1.220 fixture predates Opus 5.5 and Fable 5.1, so both
-    // survive the merge, as do Opus 4.8, Opus 4.7 and Sonnet 4.6)
+    // 5 fixture rows, `default`/`opus[1m]` deduped -> 4, plus the 5 built-ins no alias names
+    // (the 2.1.220 fixture predates Opus 5.5 and Fable 5.1; Opus 4.8, 4.7 and Sonnet 4.6)
     expect(await screen.findByText('Models · 9 available')).toBeTruthy()
     expect(screen.getByText('Claude Opus 5.5')).toBeTruthy()
     expect(screen.getByText('Claude Opus 5')).toBeTruthy()

@@ -372,10 +372,8 @@ describe('AgentService', () => {
     await svc2.stopAll()
   })
 
-  // End to end through the harness: per-turn cost across two turns of one live query(), then
-  // across an app restart whose resumed query() continues from the saved running total
-  // (sdk.d.ts 0.3.281). turns.cost_usd holds each turn's own spend; sdk_total_cost_usd holds
-  // the SDK's running total, which the next resume subtracts. See drivers/claude/turnCost.ts.
+  // cost_usd holds each turn's own spend; sdk_total_cost_usd the SDK running total a resume
+  // subtracts. See drivers/claude/turnCost.ts.
   it('stores per-turn cost across turns and across an app-restart resume', async () => {
     const SID = '22222222-2222-4222-8222-222222222222'
     const result = (total: number): Record<string, unknown> => ({
@@ -420,7 +418,7 @@ describe('AgentService', () => {
 
     const svc2 = mk() // app restart: resumes SID
     await svc2.send('NAV-1', s1.id, 'c')
-    // The restart really resumed the saved conversation (one query() per service instance).
+    // One query() per service instance; the second resumes.
     expect(optionsLog).toHaveLength(2)
     expect(optionsLog[0].resume).toBeUndefined()
     expect(optionsLog[1].resume).toBe(SID)
@@ -440,11 +438,8 @@ describe('AgentService', () => {
     await svc2.stopAll()
   })
 
-  // A message sent while a turn runs gets its own row, and currentTurnRow moves to it, so the
-  // running turn's result and the new one's both land on the newer row. The CLI may run the
-  // queued send as its own turn (two results, as here) or fold/coalesce it into the running
-  // one (one result — sdk.d.ts 0.3.281 `queued_turn_count`), so results cannot be matched to
-  // rows one-for-one; what must hold is that no turn's cost is overwritten away.
+  // The CLI may run a mid-turn send as its own turn (as here) or fold it in, so results can't be
+  // matched to rows one-for-one; no turn's cost may be overwritten away.
   it('keeps both turns’ cost when a message is sent mid-turn', async () => {
     const SID = '66666666-6666-4666-8666-666666666666'
     const result = (total: number): Record<string, unknown> => ({
@@ -488,7 +483,7 @@ describe('AgentService', () => {
       expect(r.t).toBe(0.03)
     })
     expect(sum()).toBeCloseTo(0.03, 10)
-    // the first result's tokens and duration are summed in, not overwritten away
+    // tokens and duration are summed too
     const last = db
       .prepare(
         `SELECT input_tokens AS i, output_tokens AS o, duration_ms AS d FROM turns
@@ -499,9 +494,7 @@ describe('AgentService', () => {
     await svc.stopAll()
   })
 
-  // The tracker reports a zeroed crash/startup error result with no running total (see
-  // turnCost.ts). Landing on an already-finished row, it must not erase that row's stored
-  // total — the next resume's baseline — nor turn the finished turn's success into an error.
+  // Its stored total is the next resume's baseline.
   it('a zeroed error result on a finished row keeps its running total and status', async () => {
     const SID = '77777777-7777-4777-8777-777777777777'
     const result = (total: number): Record<string, unknown> => ({
@@ -573,10 +566,7 @@ describe('AgentService', () => {
     await svc2.stopAll()
   })
 
-  // Only a driver that reports a running total (Claude: sdkTotalCostUsd defined) merges a
-  // second result into an already-finished row. Any other driver keeps the pre-Opus-5.5
-  // behaviour: each result overwrites the row. Copilot, for one, reports once per
-  // `assistant.turn_end`, so a tool-using message delivers two results to one row.
+  // Copilot reports once per `assistant.turn_end`, so a tool-using message delivers two results.
   it('a non-Claude driver’s second result on a finished row overwrites it, as before', async () => {
     const { driver, ctx } = ctxCapturingDriver('github-copilot')
     const svc = new AgentService({
@@ -619,9 +609,7 @@ describe('AgentService', () => {
     await svc.stopAll()
   })
 
-  // The (running total, conversation) pair is written only whole: a result carrying a total
-  // but no cursor must leave both stored columns alone, or the next resume could match a
-  // baseline against the wrong conversation.
+  // Otherwise a resume could match a baseline against the wrong conversation.
   it('writes the running-total pair only when both the total and its cursor are present', async () => {
     const { driver, ctx } = ctxCapturingDriver('claude-agent-sdk')
     const svc = new AgentService({
@@ -660,9 +648,7 @@ describe('AgentService', () => {
     await svc.stopAll()
   })
 
-  // The resume baseline belongs to the SDK conversation, not the Argus session. Here the
-  // session's first conversation (SID1) is lost, a fresh one (SID2) starts, and the app dies
-  // before SID2 reports any total. Resuming SID2 must not subtract SID1's total.
+  // SID1 is lost, SID2 starts, and the app dies before SID2 reports a total.
   it('does not subtract an earlier conversation’s total when resuming a newer one', async () => {
     const SID1 = '44444444-4444-4444-8444-444444444444'
     const SID2 = '55555555-5555-4555-8555-555555555555'
@@ -688,8 +674,7 @@ describe('AgentService', () => {
       }
       optionsLog.push(options)
       queues.push(q)
-      // The CLI no longer holds SID1: its one frame echoes the uuid, then the stream throws
-      // (see 'a resume the CLI rejects clears the cursor…' above).
+      // A rejected resume: echo the uuid, then throw (as in 'a resume the CLI rejects…').
       const rejected = options.resume === SID1
       return Object.assign(
         {
@@ -1195,8 +1180,7 @@ function stubDriver(kind: DriverKind, calls: DriverKind[]): AgentDriver {
   }
 }
 
-/** A stub AgentDriver that exposes the DriverSessionContext the harness hands its session,
- *  so a test can deliver TurnResults through the real `onTurnResult` seam directly. */
+/** A stub driver exposing the DriverSessionContext, to call `onTurnResult` directly. */
 function ctxCapturingDriver(kind: DriverKind): {
   driver: AgentDriver
   ctx: () => DriverSessionContext | undefined

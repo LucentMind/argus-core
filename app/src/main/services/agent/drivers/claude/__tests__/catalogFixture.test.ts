@@ -46,8 +46,8 @@ describe('captured claude catalog fixture — 2.1.263', () => {
   })
 })
 
-// Captured from SDK 0.3.281 (CLI 2.1.281); date and probe turns in EVIDENCE.md. The floor
-// moved because the API gates Opus 5.5 on the CLI version (spec 2026-09-24-opus-5-5-model-design).
+// Captured from SDK 0.3.281 (CLI 2.1.281); the API serves Opus 5.5 only to CLI ≥ 2.1.280
+// (EVIDENCE.md).
 describe('captured claude catalog fixture — 2.1.281', () => {
   it('keys the default and opus aliases to Opus 5.5 (1M)', () => {
     expect(models281.find((m) => m.value === 'default')?.resolvedModel).toBe('claude-opus-5-5[1m]')
@@ -62,8 +62,7 @@ describe('captured claude catalog fixture — 2.1.281', () => {
     ).toBe(false)
   })
 
-  // Fable arrives as a wire-slug row (`claude-fable-5-1[1m]` → bare), not a `fable` alias: the
-  // shape EVIDENCE.md first saw once on 2.1.263, here on every alias-menu read.
+  // Fable arrives as a wire-slug row (`claude-fable-5-1[1m]` → bare), not a `fable` alias.
   it('still offers Fable 5.1 and Sonnet 5', () => {
     expect(models281.find((m) => m.resolvedModel === 'claude-fable-5-1')?.value).toBe(
       'claude-fable-5-1[1m]'
@@ -79,8 +78,8 @@ describe('captured claude catalog fixture — 2.1.281', () => {
   })
 })
 
-// The same CLI on the same account, once its bootstrap has cached the org's model access:
-// the catalog becomes the entitlement list (EVIDENCE.md). `default` is no longer Opus.
+// Same CLI and account after the bootstrap cached the org's model access: the catalog becomes
+// the entitlement list, and `default` is no longer Opus.
 describe('captured claude catalog fixture — 2.1.281 entitlement list', () => {
   it('keys default to Sonnet 5 and the bare opus alias to Opus 5.5 (no [1m])', () => {
     expect(models281Entitled.find((m) => m.value === 'default')?.resolvedModel).toBe(

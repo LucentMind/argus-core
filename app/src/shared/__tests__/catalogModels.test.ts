@@ -232,9 +232,8 @@ describe('catalogModelRows', () => {
   })
 })
 
-// 2.1.281 re-points `opus[1m]` and `default` at Opus 5.5 (spec 2026-09-24-opus-5-5-model-design).
-// The naming, the bare pin and the merge must all land on the NEW model, and Opus 5, which no
-// alias names any more, must survive as its own static row.
+// 2.1.281 re-points `opus[1m]` and `default` at Opus 5.5; Opus 5, which no alias names any
+// more, must survive as its own static row.
 describe('against the 2.1.281 catalog (Opus 5.5)', () => {
   const rows = catalogModelRows(CLI_CATALOG_281 as ModelOptionInfo[])
 
@@ -259,8 +258,7 @@ describe('against the 2.1.281 catalog (Opus 5.5)', () => {
   })
 })
 
-// The same CLI once it has cached the org's model access: the catalog is the entitlement
-// list, `default` is Sonnet 5 and `opus` is bare (EVIDENCE.md). Still one Opus 5.5, one Opus 5.
+// The entitlement-list shape (EVIDENCE.md): `default` is Sonnet 5 and `opus` is bare.
 describe('against the 2.1.281 entitlement-list catalog', () => {
   const rows = catalogModelRows(CLI_CATALOG_281_ENTITLED as ModelOptionInfo[])
   const merged = mergeBuiltinRows(rows, DRIVERS['claude-agent-sdk'].models)
@@ -281,10 +279,8 @@ describe('against the 2.1.281 entitlement-list catalog', () => {
     expect(merged.filter((m) => m.name === 'Claude Opus 5')).toHaveLength(1)
   })
 
-  // Records current behaviour, not a design decision: neither `opus` nor `claude-opus-5-5`
-  // carries a `[1m]`, so `pinSlugFor` has nothing to strip and pins the alias itself. A session
-  // picked from this row therefore follows the CLI's `opus` alias to future Opus releases,
-  // unlike the wire-slug rows, which stay pinned to one model.
+  // Records current behaviour, not a design decision: with no `[1m]` to strip, a session picked
+  // here pins the `opus` alias and follows it to future Opus releases.
   it('pins the opus alias itself for the bare opus row (no 1M to strip)', () => {
     expect(pinSlugFor(rows.find((m) => m.slug === 'opus')!)).toBe('opus')
   })

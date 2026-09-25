@@ -188,9 +188,8 @@ describe('createClaudeDriver', () => {
     expect(events).toContain('turn.completed')
   })
 
-  // sdk.d.ts (0.3.281): `total_cost_usd` is the query() call's RUNNING total, and one streaming
-  // query() spans every turn of a live session. Stored raw, SUM(cost_usd) counted turn 1 again
-  // inside turn 2, and so on. See turnCost.ts.
+  // `total_cost_usd` is the query()'s running total, and one query() spans a live session's
+  // turns (see turnCost.ts).
   describe('per-turn cost', () => {
     const SID = '11111111-1111-4111-8111-111111111111'
     const result = (total: number): Record<string, unknown> => ({
@@ -231,7 +230,7 @@ describe('createClaudeDriver', () => {
     })
 
     it('ignores resumeCostBaseline when the session does not actually resume', async () => {
-      // A non-UUID cursor is the driver's own guard: the SDK starts a fresh conversation.
+      // A non-UUID cursor starts a fresh conversation.
       const ctx = { ...baseCtx(), resumeCursor: 'not-a-uuid', resumeCostBaseline: 0.05 }
       expect(await drain(ctx, [result(0.01)])).toEqual([0.01])
       expect(lastOptions).not.toHaveProperty('resume')

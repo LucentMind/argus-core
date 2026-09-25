@@ -1329,16 +1329,11 @@ export class CaseSession {
   // (non-auth) error leaves the auth state untouched.
   private handleTurnResult(r: TurnResult): void {
     if (this.currentTurnRow != null) {
-      // Claude only (a driver reporting a running total, sdkTotalCostUsd !== undefined): a
-      // message sent mid-turn moves currentTurnRow to its own row before the running turn's
-      // result arrives (see send()), so that result and the new turn's can both land here.
-      // The CLI may run the queued send as its own turn or fold it into the running one
-      // (sdk.d.ts 0.3.281 `queued_turn_count`), so results cannot be paired with rows; a
-      // second result on an already-finished row ADDS its cost, tokens and duration instead of
-      // overwriting them. Only SUM(cost_usd) over the session is exact then: the earlier row
-      // stays 'running' with no cost, and its spend lands on the later row.
-      // Every other driver keeps plain overwrite — e.g. Copilot reports once per
-      // `assistant.turn_end`, and its last result on a row is the one that stands.
+      // Claude only (sdkTotalCostUsd defined): a mid-turn send moves currentTurnRow first, and
+      // the CLI may run it as its own turn or fold it in (`queued_turn_count`), so results can't
+      // be paired with rows. A second result on a finished row ADDS cost, tokens and duration;
+      // only the session SUM(cost_usd) is exact. Other drivers overwrite (Copilot reports once
+      // per `assistant.turn_end`; the last result stands).
       const prior =
         r.sdkTotalCostUsd === undefined
           ? undefined
@@ -1360,17 +1355,15 @@ export class CaseSession {
       const finished = prior != null && prior.status !== 'running'
       const add = (a: number | null | undefined, b: number | null): number | null =>
         finished && a != null ? a + (b ?? 0) : b
-      // A no-cost error (the SDK's zeroed crash/startup result) says nothing about a turn that
-      // already finished, so it keeps that row's status; any other result sets it as before.
+      // A no-cost error (zeroed crash/startup result) keeps a finished row's status.
       const status =
         finished && r.isError && !(r.costUsd != null && r.costUsd > 0)
           ? prior.status
           : r.isError
             ? 'error'
             : 'success'
-      // The running total and its conversation are written as a pair, and only when the result
-      // carried both: a missing one (e.g. a zeroed error's null total) must not erase or split
-      // the next resume's baseline.
+      // Total and cursor are written only as a pair, so a missing one can't erase or split the
+      // next resume's baseline.
       const total = r.sdkTotalCostUsd ?? null
       const cursor = r.sdkCostCursor ?? null
       this.deps.db
@@ -1459,14 +1452,10 @@ export class CaseSession {
 }
 
 /**
- * The SDK running cost total that the latest recorded turn of the conversation `cursor` names
- * reported — the baseline a resumed query() continues from (see
- * agent/drivers/claude/turnCost.ts). Keyed on the conversation (`sdk_cost_cursor`), not just
- * the Argus session: a session's cursor can move to a new conversation (a lost cursor, a
- * driver or instance switch) before that conversation reports any total, and subtracting the
- * previous conversation's total would under-count. Null when this conversation recorded none —
- * including rows written before `sdk_cost_cursor` existed, whose full first total is then
- * taken as the turn's cost.
+ * The last SDK running total recorded for conversation `cursor` — the baseline a resumed
+ * query() continues from (see agent/drivers/claude/turnCost.ts). Keyed on the conversation,
+ * not the session, because a session's cursor can move to a new conversation before it reports
+ * a total. Null when none was recorded (including rows from before `sdk_cost_cursor` existed).
  */
 function lastSdkTotalCost(db: DatabaseSync, sessionId: number, cursor: string): number | null {
   const row = db

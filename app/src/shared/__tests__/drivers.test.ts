@@ -40,7 +40,7 @@ import CLI_CATALOG_281 from '../../main/services/agent/drivers/claude/__fixtures
 
 const CATALOG_ORDER = [
   // Row 0 is the fresh-install seed for every new case (`defaultModelRef`): Opus 5.5, on
-  // purpose — spec 2026-09-24-opus-5-5-model-design. Favourites, order and hide still override.
+  // purpose. Favourites, order and hide still override.
   'claude-opus-5-5',
   'claude-opus-5',
   'claude-fable-5-1',
@@ -892,9 +892,8 @@ describe('canonicalizePreferences', () => {
     })
   })
 
-  // 2.1.281 re-points `opus[1m]` / `default` at Opus 5.5. A favourite stored by wire slug
-  // (`claude-opus-5`) stays Opus 5. Only a preference still stored as the raw alias follows the
-  // CLI to Opus 5.5 — that is what an alias means (spec 2026-09-24-opus-5-5-model-design).
+  // 2.1.281 re-points `opus[1m]` at Opus 5.5: a wire-slug favourite stays put, a raw alias
+  // follows the CLI.
   it('keeps a claude-opus-5 favourite on Opus 5 when the opus alias moves to Opus 5.5', () => {
     const rows281 = catalogModelRows(CLI_CATALOG_281 as ModelOptionInfo[])
     expect(

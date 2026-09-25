@@ -27,9 +27,8 @@ function StarIcon({ filled }: { filled: boolean }): React.JSX.Element {
  * For a Claude instance this renders the same RUNTIME catalog the composer's model picker
  * offers (see `useModelCatalog` / `catalogModelRows`), not the static built-in fallback —
  * otherwise this panel and the composer chip disagree about what models exist (the static
- * list still names models the CLI dropped, like Opus 4.8/4.7, and omits any it adds until
- * Argus's own list catches up). Non-Claude instances have no runtime catalog and keep their
- * static list unchanged.
+ * list names models the CLI dropped and lags ones it adds). Non-Claude instances have no
+ * runtime catalog and keep their static list unchanged.
  */
 export function ProviderModels({
   settings,

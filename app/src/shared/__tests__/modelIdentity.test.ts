@@ -100,8 +100,7 @@ describe('modelMatches', () => {
     ).toBe(false)
   })
 
-  // Opus 5.5 is `claude-opus-5-5`: to a naive prefix rule, that is "claude-opus-5 plus a
-  // suffix". It is a different model, in both directions and through the CLI's 1M alias row.
+  // `claude-opus-5-5` is not "claude-opus-5 plus a suffix" to a prefix rule.
   it('does not match claude-opus-5 and claude-opus-5-5 against each other', () => {
     expect(modelMatches({ value: 'claude-opus-5-5' }, 'claude-opus-5')).toBe(false)
     expect(modelMatches({ value: 'claude-opus-5' }, 'claude-opus-5-5')).toBe(false)

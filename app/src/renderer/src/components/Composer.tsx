@@ -52,12 +52,8 @@ import {
   type CollapsedSection
 } from './OptionsMenu'
 
-/**
- * What the model picker offers until the settings payload first arrives: the built-in Claude
- * catalog, in its own order. Derived rather than typed out — the hand-written list this
- * replaced fell three releases behind (no Opus 5, no Fable 5.1, led by a model that was no
- * longer the default).
- */
+/** The picker's options until settings first load: the built-in Claude catalog, derived so it
+ *  can't go stale. */
 const PRE_SETTINGS_MODEL_OPTIONS: readonly string[] = DRIVERS['claude-agent-sdk'].models.map(
   (m) => m.name
 )

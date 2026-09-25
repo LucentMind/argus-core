@@ -619,15 +619,13 @@ export function openDb(file: string): DatabaseSync {
     db.exec(`ALTER TABLE turns ADD COLUMN model TEXT`)
   }
   if (!turnCols.some((c) => c.name === 'sdk_total_cost_usd')) {
-    // The driver's own running cost total as the SDK reported it (Claude: total_cost_usd),
-    // kept only so a resumed session can subtract it. cost_usd is the turn's own spend. See
-    // agent/drivers/claude/turnCost.ts. NULL for turns recorded before this column existed.
+    // The SDK's raw running cost total (Claude: total_cost_usd), kept only as the next resume's
+    // baseline; cost_usd is the turn's own spend. See agent/drivers/claude/turnCost.ts.
     db.exec(`ALTER TABLE turns ADD COLUMN sdk_total_cost_usd REAL`)
   }
   if (!turnCols.some((c) => c.name === 'sdk_cost_cursor')) {
-    // The SDK conversation id (Claude: result.session_id) whose running total
-    // sdk_total_cost_usd is. The resume baseline matches on it, so a session whose cursor
-    // moved to a new conversation never subtracts an older conversation's total.
+    // The conversation (Claude: result.session_id) sdk_total_cost_usd belongs to; the resume
+    // baseline matches on it so an older conversation's total is never subtracted.
     db.exec(`ALTER TABLE turns ADD COLUMN sdk_cost_cursor TEXT`)
   }
   const tcCols = db.prepare(`PRAGMA table_info(tool_calls)`).all() as { name: string }[]

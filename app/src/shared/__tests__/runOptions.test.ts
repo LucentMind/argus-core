@@ -208,10 +208,8 @@ describe('descriptorsFor', () => {
       expect(effortValues(unknown)).toContain('ultracode')
     })
 
-    // Opus 5.5 (SDK 0.3.281 / CLI 2.1.281; spec 2026-09-24-opus-5-5-model-design). The CLI's
-    // baked catalog gives this model, alone among the current ones, `default_effort:
-    // "medium"`, and Argus follows it. Context Window and Fast Mode follow the probe turns in
-    // drivers/claude/__fixtures__/EVIDENCE.md.
+    // Opus 5.5 (CLI 2.1.281): the CLI catalog's `default_effort: "medium"`; Context Window and
+    // Fast Mode follow the probe turns in EVIDENCE.md.
     describe('Opus 5.5', () => {
       const OPUS_55 = curated('claude-opus-5-5', {
         supportsAdaptiveThinking: true,
@@ -235,13 +233,12 @@ describe('descriptorsFor', () => {
         ])
       })
 
-      // The catalog flags `rejects_disabled_thinking`. Only the Thinking toggle can send
-      // `alwaysThinkingEnabled: false`, and it is offered only to models without Reasoning.
+      // `rejects_disabled_thinking`: the Thinking toggle is only for models without Reasoning.
       it('never offers the Thinking toggle', () => {
         expect(descriptorsFor(OPUS_55).some((d) => d.id === 'thinking')).toBe(false)
       })
 
-      // The bare slug already runs at 1M (EVIDENCE.md), so 1M is the default and 200k a cap.
+      // The bare slug already runs at 1M, so 1M is the default and 200k a cap.
       it('offers 1M by default with a 200k cap', () => {
         const d = descriptorsFor(OPUS_55, 'claude-opus-5-5').find((x) => x.id === 'contextWindow')
         expect(d?.type === 'select' && d.options).toEqual([
@@ -254,14 +251,12 @@ describe('descriptorsFor', () => {
         expect(descriptorsFor(OPUS_55).some((d) => d.id === 'fastMode')).toBe(true)
       })
 
-      // Guards Opus 5's own row: adding the Opus 5.5 row must leave it unchanged.
       it('leaves Opus 5 on the standard high default', () => {
         const d = descriptorsFor(curated('claude-opus-5')).find((x) => x.id === 'effort')
         expect(d?.type === 'select' && d.options.find((o) => o.isDefault)?.value).toBe('high')
       })
 
-      // The `-YYYYMMDD` rule in `resolvesToId`: a dated Opus 5.5 id is Opus 5.5, and a dated
-      // Opus 5 id is Opus 5 — `-5-20260901` is not a bare date suffix on `claude-opus-5`.
+      // `resolvesToId`'s `-YYYYMMDD` rule: `-5-20260901` is not a date suffix on `claude-opus-5`.
       it('matches dated ids to the right row on each side of the 5 / 5.5 boundary', () => {
         const defaultOf = (slug: string): string | undefined => {
           const d = descriptorsFor(curated(slug)).find((x) => x.id === 'effort')
@@ -271,8 +266,7 @@ describe('descriptorsFor', () => {
         expect(defaultOf('claude-opus-5-20260101')).toBe('high')
       })
 
-      // Real captured rows, not the synthetic one: the alias menu's `opus[1m]` and the
-      // entitled menu's bare `opus`, both resolving to Opus 5.5.
+      // The alias menu's `opus[1m]` and the entitled menu's bare `opus`, both Opus 5.5.
       it('gives the captured catalog rows the same effort default and Context Window', () => {
         const rows = [
           (CLI_CATALOG_281 as ModelOptionInfo[]).find((r) => r.value === 'opus[1m]'),
