@@ -44,6 +44,8 @@ export const IPC = {
    *  composer needs this before any session/query exists. [] for non-Claude/disabled
    *  instances; see the handler in main/index.ts. */
   modelsCatalog: 'models:catalog',
+  modelsRefresh: 'models:refresh',
+  modelsChanged: 'models:changed',
   modesAvailable: 'modes:available',
   workspacesPick: 'workspaces:pick',
   workspacesLink: 'workspaces:link',

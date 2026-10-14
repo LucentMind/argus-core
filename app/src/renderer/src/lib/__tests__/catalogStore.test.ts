@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { useModelCatalog, clearCatalogStore } from '../catalogStore'
+import { useModelCatalog, clearCatalogStore, refreshModelCatalog } from '../catalogStore'
 
+const onChangedMock = vi.fn<(cb: () => void) => () => void>(() => () => {})
 const catalog = vi.fn(async () => [
   { value: 'fable', displayName: 'Fable', supportsEffort: true, supportedEffortLevels: ['high'] }
 ])
@@ -10,7 +11,9 @@ const catalog = vi.fn(async () => [
 beforeEach(() => {
   clearCatalogStore()
   catalog.mockClear()
-  ;(globalThis as unknown as { window: { argus: unknown } }).window.argus = { models: { catalog } }
+  ;(globalThis as unknown as { window: { argus: unknown } }).window.argus = {
+    models: { catalog, refresh: catalog, onChanged: onChangedMock }
+  }
 })
 
 describe('useModelCatalog', () => {
@@ -79,6 +82,71 @@ describe('useModelCatalog', () => {
     } finally {
       vi.useRealTimers()
       warn.mockRestore()
+    }
+  })
+})
+
+describe('catalog invalidation', () => {
+  it('refreshModelCatalog refetches through main and re-renders mounted hooks', async () => {
+    const { result } = renderHook(() => useModelCatalog('claude-default'))
+    await waitFor(() => expect(result.current).toHaveLength(1))
+    catalog.mockResolvedValueOnce([
+      { value: 'sonnet', displayName: 'Sonnet 5.5' },
+      { value: 'haiku', displayName: 'Haiku 5.5' }
+    ] as never)
+    await act(async () => {
+      await refreshModelCatalog('claude-default')
+    })
+    expect(result.current).toHaveLength(2)
+  })
+
+  it('refetches when main reports the account changed', async () => {
+    let fire: () => void = () => undefined
+    onChangedMock.mockImplementation((cb: () => void) => {
+      fire = cb
+      return () => undefined
+    })
+    const { result } = renderHook(() => useModelCatalog('claude-default'))
+    await waitFor(() => expect(result.current).toHaveLength(1))
+    expect(catalog).toHaveBeenCalledTimes(1)
+    catalog.mockResolvedValueOnce([
+      { value: 'a', displayName: 'A' },
+      { value: 'b', displayName: 'B' },
+      { value: 'c', displayName: 'C' }
+    ] as never)
+    act(() => fire())
+    await waitFor(() => expect(result.current).toHaveLength(3))
+    expect(catalog).toHaveBeenCalledTimes(2)
+  })
+
+  it('unsubscribes from main on unmount', () => {
+    const off = vi.fn()
+    onChangedMock.mockImplementation(() => off)
+    const { unmount } = renderHook(() => useModelCatalog('claude-default'))
+    unmount()
+    expect(off).toHaveBeenCalledTimes(1)
+  })
+
+  it('expires a successful fetch after an hour', async () => {
+    vi.useFakeTimers()
+    const flush = (ms: number): Promise<void> =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(ms)
+      })
+    try {
+      const first = renderHook(() => useModelCatalog('claude-default'))
+      await flush(0)
+      expect(first.result.current).toHaveLength(1)
+      first.unmount()
+      await flush(59 * 60 * 1000)
+      renderHook(() => useModelCatalog('claude-default')).unmount()
+      expect(catalog).toHaveBeenCalledTimes(1)
+      await flush(2 * 60 * 1000)
+      renderHook(() => useModelCatalog('claude-default'))
+      await flush(0)
+      expect(catalog).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
     }
   })
 })

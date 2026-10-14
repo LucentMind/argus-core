@@ -576,7 +576,16 @@ const argus = {
     /** The option-bearing model catalog this instance's CLI reports. Empty for
      *  drivers with no runtime catalog. */
     catalog: (instanceId: string): Promise<ModelOptionInfo[]> =>
-      invoke(IPC.modelsCatalog, instanceId)
+      invoke(IPC.modelsCatalog, instanceId),
+    /** Drop the cached catalog and ask the CLI again — the Settings "Refresh models" action. */
+    refresh: (instanceId: string): Promise<ModelOptionInfo[]> =>
+      invoke(IPC.modelsRefresh, instanceId),
+    /** The cached catalog was invalidated (sign-in or account change): refetch. */
+    onChanged: (cb: () => void): (() => void) => {
+      const listener = (): void => cb()
+      ipcRenderer.on(IPC.modelsChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.modelsChanged, listener)
+    }
   },
   modes: {
     /** The modes available to a case right now, given its current mode context. */

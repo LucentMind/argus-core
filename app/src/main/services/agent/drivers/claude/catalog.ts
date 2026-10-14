@@ -28,9 +28,16 @@ const cache = new Map<string, Promise<ModelOptionInfo[]>>()
 // A failed/fallback fetch is cached only briefly: long enough that a cold-start burst
 // (several sessions constructed at once) shares a single spawn, short enough that the
 // app recovers on its own — no restart, no manual clearCatalogCache() — once the CLI or
-// network comes back. A SUCCESSFUL fetch has no such expiry; it stays cached for the
-// process lifetime as before.
+// network comes back.
 const FAILURE_TTL_MS = 60000
+
+// A SUCCESSFUL fetch is cached for an hour, not the process lifetime. The catalog is account-
+// and version-dependent (entitlements change, a plan upgrade adds models), so a menu that is
+// frozen until restart goes stale on a long-lived desktop app. An hour keeps the spawn rate
+// negligible — each fetch boots a CLI — while a newly entitled model shows up the same day.
+// Auth changes and the Settings "Refresh models" action clear it immediately (see
+// `clearCatalogCache`).
+const SUCCESS_TTL_MS = 60 * 60 * 1000
 
 // Cleanup (the finally block's interrupt()) gets its own short, fixed deadline,
 // independent of the caller's (possibly much longer) probe timeoutMs. Without this, a
@@ -41,6 +48,16 @@ const CLEANUP_TIMEOUT_MS = 2000
 
 export function clearCatalogCache(): void {
   cache.clear()
+}
+
+/** Drops `p` from the cache after `ms`. Only evicts if `p` is still the live entry — a manual
+ *  clearCatalogCache() (or, in principle, a re-entrant fetch) may have already replaced or
+ *  removed it. The timer is unref'd so a pending eviction never keeps the process alive. */
+function evictAfter(key: string, p: Promise<ModelOptionInfo[]>, ms: number): void {
+  const timer = setTimeout(() => {
+    if (cache.get(key) === p) cache.delete(key)
+  }, ms)
+  timer.unref?.()
 }
 
 async function ask(
@@ -96,9 +113,9 @@ async function ask(
 
 /** The model catalog this CLI reports, cached per resolved binary path. Never rejects —
  *  every failure path, including a cleanup throw escaping ask()'s finally block, resolves
- *  to STATIC_FALLBACK. A successful fetch is cached for the process lifetime; a
- *  failed/fallback one only for FAILURE_TTL_MS (see its comment) so the app self-heals
- *  without a restart. */
+ *  to STATIC_FALLBACK. A successful fetch is cached for SUCCESS_TTL_MS; a failed/fallback
+ *  one only for FAILURE_TTL_MS (see their comments) so the app self-heals without a
+ *  restart. */
 export function fetchCatalog(
   createQuery: CreateQueryFn,
   opts: { cliPath?: string; timeoutMs?: number } = {}
@@ -131,12 +148,9 @@ export function fetchCatalog(
       console.warn(
         `[catalog] model catalog fetch failed for cliPath=${key}; falling back to the static list — model options (effort, 1M context, settings) will be limited until the CLI is reachable again.`
       )
-      setTimeout(() => {
-        // Only evict if this promise is still the live cache entry — a manual
-        // clearCatalogCache() (or, in principle, a re-entrant fetch) may have already
-        // replaced or removed it.
-        if (cache.get(key) === p) cache.delete(key)
-      }, FAILURE_TTL_MS)
+      evictAfter(key, p, FAILURE_TTL_MS)
+    } else {
+      evictAfter(key, p, SUCCESS_TTL_MS)
     }
     return result
   })

@@ -20,6 +20,7 @@ import {
   resolvesToId,
   type ModelIdentity
 } from './modelIdentity'
+import { isLegacyRow, legacyModelKeys, normalizeModelKey, sortByFamily } from './modelFamily'
 
 export interface FieldAnnotation {
   control: 'text' | 'password' | 'textarea' | 'select' | 'switch' | 'number'
@@ -214,6 +215,17 @@ const CLAUDE_MODEL_SPECS: readonly ClaudeModelSpec[] = [
   // resolves here (Fable 5 is still served and still runs on its own bare slug).
   { slug: 'claude-fable-5-1', name: 'Claude Fable 5.1', effort: true, adaptiveThinking: true },
   { slug: 'claude-fable-5', name: 'Claude Fable 5', effort: true, adaptiveThinking: true },
+  // Sonnet 5.5 and Haiku 5.5 — measured 2026-10-14 on SDK 0.3.281 (CLI 2.1.281) and 0.3.299
+  // (CLI 2.1.299): both slugs complete a turn with `modelUsage` keyed by the slug, accept
+  // `--effort` low…max, and leave `fast_mode_state: "off"`, so no fast mode. The CLI only LISTS
+  // them from 2.1.299 (its `sonnet` / `haiku` aliases resolve here); on 2.1.281 they run but are
+  // absent from the alias menu, hence these rows. See EVIDENCE.md.
+  { slug: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', effort: true, adaptiveThinking: true },
+  { slug: 'claude-sonnet-5', name: 'Claude Sonnet 5', effort: true, adaptiveThinking: true },
+  { slug: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', effort: true, adaptiveThinking: true },
+  { slug: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' },
+  // Outdated rows (see `legacyModelKeys`) trail the list: they stay runnable and reachable
+  // through favourites, a custom model or Settings → Agent → "Show older models".
   {
     slug: 'claude-opus-4-8',
     name: 'Claude Opus 4.8',
@@ -222,9 +234,7 @@ const CLAUDE_MODEL_SPECS: readonly ClaudeModelSpec[] = [
     fastMode: true
   },
   { slug: 'claude-opus-4-7', name: 'Claude Opus 4.7', effort: true, adaptiveThinking: true },
-  { slug: 'claude-sonnet-5', name: 'Claude Sonnet 5', effort: true, adaptiveThinking: true },
-  { slug: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', effort: true, adaptiveThinking: true },
-  { slug: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' }
+  { slug: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', effort: true, adaptiveThinking: true }
 ]
 
 const CLAUDE_MODELS: readonly CatalogModel[] = CLAUDE_MODEL_SPECS.map(({ slug, name }) => ({
@@ -572,6 +582,10 @@ export interface AggregatedModel extends CatalogModel {
  * list is treated as "no override" (falls through to its normal rows) so callers can pass a
  * catalog that hasn't loaded yet without special-casing it.
  *
+ * `pinned` names the model the open chat is on. If it is outdated (see {@link legacyRowSlugs})
+ * its row stays in the list, so the picker the user is reading from still contains the
+ * selection instead of silently dropping it.
+ *
  * A substituted instance still gets that instance's OWN model preferences applied — see
  * {@link applyModelPreferences}. Bypassing them (as this used to) meant a model the user
  * hid in Settings reappeared, a custom model they added became unselectable, and their
@@ -579,15 +593,17 @@ export interface AggregatedModel extends CatalogModel {
  */
 export function allVisibleModels(
   s: AppSettings,
-  rowOverrides?: Record<string, readonly CatalogModel[]>
+  rowOverrides?: Record<string, readonly CatalogModel[]>,
+  pinned?: { instanceId: string | null | undefined; model: string | null | undefined }
 ): AggregatedModel[] {
   return enabledInstances(s).flatMap(({ id, instance, driver }) => {
     const override = rowOverrides?.[id]
     const merged =
       override && override.length > 0 ? mergeBuiltinRows(override, driver.models) : undefined
+    const keepModel = pinned?.instanceId === id ? pinned.model : undefined
     const rows = merged
-      ? applyModelPreferences(s, id, [...merged, ...customModelRows(s, id, merged)])
-      : orderedVisibleModels(s, id)
+      ? applyModelPreferences(s, id, [...merged, ...customModelRows(s, id, merged)], keepModel)
+      : applyModelPreferences(s, id, instanceModels(s, id), keepModel)
     return rows.map((m) => ({
       ...m,
       instanceId: id,
@@ -806,8 +822,8 @@ function displayNameForResolved(resolvedModel: string): string {
  *
  * 2. Dedup: two aliases can resolve to the identical model (the fixture's `default` and
  *    `opus[1m]` both report `resolvedModel: "claude-opus-5[1m]"`) — that is one model, not
- *    two, and listing it twice is confusing rather than informative. Rows sharing a
- *    `resolvedModel` collapse to one, keeping whichever alias is NOT `'default'` — the generic
+ *    two, and listing it twice is confusing rather than informative. Rows whose
+ *    `resolvedModel` normalizes to the same wire slug (`[1m]` and `-YYYYMMDD` ignored) collapse to one, keeping whichever alias is NOT `'default'` — the generic
  *    alias tells the user nothing a specific one doesn't, while `opus[1m]` (or whichever
  *    specific alias resolves the same way) is at least a real, distinguishing name. A row
  *    with no `resolvedModel` at all (never observed live, but the type allows it) is always
@@ -826,13 +842,17 @@ export function catalogModelRows(catalog: readonly ModelOptionInfo[]): CatalogMo
       kept.push(row)
       continue
     }
-    const existingIndex = indexByResolved.get(row.resolvedModel)
+    // Keyed by the NORMALIZED wire slug: an entitlement-shaped catalog can name one model as
+    // both `claude-opus-5-5` and `claude-opus-5-5[1m]` (or with a build date), and an exact-string
+    // key listed it twice under the same display name.
+    const resolvedKey = normalizeModelKey(row.resolvedModel)
+    const existingIndex = indexByResolved.get(resolvedKey)
     if (existingIndex === undefined) {
-      indexByResolved.set(row.resolvedModel, kept.length)
+      indexByResolved.set(resolvedKey, kept.length)
       kept.push(row)
       continue
     }
-    // Duplicate resolvedModel: prefer whichever alias is not the generic `default`.
+    // Duplicate model: prefer whichever alias is not the generic `default`.
     if (kept[existingIndex].slug === 'default' && row.slug !== 'default') kept[existingIndex] = row
   }
   return kept
@@ -847,8 +867,9 @@ export function catalogModelRows(catalog: readonly ModelOptionInfo[]): CatalogMo
  * seconds after launch, with no way back short of re-adding them by hand as custom models. The
  * user-visible symptom was a picker that briefly showed six models and then collapsed to four.
  *
- * Catalog rows come FIRST because they are the live truth about names and capabilities; a
- * built-in is appended only when no catalog row already names it.
+ * Catalog rows win because they are the live truth about names and capabilities; a built-in is
+ * added only when no catalog row already names it. The union is then grouped by family, newest
+ * version first ({@link sortByFamily}), so it does not read as two lists glued together.
  *
  * Dedupe is `modelMatches`, which strips a trailing `[1m]` on BOTH sides — deliberately unlike
  * {@link duplicatesCatalogRow}, whose stricter rule this is not. Here both sides are rows we
@@ -861,10 +882,10 @@ export function mergeBuiltinRows(
   catalogRows: readonly CatalogModel[],
   builtins: readonly CatalogModel[]
 ): CatalogModel[] {
-  return [
+  return sortByFamily([
     ...catalogRows,
     ...builtins.filter((b) => !catalogRows.some((c) => modelMatches(rowIdentity(c), b.slug)))
-  ]
+  ])
 }
 
 /**
@@ -1088,17 +1109,39 @@ export function hasUnresolvedPreferences(s: AppSettings, instanceId: string): bo
   )
 }
 
+/**
+ * Slugs of the rows in `rows` that are outdated — beyond the newest two versions of their family
+ * (see `legacyModelKeys`). What Settings badges as "Legacy" and the picker drops by default.
+ */
+export function legacyRowSlugs(rows: readonly CatalogModel[]): Set<string> {
+  const legacy = legacyModelKeys(rows)
+  return new Set(rows.filter((m) => isLegacyRow(m, legacy)).map((m) => m.slug))
+}
+
 /** `orderedVisibleModels`' hide-then-sort step, applied to rows supplied by the caller —
  *  used by {@link allVisibleModels}' substitution path so a loaded catalog does not discard
- *  the instance's Settings preferences. */
+ *  the instance's Settings preferences.
+ *
+ *  Outdated rows (see {@link legacyRowSlugs}) are dropped too, unless the user has switched
+ *  `showLegacyModels` on, starred the row, or it is `keepModel` — the model the open chat is
+ *  pinned to, which must stay selectable in the picker it is being read from. Custom rows are
+ *  never outdated. */
 function applyModelPreferences(
   s: AppSettings,
   instanceId: string,
-  rows: readonly CatalogModel[]
+  rows: readonly CatalogModel[],
+  keepModel?: string | null
 ): CatalogModel[] {
   const prefs = translatePreferences(rows, s.agent.modelPreferences[instanceId] ?? EMPTY_PREFS)
+  const legacy = s.agent.showLegacyModels ? new Set<string>() : legacyRowSlugs(rows)
   return sortModels(
-    rows.filter((m) => !prefs.hiddenModels.includes(m.slug)),
+    rows.filter(
+      (m) =>
+        !prefs.hiddenModels.includes(m.slug) &&
+        (!legacy.has(m.slug) ||
+          prefs.favoriteModels.includes(m.slug) ||
+          (!!keepModel && modelMatches(rowIdentity(m), keepModel)))
+    ),
     prefs
   )
 }
