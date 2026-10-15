@@ -55,7 +55,11 @@ beforeEach(() => {
     // Empty by default: the picker falls back to the static list, which is what
     // every existing test here asserts against. Tests exercising the runtime
     // catalog itself override this per-case.
-    models: { catalog: vi.fn(async () => []) },
+    models: {
+      catalog: vi.fn(async () => []),
+      refresh: vi.fn(async () => []),
+      onChanged: vi.fn(() => () => {})
+    },
     // Empty by default: nothing is refused, so the permission picker's own tests
     // (which don't care about refusals) never have to think about this. Tests
     // exercising refusal disable it per-case.
@@ -156,7 +160,7 @@ describe('Composer', () => {
     expect(await screen.findByText('Claude Haiku 4.5')).toBeTruthy()
   })
 
-  it('while the catalog is still loading, the picker shows the static list unchanged — the chip is never blank', async () => {
+  it('while the catalog is still loading, the picker shows the static list, current generations only — the chip is never blank', async () => {
     // A promise that never resolves during this test: the catalog store's cache stays
     // empty, so this pins the "still loading" state rather than the "resolved empty" one.
     window.argus.models.catalog = vi.fn(() => new Promise<ModelOptionInfo[]>(() => {}))
@@ -194,12 +198,13 @@ describe('Composer', () => {
       'Claude Opus 5',
       'Claude Fable 5.1',
       'Claude Fable 5',
-      'Claude Opus 4.8',
-      'Claude Opus 4.7',
+      'Claude Sonnet 5.5',
       'Claude Sonnet 5',
-      'Claude Sonnet 4.6',
+      'Claude Haiku 5.5',
       'Claude Haiku 4.5'
     ])
+    // the outdated rows (Opus 4.8/4.7, Sonnet 4.6) are not offered by default
+    expect(items).not.toContain('Claude Opus 4.8')
   })
 
   it("the runtime catalog leads the session's instance list, surfacing a model the static list lacks — without deleting the built-ins", async () => {
@@ -213,6 +218,18 @@ describe('Composer', () => {
         }
       ]
     })
+    // Older models switched on: this test is about the catalog UNIONING with the built-ins, and
+    // the built-ins it pins (Opus 4.8/4.7, Sonnet 4.6) are the outdated ones.
+    window.argus.settings.get = vi.fn(async () => ({
+      settings: (() => {
+        const s = defaultSettings()
+        s.agent.showLegacyModels = true
+        return s
+      })(),
+      resolvedTools: [],
+      dataRoot: { path: 'C:\\x', fromEnv: false },
+      loadError: null
+    }))
     const onModelChange = vi.fn()
     render(
       <Composer
@@ -245,7 +262,8 @@ describe('Composer', () => {
     // against the real CLI: `supportedModels()` omits Opus 4.8/4.7 and Sonnet 4.6, yet each
     // completes a real turn, so a catalog that replaced this list deleted three usable models
     // from the picker a few seconds after launch. See `mergeBuiltinRows`.
-    expect(items[0]).toBe('Claude Opus 5')
+    // grouped by family, newest first: the static Opus 5.5 leads, the catalog's Opus 5 follows
+    expect(items.slice(0, 2)).toEqual(['Claude Opus 5.5', 'Claude Opus 5'])
     expect(items).toContain('Claude Opus 4.7')
     expect(items).toContain('Claude Opus 4.8')
     expect(items).toContain('Claude Sonnet 4.6')
@@ -503,7 +521,8 @@ describe('Composer', () => {
       .getAllByRole('menuitem')
       .map((el) => el.textContent)
     expect(items).toContain('Auto · Copilot')
-    expect(items).toContain('Claude Opus 4.8 · Claude')
+    expect(items).toContain('Claude Opus 5 · Claude')
+    expect(items).not.toContain('Claude Opus 4.8 · Claude')
 
     fireEvent.click(screen.getByRole('menuitem', { name: 'Auto · Copilot' }))
     expect(onModelChange).toHaveBeenCalledWith('copilot-1', 'auto')
@@ -538,9 +557,8 @@ describe('Composer', () => {
       'Claude Opus 5',
       'Claude Fable 5.1',
       'Claude Fable 5',
-      'Claude Opus 4.8',
-      'Claude Opus 4.7',
-      'Claude Sonnet 4.6'
+      'Claude Sonnet 5.5',
+      'Claude Haiku 5.5'
     ])
     expect(items).not.toContain('Claude Haiku 4.5')
   })
@@ -780,7 +798,11 @@ describe('Composer option chips', () => {
     // CLI never emits, which is precisely why the mismatch survived fourteen reviews.
     window.argus = {
       ...window.argus,
-      models: { catalog: async () => CLI_CATALOG as ModelOptionInfo[] },
+      models: {
+        catalog: async () => CLI_CATALOG as ModelOptionInfo[],
+        refresh: async () => CLI_CATALOG as ModelOptionInfo[],
+        onChanged: () => () => {}
+      },
       skills: { list: async () => ({ skills: [] }) }
     } as never
   })
@@ -1544,5 +1566,190 @@ describe('Composer prefill', () => {
     fireEvent.change(box(), { target: { value: '/analyze-binlog a.binlog extra note' } })
     view.rerender(<Composer disabled={false} onSend={vi.fn()} prefill="/analyze-binlog b.binlog" />)
     expect(box().value).toBe('/analyze-binlog a.binlog extra note\n/analyze-binlog b.binlog')
+  })
+})
+
+describe('Composer /model command', () => {
+  const sessionWith = (model: string): SessionSummary => ({ ...SESSION, model })
+  const withSettings = (mut?: (s: ReturnType<typeof defaultSettings>) => void): void => {
+    window.argus.settings.get = vi.fn(async () => ({
+      settings: (() => {
+        const s = defaultSettings()
+        mut?.(s)
+        return s
+      })(),
+      resolvedTools: [],
+      dataRoot: { path: 'C:\\x', fromEnv: false },
+      loadError: null
+    }))
+  }
+  const run = async (
+    text: string,
+    props: Partial<React.ComponentProps<typeof Composer>> = {}
+  ): Promise<{ onSend: ReturnType<typeof vi.fn>; onModelChange: ReturnType<typeof vi.fn> }> => {
+    const onSend = vi.fn()
+    const onModelChange = vi.fn()
+    render(
+      <Composer
+        disabled={false}
+        onSend={onSend}
+        onModelChange={onModelChange}
+        session={sessionWith('claude-opus-5-5')}
+        {...props}
+      />
+    )
+    // the chip only shows a model once settings have arrived
+    await screen.findByText('Claude Opus 5.5')
+    const box = screen.getByPlaceholderText(/message the analyst/i) as HTMLTextAreaElement
+    fireEvent.change(box, { target: { value: text } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    return { onSend, onModelChange }
+  }
+  const patchedWith = (needle: string): unknown[] =>
+    (window.argus.settings.patch as ReturnType<typeof vi.fn>).mock.calls.filter((c) =>
+      JSON.stringify(c[0]).includes(needle)
+    )
+
+  it('is offered in the slash picker, whatever the driver', async () => {
+    render(<Composer disabled={false} onSend={vi.fn()} />)
+    fireEvent.change(screen.getByPlaceholderText(/message the analyst/i), {
+      target: { value: '/mo' }
+    })
+    expect(await screen.findByText('/model')).toBeTruthy()
+  })
+
+  it('Tab completes it, ready for a model name', async () => {
+    render(<Composer disabled={false} onSend={vi.fn()} />)
+    const box = screen.getByPlaceholderText(/message the analyst/i) as HTMLTextAreaElement
+    fireEvent.change(box, { target: { value: '/mod' } })
+    await screen.findByText('/model')
+    fireEvent.keyDown(box, { key: 'Tab' })
+    expect(box.value).toBe('/model ')
+  })
+
+  it('switches to a model in the list without sending anything or saving anything', async () => {
+    const { onSend, onModelChange } = await run('/model Claude Sonnet 5.5')
+    expect(onSend).not.toHaveBeenCalled()
+    expect(onModelChange).toHaveBeenCalledWith('claude-default', 'claude-sonnet-5-5')
+    expect(window.argus.settings.patch).not.toHaveBeenCalled()
+    expect(await screen.findByRole('status')).toHaveTextContent('Model set to Claude Sonnet 5.5.')
+    expect((screen.getByPlaceholderText(/message the analyst/i) as HTMLTextAreaElement).value).toBe(
+      ''
+    )
+  })
+
+  it('applies a model the list lacks and saves it as a custom model for next time', async () => {
+    const { onSend, onModelChange } = await run('/model claude-sonnet-4-5')
+    expect(onSend).not.toHaveBeenCalled()
+    expect(onModelChange).toHaveBeenCalledWith('claude-default', 'claude-sonnet-4-5')
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      agent: {
+        providerInstances: { 'claude-default': { config: { customModels: ['claude-sonnet-4-5'] } } }
+      }
+    })
+    expect(await screen.findByRole('status')).toHaveTextContent('Added claude-sonnet-4-5')
+  })
+
+  it('appends to the custom models already saved', async () => {
+    withSettings((s) => {
+      s.agent.providerInstances['claude-default'].config = { customModels: ['my-finetune'] }
+    })
+    await run('/model claude-sonnet-4-5')
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      agent: {
+        providerInstances: {
+          'claude-default': { config: { customModels: ['my-finetune', 'claude-sonnet-4-5'] } }
+        }
+      }
+    })
+  })
+
+  it('re-picking a saved custom model does not save it twice', async () => {
+    withSettings((s) => {
+      s.agent.providerInstances['claude-default'].config = { customModels: ['my-finetune'] }
+    })
+    const { onModelChange } = await run('/model my-finetune')
+    expect(onModelChange).toHaveBeenCalledWith('claude-default', 'my-finetune')
+    expect(patchedWith('customModels')).toHaveLength(0)
+  })
+
+  it('an outdated model found by name is applied and starred so it stays in the picker', async () => {
+    const { onModelChange } = await run('/model claude-opus-4-8')
+    expect(onModelChange).toHaveBeenCalledWith('claude-default', 'claude-opus-4-8')
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      agent: {
+        modelPreferences: {
+          'claude-default': {
+            hiddenModels: [],
+            favoriteModels: ['claude-opus-4-8'],
+            modelOrder: []
+          }
+        }
+      }
+    })
+    // matched, so no duplicate custom entry is minted for a model the app already knows
+    expect(patchedWith('customModels')).toHaveLength(0)
+  })
+
+  it('a model hidden in Settings is un-hidden when asked for by name', async () => {
+    withSettings((s) => {
+      s.agent.modelPreferences['claude-default'] = {
+        hiddenModels: ['claude-haiku-5-5', 'claude-fable-5'],
+        favoriteModels: [],
+        modelOrder: []
+      }
+    })
+    await run('/model claude-haiku-5-5')
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      agent: {
+        modelPreferences: {
+          'claude-default': {
+            hiddenModels: ['claude-fable-5'],
+            favoriteModels: [],
+            modelOrder: []
+          }
+        }
+      }
+    })
+  })
+
+  it('explains a bad id and changes nothing', async () => {
+    const { onSend, onModelChange } = await run('/model claude sonnet nine')
+    expect(onSend).not.toHaveBeenCalled()
+    expect(onModelChange).not.toHaveBeenCalled()
+    expect(window.argus.settings.patch).not.toHaveBeenCalled()
+    expect(await screen.findByRole('status')).toHaveTextContent(/no spaces/)
+  })
+
+  it('a bare /model reports the current model', async () => {
+    const { onSend, onModelChange } = await run('/model')
+    expect(onSend).not.toHaveBeenCalled()
+    expect(onModelChange).not.toHaveBeenCalled()
+    expect(await screen.findByRole('status')).toHaveTextContent('Current model: Claude Opus 5.5')
+  })
+
+  it('clears the notice as soon as the user types again', async () => {
+    await run('/model')
+    await screen.findByRole('status')
+    fireEvent.change(screen.getByPlaceholderText(/message the analyst/i), {
+      target: { value: 'hello' }
+    })
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('ordinary messages are unaffected, including ones that merely mention /model', async () => {
+    const { onSend } = await run('why does /model not work here')
+    expect(onSend).toHaveBeenCalledWith('why does /model not work here')
+  })
+
+  it('keeps an outdated model in the open picker while the chat is pinned to it', async () => {
+    render(<Composer disabled={false} onSend={vi.fn()} session={sessionWith('claude-opus-4-7')} />)
+    fireEvent.click(await screen.findByText('Claude Opus 4.7'))
+    const items = within(screen.getByRole('menu', { name: 'Model' }))
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent)
+    expect(items).toContain('Claude Opus 4.7')
+    // and only that one: the other outdated rows stay out
+    expect(items).not.toContain('Claude Opus 4.8')
   })
 })

@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### Added
+
+**A model menu that follows the current models**
+
+- Claude Sonnet 5.5 and Claude Haiku 5.5 are available. The Claude Agent SDK
+  moves to 0.3.299 (bundled CLI 2.1.299), whose model list names both, and
+  both also have built-in rows, so they show up even before the CLI lists
+  them. On the new CLI their bare model ids run at a 1M context window, so the
+  Context Window control no longer offers a 200k position for them. Neither
+  supports fast mode.
+- The model picker lists the newest two versions of each family (Opus, Fable,
+  Sonnet, Haiku) and groups them by family, newest first. Older models (today
+  Opus 4.6–4.8 and Sonnet 4.6) are tagged "legacy" in Settings → Agent and
+  left out of the picker, until you turn on "Show older models in the picker".
+  A legacy model stays in the picker when you starred it, when it is a custom
+  model, or while the open chat is using it. Nothing is deleted, and existing
+  chats keep their model.
+- `/model <name>` switches the open chat's model by typing it: an alias
+  (`opus`), a model id, or a name as the picker spells it. A model the app does
+  not know yet is added to your models, so it is in the picker next time;
+  an outdated one is starred so it stays; a hidden one is un-hidden. A wrong
+  id fails on the first message with the API's `model_not_found`, and the row
+  can be removed in Settings → Agent. `/model` on its own reports the current
+  model. It is handled by Argus and never sent to the CLI.
+- Settings → Agent has a "Refresh models" button. The model list the CLI
+  reports is now kept for an hour rather than until you quit, and is dropped
+  when credentials that had failed start working again.
+
+### Fixed
+
+- "Claude Opus 5.5" was listed twice in the model picker on accounts where the
+  CLI reports Opus 5.5 both bare and with the 1M suffix.
+
 ## v2.4.1 — 2026-09-26
 
 ### Added

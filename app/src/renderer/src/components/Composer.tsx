@@ -9,7 +9,7 @@ import {
 } from 'react'
 import { ChevronDown, Sparkles, Lock, SquareTerminal, ArrowUp, Square } from 'lucide-react'
 import { uiStore } from '../lib/uiStore'
-import { useSettingsPayload } from '../lib/settingsStore'
+import { settingsStore, useSettingsPayload } from '../lib/settingsStore'
 import { AttachmentTray } from './AttachmentTray'
 import type { Attachment } from '../lib/composerAttachments'
 import {
@@ -22,6 +22,8 @@ import {
   findModelRow,
   getDriver,
   instanceModels,
+  legacyRowSlugs,
+  modelsForSettingsPanel,
   pinSlugFor,
   resolveModelInfo,
   selectionsAfterModelSwitch,
@@ -42,6 +44,7 @@ import {
   type RunOptionDescriptor,
   type RunOptionSelection
 } from '../../../shared/runOptions'
+import { parseModelCommand, resolveModelCommand } from '../../../shared/modelCommand'
 import type { SkillListItem } from '../../../shared/memoryIpc'
 import type { ProviderStatus, SessionSummary } from '../../../shared/types'
 import { useModelCatalog } from '../lib/catalogStore'
@@ -52,6 +55,12 @@ import {
   PERMISSION_MODE_DISABLED_TITLE,
   type CollapsedSection
 } from './OptionsMenu'
+
+/** The `/model` slash command, run by `Composer.runModelCommand` rather than sent to the CLI. */
+const MODEL_COMMAND = {
+  name: 'model',
+  description: 'Switch model — pick one from the list, or type any model id to add it'
+}
 
 /** The picker's options until settings first load: the built-in Claude catalog, derived so it
  *  can't go stale. */
@@ -370,8 +379,17 @@ export function Composer({
     catalogInstanceId && catalogRows.length > 0 ? { [catalogInstanceId]: catalogRows } : undefined
   // Every enabled provider's models in one list. Provider names are appended only when more
   // than one is enabled, so the single-provider case stays uncluttered.
+  // What an unpinned chat falls back to (it honours a hand-set `config.model`). Read here, ahead
+  // of the picker rows, so an outdated default stays in the list it is displayed from.
+  const fallback = settingsPayload ? defaultModelRef(settingsPayload.settings) : undefined
+  // The model the chat is on — its own pin, else the settings default. `allVisibleModels` keeps
+  // that row even when it is outdated (see `legacyRowSlugs`), so the chip never names a model
+  // the open menu lacks.
+  const keep = session?.model
+    ? { instanceId: session.instanceId, model: session.model }
+    : { instanceId: fallback?.instanceId, model: fallback?.slug }
   const models: AggregatedModel[] = settingsPayload
-    ? allVisibleModels(settingsPayload.settings, rowOverrides)
+    ? allVisibleModels(settingsPayload.settings, rowOverrides, keep)
     : []
   const showProvider = new Set(models.map((m) => m.instanceId)).size > 1
   const modelOptions = models.length
@@ -388,7 +406,6 @@ export function Composer({
   // and it never matched once a runtime catalog loaded: catalog rows are keyed by CLI alias
   // (`fable`), sessions are pinned by wire slug (`claude-fable-5`). Every chat therefore fell
   // through to `models[0]` and its chip read "Default (recommended)".
-  const fallback = settingsPayload ? defaultModelRef(settingsPayload.settings) : undefined
   const ownInstance = models.filter((m) => m.instanceId === session?.instanceId)
   const pinnedRow =
     findModelRow(ownInstance, session?.model) ?? findModelRow(models, session?.model)
@@ -561,6 +578,11 @@ export function Composer({
     ...skills
       .filter((s) => s.name.startsWith(prefix) && s.enabled)
       .map((s) => ({ name: s.name, description: s.description, cli: false })),
+    // Handled here, not by the CLI (see `runModelCommand`) — so offered whatever the driver.
+    ...(MODEL_COMMAND.name.startsWith(prefix) &&
+    !skills.some((s) => s.enabled && s.name === 'model')
+      ? [{ ...MODEL_COMMAND, cli: false }]
+      : []),
     ...cliCommands
       .filter((c) => c.name.startsWith(prefix))
       .map((c) => ({ name: c.name, description: c.description, cli: true }))
@@ -569,11 +591,14 @@ export function Composer({
   // keyboard state for the skills popup: highlight follows Arrow keys, Tab
   // completes, Escape hides the popup until the text next changes
   const [highlight, setHighlight] = useState(0)
+  // One line of feedback for `/model`, cleared as soon as the user types again.
+  const [modelNotice, setModelNotice] = useState<string | null>(null)
   const [skillsDismissed, setSkillsDismissed] = useState(false)
   const popupOpen = showSkills && !skillsDismissed && matches.length > 0
   const highlighted = Math.min(highlight, matches.length - 1)
 
   function updateText(v: string): void {
+    setModelNotice(null)
     setText(v)
     setHighlight(0)
     setSkillsDismissed(false)
@@ -588,7 +613,96 @@ export function Composer({
   // can't drift apart.
   const sendableAttachments = attachments.filter((a) => a.status === 'ready' && a.relPath)
 
+  /** Pin this chat to `slug` on `instanceId` and drop any run option the new model cannot honour.
+   *  Shared by the model chip and `/model`, so the two cannot diverge. */
+  function pickModel(instanceId: string, slug: string): void {
+    onModelChange?.(instanceId, slug)
+    // Another instance's catalog is not loaded here; the static info stands in.
+    const next = selectionsAfterModelSwitch(
+      selections,
+      { catalog, model: pinnedModel },
+      { catalog: instanceId === catalogInstanceId ? catalog : [], model: slug }
+    )
+    // Pruning only removes, so a length change is the only possible change.
+    if (next.length !== selections.length) onRunOptionsChange?.(next)
+  }
+
+  /**
+   * `/model [name]`: switch this chat's model by typing it.
+   *
+   * A name that matches a row — including one the picker hides as outdated — just switches, and
+   * is made to STAY in the picker if it would otherwise vanish (starred when outdated, un-hidden
+   * when hidden). An id nothing matches is saved as a custom model on this instance, the same
+   * list Settings → Agent edits, so it is there next time too. A wrong id fails on the first turn
+   * with `model_not_found`, and the custom row can be removed in Settings.
+   */
+  function runModelCommand(arg: string): void {
+    const settings = settingsPayload?.settings
+    const instanceId = session?.instanceId ?? fallback?.instanceId
+    if (!settings || !instanceId) {
+      setModelNotice('Models are still loading — try again in a moment.')
+      return
+    }
+    if (!arg) {
+      setModelNotice(`Current model: ${model}. Type /model <name> to switch.`)
+      return
+    }
+    // EVERY row this instance knows, not just the visible ones — see `resolveModelCommand`.
+    const known = modelsForSettingsPanel(
+      settings,
+      instanceId,
+      instanceId === catalogInstanceId && catalogRows.length > 0 ? catalogRows : undefined
+    ).models
+    const result = resolveModelCommand(arg, known)
+    if (result.kind === 'invalid') {
+      setModelNotice(result.reason)
+      return
+    }
+    if (result.kind === 'custom') {
+      const config = settings.agent.providerInstances[instanceId]?.config as
+        { customModels?: unknown } | undefined
+      const saved = Array.isArray(config?.customModels)
+        ? config.customModels.filter((m): m is string => typeof m === 'string')
+        : []
+      void settingsStore.patch({
+        agent: {
+          providerInstances: { [instanceId]: { config: { customModels: [...saved, result.slug] } } }
+        }
+      })
+      pickModel(instanceId, result.slug)
+      setModelNotice(`Added ${result.slug} to your models and switched to it.`)
+      return
+    }
+    const { row } = result
+    const prefs = settings.agent.modelPreferences[instanceId]
+    const hidden = (prefs?.hiddenModels ?? []).filter((h) => findModelRow([row], h) !== null)
+    const outdated = !settings.agent.showLegacyModels && legacyRowSlugs(known).has(row.slug)
+    if (hidden.length > 0 || outdated) {
+      const favoriteModels = prefs?.favoriteModels ?? []
+      void settingsStore.patch({
+        agent: {
+          modelPreferences: {
+            [instanceId]: {
+              hiddenModels: (prefs?.hiddenModels ?? []).filter((h) => !hidden.includes(h)),
+              favoriteModels: outdated ? [...favoriteModels, pinSlugFor(row)] : favoriteModels,
+              modelOrder: prefs?.modelOrder ?? []
+            }
+          }
+        }
+      })
+    }
+    pickModel(instanceId, pinSlugFor(row))
+    setModelNotice(`Model set to ${row.name}.`)
+  }
+
   function send(): void {
+    // `/model` is a local command, not a message: nothing is sent and nothing is staged.
+    const modelCommand = parseModelCommand(text)
+    if (modelCommand && sendableAttachments.length === 0 && citations.length === 0) {
+      runModelCommand(modelCommand.arg)
+      setText('')
+      return
+    }
     const t = text.trim()
     const cites = citations.map((c) => `[${c.relPath}:${c.line}]`).join(' ')
     const atts = sendableAttachments.map((a) => `[${a.relPath}]`).join('\n')
@@ -743,6 +857,11 @@ export function Composer({
           ))}
         </div>
       )}
+      {modelNotice && (
+        <div role="status" className="mb-2 text-xs text-mute">
+          {modelNotice}
+        </div>
+      )}
       <AttachmentTray attachments={attachments} onRemove={(id) => onRemoveAttachment?.(id)} />
       {citations.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
@@ -841,16 +960,7 @@ export function Composer({
                 // `pinSlugFor`, not `picked.slug`: an alias row pins the model's own wire
                 // slug, bare, so the session neither follows the alias nor freezes 1M.
                 if (!picked) return
-                const slug = pinSlugFor(picked)
-                onModelChange?.(picked.instanceId, slug)
-                // Another instance's catalog is not loaded here; the static info stands in.
-                const next = selectionsAfterModelSwitch(
-                  selections,
-                  { catalog, model: pinnedModel },
-                  { catalog: picked.instanceId === catalogInstanceId ? catalog : [], model: slug }
-                )
-                // Pruning only removes, so a length change is the only possible change.
-                if (next.length !== selections.length) onRunOptionsChange?.(next)
+                pickModel(picked.instanceId, pinSlugFor(picked))
               }}
               options={modelOptions}
             />
