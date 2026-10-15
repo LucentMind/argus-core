@@ -29,15 +29,22 @@ beforeEach(() => {
     // existing test here asserts against. The dedicated runtime-catalog tests below override
     // this per-case (see Change 2/3: `ProviderModels` now fetches the same runtime catalog the
     // composer's picker does, for a Claude instance).
-    models: { catalog: vi.fn(async () => []) }
+    models: {
+      catalog: vi.fn(async () => []),
+      refresh: vi.fn(async () => []),
+      onChanged: vi.fn(() => () => {})
+    }
   } as never
 })
 
 describe('ProviderModels', () => {
   it('renders the built-in catalog with a count header', () => {
     render(<ProviderModels settings={settings()} instanceId="claude-default" />)
-    expect(screen.getByText('Models · 9 available')).toBeTruthy()
+    // Settings lists EVERY row, outdated ones included, so they can be starred or hidden
+    expect(screen.getByText('Models · 11 available')).toBeTruthy()
     expect(screen.getByText('Claude Fable 5')).toBeTruthy()
+    expect(screen.getByText('Claude Sonnet 5.5')).toBeTruthy()
+    expect(screen.getByText('Claude Haiku 5.5')).toBeTruthy()
     expect(screen.getByText('Claude Haiku 4.5')).toBeTruthy()
   })
 
@@ -115,12 +122,14 @@ describe('ProviderModels', () => {
               'claude-opus-5-5',
               'claude-opus-5',
               'claude-fable-5-1',
-              'claude-opus-4-8',
+              'claude-sonnet-5-5',
               'claude-fable-5',
-              'claude-opus-4-7',
               'claude-sonnet-5',
-              'claude-sonnet-4-6',
-              'claude-haiku-4-5'
+              'claude-haiku-5-5',
+              'claude-haiku-4-5',
+              'claude-opus-4-8',
+              'claude-opus-4-7',
+              'claude-sonnet-4-6'
             ]
           }
         }
@@ -134,7 +143,7 @@ describe('ProviderModels', () => {
       true
     )
     expect(
-      (screen.getByLabelText('Move Claude Haiku 4.5 down') as HTMLButtonElement).disabled
+      (screen.getByLabelText('Move Claude Sonnet 4.6 down') as HTMLButtonElement).disabled
     ).toBe(true)
   })
 
@@ -216,9 +225,10 @@ describe('ProviderModels runtime catalog (Claude instance)', () => {
   it('renders the same recognisable, deduped names the composer picker uses once the catalog loads', async () => {
     window.argus.models.catalog = vi.fn(async () => CLI_CATALOG as ModelOptionInfo[])
     render(<ProviderModels settings={settings()} instanceId="claude-default" />)
-    // 5 fixture rows, `default`/`opus[1m]` deduped -> 4, plus the 5 built-ins no alias names
-    // (the 2.1.220 fixture predates Opus 5.5 and Fable 5.1; Opus 4.8, 4.7 and Sonnet 4.6)
-    expect(await screen.findByText('Models · 9 available')).toBeTruthy()
+    // 5 fixture rows, `default`/`opus[1m]` deduped -> 4, plus the 7 built-ins no alias names
+    // (the 2.1.220 fixture predates Opus 5.5, Fable 5.1, Sonnet 5.5 and Haiku 5.5; it also
+    // omits Opus 4.8, 4.7 and Sonnet 4.6)
+    expect(await screen.findByText('Models · 11 available')).toBeTruthy()
     expect(screen.getByText('Claude Opus 5.5')).toBeTruthy()
     expect(screen.getByText('Claude Opus 5')).toBeTruthy()
     expect(screen.getByText('Claude Fable 5')).toBeTruthy()
@@ -422,12 +432,12 @@ describe('ProviderModels favourite ranking', () => {
       .agent.modelPreferences['claude-default'] as ModelPreferences
     expect(patched.favoriteModels).toEqual(['claude-opus-5'])
     expect(patched.modelOrder.length).toBeGreaterThan(0)
-    // one step: above its neighbour Fable 5, still below Fable 5.1
+    // one step: above its neighbour Haiku 4.5, still below Haiku 5.5
     expect(patched.modelOrder.indexOf('claude-opus-4-8')).toBeLessThan(
-      patched.modelOrder.indexOf('claude-fable-5')
+      patched.modelOrder.indexOf('claude-haiku-4-5')
     )
     expect(patched.modelOrder.indexOf('claude-opus-4-8')).toBeGreaterThan(
-      patched.modelOrder.indexOf('claude-fable-5-1')
+      patched.modelOrder.indexOf('claude-haiku-5-5')
     )
   })
 
@@ -441,5 +451,80 @@ describe('ProviderModels favourite ranking', () => {
     )
     const names = [...container.querySelectorAll('.truncate')].map((n) => n.textContent)
     expect(names.slice(0, 2)).toEqual(['Claude Opus 4.8', 'Claude Opus 5'])
+  })
+})
+
+describe('ProviderModels outdated models', () => {
+  it('badges the rows beyond the newest two versions of a family as legacy', () => {
+    render(<ProviderModels settings={settings()} instanceId="claude-default" />)
+    // Opus 4.8, Opus 4.7 and Sonnet 4.6 — and no current-generation row
+    expect(screen.getAllByText('legacy')).toHaveLength(3)
+  })
+
+  it('offers a switch that patches showLegacyModels', () => {
+    render(<ProviderModels settings={settings()} instanceId="claude-default" />)
+    const toggle = screen.getByRole('switch', { name: 'Show older models in the picker' })
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(toggle)
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      agent: { showLegacyModels: true }
+    })
+  })
+
+  it('reflects the stored switch state', () => {
+    const s = settings((s) => {
+      s.agent.showLegacyModels = true
+    })
+    render(<ProviderModels settings={s} instanceId="claude-default" />)
+    expect(
+      screen
+        .getByRole('switch', { name: 'Show older models in the picker' })
+        .getAttribute('aria-checked')
+    ).toBe('true')
+  })
+
+  it('shows neither badge nor switch for a provider with nothing outdated', () => {
+    const s = settings((s) => {
+      s.agent.providerInstances['copilot-1'] = {
+        driver: 'github-copilot',
+        enabled: true,
+        config: {}
+      }
+    })
+    render(<ProviderModels settings={s} instanceId="copilot-1" />)
+    expect(screen.queryByText('legacy')).toBeNull()
+    expect(screen.queryByRole('switch')).toBeNull()
+  })
+})
+
+describe('ProviderModels refresh', () => {
+  it('asks main to re-read the catalog and shows the models it returns', async () => {
+    const refreshed = [
+      {
+        value: 'sonnet',
+        resolvedModel: 'claude-sonnet-5-5',
+        displayName: 'Sonnet 5.5',
+        supportsEffort: true
+      }
+    ] as ModelOptionInfo[]
+    window.argus.models.refresh = vi.fn(async () => refreshed)
+    render(<ProviderModels settings={settings()} instanceId="claude-default" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }))
+    expect(window.argus.models.refresh).toHaveBeenCalledWith('claude-default')
+    // the button reports progress, then returns once the new catalog is in
+    expect(await screen.findByRole('button', { name: 'Refresh models' })).toBeTruthy()
+    expect(screen.getByText('Claude Sonnet 5.5')).toBeTruthy()
+  })
+
+  it('is offered for a Claude instance only', () => {
+    const s = settings((s) => {
+      s.agent.providerInstances['copilot-1'] = {
+        driver: 'github-copilot',
+        enabled: true,
+        config: {}
+      }
+    })
+    render(<ProviderModels settings={s} instanceId="copilot-1" />)
+    expect(screen.queryByRole('button', { name: 'Refresh models' })).toBeNull()
   })
 })

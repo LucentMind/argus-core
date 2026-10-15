@@ -91,7 +91,9 @@ beforeEach(() => {
     // Composer fetches the pinned instance's catalog the moment a session names one — which
     // only happens here once a test actually picks a model.
     models: {
-      catalog: vi.fn(async () => [])
+      catalog: vi.fn(async () => []),
+      refresh: vi.fn(async () => []),
+      onChanged: vi.fn(() => () => {})
     },
     // Composer also fetches per-instance refusal state on mount (Task 6). Empty by default —
     // nothing refused — so this file's tests never have to think about it.

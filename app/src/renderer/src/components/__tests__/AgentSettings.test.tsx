@@ -56,7 +56,11 @@ beforeEach(() => {
     },
     // Empty by default: expanding a Claude row's Models section (ProviderModels, Change 3)
     // falls back to the static catalog, which is what these tests assert against.
-    models: { catalog: vi.fn(async () => []) },
+    models: {
+      catalog: vi.fn(async () => []),
+      refresh: vi.fn(async () => []),
+      onChanged: vi.fn(() => () => {})
+    },
     // Background work's spend row (moved off Memory, 2026-08-21) reads this on mount. Zero
     // jobs = the row renders nothing, which is what every test here assumes.
     usage: {

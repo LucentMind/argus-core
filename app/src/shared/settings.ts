@@ -117,6 +117,10 @@ const agentSchema = z.looseObject({
   })),
   /** Keyed by provider instance id. An entry whose lists are all empty is equivalent to absent. */
   modelPreferences: z.record(z.string(), modelPreferencesSchema).default(() => ({})),
+  /** Off (default): the model picker lists only the newest two versions of each Claude family
+   *  (see `legacyModelKeys`); older ones stay reachable through favourites, a custom model, the
+   *  chat already pinned to one, or this switch. */
+  showLegacyModels: z.boolean().default(false),
   distillProvider: distillProviderSchema.optional()
 })
 

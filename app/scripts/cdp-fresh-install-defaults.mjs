@@ -9,7 +9,9 @@
  *      (`defaultModelRef`) reaching the real session row and the real chip, not a unit test's
  *      view of `orderedVisibleModels`;
  *   2. Settings → Distillation's model select reads "Automatic (claude-sonnet-5)" — the pinned
- *      `distillOk` default surfacing through the resolver the section derives its label from.
+ *      `distillOk` default surfacing through the resolver the section derives its label from;
+ *   3. the open model menu lists each current model once — Opus 5.5, Sonnet 5.5, Haiku 5.5 —
+ *      and none of the outdated ones (Opus 4.6–4.8, Sonnet 4.6).
  *
  * jsdom proves the functions; this proves the wiring (registry seed → sessions row → chip, and
  * resolver → IPC payload → SelectField) with the bundled CLI catalog actually loaded, which is
@@ -88,6 +90,35 @@ check(
   /\bClaude Opus 5\.5\b/.test(chip),
   `chip="${chip}"`
 )
+
+// ── 1b. the open picker: current generations only, each model once ──
+// What the screenshot that prompted the dynamic menu showed: "Claude Opus 5.5" twice, no Sonnet
+// 5.5, and Opus 4.6–4.8 still listed. The rows are read from the real menu under the real catalog.
+await conn.evalJs(`document.querySelector('[data-composer-model] button').click()`)
+const pickerItems = await waitFor('the open model menu', async () => {
+  const items = await conn.evalJs(
+    `[...document.querySelectorAll('[role="menu"][aria-label="Model"] [role="menuitem"]')].map((e) => e.textContent.replace(/\\s+/g, ' ').trim())`
+  )
+  return items.length > 0 ? items : null
+})
+console.log(`  picker rows: ${pickerItems.join(' | ')}`)
+check(
+  'picker lists each model once',
+  new Set(pickerItems).size === pickerItems.length,
+  pickerItems.join(' | ')
+)
+for (const name of ['Claude Opus 5.5', 'Claude Sonnet 5.5', 'Claude Haiku 5.5']) {
+  check(`picker offers ${name}`, pickerItems.includes(name), pickerItems.join(' | '))
+}
+for (const name of ['Claude Opus 4.8', 'Claude Opus 4.7', 'Claude Opus 4.6', 'Claude Sonnet 4.6']) {
+  check(
+    `picker leaves out the outdated ${name}`,
+    !pickerItems.includes(name),
+    pickerItems.join(' | ')
+  )
+}
+await conn.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' })
+await conn.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' })
 
 // ── 2. Settings → Distillation ──
 const clickButtonByText = (label) =>

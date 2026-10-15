@@ -253,7 +253,7 @@ import {
   type AgentDriverConfig
 } from '../shared/drivers'
 import { defaultCreateQuery as createClaudeQuery } from './services/agent/drivers/claude'
-import { fetchCatalog } from './services/agent/drivers/claude/catalog'
+import { clearCatalogCache, fetchCatalog } from './services/agent/drivers/claude/catalog'
 import { migrateModelPrefs } from './services/agent/modelPrefs'
 import type { ModelOptionInfo } from '../shared/runOptions'
 import { composeReviewRunPrompt } from './services/agent/reviewRunCompose'
@@ -1203,7 +1203,17 @@ function registerIpc(): void {
       // step, health row) renders the ACTIVE driver's remediation rather than Claude's.
       return { ...result, verified: false, fixHint: driver.authFixHint }
     },
-    () => broadcast(IPC.agentAuthChanged, undefined)
+    (event) => {
+      // Credentials that failed and now work may be a different account, entitled to different
+      // models; the cached catalog was read under the old ones. Drop it and tell the renderer to
+      // refetch. Not on every change: a session's first verified turn would otherwise respawn the
+      // CLI for a catalog nothing has invalidated.
+      if (event === 'recovered') {
+        clearCatalogCache()
+        broadcast(IPC.modelsChanged, undefined)
+      }
+      broadcast(IPC.agentAuthChanged, undefined)
+    }
   )
 
   // Fired whenever the provider-status list changes, so the settings page re-reads without
@@ -2016,6 +2026,10 @@ function registerIpc(): void {
     return fetchCatalog(createClaudeQuery, cfg.cliPath ? { cliPath: cfg.cliPath } : {})
   }
   ipcMain.handle(IPC.modelsCatalog, (_e, instanceId: string) => claudeCatalogFor(instanceId))
+  ipcMain.handle(IPC.modelsRefresh, (_e, instanceId: string) => {
+    clearCatalogCache()
+    return claudeCatalogFor(instanceId)
+  })
   // A stored preference keyed by a CLI ALIAS (`opus[1m]`) is invisible to `defaultModelRef`,
   // which seeds every new case off the STATIC model list — so a favourited Opus 5 was silently
   // dropped and the seed fell through to whatever sorted first. Only a fetched catalog can say

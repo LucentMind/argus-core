@@ -85,6 +85,20 @@ describe('AuthCache', () => {
     expect(probe).toHaveBeenCalledTimes(2) // the failed verdict was cleared, so it probed again
   })
 
+  // `'recovered'` is what lets main drop the cached model catalog: credentials that failed and now
+  // work may be a different account. A session's FIRST verified turn is not a recovery and must
+  // not look like one, or every session would respawn the CLI for a catalog nothing invalidated.
+  it("onAuthVerified() reports 'recovered' only when it follows an auth failure", async () => {
+    const probe = vi.fn<() => Promise<AuthStatus>>().mockResolvedValue(ok(true))
+    const notify = vi.fn()
+    const c = new AuthCache(probe, notify)
+    c.onAuthVerified() // first proof of the session: not a recovery
+    expect(notify).toHaveBeenLastCalledWith()
+    c.onAuthFailure()
+    c.onAuthVerified()
+    expect(notify).toHaveBeenLastCalledWith('recovered')
+  })
+
   it('get(true) (force) clears a failed verdict and re-probes', async () => {
     const probe = vi.fn<() => Promise<AuthStatus>>().mockResolvedValue(ok(true))
     const c = new AuthCache(probe, () => {})

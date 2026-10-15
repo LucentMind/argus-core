@@ -162,6 +162,12 @@ export const MODEL_OPTION_POLICY: Readonly<Record<string, ModelOptionPolicy>> = 
   // t3code defaults this model to xhigh rather than high — ported as-is.
   'claude-opus-4-7': { effortLevels: ALL_LEVELS, defaultEffort: 'xhigh', fastMode: true },
   'claude-sonnet-5': { effortLevels: ALL_LEVELS, contextWindow: 'native-1m' },
+  // Sonnet 5.5 / Haiku 5.5 (measured 2026-10-14): on CLI 2.1.299 — the floor since the SDK bump
+  // to 0.3.299 — the bare slug's turn reports `modelUsage.contextWindow: 1000000`, so the same
+  // `native-1m` shape as Sonnet 5 applies. (On 2.1.281 the bare slug ran at 200k and only
+  // `[1m]` gave 1M; the SDK floor is what makes this row true.) No fast mode on either.
+  'claude-sonnet-5-5': { effortLevels: ALL_LEVELS, contextWindow: 'native-1m' },
+  'claude-haiku-5-5': { effortLevels: ALL_LEVELS, contextWindow: 'native-1m' },
   'claude-sonnet-4-6': {
     effortLevels: ['low', 'medium', 'high', 'max'],
     contextWindow: true

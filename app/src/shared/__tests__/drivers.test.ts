@@ -17,6 +17,8 @@ import {
   defaultModelRef,
   capabilitiesFor,
   mergeBuiltinRows,
+  modelsForSettingsPanel,
+  legacyRowSlugs,
   canonicalizePreferences,
   hasUnresolvedPreferences,
   favoritesInLegacyOrder,
@@ -43,19 +45,24 @@ import {
 import CLI_CATALOG from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-220.json'
 import CLI_CATALOG_263 from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-263.json'
 import CLI_CATALOG_281 from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-281.json'
+import CLI_CATALOG_281_OPUS55 from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-281-opus55.json'
+import CLI_CATALOG_299 from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-299.json'
 
 const CATALOG_ORDER = [
   // Row 0 is the fresh-install seed for every new case (`defaultModelRef`): Opus 5.5, on
-  // purpose. Favourites, order and hide still override.
+  // purpose. Favourites, order and hide still override. Newest generation first, per family;
+  // the outdated rows trail (see the legacy-pruning block).
   'claude-opus-5-5',
   'claude-opus-5',
   'claude-fable-5-1',
   'claude-fable-5',
+  'claude-sonnet-5-5',
+  'claude-sonnet-5',
+  'claude-haiku-5-5',
+  'claude-haiku-4-5',
   'claude-opus-4-8',
   'claude-opus-4-7',
-  'claude-sonnet-5',
-  'claude-sonnet-4-6',
-  'claude-haiku-4-5'
+  'claude-sonnet-4-6'
 ]
 
 function withPrefs(
@@ -65,6 +72,9 @@ function withPrefs(
   return settingsSchema.parse({
     agent: {
       activeInstanceId: 'claude-default',
+      // These helpers pin ordering/preference mechanics against the FULL static list; the
+      // default legacy pruning has its own describe block below.
+      showLegacyModels: true,
       providerInstances: {
         'claude-default': { driver: 'claude-agent-sdk', enabled: true, config: config ?? {} }
       },
@@ -393,6 +403,9 @@ function multi(over?: {
   return settingsSchema.parse({
     agent: {
       activeInstanceId: over?.activeInstanceId ?? 'claude-default',
+      // Merge/aggregation mechanics are pinned against the full list; see the legacy-pruning
+      // describe block for the default behaviour.
+      showLegacyModels: true,
       providerInstances: {
         'claude-default': {
           driver: 'claude-agent-sdk',
@@ -485,7 +498,7 @@ describe('allVisibleModels', () => {
         }
       }
     })
-    const opus = allVisibleModels(s).filter((m) => m.slug === 'claude-opus-4-8')
+    const opus = allVisibleModels(s).filter((m) => m.slug === 'claude-opus-5-5')
     expect(opus).toHaveLength(2)
     expect(opus.map((m) => m.instanceId)).toEqual(['claude-default', 'claude-work'])
     expect(opus[1].providerLabel).toBe('Work account')
@@ -510,13 +523,23 @@ describe('allVisibleModels rowOverrides', () => {
       'claude-default': [{ slug: 'claude-opus-5', name: 'Claude Opus 5' }]
     })
     const claude = models.filter((m) => m.instanceId === 'claude-default')
-    // The override leads; the built-ins it does not name follow it rather than being replaced
-    // by it (see `mergeBuiltinRows` — this used to assert `['claude-opus-5']` alone, which is
-    // the substitution that deleted three usable models from the picker). The one built-in the
-    // override DOES name is deduped away rather than listed twice.
+    // The built-ins the override does not name join it rather than being replaced by it (see
+    // `mergeBuiltinRows` — this used to assert `['claude-opus-5']` alone, which is the
+    // substitution that deleted three usable models from the picker). The one built-in the
+    // override DOES name is deduped away rather than listed twice. The union is grouped by
+    // family, newest first, wherever each row came from.
     expect(claude.map((m) => m.slug)).toEqual([
+      'claude-opus-5-5',
       'claude-opus-5',
-      ...CATALOG_ORDER.filter((s) => s !== 'claude-opus-5')
+      'claude-opus-4-8',
+      'claude-opus-4-7',
+      'claude-fable-5-1',
+      'claude-fable-5',
+      'claude-sonnet-5-5',
+      'claude-sonnet-5',
+      'claude-sonnet-4-6',
+      'claude-haiku-5-5',
+      'claude-haiku-4-5'
     ])
     // requirement 2: identity fields come from the per-instance map entry, not borrowed
     expect(claude[0]).toMatchObject({
@@ -640,11 +663,15 @@ describe('allVisibleModels rowOverrides — union with built-ins', () => {
     expect(slugs.filter((s) => s === 'haiku')).toHaveLength(1)
   })
 
-  it('orders live catalog rows first, then the built-ins they did not name', () => {
+  it('groups the merged rows by family, newest first — not catalog-first then built-ins', () => {
     const slugs = claudeSlugs()
-    const lastCatalog = Math.max(...liveRows().map((r) => slugs.indexOf(r.slug)))
-    const firstBuiltin = slugs.indexOf('claude-opus-4-8')
-    expect(firstBuiltin).toBeGreaterThan(lastCatalog)
+    const rows = allVisibleModels(multi(), { 'claude-default': liveRows() })
+      .filter((m) => m.instanceId === 'claude-default')
+      .map((m) => m.resolvedModel ?? m.slug)
+    // an Opus built-in (4.8) now sits with the other Opus rows, ahead of every Sonnet row
+    expect(slugs.indexOf('claude-opus-4-8')).toBeLessThan(
+      rows.findIndex((r) => r.includes('sonnet'))
+    )
   })
 
   it('a [1m] catalog row covers its bare built-in slug — one model, not two rows', () => {
@@ -1163,5 +1190,184 @@ describe('favoritesInLegacyOrder', () => {
     }
     const once = favoritesInLegacyOrder(rows, prefs)
     expect(favoritesInLegacyOrder(rows, { ...prefs, favoriteModels: once })).toEqual(once)
+  })
+})
+
+describe('catalogModelRows dedupe', () => {
+  const info = (value: string, resolvedModel: string): ModelOptionInfo =>
+    ({ value, displayName: value, resolvedModel }) as ModelOptionInfo
+
+  // The reported defect: an entitlement-shaped catalog can name one model twice — once bare,
+  // once as its 1M variant — and both rows render as "Claude Opus 5.5".
+  it('collapses a bare and a [1m] resolvedModel into one row', () => {
+    const rows = catalogModelRows([
+      info('claude-opus-5-5', 'claude-opus-5-5'),
+      info('opus[1m]', 'claude-opus-5-5[1m]')
+    ])
+    expect(rows).toHaveLength(1)
+    expect(rows[0].name).toBe('Claude Opus 5.5')
+  })
+
+  it('collapses a dated resolvedModel onto its undated twin', () => {
+    const rows = catalogModelRows([
+      info('haiku', 'claude-haiku-4-5-20251001'),
+      info('claude-haiku-4-5', 'claude-haiku-4-5')
+    ])
+    expect(rows).toHaveLength(1)
+  })
+
+  it('still prefers a specific alias over `default`', () => {
+    const rows = catalogModelRows([
+      info('default', 'claude-opus-5-5[1m]'),
+      info('opus[1m]', 'claude-opus-5-5')
+    ])
+    expect(rows.map((r) => r.slug)).toEqual(['opus[1m]'])
+  })
+
+  it('keeps genuinely different models apart', () => {
+    const rows = catalogModelRows([
+      info('opus', 'claude-opus-5-5'),
+      info('claude-opus-5', 'claude-opus-5')
+    ])
+    expect(rows).toHaveLength(2)
+  })
+})
+
+// Outdated models: the newest two versions per family are offered, the rest are reachable only
+// on purpose (favourite, custom model, the chat already pinned to it, or the Settings switch).
+describe('legacy model pruning', () => {
+  const settings = (
+    prefs?: { hiddenModels?: string[]; favoriteModels?: string[]; modelOrder?: string[] },
+    over?: { showLegacyModels?: boolean; customModels?: string[] }
+  ): AppSettings =>
+    settingsSchema.parse({
+      agent: {
+        activeInstanceId: 'claude-default',
+        ...(over?.showLegacyModels === undefined
+          ? {}
+          : { showLegacyModels: over.showLegacyModels }),
+        providerInstances: {
+          'claude-default': {
+            driver: 'claude-agent-sdk',
+            enabled: true,
+            config: over?.customModels ? { customModels: over.customModels } : {}
+          }
+        },
+        modelPreferences: prefs ? { 'claude-default': prefs } : {}
+      }
+    })
+  const slugs = (s: AppSettings, rows?: CatalogModel[], pinned?: string): string[] =>
+    allVisibleModels(s, rows ? { 'claude-default': rows } : undefined, {
+      instanceId: 'claude-default',
+      model: pinned
+    }).map((m) => m.slug)
+
+  it('is off by default: showLegacyModels is false on a fresh install', () => {
+    expect(settings().agent.showLegacyModels).toBe(false)
+  })
+
+  it('hides everything beyond the newest two versions of each family', () => {
+    const visible = slugs(settings())
+    expect(visible).not.toContain('claude-opus-4-8')
+    expect(visible).not.toContain('claude-opus-4-7')
+    expect(visible).not.toContain('claude-sonnet-4-6')
+    expect(visible).toEqual(expect.arrayContaining(['claude-opus-5-5', 'claude-opus-5']))
+    expect(visible[0]).toBe('claude-opus-5-5')
+  })
+
+  it('applies the same rule to the catalog-merged rows', () => {
+    const rows = catalogModelRows(CLI_CATALOG_281 as ModelOptionInfo[])
+    const visible = slugs(settings(), rows)
+    expect(visible).not.toContain('claude-opus-4-8')
+    expect(visible).not.toContain('claude-sonnet-4-6')
+  })
+
+  it('shows everything when the Settings switch is on', () => {
+    expect(slugs(settings(undefined, { showLegacyModels: true }))).toEqual(CATALOG_ORDER)
+  })
+
+  it('keeps a starred legacy model', () => {
+    const visible = slugs(settings({ favoriteModels: ['claude-opus-4-8'] }))
+    expect(visible[0]).toBe('claude-opus-4-8')
+    expect(visible).not.toContain('claude-opus-4-7')
+  })
+
+  it('keeps the model the open chat is pinned to, matching [1m] and dated forms', () => {
+    expect(slugs(settings(), undefined, 'claude-opus-4-7')).toContain('claude-opus-4-7')
+    expect(slugs(settings(), undefined, 'claude-opus-4-7[1m]')).toContain('claude-opus-4-7')
+    expect(slugs(settings(), undefined, 'claude-opus-4-7')).not.toContain('claude-opus-4-8')
+  })
+
+  it('never hides a custom model, whatever its version', () => {
+    const visible = slugs(
+      settings(undefined, { customModels: ['claude-sonnet-3-7', 'my-finetune'] })
+    )
+    expect(visible).toEqual(expect.arrayContaining(['claude-sonnet-3-7', 'my-finetune']))
+  })
+
+  it('an explicit hide still wins over a favourite', () => {
+    const s = settings({ favoriteModels: ['claude-opus-5'], hiddenModels: ['claude-opus-5'] })
+    expect(slugs(s)).not.toContain('claude-opus-5')
+  })
+
+  it('does not touch the Settings panel list, which shows every row', () => {
+    const panel = modelsForSettingsPanel(settings(), 'claude-default')
+    expect(panel.models.map((m) => m.slug)).toEqual(CATALOG_ORDER)
+    expect(legacyRowSlugs(panel.models)).toEqual(
+      new Set(['claude-opus-4-8', 'claude-opus-4-7', 'claude-sonnet-4-6'])
+    )
+  })
+})
+
+describe('merged model list against real catalogs', () => {
+  const claudeRows = (catalog: unknown, showLegacy = false): CatalogModel[] =>
+    allVisibleModels(
+      settingsSchema.parse({ agent: { showLegacyModels: showLegacy } }),
+      { 'claude-default': catalogModelRows(catalog as ModelOptionInfo[]) },
+      undefined
+    ).filter((m) => m.instanceId === 'claude-default')
+  const names = (rows: CatalogModel[]): string[] => rows.map((m) => m.name)
+
+  // The reported menu: CLI 2.1.281's entitlement list names `default` → claude-opus-5-5[1m]
+  // AND `opus` → claude-opus-5-5, which listed "Claude Opus 5.5" twice.
+  it('CLI 2.1.281: lists Claude Opus 5.5 once and drops the outdated rows', () => {
+    const rows = claudeRows(CLI_CATALOG_281_OPUS55)
+    expect(names(rows)).toEqual([
+      'Claude Opus 5.5',
+      'Claude Opus 5',
+      'Claude Fable 5.1',
+      'Claude Fable 5',
+      'Claude Sonnet 5.5',
+      'Claude Sonnet 5',
+      'Claude Haiku 5.5',
+      'Claude Haiku 4.5'
+    ])
+  })
+
+  it('CLI 2.1.299: the catalog itself offers Sonnet 5.5 and Haiku 5.5, each once', () => {
+    const rows = claudeRows(CLI_CATALOG_299)
+    expect(names(rows)).toEqual([
+      'Claude Opus 5.5',
+      'Claude Opus 5',
+      'Claude Fable 5.1',
+      'Claude Fable 5',
+      'Claude Sonnet 5.5',
+      'Claude Sonnet 5',
+      'Claude Haiku 5.5',
+      'Claude Haiku 4.5'
+    ])
+  })
+
+  it('shows Opus 4.6–4.8 and Sonnet 4.6 again when older models are switched on', () => {
+    const all = names(claudeRows(CLI_CATALOG_299, true))
+    expect(all).toEqual(
+      expect.arrayContaining([
+        'Claude Opus 4.8',
+        'Claude Opus 4.7',
+        'Claude Opus 4.6',
+        'Claude Sonnet 4.6'
+      ])
+    )
+    expect(new Set(all).size).toBe(all.length)
   })
 })

@@ -1,16 +1,17 @@
 import { useState } from 'react'
 import { Star, ArrowUp, ArrowDown, Eye, EyeOff, X } from 'lucide-react'
 import { settingsStore } from '../../lib/settingsStore'
-import { IconBtn, Chip, Btn } from '../ui'
+import { IconBtn, Chip, Btn, Toggle } from '../ui'
 import { FIELD } from './settingsLayout'
 import {
   canonicalizePreferences,
   catalogModelRows,
   catalogRowNames,
+  legacyRowSlugs,
   modelsForSettingsPanel
 } from '../../../../shared/drivers'
 import type { AppSettings, ModelPreferences } from '../../../../shared/settings'
-import { useModelCatalog } from '../../lib/catalogStore'
+import { refreshModelCatalog, useModelCatalog } from '../../lib/catalogStore'
 
 const MAX_CUSTOM_MODEL_LENGTH = 100
 
@@ -39,6 +40,7 @@ export function ProviderModels({
 }): React.JSX.Element {
   const [input, setInput] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
 
   const isClaude = settings.agent.providerInstances[instanceId]?.driver === 'claude-agent-sdk'
   const catalog = useModelCatalog(isClaude ? instanceId : null)
@@ -51,6 +53,9 @@ export function ProviderModels({
   const customSlugs = models.filter((m) => m.isCustom).map((m) => m.slug)
   const favSet = new Set(prefs.favoriteModels)
   const hiddenSet = new Set(prefs.hiddenModels)
+  // Rows beyond the newest two versions of their family. They stay listed here (so they can be
+  // starred or hidden) but the picker drops them unless `showLegacyModels` is on.
+  const legacy = legacyRowSlugs(models)
 
   /**
    * The one place preferences leave this panel — and therefore the one place they are
@@ -128,6 +133,15 @@ export function ProviderModels({
     })
   }
 
+  async function handleRefresh(): Promise<void> {
+    setRefreshing(true)
+    try {
+      await refreshModelCatalog(instanceId)
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   function handleAdd(): void {
     const slug = input.trim()
     if (!slug) {
@@ -172,6 +186,7 @@ export function ProviderModels({
                 {m.name}
               </span>
               {m.isCustom && <Chip>custom</Chip>}
+              {legacy.has(m.slug) && <Chip>legacy</Chip>}
               {isHidden && <Chip>hidden</Chip>}
               <div className="flex shrink-0 items-center gap-0.5">
                 <IconBtn
@@ -225,6 +240,24 @@ export function ProviderModels({
           )
         })}
       </div>
+      {isClaude && (
+        <div className="flex items-center gap-2">
+          <Btn disabled={refreshing} onClick={() => void handleRefresh()}>
+            {refreshing ? 'Refreshing…' : 'Refresh models'}
+          </Btn>
+          <span className="text-xs text-mute">
+            Ask the Claude CLI which models your account has.
+          </span>
+        </div>
+      )}
+      {legacy.size > 0 && (
+        <Toggle
+          checked={settings.agent.showLegacyModels}
+          onChange={(v) => void settingsStore.patch({ agent: { showLegacyModels: v } })}
+          label="Show older models in the picker"
+          aria-label="Show older models in the picker"
+        />
+      )}
       <div className="flex items-center gap-2">
         <input
           aria-label="Add custom model slug"

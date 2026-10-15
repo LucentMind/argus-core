@@ -174,6 +174,32 @@ describe('fetchCatalog', () => {
     }
   })
 
+  // A success is cached for an hour, not for the process lifetime: the catalog is account-
+  // dependent, so an app left open for days must pick up a newly entitled model.
+  it('expires a successful fetch after the success TTL, and not a moment before', async () => {
+    vi.useFakeTimers()
+    try {
+      const q = fakeQuery(fixture)
+      await fetchCatalog(q)
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000 - 1000)
+      await fetchCatalog(q)
+      expect(q).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(2000)
+      await fetchCatalog(q)
+      expect(q).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clearCatalogCache forces the next fetch to ask the CLI again', async () => {
+    const q = fakeQuery(fixture)
+    await fetchCatalog(q)
+    clearCatalogCache()
+    await fetchCatalog(q)
+    expect(q).toHaveBeenCalledTimes(2)
+  })
+
   // Finding 3: the once-per-fetch warning was previously guaranteed only by reading the
   // code (it happens inside the `.then` attached to `raw`, which only runs once no
   // matter how many callers are awaiting the shared cached promise). Nothing asserted on

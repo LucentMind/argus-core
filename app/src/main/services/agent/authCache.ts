@@ -28,7 +28,10 @@ export class AuthCache {
 
   constructor(
     private probe: () => Promise<AuthStatus>,
-    private notify: () => void
+    /** `'recovered'` accompanies a verified turn that follows an auth failure — the one change
+     *  that can mean a different account is now signed in. Plain changes call it with no
+     *  argument. */
+    private notify: (event?: 'recovered') => void
   ) {}
 
   async get(force = false): Promise<AuthStatus> {
@@ -73,8 +76,10 @@ export class AuthCache {
   /** A turn completed normally — the only real proof the credentials work. Idempotent. */
   onAuthVerified(): void {
     if (this.turnVerdict === 'verified') return
+    const recovered = this.turnVerdict === 'failed'
     this.turnVerdict = 'verified'
-    this.notify()
+    if (recovered) this.notify('recovered')
+    else this.notify()
   }
 
   /** Settings changed — the probe target may differ. Clears without notifying. */

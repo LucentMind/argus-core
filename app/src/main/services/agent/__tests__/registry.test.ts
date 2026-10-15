@@ -866,6 +866,7 @@ describe('AgentService', () => {
         activeInstanceId: 'claude-default',
         maxSessions,
         probeTimeoutMs: 10000,
+        showLegacyModels: false,
         defaultPermissionMode: 'acceptEdits' as const,
         personaAppend: 'brief.',
         providerInstances: {
@@ -930,6 +931,7 @@ describe('AgentService', () => {
         activeInstanceId: 'claude-default',
         maxSessions: 3,
         probeTimeoutMs: 10000,
+        showLegacyModels: false,
         defaultPermissionMode: 'default' as const,
         personaAppend: '',
         providerInstances: {
@@ -1271,6 +1273,7 @@ describe('AgentService — per-session provider and model', () => {
     activeInstanceId: 'claude-default',
     maxSessions: 3,
     probeTimeoutMs: 10000,
+    showLegacyModels: false,
     defaultPermissionMode: 'default' as const,
     personaAppend: '',
     providerInstances: {

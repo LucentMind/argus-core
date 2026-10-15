@@ -254,3 +254,72 @@ Session scratchpad script, not committed. `supportedModels()` as above; probe tu
 `query()` calls with `maxTurns: 1` and the option under test (`model`, `effort`,
 `settings: { fastMode: true }`). Requires an authenticated CLI. The alias-menu shape only
 appears before the CLI caches `modelAccessCache`; the caller cannot choose the shape.
+
+## `models-2-1-299.json` and `models-2-1-281-opus55.json`
+
+Captured 2026-10-14 from one Enterprise account, with SDK 0.3.299 (CLI 2.1.299) and 0.3.281
+(CLI 2.1.281) installed side by side. Both are the 11–13 row entitlement shape (see the shapes
+above), email and organisation stripped — only `supportedModels()` rows are kept.
+
+### The question they answer
+
+Why did the model menu list "Claude Opus 5.5" twice and have no Sonnet 5.5 or Haiku 5.5?
+
+### What the captures show
+
+CLI 2.1.281 (`models-2-1-281-opus55.json`):
+
+```
+default  -> claude-opus-5-5[1m]        opus    -> claude-opus-5-5
+sonnet   -> claude-sonnet-5            haiku   -> claude-haiku-4-5-20251001
+```
+
+`default` and `opus` are one model that the CLI names twice, once with the 1M suffix. The
+picker deduped on the exact `resolvedModel` string, so both rows survived under the same display
+name; it now compares the normalized wire slug (`[1m]` and `-YYYYMMDD` stripped). And neither
+`sonnet` nor `haiku` points at a 5.5 model — the CLI does not list them yet.
+
+CLI 2.1.299 (`models-2-1-299.json`):
+
+```
+default  -> claude-sonnet-5-5          opus    -> claude-opus-5-5
+sonnet   -> claude-sonnet-5-5          haiku   -> claude-haiku-5-5
+fable    -> claude-fable-5-1
+```
+
+plus `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5`, `claude-haiku-4-5-20251001`,
+`claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6` and `claude-sonnet-4-6` as wire-slug rows.
+`supportsFastMode` is set on the Opus rows only; every 5.x row reports `supportsEffort` with all
+five levels and `supportsAdaptiveThinking`.
+
+### Sonnet 5.5 and Haiku 5.5 probe turns
+
+Single `query()` calls, `maxTurns: 1`, prompt "Reply with the single word OK.". Every run:
+`subtype: "success"`, `is_error: false`, `fast_mode_state: "off"`.
+
+| CLI | model option | `modelUsage` key → `contextWindow` |
+| --- | --- | --- |
+| 2.1.299 | `claude-sonnet-5-5` | `claude-sonnet-5-5` → 1000000 |
+| 2.1.299 | `claude-haiku-5-5` | `claude-haiku-5-5` → 1000000 |
+| 2.1.299 | `claude-sonnet-5-5[1m]` | `claude-sonnet-5-5[1m]` → 1000000 |
+| 2.1.299 | `claude-haiku-5-5[1m]` | `claude-haiku-5-5[1m]` → 1000000 |
+| 2.1.299 | either slug, `effort: low` and `max` | accepted (4 runs) |
+| 2.1.281 | `claude-sonnet-5-5` | `claude-sonnet-5-5` → **200000** |
+| 2.1.281 | `claude-haiku-5-5` | `claude-haiku-5-5` → **200000** |
+| 2.1.281 | `claude-sonnet-5-5[1m]` | `claude-sonnet-5-5[1m]` → 1000000 |
+| 2.1.281 | `claude-haiku-5-5[1m]` | `claude-haiku-5-5[1m]` → 1000000 |
+
+(Each `modelUsage` also carries the CLI's own `claude-haiku-*` side-call entry; ignored here.)
+
+Decisions: both slugs run on 2.1.281 — they are not version-gated the way Opus 5.5 was — so the
+static rows work offline and on an old CLI. Context Window is `native-1m`, which is true only
+from 2.1.299: on 2.1.281 the bare slug is 200k and only `[1m]` gives 1M. That is why the SDK
+floor moved to `^0.3.299` in the same change. Neither model supports fast mode (`off` on every
+run, no `supportsFastMode` in the catalog).
+
+### Reproducing
+
+As above: `supportedModels()` after an `initializationResult()`, and one `query()` per probe
+with `model` / `effort`. Both SDK versions install side by side in a scratch directory
+(`npm install @anthropic-ai/claude-agent-sdk@0.3.281` / `@0.3.299`); no repo change needed to
+capture either.
