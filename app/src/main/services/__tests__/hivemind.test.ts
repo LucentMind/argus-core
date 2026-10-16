@@ -116,6 +116,38 @@ describe('HivemindService states', () => {
     expect(calls).toEqual([])
   })
 
+  it('an unborn-branch clone (zero commits) reports ready with a null headCommit, not error', async () => {
+    seedCloneShell()
+    const runner: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD')
+        throw new Error(
+          "ambiguous argument 'HEAD': unknown revision or path not in the working tree."
+        )
+      if (args[0] === 'symbolic-ref' && args[1] === '-q') return 'refs/heads/main'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const p = await svc.payload()
+    expect(p.state).toBe('ready')
+    expect(p.headCommit).toBeNull()
+    expect(p.items).toEqual([])
+    expect(p.error).toBeNull()
+  })
+
+  it('a genuinely broken clone (rev-parse HEAD and symbolic-ref both fail) still reports error', async () => {
+    seedCloneShell()
+    const runner: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD')
+        throw new Error('fatal: not a git repository (or any of the parent directories)')
+      if (args[0] === 'symbolic-ref') throw new Error('fatal: ref HEAD is not a symbolic ref')
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const p = await svc.payload()
+    expect(p.state).toBe('error')
+    expect(p.error).toMatch(/not a git repository/)
+  })
+
   it('is not-cloned before the first sync; sync clones', async () => {
     const { runner, calls } = fakeGit()
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
@@ -2909,5 +2941,434 @@ describe('declined flag on items', () => {
     await svc.install('skill', 'triage')
     const p = await svc.payload()
     expect(p.items.find((i) => i.name === 'triage')?.declined).toBe(false)
+  })
+})
+
+describe('initPreview', () => {
+  it('reports the missing scaffold files against a seeded-but-empty clone', async () => {
+    seedCloneShell()
+    const runner: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return 'headsha'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const preview = await svc.initPreview()
+    expect(preview.noCommits).toBe(false)
+    expect(preview.missing.sort()).toEqual(
+      [
+        'README.md',
+        'references/.gitkeep',
+        'references/confluence/.gitkeep',
+        'skills/.gitkeep'
+      ].sort()
+    )
+    expect(preview.readme).toContain('Argus HiveMind')
+  })
+
+  it('reports noCommits for an unborn-branch clone', async () => {
+    seedCloneShell()
+    const runner: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') throw new Error('unknown revision')
+      if (args[0] === 'symbolic-ref' && args[1] === '-q') return 'refs/heads/main'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    expect((await svc.initPreview()).noCommits).toBe(true)
+  })
+
+  it('excludes a scaffold file that already exists in the clone', async () => {
+    const clone = seedCloneShell()
+    fs.writeFileSync(path.join(clone, 'README.md'), '# custom readme\n')
+    const runner: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return 'headsha'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const preview = await svc.initPreview()
+    expect(preview.missing).not.toContain('README.md')
+    expect(preview.missing).toContain('skills/.gitkeep')
+  })
+})
+
+describe('init', () => {
+  it('refuses without a configured repo', async () => {
+    const svc = new HivemindService({ argusHome: home, repo: () => '', git: fakeGit().runner })
+    const r = await svc.init()
+    expect(r).toEqual({ ok: false, error: 'No HiveMind repo configured (Settings → Team).' })
+  })
+
+  it('refuses without a clone', async () => {
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: fakeGit().runner
+    })
+    const r = await svc.init()
+    expect(r).toEqual({ ok: false, error: 'HiveMind clone missing — Sync first.' })
+  })
+
+  it('surfaces a genuinely broken clone as an error rather than treating it as empty', async () => {
+    seedCloneShell()
+    const git: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD')
+        throw new Error('fatal: not a git repository')
+      if (args[0] === 'symbolic-ref') throw new Error('fatal: ref HEAD is not a symbolic ref')
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git })
+    const r = await svc.init()
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/not a git repository/)
+  })
+
+  it('on a zero-commit clone, writes into the clone directly and pushes without a PR', async () => {
+    const clone = seedCloneShell()
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') throw new Error('unknown revision')
+      if (args[0] === 'symbolic-ref' && args[1] === '-q') return 'refs/heads/main'
+      if (args[0] === 'symbolic-ref' && args[1] === '--short') return 'main'
+      return ''
+    }
+    const gh = vi.fn()
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git,
+      gh: gh as unknown as Runner
+    })
+    const r = await svc.init()
+    expect(r).toEqual({ ok: true, outcome: 'initialized', prUrl: null })
+    expect(gh).not.toHaveBeenCalled()
+    expect(fs.existsSync(path.join(clone, 'README.md'))).toBe(true)
+    expect(fs.existsSync(path.join(clone, 'skills', '.gitkeep'))).toBe(true)
+    const flat = calls.map((c) => c.join(' '))
+    expect(flat).toContain('add -A')
+    expect(flat.some((c) => c.startsWith('commit -m Set up HiveMind directory structure'))).toBe(
+      true
+    )
+    expect(flat).toContain('push -u origin main')
+    expect(calls.some((c) => c[0] === 'worktree')).toBe(false)
+  })
+
+  it('on a zero-commit clone with leftover scaffold files from a prior failed attempt, still commits and pushes', async () => {
+    const clone = seedCloneShell()
+    for (const rel of [
+      'README.md',
+      'skills/.gitkeep',
+      'references/.gitkeep',
+      'references/confluence/.gitkeep'
+    ]) {
+      fs.mkdirSync(path.dirname(path.join(clone, rel)), { recursive: true })
+      fs.writeFileSync(path.join(clone, rel), '')
+    }
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') throw new Error('unknown revision')
+      if (args[0] === 'symbolic-ref' && args[1] === '-q') return 'refs/heads/main'
+      if (args[0] === 'symbolic-ref' && args[1] === '--short') return 'main'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git })
+    const r = await svc.init()
+    expect(r).toEqual({ ok: true, outcome: 'initialized', prUrl: null })
+    const flat = calls.map((c) => c.join(' '))
+    expect(flat).toContain('add -A')
+    expect(flat.some((c) => c.startsWith('commit -m Set up HiveMind directory structure'))).toBe(
+      true
+    )
+    expect(flat).toContain('push -u origin main')
+  })
+
+  it('a failed commit on a zero-commit clone leaves residue that a retry still pushes rather than reporting unchanged', async () => {
+    const clone = seedCloneShell()
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') throw new Error('unknown revision')
+      if (args[0] === 'symbolic-ref' && args[1] === '-q') return 'refs/heads/main'
+      if (args[0] === 'symbolic-ref' && args[1] === '--short') return 'main'
+      if (args[0] === 'commit') throw new Error('no git identity configured')
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git })
+
+    const r1 = await svc.init()
+    expect(r1.ok).toBe(false)
+    if (!r1.ok) expect(r1.error).toMatch(/no git identity configured/)
+    // The scaffold files were written to disk before the commit failed — this is the residue.
+    expect(fs.existsSync(path.join(clone, 'README.md'))).toBe(true)
+
+    calls.length = 0
+    const r2 = await svc.init()
+    expect(r2.ok).toBe(false)
+    if (!r2.ok) expect(r2.error).toMatch(/no git identity configured/)
+    const flat = calls.map((c) => c.join(' '))
+    // The regression: this must NOT short-circuit to `{ ok: true, outcome: 'unchanged' }` just
+    // because `missingScaffoldFiles` now finds nothing missing on disk.
+    expect(flat.some((c) => c.startsWith('commit -m Set up HiveMind directory structure'))).toBe(
+      true
+    )
+  })
+
+  it('refuses when the remote gains a commit during the zero-commit push race', async () => {
+    seedCloneShell()
+    const calls: string[][] = []
+    let fetched = false
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'fetch') {
+        fetched = true
+        return ''
+      }
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        if (fetched) return 'racedsha'
+        throw new Error('unknown revision')
+      }
+      if (args[0] === 'symbolic-ref' && args[1] === '-q') return 'refs/heads/main'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git })
+    const r = await svc.init()
+    expect(r).toEqual({
+      ok: false,
+      error: 'The repository gained a commit while pushing — Sync and try again.'
+    })
+    expect(calls.some((c) => c[0] === 'commit' || c[0] === 'push')).toBe(false)
+  })
+
+  it('on a seeded-but-empty clone, cuts a branch and opens a PR', async () => {
+    seedCloneShell()
+    const calls: string[][] = []
+    let scaffoldExistedAtCommit = false
+    const git: Runner = async (_c, args, opts) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return 'headsha'
+      if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      if (args[0] === 'commit') {
+        scaffoldExistedAtCommit = fs.existsSync(path.join(opts?.cwd ?? '', 'README.md'))
+      }
+      return ''
+    }
+    const gh: Runner = async (_c, args) => {
+      calls.push(['gh', ...args])
+      if (args[0] === 'pr' && args[1] === 'list') return '[]'
+      if (args[0] === 'pr' && args[1] === 'create')
+        return 'https://github.com/acme/hivemind/pull/42'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.init()
+    expect(r).toEqual({
+      ok: true,
+      outcome: 'created',
+      prUrl: 'https://github.com/acme/hivemind/pull/42'
+    })
+    expect(scaffoldExistedAtCommit).toBe(true)
+    const flat = calls.map((c) => c.join(' '))
+    expect(flat.some((c) => c.startsWith('worktree add -b argus/init-hivemind-'))).toBe(true)
+    expect(flat.some((c) => c.startsWith('gh pr create'))).toBe(true)
+    expect(flat[flat.length - 1]).toMatch(/^worktree remove --force /)
+    const receipt = (await svc.payload()).pushes['init/hivemind']
+    expect(receipt.prUrl).toBe('https://github.com/acme/hivemind/pull/42')
+    expect(receipt.repo).toBe('acme/hivemind')
+  })
+
+  it('on a seeded-but-empty clone with nothing missing, skips the PR entirely', async () => {
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return 'headsha'
+      if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      if (args[0] === 'worktree' && args[1] === 'add') {
+        const tree = args[4]
+        for (const rel of [
+          'README.md',
+          'skills/.gitkeep',
+          'references/.gitkeep',
+          'references/confluence/.gitkeep'
+        ]) {
+          fs.mkdirSync(path.dirname(path.join(tree, rel)), { recursive: true })
+          fs.writeFileSync(path.join(tree, rel), '')
+        }
+      }
+      return ''
+    }
+    const gh: Runner = async (_c, args) => {
+      calls.push(['gh', ...args])
+      if (args[0] === 'pr' && args[1] === 'list') return '[]'
+      return ''
+    }
+    seedCloneShell()
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.init()
+    expect(r).toEqual({ ok: true, outcome: 'unchanged', prUrl: null })
+    const flat = calls.map((c) => c.join(' '))
+    expect(flat.some((c) => c.startsWith('gh pr create'))).toBe(false)
+    expect(calls.some((c) => c[0] === 'commit')).toBe(false)
+  })
+
+  it('reuses an already-open init PR when nothing is newly missing', async () => {
+    seedCloneShell()
+    const statePath = path.join(home, 'config', 'hivemind-state.json')
+    fs.mkdirSync(path.dirname(statePath), { recursive: true })
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({
+        lastSynced: null,
+        skills: {},
+        references: {},
+        pushes: {
+          'init/hivemind': {
+            prUrl: 'https://github.com/acme/hivemind/pull/5',
+            pushedAt: '2026-09-01T00:00:00.000Z',
+            repo: 'acme/hivemind'
+          }
+        }
+      })
+    )
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return 'headsha'
+      if (args[0] === 'worktree' && args[1] === 'add') {
+        const tree = args[4]
+        for (const rel of [
+          'README.md',
+          'skills/.gitkeep',
+          'references/.gitkeep',
+          'references/confluence/.gitkeep'
+        ]) {
+          fs.mkdirSync(path.dirname(path.join(tree, rel)), { recursive: true })
+          fs.writeFileSync(path.join(tree, rel), '')
+        }
+      }
+      return ''
+    }
+    const gh: Runner = async (_c, args) => {
+      calls.push(['gh', ...args])
+      if (args[0] === 'pr' && args[1] === 'view')
+        return JSON.stringify({ state: 'OPEN', headRefName: 'argus/init-hivemind-1699999999999' })
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.init()
+    expect(r).toEqual({
+      ok: true,
+      outcome: 'unchanged',
+      prUrl: 'https://github.com/acme/hivemind/pull/5'
+    })
+    const flat = calls.map((c) => c.join(' '))
+    expect(
+      flat.some((c) => c.startsWith('worktree add -B argus/init-hivemind-1699999999999'))
+    ).toBe(true)
+    expect(flat.some((c) => c.startsWith('gh pr create'))).toBe(false)
+    expect(calls.some((c) => c[0] === 'commit')).toBe(false)
+  })
+
+  it('pushes a new commit onto an already-open init PR when something is newly missing', async () => {
+    seedCloneShell()
+    const statePath = path.join(home, 'config', 'hivemind-state.json')
+    fs.mkdirSync(path.dirname(statePath), { recursive: true })
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({
+        lastSynced: null,
+        skills: {},
+        references: {},
+        pushes: {
+          'init/hivemind': {
+            prUrl: 'https://github.com/acme/hivemind/pull/5',
+            pushedAt: '2026-09-01T00:00:00.000Z',
+            repo: 'acme/hivemind'
+          }
+        }
+      })
+    )
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return 'headsha'
+      // the reused branch only has the README so far, from an earlier partial init run
+      if (args[0] === 'worktree' && args[1] === 'add') {
+        const tree = args[4]
+        fs.mkdirSync(tree, { recursive: true })
+        fs.writeFileSync(path.join(tree, 'README.md'), '# Argus HiveMind\n')
+      }
+      return ''
+    }
+    const gh: Runner = async (_c, args) => {
+      calls.push(['gh', ...args])
+      if (args[0] === 'pr' && args[1] === 'view')
+        return JSON.stringify({ state: 'OPEN', headRefName: 'argus/init-hivemind-1699999999999' })
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.init()
+    expect(r).toEqual({
+      ok: true,
+      outcome: 'updated',
+      prUrl: 'https://github.com/acme/hivemind/pull/5'
+    })
+    const flat = calls.map((c) => c.join(' '))
+    expect(flat).toContain('add -A')
+    expect(flat.some((c) => c.startsWith('commit -m Set up HiveMind directory structure'))).toBe(
+      true
+    )
+    expect(flat).toContain('push origin argus/init-hivemind-1699999999999')
+    expect(flat.some((c) => c.startsWith('gh pr create'))).toBe(false)
+  })
+
+  it('refuses when a teammate already has an open init PR, and creates no worktree', async () => {
+    seedCloneShell()
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return 'headsha'
+      return ''
+    }
+    const gh: Runner = async (_c, args) => {
+      calls.push(['gh', ...args])
+      if (args[0] === 'pr' && args[1] === 'list')
+        return JSON.stringify([
+          {
+            url: 'https://github.com/acme/hivemind/pull/6',
+            headRefName: 'argus/init-hivemind-1700000000000',
+            author: { login: 'alice' }
+          }
+        ])
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.init()
+    expect(r).toEqual({
+      ok: false,
+      error: 'alice already has an open pull request setting up the HiveMind layout.',
+      blockedByPrUrl: 'https://github.com/acme/hivemind/pull/6'
+    })
+    expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'add')).toBe(false)
+  })
+
+  it('init failures on the seeded-but-empty path surface as { ok: false } and still remove the worktree', async () => {
+    seedCloneShell()
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return 'headsha'
+      if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      if (args[0] === 'push') throw new Error('remote rejected (non-fast-forward)')
+      return ''
+    }
+    const gh: Runner = async (_c, args) => {
+      if (args[0] === 'pr' && args[1] === 'list') return '[]'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.init()
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/remote rejected/)
+    expect(calls[calls.length - 1].slice(0, 3)).toEqual(['worktree', 'remove', '--force'])
   })
 })
