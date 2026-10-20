@@ -7,6 +7,8 @@ import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { argusToolHandlers, type NativeToolDeps } from '../nativeTools'
 import { listFindings } from '../../findings'
+import { writeAttributions } from '../../distill/attributions'
+import type { AttributionRow } from '../../../../shared/attribution'
 import type { Detection } from '../../packs/detection'
 
 let home: string
@@ -26,7 +28,8 @@ function sessionFor(cid: number, mode: 'investigation' | 'review'): number {
 function handlersFor(
   sessionId: number,
   slug = 'CASE-A',
-  cid = caseId
+  cid = caseId,
+  extra: Partial<NativeToolDeps> = {}
 ): Record<string, (args: Record<string, unknown>) => Promise<string>> {
   const deps: NativeToolDeps = {
     db,
@@ -37,7 +40,8 @@ function handlersFor(
     sessionId,
     emitFinding: () => {},
     emitFindingUpdated,
-    githubWatermark: () => ({ enabled: false, text: '' })
+    githubWatermark: () => ({ enabled: false, text: '' }),
+    ...extra
   }
   return argusToolHandlers(deps)
 }
@@ -163,4 +167,47 @@ it('retract_finding cannot reach an investigation finding from a review session'
     /^Unknown finding id\.$/
   )
   expect(listFindings(db, home, 'CASE-A').find((f) => f.id === id)?.reviewState).toBe('pending')
+})
+
+it('retract_finding hands an implicit attribution override to deps.emitAttributions', async () => {
+  const s = sessionFor(caseId, 'investigation')
+  const emitAttributions = vi.fn<(rows: AttributionRow[]) => void>()
+  const h = handlersFor(s, 'CASE-A', caseId, { emitAttributions })
+  await h.append_finding({ title: 'Stale threshold', markdown: 'see [src/a.ts:1]' })
+  const id = (
+    db.prepare(`SELECT id FROM findings ORDER BY id DESC LIMIT 1`).get() as { id: number }
+  ).id
+  const jobId = Number(
+    db
+      .prepare(
+        `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at) VALUES ('CASE-A', 'done', '{}', 'x')`
+      )
+      .run().lastInsertRowid
+  )
+  writeAttributions(db, {
+    caseSlug: 'CASE-A',
+    jobId,
+    verdicts: [
+      {
+        kind: 'reference',
+        name: 'nav/limits.md',
+        applied: true,
+        verdict: 'neutral',
+        reason: '',
+        cites: []
+      }
+    ],
+    tiers: new Map(),
+    caseOutcome: 'open',
+    caseDomain: 'unassigned',
+    judgeModel: 'm',
+    promptHash: 'h'
+  })
+  await h.retract_finding({ finding_id: id, reason: 'ref:nav/limits.md gave a stale threshold' })
+  expect(emitAttributions).toHaveBeenCalledTimes(1)
+  expect(emitAttributions.mock.calls[0][0]).toHaveLength(1)
+  expect(emitAttributions.mock.calls[0][0][0]).toMatchObject({
+    assetName: 'nav/limits.md',
+    overrideSource: 'finding-retraction'
+  })
 })

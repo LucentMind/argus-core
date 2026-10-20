@@ -82,7 +82,8 @@ export function createLangfuseTracing(cfg: {
         traceId: o.traceId,
         name: o.name,
         value: o.value,
-        ...(o.comment != null ? { comment: o.comment } : {})
+        ...(o.comment != null ? { comment: o.comment } : {}),
+        ...(o.metadata != null ? { metadata: o.metadata } : {})
       })
     },
 
