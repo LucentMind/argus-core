@@ -4,15 +4,16 @@ import type { TranscriptItem } from '../lib/agentStore'
 
 /**
  * Item-granularity find overlay: matches are whole transcript items (user /
- * assistant text, case-insensitive substring), tool cards excluded. No
- * intra-markdown highlighting — ChatPane rings the matching/current items
- * instead (react-markdown re-processing is out of scope here).
+ * assistant text, case-insensitive substring), tool cards excluded. ChatPane
+ * rings the matching/current items and paints the hit text inside them
+ * (lib/findHighlight.ts) — the ring alone is not enough on a long bubble.
  */
 export function ChatFind({
   items,
   onNavigate,
   onClose,
-  onMatchesChange
+  onMatchesChange,
+  onQueryChange
 }: {
   items: TranscriptItem[]
   onNavigate: (itemIndex: number) => void
@@ -21,6 +22,8 @@ export function ChatFind({
   // the current one (strong ring) — ChatFind stays the source of truth for
   // "what matches" since it owns the query
   onMatchesChange?: (matchItemIndexes: number[]) => void
+  // lets ChatPane paint the query text itself inside the matching items
+  onQueryChange?: (query: string) => void
 }): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [current, setCurrent] = useState(0)
@@ -58,6 +61,11 @@ export function ChatFind({
     onMatchesChange?.(matchIdx)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchIdx])
+
+  useEffect(() => {
+    onQueryChange?.(query)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query])
 
   function step(delta: number): void {
     if (matchIdx.length === 0) return

@@ -18,6 +18,7 @@ import { Composer } from './Composer'
 import { ApprovalCard } from './ApprovalCard'
 import { QuestionCard } from './QuestionCard'
 import { ChatFind } from './ChatFind'
+import { clearFindHighlights, findTextRanges, paintFindHighlights } from '../lib/findHighlight'
 import { ThinkingIndicator } from './ThinkingIndicator'
 
 // The FTS snippet is a contiguous region of the indexed text with matched
@@ -228,10 +229,42 @@ export function ChatPane({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onFindOpenChange])
 
+  const [findQuery, setFindQuery] = useState('')
+  const lastFindScroll = useRef('')
+
+  // Paint the query text inside the matching items. The ring alone only locates a bubble,
+  // which is no help inside a long one. Re-runs as items change so streaming text and
+  // late-rendering markdown stay highlighted; the scroll-to-hit only fires when the
+  // current match or query changes, never on a re-render.
+  useEffect(() => {
+    if (!findOpen || !findQuery.trim() || findMatches.length === 0) {
+      clearFindHighlights()
+      lastFindScroll.current = ''
+      return
+    }
+    const all: Range[] = []
+    const current: Range[] = []
+    for (const i of findMatches) {
+      const el = paneRef.current?.querySelector(`[data-item-index="${i}"]`)
+      if (!el) continue
+      const ranges = findTextRanges(el, findQuery)
+      all.push(...ranges)
+      if (i === currentFindIndex) current.push(...ranges)
+    }
+    paintFindHighlights(all, current)
+    const key = `${currentFindIndex}|${findQuery}`
+    if (key !== lastFindScroll.current && current.length > 0) {
+      lastFindScroll.current = key
+      current[0].startContainer.parentElement?.scrollIntoView?.({ block: 'center' })
+    }
+    return clearFindHighlights
+  }, [findOpen, findQuery, findMatches, currentFindIndex, state.items])
+
   function closeFind(): void {
     onFindOpenChange(false)
     setFindMatches([])
     setCurrentFindIndex(null)
+    setFindQuery('')
     paneRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus()
   }
 
@@ -366,6 +399,7 @@ export function ChatPane({
           onNavigate={navigateFind}
           onClose={closeFind}
           onMatchesChange={setFindMatches}
+          onQueryChange={setFindQuery}
         />
       )}
       {session?.historyOrphaned && historyNoticeDismissed !== sessionId && (

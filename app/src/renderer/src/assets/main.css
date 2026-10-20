@@ -325,6 +325,17 @@ body {
   color: var(--ink);
 }
 
+/* Chat find: hit text inside matching bubbles (CSS Custom Highlight API, see lib/findHighlight.ts).
+   The current item's hits are stronger so they stand out from the rest of the matches. */
+::highlight(find-hit) {
+  background-color: color-mix(in srgb, var(--signal) 28%, transparent);
+  color: inherit;
+}
+::highlight(find-current) {
+  background-color: color-mix(in srgb, var(--signal) 60%, transparent);
+  color: var(--ink);
+}
+
 /* Mermaid lightbox: the diagram scales up to fill the dialog. !important is required —
    mermaid stamps an inline max-width on its root <svg>, which would otherwise clamp the
    enlarged view to the thumbnail's natural size. */
