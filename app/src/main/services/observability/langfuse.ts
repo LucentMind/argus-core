@@ -1,5 +1,6 @@
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { FindingRow } from '../../../shared/observability'
+import type { AssetAttributionEvent } from '../../../shared/attribution'
 import { seedFor } from './intent'
 import type { ObservationIntent } from './intent'
 import { initialState, reduce, type ExporterState } from './reducer'
@@ -53,6 +54,37 @@ export class LangfuseExporter {
         value: row.reviewState === 'accepted' ? 1 : 0
       }
     ])
+  }
+
+  /**
+   * One `asset.contribution` score per judged event. Silent events (null score) are not
+   * scored; the OTel-GenAI-shaped attribute bag rides along as score metadata, minus the
+   * three keys the score itself already carries (name / value / label).
+   */
+  scoreAttributions(sessionId: number, events: AssetAttributionEvent[]): void {
+    const intents: ObservationIntent[] = []
+    for (const e of events) {
+      const value = e['gen_ai.evaluation.score.value']
+      if (value === null) continue
+      const {
+        'gen_ai.evaluation.name': _name,
+        'gen_ai.evaluation.score.value': _value,
+        'gen_ai.evaluation.score.label': _label,
+        ...metadata
+      } = e
+      void _name
+      void _value
+      void _label
+      intents.push({
+        kind: 'score',
+        seed: seedFor(sessionId),
+        name: 'asset.contribution',
+        value,
+        comment: e['gen_ai.evaluation.explanation'],
+        metadata
+      })
+    }
+    if (intents.length > 0) this.push(intents)
   }
 
   private push(intents: ObservationIntent[]): void {
