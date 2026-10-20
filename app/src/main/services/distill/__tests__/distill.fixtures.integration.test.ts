@@ -186,7 +186,7 @@ describe.each(listFixtures().map((fx) => [fx.slug, fx] as const))('fixture %s', 
         .all(caseId) as unknown as OverrideAtRow[]
 
     if (scenario === 'retract') {
-      // Idempotence: a second identical retraction changes nothing and rewrites no override.
+      // Idempotence: a second identical retraction rewrites no override (override_at is unchanged).
       expect(retracts.length, 'a retract fixture retracts a finding').toBeGreaterThan(0)
       const before = overrideAts()
       expect(
@@ -196,7 +196,8 @@ describe.each(listFixtures().map((fx) => [fx.slug, fx] as const))('fixture %s', 
       for (const { id, reason } of retracts) {
         const again = retractFinding(db, id, reason)
         expect(again.ok).toBe(true)
-        expect(again.ok && again.changed).toBe(false)
+        // findings.ts retractFinding: an agent's own retraction is overwritten (only a human reject is left alone).
+        expect(again.ok && again.changed).toBe(true)
       }
       expect(overrideAts()).toEqual(before)
     }

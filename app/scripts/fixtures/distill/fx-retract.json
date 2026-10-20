@@ -1,0 +1,145 @@
+{
+  "slug": "fx-retract",
+  "title": "API requests time out under load (fixture: retract)",
+  "jiraKey": "FXR-1",
+  "scenario": "retract: the judge credits the skill as helped, then the agent retracts its pending hypothesis with a reason naming skill:fx-retract-skill; the retraction is an implicit override to misled (source finding-retraction) on the latest job's row, and a second identical retraction rewrites no override",
+  "settings": {
+    "pipeline": "v3"
+  },
+  "assets": {
+    "skills": [
+      {
+        "name": "fx-retract-skill",
+        "description": "Use when API requests time out under load; checks the load balancer idle timeout first.",
+        "body": "# Diagnose API timeouts under load\n\n## Steps\n1. Compare the load balancer idle timeout with the slowest upstream response time.\n2. A request outliving the idle timeout is cut by the load balancer with a 504.\n"
+      }
+    ],
+    "references": [],
+    "memories": []
+  },
+  "sessions": [
+    {
+      "title": "Timeout triage",
+      "messages": [
+        {
+          "role": "user",
+          "content": "API requests start timing out once traffic passes about 400 requests per second. Find out why."
+        },
+        {
+          "role": "assistant",
+          "content": "I loaded the fx-retract-skill skill and followed its first step, the load balancer idle timeout. Hypothesis: the idle timeout is 30 seconds and slow upstream responses under load outlive it, so the load balancer cuts them with a 504. Recording it as a pending hypothesis until the bench confirms."
+        }
+      ]
+    },
+    {
+      "title": "Bench confirmation",
+      "messages": [
+        {
+          "role": "user",
+          "content": "The bench shows no 504s from the load balancer at all. The requests wait for a database connection: the pool is capped at 20 and every connection is busy past 400 requests per second."
+        },
+        {
+          "role": "assistant",
+          "content": "Confirmed. Root cause: the database connection pool is capped at 20 connections; past about 400 requests per second every connection is busy and requests wait until the client timeout fires. The load balancer was never involved, so I am retracting the idle-timeout hypothesis."
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "summary": "The database connection pool is capped at 20 connections; past about 400 requests per second requests wait for a connection until the client timeout fires.",
+      "reviewState": "accepted",
+      "role": "root-cause",
+      "session": 1
+    },
+    {
+      "summary": "The load balancer idle timeout (30s) cuts slow upstream responses under load with a 504 (hypothesis).",
+      "reviewState": "pending",
+      "role": null,
+      "session": 0
+    }
+  ],
+  "toolCalls": [
+    {
+      "session": 0,
+      "turn": 2,
+      "tool": "Skill",
+      "detail": "fx-retract-skill"
+    }
+  ],
+  "close": {
+    "resolution": "solved",
+    "distill": true,
+    "attribution": true
+  },
+  "stages": {
+    "dossier": {
+      "text": "```json\n{\"scope\":{\"status\":\"closed\",\"resolution\":\"solved\",\"settled\":true,\"note\":\"The bench confirmed connection-pool exhaustion in the second session.\"},\"root_cause\":{\"text\":\"The database connection pool is capped at 20 connections; past about 400 requests per second every connection is busy and requests wait until the client timeout fires.\",\"cites\":[{\"finding\":\"{{finding:0}}\"}]},\"confirmed_fix\":null,\"rejected_hypotheses\":[{\"text\":\"The load balancer idle timeout cuts slow upstream responses with a 504\",\"how_ruled_out\":\"The bench showed no 504s from the load balancer\",\"cites\":[{\"session\":\"{{session:1}}\",\"turn\":0}]}],\"diagnostic_path\":[{\"step\":\"Checked where the timed-out requests were waiting\",\"observation\":\"Every pooled database connection was busy past 400 requests per second\",\"discriminated\":\"Connection-pool exhaustion, not a load balancer cut\",\"cites\":[{\"session\":\"{{session:1}}\",\"turn\":1}]}],\"durable_facts\":[],\"user_corrections\":[]}\n```"
+    },
+    "summary": {
+      "text": "```json\n{\"summary\":{\"signature\":\"API requests time out under load because the database connection pool is exhausted\",\"symptoms\":\"Requests time out once traffic passes about 400 requests per second.\",\"rootCause\":\"The connection pool is capped at 20 connections and every connection is busy under load.\",\"fix\":\"Raise the pool cap or shed load before the pool saturates.\",\"keywords\":[\"timeout\",\"connection pool\",\"database\",\"load\"]}}\n```"
+    },
+    "candidates": {
+      "text": "```json\n{\"candidates\":[]}\n```"
+    },
+    "attribution": {
+      "text": "```json\n{\"verdicts\":[{\"kind\":\"skill\",\"name\":\"fx-retract-skill\",\"applied\":true,\"verdict\":\"helped\",\"reason\":\"It started the timeout investigation that ended in the recorded root cause.\",\"cites\":[{\"finding\":\"{{finding:0}}\"}]}]}\n```"
+    }
+  },
+  "actions": [
+    {
+      "type": "retract-finding",
+      "finding": 1,
+      "reason": "skill:fx-retract-skill pointed at the wrong layer"
+    }
+  ],
+  "expected": {
+    "jobs": [
+      {
+        "kind": "case",
+        "state": "done",
+        "pipeline": "v3",
+        "stages": [
+          "dossier",
+          "summary",
+          "candidates",
+          "attribution"
+        ],
+        "attributionSkipped": null,
+        "attributionError": false,
+        "costUsd": 0.53
+      }
+    ],
+    "attributions": [
+      {
+        "kind": "skill",
+        "name": "fx-retract-skill",
+        "applied": 1,
+        "verdict": "helped",
+        "override": {
+          "verdict": "misled",
+          "source": "finding-retraction"
+        },
+        "domain": "FXR",
+        "outcome": "solved"
+      }
+    ],
+    "fakeCalls": {
+      "dossier": 1,
+      "attribution": 1,
+      "materialize": 0
+    },
+    "ui": {
+      "libraryChip": {
+        "asset": "fx-retract-skill",
+        "text": "helped 0 · misled 1"
+      },
+      "observabilityLists": [
+        "fx-retract-skill"
+      ],
+      "observabilityOmits": [],
+      "runsRailLabel": null,
+      "runDetailSkipped": null
+    }
+  }
+}
