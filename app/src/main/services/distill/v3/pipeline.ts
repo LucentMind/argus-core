@@ -46,7 +46,10 @@ export interface PipelineRunners {
 
 export const MATERIALIZE_CONCURRENCY = 3
 
-const addUsage = (a: StageUsage | undefined, b: StageUsage | undefined): StageUsage | undefined => {
+export const addUsage = (
+  a: StageUsage | undefined,
+  b: StageUsage | undefined
+): StageUsage | undefined => {
   if (!a) return b
   if (!b) return a
   const sum = (x?: number, y?: number): number | undefined =>
@@ -61,7 +64,7 @@ const addUsage = (a: StageUsage | undefined, b: StageUsage | undefined): StageUs
 
 /** `StageUsage.durationMs` is optional, `HeadlessUsage.durationMs` is not — the aggregate always
  *  carries one when any stage reported one, and 0 is the honest value when none did. */
-const asHeadlessUsage = (u: StageUsage | undefined): HeadlessUsage | undefined =>
+export const asHeadlessUsage = (u: StageUsage | undefined): HeadlessUsage | undefined =>
   u ? { ...u, durationMs: u.durationMs ?? 0 } : undefined
 
 async function mapLimit<T, R>(

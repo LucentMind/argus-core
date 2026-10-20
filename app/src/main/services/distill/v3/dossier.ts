@@ -30,6 +30,20 @@ RULES:
 8. TOOLS: list_sessions / read_transcript / search_transcript read this case's conversation (snapshot at enqueue); run_tool_script sweeps across sessions. Do not re-read what the input already contains; read slices when a finding or user message references work you must see. Work in as many turns as you need.
 9. OUTPUT: your FINAL assistant message contains exactly one fenced \`\`\`json block with one object having exactly these keys, with exactly these item keys: scope {status, resolution, settled, note}, root_cause {text, cites}, confirmed_fix {text, applied, cites}, rejected_hypotheses[] {text, how_ruled_out, cites}, diagnostic_path[] {step, observation, discriminated, cites}, durable_facts[] {fact, quote, scope, cites}, user_corrections[] {text, cites}. An item key you rename or invent is silently discarded, so use these names verbatim. No other keys, no commentary inside the block. Intermediate turns are working turns and are not parsed.`
 
+/** Escape-hatch contract (spec §4.5): the dossier the attribution stage needs — diagnostic path,
+ *  root cause, confirmed fix, user corrections — without the knowledge-candidate groundwork.
+ *  Output shape is IDENTICAL to DOSSIER_CONTRACT (parseDossier is shared); rejected_hypotheses
+ *  and durable_facts are required keys that must be returned as []. Derived by replacement so a
+ *  later edit to the full contract's shared rules reaches this one too; the dossier.test.ts
+ *  assertions fail if either anchor below stops matching. */
+export const DOSSIER_LITE_CONTRACT = DOSSIER_CONTRACT.replace(
+  /5\. DURABLE FACTS:[^\n]*\n/,
+  '5. DURABLE FACTS: not needed for this pass — return "durable_facts": [] and "rejected_hypotheses": [].\n'
+).replace(
+  'Later, separate passes will decide what (if anything) in this dossier is durable knowledge',
+  'A later pass will judge which skills, references and memories helped — record the diagnostic path, root cause, confirmed fix and user corrections only'
+)
+
 export const DOSSIER_SECTIONS: PromptTextSpecs = {
   case: { title: 'Dossier section — case metadata', text: '# Case' },
   findings: { title: 'Dossier section — findings', text: '# Findings (id · review state · role)' },

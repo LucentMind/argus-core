@@ -20,6 +20,12 @@ import {
   rebuildRejectDigest
 } from './rejectDigest'
 import type { listArchivedProposals } from '../proposals'
+import type { CloseOptions } from '../caseService'
+import type { PipelineStages } from '../../../shared/distillV3'
+import type { AttributionOutput, AttributionRow } from '../../../shared/attribution'
+import { UNASSIGNED_DOMAIN } from '../../../shared/caseDomain'
+import type { AttributionOnlyRun } from './v3/attributionOnly'
+import { writeAttributions } from './attributions'
 
 /** Cap on the `trajectory_json` column, in JSON-serialized characters. A run that hits its
  *  iteration/timeout budget can accumulate a long trajectory; keeping the FIRST entries (not
@@ -45,8 +51,12 @@ function trajectoryJson(trajectory: TrajectoryEntry[] | undefined): string | nul
 export interface DistillQueueDeps {
   db: DatabaseSync
   /** Throws → caller sees the throw; nothing is enqueued (guarded by callers). `opts` carries
-   *  the dry-run input switches; omitted for a normal run. */
-  assembleInput: (slug: string, opts?: { ignorePriorProposals?: boolean }) => CaseDistillInput
+   *  the dry-run input switches and the per-job attribution choice (recorded in the snapshot as
+   *  `options.attribution`). */
+  assembleInput: (
+    slug: string,
+    opts?: { ignorePriorProposals?: boolean; attribution?: boolean }
+  ) => CaseDistillInput
   distill: (
     input: CaseDistillInput,
     signal: AbortSignal,
@@ -73,6 +83,38 @@ export interface DistillQueueDeps {
   /** 'v2' | 'v3' as the runner dep resolves it, read per call — stamped on the row at run start.
    *  Absent in tests that do not care; the column then stays NULL. */
   pipelineId?: () => 'v2' | 'v3'
+  /** The `kind='attribution'` escape-hatch runner (lite dossier + attribution stage only).
+   *  Absent in tests that never run one; an attribution job then fails with a clear error. */
+  attributeOnly?: (
+    input: CaseDistillInput,
+    signal: AbortSignal,
+    onProgress: (u: DistillProgressUpdate) => void
+  ) => Promise<AttributionOnlyRun>
+  /** Model stamped on every verdict row, read per write (the distill provider can change). */
+  judgeModel?: () => string
+  /** Fired after verdict rows land. Advisory: a throw is logged and swallowed. */
+  onAttributions?: (rows: AttributionRow[]) => void
+}
+
+/**
+ * Case-close routing for the two close-dialog checkboxes (spec §4.5 trigger a). Pure so the
+ * four-row table is unit-testable without booting main:
+ *   distill  attribution → effect
+ *   true     true        → full case job, attribution stage on
+ *   true     false       → full case job, attribution stage declined (recorded in the snapshot)
+ *   false    true        → attribution-only job
+ *   false    false       → nothing
+ */
+export function routeCaseClose(
+  opts: CloseOptions,
+  q: {
+    enqueueCase: (slug: string, o: { attribution: boolean }) => void
+    enqueueAttribution: (slug: string) => void
+  },
+  slug: string
+): void {
+  if (opts.distill) q.enqueueCase(slug, { attribution: opts.attribution })
+  else if (opts.attribution) q.enqueueAttribution(slug)
 }
 
 export interface JobDbRow {
@@ -228,8 +270,8 @@ export class DistillQueue {
    * other queued/running row for the slug, not just the newest one `statusFor` would see (see the
    * F4 regression test).
    */
-  enqueue(slug: string): DistillJobRow {
-    const snapshot = JSON.stringify(this.deps.assembleInput(slug))
+  enqueue(slug: string, opts: { attribution?: boolean } = {}): DistillJobRow {
+    const snapshot = JSON.stringify(this.deps.assembleInput(slug, opts))
     // Pre-check AFTER the snapshot succeeds, BEFORE the case row's own INSERT: a digest job, if
     // inserted, must land with a LOWER id than the case row below so the FIFO loop (ORDER BY id
     // ASC) runs it first — the case job's own run-start merge (see runJob) picks up whatever the
@@ -296,6 +338,44 @@ export class DistillQueue {
   }
 
   /**
+   * A `kind='attribution'` job (spec §4.5): lite dossier + the attribution stage only, for a case
+   * whose close skipped distillation, or whose case job could not produce verdicts (see
+   * `maybeEscapeHatch`). Snapshots with attribution forced on.
+   *
+   * Refuses while an attribution job for the slug is queued/running — a second trigger for the
+   * same case is redundant, not queued behind. It deliberately does NOT cancel anything else in
+   * flight: a case job running for the slug is the user's distillation and outranks this. The
+   * reverse does hold — `enqueue` (a redistill) cancels a queued/running attribution job through
+   * `cancelOtherInFlight`, whose WHERE is kind-blind; the fresh case job runs the stage itself.
+   *
+   * No `emit()`: attribution rows never drive the case chip (emit() skips every non-case kind).
+   */
+  enqueueAttribution(slug: string): DistillJobRow {
+    const inFlight = this.deps.db
+      .prepare(
+        `SELECT id FROM distill_jobs WHERE case_slug=? AND kind='attribution' AND state IN ('queued','running')`
+      )
+      .get(slug) as { id: number } | undefined
+    if (inFlight)
+      throw new Error(
+        `attribution job for case ${slug} refused: already queued/running (${inFlight.id})`
+      )
+    const snapshot = JSON.stringify(this.deps.assembleInput(slug, { attribution: true }))
+    // prompt_hash stays NULL: `deps.promptHash` is the CASE pipeline's hash, which does not
+    // describe this run's prompts (lite dossier contract, no summary/candidates/materialize).
+    // The per-stage hashes this run actually used land in `stages_json`.
+    const res = this.deps.db
+      .prepare(
+        `INSERT INTO distill_jobs (case_slug, state, input_snapshot, prompt_hash, created_at, kind)
+         VALUES (?, 'queued', ?, NULL, ?, 'attribution')`
+      )
+      .run(slug, snapshot, new Date().toISOString())
+    const job = this.get(Number(res.lastInsertRowid))!
+    this.kick()
+    return job
+  }
+
+  /**
    * Inserts a `kind='reject-digest'` row when the digest is stale AND none is already
    * queued/running — the second check keeps a burst of case enqueues (e.g. several cases closed
    * in quick succession, all seeing the same stale digest before the first rebuild lands) from
@@ -347,8 +427,10 @@ export class DistillQueue {
     // button only ever reads/writes case_slug rows), and a stale digest already self-heals — the
     // next case enqueue's `maybeEnqueueDigest` pre-check sees the same stale reject_count and
     // queues a fresh rebuild on its own. Refusing here keeps `retry`'s in-flight guard below
-    // (keyed on case_slug) from ever having to reason about the shared sentinel slug.
-    if (raw.kind !== 'case')
+    // (keyed on case_slug) from ever having to reason about the shared sentinel slug. Attribution
+    // jobs ARE retryable (the dev runs browser lists them): they are keyed on a real case slug,
+    // and the in-flight guard below applies to them unchanged.
+    if (raw.kind !== 'case' && raw.kind !== 'attribution')
       throw new Error(`distill job ${jobId} has kind='${raw.kind}', not retryable`)
     const job = this.get(jobId)!
     const inFlight = this.deps.db
@@ -374,7 +456,8 @@ export class DistillQueue {
          prompt_chars=NULL, turn_count=NULL, tool_call_count=NULL, trajectory_json=NULL,
          dropped_json=NULL, stages_json=NULL, pipeline=NULL, prompt_hash=? WHERE id=?`
       )
-      .run(this.deps.promptHash?.() ?? null, jobId)
+      // An attribution row keeps a NULL hash — see enqueueAttribution.
+      .run(raw.kind === 'case' ? (this.deps.promptHash?.() ?? null) : null, jobId)
     const fresh = this.get(jobId)!
     this.emit(this.getRaw(jobId)!)
     this.kick()
@@ -462,8 +545,9 @@ export class DistillQueue {
   }
 
   /**
-   * Every CASE job across every case, newest first — the dev runs browser's rail. Dry rows are
-   * first-class (as in `listRuns`); digest rows are not case history. Never selects
+   * Every CASE and ATTRIBUTION job across every case, newest first — the dev runs browser's rail.
+   * Dry rows are first-class (as in `listRuns`); attribution rows carry `kind` so the rail can
+   * tell them apart; digest rows are not case history. Never selects
    * `input_snapshot`, `raw_output` or the `*_json` columns: a row here is a label, and the
    * snapshot alone can be megabytes. LEFT JOIN so a deleted case's runs still list.
    */
@@ -472,11 +556,12 @@ export class DistillQueue {
       .prepare(
         `SELECT j.id, j.case_slug, j.state, j.error, j.item_count, j.created_at, j.finished_at,
                 j.cost_usd, j.turn_count, j.tool_call_count, j.prompt_chars, j.dry_run, j.pipeline,
-                (j.stages_json IS NOT NULL) AS has_stages, c.title AS case_title, c.jira_key
+                j.kind, (j.stages_json IS NOT NULL) AS has_stages, c.title AS case_title, c.jira_key
          FROM distill_jobs j LEFT JOIN cases c ON c.slug = j.case_slug
-         WHERE j.kind = 'case' ORDER BY j.id DESC LIMIT ?`
+         WHERE j.kind IN ('case','attribution') ORDER BY j.id DESC LIMIT ?`
       )
       .all(limit) as unknown as (JobRowCore & {
+      kind: string
       pipeline: string | null
       has_stages: number
       case_title: string | null
@@ -486,6 +571,7 @@ export class DistillQueue {
       const progress = this.progress.get(r.id)
       return {
         ...toRow(r),
+        kind: r.kind as DistillRunListRow['kind'],
         caseTitle: r.case_title ?? r.case_slug,
         jiraKey: r.jira_key,
         pipeline: pipelineOf({
@@ -583,6 +669,65 @@ export class DistillQueue {
     }
   }
 
+  /**
+   * Writes one job's verdict rows (idempotent per job — a retry replaces them) and fires
+   * `onAttributions`. Throws on a write failure; callers decide whether that is fatal. Must run
+   * outside any transaction: `writeAttributions` opens its own BEGIN/COMMIT. Never called for a
+   * dry run — a comparison run writes nothing outside its own job row.
+   */
+  private persistAttribution(
+    r: JobDbRow,
+    input: CaseDistillInput,
+    attribution: AttributionOutput | undefined,
+    stages: PipelineStages | undefined
+  ): void {
+    if (!attribution || r.dry_run === 1) return
+    const tiers = new Map((input.assets ?? []).map((a) => [`${a.kind}/${a.name}`, a.tier]))
+    const rows = writeAttributions(this.deps.db, {
+      caseSlug: r.case_slug,
+      jobId: r.id,
+      verdicts: attribution.verdicts,
+      tiers,
+      caseOutcome: input.caseOutcome ?? 'open',
+      caseDomain: input.caseDomain ?? UNASSIGNED_DOMAIN,
+      judgeModel: this.deps.judgeModel?.() ?? 'unknown',
+      promptHash: stages?.attribution?.promptHash ?? ''
+    })
+    try {
+      this.deps.onAttributions?.(rows)
+    } catch (err) {
+      console.error('[attribution] emit failed', err)
+    }
+  }
+
+  /**
+   * Spec §4.5 triggers b–d: queue an attribution-only job when a real case job ends without
+   * verdicts it could have had — it failed (`failed=true`), its attribution stage errored, or it
+   * was a v2 run (no `stages`, so no attribution stage at all). Never for a declined job, an
+   * empty inventory (nothing to grade is not a failure), a dry run, or any non-case kind — the
+   * last is what keeps a failing attribution job from queuing another. Never throws: it runs
+   * after `finish()` and must not turn a recorded outcome into a different one. The dedup
+   * refusal from `enqueueAttribution` (one already in flight) is expected and swallowed.
+   */
+  private maybeEscapeHatch(
+    r: JobDbRow,
+    input: CaseDistillInput,
+    stages: PipelineStages | undefined,
+    failed: boolean
+  ): void {
+    try {
+      if (r.kind !== 'case' || r.dry_run === 1) return
+      if (input.options?.attribution === false) return
+      if ((input.assets ?? []).length === 0 || stages?.attributionSkipped === 'no-assets') return
+      if (!failed && stages?.attribution !== undefined && stages.attribution.error === undefined)
+        return
+      this.enqueueAttribution(r.case_slug)
+    } catch (err) {
+      if (!(err instanceof Error && /already queued\/running/.test(err.message)))
+        console.error('[attribution] escape-hatch enqueue failed', err)
+    }
+  }
+
   private kick(): void {
     if (this.running) return
     this.running = true
@@ -627,6 +772,8 @@ export class DistillQueue {
       ).run(new Date().toISOString(), r.id)
       this.emit(this.getRaw(r.id)!)
     }
+    // Hoisted for the catch's escape-hatch check; set only for a case job, once parsed.
+    let caseInput: CaseDistillInput | undefined
     try {
       // Prologue (controller registration + the running-state write) now lives inside this try:
       // if the UPDATE throws (locked/corrupt DB), execution falls into the catch below instead
@@ -664,12 +811,50 @@ export class DistillQueue {
         finish(`state='done', item_count=?`, 0)
         return
       }
+      // Attribution-only rows (the escape hatch): lite dossier + attribution stage, no staging,
+      // no proposals. A runner failure falls through to the generic catch — a
+      // DistillAgentRunError keeps its stages/usage on the row — and lands `failed` with no
+      // automatic retry; `maybeEscapeHatch` ignores this kind, so a failing attribution job can
+      // never queue another one.
+      if (r.kind === 'attribution') {
+        if (!this.deps.attributeOnly) throw new Error('attribution runner not configured')
+        const input = JSON.parse(r.input_snapshot) as CaseDistillInput
+        const run = await this.deps.attributeOnly(input, ac.signal, (u) => this.setProgress(r, u))
+        if (ac.signal.aborted) {
+          finishCancelled()
+          return
+        }
+        // Writing rows is this job's whole purpose, so a write failure fails the job — but the
+        // row still records what the run cost and produced (stages_json), via the same finish().
+        let persistError: string | null = null
+        try {
+          this.persistAttribution(r, input, run.attribution, run.stages)
+        } catch (err) {
+          persistError = `attribution rows not written: ${err instanceof Error ? err.message : String(err)}`
+        }
+        finish(
+          `state=?, error=?, item_count=0, input_tokens=?, output_tokens=?, cost_usd=?, duration_ms=?, prompt_chars=?, turn_count=?, tool_call_count=?, trajectory_json=?, stages_json=?`,
+          persistError ? 'failed' : 'done',
+          persistError,
+          run.usage?.inputTokens ?? null,
+          run.usage?.outputTokens ?? null,
+          run.usage?.costUsd ?? null,
+          run.usage?.durationMs ?? null,
+          run.promptChars,
+          run.turnCount,
+          run.toolCallCount,
+          trajectoryJson(run.trajectory),
+          JSON.stringify(run.stages)
+        )
+        return
+      }
       if (r.kind !== 'case') {
         throw new Error(
           `distill job ${r.id} has kind='${r.kind}', not runnable by the case distiller (yet)`
         )
       }
       const input = JSON.parse(r.input_snapshot) as CaseDistillInput
+      caseInput = input
       // Run-start merge (Task 13): read whatever the digest currently says — NOT whatever it
       // said at enqueue time, since a digest job queued ahead of this one (or one that landed
       // later, e.g. another case's close raced this one) may have rewritten the file since this
@@ -716,6 +901,15 @@ export class DistillQueue {
       }
       this.setProgress(r, { phase: 'staging' })
       const res = this.deps.stage(r.case_slug, r.id, run.output)
+      // Verdict rows land BEFORE finish() so they exist by the time the done broadcast does.
+      // A write failure is logged, never fatal: the proposals above are already staged, and an
+      // emission failure must not turn a good distillation red (global constraint). No hatch
+      // either — a re-run would hit the same write.
+      try {
+        this.persistAttribution(r, input, run.attribution, run.stages)
+      } catch (err) {
+        console.error('[attribution] verdict rows not written', err)
+      }
       finish(
         `state='done', raw_output=?, item_count=?, input_tokens=?, output_tokens=?, cost_usd=?, duration_ms=?, prompt_chars=?, turn_count=?, tool_call_count=?, trajectory_json=?, dropped_json=?, stages_json=?`,
         run.raw,
@@ -747,6 +941,7 @@ export class DistillQueue {
         ]),
         run.stages ? JSON.stringify(run.stages) : null
       )
+      this.maybeEscapeHatch(r, input, run.stages, false)
     } catch (err) {
       if (ac.signal.aborted) {
         // However the run failed, the user's cancel is the reason it stopped — record that
@@ -781,6 +976,10 @@ export class DistillQueue {
           trajectoryJson(m?.trajectory),
           m?.stages ? JSON.stringify(m.stages) : null
         )
+        // Trigger (b): the case job failed, so it wrote no verdicts — even when its attribution
+        // stage itself succeeded (a candidates failure throws after the stage ran, and the
+        // parsed verdicts do not ride on agentMeta). `caseInput` is unset for every other kind.
+        if (caseInput) this.maybeEscapeHatch(r, caseInput, m?.stages, true)
       } else if (err instanceof DistillParseError) {
         finish(`state='failed', error=?, raw_output=?`, err.message, err.raw)
       } else {
@@ -810,8 +1009,12 @@ export class DistillQueue {
  * `enqueue()` fixes both for every caller at once, including ones that call `enqueue()` directly
  * — this wrapper is what it looks like once that's true.
  */
-export function reconcileAndEnqueue(queue: DistillQueue, slug: string): DistillJobRow {
-  return queue.enqueue(slug)
+export function reconcileAndEnqueue(
+  queue: DistillQueue,
+  slug: string,
+  opts: { attribution?: boolean } = {}
+): DistillJobRow {
+  return queue.enqueue(slug, opts)
 }
 
 /**
