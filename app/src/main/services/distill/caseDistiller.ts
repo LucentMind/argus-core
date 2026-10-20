@@ -62,6 +62,10 @@ export interface DistillAgentRunMeta {
   promptChars?: number
   /** v3 only: whatever stages had completed when the run failed. */
   stages?: PipelineStages
+  /** v3 only: the parsed verdicts, when the attribution stage succeeded before a LATER stage
+   *  failed (it runs in parallel with candidates). The queue writes them instead of paying for
+   *  an attribution-only re-run. */
+  attribution?: AttributionOutput
 }
 
 /**

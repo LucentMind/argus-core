@@ -181,13 +181,17 @@ export async function runCaseDistillPipeline(
   }
   stages.dossier = dossierRecord
   usage = addUsage(usage, res.usage)
+  // Declared before meta() (which closes over it) so a late failure — candidates, or anything the
+  // outer wrap below catches — still carries verdicts the attribution stage already produced.
+  let attribution: AttributionOutput | undefined
   const meta = (): DistillAgentRunMeta => ({
     usage: asHeadlessUsage(usage),
     turnCount: res.turnCount,
     toolCallCount: res.toolCallCount,
     trajectory: res.trajectory,
     promptChars,
-    stages
+    stages,
+    ...(attribution ? { attribution } : {})
   })
   if (res.capHit) {
     dossierRecord.error = `budget exhausted (${res.capHit}${res.capSubtype ? `/${res.capSubtype}` : ''})`
@@ -269,7 +273,6 @@ export async function runCaseDistillPipeline(
     stages.summary = sum.record
     stages.candidates = cand.record
     usage = addUsage(addUsage(usage, sum.record.usage), cand.record.usage)
-    let attribution: AttributionOutput | undefined
     if (attr) {
       stages.attribution = attr.record
       usage = addUsage(usage, attr.record.usage)
