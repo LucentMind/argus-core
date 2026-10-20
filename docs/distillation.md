@@ -23,7 +23,7 @@ record of why a human said no.
 
 | | |
 |---|---|
-| **Trigger** | Closing a case with **Start distillation** checked, or **Distill** / **Re-distill** in the case menu (works on an open case too). |
+| **Trigger** | Closing a case with **Start distillation** checked, or **Distill** / **Re-distill** in the case menu (works on an open case too). A second close checkbox, **Attribute skills and references**, grades which existing knowledge helped (§1.11); with distillation unticked it runs an attribution-only job. |
 | **Runs** | In the background, one job at a time, globally. Nothing blocks; a chip in the top bar shows it running. |
 | **Reads** | The case snapshot frozen at enqueue: findings + review states + roles, evidence inventory, session titles, verbatim user turns, the confirmed RCA structure, your installed skills and references, what this case already proposed, and the reject digest. Plus a **frozen transcript world** it can call tools against. |
 | **Produces** | Up to N proposals (N by resolution: solved 3, open / wont-fix 2, everything else 1), plus at most one case summary. |
@@ -318,6 +318,75 @@ eval corpus gets labels at all.
 - **Consuming the drop list.** Everything a run produced but never staged is recorded and exported;
   nothing reads it back yet.
 - **A cheaper model for the tool-less stages.** v3 runs every stage on the same provider/model.
+
+## 1.11 Attribution — which skills, references and memories actually helped
+
+Distillation decides what to *add* to the library. Attribution answers the opposite question: of
+the knowledge the agent already had, which pieces earned their place? At close, a judge grades each
+skill, reference and memory that **appeared in the case**: was it *applied*, and if so did it
+**help**, stay **neutral**, or **mislead**? Every "applied" verdict carries transcript cites.
+
+**What is judged, and from what.** The inventory is every skill activation, reference read and
+memory read recorded in `tool_calls` for the case — the same predicates `usageStats()` uses, so the
+Library never counts an activation the judge did not see. It is frozen into the job snapshot
+(`input_snapshot.assets`), together with the case's outcome and domain. The judge reads that
+inventory against the **dossier** (§2.4), the same cited reconstruction the rest of the v3 pipeline
+works from, and may only grade assets on the list; anything else it names is counted and dropped.
+An asset that was inventoried but never mentioned gets an explicit *silent* row, so coverage is
+visible.
+
+**Outcome and domain are derived, never judged.** The outcome comes from the close resolution and
+whether a root-cause finding was accepted (`solved`, `solved-unconfirmed`, `closed-unresolved`,
+`handed-off`, `rejected`, `open`); the domain is the Jira project key (`PROJ-123` → `PROJ`), or the GitHub `owner/repo`, or the first
+linked workspace's folder name, or `unassigned`. The stage's parser ignores any `outcome` the model
+writes. Domains are stamped on each row at judge time, so editing the case later never rewrites
+history.
+
+**The two close checkboxes.** The close dialog now has **Start distillation** and **Attribute
+skills and references**. Settings → Distillation → *Attribute skills and references by default*
+(`distill.attribution.default`, on by default) only sets the second box's starting state — it is a
+default, never a gate; the per-case choice always wins.
+
+| Start distillation | Attribute | What runs |
+|---|---|---|
+| ✓ | ✓ | The v3 pipeline with its attribution stage after the dossier. |
+| ✓ | — | The pipeline, attribution recorded as `declined`. |
+| — | ✓ | An **attribution-only job** (below). |
+| — | — | Nothing. |
+
+**The escape-hatch job.** `kind='attribution'` is a small job: a *lite* dossier (half the budget,
+no knowledge-candidate groundwork) and then only the attribution stage. It writes verdicts and
+never proposals. It is queued when distillation was declined but attribution wanted; when the case
+job's dossier failed; when the case job ran on the v2 pipeline (which has no attribution stage); or
+when the attribution stage itself errored. It is **never** queued when there is nothing to grade
+(an empty inventory is not a failure), for a dry run, or from another attribution job — so a
+failing attribution job cannot queue another, and it is not retried automatically.
+
+**Where the results show.**
+
+- **Observability → Open dashboard → Knowledge usefulness**: per asset, applied / helped / misled,
+  a helped rate once an asset has at least three applied cases, and *emergent domains* — the
+  domains where it helps more than it misleads. The domain picker re-cuts the table.
+- **Library**: a `helped N · misled M` chip on every skill and reference that has been applied at
+  least once; its tooltip carries the domains and the last-applied date.
+- **Distillation runs** (dev): the run detail gains an attribution node, and an attribution-only
+  job is labelled `attribution only` in the runs rail.
+- **Langfuse**: one `asset.contribution` score per verdict, with OTel GenAI-shaped metadata
+  (asset, domain, outcome, judge model, prompt hash). Silent rows are not scored.
+- **Prompts (dev)**: the same events export as vendor-neutral NDJSON.
+
+**Implicit overrides.** Two human actions correct the judge without any new UI. **Retracting a
+finding** whose reason names an asset (`skill:<name>`, `ref:<path>`, `memory:<topic>` or the bare
+name) marks that asset *misled* for that case. **Rejecting an edit proposal** (`skill-edit` or
+`reference-edit`) with the reason `wrong` or `overfit` marks its target *misled* — the other
+reasons say nothing about whether the asset helped. An override never erases the judge's verdict:
+both are stored and the effective verdict is `override ?? verdict`. Overriding a row the judge was
+silent about also marks it applied, since a human naming it is itself evidence it was in play.
+
+**The caveat.** These are an LLM's judgements about causation from a transcript. Read them as a
+*relative* ranking and a prompt to go look — an asset that misled in four of five cases deserves a
+read — not as a measurement. That is why the rate stays blank under three applied cases, why every
+applied verdict must cite the transcript, and why the Observability card says so.
 
 ---
 
@@ -901,3 +970,47 @@ a replay needs.
   $1.46), 5 turns / 4 tool calls, per-stage hashes matching, `evidence:` present.
 - **The harness is not covered by CI** — the workflow only runs from `app/`. Run
   `tools/distill-eval`'s tests by hand when you touch it.
+
+## 2.14 Attribution data model
+
+Verdicts live in one SQLite table, **append-only per job**:
+
+```
+asset_attributions
+  id INTEGER PK
+  case_id          -> cases(id)         ON DELETE CASCADE   (indexed with job_id)
+  job_id           -> distill_jobs(id)  ON DELETE CASCADE   (indexed)
+  asset_kind       'skill' | 'reference' | 'memory'
+  asset_name       skill name · reference relPath · memory topic     (indexed with asset_kind)
+  asset_tier       tier the inventory resolved, NULL for memory
+  applied          1 / 0 / NULL        NULL = inventoried but the judge was silent
+  verdict          'helped' | 'neutral' | 'misled' | NULL
+  reason           the judge's one-line reason
+  cites_json       JSON array of {finding} | {session, turn} | {evidence}; every applied=1 row has >= 1
+  case_outcome     derived at write time (never judged)
+  case_domain      derived at write time: Jira key -> owner/repo -> workspace basename -> 'unassigned'
+  judge_model      'unknown' unless the provider reports one
+  prompt_hash      12-hex hash of the attribution stage's prompt (see 2.7)
+  override_verdict / override_source / override_at
+                   a human correction; source is 'finding-retraction' | 'proposal-reject'
+  created_at
+```
+
+**The latest-job-per-case rule.** Re-running a case (redistill, an attribution-only job after a
+failed one) appends a new generation of rows; it never edits an old one. Aggregation reads, per
+case, only the rows of the **highest `job_id` that produced any** — dry-run jobs excluded from that
+maximum so a dry run can never shadow the real one. Older generations stay on disk for audit and
+for the eval harness; they are simply not counted, which is what stops a re-run from double-counting
+a case in the helped rate.
+
+**Overrides never overwrite.** `override_verdict` is a separate column; the effective verdict is
+`override_verdict ?? verdict`. Applying the same override twice is a no-op, and an override on a
+case with no row for that asset creates one. `usageStats()` returns the aggregate as `usefulness`
+(shared `aggregateAttributions`, with `MIN_APPLIED = 3` gating the rate and the emergent-domain
+list); nothing about an asset's usefulness is written back onto the asset itself.
+
+**Live gate.** `app/scripts/cdp-attribution.mjs` (port 9250) closes three fixture cases against a
+scratch home: a positive case with a skill and a reference in `tool_calls`; a negative control with
+the same transcript but no `tool_calls` rows (zero rows, `attributionSkipped === 'no-assets'`, no
+attribution job); and a no-distillation case that must produce exactly one `kind='attribution'` job
+and no `kind='case'` job. It aborts before the third run if the first two cost more than $6.
