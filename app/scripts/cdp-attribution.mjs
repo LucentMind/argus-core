@@ -422,7 +422,6 @@ const main = async () => {
         `window.argus.cases.create(${JSON.stringify({ slug: f.slug, title: `Attribution fixture ${f.slug}`, jiraKey: f.jiraKey })})`
       )
     }
-    seedTranscript(f.slug, f.tools)
   }
 
   // Identity gate: this port must show OUR fixtures — created against OUR scratch home — not
@@ -435,9 +434,15 @@ const main = async () => {
     )
     process.exit(2)
   }
-  // Not tautological: the app listing the slugs is not enough (another home could hold cases of
-  // the same name) — each fixture must also be a row in THIS scratch home's DB, which is where
-  // every assertion below reads from.
+  // DB identity gate, BEFORE seeding (seedTranscript throws on a foreign home): each fixture must
+  // be a row in THIS scratch home's DB, which is where every assertion below reads from. Never
+  // open a missing file (DatabaseSync would create a stray empty one).
+  if (!fs.existsSync(DB)) {
+    console.error(
+      `IDENTITY FAIL: ${DB} does not exist; the connected app is not using this ARGUS_HOME — refusing to continue`
+    )
+    process.exit(2)
+  }
   const notInDb = withDb((db) =>
     FIXTURES.filter((f) => !db.prepare(`SELECT 1 FROM cases WHERE slug=?`).get(f.slug))
   )
@@ -447,6 +452,7 @@ const main = async () => {
     )
     process.exit(2)
   }
+  for (const f of FIXTURES) seedTranscript(f.slug, f.tools)
   check(
     'identity: all three fixture cases visible on the connected app AND present in ARGUS_HOME/argus.db',
     true
