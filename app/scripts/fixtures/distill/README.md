@@ -24,20 +24,21 @@ calls it, so a broken fixture fails `npm test`.
 | `jiraKey` | string \| null | Jira key. Its project prefix becomes `case_domain` (`FXH-1` gives `FXH`). |
 | `scenario` | string | `<key>: free text`, the test name and report line. The fixture suite keys extra assertions on the text before the first colon: `retract`, `misled`, `reject` and `dossier-fail` unlock them. |
 | `settings.pipeline` | `"v2"` \| `"v3"` | The `distill.pipeline` setting for this fixture. `settingsFor(fx)` also turns on `attribution.default`. |
-| `assets.skills[]` | `{ name, description, body }` | Written to `<home>/skills-user/<name>/SKILL.md` with `name:` and `description:` frontmatter. |
+| `assets.skills[]` | `{ name, description, body }` | Written to `<home>/skills-user/<name>/SKILL.md` with `name:` and `description:` frontmatter. The description is written as a plain YAML scalar (the skill parser strips no quotes), so it must be one non-empty line with no `: ` and no leading `#`. |
 | `assets.references[]` | `{ relPath, tier, body }` | Written to `<home>/references/<relPath>`. A non-null `tier` adds `trust_tier:` frontmatter, which is where the inventory reads the tier from. |
 | `assets.memories[]` | string | Memory names only. A memory read needs no file. |
 | `sessions[]` | `{ title, messages: [{ role, content }] }` | At least 1. Seeded into `sessions`, `messages_fts` and `messages_fts_map`, with one running `turn_id` per case. |
 | `findings[]` | `{ summary, reviewState, role, session }` | `session` is an index into `sessions`. |
-| `toolCalls[]` | `{ session, turn, tool, detail }` | The asset inventory: `Skill` + skill name, `Read` + `ref:<relPath>`, `mcp__argus__read_memory` + memory name. `turn` is stored as `tool_calls.turn_id` (1-based, as in the paid gate) and must be at most the session's message count. Leave the array empty for a negative control. |
+| `toolCalls[]` | `{ session, turn, tool, detail }` | The asset inventory: `Skill` + skill name, `Read` + `ref:<relPath>`, `mcp__argus__read_memory` + memory name. `turn` is stored as `tool_calls.turn_id` (1-based, as in the paid gate) and must be at least 1 and at most the session's message count. Leave the array empty for a negative control. |
 | `close` | `{ resolution, distill, attribution }` \| null | How the case is closed, with the two close-dialog checkboxes. |
 | `trigger` | `"redistill"` (optional) | Used instead of `close` for an open-case run. Set exactly one of `close` (non-null) and `trigger`. |
-| `stages` | `{ [stage]: { text?, throw?, capHit?, capSubtype?, usage?, turnCount?, toolCallCount? } }` | The fake's `FakeCaseStages`, with placeholders. Stage keys: `dossier`, `dossierLite`, `summary`, `candidates`, `attribution`, `materialize`, `v2`, `rejectDigest`. |
+| `stages` | `{ [stage]: { text?, throw?, capHit?, capSubtype?, usage?, turnCount?, toolCallCount? } }` | The fake's `FakeCaseStages`, with placeholders. Stage keys: `dossier`, `dossierLite`, `summary`, `candidates`, `attribution`, `materialize`, `v2`, `rejectDigest`. A `rejectDigest` entry is never read: the digest belongs to no case, so every digest call answers the fake's default bullet list. |
 | `actions[]` | `retract-finding` / `reject-proposal` | Applied in order after the close settles. |
-| `expected.jobs[]` | `{ kind, state, pipeline, stages, attributionSkipped, attributionError, costUsd }` | Every `distill_jobs` row for the slug, ordered by id, with an exact length. `stages` lists the keys present among `dossier`, `summary`, `candidates`, `attribution`, `materialize` (`materialize` counts only when non-empty). A v2 row with no `stages_json` is read as `{}`. `costUsd` must match to within 1e-6. Must not be empty. |
+| `expected.jobs[]` | `{ kind, state, pipeline, stages, attributionSkipped, attributionError, costUsd }` | Every `distill_jobs` row for the slug, ordered by id, with an exact length. `stages` lists the keys present among `dossier`, `summary`, `candidates`, `attribution`, `materialize` (`materialize` counts only when non-empty). A v2 row with no `stages_json` is read as `{}`. `costUsd` must match to within 1e-6. Must not be empty. Each `stages` entry must be one of those five names. |
 | `expected.attributions[]` | `{ kind, name, applied, verdict, override, domain, outcome }` | The exact set of `asset_attributions` rows on the case's latest job, keyed by `kind/name`. `override` is `{ verdict, source }` or `null`. |
-| `expected.fakeCalls` | `{ [stage]: n }` | Call counts for each named stage in `calls.ndjson`. A missing stage counts as 0, so `0` asserts "never called". |
-| `expected.ui` | `{ libraryChip, observabilityLists, observabilityOmits, runsRailLabel, runDetailSkipped }` | Read by the CDP gate only. `checkExpected` does not compare it. |
+| `expected.attributionsJob` | number | Index into `expected.jobs` of the job that must own every row (`asset_attributions.job_id` equals that job's id). Required when `attributions` is non-empty. It is `1` when an escape hatch (a separate `attribution` job) writes the rows after a case job, and `0` when the case job itself, or a hatch that is the only job, writes them. |
+| `expected.fakeCalls` | `{ [stage]: n }` | Call counts for each named stage in `calls.ndjson`. A missing stage counts as 0, so `0` asserts "never called". Keys must be fake stage names (the `stages` list above), so a misspelt key cannot pass vacuously. Reject-digest calls are always logged with a null slug, so they never count towards a fixture. |
+| `expected.ui` | `{ libraryChip, observabilityLists, observabilityOmits, runsRailLabel, runDetailSkipped }` | Read by the CDP gate only. `checkExpected` does not compare it. Every name in `observabilityLists`, `observabilityOmits` and `libraryChip.asset` must be one of the fixture's own asset names, so an "omits" check cannot pass on a name that never existed. |
 
 Default fake usage, when a stage sets no `usage`: one-shot stages cost 0.01 USD, and agent
 stages (`dossier`, `dossierLite`, `v2`) cost 0.5 USD. Set `usage.costUsd` explicitly wherever
@@ -52,7 +53,7 @@ Row ids are only known after seeding, so canned stage text refers to them by pla
 
 Write each placeholder **quoted**, as a JSON string. `resolveStages` replaces the token
 *including its quotes* with the number, so `{"finding":"{{finding:0}}"}` becomes
-`{"finding":12}`. An unquoted, malformed or out-of-range placeholder is an error.
+`{"finding":12}`. An unquoted, malformed or out-of-range placeholder is a load-time error.
 
 Cite `turn` values in stage text are literal and are **not** placeholders. They are 0-based
 indexes into that session's `messages` array, which is what `citeKnownIn` checks. Turn 1 is the
