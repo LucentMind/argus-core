@@ -64,7 +64,7 @@ export interface AttributionOnlyRun {
  * carrying `agentMeta.stages`; an attribution-stage failure is recorded on `stages.attribution`
  * and the run RESOLVES without `attribution`. An empty inventory resolves with
  * `attributionSkipped: 'no-assets'` before any model call — there is nothing to grade, so the
- * dossier would be paid for and thrown away.
+ * dossier would be paid for and thrown away — and an open case with `attributionSkipped: 'open'`.
  */
 export async function runAttributionOnly(
   input: CaseDistillInput,
@@ -75,6 +75,11 @@ export async function runAttributionOnly(
 ): Promise<AttributionOnlyRun> {
   const stages: PipelineStages = {}
   const assets = input.assets ?? []
+  // An open case is never judged (spec §4.2): skip before the dossier is paid for.
+  if (input.caseOutcome === 'open') {
+    stages.attributionSkipped = 'open'
+    return { stages, promptChars: 0, turnCount: 0, toolCallCount: 0, trajectory: [] }
+  }
   if (assets.length === 0) {
     stages.attributionSkipped = 'no-assets'
     return { stages, promptChars: 0, turnCount: 0, toolCallCount: 0, trajectory: [] }

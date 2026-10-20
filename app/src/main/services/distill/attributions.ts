@@ -199,6 +199,9 @@ export function latestAttributionRows(
   return rows.map(toRow)
 }
 
+/** Stamp a human override on the latest job's row for this asset (creating a silent-judge row
+ *  when there is none). Returns the changed row, or null when nothing changed: unknown case, no
+ *  job to attach to, or the same override already stamped (a no-op is never re-emitted). */
 export function applyAttributionOverride(
   db: DatabaseSync,
   p: {
@@ -257,7 +260,9 @@ export function applyAttributionOverride(
     })
     row = db.prepare(`${SELECT} WHERE a.id = ?`).get(id) as unknown as Raw
   }
-  if (row.override_source === p.source && row.override_verdict === p.verdict) return toRow(row)
+  // Already stamped with exactly this override → null: nothing changed, so the caller must not
+  // re-emit (the Langfuse score id is deterministic, but a no-op should not reach the wire).
+  if (row.override_source === p.source && row.override_verdict === p.verdict) return null
   // applied = COALESCE(applied, 1): a human override on a row the judge was silent about is itself
   // evidence the asset was in play; without this the aggregation (which skips applied IS NULL
   // rows as "silent") would ignore the override. An explicit applied = 0 is left alone.

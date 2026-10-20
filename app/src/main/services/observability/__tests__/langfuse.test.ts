@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, it, expect, vi } from 'vitest'
 import { LangfuseExporter } from '../langfuse'
 import { seedFor } from '../intent'
@@ -80,6 +81,34 @@ describe('LangfuseExporter', () => {
     expect(md['gen_ai.evaluation.score.label']).toBeUndefined()
     expect(md['gen_ai.evaluation.name']).toBeUndefined()
     expect(md['gen_ai.evaluation.explanation']).toBe('why')
+  })
+
+  it('gives each (install, case, kind, name) a deterministic score id so re-emission upserts (A6)', () => {
+    const { sink, seen } = fakeSink()
+    const x = new LangfuseExporter(sink, { captureContent: false })
+    const ev = (name: string, value: 1 | -1): AssetAttributionEvent => ({
+      'gen_ai.evaluation.name': 'asset.contribution' as const,
+      'gen_ai.evaluation.score.value': value,
+      'gen_ai.evaluation.score.label': value === 1 ? 'helped' : 'misled',
+      'gen_ai.evaluation.explanation': 'why',
+      'argus.asset.kind': 'skill' as const,
+      'argus.asset.name': name,
+      'argus.asset.tier': 'user',
+      'argus.case.domain': 'NAV',
+      'argus.case.outcome': 'solved' as const,
+      'argus.case.slug': 'c1',
+      'argus.install.id': 'i',
+      'argus.app.version': 'v',
+      'argus.judge.model': 'm',
+      'argus.judge.prompt_hash': 'h'
+    })
+    x.scoreAttributions(42, [ev('diag', 1), ev('diag', -1), ev('other', 1)])
+    const ids = seen.map((s) => (s as { id?: string }).id)
+    const expected = createHash('sha256').update('i|c1|skill|diag').digest('hex').slice(0, 32)
+    expect(ids[0]).toBe(expected)
+    expect(ids[0]).toMatch(/^[0-9a-f]{32}$/)
+    expect(ids[1]).toBe(ids[0]) // the override re-emit of the same asset replaces, not adds
+    expect(ids[2]).not.toBe(ids[0])
   })
 
   it('emits a finding_accepted score for a reviewed finding', () => {

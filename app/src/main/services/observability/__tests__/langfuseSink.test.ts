@@ -245,6 +245,18 @@ describe('LangfuseSink', () => {
     expect(calls.score[0]).toMatchObject({ name: 'asset.contribution', metadata: { a: 1 } })
   })
 
+  it('forwards a score id to createScore (A6)', async () => {
+    const { api, calls, resolveIds } = fakeTracing()
+    const sink = new LangfuseSink(api)
+    sink.emit([
+      rootIntent,
+      { kind: 'score', seed: 'argus-session-7', name: 'asset.contribution', value: 1, id: 'abc' }
+    ])
+    resolveIds()
+    await sink.flush()
+    expect(calls.score[0]).toMatchObject({ id: 'abc' })
+  })
+
   it('is idempotent on shutdown', async () => {
     const { api, calls, resolveIds } = fakeTracing()
     const sink = new LangfuseSink(api)

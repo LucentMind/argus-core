@@ -265,14 +265,19 @@ export function stripNodes(
   const matCost = mats.reduce((a, m) => a + (m.usage?.costUsd ?? 0), 0)
   const matErr = mats.find((m) => m.error)
   const candidatesOk = s.candidates && !s.candidates.error
-  // A skipped stage is a decision (the job declined it, or the case had nothing to grade), never a
-  // failure — it renders `skipped`, not `error`.
+  // A skipped stage is a decision (the job declined it, the case is still open, or it had nothing
+  // to grade), never a failure — it renders `skipped`, not `error`.
   const attributionNode = (): StripNode => {
     if (s.attributionSkipped)
       return {
         id: 'attribution',
         label: 'attribution',
-        stat: s.attributionSkipped === 'declined' ? 'declined' : 'no assets',
+        stat:
+          s.attributionSkipped === 'declined'
+            ? 'declined'
+            : s.attributionSkipped === 'open'
+              ? 'open case'
+              : 'no assets',
         state: 'skipped'
       }
     if (!s.attribution)
@@ -285,7 +290,11 @@ export function stripNodes(
         state: 'error',
         error: s.attribution.error
       }
-    const v = detail.parsed.attribution ?? []
+    // No parsed verdicts on a non-error record (unreadable raw output, a legacy row) is unknown —
+    // "0 applied · 0 misled" would claim the judge saw nothing applied.
+    if (detail.parsed.attribution === null)
+      return { id: 'attribution', label: 'attribution', stat: '—', state: 'done' }
+    const v = detail.parsed.attribution
     const applied = v.filter((x) => x.applied === true).length
     const misled = v.filter((x) => x.verdict === 'misled').length
     return {

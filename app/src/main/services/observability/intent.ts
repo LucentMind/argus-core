@@ -52,6 +52,9 @@ export interface ScoreIntent {
   comment?: string
   /** Free-form score metadata (Langfuse `ScoreBody.metadata`). */
   metadata?: Record<string, unknown>
+  /** Explicit score id (Langfuse `CreateScoreRequest.id`): a deterministic id makes a re-emit
+   *  of the same fact an upsert instead of a second score. Absent → the server assigns one. */
+  id?: string
 }
 
 export type ObservationIntent =
