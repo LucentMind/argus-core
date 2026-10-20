@@ -23,6 +23,7 @@
     "build:unpack": "npm run build && electron-builder --dir",
     "smoke:packaged": "node scripts/smoke-packaged.mjs",
     "smoke:ptc-packaged": "node scripts/smoke-ptc-packaged.mjs",
+    "gate:attribution-fake": "node scripts/cdp-attribution-fake.mjs",
     "build:sidecar": "node scripts/build-resource-monitor.mjs",
     "build:win": "npm run build:sidecar && npm run build && electron-builder --win",
     "build:mac": "npm run build:sidecar && npm run build && electron-builder --mac",
