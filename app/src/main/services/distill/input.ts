@@ -12,6 +12,10 @@ import { refTitle, refBody, refTier } from '../refSync/refFrontmatter'
 import { sharedReferencesDir } from '../skillsDir'
 import { structureFile } from '../rca/artifacts'
 import { buildWorld, clampText } from './world'
+import { buildAssetInventory } from './inventory'
+import { deriveCaseOutcome } from '../../../shared/caseOutcome'
+import { deriveCaseDomain } from '../../../shared/caseDomain'
+import { listStoredWorkspaces } from '../workspaces'
 
 /** Per-session cap on verbatim user turns fed to the agentic distiller's raw-quote source. */
 export const USER_MSGS_PER_SESSION = 25
@@ -150,7 +154,14 @@ export function assembleDistillInput(
   argusHome: string,
   slug: string,
   skillsIndex: { name: string; description: string; content: string }[] = [],
-  opts: { operatorGuidance?: string; ignorePriorProposals?: boolean } = {}
+  opts: {
+    operatorGuidance?: string
+    ignorePriorProposals?: boolean
+    /** Per-job attribution choice, recorded verbatim in the snapshot (default on). */
+    attribution?: boolean
+    /** skill name -> tier, for the asset inventory (the caller resolves skills). */
+    skillTiers?: Map<string, string | null>
+  } = {}
 ): CaseDistillInput {
   const c = getCase(db, slug)
   if (!c) throw new Error(`Unknown case: ${slug}`)
@@ -176,9 +187,15 @@ export function assembleDistillInput(
     const note = rejectAnnotations.get(`skill-edit ${s.name}`)
     return note ? { ...s, note } : s
   })
-  const referencesIndexOut = buildReferencesIndex(argusHome).map((r) => {
+  const referencesIndex = buildReferencesIndex(argusHome)
+  const referencesIndexOut = referencesIndex.map((r) => {
     const note = rejectAnnotations.get(`reference-edit ${r.name}`)
     return note ? { ...r, note } : r
+  })
+  const findings = listFindings(db, argusHome, slug)
+  const assets = buildAssetInventory(db, c.id, {
+    skill: opts.skillTiers ?? new Map(),
+    reference: new Map(referencesIndex.map((r) => [r.name, r.tier]))
   })
 
   return {
@@ -192,7 +209,7 @@ export function assembleDistillInput(
       createdAt: c.createdAt,
       closedAt: c.updatedAt
     },
-    findings: listFindings(db, argusHome, slug).map((f) => ({
+    findings: findings.map((f) => ({
       id: f.id,
       summary: f.summary,
       reviewState: f.reviewState,
@@ -220,6 +237,10 @@ export function assembleDistillInput(
     },
     world: buildWorld(db, slug),
     userMessages: collectUserMessages(db, c.id),
+    assets,
+    caseOutcome: deriveCaseOutcome(c, findings),
+    caseDomain: deriveCaseDomain(c, listStoredWorkspaces(db, slug)),
+    options: { attribution: opts.attribution ?? true },
     ...(opts.operatorGuidance !== undefined ? { operatorGuidance: opts.operatorGuidance } : {})
   }
 }

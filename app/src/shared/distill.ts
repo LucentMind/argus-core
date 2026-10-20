@@ -1,6 +1,8 @@
 import type { CaseResolution, CaseStatus } from './types'
 import type { ReviewState } from './observability'
 import type { RcaDraft } from './rca'
+import type { AssetInventoryEntry } from './attribution'
+import type { CaseOutcome } from './caseOutcome'
 import type {
   Dossier,
   KnowledgeCandidate,
@@ -146,6 +148,12 @@ export interface CaseDistillInput {
   rejectDigest?: string
   /** Free-text operator guidance supplied at enqueue time, if any. */
   operatorGuidance?: string
+  /** Attribution (spec §4.1–4.3): every knowledge asset that appeared in the case, the derived
+   *  outcome and domain, and the per-job choice. Absent on pre-attribution snapshots. */
+  assets?: AssetInventoryEntry[]
+  caseOutcome?: CaseOutcome
+  caseDomain?: string
+  options?: { attribution?: boolean }
 }
 
 export interface CaseDistillSummary {
