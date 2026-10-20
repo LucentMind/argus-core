@@ -30,6 +30,7 @@ import type { TrustTier } from '../../../../shared/trustTiers'
 import type { SkillListItem } from '../../../../shared/memoryIpc'
 import type { ReferenceStatus } from '../../../../shared/referenceSync'
 import type { SkillUsageRow, ReferenceUsageRow } from '../../../../shared/observability'
+import type { AssetUsefulness } from '../../../../shared/attribution'
 import type { ProposalType } from '../../../../shared/proposals'
 import type { EditorOpenRequest } from '../../../../shared/editorIpc'
 
@@ -126,6 +127,20 @@ function groupOf(tier: string | null): GroupId {
 }
 
 /**
+ * Helped/misled badge for an asset that was applied at least once. Review-toned when the
+ * asset misled more often than it helped; the title carries the domains it helps in.
+ */
+function UsefulnessChip({ u }: { u: AssetUsefulness }): React.JSX.Element {
+  const domains = u.emergentDomains.join(', ') || 'no domain yet'
+  const last = u.lastAppliedAt ? ` · last ${u.lastAppliedAt.slice(0, 10)}` : ''
+  return (
+    <Chip tone={u.misled > u.helped ? 'review' : 'neutral'} title={`${domains}${last}`}>
+      helped {u.helped} · misled {u.misled}
+    </Chip>
+  )
+}
+
+/**
  * The Library (spec §3.2): one list of knowledge assets — skills + reference
  * files — grouped by rights, kind mixed within a group. Per-kind actions:
  * enable/disable + delete/adopt for skills; viewer for references; Share on
@@ -143,6 +158,8 @@ export function LibraryPage({
   const [error, setError] = useState<string | null>(null)
   const [skillUsage, setSkillUsage] = useState<Map<string, SkillUsageRow> | null>(null)
   const [refUsage, setRefUsage] = useState<Map<string, ReferenceUsageRow> | null>(null)
+  // keyed `${kind}/${name}` like push receipts and hive items
+  const [usefulness, setUsefulness] = useState<Map<string, AssetUsefulness> | null>(null)
   const [viewer, setViewer] = useState<{ kind: LibraryKind; name: string } | null>(null)
   // the skill being forked, while the "Edit a copy" name dialog is open
   const [forking, setForking] = useState<SkillListItem | null>(null)
@@ -187,6 +204,7 @@ export function LibraryPage({
         if (!mounted) return
         setSkillUsage(new Map(u.skills.map((s) => [s.name, s])))
         setRefUsage(new Map(u.references.map((r) => [r.relPath, r])))
+        setUsefulness(new Map((u.usefulness ?? []).map((x) => [`${x.kind}/${x.name}`, x] as const)))
       })
       .catch(() => undefined)
     return () => {
@@ -368,6 +386,7 @@ export function LibraryPage({
     const adopt = s.tier === 'user' && s.shadows.includes('hivemind')
     const receipt = pushes[`skill/${s.name}`]
     const u = skillUsage?.get(s.name)
+    const uu = usefulness?.get(`skill/${s.name}`)
     const hive = hiveItems.get(`skill/${s.name}`)
     return (
       <Fragment key={`skill/${s.name}`}>
@@ -398,6 +417,7 @@ export function LibraryPage({
                 ) : (
                   <Chip tone="neutral">never activated</Chip>
                 ))}
+              {uu && uu.applied > 0 && <UsefulnessChip u={uu} />}
               {receipt && <PushReceiptChip name={s.name} receipt={receipt} />}
             </>
           }
@@ -484,6 +504,7 @@ export function LibraryPage({
     const receipt = pushes[`reference/${r.file}`]
     const canShare = r.tier !== null && (PUSHABLE_TIERS as readonly string[]).includes(r.tier)
     const u = refUsage?.get(r.file)
+    const uu = usefulness?.get(`reference/${r.file}`)
     // Installs flatten: a hive item named `confluence/x.md` lands on disk as `references/x.md`,
     // so the local file name alone does not address the item it came from. Both keys are tried
     // rather than one, because the flat and namespaced halves of the hive's references/ folder
@@ -524,6 +545,7 @@ export function LibraryPage({
               {r.tier !== null && groupOf(r.tier) !== 'built-in' && <TierBadge tier={r.tier} />}
               {hiveTracked && hive?.updateAvailable && <Chip tone="review">update</Chip>}
               {r.stale && <Chip tone="danger">stale</Chip>}
+              {uu && uu.applied > 0 && <UsefulnessChip u={uu} />}
               {receipt && <PushReceiptChip name={r.file} receipt={receipt} />}
             </>
           }
