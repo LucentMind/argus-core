@@ -8,6 +8,7 @@ import { openDb } from '../../db'
 import { applyMemoryWrite } from '../../memory'
 import { archiveTopic } from '../../memoryHygiene'
 import { defaultAgentAccess } from '../../../../shared/agentAccess'
+import { writeAttributions } from '../../distill/attributions'
 
 let tmp: string
 beforeEach(() => {
@@ -432,5 +433,47 @@ describe('usageStats', () => {
       expect(recent.failedCostUsd).toBe(0.5)
       db.close()
     })
+  })
+
+  it('usefulness aggregates the latest attribution rows per case', () => {
+    const db = openDb(path.join(tmp, 'argus.db'))
+    seedCase(db)
+    const jobId = Number(
+      db
+        .prepare(
+          `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at) VALUES ('c','done','{}','x')`
+        )
+        .run().lastInsertRowid
+    )
+    writeAttributions(db, {
+      caseSlug: 'c',
+      jobId,
+      verdicts: [
+        { kind: 'skill', name: 'diag', applied: true, verdict: 'helped', reason: '', cites: [] }
+      ],
+      tiers: new Map([['skill/diag', 'user']]),
+      caseOutcome: 'solved',
+      caseDomain: 'NAV',
+      judgeModel: 'm',
+      promptHash: 'h'
+    })
+    const u = usageStats({
+      db,
+      argusHome: tmp,
+      access: defaultAgentAccess(),
+      hygiene: HYG,
+      now: NOW
+    })
+    expect(u.usefulness).toEqual([
+      expect.objectContaining({
+        kind: 'skill',
+        name: 'diag',
+        applied: 1,
+        helped: 1,
+        helpedRate: null,
+        byDomain: { NAV: expect.objectContaining({ helped: 1 }) }
+      })
+    ])
+    db.close()
   })
 })
