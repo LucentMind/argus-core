@@ -13,6 +13,7 @@ import type {
 import { createDistillMcpServer, toolCallSummary } from './mcp'
 import { DISTILL_ALLOWED_TOOLS, DISTILL_MAX_ITERATIONS } from './worldTools'
 import type { PipelineStages, PreStageDrop } from '../../../shared/distillV3'
+import type { AttributionOutput } from '../../../shared/attribution'
 
 export interface CaseDistillRun {
   raw: string
@@ -27,6 +28,8 @@ export interface CaseDistillRun {
   /** v3 only: per-stage records + drops recorded before staging (veto/validators). */
   stages?: PipelineStages
   preStageDropped?: PreStageDrop[]
+  /** v3 only: attribution verdicts (pruned, silent rows added). Absent when skipped or errored. */
+  attribution?: AttributionOutput
 }
 
 /**

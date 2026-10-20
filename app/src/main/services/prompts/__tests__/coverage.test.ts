@@ -33,6 +33,7 @@ const SCANNED = [
   'app/src/main/services/distill/v3/dossier.ts',
   'app/src/main/services/distill/v3/summary.ts',
   'app/src/main/services/distill/v3/candidates.ts',
+  'app/src/main/services/distill/v3/attribution.ts',
   'app/src/main/services/distill/v3/materialize.ts'
 ]
 

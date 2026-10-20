@@ -18,6 +18,7 @@ import { CASE_DISTILL_SECTIONS } from '../distill/contract'
 import { DOSSIER_CONTRACT, DOSSIER_SECTIONS } from '../distill/v3/dossier'
 import { SUMMARY_CONTRACT, SUMMARY_SECTIONS } from '../distill/v3/summary'
 import { CANDIDATES_CONTRACT, CANDIDATES_SECTIONS } from '../distill/v3/candidates'
+import { ATTRIBUTION_CONTRACT, ATTRIBUTION_SECTIONS } from '../distill/v3/attribution'
 import { MATERIALIZE_CONTRACT, MATERIALIZE_SECTIONS } from '../distill/v3/materialize'
 import { RCA_CONTRACT, RCA_SECTIONS } from '../rca/contract'
 import { DISTILL_CONTRACT, REF_DISTILL_SECTIONS } from '../refSync/distill'
@@ -352,7 +353,7 @@ const CASE_RCA_SECTION_ENTRIES: PromptEntry[] = specEntries(RCA_SECTIONS, {
   reaches: 'all'
 })
 
-/** The v3 distill pipeline's four stages (dossier / summary / candidates / materialize), each
+/** The v3 distill pipeline's five stages (dossier / summary / candidates / attribution / materialize), each
  *  with its own contract + scaffolding sections — same shape as HEADLESS_ENTRIES /
  *  CASE_DISTILL_SECTION_ENTRIES above, generated rather than hand-listed per stage. */
 const V3_STAGE_CONTRACT_ENTRIES: PromptEntry[] = (
@@ -374,6 +375,12 @@ const V3_STAGE_CONTRACT_ENTRIES: PromptEntry[] = (
       'Distill v3 — stage 2b candidates contract',
       'app/src/main/services/distill/v3/candidates.ts',
       () => CANDIDATES_CONTRACT
+    ],
+    [
+      'attribution',
+      'Distill v3 — stage 2c attribution contract',
+      'app/src/main/services/distill/v3/attribution.ts',
+      () => ATTRIBUTION_CONTRACT
     ],
     [
       'materialize',
@@ -409,6 +416,12 @@ const V3_SECTION_ENTRIES: PromptEntry[] = [
     prefix: 'headless.case-distill.candidates.section',
     category: 'headless',
     source: 'app/src/main/services/distill/v3/candidates.ts',
+    reaches: 'all'
+  }),
+  ...specEntries(ATTRIBUTION_SECTIONS, {
+    prefix: 'headless.case-distill.attribution.section',
+    category: 'headless',
+    source: 'app/src/main/services/distill/v3/attribution.ts',
     reaches: 'all'
   }),
   ...specEntries(MATERIALIZE_SECTIONS, {

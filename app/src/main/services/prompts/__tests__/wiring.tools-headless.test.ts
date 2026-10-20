@@ -8,6 +8,7 @@ import { RCA_SECTIONS } from '../../rca/contract'
 import { DOSSIER_SECTIONS } from '../../distill/v3/dossier'
 import { SUMMARY_SECTIONS } from '../../distill/v3/summary'
 import { CANDIDATES_SECTIONS } from '../../distill/v3/candidates'
+import { ATTRIBUTION_SECTIONS } from '../../distill/v3/attribution'
 import { MATERIALIZE_SECTIONS } from '../../distill/v3/materialize'
 import type { CaseDistillInput } from '../../../../shared/distill'
 import type { RcaDraft } from '../../../../shared/rca'
@@ -161,6 +162,9 @@ describe('distill scaffolding honours an injected resolver', () => {
         ...Object.keys(SUMMARY_SECTIONS).map((k) => `headless.case-distill.summary.section.${k}`),
         ...Object.keys(CANDIDATES_SECTIONS).map(
           (k) => `headless.case-distill.candidates.section.${k}`
+        ),
+        ...Object.keys(ATTRIBUTION_SECTIONS).map(
+          (k) => `headless.case-distill.attribution.section.${k}`
         ),
         ...Object.keys(MATERIALIZE_SECTIONS).map(
           (k) => `headless.case-distill.materialize.section.${k}`
