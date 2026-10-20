@@ -13,6 +13,8 @@ import type { RoleAssignment } from '../../shared/rca'
 import { caseDir } from './paths'
 import { getCase } from './caseService'
 import { appendDeletionAudit } from './deletionAudit'
+import { overrideFromRetraction } from './distill/overrides'
+import type { AttributionRow } from '../../shared/attribution'
 
 export type { FindingRow, ReviewState }
 const REVIEW_STATES: ReviewState[] = ['pending', 'accepted', 'rejected']
@@ -177,7 +179,12 @@ export type RetractResult =
  * Returns a result rather than throwing so this module needs no prompt-registry resolver;
  * the tool layer owns the user-facing wording.
  */
-export function retractFinding(db: DatabaseSync, id: number, reason: string): RetractResult {
+export function retractFinding(
+  db: DatabaseSync,
+  id: number,
+  reason: string,
+  hooks: { onOverride?: (row: AttributionRow) => void } = {}
+): RetractResult {
   const cur = db.prepare(`SELECT review_state, review_actor FROM findings WHERE id = ?`).get(id) as
     { review_state: string; review_actor: string | null } | undefined
   if (!cur) return { ok: false, reason: 'unknown' }
@@ -189,6 +196,14 @@ export function retractFinding(db: DatabaseSync, id: number, reason: string): Re
           SET review_state = 'rejected', review_actor = 'agent', review_reason = ?, reviewed_at = ?
         WHERE id = ?`
     ).run(reason, new Date().toISOString(), id)
+    // Spec §4.7: a retraction that names an asset of the case is an implicit human-grade
+    // override. Only when the row actually changed; a failure here never fails the retraction.
+    try {
+      const overridden = overrideFromRetraction(db, id, reason)
+      if (overridden) hooks.onOverride?.(overridden)
+    } catch (err) {
+      console.error('[attribution] retraction override failed', err)
+    }
   }
   const row = db
     .prepare(`SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE} WHERE f.id = ?`)
