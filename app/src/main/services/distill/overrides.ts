@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { matchAssetMention, type AssetKind, type AttributionRow } from '../../../shared/attribution'
 import type { RejectReason } from '../../../shared/proposals'
 import { applyAttributionOverride, assetNamesForCase } from './attributions'
+import { refFileName } from '../proposals'
 
 /** Spec §4.7: a retraction whose reason names an asset of that case flips it to misled. */
 export function overrideFromRetraction(
@@ -41,14 +42,16 @@ export function overrideFromProposalReject(
   if (!reason || (reason.tag !== 'wrong' && reason.tag !== 'overfit')) return null
   const kind = EDIT_KIND[p.type]
   if (!kind) return null
-  const inCase = assetNamesForCase(db, p.caseSlug).some(
-    (a) => a.kind === kind && a.name === p.target
-  )
+  // The inventory names a reference by relPath WITH extension (`limits.md`); a reference-edit
+  // target is the flat name, usually without it (`limits`). A target is always top-level, so a
+  // nested `nav/limits.md` the case read is never this file.
+  const name = kind === 'reference' ? refFileName(p.target) : p.target
+  const inCase = assetNamesForCase(db, p.caseSlug).some((a) => a.kind === kind && a.name === name)
   if (!inCase) return null
   return applyAttributionOverride(db, {
     caseSlug: p.caseSlug,
     kind,
-    name: p.target,
+    name,
     verdict: 'misled',
     source: 'proposal-reject'
   })
