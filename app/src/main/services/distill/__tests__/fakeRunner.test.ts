@@ -135,6 +135,10 @@ describe('stageOf / slugOf', () => {
     expect(PROMPTS.dossier.startsWith(DOSSIER_LITE_CONTRACT)).toBe(false)
   })
 
+  it('a full dossier prompt that inlines the lite contract in its body is still the full dossier', () => {
+    expect(stageOf(`${PROMPTS.dossier}\n\n${DOSSIER_LITE_CONTRACT}`)).toBe('dossier')
+  })
+
   it('every contract opens with a distinct first sentence (recognition is unambiguous)', () => {
     const contracts = [
       DOSSIER_CONTRACT,
@@ -271,9 +275,24 @@ describe('createFakeRunners({ cases })', () => {
     const parsed = lines.map((l) => JSON.parse(l))
     expect(parsed.map((p) => [p.stage, p.slug, p.mode])).toEqual([
       ['summary', 'fx-a', 'text'],
-      ['rejectDigest', 'fx-a', 'default-digest']
+      ['rejectDigest', null, 'default-digest']
     ])
     expect(typeof parsed[0].at).toBe('string')
+  })
+
+  it('the reject digest never borrows the sticky slug and ignores a case rejectDigest entry', async () => {
+    const lines: string[] = []
+    const r = createFakeRunners(
+      caseOf({ summary: { text: 'S' }, rejectDigest: { text: '- case-specific digest' } }),
+      { log: (l) => lines.push(l) }
+    )
+    await r.oneShot(PROMPTS.summary) // sticky slug is now fx-a
+    expect((await r.oneShot(PROMPTS.rejectDigest)).text).toBe(DEFAULT_DIGEST_TEXT)
+    expect(JSON.parse(lines[1])).toMatchObject({
+      stage: 'rejectDigest',
+      slug: null,
+      mode: 'default-digest'
+    })
   })
 })
 

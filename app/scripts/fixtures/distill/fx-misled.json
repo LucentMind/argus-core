@@ -93,6 +93,7 @@
         "costUsd": 0.53
       }
     ],
+    "attributionsJob": 0,
     "attributions": [
       {
         "kind": "skill",

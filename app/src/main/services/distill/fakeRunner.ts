@@ -60,8 +60,8 @@ export const AGENT_DEFAULT_USAGE: HeadlessUsage = {
   durationMs: 100
 }
 export const FAKE_CALLS_FILE = 'calls.ndjson'
-/** What a case with no `rejectDigest` entry returns: the digest is a bullet list, and the
- *  rebuild refuses a response with no "- " line. */
+/** What every reject-digest call returns (the digest belongs to no case, so no fixture entry is
+ *  consulted): the digest is a bullet list, and the rebuild refuses a response with no "- " line. */
 export const DEFAULT_DIGEST_TEXT = '- Cite the evidence behind every proposal.'
 
 const AGENT_STAGES: ReadonlySet<FakeStage> = new Set(['dossier', 'dossierLite', 'v2'])
@@ -70,15 +70,14 @@ const AGENT_STAGES: ReadonlySet<FakeStage> = new Set(['dossier', 'dossierLite', 
 const firstSentence = (contract: string): string =>
   /^[\s\S]*?\.(?=\s|$)/.exec(contract)?.[0] ?? contract
 
-/** The lite contract's one deviation from the full one: the first line the full contract lacks.
- *  Derived by diffing at load time so it follows any edit to either constant. */
-const LITE_MARKER = ((): string => {
-  const full = new Set(DOSSIER_CONTRACT.split('\n'))
-  const line = DOSSIER_LITE_CONTRACT.split('\n').find((l) => l.trim() && !full.has(l))
-  if (!line)
-    throw new Error('fake runner: DOSSIER_LITE_CONTRACT differs from DOSSIER_CONTRACT in no line')
-  return line
-})()
+// The lite and full dossier prompts share their first sentence and are told apart by which
+// whole contract the prompt opens with. That only works while a full prompt cannot also open
+// with the lite contract, so check it at load time: it follows any edit to either constant.
+if (
+  DOSSIER_LITE_CONTRACT === DOSSIER_CONTRACT ||
+  DOSSIER_CONTRACT.startsWith(DOSSIER_LITE_CONTRACT)
+)
+  throw new Error('fake runner: DOSSIER_LITE_CONTRACT does not differ from DOSSIER_CONTRACT')
 const DOSSIER_HEAD = firstSentence(DOSSIER_CONTRACT)
 const STAGE_HEADS: [FakeStage, string][] = [
   ['summary', firstSentence(SUMMARY_CONTRACT)],
@@ -90,9 +89,10 @@ const STAGE_HEADS: [FakeStage, string][] = [
 ]
 
 export function stageOf(prompt: string): FakeStage | null {
-  // The lite and full dossier share their first sentence; the lite marker tells them apart.
+  // The lite and full dossier share their first sentence; the whole contract tells them apart.
+  // `startsWith`, not `includes`: a full prompt can inline lite-contract text in its body.
   if (prompt.startsWith(DOSSIER_HEAD))
-    return prompt.includes(LITE_MARKER) ? 'dossierLite' : 'dossier'
+    return prompt.startsWith(DOSSIER_LITE_CONTRACT) ? 'dossierLite' : 'dossier'
   return STAGE_HEADS.find(([, head]) => prompt.startsWith(head))?.[0] ?? null
 }
 
@@ -132,13 +132,18 @@ export function createFakeRunners(
       throw new Error(
         `fake runner: ${stage} is ${kind === 'agent' ? 'a one-shot stage, not an agent stage' : 'an agent stage, not a one-shot stage'}`
       )
-    const slug = slugOf(prompt) ?? sticky
-    if (slugOf(prompt)) sticky = slugOf(prompt)
-    // The digest summarises every case's rejects, so it needs no case of its own.
+    // The digest summarises every case's rejects, so it belongs to no case: it never borrows the
+    // sticky slug (that would credit a digest call to whichever case ran last) and always
+    // answers the default bullet list.
     const digest = stage === 'rejectDigest'
+    const own = digest ? null : slugOf(prompt)
+    if (own) sticky = own
+    const slug = digest ? null : (own ?? sticky)
     if (!slug && !digest) throw new Error('fake runner: no slug in prompt and no previous slug')
     const stages = slug ? loadCase(slug) : null
-    const found = stages?.[stage] ?? (stage === 'dossierLite' ? stages?.dossier : undefined)
+    const found = digest
+      ? undefined
+      : (stages?.[stage] ?? (stage === 'dossierLite' ? stages?.dossier : undefined))
     if (!found && !digest) throw new Error(`fake runner: no fixture for ${slug}/${stage}`)
     const spec: FakeStageSpec = found ?? { text: DEFAULT_DIGEST_TEXT }
     const defaulted = !found
