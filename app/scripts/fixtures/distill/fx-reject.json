@@ -1,0 +1,166 @@
+{
+  "slug": "fx-reject",
+  "title": "Orders are charged twice (fixture: reject)",
+  "jiraKey": "FXJ-1",
+  "scenario": "reject: both references helped and each gets a staged reference-edit; rejecting the fx-reject edit as wrong overrides fx-reject.md to misled (source proposal-reject, target fx-reject mapped to fx-reject.md), rejecting the fx-reject-control edit as overgeneric leaves fx-reject-control.md un-overridden; the Library labels a reference row by its relPath with extension (r.file), so the chip asset is fx-reject.md",
+  "settings": {
+    "pipeline": "v3"
+  },
+  "assets": {
+    "skills": [],
+    "references": [
+      {
+        "relPath": "fx-reject.md",
+        "tier": "team-knowledge",
+        "body": "# Queue consumer limits\n\n## Notes\n- The consumer ack timeout defaults to 30 seconds per message.\n- Prefetch defaults to 50 messages per channel.\n"
+      },
+      {
+        "relPath": "fx-reject-control.md",
+        "tier": "team-knowledge",
+        "body": "# Broker connection limits\n\n## Notes\n- The broker closes a connection that sends no heartbeat for 60 seconds.\n- A closed connection requeues every unacked message on it.\n"
+      }
+    ],
+    "memories": []
+  },
+  "sessions": [
+    {
+      "title": "Duplicate charge triage",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Some orders are charged twice. The payment handler runs twice for the same message. Find out why."
+        },
+        {
+          "role": "assistant",
+          "content": "I read the queue consumer limits and broker connection limits references. The broker reference rules out a dropped connection: heartbeats are steady. The consumer reference gives a 30 second ack timeout, and the slow payment handler takes about 45 seconds, so the broker redelivers the message while the first delivery is still running. Root cause: ack timeout shorter than the handler time."
+        },
+        {
+          "role": "user",
+          "content": "Confirmed on the bench: raising the ack timeout to 90 seconds stops the double charge."
+        },
+        {
+          "role": "assistant",
+          "content": "Recorded as the root cause."
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "summary": "The consumer ack timeout (30s) is shorter than the payment handler time (~45s); the broker redelivers the message mid-handler and the order is charged twice.",
+      "reviewState": "accepted",
+      "role": "root-cause",
+      "session": 0
+    }
+  ],
+  "toolCalls": [
+    {
+      "session": 0,
+      "turn": 2,
+      "tool": "Read",
+      "detail": "ref:fx-reject.md"
+    },
+    {
+      "session": 0,
+      "turn": 2,
+      "tool": "Read",
+      "detail": "ref:fx-reject-control.md"
+    }
+  ],
+  "close": {
+    "resolution": "solved",
+    "distill": true,
+    "attribution": true
+  },
+  "stages": {
+    "dossier": {
+      "text": "```json\n{\"scope\":{\"status\":\"closed\",\"resolution\":\"solved\",\"settled\":true,\"note\":\"The bench confirmed the ack-timeout redelivery.\"},\"root_cause\":{\"text\":\"The consumer ack timeout (30s) is shorter than the payment handler time (about 45s); the broker redelivers the message while the first delivery is still running.\",\"cites\":[{\"finding\":\"{{finding:0}}\"}]},\"confirmed_fix\":null,\"rejected_hypotheses\":[],\"diagnostic_path\":[{\"step\":\"Compared the consumer ack timeout with the payment handler time\",\"observation\":\"The 45s handler outlives the 30s ack timeout\",\"discriminated\":\"A redelivery, not a dropped connection\",\"cites\":[{\"session\":\"{{session:0}}\",\"turn\":1}]}],\"durable_facts\":[],\"user_corrections\":[]}\n```"
+    },
+    "summary": {
+      "text": "```json\n{\"summary\":{\"signature\":\"Messages processed twice because the ack timeout is shorter than the handler\",\"symptoms\":\"Some orders are charged twice; the handler runs twice for one message.\",\"rootCause\":\"A 30s ack timeout under a 45s handler makes the broker redeliver mid-handler.\",\"fix\":\"Raise the ack timeout above the slowest handler time.\",\"keywords\":[\"queue\",\"ack timeout\",\"redelivery\",\"duplicate\"]}}\n```"
+    },
+    "candidates": {
+      "text": "```json\n{\"candidates\":[{\"kind\":\"fact\",\"type\":\"reference-edit\",\"target\":\"fx-reject\",\"title\":\"Ack timeout shorter than the handler\",\"outline\":\"An ack timeout shorter than the slowest handler causes redelivery and duplicate processing.\",\"evidence\":[\"root_cause\"],\"related\":[],\"generalization\":\"Any consumer whose ack timeout undercuts its handler time processes messages twice.\",\"routing_rationale\":\"The queue reference already documents consumer timing limits.\",\"confidence\":0.9},{\"kind\":\"fact\",\"type\":\"reference-edit\",\"target\":\"fx-reject-control\",\"title\":\"Redelivery under a short ack timeout\",\"outline\":\"An ack timeout shorter than the slowest handler causes redelivery and duplicate processing.\",\"evidence\":[\"root_cause\"],\"related\":[],\"generalization\":\"Any consumer whose ack timeout undercuts its handler time processes messages twice.\",\"routing_rationale\":\"The queue reference already documents consumer timing limits.\",\"confidence\":0.8}]}\n```"
+    },
+    "materialize": {
+      "text": "```json\n{\"ops\":[{\"op\":\"append-section\",\"heading\":\"## Notes\",\"content\":\"- A consumer whose ack timeout is shorter than its slowest handler gets the message redelivered while the first delivery is still running, so the handler processes it twice.\"}],\"basis\":\"The accepted root cause: a 30s ack timeout under a 45s handler redelivered each slow message.\"}\n```"
+    },
+    "attribution": {
+      "text": "```json\n{\"verdicts\":[{\"kind\":\"reference\",\"name\":\"fx-reject.md\",\"applied\":true,\"verdict\":\"helped\",\"reason\":\"The 30s ack timeout it documents is the value the root cause compares against.\",\"cites\":[{\"finding\":\"{{finding:0}}\"}]},{\"kind\":\"reference\",\"name\":\"fx-reject-control.md\",\"applied\":true,\"verdict\":\"helped\",\"reason\":\"Its heartbeat rule ruled out a dropped connection on the way to the root cause.\",\"cites\":[{\"finding\":\"{{finding:0}}\"}]}]}\n```"
+    }
+  },
+  "actions": [
+    {
+      "type": "reject-proposal",
+      "proposalType": "reference-edit",
+      "target": "fx-reject",
+      "reason": "wrong"
+    },
+    {
+      "type": "reject-proposal",
+      "proposalType": "reference-edit",
+      "target": "fx-reject-control",
+      "reason": "overgeneric"
+    }
+  ],
+  "expected": {
+    "jobs": [
+      {
+        "kind": "case",
+        "state": "done",
+        "pipeline": "v3",
+        "stages": [
+          "dossier",
+          "summary",
+          "candidates",
+          "attribution",
+          "materialize"
+        ],
+        "attributionSkipped": null,
+        "attributionError": false,
+        "costUsd": 0.55
+      }
+    ],
+    "attributions": [
+      {
+        "kind": "reference",
+        "name": "fx-reject.md",
+        "applied": 1,
+        "verdict": "helped",
+        "override": {
+          "verdict": "misled",
+          "source": "proposal-reject"
+        },
+        "domain": "FXJ",
+        "outcome": "solved"
+      },
+      {
+        "kind": "reference",
+        "name": "fx-reject-control.md",
+        "applied": 1,
+        "verdict": "helped",
+        "override": null,
+        "domain": "FXJ",
+        "outcome": "solved"
+      }
+    ],
+    "fakeCalls": {
+      "dossier": 1,
+      "attribution": 1,
+      "materialize": 2
+    },
+    "ui": {
+      "libraryChip": {
+        "asset": "fx-reject.md",
+        "text": "helped 0 · misled 1"
+      },
+      "observabilityLists": [
+        "fx-reject.md",
+        "fx-reject-control.md"
+      ],
+      "observabilityOmits": [],
+      "runsRailLabel": null,
+      "runDetailSkipped": null
+    }
+  }
+}
