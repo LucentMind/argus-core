@@ -420,3 +420,140 @@ describe('runCaseDistillPipeline', () => {
     expect(seen.every((s) => s === ac.signal)).toBe(true)
   })
 })
+
+describe('attribution stage', () => {
+  const ASSETS = [
+    {
+      kind: 'skill' as const,
+      name: 'diagnose-x',
+      tier: 'user',
+      callCount: 1,
+      firstSeen: { sessionId: 1, turnId: null }
+    }
+  ]
+  const ATTR =
+    '```json\n{"verdicts":[{"kind":"skill","name":"diagnose-x","applied":true,"verdict":"helped","reason":"r","cites":[{"finding":7}]}]}\n```'
+  const withAssets = (): CaseDistillInput => ({
+    ...INPUT,
+    assets: ASSETS,
+    caseOutcome: 'solved',
+    caseDomain: 'NAV',
+    options: { attribution: true }
+  })
+  const stageOf = (p: string): 'attribution' | 'summary' | 'candidates' | 'materialize' =>
+    p.includes('# Assets')
+      ? 'attribution'
+      : p.startsWith('You are writing the canonical case summary')
+        ? 'summary'
+        : p.startsWith('You are selecting durable-knowledge candidates')
+          ? 'candidates'
+          : 'materialize'
+  const routed = (attr: string = ATTR): PipelineRunners['oneShot'] =>
+    oneShotBy((p) => {
+      const s = stageOf(p)
+      return s === 'attribution'
+        ? attr
+        : s === 'summary'
+          ? SUMMARY
+          : s === 'candidates'
+            ? CANDS
+            : MAT
+    })
+
+  it('runs after the dossier, in parallel with summary and candidates, and returns pruned+completed verdicts', async () => {
+    const order: string[] = []
+    const inner = routed()
+    const oneShot: PipelineRunners['oneShot'] = async (prompt, o) => {
+      order.push(stageOf(prompt))
+      return inner(prompt, o)
+    }
+    const run = await runCaseDistillPipeline(withAssets(), { agent: agentOk(DOSSIER), oneShot })
+    expect(order.slice(0, 3).sort()).toEqual(['attribution', 'candidates', 'summary'])
+    expect(run.stages?.attribution?.error).toBeUndefined()
+    expect(run.attribution?.verdicts).toEqual([
+      {
+        kind: 'skill',
+        name: 'diagnose-x',
+        applied: true,
+        verdict: 'helped',
+        reason: 'r',
+        cites: [{ finding: 7 }]
+      }
+    ])
+    expect(run.stages?.attribution?.promptHash).toMatch(/^[0-9a-f]{12}$/)
+    // dossier 0.5 + summary + candidates + attribution + 1 materialize at 0.01 each
+    expect(run.usage?.costUsd).toBeCloseTo(0.54)
+  })
+
+  it('is skipped with a marker when the inventory is empty or the job declined it — no model call', async () => {
+    const calls: string[] = []
+    const inner = routed()
+    const oneShot: PipelineRunners['oneShot'] = async (p, o) => {
+      calls.push(p)
+      return inner(p, o)
+    }
+    const empty = await runCaseDistillPipeline(
+      { ...withAssets(), assets: [] },
+      { agent: agentOk(DOSSIER), oneShot }
+    )
+    expect(empty.stages?.attributionSkipped).toBe('no-assets')
+    expect(empty.stages?.attribution).toBeUndefined()
+    expect(empty.attribution).toBeUndefined()
+    const declined = await runCaseDistillPipeline(
+      { ...withAssets(), options: { attribution: false } },
+      { agent: agentOk(DOSSIER), oneShot }
+    )
+    expect(declined.stages?.attributionSkipped).toBe('declined')
+    expect(declined.attribution).toBeUndefined()
+    expect(calls.some((p) => p.includes('# Assets'))).toBe(false)
+  })
+
+  it('a parse failure is recorded on the stage and the run still completes with proposals', async () => {
+    const run = await runCaseDistillPipeline(withAssets(), {
+      agent: agentOk(DOSSIER),
+      oneShot: routed('garbage')
+    })
+    expect(run.stages?.attribution?.error).toMatch(/json fence/)
+    expect(run.attribution).toBeUndefined()
+    expect(run.output.proposals?.length).toBeGreaterThan(0)
+  })
+
+  it('a runner error on the attribution call is recorded and the run still completes', async () => {
+    const inner = routed()
+    const oneShot: PipelineRunners['oneShot'] = async (p, o) => {
+      if (stageOf(p) === 'attribution') throw new Error('boom')
+      return inner(p, o)
+    }
+    const run = await runCaseDistillPipeline(withAssets(), { agent: agentOk(DOSSIER), oneShot })
+    expect(run.stages?.attribution?.error).toBe('boom')
+    expect(run.attribution).toBeUndefined()
+    expect(run.output.proposals?.length).toBeGreaterThan(0)
+  })
+
+  it('records unknown-asset, malformed and uncited drop counters on stages', async () => {
+    const bad =
+      '```json\n{"verdicts":[{"kind":"skill","name":"nope","applied":true,"verdict":"helped","reason":"r","cites":[{"finding":7}]},{"kind":"skill","name":"diagnose-x","applied":true,"verdict":"helped","reason":"r","cites":[{"finding":999}]}]}\n```'
+    const run = await runCaseDistillPipeline(withAssets(), {
+      agent: agentOk(DOSSIER),
+      oneShot: routed(bad)
+    })
+    expect(run.stages?.attributionUnknownAssetDropped).toEqual({ 'skill/nope': 1 })
+    expect(run.stages?.attributionUncitedDropped).toBe(1)
+    expect(run.attribution?.verdicts).toEqual([
+      { kind: 'skill', name: 'diagnose-x', applied: null, verdict: null, reason: '', cites: [] }
+    ])
+  })
+
+  it('a failed candidates stage still carries the attribution record in the thrown meta', async () => {
+    const inner = routed()
+    const oneShot: PipelineRunners['oneShot'] = async (p, o) =>
+      stageOf(p) === 'candidates' ? { text: 'garbage' } : inner(p, o)
+    const err = await runCaseDistillPipeline(withAssets(), {
+      agent: agentOk(DOSSIER),
+      oneShot
+    }).catch((e) => e)
+    expect(err).toBeInstanceOf(DistillAgentRunError)
+    expect((err as DistillAgentRunError).agentMeta?.stages?.attribution?.error).toBeUndefined()
+    expect((err as DistillAgentRunError).agentMeta?.stages?.attribution?.rawOutput).toBe(ATTR)
+  })
+})

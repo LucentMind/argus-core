@@ -28,12 +28,19 @@ import {
   materializeToProposal
 } from './materialize'
 import { validateMaterialized } from './validators'
-import { stagePromptHash } from './promptHash'
+import {
+  buildAttributionPrompt,
+  parseAttribution,
+  pruneAttributionCites,
+  completeVerdicts
+} from './attribution'
+import type { AttributionOutput } from '../../../../shared/attribution'
+import { stagePromptHash, type V3Stage } from './promptHash'
 
 export interface PipelineRunners {
   /** stage 1 — agentic, tools over the frozen world */
   agent: HeadlessAgentRunnerFn
-  /** stages 2a / 2b / 3 — plain headless prompt */
+  /** stages 2a / 2b / 2c / 3 — plain headless prompt */
   oneShot: (prompt: string, opts?: { signal?: AbortSignal }) => Promise<HeadlessResult>
 }
 
@@ -85,7 +92,7 @@ async function mapLimit<T, R>(
 /** One tool-less stage call → its StageRecord + parsed value (or an error recorded on the record). */
 async function oneShotStage<T>(
   runners: PipelineRunners,
-  stage: 'summary' | 'candidates' | 'materialize',
+  stage: Exclude<V3Stage, 'dossier'>,
   prompt: string,
   parse: (text: string) => T,
   resolve: ((id: string) => string) | undefined,
@@ -216,18 +223,51 @@ export async function runCaseDistillPipeline(
   // losing the only column that says how far the run actually got. An abort is rethrown
   // untouched: the queue must read a cancelled run as cancelled, never as a failure.
   try {
-    // ── stage 2a ‖ 2b ────────────────────────────────────────────────────────────────────────
+    // ── stage 2a ‖ 2b ‖ 2c ───────────────────────────────────────────────────────────────────
     const summaryPrompt = buildSummaryPrompt(input, dossier, resolve)
     const candidatesPrompt = buildCandidatesPrompt(input, dossier, resolve)
     promptChars += summaryPrompt.length + candidatesPrompt.length
+    // Attribution is optional and non-fatal: a declined job or an empty inventory makes NO model
+    // call and leaves a marker on `stages` so the run panel can say why there is no stage record.
+    const assets = input.assets ?? []
+    if (input.options?.attribution === false) stages.attributionSkipped = 'declined'
+    else if (assets.length === 0) stages.attributionSkipped = 'no-assets'
+    const attributionPrompt = stages.attributionSkipped
+      ? null
+      : buildAttributionPrompt(input, dossier, resolve)
+    if (attributionPrompt) promptChars += attributionPrompt.length
     report({ phase: 'summary+candidates' })
-    const [sum, cand] = await Promise.all([
+    const [sum, cand, attr] = await Promise.all([
       oneShotStage(runners, 'summary', summaryPrompt, parseSummary, resolve, signal),
-      oneShotStage(runners, 'candidates', candidatesPrompt, parseCandidates, resolve, signal)
+      oneShotStage(runners, 'candidates', candidatesPrompt, parseCandidates, resolve, signal),
+      attributionPrompt
+        ? oneShotStage(
+            runners,
+            'attribution',
+            attributionPrompt,
+            (t) => parseAttribution(t, assets),
+            resolve,
+            signal
+          )
+        : Promise.resolve(null)
     ])
     stages.summary = sum.record
     stages.candidates = cand.record
     usage = addUsage(addUsage(usage, sum.record.usage), cand.record.usage)
+    let attribution: AttributionOutput | undefined
+    if (attr) {
+      stages.attribution = attr.record
+      usage = addUsage(usage, attr.record.usage)
+      if (attr.value) {
+        const pruned = completeVerdicts(pruneAttributionCites(attr.value, input), assets)
+        if (Object.keys(pruned.malformedDropped).length)
+          stages.attributionMalformedDropped = pruned.malformedDropped
+        if (Object.keys(pruned.unknownAssetDropped).length)
+          stages.attributionUnknownAssetDropped = pruned.unknownAssetDropped
+        if (pruned.uncitedDropped) stages.attributionUncitedDropped = pruned.uncitedDropped
+        attribution = pruned
+      }
+    }
     if (cand.value === undefined) {
       throw new DistillAgentRunError(
         `candidates: ${cand.record.error ?? 'no output'}`,
@@ -346,7 +386,8 @@ export async function runCaseDistillPipeline(
       toolCallCount: res.toolCallCount,
       trajectory: res.trajectory,
       stages,
-      preStageDropped
+      preStageDropped,
+      ...(attribution ? { attribution } : {})
     }
   } catch (e) {
     if (e instanceof DistillAgentRunError || signal?.aborted) throw e
