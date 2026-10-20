@@ -232,10 +232,22 @@ export async function runCaseDistillPipeline(
     const assets = input.assets ?? []
     if (input.options?.attribution === false) stages.attributionSkipped = 'declined'
     else if (assets.length === 0) stages.attributionSkipped = 'no-assets'
-    const attributionPrompt = stages.attributionSkipped
-      ? null
-      : buildAttributionPrompt(input, dossier, resolve)
-    if (attributionPrompt) promptChars += attributionPrompt.length
+    let attributionPrompt: string | null = null
+    if (!stages.attributionSkipped) {
+      try {
+        attributionPrompt = buildAttributionPrompt(input, dossier, resolve)
+        promptChars += attributionPrompt.length
+      } catch (e) {
+        // Non-fatal: a prompt-build throw must not fail a run before summary/candidates are paid
+        // for. Record it as the stage's own error and carry on without the stage.
+        stages.attribution = {
+          promptHash: stagePromptHash('attribution', resolve),
+          promptChars: 0,
+          rawOutput: '',
+          error: e instanceof Error ? e.message : String(e)
+        }
+      }
+    }
     report({ phase: 'summary+candidates' })
     const [sum, cand, attr] = await Promise.all([
       oneShotStage(runners, 'summary', summaryPrompt, parseSummary, resolve, signal),
@@ -259,13 +271,18 @@ export async function runCaseDistillPipeline(
       stages.attribution = attr.record
       usage = addUsage(usage, attr.record.usage)
       if (attr.value) {
-        const pruned = completeVerdicts(pruneAttributionCites(attr.value, input), assets)
-        if (Object.keys(pruned.malformedDropped).length)
-          stages.attributionMalformedDropped = pruned.malformedDropped
-        if (Object.keys(pruned.unknownAssetDropped).length)
-          stages.attributionUnknownAssetDropped = pruned.unknownAssetDropped
-        if (pruned.uncitedDropped) stages.attributionUncitedDropped = pruned.uncitedDropped
-        attribution = pruned
+        try {
+          const pruned = completeVerdicts(pruneAttributionCites(attr.value, input), assets)
+          if (Object.keys(pruned.malformedDropped).length)
+            stages.attributionMalformedDropped = pruned.malformedDropped
+          if (Object.keys(pruned.unknownAssetDropped).length)
+            stages.attributionUnknownAssetDropped = pruned.unknownAssetDropped
+          if (pruned.uncitedDropped) stages.attributionUncitedDropped = pruned.uncitedDropped
+          attribution = pruned
+        } catch (e) {
+          // Non-fatal, like a parse failure: the run completes without attribution.
+          attr.record.error = e instanceof Error ? e.message : String(e)
+        }
       }
     }
     if (cand.value === undefined) {
