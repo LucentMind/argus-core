@@ -159,7 +159,8 @@ CREATE TABLE IF NOT EXISTS distill_jobs (
   stages_json TEXT,
   -- A comparison run: the full pipeline ran, staging did not. Every DB READ of "this case's
   -- distillation state" filters dry_run = 0 (queue.statusFor, needsDistillRun via statusFor,
-  -- evalExport's job selection, usage.ts's distillationStats) — queue.listRuns is the one
+  -- evalExport's job selection, usage.ts's distillationStats, attributions.applyAttributionOverride's
+  -- fallback job pick; attributions.latestAttributionRows joins here to drop dry jobs) — queue.listRuns is the one
   -- reader that deliberately does NOT filter it (the run picker compares a dry run against a
   -- real one on purpose). runDetail.readRunDetail is a second unfiltered reader, but it is
   -- id-keyed (SELECT ... WHERE id = ?), not "latest row for this case" — an id-keyed read has

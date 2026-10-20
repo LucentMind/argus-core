@@ -41,7 +41,8 @@ const SELECT = `SELECT a.*, c.slug AS case_slug FROM asset_attributions a JOIN c
 function toRow(r: Raw): AttributionRow {
   let cites: DossierCite[] = []
   try {
-    cites = JSON.parse(r.cites_json) as DossierCite[]
+    const parsed: unknown = JSON.parse(r.cites_json)
+    cites = Array.isArray(parsed) ? (parsed as DossierCite[]) : []
   } catch {
     cites = []
   }
@@ -68,6 +69,54 @@ function toRow(r: Raw): AttributionRow {
   }
 }
 
+interface InsertParams {
+  caseId: number
+  jobId: number
+  kind: AssetKind
+  name: string
+  tier: string | null
+  applied: number | null
+  verdict: AssetVerdictValue | null
+  reason: string
+  citesJson: string
+  caseOutcome: CaseOutcome
+  caseDomain: string
+  judgeModel: string
+  promptHash: string
+  at: string
+}
+
+/** The one INSERT for asset_attributions; returns the new row id. */
+function insertRow(db: DatabaseSync, p: InsertParams): number {
+  const res = db
+    .prepare(
+      `INSERT INTO asset_attributions (case_id, job_id, asset_kind, asset_name, asset_tier, applied, verdict, reason, cites_json, case_outcome, case_domain, judge_model, prompt_hash, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      p.caseId,
+      p.jobId,
+      p.kind,
+      p.name,
+      p.tier,
+      p.applied,
+      p.verdict,
+      p.reason,
+      p.citesJson,
+      p.caseOutcome,
+      p.caseDomain,
+      p.judgeModel,
+      p.promptHash,
+      p.at
+    )
+  return Number(res.lastInsertRowid)
+}
+
+/**
+ * Idempotent per (case, job): queue.retry reuses a failed job's id, so a re-run replaces that
+ * job's rows rather than doubling them. Delete + inserts share one transaction so a throw
+ * mid-way cannot leave the job with its old rows gone and the new ones half-written.
+ */
 export function writeAttributions(
   db: DatabaseSync,
   p: {
@@ -85,29 +134,34 @@ export function writeAttributions(
   const c = getCase(db, p.caseSlug)
   if (!c) throw new Error(`Unknown case: ${p.caseSlug}`)
   const at = (p.now?.() ?? new Date()).toISOString()
-  const ins = db.prepare(
-    `INSERT INTO asset_attributions (case_id, job_id, asset_kind, asset_name, asset_tier, applied, verdict, reason, cites_json, case_outcome, case_domain, judge_model, prompt_hash, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
   const ids: number[] = []
-  for (const v of p.verdicts) {
-    const res = ins.run(
-      c.id,
-      p.jobId,
-      v.kind,
-      v.name,
-      p.tiers.get(`${v.kind}/${v.name}`) ?? null,
-      v.applied === null ? null : v.applied ? 1 : 0,
-      v.verdict,
-      v.reason,
-      JSON.stringify(v.cites),
-      p.caseOutcome,
-      p.caseDomain,
-      p.judgeModel,
-      p.promptHash,
-      at
-    )
-    ids.push(Number(res.lastInsertRowid))
+  db.exec('BEGIN')
+  try {
+    db.prepare(`DELETE FROM asset_attributions WHERE case_id = ? AND job_id = ?`).run(c.id, p.jobId)
+    for (const v of p.verdicts) {
+      ids.push(
+        insertRow(db, {
+          caseId: c.id,
+          jobId: p.jobId,
+          kind: v.kind,
+          name: v.name,
+          tier: p.tiers.get(`${v.kind}/${v.name}`) ?? null,
+          applied: v.applied === null ? null : v.applied ? 1 : 0,
+          verdict: v.verdict,
+          reason: v.reason,
+          citesJson: JSON.stringify(v.cites),
+          caseOutcome: p.caseOutcome,
+          caseDomain: p.caseDomain,
+          judgeModel: p.judgeModel,
+          promptHash: p.promptHash,
+          at
+        })
+      )
+    }
+    db.exec('COMMIT')
+  } catch (e) {
+    db.exec('ROLLBACK')
+    throw e
   }
   if (ids.length === 0) return []
   return (
@@ -117,7 +171,10 @@ export function writeAttributions(
   ).map(toRow)
 }
 
-/** Rows of the LATEST job per case that produced attribution rows (spec §4.6). */
+/**
+ * Rows of the LATEST job per case that produced attribution rows (spec §4.6). Rows against a
+ * dry-run job are excluded from the MAX so they can never shadow the real job.
+ */
 export function latestAttributionRows(
   db: DatabaseSync,
   opts: { caseSlug?: string } = {}
@@ -125,7 +182,9 @@ export function latestAttributionRows(
   const rows = db
     .prepare(
       `${SELECT}
-       JOIN (SELECT case_id, MAX(job_id) AS job_id FROM asset_attributions GROUP BY case_id) l
+       JOIN (SELECT x.case_id, MAX(x.job_id) AS job_id
+               FROM asset_attributions x JOIN distill_jobs dj ON dj.id = x.job_id
+              WHERE dj.dry_run = 0 GROUP BY x.case_id) l
          ON l.case_id = a.case_id AND l.job_id = a.job_id
        WHERE (? IS NULL OR c.slug = ?) ORDER BY a.id`
     )
@@ -148,7 +207,10 @@ export function applyAttributionOverride(
   if (!c) return null
   const at = (p.now?.() ?? new Date()).toISOString()
   const latestJob = db
-    .prepare(`SELECT MAX(job_id) AS j FROM asset_attributions WHERE case_id = ?`)
+    .prepare(
+      `SELECT MAX(x.job_id) AS j FROM asset_attributions x JOIN distill_jobs dj ON dj.id = x.job_id
+        WHERE x.case_id = ? AND dj.dry_run = 0`
+    )
     .get(c.id) as { j: number | null }
   let row =
     latestJob.j === null
@@ -162,29 +224,33 @@ export function applyAttributionOverride(
     const jobId =
       latestJob.j ??
       (
-        db.prepare(`SELECT MAX(id) AS j FROM distill_jobs WHERE case_slug = ?`).get(p.caseSlug) as {
-          j: number | null
-        }
+        db
+          .prepare(
+            `SELECT MAX(id) AS j FROM distill_jobs WHERE case_slug = ? AND kind = 'case' AND dry_run = 0`
+          )
+          .get(p.caseSlug) as { j: number | null }
       ).j
     if (jobId === null) return null
     const findings = db
       .prepare(`SELECT review_state AS reviewState, role FROM findings WHERE case_id = ?`)
       .all(c.id) as unknown as { reviewState: string; role: string | null }[]
-    const res = db
-      .prepare(
-        `INSERT INTO asset_attributions (case_id, job_id, asset_kind, asset_name, asset_tier, applied, verdict, reason, cites_json, case_outcome, case_domain, judge_model, prompt_hash, created_at)
-       VALUES (?, ?, ?, ?, NULL, 1, NULL, '', '[]', ?, ?, 'none', '', ?)`
-      )
-      .run(
-        c.id,
-        jobId,
-        p.kind,
-        p.name,
-        deriveCaseOutcome(c, findings),
-        deriveCaseDomain(c, listStoredWorkspaces(db, p.caseSlug)),
-        at
-      )
-    row = db.prepare(`${SELECT} WHERE a.id = ?`).get(Number(res.lastInsertRowid)) as unknown as Raw
+    const id = insertRow(db, {
+      caseId: c.id,
+      jobId,
+      kind: p.kind,
+      name: p.name,
+      tier: null,
+      applied: 1,
+      verdict: null,
+      reason: '',
+      citesJson: '[]',
+      caseOutcome: deriveCaseOutcome(c, findings),
+      caseDomain: deriveCaseDomain(c, listStoredWorkspaces(db, p.caseSlug)),
+      judgeModel: 'none',
+      promptHash: '',
+      at
+    })
+    row = db.prepare(`${SELECT} WHERE a.id = ?`).get(id) as unknown as Raw
   }
   if (row.override_source === p.source && row.override_verdict === p.verdict) return toRow(row)
   // applied = COALESCE(applied, 1): a human override on a row the judge was silent about is itself
@@ -205,7 +271,8 @@ export function assetNamesForCase(
   const out = new Map<string, { kind: AssetKind; name: string }>()
   for (const r of db
     .prepare(
-      `SELECT DISTINCT asset_kind, asset_name FROM asset_attributions WHERE case_id = ? ORDER BY id`
+      `SELECT asset_kind, asset_name FROM asset_attributions WHERE case_id = ?
+       GROUP BY asset_kind, asset_name ORDER BY MIN(id)`
     )
     .all(c.id) as unknown as { asset_kind: AssetKind; asset_name: string }[])
     out.set(`${r.asset_kind}/${r.asset_name}`, { kind: r.asset_kind, name: r.asset_name })
