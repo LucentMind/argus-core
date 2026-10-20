@@ -223,8 +223,11 @@ export function matchAssetMention(
   const hay = text.toLowerCase()
   const sorted = [...names].sort((a, b) => b.name.length - a.name.length)
   for (const n of sorted) {
+    // Symmetric token boundaries: a left neighbour of [A-Za-z0-9_./-] or a right neighbour of
+    // [A-Za-z0-9_-] (or of `.`/`/` followed by another token char, i.e. a path continuation) means
+    // a partial hit. A sentence-ending `.` or `/` (followed by whitespace/end) is still a boundary.
     const re = new RegExp(
-      `(^|[^A-Za-z0-9_./-])(?:skill:|ref:|memory:)?${escapeRe(n.name.toLowerCase())}(?![A-Za-z0-9_-])`
+      `(^|[^A-Za-z0-9_./-])(?:skill:|ref:|memory:)?${escapeRe(n.name.toLowerCase())}(?![A-Za-z0-9_-]|[./][A-Za-z0-9_-])`
     )
     if (re.test(hay)) return n
   }

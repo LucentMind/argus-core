@@ -162,4 +162,35 @@ describe('matchAssetMention', () => {
     expect(matchAssetMention('no asset here', names)).toBeNull()
     expect(matchAssetMention('diagnose-xy', names)).toBeNull()
   })
+  it('escapes regex metacharacters: "." in a ref name is literal, not a wildcard', () => {
+    expect(matchAssetMention('navXlimitsYmd', names)).toBeNull()
+    // "." unescaped would match the X here; the literal ref name must not.
+    expect(matchAssetMention('nav/limitsXmd is stale', [names[1]])).toBeNull()
+    expect(matchAssetMention('nav/limits.md is stale', [names[1]])).toEqual(names[1])
+  })
+  it('treats regex metacharacters in a name literally', () => {
+    const cpp = [{ kind: 'skill' as const, name: 'c++(fast)' }]
+    expect(matchAssetMention('used c++(fast) here', cpp)).toEqual(cpp[0])
+    expect(matchAssetMention('used cfast here', cpp)).toBeNull()
+  })
+  it('right boundary mirrors the left: a path continuation is not a bare-name hit', () => {
+    const skillNav = [{ kind: 'skill' as const, name: 'nav' }]
+    // The skill `nav` must not claim the reference `nav/limits.md`.
+    expect(matchAssetMention('nav/limits.md is stale', skillNav)).toBeNull()
+    expect(matchAssetMention('nav/limits.md is stale', [...skillNav, ...names])).toEqual(names[1])
+    // `diagnose-x` must not claim `diagnose-x.md`.
+    expect(matchAssetMention('diagnose-x.md is stale', names)).toBeNull()
+    // A sentence-ending period is still a boundary.
+    expect(matchAssetMention('ran diagnose-x.', names)).toEqual(names[0])
+  })
+  it('left boundary: a partial leading word is null', () => {
+    expect(matchAssetMention('xdiagnose-x', names)).toBeNull()
+  })
+  it('overlapping names: the longest name wins', () => {
+    const overlap = [
+      { kind: 'skill' as const, name: 'diagnose-x' },
+      { kind: 'skill' as const, name: 'diagnose-x-pro' }
+    ]
+    expect(matchAssetMention('diagnose-x-pro ran', overlap)).toEqual(overlap[1])
+  })
 })
