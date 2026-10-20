@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+**Knowledge-asset attribution**
+
+- At case close, a new distillation stage judges each skill, reference and memory that
+  appeared in the case: applied or not, and helped / neutral / misled, with transcript cites.
+  Results feed a "Knowledge usefulness" group on Observability (per domain, with emergent
+  domains per asset), a helped/misled chip on Library rows, and the run detail.
+- Close dialog: a second checkbox, "Attribute skills and references" (default from
+  Settings → Distillation). Declining distillation but keeping attribution runs an
+  attribution-only job; a failed dossier or a v2 run falls back to the same job.
+- Retracting a finding whose reason names an asset, or rejecting an edit proposal as
+  wrong/overfit, overrides the judge's verdict to misled.
+- Langfuse sink: one `asset.contribution` score per verdict with OTel GenAI-shaped metadata;
+  the dev Prompts page can export the same events as NDJSON.
+
 ## v2.5.0 — 2026-10-15
 
 ### Added
