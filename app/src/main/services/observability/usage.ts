@@ -12,6 +12,8 @@ import { listTopics } from '../memory'
 import { isStaleCandidate, listArchivedTopics, type HygieneConfig } from '../memoryHygiene'
 import { sharedReferencesDir } from '../skillsDir'
 import { USAGE_PREDICATES, EFFECTIVE_CALLS } from './usagePredicates'
+import { aggregateAttributions } from '../../../shared/attribution'
+import { latestAttributionRows } from '../distill/attributions'
 
 /** Stamp the usage-tracking epoch exactly once; before it elapses staleDays no topic can be
  *  flagged stale (recall tracking hasn't had a fair observation window). */
@@ -169,6 +171,7 @@ export function usageStats(deps: UsageStatsDeps): UsageStatsPayload {
     memory,
     references,
     archived: listArchivedTopics(deps.argusHome),
-    distillation: distillationStats(deps.db, deps.since)
+    distillation: distillationStats(deps.db, deps.since),
+    usefulness: aggregateAttributions(latestAttributionRows(deps.db))
   }
 }
