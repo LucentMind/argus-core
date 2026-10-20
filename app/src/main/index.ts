@@ -54,7 +54,12 @@ import { exportEvalBundle } from './services/distill/evalExport'
 import { overrideFromProposalReject } from './services/distill/overrides'
 import { lastSessionIdForCase } from './services/distill/attributions'
 import { readOrCreateInstanceId } from './services/instanceId'
-import { toAttributionEvent, type AttributionRow } from '../shared/attribution'
+import {
+  toAttributionEvent,
+  type AttributionExportResult,
+  type AttributionRow
+} from '../shared/attribution'
+import { exportAttributions } from './services/distill/attributionExport'
 import { DefectCorpusService } from './services/defectCorpus/service'
 import type { CorpusAdminConfig, CorpusSearchInput } from './services/defectCorpus/client'
 import { corpusTokenSecret } from '../shared/defectCorpus'
@@ -3828,6 +3833,27 @@ function registerIpc(): void {
       })
       if (r.canceled || !r.filePath) return null
       return exportEvalBundle(db, argusHome, r.filePath, app.getVersion(), { jobIds })
+    }
+  )
+
+  /** Asset-attribution events (spec §4.9) as NDJSON, optionally for one exact domain. Same
+   *  mechanics as the eval export: dev-gated, written only where the save dialog points. */
+  ipcMain.handle(
+    IPC.devPromptsExportAttributions,
+    async (_e, domain?: string): Promise<AttributionExportResult | null> => {
+      assertDevTools(devTools)
+      const r = await dialog.showSaveDialog({
+        defaultPath: `attributions-${new Date().toISOString().slice(0, 10)}.ndjson`,
+        filters: [{ name: 'NDJSON', extensions: ['ndjson'] }]
+      })
+      if (r.canceled || !r.filePath) return null
+      installId ??= readOrCreateInstanceId(argusHome)
+      return exportAttributions(
+        db,
+        r.filePath,
+        { installId, appVersion: app.getVersion() },
+        { domain: typeof domain === 'string' && domain !== '' ? domain : undefined }
+      )
     }
   )
 

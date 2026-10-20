@@ -135,7 +135,8 @@ beforeEach(() => {
         exported: 3,
         skipped: [{ jobId: 9, caseSlug: 'nav-2', reason: 'items pending review' }],
         warnings: []
-      })
+      }),
+      exportAttributions: vi.fn().mockResolvedValue({ path: 'x', exported: 3 })
     },
     // Untouched unless a test opens the job picker — lazy by design (see JobIdPicker), so an
     // empty default here never fires for the other describe blocks in this file.
@@ -506,6 +507,32 @@ describe('PromptsDevPage — session capture', () => {
     // The list must stay visible and clickable — the user needs to be able to pick another row.
     expect(screen.getByText('c-1 · session 7')).toBeInTheDocument()
     expect(screen.getByText('c-2 · session 3')).toBeInTheDocument()
+  })
+})
+
+describe('PromptsDevPage — attributions export', () => {
+  it('calls the IPC with no domain and reports the event count and path', async () => {
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Export attributions (NDJSON)' }))
+    await waitFor(() => expect(screen.getByText('3 events → x')).toBeInTheDocument())
+    expect(
+      (
+        window as unknown as {
+          argus: { devPrompts: { exportAttributions: ReturnType<typeof vi.fn> } }
+        }
+      ).argus.devPrompts.exportAttributions
+    ).toHaveBeenCalledWith()
+  })
+
+  it('a cancelled save dialog (null) reports nothing', async () => {
+    const w = window as unknown as {
+      argus: { devPrompts: { exportAttributions: ReturnType<typeof vi.fn> } }
+    }
+    w.argus.devPrompts.exportAttributions = vi.fn().mockResolvedValue(null)
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Export attributions (NDJSON)' }))
+    await waitFor(() => expect(w.argus.devPrompts.exportAttributions).toHaveBeenCalled())
+    expect(screen.queryByText(/\d+ events? →/)).not.toBeInTheDocument()
   })
 })
 

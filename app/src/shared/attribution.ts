@@ -186,6 +186,12 @@ export interface AssetAttributionEvent {
   'argus.override.source'?: OverrideSource
 }
 
+/** Result of the dev-only NDJSON attribution export (main handler, preload and renderer agree). */
+export interface AttributionExportResult {
+  path: string
+  exported: number
+}
+
 const SCORE: Record<AssetVerdictValue, 1 | 0 | -1> = { helped: 1, neutral: 0, misled: -1 }
 
 export function toAttributionEvent(
