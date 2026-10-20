@@ -1,8 +1,41 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { EvalCaseResult } from './run'
-import type { DistillEvalItem } from '../../../app/src/shared/distillEval'
+import type { DistillEvalBundleLine, DistillEvalItem } from '../../../app/src/shared/distillEval'
 import type { PipelineStages, PreStageDrop } from '../../../app/src/shared/distillV3'
+import {
+  parseAttribution,
+  pruneAttributionCites,
+  completeVerdicts
+} from '../../../app/src/main/services/distill/v3/attribution'
+
+/**
+ * One line saying what the attribution stage did for a replayed case: skipped (and why),
+ * errored, never ran, or the verdict counts after the same parse → prune → complete the app
+ * applies. Re-parses `rawOutput` rather than reading a stored result, so the harness reports
+ * what the CURRENT parser makes of a replayed output.
+ */
+export function attributionSummary(line: DistillEvalBundleLine, stages: PipelineStages | undefined): string {
+  if (stages?.attributionSkipped)
+    return `attribution: skipped (${stages.attributionSkipped === 'declined' ? 'declined' : 'no assets'})`
+  const rec = stages?.attribution
+  if (!rec) return 'attribution: not run'
+  if (rec.error) return `attribution: error — ${rec.error}`
+  try {
+    const assets = line.job.inputSnapshot.assets ?? []
+    const out = completeVerdicts(
+      pruneAttributionCites(parseAttribution(rec.rawOutput, assets), line.job.inputSnapshot),
+      assets
+    )
+    const applied = out.verdicts.filter((v) => v.applied === true).length
+    const helped = out.verdicts.filter((v) => v.verdict === 'helped').length
+    const misled = out.verdicts.filter((v) => v.verdict === 'misled').length
+    const silent = out.verdicts.filter((v) => v.applied === null).length
+    return `attribution: ${applied} applied · ${helped} helped · ${misled} misled · ${silent} silent`
+  } catch (e) {
+    return `attribution: error — ${(e as Error).message}`
+  }
+}
 
 /** Where a gold item died in the v3 pipeline. `materialized` means the pipeline DID produce
  *  something for that target — so a bad verdict on it is a content problem, not a routing or
@@ -88,6 +121,10 @@ export function writeReport(
           `- [${r.caseSlug} #${r.jobId}] ${v.item.title} (${v.item.type} → ${v.item.target}): ${attributeItem(v.item, r.stages!, r.preStageDropped)}`
       )
     )
+  // Computed in run.ts (where the corpus line is in scope); present on every v3 replay.
+  const attributionLines = results
+    .filter((r) => r.attribution)
+    .map((r) => `- [${r.caseSlug} #${r.jobId}] ${r.attribution}`)
   const md = [
     '# Distill-eval report',
     '',
@@ -116,7 +153,8 @@ export function writeReport(
           ...attributions,
           ''
         ]
-      : [])
+      : []),
+    ...(attributionLines.length ? ['## v3 attribution (per case)', ...attributionLines, ''] : [])
   ].join('\n')
   const reportPath = path.join(outDir, 'report.md')
   const detailsPath = path.join(outDir, 'details.jsonl')
