@@ -18,6 +18,15 @@
 - Langfuse sink: one `asset.contribution` score per verdict with OTel GenAI-shaped metadata;
   the dev Prompts page can export the same events as NDJSON.
 
+**Distillation testing (dev)**
+
+- A fake headless runner seam: with dev tools on, `ARGUS_HEADLESS_FAKE=<dir>` answers every
+  headless prompt from per-case fixture files, so the real pipeline runs without the SDK.
+- A ten-scenario fixture library (`app/scripts/fixtures/distill/`) and a vitest suite that runs
+  each through the real queue, staging, close routing and override paths.
+- A credential-free CDP gate (`npm run gate:attribution-fake`, also a CI step) and a dev-gated
+  `window.argus.devFindings.retract` door for exercising the retraction override.
+
 ### Changed
 
 - Every v3 distillation `prompt_hash` changes with this release: the new attribution stage is
