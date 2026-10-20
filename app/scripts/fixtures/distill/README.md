@@ -22,7 +22,7 @@ calls it, so a broken fixture fails `npm test`.
 | `slug` | string | The case slug, and the name of the per-case stage file the fake reads (`<fakeDir>/<slug>.json`). Unique across the set. |
 | `title` | string | Case title. |
 | `jiraKey` | string \| null | Jira key. Its project prefix becomes `case_domain` (`FXH-1` gives `FXH`). |
-| `scenario` | string | Free text for the report line. |
+| `scenario` | string | `<key>: free text`, the test name and report line. The fixture suite keys extra assertions on the text before the first colon: `retract`, `misled`, `reject` and `dossier-fail` unlock them. |
 | `settings.pipeline` | `"v2"` \| `"v3"` | The `distill.pipeline` setting for this fixture. `settingsFor(fx)` also turns on `attribution.default`. |
 | `assets.skills[]` | `{ name, description, body }` | Written to `<home>/skills-user/<name>/SKILL.md` with `name:` and `description:` frontmatter. |
 | `assets.references[]` | `{ relPath, tier, body }` | Written to `<home>/references/<relPath>`. A non-null `tier` adds `trust_tier:` frontmatter, which is where the inventory reads the tier from. |

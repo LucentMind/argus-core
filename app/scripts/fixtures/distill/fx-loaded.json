@@ -1,0 +1,125 @@
+{
+  "slug": "fx-loaded",
+  "title": "Cache warmer stalls on cold start (fixture: loaded)",
+  "jiraKey": "FXL-1",
+  "scenario": "loaded: the skill was loaded but never followed, so the judge says applied=false, verdict=null; the Library row shows no chip (applied 0) and Observability still lists the skill, because UsefulnessCards renders every aggregateAttributions entry in the All-domains view, zero counts included",
+  "settings": {
+    "pipeline": "v3"
+  },
+  "assets": {
+    "skills": [
+      {
+        "name": "fx-loaded-skill",
+        "description": "Use when the cache warmer stalls at startup; checks the warm-up concurrency limit against the connection pool size.",
+        "body": "# Diagnose warm-up stalls\n\n## Steps\n1. Compare the warm-up concurrency with the database connection pool size.\n2. If the concurrency is higher, the warmer deadlocks waiting for connections.\n"
+      }
+    ],
+    "references": [],
+    "memories": []
+  },
+  "sessions": [
+    {
+      "title": "Cold-start triage",
+      "messages": [
+        {
+          "role": "user",
+          "content": "The cache warmer stalls for minutes after every cold start. Find out why."
+        },
+        {
+          "role": "assistant",
+          "content": "I loaded the fx-loaded-skill skill, but its concurrency-vs-pool check does not fit here: the warmer runs single-threaded. Instead I traced the startup: the warmer resolves the cache host before the DNS sidecar is ready and blocks on a 120s resolver timeout."
+        },
+        {
+          "role": "user",
+          "content": "Confirmed on the bench. Record that as the root cause."
+        },
+        {
+          "role": "assistant",
+          "content": "Recorded: the warmer starts before the DNS sidecar and blocks on the 120s resolver timeout."
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "summary": "The cache warmer resolves its host before the DNS sidecar is ready and blocks on the 120s resolver timeout.",
+      "reviewState": "accepted",
+      "role": "root-cause",
+      "session": 0
+    }
+  ],
+  "toolCalls": [
+    {
+      "session": 0,
+      "turn": 2,
+      "tool": "Skill",
+      "detail": "fx-loaded-skill"
+    }
+  ],
+  "close": {
+    "resolution": "solved",
+    "distill": true,
+    "attribution": true
+  },
+  "stages": {
+    "dossier": {
+      "text": "```json\n{\"scope\":{\"status\":\"closed\",\"resolution\":\"solved\",\"settled\":true,\"note\":\"Bench confirmed the startup ordering.\"},\"root_cause\":{\"text\":\"The cache warmer resolves its host before the DNS sidecar is ready and blocks on the 120s resolver timeout.\",\"cites\":[{\"finding\":\"{{finding:0}}\"}]},\"confirmed_fix\":null,\"rejected_hypotheses\":[],\"diagnostic_path\":[{\"step\":\"Traced the warmer startup sequence\",\"observation\":\"The host lookup runs before the DNS sidecar is ready\",\"discriminated\":\"A resolver timeout, not connection-pool exhaustion\",\"cites\":[{\"session\":\"{{session:0}}\",\"turn\":1}]}],\"durable_facts\":[],\"user_corrections\":[]}\n```"
+    },
+    "summary": {
+      "text": "```json\n{\"summary\":{\"signature\":\"Cache warmer stalls after cold start waiting on DNS\",\"symptoms\":\"The cache stays cold for minutes after every cold start.\",\"rootCause\":\"The warmer resolves its host before the DNS sidecar is ready and waits out a 120s resolver timeout.\",\"fix\":\"Start the warmer after the DNS sidecar reports ready.\",\"keywords\":[\"cache warmer\",\"cold start\",\"dns\",\"timeout\"]}}\n```"
+    },
+    "candidates": {
+      "text": "```json\n{\"candidates\":[]}\n```"
+    },
+    "attribution": {
+      "text": "```json\n{\"verdicts\":[{\"kind\":\"skill\",\"name\":\"fx-loaded-skill\",\"applied\":false,\"verdict\":null,\"reason\":\"loaded, never followed\",\"cites\":[]}]}\n```"
+    }
+  },
+  "actions": [],
+  "expected": {
+    "jobs": [
+      {
+        "kind": "case",
+        "state": "done",
+        "pipeline": "v3",
+        "stages": [
+          "dossier",
+          "summary",
+          "candidates",
+          "attribution"
+        ],
+        "attributionSkipped": null,
+        "attributionError": false,
+        "costUsd": 0.53
+      }
+    ],
+    "attributions": [
+      {
+        "kind": "skill",
+        "name": "fx-loaded-skill",
+        "applied": 0,
+        "verdict": null,
+        "override": null,
+        "domain": "FXL",
+        "outcome": "solved"
+      }
+    ],
+    "fakeCalls": {
+      "dossier": 1,
+      "attribution": 1,
+      "materialize": 0
+    },
+    "ui": {
+      "libraryChip": {
+        "asset": "fx-loaded-skill",
+        "text": null
+      },
+      "observabilityLists": [
+        "fx-loaded-skill"
+      ],
+      "observabilityOmits": [],
+      "runsRailLabel": null,
+      "runDetailSkipped": null
+    }
+  }
+}
