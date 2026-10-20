@@ -2,17 +2,19 @@ import crypto from 'node:crypto'
 import { DOSSIER_CONTRACT, DOSSIER_SECTIONS } from './dossier'
 import { SUMMARY_CONTRACT, SUMMARY_SECTIONS } from './summary'
 import { CANDIDATES_CONTRACT, CANDIDATES_SECTIONS } from './candidates'
+import { ATTRIBUTION_CONTRACT, ATTRIBUTION_SECTIONS } from './attribution'
 import { MATERIALIZE_CONTRACT, MATERIALIZE_SECTIONS } from './materialize'
 import { DISTILL_TOOL_DESCRIPTORS } from '../worldTools'
 import { PTC_STUB_VERSION } from '../../ptc/stub'
 
-export const V3_STAGES = ['dossier', 'summary', 'candidates', 'materialize'] as const
+export const V3_STAGES = ['dossier', 'summary', 'candidates', 'attribution', 'materialize'] as const
 export type V3Stage = (typeof V3_STAGES)[number]
 
 const STATIC: Record<V3Stage, { contract: string; sections: Record<string, { text: string }> }> = {
   dossier: { contract: DOSSIER_CONTRACT, sections: DOSSIER_SECTIONS },
   summary: { contract: SUMMARY_CONTRACT, sections: SUMMARY_SECTIONS },
   candidates: { contract: CANDIDATES_CONTRACT, sections: CANDIDATES_SECTIONS },
+  attribution: { contract: ATTRIBUTION_CONTRACT, sections: ATTRIBUTION_SECTIONS },
   materialize: { contract: MATERIALIZE_CONTRACT, sections: MATERIALIZE_SECTIONS }
 }
 

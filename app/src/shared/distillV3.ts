@@ -127,4 +127,11 @@ export interface PipelineStages {
   dossierMalformedDropped?: Record<string, number>
   /** Candidates the parser dropped for a malformed shape (e.g. a non-string outline). */
   candidatesMalformedDropped?: number
+  /** Attribution stage (spec §4.4). `attributionSkipped` is set INSTEAD of a record when the stage
+   *  never ran: no inventoried assets, or the job declined attribution at close. */
+  attribution?: StageRecord
+  attributionSkipped?: 'no-assets' | 'declined'
+  attributionMalformedDropped?: Record<string, number>
+  attributionUnknownAssetDropped?: Record<string, number>
+  attributionUncitedDropped?: number
 }
