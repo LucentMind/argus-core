@@ -71,6 +71,7 @@ import type {
   PromptCaptureDetail
 } from '../shared/promptsIpc'
 import type { DistillEvalExportResult } from '../shared/distillEval'
+import type { AttributionExportResult } from '../shared/attribution'
 import type { RoutineDef, RoutinesPayload, RoutineTemplate } from '../shared/routines'
 import type {
   JiraAttachmentInfo,
@@ -951,6 +952,8 @@ const argus = {
       invoke(IPC.devPromptsCapture, caseSlug, sessionId),
     exportDistillEval: (jobIds?: number[]): Promise<DistillEvalExportResult | null> =>
       invoke(IPC.devPromptsExportDistillEval, jobIds),
+    exportAttributions: (domain?: string): Promise<AttributionExportResult | null> =>
+      invoke(IPC.devPromptsExportAttributions, domain),
     onChanged: (cb: (ids: string[]) => void): (() => void) => {
       const listener = (_e: unknown, ids: string[]): void => cb(ids)
       ipcRenderer.on(IPC.devPromptsChanged, listener)
