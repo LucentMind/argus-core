@@ -91,7 +91,7 @@ export interface Fixture {
     {
       text?: string
       throw?: string
-      capHit?: string
+      capHit?: 'iterations' | 'timeout'
       capSubtype?: string
       usage?: Record<string, number>
       turnCount?: number
