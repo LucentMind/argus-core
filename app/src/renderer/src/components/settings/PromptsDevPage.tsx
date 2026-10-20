@@ -9,6 +9,7 @@ import {
   type PromptPreview
 } from '../../../../shared/promptsIpc'
 import type { DistillEvalExportResult } from '../../../../shared/distillEval'
+import type { AttributionExportResult } from '../../../../shared/attribution'
 import type { DistillRunListRow } from '../../../../shared/distill'
 import { SettingsSection, SettingsSkeleton, SelectField, TEXTAREA_FIELD } from './settingsLayout'
 import { Chip } from '../ui'
@@ -555,6 +556,8 @@ export function PromptsDevPage(): React.JSX.Element {
   const [tab, setTab] = useState<'catalog' | 'preview' | 'capture'>('catalog')
   const [exportResult, setExportResult] = useState<DistillEvalExportResult | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [attrExportResult, setAttrExportResult] = useState<AttributionExportResult | null>(null)
+  const [attrExporting, setAttrExporting] = useState(false)
   const [selectedJobIds, setSelectedJobIds] = useState<Set<number>>(new Set())
 
   const toggleJobId = (id: number): void => {
@@ -701,6 +704,36 @@ export function PromptsDevPage(): React.JSX.Element {
               </ul>
             </div>
           )}
+        </div>
+      </SettingsSection>
+      <SettingsSection title="Attribution export">
+        <div className="flex flex-col gap-2 px-2 py-2 text-xs">
+          <p className="text-dim">
+            Writes each case&apos;s latest asset-attribution verdicts as vendor-neutral NDJSON
+            events. Nothing is uploaded: the file lands only where the save dialog points.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              className="rounded-r2 border border-hair px-2 py-1 text-xs text-ink disabled:text-faint"
+              disabled={attrExporting}
+              onClick={() => {
+                setAttrExporting(true)
+                void window.argus.devPrompts
+                  .exportAttributions()
+                  .then((r) => setAttrExportResult(r))
+                  .catch((e: Error) => setMutationError(e.message))
+                  .finally(() => setAttrExporting(false))
+              }}
+            >
+              Export attributions (NDJSON)
+            </button>
+            {attrExportResult && (
+              <span className="font-mono text-[11px] text-mute">
+                {attrExportResult.exported} event{attrExportResult.exported === 1 ? '' : 's'} →{' '}
+                {attrExportResult.path}
+              </span>
+            )}
+          </div>
         </div>
       </SettingsSection>
     </div>
