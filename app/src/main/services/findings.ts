@@ -4,6 +4,7 @@ import path from 'node:path'
 import {
   isFindingRole,
   type FindingRow,
+  type RetractResult,
   type ReviewState,
   type ReviewActor
 } from '../../shared/observability'
@@ -160,8 +161,7 @@ export function reviewFinding(db: DatabaseSync, id: number, state: ReviewState):
   return row ? toRow(row) : null
 }
 
-export type RetractResult =
-  { ok: true; row: FindingRow; changed: boolean } | { ok: false; reason: 'accepted' | 'unknown' }
+export type { RetractResult }
 
 /**
  * The agent withdrawing its own finding. Folds into the existing `rejected` state — a

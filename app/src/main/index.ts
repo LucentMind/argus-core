@@ -276,6 +276,7 @@ import { ReferenceSyncStore } from './services/referenceSyncStore'
 import { RefSyncService } from './services/refSync/service'
 import { createHeadlessRunner } from './services/agent/headless'
 import { createHeadlessAgentRunner } from './services/agent/headlessAgent'
+import { resolveFakeRunners } from './services/distill/fakeRunner'
 import {
   seedSharedAssets,
   sharedSkillsDir,
@@ -340,8 +341,14 @@ import { LangfuseSink } from './services/observability/langfuseSink'
 import { createLangfuseTracing } from './services/observability/langfuseTracing'
 import { probeLangfuseCredentials } from './services/observability/langfuseProbe'
 import { usageStats, ensureTrackingStarted } from './services/observability/usage'
-import { listFindings, reviewFinding, clearFindings, deleteFinding } from './services/findings'
-import type { MetricsQuery, ReviewState } from '../shared/observability'
+import {
+  listFindings,
+  reviewFinding,
+  clearFindings,
+  deleteFinding,
+  retractFinding
+} from './services/findings'
+import type { MetricsQuery, RetractResult, ReviewState } from '../shared/observability'
 import {
   DistillQueue,
   reconcileAndEnqueue,
@@ -1028,23 +1035,36 @@ function registerIpc(): void {
   // — headless one-shot runner shared by case distillation and reference sync —
   // Resolves its own provider from settings.distillProvider; deliberately NOT the active
   // chat instance (see the 2026-07-19 "model (auto)" failure).
-  const headlessRun = createHeadlessRunner({
-    settings: () => settingsService.get(),
-    argusHome,
-    // Batch distillation/refSync prompts inline the full current skill/reference bodies and
-    // ask the model to return complete files — far heavier than an interactive turn — so the
-    // 180s driver default is too tight. Give background jobs a 10-minute budget.
-    timeoutMs: 600_000
+  // Test seam (spec 2026-10-20 distill-testing): with ARGUS_HEADLESS_FAKE pointing at a fixture
+  // dir AND dev tools on, BOTH headless runners below are replaced by canned-output fakes so
+  // the distill pipeline can run with no model. Inert (and warns) otherwise.
+  const fake = resolveFakeRunners({
+    env: process.env,
+    devTools,
+    warn: (m) => console.warn(m),
+    info: (m) => console.log(m)
   })
+  const headlessRun =
+    fake?.oneShot ??
+    createHeadlessRunner({
+      settings: () => settingsService.get(),
+      argusHome,
+      // Batch distillation/refSync prompts inline the full current skill/reference bodies and
+      // ask the model to return complete files — far heavier than an interactive turn — so the
+      // 180s driver default is too tight. Give background jobs a 10-minute budget.
+      timeoutMs: 600_000
+    })
   // — agentic headless runner for distillation v2's case distiller (Task 12). Same provider
   // resolution as `headlessRun` (settings.distillProvider), but threads MCP/tools/iterations
   // through to `runHeadlessAgent` and gets its own, much longer timeout — a tool-using run
   // that reads a whole case's transcripts is not comparable to a single batch prompt.
-  const distillAgentRun = createHeadlessAgentRunner({
-    settings: () => settingsService.get(),
-    argusHome,
-    timeoutMs: DISTILL_AGENT_TIMEOUT_MS // 30 min — quality-first backstop, tuned later from §8 data
-  })
+  const distillAgentRun =
+    fake?.agent ??
+    createHeadlessAgentRunner({
+      settings: () => settingsService.get(),
+      argusHome,
+      timeoutMs: DISTILL_AGENT_TIMEOUT_MS // 30 min — quality-first backstop, tuned later from §8 data
+    })
   // Forward ref: `hivemind` cannot be built until far below, but `refSync` (constructed here)
   // needs to tell it when a claimed reference is deleted, so a hive pin can be tombstoned. Same
   // forward-ref shape as `currency`/`withUpdateLock` above.
@@ -3866,6 +3886,16 @@ function registerIpc(): void {
       )
     }
   )
+
+  // Dev-only (spec 2026-10-20 distill-testing §4.7): retraction is otherwise reachable only through
+  // the agent's `retract_finding` tool, so the deterministic gate needs this door to exercise the
+  // implicit override through the SAME write path. Gated exactly like the Prompts page.
+  ipcMain.handle(IPC.devFindingsRetract, (_e, id: number, reason: string): RetractResult => {
+    assertDevTools(devTools)
+    if (!Number.isInteger(id) || typeof reason !== 'string' || !reason.trim())
+      throw new Error('dev-findings:retract: id must be an integer and reason a non-empty string')
+    return retractFinding(db, id, reason, { onOverride: (row) => emitAttributions([row]) })
+  })
 
   // — settings —
   ipcMain.handle(IPC.settingsGet, () => settingsService.payload())

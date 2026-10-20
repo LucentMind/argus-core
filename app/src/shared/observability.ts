@@ -100,6 +100,12 @@ export interface FindingRow {
   role: FindingRole | null
 }
 
+/** Outcome of the agent withdrawing its own finding (`retractFinding`). Lives here, beside
+ *  `FindingRow`, so the preload bridge can type the dev retraction IPC without reaching into
+ *  `src/main`. */
+export type RetractResult =
+  { ok: true; row: FindingRow; changed: boolean } | { ok: false; reason: 'accepted' | 'unknown' }
+
 export interface SkillUsageRow {
   name: string
   /** null = activations recorded for a name no longer resolved (skill deleted/renamed) —
