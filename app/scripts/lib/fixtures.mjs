@@ -35,8 +35,11 @@ const ANY_TOKEN = /\{\{[^}]*\}\}/g
 const PLACEHOLDER = /^\{\{(finding|session):(\d+)\}\}$/
 /** Stage keys checkExpected compares by presence (spec §4.3). */
 const STAGE_KEYS = ['dossier', 'summary', 'candidates', 'attribution', 'materialize']
-/** The fake's eight stages (FakeStage in fakeRunner.ts): the only keys calls.ndjson can count,
- *  so a misspelt `expected.fakeCalls` key would assert "never called" vacuously. */
+/** The fake's case-scoped stages (FakeStage in fakeRunner.ts minus `rejectDigest`): the only
+ *  keys calls.ndjson can count PER CASE, so a misspelt `expected.fakeCalls` key would assert
+ *  "never called" vacuously. `rejectDigest` is deliberately absent: the fake logs a digest call
+ *  with `slug: null` (a digest belongs to no case), so `readFakeCalls(dir, slug)` can never see
+ *  one and `fakeCalls.rejectDigest: 0` could only ever pass. */
 const FAKE_STAGES = [
   'dossier',
   'dossierLite',
@@ -44,8 +47,7 @@ const FAKE_STAGES = [
   'candidates',
   'attribution',
   'materialize',
-  'v2',
-  'rejectDigest'
+  'v2'
 ]
 
 const isObj = (v) => typeof v === 'object' && v !== null && !Array.isArray(v)
