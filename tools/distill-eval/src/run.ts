@@ -1,5 +1,6 @@
 import { replayCase, type EvalRunners } from './replay'
 import { replayCaseV3, type ReplayResultV3 } from './replayV3'
+import { attributionSummary } from './report'
 import { buildJudgePrompt, parseJudgeVerdict, type JudgeVerdict } from './judge'
 import type { DistillEvalBundleLine, DistillEvalItem } from '../../../app/src/shared/distillEval'
 import type { PipelineStages, PreStageDrop } from '../../../app/src/shared/distillV3'
@@ -27,6 +28,8 @@ export interface EvalCaseResult {
   stages?: PipelineStages
   /** `--pipeline v3` only: candidates the veto or a validator dropped before staging. */
   preStageDropped?: PreStageDrop[]
+  /** `--pipeline v3` only: the `attributionSummary` line for this case (see report.ts). */
+  attribution?: string
 }
 
 /**
@@ -89,7 +92,7 @@ export async function runEval(
       ...(r.capSubtype ? { capSubtype: r.capSubtype } : {}),
       parseOutcome,
       itemVerdicts,
-      ...(r.stages ? { stages: r.stages } : {}),
+      ...(r.stages ? { stages: r.stages, attribution: attributionSummary(line, r.stages) } : {}),
       ...(r.preStageDropped ? { preStageDropped: r.preStageDropped } : {})
     })
   }
