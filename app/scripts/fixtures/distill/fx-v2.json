@@ -1,0 +1,131 @@
+{
+  "slug": "fx-v2",
+  "title": "Scheduler fires jobs twice after DST (fixture: v2 escape hatch)",
+  "jiraKey": "FXV-1",
+  "scenario": "v2: a v2 run has no attribution stage, so the escape hatch grades the skill in an attribution-only job",
+  "settings": {
+    "pipeline": "v2"
+  },
+  "assets": {
+    "skills": [
+      {
+        "name": "fx-v2-skill",
+        "description": "Use when a cron-style scheduler double-fires around a daylight-saving change; checks whether next-run times are computed in local wall-clock time.",
+        "body": "# Diagnose double-firing schedules\n\n## Steps\n1. Check whether the next-run time is computed in local wall-clock time or in UTC.\n2. Replay the schedule across the fall-back hour and count the fires.\n"
+      }
+    ],
+    "references": [],
+    "memories": []
+  },
+  "sessions": [
+    {
+      "title": "Triage",
+      "messages": [
+        {
+          "role": "user",
+          "content": "The nightly export ran twice on the day the clocks went back. Find out why."
+        },
+        {
+          "role": "assistant",
+          "content": "I loaded the fx-v2-skill skill and followed its first step. The scheduler computes the next run in local wall-clock time, so the repeated 01:30 during fall-back matches twice and the 01:30 export fires twice. Computing next-run in UTC fires it once."
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "summary": "Next-run times are computed in local wall-clock time, so the repeated hour at fall-back matches the schedule twice.",
+      "reviewState": "accepted",
+      "role": "root-cause",
+      "session": 0
+    }
+  ],
+  "toolCalls": [
+    {
+      "session": 0,
+      "turn": 1,
+      "tool": "Skill",
+      "detail": "fx-v2-skill"
+    }
+  ],
+  "close": {
+    "resolution": "solved",
+    "distill": true,
+    "attribution": true
+  },
+  "stages": {
+    "v2": {
+      "text": "```json\n{\"summary\":{\"signature\":\"Scheduler double-fires a job in the repeated hour at the daylight-saving fall-back\",\"symptoms\":\"A nightly job runs twice on the day the clocks go back.\",\"rootCause\":\"Next-run times are computed in local wall-clock time, so the repeated hour matches twice.\",\"fix\":\"Compute next-run times in UTC.\",\"keywords\":[\"scheduler\",\"dst\",\"double fire\"]},\"proposals\":[]}\n```",
+      "usage": {
+        "costUsd": 0.5
+      }
+    },
+    "dossierLite": {
+      "text": "```json\n{\"scope\":{\"status\":\"closed\",\"resolution\":\"solved\",\"settled\":true,\"note\":\"The double fire was reproduced across the fall-back hour.\"},\"root_cause\":{\"text\":\"The scheduler computes next-run in local wall-clock time; the repeated hour at fall-back matches the 01:30 schedule twice.\",\"cites\":[{\"finding\":\"{{finding:0}}\"}]},\"confirmed_fix\":null,\"rejected_hypotheses\":[],\"diagnostic_path\":[{\"step\":\"Checked whether next-run is computed in local time or UTC\",\"observation\":\"Local wall-clock time: the repeated 01:30 matches twice\",\"discriminated\":\"A time-zone arithmetic bug, not a duplicated job definition\",\"cites\":[{\"session\":\"{{session:0}}\",\"turn\":1}]}],\"durable_facts\":[],\"user_corrections\":[]}\n```",
+      "usage": {
+        "costUsd": 0.5
+      }
+    },
+    "attribution": {
+      "text": "```json\n{\"verdicts\":[{\"kind\":\"skill\",\"name\":\"fx-v2-skill\",\"applied\":true,\"verdict\":\"helped\",\"reason\":\"Its first step (local time vs UTC for next-run) is the mechanism the root cause records.\",\"cites\":[{\"finding\":\"{{finding:0}}\"}]}]}\n```",
+      "usage": {
+        "costUsd": 0.01
+      }
+    }
+  },
+  "actions": [],
+  "expected": {
+    "jobs": [
+      {
+        "kind": "case",
+        "state": "done",
+        "pipeline": "v2",
+        "stages": [],
+        "attributionSkipped": null,
+        "attributionError": false,
+        "costUsd": 0.5
+      },
+      {
+        "kind": "attribution",
+        "state": "done",
+        "pipeline": null,
+        "stages": [
+          "dossier",
+          "attribution"
+        ],
+        "attributionSkipped": null,
+        "attributionError": false,
+        "costUsd": 0.51
+      }
+    ],
+    "attributions": [
+      {
+        "kind": "skill",
+        "name": "fx-v2-skill",
+        "applied": 1,
+        "verdict": "helped",
+        "override": null,
+        "domain": "FXV",
+        "outcome": "solved"
+      }
+    ],
+    "fakeCalls": {
+      "v2": 1,
+      "dossierLite": 1,
+      "attribution": 1,
+      "dossier": 0
+    },
+    "ui": {
+      "libraryChip": {
+        "asset": "fx-v2-skill",
+        "text": "helped 1 · misled 0"
+      },
+      "observabilityLists": [
+        "fx-v2-skill"
+      ],
+      "observabilityOmits": [],
+      "runsRailLabel": "attribution only",
+      "runDetailSkipped": null
+    }
+  }
+}
