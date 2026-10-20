@@ -35,6 +35,18 @@ const ANY_TOKEN = /\{\{[^}]*\}\}/g
 const PLACEHOLDER = /^\{\{(finding|session):(\d+)\}\}$/
 /** Stage keys checkExpected compares by presence (spec §4.3). */
 const STAGE_KEYS = ['dossier', 'summary', 'candidates', 'attribution', 'materialize']
+/** The fake's eight stages (FakeStage in fakeRunner.ts): the only keys calls.ndjson can count,
+ *  so a misspelt `expected.fakeCalls` key would assert "never called" vacuously. */
+const FAKE_STAGES = [
+  'dossier',
+  'dossierLite',
+  'summary',
+  'candidates',
+  'attribution',
+  'materialize',
+  'v2',
+  'rejectDigest'
+]
 
 const isObj = (v) => typeof v === 'object' && v !== null && !Array.isArray(v)
 const isIndex = (v, len) => Number.isInteger(v) && v >= 0 && v < len
@@ -54,6 +66,14 @@ function problemOf(fx) {
     !Array.isArray(a.memories)
   )
     return 'assets needs skills, references and memories arrays'
+  // The writer emits `description:` as a plain YAML scalar, and parseDescription
+  // (shared/skillFrontmatter.ts) returns the inline value verbatim — it strips no quotes, so a
+  // quoted scalar is not an option. Refuse what a plain scalar cannot carry instead.
+  for (const s of a.skills) {
+    const d = s?.description
+    if (typeof d !== 'string' || !d.trim() || /: |[\r\n]/.test(d) || d.startsWith('#'))
+      return `assets.skills ${JSON.stringify(s?.name)}: description must be a non-empty single line with no ": " and no leading "#" (it is written as a plain YAML scalar)`
+  }
   if (!Array.isArray(fx.sessions) || fx.sessions.length < 1)
     return 'sessions needs at least 1 session'
   for (const [i, s] of fx.sessions.entries())
@@ -67,8 +87,8 @@ function problemOf(fx) {
     if (!isIndex(t?.session, fx.sessions.length))
       return `toolCalls[${i}].session ${t?.session} is out of range (${fx.sessions.length} sessions)`
     const n = fx.sessions[t.session].messages.length
-    if (!Number.isInteger(t.turn) || t.turn < 0 || t.turn > n)
-      return `toolCalls[${i}].turn ${t.turn} is not an integer in 0..${n} (session ${t.session} has ${n} messages)`
+    if (!Number.isInteger(t.turn) || t.turn < 1 || t.turn > n)
+      return `toolCalls[${i}].turn ${t.turn} is not an integer in 1..${n} (1-based; session ${t.session} has ${n} messages)`
   }
   if (fx.trigger !== undefined && fx.trigger !== 'redistill')
     return `trigger must be "redistill", got ${JSON.stringify(fx.trigger)}`
@@ -76,15 +96,55 @@ function problemOf(fx) {
     return 'exactly one of close (non-null) and trigger must be set'
   if (!isObj(fx.stages)) return 'stages must be an object'
   const limits = { finding: fx.findings.length, session: fx.sessions.length }
-  for (const token of JSON.stringify(fx.stages).match(ANY_TOKEN) ?? []) {
+  const serialized = JSON.stringify(fx.stages)
+  for (const hit of serialized.matchAll(ANY_TOKEN)) {
+    const token = hit[0]
     const m = PLACEHOLDER.exec(token)
     if (!m) return `stages: malformed placeholder ${token} (want {{finding:i}} or {{session:i}})`
     if (Number(m[2]) >= limits[m[1]])
       return `stages: placeholder ${token} is out of range (${limits[m[1]]} ${m[1]}s)`
+    // resolveStages replaces only the quoted form, which inside a serialized stage text reads
+    // as \"{{…}}\"; anything else would survive to its "was not resolved" error at seed time.
+    const end = hit.index + token.length
+    if (
+      serialized.slice(hit.index - 2, hit.index) !== '\\"' ||
+      serialized.slice(end, end + 2) !== '\\"'
+    )
+      return `stages: placeholder ${token} is not wrapped in double quotes (write "${token}" inside the stage text)`
   }
   if (!Array.isArray(fx.actions)) return 'actions must be an array'
-  if (!isObj(fx.expected) || !Array.isArray(fx.expected.jobs) || fx.expected.jobs.length === 0)
+  const e = fx.expected
+  if (!isObj(e) || !Array.isArray(e.jobs) || e.jobs.length === 0)
     return 'expected.jobs must be a non-empty array'
+  for (const [i, j] of e.jobs.entries()) {
+    if (!isObj(j) || !Array.isArray(j.stages)) return `expected.jobs[${i}].stages must be an array`
+    const bad = j.stages.find((s) => !STAGE_KEYS.includes(s))
+    if (bad !== undefined)
+      return `expected.jobs[${i}].stages: unknown stage ${JSON.stringify(bad)} (want one of ${STAGE_KEYS.join(', ')})`
+  }
+  if (!Array.isArray(e.attributions)) return 'expected.attributions must be an array'
+  if (e.attributions.length > 0 && e.attributionsJob === undefined)
+    return 'expected.attributionsJob is required when expected.attributions is non-empty (index into expected.jobs of the job owning the rows)'
+  if (e.attributionsJob !== undefined && !isIndex(e.attributionsJob, e.jobs.length))
+    return `expected.attributionsJob ${JSON.stringify(e.attributionsJob)} is out of range (${e.jobs.length} expected jobs)`
+  if (!isObj(e.fakeCalls)) return 'expected.fakeCalls must be an object'
+  const badCall = Object.keys(e.fakeCalls).find((k) => !FAKE_STAGES.includes(k))
+  if (badCall !== undefined)
+    return `expected.fakeCalls: unknown stage ${JSON.stringify(badCall)} (want one of ${FAKE_STAGES.join(', ')})`
+  if (!isObj(e.ui)) return 'expected.ui must be an object'
+  const own = new Set([
+    ...a.skills.map((s) => s.name),
+    ...a.references.map((r) => r.relPath),
+    ...a.memories
+  ])
+  const named = [
+    ...(e.ui.observabilityLists ?? []).map((n) => ['ui.observabilityLists', n]),
+    ...(e.ui.observabilityOmits ?? []).map((n) => ['ui.observabilityOmits', n]),
+    ...(e.ui.libraryChip ? [['ui.libraryChip.asset', e.ui.libraryChip.asset]] : [])
+  ]
+  for (const [where, n] of named)
+    if (!own.has(n))
+      return `expected.${where}: ${JSON.stringify(n)} is not one of this fixture's asset names`
   return null
 }
 
@@ -157,6 +217,26 @@ export function writeFixtureAssets(home, fx) {
 export function seedFixtureCase(db, caseId, fx) {
   const now = new Date().toISOString()
   db.exec(`PRAGMA foreign_keys = ON;`)
+  // One transaction: a seed that throws half-way (a bad role, a FK miss) leaves no partial
+  // transcript behind for the next attempt's "already has sessions" refusal to trip on.
+  // IMMEDIATE takes the write lock up front: a deferred read-then-write upgrade in WAL mode can
+  // fail SQLITE_BUSY_SNAPSHOT while the app writes, which busy_timeout does not retry.
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    const ids = seedInTransaction(db, caseId, fx, now)
+    db.exec('COMMIT')
+    return ids
+  } catch (e) {
+    try {
+      db.exec('ROLLBACK')
+    } catch {
+      /* SQLite already rolled back (some errors end the transaction themselves) */
+    }
+    throw e
+  }
+}
+
+function seedInTransaction(db, caseId, fx, now) {
   const already = db.prepare(`SELECT COUNT(*) AS n FROM sessions WHERE case_id=?`).get(caseId)
   if (Number(already.n) > 0)
     throw new Error(
@@ -238,14 +318,24 @@ export function settingsFor(fx) {
 }
 
 /** Per-stage call counts for one slug from the fake's `calls.ndjson`; `{}` when absent. A line
- *  with a null slug (a digest before any case) never matches a case. */
+ *  with a null slug (every reject digest) never matches a case. An unparseable final line is
+ *  skipped: it is a torn read while the app appends. */
 export function readFakeCalls(fakeDir, slug) {
   const file = path.join(fakeDir, 'calls.ndjson')
   if (!fs.existsSync(file)) return {}
   const counts = {}
-  for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+  const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/)
+  for (const [i, line] of lines.entries()) {
     if (!line.trim()) continue
-    const call = JSON.parse(line)
+    let call
+    try {
+      call = JSON.parse(line)
+    } catch (e) {
+      // The app appends while the gate polls: a torn LAST line is a read racing a write and is
+      // counted on the next poll. A torn line anywhere else is real corruption.
+      if (lines.slice(i + 1).every((l) => !l.trim())) continue
+      throw e
+    }
     if (call.slug !== slug) continue
     counts[call.stage] = (counts[call.stage] ?? 0) + 1
   }
@@ -345,6 +435,21 @@ export function checkExpected(actual, expected) {
   }
 
   const key = (r) => `${r.kind}/${r.name}`
+  // Ownership: readActual reads "the latest job's rows", so without this a row written by the
+  // wrong job (the case job instead of the escape hatch, say) passes every field check.
+  if (expected.attributionsJob !== undefined) {
+    const owner = actual.jobs[expected.attributionsJob]
+    if (!owner)
+      problems.push(
+        `attributionsJob: expected jobs[${expected.attributionsJob}] to own the rows, but only ${actual.jobs.length} job(s) exist`
+      )
+    else
+      for (const r of actual.rows)
+        if (r.jobId !== owner.id)
+          problems.push(
+            `attributions[${key(r)}].jobId: expected ${owner.id} (jobs[${expected.attributionsJob}]), got ${r.jobId}`
+          )
+  }
   const gotRows = new Map()
   for (const r of actual.rows) {
     if (gotRows.has(key(r)))

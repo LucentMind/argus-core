@@ -31,7 +31,8 @@
  * flag: verified empirically on electron-vite 5.0.0 (2026-10-21) — `-- --remote-debugging-port=N`
  * (forwarded through ELECTRON_CLI_ARGS) and `--remoteDebuggingPort N` (REMOTE_DEBUGGING_PORT)
  * both bind N; this gate uses the first. The gate waits for /json/version, then for the boot
- * log's `[distill] FAKE RUNNER active: <its own fake dir>`, and aborts (exit 2) if the child log
+ * log's `[distill] FAKE RUNNER active: <its own fake dir>`, then for the main window and the
+ * renderer — all four inside ONE 180 s boot budget — and aborts (exit 2) if the child log
  * shows the port was taken (`bind() returned an error` / `Cannot start http server`) — that is
  * how a gate ends up driving another worktree's app. Teardown kills only the spawned tree
  * (taskkill /T /F on Windows, the process group elsewhere) and deletes the scratch dir on
@@ -39,11 +40,12 @@
  *
  * Attach mode: CDP_PORT=<port> ARGUS_HOME=<home> node scripts/cdp-attribution-fake.mjs drives an
  * app you booted yourself with ARGUS_HEADLESS_FAKE=<home>/fake-runner and dev tools on. It must
- * be a FRESH home: a fixture case that already has sessions is refused (exit 1) rather than
- * re-checked against stale state.
+ * be a FRESH home, and both refusals run before anything is written: a home holding any
+ * non-fixture case is refused (FRESH-HOME FAIL, exit 2), and a fixture case that already has
+ * sessions is refused (exit 1) rather than re-checked against stale state.
  *
  * Exits 0 when every check passes, 1 when any fails, 2 on an abort (boot / port / identity /
- * settings / fake runner not active).
+ * fresh home / settings / fake runner not active).
  */
 import { DatabaseSync } from 'node:sqlite'
 import { spawn, execSync } from 'node:child_process'
@@ -72,7 +74,13 @@ const HOME = ATTACH ? path.resolve(process.env.ARGUS_HOME) : path.join(ROOT, 'ho
 const FAKE_DIR = path.join(HOME, 'fake-runner')
 const DB = path.join(HOME, 'argus.db')
 const LOG = ROOT ? path.join(ROOT, 'electron.log') : null
-const BOOT_TIMEOUT_MS = 120_000
+/** ONE budget for the whole boot — /json/version, `FAKE RUNNER active`, the main-window target
+ *  and the renderer — so the worst case is bounded (the CI step's timeout-minutes is a backstop,
+ *  not the plan). `bootDeadline` is set once, when the boot starts (after the port search). */
+const BOOT_TIMEOUT_MS = 180_000
+let bootDeadline = 0
+/** What is left of the boot budget, never below 1 s (so a late step still gets one poll). */
+const bootLeft = () => Math.max(1000, bootDeadline - Date.now())
 const SETTLE_TIMEOUT_MS = 90_000
 const UI_TIMEOUT_MS = 15_000
 const PORT_COLLISION = /bind\(\) returned an error|Cannot start http server/
@@ -194,16 +202,22 @@ async function boot(port) {
         .then((r) => r.ok)
         .catch(() => false)
     },
-    BOOT_TIMEOUT_MS
-  ).catch(() => abort(`BOOT FAIL: no CDP endpoint on ${port} within ${BOOT_TIMEOUT_MS / 1000}s`))
+    bootLeft()
+  ).catch(() =>
+    abort(`BOOT FAIL: no CDP endpoint on ${port} within the ${BOOT_TIMEOUT_MS / 1000}s boot budget`)
+  )
   const fakeLine = await waitFor(
     'FAKE RUNNER active in the boot log',
     () => {
       guard()
       return /\[distill\] FAKE RUNNER active: (.+)/.exec(childLog)?.[1].trim() ?? null
     },
-    60_000
-  ).catch(() => abort('BOOT FAIL: the boot log never said `[distill] FAKE RUNNER active`'))
+    bootLeft()
+  ).catch(() =>
+    abort(
+      `BOOT FAIL: the boot log never said \`[distill] FAKE RUNNER active\` within the ${BOOT_TIMEOUT_MS / 1000}s boot budget`
+    )
+  )
   if (!samePath(fakeLine, FAKE_DIR))
     abort(`BOOT FAIL: the fake runner reads ${fakeLine}, not this gate's ${FAKE_DIR}`)
   guard()
@@ -247,6 +261,9 @@ const reportsPipeline = (conn, pipeline) =>
 const withDb = (fn) => {
   const db = new DatabaseSync(DB)
   try {
+    // The app writes this DB concurrently: wait out its write lock instead of failing
+    // SQLITE_BUSY on the first collision.
+    db.exec('PRAGMA busy_timeout = 5000')
     return fn(db)
   } finally {
     db.close()
@@ -522,20 +539,21 @@ const main = async () => {
     fs.rmSync(ROOT, { recursive: true, force: true }) // a stale dir from a reused pid
     fs.mkdirSync(FAKE_DIR, { recursive: true }) // the fake refuses a missing dir at boot
   }
-  // Settings + assets go in before boot; in attach mode only after the re-seed refusal below,
-  // so a used home is left untouched.
+  // Settings + assets go in before boot; in attach mode only after the identity, fresh-home and
+  // re-seed refusals below, so a used home is left untouched.
   const prepareHome = () => {
     forceSettings('v3')
     for (const fx of fixtures) writeFixtureAssets(HOME, fx)
   }
   if (!ATTACH) prepareHome()
   const PORT = ATTACH ? process.env.CDP_PORT : await freePort(9260, 9290)
+  bootDeadline = Date.now() + BOOT_TIMEOUT_MS // one budget for every boot wait below
   if (!ATTACH) await boot(PORT)
 
   const target = await waitFor(
     'main window target',
     async () => mainWindow(await listTargets(PORT).catch(() => [])) ?? null,
-    BOOT_TIMEOUT_MS
+    bootLeft()
   ).catch(() => abort(`BOOT FAIL: no main window target on ${PORT}`))
   const conn = await connect(target)
   await waitFor(
@@ -546,7 +564,7 @@ const main = async () => {
           `typeof window.argus?.cases?.list === 'function' && Boolean(document.querySelector('button[aria-label="All cases"]'))`
         )
         .catch(() => false),
-    BOOT_TIMEOUT_MS
+    bootLeft()
   ).catch(() => abort('BOOT FAIL: the renderer never exposed window.argus and the top bar'))
   console.error(`connected to ${PORT}: ${target.url}`)
 
@@ -572,6 +590,38 @@ const main = async () => {
     abort(
       `IDENTITY FAIL: port ${PORT} lists cases [${appSlugs.join(', ')}] but ${DB} holds [${dbSlugs.join(', ')}]; the connected app is not using this ARGUS_HOME`
     )
+
+  // Fresh-home refusal (attach mode), still BEFORE any write: the identity check above proves
+  // the port and ARGUS_HOME agree, not that the home is a scratch one. A home holding any case
+  // that is not a fixture case is somebody's real home — creating fixture cases, editing its
+  // settings and writing assets there would pollute it.
+  if (ATTACH) {
+    const slugs = new Set(fixtures.map((f) => f.slug))
+    const foreign = dbSlugs.filter((s) => !slugs.has(s))
+    if (foreign.length)
+      abort(
+        `FRESH-HOME FAIL: ${HOME} holds non-fixture case(s) [${foreign.join(', ')}]; this gate needs a fresh home — unset CDP_PORT/ARGUS_HOME to let it boot its own`
+      )
+  }
+
+  // Re-seed refusal, before anything is written: a home whose fixture cases already carry
+  // sessions would compare stale state (attach mode against a used home). Only cases that
+  // already exist can carry sessions, so this needs nothing created first.
+  for (const fx of fixtures) {
+    const seeded = withDb((db) => {
+      const row = db.prepare(`SELECT id FROM cases WHERE slug=?`).get(fx.slug)
+      return row
+        ? Number(
+            db.prepare(`SELECT COUNT(*) AS n FROM sessions WHERE case_id=?`).get(Number(row.id)).n
+          )
+        : 0
+    })
+    if (seeded === 0) continue
+    console.error(
+      `${fx.slug}: already has ${seeded} session(s); refusing to seed twice (attach mode against a used home)\nREFUSING: ${HOME} already holds seeded fixture cases. This gate needs a fresh home — unset CDP_PORT/ARGUS_HOME to let it boot its own.`
+    )
+    process.exit(1)
+  }
 
   // Cases are created through the app (DB row + case dir), unless they already exist.
   for (const fx of fixtures) {
@@ -602,22 +652,6 @@ const main = async () => {
     'identity: every fixture case visible on the connected app AND a row in ARGUS_HOME/argus.db',
     true
   )
-
-  // Re-seed refusal, before anything is written: a home whose fixture cases already carry
-  // sessions would compare stale state (attach mode against a used home).
-  for (const fx of fixtures) {
-    const caseId = withDb((db) =>
-      Number(db.prepare(`SELECT id FROM cases WHERE slug=?`).get(fx.slug).id)
-    )
-    const seeded = withDb((db) =>
-      Number(db.prepare(`SELECT COUNT(*) AS n FROM sessions WHERE case_id=?`).get(caseId).n)
-    )
-    if (seeded === 0) continue
-    console.error(
-      `${fx.slug}: already has ${seeded} session(s); refusing to seed twice (attach mode against a used home)\nREFUSING: ${HOME} already holds seeded fixture cases. This gate needs a fresh home — unset CDP_PORT/ARGUS_HOME to let it boot its own.`
-    )
-    process.exit(1)
-  }
 
   if (ATTACH) prepareHome()
 

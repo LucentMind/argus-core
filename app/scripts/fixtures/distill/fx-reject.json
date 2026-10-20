@@ -121,6 +121,7 @@
         "costUsd": 0.55
       }
     ],
+    "attributionsJob": 0,
     "attributions": [
       {
         "kind": "reference",

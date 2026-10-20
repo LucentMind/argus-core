@@ -71,6 +71,9 @@ export interface ExpectedUi {
 export interface Expected {
   jobs: ExpectedJob[]
   attributions: ExpectedRow[]
+  /** Index into `jobs` of the job that must own every attribution row. Required when
+   *  `attributions` is non-empty. */
+  attributionsJob?: number
   fakeCalls: Record<string, number>
   ui: ExpectedUi
 }
