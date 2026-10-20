@@ -8,6 +8,48 @@ import { confirm } from '../../../lib/confirmStore'
 import { referenceSyncStore } from '../../../lib/referenceSyncStore'
 import type { SkillListItem, SkillsPayload } from '../../../../../shared/memoryIpc'
 import type { RefSyncPayload } from '../../../../../shared/referenceSync'
+import type { AssetUsefulness } from '../../../../../shared/attribution'
+
+/** A usefulness row with every counter zeroed, so each test states only what it cares about. */
+function usefulnessRow(
+  over: Pick<AssetUsefulness, 'kind' | 'name'> & Partial<AssetUsefulness>
+): AssetUsefulness {
+  return {
+    tier: 'user',
+    applied: 0,
+    helped: 0,
+    neutral: 0,
+    misled: 0,
+    silent: 0,
+    helpedRate: null,
+    byDomain: {},
+    emergentDomains: [],
+    outcomes: {},
+    lastAppliedAt: null,
+    ...over
+  }
+}
+
+/** The usage.stats payload with the given usefulness rows; the rest mirrors mockArgus's fixture. */
+function usageStatsWith(usefulness: AssetUsefulness[]): Record<string, unknown> {
+  return {
+    hygiene: { staleDays: 45, minRecalls: 3, trackingStartedAt: '2026-01-01T00:00:00.000Z' },
+    skills: [
+      {
+        name: 'rca',
+        tier: 'user',
+        enabled: true,
+        activationCount: 12,
+        lastActivatedAt: '2026-07-18T00:00:00.000Z'
+      },
+      { name: 'my-notes', tier: 'user', enabled: true, activationCount: 0, lastActivatedAt: null }
+    ],
+    memory: [],
+    references: [{ relPath: 'team-tips.md', readCount: 4, lastReadAt: '2026-07-21T00:00:00.000Z' }],
+    archived: [],
+    usefulness
+  }
+}
 
 vi.mock('../../../lib/confirmStore', () => ({
   confirm: vi.fn(() => Promise.resolve(true)),
@@ -282,7 +324,8 @@ function mockArgus(): {
         references: [
           { relPath: 'team-tips.md', readCount: 4, lastReadAt: '2026-07-21T00:00:00.000Z' }
         ],
-        archived: []
+        archived: [],
+        usefulness: []
       })
     },
     hivemind: {
@@ -423,6 +466,44 @@ describe('LibraryPage usage stats', () => {
     render(<LibraryPage />)
     expect(await screen.findByText('hive-probe')).toBeInTheDocument()
     expect(screen.queryByText('never activated')).not.toBeInTheDocument()
+  })
+  it('shows helped/misled on assets that were applied, nothing on the rest', async () => {
+    argus.usage.stats = vi.fn().mockResolvedValue(
+      usageStatsWith([
+        usefulnessRow({
+          kind: 'skill',
+          name: 'rca',
+          applied: 3,
+          helped: 2,
+          misled: 1,
+          helpedRate: 2 / 3,
+          emergentDomains: ['NAV'],
+          lastAppliedAt: '2026-10-01T00:00:00.000Z'
+        })
+      ])
+    )
+    render(<LibraryPage />)
+    const chip = await screen.findByText('helped 2 · misled 1')
+    expect(chip).toHaveAttribute('title', expect.stringContaining('NAV'))
+    // my-notes has no usefulness entry, so only rca carries the chip
+    expect(screen.getAllByText(/^helped \d/)).toHaveLength(1)
+  })
+  it('marks a reference misled more than helped with the review tone', async () => {
+    argus.usage.stats = vi.fn().mockResolvedValue(
+      usageStatsWith([
+        usefulnessRow({
+          kind: 'reference',
+          name: 'team-tips.md',
+          applied: 4,
+          helped: 1,
+          misled: 3,
+          helpedRate: 1 / 4
+        })
+      ])
+    )
+    render(<LibraryPage />)
+    const chip = await screen.findByText('helped 1 · misled 3')
+    expect(chip).toHaveClass('text-review')
   })
 })
 
