@@ -461,14 +461,42 @@ describe('attribution stage', () => {
     })
 
   it('runs after the dossier, in parallel with summary and candidates, and returns pruned+completed verdicts', async () => {
-    const order: string[] = []
+    // A latch, not an ordering check: each stage-2 call parks until ALL THREE have arrived, so a
+    // sequential implementation (attribution after Promise.all([summary, candidates])) deadlocks
+    // instead of passing by coincidence.
     const inner = routed()
+    const parked: Array<() => void> = []
+    let inFlight = 0
+    let maxInFlight = 0
     const oneShot: PipelineRunners['oneShot'] = async (prompt, o) => {
-      order.push(stageOf(prompt))
+      const s = stageOf(prompt)
+      if (s === 'materialize') return inner(prompt, o)
+      inFlight++
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      await new Promise<void>((resolveLatch) => {
+        parked.push(resolveLatch)
+        if (parked.length === 3) parked.forEach((r) => r())
+      })
+      inFlight--
       return inner(prompt, o)
     }
-    const run = await runCaseDistillPipeline(withAssets(), { agent: agentOk(DOSSIER), oneShot })
-    expect(order.slice(0, 3).sort()).toEqual(['attribution', 'candidates', 'summary'])
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `attribution did not run in parallel with summary and candidates (only ${parked.length}/3 stage-2 calls in flight)`
+            )
+          ),
+        2000
+      )
+    })
+    const run = await Promise.race([
+      runCaseDistillPipeline(withAssets(), { agent: agentOk(DOSSIER), oneShot }),
+      timeout
+    ]).finally(() => clearTimeout(timer))
+    expect(maxInFlight).toBe(3)
     expect(run.stages?.attribution?.error).toBeUndefined()
     expect(run.attribution?.verdicts).toEqual([
       {
@@ -542,6 +570,59 @@ describe('attribution stage', () => {
     expect(run.attribution?.verdicts).toEqual([
       { kind: 'skill', name: 'diagnose-x', applied: null, verdict: null, reason: '', cites: [] }
     ])
+  })
+
+  it('a prompt-build throw is recorded on the attribution stage; the run still completes with proposals', async () => {
+    // A resolver that refuses the attribution assets section ONCE: the throw happens in
+    // buildAttributionPrompt, before summary/candidates are paid for. It must not fail the run.
+    // (Once, because the stage's own promptHash re-resolves the same ids for the error record.)
+    let refused = false
+    const resolve = (id: string): string => {
+      if (id === 'headless.case-distill.attribution.section.assets' && !refused) {
+        refused = true
+        throw new Error('assets boom')
+      }
+      return id
+    }
+    const run = await runCaseDistillPipeline(
+      withAssets(),
+      {
+        agent: agentOk(DOSSIER),
+        oneShot: oneShotBy((p) =>
+          p.includes('headless.case-distill.materialize.')
+            ? MAT
+            : p.includes('headless.case-distill.candidates.')
+              ? CANDS
+              : SUMMARY
+        )
+      },
+      resolve
+    )
+    expect(run.stages?.attribution?.error).toBe('assets boom')
+    expect(run.stages?.attribution?.promptChars).toBe(0)
+    expect(run.stages?.attribution?.promptHash).toMatch(/^[0-9a-f]{12}$/)
+    expect(run.attribution).toBeUndefined()
+    expect(run.output.proposals?.length).toBeGreaterThan(0)
+  })
+
+  it('an abort during the attribution call rejects the run rather than recording a stage error', async () => {
+    const ac = new AbortController()
+    const inner = routed()
+    const oneShot: PipelineRunners['oneShot'] = async (p, o) => {
+      if (stageOf(p) === 'attribution') {
+        ac.abort()
+        throw new Error('cancelled')
+      }
+      return inner(p, o)
+    }
+    const err = await runCaseDistillPipeline(
+      withAssets(),
+      { agent: agentOk(DOSSIER), oneShot },
+      undefined,
+      ac.signal
+    ).catch((e) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect((err as Error).message).toBe('cancelled')
   })
 
   it('a failed candidates stage still carries the attribution record in the thrown meta', async () => {
