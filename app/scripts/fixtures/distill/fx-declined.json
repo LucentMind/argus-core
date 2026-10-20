@@ -1,0 +1,117 @@
+{
+  "slug": "fx-declined",
+  "title": "Webhook retries flood the queue (fixture: distillation declined)",
+  "jiraKey": "FXC-1",
+  "scenario": "declined: distillation was declined at close but attribution was kept, so only an attribution job runs",
+  "settings": {
+    "pipeline": "v3"
+  },
+  "assets": {
+    "skills": [
+      {
+        "name": "fx-declined-skill",
+        "description": "Use when webhook deliveries pile up in the retry queue; checks whether retries back off or fire on a fixed interval.",
+        "body": "# Diagnose webhook retry floods\n\n## Steps\n1. Check whether the retry delay grows between attempts or stays fixed.\n2. Check whether a 410 response stops the retries.\n"
+      }
+    ],
+    "references": [],
+    "memories": []
+  },
+  "sessions": [
+    {
+      "title": "Triage",
+      "messages": [
+        {
+          "role": "user",
+          "content": "The webhook retry queue grew to 2 million entries overnight. What happened?"
+        },
+        {
+          "role": "assistant",
+          "content": "I loaded the fx-declined-skill skill and followed its first step. Retries fire every 5 seconds with no backoff, and a subscriber that went away answers 410, which the client treats as retryable, so every delivery to it retries forever."
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "summary": "Webhook retries use a fixed 5-second interval with no backoff, and a 410 response is treated as retryable, so deliveries to a gone subscriber retry forever.",
+      "reviewState": "accepted",
+      "role": "root-cause",
+      "session": 0
+    }
+  ],
+  "toolCalls": [
+    {
+      "session": 0,
+      "turn": 1,
+      "tool": "Skill",
+      "detail": "fx-declined-skill"
+    }
+  ],
+  "close": {
+    "resolution": "solved",
+    "distill": false,
+    "attribution": true
+  },
+  "stages": {
+    "dossierLite": {
+      "text": "```json\n{\"scope\":{\"status\":\"closed\",\"resolution\":\"solved\",\"settled\":true,\"note\":\"The queue drained once 410 was made terminal.\"},\"root_cause\":{\"text\":\"Webhook retries fire on a fixed 5-second interval with no backoff, and a 410 is treated as retryable, so deliveries to a removed subscriber retry forever.\",\"cites\":[{\"finding\":\"{{finding:0}}\"}]},\"confirmed_fix\":null,\"rejected_hypotheses\":[],\"diagnostic_path\":[{\"step\":\"Checked whether the retry delay grows between attempts\",\"observation\":\"Fixed 5-second interval, and 410 counted as retryable\",\"discriminated\":\"A retry-policy defect, not a subscriber outage\",\"cites\":[{\"session\":\"{{session:0}}\",\"turn\":1}]}],\"durable_facts\":[],\"user_corrections\":[]}\n```",
+      "usage": {
+        "costUsd": 0.5
+      }
+    },
+    "attribution": {
+      "text": "```json\n{\"verdicts\":[{\"kind\":\"skill\",\"name\":\"fx-declined-skill\",\"applied\":true,\"verdict\":\"helped\",\"reason\":\"Its first step (backoff vs fixed interval) is the mechanism the root cause records.\",\"cites\":[{\"finding\":\"{{finding:0}}\"}]}]}\n```",
+      "usage": {
+        "costUsd": 0.01
+      }
+    }
+  },
+  "actions": [],
+  "expected": {
+    "jobs": [
+      {
+        "kind": "attribution",
+        "state": "done",
+        "pipeline": null,
+        "stages": [
+          "dossier",
+          "attribution"
+        ],
+        "attributionSkipped": null,
+        "attributionError": false,
+        "costUsd": 0.51
+      }
+    ],
+    "attributions": [
+      {
+        "kind": "skill",
+        "name": "fx-declined-skill",
+        "applied": 1,
+        "verdict": "helped",
+        "override": null,
+        "domain": "FXC",
+        "outcome": "solved"
+      }
+    ],
+    "fakeCalls": {
+      "dossier": 0,
+      "summary": 0,
+      "candidates": 0,
+      "dossierLite": 1,
+      "attribution": 1
+    },
+    "ui": {
+      "libraryChip": {
+        "asset": "fx-declined-skill",
+        "text": "helped 1 · misled 0"
+      },
+      "observabilityLists": [
+        "fx-declined-skill"
+      ],
+      "observabilityOmits": [],
+      "runsRailLabel": "attribution only",
+      "runDetailSkipped": null
+    }
+  }
+}
