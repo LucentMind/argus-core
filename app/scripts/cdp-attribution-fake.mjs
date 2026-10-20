@@ -77,15 +77,30 @@ const SETTLE_TIMEOUT_MS = 90_000
 const UI_TIMEOUT_MS = 15_000
 const PORT_COLLISION = /bind\(\) returned an error|Cannot start http server/
 
-const abort = (msg) => {
-  console.error(msg)
-  process.exit(2)
-}
-
 // ---------- boot + teardown ----------
 let child = null
 let childLog = ''
 let childExited = null
+
+/** Abort (exit 2). The tail of the child's boot log goes to stderr too, so a CI failure is
+ *  diagnosable from the job output alone (the kept electron.log is not an artifact there). */
+const abort = (msg) => {
+  console.error(msg)
+  if (childLog)
+    console.error(
+      `--- last 40 lines of the app's boot log (${LOG}) ---\n${childLog.trimEnd().split(/\r?\n/).slice(-40).join('\n')}`
+    )
+  process.exit(2)
+}
+
+/** Abort when the child's log shows the port was taken or the child died. A no-op in attach
+ *  mode (no child, no log). Runs during boot and once more right before the first write. */
+function logGuard(port) {
+  if (PORT_COLLISION.test(childLog))
+    abort(`PORT FAIL: port ${port} was taken (child log: bind error); refusing to drive it`)
+  if (childExited !== null)
+    abort(`BOOT FAIL: electron-vite exited (${childExited}) before the app was ready`)
+}
 
 function killChild() {
   if (!child || childExited !== null) return
@@ -139,23 +154,30 @@ const samePath = (a, b) => {
 
 async function boot(port) {
   const args = ['electron-vite', 'dev', '--', `--remote-debugging-port=${port}`]
-  const logStream = fs.createWriteStream(LOG)
+  fs.writeFileSync(LOG, '')
+  // Ambient ARGUS_* (a shell left over from another worktree's session) and CDP_PORT must not
+  // reach the app: only the gate's own values below.
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !/^ARGUS_/.test(k) && k !== 'CDP_PORT')
+  )
+  Object.assign(env, {
+    ARGUS_HOME: HOME,
+    ARGUS_HEADLESS_FAKE: FAKE_DIR,
+    ARGUS_DEV_TOOLS: '1',
+    ELECTRON_DISABLE_SECURITY_WARNINGS: '1'
+  })
   child = spawn(WIN ? 'npx.cmd' : 'npx', args, {
     cwd: APP_DIR,
-    env: {
-      ...process.env,
-      ARGUS_HOME: HOME,
-      ARGUS_HEADLESS_FAKE: FAKE_DIR,
-      ARGUS_DEV_TOOLS: '1',
-      ELECTRON_DISABLE_SECURITY_WARNINGS: '1'
-    },
+    env,
     stdio: ['ignore', 'pipe', 'pipe'],
     shell: WIN,
     detached: !WIN
   })
+  // Synchronous append per chunk (the log is small): nothing is left buffered when abort()
+  // calls process.exit, so the kept electron.log never loses its tail.
   const tee = (d) => {
     childLog += d.toString()
-    logStream.write(d)
+    fs.appendFileSync(LOG, d)
   }
   child.stdout.on('data', tee)
   child.stderr.on('data', tee)
@@ -163,12 +185,7 @@ async function boot(port) {
     childExited = code ?? -1
   })
   console.error(`booting: npx ${args.join(' ')} (home ${HOME}, log ${LOG})`)
-  const guard = () => {
-    if (PORT_COLLISION.test(childLog))
-      abort(`PORT FAIL: port ${port} was taken (child log: bind error); refusing to drive it`)
-    if (childExited !== null)
-      abort(`BOOT FAIL: electron-vite exited (${childExited}) before the app was ready`)
-  }
+  const guard = () => logGuard(port)
   await waitFor(
     `CDP endpoint on ${port}`,
     async () => {
@@ -533,8 +550,30 @@ const main = async () => {
   ).catch(() => abort('BOOT FAIL: the renderer never exposed window.argus and the top bar'))
   console.error(`connected to ${PORT}: ${target.url}`)
 
-  // Cases are created through the app (DB row + case dir), unless they already exist.
+  // Identity pre-check, BEFORE any write (argus-cdp-port-collision): a wrong CDP_PORT can be
+  // another worktree's app, and creating the fixture cases there would pollute its real home.
+  // The connected app and ARGUS_HOME/argus.db must hold exactly the same set of cases (both
+  // empty for a fresh home; a foreign app with cases, or a different home, mismatches).
+  logGuard(PORT) // a bind-error line can land after `FAKE RUNNER active`
   const existing = (await conn.evalJs(`window.argus.cases.list()`)) ?? []
+  const appSlugs = existing.map((c) => c.slug).sort()
+  const dbSlugs = fs.existsSync(DB)
+    ? withDb((db) =>
+        db
+          .prepare(`SELECT slug FROM cases`)
+          .all()
+          .map((r) => r.slug)
+          .sort()
+      )
+    : null
+  if (dbSlugs === null)
+    abort(`IDENTITY FAIL: ${DB} does not exist; the connected app is not using this ARGUS_HOME`)
+  if (appSlugs.join('\n') !== dbSlugs.join('\n'))
+    abort(
+      `IDENTITY FAIL: port ${PORT} lists cases [${appSlugs.join(', ')}] but ${DB} holds [${dbSlugs.join(', ')}]; the connected app is not using this ARGUS_HOME`
+    )
+
+  // Cases are created through the app (DB row + case dir), unless they already exist.
   for (const fx of fixtures) {
     if (existing.some((c) => c.slug === fx.slug)) continue
     await conn.evalJs(
@@ -565,8 +604,7 @@ const main = async () => {
   )
 
   // Re-seed refusal, before anything is written: a home whose fixture cases already carry
-  // sessions would compare stale state (attach mode against a used home). The loader's own
-  // guard throws before inserting anything, so it is asked directly for the message.
+  // sessions would compare stale state (attach mode against a used home).
   for (const fx of fixtures) {
     const caseId = withDb((db) =>
       Number(db.prepare(`SELECT id FROM cases WHERE slug=?`).get(fx.slug).id)
@@ -575,17 +613,10 @@ const main = async () => {
       Number(db.prepare(`SELECT COUNT(*) AS n FROM sessions WHERE case_id=?`).get(caseId).n)
     )
     if (seeded === 0) continue
-    let msg = `case ${fx.slug} already has ${seeded} session(s)`
-    try {
-      withDb((db) => seedFixtureCase(db, caseId, fx))
-    } catch (e) {
-      msg = e.message
-    }
-    check(`${fx.slug}: fixture case is fresh (not seeded before)`, false, msg)
     console.error(
-      `REFUSING: ${HOME} already holds seeded fixture cases (${msg}). This gate needs a fresh home — unset CDP_PORT/ARGUS_HOME to let it boot its own.`
+      `${fx.slug}: already has ${seeded} session(s); refusing to seed twice (attach mode against a used home)\nREFUSING: ${HOME} already holds seeded fixture cases. This gate needs a fresh home — unset CDP_PORT/ARGUS_HOME to let it boot its own.`
     )
-    report()
+    process.exit(1)
   }
 
   if (ATTACH) prepareHome()
