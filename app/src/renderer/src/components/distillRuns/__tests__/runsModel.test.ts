@@ -201,7 +201,9 @@ describe('stripNodes', () => {
     expect(nodes.every((n) => n.state === 'done')).toBe(true)
     expect(nodes[1].stat).toBe('$1.04 · 7 tool calls')
     expect(nodes[3].stat).toBe('$— · 4 out')
-    expect(nodes[4].stat).toBe('0 applied · 0 misled')
+    // C5: a non-error record with no parsed verdicts (parsed.attribution null) is unknown, not
+    // "0 applied · 0 misled" — that would claim the judge saw nothing applied.
+    expect(nodes[4].stat).toBe('—')
     expect(nodes[5].stat).toBe('−2 · duplicate, cap')
     expect(nodes[6].stat).toBe('×1 · $0.30')
     expect(nodes[7].stat).toBe('−1 · steps-in-reference')
@@ -282,6 +284,12 @@ describe('stripNodes', () => {
       state: 'skipped',
       stat: 'no assets'
     })
+    expect(attr({ ...base, stages: { ...base.stages, attributionSkipped: 'open' } })).toMatchObject(
+      {
+        state: 'skipped',
+        stat: 'open case'
+      }
+    )
     expect(
       attr({
         ...base,

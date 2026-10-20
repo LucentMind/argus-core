@@ -79,6 +79,7 @@ export function createLangfuseTracing(cfg: {
 
     createScore: async (o) => {
       await client.score.create({
+        ...(o.id != null ? { id: o.id } : {}),
         traceId: o.traceId,
         name: o.name,
         value: o.value,

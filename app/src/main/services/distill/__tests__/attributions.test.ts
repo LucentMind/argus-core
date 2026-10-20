@@ -154,7 +154,7 @@ describe('writeAttributions + latestAttributionRows', () => {
 })
 
 describe('applyAttributionOverride', () => {
-  it('stamps the latest-job row, is idempotent, never clears the judge verdict', () => {
+  it('stamps the latest-job row, is idempotent (a repeat returns null), never clears the judge verdict', () => {
     writeAttributions(db, base(job('c1')))
     const r1 = applyAttributionOverride(db, {
       caseSlug: 'c1',
@@ -178,7 +178,10 @@ describe('applyAttributionOverride', () => {
       source: 'finding-retraction',
       now: () => new Date('2026-10-22T00:00:00.000Z')
     })
-    expect(r2?.overrideAt).toBe('2026-10-21T00:00:00.000Z')
+    // A no-op returns null so the caller never re-emits an unchanged override (A6)…
+    expect(r2).toBeNull()
+    // …and the stored stamp is untouched.
+    expect(latestAttributionRows(db)[0].overrideAt).toBe('2026-10-21T00:00:00.000Z')
   })
   it('creates an applied=1, verdict=NULL row when the judge was silent or absent', () => {
     const j = job('c1')

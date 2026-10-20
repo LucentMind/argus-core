@@ -16,8 +16,10 @@ import {
  * what the CURRENT parser makes of a replayed output.
  */
 export function attributionSummary(line: DistillEvalBundleLine, stages: PipelineStages | undefined): string {
-  if (stages?.attributionSkipped)
-    return `attribution: skipped (${stages.attributionSkipped === 'declined' ? 'declined' : 'no assets'})`
+  if (stages?.attributionSkipped) {
+    const why = { declined: 'declined', open: 'open case', 'no-assets': 'no assets' }[stages.attributionSkipped]
+    return `attribution: skipped (${why})`
+  }
   const rec = stages?.attribution
   if (!rec) return 'attribution: not run'
   if (rec.error) return `attribution: error — ${rec.error}`

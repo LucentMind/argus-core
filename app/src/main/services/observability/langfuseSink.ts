@@ -38,6 +38,7 @@ export interface TracingApi {
     opts: StartOpts
   ): ObservationHandle
   createScore(o: {
+    id?: string
     traceId: string
     name: string
     value: number
@@ -162,6 +163,7 @@ export class LangfuseSink implements ObservationSink {
       // finding after an app restart, when the trace already has a proper root.
       const traceId = await this.traceIdFor(intent.seed)
       await this.api.createScore({
+        ...(intent.id != null ? { id: intent.id } : {}),
         traceId,
         name: intent.name,
         value: intent.value,

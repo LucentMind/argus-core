@@ -276,6 +276,18 @@ describe('RunDetail', () => {
     expect(screen.getByTestId('card-attribution')).toHaveTextContent('skipped · declined at close')
     expect(screen.getByTestId('strip-attribution').dataset.state).toBe('skipped')
   })
+  it('an open-case skip says so on the card (A7)', () => {
+    const base = detail()
+    const d: DistillRunDetail = {
+      ...base,
+      stages: { ...base.stages, attributionSkipped: 'open' }
+    }
+    render(<RunDetail detail={d} progress={null} />)
+    expect(screen.getByTestId('card-attribution')).toHaveTextContent(
+      'skipped · the case is still open'
+    )
+    expect(screen.getByTestId('strip-attribution').dataset.state).toBe('skipped')
+  })
   it('renders the trajectory as a tool-call list, collapsed', () => {
     render(<RunDetail detail={detail()} progress={null} />)
     expect(screen.getByText(/Trajectory \(1 tool call\)/)).toBeInTheDocument()

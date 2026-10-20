@@ -26,6 +26,7 @@ describe('attributionSummary', () => {
   it('reports skipped / error / not run / counts', () => {
     expect(attributionSummary(line(A), { attributionSkipped: 'declined' })).toBe('attribution: skipped (declined)')
     expect(attributionSummary(line([]), { attributionSkipped: 'no-assets' })).toBe('attribution: skipped (no assets)')
+    expect(attributionSummary(line(A), { attributionSkipped: 'open' })).toBe('attribution: skipped (open case)')
     expect(
       attributionSummary(line(A), { attribution: { promptHash: 'a', promptChars: 1, rawOutput: '', error: 'boom' } })
     ).toBe('attribution: error — boom')

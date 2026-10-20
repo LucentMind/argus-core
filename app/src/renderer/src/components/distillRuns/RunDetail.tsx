@@ -262,7 +262,11 @@ export function runSections(detail: DistillRunDetail): RunSection[] {
             className="rounded-r2 surface-card p-3 font-mono text-[11px] text-dim"
           >
             attribution — skipped ·{' '}
-            {s.attributionSkipped === 'declined' ? 'declined at close' : 'no assets in this case'}
+            {s.attributionSkipped === 'declined'
+              ? 'declined at close'
+              : s.attributionSkipped === 'open'
+                ? 'the case is still open'
+                : 'no assets in this case'}
           </section>
         ) : (
           <StageCard

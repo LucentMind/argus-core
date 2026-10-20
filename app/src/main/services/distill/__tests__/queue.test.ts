@@ -2098,6 +2098,32 @@ describe('attribution', () => {
       await q3.idle()
       expect(attrCount()).toBe(0)
     })
+    it('does not enqueue one for an OPEN case (failed, v2, or open-skipped run) (A7)', async () => {
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      const open = { ...ATTR_INPUT, caseOutcome: 'open' } as unknown as CaseDistillInput
+      const { q } = makeQueue({ assembleInput: () => open, distill: failing })
+      q.enqueue('case-a', { attribution: true })
+      await q.idle()
+      const { q: q2 } = makeQueue({
+        assembleInput: () => open,
+        distill: async () => ({ raw: '```json\n{}\n```', output: { proposals: [] } })
+      })
+      q2.enqueue('case-a', { attribution: true })
+      await q2.idle()
+      // A snapshot whose outcome is not 'open' but whose run recorded the open skip still
+      // never hatches (the marker alone is enough).
+      const { q: q3 } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        distill: async () => ({
+          ...ATTR_RUN,
+          attribution: undefined,
+          stages: { dossier: ATTR_RUN.stages.dossier, attributionSkipped: 'open' as const }
+        })
+      })
+      q3.enqueue('case-a', { attribution: true })
+      await q3.idle()
+      expect(attrCount()).toBe(0)
+    })
     it('a cancelled case job does not trigger it', async () => {
       createCase(db, home, { slug: 'case-a', title: 'T' })
       let release!: () => void
