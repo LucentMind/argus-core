@@ -28,10 +28,14 @@
  *
  * Optional: LANGFUSE_SECRET_KEY (with Langfuse enabled + host + publicKey in the scratch home's
  * settings) lets the gate read the `asset.contribution` scores back from the Langfuse API. Without
- * a configured Langfuse it prints `langfuse: not configured, skipped` and records NO assertion.
+ * a configured Langfuse it prints `langfuse: not configured, skipped` and records NO assertion; a
+ * trailing `langfuse: skipped` line just before the tally makes that visible. The read-back is
+ * scoped to this gate's run (`fromTimestamp` = gate start, and the fixture slugs in the score
+ * metadata), so scores from an earlier run can never satisfy it.
  *
  * Spend: three real runs (~$2.6 each for the two full pipelines, less for the lite one). The gate
- * aborts with exit 2 BEFORE closing case 3 if cases 1+2 together cost more than $6.
+ * aborts with exit 2 BEFORE closing case 3 if cases 1+2 together cost more than $8 — after the
+ * case 1/2 assertions have run, so a budget abort still prints them.
  *
  * Exits 0 when every check passes, 1 otherwise, 2 on an abort (identity / settings / spend).
  */
@@ -47,7 +51,7 @@ if (!HOME) {
   process.exit(2)
 }
 const DB = path.join(HOME, 'argus.db')
-const SPEND_LIMIT_USD = 6
+const SPEND_LIMIT_USD = 8
 const JOB_TIMEOUT_MS = 25 * 60 * 1000
 
 const SKILL = 'diagnose-uploader'
@@ -56,6 +60,7 @@ const REF = 'nav/limits.md'
 const POSITIVE = 'live-attr-positive'
 const NEGATIVE = 'live-attr-negative'
 const NODISTILL = 'live-attr-nodistill'
+const GATE_START_ISO = new Date().toISOString()
 const FIXTURES = [
   { slug: POSITIVE, jiraKey: 'LIVE-81', tools: true },
   { slug: NEGATIVE, jiraKey: 'LIVE-82', tools: false },
@@ -128,6 +133,11 @@ function writeAssets() {
   fs.writeFileSync(
     refFile,
     [
+      '---',
+      'title: Gateway limits',
+      'trust_tier: team-knowledge',
+      '---',
+      '',
       '# Gateway limits',
       '',
       '- Multipart first-part limit: 3670016 bytes (3.5MiB). Larger first parts are rejected with HTTP 413.',
@@ -290,8 +300,11 @@ async function settle(slug, expectJob) {
 }
 
 // ---------- cite resolution ----------
-function citeProblems(rows, slug, snapshotsByJob) {
+/** `problems` lists every cite that does NOT resolve; `resolved` counts the ones that do — so a
+ *  caller can tell "every cite resolved" from the vacuous "there were no cites to resolve". */
+function citeCheck(rows, slug, snapshotsByJob) {
   const problems = []
+  let resolved = 0
   const findingIds = withDb(
     (db) =>
       new Set(
@@ -316,19 +329,22 @@ function citeProblems(rows, slug, snapshotsByJob) {
       if (c && typeof c === 'object' && 'finding' in c) {
         if (!findingIds.has(Number(c.finding)))
           problems.push(`${r.asset_name}: finding ${c.finding} does not exist`)
+        else resolved++
       } else if (c && typeof c === 'object' && 'evidence' in c) {
         if (!evidencePaths.has(c.evidence))
           problems.push(`${r.asset_name}: evidence ${c.evidence} not in the snapshot`)
+        else resolved++
       } else if (c && typeof c === 'object' && 'session' in c) {
         const total = turnCounts.get(Number(c.session))
         if (total === undefined || !Number.isInteger(c.turn) || c.turn < 0 || c.turn >= total)
           problems.push(`${r.asset_name}: session ${c.session} turn ${c.turn} outside the world`)
+        else resolved++
       } else {
         problems.push(`${r.asset_name}: unrecognised cite ${JSON.stringify(c)}`)
       }
     }
   }
-  return problems
+  return { problems, resolved }
 }
 
 // ---------- UI helpers ----------
@@ -348,21 +364,25 @@ const clickButtonText = (conn, text) =>
   })()`)
 
 // ---------- Langfuse read-back ----------
+/** Returns the number of THIS run's asset.contribution scores, or `{ skipped: reason }`. Scoped
+ *  twice so a previous run's scores can never satisfy it: the API query starts at the gate's own
+ *  start time, and a score only counts when its metadata names one of the fixture slugs. */
 async function langfuseScoreCount() {
   const lf = readLangfuseConfig()
   if (!lf) {
     console.error('langfuse: not configured, skipped')
-    return null
+    return { skipped: 'not configured' }
   }
   const secret = process.env.LANGFUSE_SECRET_KEY
   if (!secret) {
     console.error(
       'langfuse: configured, but LANGFUSE_SECRET_KEY not provided to the gate, skipped (the secret lives in the app keychain; the gate cannot read it)'
     )
-    return null
+    return { skipped: 'LANGFUSE_SECRET_KEY not provided' }
   }
   const auth = Buffer.from(`${lf.publicKey}:${secret}`).toString('base64')
-  const url = `${lf.host.replace(/\/+$/, '')}/api/public/scores?name=asset.contribution&limit=50`
+  const fixtureSlugs = new Set(FIXTURES.map((f) => f.slug))
+  const url = `${lf.host.replace(/\/+$/, '')}/api/public/scores?name=asset.contribution&limit=100&fromTimestamp=${encodeURIComponent(GATE_START_ISO)}`
   const deadline = Date.now() + 90_000
   let last = 0
   while (Date.now() < deadline) {
@@ -370,7 +390,8 @@ async function langfuseScoreCount() {
       const res = await fetch(url, { headers: { Authorization: `Basic ${auth}` } })
       if (res.ok) {
         const body = await res.json()
-        last = Array.isArray(body.data) ? body.data.length : 0
+        const data = Array.isArray(body.data) ? body.data : []
+        last = data.filter((sc) => fixtureSlugs.has(sc?.metadata?.['argus.case.slug'])).length
         if (last > 0) return last
       } else {
         console.error(`langfuse: scores API answered ${res.status}`)
@@ -414,7 +435,22 @@ const main = async () => {
     )
     process.exit(2)
   }
-  check('identity: all three fixture cases visible on the connected app', true)
+  // Not tautological: the app listing the slugs is not enough (another home could hold cases of
+  // the same name) — each fixture must also be a row in THIS scratch home's DB, which is where
+  // every assertion below reads from.
+  const notInDb = withDb((db) =>
+    FIXTURES.filter((f) => !db.prepare(`SELECT 1 FROM cases WHERE slug=?`).get(f.slug))
+  )
+  if (notInDb.length) {
+    console.error(
+      `IDENTITY FAIL: fixture case(s) ${notInDb.map((f) => f.slug).join(', ')} are not rows in ${DB}; the connected app is not using this ARGUS_HOME — refusing to continue`
+    )
+    process.exit(2)
+  }
+  check(
+    'identity: all three fixture cases visible on the connected app AND present in ARGUS_HOME/argus.db',
+    true
+  )
 
   // Settings gate, BEFORE the money is spent: a v2 run has no attribution stage, and a default of
   // false would not matter to the preload call below but means the file edit did not land.
@@ -455,20 +491,6 @@ const main = async () => {
   // ---- case 2: negative control ----
   await close(NEGATIVE, true, true)
   await settle(NEGATIVE, true)
-
-  // Spend guard — before the third (and last) run is paid for.
-  const spent12 = costOf(POSITIVE) + costOf(NEGATIVE)
-  console.error(`spend so far (cases 1+2): $${spent12.toFixed(2)}`)
-  if (spent12 > SPEND_LIMIT_USD) {
-    console.error(
-      `SPEND ABORT: $${spent12.toFixed(2)} > $${SPEND_LIMIT_USD}; not closing ${NODISTILL}`
-    )
-    process.exit(2)
-  }
-
-  // ---- case 3: no distillation, attribution only ----
-  await close(NODISTILL, false, true)
-  await settle(NODISTILL, true)
 
   // ================= case 1 assertions =================
   {
@@ -529,10 +551,14 @@ const main = async () => {
       rows.map((r) => r.job_id)
     )
     check(
-      `${POSITIVE}: case_domain is LIVE (the Jira project) or unassigned`,
-      rows.length > 0 &&
-        rows.every((r) => r.case_domain === 'LIVE' || r.case_domain === 'unassigned'),
+      `${POSITIVE}: case_domain is exactly LIVE (the Jira project of LIVE-81)`,
+      rows.length > 0 && rows.every((r) => r.case_domain === 'LIVE'),
       [...new Set(rows.map((r) => r.case_domain))]
+    )
+    check(
+      `${POSITIVE}: the reference row carries a non-null asset_tier (relPath-keyed tier lookup)`,
+      Boolean(refRow?.asset_tier),
+      refRow?.asset_tier
     )
     check(
       `${POSITIVE}: case_outcome stamped`,
@@ -551,7 +577,16 @@ const main = async () => {
         (r) => `${r.asset_name}:applied=${r.applied}:cites=${jsonOr(r.cites_json, []).length}`
       )
     )
-    const problems = citeProblems(rows, POSITIVE, new Map([[job?.id, snap]]))
+    // Not vacuous: "every cite resolves" passes trivially when the judge applied nothing, so the
+    // fixture (whose transcript follows the skill's first step) must yield an applied verdict and
+    // at least one cite that actually resolved.
+    check(
+      `${POSITIVE}: ≥1 applied verdict for the skill fixture`,
+      rows.some((r) => r.asset_kind === 'skill' && r.applied === 1),
+      rows.map((r) => `${r.asset_kind}/${r.asset_name}:applied=${r.applied}`)
+    )
+    const { problems, resolved } = citeCheck(rows, POSITIVE, new Map([[job?.id, snap]]))
+    check(`${POSITIVE}: ≥1 cite resolved`, resolved > 0, resolved)
     check(
       `${POSITIVE}: every cite resolves in the frozen snapshot`,
       problems.length === 0,
@@ -571,21 +606,28 @@ const main = async () => {
     )
 
     // --- UI: Observability → Knowledge usefulness, Library chip ---
-    await clickByLabel(conn, 'Settings')
-    await sleep(800)
-    const navOk = await conn.evalJs(`(() => {
+    // Every navigation step waits for the DOM it needs (waitFor), never a fixed sleep: a slow
+    // render must not read as a missing page, nor a fast one waste time.
+    const settingsNavShown = () =>
+      conn.evalJs(`Boolean(document.querySelector('nav[aria-label="Settings sections"]'))`)
+    const clickSettingsSection = (name) =>
+      conn.evalJs(`(() => {
       const nav = document.querySelector('nav[aria-label="Settings sections"]')
-      const b = nav && [...nav.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === 'Observability')
+      const b = nav && [...nav.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === ${JSON.stringify(name)})
       if (!b) return false
       b.click()
       return true
     })()`)
+    await clickByLabel(conn, 'Settings')
+    await waitFor('Settings sections nav', settingsNavShown, 10000).catch(() => null)
+    const navOk = await clickSettingsSection('Observability')
     check('UI: Settings has an Observability page', navOk)
-    await sleep(800)
-    check(
-      'UI: Observability page has an Open dashboard button',
-      await clickButtonText(conn, 'Open dashboard')
-    )
+    const dashOk = await waitFor(
+      'Open dashboard button',
+      () => clickButtonText(conn, 'Open dashboard'),
+      10000
+    ).catch(() => false)
+    check('UI: Observability page has an Open dashboard button', dashOk)
     const card = await waitFor(
       'Knowledge usefulness card',
       () =>
@@ -616,26 +658,26 @@ const main = async () => {
       }
       return false
     })()`)
-    await sleep(600)
-    if (
-      !(await conn.evalJs(`Boolean(document.querySelector('nav[aria-label="Settings sections"]'))`))
-    ) {
+    await waitFor(
+      'dashboard closed',
+      async () =>
+        !(await conn.evalJs(
+          `Boolean(document.querySelector('[data-card-id="usefulness.assets"]'))`
+        )),
+      10000
+    ).catch(() => null)
+    if (!(await settingsNavShown())) {
       await clickByLabel(conn, 'Settings')
-      await sleep(800)
+      await waitFor('Settings sections nav', settingsNavShown, 10000).catch(() => null)
     }
-    const libOk = await conn.evalJs(`(() => {
-      const nav = document.querySelector('nav[aria-label="Settings sections"]')
-      const b = nav && [...nav.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === 'Library')
-      if (!b) return false
-      b.click()
-      return true
-    })()`)
+    const libOk = await clickSettingsSection('Library')
     check('UI: Settings has a Library page', libOk)
-    await sleep(1500)
     // The chip renders only for an asset the judge said was applied at least once; so what is
-    // asserted is that the chip's presence tracks the DB, in both directions.
+    // asserted is that the chip's presence tracks the DB, in both directions — and in BOTH
+    // directions the skill's Library row must actually be on screen, or "no chip" proves nothing.
     const expectChip = rows.some((r) => r.asset_name === SKILL && r.applied === 1)
-    const chipText = await conn.evalJs(`(() => {
+    const libraryScan = () =>
+      conn.evalJs(`(() => {
       const re = /helped \\d+ · misled \\d+/gi
       const leaves = [...document.querySelectorAll('*')].filter(
         (e) => e.children.length === 0 && (e.textContent || '').trim() === ${JSON.stringify(SKILL)}
@@ -646,23 +688,37 @@ const main = async () => {
           const m = (el.textContent || '').match(re)
           if (m) {
             const t = el.textContent || ''
-            if (m.length === 1 && !t.includes(${JSON.stringify(REF)})) return m[0]
+            if (m.length === 1 && !t.includes(${JSON.stringify(REF)}))
+              return { rowFound: true, chipText: m[0] }
             break
           }
         }
       }
-      return null
+      return { rowFound: leaves.length > 0, chipText: null }
     })()`)
+    // Wait for the row (and, when one is expected, its chip); on timeout keep the last scan.
+    let lib = { rowFound: false, chipText: null }
+    await waitFor(
+      `Library row for ${SKILL}`,
+      async () => {
+        lib = (await libraryScan()) ?? lib
+        return lib.rowFound && (!expectChip || lib.chipText)
+      },
+      15000
+    ).catch(() => null)
+    const { rowFound, chipText } = lib
     if (expectChip) {
+      check(`UI: Library shows a row for ${SKILL}`, rowFound, lib)
       check(
         `UI: Library row for ${SKILL} carries a helped N · misled M chip`,
         /helped \d+ · misled \d+/i.test(chipText ?? ''),
         chipText
       )
     } else {
+      check(`UI: Library shows a row for ${SKILL}`, rowFound, lib)
       check(
         `UI: Library row for ${SKILL} has NO chip (judge said it was not applied)`,
-        chipText === null,
+        rowFound && chipText === null,
         { chipText, applied: skillRow?.applied }
       )
     }
@@ -694,6 +750,21 @@ const main = async () => {
       jobs.map((j) => j.kind)
     )
   }
+
+  // Spend guard — before the third (and last) run is paid for, AFTER the case 1/2 assertions
+  // above have printed (so an abort still shows what the money already bought).
+  const spent12 = costOf(POSITIVE) + costOf(NEGATIVE)
+  console.error(`spend so far (cases 1+2): $${spent12.toFixed(2)}`)
+  if (spent12 > SPEND_LIMIT_USD) {
+    console.error(
+      `SPEND ABORT: $${spent12.toFixed(2)} > $${SPEND_LIMIT_USD}; not closing ${NODISTILL}`
+    )
+    process.exit(2)
+  }
+
+  // ---- case 3: no distillation, attribution only ----
+  await close(NODISTILL, false, true)
+  await settle(NODISTILL, true)
 
   // ================= case 3 assertions (escape hatch) =================
   {
@@ -734,7 +805,8 @@ const main = async () => {
       rows.map((r) => `${r.asset_kind}/${r.asset_name}`)
     )
     const snap = jsonOr(job?.input_snapshot, {})
-    const problems = citeProblems(rows, NODISTILL, new Map([[job?.id, snap]]))
+    const { problems, resolved } = citeCheck(rows, NODISTILL, new Map([[job?.id, snap]]))
+    check(`${NODISTILL}: ≥1 cite resolved`, resolved > 0, resolved)
     check(
       `${NODISTILL}: every cite resolves in the frozen snapshot`,
       problems.length === 0,
@@ -770,8 +842,13 @@ const main = async () => {
 
   // ================= Langfuse =================
   const scores = await langfuseScoreCount()
-  if (scores !== null) {
-    check('langfuse: asset.contribution scores present', scores > 0, scores)
+  const langfuseSkipped = typeof scores === 'object' ? scores.skipped : null
+  if (!langfuseSkipped) {
+    check(
+      'langfuse: asset.contribution scores from THIS run (fixture slugs, since gate start)',
+      scores > 0,
+      scores
+    )
   }
 
   // ================= spend =================
@@ -782,6 +859,9 @@ const main = async () => {
   )
 
   conn.close()
+  // A skipped read-back records no assertion; say so right above the tally so "N/N passed" is
+  // never read as "Langfuse verified".
+  if (langfuseSkipped) console.error(`langfuse: skipped (${langfuseSkipped})`)
   report()
 }
 
