@@ -20,6 +20,15 @@ beforeEach(() => {
   db = openDb(path.join(home, 'argus.db'))
   createCase(db, home, { slug: 'c1', title: 'T' })
 })
+function dryJob(slug: string): number {
+  return Number(
+    db
+      .prepare(
+        `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at, dry_run) VALUES (?, 'done', '{}', 'x', 1)`
+      )
+      .run(slug).lastInsertRowid
+  )
+}
 function job(slug: string): number {
   return Number(
     db
@@ -87,6 +96,37 @@ describe('writeAttributions + latestAttributionRows', () => {
       (db.prepare(`SELECT COUNT(*) AS n FROM asset_attributions`).get() as { n: number }).n
     ).toBe(2)
   })
+  it('rows written against a dry-run job never shadow the real job', () => {
+    writeAttributions(db, base(job('c1')))
+    writeAttributions(db, { ...base(dryJob('c1')), verdicts: [{ ...V, verdict: 'misled' }] })
+    const latest = latestAttributionRows(db)
+    expect(latest).toHaveLength(1)
+    expect(latest[0].verdict).toBe('helped')
+  })
+  it('is idempotent per job: re-writing the same job replaces its rows (queue.retry reuses ids)', () => {
+    const j = job('c1')
+    writeAttributions(db, base(j))
+    writeAttributions(db, {
+      ...base(j),
+      verdicts: [
+        { ...V, verdict: 'misled' },
+        { ...V, name: 'second' }
+      ]
+    })
+    const latest = latestAttributionRows(db)
+    expect(latest.map((r) => [r.assetName, r.verdict])).toEqual([
+      ['diag', 'misled'],
+      ['second', 'helped']
+    ])
+    expect(
+      (db.prepare(`SELECT COUNT(*) AS n FROM asset_attributions`).get() as { n: number }).n
+    ).toBe(2)
+  })
+  it('a non-array cites_json reads back as []', () => {
+    const [r] = writeAttributions(db, base(job('c1')))
+    db.prepare(`UPDATE asset_attributions SET cites_json = '{}' WHERE id = ?`).run(r.id)
+    expect(latestAttributionRows(db)[0].cites).toEqual([])
+  })
   it('deleting the case cascades', () => {
     writeAttributions(db, base(job('c1')))
     db.prepare(`DELETE FROM cases WHERE slug = 'c1'`).run()
@@ -149,6 +189,48 @@ describe('applyAttributionOverride', () => {
       })
     ).toBeNull()
   })
+  it('attaches to the real job, not a newer dry-run job, when no attribution rows exist', () => {
+    const real = job('c1')
+    dryJob('c1')
+    const r = applyAttributionOverride(db, {
+      caseSlug: 'c1',
+      kind: 'skill',
+      name: 'a',
+      verdict: 'misled',
+      source: 'proposal-reject'
+    })
+    expect(r?.jobId).toBe(real)
+  })
+  it('returns null for an existing case with no distill_jobs row', () => {
+    expect(
+      applyAttributionOverride(db, {
+        caseSlug: 'c1',
+        kind: 'skill',
+        name: 'a',
+        verdict: 'misled',
+        source: 'proposal-reject'
+      })
+    ).toBeNull()
+  })
+  it('an override on an applied=0 row leaves applied at 0 and stamps the override', () => {
+    writeAttributions(db, {
+      ...base(job('c1')),
+      verdicts: [{ ...V, applied: false, verdict: null, reason: 'unused', cites: [] }]
+    })
+    const r = applyAttributionOverride(db, {
+      caseSlug: 'c1',
+      kind: 'skill',
+      name: 'diag',
+      verdict: 'misled',
+      source: 'finding-retraction'
+    })
+    expect(r).toMatchObject({
+      applied: false,
+      overrideVerdict: 'misled',
+      overrideSource: 'finding-retraction'
+    })
+    expect(r?.overrideAt).not.toBeNull()
+  })
   it('an override on a silent judge row (applied NULL) marks it applied so aggregation counts it', () => {
     writeAttributions(db, {
       ...base(job('c1')),
@@ -179,10 +261,15 @@ describe('assetNamesForCase + lastSessionIdForCase', () => {
     db.prepare(
       `INSERT INTO tool_calls (case_id, session_id, tool, args_hash, detail, risk, decision, created_at) VALUES (?, 5, 'Read', 'h', 'ref:nav/limits.md', 'LOW', 'auto', 'x')`
     ).run(caseId)
+    db.prepare(
+      `INSERT INTO tool_calls (case_id, session_id, tool, args_hash, detail, risk, decision, created_at) VALUES (?, 5, 'Skill', 'h2', 'live-skill', 'LOW', 'auto', 'x'), (?, 5, 'mcp__argus__read_memory', 'h3', 'live-mem', 'LOW', 'auto', 'x')`
+    ).run(caseId, caseId)
     writeAttributions(db, base(job('c1')))
     expect(assetNamesForCase(db, 'c1')).toEqual([
       { kind: 'skill', name: 'diag' },
-      { kind: 'reference', name: 'nav/limits.md' }
+      { kind: 'skill', name: 'live-skill' },
+      { kind: 'reference', name: 'nav/limits.md' },
+      { kind: 'memory', name: 'live-mem' }
     ])
     expect(lastSessionIdForCase(db, 'c1')).toBe(6)
     expect(lastSessionIdForCase(db, 'nope')).toBeNull()
