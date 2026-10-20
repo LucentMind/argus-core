@@ -1,0 +1,185 @@
+{
+  "slug": "fx-helped",
+  "title": "Uploader drops batches (fixture: helped)",
+  "jiraKey": "FXH-1",
+  "scenario": "helped: skill and reference both helped, the memory was read but not applied",
+  "settings": {
+    "pipeline": "v3"
+  },
+  "assets": {
+    "skills": [
+      {
+        "name": "fx-helped-skill",
+        "description": "Use when the telemetry uploader silently drops batches; checks chunk size against the gateway first-part limit.",
+        "body": "# Diagnose uploader drops\n\n## Steps\n1. Compare the uploader chunk size with the gateway first-part limit (see the limits reference).\n2. Check how the client maps a 413 response; a silent non-retryable drop is the usual culprit.\n3. Check the staging config for flags that cap chunk size and mask the bug.\n"
+      }
+    ],
+    "references": [
+      {
+        "relPath": "fx-helped.md",
+        "tier": "team-knowledge",
+        "body": "# Gateway limits\n\n- Multipart first-part limit: 3670016 bytes (3.5MiB). Larger first parts are rejected with HTTP 413.\n- Staging sets TELEMETRY_STRICT_SIZE=1 (2MB chunks); production leaves it unset.\n"
+      }
+    ],
+    "memories": [
+      "fx-helped-topic"
+    ]
+  },
+  "sessions": [
+    {
+      "title": "Initial triage",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Uploader drops telemetry batches sometimes. Dig into it and tell me what you find; I will not repeat myself later, so write down the mechanism precisely."
+        },
+        {
+          "role": "assistant",
+          "content": "I loaded the fx-helped-skill skill and followed its first step, comparing chunk size against the gateway limit documented in the fx-helped.md reference. Found it. The uploader chunks at 4MB but the gateway rejects any multipart whose FIRST part exceeds 3.5MB with HTTP 413; the client swallows 413 as a retryable error and never retries because the retry budget is 0 for 4xx. Mechanism: chunk-size 4194304 vs gateway first-part limit 3670016 (3.5MiB), error class NonRetryable413 mapped to silent-drop in uploader/retry.py line 88."
+        },
+        {
+          "role": "user",
+          "content": "OK. And the second thing you found about the config flag — remind me next time exactly what it was, I did not write it down."
+        },
+        {
+          "role": "assistant",
+          "content": "The second finding: the flag TELEMETRY_STRICT_SIZE=1 in the staging config caps chunks at 2MB and masks the bug entirely, which is why staging never reproduced it; production has the flag unset. Removing the flag in staging reproduces the drop 100% of the time. The limits reference had the 3.5MiB figure, which is what pointed me at the first-part size."
+        }
+      ]
+    },
+    {
+      "title": "Root-cause confirmation",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Bench confirmed both points from the earlier session. Root cause is the mechanism you described there — the exact chunk-vs-first-part numbers and the retry mapping. Please record it as the root cause using the precise values from that session, and capture the staging-flag gotcha as reusable knowledge — refer back to what you found, I am not restating the numbers."
+        },
+        {
+          "role": "assistant",
+          "content": "Recorded. Root cause per the earlier analysis; the staging-flag masking is the reusable gotcha."
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "summary": "Uploader chunk size exceeds the gateway first-part limit; the resulting 413 is mapped to a silent non-retryable drop. Exact sizes and file/line are in the session transcript.",
+      "reviewState": "accepted",
+      "role": "root-cause",
+      "session": 1
+    }
+  ],
+  "toolCalls": [
+    {
+      "session": 0,
+      "turn": 1,
+      "tool": "Skill",
+      "detail": "fx-helped-skill"
+    },
+    {
+      "session": 0,
+      "turn": 2,
+      "tool": "Read",
+      "detail": "ref:fx-helped.md"
+    },
+    {
+      "session": 0,
+      "turn": 2,
+      "tool": "mcp__argus__read_memory",
+      "detail": "fx-helped-topic"
+    }
+  ],
+  "close": {
+    "resolution": "solved",
+    "distill": true,
+    "attribution": true
+  },
+  "stages": {
+    "dossier": {
+      "text": "```json\n{\"scope\":{\"status\":\"closed\",\"resolution\":\"solved\",\"settled\":true,\"note\":\"Bench confirmed the mechanism in the second session.\"},\"root_cause\":{\"text\":\"The uploader chunks at 4194304 bytes but the gateway rejects a multipart whose first part exceeds 3670016 bytes with HTTP 413; the client maps that 413 to a silent non-retryable drop.\",\"cites\":[{\"finding\":\"{{finding:0}}\"}]},\"confirmed_fix\":null,\"rejected_hypotheses\":[],\"diagnostic_path\":[{\"step\":\"Compared the uploader chunk size with the gateway first-part limit from the limits reference\",\"observation\":\"4MB chunks exceed the 3.5MiB first-part limit, so the gateway answers 413\",\"discriminated\":\"A size rejection, not a transient network failure\",\"cites\":[{\"session\":\"{{session:0}}\",\"turn\":1}]}],\"durable_facts\":[],\"user_corrections\":[]}\n```"
+    },
+    "summary": {
+      "text": "```json\n{\"summary\":{\"signature\":\"Uploader silently drops batches whose first multipart part exceeds the gateway limit\",\"symptoms\":\"Telemetry batches go missing with no client-side error or retry.\",\"rootCause\":\"Chunk size 4MB exceeds the 3.5MiB first-part limit; the 413 is mapped to a non-retryable silent drop.\",\"fix\":\"Cap the chunk size below the first-part limit and surface 413 as an error.\",\"keywords\":[\"uploader\",\"multipart\",\"413\",\"chunk size\"]}}\n```"
+    },
+    "candidates": {
+      "text": "```json\n{\"candidates\":[{\"kind\":\"procedure\",\"type\":\"skill-edit\",\"target\":\"fx-helped-skill\",\"title\":\"Check staging size flags\",\"outline\":\"Add the staging-flag check to the uploader-drop procedure.\",\"evidence\":[\"root_cause\",\"diagnostic_path[0]\"],\"related\":[],\"generalization\":\"Any size-capping staging flag can hide a production-only size rejection.\",\"routing_rationale\":\"The existing uploader-drop skill is where this check belongs.\",\"confidence\":0.9},{\"kind\":\"procedure\",\"type\":\"skill-new\",\"target\":\"fx-helped-skill\",\"title\":\"Duplicate of the installed skill\",\"outline\":\"Add the staging-flag check to the uploader-drop procedure.\",\"evidence\":[\"root_cause\",\"diagnostic_path[0]\"],\"related\":[],\"generalization\":\"Any size-capping staging flag can hide a production-only size rejection.\",\"routing_rationale\":\"The existing uploader-drop skill is where this check belongs.\",\"confidence\":0.5}]}\n```"
+    },
+    "materialize": {
+      "text": "```json\n{\"ops\":[{\"op\":\"append-section\",\"heading\":\"## Steps\",\"content\":\"4. If staging never reproduces the drop, unset TELEMETRY_STRICT_SIZE there: it caps chunks at 2MB and masks the first-part rejection.\"}],\"basis\":\"Bench confirmed that the staging size flag masks the first-part rejection.\"}\n```"
+    },
+    "attribution": {
+      "text": "```json\n{\"verdicts\":[{\"kind\":\"skill\",\"name\":\"fx-helped-skill\",\"applied\":true,\"verdict\":\"helped\",\"reason\":\"Its first step (chunk size vs the first-part limit) is the mechanism the root cause records.\",\"cites\":[{\"finding\":\"{{finding:0}}\"}]},{\"kind\":\"reference\",\"name\":\"fx-helped.md\",\"applied\":true,\"verdict\":\"helped\",\"reason\":\"The 3.5MiB first-part limit it documents is the value the diagnosis compared against.\",\"cites\":[{\"session\":\"{{session:0}}\",\"turn\":1}]},{\"kind\":\"memory\",\"name\":\"fx-helped-topic\",\"applied\":false,\"verdict\":null,\"reason\":\"Recalled but nothing in the dossier depends on it.\",\"cites\":[]}]}\n```",
+      "usage": {
+        "costUsd": 0.02
+      }
+    }
+  },
+  "actions": [],
+  "expected": {
+    "jobs": [
+      {
+        "kind": "case",
+        "state": "done",
+        "pipeline": "v3",
+        "stages": [
+          "dossier",
+          "summary",
+          "candidates",
+          "attribution",
+          "materialize"
+        ],
+        "attributionSkipped": null,
+        "attributionError": false,
+        "costUsd": 0.55
+      }
+    ],
+    "attributions": [
+      {
+        "kind": "skill",
+        "name": "fx-helped-skill",
+        "applied": 1,
+        "verdict": "helped",
+        "override": null,
+        "domain": "FXH",
+        "outcome": "solved"
+      },
+      {
+        "kind": "reference",
+        "name": "fx-helped.md",
+        "applied": 1,
+        "verdict": "helped",
+        "override": null,
+        "domain": "FXH",
+        "outcome": "solved"
+      },
+      {
+        "kind": "memory",
+        "name": "fx-helped-topic",
+        "applied": 0,
+        "verdict": null,
+        "override": null,
+        "domain": "FXH",
+        "outcome": "solved"
+      }
+    ],
+    "fakeCalls": {
+      "dossier": 1,
+      "attribution": 1,
+      "materialize": 1
+    },
+    "ui": {
+      "libraryChip": {
+        "asset": "fx-helped-skill",
+        "text": "helped 1 · misled 0"
+      },
+      "observabilityLists": [
+        "fx-helped-skill",
+        "fx-helped.md",
+        "fx-helped-topic"
+      ],
+      "observabilityOmits": [],
+      "runsRailLabel": null,
+      "runDetailSkipped": null
+    }
+  }
+}
