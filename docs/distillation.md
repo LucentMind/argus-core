@@ -362,8 +362,8 @@ when the attribution stage itself errored. It is **never** queued when there is 
 (an empty inventory is not a failure), for an **open** case, for a dry run, or from another
 attribution job — so a failing attribution job cannot queue another, and it is not retried
 automatically. An attribution job whose stage errors lands **failed** (retryable from the runs
-view), never `done` with zero rows. **Retry** on the failed case job cancels its now-redundant
-escape-hatch job, so the re-run case job and the hatch never both judge the case.
+view), never `done` with zero rows. **Retry** on the failed case job cancels a still-queued or running
+escape-hatch job; if the hatch already finished, the retried case job's rows supersede it (the job that most recently wrote rows wins).
 
 **Open cases are never judged.** An outcome is only meaningful once a case is closed, so on an
 open case (a Distill / Re-distill from the case menu) the stage records
