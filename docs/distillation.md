@@ -357,10 +357,17 @@ default, never a gate; the per-case choice always wins.
 **The escape-hatch job.** `kind='attribution'` is a small job: a *lite* dossier (half the budget,
 no knowledge-candidate groundwork) and then only the attribution stage. It writes verdicts and
 never proposals. It is queued when distillation was declined but attribution wanted; when the case
-job's dossier failed; when the case job ran on the v2 pipeline (which has no attribution stage); or
+job failed; when the case job ran on the v2 pipeline (which has no attribution stage); or
 when the attribution stage itself errored. It is **never** queued when there is nothing to grade
-(an empty inventory is not a failure), for a dry run, or from another attribution job — so a
-failing attribution job cannot queue another, and it is not retried automatically.
+(an empty inventory is not a failure), for an **open** case, for a dry run, or from another
+attribution job — so a failing attribution job cannot queue another, and it is not retried
+automatically. An attribution job whose stage errors lands **failed** (retryable from the runs
+view), never `done` with zero rows. **Retry** on the failed case job cancels its now-redundant
+escape-hatch job, so the re-run case job and the hatch never both judge the case.
+
+**Open cases are never judged.** An outcome is only meaningful once a case is closed, so on an
+open case (a Distill / Re-distill from the case menu) the stage records
+`attributionSkipped: 'open'` and makes no model call, and no escape-hatch job is queued.
 
 **Where the results show.**
 
@@ -372,7 +379,10 @@ failing attribution job cannot queue another, and it is not retried automaticall
 - **Distillation runs** (dev): the run detail gains an attribution node, and an attribution-only
   job is labelled `attribution only` in the runs rail.
 - **Langfuse**: one `asset.contribution` score per verdict, with OTel GenAI-shaped metadata
-  (asset, domain, outcome, judge model, prompt hash). Silent rows are not scored.
+  (asset, domain, outcome, judge model, prompt hash). Silent rows are not scored. Each score's id
+  is deterministic — the first 32 hex of `sha256(install | case | kind | name)` — so an override
+  or a redistill re-emits the *same* score (Langfuse upserts it) instead of adding a second one;
+  re-applying an unchanged override emits nothing.
 - **Prompts (dev)**: the same events export as vendor-neutral NDJSON.
 
 **Implicit overrides.** Two human actions correct the judge without any new UI. **Retracting a
@@ -996,10 +1006,13 @@ asset_attributions
   created_at
 ```
 
-**The latest-job-per-case rule.** Re-running a case (redistill, an attribution-only job after a
+**The latest-job rule.** Re-running a case (redistill, an attribution-only job after a
 failed one) appends a new generation of rows; it never edits an old one. Aggregation reads, per
-case, only the rows of the **highest `job_id` that produced any** — dry-run jobs excluded from that
-maximum so a dry run can never shadow the real one. Older generations stay on disk for audit and
+case, only the rows of **the job that most recently wrote rows** — the job owning the case's highest
+`asset_attributions.id`, not the highest `job_id`: Retry re-runs a failed job under its original id,
+so a retried case job that writes after its escape-hatch job must still win. Dry-run jobs are
+excluded so a dry run can never shadow the real one, and the override writer uses the same
+definition. (A retry of the same job replaces that job's rows.) Older generations stay on disk for audit and
 for the eval harness; they are simply not counted, which is what stops a re-run from double-counting
 a case in the helped rate.
 
@@ -1013,4 +1026,9 @@ list); nothing about an asset's usefulness is written back onto the asset itself
 scratch home: a positive case with a skill and a reference in `tool_calls`; a negative control with
 the same transcript but no `tool_calls` rows (zero rows, `attributionSkipped === 'no-assets'`, no
 attribution job); and a no-distillation case that must produce exactly one `kind='attribution'` job
-and no `kind='case'` job. It aborts before the third run if the first two cost more than $6.
+and no `kind='case'` job. Cases 1 and 2 are asserted before the third run is paid for, and the gate
+aborts (exit 2) if those two cost more than $8. Cite resolution is never vacuous: the positive case
+must yield at least one applied skill verdict and at least one cite that resolved. The identity gate
+requires each fixture case to be a row in the scratch home's own DB. The Langfuse read-back counts
+only scores created since the gate started whose metadata names a fixture case; when it cannot run,
+a `langfuse: skipped` line just above the tally says so.
