@@ -142,7 +142,7 @@ export function RunsRail({
                   {live ? (
                     <>
                       <Loader2 size={11} className="inline animate-spin" aria-hidden="true" />{' '}
-                      {`#${r.id} · ${r.pipeline ?? '?'}${r.dryRun ? ' · dry' : ''} · ${p ? phaseLine(p) : r.state}`}
+                      {`#${r.id} · ${r.pipeline ?? '?'}${r.dryRun ? ' · dry' : ''}${r.kind === 'attribution' ? ' · attribution only' : ''} · ${p ? phaseLine(p) : r.state}`}
                     </>
                   ) : (
                     runRowLabel(r)

@@ -57,6 +57,7 @@ const detail = (over: Partial<DistillRunDetail>): DistillRunDetail => ({
     summaryPresent: false,
     summary: null,
     candidates: null,
+    attribution: null,
     materialized: null
   },
   ...over
@@ -118,6 +119,10 @@ describe('labels', () => {
       `#3 · v3 · ${expectStamp('2026-09-04T13:06:00.000Z')} · failed`
     )
   })
+  it('rail label marks attribution-only jobs', () => {
+    expect(runRowLabel(row({ id: 9, kind: 'attribution' }))).toContain('#9 · v3 · attribution only')
+    expect(runRowLabel(row({ id: 9, kind: 'case' }))).not.toContain('attribution only')
+  })
   it('stamp renders local time, and falls back for missing/unparsable input', () => {
     expect(stamp(null)).toBe('—')
     expect(stamp('garbage')).toBe('garbage')
@@ -155,6 +160,7 @@ describe('stripNodes', () => {
         dossier: { promptHash: 'h', promptChars: 1, rawOutput: '', usage: { costUsd: 1.04 } },
         summary: { promptHash: 'h', promptChars: 1, rawOutput: '' },
         candidates: { promptHash: 'h', promptChars: 1, rawOutput: '' },
+        attribution: { promptHash: 'h', promptChars: 1, rawOutput: '' },
         materialize: [
           {
             promptHash: 'h',
@@ -176,6 +182,7 @@ describe('stripNodes', () => {
         summaryPresent: true,
         summary: null,
         candidates: [{} as never, {} as never, {} as never, {} as never],
+        attribution: null,
         materialized: null
       }
     })
@@ -185,6 +192,7 @@ describe('stripNodes', () => {
       'dossier',
       'summary',
       'candidates',
+      'attribution',
       'veto',
       'materialize',
       'validators',
@@ -193,10 +201,11 @@ describe('stripNodes', () => {
     expect(nodes.every((n) => n.state === 'done')).toBe(true)
     expect(nodes[1].stat).toBe('$1.04 · 7 tool calls')
     expect(nodes[3].stat).toBe('$— · 4 out')
-    expect(nodes[4].stat).toBe('−2 · duplicate, cap')
-    expect(nodes[5].stat).toBe('×1 · $0.30')
-    expect(nodes[6].stat).toBe('−1 · steps-in-reference')
-    expect(nodes[7].stat).toBe('2 staged')
+    expect(nodes[4].stat).toBe('0 applied · 0 misled')
+    expect(nodes[5].stat).toBe('−2 · duplicate, cap')
+    expect(nodes[6].stat).toBe('×1 · $0.30')
+    expect(nodes[7].stat).toBe('−1 · steps-in-reference')
+    expect(nodes[8].stat).toBe('2 staged')
   })
   it('validators keeps basis drops (only cap is a veto reason, not every non-veto reason)', () => {
     const d = detail({
@@ -249,6 +258,52 @@ describe('stripNodes', () => {
     expect(n.find((x) => x.id === 'veto')!.stat).toBe('−1 · duplicate')
     expect(n.find((x) => x.id === 'validators')!.stat).toBe('−1 · bad-name')
   })
+  it('strip: attribution node is skipped/declined, errored, or done with applied·misled', () => {
+    const base = detail({
+      pipeline: 'v3',
+      stages: {
+        dossier: { promptHash: 'h', promptChars: 1, rawOutput: '' },
+        summary: { promptHash: 'h', promptChars: 1, rawOutput: '' },
+        candidates: { promptHash: 'h', promptChars: 1, rawOutput: '' }
+      }
+    })
+    const attr = (d: DistillRunDetail): unknown =>
+      stripNodes(d, null).find((n) => n.id === 'attribution')
+    expect(attr(base)).toMatchObject({ state: 'not-reached', stat: '—' })
+    expect(
+      attr({ ...base, stages: { ...base.stages, attributionSkipped: 'declined' } })
+    ).toMatchObject({
+      state: 'skipped',
+      stat: 'declined'
+    })
+    expect(
+      attr({ ...base, stages: { ...base.stages, attributionSkipped: 'no-assets' } })
+    ).toMatchObject({
+      state: 'skipped',
+      stat: 'no assets'
+    })
+    expect(
+      attr({
+        ...base,
+        stages: {
+          ...base.stages,
+          attribution: { promptHash: 'a', promptChars: 1, rawOutput: '', error: 'bad' }
+        }
+      })
+    ).toMatchObject({ state: 'error', error: 'bad' })
+    const done: DistillRunDetail = {
+      ...base,
+      stages: { ...base.stages, attribution: { promptHash: 'a', promptChars: 1, rawOutput: '' } },
+      parsed: {
+        ...base.parsed,
+        attribution: [
+          { kind: 'skill', name: 'a', applied: true, verdict: 'misled', reason: '', cites: [] },
+          { kind: 'skill', name: 'b', applied: null, verdict: null, reason: '', cites: [] }
+        ]
+      }
+    }
+    expect(attr(done)).toMatchObject({ state: 'done', stat: '1 applied · 1 misled' })
+  })
   it('a dry run marks staged as skipped; a failed stage carries its error; an unreached stage says so', () => {
     const d = detail({
       pipeline: 'v3',
@@ -271,6 +326,7 @@ describe('stripNodes', () => {
     const d = detail({ pipeline: 'v3', job: row({ state: 'running', itemCount: null }) })
     const n = stripNodes(d, { jobId: 1, caseSlug: 'a', at: 'x', phase: 'materialize', detail: 'x' })
     expect(n.map((x) => x.state)).toEqual([
+      'done',
       'done',
       'done',
       'done',

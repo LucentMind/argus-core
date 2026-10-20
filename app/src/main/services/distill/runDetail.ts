@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { AssetVerdict } from '../../../shared/attribution'
 import type {
   CaseDistillInput,
   DistillRunDetail,
@@ -16,6 +17,7 @@ import { toRow, pipelineOf, type JobDbRow } from './queue'
 import { parseDossier, pruneUnknownCites } from './v3/dossier'
 import { parseSummary } from './v3/summary'
 import { parseCandidates } from './v3/candidates'
+import { parseAttribution, pruneAttributionCites, completeVerdicts } from './v3/attribution'
 import { parseMaterializeOutput } from './v3/materialize'
 import { applyPatch } from './v3/patch'
 
@@ -83,6 +85,7 @@ function parseStages(
     summaryPresent: false,
     summary: null,
     candidates: null,
+    attribution: null,
     materialized: null
   }
   if (!stages) return none
@@ -98,6 +101,19 @@ function parseStages(
     : null
   const candidates: KnowledgeCandidate[] | null = stages.candidates
     ? tryParse(() => parseCandidates(stages.candidates!.rawOutput).candidates)
+    : null
+  // Same gates the pipeline runs (parse against the inventory → prune cites → complete with silent
+  // rows). The inventory lives in the frozen input snapshot, which is untrusted here: an unreadable
+  // one leaves the field null (raw card) rather than throwing the whole detail read.
+  const attribution: AssetVerdict[] | null = stages.attribution
+    ? tryParse(() => {
+        const input = JSON.parse(inputSnapshot) as CaseDistillInput
+        const assets = input.assets ?? []
+        return completeVerdicts(
+          pruneAttributionCites(parseAttribution(stages.attribution!.rawOutput, assets), input),
+          assets
+        ).verdicts
+      })
     : null
   const materialized = Array.isArray(stages.materialize)
     ? stages.materialize.map((m) => {
@@ -118,7 +134,7 @@ function parseStages(
         return { type: m.type, target: m.target, output, diff }
       })
     : null
-  return { dossier, summaryPresent, summary, candidates, materialized }
+  return { dossier, summaryPresent, summary, candidates, attribution, materialized }
 }
 
 export function readRunDetail(

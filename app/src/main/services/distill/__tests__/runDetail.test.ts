@@ -182,8 +182,70 @@ describe('readRunDetail.parsed', () => {
       summaryPresent: false,
       summary: null,
       candidates: null,
+      attribution: null,
       materialized: null
     })
+  })
+
+  it('parses the attribution stage against the snapshot inventory and prunes cites', () => {
+    const asset = (kind: string, name: string): Record<string, unknown> => ({
+      kind,
+      name,
+      tier: null,
+      callCount: 1,
+      firstSeen: { sessionId: 1, turnId: null }
+    })
+    const snapshot = {
+      caseMeta: { slug: 'c1' },
+      findings: [{ id: 7, summary: 'f', reviewState: 'accepted', role: null, body: '' }],
+      evidence: [],
+      world: { sessions: [] },
+      assets: [asset('skill', 'diag'), asset('memory', 'quiet')]
+    }
+    const raw =
+      '```json\n{"verdicts":[{"kind":"skill","name":"diag","applied":true,"verdict":"helped","reason":"r","cites":[{"finding":7},{"finding":99}]}]}\n```'
+    const id = insertJob({
+      stages_json: JSON.stringify({
+        attribution: { promptHash: 'a', promptChars: 1, rawOutput: raw }
+      }),
+      input_snapshot: JSON.stringify(snapshot)
+    })
+    // The unverifiable cite is pruned, and the inventoried asset the judge never mentioned gets an
+    // explicit silent row.
+    expect(readRunDetail(db, id)!.parsed.attribution).toEqual([
+      {
+        kind: 'skill',
+        name: 'diag',
+        applied: true,
+        verdict: 'helped',
+        reason: 'r',
+        cites: [{ finding: 7 }]
+      },
+      { kind: 'memory', name: 'quiet', applied: null, verdict: null, reason: '', cites: [] }
+    ])
+    const bad = insertJob({
+      stages_json: JSON.stringify({
+        attribution: { promptHash: 'a', promptChars: 1, rawOutput: 'nope' }
+      }),
+      input_snapshot: JSON.stringify(snapshot)
+    })
+    expect(readRunDetail(db, bad)!.parsed.attribution).toBeNull()
+    const absent = insertJob({ stages_json: JSON.stringify({}) })
+    expect(readRunDetail(db, absent)!.parsed.attribution).toBeNull()
+  })
+
+  it('an unreadable input snapshot leaves attribution null — the inventory is unknowable', () => {
+    const id = insertJob({
+      stages_json: JSON.stringify({
+        attribution: {
+          promptHash: 'a',
+          promptChars: 1,
+          rawOutput: '```json\n{"verdicts":[]}\n```'
+        }
+      }),
+      input_snapshot: '{not json'
+    })
+    expect(readRunDetail(db, id)!.parsed.attribution).toBeNull()
   })
 
   it('diff is null when the target no longer exists or the ops do not apply', () => {

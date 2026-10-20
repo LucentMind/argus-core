@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { AssetVerdict } from '../../../../shared/attribution'
 import type { DistillRunDetail } from '../../../../shared/distill'
 import type {
   Dossier,
@@ -287,6 +288,54 @@ export function CandidatesBody({
         <div className="font-mono text-[10px] text-mute">
           malformed candidates dropped: {malformed}
         </div>
+      )}
+    </div>
+  )
+}
+
+/** What the card says about one verdict row. `applied: null` is the judge's silence about an
+ *  inventoried asset, which is a different fact from "not applied". */
+function verdictText(v: AssetVerdict): string {
+  if (v.applied === null) return 'silent'
+  if (!v.applied) return 'not applied'
+  return v.verdict ?? '—'
+}
+
+export function AttributionBody({
+  verdicts,
+  malformed,
+  unknown,
+  uncited
+}: {
+  verdicts: AssetVerdict[]
+  malformed?: Record<string, number>
+  unknown?: Record<string, number>
+  uncited?: number
+}): React.JSX.Element {
+  const counts = (m: Record<string, number> | undefined, label: string): string[] =>
+    Object.entries(m ?? {}).map(([k, n]) => `${label} ${k} ×${n}`)
+  const dropped = [
+    ...counts(malformed, 'malformed'),
+    ...counts(unknown, 'unknown asset'),
+    ...(uncited ? [`uncited ×${uncited}`] : [])
+  ]
+  return (
+    <div className="flex flex-col gap-1">
+      {verdicts.map((v) => (
+        <div
+          key={`${v.kind}/${v.name}`}
+          data-testid="attribution-row"
+          className="flex flex-wrap items-center gap-2 rounded-r1 border border-hair px-2 py-1 text-xs"
+        >
+          <Chip tone="neutral">{v.kind}</Chip>
+          <span className="font-mono text-ink">{v.name}</span>
+          <span className={v.applied === null ? 'text-mute' : 'text-ink'}>{verdictText(v)}</span>
+          {v.reason && <span className="text-dim">{v.reason}</span>}
+          {v.cites.length > 0 && <Cites cites={v.cites} />}
+        </div>
+      ))}
+      {dropped.length > 0 && (
+        <div className="font-mono text-[10px] text-mute">dropped: {dropped.join(', ')}</div>
       )}
     </div>
   )
