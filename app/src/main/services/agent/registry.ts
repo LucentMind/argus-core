@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { AgentEvent } from '../../../shared/agent-events'
-import type { ApprovalDecision, CaseRecord, DialogAnswer } from '../../../shared/types'
+import type { ApprovalDecision, DialogAnswer } from '../../../shared/types'
 import type { ModeId } from '../../../shared/modes'
 import type { ComposedMcp, RiskLevel } from '../../../shared/connectors'
 import type { RunOptionSelection } from '../../../shared/runOptions'
@@ -118,7 +118,7 @@ export interface AgentServiceDeps {
   /** Live pack-declared panel commands (3b-2); read at each session construction. */
   panelCommandDecls?: () => PanelCommandDecl[]
   /** Fired by setCaseStatus after a non-closed→closed transition; enqueues distillation. */
-  onCaseClosed?: (rec: CaseRecord) => void
+  onCaseClosed?: NativeToolDeps['onCaseClosed']
   /** Fired after workspace_checkout materializes/switches a case worktree. */
   onWorktreeChanged?: (caseSlug: string) => void
   /** Dispatch a panel command to a case's open panel (3b-2); AgentService binds caseSlug per session. */

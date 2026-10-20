@@ -160,7 +160,8 @@ import {
   setCaseJiraLinkDeselected,
   setCaseMode,
   getCase,
-  touchCaseOpened
+  touchCaseOpened,
+  type CloseOptions
 } from './services/caseService'
 import { archiveCase, restoreCase, sweepStaleStagingDirs } from './services/caseArchive'
 import { bundleBytes } from './services/deletionAudit'
@@ -1126,13 +1127,17 @@ function registerIpc(): void {
     runOneShot: headlessRun
   })
   distillQueue.recoverOnBoot()
-  const onCaseClosed = (rec: CaseRecord): void => {
+  const onCaseClosed = (rec: CaseRecord, opts: CloseOptions): void => {
     try {
-      // Reconcile first: an in-flight job for this case (started while it was open) must be
-      // cancelled before the close-time snapshot is enqueued, or both jobs run and the newest
-      // one shadows the older, still-running one from every renderer read — see
-      // reconcileAndEnqueue's doc comment in queue.ts.
-      reconcileAndEnqueue(distillQueue, rec.slug)
+      if (opts.distill) {
+        // Reconcile first: an in-flight job for this case (started while it was open) must be
+        // cancelled before the close-time snapshot is enqueued, or both jobs run and the newest
+        // one shadows the older, still-running one from every renderer read — see
+        // reconcileAndEnqueue's doc comment in queue.ts.
+        reconcileAndEnqueue(distillQueue, rec.slug)
+      } else if (opts.attribution) {
+        // Task 9: distillQueue.enqueueAttribution(rec.slug) — attribution-only close.
+      }
     } catch (err) {
       console.error('[distill] enqueue failed', err)
     }
@@ -1279,8 +1284,18 @@ function registerIpc(): void {
   ipcMain.handle(IPC.casesList, () => listCases(db))
   ipcMain.handle(
     IPC.casesSetStatus,
-    (_e, slug: string, status: CaseStatus, resolution: CaseResolution | null, distill = true) =>
-      setCaseStatus(db, argusHome, slug, status, resolution, distill ? onCaseClosed : undefined)
+    (
+      _e,
+      slug: string,
+      status: CaseStatus,
+      resolution: CaseResolution | null,
+      distill = true,
+      attribution?: boolean
+    ) =>
+      setCaseStatus(db, argusHome, slug, status, resolution, onCaseClosed, {
+        distill,
+        attribution: attribution ?? settingsService.get().distill.attribution.default
+      })
   )
   ipcMain.handle(IPC.evidenceIngest, async (_e, caseSlug: string, absPaths: string[]) => {
     caseWatch.suppress(caseSlug) // pre-write: our own copies must not light the staleness dot

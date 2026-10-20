@@ -335,12 +335,18 @@ const uiSchema = z.looseObject({
 /** Free-text operator guidance folded into every case distillation's input (v2 and v3) — a
  *  standing steer ("prefer recipes over new skills", "watch for X") rather than a per-run
  *  instruction. */
+const distillAttributionSchema = z.looseObject({
+  /** DEFAULT state of the close dialog's "Attribute skills and references" checkbox — a default,
+   *  not a gate: the per-case choice always wins (spec §4.5). */
+  default: z.boolean().default(true)
+})
 const distillSchema = z.looseObject({
   guidance: z.string().default(''),
   /** Which case-distill pipeline runs: 'v2' = single agentic call; 'v3' = staged pipeline.
    *  Defaults to 'v3'. Read at job-run time (and at enqueue time for `prompt_hash`), so
    *  flipping it takes effect on the next job with no restart. */
-  pipeline: z.enum(['v2', 'v3']).default('v3')
+  pipeline: z.enum(['v2', 'v3']).default('v3'),
+  attribution: distillAttributionSchema.default(() => distillAttributionSchema.parse({}))
 })
 
 const onboardingSchema = z.looseObject({

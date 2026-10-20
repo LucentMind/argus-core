@@ -867,6 +867,14 @@ export function setReviewBaseline(
   return getCase(db, slug)!
 }
 
+/** What the close dialog asked for: run the case distillation, and/or the knowledge-asset
+ *  attribution stage. The close hook receives these and routes accordingly. */
+export interface CloseOptions {
+  distill: boolean
+  attribution: boolean
+}
+export const DEFAULT_CLOSE_OPTIONS: CloseOptions = { distill: true, attribution: true }
+
 /**
  * The single writer for a case's lifecycle status + resolution. Only `open` and
  * `closed` are valid — everything else is a derived `CasePhase` (see
@@ -881,7 +889,8 @@ export function setCaseStatus(
   slug: string,
   status: CaseStatus,
   resolution: CaseResolution | null,
-  onClosed?: (rec: CaseRecord) => void
+  onClosed?: (rec: CaseRecord, opts: CloseOptions) => void,
+  opts: CloseOptions = DEFAULT_CLOSE_OPTIONS
 ): CaseRecord {
   const existing = getCase(db, slug)
   if (!existing) throw new Error(`Unknown case: ${slug}`)
@@ -921,7 +930,7 @@ export function setCaseStatus(
   const updated = getCase(db, slug)!
   if (closingNow && onClosed) {
     try {
-      onClosed(updated)
+      onClosed(updated, opts)
     } catch (err) {
       console.error('[caseService] onClosed hook failed', err)
     }

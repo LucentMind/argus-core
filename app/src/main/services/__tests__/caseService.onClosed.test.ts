@@ -19,7 +19,8 @@ describe('setCaseStatus onClosed hook', () => {
     const hook = vi.fn()
     const rec = setCaseStatus(db, home, 'c1', 'closed', 'solved', hook)
     expect(hook).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ slug: 'c1', status: 'closed' })
+      expect.objectContaining({ slug: 'c1', status: 'closed' }),
+      { distill: true, attribution: true }
     )
     expect(rec.resolution).toBe('solved')
   })
@@ -38,5 +39,21 @@ describe('setCaseStatus onClosed hook', () => {
       throw new Error('boom')
     })
     expect(rec.status).toBe('closed')
+  })
+
+  it('passes the close options through to the hook; defaults are distill+attribution on', () => {
+    const hook = vi.fn()
+    setCaseStatus(db, home, 'c1', 'closed', 'solved', hook, { distill: false, attribution: true })
+    expect(hook).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ slug: 'c1' }), {
+      distill: false,
+      attribution: true
+    })
+    createCase(db, home, { slug: 'c2', title: 'T' })
+    const hook2 = vi.fn()
+    setCaseStatus(db, home, 'c2', 'closed', 'solved', hook2)
+    expect(hook2).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
+      distill: true,
+      attribution: true
+    })
   })
 })

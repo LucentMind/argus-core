@@ -299,6 +299,19 @@ describe('settings schema', () => {
     expect(settingsSchema.parse(stripped).distill.guidance).toBe('Prefer recipes over new skills.')
   })
 
+  it('distill.attribution.default defaults to true and round-trips false', () => {
+    expect(settingsSchema.parse({}).distill.attribution.default).toBe(true)
+    expect(
+      settingsSchema.parse({ distill: { attribution: { default: false } } }).distill.attribution
+        .default
+    ).toBe(false)
+    // A nested object with a non-default leaf must survive stripDefaults + re-parse.
+    const set = settingsSchema.parse({ distill: { attribution: { default: false } } })
+    const stripped = stripDefaults(set, defaultSettings())
+    expect(stripped).toEqual({ distill: { attribution: { default: false } } })
+    expect(settingsSchema.parse(stripped).distill.attribution.default).toBe(false)
+  })
+
   it("distill.pipeline defaults to 'v3' and accepts 'v2'", () => {
     expect(defaultSettings().distill.pipeline).toBe('v3')
     expect(settingsSchema.parse({}).distill.pipeline).toBe('v3')

@@ -22,7 +22,7 @@ import { caseDir } from '../paths'
 import { applyMemoryWrite, readTopic } from '../memory'
 import { MEMORY_SCOPES } from '../../../shared/memoryScope'
 import { writeProposal } from '../proposals'
-import { pinCasePhase, setCaseStatus } from '../caseService'
+import { pinCasePhase, setCaseStatus, type CloseOptions } from '../caseService'
 import { topicEnabled, defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 import type { Detection } from '../packs/detection'
 import type { CapturePanelEvidence } from './capturePanel'
@@ -99,7 +99,7 @@ export interface NativeToolDeps {
   /** Capture an open panel to evidence (session-bound by AgentService). Absent in sessions without panels. */
   capturePanel?: (packId: string, windowId: string) => Promise<CapturePanelEvidence>
   /** Fired by setCaseStatus after a non-closed→closed transition; enqueues distillation. */
-  onCaseClosed?: (rec: CaseRecord) => void
+  onCaseClosed?: (rec: CaseRecord, opts: CloseOptions) => void
   /** Fired after workspace_checkout materializes/switches a case worktree, so the
    *  renderer can refresh repo chips + repo snippet caches without a case switch. */
   onWorktreeChanged?: (caseSlug: string) => void

@@ -253,8 +253,9 @@ const argus = {
       slug: string,
       status: CaseStatus,
       resolution: CaseResolution | null,
-      distill?: boolean
-    ) => invoke(IPC.casesSetStatus, slug, status, resolution, distill),
+      distill = true,
+      attribution?: boolean
+    ) => invoke(IPC.casesSetStatus, slug, status, resolution, distill, attribution),
     /** Switch the case's active mode, creating (or resuming) that mode's chat. */
     setMode: (caseSlug: string, mode: ModeId): Promise<{ sessionId: number }> =>
       invoke(IPC.casesSetMode, caseSlug, mode)
