@@ -29,7 +29,9 @@ export const DASHBOARD_CARDS = [
   { id: 'distill.runs', label: 'Distillation runs' },
   { id: 'distill.spend', label: 'Distillation spend' },
   { id: 'distill.failedSpend', label: 'Failed-run spend' },
-  { id: 'distill.drySpend', label: 'Dry-run spend' }
+  { id: 'distill.drySpend', label: 'Dry-run spend' },
+  // Must match the `data-card-id` on UsefulnessCards' root section.
+  { id: 'usefulness.assets', label: 'Knowledge usefulness' }
 ] as const
 
 /**

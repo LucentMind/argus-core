@@ -7,6 +7,7 @@ import { useAmbientAnchors } from '../../lib/ambientAnchors'
 import { useCaseMetrics, useGlobalMetrics } from '../../lib/metricsStore'
 import { useSettingsPayload } from '../../lib/settingsStore'
 import { DistillationCards } from './DistillationCards'
+import { UsefulnessCards } from './UsefulnessCards'
 import { StatCard, StatCardsSkeleton, pct, usd } from './MetricCards'
 
 const RANGES = [
@@ -239,7 +240,10 @@ export function ObservabilityView({
         </div>
       )}
       {scope === 'global' && data && (
-        <DistillationCards since={since} hiddenCards={hiddenCards} onOpenRuns={onOpenRuns} />
+        <>
+          <DistillationCards since={since} hiddenCards={hiddenCards} onOpenRuns={onOpenRuns} />
+          <UsefulnessCards hiddenCards={hiddenCards} />
+        </>
       )}
     </div>
   )
