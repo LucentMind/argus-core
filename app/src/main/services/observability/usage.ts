@@ -11,6 +11,7 @@ import { resolveSkills } from '../agent/skillsResolver'
 import { listTopics } from '../memory'
 import { isStaleCandidate, listArchivedTopics, type HygieneConfig } from '../memoryHygiene'
 import { sharedReferencesDir } from '../skillsDir'
+import { USAGE_PREDICATES, EFFECTIVE_CALLS } from './usagePredicates'
 
 /** Stamp the usage-tracking epoch exactly once; before it elapses staleDays no topic can be
  *  flagged stale (recall tracking hasn't had a fair observation window). */
@@ -107,7 +108,7 @@ function countsFor(db: DatabaseSync, where: string, bind: string[]): Map<string,
     .prepare(
       `SELECT detail, COUNT(*) AS n, MAX(created_at) AS last
        FROM tool_calls
-       WHERE detail IS NOT NULL AND decision NOT IN ('denied','cancelled') AND ${where}
+       WHERE ${EFFECTIVE_CALLS} AND ${where}
        GROUP BY detail`
     )
     .all(...bind) as unknown as CountRow[]
@@ -118,7 +119,7 @@ export function usageStats(deps: UsageStatsDeps): UsageStatsPayload {
   const now = deps.now?.() ?? new Date()
 
   // — skills: current resolution ∪ historically activated names —
-  const skillCounts = countsFor(deps.db, `tool = 'Skill'`, [])
+  const skillCounts = countsFor(deps.db, USAGE_PREDICATES.skill, [])
   const resolved = resolveSkills(deps.argusHome, deps.access)
   const skills: SkillUsageRow[] = resolved.map((s) => ({
     name: s.name,
@@ -140,7 +141,7 @@ export function usageStats(deps: UsageStatsDeps): UsageStatsPayload {
   }
 
   // — memory: live topics joined with read_memory recalls —
-  const recalls = countsFor(deps.db, `tool = 'mcp__argus__read_memory'`, [])
+  const recalls = countsFor(deps.db, USAGE_PREDICATES.memory, [])
   const memory = listTopics(deps.argusHome).map((t) => {
     const r = recalls.get(t.name)
     const usage = {
@@ -156,7 +157,7 @@ export function usageStats(deps: UsageStatsDeps): UsageStatsPayload {
   })
 
   // — references: files on disk joined with attributed fs-reads —
-  const refReads = countsFor(deps.db, `detail LIKE 'ref:%'`, [])
+  const refReads = countsFor(deps.db, USAGE_PREDICATES.reference, [])
   const references = listReferenceFiles(sharedReferencesDir(deps.argusHome)).map((relPath) => {
     const r = refReads.get(`ref:${relPath}`)
     return { relPath, readCount: r?.n ?? 0, lastReadAt: r?.last ?? null }

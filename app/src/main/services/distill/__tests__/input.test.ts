@@ -20,6 +20,37 @@ beforeEach(() => {
 })
 
 describe('assembleDistillInput', () => {
+  it('snapshots the asset inventory, outcome, domain and options for the attribution stage', () => {
+    const caseId = (db.prepare(`SELECT id FROM cases WHERE slug='case-a'`).get() as { id: number })
+      .id
+    db.prepare(
+      `INSERT INTO sessions (id, case_id, created_at, updated_at) VALUES (77, ?, 'x', 'x')`
+    ).run(caseId)
+    db.prepare(
+      `INSERT INTO tool_calls (case_id, session_id, tool, args_hash, detail, risk, decision, created_at) VALUES (?, 77, 'Skill', 'h', 'diag', 'LOW', 'auto', 'x')`
+    ).run(caseId)
+    const input = assembleDistillInput(db, home, 'case-a', [], {
+      attribution: true,
+      skillTiers: new Map([['diag', 'user']])
+    })
+    expect(input.assets).toEqual([
+      {
+        kind: 'skill',
+        name: 'diag',
+        tier: 'user',
+        callCount: 1,
+        firstSeen: { sessionId: 77, turnId: null }
+      }
+    ])
+    expect(input.caseOutcome).toBe('open') // the fixture case is open
+    expect(input.caseDomain).toBe('AB') // jiraKey 'AB-1' on the default jira provider
+    expect(input.options).toEqual({ attribution: true })
+  })
+  it('omits the attribution block when opts.attribution is false, and never fails on a case with no calls', () => {
+    const input = assembleDistillInput(db, home, 'case-a', [], { attribution: false })
+    expect(input.assets).toEqual([])
+    expect(input.options).toEqual({ attribution: false })
+  })
   it('collects meta, findings with review states, and already-captured knowledge', () => {
     // seed one finding row + body marker
     const caseId = (db.prepare(`SELECT id FROM cases WHERE slug='case-a'`).get() as { id: number })
