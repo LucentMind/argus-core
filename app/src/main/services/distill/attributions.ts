@@ -180,9 +180,10 @@ export function writeAttributions(
  * dry-run job are excluded so they can never shadow the real job. The ONE definition: both the
  * aggregation read and the override writer use it, so they can never disagree on "latest".
  */
-const LATEST_JOB_PER_CASE = `SELECT x.case_id, x.job_id FROM asset_attributions x
-  WHERE x.id = (SELECT MAX(y.id) FROM asset_attributions y JOIN distill_jobs dj ON dj.id = y.job_id
-                 WHERE y.case_id = x.case_id AND dj.dry_run = 0)`
+const LATEST_JOB_PER_CASE = `SELECT a.case_id, a.job_id FROM asset_attributions a
+  JOIN (SELECT y.case_id, MAX(y.id) AS mid FROM asset_attributions y
+          JOIN distill_jobs dj ON dj.id = y.job_id WHERE dj.dry_run = 0 GROUP BY y.case_id) m
+    ON a.id = m.mid`
 
 /** Rows of the latest attribution job per case — see LATEST_JOB_PER_CASE. */
 export function latestAttributionRows(
