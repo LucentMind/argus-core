@@ -1,0 +1,97 @@
+{
+  "slug": "fx-open",
+  "title": "Scheduler skips the nightly export (fixture: open)",
+  "jiraKey": "FXO-1",
+  "scenario": "open: a Distill from the case menu on a still-open case that did load a skill; attribution is skipped as open (checked before the inventory), no judge call, no rows, no escape hatch",
+  "settings": {
+    "pipeline": "v3"
+  },
+  "assets": {
+    "skills": [
+      {
+        "name": "fx-open-skill",
+        "description": "Use when a scheduled job silently skips a run; checks the timezone of the cron expression first.",
+        "body": "# Diagnose skipped scheduled runs\n\n## Steps\n1. Check which timezone the cron expression is evaluated in.\n2. Check whether a daylight-saving transition removes the scheduled hour.\n"
+      }
+    ],
+    "references": [],
+    "memories": []
+  },
+  "sessions": [
+    {
+      "title": "Export triage",
+      "messages": [
+        {
+          "role": "user",
+          "content": "The nightly export skipped last night. Find out why."
+        },
+        {
+          "role": "assistant",
+          "content": "I loaded the fx-open-skill skill and checked the cron timezone: the export is scheduled at 02:30 local time, and last night was the daylight-saving transition, so that hour did not exist. Not confirmed yet; I need the scheduler log to be sure."
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "summary": "The export is scheduled in an hour the daylight-saving transition removed (unconfirmed).",
+      "reviewState": "pending",
+      "role": "root-cause",
+      "session": 0
+    }
+  ],
+  "toolCalls": [
+    {
+      "session": 0,
+      "turn": 2,
+      "tool": "Skill",
+      "detail": "fx-open-skill"
+    }
+  ],
+  "close": null,
+  "trigger": "redistill",
+  "stages": {
+    "dossier": {
+      "text": "```json\n{\"scope\":{\"status\":\"open\",\"resolution\":null,\"settled\":false,\"note\":\"The daylight-saving hypothesis is not confirmed yet.\"},\"root_cause\":null,\"confirmed_fix\":null,\"rejected_hypotheses\":[],\"diagnostic_path\":[{\"step\":\"Checked the cron timezone against the skipped night\",\"observation\":\"The 02:30 local slot fell inside the daylight-saving transition\",\"discriminated\":\"A schedule that never fired, not a failed run\",\"cites\":[{\"session\":\"{{session:0}}\",\"turn\":1}]}],\"durable_facts\":[],\"user_corrections\":[]}\n```"
+    },
+    "summary": {
+      "text": "```json\n{\"summary\":{\"signature\":\"Nightly export skipped on the daylight-saving night\",\"symptoms\":\"The nightly export did not run and left no error.\",\"rootCause\":\"Not confirmed yet; the leading hypothesis is a schedule inside the removed hour.\",\"fix\":\"No fix is confirmed yet.\",\"keywords\":[\"scheduler\",\"cron\",\"daylight saving\"]}}\n```"
+    },
+    "candidates": {
+      "text": "```json\n{\"candidates\":[]}\n```"
+    }
+  },
+  "actions": [],
+  "expected": {
+    "jobs": [
+      {
+        "kind": "case",
+        "state": "done",
+        "pipeline": "v3",
+        "stages": [
+          "dossier",
+          "summary",
+          "candidates"
+        ],
+        "attributionSkipped": "open",
+        "attributionError": false,
+        "costUsd": 0.52
+      }
+    ],
+    "attributions": [],
+    "fakeCalls": {
+      "dossier": 1,
+      "attribution": 0,
+      "materialize": 0
+    },
+    "ui": {
+      "libraryChip": null,
+      "observabilityLists": [],
+      "observabilityOmits": [
+        "fx-open-skill"
+      ],
+      "runsRailLabel": null,
+      "runDetailSkipped": "the case is still open"
+    }
+  }
+}
