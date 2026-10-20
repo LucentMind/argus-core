@@ -18,6 +18,12 @@
 - Langfuse sink: one `asset.contribution` score per verdict with OTel GenAI-shaped metadata;
   the dev Prompts page can export the same events as NDJSON.
 
+### Changed
+
+- Every v3 distillation `prompt_hash` changes with this release: the new attribution stage is
+  folded into the pipeline hash, so runs from before and after it never compare as the same
+  prompt in the runs browser or the eval harness.
+
 ## v2.5.0 — 2026-10-15
 
 ### Added
