@@ -6,6 +6,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { retractFinding, reviewFinding, listFindings } from '../findings'
+import { writeAttributions } from '../distill/attributions'
 
 let home: string
 let db: DatabaseSync
@@ -88,6 +89,75 @@ describe('retractFinding', () => {
 
   it('reports an unknown id rather than throwing', () => {
     expect(retractFinding(db, 9999, 'nope')).toEqual({ ok: false, reason: 'unknown' })
+  })
+
+  describe('implicit attribution override', () => {
+    function attribute(): void {
+      const jobId = Number(
+        db
+          .prepare(
+            `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at) VALUES ('CASE-A', 'done', '{}', 'x')`
+          )
+          .run().lastInsertRowid
+      )
+      writeAttributions(db, {
+        caseSlug: 'CASE-A',
+        jobId,
+        verdicts: [
+          {
+            kind: 'reference',
+            name: 'nav/limits.md',
+            applied: true,
+            verdict: 'neutral',
+            reason: '',
+            cites: []
+          }
+        ],
+        tiers: new Map(),
+        caseOutcome: 'open',
+        caseDomain: 'unassigned',
+        judgeModel: 'm',
+        promptHash: 'h'
+      })
+    }
+    const overrideSource = (): unknown =>
+      db.prepare(`SELECT override_source AS s FROM asset_attributions`).get()
+    const REASON = 'ref:nav/limits.md gave a stale threshold'
+
+    it('a retraction whose reason names an attributed asset stamps the override and reports it', () => {
+      const id = seed('pending')
+      attribute()
+      const seen: unknown[] = []
+      const res = retractFinding(db, id, REASON, { onOverride: (r) => seen.push(r) })
+      expect(res.ok).toBe(true)
+      expect(seen).toHaveLength(1)
+      expect(overrideSource()).toEqual({ s: 'finding-retraction' })
+    })
+    it('a retraction refused (accepted finding) or unchanged (human-rejected) never overrides', () => {
+      attribute()
+      const seen: unknown[] = []
+      const accepted = seed('accepted')
+      expect(retractFinding(db, accepted, REASON, { onOverride: (r) => seen.push(r) })).toEqual({
+        ok: false,
+        reason: 'accepted'
+      })
+      const humanRejected = seed('rejected', 'human', 'not what the log says')
+      expect(
+        retractFinding(db, humanRejected, REASON, { onOverride: (r) => seen.push(r) })
+      ).toMatchObject({ ok: true, changed: false })
+      expect(seen).toHaveLength(0)
+      expect(overrideSource()).toEqual({ s: null })
+    })
+    it('an override-hook failure never fails the retraction', () => {
+      const id = seed('pending')
+      attribute()
+      const res = retractFinding(db, id, REASON, {
+        onOverride: () => {
+          throw new Error('emit blew up')
+        }
+      })
+      expect(res).toMatchObject({ ok: true, changed: true })
+    })
   })
 })
 
