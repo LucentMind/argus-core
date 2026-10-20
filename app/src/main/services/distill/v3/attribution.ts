@@ -57,7 +57,10 @@ export function buildAttributionPrompt(
       a.kind === 'skill'
         ? input.skillsIndex.find((s) => s.name === a.name)?.description
         : a.kind === 'reference'
-          ? input.referencesIndex.find((r) => r.name === a.name)?.summary
+          ? // Inventory names a reference by relPath WITH extension; the flat index by basename
+            // without it. Only a top-level relPath has an index entry — a nested one's
+            // same-basename top-level file is a different document, so it gets no summary.
+            input.referencesIndex.find((r) => `${r.name}.md` === a.name)?.summary
           : undefined
     return `- ${a.kind} ${a.name} · used ${a.callCount}× · first seen session ${a.firstSeen.sessionId}${a.firstSeen.turnId !== null ? ` turn ${a.firstSeen.turnId}` : ''}${desc ? `\n  ${desc}` : ''}`
   }

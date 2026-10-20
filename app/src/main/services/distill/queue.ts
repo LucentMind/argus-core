@@ -106,7 +106,7 @@ export interface DistillQueueDeps {
  *   false    false       → nothing
  */
 export function routeCaseClose(
-  opts: CloseOptions,
+  opts: Required<CloseOptions>,
   q: {
     enqueueCase: (slug: string, o: { attribution: boolean }) => void
     enqueueAttribution: (slug: string) => void
@@ -843,10 +843,18 @@ export class DistillQueue {
         // Writing rows is this job's whole purpose, so a write failure fails the job — but the
         // row still records what the run cost and produced (stages_json), via the same finish().
         let persistError: string | null = null
-        try {
-          this.persistAttribution(r, input, run.attribution, run.stages)
-        } catch (err) {
-          persistError = `attribution rows not written: ${err instanceof Error ? err.message : String(err)}`
+        // The stage is non-fatal inside the pipeline (it records `error` and returns no output),
+        // but here it IS the job: an errored stage with nothing to write must land `failed` —
+        // retryable — not `done` with zero rows, which would read as "judged, nothing applied".
+        const stageError = !run.attribution ? run.stages?.attribution?.error : undefined
+        if (stageError) {
+          persistError = `attribution: ${stageError}`
+        } else {
+          try {
+            this.persistAttribution(r, input, run.attribution, run.stages)
+          } catch (err) {
+            persistError = `attribution rows not written: ${err instanceof Error ? err.message : String(err)}`
+          }
         }
         finish(
           `state=?, error=?, item_count=0, input_tokens=?, output_tokens=?, cost_usd=?, duration_ms=?, prompt_chars=?, turn_count=?, tool_call_count=?, trajectory_json=?, stages_json=?`,

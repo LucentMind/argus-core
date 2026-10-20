@@ -96,6 +96,23 @@ describe('writeAttributions + latestAttributionRows', () => {
       (db.prepare(`SELECT COUNT(*) AS n FROM asset_attributions`).get() as { n: number }).n
     ).toBe(2)
   })
+  it('latest = the job that most recently WROTE rows, not the highest job id: a retried case job beats a later hatch job (A4)', () => {
+    const caseJob = job('c1') // #10: failed late, hatch fires
+    const hatchJob = job('c1') // #11: attribution-only, writes rows
+    writeAttributions(db, { ...base(hatchJob), verdicts: [{ ...V, verdict: 'neutral' }] })
+    // retry() re-runs #10 under its ORIGINAL id and writes rows after #11's
+    writeAttributions(db, { ...base(caseJob), verdicts: [{ ...V, verdict: 'misled' }] })
+    const latest = latestAttributionRows(db)
+    expect(latest.map((r) => [r.jobId, r.verdict])).toEqual([[caseJob, 'misled']])
+    const o = applyAttributionOverride(db, {
+      caseSlug: 'c1',
+      kind: 'skill',
+      name: 'diag',
+      verdict: 'helped',
+      source: 'finding-retraction'
+    })
+    expect(o?.jobId).toBe(caseJob)
+  })
   it('rows written against a dry-run job never shadow the real job', () => {
     writeAttributions(db, base(job('c1')))
     writeAttributions(db, { ...base(dryJob('c1')), verdicts: [{ ...V, verdict: 'misled' }] })

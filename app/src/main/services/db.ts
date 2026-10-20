@@ -184,7 +184,8 @@ CREATE TABLE IF NOT EXISTS distill_jobs (
   pipeline TEXT
 );
 -- Knowledge-asset attribution: one row per (distill job, asset) the judge was shown. Append-only
--- per job; readers aggregate the LATEST job per case (latestAttributionRows). applied / verdict
+-- per job; readers aggregate, per case, the job that most recently WROTE rows — the owner of
+-- MAX(id), not MAX(job_id), since retry() reuses a job id (latestAttributionRows). applied / verdict
 -- are NULL when the judge was silent; override_* record a later human signal (finding retraction,
 -- proposal reject) and never replace the judge's verdict (effectiveVerdict = override ?? verdict).
 -- case_outcome / case_domain are derived at write time, never judged. Both FKs cascade, each

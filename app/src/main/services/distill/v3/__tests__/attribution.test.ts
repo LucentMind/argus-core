@@ -90,6 +90,27 @@ describe('buildAttributionPrompt', () => {
     expect(p).toContain('reference nav/limits.md')
     expect(p).toContain('"root_cause"')
   })
+  it('describes a reference by its summary: inventory relPath "limits.md" ↔ index name "limits" (A1)', () => {
+    const input: CaseDistillInput = {
+      ...INPUT,
+      assets: [
+        { ...INV[1], name: 'nav/limits.md' },
+        { ...INV[1], name: 'limits.md' }
+      ],
+      referencesIndex: [
+        { name: 'limits', summary: 'Top-level speed limit table.', content: '', tier: null }
+      ]
+    }
+    const p = buildAttributionPrompt(input, DOSSIER)
+    expect(p).toContain(
+      '- reference limits.md · used 1× · first seen session 1\n  Top-level speed limit table.'
+    )
+    // The flat index has no entry for a nested reference; a same-basename top-level file is a
+    // DIFFERENT document, so its summary must not be attached to nav/limits.md.
+    expect(p).toContain(
+      '- reference nav/limits.md · used 1× · first seen session 1\n- reference limits.md'
+    )
+  })
   it('names every output key in the contract (prose-schema lesson #205)', () => {
     for (const k of ['"kind"', '"name"', '"applied"', '"verdict"', '"reason"', '"cites"'])
       expect(ATTRIBUTION_CONTRACT).toContain(k)
